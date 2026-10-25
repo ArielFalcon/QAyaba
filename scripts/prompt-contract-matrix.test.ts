@@ -29,7 +29,6 @@ import {
 import { enforcedStepLimit } from "../src/agent-runtime/step-limit.ts";
 import {
   buildPromptAssembled,
-  setExplorationBriefCollaborators,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { AGENT_BROWSER_SECTION_ID, HARNESS_FACTS_SECTION_ID, LEAD_PLAN_SECTION_ID, STEP_LIMIT_SECTION_ID, hasTrustLanguage, lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
@@ -39,7 +38,6 @@ import { LISTING_MAX_DO_NOT_REWRITE, LISTING_MAX_UNNAMED_EDITABLE } from "@conte
 import { everyDeliveredLine, leftOutLine } from "@contexts/generation/domain/suite-listing-render.ts";
 import { suiteEntryFile } from "@contexts/generation/domain/suite-entry.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
-import { coerceExplorationBrief, parseExplorationBrief, renderExplorationBrief } from "../src/qa/exploration-brief.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dimensionNames = Object.keys(DIMENSIONS) as Array<keyof typeof DIMENSIONS>;
@@ -70,10 +68,8 @@ test("only combinations that can reach the agent are in the matrix", () => {
   assert.ok(valid.every((s) => s.target !== "code" || (s.tree === "none" && !s.contextMap && !s.authSeedUnauthored && !s.harnessFacts && !s.service)));
   assert.ok(valid.every((s) => s.mode !== "context" || !s.harnessFacts));
   assert.ok(valid.every((s) => s.tree === "none" || s.phase === "regen-fix" || s.phase === "selector-fix"));
-  assert.ok(valid.every((s) => s.structuralSignal === "none" || s.grounding === "none" || s.grounding === "pack" || s.briefBlast === "empty"));
-  assert.ok(valid.every((s) => s.briefBlast === "filled" || s.grounding === "brief" || s.grounding === "brief+pack"));
-  assert.ok(valid.every((s) => s.packDom || ((s.grounding === "pack" || s.grounding === "brief+pack") && s.contextMap)));
-  assert.ok(valid.every((s) => !s.packRedirect || ((s.grounding === "pack" || s.grounding === "brief+pack") && s.packDom)));
+  assert.ok(valid.every((s) => s.packDom || (s.grounding === "pack" && s.contextMap)));
+  assert.ok(valid.every((s) => !s.packRedirect || (s.grounding === "pack" && s.packDom)));
   assert.equal(new Set(valid.map(cellName)).size, valid.length, "cell names are unique");
 });
 
@@ -148,7 +144,6 @@ test("a cell that states a step limit is budgeted in its limited bucket, and one
 });
 
 test("a cell's assembled sections reproduce the assembled prompt exactly", async () => {
-  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
   for (const spec of allValidSpecs().filter((_, i) => i % 7 === 0)) {
     const assembled = buildPromptAssembled(await buildInput(spec), { budgetBytes: 0 });
     const sections = splitAssembledSections(assembled);
@@ -157,23 +152,18 @@ test("a cell's assembled sections reproduce the assembled prompt exactly", async
   }
 });
 
-test("the shapes the matrix adds are really assembled: a pack with no DOM, a brief with no blast radius, and the service block", async () => {
-  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
+test("the shapes the matrix adds are really assembled: a pack with no DOM and the service block", async () => {
   const spec = (over: Partial<CellSpec>): CellSpec => ({
-    ...allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === "regen-fix" && s.tree === "none" && s.grounding === "brief+pack" && s.contextMap && !s.service && s.briefBlast === "filled" && s.packDom)!,
+    ...allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === "regen-fix" && s.tree === "none" && s.grounding === "pack" && s.contextMap && !s.service && s.packDom)!,
     ...over,
   });
   const claimsOf = async (s: CellSpec) => Object.values(buildPromptAssembled(await buildInput(s), { budgetBytes: 0 }).claims).flat();
   const full = await claimsOf(spec({}));
   assert.ok(full.some((c) => c.kind === "provides" && c.fact === "dom-live"));
-  assert.ok(full.some((c) => c.kind === "provides" && c.fact === "blast-radius"));
 
   const contractsOnly = await claimsOf(spec({ packDom: false }));
   assert.equal(contractsOnly.some((c) => c.kind === "provides" && c.fact === "dom-live"), false, "no live DOM without a DOM capture");
   assert.ok(contractsOnly.some((c) => c.kind === "provides" && c.fact === "api-operations"), "the pack still holds the contracts");
-
-  const noBlast = await claimsOf(spec({ briefBlast: "empty" }));
-  assert.equal(noBlast.some((c) => c.kind === "provides" && c.fact === "blast-radius"), false);
 
   const withService = await buildInput(spec({ service: true }));
   assert.equal(withService.service?.repo !== undefined, true);
@@ -199,7 +189,6 @@ test("a signal of co-change files alone is a narrow shape: diff runs with none o
 });
 
 test("the signal shapes are really assembled: symbols give the structural signal and drop the lookup, co-change files give the co-change fact and keep it, none gives neither", async () => {
-  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
   const base = coChangeSpecs().find((s) => s.phase === "first" && s.target === "e2e" && s.grounding === "none")!;
   const claimsOf = async (s: CellSpec) => Object.values(buildPromptAssembled(await buildInput(s), { budgetBytes: 0 }).claims).flat();
   const provides = (claims: Awaited<ReturnType<typeof claimsOf>>, fact: string) => claims.some((c) => c.kind === "provides" && c.fact === fact);
@@ -219,7 +208,6 @@ test("the signal shapes are really assembled: symbols give the structural signal
 });
 
 test("no cell with a signal of co-change files alone titles it as the structural signal is titled, while its twin with symbols does", async () => {
-  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
   const assembledOf = async (spec: CellSpec) => buildPromptAssembled(await buildInput(spec), { budgetBytes: 0 });
   const titleOf = (assembled: Awaited<ReturnType<typeof assembledOf>>): string =>
     splitAssembledSections(assembled).find((section) => section.id === "static-signal")?.text.split("\n")[0] ?? "";
@@ -235,7 +223,6 @@ test("no cell with a signal of co-change files alone titles it as the structural
 });
 
 test("a regeneration with a signal of co-change files alone never says the blast radius was explored, and one with symbols does", async () => {
-  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
   const explored = ARTIFACT_REFERENCES.find((r) => r.artifact === "blast-radius")!.pattern;
   const regens = coChangeSpecs().filter((s) => s.phase !== "first");
   assert.ok(regens.length > 0);
@@ -248,8 +235,7 @@ test("a regeneration with a signal of co-change files alone never says the blast
 });
 
 test("the redirect shape is really assembled: the pack lists the page a redirect reached as a section of its own, outside the live DOM", async () => {
-  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
-  const base = allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === "regen-fix" && s.tree === "none" && s.grounding === "brief+pack" && s.contextMap && !s.service && s.briefBlast === "filled" && s.packDom && !s.packRedirect)!;
+  const base = allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === "regen-fix" && s.tree === "none" && s.grounding === "pack" && s.contextMap && !s.service && s.packDom && !s.packRedirect)!;
   const packOf = async (spec: CellSpec): Promise<string> =>
     splitAssembledSections(buildPromptAssembled(await buildInput(spec), { budgetBytes: 0 })).find((section) => section.id === "context-pack")?.text ?? "";
   const sectionOf = (pack: string, heading: string): string => pack.split(/^### /m).find((part) => part.startsWith(heading)) ?? "";
@@ -300,7 +286,6 @@ test("a diff first pass with no listing and a regeneration with no carried specs
 });
 
 test("the suite shapes are really assembled: a listing is a provider of the suite and a missing one sends the first pass to read it", async () => {
-  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
   const base = allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === "first" && s.suite === "listed" && s.grounding === "none" && s.structuralSignal === "none" && !s.contextMap)!;
   const claimsOf = async (s: CellSpec) => buildPromptAssembled(await buildInput(s), { budgetBytes: 0 }).claims;
   const providers = (claims: Awaited<ReturnType<typeof claimsOf>>) => Object.entries(claims).filter(([, list]) => list.some((c) => c.kind === "provides" && c.fact === "existing-suite")).map(([id]) => id);
@@ -315,7 +300,6 @@ test("the suite shapes are really assembled: a listing is a provider of the suit
 });
 
 test("a regeneration that carries the run's specs lists them under the labels of the turn's work, with the delivered specs refreshing the suite's own line", async () => {
-  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
   for (const phase of DIMENSIONS.phase.filter((p) => p !== "first")) {
     const spec = allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === phase && s.suite === "listed" && s.grounding === "none" && s.tree === "none" && s.structuralSignal === "none" && !s.contextMap && !s.service)!;
     const section = splitAssembledSections(buildPromptAssembled(await buildInput(spec), { budgetBytes: 0 })).find((part) => part.id === "existing-suite-manifest")!;
@@ -326,7 +310,6 @@ test("a regeneration that carries the run's specs lists them under the labels of
 });
 
 test("an exhaustive regeneration carries more of the run's specs than the listing shows of those it leaves alone, and says how many it left out", async () => {
-  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
   const spec = allValidSpecs().find((s) => s.mode === "exhaustive" && s.target === "e2e" && s.phase === "regen-fix" && s.suite === "listed" && s.grounding === "none" && s.tree === "none")!;
   const section = splitAssembledSections(buildPromptAssembled(await buildInput(spec), { budgetBytes: 0 })).find((part) => part.id === "existing-suite-manifest")!;
   const delivered = (await buildInput(spec)).deliveredSpecs ?? [];
@@ -362,7 +345,6 @@ test("a combination with the worst-case listing is named and budgeted apart from
 });
 
 test("the worst-case listing is really built: more specs delivered and more suite lines than the listing shows, and the section says how many it left out of each", async () => {
-  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
   for (const phase of ["regen-coverage", "selector-fix"] as const) {
     const spec = largeSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === phase && s.tree === "none" && s.grounding === "none")!;
     const input = await buildInput(spec);
@@ -396,7 +378,6 @@ test("the budgets of the worst-case listing are above those of every ordinary li
 });
 
 test("the worst-case listing stands whole in a prompt of the reference production size: a budget that holds the reference prompt sheds and cuts none of it", async () => {
-  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
   const cells = (await buildMatrix(ROOT, largeSpecs())).filter((c) => c.layer === "opencode");
   const worst = cells.reduce((a, b) => (b.assembledBytes > a.assembledBytes ? b : a));
   assert.ok(worst.assembledBytes <= GLOBAL_USER_PROMPT_BASELINE_BYTES, "setup: the worst case is no larger than the reference prompt");

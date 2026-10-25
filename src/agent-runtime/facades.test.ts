@@ -170,7 +170,7 @@ test("SingleAgentFacade answers with the limits its strategy enforces for the di
   const limits = await facade.stepLimits("/m/app");
   assert.equal(limits.primary, 40);
   assert.equal(limits.reviewer, 25);
-  assert.equal(limits.explorer, undefined, "a role the strategy reports no limit for has none");
+  assert.equal(limits.chat, undefined, "a role the strategy reports no limit for has none");
   assert.deepEqual(reads, ["/m/app"]);
 });
 

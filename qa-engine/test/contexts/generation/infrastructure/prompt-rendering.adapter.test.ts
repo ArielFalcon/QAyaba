@@ -12,7 +12,6 @@ function makeBuilders(overrides: Partial<PromptBuilders>): PromptBuilders {
   return {
     buildPromptAssembled: (_i: OpencodeRunInput) => ({ text: "", sectionSizes: {} }),
     buildReviewerPromptAssembled: (_i: ReviewInput) => ({ text: "", sectionSizes: {} }),
-    buildExplorerPrompt: (_i: OpencodeRunInput) => "",
     specFileForFlow: (flow: string) => `flows/${flow}.spec.ts`,
     ...overrides,
   };
@@ -27,16 +26,6 @@ test("renderReviewer delegates to buildReviewerPromptAssembled and returns assem
   assert.ok(seen, "the reviewer builder must be called — a gutted impl FAILS this");
   assert.equal(out.text, "REVIEWER");
   assert.deepEqual(out.sectionSizes, { specs: 42 });
-});
-
-test("renderExplorer delegates to buildExplorerPrompt and returns its string", () => {
-  let seen: unknown = null;
-  const adapter = new PromptRenderingAdapter(makeBuilders({
-    buildExplorerPrompt: (i) => { seen = i; return "EXPLORER"; },
-  }));
-  const out = adapter.renderExplorer({ repo: "o/a" } as never);
-  assert.ok(seen, "buildExplorerPrompt must be called — a gutted impl FAILS this");
-  assert.equal(out, "EXPLORER");
 });
 
 test("specFileForFlow delegates to the injected builder — delegation captured and path forwarded", () => {

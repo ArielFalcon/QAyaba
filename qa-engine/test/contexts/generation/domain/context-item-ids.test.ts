@@ -7,7 +7,6 @@ import {
   MAX_ITEM_IDS,
   MAX_ITEM_ID_CHARS,
   advisoryLineIds,
-  briefItemIds,
   capItemIds,
   changedValueFactIds,
   contextMapItemIds,
@@ -86,14 +85,6 @@ test("present facts are unchanged by an unconfirmed page", () => {
   assert.deepEqual(changedValueFactIds(pages, ["x", "z"]), ["fact:/a#x:present", "fact:/b#x:present"]);
 });
 
-test("a brief's claims are named by kind and a hash, so a reworded claim has another id and the same claim the same", () => {
-  const brief = { routes: [{ path: "/a" }], risks: ["Stale cache"], feBe: [{ route: "/a", operationId: "op1" }] };
-  const first = briefItemIds(brief);
-  assert.equal(first.length, 3);
-  assert.ok(first.every((id) => /^brief:[a-z-]+:[0-9a-f]{8}$/.test(id)));
-  assert.deepEqual(briefItemIds(structuredClone(brief)), first);
-});
-
 test("advisory lines are items and headings are not", () => {
   const ids = advisoryLineIds("### Blast radius\n- a.ts (fn)\n\n- b.ts (g)\n");
   assert.equal(ids.length, 2);
@@ -132,8 +123,8 @@ test("a budget shared among many pages still leaves each a few ids, and the over
   assert.deepEqual(few.overflow, [0, 0]);
 });
 
-test("every kind states whether a spec can be checked against it, and briefs, rules and facts cannot", () => {
+test("every kind states whether a spec can be checked against it, and rules and facts cannot", () => {
   for (const kind of ID_KIND) assert.equal(typeof ID_KIND_EXTRACTABLE[kind], "boolean");
-  for (const kind of ["brief", "rule", "fact", "exemplar"] as const) assert.equal(ID_KIND_EXTRACTABLE[kind], false);
+  for (const kind of ["rule", "fact", "exemplar"] as const) assert.equal(ID_KIND_EXTRACTABLE[kind], false);
   for (const kind of ["route", "dom", "op"] as const) assert.equal(ID_KIND_EXTRACTABLE[kind], true);
 });

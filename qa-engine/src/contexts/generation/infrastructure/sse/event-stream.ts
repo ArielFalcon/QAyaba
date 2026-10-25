@@ -35,12 +35,6 @@ export function setRawEventStreamOpener(opener: RawEventStreamOpener): () => voi
 
 export const activityRouter = new ActivityRouter();
 
-/* Sessions that are observed and not watched (by when they were first observed): their events reach the call tracker and nothing else. */
-const unwatchedSessions = new Map<string, number>();
-
-/* Longer than the longest run budget plus a margin: a session observed this long ago has outlived any run that could own it, so its disposal was missed. */
-export const UNWATCHED_MAX_AGE_MS = 4 * 60 * 60 * 1000;
-
 /* The event every OpenCode event connection opens with. */
 const SERVER_CONNECTED = "server.connected";
 
@@ -83,8 +77,8 @@ export async function startScopedEventStream(
 
         const rawPart = raw.properties?.part as { sessionID?: string } | undefined;
         /* Notify the liveness watchdog for this session: any event proves the agent is alive. Advisory-only: if the sessionID is not in the registry (no watchdog) this is a no-op. Runs BEFORE the tracker so nothing the measurement does can starve the watchdog (a stall abort would change the run's outcome). */
-        if (rawPart?.sessionID && !unwatchedSessions.has(rawPart.sessionID)) notifySessionActivity(rawPart.sessionID);
-        /* The runtime retrying a turn: the transport decides whether the fault is one waiting cannot cure. Unwatched sessions too, since a spent quota ends any turn. */
+        if (rawPart?.sessionID) notifySessionActivity(rawPart.sessionID);
+        /* The runtime retrying a turn: the transport decides whether the fault is one waiting cannot cure. Any session, watched or not, since a spent quota ends any turn. */
         if (raw.type === "session.status") {
           const p = raw.properties as { sessionID?: unknown; status?: { type?: unknown; message?: unknown } } | undefined;
           if (typeof p?.sessionID === "string" && p.status?.type === "retry" && typeof p.status.message === "string") notifySessionRetry(p.sessionID, p.status.message);
@@ -271,25 +265,6 @@ export function registerRunSession(sessionId: string, runId: string, directory: 
   activityRouter.register(sessionId, runId, workerId);
   eventStreams.attach(sessionId, directory);
   callEfficiencyTracker.attach(sessionId, directory);
-}
-
-/*
- * Observes a session without registering it: its calls reach the call tracker (so its turn has a trace) and it stays out of the
- * live activity feed, never feeds a liveness watchdog and never makes an attempt wait for the stream. For a session that opted out
- * of live observation (the explorer's), whose behaviour observing must not change.
- */
-export function observeUnwatchedSession(sessionId: string, directory: string, now: number = Date.now()): void {
-  /* A session nobody disposed (a run that died) is let go on the next observation, with what it held. */
-  for (const [stale, since] of unwatchedSessions) if (now - since > UNWATCHED_MAX_AGE_MS) unobserveUnwatchedSession(stale);
-  unwatchedSessions.set(sessionId, now);
-  eventStreams.attach(sessionId, directory);
-  callEfficiencyTracker.attachUnwatched(sessionId, directory);
-}
-
-export function unobserveUnwatchedSession(sessionId: string): void {
-  unwatchedSessions.delete(sessionId);
-  eventStreams.detach(sessionId);
-  callEfficiencyTracker.clear(sessionId);
 }
 
 export function unregisterRunSession(sessionId: string): void {

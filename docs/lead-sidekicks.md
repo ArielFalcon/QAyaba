@@ -31,7 +31,7 @@ signed-in app (see below); without either, they stay out and the lead authors al
    `dev.geolocation`, an optional place it authors at. The turn is held to
    read-only by a per-prompt tool denial (the runtime's file tools and every editing tool of the code-navigation
    server); a lead on a runtime that has no such denial is not asked for a plan and the change stays with it as one
-   piece of work, with the reason recorded. The lead grounds without the explorer (a run may still ask for one): it
+   piece of work, with the reason recorded. The lead grounds deterministically: it
    reads the Context Pack, the structural signal, the suite listing and the diff, in which the app's own test files
    are named rather than shown (the language registry's conventions), and it explores with its code-graph tools. Its
    planning session, review included, is denied Playwright: DEV is read by the sidekicks.

@@ -200,11 +200,11 @@ hand-written answer: see [Cross-repo case](#cross-repo-case).
 |---|---|
 | verdict, error class, note | the run's outcome and record |
 | total time and per-phase time (gate, classify, setup, grounding, generation, validate, execute, coverage, decide) | the `step.changed` events the run already records: a phase lasts until the next step change; `grounding` is the pre-generation sub-step of `generate`; a phase the run never entered is `n/a` |
-| explorer, page capture, review time | the explorer's and the reviewer's turn durations; the page capture is the grounding time minus the explorer's |
+| page capture, review time | the grounding time (the page capture) and the reviewer's turn duration |
 | turn wall time, time to first call, time to first write, calls before first write, denied calls | `agent_turns` (`duration_ms`, `time_to_first_call_ms`, `time_to_first_write_ms`, `calls_before_first_write`, `denied_call_count`), measured by the call tracker; a turn recorded before those columns existed reads `n/a` |
 | steps used / max, calls, buckets, redundant, same-file and prompt-provided reads, prompt bytes | `agent_turns`, as in the benchmark |
 | tokens in/out/reasoning/cache and cost | `agent_turns.usage_total`, summed over every step the turn finished. Older rows only have the last message's usage (the `*` in the table), which understates a many-step turn; a turn that timed out recorded none before `usage_total` |
-| files read, outside the diff's directories, outside the explorer's brief, browser URLs | the turn's ordered tool sequence (`agent_turns.tool_sequence`: tool plus the redacted, capped file, pattern, URL or command each call pointed at; never what the agent typed or wrote). "Outside the diff's directories": a file not under any directory that holds a changed file, and not under `e2e/`; "outside the brief": a file whose path the explorer's output does not contain |
+| files read, outside the diff's directories, browser URLs | the turn's ordered tool sequence (`agent_turns.tool_sequence`: tool plus the redacted, capped file, pattern, URL or command each call pointed at; never what the agent typed or wrote). "Outside the diff's directories": a file not under any directory that holds a changed file, and not under `e2e/` |
 | specs (paths, line counts) | `spec.written` events and the run record; line counts are read from the working copy through the confined reader, so a spec the next run cleaned away is `n/a` lines |
 | change-coverage status and ratio | the `coverage.computed` event (or the outcome's ratio) judged against the app's policy minimum |
 | reviewer verdict | the `reviewer.verdict` event |
@@ -213,7 +213,7 @@ hand-written answer: see [Cross-repo case](#cross-repo-case).
 
 Experiment only; nothing in the service calls it. It gives one agent what a developer with a coding
 agent has (the whole repository at the commit, a short prompt, the live DEV site, a Playwright runner)
-and none of the pipeline's stages: no explorer, grounding, context map, reviewer, regeneration or
+and none of the pipeline's stages: no grounding, context map, reviewer, regeneration or
 deterministic gate. Run it in the orchestrator container, with the queue idle (it refuses otherwise,
 like `efficiency-benchmark run`: DEV is used by one thing at a time):
 
@@ -379,7 +379,7 @@ docker compose exec orchestrator npm run baseline-agent -- --app name-webapp \
 |---|---|
 | `serviceLinksCount`, `contractDriftCount`, `structuralSignalBytes`, `crossRepoImpactedCount` | the run's recorded gate signals; `n/a` when the resolver was not wired (it needs `services[]` and `boundaries[]` in the app and `qa.structuralSignals.mode` not `off`), and always `n/a` for arm A, which has no stitcher |
 | prompt `service-links`, `blast-radius`, `co-change` bytes | whether the generator's first-pass prompt carried each advisory section (`absent` or its bytes, up to the next level-2 heading); for arm A it is its own prompt, so always `absent` |
-| ground truth, per source | **brief blast radius** (the files in the explorer brief's `blastRadius`; arm B only), **files read** (content reads of every agent turn; a path matches by its tail, so absolute paths and `:line` suffixes count) and **spec routes** (`page.goto` literals of the generated specs, origin, query and trailing slash removed; a route built at run time is counted in `dynamicGotos` and not scored) |
+| ground truth, per source | **files read** (content reads of every agent turn; a path matches by its tail, so absolute paths and `:line` suffixes count) and **spec routes** (`page.goto` literals of the generated specs, origin, query and trailing slash removed; a route built at run time is counted in `dynamicGotos` and not scored) |
 | `hits`, `misses`, `false positives` | affected items reached, affected items not reached, and items the ground truth says are not affected that the source named |
 | `precision`, `precision-all`, `recall` | hits / (hits + false positives), over what the ground truth can judge; affected items named / all items named (what is neither affected nor rejected counts as wrong); hits / affected items |
 

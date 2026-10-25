@@ -88,7 +88,7 @@ function startStubs() {
   return () => { model.close(); orchestrator.close(); };
 }
 
-const STUBBED = ["qa-generator", "qa-sidekick", "qa-reviewer", "qa-explorer"];
+const STUBBED = ["qa-generator", "qa-sidekick", "qa-reviewer"];
 
 function prepareConfig() {
   rmSync(HOME, { recursive: true, force: true });
@@ -150,7 +150,6 @@ try {
   const generator = await turn("qa-generator");
   const sidekick = await turn("qa-sidekick");
   const reviewer = await turn("qa-reviewer");
-  const explorer = await turn("qa-explorer");
 
   check(orchestratorCalls.length === 2, `the two authoring sessions made one call each to the orchestrator and no other session made any (saw ${orchestratorCalls.length})`);
   const fromGenerator = orchestratorCalls.find((c) => c.body.sessionID === generator.session.id);
@@ -164,10 +163,10 @@ try {
 
   const offered = (agent) => modelRequests.filter((r) => r.agent === agent).flatMap((r) => r.tools);
   check(TOOLS.every((t) => offered("qa-generator").includes(t)) && TOOLS.every((t) => offered("qa-sidekick").includes(t)), "all four tools were offered to the generator and to the sidekick");
-  check(!offered("qa-reviewer").some((t) => t.startsWith("authbrowser")) && !offered("qa-explorer").some((t) => t.startsWith("authbrowser")), "no authbrowser tool was offered to a reviewer or an explorer");
+  check(!offered("qa-reviewer").some((t) => t.startsWith("authbrowser")), "no authbrowser tool was offered to a reviewer");
   check(modelRequests.filter((r) => r.agent === "qa-generator").at(-1)?.roles.includes("tool"), "the orchestrator's answer went back to the model as a tool result");
   check(generator.answer.parts?.some((p) => p.type === "text" && p.text === "done"), "the turn ended on the model's final text");
-  check(reviewer.answer.parts?.some((p) => p.type === "text" && p.text === "done") && explorer.answer.parts?.some((p) => p.type === "text"), "the roles that are not offered the tools still answer normally");
+  check(reviewer.answer.parts?.some((p) => p.type === "text" && p.text === "done"), "the roles that are not offered the tools still answer normally");
 
   // A per-prompt tools map can hide the tools from a session that is allowed them (what the transport does for a prompt that asks for no tool at all).
   const before = modelRequests.length;

@@ -225,9 +225,9 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/infrastructure/loggable-route.ts`,
       /* Only the lines that rank the derived routes, filter the candidates, cut them, open the templates through links, log and list what was left out, and the capture that reports which pages it grounded and the links they showed. */
       `${GEN}/infrastructure/dom-snapshot.ts:326-351`,
-      `${GEN}/infrastructure/context-pack.ts:139-164`,
-      `${GEN}/infrastructure/context-pack.ts:241-340`,
-      `${GEN}/infrastructure/context-pack.ts:361-371`,
+      `${GEN}/infrastructure/context-pack.ts:134-158`,
+      `${GEN}/infrastructure/context-pack.ts:223-322`,
+      `${GEN}/infrastructure/context-pack.ts:343-353`,
     ],
     tests: [
       "qa-engine/test/shared-kernel/route-capturability.test.ts",
@@ -257,7 +257,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:188-188`,
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:131-131`,
       /* The grounding's one line that folds the manifest into the suite's entries. */
-      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:266-266`,
+      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:246-246`,
       /* The checks' own lines that say which spec raised a contradiction, and the FixLoop's hand-over of them. */
       `${ORCH}/domain/helpers/selector-check.ts:401-405`,
       `${ORCH}/domain/pre-exec-grounding.service.ts:73-73`,
@@ -313,9 +313,9 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       /* Only the lines that state a degraded route, build the advisory block and the capture, and warn about a gated app: the tree rendering they call is older code. */
       `${GEN}/infrastructure/dom-snapshot.ts:225-229`,
       `${GEN}/infrastructure/dom-snapshot.ts:250-277`,
-      `${GEN}/infrastructure/context-pack.ts:200-212`,
-      `${GEN}/infrastructure/context-pack.ts:268-269`,
-      `${GEN}/infrastructure/context-pack.ts:309-309`,
+      `${GEN}/infrastructure/context-pack.ts:182-194`,
+      `${GEN}/infrastructure/context-pack.ts:250-251`,
+      `${GEN}/infrastructure/context-pack.ts:291-291`,
     ],
     tests: [
       `${GEN_TEST}/infrastructure/route-catalog.test.ts`,
@@ -339,7 +339,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/domain/harness-facts.ts`,
       `${GEN}/domain/step-limit.ts`,
       `${GEN}/domain/suite-listing-render.ts`,
-      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:156-205`,
+      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:136-185`,
     ],
     tests: [
       `${GEN_TEST}/domain/prompt-contract-lint.test.ts`,
@@ -387,11 +387,11 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "src/agent-runtime/opencode-strategy.ts:158-166",
       "src/agent-runtime/facades.ts:49-51",
       "src/agent-runtime/facades.ts:103-115",
-      "src/integrations/opencode-client.ts:217-218",
-      "src/integrations/opencode-client.ts:330-332",
-      "src/integrations/opencode-client.ts:340-350",
+      "src/integrations/opencode-client.ts:210-211",
+      "src/integrations/opencode-client.ts:323-325",
+      "src/integrations/opencode-client.ts:333-343",
       /* The factory's per-run memo: the deadline, the role mapping, the one read and its warning. */
-      "src/server/rewritten-engine-factory.ts:563-595",
+      "src/server/rewritten-engine-factory.ts:558-590",
     ],
     tests: [
       "src/agent-runtime/step-limit.test.ts",
@@ -409,7 +409,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     mutate: [
       `${GEN}/domain/tool-link.ts`,
       "qa-engine/src/shared-kernel/telemetry/genai-semconv.ts:99-107",
-      "src/agent-runtime/codex-strategy.ts:668-708",
+      "src/agent-runtime/codex-strategy.ts:667-707",
     ],
     tests: [
       `${GEN_TEST}/domain/tool-link.test.ts`,
@@ -459,7 +459,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts:72-112",
       "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts:149-161",
       /* The context map: a strict read, and warnings that say nothing of what the file holds. */
-      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:91-151`,
+      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:71-131`,
       /* Setup: the caps, the strict copy of the seed (the mark of a project last) and the wiring of the real strict calls, the entries of .qa that are removed when they are not ordinary, the strict read and replacement of each file of the project (a refusal fails the setup), the removal of what refuses the install marker, and the lock vetted before an install is started. */
       `${PUB_INFRA}/setup.adapter.ts:24-26`,
       `${PUB_INFRA}/setup.adapter.ts:317-369`,

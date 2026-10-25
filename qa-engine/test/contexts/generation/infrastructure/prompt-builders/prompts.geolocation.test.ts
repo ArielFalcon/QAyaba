@@ -2,19 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildPromptAssembled,
-  setExplorationBriefCollaborators,
   GEOLOCATION_SECTION_ID,
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
-import type { ExplorationBrief, OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { GeolocationFacts } from "@kernel/geolocation.ts";
 
-setExplorationBriefCollaborators({
-  parseExplorationBrief: () => null,
-  coerceExplorationBrief: () => null,
-  renderExplorationBrief: (brief: ExplorationBrief) => `## ${PROMPT_HEADINGS.explorationBrief}\nObjective: ${brief.objective}`,
-});
 
 const FACTS: GeolocationFacts = {
   default: { latitude: 40.4168, longitude: -3.7038 },

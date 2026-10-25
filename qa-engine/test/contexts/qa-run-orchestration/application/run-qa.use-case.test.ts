@@ -535,23 +535,6 @@ test("RunQaUseCase: PreGenerationGroundingPort wired — absent grounding.contex
   assert.equal(generateCalls[0]!.enrichment?.contextPack, "## Context Pack\n\nblast radius...");
 });
 
-test("RunQaUseCase: PreGenerationGroundingPort wired — contextBrief threads into generate() enrichment", async () => {
-  const contextBrief = { builtForSha: "abc1234", objective: "checkout", blastRadius: [{ symbol: "Pay", file: "pay.ts", role: "charges" }] };
-  const generateCalls: Array<{ enrichment?: { contextBrief?: typeof contextBrief } }> = [];
-  const { ports } = stubPorts({
-    ground: async () => ({ contextPack: "## pack", contextBrief }),
-    generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
-      generateCalls.push({ enrichment: enrichment as { contextBrief?: typeof contextBrief } });
-      return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
-    },
-  });
-  const useCase = new RunQaUseCase(ports);
-
-  await useCase.run(baseInput);
-
-  assert.deepEqual(generateCalls[0]!.enrichment?.contextBrief, contextBrief);
-});
-
 test("RunQaUseCase: harness facts from grounding reach the initial generate() and are reused unchanged on a regeneration", async () => {
   const harnessFacts = { testIdAttribute: "data-cy", fixtures: { file: "fixtures.ts", exports: ["test", "expect"] } };
   const seen: Array<unknown> = [];
@@ -592,28 +575,6 @@ test("RunQaUseCase: a grounding without harness facts adds no key to the enrichm
     },
   });
   await new RunQaUseCase(ports).run(baseInput);
-});
-
-test("RunQaUseCase: ground() receives the run sha and classify intent", async () => {
-  let seen: { sha?: string; intent?: { message: string } } = {};
-  const { ports } = stubPorts({
-    classify: async () => ({
-      action: "generate",
-      reason: "type=feat",
-      diff: "the-diff",
-      intent: { type: "feat", breaking: false, message: "add checkout", changedFiles: ["src/a.ts"] },
-    }),
-    ground: async (_specDir, _signal, _diff, opts) => {
-      seen = { sha: opts?.sha, intent: opts?.intent };
-      return {};
-    },
-  });
-  const useCase = new RunQaUseCase(ports);
-
-  await useCase.run(baseInput);
-
-  assert.equal(seen.sha, "abc1234");
-  assert.equal(seen.intent?.message, "add checkout");
 });
 
 test("RunQaUseCase: PreGenerationGroundingPort wired — grounding is reused UNCHANGED across a review-correction regen (first-write ground truth)", async () => {
@@ -5388,38 +5349,17 @@ test("4b.4: a throwing structuralSignal port degrades to NO staticSignal, never 
 
 /* The brief already carries the distilled blast radius: computing the structural signal too costs process spawns and
    would put a second, advisory copy of the same fact in the prompt. */
-test("the structural signal port is not invoked when grounding produced a brief with a blast radius, and still is when it did not", async () => {
-  const BRIEF = {
-    builtForSha: "abc1234",
-    objective: "test the checkout flow",
-    blastRadius: [{ symbol: "CheckoutService.pay", file: "src/checkout.ts", role: "pays" }],
-  };
+test("the structural signal port is invoked once and its text reaches generation", async () => {
   const calls: string[] = [];
   const structuralSignal: StructuralSignalPort = { render: async () => { calls.push("render"); return { text: "## Structural blast radius\ncontent", hasSymbols: false }; } };
   const capturedSignals: Array<string | undefined> = [];
-  const build = (ground: () => Promise<Record<string, unknown>>) => {
-    const { ports } = stubPorts({ ground });
-    ports.generation.generate = async (_objectives, _specDir, _signal, _diff, enrichment) => {
-      capturedSignals.push(enrichment?.staticSignal);
-      return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
-    };
-    return new RunQaUseCase({ ...ports, structuralSignal, config: baseConfig });
+  const { ports } = stubPorts({});
+  ports.generation.generate = async (_objectives, _specDir, _signal, _diff, enrichment) => {
+    capturedSignals.push(enrichment?.staticSignal);
+    return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
   };
-
-  await build(async () => ({ contextBrief: BRIEF })).run({ ...baseInput, runId: "structural-gate-brief" });
-  assert.deepEqual(calls, [], "a brief supplies the blast radius, so the graph is never queried");
-  assert.ok(capturedSignals.length > 0 && capturedSignals.every((s) => s === undefined), "and no signal reaches generation");
-
-  calls.length = 0;
-  capturedSignals.length = 0;
-  await build(async () => ({})).run({ ...baseInput, runId: "structural-gate-no-brief" });
-  assert.deepEqual(calls, ["render"], "without a brief the signal is computed once");
-  assert.ok(capturedSignals.every((s) => typeof s === "string"));
-
-  calls.length = 0;
-  capturedSignals.length = 0;
-  await build(async () => ({ contextBrief: { ...BRIEF, blastRadius: [] } })).run({ ...baseInput, runId: "structural-gate-empty-brief" });
-  assert.deepEqual(calls, ["render"], "a brief that distilled no blast radius supplies none, so the signal is computed");
+  await new RunQaUseCase({ ...ports, structuralSignal, config: baseConfig }).run({ ...baseInput, runId: "structural-gate" });
+  assert.deepEqual(calls, ["render"], "the signal is computed once");
   assert.ok(capturedSignals.length > 0 && capturedSignals.every((s) => typeof s === "string"));
 });
 
@@ -5754,7 +5694,6 @@ function fakeGenerationPortsForAntiInert(capture: { input?: OpencodeRunInput }):
       render: () => "",
       renderMain: (input) => { capture.input = input; return { text: "", sectionSizes: {} }; },
       renderReviewer: () => ({ text: "", sectionSizes: {} }),
-      renderExplorer: () => "",
       specFileForFlow: (f: string) => `${f}.spec.ts`,
     },
     verdicts: {
@@ -8427,10 +8366,10 @@ test("the deadline stopping the reviewer ends the run as a time-budget infra-err
   assert.equal(run.published(), 0);
 });
 
-test("the deadline reaching the pre-generation grounding (the explorer's turn) ends the run: it is not ungrounded generation", async () => {
+test("the deadline reaching the pre-generation grounding ends the run: it is not ungrounded generation", async () => {
   let generated = 0;
   const run = await runEndedByDeadline({
-    ground: async () => { throw deadlineExceeded("explorer", "before-turn"); },
+    ground: async () => { throw deadlineExceeded("primary", "before-turn"); },
     generate: async () => { generated++; return scriptedGeneration({ specs: ["a.spec.ts"], approved: true }); },
   });
   assert.equal(generated, 0, "no generation runs on a run whose time is gone");

@@ -77,14 +77,13 @@ export async function selectExemplars(state: Readonly<RunState>, ctx: WorkspaceR
  * Fail-open: a misbehaving adapter must never abort the run over grounding.
  */
 export async function groundRepository(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, input, workspace, signal } = ctx;
-  const { diff: classificationDiff, intent: classificationIntent } = state.classification;
+  const { deps, workspace, signal } = ctx;
+  const { diff: classificationDiff } = state.classification;
   let groundingContextPack: string | undefined;
   let groundingContextPackItemIds: readonly string[] | undefined;
   let groundingContextPackOmissions: RunState["grounding"]["contextPackOmissions"];
   let groundingExistingSpecFiles: string[] | undefined;
   let groundingContextMap: RunState["grounding"]["contextMap"];
-  let groundingContextBrief: RunState["grounding"]["contextBrief"];
   let groundingHarnessFacts: RunState["grounding"]["harnessFacts"];
   /* The added labels whose changed-value line in the pack said more nodes than unchanged lines: what an unobservable no-op is set beside. */
   let groundingMoreNodes: readonly string[] = [];
@@ -93,18 +92,12 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
   if (deps.preGenerationGrounding) {
     deps.observer?.onStep("generate", PRE_GENERATION_GROUNDING_STEP_DETAIL);
     try {
-      const grounding = await deps.preGenerationGrounding.ground(
-        workspace.specDir,
-        signal,
-        classificationDiff,
-        { sha: input.sha.toString(), ...(classificationIntent ? { intent: classificationIntent } : {}), runId: input.runId },
-      );
+      const grounding = await deps.preGenerationGrounding.ground(workspace.specDir, signal, classificationDiff);
       groundingContextPack = grounding.contextPack;
       groundingContextPackItemIds = grounding.contextPackItemIds;
       groundingContextPackOmissions = grounding.contextPackOmissions;
       groundingExistingSpecFiles = grounding.existingSpecFiles;
       groundingContextMap = grounding.contextMap;
-      groundingContextBrief = grounding.contextBrief;
       groundingHarnessFacts = grounding.harnessFacts;
       groundingMoreNodes = grounding.changedValuesWithMoreNodes ?? [];
       groundingChangeRoutes = grounding.changeRoutes ?? [];
@@ -130,7 +123,6 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
         contextPackOmissions: groundingContextPackOmissions,
         existingSpecFiles: groundingExistingSpecFiles,
         contextMap: groundingContextMap,
-        contextBrief: groundingContextBrief,
         harnessFacts: groundingHarnessFacts,
         moreNodes: groundingMoreNodes,
         changeRoutes: groundingChangeRoutes,
@@ -151,12 +143,10 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
 export async function resolveBlastRadius(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { deps, input, workspace } = ctx;
   const { intent: classificationIntent } = state.classification;
-  const groundingContextBrief = state.grounding.contextBrief;
   const runBlastRadius = BlastRadius.of(input.sha, classificationIntent?.changedFiles ?? []);
   let blastRadiusSignal = "";
   let blastRadiusSignalHasSymbols = false;
-  /* A brief that carries a blast radius already has it distilled, so the graph is not queried and a second, advisory copy never reaches the prompt. A brief that distilled none supplies nothing, so the signal stands in. */
-  if (deps.structuralSignal && !groundingContextBrief?.blastRadius.length) {
+  if (deps.structuralSignal) {
     try {
       const rendered = await deps.structuralSignal.render(workspace.specDir, runBlastRadius);
       blastRadiusSignal = rendered.text;
@@ -215,7 +205,7 @@ export async function assembleEnrichment(state: Readonly<RunState>, ctx: Workspa
   const { input, trail } = ctx;
   const { intent: classificationIntent, reason: classificationReason, contradiction: classificationContradiction } = state.classification;
   const { closedLoop, agentBrowser } = trail;
-  const { retrievedRules, contextPack, contextPackItemIds, contextPackOmissions, existingSpecFiles, contextMap, contextBrief, harnessFacts, blastRadiusSignal, blastRadiusSignalHasSymbols, selectedExemplars, serviceLinks, contractDrift, crossRepoImpact } = state.grounding;
+  const { retrievedRules, contextPack, contextPackItemIds, contextPackOmissions, existingSpecFiles, contextMap, harnessFacts, blastRadiusSignal, blastRadiusSignalHasSymbols, selectedExemplars, serviceLinks, contractDrift, crossRepoImpact } = state.grounding;
   const baseEnrichment = {
     sha: input.sha.toString(),
     runId: input.runId,
@@ -226,7 +216,6 @@ export async function assembleEnrichment(state: Readonly<RunState>, ctx: Workspa
     ...(contextPackOmissions ? { contextPackOmissions } : {}),
     ...(existingSpecFiles?.length ? { existingSpecFiles } : {}),
     ...(contextMap ? { contextMap } : {}),
-    ...(contextBrief ? { contextBrief } : {}),
     ...(harnessFacts ? { harnessFacts } : {}),
     /* The flag travels with its signal and only when true: a co-change-only signal carries none, never a fabricated false. */
     ...(blastRadiusSignal

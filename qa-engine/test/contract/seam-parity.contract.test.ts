@@ -451,7 +451,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
   }
 
   test("the step limit of each role crosses the composition root: the generator's reaches the generation input and the reviewer's the review input", async () => {
-    const { cfg, generation, review } = await inputsBuiltThrough({ ...fakeFactoryDeps(), getAgentFacade: () => facadeReporting({ primary: 41, reviewer: 17, explorer: 9 }) });
+    const { cfg, generation, review } = await inputsBuiltThrough({ ...fakeFactoryDeps(), getAgentFacade: () => facadeReporting({ primary: 41, reviewer: 17 }) });
 
     const dyingLayer = "buildRewrittenCompositionConfig() -> wireBridges() (src/server/rewritten-engine-factory.ts -> composition-root.ts)";
     assert.notEqual(cfg.stepLimitFor, undefined, `stepLimitFor dropped at ${dyingLayer}`);

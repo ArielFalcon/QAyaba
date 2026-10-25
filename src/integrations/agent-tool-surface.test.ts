@@ -92,7 +92,7 @@ const PLAYWRIGHT_TOOL_NAMES = [
 /* Grounding honesty for this list: Serena could NOT be probed offline (not installed on this host;
    it lives only in the agents Docker image). Only the first four names — activate_project,
    find_symbol, find_referencing_symbols, get_symbols_overview — are grounded in this repo's own
-   prompt files (agents/AGENTS.md, agents/agent/qa-explorer.md, qa-proposer.md, qa-generator.md).
+   prompt files (agents/AGENTS.md, agents/agent/qa-proposer.md, qa-generator.md).
    The remaining names are best-effort from upstream Serena documentation and were NOT verified
    against the pinned server. The wildcard "serena*" key (empirically verified to compile into a
    permission-deny rule — see the header comment) is the actual load-bearing denial; this
@@ -498,9 +498,9 @@ test("read-only roles in the capability policy map to non-writable OpenCode agen
     }
   }
   /* Meaningfulness guard: the loop actually exercised the read-only roles (reviewer, chat, reflector,
-     explorer, proposer).
+     proposer).
    */
-  assert.ok(checkedReadOnly >= 5, `expected >=5 read-only roles checked against opencode.json, got ${checkedReadOnly}`);
+  assert.ok(checkedReadOnly >= 4, `expected >=4 read-only roles checked against opencode.json, got ${checkedReadOnly}`);
 });
 
 test("every role maps to an agent that opencode.json declares", () => {
@@ -510,20 +510,13 @@ test("every role maps to an agent that opencode.json declares", () => {
   }
 });
 
-test("qa-explorer and qa-proposer keep serena but deny playwright", () => {
-  /* These two are read-only (no write/edit/bash) but ARE designed to hold serena per the design
-     intent; only playwright (browser driving) is out of scope for
-     both, since neither navigates a live app.
+test("qa-proposer keeps serena but denies playwright", () => {
+  /* The proposer is read-only (no write/edit/bash) but IS designed to hold serena per the design
+     intent; only playwright (browser driving) is out of scope for it, since it navigates no live app.
    */
   const { agents } = loadAgentConfig();
-  const explorer = agents["qa-explorer"];
   const proposer = agents["qa-proposer"];
-  assert.ok(explorer, "expected a qa-explorer agent");
   assert.ok(proposer, "expected a qa-proposer agent");
-
-  const explorerTools = agentTools(explorer);
-  assertMcpServerAllowed("qa-explorer", explorerTools, "serena");
-  assertMcpServerDenied("qa-explorer", explorerTools, "playwright");
 
   const proposerTools = agentTools(proposer);
   assertMcpServerAllowed("qa-proposer", proposerTools, "serena");
@@ -623,7 +616,7 @@ test("the resolved permissions of every configured role leave no 'ask' standing"
   /* The `qa-` agents of the recording carry the real roles' `tools` and `permission`; the `probe-` ones exist
      for their step caps and carry neither. */
   const configured = recordedAgents().filter((agent) => agent.name.startsWith("qa-"));
-  assert.ok(configured.length >= 3, "expected the recorded generator, reviewer and explorer");
+  assert.ok(configured.length >= 3, "expected the recorded generator, reviewer and sidekick");
   for (const agent of configured) {
     assert.deepEqual(unansweredAsks(agent.permission), [], `the server resolves an 'ask' for "${agent.name}"`);
   }
@@ -674,7 +667,7 @@ test("no role can read an env file, a stored login session or the orchestrator's
   /* The runtime's default allows every read, asks for an env file and is followed by the role's own
      `tools.read: true` (`read * allow`): a rule that only the role's `permission` block, merged last, can outweigh. */
   const configured = recordedAgents().filter((agent) => agent.name.startsWith("qa-"));
-  assert.ok(configured.length >= 8, `expected every configured role in the recording, got ${configured.length}`);
+  assert.ok(configured.length >= 7, `expected every configured role in the recording, got ${configured.length}`);
   for (const agent of configured) {
     for (const path of SECRET_PATHS) {
       assert.equal(readDecision(agent.permission, path), "deny", `"${agent.name}" resolves a read of ${path} to ${readDecision(agent.permission, path)}`);
@@ -685,7 +678,7 @@ test("no role can read an env file, a stored login session or the orchestrator's
 test("a role still reads an app's own auth source code: only the suite's session directory and storage-state files are closed", () => {
   const { agents } = loadAgentConfig();
   const readers = recordedAgents().filter((agent) => agent.name.startsWith("qa-") && agentTools(agents[agent.name]).read === true);
-  assert.ok(readers.length >= 6, `expected the reading roles to be checked, got ${readers.length}`);
+  assert.ok(readers.length >= 5, `expected the reading roles to be checked, got ${readers.length}`);
   for (const agent of readers) {
     for (const path of APP_AUTH_SOURCES) {
       assert.equal(readDecision(agent.permission, path), "allow", `"${agent.name}" resolves a read of ${path} to ${readDecision(agent.permission, path)}`);
@@ -722,7 +715,7 @@ test("every role that reads declares the same read denial in its own permission 
     canonical ??= serialized;
     assert.equal(serialized, canonical, `"${name}" declares a different read denial than the other roles`);
   }
-  assert.ok(readers >= 6, `expected the reading roles to be checked, got ${readers}`);
+  assert.ok(readers >= 5, `expected the reading roles to be checked, got ${readers}`);
 });
 
 test("the resolved generator has no allowed shell command and keeps the runtime's tool-output directory", () => {

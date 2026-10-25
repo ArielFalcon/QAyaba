@@ -95,7 +95,7 @@ test("the prompt is a few lines of generic instructions followed by the commit m
 
 test("the prompt names no app, no model and none of the pipeline's stages", () => {
   const instructions = baselineInstructions(material).join("\n").toLowerCase();
-  for (const word of ["explorer", "reviewer", "serena", "engram", "manifest", "context map", "qa-generator"]) assert.equal(instructions.includes(word), false, word);
+  for (const word of ["reviewer", "serena", "engram", "manifest", "context map", "qa-generator"]) assert.equal(instructions.includes(word), false, word);
 });
 
 test("a diff past the cap is cut and the prompt says how much was left out", () => {
@@ -513,7 +513,7 @@ test("the prompt of a cross-repo case names the backend change, where its source
   assert.ok(instructions.includes("deployed on the live DEV site https://dev.example.test"));
   assert.ok(instructions.includes("front-end behavior this backend change affects"));
   assert.ok(instructions.includes("read-only"));
-  for (const word of ["explorer", "reviewer", "serena", "engram", "manifest", "context map", "stitcher", "service link", "route", "page"]) assert.equal(instructions.toLowerCase().includes(word), false, word);
+  for (const word of ["reviewer", "serena", "engram", "manifest", "context map", "stitcher", "service link", "route", "page"]) assert.equal(instructions.toLowerCase().includes(word), false, word);
   const prompt = buildBaselinePrompt(input);
   assert.ok(prompt.startsWith(baselineInstructions(input).join("\n")));
   assert.ok(prompt.includes("Commit message of the backend change:\nfeat(cart): apply coupon"));
@@ -593,11 +593,10 @@ test("a cross-repo dry run shows the service prompt and probes the fence, and st
 
 /* ── scoring against a ground truth ── */
 
-test("--ground-truth scores what the agent read and the routes its specs navigate to; the explorer's brief does not exist in this arm", async () => {
+test("--ground-truth scores what the agent read and the routes its specs navigate to", async () => {
   const h = harness();
   assert.equal(await main(argv("--ground-truth", "/truth.json"), h.deps), 0);
   const score = h.reports[0]!.groundTruth!;
-  assert.equal(score.briefBlastRadius, null, "no explorer, no brief: unknown rather than a zero");
   assert.deepEqual(score.filesRead?.hits, ["src/cart.ts"], "the session read src/cart.ts");
   assert.deepEqual(score.filesRead?.misses, ["src/cart.store.ts"]);
   assert.equal(score.specRoutes?.recall, 1);

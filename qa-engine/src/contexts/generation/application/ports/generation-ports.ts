@@ -65,42 +65,8 @@ export type StructuralPattern =
   | { kind: "data-list"; hasFilter: boolean; hasPagination: boolean; hasEmptyState: boolean }
   | { kind: "generic" };
 
-export interface BlastNode {
-  symbol: string;
-  file: string;
-  role: string;
-}
-export interface FeBeFact {
-  route: string;
-  operationId: string;
-  via?: string;
-}
-export interface ContractFact {
-  operationId: string;
-  method: string;
-  path: string;
-  fields?: string[];
-  errors?: string[];
-}
-export interface RouteRecon {
-  path: string;
-  component?: string;
-  domLandmarks?: string[];
-  verified: boolean; /* DEPRECATED (vestigial: the planner never navigates); retained for backward-compat, never branched on */
-}
-export interface ExplorationBrief {
-  builtForSha: string;
-  objective: string;
-  blastRadius: BlastNode[];
-  feBe?: FeBeFact[];
-  contracts?: ContractFact[];
-  routes?: RouteRecon[];
-  risks?: string[];
-  notes?: string;
-}
-
 /* The roles whose step limit a prompt can state: the shell resolves each one from the live agent runtime. */
-export type StepLimitRole = "generator" | "reviewer" | "explorer";
+export type StepLimitRole = "generator" | "reviewer";
 
 /* Resolves the step limit the agent runtime enforces for a role this run: a positive whole number of steps, or undefined when the runtime enforces none for the role or could not be read. Never rejects. A host that wires no resolver makes no statement: absence, never a stand-in number, is what tells a prompt not to state a limit. */
 export type StepLimitFor = (role: StepLimitRole) => Promise<number | undefined>;
@@ -140,12 +106,10 @@ export interface OpencodeRunInput {
   failureSourced?: boolean;
   runId?: string;
   contextMap?: ArchitectureContext;
-  explorer?: boolean;
-  /* The step limit the runtime enforces for the session this input's prompt is built for: the generator's, or the explorer's when `explorer` is set. Absent = the runtime enforces none or could not be read, and no prompt states one. */
+  /* The step limit the runtime enforces for the session this input's prompt is built for: the generator's. Absent = the runtime enforces none or could not be read, and no prompt states one. */
   stepLimit?: number;
   /* The same for the in-generate reviewer's session, a role with a limit of its own. Set only when that reviewer runs. */
   reviewerStepLimit?: number;
-  contextBrief?: ExplorationBrief; /* the distilled blast radius from the explorer pass (set internally → buildPrompt) */
   contextPack?: string;
   /* The grounding ids and omissions of the context pack, computed at pack-build time from the kept lines (packDeliveredItemIds). Threaded alongside the pack text so the prompt's delivered span is read from the assembly, never parsed from the text. */
   contextPackItemIds?: readonly string[];

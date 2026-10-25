@@ -21,7 +21,7 @@ import { classifyGenerationEnd } from "@contexts/generation/domain/generation-en
 import { PACK_HEADINGS, PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings";
 import { ROUTE_LINK_FIELDS } from "@contexts/generation/domain/route-ranking";
 import type { MilestoneOutcome } from "@contexts/generation/domain/step-limit";
-import { ANTI_WEAKENING_RULE, ASSEMBLED_ARTIFACT_NAMES, EFFORT_NO_OP_CLAUSE, MILESTONE_OUTCOME_PHRASES, OBJECTIVE_QUESTION, buildContextTask, buildExplorerPrompt, buildPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts";
+import { ANTI_WEAKENING_RULE, ASSEMBLED_ARTIFACT_NAMES, EFFORT_NO_OP_CLAUSE, MILESTONE_OUTCOME_PHRASES, OBJECTIVE_QUESTION, buildContextTask, buildPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { GENERATION_END } from "@kernel/generation-end";
 import { parseVerdict } from "../integrations/verdict-parse";
 import { checkGeneratorVerdict } from "../integrations/verdict-validate";
@@ -738,14 +738,10 @@ describe("prompt-sync drift guard", () => {
       ...extra,
     } as Parameters<typeof buildPrompt>[0]);
 
-  it("no assembled generator or explorer prompt names a memory that outlives the run", () => {
+  it("no assembled generator prompt names a memory that outlives the run", () => {
     assert.deepEqual([...new Set(GENERATOR_SHAPES.map(({ mode }) => mode))], [...RUN_MODES], "every run mode is built");
     for (const shape of GENERATOR_SHAPES) {
       assert.equal(countOf(generatorPromptFor(shape), MEMORY_SERVER), 0, `${shape.mode}/${shape.target}: names a memory`);
-    }
-    for (const mode of ["diff", "manual"] as const) {
-      const explorer = buildExplorerPrompt({ ...assembledInput, mode, guidance: "cover the coupon form" } as Parameters<typeof buildExplorerPrompt>[0]);
-      assert.equal(countOf(explorer, MEMORY_SERVER), 0, `explorer ${mode}: names a memory`);
     }
   });
 
@@ -806,8 +802,8 @@ describe("prompt-sync drift guard", () => {
 
   /* Each mirror: its shared layer, its generator role, and the roles that point at the shared layer for how to orient. */
   const MIRRORS = [
-    { shared: "agents/AGENTS.md", generator: "agents/agent/qa-generator.md", pointers: ["agents/agent/qa-explorer.md", "agents/agent/qa-proposer.md"] },
-    { shared: "agent/AGENTS.md", generator: "agent/roles/qa-generator.md", pointers: ["agent/roles/qa-explorer.md", "agent/roles/qa-proposer.md"] },
+    { shared: "agents/AGENTS.md", generator: "agents/agent/qa-generator.md", pointers: ["agents/agent/qa-proposer.md"] },
+    { shared: "agent/AGENTS.md", generator: "agent/roles/qa-generator.md", pointers: ["agent/roles/qa-proposer.md"] },
   ] as const;
   const STOP_RULE_SECTION = "Stop when the spec is written or the no-op is declared — then emit the verdict";
   const PROTOCOLS_SECTION = "Protocols (to keep quality from degrading over time)";
@@ -937,7 +933,7 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
   });
 
   /* The authoring skill is loaded by more than one role (the generator and the sidekick), so it cannot lean on one role's prompt: it names no role prompt and no step of one. */
-  const ROLE_PROMPT_REFERENCE = /\b(?:generator|reviewer|worker|explorer|proposer|sidekick|maintainer)\s+role\b|\brole prompt\b|\bProcedure \(step \d+\)/i;
+  const ROLE_PROMPT_REFERENCE = /\b(?:generator|reviewer|worker|proposer|sidekick|maintainer)\s+role\b|\brole prompt\b|\bProcedure \(step \d+\)/i;
 
   it("no file of the playwright-authoring skill refers to a role's prompt or to a step of it, in either tree", () => {
     const authoring = SKILL_FILE_PAIRS.filter(([opencodeRel]) => opencodeRel.includes("playwright-authoring")).flat();

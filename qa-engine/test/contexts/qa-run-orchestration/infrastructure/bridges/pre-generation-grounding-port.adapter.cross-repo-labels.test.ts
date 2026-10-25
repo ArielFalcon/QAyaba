@@ -26,7 +26,7 @@ async function packInputFor(statics: { stagedRoots?: string[] }): Promise<PackIn
     { e2eDir: "/mirrors/org/app/e2e", ...statics },
     { buildContextPack: async (input) => { seen = input as PackInput; return { text: undefined, domBytes: 0, contractBytes: 0 }; } },
   );
-  await adapter.ground("/tmp/qa-golden/e2e", undefined, serviceDiff, { sha: "abc1234" });
+  await adapter.ground("/tmp/qa-golden/e2e", undefined, serviceDiff);
   return seen;
 }
 

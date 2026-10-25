@@ -350,58 +350,6 @@
       "maxSteps": 5,
       "temperature": 0.1
     },
-    "qa-explorer": {
-      "description": "Read-only blast-radius explorer. Maps a change's affected symbols, FE↔BE links and contracts into a distilled ExplorationBrief JSON so the test-writer need not re-read the code. Writes nothing; emits only the brief. Has serena MCP access by design (no playwright — it never drives a browser).",
-      "mode": "primary",
-      "model": "deepseek-api/deepseek-v4.1-flash",
-      "options": { "reasoningEffort": "high" },
-      "prompt": "{file:./agent/qa-explorer.md}",
-      "tools": {
-        "write": false,
-        "edit": false,
-        "read": true,
-        "bash": false,
-        "playwright*": false,
-        "browser_close": false,
-        "browser_resize": false,
-        "browser_console_messages": false,
-        "browser_handle_dialog": false,
-        "browser_evaluate": false,
-        "browser_file_upload": false,
-        "browser_drop": false,
-        "browser_fill_form": false,
-        "browser_press_key": false,
-        "browser_type": false,
-        "browser_navigate": false,
-        "browser_navigate_back": false,
-        "browser_network_requests": false,
-        "browser_network_request": false,
-        "browser_run_code_unsafe": false,
-        "browser_take_screenshot": false,
-        "browser_snapshot": false,
-        "browser_click": false,
-        "browser_drag": false,
-        "browser_hover": false,
-        "browser_select_option": false,
-        "browser_tabs": false,
-        "browser_wait_for": false
-      },
-      "maxSteps": 25,
-      "temperature": 0.2,
-      "permission": {
-        "read": {
-          "*": "allow",
-          "*.env": "deny",
-          "*.env.*": "deny",
-          "**/.env*": "deny",
-          "**/e2e/.auth/**": "deny",
-          "**/storageState*.json": "deny",
-          "**/client.p12": "deny",
-          "**/cert.pass": "deny",
-          "*.env.example": "allow"
-        }
-      }
-    },
     "qa-proposer": {
       "description": "Read-only cross-service boundary proposer. Hypothesizes the app's HTTP/event convention as candidate BoundaryProfiles for a deterministic scorer to grade against real repos. Writes nothing; emits only the verdict. Has serena MCP access by design (no playwright).",
       "mode": "primary",

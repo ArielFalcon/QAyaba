@@ -4,20 +4,14 @@ import assert from "node:assert/strict";
 import {
   LEAD_PLAN_SECTION_ID,
   buildPromptAssembled,
-  setExplorationBriefCollaborators,
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/domain/prompt-headings.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import { lintCell, type LintSection } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { LEAD_PLAN_KIND } from "@kernel/coordination.ts";
-import type { ExplorationBrief, OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 
-setExplorationBriefCollaborators({
-  parseExplorationBrief: () => null,
-  coerceExplorationBrief: () => null,
-  renderExplorationBrief: (brief: ExplorationBrief) => `## ${PROMPT_HEADINGS.explorationBrief}\nObjective: ${brief.objective}`,
-});
 
 const PLANNING = { maxFlows: 5, maxParallel: 2, budgetMs: 240_000 };
 

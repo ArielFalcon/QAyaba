@@ -1,18 +1,17 @@
-/* PreGenerationGroundingPort: fail-open explorer + context.json + context pack. Never throws. */
+/* PreGenerationGroundingPort: fail-open context.json + context pack + harness facts. Never throws. */
 
 import type { PreGenerationGroundingPort, GroundingResult, HarnessFacts } from "../../application/ports/index.ts";
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "node:fs";
 import { join } from "node:path";
 import { buildContextPack, defaultContextPackDeps, packDeliveredItemIds } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { ContextPackAssembly, ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
-import type { ArchitectureContext, CommitIntent, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance.ts";
 import { readManifest } from "@contexts/generation/infrastructure/manifest-fs.ts";
 import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import { extractExportedNames, isSafeAttributeName } from "@contexts/generation/domain/harness-facts.ts";
 import { formatSuiteEntry } from "@contexts/generation/domain/suite-entry.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
-import { rethrowIfRunDeadline } from "@kernel/run-deadline.ts";
 import { listSpecFiles, readFailureReason, readOwnedSpecFile } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { raceWithAbort, isAbortError } from "./abort-race.ts";
 import { withDeclaredResources } from "./implementation-resources.ts";
@@ -30,7 +29,7 @@ export interface PreGenerationGroundingStaticContext {
   contextMapProvenance?: () => ContextProvenance | undefined;
   prChangedFiles?: string[]; /* union of changed files, for contract filtering */
   domPack?: boolean; /* false → the pack carries no live-DOM capture (no route ranking, no changed-element scopes); contracts and every other grounding source stay */
-  /* false → no context pack is built at all (context mode discards it); the map, explorer brief and harness facts still load. */
+  /* false → no context pack is built at all (context mode discards it); the map and harness facts still load. */
   contextPack?: boolean;
   mirrorDir?: string; /* the working copy the map's implementationFiles are relative to — absent → a route is tied only to the files the map names */
   stagedRoots?: string[]; /* cross-repo runs only: where the triggering service's snapshot was staged, as the map may name it (present even when empty) — the pack ranks a route only by the spec of an operation it joins, under these roots */
@@ -39,35 +38,16 @@ export interface PreGenerationGroundingStaticContext {
 /* Told what grounding supplied, as it supplies it. Read-only: nothing it does reaches what the agent receives, and a fault in it is logged and ignored. */
 export interface GroundingTrace {
   contextMap?(map: ArchitectureContext, provenance?: ContextProvenance): void;
-  brief?(brief: ExplorationBrief): void;
   pack?(assembly: ContextPackAssembly): void;
 }
 
 export interface PreGenerationGroundingCollaborators {
-  /* Optional observer of the sources (context map, explorer brief, context pack). Absent: nothing is told. */
+  /* Optional observer of the sources (context map, context pack). Absent: nothing is told. */
   trace?: GroundingTrace;
   /* Optional overrides — default to the real generation/infrastructure primitives. Injectable for testing (existence-level: this bridge is exercised without a real Playwright/browser). */
   buildContextPack?: typeof buildContextPack;
   contextPackDeps?: ContextPackDeps;
   loadContextMap?: (specDir: string) => ArchitectureContext | undefined;
-  /*
-   * Optional explorer pass. Called fail-open before buildContextPack. Absent collaborator, or a
-   * ground() call with no sha, → brief stays undefined (see ground()'s own guard below).
-   * `sha` is REQUIRED, not optional: every real caller of ground() (run-qa.use-case.ts) always
-   * threads a genuine RunQaInput.sha, so an optional sha here only invited a silent fallback to
-   * something else entirely (e.g. the run namespace) instead of a real commit sha.
-   */
-  exploreBrief?: (args: {
-    specDir: string;
-    diff?: string;
-    signal?: AbortSignal;
-    sha: string;
-    intent?: CommitIntent;
-    /** The architecture map ground() loaded; absent when there is none. */
-    contextMap?: ArchitectureContext;
-    /** Threaded from ground()'s own opts.runId — absent when the caller has none. */
-    runId?: string;
-  }) => Promise<ExplorationBrief | undefined>;
 }
 
 function isValidArchitectureContext(raw: unknown): raw is ArchitectureContext {
@@ -265,7 +245,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
     }
   }
 
-  async ground(specDir: string, signal?: AbortSignal, diff?: string, opts?: { sha: string; intent?: CommitIntent; runId?: string }): Promise<GroundingResult> {
+  async ground(specDir: string, signal?: AbortSignal, diff?: string): Promise<GroundingResult> {
     if (signal?.aborted) return {};
 
     const result: GroundingResult = {};
@@ -313,33 +293,6 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
     const harnessFacts = readHarnessFacts({ specDir, ...(this.ctx.testIdAttribute ? { testIdAttribute: this.ctx.testIdAttribute } : {}) });
     if (harnessFacts) result.harnessFacts = harnessFacts;
 
-    /*
-     * Explorer pass is optional and fail-open. Throw, absent collaborator, or no sha (opts.sha is
-     * required on the collaborator's own contract — never fabricated) → brief stays undefined;
-     * pack degrades to DOM+contracts.
-     */
-    let brief: ExplorationBrief | undefined;
-    if (this.collaborators.exploreBrief && opts?.sha) {
-      try {
-        brief = await this.collaborators.exploreBrief({
-          specDir,
-          sha: opts.sha,
-          ...(diff !== undefined ? { diff } : {}),
-          ...(signal ? { signal } : {}),
-          ...(opts?.intent ? { intent: opts.intent } : {}),
-          ...(contextMap ? { contextMap } : {}),
-          ...(opts?.runId ? { runId: opts.runId } : {}),
-        });
-      } catch (err) {
-        /* The run's spent deadline ends the run; only another fault is fail-open. */
-        rethrowIfRunDeadline(err);
-        console.warn(`[qa] WARNING: explorer pass failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-
-    if (brief) result.contextBrief = brief;
-    if (brief) this.tell(() => this.collaborators.trace?.brief?.(brief));
-
     /* Context mode discards the pack: building it would only spend the live-DOM capture on a value the prompt never reads. */
     if (this.ctx.contextPack === false) return result;
 
@@ -365,7 +318,6 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
           prChangedFiles,
           testIdAttribute: this.ctx.testIdAttribute,
           domPack,
-          ...(brief ? { brief } : {}),
           ...(deterministicRoutes?.length ? { routes: deterministicRoutes } : {}),
           ...(this.ctx.stagedRoots ? { stagedRoots: this.ctx.stagedRoots } : {}),
           ...(changedElements?.length ? { changedElements } : {}),

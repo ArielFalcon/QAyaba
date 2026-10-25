@@ -2,7 +2,7 @@
 
 export type AgentRole =
   | "primary" | "reviewer" | "chat"
-  | "sidekick" | "maintainer" | "reflector" | "explorer" | "proposer";
+  | "sidekick" | "maintainer" | "reflector" | "proposer";
 
 export type AgentProvider = "opencode" | "codex";
 
@@ -11,12 +11,12 @@ export interface RoleAssignment {
   model: string;
 }
 
-/* Reviewer, chat, reflector, explorer, and proposer never mutate the workspace. */
+/* Reviewer, chat, reflector, and proposer never mutate the workspace. */
 export interface RoleCapabilities {
   canWrite: boolean;
 }
 
-const READ_ONLY_ROLES: ReadonlySet<AgentRole> = new Set<AgentRole>(["reviewer", "chat", "reflector", "explorer", "proposer"]);
+const READ_ONLY_ROLES: ReadonlySet<AgentRole> = new Set<AgentRole>(["reviewer", "chat", "reflector", "proposer"]);
 
 export function capabilitiesForRole(role: AgentRole): RoleCapabilities {
   return { canWrite: !READ_ONLY_ROLES.has(role) };

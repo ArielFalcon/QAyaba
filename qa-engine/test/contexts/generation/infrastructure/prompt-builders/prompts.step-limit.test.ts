@@ -5,10 +5,8 @@ import { RUN_MODES, type RunMode, type TestTarget } from "@kernel/run-mode.ts";
 import {
   MILESTONE_OUTCOME_PHRASES,
   REVIEWER_STEP_LIMIT_SECTION_ID,
-  buildExplorerPrompt,
   buildPromptAssembled,
   buildReviewerPromptAssembled,
-  setExplorationBriefCollaborators,
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
@@ -27,13 +25,8 @@ import {
   stepMilestone,
   type MilestoneOutcome,
 } from "@contexts/generation/domain/step-limit.ts";
-import type { ExplorationBrief, OpencodeRunInput, ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput, ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
 
-setExplorationBriefCollaborators({
-  parseExplorationBrief: () => null,
-  coerceExplorationBrief: () => null,
-  renderExplorationBrief: (brief: ExplorationBrief) => `## ${PROMPT_HEADINGS.explorationBrief}\nObjective: ${brief.objective}`,
-});
 
 /* The limit the runtime reports in these tests, and a second one whose midpoint differs from it. */
 const LIMIT = 40;
@@ -277,61 +270,6 @@ test("the milestone offers its declared outcomes in the order it declares them, 
       from = at + phrase.length;
     }
     assert.ok(declared.length > 0, `${turn.label}: setup, the turn declares an outcome`);
-  }
-});
-
-/* ── the explorer ── */
-
-/* The lines under a title, up to the next title or blank line, the title first; undefined when the prompt has no such title. */
-function blockUnder(text: string, heading: string): string[] | undefined {
-  const lines = text.split("\n");
-  const at = lines.indexOf(`## ${heading}`);
-  if (at < 0) return undefined;
-  const rest = lines.slice(at + 1);
-  const end = rest.findIndex((line) => line.startsWith("## ") || line.trim() === "");
-  return [lines[at]!, ...(end < 0 ? rest : rest.slice(0, end))];
-}
-
-/* The two explorer prompts (a diff and a guided run), with and without the optional blocks they render. */
-const EXPLORER_INPUTS: ReadonlyArray<readonly [string, Partial<OpencodeRunInput>]> = [
-  ["diff", { explorer: true }],
-  ["diff on a microservice", { explorer: true, service: { repo: "org/orders", mirrorDir: "/mirrors/org__orders-staged" } }],
-  ["manual", { explorer: true, mode: "manual", guidance: "cover the coupon form" }],
-  ["manual on a microservice", { explorer: true, mode: "manual", guidance: "cover the coupon form", service: { repo: "org/orders", mirrorDir: "/mirrors/org__orders-staged" } }],
-];
-
-test("an explorer prompt with a limit closes with a step-limit block before its output block, carrying the limit and no directive word", () => {
-  for (const [label, over] of EXPLORER_INPUTS) {
-    const text = buildExplorerPrompt(mkInput({ ...over, stepLimit: OTHER_LIMIT }));
-    const block = blockUnder(text, PROMPT_HEADINGS.stepLimit);
-    assert.ok(block, `${label}: the block is there`);
-    assert.ok(block.join("\n").includes(String(OTHER_LIMIT)), `${label}: it carries the limit`);
-    assert.equal(countDirectives(block.join("\n")), 0, `${label}: it holds no directive word`);
-    const lines = text.split("\n");
-    const outputAt = lines.findIndex((line) => line.startsWith("## Output"));
-    assert.ok(outputAt > lines.indexOf(block[0]!) + block.length - 1, `${label}: it sits before the output block`);
-    assert.equal(outputAt, lines.length - 1, `${label}: and the output block still closes the prompt`);
-  }
-});
-
-test("an explorer prompt without a limit has no such block, and with one it gains that block and nothing else", () => {
-  for (const [label, over] of EXPLORER_INPUTS) {
-    const plain = buildExplorerPrompt(mkInput(over));
-    const limited = buildExplorerPrompt(mkInput({ ...over, stepLimit: OTHER_LIMIT }));
-    assert.equal(blockUnder(plain, PROMPT_HEADINGS.stepLimit), undefined, `${label}: no limit, no block`);
-    const lines = limited.split("\n");
-    const block = blockUnder(limited, PROMPT_HEADINGS.stepLimit)!;
-    const at = lines.indexOf(block[0]!);
-    assert.equal([...lines.slice(0, at), ...lines.slice(at + block.length + 1)].join("\n"), plain, `${label}: the rest is the prompt it had`);
-    assert.equal(lines[at + block.length], "", `${label}: the block is set apart by a blank line`);
-  }
-});
-
-test("the explorer states no milestone, whatever the turn: it asks for no outcome a milestone names", () => {
-  for (const [label, over] of EXPLORER_INPUTS) {
-    const text = buildExplorerPrompt(mkInput({ ...over, stepLimit: OTHER_LIMIT }));
-    assert.ok(blockUnder(text, PROMPT_HEADINGS.stepLimit), `${label}: setup, the explorer states its limit`);
-    for (const phrase of Object.values(MILESTONE_OUTCOME_PHRASES)) assert.equal(text.includes(phrase), false, `${label}: ${phrase}`);
   }
 });
 

@@ -47,13 +47,11 @@ const DEFAULT_COVERAGE_MODE = "signal";
 const DEFAULT_COVERAGE_MIN_RATIO = 0.7;
 
 export function resolveRunConfig(app: AppConfig, target: TestTarget, request: RunConfigRequest, captureMode: CaptureMode, env: RunConfigEnvironment): StoredRunConfig {
-  const isCode = target === "code";
   /* Same predicates as the engine factory's wiring (run-config-gates.ts). The tools also need the service token; otherwise the lever cannot take effect, whatever was asked. */
   const tools = toolsApply(target, app);
   const closedLoopAsked = request.closedLoop ?? app.qa.closedLoop?.enabled === true;
   const agentBrowserAsked = request.agentBrowser ?? app.qa.agentBrowser?.enabled === true;
   const structuralMode = structuralSignalsMode(app);
-  const services = (app.services?.length ?? 0) > 0;
   const stitched = serviceTopologyWired(app);
   const requestedGrounding = request.grounding ?? {};
   return {
@@ -66,8 +64,6 @@ export function resolveRunConfig(app: AppConfig, target: TestTarget, request: Ru
     runtime: env.runtime(),
     prompt: { staticHash: env.staticPromptHash() },
     grounding: {
-      /* An e2e run grounds deterministically: the lead explores the code graph itself, so no explorer runs unless the run asks for one. A code run keeps the app's setting. */
-      explorer: requestedGrounding.explorer ?? (isCode ? (app.qa.explorer ?? services) : false),
       /* The service-topology collaborator is one of the two advisory structural signals: it exists only for an app with services and declared boundaries. */
       stitcher: stitched ? (requestedGrounding.stitcher === false ? "off" : structuralMode) : null,
       structuralSignal: requestedGrounding.structuralSignal === false ? "off" : structuralMode,
@@ -98,7 +94,7 @@ const NOT_RECORDED: StoredRunConfig = {
   campaignFreeze: null,
   runtime: null,
   prompt: { staticHash: null },
-  grounding: { explorer: null, stitcher: null, structuralSignal: null, curriculum: null, domPack: null },
+  grounding: { stitcher: null, structuralSignal: null, curriculum: null, domPack: null },
   coverage: { mode: null, minRatio: null },
   reflector: null,
 };
@@ -112,7 +108,13 @@ export function parseStoredRunConfig(json: string | null | undefined): StoredRun
       campaignFreeze: parsed.campaignFreeze ?? null,
       runtime: parsed.runtime ?? null,
       prompt: { staticHash: parsed.prompt?.staticHash ?? null },
-      grounding: { ...NOT_RECORDED.grounding, ...(parsed.grounding ?? {}) },
+      /* Only the keys this version knows: a record written by an older one may carry others, which are left out. */
+      grounding: {
+        stitcher: parsed.grounding?.stitcher ?? null,
+        structuralSignal: parsed.grounding?.structuralSignal ?? null,
+        curriculum: parsed.grounding?.curriculum ?? null,
+        domPack: parsed.grounding?.domPack ?? null,
+      },
       coverage: { ...NOT_RECORDED.coverage, ...(parsed.coverage ?? {}) },
       reflector: parsed.reflector ?? null,
     };

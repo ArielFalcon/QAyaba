@@ -1,6 +1,6 @@
 /* The fine (in-session SSE tracker) and coarse (persisted run_events) classifiers must agree on the
-   metrics they share. The explorer's session is not observed in production (it is never registered
-   for live observation), so its calls reach neither classifier and the grounding window stays empty.
+   metrics they share. A session that is not registered for live observation (the judge's, say) is
+   not observed in production, so its calls reach neither classifier and the grounding window stays empty.
    Repeated-call counts are deliberately NOT compared: the coarse side only has a (kind, target) proxy
    for them. A command is a call of a shell tool, whatever its command line does: the coarse side counts
    the shell calls it sees, and the fine side counts the same calls however it buckets each by its command
@@ -16,7 +16,7 @@ import type { RunEventBody } from "@kernel/contract/events.ts";
 const CWD = "/mirrors/org__app";
 const RUN_ID = "run-1";
 const GENERATOR = "s-generator";
-const EXPLORER = "s-explorer";
+const UNREGISTERED = "s-unregistered";
 
 function toolLifecycle(sessionID: string, callID: string, tool: string, input: Record<string, unknown>): RawOpencodeEvent[] {
   const part = (status: string, extra: Record<string, unknown> = {}): RawOpencodeEvent => ({
@@ -33,12 +33,12 @@ const stepStart = (sessionID: string, id: string): RawOpencodeEvent => ({
   properties: { part: { id, sessionID, messageID: "m", type: "step-start" } },
 });
 
-/* The explorer session investigates first (the grounding sub-step), then the generator works. Only the
+/* A session that is never registered works during the grounding sub-step, then the generator works. Only the
    generator session is attached and registered, as in production. */
-const explorerEvents: RawOpencodeEvent[] = [
-  stepStart(EXPLORER, "step-e1"),
-  ...toolLifecycle(EXPLORER, "e1", "read", { filePath: `${CWD}/src/a.ts` }),
-  ...toolLifecycle(EXPLORER, "e2", "playwright_browser_navigate", { url: "http://dev/" }),
+const unregisteredEvents: RawOpencodeEvent[] = [
+  stepStart(UNREGISTERED, "step-e1"),
+  ...toolLifecycle(UNREGISTERED, "e1", "read", { filePath: `${CWD}/src/a.ts` }),
+  ...toolLifecycle(UNREGISTERED, "e2", "playwright_browser_navigate", { url: "http://dev/" }),
 ];
 const generatorEvents: RawOpencodeEvent[] = [
   stepStart(GENERATOR, "step-g1"),
@@ -58,7 +58,7 @@ function coarseRunEvents(): RunEventBody[] {
   const step = (detail?: string): RunEventBody => ({ type: "step.changed", step: "generate", ...(detail ? { detail } : {}) });
   return [
     step(PRE_GENERATION_GROUNDING_STEP_DETAIL),
-    ...explorerEvents.flatMap((e) => mapOpencodeEvent(e, sessions)),
+    ...unregisteredEvents.flatMap((e) => mapOpencodeEvent(e, sessions)),
     step(),
     ...generatorEvents.flatMap((e) => mapOpencodeEvent(e, sessions)),
   ];
@@ -67,7 +67,7 @@ function coarseRunEvents(): RunEventBody[] {
 test("fine and coarse classifiers agree on calls, calls before the first write, writes, commands and subagents", () => {
   const tracker = new CallEfficiencyTracker();
   tracker.attach(GENERATOR, CWD);
-  for (const event of [...explorerEvents, ...generatorEvents]) tracker.record(event);
+  for (const event of [...unregisteredEvents, ...generatorEvents]) tracker.record(event);
   const fine = tracker.take(GENERATOR, "");
   const coarse = classifyRunEfficiency(coarseRunEvents()).firstPass;
 
@@ -81,14 +81,14 @@ test("fine and coarse classifiers agree on calls, calls before the first write, 
   assert.equal(fine!.buckets.subagent, coarse.subagentCount);
 });
 
-test("an unobserved explorer adds nothing to either classifier, so the grounding window stays empty", () => {
+test("an unregistered session adds nothing to either classifier, so the grounding window stays empty", () => {
   const tracker = new CallEfficiencyTracker();
   tracker.attach(GENERATOR, CWD);
-  for (const event of [...explorerEvents, ...generatorEvents]) tracker.record(event);
+  for (const event of [...unregisteredEvents, ...generatorEvents]) tracker.record(event);
   const fine = tracker.take(GENERATOR, "");
   const coarse = classifyRunEfficiency(coarseRunEvents());
 
-  assert.equal(coarse.grounding.totalCalls, 0, "the explorer's calls never reach the persisted events");
+  assert.equal(coarse.grounding.totalCalls, 0, "an unregistered session's calls never reach the persisted events");
   assert.equal(coarse.wholeRunExcludingGrounding.totalCalls, fine!.totalCalls);
   assert.equal(coarse.firstPass.totalCalls, fine!.totalCalls);
 });

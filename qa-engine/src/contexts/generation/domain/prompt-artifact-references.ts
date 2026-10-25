@@ -13,7 +13,6 @@ const named = (words: string): RegExp => new RegExp(escape(words));
 /* Section ids the builders give the sections that only some prompts assemble. */
 const SECTION = {
   contextPack: "context-pack",
-  contextBrief: "context-brief",
   archMap: "arch-map",
   serviceLinks: "service-links",
 } as const;
@@ -33,7 +32,6 @@ export const ARTIFACT_REFERENCES: readonly ArtifactReference[] = [
     pattern: /\bblast radius was already explored\b|\bdistilled above\b|\bgrounding already in this prompt\b/i,
     provider: { facts: ["blast-radius", "structural-signal"] },
   },
-  { artifact: "brief", pattern: new RegExp(`${escape(PROMPT_HEADINGS.explorationBrief)}|\\bthe brief\\b`, "i"), provider: { section: SECTION.contextBrief } },
   { artifact: "arch-map", pattern: named(PROMPT_HEADINGS.architectureContext), provider: { section: SECTION.archMap } },
   { artifact: "service-links", pattern: named(PROMPT_HEADINGS.crossServiceLinks), provider: { section: SECTION.serviceLinks } },
   { artifact: "app-login", pattern: named(PROMPT_HEADINGS.appLogin), provider: { section: APP_LOGIN_SECTION_ID } },

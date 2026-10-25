@@ -30,7 +30,6 @@ function build(reviewerRepair: () => Promise<{ output: string }>) {
       render: () => "",
       renderMain: () => ({ text: "GEN", sectionSizes: {} }),
       renderReviewer: () => ({ text: "REV", sectionSizes: {} }),
-      renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
     },
     verdicts: {

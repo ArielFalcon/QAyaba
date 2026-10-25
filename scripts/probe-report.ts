@@ -190,7 +190,7 @@ const USAGE = [
   "  prints a markdown table per run (phases, verdict, specs, coverage, reviewer) and per agent turn (calls, time to first write, denied calls, tokens, cost, where it read)",
   "  --json     print the reports as JSON instead of markdown",
   "  --out-dir  where each run's full report is written as <runId>.json (default config/benchmarks/probe-results)",
-  "  --ground-truth  a JSON file {affectedFiles, affectedRoutes, notAffectedFiles[, notAffectedRoutes]} (config/benchmarks/ground-truth/): scores the explorer brief's blast radius, the files read and the routes the specs navigate to against it",
+  "  --ground-truth  a JSON file {affectedFiles, affectedRoutes, notAffectedFiles[, notAffectedRoutes]} (config/benchmarks/ground-truth/): scores the files read and the routes the specs navigate to against it",
   "run inside the orchestrator container: it reads the run history and the working copies.",
 ].join("\n");
 

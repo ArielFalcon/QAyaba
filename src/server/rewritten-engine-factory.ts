@@ -11,7 +11,7 @@ import { execFileSync } from "node:child_process";
 import type { AppConfig } from "../orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "../orchestrator/schemas";
 import type { AgentDeps } from "../integrations/opencode-client";
-import { REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS, agentPromptCapMs, agentTimeout, agentConfigFacts, maxStepsFromConfig, setSessionToolDeny, withTimeout } from "../integrations/opencode-client";
+import { REVIEWER_TIMEOUT_MS, agentPromptCapMs, agentTimeout, agentConfigFacts, maxStepsFromConfig, setSessionToolDeny, withTimeout } from "../integrations/opencode-client";
 import { AGENT_NAME_FOR_ROLE, assignmentForRole, type AgentFacade, type StepLimits } from "../agent-runtime/types";
 import { enforcedStepLimit } from "../agent-runtime/step-limit";
 
@@ -21,8 +21,6 @@ import {
   withSessionRegistration,
   registerRunSession,
   unregisterRunSession,
-  observeUnwatchedSession,
-  unobserveUnwatchedSession,
   stallMs,
 } from "../integrations/opencode-client";
 import type { RunPipelinePort, ObserverPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
@@ -69,7 +67,7 @@ import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/t
 import type { StepIntentContext } from "@contexts/generation/domain/step-intent";
 import { watchSpanForHost } from "../telemetry/host-listeners";
 import { SYSTEM_CLOCK } from "./run-trace";
-import { observeUnwatchedFromEnv, stepIntentContextFor } from "./turn-telemetry-config";
+import { stepIntentContextFor } from "./turn-telemetry-config";
 import { resolveRunTimeBudgets } from "@contexts/qa-run-orchestration/domain/run-time-budget";
 import { RunDeadlineRuntime } from "@contexts/qa-run-orchestration/infrastructure/run-deadline-runtime.adapter";
 import { RunRoundRuntime } from "@contexts/qa-run-orchestration/infrastructure/run-round-runtime.adapter";
@@ -111,13 +109,10 @@ import { IndexStatusAdapter } from "@contexts/qa-run-orchestration/infrastructur
 import {
   buildPromptAssembled,
   buildReviewerPromptAssembled,
-  buildExplorerPrompt,
   specFileForFlow,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { parseVerdict } from "../integrations/verdict-parse";
 import { parseReviewerVerdict, checkGeneratorVerdict, repairInstruction } from "../integrations/verdict-validate";
-import { parseExplorationBrief } from "../qa/exploration-brief";
-import { ExplorerBriefSessionAdapter } from "@contexts/generation/infrastructure/explorer-brief-session.adapter";
 import type { StepLimitFor, StepLimitRole } from "@contexts/generation/application/ports/generation-ports";
 import { MultiRepoCheckoutAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/multi-repo-checkout.adapter";
 import { roleWindowBytes, setLiveModelWindows } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
@@ -600,7 +595,6 @@ export const STEP_LIMIT_READ_TIMEOUT_MS = 30_000;
 const RUNTIME_ROLE_OF_STEP_LIMIT_ROLE: Readonly<Record<StepLimitRole, AgentRole>> = {
   generator: "primary",
   reviewer: "reviewer",
-  explorer: "explorer",
 };
 
 /*
@@ -749,7 +743,7 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
     ? new ReviewPortAdapter(
         {
           runtime: new AgentRuntimeAdapter({ open: async (agent, cwd, opts) => getAgentDeps(acceptanceTurn).open(agent, cwd, { ...(opts?.signal ? { signal: opts.signal } : {}), ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}), ...(opts?.timeLimit ? { timeLimit: opts.timeLimit } : {}), ...(opts?.model ? { model: opts.model } : {}), ...(opts?.onUsage ? { onUsage: opts.onUsage } : {}), ...(opts?.descriptor ? { descriptor: opts.descriptor } : {}) }) }, roleToAgentName),
-          rendering: new PromptRenderingAdapter({ buildPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow }),
+          rendering: new PromptRenderingAdapter({ buildPromptAssembled, buildReviewerPromptAssembled, specFileForFlow }),
           verdicts: new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict }),
         },
         { diff: "", mirrorDir: copyDir, e2eRelDir, appName: app.name, mode: "diff", target: "e2e", baseUrl, timeoutMs: REVIEWER_TIMEOUT_MS },
@@ -804,9 +798,9 @@ export function buildRewrittenCompositionConfig(
   const mirrorDir = join(mirrorRoot, app.repo.replaceAll("/", "__"));
   const e2eDir = join(mirrorDir, e2eRelDir);
   /*
-   * ONE resolver per run, shared by every session that states a limit: the generator, the reviewer and the explorer
-   * all run in the primary mirror (the working copy checkout(sha) returns is this same directory), so one read of it
-   * answers for all three. A host with no facade has no limit to give.
+   * ONE resolver per run, shared by every session that states a limit: the generator and the reviewer
+   * both run in the primary mirror (the working copy checkout(sha) returns is this same directory), so one read of it
+   * answers for both. A host with no facade has no limit to give.
    */
   const stepLimitFor = deps.getAgentFacade ? stepLimitResolver(deps.getAgentFacade, mirrorDir) : undefined;
 
@@ -950,7 +944,7 @@ export function buildRewrittenCompositionConfig(
   /*
    * The run-level wall-clock deadline: one per run (this factory builds the engine for one run), armed by the use case
    * after classification and read by every agent turn of the run through the bounded runtime below, so no turn (a
-   * regeneration, a fix-loop round, a repair, the coverage regen, the reviewer, the explorer, a sidekick) outlives it.
+   * regeneration, a fix-loop round, a repair, the coverage regen, the reviewer, a sidekick) outlives it.
    * QA_RUN_TIME_BUDGET_MS_* override a kind of run's time; read here once because qa-engine never reads process.env. A
    * mistyped value throws. The reflector keeps the unbounded runtime: it runs after the run's verdict is made.
    */
@@ -958,7 +952,7 @@ export function buildRewrittenCompositionConfig(
   const boundedRuntime = new RunDeadlineRuntime(runtimeAdapter, runDeadline, { hostPromptCapMs: agentPromptCapMs() });
   /* Run-level round per role: numbers each role's generated turns across sessions, so a regeneration's turn reads round 1, not the transport's session-local 0. */
   const roundRuntime = new RunRoundRuntime(boundedRuntime);
-  const rendering = new PromptRenderingAdapter({ buildPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow });
+  const rendering = new PromptRenderingAdapter({ buildPromptAssembled, buildReviewerPromptAssembled, specFileForFlow });
   const verdicts = new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict });
 
   /* Bounded contract-repair for malformed generator/reviewer verdicts — fail-closed if still invalid. */
@@ -1080,32 +1074,6 @@ export function buildRewrittenCompositionConfig(
 
 
   const setupAdapter = buildSetupAdapter(exec, codeSandbox);
-  /*
-   * `??`, not `||`: app.qa.explorer is a tri-state (true/false/unconfigured). An explicit
-   * `explorer: false` must win over the services-length auto-detect, never be swallowed by it —
-   * `||` treated false and unconfigured identically, silently ignoring an operator's opt-out.
-   * A run's recorded grounding (its effective config) decides first; a server run always carries one.
-   */
-  const shouldExplore = grounding?.explorer ?? (app.qa.explorer ?? (app.services?.length ?? 0) > 0);
-
-  const explorerBriefAdapter = new ExplorerBriefSessionAdapter(
-    {
-      repo: app.repo,
-      e2eRelDir,
-      namespace,
-      needsReview: app.qa.needsReview,
-      target,
-      mode: run.mode,
-      appName: app.name,
-      timeoutMs: EXPLORER_TIMEOUT_MS,
-      ...(app.dev?.baseUrl ? { baseUrl: app.dev.baseUrl } : {}),
-      ...(run.guidance ? { guidance: run.guidance } : {}),
-      ...(triggerService
-        ? { triggerService: { repo: triggerService.repo, ...(triggerService.openapi ? { openapi: triggerService.openapi } : {}) } }
-        : {}),
-    },
-    { runtime: roundRuntime, parseBrief: parseExplorationBrief, buildPrompt: buildExplorerPrompt, serviceContextDir, stepLimitFor, ...(observeUnwatchedFromEnv(deps.env ?? process.env) ? { observeUnwatched: true } : {}) },
-  );
 
   return {
     repo: app.repo,
@@ -1185,17 +1153,12 @@ export function buildRewrittenCompositionConfig(
     },
 
     /*
-     * contextPackDeps.domDeps is ALWAYS overridden (regardless of shouldExplore) so the
+     * contextPackDeps.domDeps is ALWAYS overridden so the
      * pre-generation DOM capture reads auth material from the orchestrator-only authDir, never
      * from the mirror — the qa-engine default (defaultCaptureDomDeps) would
      * otherwise derive credential paths from e2eDir itself.
      */
     groundingCollaborators: {
-      ...(shouldExplore && !isCode
-        ? {
-            exploreBrief: (args) => explorerBriefAdapter.explore(args),
-          }
-        : {}),
       contextPackDeps: { ...defaultContextPackDeps, domDeps: captureDomDeps, ...(app.dev?.routeSamples ? { routeSamples: app.dev.routeSamples } : {}) },
       /*
        * The DB (history.ts's context_maps table) is the engine's source of truth for the
@@ -1600,8 +1563,6 @@ export function engineAgentDeps(deps: Pick<RewrittenEngineFactoryDeps, "getAgent
       withSessionRegistration(deps.getAgentDeps(), {
         register: registerRunSession,
         unregister: unregisterRunSession,
-        observe: observeUnwatchedSession,
-        unobserve: unobserveUnwatchedSession,
         bind: (session) => {
           registry?.bindSession(session);
           browsers?.bindSession(session);

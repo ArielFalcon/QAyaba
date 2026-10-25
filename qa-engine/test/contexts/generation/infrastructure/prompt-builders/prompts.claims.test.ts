@@ -3,7 +3,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildPromptAssembled,
-  setExplorationBriefCollaborators,
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
@@ -14,13 +13,8 @@ import { lintCell, type FactId, type LintSection, type PromptClaim } from "@cont
 import { renderLearnedRules } from "@contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.ts";
 import { renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts";
 import type { RetrievedRule } from "@contexts/qa-run-orchestration/application/ports/index.ts";
-import type { OpencodeRunInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 
-setExplorationBriefCollaborators({
-  parseExplorationBrief: () => null,
-  coerceExplorationBrief: () => null,
-  renderExplorationBrief: (brief: ExplorationBrief) => `## ${PROMPT_HEADINGS.explorationBrief}\nObjective: ${brief.objective}`,
-});
 
 function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
   return {
@@ -38,16 +32,6 @@ function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
     ...overrides,
   };
 }
-
-const BRIEF: ExplorationBrief = {
-  builtForSha: "abc1234",
-  objective: "checkout flow",
-  blastRadius: [{ symbol: "Pay.go", file: "src/pay.ts", role: "pays" }],
-  feBe: [{ route: "/checkout", operationId: "createOrder" }],
-  contracts: [{ operationId: "createOrder", method: "POST", path: "/orders" }],
-  risks: ["assert the discounted total"],
-  routes: [{ path: "/checkout", verified: false, domLandmarks: ["button Pay"] }],
-};
 
 const provided = (a: AssembledPrompt, id: string): FactId[] =>
   (a.claims[id] ?? []).flatMap((c: PromptClaim) => (c.kind === "provides" ? [c.fact] : [])).sort();
@@ -77,13 +61,6 @@ test("the architecture map section declares the map with the facts it renders", 
   assert.deepEqual(provided(assembled, "arch-map"), ["api-operations", "arch-map", "fe-be-links"]);
   const routesOnly = buildPromptAssembled(mkInput({ contextMap: { ...map, api: [], feBe: [] } }));
   assert.deepEqual(provided(routesOnly, "arch-map"), ["arch-map"]);
-});
-
-test("the brief section declares the facts its brief carries", () => {
-  const full = buildPromptAssembled(mkInput({ contextBrief: BRIEF }));
-  assert.deepEqual(provided(full, "context-brief"), ["blast-radius", "contracts", "fe-be-links", "landmarks", "risks"]);
-  const minimal = buildPromptAssembled(mkInput({ contextBrief: { ...BRIEF, feBe: undefined, contracts: undefined, risks: undefined, routes: undefined } }));
-  assert.deepEqual(provided(minimal, "context-brief"), ["blast-radius"]);
 });
 
 test("the structural signal, service links and the diff each declare what they provide", () => {

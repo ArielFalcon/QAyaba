@@ -1,5 +1,3 @@
-/* setExplorationBriefCollaborators is a local test double — this suite cannot import src/ at
-   typecheck (qa-engine rootDir). It only needs the same "FE↔BE links" marker prompts.ts suppresses. */
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -10,32 +8,18 @@ import {
   buildPromptAssembled,
   buildReviewerPrompt,
   buildReviewerPromptAssembled,
-  buildExplorerPrompt,
   buildContextTask,
   renderReviewSpecs,
-  setExplorationBriefCollaborators,
   renderArchitectureContextParts,
   PROMPT_HEADINGS,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { assemble as caAssemble, section as caSection } from "@contexts/generation/infrastructure/prompt-builders/context-assembler.ts";
 import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
-import type { OpencodeRunInput, ReviewInput, ExplorationBrief, ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput, ReviewInput, ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { BUILT_IN_EXEMPLARS } from "@kernel/scenario-catalog.ts";
 
-setExplorationBriefCollaborators({
-  parseExplorationBrief: () => null,
-  coerceExplorationBrief: () => null,
-  renderExplorationBrief: (brief: ExplorationBrief) => {
-    const lines = [`## Exploration brief`, `Objective: ${brief.objective}`];
-    if (brief.feBe?.length) {
-      lines.push("### FE↔BE links");
-      for (const l of brief.feBe) lines.push(`- Route ${l.route} -> ${l.operationId}`);
-    }
-    return lines.join("\n");
-  },
-});
 
 /* Regeneration prompts must NOT command the agent to re-navigate / re-snapshot / re-activate
    serena when authoritative grounding (a Context Pack DOM excerpt or an injected a11y tree) is
@@ -663,58 +647,6 @@ test("full FE↔BE rendered when contextPack is absent (non-regression)", () => 
   );
 });
 
-/* The brief owns the FE↔BE links when it carries them; the architecture map yields its own list. */
-test("FE↔BE links appear only once when both the brief (with feBe) and the architecture map carry them", () => {
-  const contextBrief = {
-    builtForSha: "abc1234",
-    objective: "test the checkout flow",
-    blastRadius: [{ symbol: "CheckoutService.pay", file: "src/checkout.ts", role: "applies discount" }],
-    feBe: [{ route: "/checkout", operationId: "createOrder", via: "OrderClient.create" }],
-    routes: [{ path: "/checkout", verified: false as const }],
-  };
-  const contextMap = {
-    builtAtSha: "abc1234",
-    routes: [{ path: "/checkout" }],
-    api: [{ operationId: "createOrder", method: "POST", path: "/orders" }],
-    feBe: [{ route: "/checkout", operationId: "createOrder", via: "OrderClient.create" }],
-  };
-  const text = buildPrompt(mkInput({ contextBrief, contextMap }));
-  const count = (text.match(/FE↔BE links/g) ?? []).length;
-  assert.equal(count, 1, `"FE↔BE links" must appear exactly once; found ${count} occurrences`);
-});
-
-/* A pack in the prompt does not take the links away from the brief. */
-test("FE↔BE links in contextBrief render normally whether or not a contextPack is present", () => {
-  const contextBrief = {
-    builtForSha: "abc1234",
-    objective: "test the checkout flow",
-    blastRadius: [{ symbol: "CheckoutService.pay", file: "src/checkout.ts", role: "applies discount" }],
-    feBe: [{ route: "/checkout", operationId: "createOrder", via: "OrderClient.create" }],
-    routes: [{ path: "/checkout", verified: false as const }],
-  };
-  assert.ok(buildPrompt(mkInput({ contextBrief })).includes("FE↔BE links"));
-  assert.ok(buildPrompt(mkInput({ contextBrief, contextPack: "## Context Pack\n\n### Live DOM (x)\n  a" })).includes("FE↔BE links"));
-});
-
-/* When the brief has NO feBe, the architecture map's links are the only ones. */
-test("when the brief carries no feBe, the architecture map's FE↔BE links are the only ones", () => {
-  const contextBrief = {
-    builtForSha: "abc1234",
-    objective: "test the checkout flow",
-    blastRadius: [{ symbol: "CheckoutService.pay", file: "src/checkout.ts", role: "applies discount" }],
-    routes: [{ path: "/checkout", verified: false as const }],
-  };
-  const contextMap = {
-    builtAtSha: "abc1234",
-    routes: [{ path: "/checkout" }],
-    api: [{ operationId: "createOrder", method: "POST", path: "/orders" }],
-    feBe: [{ route: "/checkout", operationId: "createOrder" }],
-  };
-  const text = buildPrompt(mkInput({ contextBrief, contextMap }));
-  const count = (text.match(/FE↔BE links/g) ?? []).length;
-  assert.equal(count, 1, "only the map's FE↔BE links appear");
-});
-
 /* [seam d] 1.9: learned-rules sheds AFTER reviewer-corrections and coverage-gap.
    After seam d, learned-rules priority is p2 in buildPromptAssembled.
    Use caAssemble to verify the shed order invariant directly.
@@ -1241,7 +1173,7 @@ test("defect 2: GROUND-TRUTH-AT-FAILURE fallback offers getByText only, not CSS/
 });
 
 /* PromptBudgetPort's capDiff existed but was never called — buildDiffSection (the e2e task-band diff
-   section), buildCodeTask (code-mode diff), and buildExplorerPrompt (the explorer's diff embed) all
+   section), buildCodeTask (code-mode diff) all
    interpolated `sanitizeText(input.diff).text` UNCAPPED. A giant commit (huge autogenerated file,
    vendored dependency, wide refactor) could blow the per-role prompt budget on the diff ALONE before
    the assembler's own shedding logic ever runs. capDiff keeps whole per-file sections in relevance
@@ -1274,13 +1206,6 @@ test("buildCodeTask (code-mode diff task) caps a giant diff instead of embedding
   const text = buildPrompt(mkInput({ diff: huge, mode: "diff", target: "code" }));
   assert.ok(text.length < huge.length, "the code-mode task must not embed the raw uncapped diff");
   assert.match(text, /diff truncated/i, "a visible truncation marker must be present in code mode too");
-});
-
-test("buildExplorerPrompt caps a giant diff instead of embedding it whole", () => {
-  const huge = bigDiff();
-  const text = buildExplorerPrompt(mkInput({ diff: huge, mode: "diff" }));
-  assert.ok(text.length < huge.length, "the explorer prompt must not embed the raw uncapped diff");
-  assert.match(text, /diff truncated/i, "a visible truncation marker must be present in the explorer prompt too");
 });
 
 test("a small diff (under the cap) passes through buildDiffSection unmodified (no spurious truncation)", () => {
@@ -1483,24 +1408,6 @@ test("cross-repo diff task: an array openapi hint is prefixed per-entry, not jus
   assert.match(text, /contracts\/openapi\/payments\.yaml/);
 });
 
-test("cross-repo explorer prompt (diff mode): describes a staged snapshot, never a 'working copy'", () => {
-  const text = buildExplorerPrompt(mkInput({
-    service: { repo: "org/orders-svc", mirrorDir: "/staged/org__orders-svc" },
-  }));
-  assert.match(text, /READ-ONLY staged snapshot/i);
-  assert.doesNotMatch(text, /working copy/i);
-});
-
-test("cross-repo explorer prompt (manual mode): describes a staged snapshot, never a 'working copy'", () => {
-  const text = buildExplorerPrompt(mkInput({
-    mode: "manual",
-    guidance: "test the checkout flow",
-    service: { repo: "org/orders-svc", mirrorDir: "/staged/org__orders-svc" },
-  }));
-  assert.match(text, /READ-ONLY staged snapshot/i);
-  assert.doesNotMatch(text, /working copy/i);
-});
-
 /* The reviewer and the generator verdict parser read `specs` relative to the suite directory, the
    same path both generator role prompts name for a context run. */
 test("buildContextTask: its output contract reports the map relative to the suite directory, not the repo", () => {
@@ -1694,9 +1601,9 @@ test("renderArchitectureContextParts counts exactly the entries MAX_ITEMS left o
     { class: "truncation", reason: "map-cap", count: 140 },
   ]);
 
-  /* With API operations and FE↔BE links suppressed, only routes (50) and flows (10) count. */
-  assert.deepEqual(renderArchitectureContextParts(ctx, undefined, { suppressApiOperations: true, suppressFeBeLinks: true })?.omissions, [
-    { class: "truncation", reason: "map-cap", count: 60 },
+  /* With API operations suppressed, only routes (50), links (30) and flows (10) count. */
+  assert.deepEqual(renderArchitectureContextParts(ctx, undefined, { suppressApiOperations: true })?.omissions, [
+    { class: "truncation", reason: "map-cap", count: 90 },
   ]);
 });
 

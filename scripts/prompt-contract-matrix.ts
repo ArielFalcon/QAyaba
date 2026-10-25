@@ -1,11 +1,10 @@
 /*
- * Prompt-contract matrix: assembles the REAL generator prompt (real builders, the real shell brief
- * renderer, the real context-pack builder over fake capture deps) across the run shapes that can
+ * Prompt-contract matrix: assembles the REAL generator prompt (real builders, the real
+ * context-pack builder over fake capture deps) across the run shapes that can
  * reach the agent, pairs each with both static role layers (OpenCode and Codex) and lints every
  * combination. Each layer's cell is assembled from the input its own runtime hands the prompt: the
  * OpenCode runtime enforces a step limit and the prompt is given it, the Codex runtime states none.
- * The lint lives in qa-engine; this module lives in scripts/ because it wires the shell's brief
- * renderer, which qa-engine may not import.
+ * The lint lives in qa-engine; this module lives in scripts/ because it also reads the static role layers and the baseline file.
  *
  * Every combination is budgeted: its user-prompt bytes and directive volume against the largest
  * recorded for its bucket (mode, target, phase, tree and grounding; a cell with a step limit has the
@@ -23,7 +22,6 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   buildPromptAssembled,
-  setExplorationBriefCollaborators,
   ASSEMBLED_ARTIFACT_NAMES,
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
@@ -44,7 +42,6 @@ import {
 } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import type {
   ArchitectureContext,
-  ExplorationBrief,
   OpencodeRunInput,
 } from "@contexts/generation/application/ports/generation-ports.ts";
 import { DEFAULT_CLOSED_LOOP_LIMITS } from "@kernel/closed-loop.ts";
@@ -56,7 +53,6 @@ import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { ServiceLink } from "@contexts/service-topology/domain/index.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
-import { coerceExplorationBrief, parseExplorationBrief, renderExplorationBrief } from "../src/qa/exploration-brief.ts";
 import { codexPreambleParts } from "../src/agent-runtime/codex-strategy.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -68,7 +64,7 @@ export const DIMENSIONS = {
   mode: ["diff", "complete", "exhaustive", "manual", "context"],
   phase: ["first", "regen-fix", "regen-review", "regen-coverage", "selector-fix"],
   tree: ["none", "failure", "live"],
-  grounding: ["none", "brief", "pack", "brief+pack"],
+  grounding: ["none", "pack"],
   target: ["e2e", "code"],
   contextMap: [false, true],
   /* What the structural signal holds: nothing, symbol blocks (impacted symbols and callers), or co-change files alone, which are no blast radius. */
@@ -76,8 +72,6 @@ export const DIMENSIONS = {
   authSeedUnauthored: [false, true],
   serviceLinks: [false, true],
   harnessFacts: [false, true],
-  /* Whether the brief distilled any blast radius. */
-  briefBlast: ["filled", "empty"],
   /* Whether the pack captured a live DOM; without one it holds the contracts alone. */
   packDom: [true, false],
   /* Whether a gated route redirected, so the pack lists the page it reached as a section of its own; only a pack with a captured DOM can. */
@@ -110,14 +104,11 @@ export function isValidSpec(spec: CellSpec): boolean {
   }
   if (isCode) {
     if (spec.tree !== "none" || spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts || spec.service) return false;
-    if (spec.grounding === "pack" || spec.grounding === "brief+pack") return false;
+    if (spec.grounding === "pack") return false;
     if (spec.phase === "selector-fix") return false;
   }
   if (spec.tree !== "none" && !regenWithTree) return false;
-  const hasBrief = spec.grounding === "brief" || spec.grounding === "brief+pack";
-  const hasPack = spec.grounding === "pack" || spec.grounding === "brief+pack";
-  /* The structural signal stands in only for a brief that distilled no blast radius. */
-  if (spec.structuralSignal !== "none" && hasBrief && spec.briefBlast === "filled") return false;
+  const hasPack = spec.grounding === "pack";
   /* A signal of co-change files alone bears on one decision, whether the prompt carries an explored blast radius, and the optional blocks do not change it: it meets every phase, tree and grounding of a diff run (the only run that has a signal at all), but not their cross product with the blocks. */
   if (
     spec.structuralSignal === "co-change" &&
@@ -125,7 +116,6 @@ export function isValidSpec(spec: CellSpec): boolean {
   ) {
     return false;
   }
-  if (spec.briefBlast === "empty" && !hasBrief) return false;
   /* A pack without a DOM is the contracts alone, which the architecture map supplies. */
   if (spec.packDom === false && !(hasPack && spec.contextMap)) return false;
   if (spec.packRedirect && !(hasPack && spec.packDom)) return false;
@@ -139,12 +129,12 @@ export function isValidSpec(spec: CellSpec): boolean {
     const cannotSayWhich = spec.phase === "regen-coverage" || spec.phase === "selector-fix";
     const listsItsSuite = spec.mode === "diff" || spec.mode === "manual";
     if (!cannotSayWhich || !listsItsSuite || spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts || spec.service || spec.packRedirect) return false;
-    if (spec.structuralSignal !== "none" || spec.briefBlast === "empty" || !spec.packDom) return false;
+    if (spec.structuralSignal !== "none" || !spec.packDom) return false;
   }
   /* The budget is one small block that bears on no other decision: it meets every phase, tree and grounding of an e2e run that writes tests, with the plain signals and none of the optional blocks. */
   if (spec.closedLoop) {
     if (isContext || isCode || spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts || spec.service || spec.packRedirect) return false;
-    if (spec.structuralSignal !== "none" || spec.briefBlast === "empty" || !spec.packDom || spec.suite !== "listed") return false;
+    if (spec.structuralSignal !== "none" || !spec.packDom || spec.suite !== "listed") return false;
   }
   /* The browser's budget meets exactly the shapes the run_spec budget does, and is granted on top of it. */
   if (spec.agentBrowser && !spec.closedLoop) return false;
@@ -152,7 +142,7 @@ export function isValidSpec(spec: CellSpec): boolean {
   if (spec.planning) {
     if (isContext || isCode || spec.phase !== "first" || spec.tree !== "none" || spec.closedLoop || spec.agentBrowser) return false;
     if (spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts || spec.service || spec.packRedirect) return false;
-    if (spec.structuralSignal !== "none" || spec.briefBlast === "empty" || !spec.packDom || spec.suite !== "listed") return false;
+    if (spec.structuralSignal !== "none" || !spec.packDom || spec.suite !== "listed") return false;
   }
   /* The service block belongs to the diff-shaped first pass and to every regeneration of an e2e run. */
   if (spec.service && (isContext || (spec.mode !== "diff" && spec.phase === "first"))) return false;
@@ -196,7 +186,6 @@ export function cellName(spec: CellSpec): string {
     spec.authSeedUnauthored ? "login" : "",
     spec.serviceLinks ? "links" : "",
     spec.harnessFacts ? "facts" : "",
-    spec.briefBlast === "empty" ? "noblast" : "",
     spec.packDom ? "" : "nodom",
     spec.packRedirect ? "redirect" : "",
     spec.service ? "service" : "",
@@ -225,20 +214,6 @@ const TREE_TEXT = formatDomSnapshot([
     nodes: ["heading: Cart", "textbox: Coupon code", "button: Apply coupon"],
   },
 ]);
-
-const BRIEF: ExplorationBrief = {
-  builtForSha: "abc1234def",
-  objective: "the discounted total shows after the cart re-queries",
-  blastRadius: [
-    { symbol: "CartService.applyCoupon", file: "src/app/cart/cart.service.ts", role: "posts the coupon and returns the new total" },
-    { symbol: "CartComponent.total", file: "src/app/cart/cart.component.ts", role: "renders the discounted total" },
-  ],
-  feBe: [{ route: "/cart", operationId: "applyCoupon", via: "CartClient.applyCoupon" }],
-  contracts: [{ operationId: "applyCoupon", method: "POST", path: "/cart/coupon", fields: ["code"], errors: ["404 unknown coupon"] }],
-  routes: [{ path: "/cart", component: "CartComponent", domLandmarks: ["button Apply coupon"], verified: false }],
-  risks: ["assert the discounted total, not only that the request succeeded"],
-  notes: "the coupon is applied server-side",
-};
 
 const CONTEXT_MAP: ArchitectureContext = {
   builtAtSha: "abc1234def",
@@ -313,14 +288,11 @@ const packDeps: ContextPackDeps = {
 
 const CHANGED_FILES = ["src/app/cart/cart.service.ts", "src/app/cart/cart.component.ts"];
 
-const briefFor = (spec: CellSpec): ExplorationBrief => (spec.briefBlast === "empty" ? { ...BRIEF, blastRadius: [] } : BRIEF);
-
 async function buildPack(spec: CellSpec): Promise<string | undefined> {
   const capture = !spec.packDom ? undefined : spec.packRedirect ? REDIRECT_TEXT : TREE_TEXT;
   const deps: ContextPackDeps = { ...packDeps, captureDomForRoutes: async () => capture };
   const { text } = await buildContextPack(
     {
-      ...(spec.grounding === "brief+pack" ? { brief: briefFor(spec) } : {}),
       ...(spec.contextMap ? { contextMap: CONTEXT_MAP } : {}),
       baseUrl: "http://localhost:3000",
       e2eDir: "/mirrors/org__app/e2e",
@@ -431,8 +403,7 @@ export async function buildInput(spec: CellSpec, stepLimit?: number): Promise<Op
     ...(spec.planning ? { planning: MATRIX_PLANNING } : {}),
   };
 
-  if (spec.grounding === "brief" || spec.grounding === "brief+pack") input.contextBrief = briefFor(spec);
-  if (spec.grounding === "pack" || spec.grounding === "brief+pack") {
+  if (spec.grounding === "pack") {
     const pack = await buildPack(spec);
     if (pack) input.contextPack = pack;
   }
@@ -550,7 +521,6 @@ function combinationBucket(spec: CellSpec): string {
     spec.phase,
     `tree-${spec.tree}`,
     spec.grounding,
-    ...(spec.briefBlast === "empty" ? ["no-blast"] : []),
     ...(spec.packDom ? [] : ["contracts-only"]),
     ...(spec.structuralSignal === "none" ? [] : [SIGNAL_FLAG[spec.structuralSignal]]),
     ...(spec.service ? ["service"] : []),
@@ -584,16 +554,8 @@ export function measureAssembled(sections: readonly LintSection[]): CellMeasure 
   };
 }
 
-let briefWired = false;
-function wireShellBriefRenderer(): void {
-  if (briefWired) return;
-  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
-  briefWired = true;
-}
-
 /* Every combination that can reach the agent is linted for contradictions and duplicates and measured against the budget recorded for its bucket. */
 export async function buildMatrix(root: string = ROOT, specs: readonly CellSpec[] = allValidSpecs()): Promise<MatrixCell[]> {
-  wireShellBriefRenderer();
   const layers: StaticLayerName[] = ["opencode", "codex"];
   const staticByLayer = new Map(layers.map((l) => [l, loadStaticLayer(l, root)] as const));
   const cells: MatrixCell[] = [];

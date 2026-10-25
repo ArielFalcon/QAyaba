@@ -173,8 +173,7 @@ The harness pre-computes context so the agent does not have to rediscover it. An
 to the agent's behaviour must make it **consume** this context, not re-derive it:
 - **Pre-generation grounding** —
   `qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts`
-  (fail-open): explorer brief (blast radius; `qa.explorer`, off for an e2e run unless the run asks, since the lead explores the code graph itself) on diff and manual runs,
-  context pack (live DOM per route, redirect advisory, relevant API contracts, routes not
+  (fail-open): context pack (live DOM per route, redirect advisory, relevant API contracts, routes not
   capturable — `generation/infrastructure/context-pack.ts`), harness facts
   (`generation/domain/harness-facts.ts`), existing-suite manifest.
 - **Pre-exec / review grounding** — `pre-exec-grounding-port.adapter.ts`,
@@ -224,7 +223,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   counts them; Codex has none.
 - **Lead and sidekicks (`qa.coordination`)** — the only coordination: every e2e run that generates has the lead return a **plan**
   instead of specs (`GenerationPort.plan`, a read-only turn, `plan` in the generator's verdict) and each flow authored by a sidekick in parallel. A code run, a context run and a login still to be written never coordinate; `qa.coordination`
-  only sets the limits. The lead grounds deterministically: no explorer runs, the plan turn's
+  only sets the limits. The lead grounds deterministically (no agent turn), the plan turn's
   diff names the app's own test files instead of showing them (`LanguageRegistry.isTestFile`), its session is denied Playwright
   (`LEAD_PLAN_DENIED_TOOLS`), and it explores with the code-graph tools. A diff over the prompt cap keeps every whole file section that fits
   (code before style sheets) and lists each one left out with its added and removed lines (`prompt-cap.ts`), and the plan turn is told the
@@ -267,7 +266,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   per flow of a plan — that the `set_geolocation` tool moves for the authenticated browser and the prompts; a plan may name a
   place per flow and a flow without one inherits the lead's. It never enters the delivered suite: a spec whose result depends
   on a location pins it with `setLocation(context, latitude, longitude)`. Codex has no custom tool and states the facts only.
-- **Step limit and milestone** — the generator, explorer and reviewer prompts state the cap
+- **Step limit and milestone** — the generator and reviewer prompts state the cap
   their runtime enforces (facts-only `step-limit` section): one live read per run of the
   OpenCode server's resolved agents (`steps`, the legacy `maxSteps` mapped into it; `stepLimits`
   in `src/agent-runtime/`), never the orchestrator's own copy of `agents/opencode.json`. A turn whose prompt
@@ -351,8 +350,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   script. A declared page is first rendered beside its sibling that cannot exist (its last parameter replaced by
   `qayaba-no-such-page`); one whose tree is that sibling's is the site's "nothing here" page, gone from DEV, and is
   listed as not capturable with why instead of delivered. A template counts as opened only when the capture grounded its page at its own address; otherwise it is
-  listed as not capturable, with why. The explorer is shown the map's route paths so its brief names pages
-  by them.
+  listed as not capturable, with why.
 - **Cross-run learning** — `qa-engine/src/contexts/cross-run-learning/`: deterministic
   rule fold, rule governance, curriculum, and the `qa-reflector` pass (distils
   `candidate`/`low`-confidence rules only; flaky/infra verdicts excluded). No agent keeps a memory of its own across

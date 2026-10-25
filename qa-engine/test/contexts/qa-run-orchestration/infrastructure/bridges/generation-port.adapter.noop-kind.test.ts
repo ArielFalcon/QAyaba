@@ -15,7 +15,6 @@ function portsReturning(deliverable: GeneratorDeliverable): GenerationPorts {
       render: () => "",
       renderMain: () => ({ text: "prompt", sectionSizes: {} }),
       renderReviewer: () => ({ text: "reviewer-prompt", sectionSizes: {} }),
-      renderExplorer: () => "",
       specFileForFlow: (flow: string) => `flows/${flow}.spec.ts`,
     },
     verdicts: {

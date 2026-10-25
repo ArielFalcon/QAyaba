@@ -45,7 +45,7 @@ async function groundedMap(mirror: string, map: ArchitectureContext): Promise<Ar
       },
     },
   );
-  await adapter.ground(join(mirror, "e2e"), undefined, undefined, { sha: "abc1234" });
+  await adapter.ground(join(mirror, "e2e"), undefined, undefined);
   return seen;
 }
 
@@ -132,7 +132,7 @@ test("a route without implementation files, and a map without a mirror to read, 
     await new PreGenerationGroundingPortAdapter(
       { e2eDir: join(mirror, "e2e"), contextMap: map },
       { loadContextMap: () => undefined, buildContextPack: async (input) => { seen = input.contextMap; return { text: undefined, domBytes: 0, contractBytes: 0 }; } },
-    ).ground(join(mirror, "e2e"), undefined, undefined, { sha: "abc1234" });
+    ).ground(join(mirror, "e2e"), undefined, undefined);
     assert.deepEqual(seen, map);
   });
 });

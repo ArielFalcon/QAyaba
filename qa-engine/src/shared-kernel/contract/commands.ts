@@ -142,7 +142,6 @@ export const CampaignInputSchema = z.object({
 
 /* The run's own choice of grounding sources (an A/B arm); every key absent means the app's setting. */
 export const GroundingInputSchema = z.object({
-  explorer: z.boolean().optional(),
   stitcher: z.boolean().optional(),
   structuralSignal: z.boolean().optional(),
   curriculum: z.boolean().optional(),
@@ -625,7 +624,6 @@ export const EffectiveConfigSchema = z.object({
   ),
   prompt: z.object({ staticHash: z.string().nullable() }),
   grounding: z.object({
-    explorer: z.boolean().nullable(),
     stitcher: z.string().nullable(),
     structuralSignal: z.string().nullable(),
     curriculum: z.string().nullable(),

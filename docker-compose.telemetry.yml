@@ -173,8 +173,6 @@ services:
     environment:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
       OTEL_SERVICE_NAME: qayaba-orchestrator
-      # Track the explorer's calls for its trace without registering, watching or waiting for its session (off in plain compose).
-      QA_TELEMETRY_OBSERVE_UNWATCHED: "true"
 
   agents:
     # The agents container is deliberately NOT on telemetry-internal: it can reach only collector-agents, over agent-otlp.

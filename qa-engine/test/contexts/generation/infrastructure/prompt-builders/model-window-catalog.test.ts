@@ -192,7 +192,6 @@ test("catalog: roleWindowBytes resolves correctly for all roster roles via a ful
       "qa-reviewer":    { model: "opencode-go/minimax-m3" },
       "qa-worker":      { model: "opencode-go/deepseek-v4-flash" },
       "qa-worker-code": { model: "opencode-go/deepseek-v4-flash" },
-      "qa-explorer":    { model: "opencode-go/deepseek-v4-flash" },
       "qa-reflector":   { model: "opencode-go/deepseek-v4-flash" },
       "qa-assistant":   { model: "opencode-go/deepseek-v4-flash" },
     },
@@ -216,7 +215,7 @@ test("catalog: roleWindowBytes resolves correctly for all roster roles via a ful
    (qa-generator→primary, qa-reviewer→reviewer, qa-assistant→chat), roleWindowBytes resolves the
    model from the INJECTED runtime assignment FIRST (via setRuntimeRoleModels, wired by the shell from
    configFromEnv() at composition time) — opencode.json is consulted only as a disagreement check
-   (warn, not override). Non-visible roles (qa-worker, qa-worker-code, qa-explorer, qa-maintainer,
+   (warn, not override). Non-visible roles (qa-worker, qa-worker-code, qa-maintainer,
    qa-reflector — none of which has its own AgentRuntimeConfig assignment; assignmentForRole aliases
    them to `primary`, which would be WRONG here since opencode.json genuinely assigns them a cheaper,
    different model) keep the pre-existing opencode.json-only resolution, UNCHANGED.

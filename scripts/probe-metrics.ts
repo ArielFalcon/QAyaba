@@ -16,7 +16,6 @@ import type { NoopKind } from "@kernel/noop-kind.ts";
 import { DecideCoverageService, type CoverageStatus } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
 import { isContentReadTool } from "@contexts/generation/domain/call-sequence.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
-import { EXPLORER_AGENT_NAME } from "@contexts/generation/domain/explorer-agent.ts";
 import type { ToolSequenceEntry } from "@contexts/generation/domain/tool-sequence.ts";
 import type { TurnCallMetrics } from "@contexts/generation/domain/turn-efficiency-summary.ts";
 import type { AgentTurnRecord } from "../src/server/history.ts";
@@ -67,12 +66,10 @@ export function phaseDurations(events: readonly TimedRunEvent[]): { totalMs: num
 
 /* ── tools ─────────────────────────────────────────────────────────────────────────── */
 
-/** What a run's diff and the explorer's brief say about where the agent should have looked. Either is null when unknown. */
+/** What a run's diff says about where the agent should have looked. Null when unknown. */
 export interface ReadingContext {
   /** Paths of the files the change touched, relative to the working copy. */
   changedFiles: readonly string[] | null;
-  /** The explorer's brief, as text. */
-  briefText: string | null;
   /** The directory the agent writes its tests under: reading there is expected, not exploration. */
   suiteDir: string;
 }
@@ -90,9 +87,6 @@ export interface ToolSummary {
   /** Reads outside every directory the diff touches and outside the suite directory; null when the diff is unknown. */
   filesReadOutsideDiffDirs: number | null;
   outsideDiffDirsSample: string[];
-  /** Reads of a file the explorer's brief does not name; null when there was no brief. */
-  filesReadOutsideBrief: number | null;
-  outsideBriefSample: string[];
   /** The pages the agent opened in the browser, in order, once each. */
   browserUrls: string[];
 }
@@ -112,7 +106,7 @@ function isUnder(file: string, dir: string): boolean {
 
 /**
  * Reduces a turn's tool sequence to where the agent looked: which files it read, how many of them lie
- * outside the directories the diff touched and outside the explorer's brief, and which pages it opened.
+ * outside the directories the diff touched, and which pages it opened.
  * A denied call is counted as denied and is not a read. Null when the turn kept no sequence.
  */
 export function summarizeTools(sequence: readonly ToolSequenceEntry[] | null, ctx: ReadingContext): ToolSummary | null {
@@ -123,7 +117,6 @@ export function summarizeTools(sequence: readonly ToolSequenceEntry[] | null, ct
   const reads = [...new Set(sequence.filter((e) => !e.denied && e.target !== null && isContentReadTool(e.tool)).map((e) => e.target as string))];
   const diffDirs = ctx.changedFiles === null ? null : [...new Set(ctx.changedFiles.map(dirOf))];
   const outsideDiff = diffDirs === null ? null : reads.filter((f) => !isUnder(f, ctx.suiteDir) && !diffDirs.some((d) => isUnder(f, d)));
-  const outsideBrief = ctx.briefText === null ? null : reads.filter((f) => !isUnder(f, ctx.suiteDir) && !(ctx.briefText as string).includes(f));
   const urls = [...new Set(sequence.filter((e) => !e.denied && e.target !== null && BROWSER_NAVIGATE.test(e.tool)).map((e) => e.target as string))];
 
   return {
@@ -133,8 +126,6 @@ export function summarizeTools(sequence: readonly ToolSequenceEntry[] | null, ct
     distinctFilesRead: reads.length,
     filesReadOutsideDiffDirs: outsideDiff === null ? null : outsideDiff.length,
     outsideDiffDirsSample: (outsideDiff ?? []).slice(0, SAMPLE_SIZE),
-    filesReadOutsideBrief: outsideBrief === null ? null : outsideBrief.length,
-    outsideBriefSample: (outsideBrief ?? []).slice(0, SAMPLE_SIZE),
     browserUrls: urls.slice(0, URL_LIMIT),
   };
 }
@@ -316,7 +307,7 @@ export interface ProbeReport {
   totalMs: number | null;
   phases: PhaseDurations;
   /** Time inside the phases above that the run also records separately. */
-  nested: { explorerMs: number | null; domCaptureMs: number | null; reviewMs: number | null };
+  nested: { domCaptureMs: number | null; reviewMs: number | null };
   turns: ProbeTurn[];
   totals: ProbeTotals;
   specs: ProbeSpec[];
@@ -406,14 +397,11 @@ export function buildPipelineReport(input: PipelineReportInput): ProbeReport {
   const { record, outcome, events } = input;
   const { totalMs, finished, phases } = phaseDurations(events);
   const started = lastEvent(events, "run.started");
-  const explorerTurns = input.turns.filter((t) => roleIs(t, EXPLORER_AGENT_NAME));
-  const briefText = explorerTurns.length > 0 ? explorerTurns[explorerTurns.length - 1]!.outputText : null;
-  const ctx: ReadingContext = { changedFiles: input.changedFiles, briefText, suiteDir: input.suiteDir ?? DEFAULT_SUITE_DIR };
+  const ctx: ReadingContext = { changedFiles: input.changedFiles, suiteDir: input.suiteDir ?? DEFAULT_SUITE_DIR };
   const turns = input.turns.map((t) => toProbeTurn(t, ctx));
 
-  const explorerMs = sumKnown(explorerTurns.map((t) => t.durationMs ?? null));
   const reviewMs = sumKnown(input.turns.filter((t) => roleIs(t, "reviewer")).map((t) => t.durationMs ?? null));
-  const domCaptureMs = phases.grounding !== null && explorerMs !== null && phases.grounding >= explorerMs ? phases.grounding - explorerMs : null;
+  const domCaptureMs = phases.grounding;
 
   const computed = lastEvent(events, "coverage.computed");
   const verdictEvent = lastEvent(events, "reviewer.verdict");
@@ -438,7 +426,7 @@ export function buildPipelineReport(input: PipelineReportInput): ProbeReport {
     finished: finished || outcome !== undefined,
     totalMs,
     phases,
-    nested: { explorerMs, domCaptureMs, reviewMs },
+    nested: { domCaptureMs, reviewMs },
     turns,
     totals: totalsOf(turns),
     specs,
@@ -457,7 +445,7 @@ export function buildPipelineReport(input: PipelineReportInput): ProbeReport {
     ...(outcome?.gateSignals.coordination ? { coordination: outcome.gateSignals.coordination } : {}),
     ...(outcome?.gateSignals.noop ? { noop: outcome.gateSignals.noop } : {}),
     ...(input.groundTruth
-      ? { groundTruth: scoreGroundTruth(input.groundTruth, { briefText, filesRead: contentReadsOf(turns), specSources: specSourcesOf(specs, input.specSources), ...(input.contextIds ? { contextIds: input.contextIds } : {}) }) }
+      ? { groundTruth: scoreGroundTruth(input.groundTruth, { filesRead: contentReadsOf(turns), specSources: specSourcesOf(specs, input.specSources), ...(input.contextIds ? { contextIds: input.contextIds } : {}) }) }
       : {}),
   };
 }
@@ -536,9 +524,6 @@ export interface GroundTruth {
   /** FE↔BE links, as `repo/symbol→repo/symbol` (the same form as the `svc-link:` ids); absent in an older truth file. */
   affectedLinks?: string[];
   notAffectedLinks?: string[];
-  /** API operations, by operationId; absent in an older truth file. */
-  affectedOperations?: string[];
-  notAffectedOperations?: string[];
   /** The data state the expected outcome depends on, written by hand (R4: 0 restaurants means a no-op). */
   devDataState?: { note?: string; resultCount?: number };
   /** The change's identifiable elements, when the case has them. */
@@ -562,8 +547,6 @@ export function parseGroundTruth(raw: unknown): GroundTruth {
     notAffectedRoutes: list("notAffectedRoutes", false),
     affectedLinks: list("affectedLinks", false),
     notAffectedLinks: list("notAffectedLinks", false),
-    affectedOperations: list("affectedOperations", false),
-    notAffectedOperations: list("notAffectedOperations", false),
   };
   if (truth.affectedFiles.length === 0) throw new Error("ground truth 'affectedFiles' is empty: there is nothing to recall");
   const data = obj["devDataState"];
@@ -616,12 +599,6 @@ export interface SourceScore {
 }
 
 export interface GroundTruthScore {
-  /** The files the explorer's brief names in its blast radius; null when the run had no explorer brief. */
-  briefBlastRadius: SourceScore | null;
-  /** The routes the explorer's brief names; null when the run had no brief. */
-  briefRoutes: SourceScore | null;
-  /** The API operations the explorer's brief names; null when the run had no brief. */
-  briefLinks: SourceScore | null;
   /** The FE↔BE links the stitcher delivered; null when the run recorded no service-links source. */
   stitcherLinks: SourceScore | null;
   /** The routes the change ranking delivered; null when the run recorded no route-ranking source. */
@@ -664,43 +641,6 @@ function scoreNamed(basis: string, affected: readonly string[], notAffected: rea
     precisionAll: ratio(namedHits, named.length),
     recall: ratio(hits.length, affected.length),
   };
-}
-
-/** The files an explorer brief lists in its blast radius, or null when the brief is not the JSON the explorer is asked for. */
-export function briefBlastRadiusFiles(briefText: string): string[] | null {
-  const candidates = [briefText.trim(), briefText.slice(briefText.indexOf("{"), briefText.lastIndexOf("}") + 1)];
-  for (const text of candidates) {
-    try {
-      const parsed = JSON.parse(text) as { blastRadius?: unknown };
-      if (Array.isArray(parsed.blastRadius)) {
-        return [...new Set(parsed.blastRadius.flatMap((e) => (typeof (e as { file?: unknown } | null)?.file === "string" ? [normalizeFile((e as { file: string }).file)] : [])))];
-      }
-    } catch {
-      /* the next spelling */
-    }
-  }
-  return null;
-}
-
-/** The routes and operation ids an explorer brief names, or null when the brief is not the JSON the explorer is asked for. */
-function briefParts(briefText: string): { routes: string[]; operations: string[] } | null {
-  const candidates = [briefText.trim(), briefText.slice(briefText.indexOf("{"), briefText.lastIndexOf("}") + 1)];
-  for (const text of candidates) {
-    try {
-      const parsed = JSON.parse(text) as { routes?: unknown; feBe?: unknown; contracts?: unknown };
-      const routes = Array.isArray(parsed.routes)
-        ? [...new Set(parsed.routes.flatMap((r) => (typeof (r as { path?: unknown } | null)?.path === "string" ? [(r as { path: string }).path] : [])))]
-        : [];
-      const operations = [...new Set([
-        ...(Array.isArray(parsed.feBe) ? parsed.feBe.flatMap((l) => (typeof (l as { operationId?: unknown } | null)?.operationId === "string" ? [(l as { operationId: string }).operationId] : [])) : []),
-        ...(Array.isArray(parsed.contracts) ? parsed.contracts.flatMap((c) => (typeof (c as { operationId?: unknown } | null)?.operationId === "string" ? [(c as { operationId: string }).operationId] : [])) : []),
-      ])];
-      return { routes, operations };
-    } catch {
-      /* the next spelling */
-    }
-  }
-  return null;
 }
 
 /** A route as a spec navigates to it: no origin, query or hash, a leading slash and no trailing one. Null for a URL that cannot be read. */
@@ -755,8 +695,6 @@ export function specSourcesOf(specs: readonly ProbeSpec[], sources: ReadonlyMap<
 }
 
 export interface GroundTruthEvidence {
-  /** The explorer's output; null when there was no explorer. */
-  briefText: string | null;
   filesRead: readonly string[] | null;
   specSources: readonly string[] | null;
   /** The context ids the run recorded, by source; absent when the history was not read. */
@@ -767,33 +705,11 @@ export interface GroundTruthEvidence {
 export function scoreGroundTruth(truth: GroundTruth, evidence: GroundTruthEvidence): GroundTruthScore {
   const fileScore = (basis: string, named: readonly string[]): SourceScore => scoreNamed(basis, truth.affectedFiles, truth.notAffectedFiles, named, fileMatches);
 
-  let briefBlastRadius: SourceScore | null = null;
-  if (evidence.briefText !== null) {
-    const files = briefBlastRadiusFiles(evidence.briefText);
-    if (files !== null) briefBlastRadius = fileScore("files of the brief's blastRadius entries", files);
-    else {
-      /* Free text: only the judged files can be looked for in it. */
-      const text = evidence.briefText.replaceAll("\\", "/");
-      const mentioned = (file: string): boolean => text.includes(file);
-      const hits = truth.affectedFiles.filter(mentioned);
-      briefBlastRadius = {
-        basis: "ground-truth files mentioned in the brief's text (it was not the expected JSON)", named: null, hits, misses: truth.affectedFiles.filter((f) => !hits.includes(f)),
-        falsePositives: truth.notAffectedFiles.filter(mentioned), unjudged: null,
-        precision: ratio(hits.length, hits.length + truth.notAffectedFiles.filter(mentioned).length), precisionAll: null, recall: ratio(hits.length, truth.affectedFiles.length),
-      };
-    }
-  }
-
   const filesRead = evidence.filesRead === null ? null : fileScore("files read with a content-read tool, by every agent turn", evidence.filesRead);
 
   const exact = (truthItem: string, named: string): boolean => truthItem === named;
-  const affectedOps = truth.affectedOperations ?? [];
-  const notAffectedOps = truth.notAffectedOperations ?? [];
   const affectedLinks = truth.affectedLinks ?? [];
   const notAffectedLinks = truth.notAffectedLinks ?? [];
-  const brief = evidence.briefText === null ? null : briefParts(evidence.briefText);
-  const briefRoutes = brief === null ? null : scoreNamed("route paths of the explorer's brief", truth.affectedRoutes, truth.notAffectedRoutes, brief.routes, routeMatches);
-  const briefLinks = brief === null ? null : scoreNamed("operation ids of the explorer's brief", affectedOps, notAffectedOps, brief.operations, exact);
 
   const sourceIds = (source: string): readonly string[] | null => evidence.contextIds?.find((c) => c.source === source)?.ids ?? null;
   const stripIds = (ids: readonly string[] | null, prefix: string): string[] | null => ids === null ? null : ids.filter((id) => id.startsWith(prefix)).map((id) => id.slice(prefix.length));
@@ -809,7 +725,7 @@ export function scoreGroundTruth(truth: GroundTruth, evidence: GroundTruthEviden
     const { routes, dynamic } = gotoRoutes(evidence.specSources);
     specRoutes = { ...scoreNamed("page.goto literals of the generated specs", truth.affectedRoutes, truth.notAffectedRoutes, routes, routeMatches), dynamicGotos: dynamic };
   }
-  return { briefBlastRadius, briefRoutes, briefLinks, stitcherLinks, rankingRoutes, mapRoutes, filesRead, specRoutes };
+  return { stitcherLinks, rankingRoutes, mapRoutes, filesRead, specRoutes };
 }
 
 /* ── rendering ─────────────────────────────────────────────────────────────────────── */
@@ -842,7 +758,7 @@ export function renderRunRow(r: ProbeReport): string {
   return `| ${cells.map((c) => cell(String(c))).join(" | ")} |`;
 }
 
-const TURN_COLUMNS = ["id", "role", "ended", "wall", "steps", "calls", "before 1st write (calls / time)", "to 1st call", "denied", "tokens in/out/reason/cache", "cost", "prompt B", "redundant / same-file / prompt-provided reads", "files read (outside diff dirs / outside brief)", "browser urls"] as const;
+const TURN_COLUMNS = ["id", "role", "ended", "wall", "steps", "calls", "before 1st write (calls / time)", "to 1st call", "denied", "tokens in/out/reason/cache", "cost", "prompt B", "redundant / same-file / prompt-provided reads", "files read (outside diff dirs)", "browser urls"] as const;
 
 /** The header of the per-turn table. */
 export const TURN_TABLE_HEADER = `| ${TURN_COLUMNS.join(" | ")} |\n|${TURN_COLUMNS.map(() => "---").join("|")}|`;
@@ -858,7 +774,7 @@ export function renderTurnRows(r: ProbeReport): string[] {
       `${num(t.callsBeforeFirstWrite)} / ${secs(t.msToFirstWrite)}${t.writes === 0 ? " (no write)" : ""}`, secs(t.msToFirstCall), num(t.deniedCalls),
       `${kilo(t.usage.input)}/${kilo(t.usage.output)}/${kilo(t.usage.reasoning)}/${kilo(t.usage.cacheRead)}${partial}`, `${usd(t.usage.cost)}${partial}`,
       num(t.promptBytes), `${num(t.redundantReads)} / ${num(t.sameFileReads)} / ${num(t.promptProvidedReads)}`,
-      tools === null ? NA : `${tools.distinctFilesRead} (${num(tools.filesReadOutsideDiffDirs)} / ${num(tools.filesReadOutsideBrief)})`,
+      tools === null ? NA : `${tools.distinctFilesRead} (${num(tools.filesReadOutsideDiffDirs)})`,
       tools === null ? NA : tools.browserUrls.length === 0 ? "0" : `${tools.browserUrls.length}: ${tools.browserUrls.slice(0, 3).join(", ")}${tools.browserUrls.length > 3 ? ", …" : ""}`,
     ];
     return `| ${cells.map((c) => cell(String(c))).join(" | ")} |`;
@@ -889,9 +805,6 @@ export function renderStitcherTables(reports: readonly ProbeReport[]): string[] 
     for (const r of withTruth) {
       const gt = r.groundTruth!;
       const sources: Array<[string, SourceScore | null]> = [
-        ["brief blast radius", gt.briefBlastRadius],
-        ["brief routes", gt.briefRoutes],
-        ["brief operations", gt.briefLinks],
         ["stitcher links", gt.stitcherLinks],
         ["ranking routes", gt.rankingRoutes],
         ["map routes", gt.mapRoutes],
@@ -903,7 +816,7 @@ export function renderStitcherTables(reports: readonly ProbeReport[]): string[] 
         else lines.push(row([r.id, r.arm, name, num(score.named), String(score.hits.length), String(score.misses.length), String(score.falsePositives.length), num(score.unjudged), fixed(score.precision), fixed(score.precisionAll), fixed(score.recall)]));
       }
     }
-    lines.push("", "precision = hits / (hits + false positives), over what the ground truth can judge; precision-all = affected items named / items named. A source `n/a` was not available for that run (no explorer brief, no tool sequence, no readable spec).");
+    lines.push("", "precision = hits / (hits + false positives), over what the ground truth can judge; precision-all = affected items named / items named. A source `n/a` was not available for that run (no tool sequence, no readable spec).");
   }
   return lines;
 }

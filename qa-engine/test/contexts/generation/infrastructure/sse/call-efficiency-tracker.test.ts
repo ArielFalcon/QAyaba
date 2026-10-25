@@ -1306,33 +1306,7 @@ test("a call keeps the target kind and the path inside the working copy only whe
   assert.deepEqual(calls.map((c) => [c.callId, c.relPath, c.targetKind]), [["inside", "src/a.ts", "path"], ["outside", undefined, "path"], ["none", undefined, null]]);
 });
 
-/* --- a session observed without being watched: its calls are tracked and nothing waits for it --- */
-
-test("a session attached unwatched is not delayed by a stream that is still opening, and says its steps were not observed completely", async () => {
-  const timer = new ManualTimer();
-  const tracker = new CallEfficiencyTracker({ timer });
-  const token: StreamToken = Symbol("stream");
-  tracker.streamOpening(CWD, token);
-  tracker.attachUnwatched("s1", CWD);
-  const prepared = tracker.prepareAttempt("s1", 0);
-  assert.equal(await settled(prepared), true, "the attempt does not wait for the stream");
-  assert.equal(timer.scheduled, 0, "and no readiness timer is armed");
-  recordSteps(tracker, "s1", stepIds("a"));
-  assert.equal(tracker.take("s1", "")?.stepsUsed, null, "a stream that was not live for the attempt is a gap");
-});
-
-test("a session attached unwatched to a live stream is observed completely, like any other", async () => {
-  const tracker = new CallEfficiencyTracker();
-  liveStream(tracker);
-  tracker.attachUnwatched("s1", CWD);
-  await tracker.prepareAttempt("s1", 0);
-  recordSteps(tracker, "s1", stepIds("a", "b"));
-  const metrics = tracker.take("s1", "");
-  assert.equal(metrics?.stepsUsed, 2);
-  assert.equal(metrics?.observationComplete, true);
-});
-
-test("a session attached to a stream that is still opening waits for it, as before", async () => {
+test("a session attached to a stream that is still opening waits for it", async () => {
   const timer = new ManualTimer();
   const tracker = new CallEfficiencyTracker({ timer });
   tracker.streamOpening(CWD, Symbol("stream"));

@@ -13,10 +13,6 @@ test("roleToAgentName maps the kernel reflector role to the qa-reflector agent, 
   assert.equal(roleToAgentName("reflector"), "qa-reflector");
 });
 
-test("roleToAgentName maps the kernel explorer role to qa-explorer, not qa-generator", () => {
-  assert.equal(roleToAgentName("explorer"), "qa-explorer");
-});
-
 test("roleToAgentName maps the sidekick role to its own qa-sidekick agent (not qa-worker)", () => {
   assert.equal(roleToAgentName("sidekick"), "qa-sidekick");
 });
@@ -45,11 +41,11 @@ type _KernelRuntimeRoleParity = AssertNever<KeyDiff<RuntimeAgentRole, KernelAgen
    literal lists themselves fall out of sync with one another.
  */
 const RUNTIME_ROLES = [
-  "primary", "reviewer", "chat", "sidekick", "maintainer", "reflector", "explorer", "proposer",
+  "primary", "reviewer", "chat", "sidekick", "maintainer", "reflector", "proposer",
 ] as const satisfies readonly RuntimeAgentRole[];
 
 const KERNEL_ROLES = [
-  "primary", "reviewer", "chat", "sidekick", "maintainer", "reflector", "explorer", "proposer",
+  "primary", "reviewer", "chat", "sidekick", "maintainer", "reflector", "proposer",
 ] as const satisfies readonly KernelAgentRole[];
 
 test("kernel and runtime AgentRole unions contain the exact same member set (includes proposer)", () => {

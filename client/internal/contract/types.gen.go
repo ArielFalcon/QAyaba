@@ -2105,7 +2105,6 @@ type CreateRunInput struct {
 	Grounding   *struct {
 		Curriculum       *bool `json:"curriculum,omitempty"`
 		DomPack          *bool `json:"domPack,omitempty"`
-		Explorer         *bool `json:"explorer,omitempty"`
 		Stitcher         *bool `json:"stitcher,omitempty"`
 		StructuralSignal *bool `json:"structuralSignal,omitempty"`
 	} `json:"grounding,omitempty"`
@@ -2599,7 +2598,6 @@ type RunDetail struct {
 		Grounding struct {
 			Curriculum       *string `json:"curriculum"`
 			DomPack          *bool   `json:"domPack"`
-			Explorer         *bool   `json:"explorer"`
 			Stitcher         *string `json:"stitcher"`
 			StructuralSignal *string `json:"structuralSignal"`
 		} `json:"grounding"`

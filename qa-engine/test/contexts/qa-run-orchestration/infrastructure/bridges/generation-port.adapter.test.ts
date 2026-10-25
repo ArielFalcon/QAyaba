@@ -30,7 +30,6 @@ import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prom
 import {
   buildPromptAssembled,
   buildReviewerPromptAssembled,
-  buildExplorerPrompt,
   specFileForFlow,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 
@@ -49,7 +48,6 @@ function fakeGenerationPorts(overrides: {
       render: () => "",
       renderMain: () => ({ text: "prompt", sectionSizes: {} }),
       renderReviewer: () => ({ text: "reviewer-prompt", sectionSizes: {} }),
-      renderExplorer: () => "",
       specFileForFlow: (flow: string) => `flows/${flow}.spec.ts`,
     },
     verdicts: {
@@ -507,30 +505,6 @@ test("generate() maps enrichment.contextMap onto OpencodeRunInput", async () => 
     assert.ok(capturedInput?.contextMap, "OpencodeRunInput.contextMap must be the object field, not a pack-text grep");
     assert.deepEqual(capturedInput?.contextMap, T4_CONTEXT_MAP);
     assert.equal(capturedInput?.contextMap?.api[0]?.operationId, "getOwners");
-  } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
-  }
-});
-
-test("generate() maps enrichment.contextBrief onto OpencodeRunInput", async () => {
-  const ports = fakeGenerationPorts();
-  let capturedInput: OpencodeRunInput | undefined;
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
-    capturedInput = input;
-    return originalGenerate.call(this, input, opts);
-  };
-  try {
-    const useCase = new GenerateTestsUseCase(ports);
-    const adapter = new GenerationPortAdapter(useCase, {
-      repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
-      namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
-    });
-    const brief = { builtForSha: "abc1234", objective: "checkout", blastRadius: [{ symbol: "Pay", file: "pay.ts", role: "charges" }] };
-
-    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { contextBrief: brief });
-
-    assert.deepEqual(capturedInput?.contextBrief, brief);
   } finally {
     GenerateTestsUseCase.prototype.generate = originalGenerate;
   }
@@ -1045,7 +1019,7 @@ async function runFirstReviewPass(rules: readonly RetrievedRule[]): Promise<{ ge
       }),
     },
     rendering: new PromptRenderingAdapter({
-      buildPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow,
+      buildPromptAssembled, buildReviewerPromptAssembled, specFileForFlow,
     }),
     verdicts: {
       parseGenerator: () => ({ specs: ["flows/search.spec.ts"], parsed: true }),
@@ -1105,7 +1079,7 @@ async function generatorPromptFor(
       }),
     },
     rendering: new PromptRenderingAdapter({
-      buildPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow,
+      buildPromptAssembled, buildReviewerPromptAssembled, specFileForFlow,
     }),
     verdicts: {
       parseGenerator: () => ({ specs: [], parsed: true }),

@@ -3,19 +3,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildPromptAssembled,
-  setExplorationBriefCollaborators,
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { countDirectives, hasTrustLanguage, HARNESS_FACTS_SECTION_ID } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
-import type { ArchitectureContext, OpencodeRunInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ArchitectureContext, OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 
-setExplorationBriefCollaborators({
-  parseExplorationBrief: () => null,
-  coerceExplorationBrief: () => null,
-  renderExplorationBrief: (brief: ExplorationBrief) => `## ${PROMPT_HEADINGS.explorationBrief}\nObjective: ${brief.objective}`,
-});
 
 function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
   return {

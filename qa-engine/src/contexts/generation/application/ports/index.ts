@@ -2,7 +2,7 @@
 
 import type { Objective } from "@kernel/objective.ts";
 import type { QaCase, SpecMeta } from "@kernel/qa-case.ts";
-import type { OpencodeRunInput, ReviewInput, ExplorationBrief } from "./generation-ports.ts";
+import type { OpencodeRunInput, ReviewInput } from "./generation-ports.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 import type { RenderedPromptFacts } from "../../domain/prompt-facts.ts";
 import type { NoopKind } from "@kernel/noop-kind.ts";
@@ -41,7 +41,6 @@ export interface PromptRenderingPort {
   /** `continuation`: the prompt of a regeneration sent in the session that already holds the run's grounding, so only what changed is rendered. */
   renderMain(input: OpencodeRunInput, opts?: { continuation?: boolean }): { text: string; sectionSizes: Record<string, number>; providedPaths?: readonly string[] } & RenderedPromptFacts;
   renderReviewer(input: ReviewInput): { text: string; sectionSizes: Record<string, number> } & RenderedPromptFacts;
-  renderExplorer(input: OpencodeRunInput): string;
   specFileForFlow(flow: string): string;
 }
 
@@ -66,6 +65,5 @@ export interface PlanObjectiveView {
   reason?: string;
   symbols: string[];     /* code symbols the spec should exercise (serena blast radius) */
   needsUi: boolean;
-  brief?: ExplorationBrief; /* distilled blast radius so the worker need not re-explore (optional → back-compat) */
 }
 export interface PlanParserPort { parse(text: string): PlanObjectiveView[]; }

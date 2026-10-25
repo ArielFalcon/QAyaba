@@ -3,18 +3,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildPromptAssembled,
-  setExplorationBriefCollaborators,
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import type { PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
-import type { OpencodeRunInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 
-setExplorationBriefCollaborators({
-  parseExplorationBrief: () => null,
-  coerceExplorationBrief: () => null,
-  renderExplorationBrief: (brief: ExplorationBrief) => `## ${PROMPT_HEADINGS.explorationBrief}\nObjective: ${brief.objective}`,
-});
 
 const SUBJECT = "feat(cart): SUBJECT-MARKER shows the total";
 const BODY = "BODY-MARKER applies the coupon after the cart re-queries";

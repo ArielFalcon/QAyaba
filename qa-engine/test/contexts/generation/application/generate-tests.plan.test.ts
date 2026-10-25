@@ -46,7 +46,6 @@ function build(step: { output: string } | { throws: Error }, deliverable: Genera
       render: () => "",
       renderMain: (input) => { seen.rendered.push(input); return { text: "PLAN_PROMPT", sectionSizes: { task: 1 } }; },
       renderReviewer: () => ({ text: "REVIEW_PROMPT", sectionSizes: {} }),
-      renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
     },
     verdicts: {

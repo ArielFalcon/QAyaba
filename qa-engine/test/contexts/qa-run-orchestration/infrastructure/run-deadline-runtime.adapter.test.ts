@@ -104,7 +104,7 @@ test("a prompt that finds no time left is not sent: the run's deadline error nam
 test("a session is not opened once the run's time is gone", async () => {
   const h = harness(60_000);
   h.clock.t = 61_000;
-  await assert.rejects(h.runtime.openSession("explorer", "/w"), (err: unknown) => isRunDeadlineError(err) && (err as RunDeadlineExceededError).stop === "before-turn");
+  await assert.rejects(h.runtime.openSession("reflector", "/w"), (err: unknown) => isRunDeadlineError(err) && (err as RunDeadlineExceededError).stop === "before-turn");
   assert.equal(h.opened.length, 0);
 });
 

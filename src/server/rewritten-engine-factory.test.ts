@@ -790,12 +790,12 @@ test("the composed engine hands the host the app's own step classification, and 
   };
   const e2e: AppConfig = { ...cfg("factory-turn-intent"), auth: { kind: "form", usernameEnv: "U", passwordEnv: "P", loginPath: "/entrar" }, dev: { baseUrl: "https://dev.example.com" } };
   const config = buildRewrittenCompositionConfig(e2e, { getAgentDeps: host as never }, "ns-intent", { mode: "manual" });
-  const session = await config.reviewRuntime.runtime.openSession("explorer", "/m", { timeoutMs: 1_000, timeLimit: "explorer-timeout" });
+  const session = await config.reviewRuntime.runtime.openSession("reviewer", "/m", { timeoutMs: 1_000, timeLimit: "session-timeout" });
   await session.dispose();
   const { specTargets, authFiles, loginUrls, reviewAgents } = (seen[0] as { intent: { specTargets: unknown; authFiles: string[]; loginUrls: string[]; reviewAgents: string[] } }).intent;
   assert.deepEqual(specTargets, { kind: "dir", relDir: "e2e" });
   assert.deepEqual([authFiles, loginUrls, reviewAgents], [["e2e/auth.setup.ts"], ["https://dev.example.com/entrar"], ["qa-reviewer"]]);
-  assert.equal((opened[0] as { timeLimit?: string }).timeLimit, "explorer-timeout");
+  assert.equal((opened[0] as { timeLimit?: string }).timeLimit, "session-timeout");
 
   const code = buildRewrittenCompositionConfig({ ...cfg("factory-turn-intent-code"), code: true, dev: undefined }, { getAgentDeps: host as never }, "ns-intent-code", { mode: "manual", target: "code" });
   await (await code.reviewRuntime.runtime.openSession("reviewer", "/m")).dispose();
@@ -996,57 +996,7 @@ test("a context-mode run sets CompositionConfig.contextPack=false, a pipeline ru
   assert.equal(pipeline.contextPack, true, "the pipeline keeps its own pack (the domPack lever unchanged)");
 });
 
-test("explorer:true wires groundingCollaborators.exploreBrief for an e2e app", () => {
-  const app: AppConfig = { ...cfg("factory-explorer"), qa: { ...cfg("factory-explorer").qa, explorer: true } };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.equal(typeof config.groundingCollaborators?.exploreBrief, "function");
-});
-
-test("explorer prompt uses the commit sha, intent, and triggerService — not the run namespace as sha", async () => {
-  let captured = "";
-  const app: AppConfig = {
-    ...cfg("factory-explorer-prompt-sha"),
-    qa: { ...cfg("factory-explorer-prompt-sha").qa, explorer: true },
-    services: [{ repo: "org/orders-svc", openapi: "openapi.yaml" }],
-  };
-  const config = buildRewrittenCompositionConfig(
-    app,
-    {
-      getAgentDeps: () => ({
-        open: async () => ({
-          id: "explorer-session",
-          prompt: async (text: string) => {
-            captured = text;
-            return '{"builtForSha":"deadbeefcafebabe","objective":"orders","blastRadius":[]}';
-          },
-          dispose: async () => {},
-        }),
-      }),
-    },
-    "qa-bot-abc1234-run1",
-    { mode: "diff", triggerRepo: "org/orders-svc" },
-  );
-  await config.groundingCollaborators!.exploreBrief!({
-    specDir: "/mirrors/org__demo/e2e",
-    diff: "diff --git a/src/x.ts b/src/x.ts\n",
-    sha: "deadbeefcafebabe",
-    intent: { type: "feat", breaking: false, message: "add order endpoint", changedFiles: ["src/x.ts"] },
-  });
-  assert.match(captured, /deadbeefcafebabe/, "explorer must map the commit SHA, not the run namespace");
-  assert.match(captured, /add order endpoint/, "explorer must receive classify intent");
-  assert.match(captured, /org\/orders-svc/, "explorer must receive the triggering service");
-  assert.equal(captured.includes("Explore the blast radius of commit qa-bot-abc1234-run1"), false, "the run namespace must not be passed as the commit sha");
-});
-
-test("multi-repo: explorer:undefined (not configured) + services.length>0 auto-wires groundingCollaborators.exploreBrief for an e2e app", () => {
-  const app: AppConfig = { ...cfg("factory-explorer-services-auto"), services: [{ repo: "org/ms-orders" }] };
-  assert.equal(app.qa.explorer, undefined, "precondition: explorer is genuinely unconfigured, not explicitly false");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.equal(typeof config.groundingCollaborators?.exploreBrief, "function");
-});
-
-/* With the explorer off, the rest of pre-generation grounding stays in place: the authDir-backed DOM
-   capture and the DB-first context map. */
+/* The pre-generation grounding wires the authDir-backed DOM capture and the DB-first context map, whatever the app declares. */
 function assertRestOfGroundingWired(app: AppConfig, config: ReturnType<typeof buildRewrittenCompositionConfig>): void {
   const domDeps = config.groundingCollaborators?.contextPackDeps?.domDeps;
   assert.ok(domDeps, "a DOM capture is wired");
@@ -1055,34 +1005,13 @@ function assertRestOfGroundingWired(app: AppConfig, config: ReturnType<typeof bu
   assert.deepEqual(config.groundingCollaborators?.loadContextMap?.("/definitely/does/not/exist/on/disk")?.routes, [{ path: "/stored" }], "the stored context map still grounds");
 }
 
-test("multi-repo: explorer:undefined (not configured) + empty services[] stays opt-in (no exploreBrief)", () => {
-  const app: AppConfig = { ...cfg("factory-explorer-empty-services"), services: [] };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
-  assertRestOfGroundingWired(app, config);
-});
-
-test("multi-repo: explorer:undefined (not configured) + undefined services stays opt-in", () => {
-  const app = cfg("factory-explorer-undefined-services");
-  assert.equal(app.services, undefined);
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
-  assertRestOfGroundingWired(app, config);
-});
-
-test("explorer:false explicitly wins over services.length>0 — an explicit false must NEVER be treated the same as unconfigured (never wire exploreBrief)", () => {
-  const base = cfg("factory-explorer-explicit-false");
-  const app: AppConfig = { ...base, qa: { ...base.qa, explorer: false }, services: [{ repo: "org/ms-orders" }] };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function", "explorer:false must suppress exploreBrief even when services[] would otherwise auto-enable it");
-  assertRestOfGroundingWired(app, config);
-});
-
-test("code-mode: services[] does NOT wire exploreBrief (still gated by !isCode)", () => {
-  const app: AppConfig = { ...cfg("factory-explorer-code-services"), code: true, dev: undefined, services: [{ repo: "org/ms-orders" }] };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
-  assertRestOfGroundingWired(app, config);
+test("an e2e app with services[], one with an empty services[] and one with none ground through the same collaborators", () => {
+  for (const [name, services] of [["factory-grounding-services", [{ repo: "org/ms-orders" }]], ["factory-grounding-empty-services", []], ["factory-grounding-no-services", undefined]] as const) {
+    const base = cfg(name);
+    const app: AppConfig = services === undefined ? base : { ...base, services: [...services] };
+    const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+    assertRestOfGroundingWired(app, config);
+  }
 });
 
 test("buildRewrittenCompositionConfig still wires groundingCollaborators for a code-mode app (composition-root.ts's own isCode guard is the actual skip point, not the factory)", () => {

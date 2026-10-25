@@ -58,7 +58,6 @@ function build(steps: Step[], opts: { continuesSessions?: boolean; promptCapMs?:
         return { text: continuation ? "CONTINUATION" : "FULL", sectionSizes: {} };
       },
       renderReviewer: () => ({ text: "REVIEW_PROMPT", sectionSizes: {} }),
-      renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
     },
     verdicts: {

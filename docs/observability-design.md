@@ -62,7 +62,7 @@ Reuse this before adding anything.
 | `run_events` table | `src/server/history.ts:241` | Ingest-time `ts` per event; probe-report derives phases from it | Unstructured for tracing |
 | `gateSignals.phaseTimings` | `run-outcome.ts:35` | A slot for phase durations | **Declared and persisted, never written** |
 | `AgentTurnEvent` | `agent-transport-policy.ts:24-50` | Session id, role, round, repair, tokens (incl. reasoning and cache), cost, `sectionSizes`, call metrics, `ended`, duration | No requested or answered model, no provider, attempt, fallback flag or error class. `sectionSizes` is dropped before persistence |
-| `CallEfficiencyTracker` | `generation/infrastructure/sse/call-efficiency-tracker.ts` | Per-step tokens, tool calls, buckets, time to first call and first write | Ignores `part.state.time`. Per-step tokens are summed and discarded. Explorer is excluded (`liveObservation:false`) |
+| `CallEfficiencyTracker` | `generation/infrastructure/sse/call-efficiency-tracker.ts` | Per-step tokens, tool calls, buckets, time to first call and first write | Ignores `part.state.time`. Per-step tokens are summed and discarded. A session registered with `liveObservation:false` (the judge's) is excluded |
 | `agent_turns` table | `history.ts:309` | Redacted prompt and output text, turn metrics | 30-day retention. No model or attempt columns |
 | Section abstraction | `context-assembler.ts:11-49` | `AssembledPrompt.sectionSizes` per section id | No section or prompt hash |
 | `SandboxReport` / exec scope (ALS) | `process-sandbox/exec-scope.ts` | Denied hosts per run, `openDeniedWindow` per login attempt, refusal reason | Denials keep the host but drop the port. Not per child |
@@ -256,7 +256,6 @@ qayaba.run
 │  ├─ qayaba.setup.orphan_cleanup
 │  └─ qayaba.auth.login           attempt n: outcome kind, denied hosts, demoted?
 ├─ qayaba.phase.ground
-│  ├─ invoke_agent qa-explorer    (§5)
 │  ├─ qayaba.context.<source>     (§4.4) learning, curriculum, context-map, route-ranking,
 │  │                               dom-capture (per route: events), context-pack, stitcher,
 │  │                               structural-signal, cross-repo-impact
@@ -317,7 +316,7 @@ Grouped. The full list lives in the registry (§9.3).
 wrapper, so a run that throws still carries it.
 
 **The limit that ended the run** is `qayaba.limit.fired`. It also appears on turns (§5.3), with
-the values `tier-budget | run-deadline | repair-cap | explorer-timeout | host-cap | stall | step-cap | cancel | none`.
+the values `tier-budget | run-deadline | repair-cap | session-timeout | host-cap | stall | step-cap | cancel | none`.
 
 ### 4.4 Context spans and stable item ids (brief §3)
 
@@ -337,7 +336,6 @@ produced**, are deterministic, and are identical across runs:
 | Flow | `flow:<id>` | `flows[].id` |
 | Learned rule | `rule:<ruleId>` | `learning_rules.id` (stable for the rule's life) |
 | Exemplar | `exemplar:<id>` | `scenario-catalog.ts` literals |
-| Explorer brief claim | `brief:<kind>:<hash8 of normalized claim>` | `ExplorationBrief` |
 | Provided file | `file:<repo-relative path>` | `AssembledPrompt.providedPaths` |
 | Changed value fact | `fact:<route>#<testid>:<present\|absent>` | the pack's "Changed values" |
 
@@ -385,7 +383,7 @@ invoke_agent qa-generator               INTERNAL  one per prompt (turn)
   shape itself.
 - **Each limit records itself in the layer that fires it.** `RunDeadlineRuntime` sets
   `run-deadline` or `tier-budget`, the stall watchdog sets `stall`, `withTimeout` sets `host-cap`
-  or `repair-cap` or `explorer-timeout`, and the tracker sets `step-cap`. Each writes
+  or `repair-cap` or `session-timeout`, and the tracker sets `step-cap`. Each writes
   `qayaba.limit.fired` on the turn span through the port.
 - **A watchdog abort rejects only the outer promise.** The inner attempt keeps running until its
   own `withTimeout`. The attempt span therefore ends when the attempt really ends, carrying
@@ -418,20 +416,7 @@ prompt. If they differ, comparing `section.<id>.hash` names the sections that ch
 2. Keep per-step records: the receive time of `step-start` and `step-finish`, tokens, cost and
    finish reason. **Step parts carry no timestamps** in the 1.17.7 SDK. So `chat` spans use the
    receive time and are marked `qayaba.span.synthesized=true` and `qayaba.time.source=receive`.
-3. **Explorer observation: a latent bug comes first.**
-   - `withStallWatchdog` wraps **every** non-self-timed session, the explorer included
-     (`agent-transport-policy.ts:515-545`).
-   - `liveObservation:false` skips SSE registration, so nothing ever feeds the explorer's watchdog.
-   - With the default `OPENCODE_STALL_MS` (180 s, `opencode-client.ts:458`) below the explorer's
-     240 s timeout, every explorer turn longer than 180 s is aborted as "stalled", whatever it is
-     doing. The owner's env sets 600 s, which masks this. The context doc's premise ("no stall
-     watchdog for the explorer") is false in code.
-   - **Fix it as its own root-cause commit before S2:** the explorer's watchdog either is not armed
-     or is fed. Then add explorer tracking as an opt-in path that does **not** call
-     `notifySessionActivity` and does **not** add the `prepareAttempt` wait.
-   - Prove with a test that the explorer's turn outcome is unchanged with tracking on and off. A/B
-     arm parity depends on it.
-4. Persist `sectionSizes`, model, attempt and error class on `agent_turns`. These are new columns,
+3. Persist `sectionSizes`, model, attempt and error class on `agent_turns`. These are new columns,
    so `probe-report` keeps working from SQLite.
 
 ### 5.5 Cross-container callbacks: `run_spec` and `authbrowser_*` (D6)
@@ -1052,7 +1037,7 @@ the contract above is unaffected:
   What makes an arm behave differently is **only** the explicit request levers (`closedLoop`,
   `agentBrowser`, `captureMode`) and the deployment's config.
   - Every run returns `effectiveConfig`: the levers actually applied, the agent models per role,
-    `prompt.static_hash`, the stitcher, structural-signal, explorer and curriculum settings, and
+    `prompt.static_hash`, the stitcher, structural-signal and curriculum settings, and
     `campaignFreeze`.
   - A consumer verifies that its arms really differed by comparing `effectiveConfig`, not labels.
   - Exact shape. Every key is always present; a setting that does not apply is `null`:
@@ -1066,7 +1051,7 @@ the contract above is unaffected:
         "qa-reviewer":  { "provider": "opencode-go", "model": "minimax-m3", "reasoningEffort": null, "stepLimit": 25 }
       },
       "prompt": { "staticHash": "sha256:…" },
-      "grounding": { "explorer": true, "stitcher": "signal", "structuralSignal": "signal", "curriculum": "frozen" },
+      "grounding": { "stitcher": "signal", "structuralSignal": "signal", "curriculum": "frozen" },
       "coverage": { "mode": "signal", "minRatio": 0.7 },
       "reflector": false
     }
@@ -1079,7 +1064,7 @@ the contract above is unaffected:
     - `campaignFreeze`: `QA_CAMPAIGN_FREEZE`. `runtime`: the provider of the primary (authoring) role assignment at the start. `reflector`: the reflector switch and not frozen.
     - `agents`: from the run's own recorded agent turns. `provider` and `model` (the model that answered, else the one asked for) are what the runtime reported on the last turn that said; `stepLimit` is the largest step cap a prompt of that role stated (the live read). `reasoningEffort` is always `null`: OpenCode's live agent list (`GET /agent`) does not carry it, and the repo copy of the config is not a substitute.
     - `prompt.staticHash`: sha256 over `agents/AGENTS.md` and each `agents/agent/*.md`, in name order, read from the orchestrator's own copy of the repository. The agents container mounts the same folder read-only, so it is what it serves unless the two checkouts differ; `null` when the files cannot be read.
-    - `grounding.explorer`: `qa.explorer`, else whether the app has services. `structuralSignal`: `qa.structuralSignals.mode` (default `signal`). `stitcher`: the same mode for an app with services and declared boundaries (the service-topology collaborator is one of the two advisory structural signals), else `null`. `curriculum`: `frozen` under a campaign freeze, else `learning`.
+    - `structuralSignal`: `qa.structuralSignals.mode` (default `signal`). `stitcher`: the same mode for an app with services and declared boundaries (the service-topology collaborator is one of the two advisory structural signals), else `null`. `curriculum`: `frozen` under a campaign freeze, else `learning`.
     - `coverage`: the policy the engine reported when the run ended (`runs.coverage_mode`, `coverage_min_ratio`), else the one the run started with (`qa.changeCoverage`).
   - A run that is enqueued and has not started yet has no recorded configuration: its `effectiveConfig` answers every leaf as `null` (and `agents` as `{}`). It fills in when the run starts.
   - `prompt.staticHash` is computed once per process, on the first run that needs it, and kept. After editing `agents/AGENTS.md` or a role file, restart the orchestrator to see the new hash on later runs.
@@ -1158,8 +1143,7 @@ their own commits.
 | **S1b SDK and ledger** | Port, registry, semconv module, injected clock, no-op; SDK adapter with manual env mapping; buffered ledger with rows on start; root on `ROOT_CONTEXT` plus queue link; phase spans from the cursor; exec spans; scoped redaction; `/telemetry/health`; tests (tree, ended spans, throwing port, secrets, cardinality, disabled) | C1 (partial) |
 | **S1c Host health** (after S0.1) | Heartbeat, event-loop delay, zombies, sandbox gauges | F2, F11, F12, C2 |
 | **S1d Compose** (governance commit) | `telemetry` profile, networks, receiver split, 127.0.0.1 binds, Grafana auth | Local viewing |
-| **S2-pre Explorer watchdog** (root-cause commit) | Fix the starved explorer watchdog (§5.4.3), with a test | A correct baseline for S2 |
-| **S2 Agent turns** | Facade turn spans; `onAttempt` hook; Codex spans and usage; tracker `state.time` plus per-step records; model answered; error classes; per-layer limits; section hashes over the bytes sent; explorer tracking (opt-in, parity test); `run_spec`/`authbrowser` server spans via `withParent` with lease wait; Codex native spans (S0.3) | F3, F4, F7, F8, F9, F13, F14, F15, C3–C5, C9, C11 |
+| **S2 Agent turns** | Facade turn spans; `onAttempt` hook; Codex spans and usage; tracker `state.time` plus per-step records; model answered; error classes; per-layer limits; section hashes over the bytes sent; `run_spec`/`authbrowser` server spans via `withParent` with lease wait; Codex native spans (S0.3) | F3, F4, F7, F8, F9, F13, F14, F15, C3–C5, C9, C11 |
 | **S3 Grounding and execution** | Context spans and item ids; login attempts; suite-store spans; validation and test spans; failure classifier (pinned to Playwright 1.60 message fixtures); **spec snapshots** | F5, F6, F10, F16, C6, C7, C10 |
 | **S3b DOM capture per route** | The capture script reports per-route timing and state (its output changes) | C8, F11 |
 | **S4 Evaluation** | `evaluation` context; deterministic graders; `run_scores`; API #2–#6 | B3–B6, B8 |
@@ -1173,7 +1157,7 @@ their own commits.
 names (`AgentPromptOpts.timeLimit`, the stall watchdog's `onStall`), the error classifier, section and prompt hashes over the bytes
 sent (a new `metadata` content class: exported in `metadata` and `full`, never in `off`), the `agent_turns` columns (read back
 through `getAgentTurnTraces`, not through the public turn view) and the turn metrics. Not in S2a: Codex attempts and usage
-(S2c), explorer tracking (S2c), the verdict-shape attributes (`qayaba.agent.verdict.*`: the verdict is parsed above the facade),
+(S2c), the verdict-shape attributes (`qayaba.agent.verdict.*`: the verdict is parsed above the facade),
 `run_spec`/`authbrowser` server spans, tool schema bytes (§5.6), and the S3 attributes of W16 (`context.item_ids.referenced`,
 `selector.strategy`). Reasoning effort and the configured model are read from the orchestrator's copy of `agents/opencode.json`
 (what is configured, not what the server proved it used; the model that answered comes from the answer). OpenCode's
@@ -1195,18 +1179,14 @@ in one process-wide trace with no root, so they cannot answer a per-run question
 prompt and response bodies. Its logs are shipped instead (R6), through the same untrusted receiver, stripped and stamped; the agent
 collector drops `service.name=opencode` traces.
 
-**S2c status (Codex parity, explorer tracking).** Delivered: the supervisor returns `{message, usage}` from the `turn.completed` events
+**S2c status (Codex parity).** Delivered: the supervisor returns `{message, usage}` from the `turn.completed` events
 of `codex exec --json` (`extractCodexUsage`, summed, a field that is not a plain count read as none), the direct and the supervised
 transport hand it to the strategy through `onUsage`, and `CodexRuntimeStrategy` opens the same attempt events the OpenCode funnel does
 (`start`, `end`, `turn` into the registry the turn decorator fills), so a Codex prompt is `invoke_agent` plus `qayaba.agent.attempt`
 with `qayaba.usage.source=final-message`. Codex's input is inclusive of its cache and OpenCode's is not; the strategy puts Codex's
 usage in OpenCode's shape (`codexUsageAsRuntime`) so the one normalization serves both and the persisted row holds one convention.
 Cost and cache writes are not reported by Codex and are left absent, never zero. `error.type` comes from `classifyCodexFault`, which
-reads the same signals as `codexErrorToInfra` from the exec's own text. The explorer's session can be observed without being watched
-(`descriptor.observeUnwatched`, set by the host through `QA_TELEMETRY_OBSERVE_UNWATCHED=true`, **off by default**): its calls reach the
-call tracker, it is not registered for the live feed, never feeds a watchdog and its attempts never wait for the stream; a parity test
-runs the same explorer turn with tracking on and off.
-
+reads the same signals as `codexErrorToInfra` from the exec's own text. 
 **Codex native spans (S0.3 status).** Wired, not yet proven live: the orchestrator sends the attempt's `traceparent` as a header on
 `POST /codex/exec` (only when the attempt span is real), the supervisor validates it and gives the child `TRACEPARENT`/`TRACESTATE`
 (both names are in the exact-name allowlist of the supervisor and of the orchestrator's builder, pinned equal by a test; an ambient value
@@ -1235,15 +1215,13 @@ reliable, deterministic; trust over features; local operability on a Mac.
 
 An independent reviewer (fresh context) returned **APPROVE-WITH-CHANGES**, with 8 critical
 findings, 16 warnings and 11 suggestions. The load-bearing claims were re-verified in code
-(`AsyncLocalStorage.snapshot()` in the run_spec and browser bridges, the watchdog wrapping the
-explorer, `tail.then` inside `enqueue`, the `specs` table schema). Body sections were edited in place.
+(`AsyncLocalStorage.snapshot()` in the run_spec and browser bridges, `tail.then` inside `enqueue`, the `specs` table schema). Body sections were edited in place.
 
 | Finding | Resolution | Where |
 |---|---|---|
 | C1 snapshot context breaks D6 parenting | `withParent` inside `inRunContext`, plus a grandchild test | §3.1, §5.5 |
 | C2 mixed clocks across a suspend | D14: explicit wall-clock times from an injected clock | §0, §3.1 |
 | C3 turn decorator at the wrong layer; Codex bypasses it | Facade turn span, `onAttempt` hook, Codex instrumented, per-layer limits | §5.2 |
-| C4 explorer watchdog starved; tracking not neutral | A root-cause fix first (S2-pre); opt-in tracking with a parity test | §5.4, §16 |
 | C5 security claims (keys, networks, agent spans, UIs) | Networks, receiver split, key ownership stated, 127.0.0.1, governance list | §9.2, §10 |
 | C6 OpenCode content export bypasses capture and redaction | Off by default; agent pipeline deletes `ai.*` content; deferred | §5.7 |
 | C7 retroactive grading lacks spec text | `run_spec_snapshots` | §11.1 |
@@ -1263,7 +1241,7 @@ explorer, `tail.then` inside `enqueue`, the `specs` table schema). Body sections
 | W13 histogram buckets, Q12 without a collector | Explicit Views; Q12 from the ledger | §8.1 |
 | W14 judges and the quota | On the queue, budgeted, tool-less `qa-judge` role | §11.3 |
 | W15 governance list, Codex env name | Completed; `CODEX_EXEC_ENV_EXACT` | §9.2 |
-| W16 dropped requirements | `chat` spans carry `qayaba.agent.step`, `qayaba.step.intent` and `qayaba.agent.step_budget.remaining`. `execute_tool` spans that write or run a spec carry `qayaba.context.item_ids.referenced`. Spec spans carry `qayaba.selector.strategy` (`testid\|role\|text\|css`, parsed from the locator). The root records the effective explorer, stitcher, structural-signal and curriculum flags. Turns record `qayaba.prompt.budget_bytes` vs `.bytes`. `approved_against_signals` grader added. Tests add required-attributes and a real `run_spec` hop smoke. `--target code` runs use the same tree, with `qayaba.phase.execute` holding one `qayaba.exec code-test` and no per-case spans. `specs.valid` = specs delivered **by this run** that passed validation | §4–§6, §11, §15 |
+| W16 dropped requirements | `chat` spans carry `qayaba.agent.step`, `qayaba.step.intent` and `qayaba.agent.step_budget.remaining`. `execute_tool` spans that write or run a spec carry `qayaba.context.item_ids.referenced`. Spec spans carry `qayaba.selector.strategy` (`testid\|role\|text\|css`, parsed from the locator). The root records the effective stitcher, structural-signal and curriculum flags. Turns record `qayaba.prompt.budget_bytes` vs `.bytes`. `approved_against_signals` grader added. Tests add required-attributes and a real `run_spec` hop smoke. `--target code` runs use the same tree, with `qayaba.phase.execute` holding one `qayaba.exec code-test` and no per-case spans. `specs.valid` = specs delivered **by this run** that passed validation | §4–§6, §11, §15 |
 | S1 BSP env vars ignored without NodeSDK | Manual mapping | §3.3 |
 | S2 `ToolContext.callID` | Checked live in S0.2. If present at runtime, it replaces the messageID plus time-overlap join | §5.5 |
 | S3 hash over the bytes sent; stale static hash | `prompt.hash` over the bytes sent after redaction and the Codex preamble. `static_hash` read from the agents side | §5.3 |

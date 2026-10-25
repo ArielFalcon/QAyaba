@@ -1,10 +1,10 @@
-/* Deterministic pre-generation context pack (DOM + explorer brief + contracts). Read-only on watched repos. Every component is fail-open: a failed piece yields an absent section, never a crashed run. */
+/* Deterministic pre-generation context pack (DOM + contracts). Read-only on watched repos. Every component is fail-open: a failed piece yields an absent section, never a crashed run. */
 
 import { sanitizeText } from "./sanitize-text.ts";
 import { capDomLines, captureDomForRoutes, defaultCaptureDomDeps, MAX_ROUTES, MAX_ROUTES_PER_CHANGE, REDIRECT_ADVISORY_INTRO } from "./dom-snapshot.ts";
 import type { CapturedPage, CaptureDomDeps, CaptureRoutesInput, PageDelivery } from "./dom-snapshot.ts";
 import { loggableRoute, loggableRoutes } from "./loggable-route.ts";
-import type { ExplorationBrief, ArchitectureContext, ApiOperation } from "../application/ports/generation-ports.ts";
+import type { ArchitectureContext, ApiOperation } from "../application/ports/generation-ports.ts";
 import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-element.ts";
 import { classifyRoutes, ROUTE_REASON } from "../../../shared-kernel/route-capturability.ts";
 import { claim, type FactId, type PromptClaim } from "../domain/prompt-contract-lint.ts";
@@ -18,9 +18,6 @@ import type { ChangedLiteral } from "../../../shared-kernel/diff-parser/changed-
 export { PACK_HEADINGS };
 
 const SECTION_FACTS: ReadonlyArray<readonly [string, FactId]> = [
-  [PACK_HEADINGS.blastRadius, "blast-radius"],
-  [PACK_HEADINGS.feBe, "fe-be-links"],
-  [PACK_HEADINGS.risks, "risks"],
   [PACK_HEADINGS.liveDom, "dom-live"],
   [PACK_HEADINGS.changedValues, "changed-values"],
   [PACK_HEADINGS.contracts, "api-operations"],
@@ -41,8 +38,6 @@ export function deriveClaimsFromPackText(text: string): PromptClaim[] {
 
 
 export interface ContextPackInput {
-  brief?: ExplorationBrief;
-
   baseUrl?: string;
 
   e2eDir?: string;
@@ -60,7 +55,7 @@ export interface ContextPackInput {
   /* Selector grounding: the config-declared test-id convention (e.g. "data-cy"), forwarded to captureDomForRoutes so the DOM capture queries the right attribute and the agent transcribes real test-ids instead of guessing. Absent → capture defaults to "data-testid". */
   testIdAttribute?: string;
 
-  /* Before this field, candidateRoutes was populated ONLY from a brief (briefRoutePaths / contextMapRoutes gated on brief.feBe) — with the explorer pass unwired by design in production, there was NO brief-less route path at all, so the pack was structurally empty on every real run. */
+  /* The routes the orchestrator derived from the architecture map; the pack ranks them by the change and captures the top of the ranking. */
   routes?: string[];
 
   /* Cross-repo runs only: where the triggering service's snapshot was staged, as the map may name it. Present (even empty) means prChangedFiles are the service's own files, so a route is ranked only by the spec of an operation it joins, under these roots. */
@@ -161,24 +156,11 @@ const BYTES_PER_CHAR = 1;
 
 function filterRelevantContracts(
   contextMap: ArchitectureContext | undefined,
-  brief: ExplorationBrief | undefined,
   prChangedFiles: string[] | undefined,
 ): ApiOperation[] {
   if (!contextMap || !contextMap.api?.length) return [];
 
   const relevantIds = new Set<string>();
-
-  if (brief?.feBe?.length) {
-    for (const link of brief.feBe) {
-      if (link.operationId) relevantIds.add(link.operationId);
-    }
-  }
-
-  if (brief?.contracts?.length) {
-    for (const c of brief.contracts) {
-      if (c.operationId) relevantIds.add(c.operationId);
-    }
-  }
 
   if (prChangedFiles?.length && contextMap.feBe?.length) {
     for (const link of contextMap.feBe) {
@@ -377,19 +359,7 @@ export async function buildContextPack(
 
   let domSection = "";
   let redirectSection = "";
-  const briefRoutePaths = new Set<string>(
-    (input.brief?.routes ?? [])
-      .filter((r) => r.path)
-      .map((r) => r.path),
-  );
-  const contextMapRoutes = new Set<string>();
-  if (input.contextMap?.feBe?.length && input.brief?.feBe?.length) {
-    const briefOps = new Set(input.brief.feBe.map((l) => l.operationId));
-    for (const link of input.contextMap.feBe) {
-      if (briefOps.has(link.operationId) && link.route) contextMapRoutes.add(link.route);
-    }
-  }
-  /* Only the routes the orchestrator derived itself are ranked by the change: the brief's own and the ones its operations join were chosen for this change already, and keep their place in front. With no changed file there is nothing to rank by. */
+  /* The derived routes are ranked by the change. With no changed file there is nothing to rank by. */
   const derivedRoutes = [...new Set(input.routes ?? [])];
   const ranked = input.prChangedFiles
     ? rankRoutesWithRelevance(derivedRoutes, input.contextMap, { changedFiles: input.prChangedFiles, ...(input.stagedRoots ? { stagedRoots: input.stagedRoots } : {}) })
@@ -398,7 +368,7 @@ export async function buildContextPack(
   const relevantMapRoutes = ranked.filter((entry) => entry.relevant).map((entry) => entry.route);
   const componentOf = new Map((input.contextMap?.routes ?? []).map((route) => [route.path, route.component ?? route.path]));
   /* A route named twice is counted once, and a route that names no page and no template of one is dropped, BEFORE the cut: neither may take the slot of a route behind it. A template stays in its place: it opens to a page through a link the site shows, and the cut is made on the pages, not on the templates. */
-  const classified = classifyRoutes([...briefRoutePaths, ...contextMapRoutes, ...deterministicRoutes]);
+  const classified = classifyRoutes(deterministicRoutes);
   /* Only a route made of literals and whole-segment parameters can be filled from a link; any other route that names no page is simply left out. */
   const isTemplate = (entry: { route: string }): boolean => instantiableTemplate(entry.route);
   /* The cut: a change linked to more pages than the default cut has each of them captured, up to the per-change bound. */
@@ -581,7 +551,7 @@ export async function buildContextPack(
   for (const entry of notCaptured) log(`[qa] context-pack: route not capturable, left out of the capture: ${loggableRoute(entry.route)} (${entry.reason})`);
 
   let contractSection = "";
-  const relevantOps = filterRelevantContracts(input.contextMap, input.brief, input.prChangedFiles);
+  const relevantOps = filterRelevantContracts(input.contextMap, input.prChangedFiles);
   if (relevantOps.length > 0) {
     contractSection = renderContracts(relevantOps);
     log(`[qa] context-pack: ${relevantOps.length} relevant API contract(s) included`);

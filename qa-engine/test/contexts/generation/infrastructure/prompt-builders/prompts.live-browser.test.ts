@@ -1,15 +1,10 @@
 /* Which browser an authoring prompt sends the agent to for a page it does not show: the authenticated one when the run granted it, else the Playwright MCP. Asserted on the tool names the prompt carries, never on its wording. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildPromptAssembled, setExplorationBriefCollaborators } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
+import { buildPromptAssembled } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
-import type { ExplorationBrief, OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 
-setExplorationBriefCollaborators({
-  parseExplorationBrief: () => null,
-  coerceExplorationBrief: () => null,
-  renderExplorationBrief: (brief: ExplorationBrief) => `## ${PROMPT_HEADINGS.explorationBrief}\nObjective: ${brief.objective}`,
-});
 
 function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
   return {

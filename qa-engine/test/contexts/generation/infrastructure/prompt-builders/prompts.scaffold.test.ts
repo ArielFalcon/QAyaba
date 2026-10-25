@@ -4,19 +4,13 @@ import assert from "node:assert/strict";
 import {
   buildPrompt,
   buildPromptAssembled,
-  setExplorationBriefCollaborators,
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PACK_HEADINGS } from "@contexts/generation/infrastructure/context-pack.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import type { FactId, PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
-import type { OpencodeRunInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 
-setExplorationBriefCollaborators({
-  parseExplorationBrief: () => null,
-  coerceExplorationBrief: () => null,
-  renderExplorationBrief: (brief: ExplorationBrief) => `## ${PROMPT_HEADINGS.explorationBrief}\nObjective: ${brief.objective}`,
-});
 
 const SEEDED_DIFF = [
   "diff --git a/src/a.ts b/src/a.ts",

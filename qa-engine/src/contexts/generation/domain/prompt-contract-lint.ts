@@ -11,14 +11,11 @@
 
 export type FactId =
   | "blast-radius"
-  | "risks"
   | "fe-be-links"
-  | "contracts"
   | "api-operations"
   | "dom-live"
   | "dom-failure"
   | "changed-values"
-  | "landmarks"
   | "arch-map"
   | "structural-signal"
   | "co-change"
@@ -126,8 +123,6 @@ export const LEAD_PLAN_SECTION_ID = "lead-plan" satisfies FactId;
 
 /* Facts that exactly one section may provide: a second copy is a duplicated source of truth. */
 const SINGLE_SOURCE_FACTS: readonly FactId[] = [
-  "blast-radius",
-  "risks",
   "fe-be-links",
   "dom-live",
   "api-operations",
@@ -243,16 +238,11 @@ function ruleSingleFraming(cell: LintCell): LintFinding[] {
   );
 }
 
-/* R2: single-source facts have one provider; landmarks and a DOM tree never coexist. */
+/* R2: single-source facts have one provider. */
 function ruleSingleProvider(cell: LintCell): LintFinding[] {
-  const duplicated = SINGLE_SOURCE_FACTS.flatMap((fact) =>
+  return SINGLE_SOURCE_FACTS.flatMap((fact) =>
     allPairs(providersOf(cell, fact)).map(([a, b]) => ({ rule: "R2" as const, fact, sections: [a, b] })),
   );
-  const trees = uniqueSorted([...providersOf(cell, "dom-live"), ...providersOf(cell, "dom-failure")]);
-  const hintsBesideTree = providersOf(cell, "landmarks").flatMap((landmarks) =>
-    trees.map((tree) => ({ rule: "R2" as const, fact: "landmarks" as const, sections: uniqueSorted([landmarks, tree]) })),
-  );
-  return [...duplicated, ...hintsBesideTree];
 }
 
 /* Facts whose provision makes a read or an orientation of the key fact redundant. A structural signal with symbol blocks names the code the change reaches, which is what orienting towards the blast radius would find. Co-change files are a fact of their own and appear in no entry. */
@@ -457,7 +447,7 @@ function proseOf(text: string): string {
     .join("\n");
 }
 
-/* R13: an assembled section that refers to an artifact (the tree above, the brief, the diff, a named section) needs that artifact in the cell; a directive must never point at something the prompt does not carry. */
+/* R13: an assembled section that refers to an artifact (the tree above, the diff, a named section) needs that artifact in the cell; a directive must never point at something the prompt does not carry. */
 function ruleReferencesNeedTheirArtifact(cell: LintCell, references: readonly ArtifactReference[] | undefined): LintFinding[] {
   return cell.sections
     .filter((s) => s.layer === "assembled" && !s.verbatim)

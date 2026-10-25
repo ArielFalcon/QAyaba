@@ -185,14 +185,14 @@ describe("OpenCodeRuntimeStrategy.stepLimits", () => {
     const listed: Listed = [
       { name: AGENT_NAME_FOR_ROLE.primary, cap: 0 },
       { name: AGENT_NAME_FOR_ROLE.reviewer, cap: -1 },
-      { name: AGENT_NAME_FOR_ROLE.explorer, cap: 2.5 },
+      { name: AGENT_NAME_FOR_ROLE.sidekick, cap: 2.5 },
       { name: AGENT_NAME_FOR_ROLE.chat, cap: "40" },
       { name: AGENT_NAME_FOR_ROLE.reflector, cap: 5 },
     ];
     const limits = await strategyListing(listed).stepLimits("/m/app");
     assert.equal(limits.primary, undefined);
     assert.equal(limits.reviewer, undefined);
-    assert.equal(limits.explorer, undefined);
+    assert.equal(limits.sidekick, undefined);
     assert.equal(limits.chat, undefined);
     assert.equal(limits.reflector, 5, "a valid cap beside the invalid ones is unaffected");
   });
@@ -200,7 +200,7 @@ describe("OpenCodeRuntimeStrategy.stepLimits", () => {
   it("warns once, naming the role, for each role whose agent is listed without a cap, with an unusable cap or not listed", async (t) => {
     const warn = t.mock.method(console, "warn", () => {});
     const listed = everyRoleCapped()
-      .filter((agent) => agent.name !== AGENT_NAME_FOR_ROLE.explorer)
+      .filter((agent) => agent.name !== AGENT_NAME_FOR_ROLE.reflector)
       .map((agent) =>
         agent.name === AGENT_NAME_FOR_ROLE.reviewer ? { name: agent.name, cap: undefined } : agent.name === AGENT_NAME_FOR_ROLE.sidekick ? { name: agent.name, cap: "forty" } : agent,
       );
@@ -208,18 +208,18 @@ describe("OpenCodeRuntimeStrategy.stepLimits", () => {
     const warnings = warn.mock.calls.map((call) => String(call.arguments[0]));
     /* A role is named as a token of its own: "reviewer" in "qa-reviewer", an agent name another warning may list, is not it. */
     const namesRole = (warning: string, role: string): boolean => new RegExp(`(?<![\\w-])${role}(?![\\w-])`).test(warning);
-    for (const role of ["reviewer", "explorer", "sidekick"] as const) {
+    for (const role of ["reviewer", "reflector", "sidekick"] as const) {
       assert.equal(limits[role], undefined, `${role} has no limit`);
       assert.equal(warnings.filter((w) => namesRole(w, role)).length, 1, `exactly one warning names ${role}`);
     }
     assert.equal(warnings.length, 3, "no role with a usable cap is reported");
     const warningOf = (role: string): string => warnings.find((w) => namesRole(w, role))!;
-    for (const role of ["reviewer", "explorer", "sidekick"] as const) {
+    for (const role of ["reviewer", "reflector", "sidekick"] as const) {
       assert.match(warningOf(role), new RegExp(AGENT_NAME_FOR_ROLE[role]), `the warning for ${role} names its agent`);
     }
     assert.doesNotMatch(warningOf("reviewer"), /undefined/, "a role listed without a cap is not told its cap is a value");
     const anotherAgent = AGENT_NAME_FOR_ROLE.primary;
-    assert.match(warningOf("explorer"), new RegExp(anotherAgent), "a role whose agent is not listed is told what the server does list");
+    assert.match(warningOf("reflector"), new RegExp(anotherAgent), "a role whose agent is not listed is told what the server does list");
     assert.match(warningOf("sidekick"), /forty/, "a warning about an unusable cap carries it");
     assert.doesNotMatch(warningOf("sidekick"), new RegExp(anotherAgent), "only a role whose agent is not listed is told what the server lists");
     assert.doesNotMatch(warningOf("reviewer"), new RegExp(anotherAgent), "nor is a role whose agent is listed without a cap");

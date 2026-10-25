@@ -64,7 +64,7 @@ test("the diff comes from the first generation prompt that held one, not from a 
   const evidence = new HistoryJudgeEvidence(
     deps({
       turns: [
-        turn({ role: "qa-explorer", promptText: promptWith("diff --git a/x b/x\n+explorer") }),
+        turn({ role: "qa-reflector", promptText: promptWith("diff --git a/x b/x\n+other") }),
         turn({ ts: "2026-10-18T10:01:00.000Z", round: 1, isRepair: true, promptText: promptWith("diff --git a/y b/y\n+repair") }),
         turn({ ts: "2026-10-18T10:00:00.000Z", promptText: promptWith(DIFF) }),
       ],

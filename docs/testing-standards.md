@@ -868,11 +868,10 @@ name, and the harness classifies a regeneration that delivers no spec exactly as
 limit, from one named fraction and one pure function in `step-limit.ts`, the module the preset gained with its
 own tests and the prompt-builder tests of the sections. Which turns write tests is decided there too, and the
 builder renders the data it returns (`{ midpoint, outcomes }`) and adds none, so the tests assert that data,
-the section ids, the claims and the lint's findings, never a sentence. The explorer prompt gained a
-`## Step limit` block before its output block and the reviewer a `reviewer-step-limit` section before its
-verdict contract, neither with a milestone since neither writes tests, and none of them holds a directive
+the section ids, the claims and the lint's findings, never a sentence. The reviewer gained a `reviewer-step-limit` section before its
+verdict contract, with no milestone since it writes no tests, and it holds no directive
 word. A prompt that states a limit also sends it as the `stepLimit` option of its `session.prompt` (the
-generator's, the in-generate reviewer's, the review port's and the explorer's), and the transport policy judges
+generator's, the in-generate reviewer's, and the review port's), and the transport policy judges
 exhaustion against that number, and against the agent's configured limit only when the prompt stated none; a
 verdict repair runs in the same session under the same limit, so it is sent the number of the prompt it
 repairs, with its text unchanged. Each OpenCode `/limit` bucket grew by its sections, 46 bytes on a turn that
@@ -900,7 +899,7 @@ against it and one sent none against the configured limit. The baseline was reco
 this change, with the owner's reason widened to the honest outcome; the preset above and the step-limit preset
 (85 mutants, 36 compile errors, 48 killed, one documented survivor, a log label) were run after it.
 
-The builder's sections, the milestone's rendering, the explorer's and the reviewer's blocks, the transport
+The builder's sections, the milestone's rendering, the reviewer's block, the transport
 classification, the sites that send the option, the matrix script's facts-only mark, the names list and the
 model-name guard's reach into the limit variants are outside every preset, so they were broken by hand against
 their own tests: 80 mutants first, 86 after the review fix, run through `scripts/run-in-group.mjs` with the
@@ -913,8 +912,7 @@ regeneration signals, the wrong role, priority or id, one outcome only, the outc
 phrases swapped between a first pass and a regeneration, a regeneration offered the no-op, a first pass asked
 for a correction, and no outcome at all; and, for the regeneration's second outcome, its phrase equal to the
 no-op's or to the first correction's, turned into a directive, carrying a model name, or telling the agent to
-write nothing. The explorer's block: never, always, off by one, without its blank line, missing from either of
-its two prompts, carrying a milestone. The reviewer's section: after the verdict contract, its claim dropped,
+write nothing. The reviewer's section: after the verdict contract, its claim dropped,
 the wrong role, id or number, never or always, nameless. A model name in each of the texts a limited prompt
 adds, which only the guard's limit variants can see. The transport policy: the configured limit preferred to
 the stated one or the stated one ignored, also when the prompt is a repair, a budget only with a configured
@@ -1087,14 +1085,13 @@ outside the memo (the 47 earlier mutants die again). The memo is the one read of
 shares, with its deadline and its one warning. Stryker reaches little of it: the role table, the signatures and the
 blocks are typed, so most of its mutants do not compile, and it makes none for the choice between `??=` and `=`,
 for a dropped call or for the deadline's number. Those lines, and the lines that carry the limit onward (the
-generation port's, the review port's and the explorer's inputs, the in-generate reviewer's input, the composition
-root's hand-over and the factory's wiring of the resolver and of the explorer), sit outside the preset and were
+generation port's, and the review port's inputs, the in-generate reviewer's input, the composition
+root's hand-over and the factory's wiring of the resolver), sit outside the preset and were
 broken by hand against their own tests, 37 mutants in all, every one killed: the read made twice, held across runs
-or started before anyone asks; a number that is no positive whole count passed on as a limit; the generator, the
-reviewer and the explorer swapped, or each asked for another's limit; the deadline doubled or halved; another
+or started before anyone asks; a number that is no positive whole count passed on as a limit; the generator and the
+reviewer swapped, or each asked for another's limit; the deadline doubled or halved; another
 directory read; the warning dropped, or without its directory or its cause (an `Error`, or any other value thrown);
-a resolver composed for a host with no facade, or its key left in when absent; the explorer given no resolver, or
-resolving its limit after its session is open; each input's limit dropped, or left as a key with no value; the
+a resolver composed for a host with no facade, or its key left in when absent; each input's limit dropped, or left as a key with no value; the
 reviewer's limit put on the generator's field; and the reviewer's limit asked for by a generation that runs no
 reviewer. The memo's own tests sit in a file of their own, apart from the factory's whole test file, which would
 run once per mutant and not fit the mutation timeout.

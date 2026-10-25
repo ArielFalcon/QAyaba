@@ -27,7 +27,6 @@ import { parseRetentionDays, parseCampaignRetentionDays, DEFAULT_SPAN_RETENTION_
 import type { CampaignIdentity } from "@kernel/campaign";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import { RUN_PHASES } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
-import { EXPLORER_AGENT_NAME } from "@contexts/generation/domain/explorer-agent";
 import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
 import type { TurnEnd } from "@kernel/turn-end";
 import type { ToolSequenceEntry } from "@contexts/generation/domain/tool-sequence";
@@ -39,7 +38,7 @@ const redactionPort = new RedactionPortAdapter();
 export interface AgentTurnRecord {
   runId: string | null;        /* maps to RunRecord.id; null for turns with no parent run */
   sessionId: string;           /* OpenCode session id */
-  role: string;                /* agent name (qa-generator, qa-reviewer, qa-explorer, …) */
+  role: string;                /* agent name (qa-generator, qa-reviewer, …) */
   round: number;               /* 0-based generation round within the session */
   isRepair: boolean;           /* true for in-session contract-repair re-prompts */
   ts: string;                  /* ISO-8601 timestamp when the turn completed */
@@ -2325,6 +2324,9 @@ function percentile(values: number[], p: number): number | null {
   return sorted[Math.max(0, idx)] ?? null;
 }
 
+/* The agent name that runs of an earlier version recorded their pre-generation turns under; no run records it any more. */
+const RETIRED_EXPLORER_ROLE = "qa-explorer";
+
 export function computeTelemetryAnalysis(app: string, windowDays?: number): TelemetryAnalysis {
   ensureDb();
 
@@ -2349,8 +2351,8 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
     : `SELECT * FROM run_outcomes WHERE app = ? ORDER BY at ASC`;
   const outcomeRows = db.prepare(outcomesQuery).all(...(cutoff ? [app, cutoff] : [app])) as Array<Record<string, unknown>>;
 
-  /* The run-level figures below (turn counts, wall-clock, repair fraction) cover the generation and review turns; the explorer appears only in byRole and the efficiency view. */
-  const runTurnRows = turnRows.filter((r) => r.role !== EXPLORER_AGENT_NAME);
+  /* The run-level figures below (turn counts, wall-clock, repair fraction) cover the generation and review turns; turns that runs of an earlier version recorded under the retired explorer role appear only in byRole and the efficiency view. */
+  const runTurnRows = turnRows.filter((r) => r.role !== RETIRED_EXPLORER_ROLE);
 
   const runCount = new Set(runTurnRows.map((r) => r.run_id as string | null).filter(Boolean)).size;
 

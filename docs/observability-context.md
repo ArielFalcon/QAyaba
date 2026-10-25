@@ -16,7 +16,7 @@ qayaba is an AI-assisted E2E QA engine. When a commit reaches DEV, an LLM agent 
 - Every failure in the last verification round was at a *seam*, never inside a unit. Each one took hours to diagnose by grepping two containers' logs, a SQLite DB, OpenCode's own log file and macOS's power log:
   - **A "32-minute hung agent turn" was the Mac sleeping.** The Docker Desktop VM froze, and so did every timer in it. That cost a day. Nothing recorded suspend/resume or event-loop stalls, so it looked like an engine bug.
   - **A generator that needed 115–266 s before its first tool call.** It turned out the provider had changed how much the model reasons. The *same* prompt took 2.7 s a few days earlier. We only proved it by replaying the old prompt by hand and reading 62k characters of reasoning out of OpenCode's session DB.
-  - **The provider quota was exhausted** ("Go usage limit exceeded"). We found it only in `~/.local/share/opencode/log/opencode.log` inside the agents container. The orchestrator saw "explorer pass failed (non-blocking)", followed by a 240 s timeout.
+  - **The provider quota was exhausted** ("Go usage limit exceeded"). We found it only in `~/.local/share/opencode/log/opencode.log` inside the agents container. The orchestrator saw "grounding pass failed (non-blocking)", followed by a 240 s timeout (that agent pass has since been removed).
   - **A login timeout caused by a refused stylesheet.** Keycloak's theme CSS imports `fonts.googleapis.com`, and the egress filter refused it. The login form never mounted. The run reported only "test timeout of 30000 ms".
   - **A generator that read 45 source files in 60 s** and ran out of steps with 0 writes. The element it had to test was not rendered on DEV (0 rows of data), and nothing in the run said so.
 
@@ -59,7 +59,6 @@ Two Docker services share a `mirrors` volume, which holds the working copies of 
 
 | Role | When | What it produces | Notes for telemetry |
 |---|---|---|---|
-| `qa-explorer` | Grounding, before generation (default on when the app declares `services[]`) | A "brief" (blast radius, routes, risks), parsed as JSON | Opened with `liveObservation: false`, so **no SSE registration and no stall watchdog**. Today there is no per-call data for it. Its turn timeout is `OPENCODE_EXPLORER_TIMEOUT_MS` (default 240 s) |
 | `qa-generator` | Generation | Spec files plus a verdict JSON (`specs`, `specMetas`, `note`, `noop{reason,kind}`, `plan`) | Has per-call telemetry today (`agent_turns.tool_sequence`) |
 | `qa-sidekick` | Lead+sidekicks mode only (off by default; never run live) | One flow per sidekick, run in parallel through `FanOutDispatcher` | Each sidekick is its own session and pays the full tool-schema cost again |
 | `qa-reviewer` | After execute | Approve/reject plus correction classes | A different model from the generator, on purpose. No per-call data |
@@ -93,7 +92,6 @@ The single engine is `RunQaUseCase` (`qa-engine/src/contexts/qa-run-orchestratio
      - attempts, the outcome kind (see `auth-precondition.ts`, including the new `EGRESS_DENIED`), duration;
      - whether the restored login was **demoted** (it used to be demoted for environmental failures; now it is not when egress denied hosts during the attempt).
 5. **`ground`** (fail-open: every failure here only degrades the prompt, the run continues):
-   - **The explorer turn** (an agent span).
    - **Context map load** (`e2e/.qa/context.json`).
    - **Route ranking** (`route-ranking.ts`), plus **templated-route instantiation**: a second capture pass.
    - **DOM capture** (a sandboxed child, one Chromium run over N routes):
@@ -157,10 +155,9 @@ engine port  →  RunDeadlineRuntime (qa-run-orchestration/infrastructure/run-de
 | Diff-tier first-pass budget | tiny 6 min, focused 12 min, broad none | `generation/domain/diff-stat.ts`, env `QA_DIFF_TIME_BUDGET_MS_*` |
 | Run deadline | diff-tiny 25 min, focused 40, broad 60, manual 45, complete 90, exhaustive 150, context 60 | `run-time-budget.ts`, env `QA_RUN_TIME_BUDGET_MS_*`. Armed **after** classification |
 | Repair turn cap | 2 min | `generation/domain/repair-turn.ts` |
-| Explorer turn | 240 s | `OPENCODE_EXPLORER_TIMEOUT_MS` |
 | Host prompt cap | `OPENCODE_TIMEOUT_MS` (900 s in the current env) | `agentPromptCapMs()` in `opencode-client.ts` |
-| Stall watchdog (no SSE activity) | 180 s default; 600 s in the current env | `OPENCODE_STALL_MS`. **Not applied to the explorer** (`liveObservation:false`) |
-| Step cap | generator 50, explorer 25, sidekick 60 | Read **live** from OpenCode `GET /agent` per run (`stepLimits`), not from the repo copy of `agents/opencode.json` |
+| Stall watchdog (no SSE activity) | 180 s default; 600 s in the current env | `OPENCODE_STALL_MS`. Not applied to a session opened with `liveObservation:false` (the judge's) |
+| Step cap | generator 50, sidekick 60 | Read **live** from OpenCode `GET /agent` per run (`stepLimits`), not from the repo copy of `agents/opencode.json` |
 
 ### Attributes worth recording per agent turn
 
@@ -205,7 +202,7 @@ Every piece of agent-influenced code runs through the exec launcher (`qa-engine/
 
 | Store | What | Gaps |
 |---|---|---|
-| SQLite `/app/data/qayaba.db` (`src/server/history.ts`) | `runs`, `run_outcomes`, `run_events`, `agent_turns` (toolSequence, callBuckets, tokens, timeToFirstCall, steps, writes, redundant and same-file reads, each read's window in toolSequence, promptBytes), `learning_rules`, `context_maps`, … | No explorer, reviewer or sidekick per-call data in recent runs. No OpenCode retries, title calls, provider error classes or event-loop health |
+| SQLite `/app/data/qayaba.db` (`src/server/history.ts`) | `runs`, `run_outcomes`, `run_events`, `agent_turns` (toolSequence, callBuckets, tokens, timeToFirstCall, steps, writes, redundant and same-file reads, each read's window in toolSequence, promptBytes), `learning_rules`, `context_maps`, … | No reviewer or sidekick per-call data in recent runs. No OpenCode retries, title calls, provider error classes or event-loop health |
 | `gateSignals` on the run outcome (`qa-engine/src/shared-kernel/run-outcome.ts`) | sandbox (egress mode, denied), closedLoop, agentBrowser, coordination, noop kind, coverage… | On an unhandled error before an outcome existed, only a minimal sandbox-only outcome is now persisted |
 | `npm run probe-report -- <runId>` (`scripts/probe-report.ts`) | A per-run table of phases, turns, tools, tokens, cost, stitcher signals; JSON under `config/benchmarks/probe-results/` | A batch tool run after the fact |
 | `npm run efficiency-benchmark` | Step and call telemetry across runs | Never a gate |
@@ -215,7 +212,7 @@ Every piece of agent-influenced code runs through the exec launcher (`qa-engine/
 
 **A good acceptance test for your work:** the probe report and the campaign tables should be derivable from your telemetry, and should mostly match today's numbers on the same runs.
 
-**Sessions are deleted at the end of a run**, which destroys evidence. The explorer's 62k-character reasoning could only be read on a replay. Decide deliberately what must outlive the session.
+**Sessions are deleted at the end of a run**, which destroys evidence. A turn's 62k-character reasoning could only be read on a replay. Decide deliberately what must outlive the session.
 
 ---
 
@@ -224,25 +221,25 @@ Every piece of agent-influenced code runs through the exec launcher (`qa-engine/
 | # | Observed (date) | What it looked like | Root cause | Signal that would have answered it immediately |
 |---|---|---|---|---|
 | F1 | No name-webapp run ever reached `execute` (through 10-16) | Endless infra-errors, invalids, skips | Many causes below | Funnel metric: runs by furthest phase reached × verdict × error code |
-| F2 | Explorer "hung" 18–44 min (10-14) | A campaign wall-cap cancel, "Unexpected server error" | **The host slept**; the VM froze | Event-loop lag and suspend detection; heartbeat gap; the timeout that applied and whether it fired |
+| F2 | A grounding agent turn "hung" 18–44 min (10-14) | A campaign wall-cap cancel, "Unexpected server error" | **The host slept**; the VM froze | Event-loop lag and suspend detection; heartbeat gap; the timeout that applied and whether it fired |
 | F3 | Generator's first tool call at 115–266 s (10-12) | E-TIME-BUDGET with 0 writes | The provider's reasoning behaviour changed; the same prompt was fast earlier | Per-step reasoning tokens and duration; prompt hash plus bytes per section; time to first call; model and effort attributes |
 | F4 | With `reasoningEffort: low`: 50 steps in 60 s, 45 file reads, 0 writes (10-12) | E-STEP-BUDGET | The changed element was not rendered on DEV (0 data rows) and nothing said so; the prompt offered no legitimate exit | Tool calls by family per turn; reads of prompt-provided files; the pack's "Changed values" facts versus the agent's outcome |
 | F5 | Login timed out (10-12) | "Test timeout of 30000ms exceeded" waiting for the username field | Egress refused `fonts.googleapis.com`, so the Keycloak form never mounted | Denied hosts per login attempt; login step durations; page console errors (`Unable to preload CSS`) |
 | F6 | The verified login was replaced by the stock seed (10-12) | The next run started cold; the generator spent its whole budget re-investigating the login | The store demoted a good login after an environmental failure (now fixed) | Suite-store events (restore, demote, capture) with reasons |
-| F7 | Provider quota exhausted (10-16) | "explorer pass failed (non-blocking)", then a 240 s timeout | "Go usage limit exceeded" from opencode-go | Provider error class on the agent span; a quota-exceeded counter; the title-agent failures |
-| F8 | Provider socket closed mid-stream (10-14) | Explorer error | Transient provider or network failure | Provider error class, OpenCode's internal retries, fallback model use |
+| F7 | Provider quota exhausted (10-16) | "grounding pass failed (non-blocking)", then a 240 s timeout | "Go usage limit exceeded" from opencode-go | Provider error class on the agent span; a quota-exceeded counter; the title-agent failures |
+| F8 | Provider socket closed mid-stream (10-14) | Grounding pass error | Transient provider or network failure | Provider error class, OpenCode's internal retries, fallback model use |
 | F9 | Agent browser cannot reach DEV (all of history) | 9/11 navigations wasted; repeated engram saves | Playwright MCP launched without the DEV Basic-gate credentials | Per-navigation outcome (HTTP status / auth error) on `execute_tool` spans |
 | F10 | 5/5 earlier runs that produced specs ended `invalid` (E-STATIC strict-mode ambiguity) | Invalid | Ambiguous selectors (two same-label buttons) that were visible in the pack | Validation spans with the failing check and selector; the pre-exec ambiguity advisory count |
 | F11 | DOM capture took 9 min instead of ~26 s (10-14) | Grounding ate the 25-minute run deadline before the generator ran | Partly host sleep, possibly slow pages | Per-route capture duration and state; capture child duration |
 | F12 | Cleanup `npm ci` exit 243 (10-14) | The campaign replicate was marked invalid | Probably no network during host sleep (unconfirmed) | Install child: exit code, denied hosts, the registry it reached |
-| F13 | Explorer brief claimed "the front has no dedicated duplicate-address message", which was false (10-11) | The spec asserted the generic toast | An explorer turn's variance; the generator was told "do NOT re-read that code" | Brief claims versus files actually read by the explorer (needs explorer per-call data) |
+| F13 | The grounding brief claimed "the front has no dedicated duplicate-address message", which was false (10-11) | The spec asserted the generic toast | A grounding turn's variance; the generator was told "do NOT re-read that code" | Brief claims versus files actually read by the grounding turn (needed per-call data) |
 | F14 | Sidekicks (September): median 65 calls, 52 reads, **0 writes** in 6 turns | No delivery | Unknown; that mode has never run live since its rebuild | Per-sidekick spans under the fan-out, with lease waits |
 | F15 | The reviewer's model was rejected by the provider at one point (October) | E-REVIEWER-UNAVAILABLE path | Model availability | Provider error class on the reviewer span |
 | F16 | Learned "experimental" rules told a shell-less generator to "run tsc" | No effect, or noise | The reflector invented a cause (the reflector is now off) | Which learned rules were injected per prompt, and the outcome per rule |
 
 **What the data says about context resources** (measured over 56 runs, for your prioritisation):
 - **Live DOM (context pack): essential**, but ~65% of it is filler (redirect advisory, `/home`, login stubs).
-- **Explorer brief: used.** Its risks become spec objectives. It was occasionally wrong.
+- **Grounding brief (removed): it was used.** Its risks became spec objectives. It was occasionally wrong.
 - **Rendered context map** (4.8 KB) and **stitcher links/drift** (4.8 KB): pushed whole, rarely used by the agent.
 - **Skill exemplars and learned rules:** unused.
 - **Serena:** 0 calls. **codebase-memory:** never reaches the agent.
@@ -255,7 +252,7 @@ Every piece of agent-influenced code runs through the exec launcher (`qa-engine/
 
 You are done when each of these can be answered from your traces and metrics alone. No container shell, no SQLite, no OpenCode log.
 
-1. For run X: which phase took the time, and which limit ended it (tier budget, run deadline, explorer timeout, host cap, stall, step cap, cancellation)?
+1. For run X: which phase took the time, and which limit ended it (tier budget, run deadline, host cap, stall, step cap, cancellation)?
 2. Was the process suspended, or the event loop blocked, during run X, and for how long?
 3. For an agent turn: how long until the first tool call, how many reasoning tokens before it, and which model and effort actually answered (fallback included)?
 4. Was the prompt of turn A identical to that of turn B? If not, which sections differed, and by how many bytes?

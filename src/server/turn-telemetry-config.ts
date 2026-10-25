@@ -40,12 +40,3 @@ export function stepIntentContextFor(input: StepIntentConfigInput): StepIntentCo
     reviewAgents: input.reviewAgents,
   };
 }
-
-/*
- * QA_TELEMETRY_OBSERVE_UNWATCHED=true has the host track the calls of a session that opted out of live observation (the explorer's)
- * so its turn has a trace. Off unless the operator turns it on: it adds an event-stream subscription to a phase that had none.
- * Read once by the composition root, because qa-engine never reads the environment.
- */
-export function observeUnwatchedFromEnv(env: Record<string, string | undefined>): boolean {
-  return env.QA_TELEMETRY_OBSERVE_UNWATCHED?.trim().toLowerCase() === "true";
-}

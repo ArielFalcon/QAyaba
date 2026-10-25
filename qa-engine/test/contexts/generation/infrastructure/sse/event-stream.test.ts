@@ -11,9 +11,6 @@ import {
   startActivitySink,
   registerRunSession,
   unregisterRunSession,
-  observeUnwatchedSession,
-  unobserveUnwatchedSession,
-  UNWATCHED_MAX_AGE_MS,
   EventStreamManager,
   setRawEventStreamOpener,
 } from "@contexts/generation/infrastructure/sse/event-stream.ts";
@@ -393,84 +390,4 @@ test("the opener is handed a callback that reports the stream interrupted under 
   });
   assert.deepEqual(lifecycle.kinds, ["opening", "interrupted", "connected", "closed"]);
   assert.equal(new Set(lifecycle.calls.map((c) => c.token)).size, 1);
-});
-
-/* --- observing a session that no watchdog watches --- */
-
-test("an observed unwatched session's calls reach the tracker and never feed a watchdog, while a registered session still does", async () => {
-  const notified: string[] = [];
-  registerSessionWatchdogNotify("sess-unwatched", () => notified.push("unwatched"));
-  registerSessionWatchdogNotify("sess-watched", () => notified.push("watched"));
-  const events = [
-    toolPartEvent("sess-unwatched", "c1", "read", { filePath: "/m/sse-dir/a.ts" }),
-    toolPartEvent("sess-watched", "c1", "read", { filePath: "/m/sse-dir/a.ts" }),
-  ];
-  let drained!: () => void;
-  const allProcessed = new Promise<void>((resolve) => { drained = resolve; });
-  const restoreOpener = setRawEventStreamOpener({
-    open: async () =>
-      (async function* () {
-        for (const event of events) yield event;
-        drained();
-      })(),
-  });
-  const shutdown = new AbortController();
-  void startActivitySink(() => {}, shutdown.signal);
-  let unwatched: ReturnType<typeof callEfficiencyTracker.take> = null;
-  try {
-    observeUnwatchedSession("sess-unwatched", "/m/sse-dir");
-    registerRunSession("sess-watched", "run-1", "/m/sse-dir");
-    await allProcessed;
-    unwatched = callEfficiencyTracker.take("sess-unwatched", "");
-  } finally {
-    unobserveUnwatchedSession("sess-unwatched");
-    unregisterRunSession("sess-watched");
-    unregisterSessionWatchdogNotify("sess-unwatched");
-    unregisterSessionWatchdogNotify("sess-watched");
-    shutdown.abort();
-    restoreOpener();
-  }
-  assert.equal(unwatched?.totalCalls, 1);
-  assert.deepEqual(notified, ["watched"]);
-  assert.equal(callEfficiencyTracker.take("sess-unwatched", ""), null, "ending the observation forgets the session");
-});
-
-test("an observed unwatched session is not a session of the run for the live activity feed", async () => {
-  const seen: string[] = [];
-  const events = [{ type: "message.part.updated", properties: { part: { id: "p", sessionID: "sess-quiet", messageID: "m", type: "tool", callID: "c", tool: "write", state: { status: "completed", input: { filePath: "/m/q/e2e/a.spec.ts" }, output: "ok" } } } }];
-  let drained!: () => void;
-  const allProcessed = new Promise<void>((resolve) => { drained = resolve; });
-  const restoreOpener = setRawEventStreamOpener({
-    open: async () =>
-      (async function* () {
-        for (const event of events) yield event;
-        drained();
-      })(),
-  });
-  const shutdown = new AbortController();
-  void startActivitySink((a) => seen.push(a.runId), shutdown.signal);
-  try {
-    observeUnwatchedSession("sess-quiet", "/m/q");
-    await allProcessed;
-  } finally {
-    unobserveUnwatchedSession("sess-quiet");
-    shutdown.abort();
-    restoreOpener();
-  }
-  assert.deepEqual(seen, []);
-});
-
-test("a session observed unwatched whose disposal was missed is let go, with its tracker state, when a later one is observed", () => {
-  observeUnwatchedSession("sess-leaked", "/m/leak", 0);
-  observeUnwatchedSession("sess-fresh", "/m/leak", UNWATCHED_MAX_AGE_MS + 1);
-  try {
-    /* The leaked one is gone: its events no longer reach the tracker, and a new attach of the same id starts clean. */
-    callEfficiencyTracker.record(toolPartEvent("sess-leaked", "c1", "read", { filePath: "/m/leak/a.ts" }) as never);
-    assert.equal(callEfficiencyTracker.take("sess-leaked", ""), null);
-    callEfficiencyTracker.record(toolPartEvent("sess-fresh", "c1", "read", { filePath: "/m/leak/a.ts" }) as never);
-    assert.equal(callEfficiencyTracker.take("sess-fresh", "")?.totalCalls, 1);
-  } finally {
-    unobserveUnwatchedSession("sess-fresh");
-    unobserveUnwatchedSession("sess-leaked");
-  }
 });

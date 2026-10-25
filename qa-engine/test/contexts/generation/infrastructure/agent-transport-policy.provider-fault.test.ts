@@ -23,7 +23,7 @@ function hangingTransport(aborted: string[]): { raw: RawAgentTransport; answer: 
 async function openPrompt(raw: RawAgentTransport, events: AttemptEvent[] = []) {
   resetCircuit();
   const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 60_000, getFallbackModel: () => undefined, onAttempt: (_id, e) => events.push(e) });
-  const session = await deps.open("qa-explorer", "/w");
+  const session = await deps.open("qa-reviewer", "/w");
   const inFlight = session.prompt("explore");
   /* Let the attempt reach the transport before the runtime reports on it. */
   await new Promise((r) => setImmediate(r));

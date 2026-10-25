@@ -1,6 +1,6 @@
 /*
  * Holds every agent turn of a run to the run's deadline. A decorator over the agent runtime, so no
- * caller (generation, review, the explorer, a sidekick) can spend time the run no longer has: a turn is
+ * caller (generation, review, a sidekick) can spend time the run no longer has: a turn is
  * refused when none is left, and otherwise runs under the smaller of its own limit and what is left.
  * Only the turn the deadline itself ended is reported as the run's deadline; a turn that hit a limit of
  * its own keeps the error its caller already knows how to read.

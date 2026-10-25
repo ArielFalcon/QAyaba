@@ -24,7 +24,6 @@ export const CONTEXT_SOURCES = [
   "service-links",
   "structural-signal",
   "cross-repo-impact",
-  "explorer-brief",
 ] as const;
 export type ContextSource = (typeof CONTEXT_SOURCES)[number];
 
@@ -33,10 +32,10 @@ export const MAX_ITEM_IDS = 200; /* the registry's arrayCap for qayaba.context.i
 /* One id is never longer than this: a longer one keeps its head and ends with a hash of the whole, so it stays unique and stable. */
 export const MAX_ITEM_ID_CHARS = 200;
 
-export const ID_KIND = ["route", "dom", "op", "link", "flow", "rule", "exemplar", "brief", "fact", "signal", "svc-link", "impact"] as const;
+export const ID_KIND = ["route", "dom", "op", "link", "flow", "rule", "exemplar", "fact", "signal", "svc-link", "impact"] as const;
 export type IdKind = (typeof ID_KIND)[number];
 
-/* Whether a spec's text can be checked against ids of this kind. Brief claim hashes are not stable across runs, and exemplar tags in a manifest are the agent's own report. */
+/* Whether a spec's text can be checked against ids of this kind. Exemplar tags in a manifest are the agent's own report. */
 export const ID_KIND_EXTRACTABLE: Readonly<Record<IdKind, boolean>> = {
   route: true,
   dom: true,
@@ -45,7 +44,6 @@ export const ID_KIND_EXTRACTABLE: Readonly<Record<IdKind, boolean>> = {
   flow: false,
   rule: false,
   exemplar: false,
-  brief: false,
   fact: false,
   signal: false,
   "svc-link": false,
@@ -76,7 +74,6 @@ export const itemId = {
   dom: (route: string, testId: string): string => clean(`dom:${route}#${testId}`),
   domRole: (route: string, role: string, accessibleName: string): string => clean(`dom:${route}#role:${role}:${hash8(accessibleName)}`),
   fact: (route: string, testId: string, state: "present" | "absent"): string => clean(`fact:${route}#${testId}:${state}`),
-  brief: (kind: string, claim: string): string => clean(`brief:${kind}:${hash8(claim)}`),
   signal: (line: string): string => `signal:${hash8(line)}`,
   svcLink: (link: ServiceLinkLike): string => clean(`svc-link:${link.from.repo}/${link.from.symbol}→${link.to.repo}/${link.to.symbol}`),
   impact: (tier: string, link: ServiceLinkLike): string => clean(`impact:${tier}:${link.from.repo}/${link.from.symbol}→${link.to.repo}/${link.to.symbol}`),
@@ -168,25 +165,6 @@ export function domItemIdsBudgeted(pages: readonly DomPageLike[], total: number 
     overflow.push(Math.max(0, own.length - share));
   }
   return { ids, overflow };
-}
-
-export interface BriefLike {
-  routes?: ReadonlyArray<{ path: string }>;
-  feBe?: ReadonlyArray<{ route: string; operationId: string; via?: string }>;
-  contracts?: ReadonlyArray<{ operationId: string; method: string; path: string }>;
-  risks?: readonly string[];
-  blastRadius?: ReadonlyArray<{ symbol: string; file: string; role: string }>;
-}
-
-/* One id per claim of the explorer's brief: its kind and a hash of the normalized claim. Recorded, but not extractable. */
-export function briefItemIds(brief: BriefLike): string[] {
-  return [
-    ...(brief.blastRadius ?? []).map((n) => itemId.brief("blast", `${n.file} ${n.symbol} ${n.role}`)),
-    ...(brief.routes ?? []).map((r) => itemId.brief("route", r.path)),
-    ...(brief.feBe ?? []).map((l) => itemId.brief("fe-be", `${l.route} ${l.operationId}`)),
-    ...(brief.contracts ?? []).map((c) => itemId.brief("contract", `${c.method} ${c.path} ${c.operationId}`)),
-    ...(brief.risks ?? []).map((r) => itemId.brief("risk", r)),
-  ];
 }
 
 /* One id per content line of an advisory block (a heading is not an item). */

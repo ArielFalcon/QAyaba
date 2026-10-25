@@ -143,11 +143,11 @@ test("a prompt cut by its own time limit reports which limit it was, and the tur
 
 test("the limit that applies is named by its source: the prompt's, else the session's, else the host's", async () => {
   const { deps, turns } = observed(transport(async () => answered()));
-  const session = await deps.open("qa-generator", "/w", { timeoutMs: 4_000, timeLimit: "explorer-timeout", descriptor: { runId: "r1", role: "qa-explorer" } });
+  const session = await deps.open("qa-generator", "/w", { timeoutMs: 4_000, timeLimit: "session-timeout", descriptor: { runId: "r1", role: "qa-judge" } });
   await session.prompt("a");
   await session.prompt("b", { timeoutMs: 3_000 });
-  assert.deepEqual(turns.map((t) => t.limitApplied), ["explorer-timeout", "prompt-budget"]);
-  const plain = await deps.open("qa-generator", "/w", { timeoutMs: 4_000, descriptor: { runId: "r1", role: "qa-explorer" } });
+  assert.deepEqual(turns.map((t) => t.limitApplied), ["session-timeout", "prompt-budget"]);
+  const plain = await deps.open("qa-generator", "/w", { timeoutMs: 4_000, descriptor: { runId: "r1", role: "qa-judge" } });
   await plain.prompt("c");
   assert.equal(turns[2]!.limitApplied, "session-timeout");
 });

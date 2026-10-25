@@ -9,7 +9,6 @@ import type {
   ExecutionPort,
   ValidationPort,
   CrossRepoImpact,
-  ExplorationBrief,
   GroundingOmission,
   HarnessFacts,
   RelevanceBias,
@@ -59,7 +58,6 @@ export interface Grounding {
   contextPackOmissions: readonly GroundingOmission[] | undefined;
   existingSpecFiles: string[] | undefined;
   contextMap: ArchitectureContext | undefined;
-  contextBrief: ExplorationBrief | undefined;
   harnessFacts: HarnessFacts | undefined;
   /** The added labels whose changed-value line in the pack said more nodes than unchanged lines: what an unobservable no-op is set beside. */
   moreNodes: readonly string[];
@@ -207,7 +205,6 @@ export function initialRunState(): RunState {
       contextPackOmissions: undefined,
       existingSpecFiles: undefined,
       contextMap: undefined,
-      contextBrief: undefined,
       harnessFacts: undefined,
       moreNodes: [],
       changeRoutes: [],

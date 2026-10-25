@@ -23,9 +23,6 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 /* Prime to the size of the dimensions' cycles, so the sample walks through every value of every dimension. The smallest prime whose sample, assembled once per layer for each combination, stays within the prompts a mutant run is sized for. */
 const SAMPLE_STRIDE = 53;
 
-/* A brief and a pack in one prompt with no tree: the shape whose brief frames only established facts. */
-const isBriefWithPack = (s: CellSpec): boolean => s.grounding === "brief+pack" && s.mode === "diff" && s.target === "e2e" && s.tree === "none";
-
 /* A signal of co-change files alone is a few dozen combinations the stride mostly skips: the first one of each phase and target keeps the decision it bears on (is a blast radius explored?) in the sample, on a first pass and on every regeneration. */
 const firstCoChangeOfEachPhaseAndTarget = (all: readonly CellSpec[]): CellSpec[] => {
   const seen = new Set<string>();
@@ -74,7 +71,6 @@ const sampleSpecs = (): CellSpec[] => {
   const chosen = new Map<string, CellSpec>();
   for (const spec of [
     ...all.filter((_, i) => i % SAMPLE_STRIDE === 0),
-    ...all.filter(isBriefWithPack).slice(0, 4),
     ...firstCoChangeOfEachPhaseAndTarget(all),
     ...firstWithNoSuiteOfEachPhase(all),
     ...firstExhaustiveRegenerationOverTheCap(all),
@@ -154,20 +150,21 @@ test("dropping the framing a section declares makes the trust-language check rep
   }
 });
 
-test("a brief section that keeps its established framing but is reworded to disown its facts is reported", async () => {
+test("a section that keeps its established framing but is reworded to disown its facts is reported", async () => {
   const establishedOnly = (s: MatrixCell["lint"]["sections"][number]): boolean => {
     const stances = s.claims.flatMap((k) => (k.kind === "frames" ? [k.as] : []));
-    return s.id === "context-brief" && stances.length > 0 && stances.every((stance) => stance === "established");
+    return s.layer === "assembled" && stances.length > 0 && stances.every((stance) => stance === "established");
   };
   const cell = (await cellsOnce()).find((c) => c.layer === "opencode" && c.lint.sections.some(establishedOnly));
-  assert.ok(cell, "the sample has a cell with a brief that frames only established facts");
+  assert.ok(cell, "the sample has a cell with a section that frames only established facts");
+  const target = cell.lint.sections.find(establishedOnly)!;
   const reworded = {
     ...cell,
     lint: {
       ...cell.lint,
-      sections: cell.lint.sections.map((s) => (s.id === "context-brief" ? { ...s, text: `${s.text}\n(The brief above is NOT authoritative and must be verified against the live DOM.)` } : s)),
+      sections: cell.lint.sections.map((s) => (s.id === target.id ? { ...s, text: `${s.text}\n(The facts above are NOT authoritative and must be verified against the live DOM.)` } : s)),
     },
   };
   assert.deepEqual(lintMatrixCell(cell, loadBaseline(ROOT)).filter((f) => f.rule === "R14"), [], "the real section agrees with its framing");
-  assert.deepEqual(lintMatrixCell(reworded, undefined).filter((f) => f.rule === "R14").map((f) => f.sections), [["context-brief"]]);
+  assert.deepEqual(lintMatrixCell(reworded, undefined).filter((f) => f.rule === "R14").map((f) => f.sections), [[target.id]]);
 });

@@ -27,7 +27,7 @@ async function packInputFor(statics: { mirrorDir?: string; stagedRoots?: string[
     { e2eDir: "/mirrors/org/app/e2e", ...statics },
     { buildContextPack: async (input) => { seen = input as PackInput; return { text: undefined, domBytes: 0, contractBytes: 0 }; } },
   );
-  await adapter.ground("/tmp/qa-golden/e2e", undefined, diff, { sha: "abc1234" });
+  await adapter.ground("/tmp/qa-golden/e2e", undefined, diff);
   return seen;
 }
 
@@ -115,7 +115,7 @@ async function packInputWithMap(map: unknown, diff: string, statics: { stagedRoo
       buildContextPack: async (input) => { seen = input as PackInput; return { text: undefined, domBytes: 0, contractBytes: 0 }; },
     },
   );
-  await adapter.ground("/tmp/qa-golden/e2e", undefined, diff, { sha: "abc1234" });
+  await adapter.ground("/tmp/qa-golden/e2e", undefined, diff);
   return seen;
 }
 
@@ -144,8 +144,8 @@ test("ground() hands the run the added labels the pack states with more nodes th
       { e2eDir: "/mirrors/org/app/e2e" },
       { buildContextPack: async () => ({ text: "## Context Pack", domBytes: 1, contractBytes: 0, ...(changedValuesWithMoreNodes ? { changedValuesWithMoreNodes } : {}) }) },
     );
-  assert.deepEqual((await withLines(["Cambiar filtros"]).ground("/tmp/qa-golden/e2e", undefined, diff, { sha: "abc1234" })).changedValuesWithMoreNodes, ["Cambiar filtros"]);
-  assert.equal("changedValuesWithMoreNodes" in (await withLines().ground("/tmp/qa-golden/e2e", undefined, diff, { sha: "abc1234" })), false);
+  assert.deepEqual((await withLines(["Cambiar filtros"]).ground("/tmp/qa-golden/e2e", undefined, diff)).changedValuesWithMoreNodes, ["Cambiar filtros"]);
+  assert.equal("changedValuesWithMoreNodes" in (await withLines().ground("/tmp/qa-golden/e2e", undefined, diff)), false);
 });
 
 test("ground(): a diff with no changed label gives the pack no literals", async () => {
@@ -165,9 +165,9 @@ test("ground() hands the run the pages the pack read with results under the decl
     { route: "/restaurantes", finalUrl: "https://dev.example/restaurantes", resultExpected: true, resultCount: 0 },
     { route: "/home", finalUrl: "https://dev.example/home" },
   ];
-  const grounded = await withPages(pages).ground("/tmp/qa-golden/e2e", undefined, labelDiff, { sha: "abc1234" });
+  const grounded = await withPages(pages).ground("/tmp/qa-golden/e2e", undefined, labelDiff);
   assert.deepEqual(grounded.packConfirmedDataRoutes, [{ path: "/restaurantes/madrid", resultCount: 3 }]);
-  const none = await withPages([pages[1], pages[2]]).ground("/tmp/qa-golden/e2e", undefined, labelDiff, { sha: "abc1234" });
+  const none = await withPages([pages[1], pages[2]]).ground("/tmp/qa-golden/e2e", undefined, labelDiff);
   assert.equal("packConfirmedDataRoutes" in none, false);
 });
 
@@ -177,8 +177,8 @@ test("ground() hands the run the pages of the map the change is linked to, in th
       { e2eDir: "/mirrors/org/app/e2e" },
       { buildContextPack: async () => ({ text: "## Context Pack", domBytes: 1, contractBytes: 0, trace: { rankedRoutes: [], relevantRoutes, capturablePages: 0, pages: [], pageDeliveries: [], changedTestIds: [], contractIds: [], omittedLines: 0 } as never }) },
     );
-  const grounded = await withRelevant(["/order", "/upload-menu/:step"]).ground("/tmp/qa-golden/e2e", undefined, labelDiff, { sha: "abc1234" });
+  const grounded = await withRelevant(["/order", "/upload-menu/:step"]).ground("/tmp/qa-golden/e2e", undefined, labelDiff);
   assert.deepEqual(grounded.changeRoutes, ["/order", "/upload-menu/:step"]);
-  const none = await withRelevant([]).ground("/tmp/qa-golden/e2e", undefined, labelDiff, { sha: "abc1234" });
+  const none = await withRelevant([]).ground("/tmp/qa-golden/e2e", undefined, labelDiff);
   assert.equal("changeRoutes" in none, false);
 });

@@ -395,7 +395,7 @@ describe("CodexExecTransport timeout/SIGTERM path", () => {
    timeoutMs — today the rewritten path passes none, so a wedged `codex exec` is unbounded
    (facades.ts marks Codex sessions selfTimed, so the stall watchdog skips them entirely; a
    wall-clock deadline is the only mechanism that can see a Codex hang). The default is derived
-   from the SAME per-role budget constants OpenCode uses (REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS,
+   from the SAME per-role budget constants OpenCode uses (REVIEWER_TIMEOUT_MS,
    agentTimeout("diff")), imported directly to avoid the two providers drifting apart.
    ---------------------------------------------------------------------------
  */

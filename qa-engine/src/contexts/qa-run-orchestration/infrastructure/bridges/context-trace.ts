@@ -1,13 +1,13 @@
 /*
  * The grounding sources as context spans (docs/observability-design.md §4.4): each source that supplies the agent something says what it
  * supplied, as stable item ids, in a `qayaba.context.<source>` span under the phase that is open. They are decorators over the ports that
- * produce the items, and a trace for the grounding adapter, which alone sees the context map, the brief and the pack as they are made.
+ * produce the items, and a trace for the grounding adapter, which alone sees the context map and the pack as they are made.
  *
  * Read-only: what a port returns is returned as it was, and what it throws is thrown. Observability never changes what the agent receives or how a run ends.
  */
 
 import { recordContextSpan } from "../../../../shared-infrastructure/telemetry/run-spans.ts";
-import { advisoryLineIds, briefItemIds, contextMapItemIds, itemId } from "@contexts/generation/domain/context-item-ids.ts";
+import { advisoryLineIds, contextMapItemIds, itemId } from "@contexts/generation/domain/context-item-ids.ts";
 import { packProducedItemIds } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance.ts";
@@ -58,7 +58,7 @@ function provenanceOf(location: string, resultCount: number, extra: ContextProve
   };
 }
 
-/* The context map, the explorer's brief and the context pack, as they are made by the grounding adapter. */
+/* The context map and the context pack, as they are made by the grounding adapter. */
 export function telemetryGroundingTrace(telemetry: TelemetryPort, mapProvenance?: () => ContextProvenance | undefined): GroundingTrace {
   return {
     contextMap: (map, provenance) => safely(() => recordContextSpan(telemetry, {
@@ -67,10 +67,6 @@ export function telemetryGroundingTrace(telemetry: TelemetryPort, mapProvenance?
       bytes: jsonBytes(map),
       freshness: provenance ?? mapProvenance?.(),
     })),
-    brief: (brief) => safely(() => {
-      const ids = briefItemIds(brief);
-      recordContextSpan(telemetry, { source: "explorer-brief", ids, bytes: jsonBytes(brief), freshness: provenanceOf("agent:explorer-brief", ids.length) });
-    }),
     pack: (assembly) => safely(() => {
       const trace = assembly.trace;
       if (trace && trace.capturablePages > 0) {

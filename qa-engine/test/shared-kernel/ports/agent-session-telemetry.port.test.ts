@@ -34,7 +34,7 @@ test("AgentTurnEvent carries round/isRepair/sectionSizes and a TurnTelemetrySink
   const sink: TurnTelemetrySink = { record: (e) => void recorded.push(e) };
 
   /* runId is nullable (null for runs without a run context); sectionSizes is the
-     ContextAssembler byte map, null for non-assembled prompts (repairs/explorer).
+     ContextAssembler byte map, null for non-assembled prompts (repairs).
    */
   const assembled: AgentTurnEvent = {
     runId: "run-1",

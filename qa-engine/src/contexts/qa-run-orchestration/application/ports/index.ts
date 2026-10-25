@@ -48,18 +48,6 @@ export interface ArchitectureContext {
   flows?: Array<{ id: string; routes: string[]; operations?: string[] }>;
 }
 
-/** Port-local ExplorationBrief. Extra optional fields on the generation type remain assignable. */
-export interface ExplorationBrief {
-  builtForSha: string;
-  objective: string;
-  blastRadius: Array<{ symbol: string; file: string; role: string }>;
-  feBe?: Array<{ route: string; operationId: string; via?: string }>;
-  contracts?: Array<{ operationId: string; method: string; path: string; fields?: string[]; errors?: string[] }>;
-  routes?: Array<{ path: string; component?: string; domLandmarks?: string[]; verified: boolean }>;
-  risks?: string[];
-  notes?: string;
-}
-
 /** Port-local HarnessFacts. Generation's type is structurally assignable; this barrel does not import across contexts. */
 export interface HarnessFacts {
   /** Only when the app declares one: no default is invented. */
@@ -207,11 +195,6 @@ export interface GenerationEnrichment {
    * (assembled markdown). Absent when the json is missing/invalid (fail-open).
    */
   contextMap?: ArchitectureContext;
-  /**
-   * Distilled explorer brief. Distinct from contextPack. Absent when explorer is
-   * unwired or fail-open.
-   */
-  contextBrief?: ExplorationBrief;
   /**
    * Facts about the suite's harness (configured test-id attribute, fixtures exports). Facts
    * only, never an instruction. Absent when nothing was configured or scannable.
@@ -842,8 +825,6 @@ export interface GroundingResult {
   existingSpecFiles?: string[];
   /** ArchitectureContext from specDir/.qa/context.json. Absent when missing/invalid (fail-open). */
   contextMap?: ArchitectureContext;
-  /** Distilled explorer brief. Absent when explorer is unwired, throws, or returns nothing (fail-open). */
-  contextBrief?: ExplorationBrief;
   /** Facts about the suite's harness (the configured test-id attribute, what the fixtures file exports). Absent when nothing was configured or scannable (fail-open). */
   harnessFacts?: HarnessFacts;
   /** The added labels whose changed-value line in the pack said more nodes than unchanged lines of the file. Absent when none did, or when no pack carries such lines. */
@@ -866,15 +847,7 @@ export interface PreGenerationGroundingPort {
    * Optional `diff` (diff mode only) for deterministic [CHANGED] markers.
    * Absent is unchanged.
    */
-  /* When `opts` is supplied, `sha` is REQUIRED — the collaborator's own exploreBrief contract needs
-   * a real commit sha, never a fabricated fallback (e.g. a run namespace). Omit `opts` entirely for
-   * a caller with no sha at all (the explorer pass is simply skipped, fail-open). */
-  ground(
-    specDir: string,
-    signal?: AbortSignal,
-    diff?: string,
-    opts?: { sha: string; intent?: CommitIntent; runId?: string },
-  ): Promise<GroundingResult>;
+  ground(specDir: string, signal?: AbortSignal, diff?: string): Promise<GroundingResult>;
 }
 
 /**

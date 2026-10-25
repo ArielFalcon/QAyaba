@@ -234,12 +234,12 @@ test("a prompt cut by its time limit records which limit, ends as a timeout, and
   assert.deepEqual(r.h.unended(), []);
 });
 
-test("the run's deadline, the repair cap, the explorer's timeout and the host cap are each named by the layer that fired them", async () => {
+test("the run's deadline, the repair cap, the session's timeout and the host cap are each named by the layer that fired them", async () => {
   for (const [promptOpts, openOpts, expected] of [
     [{ timeoutMs: 5, timeLimit: "run-deadline" as const }, {}, "run-deadline"],
     [{ timeoutMs: 5, timeLimit: "repair-cap" as const }, {}, "repair-cap"],
-    [{ timeoutMs: 5 }, { timeoutMs: 9_000, timeLimit: "explorer-timeout" as const }, "prompt-budget"],
-    [{}, { timeoutMs: 5, timeLimit: "explorer-timeout" as const }, "explorer-timeout"],
+    [{ timeoutMs: 5 }, { timeoutMs: 9_000, timeLimit: "session-timeout" as const }, "prompt-budget"],
+    [{}, { timeoutMs: 5, timeLimit: "session-timeout" as const }, "session-timeout"],
   ] as const) {
     const r = rig({ promptSession: () => new Promise(() => {}) });
     const session = await r.deps.open("qa-generator", CWD, { ...openOpts, descriptor: { runId: "run-1", role: "qa-generator" } });

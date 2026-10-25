@@ -4,6 +4,7 @@
 - **Date:** 2026-10-19
 - **Deciders:** qayaba maintainers
 - **Related:** `docs/observability-design.md` §4.4, §5, §11, §12, §14; `docs/observability-context.md` §3–§8; `docs/efficiency-benchmark.md`; `docs/testing-standards.md`
+- **Amended 2026-10-25:** the explorer (and its brief) was removed from the system; lead + sidekicks is the only generation path and the lead grounds deterministically. Every mention of the explorer below is the record of what was decided and measured at the time, kept as written; the explorer variant, source and ground-truth rows no longer exist in the code.
 
 ## 1. Context
 

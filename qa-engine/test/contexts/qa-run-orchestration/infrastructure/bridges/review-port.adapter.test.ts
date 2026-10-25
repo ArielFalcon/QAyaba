@@ -31,7 +31,6 @@ function fakeRendering(): PromptRenderingPort {
     render: () => "",
     renderMain: () => ({ text: "", sectionSizes: {} }),
     renderReviewer: () => ({ text: "reviewer-prompt", sectionSizes: {} }),
-    renderExplorer: () => "",
     specFileForFlow: (flow: string) => `flows/${flow}.spec.ts`,
   };
 }

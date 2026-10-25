@@ -5,7 +5,7 @@
 
 export interface ContextProvenance {
   /* The effective location: db:context_maps, file:e2e/.qa/context.json, live:dev, mirror:stitcher,
-   * graph:codebase-memory, db:learning_rules, db:curriculum or agent:explorer-brief. */
+   * graph:codebase-memory, db:learning_rules, or db:curriculum. */
   location?: string;
   /* When the source was captured, ISO-8601. */
   capturedAt?: string;

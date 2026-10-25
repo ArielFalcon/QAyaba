@@ -128,10 +128,6 @@ qa:
   # fixes are always on. Off restores the pre-switch flow and forces the intent lock off.
   # reviewLoopIntegrity: false
   testDataPrefix: "qa-bot"     # test entities namespaced per SHA
-  # explorer: true             # single-agent runs first do a read-only "explorer" pass that
-                               # distills the blast radius into a brief, so the generator gets a
-                               # clean context window instead of re-exploring. Default off; adds one
-                               # cheap session per run.
   # Change-coverage (the value keystone): does the suite actually exercise the lines the commit
   # changed? Optional; defaults to mode "signal", minRatio 0.7.
   changeCoverage:

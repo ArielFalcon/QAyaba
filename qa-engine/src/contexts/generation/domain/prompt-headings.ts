@@ -1,13 +1,12 @@
 /*
- * Names of the sections the generator prompt assembles. The builders render them, the shell's brief
- * renderer titles itself with one, and the prompt-contract lint reads them, so static role text can
- * be checked for naming an assembled artifact without re-typing a heading.
+ * Names of the sections the generator prompt assembles. The builders render them and the
+ * prompt-contract lint reads them, so static role text can be checked for naming an assembled
+ * artifact without re-typing a heading.
  */
 
 export const PROMPT_HEADINGS = {
   workingRules: "Working rules",
   architectureContext: "Architecture context",
-  explorationBrief: "Exploration brief",
   groundTruthAtFailure: "GROUND TRUTH AT FAILURE",
   liveDevTree: "Live DEV accessibility tree",
   crossServiceLinks: "Cross-service links",
@@ -19,7 +18,7 @@ export const PROMPT_HEADINGS = {
   existingSuiteManifest: "existing-suite-manifest",
   /* The files that changed in the same commits as the changed files: what a structural signal holding no symbol is titled with. */
   coChangeFiles: "Files that historically change together",
-  /* The cap the runtime enforces for the turn: titles the statement of a generator, an explorer and a reviewer prompt alike. */
+  /* The cap the runtime enforces for the turn: titles the statement of a generator and a reviewer prompt alike. */
   stepLimit: "Step limit",
   /* The calls, time and DEV writes a run grants the generator's run_spec tool; a prompt states it only when the run granted the tool. */
   closedLoop: "Run spec budget",
@@ -41,9 +40,6 @@ export const SUITE_LISTING_LABELS = {
 /* The context pack's sections. */
 export const PACK_HEADINGS = {
   pack: "Context Pack",
-  blastRadius: "Blast radius",
-  feBe: "FE↔BE links",
-  risks: "Risks / assert to catch regression",
   liveDom: "Live DOM",
   contracts: "Relevant API contracts",
   notCapturable: "Routes not capturable",
@@ -56,7 +52,6 @@ export const PACK_HEADINGS = {
 export const ASSEMBLED_ARTIFACT_NAMES: readonly string[] = [
   PACK_HEADINGS.pack,
   PACK_HEADINGS.liveDom,
-  PROMPT_HEADINGS.explorationBrief,
   PROMPT_HEADINGS.architectureContext,
   PROMPT_HEADINGS.groundTruthAtFailure,
   PROMPT_HEADINGS.liveDevTree,
@@ -70,7 +65,6 @@ export const ASSEMBLED_ARTIFACT_NAMES: readonly string[] = [
   PROMPT_HEADINGS.agentBrowser,
   PROMPT_HEADINGS.geolocation,
   PROMPT_HEADINGS.leadPlan,
-  /* The phrases a directive uses for the brief and for grounding it points back at. */
-  "the brief",
+  /* The phrase a directive uses for the grounding it points back at. */
   "the grounding above",
 ];

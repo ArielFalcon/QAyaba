@@ -3,7 +3,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
-import { EXPLORER_AGENT_NAME } from "@contexts/generation/domain/explorer-agent.ts";
 import type { ToolSequenceEntry } from "@contexts/generation/domain/tool-sequence.ts";
 import type { AgentTurnRecord } from "../src/server/history.ts";
 import type { RunOutcome, RunRecord } from "../src/types.ts";
@@ -55,10 +54,10 @@ test("a run with no events has no durations at all", () => {
 
 /* ── tools ── */
 
-const ctx = (over: Partial<ReadingContext> = {}): ReadingContext => ({ changedFiles: ["src/orders/checkout.ts", "src/orders/cart.ts"], briefText: "Blast radius: src/orders/checkout.ts and src/payments/charge.ts", suiteDir: DEFAULT_SUITE_DIR, ...over });
+const ctx = (over: Partial<ReadingContext> = {}): ReadingContext => ({ changedFiles: ["src/orders/checkout.ts", "src/orders/cart.ts"], suiteDir: DEFAULT_SUITE_DIR, ...over });
 const read = (target: string): ToolSequenceEntry => ({ tool: "read", target });
 
-test("files read are counted once, split by whether they lie in a diff directory and whether the brief names them, and the suite directory is not exploration", () => {
+test("files read are counted once, split by whether they lie in a diff directory, and the suite directory is not exploration", () => {
   const seq: ToolSequenceEntry[] = [
     read("src/orders/checkout.ts"), read("src/orders/checkout.ts"), read("src/orders/cart.ts"), read("src/payments/charge.ts"),
     read("src/shared/util.ts"), read("e2e/fixtures.ts"), { tool: "grep", target: "createOrder" }, { tool: "read", target: "src/secret.ts", denied: true },
@@ -68,22 +67,19 @@ test("files read are counted once, split by whether they lie in a diff directory
   assert.equal(s.distinctFilesRead, 5, "a denied read is not a read, a repeat is one file");
   assert.equal(s.filesReadOutsideDiffDirs, 2, "payments and shared are outside src/orders; e2e/ is the suite");
   assert.deepEqual(s.outsideDiffDirsSample.sort(), ["src/payments/charge.ts", "src/shared/util.ts"]);
-  assert.equal(s.filesReadOutsideBrief, 2, "cart.ts and util.ts are not in the brief; checkout and charge are, and the suite is not counted");
   assert.equal(s.denied, 1);
   assert.equal(s.byTool.read, 7);
 });
 
-test("what cannot be judged stays unknown: no diff, no brief, or no sequence at all", () => {
+test("what cannot be judged stays unknown: no diff or no sequence at all", () => {
   const seq = [read("src/a.ts")];
   const noDiff = summarizeTools(seq, ctx({ changedFiles: null }));
   assert.equal(noDiff?.filesReadOutsideDiffDirs, null);
-  assert.equal(noDiff?.filesReadOutsideBrief, 1);
-  assert.equal(summarizeTools(seq, ctx({ briefText: null }))?.filesReadOutsideBrief, null);
   assert.equal(summarizeTools(null, ctx()), null);
 });
 
 test("a change at the repository root makes only root-level files inside its directory", () => {
-  const s = summarizeTools([read("README.md"), read("src/deep/file.ts")], ctx({ changedFiles: ["package.json"], briefText: null }));
+  const s = summarizeTools([read("README.md"), read("src/deep/file.ts")], ctx({ changedFiles: ["package.json"] }));
   assert.equal(s?.filesReadOutsideDiffDirs, 1);
   assert.deepEqual(s?.outsideDiffDirsSample, ["src/deep/file.ts"]);
 });
@@ -200,12 +196,11 @@ const baseEvents = (): TimedRunEvent[] => [
   { ts: 392_800, body: { type: "test.flaky", name: "t", attempts: 2 } },
 ];
 
-test("a pipeline run's report carries its verdict, phases, specs, coverage, reviewer and execution, and splits grounding into the explorer and the page capture", () => {
+test("a pipeline run's report carries its verdict, phases, specs, coverage, reviewer and execution, and reads the grounding as the page capture", () => {
   const report = buildPipelineReport({
     runId: RUN_ID, record: runRecord({ specs: [{ name: "flows/checkout.spec.ts" }] }), outcome: outcome({ reviewerApproved: true }, "E-TIME-BUDGET"),
     events: baseEvents(),
     turns: [
-      turnRecord({ role: EXPLORER_AGENT_NAME, durationMs: 45_000, outputText: "Blast radius: src/orders/checkout.ts" }),
       turnRecord({ role: "qa-generator", durationMs: 299_000, timeToFirstWriteMs: 150_000, totalCalls: 29, deniedCallCount: 2, toolSequence: [read("src/orders/checkout.ts"), read("src/shared/x.ts")] }),
       turnRecord({ role: "qa-reviewer", durationMs: 8_000 }),
     ],
@@ -217,8 +212,7 @@ test("a pipeline run's report carries its verdict, phases, specs, coverage, revi
   assert.equal(report.note, "all good");
   assert.equal(report.finished, true);
   assert.equal(report.phases.grounding, 60_000);
-  assert.equal(report.nested.explorerMs, 45_000);
-  assert.equal(report.nested.domCaptureMs, 15_000);
+  assert.equal(report.nested.domCaptureMs, 60_000);
   assert.equal(report.nested.reviewMs, 8_000);
   assert.deepEqual(report.specs, [{ path: "flows/checkout.spec.ts", lines: 84 }]);
   assert.equal(report.coverage?.status, "pass", "15 of 20 changed lines meets 0.7");
@@ -228,7 +222,6 @@ test("a pipeline run's report carries its verdict, phases, specs, coverage, revi
   assert.equal(report.execution?.flaky, 1);
   const generator = report.turns.find((t) => t.role === "qa-generator");
   assert.equal(generator?.tools?.filesReadOutsideDiffDirs, 1);
-  assert.equal(generator?.tools?.filesReadOutsideBrief, 1, "the brief is the explorer's output of the same run");
   assert.equal(report.totals.calls, 29, "turns that did not count their calls are left out of the sum");
 });
 
@@ -379,33 +372,6 @@ test("routes are read from the literals a spec navigates to, without origin, que
   assert.equal(normalizeRoute("/"), "/");
 });
 
-test("the brief's blast radius is scored by the files it lists: hits, misses, a named file the truth rejects, and the files it names that the truth cannot judge", () => {
-  const brief = JSON.stringify({ blastRadius: [
-    { symbol: "CartApi.create", file: "src/app/features/cart/api/cart.api.ts", role: "posts the cart" },
-    { symbol: "Picker", file: "src/app/features/home/picker.component.ts", role: "reads carts" },
-    { symbol: "Other", file: "src/app/features/other/other.ts", role: "x" },
-  ] });
-  const score = scoreGroundTruth(TRUTH, { briefText: brief, filesRead: null, specSources: null }).briefBlastRadius;
-  assert.ok(score);
-  assert.deepEqual(score.hits, ["src/app/features/cart/api/cart.api.ts"]);
-  assert.deepEqual(score.misses, ["src/app/features/cart/stores/cart.store.ts", "src/app/features/cart/pages/cart-form/cart-form.page.ts"]);
-  assert.deepEqual(score.falsePositives, ["src/app/features/home/picker.component.ts"]);
-  assert.equal(score.named, 3);
-  assert.equal(score.unjudged, 1);
-  assert.equal(score.precision, 0.5, "of the two files the truth can judge, one was right");
-  assert.ok(Math.abs((score.precisionAll ?? 0) - 1 / 3) < 1e-9, "counting the unjudged file as wrong");
-  assert.ok(Math.abs((score.recall ?? 0) - 1 / 3) < 1e-9);
-});
-
-test("a brief that is not the expected JSON is searched for the judged files only, and says it cannot count what it named", () => {
-  const score = scoreGroundTruth(TRUTH, { briefText: "Look at src/app/features/cart/stores/cart.store.ts and src/app/features/home/picker.component.ts.", filesRead: null, specSources: null }).briefBlastRadius;
-  assert.deepEqual(score?.hits, ["src/app/features/cart/stores/cart.store.ts"]);
-  assert.deepEqual(score?.falsePositives, ["src/app/features/home/picker.component.ts"]);
-  assert.equal(score?.named, null);
-  assert.equal(score?.unjudged, null);
-  assert.equal(score?.precisionAll, null);
-});
-
 test("files read match the truth from the repository root, an absolute path or with a line suffix, a file with only the same name does not, and a denied read is no read", () => {
   const turns = [
     toProbeTurn(turnRecord({ toolSequence: [read("/app/.mirrors/org__web/src/app/features/cart/api/cart.api.ts"), read("src/app/features/cart/stores/cart.store.ts:41"), read("src/other/cart.api.ts"), { tool: "read", target: "src/app/features/cart/pages/cart-form/cart-form.page.ts", denied: true }, { tool: "grep", target: "cart" }] }), ctx()),
@@ -413,7 +379,7 @@ test("files read match the truth from the repository root, an absolute path or w
   ];
   const filesRead = contentReadsOf(turns);
   assert.ok(filesRead);
-  const score = scoreGroundTruth(TRUTH, { briefText: null, filesRead, specSources: null }).filesRead;
+  const score = scoreGroundTruth(TRUTH, { filesRead, specSources: null }).filesRead;
   assert.deepEqual(score?.hits, ["src/app/features/cart/api/cart.api.ts", "src/app/features/cart/stores/cart.store.ts"]);
   assert.deepEqual(score?.misses, ["src/app/features/cart/pages/cart-form/cart-form.page.ts"]);
   assert.deepEqual(score?.falsePositives, ["src/app/features/home/picker.component.ts"]);
@@ -421,10 +387,10 @@ test("files read match the truth from the repository root, an absolute path or w
   assert.equal(score?.unjudged, 1);
 });
 
-test("a source that was not observed is unknown, not a zero score: no brief, no tool sequence, no readable spec", () => {
-  const unseen = scoreGroundTruth(TRUTH, { briefText: null, filesRead: contentReadsOf([toProbeTurn(turnRecord(), ctx())]), specSources: null });
-  assert.deepEqual(unseen, { briefBlastRadius: null, briefRoutes: null, briefLinks: null, stitcherLinks: null, rankingRoutes: null, mapRoutes: null, filesRead: null, specRoutes: null });
-  const noSpecs = scoreGroundTruth(TRUTH, { briefText: null, filesRead: null, specSources: [] }).specRoutes;
+test("a source that was not observed is unknown, not a zero score: no tool sequence, no readable spec", () => {
+  const unseen = scoreGroundTruth(TRUTH, { filesRead: contentReadsOf([toProbeTurn(turnRecord(), ctx())]), specSources: null });
+  assert.deepEqual(unseen, { stitcherLinks: null, rankingRoutes: null, mapRoutes: null, filesRead: null, specRoutes: null });
+  const noSpecs = scoreGroundTruth(TRUTH, { filesRead: null, specSources: [] }).specRoutes;
   assert.equal(noSpecs?.recall, 0, "no spec navigated anywhere: every affected route was missed");
   assert.equal(noSpecs?.precision, null);
   assert.equal(noSpecs?.precisionAll, null);
@@ -434,7 +400,7 @@ test("a source that was not observed is unknown, not a zero score: no brief, no 
 
 test("spec routes match the affected route with its parameters, and a route the truth rejects is a false positive", () => {
   const specs = ["await page.goto('/cart/new');\nawait page.goto('/cart/7/view');\nawait page.goto('/login');"];
-  const score = scoreGroundTruth(TRUTH, { briefText: null, filesRead: null, specSources: specs }).specRoutes;
+  const score = scoreGroundTruth(TRUTH, { filesRead: null, specSources: specs }).specRoutes;
   assert.deepEqual(score?.hits, ["/cart/new"]);
   assert.deepEqual(score?.falsePositives, ["/cart/:id/view"]);
   assert.equal(score?.unjudged, 1);
@@ -450,8 +416,7 @@ test("a pipeline report carries the stitcher's signals, the sections of the gene
     events: baseEvents(), changedFiles: ["svc/Handler.java"], specLines: new Map(), minRatio: 0.7, groundTruth: TRUTH,
     specSources: new Map([["flows/cart.spec.ts", "await page.goto('/cart/new');"]]),
     turns: [
-      turnRecord({ role: EXPLORER_AGENT_NAME, outputText: JSON.stringify({ blastRadius: [{ symbol: "S", file: "src/app/features/cart/stores/cart.store.ts", role: "r" }] }), toolSequence: [read("src/app/features/cart/api/cart.api.ts")] }),
-      turnRecord({ role: "qa-generator", promptText: prompt, toolSequence: [read("src/app/features/cart/pages/cart-form/cart-form.page.ts")] }),
+      turnRecord({ role: "qa-generator", promptText: prompt, toolSequence: [read("src/app/features/cart/api/cart.api.ts"), read("src/app/features/cart/pages/cart-form/cart-form.page.ts")] }),
       turnRecord({ role: "qa-generator", round: 1, isRepair: true, promptText: "## Task\nfix" }),
     ],
   });
@@ -459,8 +424,7 @@ test("a pipeline report carries the stitcher's signals, the sections of the gene
   assert.equal(report.stitcher?.contractDriftCount, 0);
   assert.equal(report.stitcher?.structuralSignalBytes, 900);
   assert.equal(report.stitcher?.generatorPrompt?.serviceLinks.present, true, "the first generator pass, not the repair");
-  assert.equal(report.groundTruth?.briefBlastRadius?.recall, 1 / 3);
-  assert.equal(report.groundTruth?.filesRead?.recall, 2 / 3, "the explorer's read and the generator's both count as the agent reading");
+  assert.equal(report.groundTruth?.filesRead?.recall, 2 / 3, "every read of the generator counts as the agent reading");
   assert.equal(report.groundTruth?.specRoutes?.recall, 1);
 });
 
@@ -479,6 +443,6 @@ test("the markdown shows the stitcher table and the ground-truth table, an unava
   const markdown = renderMarkdown([report]);
   assert.ok(markdown.includes("### Stitcher signals"));
   assert.ok(markdown.includes("### Ground truth"));
-  assert.ok(markdown.includes("| brief blast radius | n/a |"), "a source that was not observed reads n/a");
+  assert.ok(markdown.includes("| stitcher links | n/a |"), "a source that was not observed reads n/a");
   assert.equal(renderMarkdown([buildPipelineReport({ runId: RUN_ID, record: runRecord(), outcome: undefined, events: [], turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7 })]).includes("### Ground truth"), false);
 });

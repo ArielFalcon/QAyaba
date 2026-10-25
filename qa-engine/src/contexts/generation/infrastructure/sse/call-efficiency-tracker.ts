@@ -137,8 +137,6 @@ interface DirectoryStream {
 
 interface SessionState {
   cwd: string;
-  /** Whether an attempt waits, bounded, for a stream that is still opening. False for a session only observed (attachUnwatched): observing it must never delay it. */
-  waitsForStream: boolean;
   /** Whether every step of the attempt in flight was observed. */
   stepsComplete: boolean;
   poisoned: boolean;
@@ -180,10 +178,9 @@ function pathOf(input: unknown, cwd: string): string | undefined {
   return named === undefined ? undefined : resolve(cwd, named);
 }
 
-function newSession(cwd: string, stepsComplete: boolean, waitsForStream = true): SessionState {
+function newSession(cwd: string, stepsComplete: boolean): SessionState {
   return {
     cwd,
-    waitsForStream,
     stepsComplete,
     poisoned: false,
     order: [],
@@ -311,14 +308,6 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
     this.sessions.set(sessionId, newSession(cwd, this.streams.get(cwd)?.state === "live"));
   }
 
-  /**
-   * Starts tracking a session that is only observed: nothing watches it, so its attempts never wait for the stream (observing it
-   * must not slow it down) and its steps are complete only when the directory's stream was already live. Otherwise the same as `attach`.
-   */
-  attachUnwatched(sessionId: string, cwd: string): void {
-    this.sessions.set(sessionId, newSession(cwd, this.streams.get(cwd)?.state === "live", false));
-  }
-
   clear(sessionId: string): void {
     this.sessions.delete(sessionId);
   }
@@ -373,7 +362,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
     this.startTurnRecords(session);
     const stream = this.streams.get(session.cwd);
     if (stream?.state === "live") session.stepsComplete = true;
-    else if (stream?.state === "opening" && session.waitsForStream) await this.waitForLive(stream, (live) => { session.stepsComplete = live; });
+    else if (stream?.state === "opening") await this.waitForLive(stream, (live) => { session.stepsComplete = live; });
   }
 
   private currentStream(directory: string, token: StreamToken): DirectoryStream | undefined {

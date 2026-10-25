@@ -25,6 +25,7 @@ Edits to the recorded body, and nothing else:
 - every `qa-` agent's `description` is `null`, its `temperature` is `null`, its `options` is `{}` and its `model` is
   removed (a recording names no model and no model tuning);
 - the unused native agents (`plan`, `explore`, `compaction`, `summary`, `title`) are dropped;
+- the `qa-explorer` entry is removed: the role left `agents/opencode.json` after this recording, and this body was edited to match, not re-recorded (the next recording simply will not contain it);
 - each permission rule is laid out on one line, and the agents and their fields keep the order of the previous recording.
 
 The recording is a fresh capture, not a hand edit: the global `tools` map's `run_spec` and `authbrowser_*` switches resolve into

@@ -5,7 +5,6 @@ import type { OpencodeRunInput, ReviewInput } from "../application/ports/generat
 export interface PromptBuilders {
   buildPromptAssembled(input: OpencodeRunInput, opts?: { continuation?: boolean }): { text: string; sectionSizes: Record<string, number>; providedPaths?: readonly string[] } & RenderedPromptFacts;
   buildReviewerPromptAssembled(input: ReviewInput): { text: string; sectionSizes: Record<string, number> } & RenderedPromptFacts;
-  buildExplorerPrompt(input: OpencodeRunInput): string;
   specFileForFlow(flow: string): string;
 }
 
@@ -18,10 +17,6 @@ export class PromptRenderingAdapter implements PromptRenderingPort {
 
   renderReviewer(input: ReviewInput): { text: string; sectionSizes: Record<string, number> } & RenderedPromptFacts {
     return this.b.buildReviewerPromptAssembled(input);
-  }
-
-  renderExplorer(input: OpencodeRunInput): string {
-    return this.b.buildExplorerPrompt(input);
   }
 
   specFileForFlow(flow: string): string {

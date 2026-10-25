@@ -14,7 +14,7 @@ import {
   resetCodexCircuit,
 } from "../integrations/codex-circuit-breaker";
 import type { AgentOpenDescriptor, AgentTurnEvent, LiveActivity } from "../integrations/opencode-client";
-import { REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS } from "../integrations/opencode-client";
+import { REVIEWER_TIMEOUT_MS } from "../integrations/opencode-client";
 import { extractJsonObjects } from "../integrations/verdict-parse";
 import { sha256Hex } from "../../qa-engine/src/shared-infrastructure/content-hash";
 import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
@@ -43,15 +43,14 @@ function envNumber(env: Record<string, string | undefined>, key: string, fallbac
 
 /*
  * The default deadline for a Codex session that received NO explicit timeoutMs from its caller.
- * Keyed by role, mirroring how opencode-client.ts budgets each role: the reviewer and the explorer
- * get their OWN (smaller) ceilings; every other role (the write-capable primary/maintainer/
+ * Keyed by role, mirroring how opencode-client.ts budgets each role: the reviewer
+ * gets its OWN (smaller) ceiling; every other role (the write-capable primary/maintainer/
  * sidekick/proposer, plus the read-only chat/reflector which have no dedicated OpenCode-side constant
  * either) falls back to the generator's diff-mode budget — the smallest generator ceiling, and a
  * strictly-bounded floor where today there is none at all.
  */
 export function defaultCodexTimeoutMs(role: AgentRole, env: Record<string, string | undefined>): number {
   if (role === "reviewer") return envNumber(env, "OPENCODE_REVIEWER_TIMEOUT_MS", REVIEWER_TIMEOUT_MS);
-  if (role === "explorer") return envNumber(env, "OPENCODE_EXPLORER_TIMEOUT_MS", EXPLORER_TIMEOUT_MS);
   return envNumber(env, "OPENCODE_TIMEOUT_MS", DEFAULT_DIFF_GENERATOR_TIMEOUT_MS);
 }
 

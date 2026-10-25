@@ -1,27 +1,16 @@
-/* Every fact in the generator prompt has one owner: one section provides it, one section frames its trust, and orientation guidance is dropped exactly when the fact it would orient towards is supplied. Asserted on claims and on the options the builders hand to the brief renderer, never on prompt wording. */
+/* Every fact in the generator prompt has one owner: one section provides it, one section frames its trust, and orientation guidance is dropped exactly when the fact it would orient towards is supplied. Asserted on claims, never on prompt wording. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildPromptAssembled,
   renderArchitectureContext,
-  setExplorationBriefCollaborators,
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PACK_HEADINGS } from "@contexts/generation/infrastructure/context-pack.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts";
 import { countDirectives, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
-import type { ArchitectureContext, OpencodeRunInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
-
-let lastBriefOptions: { omitLandmarks?: boolean } | undefined;
-setExplorationBriefCollaborators({
-  parseExplorationBrief: () => null,
-  coerceExplorationBrief: () => null,
-  renderExplorationBrief: (brief: ExplorationBrief, opts?: { omitLandmarks?: boolean }) => {
-    lastBriefOptions = opts;
-    return `## ${PROMPT_HEADINGS.explorationBrief}\nObjective: ${brief.objective}`;
-  },
-});
+import type { ArchitectureContext, OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 
 function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
   return {
@@ -40,16 +29,6 @@ function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
     ...overrides,
   };
 }
-
-const BRIEF: ExplorationBrief = {
-  builtForSha: "abc1234",
-  objective: "checkout flow",
-  blastRadius: [{ symbol: "Pay.go", file: "src/pay.ts", role: "pays" }],
-  feBe: [{ route: "/cart", operationId: "applyCoupon" }],
-  contracts: [{ operationId: "applyCoupon", method: "POST", path: "/cart/coupon" }],
-  risks: ["assert the total"],
-  routes: [{ path: "/cart", verified: false, domLandmarks: ["button Apply"] }],
-};
 
 const MAP: ArchitectureContext = {
   builtAtSha: "abc1234",
@@ -82,45 +61,6 @@ const stance = (a: AssembledPrompt, id: string, fact: FactId): string | undefine
 const directs = (a: AssembledPrompt, id: string, action: string, target?: FactId): boolean =>
   claimsOf(a, id).some((c) => c.kind === "directs" && c.action === action && (target === undefined || c.target === target));
 
-/* ── the brief frames the facts it distilled, once ── */
-
-test("the brief section frames its blast radius, risks and contracts as established, and nobody else frames them", () => {
-  const a = buildPromptAssembled(mkInput({ contextBrief: BRIEF, contextPack: DOM_PACK, contextMap: MAP }));
-  for (const fact of ["blast-radius", "risks", "contracts"] as const) {
-    assert.deepEqual(framers(a, fact), ["context-brief"], fact);
-    assert.equal(stance(a, "context-brief", fact), "established", fact);
-  }
-});
-
-test("the pack no longer provides the blast radius, FE-BE links or risks, so the brief is their only provider", () => {
-  const a = buildPromptAssembled(mkInput({ contextBrief: BRIEF, contextPack: DOM_PACK }));
-  for (const fact of ["blast-radius", "risks", "fe-be-links"] as const) assert.deepEqual(providers(a, fact), ["context-brief"], fact);
-});
-
-/* ── landmarks are dropped when a DOM tree exists ── */
-
-test("the brief is rendered without landmarks when the pack, a live tree or a failure tree is in the prompt", () => {
-  const withTree: Array<Partial<OpencodeRunInput>> = [
-    { contextPack: DOM_PACK },
-    { domSnapshot: TREE },
-    { domSnapshot: TREE, failureSourced: true, fixCases: [{ name: "t", status: "fail" }] },
-  ];
-  for (const extra of withTree) {
-    const a = buildPromptAssembled(mkInput({ contextBrief: BRIEF, ...extra }));
-    assert.equal(lastBriefOptions?.omitLandmarks, true, JSON.stringify(Object.keys(extra)));
-    assert.equal(providers(a, "landmarks").length, 0);
-  }
-});
-
-test("the brief keeps its landmarks, framed as hints, when no DOM tree is in the prompt", () => {
-  for (const extra of [{}, { contextPack: CONTRACTS_PACK }] as Array<Partial<OpencodeRunInput>>) {
-    const a = buildPromptAssembled(mkInput({ contextBrief: BRIEF, ...extra }));
-    assert.notEqual(lastBriefOptions?.omitLandmarks, true);
-    assert.deepEqual(providers(a, "landmarks"), ["context-brief"]);
-    assert.equal(stance(a, "context-brief", "landmarks"), "unverified");
-  }
-});
-
 /* ── API operations have one owner ── */
 
 test("the architecture map omits its API operations list when the pack's contracts section owns them", () => {
@@ -142,28 +82,19 @@ test("renderArchitectureContext lists each API operation once: never when told t
 
 /* ── FE-BE links have one owner ── */
 
-test("FE-BE links belong to the brief when it carries them, whatever else is in the prompt", () => {
+test("FE-BE links belong to the architecture map, whatever else is in the prompt, and never to the pack", () => {
   for (const extra of [{}, { contextPack: DOM_PACK }] as Array<Partial<OpencodeRunInput>>) {
-    const a = buildPromptAssembled(mkInput({ contextBrief: BRIEF, contextMap: MAP, ...extra }));
-    assert.deepEqual(providers(a, "fe-be-links"), ["context-brief"]);
+    const a = buildPromptAssembled(mkInput({ contextMap: MAP, ...extra }));
+    assert.deepEqual(providers(a, "fe-be-links"), ["arch-map"]);
   }
-});
-
-test("FE-BE links belong to the architecture map when the brief carries none, and never to the pack", () => {
-  const briefWithoutLinks = { ...BRIEF, feBe: undefined };
-  const a = buildPromptAssembled(mkInput({ contextBrief: briefWithoutLinks, contextMap: MAP, contextPack: DOM_PACK }));
-  assert.deepEqual(providers(a, "fe-be-links"), ["arch-map"]);
   assert.equal(buildPromptAssembled(mkInput({ contextPack: DOM_PACK })).claims["context-pack"]?.some((c) => c.kind === "provides" && c.fact === "fe-be-links"), false);
 });
 
 /* ── orientation guards are per fact ── */
 
-test("the symbol-reference orientation is dropped only when the prompt carries an explored blast radius: a brief with one, or a structural signal that names symbols", () => {
+test("the symbol-reference orientation is dropped only when the prompt carries a structural signal that names symbols", () => {
   const table: Array<[string, Partial<OpencodeRunInput>, boolean]> = [
-    ["a brief with a blast radius", { contextBrief: BRIEF }, false],
     ["a structural signal that names symbols", { staticSignal: "## Structural blast radius\n- `save` (src/Foo.java)", staticSignalHasSymbols: true }, false],
-    ["a brief with an empty blast radius", { contextBrief: { ...BRIEF, blastRadius: [] } }, true],
-    ["a brief with an empty blast radius and a signal that names symbols", { contextBrief: { ...BRIEF, blastRadius: [] }, staticSignal: "## Structural blast radius\n- `save` (src/Foo.java)", staticSignalHasSymbols: true }, false],
     ["a pack with only a DOM", { contextPack: DOM_PACK }, true],
     ["a structural signal of co-change files alone", { staticSignal: renderBlastRadiusSignal({ impacted: [], callers: [], coupled: [{ file: "src/Other.java", couplingScore: 0.82, coChanges: 14 }] }) }, true],
     ["nothing", {}, true],
@@ -239,9 +170,7 @@ test("the working rules restate no trust level of the DOM: the section that hold
 
 const SIGNAL = "## Structural blast radius\n- `save` (src/Foo.java)";
 
-test("the structural signal is assembled unless a brief that carries a blast radius is in the prompt", () => {
-  assert.equal(buildPromptAssembled(mkInput({ contextBrief: BRIEF, staticSignal: SIGNAL })).sectionSizes["static-signal"], undefined);
-  assert.ok(buildPromptAssembled(mkInput({ contextBrief: { ...BRIEF, blastRadius: [] }, staticSignal: SIGNAL })).sectionSizes["static-signal"] !== undefined, "a brief with no blast radius supplies none");
+test("the structural signal is assembled whatever else is in the prompt", () => {
   assert.ok(buildPromptAssembled(mkInput({ staticSignal: SIGNAL })).sectionSizes["static-signal"] !== undefined);
   assert.ok(buildPromptAssembled(mkInput({ contextPack: DOM_PACK, staticSignal: SIGNAL })).sectionSizes["static-signal"] !== undefined);
 });

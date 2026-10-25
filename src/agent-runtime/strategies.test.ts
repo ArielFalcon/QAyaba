@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { OpenCodeRuntimeStrategy } from "./opencode-strategy";
 import { CodexExecTransport, CodexRuntimeStrategy, SupervisorExecTransport, codexExecArgs, codexExecEnv, defaultCodexTransport } from "./codex-strategy";
 import { AGENT_NAME_FOR_ROLE, capabilitiesForRole, roleForLegacyAgent } from "./types";
-import { ExplorerBriefSessionAdapter } from "@contexts/generation/infrastructure/explorer-brief-session.adapter";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port";
 import { getAgentTurns } from "../server/history";
 import type { AgentDeps, AgentTurnEvent } from "../integrations/opencode-client";
@@ -58,35 +57,6 @@ test("roleForLegacyAgent resolves every role's agent name back to that role", ()
 
 test("roleForLegacyAgent rejects an agent name no role maps to instead of falling back to the primary author", () => {
   assert.throws(() => roleForLegacyAgent("qa-unmapped"), /qa-unmapped/);
-});
-
-/* Explorer is read-only: it distills the blast radius, never writes. */
-
-test("capabilitiesForRole: the explorer is read-only (it distills the blast radius, never writes)", () => {
-  assert.equal(capabilitiesForRole("explorer").canWrite, false);
-});
-
-test("roleForLegacyAgent maps qa-explorer to the read-only explorer role", () => {
-  assert.equal(roleForLegacyAgent("qa-explorer"), "explorer");
-});
-
-test("codexExecArgs sandboxes the explorer read-only on Codex", () => {
-  const args = codexExecArgs({ role: "explorer", cwd: "/repo" });
-  assert.ok(args.includes("read-only"), "explorer must run --sandbox read-only");
-  assert.ok(!args.includes("workspace-write"), "explorer must NOT get workspace-write");
-});
-
-test("OpenCodeRuntimeStrategy maps the explorer role to the qa-explorer agent", async () => {
-  const calls: string[] = [];
-  const deps: AgentDeps = {
-    open: async (agent) => {
-      calls.push(agent);
-      return { id: "s", prompt: async () => "ok", dispose: async () => {} };
-    },
-  };
-  const strategy = new OpenCodeRuntimeStrategy({ env: { OPENCODE_API_KEY: "k" }, depsFactory: async () => deps });
-  await strategy.openSession("explorer", "/repo");
-  assert.deepEqual(calls, ["qa-explorer"]);
 });
 
 /* Proposer is read-only: it hypothesizes candidates, never writes. */
@@ -319,22 +289,4 @@ test("codexExecEnv passes only Codex/runtime-safe env vars to the headless agent
   assert.equal(env.WEBHOOK_SECRET, undefined);
   assert.equal(env.QA_API_TOKEN, undefined);
   assert.equal(env.OPENCODE_API_KEY, undefined);
-});
-
-test("the explorer session the engine opens is recorded under the agent name the role table gives the explorer", async () => {
-  const recordedAs: Array<string | undefined> = [];
-  const runtime: AgentRuntimePort = {
-    openSession: async (_role, _cwd, opts) => {
-      recordedAs.push(opts?.descriptor?.role);
-      return { prompt: async () => ({ output: "" }), dispose: async () => {} };
-    },
-  };
-  const adapter = new ExplorerBriefSessionAdapter(
-    { repo: "org/demo", e2eRelDir: "e2e", namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", appName: "demo", timeoutMs: 1_000 },
-    { runtime, parseBrief: () => null },
-  );
-
-  await adapter.explore({ specDir: "/mirrors/org__demo/e2e", sha: "abc1234" });
-
-  assert.deepEqual(recordedAs, [AGENT_NAME_FOR_ROLE.explorer]);
 });

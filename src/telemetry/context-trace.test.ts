@@ -26,16 +26,10 @@ import { BlastRadius } from "@kernel/blast-radius";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { traceHarness } from "./trace-harness";
-import { buildPromptAssembled, setExplorationBriefCollaborators } from "@contexts/generation/infrastructure/prompt-builders/prompts";
+import { buildPromptAssembled } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { recordDeliveredContextSpans } from "@contexts/generation/infrastructure/telemetry/turn-probe";
-import type { OpencodeRunInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports";
-import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings";
+import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports";
 
-setExplorationBriefCollaborators({
-  parseExplorationBrief: () => null,
-  coerceExplorationBrief: () => null,
-  renderExplorationBrief: (brief: ExplorationBrief) => `## ${PROMPT_HEADINGS.explorationBrief}\nObjective: ${brief.objective}`,
-});
 
 const rule = (id: string): RetrievedRule => ({ id, trigger: `trigger ${id}`, action: `action ${id}`, errorClass: "selector", status: "active", confidence: "high" });
 
@@ -216,7 +210,7 @@ test("the delivered span keeps the per-reason omissions for context_complete", (
   assert.deepEqual(span.attributes["qayaba.context.omissions"], ["truncation:node-cap:2:/home"]);
 });
 
-/* ---- the grounding adapter: context map, brief, route ranking and pack ---- */
+/* ---- the grounding adapter: context map, route ranking and pack ---- */
 
 const MAP = {
   builtAtSha: "abc1234",
@@ -251,30 +245,26 @@ function groundingFixture(telemetry: TelemetryPort, opts: { trace?: boolean } = 
       loadContextMap: () => MAP as never,
       contextPackDeps: packDeps,
       buildContextPack,
-      exploreBrief: async () => ({ builtForSha: "abc1234", objective: "o", blastRadius: [{ symbol: "fn", file: "a.ts", role: "route" }], risks: ["Stale cache"], feBe: [{ route: "/orders", operationId: "listOrders" }] }),
       ...(opts.trace === false ? {} : { trace: telemetryGroundingTrace(telemetry) }),
     },
   );
   return { adapter, e2eDir, dispose: () => rmSync(e2eDir, { recursive: true, force: true }) };
 }
 
-test("grounding names the context map, the brief, the route ranking and the pack by their items", async () => {
+test("grounding names the context map, the route ranking and the pack by their items", async () => {
   const h = traceHarness();
   const g = groundingFixture(h.telemetry);
   try {
     mkdirSync(join(g.e2eDir, "flows"), { recursive: true });
-    await inPhase(h, () => g.adapter.ground(g.e2eDir, undefined, DIFF, { sha: "abc1234", runId: "r" }));
+    await inPhase(h, () => g.adapter.ground(g.e2eDir, undefined, DIFF));
     assert.deepEqual(contextSpan(h, "context-map").attributes["qayaba.context.item_ids"], ["route:/orders", "route:/b", "op:listOrders", "link:/orders→listOrders", "flow:checkout"]);
-    const brief = contextSpan(h, "explorer-brief").attributes["qayaba.context.item_ids"] as string[];
-    assert.equal(brief.length, 3);
-    assert.ok(brief.every((id) => /^brief:[a-z-]+:[0-9a-f]{8}$/.test(id)));
     assert.deepEqual(contextSpan(h, "route-ranking").attributes["qayaba.context.item_ids"], ["route:/orders", "route:/b"]);
     assert.deepEqual(contextSpan(h, "route-ranking").attributes["qayaba.context.relevant_ids"], ["route:/orders"]);
     assert.deepEqual(contextSpan(h, "route-ranking").attributes["qayaba.context.relevant_groups"], ["/orders"]);
     const pack = contextSpan(h, "context-pack");
     assert.deepEqual(pack.attributes["qayaba.context.item_ids"], ["fact:/orders#save-btn:present", "op:listOrders"]);
     assert.ok((pack.attributes["qayaba.context.bytes"] as number) > 0);
-    for (const source of ["context-map", "explorer-brief", "route-ranking", "context-pack"]) {
+    for (const source of ["context-map", "route-ranking", "context-pack"]) {
       assert.equal(contextSpan(h, source).parentSpanContext?.spanId, h.only("qayaba.phase.ground").spanContext().spanId, source);
     }
   } finally {
@@ -287,7 +277,7 @@ test("a test id the change added that no captured page shows is an absent fact",
   const g = groundingFixture(h.telemetry);
   try {
     const gone = DIFF.replace("save-btn", "missing-btn");
-    await inPhase(h, () => g.adapter.ground(g.e2eDir, undefined, gone, { sha: "abc1234", runId: "r" }));
+    await inPhase(h, () => g.adapter.ground(g.e2eDir, undefined, gone));
     assert.deepEqual(contextSpan(h, "context-pack").attributes["qayaba.context.item_ids"], ["fact:*#missing-btn:absent", "op:listOrders"]);
   } finally {
     g.dispose();
@@ -299,14 +289,14 @@ test("what grounding returns is the same with the trace, without it, and with a 
   for (const telemetry of [traceHarness().telemetry, new ThrowingTelemetry()]) {
     const g = groundingFixture(telemetry);
     try {
-      outcomes.push(await g.adapter.ground(g.e2eDir, undefined, DIFF, { sha: "abc1234", runId: "r" }));
+      outcomes.push(await g.adapter.ground(g.e2eDir, undefined, DIFF));
     } finally {
       g.dispose();
     }
   }
   const plain = groundingFixture(traceHarness().telemetry, { trace: false });
   try {
-    const untraced = await plain.adapter.ground(plain.e2eDir, undefined, DIFF, { sha: "abc1234", runId: "r" });
+    const untraced = await plain.adapter.ground(plain.e2eDir, undefined, DIFF);
     for (const traced of outcomes) assert.deepEqual(traced, untraced);
   } finally {
     plain.dispose();
@@ -319,7 +309,7 @@ test("what the kept assembly delivers is a subset of what grounding produced, pe
   try {
     mkdirSync(join(g.e2eDir, "flows"), { recursive: true });
     await inPhase(h, async () => {
-      const grounding = await g.adapter.ground(g.e2eDir, undefined, DIFF, { sha: "abc1234", runId: "r" });
+      const grounding = await g.adapter.ground(g.e2eDir, undefined, DIFF);
       const input: OpencodeRunInput = {
         repo: "org/app",
         sha: "abc1234",
@@ -332,7 +322,6 @@ test("what the kept assembly delivers is a subset of what grounding produced, pe
         mode: "diff",
         appName: "testapp",
         ...(grounding.contextMap ? { contextMap: grounding.contextMap as never } : {}),
-        ...(grounding.contextBrief ? { contextBrief: grounding.contextBrief as never } : {}),
         ...(grounding.contextPack ? { contextPack: grounding.contextPack } : {}),
         ...(grounding.contextPackItemIds ? { contextPackItemIds: grounding.contextPackItemIds } : {}),
         ...(grounding.contextPackOmissions ? { contextPackOmissions: grounding.contextPackOmissions } : {}),
@@ -341,7 +330,7 @@ test("what the kept assembly delivers is a subset of what grounding produced, pe
       assert.ok(assembled.sectionItems["arch-map"], "the kept assembly records the arch-map's items");
       recordDeliveredContextSpans(h.telemetry, assembled.sectionItems, assembled.sectionSizes);
     });
-    for (const source of ["context-map", "explorer-brief", "context-pack"] as const) {
+    for (const source of ["context-map", "context-pack"] as const) {
       const produced = new Set(contextSpan(h, source).attributes["qayaba.context.item_ids"] as string[]);
       const deliveredSpan = h.only(`qayaba.delivered.${source}`);
       assert.equal(deliveredSpan.attributes["qayaba.context.stage"], "delivered");

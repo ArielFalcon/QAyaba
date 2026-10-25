@@ -2425,9 +2425,6 @@
           "grounding": {
             "type": "object",
             "properties": {
-              "explorer": {
-                "type": "boolean"
-              },
               "stitcher": {
                 "type": "boolean"
               },
@@ -5869,10 +5866,6 @@
               "grounding": {
                 "type": "object",
                 "properties": {
-                  "explorer": {
-                    "nullable": true,
-                    "type": "boolean"
-                  },
                   "stitcher": {
                     "nullable": true,
                     "type": "string"
@@ -5891,7 +5884,6 @@
                   }
                 },
                 "required": [
-                  "explorer",
                   "stitcher",
                   "structuralSignal",
                   "curriculum",

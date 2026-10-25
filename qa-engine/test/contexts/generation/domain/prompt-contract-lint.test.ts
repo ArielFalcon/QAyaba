@@ -47,7 +47,7 @@ const LONG_LINE = "The quick brown fox jumps over the lazy dog";
 test("a clean cell reports nothing", () => {
   const findings = lintCell(
     cell([
-      sec("context-brief", [provides("blast-radius"), frames("blast-radius", "established")]),
+      sec("grounding-a", [provides("blast-radius"), frames("blast-radius", "established")]),
       sec("task", [directs("state-outcome")]),
     ]),
   );
@@ -57,7 +57,7 @@ test("a clean cell reports nothing", () => {
 test("one fact framed by two sections reports exactly that pair, naming both sections", () => {
   const findings = lintCell(
     cell([
-      sec("context-brief", [frames("blast-radius", "established")]),
+      sec("grounding-a", [frames("blast-radius", "established")]),
       sec("context-pack", [frames("blast-radius", "unverified")]),
       sec("task"),
     ]),
@@ -66,13 +66,13 @@ test("one fact framed by two sections reports exactly that pair, naming both sec
   const [finding] = findings;
   assert.equal(finding?.rule, "R1");
   assert.equal(finding?.fact, "blast-radius");
-  assert.deepEqual([...(finding?.sections ?? [])].sort(), ["context-brief", "context-pack"]);
+  assert.deepEqual([...(finding?.sections ?? [])].sort(), ["context-pack", "grounding-a"]);
 });
 
 test("a fact framed once per section is clean even when different facts carry different stances", () => {
   const findings = lintCell(
     cell([
-      sec("context-brief", [frames("blast-radius", "established")]),
+      sec("grounding-a", [frames("blast-radius", "established")]),
       sec("arch-map", [frames("arch-map", "unverified")]),
     ]),
   );
@@ -80,7 +80,7 @@ test("a fact framed once per section is clean even when different facts carry di
 });
 
 test("a single-source fact provided by two sections reports exactly that pair", () => {
-  for (const fact of ["blast-radius", "risks", "fe-be-links", "dom-live", "api-operations"] as const) {
+  for (const fact of ["co-change", "fe-be-links", "dom-live", "api-operations"] as const) {
     const findings = lintCell(cell([sec("a", [provides(fact)]), sec("b", [provides(fact)]), sec("c")]));
     assert.equal(findings.length, 1, fact);
     assert.equal(findings[0]?.rule, "R2", fact);
@@ -90,22 +90,8 @@ test("a single-source fact provided by two sections reports exactly that pair", 
 });
 
 test("facts that may legitimately have several providers are not single-source", () => {
-  const findings = lintCell(cell([sec("a", [provides("contracts")]), sec("b", [provides("contracts")])]));
+  const findings = lintCell(cell([sec("a", [provides("structural-signal")]), sec("b", [provides("structural-signal")])]));
   assert.deepEqual(findings, []);
-});
-
-test("landmarks and a DOM tree together report the landmark provider and the tree provider", () => {
-  for (const tree of ["dom-live", "dom-failure"] as const) {
-    const findings = lintCell(cell([sec("context-brief", [provides("landmarks")]), sec("tree", [provides(tree)])]));
-    assert.equal(findings.length, 1, tree);
-    assert.equal(findings[0]?.rule, "R2", tree);
-    assert.equal(findings[0]?.fact, "landmarks", tree);
-    assert.deepEqual([...(findings[0]?.sections ?? [])].sort(), ["context-brief", "tree"], tree);
-  }
-});
-
-test("landmarks without a DOM tree are clean", () => {
-  assert.deepEqual(lintCell(cell([sec("context-brief", [provides("landmarks")])])), []);
 });
 
 test("directing a read of a fact another section already provides is a contradiction naming both", () => {
@@ -244,7 +230,7 @@ test("the rows of a captured DOM tree are data: a section that provides a tree c
   const scaffold = sec("task", [], { text: `  ${LONG_LINE}` });
   const tree = sec("tree", [provides("dom-live")], { text: `  ${LONG_LINE}` });
   assert.deepEqual(lintCell(cell([scaffold, tree])), [], "a tree's row is never the other half of a duplicate");
-  for (const claims of [[provides("risks")], [frames("dom-live", "established")], [directs("consult", "dom-live")]]) {
+  for (const claims of [[provides("arch-map")], [frames("dom-live", "established")], [directs("consult", "dom-live")]]) {
     const notATree = cell([sec("a", claims, { text: `  ${LONG_LINE}` }), sec("b", [], { text: `  ${LONG_LINE}` })]);
     assert.equal(lintCell(notATree).filter((f) => f.rule === "R7").length, 1, "a section that provides no tree keeps its indented lines as scaffold");
   }
@@ -257,12 +243,12 @@ test("the same line repeated inside one section is not a cross-section duplicate
 });
 
 test("static text that names an assembled artifact is reported, assembled text is not", () => {
-  const names = [PACK_HEADINGS.pack, PROMPT_HEADINGS.explorationBrief];
+  const names = [PACK_HEADINGS.pack, PROMPT_HEADINGS.architectureContext];
   const findings = lintCell(
     cell([
       sec("role", [], { layer: "static", text: `Read the ${PACK_HEADINGS.pack} first` }),
       sec("agents", [], { layer: "static", text: "nothing to see here" }),
-      sec("task", [], { text: `The ${PROMPT_HEADINGS.explorationBrief} is below` }),
+      sec("task", [], { text: `The ${PROMPT_HEADINGS.architectureContext} is below` }),
     ]),
     { assembledArtifactNames: names },
   );
@@ -378,7 +364,7 @@ test("findings are deterministic: the same cell always yields the same ordered r
 });
 
 test("finding keys are the rule plus the sorted section ids and ignore the fact", () => {
-  assert.equal(findingKey({ rule: "R1", sections: ["z", "a"], fact: "risks" }), "R1|a|z");
+  assert.equal(findingKey({ rule: "R1", sections: ["z", "a"], fact: "api-operations" }), "R1|a|z");
   assert.equal(findingKey({ rule: "R5", sections: ["task"] }), "R5|task");
 });
 
@@ -394,9 +380,9 @@ test("the lexicons detect directive and trust language case-insensitively", () =
 
 test("a finding names its sections sorted, whatever order the sections and claims came in", () => {
   const reversed = (fact: Extract<PromptClaim, { kind: "provides" }>["fact"]) => [sec("b", [provides(fact)]), sec("a", [provides(fact)])];
-  assert.deepEqual(lintCell(cell(reversed("risks"))).map((f) => f.sections), [["a", "b"]], "R2");
+  assert.deepEqual(lintCell(cell(reversed("api-operations"))).map((f) => f.sections), [["a", "b"]], "R2");
   assert.deepEqual(
-    lintCell(cell([sec("b", [frames("risks", "established")]), sec("a", [frames("risks", "established")])])).map((f) => f.sections),
+    lintCell(cell([sec("b", [frames("arch-map", "established")]), sec("a", [frames("arch-map", "established")])])).map((f) => f.sections),
     [["a", "b"]],
     "R1",
   );
@@ -411,11 +397,6 @@ test("a finding names its sections sorted, whatever order the sections and claim
     "R11",
   );
   assert.deepEqual(
-    lintCell(cell([sec("z-brief", [provides("landmarks")]), sec("a-tree", [provides("dom-live")])])).map((f) => f.sections),
-    [["a-tree", "z-brief"]],
-    "landmarks",
-  );
-  assert.deepEqual(
     lintCell(cell([sec("z", [], { text: LONG_LINE }), sec("a", [], { text: LONG_LINE })])).map((f) => f.sections),
     [["a", "z"]],
     "R7",
@@ -424,14 +405,14 @@ test("a finding names its sections sorted, whatever order the sections and claim
 
 test("findings come out ordered by key and then by fact, so a result is comparable across runs", () => {
   const twoFacts = cell([
-    sec("b", [provides("risks"), provides("blast-radius")]),
-    sec("a", [provides("risks"), provides("blast-radius")]),
+    sec("b", [provides("api-operations"), provides("fe-be-links")]),
+    sec("a", [provides("api-operations"), provides("fe-be-links")]),
     sec("c", [directs("derive-from-code")]),
   ]);
   const findings = lintCell(twoFacts);
   assert.deepEqual(findings.map((f) => [findingKey(f), f.fact]), [
-    ["R2|a|b", "blast-radius"],
-    ["R2|a|b", "risks"],
+    ["R2|a|b", "api-operations"],
+    ["R2|a|b", "fe-be-links"],
     ["R5|c", undefined],
   ]);
 });
@@ -489,8 +470,8 @@ test("a fence that names its language, or is indented, still hides the lines ins
 
 test("findings are ordered by key as text, so a later rule's finding can come before an earlier rule's", () => {
   const mixed = cell([
-    sec("a", [provides("risks")]),
-    sec("b", [provides("risks")]),
+    sec("a", [provides("api-operations")]),
+    sec("b", [provides("api-operations")]),
     sec("t", [], { text: "this is authoritative" }),
   ]);
   assert.deepEqual(lintCell(mixed).map(findingKey), ["R10|t", "R2|a|b"], "R10 sorts before R2 as text, though rule R2 runs first");
@@ -498,10 +479,10 @@ test("findings are ordered by key as text, so a later rule's finding can come be
 
 test("findings that share a key are ordered by their fact, whatever order the rules found them in", () => {
   const both = cell([
-    sec("b", [provides("risks"), provides("fe-be-links")]),
-    sec("a", [provides("risks"), provides("fe-be-links")]),
+    sec("b", [provides("api-operations"), provides("fe-be-links")]),
+    sec("a", [provides("api-operations"), provides("fe-be-links")]),
   ]);
-  assert.deepEqual(lintCell(both).map((f) => f.fact), ["fe-be-links", "risks"]);
+  assert.deepEqual(lintCell(both).map((f) => f.fact), ["api-operations", "fe-be-links"]);
 });
 
 test("a budget breach reports what was measured against the limit, for the bytes and for the directives separately", () => {
@@ -592,7 +573,7 @@ test("a reference is met by any section that provides one of the artifact's fact
     const own = cell([sec("fix", [provides(fact)], { text: "Fix it from the tree above." })]);
     assert.deepEqual(lintCell(own, references), [], `provided by the referring section: ${fact}`);
   }
-  assert.deepEqual(lintCell(cell([sec("fix", [], { text: "Fix it from the tree above." }), sec("dom", [provides("risks")])]), references).map((f) => f.rule), ["R13"], "another fact does not meet it");
+  assert.deepEqual(lintCell(cell([sec("fix", [], { text: "Fix it from the tree above." }), sec("dom", [provides("api-operations")])]), references).map((f) => f.rule), ["R13"], "another fact does not meet it");
 });
 
 test("an artifact backed by a section is met by the section with that id and by nothing else", () => {
@@ -656,14 +637,14 @@ test("each missing artifact of a section is reported once, and the findings are 
 
 test("a section that declares only an established framing must not say its fact is not to be trusted", () => {
   for (const text of [
-    "The brief above is NOT authoritative; the code wins.",
+    "The block above is NOT authoritative; the code wins.",
     "This is non-authoritative context.",
     "Verify before trusting any of it.",
     "Verify before trust: it is unchecked.",
     "Every symbol here must be verified against the code.",
   ]) {
-    const findings = lintCell(cell([sec("context-brief", [provides("blast-radius"), frames("blast-radius", "established")], { text })]));
-    assert.deepEqual(findings.map((f) => [f.rule, ...f.sections]), [["R14", "context-brief"]], text);
+    const findings = lintCell(cell([sec("grounding-a", [provides("blast-radius"), frames("blast-radius", "established")], { text })]));
+    assert.deepEqual(findings.map((f) => [f.rule, ...f.sections]), [["R14", "grounding-a"]], text);
   }
 });
 
@@ -675,7 +656,7 @@ test("a section that declares only an unverified framing must not call its fact 
 });
 
 test("words that agree with the declared framing are clean, and so is a negation of the opposite", () => {
-  const established = sec("context-brief", [frames("blast-radius", "established")], { text: "This is authoritative ground truth." });
+  const established = sec("grounding-a", [frames("blast-radius", "established")], { text: "This is authoritative ground truth." });
   const unverified = sec("arch-map", [frames("arch-map", "unverified")], { text: "This may be stale, not authoritative, and must be verified." });
   assert.deepEqual(lintCell(cell([established, unverified])), []);
   const negatedOpposite = sec("arch-map", [frames("arch-map", "unverified")], { text: "This map is not authoritative." });
@@ -684,7 +665,7 @@ test("words that agree with the declared framing are clean, and so is a negation
 
 test("a section that declares both framings, or none, is not judged for polarity", () => {
   const text = "Some of this is NOT authoritative and the rest is authoritative ground truth.";
-  assert.deepEqual(lintCell(cell([sec("mixed", [frames("blast-radius", "established"), frames("landmarks", "unverified")], { text })])), []);
+  assert.deepEqual(lintCell(cell([sec("mixed", [frames("blast-radius", "established"), frames("arch-map", "unverified")], { text })])), []);
   assert.deepEqual(lintCell(cell([sec("plain", [], { text })])).filter((f) => f.rule === "R14"), []);
 });
 
@@ -744,24 +725,24 @@ test("a read or an orientation of the blast radius while a section provides the 
 
 test("the blast radius and the structural signal each contradict the directive when both are provided, one finding per provider", () => {
   const findings = lintCell(
-    cell([sec("task", [directs("orient", "blast-radius")]), sec("context-brief", [provides("blast-radius")]), sec("static-signal", [provides("structural-signal")])]),
+    cell([sec("task", [directs("orient", "blast-radius")]), sec("grounding-a", [provides("blast-radius")]), sec("static-signal", [provides("structural-signal")])]),
   );
   assert.deepEqual(
     findings.map((f) => [f.rule, f.fact, ...f.sections]),
-    [["R3", "blast-radius", "context-brief", "task"], ["R3", "blast-radius", "static-signal", "task"]],
+    [["R3", "blast-radius", "grounding-a", "task"], ["R3", "blast-radius", "static-signal", "task"]],
   );
 });
 
 test("the equivalence holds for a read or an orientation only: a consult of the blast radius is not satisfied by the structural signal", () => {
   const consult = lintCell(cell([sec("task", [directs("consult", "blast-radius")]), sec("static-signal", [provides("structural-signal")])]));
   assert.deepEqual(consult.map((f) => [f.rule, f.fact, ...f.sections]), [["R3", "blast-radius", "task"]], "dangling: nothing provides the blast radius itself");
-  const met = lintCell(cell([sec("task", [directs("consult", "blast-radius")]), sec("context-brief", [provides("blast-radius")])]));
+  const met = lintCell(cell([sec("task", [directs("consult", "blast-radius")]), sec("grounding-a", [provides("blast-radius")])]));
   assert.deepEqual(met, [], "a section that provides the blast radius still meets a consult of it");
 });
 
 test("the equivalence is one way: a read of the structural signal is not made redundant by a section that provides the blast radius", () => {
   for (const action of ["read", "orient"] as const) {
-    assert.deepEqual(lintCell(cell([sec("task", [directs(action, "structural-signal")]), sec("context-brief", [provides("blast-radius")])])), [], action);
+    assert.deepEqual(lintCell(cell([sec("task", [directs(action, "structural-signal")]), sec("grounding-a", [provides("blast-radius")])])), [], action);
   }
 });
 

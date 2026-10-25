@@ -11,9 +11,7 @@ import type {
   CommitIntent,
   OpencodeRunInput,
   ReviewInput,
-  ExplorationBrief,
 } from "@contexts/generation/application/ports/generation-ports.ts";
-import { ExplorationBriefAdapter, type BriefFns } from "../exploration-brief.adapter.ts";
 import { deriveClaimsFromPackText, withoutPackSection } from "../context-pack.ts";
 import { diffStat, diffTier, type DiffStat, type DiffTier } from "@contexts/generation/domain/diff-stat.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
@@ -30,7 +28,7 @@ import { buildSuiteListing } from "@contexts/generation/domain/suite-listing.ts"
 import { renderSuiteListing, suiteListingHead } from "@contexts/generation/domain/suite-listing-render.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 import { renderExemplarsForPrompt } from "@kernel/scenario-catalog.ts";
-import { advisoryLineIds, briefItemIds, itemId } from "@contexts/generation/domain/context-item-ids.ts";
+import { advisoryLineIds, itemId } from "@contexts/generation/domain/context-item-ids.ts";
 import type { Omission } from "@kernel/telemetry/section-meta.ts";
 import { assemble, section, type AssembledPrompt } from "./context-assembler.ts";
 import { roleWindowBytes } from "./model-window-catalog.ts";
@@ -43,22 +41,6 @@ import {
 
 export type { AssembledPrompt };
 export { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES };
-
-/* Throws loudly if a brief render is attempted before wiring — never a silent no-op (CLAUDE.md's "surface integration errors loudly" invariant) — but every real production path wires this before any run starts, and every test either wires it locally or never exercises `w.brief`/ `input.contextBrief` (renderBrief is only called when a brief is actually present). */
-let explorationBriefAdapter: ExplorationBriefAdapter | undefined;
-
-export function setExplorationBriefCollaborators(fns: BriefFns): void {
-  explorationBriefAdapter = new ExplorationBriefAdapter(fns);
-}
-
-function renderBrief(brief: ExplorationBrief, opts?: { omitLandmarks?: boolean }): string {
-  if (!explorationBriefAdapter) {
-    throw new Error(
-      "prompts: renderExplorationBrief collaborator not wired — call setExplorationBriefCollaborators() at composition time (see rewritten-engine-factory.ts)",
-    );
-  }
-  return explorationBriefAdapter.render(brief, opts);
-}
 
 /* Facts only: what the harness is configured with and what its shared fixtures export. Every value is sanitized; nothing here directs the agent. Absent facts render no section. */
 function renderHarnessFacts(facts: HarnessFacts, e2eRelDir: string): string {
@@ -137,7 +119,7 @@ function renderCommitMessage(intent: CommitIntent | undefined, includeBody: bool
 /* The reviewer's statement of its own cap is a section of its own, apart from the generator's. */
 export const REVIEWER_STEP_LIMIT_SECTION_ID = "reviewer-step-limit";
 
-/* The cap the runtime enforces for the turn, stated as a fact: the number and nothing else. It bounds the turn the prompt is sent for, never the session. A generator, an explorer and a reviewer prompt state it the same way. */
+/* The cap the runtime enforces for the turn, stated as a fact: the number and nothing else. It bounds the turn the prompt is sent for, never the session. A generator prompt and a reviewer prompt state it the same way. */
 function renderStepLimit(limit: number): string {
   return [`## ${PROMPT_HEADINGS.stepLimit}`, `This turn runs at most ${limit} steps.`].join("\n");
 }
@@ -223,89 +205,6 @@ function cappedDiffText(diff: string): string {
 export function specFileForFlow(flow: string): string {
   const safe = flow.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "flow";
   return `flows/${safe}.spec.ts`;
-}
-
-/* The most route paths of the map the explorer is shown, and the longest one it is shown whole: the map is data read from a file, so each path is cleaned and bounded where it is rendered. */
-export const MAX_EXPLORER_MAP_ROUTES = 80;
-const MAX_EXPLORER_MAP_ROUTE_CHARS = 160;
-
-/* The route paths the context map declares, so the explorer names a page it maps by the path the rest of the run already uses for it (the context pack ranks, matches and opens the map's routes by exactly that text). One path per line; none, no block. */
-function explorerMapRouteLines(input: OpencodeRunInput): string[] {
-  const declared: unknown = input.contextMap?.routes;
-  if (!Array.isArray(declared)) return [];
-  const seen = new Set<string>();
-  for (const entry of declared) {
-    const path: unknown = (entry as { path?: unknown } | null)?.path;
-    if (typeof path !== "string") continue;
-    const clean = sanitizeText(path).text.replace(/\s+/g, " ").trim().slice(0, MAX_EXPLORER_MAP_ROUTE_CHARS);
-    /* A path is shown whole in inline code: one with a backtick could end it early and write text of its own, and shown any other way it would no longer be the path the map declares. */
-    if (clean !== "" && !clean.includes("`")) seen.add(clean);
-  }
-  const paths = [...seen];
-  if (paths.length === 0) return [];
-  const listed = paths.slice(0, MAX_EXPLORER_MAP_ROUTES);
-  const rest = paths.length - listed.length;
-  return [
-    ``,
-    `## Routes of the app (from the context map)`,
-    `When a page you map is one of these routes, set \`routes[].path\` to its listed path verbatim; name any other page by its path in the app's router.`,
-    ...listed.map((path) => `- \`${path}\``),
-    ...(rest > 0 ? [`(+${rest} more not shown)`] : []),
-  ];
-}
-
-export function buildExplorerPrompt(input: OpencodeRunInput): string {
-  /* Rendering the (empty) diff would give the explorer nothing to map, so its brief would be empty and the manual Context Pack would carry no grounding. Drive the exploration from the guidance instead. */
-  if (input.mode === "manual") {
-    const guidance = sanitizeText((input.guidance ?? "(no guidance provided)").trim()).text;
-    return [
-      `Explore the blast radius of the following GUIDANCE for ${input.repo} and return a distilled ExplorationBrief.`,
-      `You are READ-ONLY: do NOT write tests or any file. Map the affected flows, then emit ONLY the brief JSON.`,
-      ``,
-      `## Guidance (the user's instruction — the scope to explore)`,
-      guidance,
-      ``,
-      `Use serena (activate_project, find_symbol, find_referencing_symbols) to locate the code that`,
-      `implements the guidance's flows and map its blast radius. Stay strictly within the guidance scope.`,
-      ...(input.baseUrl ? [``, `Route context only — you do NOT navigate; selectors stay unverified. LIVE DEV URL: ${input.baseUrl}`] : []),
-      ...(input.service
-        ? [``, `## Cross-repo (microservice)`, `Related service: ${input.service.repo} (a READ-ONLY staged snapshot — contracts + this commit's changed files, not the full source — is at ${input.service.mirrorDir}). Map the FRONTEND flows that exercise it.`]
-        : []),
-      ...explorerMapRouteLines(input),
-      ``,
-      ...explorerStepLimitLines(input),
-      `## Output — set builtForSha to ${input.sha}; end with ONLY the ExplorationBrief JSON (schema in your role prompt).`,
-    ].join("\n");
-  }
-  return [
-    `Explore the blast radius of commit ${input.sha} of ${input.repo} and return a distilled ExplorationBrief.`,
-    `You are READ-ONLY: do NOT write tests or any file. Map the change, then emit ONLY the brief JSON.`,
-    ``,
-    `## Change intent (Conventional Commits)`,
-    `- Type: ${input.intent?.type ?? "unknown"}${input.intent?.breaking ? " (BREAKING)" : ""}`,
-    `- Changed files: ${sanitizeText(input.intent?.changedFiles?.join(", ") ?? "").text || "(unknown)"}`,
-    ``,
-    `## Commit message (the author's intent — subject + body)`,
-    renderCommitMessage(input.intent, true),
-    ``,
-    COMMIT_DIFF_HEADING,
-    "```diff",
-    cappedDiffText(input.diff),
-    "```",
-    ...(input.baseUrl ? [``, `Route context only — you do NOT navigate; selectors stay unverified. LIVE DEV URL: ${input.baseUrl}`] : []),
-    ...(input.service
-      ? [``, `## Cross-repo change (microservice)`, `The change is in ${input.service.repo} (a READ-ONLY staged snapshot — contracts + this commit's changed files, not the full source — is at ${input.service.mirrorDir}). Map the FRONTEND flows that exercise it.`]
-      : []),
-    ...explorerMapRouteLines(input),
-    ``,
-    ...explorerStepLimitLines(input),
-    `## Output — set builtForSha to ${input.sha}; end with ONLY the ExplorationBrief JSON (schema in your role prompt).`,
-  ].join("\n");
-}
-
-/* The explorer states the cap its session runs under in a block just before its output block, set apart by a blank line; no cap, no block. It names no milestone: it writes no tests. */
-function explorerStepLimitLines(input: OpencodeRunInput): string[] {
-  return input.stepLimit !== undefined ? [renderStepLimit(input.stepLimit), ``] : [];
 }
 
 /* Assembles the dynamic message for the agent. The "how" lives in agents/agent/qa-generator.md and the skills; only the task + context go here. The diff/guidance are sanitized (cheap defense in depth). Return type is unchanged (string). Use buildPromptAssembled() to get the sectionSizes map for telemetry. `hasInjectedGrounding` is a coarse boolean — the injected grounding (Context Pack ≤6 routes / failure DOM ≤4 routes) may NOT cover the route a regen must touch. To avoid suppressing navigation into a blind/wrong fix, every grounded regen branch carries this explicit anti-blinding escape. */
@@ -410,7 +309,7 @@ export interface BuildPromptAssembledOpts {
 
 /* What the generator session already holds from the turn that opened it, and a continuation therefore leaves out. The run's tool budgets and authoring location stay: they are small and may have moved. */
 const HELD_BY_THE_SESSION: ReadonlySet<string> = new Set([
-  "working-rules", "regen-discipline", "arch-map", "context-brief", HARNESS_FACTS_SECTION_ID, "static-signal", "service-links",
+  "working-rules", "regen-discipline", "arch-map", HARNESS_FACTS_SECTION_ID, "static-signal", "service-links",
   "skill-exemplars", APP_LOGIN_SECTION_ID, "context-pack", "learned-rules", "diff",
 ]);
 
@@ -507,13 +406,12 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   const workingRulesContent = workingRulesLines.join("\n");
   const workingRulesClaims: PromptClaim[] = input.mode !== "context" && !isCode && !treeInPrompt ? [claim.directs("use-runtime-signals")] : [];
 
-  /* The brief owns FE-BE links when it carries them (the map yields its own), the pack's contracts section owns API operations when present (the map yields its list), and a brief drops its landmark hints when a tree exists. */
+  /* The pack's contracts section owns API operations when present (the map yields its list). */
   const archMap = input.contextMap
     ? renderArchitectureContextParts(
         input.contextMap,
         input.mode === "diff" ? input.intent?.changedFiles : undefined,
         {
-          suppressFeBeLinks: Boolean(input.contextBrief?.feBe?.length),
           suppressApiOperations: packProvides("api-operations"),
         },
       )
@@ -521,7 +419,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   const archMapContent = input.contextMap ? [archMap?.text ?? "", ``].join("\n") : "";
   const archMapClaims: PromptClaim[] = archMap?.claims ?? [];
   const mapInjected = archMap !== null;
-  const blastRadiusSupplied = Boolean(input.contextBrief?.blastRadius.length);
   /* The suite as this turn knows it: the specs that already exist, listed for a diff or a manual run, and the specs this run has delivered, which only a regeneration carries; with, on a regeneration, the marks of the specs it must change. A prompt that lists no spec has no listing section. */
   const listing = buildSuiteListing(
     isGenerationMode
@@ -542,15 +439,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   /* The listing tells the agent to read the specs it changes when it has some editable. */
   const editableListed = listing.editable.length > 0;
 
-  const briefShowsLandmarks = Boolean(input.contextBrief?.routes?.some((r) => r.domLandmarks?.length)) && !treeInPrompt;
-  const contextBriefContent = input.contextBrief
-    ? [
-        renderBrief(input.contextBrief, { omitLandmarks: treeInPrompt }),
-        `(The brief above is established: it distilled the blast radius, risks, objective and contracts, so do NOT re-read that code. Verification is the harness's job — its static, execution and review gates.${briefShowsLandmarks ? " Route landmarks are hints, never selectors." : ""})`,
-        ``,
-      ].join("\n")
-    : "";
-  const contextBriefClaims: PromptClaim[] = input.contextBrief ? briefClaims(input.contextBrief, briefShowsLandmarks) : [];
 
   const domContent = sanitizedDomSnapshot && isGenerationMode
     ? hasFailureTree
@@ -766,15 +654,14 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     ? [input.learnedRules, ``].join("\n")
     : "";
 
-  /* A brief that carries a blast radius already has it distilled; the advisory structural copy of it only appears when there is none. */
-  const staticSignalContent = input.staticSignal && isGenerationMode && !blastRadiusSupplied ? input.staticSignal : "";
+  const staticSignalContent = input.staticSignal && isGenerationMode ? input.staticSignal : "";
   /* Only a signal that names symbols is an explored blast radius. One of co-change files alone says which files tend to move together, so it claims nothing explored; a signal that arrives without the flag cannot prove it names symbols and is read the same way. */
   const staticSignalHasSymbols = staticSignalContent !== "" && input.staticSignalHasSymbols === true;
   const signalFact = staticSignalHasSymbols ? "structural-signal" : "co-change";
   const staticSignalClaims: PromptClaim[] = staticSignalContent ? [claim.provides(signalFact), claim.frames(signalFact, "unverified")] : [];
 
-  /* A re-generation turn must not re-orient. What it says about the blast radius holds only when the prompt carries an explored one (a brief with a blast radius, or a structural signal that names symbols); otherwise it only forbids the re-skim. */
-  const blastRadiusGrounded = blastRadiusSupplied || staticSignalHasSymbols;
+  /* A re-generation turn must not re-orient. What it says about the blast radius holds only when the prompt carries an explored one (a structural signal that names symbols); otherwise it only forbids the re-skim. */
+  const blastRadiusGrounded = staticSignalHasSymbols;
   const regenDisciplineContent = isReGen
     ? [
         `## Re-generation turn — do NOT re-orient`,
@@ -893,7 +780,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       section("working-rules", "stable-prefix", workingRulesContent, { priority: 1, cacheable: true, claims: workingRulesClaims }),
       ...(regenDisciplineContent ? [section("regen-discipline", "stable-prefix", regenDisciplineContent, { priority: 2 })] : []),
       ...(archMapContent ? [section("arch-map", "semi-stable", archMapContent, { priority: 1, cacheable: true, claims: archMapClaims, ...(archMap ? { itemIds: archMap.itemIds, omissions: archMap.omissions } : {}) })] : []),
-      ...(contextBriefContent ? [section("context-brief", "semi-stable", contextBriefContent, { priority: 2, claims: contextBriefClaims, ...(input.contextBrief ? { itemIds: briefItemIds(input.contextBrief) } : {}) })] : []),
       ...(harnessFactsContent ? [section(HARNESS_FACTS_SECTION_ID, "semi-stable", harnessFactsContent, { priority: 0, claims: [claim.provides("harness-facts")] })] : []),
       ...(closedLoopContent ? [section(CLOSED_LOOP_SECTION_ID, "semi-stable", closedLoopContent, { priority: 0, claims: [claim.provides("closed-loop")] })] : []),
       ...(agentBrowserContent ? [section(AGENT_BROWSER_SECTION_ID, "semi-stable", agentBrowserContent, { priority: 0, claims: [claim.provides("agent-browser")] })] : []),
@@ -944,7 +830,7 @@ export function buildPrompt(input: OpencodeRunInput): string {
 export function renderArchitectureContext(
   ctx: ArchitectureContext,
   changedFiles?: string[],
-  opts: { suppressFeBeLinks?: boolean; suppressApiOperations?: boolean } = {},
+  opts: { suppressApiOperations?: boolean } = {},
 ): string | null {
   return renderArchitectureContextParts(ctx, changedFiles, opts)?.text ?? null;
 }
@@ -953,7 +839,7 @@ export function renderArchitectureContext(
 export function renderArchitectureContextParts(
   ctx: ArchitectureContext,
   changedFiles?: string[],
-  opts: { suppressFeBeLinks?: boolean; suppressApiOperations?: boolean } = {},
+  opts: { suppressApiOperations?: boolean } = {},
 ): { text: string; claims: PromptClaim[]; itemIds: string[]; omissions: Omission[] } | null {
   if (!ctx.routes?.length && !ctx.api?.length) return null;
 
@@ -992,7 +878,7 @@ export function renderArchitectureContextParts(
     lines.push("");
   }
 
-  if (relevantLinks.length && !opts.suppressFeBeLinks) {
+  if (relevantLinks.length) {
     lines.push(`### FE↔BE links (${relevantLinks.length} of ${ctx.feBe?.length ?? 0} total)`);
     lines.push("Each link tells you which frontend route calls which backend operation — use this to widen the blast radius:");
     for (const l of relevantLinks) {
@@ -1013,7 +899,7 @@ export function renderArchitectureContextParts(
   const out = lines.join("\n");
   const claims: PromptClaim[] = [claim.provides("arch-map"), claim.frames("arch-map", "unverified")];
   if (listsApiOperations) claims.push(claim.provides("api-operations"));
-  if (relevantLinks.length && !opts.suppressFeBeLinks) claims.push(claim.provides("fe-be-links"));
+  if (relevantLinks.length) claims.push(claim.provides("fe-be-links"));
   /* The ids of what the rendered map supplies, in the map's own order. A map truncated past MAX_LEN delivers none of them (conservative). */
   const truncated = out.length > MAX_LEN;
   const itemIds = truncated
@@ -1021,34 +907,18 @@ export function renderArchitectureContextParts(
     : [
         ...ctx.routes.slice(0, MAX_ITEMS).map((r) => itemId.route(r.path)),
         ...(listsApiOperations ? ctx.api.slice(0, MAX_ITEMS).map((o) => itemId.op(o.operationId)) : []),
-        ...(!opts.suppressFeBeLinks ? relevantLinks.map((l) => itemId.link(l.route, l.operationId)) : []),
+        ...relevantLinks.map((l) => itemId.link(l.route, l.operationId)),
         ...(ctx.flows?.length ? ctx.flows.slice(0, MAX_ITEMS).map((f) => itemId.flow(f.id)) : []),
       ];
-  /* The entries each rendered list left out to MAX_ITEMS, and only those: a list the caller suppressed (API operations, FE↔BE
-   * links) was never rendered, so its cap is not an omission, and a list under the cap omits nothing. */
+  /* The entries each rendered list left out to MAX_ITEMS, and only those: a list the caller suppressed (API operations) was never rendered, so its cap is not an omission, and a list under the cap omits nothing. */
   const mapCapOmitted =
     Math.max(0, ctx.routes.length - MAX_ITEMS)
     + (listsApiOperations ? Math.max(0, ctx.api.length - MAX_ITEMS) : 0)
-    + (!opts.suppressFeBeLinks && fullFeBe.length > 0 ? Math.max(0, fullFeBe.length - MAX_ITEMS) : 0)
+    + (fullFeBe.length > 0 ? Math.max(0, fullFeBe.length - MAX_ITEMS) : 0)
     + (ctx.flows?.length ? Math.max(0, ctx.flows.length - MAX_ITEMS) : 0);
   const omissions: Omission[] = mapCapOmitted > 0 ? [{ class: "truncation", reason: "map-cap", count: mapCapOmitted }] : [];
   return { text: truncated ? out.slice(0, MAX_LEN) + "\n…(context truncated)" : out, claims, itemIds, omissions };
 }
-
-/* What a rendered brief provides and how it frames it: the blast radius, risks and contracts it distilled are established, its landmark hints (kept only when no DOM tree exists) are not. */
-function briefClaims(brief: ExplorationBrief, showsLandmarks: boolean): PromptClaim[] {
-  const claims: PromptClaim[] = [];
-  const fact = (id: FactId, as: "established" | "unverified"): void => {
-    claims.push(claim.provides(id), claim.frames(id, as));
-  };
-  if (brief.blastRadius.length) fact("blast-radius", "established");
-  if (brief.risks?.length) fact("risks", "established");
-  if (brief.feBe?.length) claims.push(claim.provides("fe-be-links"));
-  if (brief.contracts?.length) fact("contracts", "established");
-  if (showsLandmarks) fact("landmarks", "unverified");
-  return claims;
-}
-
 
 export function buildContextTask(input: OpencodeRunInput): string {
   const openapiHint = Array.isArray(input.openapi) ? input.openapi.join(", ") : input.openapi;
@@ -1304,7 +1174,7 @@ function buildRegenTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts 
 interface TaskGuards {
   /* The architecture map is rendered in this prompt. */
   mapInjected: boolean;
-  /* The prompt carries an explored blast radius: a brief that carries one, or a structural signal that names symbols. */
+  /* The prompt carries an explored blast radius: a structural signal that names symbols. */
   blastRadiusGrounded: boolean;
   /* The listing of the specs that already exist is in this prompt, which the byte budget may have shed from it. */
   suiteListed: boolean;

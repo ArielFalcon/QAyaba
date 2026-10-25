@@ -10,7 +10,7 @@
  * It gives one agent (`qa-baseline`) what a developer with a coding agent would have: the whole repository at
  * the commit, a short prompt (the commit message, `git show --stat` and the full diff, plus a few lines of
  * instructions), the live DEV site through the Playwright browser tools, and the ability to run Playwright in
- * the suite directory. No explorer, no grounding, no context map, no reviewer, no regeneration, no
+ * the suite directory. No grounding, no context map, no reviewer, no regeneration, no
  * deterministic gates: those are what the pipeline adds, and this arm exists to measure what they are worth.
  *
  * The agent works in a THROWAWAY copy of the app's working copy at the commit, under
@@ -812,7 +812,7 @@ export async function main(argv: string[], deps: BaselineDeps): Promise<number> 
         ? { verdict: acceptanceReport.verdict, errorClass: acceptanceReport.verdict === "invalid" ? "E-STATIC" : "E-INFRA", note: `${specs.length} spec(s) written, but the static gate did not pass: ${acceptanceReport.validate.errors.slice(0, 2).join(" | ").slice(0, 300)}` }
         : classifyBaseline({ specs: specs.length, noop: declaresNoop(finalText), ended, runs, timeoutMin: args.timeoutMin as number });
 
-    const reading: ReadingContext = { changedFiles: material.changedFiles, briefText: null, suiteDir: DEFAULT_SUITE_DIR };
+    const reading: ReadingContext = { changedFiles: material.changedFiles, suiteDir: DEFAULT_SUITE_DIR };
     const turn = turnFromCallMetrics(
       { role: BASELINE_AGENT, round: 0, isRepair: false, ended, durationMs: wallMs, maxSteps: generator.steps, promptBytes: Buffer.byteLength(prompt, "utf8"), metrics },
       reading,
@@ -836,7 +836,7 @@ export async function main(argv: string[], deps: BaselineDeps): Promise<number> 
       finished: true,
       totalMs: setupMs + wallMs + executeMs,
       phases: { ...emptyPhases(), setup: setupMs, generation: wallMs, execute: runs.length > 0 ? executeMs : null },
-      nested: { explorerMs: null, domCaptureMs: null, reviewMs: null },
+      nested: { domCaptureMs: null, reviewMs: null },
       turns: [turn],
       totals: totalsOf([turn]),
       specs: specList,
@@ -846,7 +846,7 @@ export async function main(argv: string[], deps: BaselineDeps): Promise<number> 
       /* No stitcher feeds this arm: it has no service links to count, and its prompt carries none of the advisory sections. */
       stitcher: { serviceLinksCount: null, contractDriftCount: null, structuralSignalBytes: null, crossRepoImpactedCount: null, generatorPrompt: promptSections(prompt) },
       ...(groundTruth
-        ? { groundTruth: scoreGroundTruth(groundTruth, { briefText: null, filesRead: contentReadsOf([turn]), specSources: specs.length > 0 && readSpecs.length === 0 ? null : readSpecs }) }
+        ? { groundTruth: scoreGroundTruth(groundTruth, { filesRead: contentReadsOf([turn]), specSources: specs.length > 0 && readSpecs.length === 0 ? null : readSpecs }) }
         : {}),
       detail: {
         ...(service ? { service: { repo: service.repo, sha: service.sha, dir: service.dir, primaryRepo: app.repo, primaryBranch: app.baseBranch, primarySha } } : {}),

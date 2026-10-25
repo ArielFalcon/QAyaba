@@ -826,7 +826,6 @@ export interface components {
             /** @enum {string} */
             captureMode?: "off" | "metadata" | "full";
             grounding?: {
-                explorer?: boolean;
                 stitcher?: boolean;
                 structuralSignal?: boolean;
                 curriculum?: boolean;
@@ -1605,7 +1604,6 @@ export interface components {
                     staticHash: string | null;
                 };
                 grounding: {
-                    explorer: boolean | null;
                     stitcher: string | null;
                     structuralSignal: string | null;
                     curriculum: string | null;

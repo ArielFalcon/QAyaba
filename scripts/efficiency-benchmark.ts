@@ -600,7 +600,7 @@ function measuredLines(data: CaseMeasurement, tier: DiffTier | undefined): strin
     ...(data.turns ?? []).map(turnLine),
     `first pass: ${windowLine(data.coarse.firstPass)}`,
     `whole run excl. grounding: ${windowLine(data.coarse.wholeRunExcludingGrounding)}`,
-    `grounding: ${data.coarse.grounding.totalCalls === 0 ? "n/a (explorer unobserved)" : `calls ${data.coarse.grounding.totalCalls}`}`,
+    `grounding: ${data.coarse.grounding.totalCalls === 0 ? "n/a (no agent calls)" : `calls ${data.coarse.grounding.totalCalls}`}`,
     `generator: step limit ${yesNo(data.exhausted, "hit", "not hit")}`,
     `guardrails: verdict ${val(g.verdict)} · specs ${val(g.specsProduced)} · static ${yesNo(g.staticPass, "pass", "fail")} · execute ${yesNo(g.executePass, "pass", "fail")} · coverage ${g.coverageRatio === null ? "unknown" : g.coverageRatio} · reviewer ${yesNo(g.reviewerApproved, "approved", "rejected")} · error class ${g.errorClass === undefined ? "unknown" : (g.errorClass ?? "none")} · pre-exec ambiguity catches ${val(g.preExecAmbiguityCatches)} · deterministic selector blocks ${val(g.deterministicSelectorBlocks)} · catalog gate fail-closed ${val(g.catalogGateFailClosed)}`,
   ];

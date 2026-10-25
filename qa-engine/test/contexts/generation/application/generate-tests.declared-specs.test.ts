@@ -23,7 +23,6 @@ function generate(deliverable: GeneratorDeliverable, options: Options = {}): Pro
       render: () => "",
       renderMain: () => ({ text: "MAIN PROMPT", sectionSizes: {} }),
       renderReviewer: () => ({ text: "REVIEW PROMPT", sectionSizes: {} }),
-      renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
     },
     verdicts: {

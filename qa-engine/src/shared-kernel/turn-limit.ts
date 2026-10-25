@@ -7,8 +7,6 @@ export const TIME_LIMIT_SOURCES = [
   "run-deadline",
   /* The short cap of a contract-repair prompt. */
   "repair-cap",
-  /* The explorer's own session timeout. */
-  "explorer-timeout",
   /* A session's timeout that no more specific name covers. */
   "session-timeout",
   /* A per-prompt budget a caller stated without a more specific name. */

@@ -110,8 +110,6 @@ export interface AgentOpenDescriptor {
   objective?: string;
   /** `false` keeps the session out of SSE/stall-watchdog registration while its turns still persist under `runId` (mirrors the kernel port's AgentOpenDescriptor). */
   liveObservation?: boolean;
-  /** With `liveObservation: false`: observe the session's calls for its trace without registering, watching or waiting for it (mirrors the kernel port's AgentOpenDescriptor). */
-  observeUnwatched?: boolean;
   /** The flow of a plan the session is opened for, and the tools its run denied it (mirrors the kernel port's AgentOpenDescriptor). */
   delegationId?: string;
   denyTools?: readonly string[];
@@ -756,24 +754,19 @@ export function withSessionRegistration(
     /* Told which agent opened which session for which run, whatever its live-observation choice: the run_spec loop gives its right to the generator's sessions through this. Absent: nothing is told. */
     bind?: (session: { sessionId: string; runId: string; agent: string; delegationId?: string; denyTools?: readonly string[] }) => void;
     unbind?: (sessionId: string) => void;
-    /* A session that opted out of live observation but asks to be observed anyway (`observeUnwatched`): its calls are tracked and nothing else is done for it. Absent: such a session is left exactly as an opted-out one. */
-    observe?: (sessionId: string, cwd: string) => void;
-    unobserve?: (sessionId: string) => void;
   },
 ): AgentDeps {
-  const { register, unregister, bind, unbind, observe, unobserve } = collaborators;
+  const { register, unregister, bind, unbind } = collaborators;
 
   return {
     ...baseDeps,
     open: async (agent, cwd, opts) => {
       const inner = await baseDeps.open(agent, cwd, opts);
       /* A run context registers the session for live observation (SSE + stall watchdog) unless the
-         descriptor opts out: the explorer's turns persist under its runId, but registering it would
+         descriptor opts out: such a session's turns persist under its runId, but registering it would
          start feeding the stall watchdog and change its liveness window. */
       const runId = opts?.descriptor?.liveObservation === false ? undefined : opts?.descriptor?.runId;
       if (runId) register(inner.id, runId, cwd);
-      const observed = observe !== undefined && opts?.descriptor?.liveObservation === false && opts.descriptor.observeUnwatched === true && opts.descriptor.runId !== undefined;
-      if (observed) observe(inner.id, cwd);
       const boundRunId = opts?.descriptor?.runId;
       if (boundRunId) {
         const { delegationId, denyTools } = opts?.descriptor ?? {};
@@ -784,7 +777,6 @@ export function withSessionRegistration(
         ...inner,
         dispose: async () => {
           if (runId) unregister(inner.id);
-          if (observed) unobserve?.(inner.id);
           if (boundRunId) unbind?.(inner.id);
           await inner.dispose();
         },

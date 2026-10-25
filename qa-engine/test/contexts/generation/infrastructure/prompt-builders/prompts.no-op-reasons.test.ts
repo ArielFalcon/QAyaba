@@ -6,17 +6,11 @@ import {
   EFFORT_NO_OP_CLAUSE,
   LEAD_PLAN_SECTION_ID,
   buildPromptAssembled,
-  setExplorationBriefCollaborators,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { LEAD_PLAN_KIND } from "@kernel/coordination.ts";
-import type { ExplorationBrief, OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 
-setExplorationBriefCollaborators({
-  parseExplorationBrief: () => null,
-  coerceExplorationBrief: () => null,
-  renderExplorationBrief: (brief: ExplorationBrief) => `## ${PROMPT_HEADINGS.explorationBrief}\nObjective: ${brief.objective}`,
-});
 
 const NOTHING_WORTH_A_TEST = /nothing (?:here )?is worth a test/i;
 const DEV_CANNOT_SHOW = /cannot be observed on DEV in its current state/i;

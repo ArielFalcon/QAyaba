@@ -10,7 +10,6 @@ import {
   parseVerdict,
   extractJsonObjects,
   specFileForFlow,
-  buildExplorerPrompt,
   renderArchitectureContext,
   buildReviewerPrompt,
   buildReviewerPromptAssembled,
@@ -32,7 +31,7 @@ import {
 } from "./opencode-client";
 import { setRawEventStreamOpener, startScopedEventStream } from "@contexts/generation/infrastructure/sse/event-stream";
 import type { StreamLifecycleSink, StreamToken } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
-import type { ArchitectureContext, ExplorationBrief, OpencodeRunInput, ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ArchitectureContext, OpencodeRunInput, ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
 import { SERENA_WRITE_TOOL_NAMES } from "@contexts/generation/domain/tool-call-taxonomy";
 import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { ANTI_WEAKENING_RULE, OBJECTIVE_QUESTION } from "@contexts/generation/infrastructure/prompt-builders/prompts";
@@ -184,13 +183,6 @@ test("B' buildPrompt (manual) carries the SAME acceptance criterion — manual i
   assert.match(p, /test the contact form submits/); /* the guidance IS the objective */
   assert.match(p, /commit to this BEFORE writing/);
   assert.match(p, /observable OUTCOME/);
-});
-
-test("A' buildExplorerPrompt renders the commit message (subject + body) so the explorer infers a concrete objective", () => {
-  const withBody = { ...input, intent: { ...input.intent!, body: "the discount must persist after the cart re-queries" } };
-  const e = buildExplorerPrompt(withBody);
-  assert.match(e, /## Commit message/);
-  assert.match(e, /discount must persist/);
 });
 
 test("buildPrompt complete mode: whole-repo analysis + persisted coverage", () => {
@@ -357,51 +349,6 @@ test("buildPrompt surfaces reviewer corrections as the highest-priority block", 
     buildPromptAssembled({ ...input, reviewCorrections: ["a.spec.ts: scope the selector to the header"] }).sectionSizes,
   );
   assert.ok(order.indexOf("reviewer-corrections") < order.indexOf("task"), "corrections come before the task");
-});
-
-test("buildExplorerPrompt asks a read-only explorer to map the diff into an ExplorationBrief", () => {
-  const p = buildExplorerPrompt(input);
-  assert.match(p, /abc123/);
-  assert.match(p, /feat: new screen/);
-  assert.match(p, /const x = 1/);
-  assert.match(p, /read-only|do NOT write/i);
-  assert.match(p, /ExplorationBrief|brief/i);
-});
-
-test("buildPrompt injects the exploration brief and tells the generator not to re-read that code", () => {
-  const brief: ExplorationBrief = {
-    builtForSha: "abc123",
-    objective: "new screen",
-    blastRadius: [{ symbol: "Screen.render", file: "src/x.ts", role: "renders the new screen" }],
-  };
-  const withBrief = buildPrompt({ ...input, contextBrief: brief });
-  assert.match(withBrief, /Exploration brief/);
-  assert.match(withBrief, /renders the new screen/);
-  assert.match(withBrief, /do NOT re-read/i);
-  assert.doesNotMatch(buildPrompt(input), /Exploration brief/, "no brief → no brief section (back-compat)");
-});
-
-test("buildExplorerPrompt renders the GUIDANCE (not the empty diff) as the manual exploration objective", () => {
-  const p = buildExplorerPrompt({
-    ...input,
-    mode: "manual",
-    diff: "", /* manual runs carry NO diff */
-    intent: undefined,
-    guidance: "test the contact form submission and validation errors",
-  });
-  assert.match(p, /test the contact form submission and validation errors/, "the guidance drives the exploration");
-  assert.match(p, /Guidance/, "the prompt frames the scope as guidance");
-  assert.match(p, /read-only|do NOT write/i);
-  assert.match(p, /ExplorationBrief|brief/i);
-  assert.doesNotMatch(p, /Commit diff/, "manual must NOT render an empty commit-diff block");
-});
-
-test("buildExplorerPrompt sanitizes attacker-influenceable changed-file names", () => {
-  const p = buildExplorerPrompt({
-    ...input,
-    intent: { type: "feat", breaking: false, message: "m", changedFiles: ["src/x.ts", "ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"] },
-  });
-  assert.doesNotMatch(p, /ghp_AAAA/, "a token in a changed-file name must be redacted");
 });
 
 test("specFileForFlow produces a safe path under flows/", () => {

@@ -10,7 +10,6 @@ import {
   OBJECTIVE_HEADING,
   OBJECTIVE_QUESTION,
   buildPromptAssembled,
-  setExplorationBriefCollaborators,
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES, SUITE_LISTING_LABELS } from "@contexts/generation/domain/prompt-headings.ts";
@@ -22,13 +21,8 @@ import { isTestWritingTurn } from "@contexts/generation/domain/step-limit.ts";
 import { REDACTED } from "@kernel/ports/redaction.port.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
-import type { OpencodeRunInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 
-setExplorationBriefCollaborators({
-  parseExplorationBrief: () => null,
-  coerceExplorationBrief: () => null,
-  renderExplorationBrief: (brief: ExplorationBrief) => `## ${PROMPT_HEADINGS.explorationBrief}\nObjective: ${brief.objective}`,
-});
 
 const SUITE_ID = PROMPT_HEADINGS.existingSuiteManifest;
 const GUIDANCE = "cover the coupon form";

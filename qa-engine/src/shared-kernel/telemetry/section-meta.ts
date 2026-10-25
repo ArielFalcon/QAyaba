@@ -31,7 +31,6 @@ export interface SectionMeta {
 /* The grounding source a prompt section supplies, for the delivered span. A section id not here supplies none. */
 export const SECTION_SOURCE = {
   "arch-map": "context-map",
-  "context-brief": "explorer-brief",
   "context-pack": "context-pack",
   "service-links": "service-links",
   "static-signal": "structural-signal",

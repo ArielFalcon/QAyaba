@@ -5,7 +5,7 @@ import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 
 const pack = [
   `## ${PACK_HEADINGS.pack}`,
-  `### ${PACK_HEADINGS.blastRadius}`,
+  `### ${PACK_HEADINGS.changedValues}`,
   "- src/app/cart.ts",
   `### ${PACK_HEADINGS.liveDom} (a11y tree — GROUND TRUTH for selectors)`,
   "These roles + accessible names are what the browser ACTUALLY exposes.",
@@ -25,7 +25,7 @@ test("a flow is given the Live DOM of the pages it visits, by address or by the 
   assert.ok(slice.includes("button \"Checkout\""));
   assert.ok(slice.includes("heading \"Shops in Centro\""));
   assert.ok(!slice.includes("/account"));
-  assert.ok(!slice.includes(PACK_HEADINGS.blastRadius));
+  assert.ok(!slice.includes(PACK_HEADINGS.changedValues));
   assert.ok(!slice.includes("getCart"));
 });
 
@@ -33,7 +33,7 @@ test("a trailing slash does not hide a page, and a flow whose pages the pack did
   assert.ok(packPagesFor(pack, ["/cart/"])?.includes("Checkout"));
   assert.equal(packPagesFor(pack, ["/nowhere"]), undefined);
   assert.equal(packPagesFor(undefined, ["/cart"]), undefined);
-  assert.equal(packPagesFor(`### ${PACK_HEADINGS.blastRadius}\n- x`, ["/cart"]), undefined);
+  assert.equal(packPagesFor(`### ${PACK_HEADINGS.changedValues}\n- x`, ["/cart"]), undefined);
 });
 
 test("the slice stops at whole pages within its bound and says how many it left out", () => {

@@ -154,7 +154,7 @@ test("effectiveConfig records the levers, switches and grounding the run started
   const id = enqueueTrackedRun(
     queue,
     request(app, { closedLoop: true, agentBrowser: false }),
-    deps(h, { run: async (i) => outcomeOf(i) }, {}, cfg(app, { explorer: true, changeCoverage: { mode: "enforce", minRatio: 0.8 }, structuralSignals: { mode: "signal" } })),
+    deps(h, { run: async (i) => outcomeOf(i) }, {}, cfg(app, { changeCoverage: { mode: "enforce", minRatio: 0.8 }, structuralSignals: { mode: "signal" } })),
   );
   await queue.drain();
   const detail = buildRunViewExtras(id, defaultRunViewDeps(() => true, {}))!.effectiveConfig;
@@ -164,7 +164,7 @@ test("effectiveConfig records the levers, switches and grounding the run started
     runtime: "opencode",
     agents: {},
     prompt: { staticHash: "sha256:feed" },
-    grounding: { explorer: false, stitcher: null, structuralSignal: "signal", curriculum: "frozen", domPack: true },
+    grounding: { stitcher: null, structuralSignal: "signal", curriculum: "frozen", domPack: true },
     coverage: { mode: "enforce", minRatio: 0.8 },
     reflector: false,
   });

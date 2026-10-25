@@ -1,4 +1,3 @@
-import { EXPLORER_AGENT_NAME } from "@contexts/generation/domain/explorer-agent";
 import type { AgentDeps, AgentSession, AgentOpenDescriptor, AgentTurnEvent } from "../integrations/opencode-client";
 import type { LiveActivity } from "../integrations/opencode-client";
 import type { UsageSnapshot } from "../qa/usage";
@@ -6,17 +5,17 @@ import type { RunEventBody } from "../contract/events";
 
 export type AgentProvider = "opencode" | "codex";
 export type AgentMode = "single" | "dual";
-export type AgentRole = "primary" | "reviewer" | "chat" | "sidekick" | "maintainer" | "reflector" | "explorer" | "proposer";
+export type AgentRole = "primary" | "reviewer" | "chat" | "sidekick" | "maintainer" | "reflector" | "proposer";
 
 /*
  * What a role is allowed to do, independent of provider. Trust capability, not prompt behavior.
- * Reviewer, chat, reflector, explorer, and proposer never mutate the workspace.
+ * Reviewer, chat, reflector, and proposer never mutate the workspace.
  */
 export interface RoleCapabilities {
   canWrite: boolean;
 }
 
-const READ_ONLY_ROLES: ReadonlySet<AgentRole> = new Set<AgentRole>(["reviewer", "chat", "reflector", "explorer", "proposer"]);
+const READ_ONLY_ROLES: ReadonlySet<AgentRole> = new Set<AgentRole>(["reviewer", "chat", "reflector", "proposer"]);
 
 export function capabilitiesForRole(role: AgentRole): RoleCapabilities {
   return { canWrite: !READ_ONLY_ROLES.has(role) };
@@ -125,7 +124,6 @@ export const AGENT_NAME_FOR_ROLE: Readonly<Record<AgentRole, string>> = {
   sidekick: "qa-sidekick",
   maintainer: "qa-maintainer",
   reflector: "qa-reflector",
-  explorer: EXPLORER_AGENT_NAME,
   proposer: "qa-proposer",
 };
 

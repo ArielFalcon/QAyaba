@@ -5,7 +5,6 @@ import {
   EFFORT_BY_TIER,
   EFFORT_NO_OP_CLAUSE,
   buildPromptAssembled,
-  setExplorationBriefCollaborators,
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
@@ -22,13 +21,8 @@ import {
   type PromptClaim,
 } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { hasSymbolBlocks, renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts";
-import type { OpencodeRunInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 
-setExplorationBriefCollaborators({
-  parseExplorationBrief: () => null,
-  coerceExplorationBrief: () => null,
-  renderExplorationBrief: (brief: ExplorationBrief) => `## ${PROMPT_HEADINGS.explorationBrief}\nObjective: ${brief.objective}`,
-});
 
 /* A tiny diff: one file, one line. */
 function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
@@ -63,11 +57,6 @@ function signalOf(shape: typeof SYMBOLS | typeof CO_CHANGE): Partial<OpencodeRun
 }
 
 const FIX = { fixCases: [{ name: "cart total", status: "fail" as const, detail: "boom" }] };
-const BRIEF: ExplorationBrief = {
-  builtForSha: "abc1234",
-  objective: "the total shows",
-  blastRadius: [{ symbol: "CartService.total", file: "src/app/cart/cart.service.ts", role: "computes the total" }],
-};
 
 const claimsOf = (a: AssembledPrompt): PromptClaim[] => Object.values(a.claims).flat();
 
@@ -119,10 +108,8 @@ test("a structural signal with symbol blocks stands for the blast radius on a fi
   assert.deepEqual(findingsOf(a, false), []);
 });
 
-test("the same prompt without a signal, or with a brief that distilled no blast radius, still sends the agent to look the blast radius up", () => {
+test("the same prompt without a signal still sends the agent to look the blast radius up", () => {
   assert.equal(sendsToLookUpBlastRadius(buildPromptAssembled(mkInput())), true, "nothing supplied");
-  assert.equal(sendsToLookUpBlastRadius(buildPromptAssembled(mkInput({ contextBrief: { ...BRIEF, blastRadius: [] } }))), true, "an empty brief supplies none");
-  assert.equal(sendsToLookUpBlastRadius(buildPromptAssembled(mkInput({ contextBrief: BRIEF }))), false, "a brief with one supplies it");
 });
 
 test("the lookup leaves the task's text as well as its claims: only a prompt that carries an explored blast radius has the shorter task", () => {
@@ -131,8 +118,6 @@ test("the lookup leaves the task's text as well as its claims: only a prompt tha
   assert.ok(nothing > 0, "setup: the task is assembled");
   assert.equal(taskSize(signalOf(CO_CHANGE)), nothing, "co-change files change nothing in the task: the lookup stays");
   assert.ok(taskSize(signalOf(SYMBOLS)) < nothing, "a signal that names symbols drops the lookup from the text");
-  assert.equal(taskSize(signalOf(SYMBOLS)), taskSize({ contextBrief: BRIEF }), "a brief with a blast radius drops exactly the same text");
-  assert.equal(taskSize({ contextBrief: { ...BRIEF, blastRadius: [] } }), nothing, "a brief with none drops nothing");
 });
 
 test("a structural signal with symbol blocks lets a regeneration say the blast radius was explored, and the signal is what backs the statement", () => {
@@ -191,15 +176,6 @@ test("a flag with no signal behind it changes nothing: the prompt is the one wit
   const flagged = buildPromptAssembled(mkInput({ staticSignalHasSymbols: true }));
   assert.equal(flagged.text, bare.text);
   assert.equal(sendsToLookUpBlastRadius(flagged), true);
-});
-
-test("a brief that carries a blast radius still owns it: the signal is not rendered, and a regeneration is grounded by the brief alone", () => {
-  const first = buildPromptAssembled(mkInput({ contextBrief: BRIEF, ...signalOf(SYMBOLS) }));
-  assert.equal(first.sectionSizes["static-signal"], undefined);
-  assert.deepEqual(providersOf(first, "structural-signal"), []);
-  const regen = buildPromptAssembled(mkInput({ contextBrief: BRIEF, ...FIX, ...signalOf(SYMBOLS) }));
-  assert.equal(claimsExploredBlastRadius(regen), true);
-  assert.deepEqual(findingsOf(regen, true), []);
 });
 
 test("with nothing supplied the lookup and the navigation directives are both present on a diff first pass", () => {

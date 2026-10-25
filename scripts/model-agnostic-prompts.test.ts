@@ -1,4 +1,4 @@
-/* The model-agnostic prompt guard: no prompt names a model. A limit, a tier or a budget comes from the runtime or from a named constant, never from which model runs, so a text that names a model id or a family is a defect wherever it stands. The guard scans the static role and shared layers of both mirrors, the skills and every prompt the harness sends to an agent (generator, context task, explorer, reviewer, verdict repair, sidekick, maintainer, assistant, reflector, proposer), in three layers:
+/* The model-agnostic prompt guard: no prompt names a model. A limit, a tier or a budget comes from the runtime or from a named constant, never from which model runs, so a text that names a model id or a family is a defect wherever it stands. The guard scans the static role and shared layers of both mirrors, the skills and every prompt the harness sends to an agent (generator, context task, reviewer, verdict repair, sidekick, maintainer, assistant, reflector, proposer), in three layers:
    - derived: every id and label a declared model source holds (the runtime agent config and its fallbacks, each provider's role defaults, the cataloged windows, the proposer's pin), so a model configured later is caught with no edit here. An id is forbidden anywhere, its family only next to a version chunk;
    - fixed list: well-known vendor and family names, forbidden anywhere. The list only forbids: nothing selects a prompt, a limit or a rule by it;
    - headings: the parenthetical of a role's title holds no version-like token and no letter segment of a declared id.
@@ -13,11 +13,9 @@ import { fileURLToPath } from "node:url";
 import { CATALOGED_MODELS } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog.ts";
 import {
   buildContextTask,
-  buildExplorerPrompt,
   buildPromptAssembled,
   buildReviewerPromptAssembled,
   renderExecutionResult,
-  setExplorationBriefCollaborators,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import type { ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
 import { createDelegationBrief } from "@contexts/qa-run-orchestration/application/coordination/delegation-brief.ts";
@@ -25,7 +23,6 @@ import { SidekickExecutor } from "@contexts/qa-run-orchestration/application/coo
 import { ReflectorPortAdapter } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter.ts";
 import type { ReflectionInput } from "@contexts/cross-run-learning/application/ports/index.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
-import { coerceExplorationBrief, parseExplorationBrief, renderExplorationBrief } from "../src/qa/exploration-brief.ts";
 import { singleProviderConfig } from "../src/agent-runtime/config.ts";
 import { CODEX_MODELS, codexPreambleParts } from "../src/agent-runtime/codex-strategy.ts";
 import { OpenCodeRuntimeStrategy } from "../src/agent-runtime/opencode-strategy.ts";
@@ -337,7 +334,7 @@ test("a listed vendor is caught wherever it stands, as a whole word only", async
 
 test("a role title may carry acronyms and plain words in parentheses, never a version-like token or a segment of a declared id", async () => {
   const terms = await repoTerms();
-  for (const title of ["# Login helper (OAuth2)", "# Assistant (lite model)", "# Explorer", "# Reviewer (E2E, read-only)"]) {
+  for (const title of ["# Login helper (OAuth2)", "# Assistant (lite model)", "# Reviewer (E2E, read-only)"]) {
     assert.deepEqual(titleFindings("t.md", `${title}\n\nBody.`, terms), [], title);
   }
   assert.deepEqual(titleFindings("t.md", "# Writer (Alpha V4)\n", terms), [{ source: "t.md", layer: "heading", token: "V4" }]);
@@ -427,8 +424,6 @@ function withReviewMirror<T>(subject: string, run: (review: (over?: Partial<Revi
   }
 }
 
-const wireBriefRenderer = (): void => setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
-
 const repoOf = (subject: string): string => `org/${subject}-app`;
 
 /* The limits a runtime may report for a role: none, or one. The prompts of the roles that state a limit are built both ways. */
@@ -436,24 +431,11 @@ const STEP_LIMITS: ReadonlyArray<number | undefined> = [undefined, MATRIX_STEP_L
 const limitSuffix = (limit: number | undefined): string => (limit === undefined ? "" : " with a step limit");
 
 async function generatorPrompts(subject: string): Promise<PromptText[]> {
-  wireBriefRenderer();
   return Promise.all(
     coveringSpecs(validSpecs()).flatMap((spec) =>
       STEP_LIMITS.map(async (limit) => ({
         source: `generator prompt ${cellName(spec)}${limitSuffix(limit)}`,
         text: buildPromptAssembled({ ...(await buildInput(spec, limit)), repo: repoOf(subject) }, { budgetBytes: 0 }).text,
-      })),
-    ),
-  );
-}
-
-async function explorerPrompts(subject: string): Promise<PromptText[]> {
-  wireBriefRenderer();
-  return Promise.all(
-    coveringSpecs(validSpecs()).flatMap((spec) =>
-      STEP_LIMITS.map(async (limit) => ({
-        source: `explorer prompt ${cellName(spec)}${limitSuffix(limit)}`,
-        text: buildExplorerPrompt({ ...(await buildInput(spec, limit)), repo: repoOf(subject) }),
       })),
     ),
   );
@@ -659,7 +641,6 @@ async function proposerPrompts(subject: string): Promise<PromptText[]> {
 const PROMPT_KINDS: readonly PromptKind[] = [
   { kind: "generator", roles: ["primary"], prompts: generatorPrompts },
   { kind: "context task", roles: ["primary"], prompts: contextPrompts },
-  { kind: "explorer", roles: ["explorer"], prompts: explorerPrompts },
   { kind: "reviewer", roles: ["reviewer"], prompts: reviewerPrompts },
   { kind: "verdict repair", roles: ["primary", "reviewer"], prompts: repairPrompts },
   { kind: "sidekick", roles: ["sidekick"], prompts: sidekickPrompts },
@@ -685,11 +666,11 @@ test("the prompts the harness sends to an agent, of every kind, name no model", 
   }
 });
 
-/* Only a prompt for a role whose runtime enforces a step limit states one, so the generator, the explorer and the reviewer are scanned with a limit as well as without; every other kind states none. */
+/* Only a prompt for a role whose runtime enforces a step limit states one, so the generator and the reviewer are scanned with a limit as well as without; every other kind states none. */
 const STATES_A_STEP_LIMIT = (text: string): boolean => text.includes(`## ${PROMPT_HEADINGS.stepLimit}`);
-const LIMIT_STATING_KINDS: readonly string[] = ["generator", "explorer", "reviewer"];
+const LIMIT_STATING_KINDS: readonly string[] = ["generator", "reviewer"];
 
-test("the generator, explorer and reviewer prompts are scanned with the step limit they state as well as without it, and no other kind of prompt states one", async () => {
+test("the generator and reviewer prompts are scanned with the step limit they state as well as without it, and no other kind of prompt states one", async () => {
   for (const { kind, prompts } of PROMPT_KINDS) {
     const found = await prompts("shop");
     const stating = found.filter((p) => STATES_A_STEP_LIMIT(p.text));

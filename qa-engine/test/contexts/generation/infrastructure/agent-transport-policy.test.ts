@@ -348,7 +348,7 @@ test("withSessionRegistration does NOT register when descriptor.runId is absent 
 });
 
 test("withSessionRegistration does NOT register or unregister a session whose descriptor sets liveObservation false, even with a runId", async () => {
-  const { deps: base } = fakeBaseDeps("sess-explorer");
+  const { deps: base } = fakeBaseDeps("sess-quiet");
   const registered: string[] = [];
   const unregistered: string[] = [];
   const wrapped = withSessionRegistration(base, {
@@ -356,8 +356,8 @@ test("withSessionRegistration does NOT register or unregister a session whose de
     unregister: (sessionId) => unregistered.push(sessionId),
   });
 
-  const session = await wrapped.open("qa-explorer", "/mirrors/org/app", {
-    descriptor: { runId: "run-42", role: "qa-explorer", liveObservation: false },
+  const session = await wrapped.open("qa-judge", "/mirrors/org/app", {
+    descriptor: { runId: "run-42", role: "qa-judge", liveObservation: false },
   });
   await session.dispose();
 
@@ -930,10 +930,10 @@ test("createAgentDeps: the default turn sink calls collab.persistTurn when a run
   assert.equal(persisted[0]!.outputText, "persisted output");
 });
 
-test("an explorer-style session (runId, liveObservation false) persists its turn under the run without being registered for live observation", async () => {
+test("a session opened with a runId and liveObservation false persists its turn under the run without being registered for live observation", async () => {
   resetCircuit();
   const raw = makeRawTransport({
-    createSession: async () => ({ id: "sess-explorer" }),
+    createSession: async () => ({ id: "sess-quiet" }),
     promptSession: async () => ({ parts: [{ type: "text", text: "brief" }] }),
   });
   const persisted: AgentTurnEvent[] = [];
@@ -946,15 +946,15 @@ test("an explorer-style session (runId, liveObservation false) persists its turn
     }),
     { register: (sessionId) => registered.push(sessionId), unregister: () => {} },
   );
-  const session = await deps.open("qa-explorer", "/tmp", {
-    descriptor: { runId: "run-7", role: "qa-explorer", liveObservation: false },
+  const session = await deps.open("qa-judge", "/tmp", {
+    descriptor: { runId: "run-7", role: "qa-judge", liveObservation: false },
   });
   await session.prompt("map the change");
   await session.dispose();
 
   assert.equal(persisted.length, 1);
   assert.equal(persisted[0]!.runId, "run-7");
-  assert.equal(persisted[0]!.role, "qa-explorer");
+  assert.equal(persisted[0]!.role, "qa-judge");
   assert.deepEqual(registered, []);
 });
 
@@ -1718,45 +1718,7 @@ test("withSessionRegistration binds a session even when it opts out of live obse
   const { deps: base } = fakeBaseDeps("sess-x");
   const bound: string[] = [];
   const wrapped = withSessionRegistration(base, { register: () => {}, unregister: () => {}, bind: (s) => bound.push(s.sessionId), unbind: () => {} });
-  await wrapped.open("qa-explorer", "/m", { descriptor: { runId: "run-7", role: "qa-explorer", liveObservation: false } });
+  await wrapped.open("qa-judge", "/m", { descriptor: { runId: "run-7", role: "qa-judge", liveObservation: false } });
   await wrapped.open("qa-generator", "/m");
   assert.deepEqual(bound, ["sess-x"]);
-});
-
-/* --- withSessionRegistration: observing a session that is not registered --- */
-
-test("a session opened without live observation but flagged for unwatched observation is observed, not registered, and forgotten on dispose", async () => {
-  const { deps: base } = fakeBaseDeps("sess-ex");
-  const calls: string[] = [];
-  const wrapped = withSessionRegistration(base, {
-    register: (id) => calls.push(`register ${id}`),
-    unregister: (id) => calls.push(`unregister ${id}`),
-    observe: (id, cwd) => calls.push(`observe ${id} ${cwd}`),
-    unobserve: (id) => calls.push(`unobserve ${id}`),
-  });
-  const session = await wrapped.open("qa-explorer", "/m/app", { descriptor: { runId: "run-1", role: "qa-explorer", liveObservation: false, observeUnwatched: true } });
-  await session.dispose();
-  assert.deepEqual(calls, ["observe sess-ex /m/app", "unobserve sess-ex"]);
-});
-
-test("a session without the flag is neither observed nor registered when it opts out of live observation, and one that is registered is never also observed", async () => {
-  const { deps: base } = fakeBaseDeps("sess-2");
-  const calls: string[] = [];
-  const wrapped = withSessionRegistration(base, {
-    register: (id) => calls.push(`register ${id}`),
-    unregister: () => {},
-    observe: (id) => calls.push(`observe ${id}`),
-    unobserve: () => {},
-  });
-  await (await wrapped.open("qa-explorer", "/m/app", { descriptor: { runId: "run-1", liveObservation: false } })).dispose();
-  await (await wrapped.open("qa-generator", "/m/app", { descriptor: { runId: "run-1", observeUnwatched: true } })).dispose();
-  assert.deepEqual(calls, ["register sess-2"]);
-});
-
-test("a host that cannot observe unwatched sessions leaves the opted-out session exactly as it was", async () => {
-  const { deps: base } = fakeBaseDeps("sess-3");
-  const calls: string[] = [];
-  const wrapped = withSessionRegistration(base, { register: (id) => calls.push(`register ${id}`), unregister: () => {} });
-  await (await wrapped.open("qa-explorer", "/m/app", { descriptor: { runId: "run-1", liveObservation: false, observeUnwatched: true } })).dispose();
-  assert.deepEqual(calls, []);
 });

@@ -180,10 +180,6 @@ test("the orchestrator is pointed at the trusted receiver and the agents' export
   assert.equal(svc("agents").environment?.OTEL_EXPORTER_OTLP_ENDPOINT, "http://collector-agents:4319");
 });
 
-test("the stack that records telemetry also has the orchestrator observe the explorer's calls, which plain compose leaves off", () => {
-  assert.equal(svc("orchestrator").environment?.QA_TELEMETRY_OBSERVE_UNWATCHED, "true");
-});
-
 test("each collector config is mounted read-only", () => {
   assert.ok((svc("collector").volumes ?? []).includes("./config/otel/collector.yaml:/etc/otelcol/collector.yaml:ro"));
   assert.ok((svc("collector-agents").volumes ?? []).includes("./config/otel/collector-agents.yaml:/etc/otelcol/collector-agents.yaml:ro"));

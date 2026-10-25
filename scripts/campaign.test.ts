@@ -31,7 +31,7 @@ function report(arm: "pipeline" | "baseline", verdict: RunVerdict, over: Partial
   return {
     schema: 1, arm, id: "r", app: "demo", sha: SHA, mode: "diff", at: null, verdict, errorClass: null, note: null, finished: true, totalMs: 600_000,
     phases: { gate: null, classify: null, setup: null, grounding: null, generation: 300_000, validate: null, health: null, execute: null, coverage: 60_000, retry: null, decide: null },
-    nested: { explorerMs: null, domCaptureMs: null, reviewMs: null },
+    nested: { domCaptureMs: null, reviewMs: null },
     turns: [{ stepsUsed: 12 } as ProbeReport["turns"][number], { stepsUsed: 8 } as ProbeReport["turns"][number]],
     totals: { calls: 10, costUsd: 0.25, inputTokens: 1, outputTokens: 1, cacheReadTokens: 1, agentMs: 1, turnsWithPartialUsage: 0 },
     specs: [], execution: null, coverage: null, reviewer: null, ...over,
