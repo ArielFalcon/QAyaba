@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SqliteRunHistoryAdapter, toLegacyRunOutcome } from "./run-history-sqlite-adapter";
+import { SqliteRunHistoryAdapter, toStoredRunOutcome } from "./run-history-sqlite-adapter";
 import type { RunOutcome as KernelRunOutcome } from "@kernel/run-outcome.ts";
-import type { RunOutcome as LegacyRunOutcome } from "../types";
+import type { RunOutcome as StoredRunOutcome } from "../types";
 
 function kernelOutcome(overrides: Partial<KernelRunOutcome> = {}): KernelRunOutcome {
   return {
@@ -31,7 +31,7 @@ function kernelOutcome(overrides: Partial<KernelRunOutcome> = {}): KernelRunOutc
    module-singleton SQLite DB (dependency injection is the testing strategy, CLAUDE.md).
  */
 test("SqliteRunHistoryAdapter.save() delegates to the injected saveOutcome, mapping the kernel RunOutcome to legacy's shape", async () => {
-  let captured: LegacyRunOutcome | undefined;
+  let captured: StoredRunOutcome | undefined;
   const adapter = new SqliteRunHistoryAdapter({ saveOutcome: (o) => { captured = o; } });
 
   await adapter.save(kernelOutcome());
@@ -55,15 +55,15 @@ test("SqliteRunHistoryAdapter uses the real saveRunOutcome by default (no explic
   assert.ok(adapter, "constructs without touching the DB (lazy init, per history.ts's own doc)");
 });
 
-/* ── toLegacyRunOutcome — the field mapping itself ────────────────────────────────────────────── */
+/* ── toStoredRunOutcome — the field mapping itself ────────────────────────────────────────────── */
 
-test("toLegacyRunOutcome carries errorClass through as-is (a genuine taxonomy member, per the kernel's own producer contract)", () => {
-  const out = toLegacyRunOutcome(kernelOutcome({ errorClass: "E-EXEC-FAIL" }));
+test("toStoredRunOutcome carries errorClass through as-is (a genuine taxonomy member, per the kernel's own producer contract)", () => {
+  const out = toStoredRunOutcome(kernelOutcome({ errorClass: "E-EXEC-FAIL" }));
   assert.equal(out.errorClass, "E-EXEC-FAIL");
 });
 
-test("toLegacyRunOutcome omits optional gateSignals fields that are absent on the kernel outcome (never fabricates)", () => {
-  const out = toLegacyRunOutcome(kernelOutcome());
+test("toStoredRunOutcome omits optional gateSignals fields that are absent on the kernel outcome (never fabricates)", () => {
+  const out = toStoredRunOutcome(kernelOutcome());
   assert.equal("reviewerRationale" in out.gateSignals, false);
   assert.equal("reviewerApproved" in out.gateSignals, false);
   assert.equal("confinement" in out.gateSignals, false);
@@ -75,8 +75,8 @@ test("toLegacyRunOutcome omits optional gateSignals fields that are absent on th
   assert.equal("reflection" in out, false);
 });
 
-test("toLegacyRunOutcome forwards every present optional gateSignals field faithfully", () => {
-  const out = toLegacyRunOutcome(
+test("toStoredRunOutcome forwards every present optional gateSignals field faithfully", () => {
+  const out = toStoredRunOutcome(
     kernelOutcome({
       gateSignals: {
         static: true,
@@ -107,21 +107,21 @@ test("toLegacyRunOutcome forwards every present optional gateSignals field faith
   assert.equal(out.gateSignals.catalogGateFailClosed, 0);
 });
 
-/* serviceLinksCount/contractDriftCount round-trip through toLegacyRunOutcome's conditional-spread
+/* serviceLinksCount/contractDriftCount round-trip through toStoredRunOutcome's conditional-spread
    pattern — undefined MUST stay undefined (never a fabricated 0), matching the catalogGate*
    precedent's persistence-mapping half exactly (this design deliberately diverges only at the
    CONSTRUCTION site, not here). ────────────────────────────────────────────────────────────────
  */
 
-test("toLegacyRunOutcome omits structuralSignalBytes/serviceLinksCount/contractDriftCount when absent on the kernel outcome (never fabricates a 0)", () => {
-  const out = toLegacyRunOutcome(kernelOutcome());
+test("toStoredRunOutcome omits structuralSignalBytes/serviceLinksCount/contractDriftCount when absent on the kernel outcome (never fabricates a 0)", () => {
+  const out = toStoredRunOutcome(kernelOutcome());
   assert.equal("structuralSignalBytes" in out.gateSignals, false);
   assert.equal("serviceLinksCount" in out.gateSignals, false);
   assert.equal("contractDriftCount" in out.gateSignals, false);
 });
 
-test("toLegacyRunOutcome forwards structuralSignalBytes/serviceLinksCount/contractDriftCount faithfully when present, including a genuine 0 (ran, found none)", () => {
-  const out = toLegacyRunOutcome(
+test("toStoredRunOutcome forwards structuralSignalBytes/serviceLinksCount/contractDriftCount faithfully when present, including a genuine 0 (ran, found none)", () => {
+  const out = toStoredRunOutcome(
     kernelOutcome({
       gateSignals: {
         static: true,
@@ -144,14 +144,14 @@ test("toLegacyRunOutcome forwards structuralSignalBytes/serviceLinksCount/contra
 /* mutantCount/killedCount round-trip the same conditional-spread way as the sibling optional
    counts above — absent stays absent (never a fabricated 0), a genuine measured value round-trips. */
 
-test("toLegacyRunOutcome omits mutantCount/killedCount when absent on the kernel outcome (never fabricates a 0)", () => {
-  const out = toLegacyRunOutcome(kernelOutcome());
+test("toStoredRunOutcome omits mutantCount/killedCount when absent on the kernel outcome (never fabricates a 0)", () => {
+  const out = toStoredRunOutcome(kernelOutcome());
   assert.equal("mutantCount" in out.gateSignals, false);
   assert.equal("killedCount" in out.gateSignals, false);
 });
 
-test("toLegacyRunOutcome forwards mutantCount/killedCount faithfully when present, including a genuine 0", () => {
-  const out = toLegacyRunOutcome(
+test("toStoredRunOutcome forwards mutantCount/killedCount faithfully when present, including a genuine 0", () => {
+  const out = toStoredRunOutcome(
     kernelOutcome({
       gateSignals: {
         static: true,
@@ -169,8 +169,8 @@ test("toLegacyRunOutcome forwards mutantCount/killedCount faithfully when presen
   assert.equal(out.gateSignals.killedCount, 0, "a genuine 0 (measured, none killed) must round-trip as 0, not be dropped or coerced to undefined");
 });
 
-test("toLegacyRunOutcome forwards rulesRetrieved and reflection when present", () => {
-  const out = toLegacyRunOutcome(
+test("toStoredRunOutcome forwards rulesRetrieved and reflection when present", () => {
+  const out = toStoredRunOutcome(
     kernelOutcome({
       rulesRetrieved: ["selector absent", "use role+name"],
       reflection: {

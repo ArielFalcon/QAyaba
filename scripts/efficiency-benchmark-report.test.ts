@@ -209,10 +209,10 @@ test("a step limit that is not a positive whole number is no limit: the ratio is
 });
 
 test("a snapshot taken before steps were recorded reads them as unknown, never as undefined or zero", () => {
-  const legacyTurn: Partial<TurnMeasurement> = turn();
-  delete legacyTurn.stepsUsed;
-  delete legacyTurn.maxSteps;
-  const text = renderReport(compareSnapshots(snapshot("a", { c: withTurns(legacyTurn as TurnMeasurement) }), snapshot("b", { c: measurement() })));
+  const turnWithoutStepCounts: Partial<TurnMeasurement> = turn();
+  delete turnWithoutStepCounts.stepsUsed;
+  delete turnWithoutStepCounts.maxSteps;
+  const text = renderReport(compareSnapshots(snapshot("a", { c: withTurns(turnWithoutStepCounts as TurnMeasurement) }), snapshot("b", { c: measurement() })));
   assert.match(turnLines(text)[0] ?? "", /steps used n\/a · max steps n\/a · step use n\/a/);
   assert.doesNotMatch(text, /undefined/);
 });

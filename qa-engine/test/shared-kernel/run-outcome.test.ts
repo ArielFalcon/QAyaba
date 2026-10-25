@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { RunOutcome as KernelRunOutcome } from "@kernel/run-outcome.ts";
-import type { RunOutcome as LegacyRunOutcome } from "../../../src/types.ts";
+import type { RunOutcome as StoredRunOutcome } from "../../../src/types.ts";
 import { runOutcomeEquivalent, type ComparableOutcome } from "../characterization/equivalence.ts";
 
 /* Structural-compatibility pin (shell RunOutcome → kernel only): a shell RunOutcome must be
@@ -19,8 +19,8 @@ test("kernel RunOutcome is structurally assignable FROM legacy RunOutcome (legac
     gateSignals: { static: true, coverageRatio: 0.8, valueScore: null, reviewerCorrections: [], reviewerApproved: true, flaky: false, retries: 0 },
     rulesRetrieved: [], at: "2026-06-24T00:00:00.000Z",
   };
-  const asLegacy: LegacyRunOutcome = kernel as unknown as LegacyRunOutcome; /* narrowing (shell is a subtype of kernel) */
-  const asKernel: KernelRunOutcome = asLegacy; /* shell → kernel: shell is a structural subtype, always assignable */
+  const asStored: StoredRunOutcome = kernel as unknown as StoredRunOutcome; /* narrowing (shell is a subtype of kernel) */
+  const asKernel: KernelRunOutcome = asStored; /* shell → kernel: shell is a structural subtype, always assignable */
   assert.equal(asKernel.verdict, "pass");
 
   const comparable: ComparableOutcome = { ...kernel };

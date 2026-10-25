@@ -30,7 +30,7 @@ function suitePath(reported: string, suite: () => readonly string[]): string {
   return named.length === 1 ? named[0]! : reported;
 }
 
-interface LegacyVerdict {
+interface ParsedVerdict {
   approved?: boolean;
   parsed: boolean;
   specs?: string[];
@@ -48,7 +48,7 @@ interface LegacyVerdict {
   /* specMetas drives the deterministic disk-reconciled manifest upsert; parsed (above) is the #1 fail-closed invariant. Both REQUIRED here so parseGenerator can forward them — dropping them would make the use-case misclassify a parse miss and lose the manifest-upsert signal. */
   specMetas?: SpecMeta[];
 }
-interface LegacyReviewer {
+interface ParsedReviewerVerdict {
   approved: boolean;
   corrections: string[];
   rationale?: string;
@@ -63,8 +63,8 @@ interface LegacyReviewer {
 }
 
 export interface VerdictParsers {
-  parseVerdict(text: string): LegacyVerdict;
-  parseReviewerVerdict(text: string): LegacyReviewer;
+  parseVerdict(text: string): ParsedVerdict;
+  parseReviewerVerdict(text: string): ParsedReviewerVerdict;
 }
 
 export class VerdictParserAdapter implements VerdictParserPort {

@@ -135,7 +135,7 @@ const ROLE_FOR_AGENT_NAME: ReadonlyMap<string, AgentRole> = new Map(
 );
 
 /* An agent name no role maps to is a wiring error; running it under another role would hand it that role's tools and prompt. */
-export function roleForLegacyAgent(agent: string): AgentRole {
+export function roleForAgentName(agent: string): AgentRole {
   const role = ROLE_FOR_AGENT_NAME.get(agent);
   if (role === undefined) {
     throw new Error(`Unknown agent "${agent}": no role maps to it (known agents: ${[...ROLE_FOR_AGENT_NAME.keys()].join(", ")})`);

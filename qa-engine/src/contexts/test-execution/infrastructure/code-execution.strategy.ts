@@ -1,6 +1,6 @@
 import type { ExecutionStrategyPort, ExecutionRequest, ExecutionResult } from "../application/ports/index.ts";
 
-interface LegacyCodeResult {
+interface CodeExecutionResult {
   verdict: string;
   cases: { name: string; status: string; detail?: string }[];
   logs: string;
@@ -14,7 +14,7 @@ type RunCodeFn = (
     timeoutMs?: number;
     changedFiles?: string[];
   },
-) => Promise<LegacyCodeResult>;
+) => Promise<CodeExecutionResult>;
 
 export class CodeExecutionStrategy implements ExecutionStrategyPort {
   constructor(private readonly runCode: RunCodeFn) {}

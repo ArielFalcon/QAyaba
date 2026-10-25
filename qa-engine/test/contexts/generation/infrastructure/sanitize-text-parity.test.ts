@@ -10,8 +10,8 @@ import {
 } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import {
   sanitizeText as legacy,
-  containsSecrets as legacyContainsSecrets,
-  assertNoSecretLeak as legacyAssertNoSecretLeak,
+  containsSecrets as referenceContainsSecrets,
+  assertNoSecretLeak as referenceAssertNoSecretLeak,
 } from "../../../../../src/orchestrator/sanitizer.ts";
 
 test("PARITY: redacts a mixed secret + PII + private-IP line identically", () => {
@@ -75,32 +75,32 @@ test("PARITY: issue mode (default) unchanged, identically in both twins", () => 
 
 test("PARITY: containsSecrets detects a real secret identically in both twins", () => {
   const input = "token: ghs_supersecretvalue123456789012345678";
-  assert.equal(portedContainsSecrets(input), legacyContainsSecrets(input));
+  assert.equal(portedContainsSecrets(input), referenceContainsSecrets(input));
   assert.equal(portedContainsSecrets(input), true);
 });
 
 test("PARITY: containsSecrets returns false for clean text identically in both twins", () => {
   const input = "fetch('https://api.example.com/v1/users?page=2')";
-  assert.equal(portedContainsSecrets(input), legacyContainsSecrets(input));
+  assert.equal(portedContainsSecrets(input), referenceContainsSecrets(input));
   assert.equal(portedContainsSecrets(input), false);
 });
 
 test("PARITY: containsSecrets model mode does NOT flag a type annotation, identically in both twins", () => {
   const input = "password: string;";
-  assert.equal(portedContainsSecrets(input, "model"), legacyContainsSecrets(input, "model"));
+  assert.equal(portedContainsSecrets(input, "model"), referenceContainsSecrets(input, "model"));
   assert.equal(portedContainsSecrets(input, "model"), false);
 });
 
 test("PARITY: assertNoSecretLeak throws SecretLeakError when a secret survives redaction, identically in both twins", () => {
   const leaked = "token: ghs_supersecretvalue123456789012345678";
   assert.throws(() => portedAssertNoSecretLeak(leaked, "issue", "diff→model"), /a secret survived redaction/);
-  assert.throws(() => legacyAssertNoSecretLeak(leaked, "issue", "diff→model"), /a secret survived redaction/);
+  assert.throws(() => referenceAssertNoSecretLeak(leaked, "issue", "diff→model"), /a secret survived redaction/);
 });
 
 test("PARITY: assertNoSecretLeak does not throw on clean redacted text, identically in both twins", () => {
   const clean = "no secrets here";
   assert.doesNotThrow(() => portedAssertNoSecretLeak(clean, "issue", "diff→model"));
-  assert.doesNotThrow(() => legacyAssertNoSecretLeak(clean, "issue", "diff→model"));
+  assert.doesNotThrow(() => referenceAssertNoSecretLeak(clean, "issue", "diff→model"));
 });
 
 /* Quote-aware value capture must not leak a secret's tail when the value contains an embedded

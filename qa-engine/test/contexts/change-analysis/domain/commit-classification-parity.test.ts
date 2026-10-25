@@ -52,7 +52,7 @@ test("an .astro template diff with added logic escalates a style commit to gener
 });
 
 test("a skip-typed commit that only removes logic escalates to regression and names how many lines it removed", () => {
-  const d = ["diff --git a/src/svc.ts b/src/svc.ts", "--- a/src/svc.ts", "+++ b/src/svc.ts", "@@ -1,2 +1,1 @@", " export class S {", "-if (legacyFlag) doOldThing();", " }"].join("\n");
+  const d = ["diff --git a/src/svc.ts b/src/svc.ts", "--- a/src/svc.ts", "+++ b/src/svc.ts", "@@ -1,2 +1,1 @@", " export class S {", "-if (featureFlag) doOldThing();", " }"].join("\n");
   const { hasLogicChange, contradiction, action, reason } = classifyCommit("chore: cleanup dead code", d);
   assert.deepEqual({ hasLogicChange, contradiction, action }, { hasLogicChange: false, contradiction: true, action: "regression" });
   assert.match(reason, /\b1 line/);

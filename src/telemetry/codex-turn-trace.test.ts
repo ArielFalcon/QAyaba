@@ -6,7 +6,7 @@ import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
 import { AgentTimeoutError, AgentUnavailableError } from "../errors";
 import { classifyCodexFault, codexErrorToInfra, CodexRuntimeStrategy, type CodexHeadlessTransport, type CodexTransportPromptOpts } from "../agent-runtime/codex-strategy";
 import { resetCodexCircuit } from "../integrations/codex-circuit-breaker";
-import { roleForLegacyAgent } from "../agent-runtime/types";
+import { roleForAgentName } from "../agent-runtime/types";
 import type { AgentDeps, AgentTurnEvent } from "../integrations/opencode-client";
 import { withTurnTelemetry } from "@contexts/generation/infrastructure/telemetry/with-turn-telemetry";
 import { AgentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
@@ -55,7 +55,7 @@ function rig(transportPrompt: (text: string, opts: CodexTransportPromptOpts | un
     outerLimit: (sessionId, prompt) => traces.firedBy(sessionId, prompt),
     attemptSpan: (sessionId) => traces.attemptSpan(sessionId),
   });
-  const base: AgentDeps = { open: async (agent, cwd, opts) => strategy.openSession(roleForLegacyAgent(agent), cwd, { ...opts, onTurn: (t) => events.push(t) }) };
+  const base: AgentDeps = { open: async (agent, cwd, opts) => strategy.openSession(roleForAgentName(agent), cwd, { ...opts, onTurn: (t) => events.push(t) }) };
   const deps = withTurnTelemetry(base, { telemetry: over.telemetry ?? h.telemetry, clock: h.clock, intent: INTENT, traces });
   return { deps, h, traces, events, sent };
 }

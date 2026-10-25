@@ -268,8 +268,8 @@ test("PARITY: unscopedMultipleContradictions matches legacy — no non-extractab
 test("DECLARED divergence: .first() suppresses a MULTIPLE the legacy still surfaces", () => {
   const specs = [`await page.getByRole("row").first().click();`];
   const trees = [["row: (present)", "row: (present)", "row: (present)"]];
-  const legacyResult = ["row: matches MULTIPLE nodes (strict-mode ambiguity — scope to a unique parent)"];
-  assert.ok(legacyResult.length > 0, "sanity: legacy still surfaces the MULTIPLE for a page-rooted role-only selector");
+  const referenceResult = ["row: matches MULTIPLE nodes (strict-mode ambiguity — scope to a unique parent)"];
+  assert.ok(referenceResult.length > 0, "sanity: legacy still surfaces the MULTIPLE for a page-rooted role-only selector");
   const rewritten = unscopedMultipleContradictions(specs, trees);
   assert.deepEqual(rewritten, [], ".first() disambiguates — no contradiction should surface");
 });
@@ -277,24 +277,24 @@ test("DECLARED divergence: .first() suppresses a MULTIPLE the legacy still surfa
 test("DECLARED divergence: .nth() suppresses a MULTIPLE the legacy still surfaces", () => {
   const specs = [`await page.getByRole("row").nth(1).click();`];
   const trees = [["row: (present)", "row: (present)", "row: (present)"]];
-  const legacyResult = ["row: matches MULTIPLE nodes (strict-mode ambiguity — scope to a unique parent)"];
-  assert.ok(legacyResult.length > 0, "sanity: legacy still surfaces the MULTIPLE for a page-rooted role-only selector");
+  const referenceResult = ["row: matches MULTIPLE nodes (strict-mode ambiguity — scope to a unique parent)"];
+  assert.ok(referenceResult.length > 0, "sanity: legacy still surfaces the MULTIPLE for a page-rooted role-only selector");
   assert.deepEqual(unscopedMultipleContradictions(specs, trees), []);
 });
 
 test("DECLARED divergence: .filter() suppresses a MULTIPLE the legacy still surfaces", () => {
   const specs = [`await page.getByRole("row").filter({ hasText: "Edit" }).click();`];
   const trees = [["row: (present)", "row: (present)", "row: (present)"]];
-  const legacyResult = ["row: matches MULTIPLE nodes (strict-mode ambiguity — scope to a unique parent)"];
-  assert.ok(legacyResult.length > 0, "sanity: legacy still surfaces the MULTIPLE for a page-rooted role-only selector");
+  const referenceResult = ["row: matches MULTIPLE nodes (strict-mode ambiguity — scope to a unique parent)"];
+  assert.ok(referenceResult.length > 0, "sanity: legacy still surfaces the MULTIPLE for a page-rooted role-only selector");
   assert.deepEqual(unscopedMultipleContradictions(specs, trees), []);
 });
 
 test("DECLARED divergence: role-chained scoping (table.getByRole(...)) suppresses a MULTIPLE", () => {
   const specs = [`await page.getByRole("table").getByRole("row", { name: "x" }).click();`];
   const trees = [["table: (present)", "row: x", "row: x"]];
-  const legacyResult = [`row: "x" matches MULTIPLE nodes (strict-mode ambiguity — scope to a unique parent)`];
-  assert.ok(legacyResult.length > 0, "sanity: legacy's page-rooted check still surfaces this MULTIPLE (it only inspects the immediate prefix token, missing the .getByRole('table') scope chain)");
+  const referenceResult = [`row: "x" matches MULTIPLE nodes (strict-mode ambiguity — scope to a unique parent)`];
+  assert.ok(referenceResult.length > 0, "sanity: legacy's page-rooted check still surfaces this MULTIPLE (it only inspects the immediate prefix token, missing the .getByRole('table') scope chain)");
   assert.deepEqual(unscopedMultipleContradictions(specs, trees), []);
 });
 

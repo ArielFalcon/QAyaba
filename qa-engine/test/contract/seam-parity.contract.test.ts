@@ -1,4 +1,4 @@
-/* Permanent seam: kernel RunOutcome ↔ toLegacyRunOutcome, and AppConfig ↔ CompositionConfig.
+/* Permanent seam: kernel RunOutcome ↔ toStoredRunOutcome, and AppConfig ↔ CompositionConfig.
    qa-engine cannot import src/; this file is the drift gate (tsconfig.parity.json). A field added
    to the type without an allowlist entry fails typecheck; a field dropped by the adapter fails
    this test. */
@@ -13,7 +13,7 @@ import { GENERATION_END } from "@kernel/generation-end.ts";
 import { wireBridges, type CompositionConfig } from "@contexts/qa-run-orchestration/composition/composition-root.ts";
 import { ConfinedPathError } from "../../src/shared-infrastructure/spec-path-confinement.ts";
 
-import { toLegacyRunOutcome, type RunHistorySqliteAdapterDeps, SqliteRunHistoryAdapter } from "../../../src/server/run-history-sqlite-adapter.ts";
+import { toStoredRunOutcome, type RunHistorySqliteAdapterDeps, SqliteRunHistoryAdapter } from "../../../src/server/run-history-sqlite-adapter.ts";
 import { buildCompositionConfig, type RunEngineFactoryDeps } from "../../../src/server/run-engine-factory.ts";
 import type { AppConfig } from "../../../src/orchestrator/config-loader.ts";
 import type { AgentDeps } from "../../../src/integrations/opencode-client.ts";
@@ -29,10 +29,10 @@ import type { OpencodeRunInput, ReviewInput } from "@contexts/generation/applica
 const S = (field: string): string => `__SENTINEL__${field}__`;
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════
-   (d) PERSISTENCE surface — kernel RunOutcome vs SqliteRunHistoryAdapter's toLegacyRunOutcome
+   (d) PERSISTENCE surface — kernel RunOutcome vs SqliteRunHistoryAdapter's toStoredRunOutcome
    ════════════════════════════════════════════════════════════════════════════════════════════════
  */
-describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", () => {
+describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", () => {
   const ALL_TOP_FIELDS = {
     runId: true, app: true, sha: true, mode: true, target: true, verdict: true, errorClass: true,
     gateSignals: true, rulesRetrieved: true, diffArchetypes: true, reflection: true, at: true, note: true, cases: true,
@@ -51,16 +51,16 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
   } satisfies Record<keyof KernelRunOutcome["gateSignals"], true>;
 
   const ALLOWLIST: Record<string, string> = {
-    /* toLegacyRunOutcome dropping `note` matches the shell RunOutcome shape in src/types.ts,
+    /* toStoredRunOutcome dropping `note` matches the shell RunOutcome shape in src/types.ts,
        which has no note field. QaRunResult.note and RunRecord.note are different types; `note`
        reaches the run record through QaRunResult.note -> RunRecord.note, never through this
        mapping's run_outcomes row.
      */
-    note: "CORRECT BY DESIGN (not a drop): toLegacyRunOutcome never carries outcome.note through because LegacyRunOutcome (src/types.ts's RunOutcome interface) has NO note field to carry it TO — grep/read-confirmed against the full interface. The kernel RunOutcome.note reaches the run record through a SEPARATE seam (QaRunResult.note -> RunRecord.note, src/server/runner.ts's own header), never through this mapping fn's run_outcomes row. Diagnostic-only either way (never gates verdict/publish).",
-    cases: "DELIBERATELY not persisted via toLegacyRunOutcome — LegacyRunOutcome (src/types.ts) has NO cases field at all (grep-confirmed); this field exists on the kernel RunOutcome ONLY for a DIFFERENT driving-side consumer (src/server/runner.ts's runViaEngine threads it into history.addCase() calls directly, per this file's own header comment), not for the run_outcomes row this adapter writes. Comparator-blind by the kernel type's own documented construction.",
-    logs: "DELIBERATELY not persisted via toLegacyRunOutcome — same reason as cases above: LegacyRunOutcome has no logs field (grep-confirmed), and the kernel RunOutcome's own header says this is 'the same one-shot... string legacy's own QaRunResult.logs carries', a different sink than the run_outcomes row.",
-    diffArchetypes: "CORRECT BY DESIGN (not a drop): a fold-only attribution input. The learning fold reads it in-process from the outcome it is handed (historyLearningStore.recordOutcome) to credit only the retrieved rules attributable to the diff's structural shapes; LearningPort.fold receives the kernel outcome directly, never a persisted row, and LegacyRunOutcome (src/types.ts) has no field for it.",
-    adjudication: "CORRECT BY DESIGN (not a drop): LegacyRunOutcome (src/types.ts) has NO adjudication field at all (the legacy pipeline never threaded FixLoop's lastAdjudicatorVerdict into a persisted RunOutcome). This is a REWRITTEN-ONLY field: the kernel type carries it (wide, optional — see run-outcome.ts's own header) so shouldDistillLearning's fold guard can read it in run-qa.use-case.ts, but toLegacyRunOutcome has no legacy counterpart shape to map it into. Diagnostic/gating-only within the run path; never reaches the legacy run_outcomes row.",
+    note: "CORRECT BY DESIGN (not a drop): toStoredRunOutcome never carries outcome.note through because StoredRunOutcome (src/types.ts's RunOutcome interface) has NO note field to carry it TO — grep/read-confirmed against the full interface. The kernel RunOutcome.note reaches the run record through a SEPARATE seam (QaRunResult.note -> RunRecord.note, src/server/runner.ts's own header), never through this mapping fn's run_outcomes row. Diagnostic-only either way (never gates verdict/publish).",
+    cases: "DELIBERATELY not persisted via toStoredRunOutcome — StoredRunOutcome (src/types.ts) has NO cases field at all (grep-confirmed); this field exists on the kernel RunOutcome ONLY for a DIFFERENT driving-side consumer (src/server/runner.ts's runViaEngine threads it into history.addCase() calls directly, per this file's own header comment), not for the run_outcomes row this adapter writes. Comparator-blind by the kernel type's own documented construction.",
+    logs: "DELIBERATELY not persisted via toStoredRunOutcome — same reason as cases above: StoredRunOutcome has no logs field (grep-confirmed), and the kernel RunOutcome's own header says this is 'the same one-shot... string legacy's own QaRunResult.logs carries', a different sink than the run_outcomes row.",
+    diffArchetypes: "CORRECT BY DESIGN (not a drop): a fold-only attribution input. The learning fold reads it in-process from the outcome it is handed (historyLearningStore.recordOutcome) to credit only the retrieved rules attributable to the diff's structural shapes; LearningPort.fold receives the kernel outcome directly, never a persisted row, and StoredRunOutcome (src/types.ts) has no field for it.",
+    adjudication: "CORRECT BY DESIGN (not a drop): StoredRunOutcome (src/types.ts) has NO adjudication field at all (the legacy pipeline never threaded FixLoop's lastAdjudicatorVerdict into a persisted RunOutcome). This is a REWRITTEN-ONLY field: the kernel type carries it (wide, optional — see run-outcome.ts's own header) so shouldDistillLearning's fold guard can read it in run-qa.use-case.ts, but toStoredRunOutcome has no legacy counterpart shape to map it into. Diagnostic/gating-only within the run path; never reaches the legacy run_outcomes row.",
   };
 
   test("kernel RunOutcome's own top-level field list matches the allowlist + the mapping fn's carried set exactly", () => {
@@ -80,10 +80,10 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
       "structuralSignalBytes", "serviceLinksCount", "contractDriftCount", "crossRepoImpactedCount", "sandbox", "reviewerIndependence", "closedLoop", "agentBrowser", "coordination",
       "coverage", "integrity", "intent", "value", "noop",
     ];
-    assert.deepEqual(mapped.sort(), Object.keys(ALL_GATE_SIGNAL_FIELDS).sort(), "every gateSignals field must be mapped — toLegacyRunOutcome's own header claims 100% pass-through for this nested object");
+    assert.deepEqual(mapped.sort(), Object.keys(ALL_GATE_SIGNAL_FIELDS).sort(), "every gateSignals field must be mapped — toStoredRunOutcome's own header claims 100% pass-through for this nested object");
   });
 
-  test("toLegacyRunOutcome carries every top-level + gateSignals field through with its sentinel value (fully-populated kernel outcome)", () => {
+  test("toStoredRunOutcome carries every top-level + gateSignals field through with its sentinel value (fully-populated kernel outcome)", () => {
     const kernelOutcome: KernelRunOutcome = {
       runId: S("runId"),
       app: S("app"),
@@ -130,8 +130,8 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
       note: S("note"),
     };
 
-    const out = toLegacyRunOutcome(kernelOutcome);
-    const dyingLayer = "toLegacyRunOutcome() -> LegacyRunOutcome (src/server/run-history-sqlite-adapter.ts)";
+    const out = toStoredRunOutcome(kernelOutcome);
+    const dyingLayer = "toStoredRunOutcome() -> StoredRunOutcome (src/server/run-history-sqlite-adapter.ts)";
 
     assert.equal(out.runId, S("runId"), `runId dropped at ${dyingLayer}`);
     assert.equal(out.app, S("app"), `app dropped at ${dyingLayer}`);
@@ -173,7 +173,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
     assert.deepEqual(gs.coverage, { stale: true }, `gateSignals.coverage dropped at ${dyingLayer}`);
     assert.deepEqual(gs.integrity, { acceptances: 2, rejected: 1, proofReused: 1, capHit: true }, `gateSignals.integrity dropped at ${dyingLayer}`);
 
-    assert.equal("note" in out, false, `note IS in the allowlist as CORRECT BY DESIGN — LegacyRunOutcome genuinely has no note field, see the allowlist entry's own evidence trail; if this starts failing because LegacyRunOutcome gains a note field, update the allowlist entry above instead of patching the assertion`);
+    assert.equal("note" in out, false, `note IS in the allowlist as CORRECT BY DESIGN — StoredRunOutcome genuinely has no note field, see the allowlist entry's own evidence trail; if this starts failing because StoredRunOutcome gains a note field, update the allowlist entry above instead of patching the assertion`);
   });
 
   test("SqliteRunHistoryAdapter.save() forwards the mapped outcome to the injected saveOutcome (the seam a real caller uses)", async () => {

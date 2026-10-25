@@ -53,7 +53,7 @@ test("a .astro template diff with added logic escalates a skip-typed commit to g
 /* Removal-heavy skip-typed commits escalate to REGRESSION (not generate). */
 
 test("a chore commit that REMOVES logic escalates to regression, not generate", () => {
-  const c = classifyCommit("chore: cleanup dead code", removalDiff(["if (legacyFlag) doOldThing();"]));
+  const c = classifyCommit("chore: cleanup dead code", removalDiff(["if (featureFlag) doOldThing();"]));
   assert.equal(c.action, "regression");
   assert.equal(c.contradiction, true);
 });

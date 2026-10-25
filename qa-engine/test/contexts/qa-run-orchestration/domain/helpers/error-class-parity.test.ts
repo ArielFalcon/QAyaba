@@ -10,26 +10,26 @@ import {
   resolveErrorClass,
 } from "@contexts/qa-run-orchestration/domain/helpers/error-class.ts";
 import {
-  ERROR_CLASSES as LEGACY_ERROR_CLASSES,
-  errorClassFromVerdict as legacyErrorClassFromVerdict,
-  errorClassFromCorrections as legacyErrorClassFromCorrections,
+  ERROR_CLASSES as REFERENCE_ERROR_CLASSES,
+  errorClassFromVerdict as referenceErrorClassFromVerdict,
+  errorClassFromCorrections as referenceErrorClassFromCorrections,
 } from "../../../../../../src/qa/learning/taxonomy.ts";
 
 test("PARITY: both copies list the same error classes in the same order", () => {
-  assert.deepEqual([...ERROR_CLASSES], [...LEGACY_ERROR_CLASSES]);
+  assert.deepEqual([...ERROR_CLASSES], [...REFERENCE_ERROR_CLASSES]);
 });
 
 test("PARITY: both copies list the reviewer-unavailable class", () => {
   assert.ok((ERROR_CLASSES as readonly string[]).includes(ERROR_CLASS.REVIEWER_UNAVAILABLE));
-  assert.ok((LEGACY_ERROR_CLASSES as readonly string[]).includes(ERROR_CLASS.REVIEWER_UNAVAILABLE));
+  assert.ok((REFERENCE_ERROR_CLASSES as readonly string[]).includes(ERROR_CLASS.REVIEWER_UNAVAILABLE));
 });
 
 test("PARITY: both copies list the precondition class", () => {
   assert.ok((ERROR_CLASSES as readonly string[]).includes(ERROR_CLASS.PRECONDITION));
-  assert.ok((LEGACY_ERROR_CLASSES as readonly string[]).includes(ERROR_CLASS.PRECONDITION));
+  assert.ok((REFERENCE_ERROR_CLASSES as readonly string[]).includes(ERROR_CLASS.PRECONDITION));
 });
 
-function legacyResolveErrorClass(input: {
+function referenceResolveErrorClass(input: {
   verdict: string;
   coverageRatio: number | null;
   minCoverageRatio: number;
@@ -37,14 +37,14 @@ function legacyResolveErrorClass(input: {
   valueScore?: number | null;
 }): string | null {
   const key = JSON.stringify(input);
-  const snapshot = LEGACY_RESOLVE_ERROR_CLASS_SNAPSHOT[key];
+  const snapshot = REFERENCE_RESOLVE_ERROR_CLASS_SNAPSHOT[key];
   if (snapshot === undefined) {
     throw new Error(`No fixture snapshot for input: ${key} — add a captured legacy value before using a new sample.`);
   }
   return snapshot;
 }
 
-const LEGACY_RESOLVE_ERROR_CLASS_SNAPSHOT: Record<string, string | null> = {
+const REFERENCE_RESOLVE_ERROR_CLASS_SNAPSHOT: Record<string, string | null> = {
   '{"verdict":"invalid","coverageRatio":null,"minCoverageRatio":0.7,"reviewerCorrections":[]}': "E-STATIC",
   '{"verdict":"fail","coverageRatio":null,"minCoverageRatio":0.7,"reviewerCorrections":[]}': "E-EXEC-FAIL",
   '{"verdict":"flaky","coverageRatio":null,"minCoverageRatio":0.7,"reviewerCorrections":[]}': "E-FLAKY",
@@ -73,7 +73,7 @@ test("PARITY: errorClassFromVerdict matches legacy across every verdict + covera
   for (const s of samples) {
     assert.equal(
       errorClassFromVerdict(s.verdict, s.coverageRatio, s.minRatio),
-      legacyErrorClassFromVerdict(s.verdict, s.coverageRatio, s.minRatio),
+      referenceErrorClassFromVerdict(s.verdict, s.coverageRatio, s.minRatio),
       `verdict=${s.verdict} coverageRatio=${s.coverageRatio}`,
     );
   }
@@ -94,7 +94,7 @@ test("PARITY: errorClassFromCorrections matches legacy across tagged/untagged/ot
   for (const s of samples) {
     assert.equal(
       errorClassFromCorrections(s),
-      legacyErrorClassFromCorrections(s),
+      referenceErrorClassFromCorrections(s),
       `corrections=${JSON.stringify(s)}`,
     );
   }
@@ -126,7 +126,7 @@ test("PARITY: resolveErrorClass matches legacy's labelRunOutcome-derived errorCl
   for (const s of samples) {
     assert.equal(
       resolveErrorClass(s),
-      legacyResolveErrorClass(s),
+      referenceResolveErrorClass(s),
       `verdict=${s.verdict} coverageRatio=${s.coverageRatio} valueScore=${s.valueScore}`,
     );
   }

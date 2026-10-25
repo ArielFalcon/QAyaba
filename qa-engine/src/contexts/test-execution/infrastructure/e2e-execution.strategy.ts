@@ -6,7 +6,7 @@ import type {
 import type { QaCase } from "@kernel/qa-case.ts";
 import { InfraError } from "@kernel/domain-error.ts";
 
-interface LegacyRunResult { verdict: string; cases: QaCase[]; logs: string; devWrites?: number; }
+interface E2eRunResultShape { verdict: string; cases: QaCase[]; logs: string; devWrites?: number; }
 type RunE2eFn = (
   specDir: string,
   opts: {
@@ -25,7 +25,7 @@ type RunE2eFn = (
     onRunning?: (title: string) => void;
     onDiscovered?: (title: string, file?: string) => void;
   },
-) => Promise<LegacyRunResult>;
+) => Promise<E2eRunResultShape>;
 
 export class E2eExecutionStrategy implements ExecutionStrategyPort {
   constructor(private readonly runE2E: RunE2eFn) {}

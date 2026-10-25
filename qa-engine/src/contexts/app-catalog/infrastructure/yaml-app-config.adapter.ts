@@ -3,14 +3,14 @@ import { App } from "../domain/app.aggregate.ts";
 import { RepoResolutionService } from "../domain/repo-resolution.service.ts";
 
 /* Local shape of the injected loader result so this adapter never imports src/. A service may declare one openapi glob or several. */
-interface LegacyConfig {
+interface LoadedAppConfig {
   name: string; repo: string; baseBranch?: string; code?: boolean;
   qa?: { shadow?: boolean }; services?: { repo: string; openapi?: string | string[]; versionUrl?: string }[];
   dev?: { versionUrl?: string };
 }
 export interface ConfigLoaders {
-  load(name: string): LegacyConfig;
-  list(): LegacyConfig[];
+  load(name: string): LoadedAppConfig;
+  list(): LoadedAppConfig[];
 }
 
 /** Skip-and-log one bad config so it cannot fail the whole catalog. Injected so this adapter never imports src/. */
@@ -21,7 +21,7 @@ const defaultConfigSkipLogger: ConfigSkipLogger = (name, err) => {
   console.warn(`[qa] skipping app config "${name}" — failed aggregate validation: ${msg}`);
 };
 
-function toSnapshot(cfg: LegacyConfig): AppConfigSnapshot {
+function toSnapshot(cfg: LoadedAppConfig): AppConfigSnapshot {
   const app = App.fromConfig({
     name: cfg.name, repo: cfg.repo, baseBranch: cfg.baseBranch ?? "main",
     code: cfg.code ?? false, shadow: cfg.qa?.shadow ?? false,

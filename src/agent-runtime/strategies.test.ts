@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { OpenCodeRuntimeStrategy } from "./opencode-strategy";
 import { CodexExecTransport, CodexRuntimeStrategy, SupervisorExecTransport, codexExecArgs, codexExecEnv, defaultCodexTransport } from "./codex-strategy";
-import { AGENT_NAME_FOR_ROLE, capabilitiesForRole, roleForLegacyAgent } from "./types";
+import { AGENT_NAME_FOR_ROLE, capabilitiesForRole, roleForAgentName } from "./types";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port";
 import { getAgentTurns } from "../server/history";
 import type { AgentDeps, AgentTurnEvent } from "../integrations/opencode-client";
@@ -44,19 +44,19 @@ test("SupervisorExecTransport forwards the per-role sandbox so the supervisor ca
   assert.equal(body.sandbox, "read-only");
 });
 
-test("roleForLegacyAgent maps qa-reflector to the read-only reflector role", () => {
-  assert.equal(roleForLegacyAgent("qa-reflector"), "reflector");
+test("roleForAgentName maps qa-reflector to the read-only reflector role", () => {
+  assert.equal(roleForAgentName("qa-reflector"), "reflector");
   assert.equal(capabilitiesForRole("reflector").canWrite, false);
 });
 
-test("roleForLegacyAgent resolves every role's agent name back to that role", () => {
+test("roleForAgentName resolves every role's agent name back to that role", () => {
   for (const [role, agent] of Object.entries(AGENT_NAME_FOR_ROLE)) {
-    assert.equal(roleForLegacyAgent(agent), role, `agent ${agent} must resolve back to role ${role}`);
+    assert.equal(roleForAgentName(agent), role, `agent ${agent} must resolve back to role ${role}`);
   }
 });
 
-test("roleForLegacyAgent rejects an agent name no role maps to instead of falling back to the primary author", () => {
-  assert.throws(() => roleForLegacyAgent("qa-unmapped"), /qa-unmapped/);
+test("roleForAgentName rejects an agent name no role maps to instead of falling back to the primary author", () => {
+  assert.throws(() => roleForAgentName("qa-unmapped"), /qa-unmapped/);
 });
 
 /* Proposer is read-only: it hypothesizes candidates, never writes. */
@@ -65,8 +65,8 @@ test("capabilitiesForRole: the proposer is read-only (it hypothesizes candidates
   assert.equal(capabilitiesForRole("proposer").canWrite, false);
 });
 
-test("roleForLegacyAgent maps qa-proposer to the read-only proposer role", () => {
-  assert.equal(roleForLegacyAgent("qa-proposer"), "proposer");
+test("roleForAgentName maps qa-proposer to the read-only proposer role", () => {
+  assert.equal(roleForAgentName("qa-proposer"), "proposer");
 });
 
 test("codexExecArgs sandboxes the proposer read-only on Codex", () => {

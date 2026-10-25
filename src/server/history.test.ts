@@ -980,14 +980,14 @@ test("agent_turns prune predicate (datetime(ts)) is boundary-correct for ISO ts,
 /* A DB created before the efficiency columns existed: opening it must add every efficiency column
    exactly once (however many times it is opened), leave the pre-existing row valid, and read NULL for
    each new column — never a fabricated zero. Each open uses a fresh module instance (the store keeps
-   its handle in module state) pointed at the legacy file through HISTORY_DB_PATH. */
+   its handle in module state) pointed at the older file through HISTORY_DB_PATH. */
 test("opening a pre-existing agent_turns table twice adds each efficiency column once and old rows read NULL", async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), "history-legacy-agent-turns-"));
+  const dir = mkdtempSync(join(tmpdir(), "history-older-agent-turns-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const legacyPath = join(dir, "legacy.db");
+  const olderDbPath = join(dir, "older.db");
 
-  const legacy = new Database(legacyPath);
-  legacy.exec(`
+  const older = new Database(olderDbPath);
+  older.exec(`
     CREATE TABLE agent_turns (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       run_id TEXT,
@@ -1010,13 +1010,13 @@ test("opening a pre-existing agent_turns table twice adds each efficiency column
   `);
   /* Recent enough to survive the retention prune whatever day the suite runs. */
   const recentTs = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  legacy
+  older
     .prepare("INSERT INTO agent_turns (run_id, session_id, role, ts, prompt_text, output_text) VALUES (?, ?, ?, ?, ?, ?)")
-    .run("run-legacy", "sess-legacy", "qa-generator", recentTs, "old prompt", "old output");
-  legacy.close();
+    .run("run-older", "sess-older", "qa-generator", recentTs, "old prompt", "old output");
+  older.close();
 
   const previousPath = process.env.HISTORY_DB_PATH;
-  process.env.HISTORY_DB_PATH = legacyPath;
+  process.env.HISTORY_DB_PATH = olderDbPath;
   t.after(() => {
     if (previousPath === undefined) delete process.env.HISTORY_DB_PATH;
     else process.env.HISTORY_DB_PATH = previousPath;
@@ -1024,15 +1024,15 @@ test("opening a pre-existing agent_turns table twice adds each efficiency column
 
   for (const open of ["first", "second"]) {
     const store = (await import(new URL(`./history.ts?open=${open}`, import.meta.url).href)) as typeof import("./history");
-    const turns = store.getAgentTurns("run-legacy");
+    const turns = store.getAgentTurns("run-older");
     assert.equal(turns.length, 1, `the pre-existing row is still readable on the ${open} open`);
     assert.equal(turns[0]!.outputText, "old output");
   }
 
-  const inspect = new Database(legacyPath, { readonly: true });
+  const inspect = new Database(olderDbPath, { readonly: true });
   t.after(() => inspect.close());
   const columns = (inspect.prepare("PRAGMA table_info(agent_turns)").all() as Array<{ name: string }>).map((c) => c.name);
-  const row = inspect.prepare("SELECT * FROM agent_turns WHERE run_id = 'run-legacy'").get() as Record<string, unknown>;
+  const row = inspect.prepare("SELECT * FROM agent_turns WHERE run_id = 'run-older'").get() as Record<string, unknown>;
   for (const { name } of AGENT_TURN_EFFICIENCY_COLUMNS) {
     assert.equal(columns.filter((c) => c === name).length, 1, `${name} is present exactly once`);
     assert.equal(row[name], null, `${name} reads NULL on a row written before the column existed`);
@@ -1049,14 +1049,14 @@ test("the phases a run reached are stored on its record and read back, null for 
 });
 
 test("opening a runs table that predates the phase columns adds them, and a run on it records its phases", async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), "history-legacy-runs-phases-"));
+  const dir = mkdtempSync(join(tmpdir(), "history-older-runs-phases-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const legacyPath = join(dir, "legacy.db");
-  const legacy = new Database(legacyPath);
-  legacy.exec("CREATE TABLE runs (id TEXT PRIMARY KEY, app TEXT NOT NULL, sha TEXT NOT NULL, ref TEXT, target TEXT NOT NULL DEFAULT 'e2e', mode TEXT NOT NULL DEFAULT 'diff', status TEXT NOT NULL DEFAULT 'enqueued', step TEXT, step_detail TEXT, verdict TEXT, passed INTEGER DEFAULT 0, failed INTEGER DEFAULT 0, note TEXT, retrying INTEGER DEFAULT 0, parent_run_id TEXT, trigger_repo TEXT, at TEXT NOT NULL, step_started_at TEXT, logs TEXT DEFAULT '')");
-  legacy.close();
+  const olderDbPath = join(dir, "older.db");
+  const older = new Database(olderDbPath);
+  older.exec("CREATE TABLE runs (id TEXT PRIMARY KEY, app TEXT NOT NULL, sha TEXT NOT NULL, ref TEXT, target TEXT NOT NULL DEFAULT 'e2e', mode TEXT NOT NULL DEFAULT 'diff', status TEXT NOT NULL DEFAULT 'enqueued', step TEXT, step_detail TEXT, verdict TEXT, passed INTEGER DEFAULT 0, failed INTEGER DEFAULT 0, note TEXT, retrying INTEGER DEFAULT 0, parent_run_id TEXT, trigger_repo TEXT, at TEXT NOT NULL, step_started_at TEXT, logs TEXT DEFAULT '')");
+  older.close();
   const previousPath = process.env.HISTORY_DB_PATH;
-  process.env.HISTORY_DB_PATH = legacyPath;
+  process.env.HISTORY_DB_PATH = olderDbPath;
   t.after(() => {
     if (previousPath === undefined) delete process.env.HISTORY_DB_PATH;
     else process.env.HISTORY_DB_PATH = previousPath;
@@ -1070,14 +1070,14 @@ test("opening a runs table that predates the phase columns adds them, and a run 
 });
 
 test("opening a runs table that predates the run facts adds their columns, and a run on it stores its trace id and decision", async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), "history-legacy-runs-facts-"));
+  const dir = mkdtempSync(join(tmpdir(), "history-older-runs-facts-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const legacyPath = join(dir, "legacy.db");
-  const legacy = new Database(legacyPath);
-  legacy.exec("CREATE TABLE runs (id TEXT PRIMARY KEY, app TEXT NOT NULL, sha TEXT NOT NULL, ref TEXT, target TEXT NOT NULL DEFAULT 'e2e', mode TEXT NOT NULL DEFAULT 'diff', status TEXT NOT NULL DEFAULT 'enqueued', step TEXT, step_detail TEXT, verdict TEXT, passed INTEGER DEFAULT 0, failed INTEGER DEFAULT 0, note TEXT, retrying INTEGER DEFAULT 0, parent_run_id TEXT, trigger_repo TEXT, at TEXT NOT NULL, step_started_at TEXT, logs TEXT DEFAULT '', furthest_phase TEXT, phase_timings TEXT)");
-  legacy.close();
+  const olderDbPath = join(dir, "older.db");
+  const older = new Database(olderDbPath);
+  older.exec("CREATE TABLE runs (id TEXT PRIMARY KEY, app TEXT NOT NULL, sha TEXT NOT NULL, ref TEXT, target TEXT NOT NULL DEFAULT 'e2e', mode TEXT NOT NULL DEFAULT 'diff', status TEXT NOT NULL DEFAULT 'enqueued', step TEXT, step_detail TEXT, verdict TEXT, passed INTEGER DEFAULT 0, failed INTEGER DEFAULT 0, note TEXT, retrying INTEGER DEFAULT 0, parent_run_id TEXT, trigger_repo TEXT, at TEXT NOT NULL, step_started_at TEXT, logs TEXT DEFAULT '', furthest_phase TEXT, phase_timings TEXT)");
+  older.close();
   const previousPath = process.env.HISTORY_DB_PATH;
-  process.env.HISTORY_DB_PATH = legacyPath;
+  process.env.HISTORY_DB_PATH = olderDbPath;
   t.after(() => {
     if (previousPath === undefined) delete process.env.HISTORY_DB_PATH;
     else process.env.HISTORY_DB_PATH = previousPath;

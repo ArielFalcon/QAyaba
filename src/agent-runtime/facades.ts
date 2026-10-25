@@ -12,7 +12,7 @@ import {
   ModelWindows,
   StepLimits,
   assignmentForRole,
-  roleForLegacyAgent,
+  roleForAgentName,
 } from "./types";
 
 export class SingleAgentFacade implements AgentFacade {
@@ -24,7 +24,7 @@ export class SingleAgentFacade implements AgentFacade {
   deps(): AgentDeps {
     const deps: AgentDeps = {
       open: async (agent, cwd, opts) => {
-        const role = roleForLegacyAgent(agent);
+        const role = roleForAgentName(agent);
         /* A model the caller asked for wins; the role's assignment only supplies the default. */
         const model = opts?.model ?? assignmentForRole(this.config, role).model;
         const session: AgentSession = await this.strategy.openSession(role, cwd, { ...opts, model });
@@ -75,7 +75,7 @@ export class DualAgentFacade implements AgentFacade {
   deps(): AgentDeps {
     return {
       open: async (agent, cwd, opts) => {
-        const role = roleForLegacyAgent(agent);
+        const role = roleForAgentName(agent);
         const assignment = assignmentForRole(this.config, role);
         /* The assignment picks the provider; a model the caller asked for wins over the assignment's default. */
         const session: AgentSession = await this.strategies[assignment.provider].openSession(role, cwd, { ...opts, model: opts?.model ?? assignment.model });

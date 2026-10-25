@@ -49,7 +49,7 @@ report:
 
 /* src/index.ts's dispatch derivation — the acceptance bar resolveWebhookDispatch must clear.
  */
-function legacyDispatch(matches: RepoMatch[], repo: string, opts: { mode: string; guidance?: string; baseSha?: string }): WebhookDispatch[] {
+function referenceDispatch(matches: RepoMatch[], repo: string, opts: { mode: string; guidance?: string; baseSha?: string }): WebhookDispatch[] {
   return matches
     .map((m): WebhookDispatch =>
       m.role === "primary"
@@ -82,7 +82,7 @@ test("resolveWebhookDispatch: single-app primary-repo webhook — identical to t
     const opts = { mode: "diff" as const, guidance: "test the checkout flow", baseSha: "base123" };
 
     const actual = await resolveWebhookDispatch(adapter, "org/shop-front", opts);
-    const expected = legacyDispatch(loadAppConfigsByRepo("org/shop-front", root), "org/shop-front", opts);
+    const expected = referenceDispatch(loadAppConfigsByRepo("org/shop-front", root), "org/shop-front", opts);
 
     assert.deepEqual(sorted(actual), expected);
     assert.deepEqual(sorted(actual), [{ app: "shop", target: "e2e", mode: "diff", guidance: "test the checkout flow", baseSha: "base123" }]);
@@ -96,7 +96,7 @@ test("resolveWebhookDispatch: multi-app repo (primary of A, service of B) — id
     const opts = { mode: "diff" as const };
 
     const actual = await resolveWebhookDispatch(adapter, "org/orders-svc", opts);
-    const expected = legacyDispatch(loadAppConfigsByRepo("org/orders-svc", root), "org/orders-svc", opts);
+    const expected = referenceDispatch(loadAppConfigsByRepo("org/orders-svc", root), "org/orders-svc", opts);
 
     assert.deepEqual(sorted(actual), expected);
     assert.deepEqual(sorted(actual), [
@@ -124,7 +124,7 @@ test("resolveWebhookDispatch: a malformed config is skipped — the healthy app 
     const opts = { mode: "diff" as const };
 
     const actual = await resolveWebhookDispatch(adapter, "org/shop-front", opts);
-    const expected = legacyDispatch(loadAppConfigsByRepo("org/shop-front", root), "org/shop-front", opts);
+    const expected = referenceDispatch(loadAppConfigsByRepo("org/shop-front", root), "org/shop-front", opts);
 
     assert.deepEqual(sorted(actual), expected);
     assert.equal(actual.length, 1, "the malformed file must be skipped, never hiding the healthy app");

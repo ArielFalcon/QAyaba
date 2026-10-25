@@ -2,7 +2,7 @@
 import { saveRunOutcome } from "./history";
 import type { RunHistoryPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import type { RunOutcome as KernelRunOutcome } from "@kernel/run-outcome.ts";
-import type { RunOutcome as LegacyRunOutcome } from "../types";
+import type { RunOutcome as StoredRunOutcome } from "../types";
 
 /*
  * Dependency injection is the testing strategy (CLAUDE.md): a test supplies a fake saveOutcome so
@@ -10,7 +10,7 @@ import type { RunOutcome as LegacyRunOutcome } from "../types";
  * SQLite database history.ts owns.
  */
 export interface RunHistorySqliteAdapterDeps {
-  saveOutcome: (outcome: LegacyRunOutcome) => void;
+  saveOutcome: (outcome: StoredRunOutcome) => void;
 }
 
 export const defaultRunHistorySqliteAdapterDeps: RunHistorySqliteAdapterDeps = {
@@ -21,7 +21,7 @@ export const defaultRunHistorySqliteAdapterDeps: RunHistorySqliteAdapterDeps = {
  * Maps the kernel RunOutcome onto the shell history store's shape. Optional/unknown
  * fields (errorClass, reflection, usage) are produced by the same taxonomy as history.ts.
  */
-export function toLegacyRunOutcome(outcome: KernelRunOutcome): LegacyRunOutcome {
+export function toStoredRunOutcome(outcome: KernelRunOutcome): StoredRunOutcome {
   return {
     runId: outcome.runId,
     app: outcome.app,
@@ -29,7 +29,7 @@ export function toLegacyRunOutcome(outcome: KernelRunOutcome): LegacyRunOutcome 
     mode: outcome.mode,
     target: outcome.target,
     verdict: outcome.verdict,
-    errorClass: outcome.errorClass as LegacyRunOutcome["errorClass"],
+    errorClass: outcome.errorClass as StoredRunOutcome["errorClass"],
     gateSignals: {
       static: outcome.gateSignals.static,
       coverageRatio: outcome.gateSignals.coverageRatio,
@@ -43,7 +43,7 @@ export function toLegacyRunOutcome(outcome: KernelRunOutcome): LegacyRunOutcome 
       flaky: outcome.gateSignals.flaky,
       retries: outcome.gateSignals.retries,
       ...(outcome.gateSignals.confinement !== undefined ? { confinement: outcome.gateSignals.confinement } : {}),
-      ...(outcome.gateSignals.usage !== undefined ? { usage: outcome.gateSignals.usage as LegacyRunOutcome["gateSignals"]["usage"] } : {}),
+      ...(outcome.gateSignals.usage !== undefined ? { usage: outcome.gateSignals.usage as StoredRunOutcome["gateSignals"]["usage"] } : {}),
       ...(outcome.gateSignals.phaseTimings !== undefined ? { phaseTimings: outcome.gateSignals.phaseTimings } : {}),
       ...(outcome.gateSignals.furthestPhase !== undefined ? { furthestPhase: outcome.gateSignals.furthestPhase } : {}),
       ...(outcome.gateSignals.preExecAmbiguityCatches !== undefined ? { preExecAmbiguityCatches: outcome.gateSignals.preExecAmbiguityCatches } : {}),
@@ -69,7 +69,7 @@ export function toLegacyRunOutcome(outcome: KernelRunOutcome): LegacyRunOutcome 
       ...(outcome.gateSignals.intent !== undefined ? { intent: outcome.gateSignals.intent } : {}),
     },
     rulesRetrieved: outcome.rulesRetrieved,
-    ...(outcome.reflection !== undefined ? { reflection: outcome.reflection as LegacyRunOutcome["reflection"] } : {}),
+    ...(outcome.reflection !== undefined ? { reflection: outcome.reflection as StoredRunOutcome["reflection"] } : {}),
     at: outcome.at,
   };
 }
@@ -79,6 +79,6 @@ export class SqliteRunHistoryAdapter implements RunHistoryPort {
   constructor(private readonly deps: RunHistorySqliteAdapterDeps = defaultRunHistorySqliteAdapterDeps) {}
 
   async save(outcome: KernelRunOutcome): Promise<void> {
-    this.deps.saveOutcome(toLegacyRunOutcome(outcome));
+    this.deps.saveOutcome(toStoredRunOutcome(outcome));
   }
 }
