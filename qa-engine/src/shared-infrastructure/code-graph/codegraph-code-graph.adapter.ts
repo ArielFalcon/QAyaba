@@ -11,8 +11,9 @@
  * sorted and de-duplicated, and carry the commit of the index they read.
  */
 
+import { createHash } from "node:crypto";
 import { basename, join } from "node:path";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, rmSync } from "node:fs";
 import { err, ok, type Result } from "../../shared-kernel/result.ts";
 import type { BlastRadius, TouchedLines } from "../../shared-kernel/blast-radius.ts";
 import type { CodeGraphPort } from "../../shared-kernel/ports/code-graph.port.ts";
@@ -55,7 +56,8 @@ const HTTP_ROUTE = /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) (\S+)$/;
 
 /*
  * The seeds of a change: for each touched line, the innermost symbol whose range holds it; for a changed file the diff gave no
- * lines for, every top-level symbol (one no other symbol of the file encloses). A line between symbols seeds nothing. Pure.
+ * lines for, every symbol of the file (its classes and every function and method in them, so the callers of a method are
+ * reached, not only the users of its class). A line between symbols seeds nothing. Pure.
  */
 export function selectSeeds(symbols: readonly StoreSymbol[], changedFiles: readonly string[], touched: TouchedLines | undefined): StoreSymbol[] {
   const byFile = new Map<string, StoreSymbol[]>();
@@ -65,10 +67,7 @@ export function selectSeeds(symbols: readonly StoreSymbol[], changedFiles: reado
     const inFile = byFile.get(file) ?? [];
     const lines = touched?.get(file);
     if (lines === undefined) {
-      for (const s of inFile) {
-        const enclosed = inFile.some((o) => o !== s && o.startLine <= s.startLine && o.endLine >= s.endLine && (o.endLine - o.startLine) > (s.endLine - s.startLine));
-        if (!enclosed) seeds.set(s.id, s);
-      }
+      for (const s of inFile) seeds.set(s.id, s);
       continue;
     }
     for (const line of lines) {
@@ -103,17 +102,32 @@ interface Indexed {
   sha: string;
 }
 
+/* What the store was built from besides the commit: a store of another scope is never reused. */
+function scopeKeyOf(scope: WorkspaceScope): string {
+  const sorted = { extensions: [...scope.extensions].sort(), manifests: [...scope.manifests].sort(), exclude: [...scope.exclude].sort() };
+  return createHash("sha256").update(JSON.stringify(sorted)).digest("hex").slice(0, 16);
+}
+
 export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort {
   private readonly indexed = new Map<string, Indexed>();
   private readonly now: () => number;
+  private readonly scopeKey: string;
 
   constructor(private readonly deps: CodegraphCodeGraphDeps) {
     this.now = deps.now ?? Date.now;
+    this.scopeKey = scopeKeyOf(deps.scope);
   }
 
   async syncTo(repoDir: string, sha: string): Promise<CodeGraphIndexRecord> {
     const started = this.now();
     const repo = repoKeyOf(basename(repoDir));
+    let workspace = "";
+    /* A reason is engine or git text: it names the run's paths, which never cross the adapter. */
+    const clean = (reason: string): string => {
+      let out = reason;
+      for (const path of [workspace, repoDir]) if (path !== "") out = out.split(path).join(".");
+      return out.slice(0, 400);
+    };
     const record = (outcome: IndexOutcome, status: EngineStatus | null, reason?: string): CodeGraphIndexRecord => ({
       repo,
       engine: CODEGRAPH_ENGINE,
@@ -123,12 +137,11 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
       durationMs: this.now() - started,
       nodeCount: status?.nodeCount ?? null,
       edgeCount: status?.edgeCount ?? null,
-      ...(reason !== undefined ? { reason } : {}),
+      ...(reason !== undefined ? { reason: clean(reason) } : {}),
     });
     const failed = (f: EngineFailure): CodeGraphIndexRecord => record(f.kind === "timeout" ? "timeout" : "failed", null, f.reason);
 
     this.indexed.delete(repoDir);
-    let workspace: string;
     try {
       workspace = join(this.deps.workDir(), `graph-${repo}`);
     } catch (e) {
@@ -137,11 +150,14 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
     rmSync(workspace, { recursive: true, force: true });
     const exported = await exportWorkspace({ git: this.deps.git, mirrorDir: repoDir, sha, dir: workspace, scope: this.deps.scope, sandbox: this.deps.sandbox });
     if (!exported.ok) return record(exported.error.reason.startsWith("the commit holds no file") ? "skipped" : "failed", null, exported.error.reason);
+    /* The workspace lies in the run's work dir, which the sandbox owns: what is published must be the directory built here. */
+    const built = lstatSync(workspace);
+    const identity = { dev: built.dev, ino: built.ino };
 
     const lock = this.deps.cache?.lock(repo);
     try {
       const cached = lock ? this.deps.cache!.meta(repo) : undefined;
-      const usable = cached?.engine === CODEGRAPH_ENGINE && lock !== undefined && this.deps.cache!.copyIn(repo, workspace, this.deps.sandbox);
+      const usable = cached?.engine === CODEGRAPH_ENGINE && cached.scope === this.scopeKey && lock !== undefined && this.deps.cache!.copyIn(repo, workspace, this.deps.sandbox);
       let outcome: IndexOutcome = "built";
       let status: Result<EngineStatus, EngineFailure> | undefined;
       if (usable) {
@@ -157,24 +173,25 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
       }
       if (status === undefined) {
         rmSync(storePathOf(workspace), { force: true });
-        const built = await this.deps.engine.build(workspace);
-        if (!built.ok) return failed(built.error);
+        const fresh = await this.deps.engine.build(workspace);
+        if (!fresh.ok) return failed(fresh.error);
         status = await this.deps.engine.status(workspace);
         outcome = "built";
       }
       if (!status.ok) return failed(status.error);
       if (status.value.nodeCount === 0) return record("failed", status.value, "the index holds no symbol");
       if (lock && outcome !== "reused") {
-        const published = this.deps.cache!.publish(repo, workspace, {
+        const published = this.deps.cache!.publish(repo, workspace, identity, {
           engine: CODEGRAPH_ENGINE,
           engineVersion: status.value.version,
+          scope: this.scopeKey,
           sha,
           nodeCount: status.value.nodeCount,
           edgeCount: status.value.edgeCount,
           fileCount: status.value.fileCount,
           builtAt: new Date(this.now()).toISOString(),
         });
-        if (!published.published) console.warn(`[qa] the code-graph store of ${repo} was not cached (${published.reason}); the next run indexes it again`);
+        if (!published.published) console.warn(`[qa] the code-graph store of ${repo} was not cached (${clean(published.reason)}); the next run indexes it again`);
       }
       this.indexed.set(repoDir, { workspace, sha });
       return record(outcome, status.value);
@@ -203,7 +220,8 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
     const symbols: ImpactedSymbol[] = [];
     const seen = new Set<string>();
     for (const n of walked.value.value.nodes) {
-      if (n.kind === "route" || this.deps.isTestFile(n.file)) continue;
+      /* A container the walk lifted from a changed member (depth 0 with a predecessor) carries the walk, but was not changed. */
+      if (n.kind === "route" || this.deps.isTestFile(n.file) || (n.depth === 0 && n.via !== undefined)) continue;
       const key = `${n.file}::${n.symbol}`;
       if (seen.has(key)) continue;
       seen.add(key);

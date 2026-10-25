@@ -3,12 +3,12 @@
    parallel lanes from racing, and a lock left by a dead process is broken. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodegraphStoreCache, repoKeyOf, type StoreMeta } from "../../../src/shared-infrastructure/code-graph/codegraph-store-cache.ts";
 
-const META: StoreMeta = { engine: "codegraph", engineVersion: "1.6.2", sha: "a".repeat(40), nodeCount: 3, edgeCount: 2, fileCount: 1, builtAt: "2026-10-25T00:00:00.000Z" };
+const META: StoreMeta = { engine: "codegraph", engineVersion: "1.6.2", scope: "0123456789abcdef", sha: "a".repeat(40), nodeCount: 3, edgeCount: 2, fileCount: 1, builtAt: "2026-10-25T00:00:00.000Z" };
 
 function setup() {
   const root = mkdtempSync(join(tmpdir(), "cg-cache-"));
@@ -17,11 +17,16 @@ function setup() {
   return { root, workspace, cache: new CodegraphStoreCache(join(root, "cache")) };
 }
 
+const identityOf = (dir: string) => {
+  const st = lstatSync(dir);
+  return { dev: st.dev, ino: st.ino };
+};
+
 test("a published store and its metadata come back, and copy into a fresh workspace", () => {
   const { root, workspace, cache } = setup();
   try {
     writeFileSync(join(workspace, ".codegraph", "codegraph.db"), "store-bytes");
-    assert.deepEqual(cache.publish("org__app", workspace, META), { published: true });
+    assert.deepEqual(cache.publish("org__app", workspace, identityOf(workspace), META), { published: true });
     assert.deepEqual(cache.meta("org__app"), META);
 
     const next = join(root, "ws2");
@@ -50,7 +55,7 @@ test("a store planted as a link is refused and the cache keeps nothing of it", (
     writeFileSync(secret, "root-only secret");
     symlinkSync(secret, join(workspace, ".codegraph", "codegraph.db"));
 
-    const result = cache.publish("org__app", workspace, META);
+    const result = cache.publish("org__app", workspace, identityOf(workspace), META);
 
     assert.equal(result.published, false);
     assert.equal(cache.meta("org__app"), undefined);
@@ -65,7 +70,7 @@ test("a store whose write-ahead log is still beside it is refused", () => {
   try {
     writeFileSync(join(workspace, ".codegraph", "codegraph.db"), "store-bytes");
     writeFileSync(join(workspace, ".codegraph", "codegraph.db-wal"), "pending");
-    assert.deepEqual(cache.publish("org__app", workspace, META), { published: false, reason: "the store still has a write-ahead log" });
+    assert.deepEqual(cache.publish("org__app", workspace, identityOf(workspace), META), { published: false, reason: "the store still has a write-ahead log" });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -75,7 +80,7 @@ test("metadata that does not name the engine, its version and the commit reads a
   const { root, workspace, cache } = setup();
   try {
     writeFileSync(join(workspace, ".codegraph", "codegraph.db"), "store-bytes");
-    cache.publish("org__app", workspace, META);
+    cache.publish("org__app", workspace, identityOf(workspace), META);
     writeFileSync(join(root, "cache", "org__app", "meta.json"), JSON.stringify({ engine: "codegraph" }));
     assert.equal(cache.meta("org__app"), undefined);
     writeFileSync(join(root, "cache", "org__app", "meta.json"), "not json");
@@ -101,6 +106,28 @@ test("the lock is exclusive until released, and a lock older than its stale age 
     const old = new Date(now - 16 * 60_000);
     utimesSync(lockFile, old, old);
     assert.ok(cache.lock("org__app"), "a lock left by a dead process is broken");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a workspace swapped for a link or another directory after the export is refused", () => {
+  const { root, workspace, cache } = setup();
+  try {
+    writeFileSync(join(workspace, ".codegraph", "codegraph.db"), "store-bytes");
+    const identity = identityOf(workspace);
+
+    const planted = join(root, "planted");
+    mkdirSync(join(planted, ".codegraph"), { recursive: true });
+    writeFileSync(join(planted, ".codegraph", "codegraph.db"), "planted-bytes");
+    renameSync(workspace, join(root, "moved"));
+    symlinkSync(planted, workspace);
+    assert.deepEqual(cache.publish("org__app", workspace, identity, META), { published: false, reason: "the workspace was replaced" });
+
+    unlinkSync(workspace);
+    renameSync(planted, workspace);
+    assert.deepEqual(cache.publish("org__app", workspace, identity, META), { published: false, reason: "the workspace was replaced" });
+    assert.equal(cache.meta("org__app"), undefined);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

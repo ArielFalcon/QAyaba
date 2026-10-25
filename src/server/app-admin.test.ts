@@ -110,6 +110,7 @@ function makeDeps(overrides: Partial<AppAdminDeps> = {}): AppAdminDeps & { writt
       deleteHistory: (app: string) => { removed.push(`history:${app}`); return 1; },
       deleteAuthMaterial: (app: string) => { removed.push(`auth:${app}`); },
       deleteSuiteStore: (app: string) => { removed.push(`suite:${app}`); },
+      deleteCodeGraphCache: (app: string) => { removed.push(`code-graph:${app}`); },
       applyEnv: (vars: Record<string, string>) => Object.keys(vars),
       readConfig: () => STOCK_YAML,
       loadApp: () => loadedFrom(STOCK_YAML, {}),
@@ -429,16 +430,16 @@ test("deleteApp without purge removes the config and the stored login material, 
   for (const gone of ["config:shop", "auth:shop"]) {
     assert.ok(deps.removed.includes(gone), `a delete must remove ${gone}`);
   }
-  for (const kept of ["mirror:org/shop-front", "history:shop", "suite:shop"]) {
+  for (const kept of ["mirror:org/shop-front", "history:shop", "suite:shop", "code-graph:shop"]) {
     assert.equal(deps.removed.includes(kept), false, `${kept} must be kept without purge`);
   }
   assert.deepEqual([...result.removed].sort(), [...deps.removed].sort(), "the report lists exactly what was removed");
 });
 
-test("deleteApp with purge also removes the primary mirror, the run history, the suite store and the stored login material", () => {
+test("deleteApp with purge also removes the primary mirror, the run history, the suite store, the code-graph cache and the stored login material", () => {
   const deps = makeDeps();
   const result = deleteApp("shop", true, deps);
-  for (const gone of ["config:shop", "mirror:org/shop-front", "history:shop", "suite:shop", "auth:shop"]) {
+  for (const gone of ["config:shop", "mirror:org/shop-front", "history:shop", "suite:shop", "code-graph:shop", "auth:shop"]) {
     assert.ok(deps.removed.includes(gone), `purge must remove ${gone}`);
   }
   assert.deepEqual([...result.removed].sort(), [...deps.removed].sort(), "the report lists exactly what was removed");

@@ -40,7 +40,8 @@ class FakeEngineRunner implements SandboxedBinaryRunner {
     }
     const verb = req.args[0] as "init" | "sync" | "status";
     this.calls.push(verb);
-    if (this.fail[verb]) return this.fail[verb]!;
+    const failure = this.fail[verb];
+    if (failure) return { ...failure, stderr: failure.stderr.replaceAll("{cwd}", req.cwd) };
     if (verb === "init") copyFileSync(STORE, join(req.cwd, ".codegraph", "codegraph.db"));
     if ((verb as string) === "explore") return ok(EXPLORE);
     return verb === "status" ? ok(this.status) : ok();
@@ -56,29 +57,30 @@ interface Harness {
   adapter: CodegraphCodeGraphAdapter;
 }
 
-function harness(opts: { cache?: boolean } = {}): Harness {
-  const root = mkdtempSync(join(tmpdir(), "cg-adapter-"));
-  const mirror = join(root, "org__shop");
-  mkdirSync(mirror);
-  git(mirror, "init", "-q");
-  for (const [path, content] of Object.entries(REPO)) {
-    mkdirSync(join(mirror, path, ".."), { recursive: true });
-    writeFileSync(join(mirror, path), content);
+function harness(opts: { cache?: boolean; exclude?: string[]; root?: string; mirror?: string } = {}): Harness {
+  const root = opts.root ?? mkdtempSync(join(tmpdir(), "cg-adapter-"));
+  const mirror = opts.mirror ?? join(root, "org__shop");
+  if (opts.mirror === undefined) {
+    mkdirSync(mirror);
+    git(mirror, "init", "-q");
+    for (const [path, content] of Object.entries(REPO)) {
+      mkdirSync(join(mirror, path, ".."), { recursive: true });
+      writeFileSync(join(mirror, path), content);
+    }
+    git(mirror, "add", "-A");
+    git(mirror, "commit", "-qm", "c");
+    closeGitDir(mirror);
   }
-  git(mirror, "add", "-A");
-  git(mirror, "commit", "-qm", "c");
-  closeGitDir(mirror);
   const engine = new FakeEngineRunner();
   const cache = new CodegraphStoreCache(join(root, "cache"));
-  const work = join(root, "work");
-  mkdirSync(work);
+  const work = mkdtempSync(join(root, "work-"));
   const adapter = new CodegraphCodeGraphAdapter({
     engine: new CodegraphEngine(engine, undefined, process.execPath),
     git: new SandboxedBinaryRunnerAdapter({ processKill: new ProcessKillAdapter() }),
     ...(opts.cache === false ? {} : { cache }),
     workDir: () => work,
     sandbox: null,
-    scope: { extensions: LanguageRegistry.extensions, manifests: LanguageRegistry.manifests, exclude: [] },
+    scope: { extensions: LanguageRegistry.extensions, manifests: LanguageRegistry.manifests, exclude: opts.exclude ?? [] },
     isTestFile: (f) => LanguageRegistry.isTestFile(f),
   });
   return { root, mirror, sha: git(mirror, "rev-parse", "HEAD"), engine, cache, adapter };
@@ -141,6 +143,34 @@ test("a cached store of another engine version is rebuilt, not reused", async ()
     assert.equal(record.outcome, "built");
     assert.deepEqual(h.engine.calls, ["status", "init", "status"]);
     assert.equal(h.cache.meta("org__shop")?.engineVersion, "1.7.0");
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a cached store built from another workspace scope is rebuilt, not reused", async () => {
+  const h = harness();
+  try {
+    await h.adapter.syncTo(h.mirror, h.sha);
+    const narrower = harness({ root: h.root, mirror: h.mirror, exclude: ["web/src/app/profile/**"] });
+
+    const record = await narrower.adapter.syncTo(h.mirror, h.sha);
+
+    assert.equal(record.outcome, "built");
+    assert.deepEqual(narrower.engine.calls, ["init", "status"]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a failure's reason never names the run's paths", async () => {
+  const h = harness();
+  try {
+    h.engine.fail.init = { exitCode: 1, stdout: "", stderr: `cannot parse {cwd}/web/src/app/x.ts under ${h.mirror}`, timedOut: false };
+    const failed = await h.adapter.syncTo(h.mirror, h.sha);
+    assert.equal(failed.outcome, "failed");
+    assert.match(failed.reason ?? "", /cannot parse \.\/web\/src\/app\/x\.ts under \./);
+    assert.equal((failed.reason ?? "").includes(h.root), false);
   } finally {
     rmSync(h.root, { recursive: true, force: true });
   }
@@ -215,7 +245,7 @@ test("impactedSymbols seeds the symbol around each touched line and walks to the
   }
 });
 
-test("impactedSymbols seeds every top-level symbol of a changed file the diff gave no lines for, and reports a walk the budget cut", async () => {
+test("impactedSymbols seeds every symbol of a changed file the diff gave no lines for, and reports a walk the budget cut", async () => {
   const h = harness();
   try {
     await h.adapter.syncTo(h.mirror, h.sha);
@@ -255,7 +285,6 @@ test("callersOf walks from named symbols across a backend's layers; a name the i
     );
     assert.ok(report.ok);
     assert.deepEqual(report.value.symbols.map((s) => `${s.depth} ${s.symbol}`), [
-      "0 OrderRepository",
       "0 loadAll",
       "1 OrderService",
       "1 findAll",
@@ -320,5 +349,5 @@ test("selectSeeds takes the innermost symbol around a line, and a line between s
   assert.deepEqual(at([10]), ["Cls"]);
   assert.deepEqual(at([22]), []);
   assert.deepEqual(at([4, 26]), ["method", "after"]);
-  assert.deepEqual(selectSeeds(symbols, ["a.ts"], undefined).map((s) => s.symbol), ["Cls", "after"], "no lines: the top-level symbols");
+  assert.deepEqual(selectSeeds(symbols, ["a.ts"], undefined).map((s) => s.symbol), ["Cls", "method", "after"], "no lines: every symbol of the file");
 });

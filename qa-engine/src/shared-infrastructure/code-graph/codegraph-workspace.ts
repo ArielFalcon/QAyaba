@@ -5,8 +5,9 @@
  * honours) or land the store inside the repo. Here the orchestrator lists the commit's tree, keeps the regular files of the
  * declared languages and their manifests, drops the engine's config, every `.gitignore` and whatever the app's config
  * excludes, and checks exactly those paths out into the workspace through a throwaway index, so the mirror's index, HEAD
- * and working tree are untouched. The workspace is root-owned and read-only to the sandbox; only `.codegraph/`, where the
- * engine writes its store, belongs to the sandbox.
+ * and working tree are untouched. The workspace's files are root-owned and read-only to the sandbox; only `.codegraph/`,
+ * where the engine writes its store, belongs to the sandbox. The workspace lies in the run's work dir, which the sandbox
+ * owns, so whoever reads it back checks it is still the directory built here (the store cache's publish does).
  */
 
 import { chmodSync, chownSync, mkdirSync, rmSync, writeFileSync } from "node:fs";

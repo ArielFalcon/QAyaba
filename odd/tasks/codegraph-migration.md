@@ -148,7 +148,7 @@ Branch: the current working branch (single-branch rule, owner 2026-10-12); gover
 | T1 | S16 (baseline), S6 | inline | none | done — `code_graph` bucket; `graph_provided_read_count` persisted, in the contract and in `probe-report` JSON. The labelled sets and the baseline round move to T9 (L25) | `1b21e72b` |
 | T2 | S2 | inline | item 2 (sandbox, egress) + item 5 (pinned binary) — own commit | done — profile, pin (sha512 per arch, checked in the build), docs; `sandbox:smoke` 22 + 5 checks green in the rebuilt image. The arch-rule comment moves to T10 with the plain-runner cleanup | `cf1bdef3` |
 | T3 | S3, S4, S5, S6 | inline | item 2 (file boundary) + item 5 (new cache) | done — workspace export, store cache (lock, validate, publish through the confined reader, cursor in `meta.json`), sidecar retired, primary repo indexed on service runs, onboarding through the same path, provenance as the `qayaba.code_graph.index` span (L26) | `604efe78` |
-| T4 | S7, S8 | inline | item 3 (`CodeGraphPort` consumers) + item 6 | done except parity — port re-backed on the store reader, one walk per change, co-change from git, dead methods and the old adapters removed, `seam-parity` updated; parity (S8) pending, runs offline before T10 (L26) | `604efe78` |
+| T4 | S7, S8 | inline | item 3 (`CodeGraphPort` consumers) + item 6 | done — port re-backed on the store reader, one walk per change, co-change from git, dead methods and the old adapters removed, `seam-parity` updated; parity (S8) run offline from the base commit (L28) | `604efe78` |
 | T5 | S9 | inline | item 6 (only a live run proves a blast radius) | done — both keys (operationId reached; a reached handler whose route serves the link's operation, verb + path, parameters matching and a one-sided prefix tolerated), a changed handler counts (depth 0), the S8 budget; `MATCH_TIER` unchanged; HTTP links carry their contract operation (optional `operation`) | (L27) |
 | T6 | S10, S11, S12 | inline | item 3 (`changeRoutes` consumers: graders, lead review, DOM capture) + item 6 | pending — the reach join in route ranking, basis and proof per page, hub suppression, map/engine disagreement recorded; graders report per basis; metric baseline re-recorded with its reason | |
 | T7 | S13 | inline | item 2 (agent tool surface invariant) — own commit | pending — `explore` replaces the three actions in the domain admission, the proxy adapter and `agents/tool/codegraph.ts`; text cutting at file boundaries; the agent-list fixture re-recorded; a codegraph smoke added next to the `run_spec` and authbrowser smokes | |
@@ -253,3 +253,24 @@ Order: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10
   - **Found, not fixed (pre-existing):** the mutation preset range `src/server/rewritten-engine-factory.ts:558-590` (`scripts/mutate.ts:394`) no longer points at the factory's per-run memo even at HEAD.
   - **Seam for T7 and T8:** `CodeExplorePort.explore(repoDir, terms, maxFiles)` (text answer + index SHA), implemented by the same adapter instance over the run's indexed workspace and passed as `cfg.codeExplore`. T7's tool and T8's dossier consume it; neither reaches the engine or a workspace path.
 - **L27** (2026-10-25) T5 (S9). HTTP links now carry the contract operation they call (`ServiceLink.operation`, optional, set by both HTTP resolvers), which is what the verb + path key needs; the links' rendering and the contract are unchanged. A route matches an operation on the same verb and path segments (any parameter matches any parameter); a prefix on one side only is tolerated when the shorter path keeps a literal segment, so a bare `/{id}` matches nothing. Routes are asked only when a pending link names an operation and the walk reached something. RED observed by disabling the route key (the new describe fails).
+- **L28** (2026-10-25) S8 parity verdict and the verifier's advisories on T3/T4.
+  - **Parity** (scratch script in the orchestrator container; the old adapter loaded from the base commit's sources, the new port from the branch; 6 non-merge commits per repo with at least one changed source file):
+    - name-webapp (TS front, 16 764 nodes, first build 11.8 s): the old engine answered **0 symbols on all 6 commits**; the new port answered 1-300 symbols (two commits hit the 300-symbol budget and report `truncated`).
+    - ms-name-restaurants (Java, 4 678 nodes, first build 1.6 s): the old engine answered on 4 of 6 commits (6-120 symbols, 3-36 files) and nothing on 2; the new port answered on all 6 (5-54 symbols with touched lines). File overlap on the commits both answered: 1-6 files. Symbol names never matched (the old engine named qualified symbols), so overlap is judged by file. The old answer was larger because it also walked **outbound** (the callees of the changed code); the new walk is inbound only, which is what S7 specifies (what reaches the change is what a test of it exercises).
+    - Queries take 50-360 ms.
+    - The new whole-file mode (a changed file without touched lines) seeded only the top-level symbols, so a changed class reached only the users of the class. It now seeds every symbol of the file, so a method's callers are reached too.
+    - Verdict: the new port answers at least where the old one did, and also on the TS front, where the old one never answered. S8 holds.
+  - **Verifier advisories on `604efe78` + `cb26b830`** (no blockers):
+    - Applied:
+      - **(1) Workspace identity.** The workspace lies in the run's work dir, which the sandbox owns. Publish now refuses a workspace whose directory is not the one built after the export (lstat dev/ino, no link). The header no longer claims the workspace root is root-owned.
+      - **(3) Lifted containers.** A container lifted at depth 0 from a changed member is dropped from the answer, so it is no longer reported as changed.
+      - **(5) Purge.** A purge removes `data/code-graph/<app>`.
+      - **(6) Scope digest.** The cache metadata records a digest of the workspace scope, and a store of another scope is rebuilt.
+      - **(7) Reasons.** Reasons name neither the workspace nor the mirror path and are capped at 400 characters.
+      - **(8) Onboarding runId.** The onboarding runId no longer embeds the repo name.
+    - Recorded, by design:
+      - **(4) Module-level constants.** They seed nothing; a line outside every symbol seeds nothing.
+      - The walk's `maxNodes` budget is also spent on the test and route nodes it then drops; the budget is a cost bound, not an answer size.
+    - Separate governance commit:
+      - **(2)** The new security-critical files join `src/server/merge-guard.ts`'s protected list.
+

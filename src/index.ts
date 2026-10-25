@@ -546,6 +546,7 @@ const appAdminDeps: AppAdminDeps = {
   deleteHistory: (app) => deleteAppHistory(app),
   deleteAuthMaterial: (app) => rmSync(appAuthDir(ROOT, app), { recursive: true, force: true }),
   deleteSuiteStore: (app) => deleteSuiteStoreDir(appSuiteStoreDir(ROOT, app)),
+  deleteCodeGraphCache: (app) => rmSync(join(qayabaDataDir(), "code-graph", app), { recursive: true, force: true }),
   applyEnv: (vars) => applyEnvVars(vars, { fs: defaultEnvStoreFs(), env: process.env }),
   loadApp: (name) => loadAppConfig(name),
   readConfig: (name) => readFileSync(join(ROOT, "config", "apps", `${name}.yaml`), "utf8"),
@@ -599,7 +600,7 @@ async function indexRepoForOnboarding(repo: string, mirrorDir: string, app: stri
     } catch {
       /* Not configured yet: the declared languages alone. */
     }
-    const record = await onboardingExec.scoped({ runId: `onboard-index-${repo.replaceAll("/", "__")}-${Date.now()}` }, () =>
+    const record = await onboardingExec.scoped({ runId: `onboard-index-${Date.now()}` }, () =>
       buildCodeGraph({ exec: onboardingExec.exec, git: onboardingGit, dataDir: qayabaDataDir(), appName: app, sandbox: onboardingSandbox, exclude }).syncTo(mirrorDir, sha),
     );
     if (record.outcome === "failed" || record.outcome === "timeout" || record.outcome === "skipped") {

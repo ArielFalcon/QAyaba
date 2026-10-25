@@ -10,7 +10,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { chownSync, closeSync, constants, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chownSync, closeSync, constants, copyFileSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readOwnedSpecFile } from "../spec-path-confinement.ts";
 import type { Sandbox } from "../process-sandbox/sandbox.ts";
@@ -19,6 +19,8 @@ import { STORE_DIR } from "./codegraph-workspace.ts";
 export interface StoreMeta {
   engine: string;
   engineVersion: string;
+  /* A digest of the workspace scope (extensions, manifests, exclusions) the store was built from. */
+  scope: string;
   /* The commit the store was built at: the run's SHA when it was published. */
   sha: string;
   nodeCount: number;
@@ -86,7 +88,7 @@ export class CodegraphStoreCache {
     if (!existsSync(join(this.dirOf(repoKey), STORE_FILE)) || !existsSync(path)) return undefined;
     try {
       const m = JSON.parse(readFileSync(path, "utf8")) as Partial<StoreMeta>;
-      if (typeof m.engine !== "string" || typeof m.engineVersion !== "string" || typeof m.sha !== "string") return undefined;
+      if (typeof m.engine !== "string" || typeof m.engineVersion !== "string" || typeof m.scope !== "string" || typeof m.sha !== "string") return undefined;
       return m as StoreMeta;
     } catch {
       return undefined;
@@ -105,10 +107,19 @@ export class CodegraphStoreCache {
 
   /*
    * Publishes the workspace's store. The store was written by the sandbox uid, so it is read like any file the sandbox can
-   * plant: no link, no pipe, a regular file of bounded size (the confined reader). A store whose write-ahead log is still
-   * beside it is not complete on its own and is refused.
+   * plant: no link, no pipe, a regular file of bounded size (the confined reader). The workspace itself lies in a directory
+   * the sandbox owns, so it must still be the directory the orchestrator built (`identity`, taken right after the export):
+   * a link or a replacement in its place is refused. A store whose write-ahead log is still beside it is not complete on
+   * its own and is refused.
    */
-  publish(repoKey: string, workspace: string, meta: StoreMeta): { published: true } | { published: false; reason: string } {
+  publish(repoKey: string, workspace: string, identity: { dev: number; ino: number }, meta: StoreMeta): { published: true } | { published: false; reason: string } {
+    let now;
+    try {
+      now = lstatSync(workspace);
+    } catch {
+      return { published: false, reason: "the workspace is gone" };
+    }
+    if (!now.isDirectory() || now.dev !== identity.dev || now.ino !== identity.ino) return { published: false, reason: "the workspace was replaced" };
     const root = { mirrorDir: workspace, specDir: join(workspace, STORE_DIR) };
     if (existsSync(join(workspace, STORE_DIR, `${STORE_FILE}-wal`))) return { published: false, reason: "the store still has a write-ahead log" };
     const read = readOwnedSpecFile(root, STORE_FILE, MAX_STORE_BYTES);
