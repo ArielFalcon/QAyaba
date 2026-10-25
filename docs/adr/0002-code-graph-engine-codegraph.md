@@ -3,7 +3,7 @@
 - **Status:** Proposed — gated by the spike in `odd/tasks/codegraph-migration.md` (S1/T0)
 - **Date:** 2026-10-25 (revised the same day after an architecture review; plan Log L16-L19)
 - **Deciders:** qayaba maintainers
-- **Supersedes:** the engine choice behind ADR-0001's `service-links` and structural-signal rows, and the phase-2/3/4 codebase-memory design in `docs/superpowers/qa-engine-codebase-memory-integration.md`. It does not supersede ADR-0001's measurement model; it uses it for acceptance.
+- **Supersedes:** the earlier engine choice for `service-links` and the structural signal (codebase-memory), which git history keeps. It keeps the grounding-telemetry measurement model of `docs/observability-design.md` and uses it for acceptance.
 - **Related:** `odd/tasks/codegraph-migration.md` (the executable plan), `qa-engine/src/shared-kernel/ports/code-graph.port.ts`, `qa-engine/src/shared-infrastructure/code-graph/`, `qa-engine/src/contexts/service-topology/`, `qa-engine/src/contexts/generation/domain/route-ranking.ts`, `qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/code-graph-tools-port.adapter.ts`, `docs/agent-reference.md`, `docs/execution-sandbox.md`
 
 ## 1. Context
@@ -264,7 +264,7 @@ A throwaway spike under the real constraints answers six questions before any pr
 - **Change pages reach backend and non-map changes for single-repo and multi-repo apps alike.** DOM capture, the lead's plan, the lead review and the graders all inherit this.
 - **Tier 2 also matches hand-written controllers and a changed handler.** Today it matches only codegen naming and drops the changed methods themselves.
 - **The lead's graph surface goes from three actions to one.** Its benefit no longer depends on a model choosing a tool.
-- **Index freshness is recorded per run** (ADR-0001's `lastIndexedSha`, `context_fresh`).
+- **Index freshness is recorded per run** (`lastIndexedSha`, `context_fresh`; see `docs/observability-design.md`).
 
 **Negative**
 - **A larger artifact enters the image:** a ~50 MB bundle with its own Node runtime, pinned per arch with its integrity hash and provenance. It replaces a small Go binary.

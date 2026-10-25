@@ -1,5 +1,5 @@
 /*
- * Where a grounding source came from and how fresh it was (docs/adr/0001-grounding-telemetry-quality.md D5).
+ * Where a grounding source came from and how fresh it was (docs/observability-design.md).
  * Spans carry the fields; metrics use only the closed `source`/`reason`/`outcome` labels, never a path or a sha.
  */
 
