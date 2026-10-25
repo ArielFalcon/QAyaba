@@ -13,7 +13,7 @@ import { dirname, join } from "node:path";
 import { qayabaDataDir } from "../paths";
 import { mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { RunRecord, RunMode, TestTarget, QaCase, RunVerdict, SpecRecord, RunOutcome, AgentActivity, PLANNER_OBJECTIVE } from "../types";
+import { RunRecord, RunMode, TestTarget, QaCase, RunVerdict, SpecRecord, RunOutcome, AgentActivity } from "../types";
 import { applyOutcome as foldApplyOutcome } from "@contexts/cross-run-learning/domain/rule-fold";
 import { type LearningRule, type RuleUpsert, type Confidence, type RuleStatus } from "../qa/learning/learning-rule";
 import type { ErrorClass } from "../qa/learning/taxonomy";
@@ -2423,8 +2423,7 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
     (r) =>
       (r.role as string).includes("generator") &&
       (r.round as number) === 0 &&
-      !r.is_repair &&
-      (r.objective as string | null) !== PLANNER_OBJECTIVE,
+      !r.is_repair,
   );
   const groundedCount = generatorFirstRounds.filter(
     (r) => typeof r.prompt_text === "string" && (r.prompt_text as string).includes("## Context Pack"),

@@ -473,19 +473,6 @@ export async function askAssistant(
  * Shared with CodexRuntimeStrategy so both providers use one per-role budget.
  */
 export const REVIEWER_TIMEOUT_MS = Number(process.env.OPENCODE_REVIEWER_TIMEOUT_MS) || 6 * 60 * 1000;
-/*
- * The fan-out planner for a SCOPED mode (diff/manual — one commit or one guidance string) derives
- * objectives from the code; it must NOT navigate, so it needs nowhere near the generator's
- * per-mode budget. Bound it with its OWN deadline: it reads OPENCODE_PLANNER_TIMEOUT_MS, NOT the global
- * OPENCODE_TIMEOUT_MS override (which, set to e.g. 900s, would otherwise let a misbehaving planner
- * consume the generator's whole window — the hang that produced 0 specs). Applied to diff/manual
- * only widens+plans a single scope, and reverting it to the 5–10 min generator budget would re-open the
- * hang on exactly the large monorepos this targets. 240s proved enough there. It is folded into the
- * dispatcher Math.max below.
- * complete/exhaustive (whole-repo analysis, no scope) keep the per-mode generator budget.
- */
-const PLANNER_TIMEOUT_MS = Number(process.env.OPENCODE_PLANNER_TIMEOUT_MS) || 240 * 1000;
-
 
 const TIMEOUT_BY_MODE: Record<RunMode, number> = {
   diff: 5 * 60 * 1000,
@@ -710,14 +697,13 @@ export function answeredFrom(info: { modelID?: unknown; providerID?: unknown; fi
  * The longest a single prompt may run: the deadline of the agent transport, and so the ceiling for any
  * per-turn bound a caller sets (a bound above it could never fire). The undici transport timeout must
  * exceed EVERY per-prompt withTimeout, or it aborts the request before our own deadline fires. The
- * reviewer and the planner each have their OWN budget (REVIEWER_TIMEOUT_MS,
- * PLANNER_TIMEOUT_MS) independent of the generator's; if an operator sets a small
- * OPENCODE_TIMEOUT_MS (or raises a per-role one) it must NOT drag the transport below any of them.
+ * reviewer has its OWN budget (REVIEWER_TIMEOUT_MS) independent of the generator's; if an operator sets a small
+ * OPENCODE_TIMEOUT_MS (or raises a per-role one) it must NOT drag the transport below either of them.
  * Take the max + headroom.
  */
 export function agentPromptCapMs(): number {
   const generatorMax = Number(process.env.OPENCODE_TIMEOUT_MS) || MAX_AGENT_TIMEOUT_MS;
-  return Math.max(generatorMax, REVIEWER_TIMEOUT_MS, PLANNER_TIMEOUT_MS) + 30_000;
+  return Math.max(generatorMax, REVIEWER_TIMEOUT_MS) + 30_000;
 }
 
 export async function defaultAgentDeps(): Promise<AgentDeps> {

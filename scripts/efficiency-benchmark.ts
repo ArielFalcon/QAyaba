@@ -27,7 +27,7 @@ import { DIFF_TIER_NAMES, type DiffTier } from "@contexts/generation/domain/diff
 import { CALL_BUCKETS } from "@contexts/generation/domain/tool-call-taxonomy.ts";
 import { delegateRun } from "../src/server/run-delegate.ts";
 import { discoverApiToken } from "../src/server/api-token.ts";
-import { PLANNER_OBJECTIVE, type RunOutcome, type RunRecord } from "../src/types.ts";
+import { type RunOutcome, type RunRecord } from "../src/types.ts";
 import type { AgentTurnRecord } from "../src/server/history.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -294,7 +294,7 @@ export interface TurnMeasurement {
 export interface SessionCounts {
   /** Every role's sessions. */
   total: number;
-  /** The generator's own (main and repair turns; not the planner's objective turn). */
+  /** The generator's own (main and repair turns). */
   generator: number;
 }
 
@@ -349,9 +349,9 @@ function executePass(record: RunRecord | undefined): boolean | null {
   return passed > 0 && failed === 0;
 }
 
-/* The generator's own turns, main and repair: not the planner's objective turn and not another role's. */
+/* The generator's own turns, main and repair: not another role's. */
 function generatorTurnsOf(turns: AgentTurnRecord[]): AgentTurnRecord[] {
-  return turns.filter((t) => t.role.includes("generator") && t.objective !== PLANNER_OBJECTIVE);
+  return turns.filter((t) => t.role.includes("generator"));
 }
 
 function turnMeasurement(t: AgentTurnRecord): TurnMeasurement {
@@ -381,7 +381,7 @@ function sessionCounts(turns: AgentTurnRecord[], generatorTurns: AgentTurnRecord
 
 /*
  * Whether the generator hit its step limit: the exhaustion the transport persisted for every one of its
- * turns (main and repair; the planner's objective turn is not the generator's). One exhausted turn makes
+ * turns (main and repair). One exhausted turn makes
  * the run exhausted; the run is known not to be only when every turn is known not to be, and any unknown
  * turn leaves it unknown.
  */

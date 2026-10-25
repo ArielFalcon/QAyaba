@@ -17,7 +17,7 @@ import {
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import type { RunEventBody } from "@kernel/contract/events.ts";
 import { DIFF_TIER_NAMES } from "@contexts/generation/domain/diff-stat.ts";
-import { PLANNER_OBJECTIVE, type RunOutcome, type RunRecord } from "../src/types.ts";
+import { type RunOutcome, type RunRecord } from "../src/types.ts";
 import type { AgentTurnRecord } from "../src/server/history.ts";
 
 const activity = (callId: string, kind: "analyzing" | "writing" | "command" | "subagent"): RunEventBody => ({
@@ -156,8 +156,7 @@ test("exhaustion is read from what was persisted, never re-derived from the turn
   assert.equal(exhaustedOf(generatorTurn("all done", { exhausted: true })), true);
 });
 
-test("the planner's turn and other roles' turns do not count towards the generator's exhaustion", () => {
-  assert.equal(exhaustedOf(withExhausted(true, { objective: PLANNER_OBJECTIVE }), withExhausted(false)), false);
+test("other roles' turns do not count towards the generator's exhaustion", () => {
   assert.equal(exhaustedOf(withExhausted(true, { role: "qa-sidekick" }), withExhausted(false)), false);
 });
 
@@ -467,11 +466,10 @@ test("a run's sessions are the distinct sessions that recorded a turn: in total,
     inSession("gen-1", { round: 1, isRepair: true }),
     inSession("gen-2"),
     inSession("rev-1", { role: "qa-reviewer" }),
-    inSession("plan-1", { objective: PLANNER_OBJECTIVE }),
   ];
   const measured = measureRun("run-1", source({ turns }))!;
-  assert.equal(measured.sessions?.total, 4, "gen-1, gen-2, rev-1 and plan-1; a repair turn shares its session");
-  assert.equal(measured.sessions?.generator, 2, "gen-1 and gen-2: the planner's objective turn is not the generator's");
+  assert.equal(measured.sessions?.total, 3, "gen-1, gen-2 and rev-1; a repair turn shares its session");
+  assert.equal(measured.sessions?.generator, 2, "gen-1 and gen-2: the reviewer's session is not the generator's");
 });
 
 test("a run in a single session has one session, and a run with no generator turn has none for the generator", () => {
@@ -489,10 +487,9 @@ test("a run with no recorded turn has unknown sessions, never zero", () => {
   assert.equal("sessions" in measured, false);
 });
 
-test("only the generator's own turns are measured: not the planner's objective turn and not another role's", () => {
-  const planner = measuredTurn(0, { objective: PLANNER_OBJECTIVE });
+test("only the generator's own turns are measured, not another role's", () => {
   const reviewer = measuredTurn(0, { role: "qa-reviewer" });
-  const measured = measureRun("run-1", source({ turns: [planner, reviewer, measuredTurn(2)] }))!;
+  const measured = measureRun("run-1", source({ turns: [reviewer, measuredTurn(2)] }))!;
   assert.deepEqual(measured.turns?.map((t) => t.round), [2]);
 });
 
