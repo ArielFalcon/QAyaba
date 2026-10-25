@@ -1,5 +1,4 @@
-/* Composition root: the only qa-engine module allowed to import concrete adapters from sibling contexts (arch-lint VCS-write gate). Wires qa-run-orchestration ports to real adapters.
-buildShadow always uses this engine with shadow-log publication and in-memory history — zero side effects on the watched repo or production history. */
+/* Composition root: the only qa-engine module allowed to import concrete adapters from sibling contexts (arch-lint VCS-write gate). Wires qa-run-orchestration ports to real adapters. A shadow composition (cfg.shadow) publishes to the shadow log: no PR or Issue is opened on the watched repo. */
 
 import { join, relative, sep } from "node:path";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
@@ -299,7 +298,7 @@ export interface CompositionConfig {
   assembleChangeCoverage?: (diff: string, report: Awaited<ReturnType<CoverageCollectorPort["collect"]>>) => ChangeCoverage;
   baselineCases?: string[];
 
-  /* PublicationPort collaborators (production path only — buildShadow always overrides these with the shadow-log path, per the security-boundary note in publication-port.adapter.ts). */
+  /* PublicationPort collaborators (unused when cfg.shadow is true, which routes publication to the shadow log, per the security-boundary note in publication-port.adapter.ts). */
   githubPr: GitHubPrCollaborator;
   githubIssue: GitHubIssueCollaborator;
   /* Git write for the "pr" route only. Optional at the type so issue/shadow compositions need not wire it; an actual "pr" route without it throws (fail-closed) rather than opening a PR against an unpushed branch. */
@@ -345,7 +344,7 @@ export interface CompositionConfig {
   deployGateIntervalMs?: number;
   deployGateTimeoutMs?: number;
 
-  /* RunHistoryPort collaborator — buildProduction prefers a durable FileRunHistoryAdapter when a path is given (falls back to in-memory otherwise); buildShadow ALWAYS forces in-memory regardless of this field (no side effect on the real history store during a shadow run). */
+  /* RunHistoryPort collaborator — buildProduction prefers a durable FileRunHistoryAdapter when a path is given (falls back to in-memory otherwise). */
   historyFilePath?: string;
 
   runHistory?: RunHistoryPort;
@@ -373,7 +372,7 @@ function stagedRootsOf(workingCopyDir: string, e2eDir: string, stagedDir: string
   return [...new Set(roots)];
 }
 
-/* adapters from a CompositionConfig. buildShadow reuses this and swaps publication + runHistory. */
+/* The adapters wired from a CompositionConfig. */
 
 export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDeps, "publication" | "runHistory"> & {
   publication: RunPipelineAdapterDeps["publication"];
@@ -761,10 +760,4 @@ function recordedReviewerIndependence(cfg: CompositionConfig): { reviewerIndepen
 
 export function buildProduction(cfg: CompositionConfig): RunPipelinePort {
   return new RunPipelineAdapter(wireAdapters(cfg));
-}
-
-export function buildShadow(cfg: CompositionConfig): RunPipelinePort {
-  /* Strip historyFilePath and any runHistory override — a shadow run must never reach the durable store. */
-  const shadowCfg: CompositionConfig = { ...cfg, shadow: true, historyFilePath: undefined, runHistory: undefined };
-  return new RunPipelineAdapter(wireAdapters(shadowCfg));
 }

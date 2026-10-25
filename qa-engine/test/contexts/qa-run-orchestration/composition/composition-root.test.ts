@@ -1,6 +1,6 @@
 /* buildProduction wires the run pipeline from the composition config alone.
-   buildShadow(cfg) always wires the engine with the SHADOW publication path (no PR/Issue side
-   effect) and a read-only history snapshot (no persistence to a real store). This suite supplies
+   A shadow composition (cfg.shadow) wires the SHADOW publication path (no PR/Issue side
+   effect). This suite supplies
    fake collaborators (repo/mirror/coverage/etc.) rather than booting real git/Playwright/Stryker —
    the composition root's job under test is "does it wire the ports to the right adapter classes",
    not "does a real QA run pass end-to-end".
@@ -9,7 +9,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildProduction,
-  buildShadow,
   wireAdapters,
   type CompositionConfig,
 } from "@contexts/qa-run-orchestration/composition/composition-root.ts";
@@ -117,7 +116,7 @@ function fakeConfig(overrides: Partial<CompositionConfig> = {}): CompositionConf
     historyFilePath: "/tmp/qa-run-history.jsonl",
     /* PublicationPortAdapter's sanitize collaborator is now REQUIRED
        (constructor throws if absent — fail-closed publication default). This fake config's ONE base
-       object feeds every buildProduction/buildShadow call in this file, so wiring an identity
+       object feeds every buildProduction call in this file, so wiring an identity
        sanitizer here once satisfies the constructor guard everywhere without touching the 68 call
        sites individually — this suite's own job (composition wiring) does not exercise sanitization
        content, so identity is the correct fake here.
@@ -345,14 +344,9 @@ test("buildProduction omits contextMapCapture entirely when cfg.contextMapCaptur
   assert.equal(outcome.verdict, "pass");
 });
 
-/* ── buildShadow: always the run engine, shadow-log publication, no side effects ──────────────────── */
+/* ── Shadow mode (cfg.shadow): shadow-log publication, no PR or Issue side effect ──────────────────── */
 
-test("buildShadow always returns a RunPipelineAdapter", () => {
-  const port = buildShadow(fakeConfig());
-  assert.ok(port instanceof RunPipelineAdapter);
-});
-
-test("buildShadow wires the shadow-log publication path — no PR/Issue collaborator is ever invoked", async () => {
+test("a shadow composition publishes to the shadow log — no PR/Issue collaborator is ever invoked", async () => {
   let prCalled = false;
   let issueCalled = false;
   const cfg = fakeConfig({
@@ -370,7 +364,7 @@ test("buildShadow wires the shadow-log publication path — no PR/Issue collabor
     },
   });
 
-  const port = buildShadow(cfg);
+  const port = buildProduction({ ...cfg, shadow: true });
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
@@ -383,27 +377,6 @@ test("buildShadow wires the shadow-log publication path — no PR/Issue collabor
   assert.equal(outcome.verdict, "pass");
   assert.equal(prCalled, false);
   assert.equal(issueCalled, false);
-});
-
-test("buildShadow reads a pre-run history snapshot (read-only) — never persists via a durable store", async () => {
-  /* A history-write spy plugged in as the historyFilePath-backed collaborator would only be reachable
-     if buildShadow used FileRunHistoryAdapter — it must use InMemoryRunHistoryAdapter instead so no
-     real file is ever touched. Passing a deliberately-unwritable path proves this: if buildShadow
-     wired FileRunHistoryAdapter, the run() would throw on the disallowed write; it must not.
-   */
-  const cfg = fakeConfig({ historyFilePath: "/nonexistent/dir/that/does/not/exist/history.jsonl" });
-  const port = buildShadow(cfg);
-
-  const outcome = await port.run({
-    app: "app",
-    sha: Sha.of("abc1234"),
-    source: "manual",
-    mode: "diff",
-    target: "e2e",
-    runId: "composition-root-shadow-history",
-  });
-
-  assert.equal(outcome.verdict, "pass");
 });
 
 test("buildProduction selects NullDeployGateAdapter when versionUrl is absent (static/code target)", async () => {
@@ -761,7 +734,7 @@ test("wireAdapters hardcodes needsReview:false into the generation ctx even when
       },
     },
   });
-  const port = buildShadow(cfg);
+  const port = buildProduction(cfg);
   await port.run({
     app: "app",
     sha: Sha.of("abc1234"),

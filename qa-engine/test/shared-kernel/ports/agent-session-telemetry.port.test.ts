@@ -7,7 +7,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AgentSession, AgentTurnEvent } from "@kernel/ports/agent-runtime.port.ts";
-import type { TurnTelemetrySink } from "@contexts/agent-runtime/application/ports/index.ts";
+
+/* The shape of a sink that records the turn events a session surfaces. */
+interface TurnTelemetrySink {
+  record(event: AgentTurnEvent): void;
+}
 
 test("AgentSession.prompt forwards the per-call telemetry/repair opts verbatim", async () => {
   /* The session echoes the received opts so the test proves they reached prompt() unchanged — a

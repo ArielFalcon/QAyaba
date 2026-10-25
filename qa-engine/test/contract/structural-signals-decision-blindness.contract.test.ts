@@ -27,7 +27,6 @@ const DECISION_PATH_FILES = [
   "src/contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts",
   "src/contexts/qa-run-orchestration/domain/helpers/progress-gate.ts",
   "src/contexts/test-execution/infrastructure/static-gate.adapter.ts",
-  "src/contexts/generation/infrastructure/catalog-gate.ts",
   "src/contexts/generation/infrastructure/verdict-parser.adapter.ts",
 ];
 
