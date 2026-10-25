@@ -227,11 +227,11 @@ test("toCoordinationSignals with an empty ledger reports unmeasured, not zero-pa
 
 const line = (o: Record<string, unknown>) => JSON.stringify(o);
 
-test("parseCoordinationLedger keeps router and pushback events", () => {
+test("a ledger line with the lead-decision kind is returned, with the pushback kind beside it", () => {
   const { events } = parseCoordinationLedger(
-    [line({ runId: "r1", kind: "router", reason: "route", at: 1 }), line({ runId: "r1", kind: "pushback", reason: "out of scope", at: 2 })].join("\n"),
+    [line({ runId: "r1", kind: "lead-decision", reason: "route", at: 1 }), line({ runId: "r1", kind: "pushback", reason: "out of scope", at: 2 })].join("\n"),
   );
-  assert.deepEqual(events.map((e) => e.kind), ["router", "pushback"]);
+  assert.deepEqual(events.map((e) => e.kind), ["lead-decision", "pushback"]);
 });
 
 test("parseCoordinationLedger drops a line whose runId, reason or at has the wrong type", () => {

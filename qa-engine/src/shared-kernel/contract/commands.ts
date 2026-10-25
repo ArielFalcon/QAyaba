@@ -836,7 +836,7 @@ export type SignalsView = z.infer<typeof SignalsViewSchema>;
 
 export const CoordinationEventSchema = z.object({
   runId: z.string(),
-  kind: z.enum(["proposal", "delegation", "escalation", "router", "pushback", "outcome"]),
+  kind: z.enum(["proposal", "delegation", "escalation", "lead-decision", "pushback", "outcome"]),
   action: z.string().optional(),
   capability: z.string().optional(),
   reason: z.string(),

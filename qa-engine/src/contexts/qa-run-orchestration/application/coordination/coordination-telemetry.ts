@@ -5,14 +5,14 @@ which wraps CoordinationTelemetryRecorder below and implements the SAME Coordina
 import type { AgentCapability } from "./agent-capability.ts";
 import type { CoordinationAction } from "./coordination-decision.ts";
 
-/* The actions a router event names: a lead takeover, a sidekick's escalation, a stop for a human; ledger lines recorded earlier also hold the retired router's accept, retry-sidekick and continue-fix-loop. */
-export type RouterEventAction = "accept" | "retry-sidekick" | "escalate-sidekick" | "lead-takeover" | "abort-human" | "continue-fix-loop";
+/* The actions an event of the lead names: a lead takeover, a sidekick's escalation, a stop for a human; ledger lines recorded earlier also hold accept, retry-sidekick and continue-fix-loop. */
+export type LeadDecisionAction = "accept" | "retry-sidekick" | "escalate-sidekick" | "lead-takeover" | "abort-human" | "continue-fix-loop";
 
 export type CoordinationTelemetryKind =
   | "proposal"
   | "delegation"
   | "escalation"
-  | "router"
+  | "lead-decision"
   | "pushback"
   | "outcome";
 
@@ -22,7 +22,7 @@ export interface CoordinationTelemetryEvent {
   readonly app?: string;
 
   readonly kind: CoordinationTelemetryKind;
-  readonly action?: CoordinationAction | RouterEventAction;
+  readonly action?: CoordinationAction | LeadDecisionAction;
   readonly capability?: AgentCapability;
   readonly reason: string;
   readonly durationMs?: number;

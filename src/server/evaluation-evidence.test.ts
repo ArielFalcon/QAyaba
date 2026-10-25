@@ -291,7 +291,7 @@ test("a delegation event that recorded the sidekick's status is read back with i
         span("qayaba.coordination.event", { "qayaba.coordination.kind": "delegation", "qayaba.delegation.id": "run-1-flow-cart", "qayaba.coordination.attempt": 1, "qayaba.delegation.status": "failed", "qayaba.delegation.last_run_spec": "passed" }, "a"),
         span("qayaba.coordination.event", { "qayaba.coordination.kind": "delegation", "qayaba.delegation.id": "run-1-flow-menu", "qayaba.delegation.status": "completed" }, "b"),
         span("qayaba.coordination.event", { "qayaba.coordination.kind": "delegation", "qayaba.delegation.id": "run-1-flow-old" }, "c"),
-        span("qayaba.coordination.event", { "qayaba.coordination.kind": "router", "qayaba.delegation.status": "failed" }, "d"),
+        span("qayaba.coordination.event", { "qayaba.coordination.kind": "lead-decision", "qayaba.delegation.status": "failed" }, "d"),
       ],
     }),
   ).load("run-1"))!;

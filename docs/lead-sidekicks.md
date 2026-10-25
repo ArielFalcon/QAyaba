@@ -43,7 +43,7 @@ signed-in app (see below); without either, they stay out and the lead authors al
    duplicates and more than `maxFlows`. A plan that cannot be admitted, or that names one flow, hands the change
    back to the lead as one piece of work with the reason recorded (`downgrade`). The change pages that plan left
    unvisited (all of them when it named no flow, those its only flow does not name when it named one) are recorded as a
-   router event and stated in the lead's authoring turn (`unvisitedChangePages`, section `change-pages`): it covers each
+   `lead-decision` event and stated in the lead's authoring turn (`unvisitedChangePages`, section `change-pages`): it covers each
    one whose behaviour the change alters or says in its verdict why it needs no test.
 3. **Author.** Each sidekick's brief carries the Live DOM of its flow's pages (by address, or by the map template a
    page was opened from), cut from the run's Context Pack and bounded; a flow whose pages the pack did not read gets
@@ -64,7 +64,7 @@ If nothing could be coordinated (no plan, no time, nobody to author with) the le
 The planning turn sees the whole change even when it is large: the diff keeps every whole file section that fits the prompt
 cap, code before style sheets, and lists each file it leaves out with the lines it adds and removes. It is told the pages
 of the app's map the change is linked to and asked to give a flow to each page whose behaviour the change alters; the
-pages no admitted flow visits are recorded as a `router` event. The Context Pack captures as many of those pages as the
+pages no admitted flow visits are recorded as a `lead-decision` event. The Context Pack captures as many of those pages as the
 change is linked to, up to `MAX_ROUTES_PER_CHANGE`.
 
 ## What a sidekick may author with
@@ -131,7 +131,7 @@ Every revision carries the orchestrator's facts beside the lead's instruction. A
 why (the change needs no test of its own) is a declined flow, not a failure. When every flow comes back empty and time
 remains, the lead takes over the whole change as one piece of work (`takeover` in the signal). The review is counted in
 `gateSignals.coordination.review { turns, accepted, revised, replaced, dropped, refused }` and each decision is a
-`router` event of the coordination telemetry.
+`lead-decision` event of the coordination telemetry.
 
 A `run_spec` call keeps the facts of each failing test in the ledger (`failures`: its error, redacted and bounded; the
 page it ended on, by pathname; the results the app's declared data state showed there; the server status; the runtime

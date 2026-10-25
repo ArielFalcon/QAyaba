@@ -538,26 +538,26 @@ export class LeadSidekicks {
         /* The run's own time spent ends the run; any other failure of the lead's turn leaves the flows as they are. */
         if (isRunDeadlineError(err)) throw err;
         tally.turns += 1;
-        this.record(input, { kind: "router", reason: `review turn ${turn}: the lead's turn failed (${err instanceof Error ? err.message : String(err)}); the flows stand as they are` });
+        this.record(input, { kind: "lead-decision", reason: `review turn ${turn}: the lead's turn failed (${err instanceof Error ? err.message : String(err)}); the flows stand as they are` });
         break;
       }
       tally.turns += 1;
       if (answer.timedOut) {
-        this.record(input, { kind: "router", reason: `review turn ${turn}: the lead ran out of its time; the flows stand as they are` });
+        this.record(input, { kind: "lead-decision", reason: `review turn ${turn}: the lead ran out of its time; the flows stand as they are` });
         break;
       }
       const admission = admitLeadReview(answer.output, underReview, { revisionsAllowed: turn < MAX_REVIEW_TURNS });
       if (!admission.readable) {
-        this.record(input, { kind: "router", reason: `review turn ${turn}: the lead's answer could not be read; the flows stand as they are` });
+        this.record(input, { kind: "lead-decision", reason: `review turn ${turn}: the lead's answer could not be read; the flows stand as they are` });
         break;
       }
       tally.accepted += admission.accepted.length;
       tally.refused += admission.refused.length;
-      for (const r of admission.refused) this.record(input, { kind: "router", reason: `review turn ${turn}: flow ${r.flowId} ${r.action} not taken: ${r.reason}` });
+      for (const r of admission.refused) this.record(input, { kind: "lead-decision", reason: `review turn ${turn}: flow ${r.flowId} ${r.action} not taken: ${r.reason}` });
       for (const d of admission.dropped) {
         tally.dropped += 1;
         reports.set(d.flowId, { outcome: { id: d.flowId, kind: FLOW_OUTCOME.DECLINED, reason: `dropped by the lead: ${d.reason}` }, proposals: undefined });
-        this.record(input, { kind: "router", reason: `review turn ${turn}: flow ${d.flowId} dropped: ${d.reason}` });
+        this.record(input, { kind: "lead-decision", reason: `review turn ${turn}: flow ${d.flowId} dropped: ${d.reason}` });
       }
       const orders = admission.orders.filter((o) => live.has(o.flowId));
       if (orders.length === 0) break;
@@ -570,7 +570,7 @@ export class LeadSidekicks {
       for (const order of orders) {
         if (order.action === REVIEW_ACTION.REVISE) tally.revised += 1;
         else tally.replaced += 1;
-        this.record(input, { kind: "router", reason: `review turn ${turn}: flow ${order.flowId} ${order.action}`, delegationId: live.get(order.flowId)!.delegationId });
+        this.record(input, { kind: "lead-decision", reason: `review turn ${turn}: flow ${order.flowId} ${order.action}`, delegationId: live.get(order.flowId)!.delegationId });
       }
       const results = await this.dispatcher.run(slots, { maxParallel: parallel, ...(input.signal ? { signal: input.signal } : {}) }, (slot, signal) => this.revise(live.get(slot.flowId)!, slot, slot.budgetMs, context, signal));
       await this.settle(results, live, reports);
@@ -659,7 +659,7 @@ export class LeadSidekicks {
   private async correct(lead: LeadSessionHandle, flows: AdmittedFlow[], parallel: number, context: FlowContext, live: Map<string, LiveFlow>, findings: readonly CorrectionFinding[], origin: CorrectionOrigin, tally: CorrectionTally, state: { released: boolean }): Promise<PassCorrection> {
     const { input } = context;
     const nothing = (why: string): PassCorrection => {
-      this.record(input, { kind: "router", reason: `correction (${origin}): ${why}; the findings stand` });
+      this.record(input, { kind: "lead-decision", reason: `correction (${origin}): ${why}; the findings stand` });
       return { readable: false, specs: [], rebuttals: [], unrouted: findings.map((_, i) => i) };
     };
     if (state.released) return nothing("the pass was released");
@@ -673,29 +673,29 @@ export class LeadSidekicks {
     let output = "";
     try {
       const answer = await lead.ask(renderLeadCorrection(under, findings, origin), { timeoutMs: Math.min(input.settings.planBudgetMs, room ?? input.settings.planBudgetMs) });
-      if (answer.timedOut) this.record(input, { kind: "router", reason: `correction (${origin}): the lead ran out of its time; each flow is sent its own findings` });
+      if (answer.timedOut) this.record(input, { kind: "lead-decision", reason: `correction (${origin}): the lead ran out of its time; each flow is sent its own findings` });
       else output = answer.output;
     } catch (err) {
       if (isRunDeadlineError(err)) throw err;
-      this.record(input, { kind: "router", reason: `correction (${origin}): the lead's turn failed (${err instanceof Error ? err.message : String(err)}); each flow is sent its own findings` });
+      this.record(input, { kind: "lead-decision", reason: `correction (${origin}): the lead's turn failed (${err instanceof Error ? err.message : String(err)}); each flow is sent its own findings` });
     }
     tally.turns += 1;
     const admission = admitLeadCorrection(output, under, findings, origin);
     tally.rebutted += admission.rebuttals.length;
     tally.unrouted += admission.unrouted.length;
-    for (const r of admission.refused) this.record(input, { kind: "router", reason: `correction (${origin}): ${r.flowId ? `flow ${r.flowId} ` : ""}${r.finding ? `finding ${r.finding} ` : ""}not taken: ${r.reason}` });
+    for (const r of admission.refused) this.record(input, { kind: "lead-decision", reason: `correction (${origin}): ${r.flowId ? `flow ${r.flowId} ` : ""}${r.finding ? `finding ${r.finding} ` : ""}not taken: ${r.reason}` });
     const after = this.room(input);
     const stopped = state.released || input.signal?.aborted === true || (after !== undefined && after < MIN_FLOW_MS);
     const orders = stopped ? [] : admission.orders.filter((o) => live.has(o.flowId));
     /* A finding the lead sent to a flow that cannot take it now is not lost: it goes to a regeneration, as a finding no flow was sent. */
     const untaken = admission.orders.filter((o) => !orders.includes(o)).flatMap((o) => o.indices);
     tally.unrouted += untaken.length;
-    if (untaken.length > 0) this.record(input, { kind: "router", reason: `correction (${origin}): ${untaken.length} finding(s) the flows could not take go to a regeneration` });
+    if (untaken.length > 0) this.record(input, { kind: "lead-decision", reason: `correction (${origin}): ${untaken.length} finding(s) the flows could not take go to a regeneration` });
     for (const order of orders) {
       tally.routed += order.findings.length;
       if (order.action === REVIEW_ACTION.REVISE) tally.revised += 1;
       else tally.replaced += 1;
-      this.record(input, { kind: "router", reason: `correction (${origin}): flow ${order.flowId} ${order.action} with ${order.findings.length} finding(s)`, delegationId: live.get(order.flowId)!.delegationId });
+      this.record(input, { kind: "lead-decision", reason: `correction (${origin}): flow ${order.flowId} ${order.action} with ${order.findings.length} finding(s)`, delegationId: live.get(order.flowId)!.delegationId });
     }
     const slots = orders.map((order) => ({ ...order, id: order.flowId, budgetMs: Math.min(live.get(order.flowId)!.flow.budgetMs, after ?? live.get(order.flowId)!.flow.budgetMs) }));
     for (const slot of slots) live.get(slot.flowId)!.taken = false;
@@ -793,10 +793,10 @@ export class LeadSidekicks {
   }
 
   private reportUnvisited(input: CoordinateInput, unvisited: readonly string[]): void {
-    if (unvisited.length > 0) this.record(input, { kind: "router", reason: `plan: ${unvisited.length} of ${input.changeRoutes!.length} change page(s) no flow visits: ${unvisited.join(", ")}` });
+    if (unvisited.length > 0) this.record(input, { kind: "lead-decision", reason: `plan: ${unvisited.length} of ${input.changeRoutes!.length} change page(s) no flow visits: ${unvisited.join(", ")}` });
   }
 
-  private record(input: CoordinateInput, event: { kind: "proposal" | "delegation" | "escalation" | "router"; action?: "direct" | "delegate" | "lead-takeover" | "escalate-sidekick" | "abort-human"; capability?: AgentCapability; reason: string; delegationId?: string; attempt?: number; durationMs?: number; failureClass?: string; progressFingerprint?: string; sidekickStatus?: string; lastRunSpec?: string }): void {
+  private record(input: CoordinateInput, event: { kind: "proposal" | "delegation" | "escalation" | "lead-decision"; action?: "direct" | "delegate" | "lead-takeover" | "escalate-sidekick" | "abort-human"; capability?: AgentCapability; reason: string; delegationId?: string; attempt?: number; durationMs?: number; failureClass?: string; progressFingerprint?: string; sidekickStatus?: string; lastRunSpec?: string }): void {
     this.deps.telemetry?.record({ runId: input.runId, app: input.app, at: this.now(), ...event });
   }
 }

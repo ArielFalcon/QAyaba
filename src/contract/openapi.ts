@@ -455,7 +455,7 @@ function paths(): Record<string, unknown> {
     "/api/v1/coordination-events": {
       get: {
         operationId: "getCoordinationEvents",
-        summary: "Multi-agent coordination audit: router proposals, sidekick delegations, escalations, outcomes (read-only)",
+        summary: "Multi-agent coordination audit: lead proposals, sidekick delegations, escalations, outcomes (read-only)",
         parameters: [
           { name: "runId", in: "query", required: false, schema: { type: "string" } },
           { name: "limit", in: "query", required: false, schema: { type: "integer", default: 200, maximum: 1000 } },

@@ -485,7 +485,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Multi-agent coordination audit: router proposals, sidekick delegations, escalations, outcomes (read-only) */
+        /** Multi-agent coordination audit: lead proposals, sidekick delegations, escalations, outcomes (read-only) */
         get: operations["getCoordinationEvents"];
         put?: never;
         post?: never;
@@ -1182,7 +1182,7 @@ export interface components {
         CoordinationEvent: {
             runId: string;
             /** @enum {string} */
-            kind: "proposal" | "delegation" | "escalation" | "router" | "pushback" | "outcome";
+            kind: "proposal" | "delegation" | "escalation" | "lead-decision" | "pushback" | "outcome";
             action?: string;
             capability?: string;
             reason: string;

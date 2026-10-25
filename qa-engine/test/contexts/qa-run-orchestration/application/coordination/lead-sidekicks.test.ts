@@ -764,7 +764,7 @@ test("the plan, every sidekick turn and every review decision are recorded for t
   const kinds = r.events.map((e) => e.kind);
   assert.ok(kinds.includes("proposal"));
   assert.equal(kinds.filter((k) => k === "delegation").length, 3, "two turns of cart, one of login");
-  assert.ok(r.events.some((e) => e.kind === "router" && /cart revise/.test(e.reason)));
+  assert.ok(r.events.some((e) => e.kind === "lead-decision" && /cart revise/.test(e.reason)));
   assert.ok(r.events.every((e) => e.runId === "run-1" && e.app === "shop"));
 });
 

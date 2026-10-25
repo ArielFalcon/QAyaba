@@ -12,7 +12,7 @@ import { DELEGATION_FAILURE_CLASSES } from "../../qa-engine/src/contexts/qa-run-
 
 const CONTRACT_FAILURE_CLASSES: ReadonlySet<string> = new Set(DELEGATION_FAILURE_CLASSES);
 
-const KINDS = new Set(["proposal", "delegation", "escalation", "router", "pushback", "outcome"]);
+const KINDS = new Set(["proposal", "delegation", "escalation", "lead-decision", "pushback", "outcome"]);
 
 export interface CoordinationLedgerFsDeps {
   readonly openSync: typeof openSync;

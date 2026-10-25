@@ -407,12 +407,12 @@ func (e ConfirmBoundariesInputConfirm) Valid() bool {
 
 // Defines values for CoordinationEventKind.
 const (
-	Delegation CoordinationEventKind = "delegation"
-	Escalation CoordinationEventKind = "escalation"
-	Outcome    CoordinationEventKind = "outcome"
-	Proposal   CoordinationEventKind = "proposal"
-	Pushback   CoordinationEventKind = "pushback"
-	Router     CoordinationEventKind = "router"
+	Delegation   CoordinationEventKind = "delegation"
+	Escalation   CoordinationEventKind = "escalation"
+	LeadDecision CoordinationEventKind = "lead-decision"
+	Outcome      CoordinationEventKind = "outcome"
+	Proposal     CoordinationEventKind = "proposal"
+	Pushback     CoordinationEventKind = "pushback"
 )
 
 // Valid indicates whether the value is a known member of the CoordinationEventKind enum.
@@ -422,13 +422,13 @@ func (e CoordinationEventKind) Valid() bool {
 		return true
 	case Escalation:
 		return true
+	case LeadDecision:
+		return true
 	case Outcome:
 		return true
 	case Proposal:
 		return true
 	case Pushback:
-		return true
-	case Router:
 		return true
 	default:
 		return false

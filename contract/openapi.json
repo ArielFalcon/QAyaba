@@ -1340,7 +1340,7 @@
     "/api/v1/coordination-events": {
       "get": {
         "operationId": "getCoordinationEvents",
-        "summary": "Multi-agent coordination audit: router proposals, sidekick delegations, escalations, outcomes (read-only)",
+        "summary": "Multi-agent coordination audit: lead proposals, sidekick delegations, escalations, outcomes (read-only)",
         "parameters": [
           {
             "name": "runId",
@@ -4082,7 +4082,7 @@
               "proposal",
               "delegation",
               "escalation",
-              "router",
+              "lead-decision",
               "pushback",
               "outcome"
             ]

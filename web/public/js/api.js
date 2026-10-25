@@ -499,7 +499,7 @@ window.QayabaConsole = (function () {
     const t = Date.parse(at); return t ? Math.round((Date.now() - t) / 1000) : 0;
   }
   /* Derive the run's workforce from its coordination events. Absent events → null (pre-coordination
-     runs, or a run whose router chose direct without delegating). producer: sidekick only when the
+     runs, or a run whose lead chose direct without delegating). producer: sidekick only when the
      outcome says delegate — a sidekick whose result was rejected falls back to lead, honestly.
    */
   function deriveWorkforce(events) {

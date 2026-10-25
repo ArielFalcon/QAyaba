@@ -265,7 +265,7 @@ qayaba.run
 │  ├─ plan qa-generator           (lead+sidekicks: read-only plan turn)
 │  ├─ qayaba.fanout               children: invoke_agent qa-sidekick (overlapping)
 │  ├─ qayaba.merge                links → each delivering sidekick span
-│  └─ qayaba.coordination.event   one per plan/router/delegation/review decision: kind, action, reason, delegation, attempt, failure class
+│  └─ qayaba.coordination.event   one per plan/delegation/review decision: kind, action, reason, delegation, attempt, failure class
 ├─ qayaba.phase.validate          per check: typecheck | lint | list | manifest (first error: file:line:col rule); catalog gate; ambiguity advisory
 ├─ qayaba.phase.health
 ├─ qayaba.phase.execute           qayaba.spec.execute per spec, qayaba.test per case (synthesized, §6.2)
