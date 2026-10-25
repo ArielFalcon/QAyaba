@@ -74,7 +74,7 @@ test("retrieve() delegates to LearningRepositoryPort.topRules and returns the FU
 });
 
 /* repository row's real id at this exact projection — RunOutcome.rulesRetrieved persisted trigger
-   TEXT instead of ids, so the factory's by-id fold (rewritten-engine-factory.ts's recordOutcome)
+   TEXT instead of ids, so the factory's by-id fold (run-engine-factory.ts's recordOutcome)
    missed every row and outcome_count stayed frozen at 0 forever (no promotion/demotion ever
    engaged). This test pins the id surviving the LearningRule -> RetrievedRule projection —
    it is the row's PRIMARY KEY used for outcome-fold attribution, distinct from `trigger` (the

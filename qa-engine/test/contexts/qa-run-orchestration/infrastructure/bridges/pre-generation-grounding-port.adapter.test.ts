@@ -348,7 +348,7 @@ test("ground(): routes input is absent when contextMap has no routes (never fabr
 /* `${specDir}/.qa/context.json` per-run off the REAL mirror (specDir is the FIRST argument, the run's
    actual per-run workspace.specDir — see run-qa.use-case.ts's own call site), instead of relying
    solely on the static ctx.contextMap (which stays permanently absent in production per
-   rewritten-engine-factory.ts's own documented gap). A per-run read takes priority over the static
+   run-engine-factory.ts's own documented gap). A per-run read takes priority over the static
    ctx value when present; a missing/invalid file degrades to the static ctx value (undefined in
    production), matching today's always-absent behavior — never a crash. ──────────────────────────
  */

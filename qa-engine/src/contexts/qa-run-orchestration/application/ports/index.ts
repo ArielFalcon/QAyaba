@@ -63,7 +63,7 @@ export interface GroundingOmission {
   count: number;
 }
 
-/** Single input → RunOutcome. Production implementation is RewrittenOrchestratorAdapter. */
+/** Single input → RunOutcome. Production implementation is RunPipelineAdapter. */
 export interface RunInput {
   app: string;
   sha: Sha;

@@ -392,7 +392,7 @@ describe("CodexExecTransport timeout/SIGTERM path", () => {
 
 /* ---------------------------------------------------------------------------
    CodexRuntimeStrategy must arm a DEFAULT per-role deadline when the caller passes no
-   timeoutMs — today the rewritten path passes none, so a wedged `codex exec` is unbounded
+   timeoutMs — today the run path passes none, so a wedged `codex exec` is unbounded
    (facades.ts marks Codex sessions selfTimed, so the stall watchdog skips them entirely; a
    wall-clock deadline is the only mechanism that can see a Codex hang). The default is derived
    from the SAME per-role budget constants OpenCode uses (REVIEWER_TIMEOUT_MS,
@@ -414,7 +414,7 @@ describe("CodexRuntimeStrategy — default per-role deadline", () => {
       promptRoot: "/nonexistent/prompts",
     });
 
-    /* No timeoutMs passed at all — this is the exact rewritten-path shape (generate-tests.use-case.ts
+    /* No timeoutMs passed at all — this is the exact run-path shape (generate-tests.use-case.ts
        never sets opts.timeoutMs). Without a default, this session.prompt() would hang forever.
      */
     const session = await strategy.openSession("reviewer", "/tmp", {});

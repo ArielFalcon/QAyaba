@@ -56,7 +56,7 @@ function readManifest(deps: { written: Record<string, Buffer> }, dir: string): S
   return JSON.parse(raw!.toString("utf8"));
 }
 
-/* ── serviceContextDir: the pure formula shared with rewritten-engine-factory.ts ──────────── */
+/* ── serviceContextDir: the pure formula shared with run-engine-factory.ts ──────────── */
 
 test("serviceContextDir: deterministic path under <workingCopyDir>/e2e/.qa/service-context/<repo-slug>", () => {
   assert.equal(

@@ -23,7 +23,7 @@ export async function prepareHarnessAuth(input: HarnessAuthInput): Promise<{ una
   const { ProcessKillAdapter } = await import("../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts");
   const { createExecBinaryRunner } = await import("../qa-engine/src/shared-infrastructure/process-sandbox/exec-binary-runner.ts");
   const { buildScriptExec } = await import("../src/server/exec-sandbox-factory.ts");
-  const { resolveCodeSandbox } = await import("../src/server/rewritten-engine-factory.ts");
+  const { resolveCodeSandbox } = await import("../src/server/run-engine-factory.ts");
   const { blockedHostMatcher, egressGateFor, scriptOriginsFor } = await import("../src/server/egress-wiring.ts");
   const { AuthSessionAdapter } = await import("../qa-engine/src/contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts");
   const { createDiscoverLogin } = await import("../qa-engine/src/contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.runner.ts");

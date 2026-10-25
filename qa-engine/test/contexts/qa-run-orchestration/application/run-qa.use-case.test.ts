@@ -4711,7 +4711,7 @@ test("the retrieved rule IDS (not trigger text) reach the persisted RunOutcome.r
   assert.deepEqual(savedRulesRetrieved, ["rule-id-001"], "the persisted rulesRetrieved must carry the rule's ID (the fold-attribution key), not its trigger text");
 });
 
-test("the returned RunQaResult also carries rulesRetrieved as IDS (RewrittenOrchestratorAdapter's own read-back path)", async () => {
+test("the returned RunQaResult also carries rulesRetrieved as IDS (RunPipelineAdapter's own read-back path)", async () => {
   const ruleA = makeRetrievedRule("rule-a-trigger-text", { id: "rule-a-id" });
   const ruleB = makeRetrievedRule("rule-b-trigger-text", { id: "rule-b-id" });
   const { ports } = stubPorts({ retrieve: async () => [ruleA, ruleB] });
@@ -4762,7 +4762,7 @@ test("an invalid-verdict run that HAD retrieved rules persists a terminal outcom
    SAME way generation's own curriculum.select()/detectArchetype() calls already detect them —
    qa-engine/src/shared-kernel/structural-pattern.ts). The shell ALSO biased on the app's most
    recent PERSISTED errorClass (deps.recentErrorClass) — RunHistoryPort is save-only (no read-back;
-   see rewritten-orchestrator.adapter.ts's own header), so that signal has no equivalent source at
+   see run-pipeline.adapter.ts's own header), so that signal has no equivalent source at
    this point in the current flow and is deliberately left unwired (never invented) — see the
    commit body.
  */
@@ -6880,7 +6880,7 @@ test("mirrorGc wiring: an empty/unparseable generation infra-error exit triggers
 });
 
 /* ONLY from the /continue API flow's RunRequest.parentRunId (src/server/runner.ts's own
-   runViaRewrittenEngine -> RunInput construction), threads straight through into the mainline exit's
+   runViaEngine -> RunInput construction), threads straight through into the mainline exit's
    publish() call (run-qa.use-case.ts's own "Phase: publish" block). Absent for every ordinary
    webhook/manual/CLI run — never fabricated. An enforce-mode coverage-regen reuses the SAME `input`
    object for its final publish() call (it never constructs a fresh RunQaInput), so it structurally

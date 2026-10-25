@@ -451,7 +451,7 @@ export async function main(argv: string[], deps: WarmDeps): Promise<number> {
 /** Loads a snapshot's files into an app's suite store (data/suites/<app>/), replacing what it held. The engine's own adapter does it, so the store is exactly what a run would have captured. */
 export async function seedSuiteStore(app: string, files: ReadonlyMap<string, Buffer>, label: string): Promise<{ entries: number; bytes: number }> {
   const { SuiteStoreAdapter } = await import("../qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts");
-  const { appSuiteStoreDir } = await import("../src/server/rewritten-engine-factory.ts");
+  const { appSuiteStoreDir } = await import("../src/server/run-engine-factory.ts");
   const { qayabaRoot } = await import("../src/paths.ts");
   const { loadAppConfig } = await import("../src/orchestrator/config-loader.ts");
   const store = new SuiteStoreAdapter({

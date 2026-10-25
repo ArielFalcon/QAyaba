@@ -2,7 +2,7 @@
 
 import { suiteStoreHoldsVerifiedLogin } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
 import { resolveCampaignFreeze } from "./campaign-freeze";
-import { appSuiteStoreDir } from "./rewritten-engine-factory";
+import { appSuiteStoreDir } from "./run-engine-factory";
 
 /* Undefined under QA_CAMPAIGN_FREEZE: a campaign seeds the store itself before each arm-run, so a run must not warm it on its own. */
 export function suiteHoldsVerifiedLoginFor(env: Record<string, string | undefined>, root: string): ((app: string) => boolean) | undefined {

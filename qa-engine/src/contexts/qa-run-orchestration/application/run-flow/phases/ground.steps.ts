@@ -20,7 +20,7 @@ type Result = Promise<StepResult<RunState, RunQaResult>>;
  * biases retrieval. The diff is undefined outside diff mode (only "diff" classifies), so there is no signal to bias with there; never fabricated.
  *
  * Retrieval is NOT biased by the app's most recent persisted errorClass: RunHistoryPort is
- * save-only (no read-back — see rewritten-orchestrator.adapter.ts's own header note), and no
+ * save-only (no read-back — see run-pipeline.adapter.ts's own header note), and no
  * port wired into this use-case at this point in the flow can answer "what was this app's
  * last outcome's errorClass", so that signal is left unwired rather than invented.
  *

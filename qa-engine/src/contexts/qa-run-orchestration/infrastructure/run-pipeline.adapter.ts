@@ -5,14 +5,14 @@ import { RunQaUseCase, type RunQaUseCaseDeps, type RunQaConfig, type RunQaResult
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { attachTraceFacts, traceFactsOf } from "@kernel/run-trace-facts.ts";
 
-export interface RewrittenOrchestratorAdapterDeps extends Omit<RunQaUseCaseDeps, "config"> {
+export interface RunPipelineAdapterDeps extends Omit<RunQaUseCaseDeps, "config"> {
   config?: Partial<RunQaConfig>;
 }
 
-export class RewrittenOrchestratorAdapter implements RunPipelinePort {
+export class RunPipelineAdapter implements RunPipelinePort {
   private readonly useCase: RunQaUseCase;
 
-  constructor(deps: RewrittenOrchestratorAdapterDeps) {
+  constructor(deps: RunPipelineAdapterDeps) {
     this.useCase = new RunQaUseCase(deps);
   }
 

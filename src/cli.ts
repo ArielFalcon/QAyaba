@@ -37,7 +37,7 @@ import { createAgentRuntimeManager } from "./server/agent-runtime";
 import { defaultEnvStoreFs } from "./server/env-store";
 import { OpenCodeRuntimeStrategy, CodexRuntimeStrategy } from "./agent-runtime";
 import { getOpenSessionCount } from "./integrations/opencode-client";
-import { createRewrittenEngineFactory } from "./server/rewritten-engine-factory";
+import { createRunEngineFactory } from "./server/run-engine-factory";
 import { resolvePort } from "./server/port";
 
 
@@ -51,10 +51,10 @@ const cliAgentRuntime = createAgentRuntimeManager({
   hasOpenSessions: () => getOpenSessionCount() > 0,
 });
 /* Built on first use, by which time main() has built this process's telemetry (a run that is delegated to the service builds none). */
-let cliFactory: ReturnType<typeof createRewrittenEngineFactory> | undefined;
-const cliEngineFactory: ReturnType<typeof createRewrittenEngineFactory> = (...args) => {
+let cliFactory: ReturnType<typeof createRunEngineFactory> | undefined;
+const cliEngineFactory: ReturnType<typeof createRunEngineFactory> = (...args) => {
   const telemetry = processTelemetry();
-  cliFactory ??= createRewrittenEngineFactory({
+  cliFactory ??= createRunEngineFactory({
     getAgentDeps: () => cliAgentRuntime.facade().deps(),
     getAgentFacade: () => cliAgentRuntime.facade(),
     telemetry: telemetry.telemetry,

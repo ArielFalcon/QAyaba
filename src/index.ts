@@ -38,7 +38,7 @@ import { resolveReflectorEnabled } from "./server/reflector-switch";
 import { resolveCampaignFreeze } from "./server/campaign-freeze";
 import { buildRunViewExtras, defaultRunViewDeps } from "./server/run-view";
 import { enqueueTrackedRun, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./server/runner";
-import { appAuthDir, appSuiteStoreDir, buildCodeGraph, createRewrittenEngineFactory, resolveCodeSandbox, type ContextHealRunRequest } from "./server/rewritten-engine-factory";
+import { appAuthDir, appSuiteStoreDir, buildCodeGraph, createRunEngineFactory, resolveCodeSandbox, type ContextHealRunRequest } from "./server/run-engine-factory";
 import { egressGateFor } from "./server/egress-wiring";
 import { SandboxedBinaryRunnerAdapter } from "../qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter";
 import { ProcessKillAdapter } from "../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter";
@@ -231,7 +231,7 @@ function currentAgentDeps(): AgentDeps {
  * onboarding's own enqueueContextRun uses to close over `onboardingJob` before it exists (both
  * closures only ever run after this module has finished initializing).
  */
-let engineFactory: ReturnType<typeof createRewrittenEngineFactory>;
+let engineFactory: ReturnType<typeof createRunEngineFactory>;
 
 /* Assigned once the tools token is known, below; read when a run starts. */
 let runConfigEnvironment: RunConfigEnvironment;
@@ -252,7 +252,7 @@ function runnerDeps(): RunnerDeps {
 }
 
 /*
- * Context-map rebuild trigger for rewritten-engine-factory.ts's process-audit context heal. The
+ * Context-map rebuild trigger for run-engine-factory.ts's process-audit context heal. The
  * sha is the triggering run's own sha (never the mirror HEAD, which at composition time is the
  * previous run's sha — a gated app would wait for a version DEV no longer serves). Returns "" while
  * draining; the factory then keeps the stale flag armed for the next run.
@@ -302,7 +302,7 @@ runConfigEnvironment = {
 const toolsServer = createToolsServer({ token: toolsToken.token, registry: closedLoopRegistry, browsers: agentBrowserRegistry, geolocations: geolocationRegistry, codeGraphs: codeGraphRegistry });
 toolsServer.on("error", (err: Error & { code?: string }) => logJson("error", `the tools endpoint cannot listen on port ${toolsPort}: ${err.message}; the agents' run_spec, authenticated browser and location calls will fail`));
 
-engineFactory = createRewrittenEngineFactory({
+engineFactory = createRunEngineFactory({
   telemetry: telemetry.telemetry,
   clock: telemetry.clock,
   /* A token this process made up cannot match the agents service's, so a tool the generator is told about would only be refused: no run is granted it. */

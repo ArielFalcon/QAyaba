@@ -1,11 +1,11 @@
-/* RewrittenOrchestratorAdapter forwards through RunQaUseCase with the same stubbed ports as
+/* RunPipelineAdapter forwards through RunQaUseCase with the same stubbed ports as
    run-qa.use-case.test.ts. A gutted impl returning a literal FAILS this test — the adapter must
    map RunQaResult to a RunOutcome (the SAME shape RunHistoryPort.save persists).
  */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { RewrittenOrchestratorAdapter } from "@contexts/qa-run-orchestration/infrastructure/rewritten-orchestrator.adapter.ts";
+import { RunPipelineAdapter } from "@contexts/qa-run-orchestration/infrastructure/run-pipeline.adapter.ts";
 import { Sha } from "@kernel/sha.ts";
 import type {
   ChangeAnalysisPort,
@@ -105,9 +105,9 @@ const baseInput = {
 
 const baseConfig = { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false };
 
-test("RewrittenOrchestratorAdapter: green-pr — fully stubbed ports, returns RunOutcome verdict pass", async () => {
+test("RunPipelineAdapter: green-pr — fully stubbed ports, returns RunOutcome verdict pass", async () => {
   const { ports } = stubPorts();
-  const adapter = new RewrittenOrchestratorAdapter({ ...ports, config: baseConfig });
+  const adapter = new RunPipelineAdapter({ ...ports, config: baseConfig });
 
   const outcome = await adapter.run(baseInput);
 
@@ -115,7 +115,7 @@ test("RewrittenOrchestratorAdapter: green-pr — fully stubbed ports, returns Ru
 });
 
 /* 10-scenario parity for RunQaUseCase) — drives ALL 10 scenarios.ts goldens through
-   RewrittenOrchestratorAdapter.run(), asserting the resulting RunOutcome.verdict equals the golden.
+   RunPipelineAdapter.run(), asserting the resulting RunOutcome.verdict equals the golden.
    The adapter's OWN job is proving the RunInput -> RunQaUseCase -> RunOutcome MAPPING is faithful —
    not re-deriving decide()'s policy (already proven by run-decision-parity.test.ts) or the use-case's
    own wiring (already proven by run-qa.use-case.test.ts). ─────────────────────────────────────────
@@ -246,14 +246,14 @@ const tenScenarios: TenScenarioCase[] = [
   },
 ];
 
-test("RewrittenOrchestratorAdapter 10-scenario equivalence: the golden set is non-trivial (guards against an accidentally-empty pin)", () => {
+test("RunPipelineAdapter 10-scenario equivalence: the golden set is non-trivial (guards against an accidentally-empty pin)", () => {
   assert.equal(tenScenarios.length, 10, "expected exactly the 10 scenarios.ts goldens");
 });
 
 for (const c of tenScenarios) {
-  test(`RewrittenOrchestratorAdapter 10-scenario equivalence — ${c.scenario}: RunOutcome.verdict matches the golden`, async () => {
+  test(`RunPipelineAdapter 10-scenario equivalence — ${c.scenario}: RunOutcome.verdict matches the golden`, async () => {
     const { ports } = stubPorts(c.overrides);
-    const adapter = new RewrittenOrchestratorAdapter({ ...ports, config: c.config });
+    const adapter = new RunPipelineAdapter({ ...ports, config: c.config });
 
     const outcome = await adapter.run({ ...baseInput, runId: `golden-${c.scenario}`, ...c.input });
 
@@ -268,14 +268,14 @@ for (const c of tenScenarios) {
    hand-rolled re-derivation with a different shape. ────────────────────────────────────────────
  */
 
-test("RewrittenOrchestratorAdapter: returns the SAME RunOutcome shape RunHistoryPort.save receives (fail-issue — retries + coverageRatio forwarded)", async () => {
+test("RunPipelineAdapter: returns the SAME RunOutcome shape RunHistoryPort.save receives (fail-issue — retries + coverageRatio forwarded)", async () => {
   let savedOutcome: RunOutcome | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
     measure: async () => ({ status: "pass", ratio: 0.92 }),
   });
   ports.runHistory.save = async (outcome) => { savedOutcome = outcome; };
-  const adapter = new RewrittenOrchestratorAdapter({ ...ports, config: { ...baseConfig, needsReview: false } });
+  const adapter = new RunPipelineAdapter({ ...ports, config: { ...baseConfig, needsReview: false } });
 
   const outcome = await adapter.run({ ...baseInput, runId: "golden-mapping-proof" });
 
@@ -287,9 +287,9 @@ test("RewrittenOrchestratorAdapter: returns the SAME RunOutcome shape RunHistory
   assert.equal(outcome.gateSignals.coverageRatio, 0.92, "coverageRatio must be threaded through, not dropped");
 });
 
-test("RewrittenOrchestratorAdapter — invalid: still returns a well-formed RunOutcome even though decide/persist happened on a terminal early-exit", async () => {
+test("RunPipelineAdapter — invalid: still returns a well-formed RunOutcome even though decide/persist happened on a terminal early-exit", async () => {
   const { ports } = stubPorts({ validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }) });
-  const adapter = new RewrittenOrchestratorAdapter({ ...ports, config: baseConfig });
+  const adapter = new RunPipelineAdapter({ ...ports, config: baseConfig });
 
   const outcome = await adapter.run({ ...baseInput, runId: "golden-invalid-mapping" });
 
@@ -299,9 +299,9 @@ test("RewrittenOrchestratorAdapter — invalid: still returns a well-formed RunO
   assert.deepEqual(outcome.rulesRetrieved, [], "rulesRetrieved must be a well-formed array, not undefined");
 });
 
-test("RewrittenOrchestratorAdapter — infra-error (entry gate): DeployGatePort failure surfaces as a RunOutcome, not a thrown error", async () => {
+test("RunPipelineAdapter — infra-error (entry gate): DeployGatePort failure surfaces as a RunOutcome, not a thrown error", async () => {
   const { ports } = stubPorts({ waitUntilServing: async () => ({ ok: false, error: new Error("DEV unhealthy") }) });
-  const adapter = new RewrittenOrchestratorAdapter({ ...ports, config: baseConfig });
+  const adapter = new RunPipelineAdapter({ ...ports, config: baseConfig });
 
   const outcome = await adapter.run({ ...baseInput, runId: "golden-infra-error-entry-gate" });
 
@@ -311,7 +311,7 @@ test("RewrittenOrchestratorAdapter — infra-error (entry gate): DeployGatePort 
 
 test("an outcome the use case never persisted still tells how far the run got", async () => {
   const { ports } = stubPorts({ waitUntilServing: async () => ({ ok: false, error: new Error("DEV unhealthy") }) });
-  const adapter = new RewrittenOrchestratorAdapter({ ...ports, config: baseConfig });
+  const adapter = new RunPipelineAdapter({ ...ports, config: baseConfig });
 
   const outcome = await adapter.run({ ...baseInput, runId: "phases-entry-gate" });
 
@@ -329,7 +329,7 @@ test("reviewerApproved is forwarded into the returned RunOutcome, not hardcoded 
   const { ports } = stubPorts({
     review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }),
   });
-  const adapter = new RewrittenOrchestratorAdapter({ ...ports, config: baseConfig });
+  const adapter = new RunPipelineAdapter({ ...ports, config: baseConfig });
 
   const outcome = await adapter.run({ ...baseInput, runId: "adapter-reviewer-approved" });
 
@@ -341,7 +341,7 @@ test("valueScore is forwarded into the returned RunOutcome, not hardcoded null",
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
     measure: async () => ({ status: "pass", ratio: 0.92, valueScore: 0.85 }),
   });
-  const adapter = new RewrittenOrchestratorAdapter({ ...ports, config: { ...baseConfig, needsReview: false } });
+  const adapter = new RunPipelineAdapter({ ...ports, config: { ...baseConfig, needsReview: false } });
 
   const outcome = await adapter.run({ ...baseInput, runId: "adapter-value-score" });
 
@@ -353,7 +353,7 @@ test("errorClass is forwarded into the returned RunOutcome, not hardcoded null",
     execute: async () => ({ verdict: "fail", cases: [{ name: "login", status: "fail" }], logs: "x" }),
     generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true })),
   });
-  const adapter = new RewrittenOrchestratorAdapter({ ...ports, config: baseConfig });
+  const adapter = new RunPipelineAdapter({ ...ports, config: baseConfig });
 
   const outcome = await adapter.run({ ...baseInput, runId: "adapter-error-class" });
 
@@ -364,13 +364,13 @@ test("errorClass is forwarded into the returned RunOutcome, not hardcoded null",
 /* ── CLAUDE.md invariant note-chain (a live infra-error once surfaced with NO note/log/cases —
    undiagnosable without instrumenting a live container): RunQaResult.note must reach RunOutcome.note
    through this adapter's toOutcome() mapping — previously dropped entirely, silently breaking the
-   note chain between RunQaUseCase and src/server/runner.ts's runViaRewrittenEngine (which reads
+   note chain between RunQaUseCase and src/server/runner.ts's runViaEngine (which reads
    outcome.note off exactly the RunOutcome this adapter returns). ──────────────────────────────────
  */
 
 test("RunQaResult.note is forwarded into the returned RunOutcome.note", async () => {
   const { ports } = stubPorts({ waitUntilServing: async () => ({ ok: false, error: new Error("DEV did not serve sha abc1234 within 5000ms") }) });
-  const adapter = new RewrittenOrchestratorAdapter({ ...ports, config: baseConfig });
+  const adapter = new RunPipelineAdapter({ ...ports, config: baseConfig });
 
   const outcome = await adapter.run({ ...baseInput, runId: "note-chain-adapter-mapping" });
 
@@ -388,7 +388,7 @@ test("a clean pass carries the real publish() outcome, never a fabricated diagno
      a clean pass's note is "pr", not absent.
    */
   const { ports } = stubPorts();
-  const adapter = new RewrittenOrchestratorAdapter({ ...ports, config: baseConfig });
+  const adapter = new RunPipelineAdapter({ ...ports, config: baseConfig });
 
   const outcome = await adapter.run({ ...baseInput, runId: "note-chain-adapter-no-note" });
 

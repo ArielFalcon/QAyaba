@@ -1,4 +1,4 @@
-/** `fetch` and the auth-header supplier are injected so GITHUB_TOKEN (env-agnostic adapter invariant) is never read here — the composition factory (src/server/rewritten-engine-factory.ts, the sole src<->qa-engine seam) builds the real authHeaders() closure from requireEnv("GITHUB_TOKEN"). GitHub's documented hard limits for Issue/PR fields — exceeding either is a 422 ("title/body is too long"). */
+/** `fetch` and the auth-header supplier are injected so GITHUB_TOKEN (env-agnostic adapter invariant) is never read here — the composition factory (src/server/run-engine-factory.ts, the sole src<->qa-engine seam) builds the real authHeaders() closure from requireEnv("GITHUB_TOKEN"). GitHub's documented hard limits for Issue/PR fields — exceeding either is a 422 ("title/body is too long"). */
 export const GITHUB_MAX_TITLE = 256;
 export const GITHUB_MAX_BODY = 65536;
 

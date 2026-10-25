@@ -3,11 +3,11 @@
  * a single read of the run's directory serves every role and every prompt, a read that fails or outlasts
  * its deadline leaves every role without a limit (one warning, never the baked config copy), and the
  * facade is the one the host resolves for THIS run (the runtime is switchable). Sibling of
- * rewritten-engine-factory.test.ts so the `step-limit` mutation preset runs only these tests per mutant.
+ * run-engine-factory.test.ts so the `step-limit` mutation preset runs only these tests per mutant.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildRewrittenCompositionConfig, STEP_LIMIT_READ_TIMEOUT_MS, type RewrittenEngineFactoryDeps } from "./rewritten-engine-factory";
+import { buildCompositionConfig, STEP_LIMIT_READ_TIMEOUT_MS, type RunEngineFactoryDeps } from "./run-engine-factory";
 import { maxStepsFromConfig, type AgentDeps } from "../integrations/opencode-client";
 import { AGENT_NAME_FOR_ROLE, type AgentFacade, type StepLimits } from "../agent-runtime/types";
 import type { AppConfig } from "../orchestrator/config-loader";
@@ -60,8 +60,8 @@ function facadeAnswering(answer: (directory: string) => Promise<StepLimits>): { 
 const reporting = (limits: StepLimits) => facadeAnswering(async () => limits);
 
 /* One composition = one run: the config a run's engine is built from. */
-function compose(getAgentFacade?: RewrittenEngineFactoryDeps["getAgentFacade"]): CompositionConfig {
-  return buildRewrittenCompositionConfig(
+function compose(getAgentFacade?: RunEngineFactoryDeps["getAgentFacade"]): CompositionConfig {
+  return buildCompositionConfig(
     APP,
     { getAgentDeps: unusableAgentDeps, ...(getAgentFacade ? { getAgentFacade } : {}) },
     "qa-bot-abc1234-run1",

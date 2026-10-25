@@ -78,6 +78,16 @@ test("the ordinary-file examples exist and are not protected", () => {
   }
 });
 
+test("every exact PROTECTED_PATHS entry names an existing file", () => {
+  const exact = PROTECTED_PATHS.filter((entry) => !entry.endsWith("/") && !entry.includes("*"));
+  const missing = exact.filter((entry) => !existsSync(join(repoRoot, entry)));
+  assert.deepEqual(missing, [], "a rename that forgets its protected entry leaves the file unprotected");
+});
+
+test("isProtectedPath protects the run engine factory", () => {
+  assert.equal(isProtectedPath("src/server/run-engine-factory.ts"), true);
+});
+
 test("isProtectedPath flags the recovery net and build/topology, exact and prefix", () => {
   assert.equal(isProtectedPath("boot-guard.mjs"), true);
   assert.equal(isProtectedPath("src/server/self-update.ts"), true);
@@ -144,7 +154,7 @@ test("isProtectedPath flags the secret boundary (a fix must never weaken what sc
      security port to a weaker (or fake) implementation without touching the port/adapter files
      themselves.
    */
-  assert.equal(isProtectedPath("src/server/rewritten-engine-factory.ts"), true);
+  assert.equal(isProtectedPath("src/server/run-engine-factory.ts"), true);
   /* the canonical REDACTED placeholder + SecretLeakError, consumed by BOTH sanitizer twins
      (src/orchestrator/sanitizer.ts and qa-engine's sanitize-text.ts) — a fix could weaken redaction
      for the whole system from this single shared-kernel seam.
@@ -183,7 +193,7 @@ test("isProtectedPath and the completeness walk cover every file of the login di
   assert.equal(isProtectedPath(`${dir}/login-discovery.script.ts`), true);
   assert.equal(isProtectedPath(`${dir}/a-file-added-later.ts`), true);
   assert.equal(isSecuritySensitiveSurface(`${dir}/a-file-added-later.ts`), true);
-  assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/infrastructure/rewritten-orchestrator.adapter.ts"), false);
+  assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/infrastructure/run-pipeline.adapter.ts"), false);
 });
 
 /* three control-plane auth files were BOTH unscanned (not

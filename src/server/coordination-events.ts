@@ -6,7 +6,7 @@
  * process restarts, so the dashboard reads the file.
  */
 import { openSync, fstatSync, readSync, closeSync } from "node:fs";
-import { resolveCoordinationTelemetryPath } from "./rewritten-engine-factory";
+import { resolveCoordinationTelemetryPath } from "./run-engine-factory";
 import type { CoordinationEvent, CoordinationEventsView, CoordinationSignals } from "../contract/commands";
 import { DELEGATION_FAILURE_CLASSES } from "../../qa-engine/src/contexts/qa-run-orchestration/application/coordination/delegation-failure-class";
 

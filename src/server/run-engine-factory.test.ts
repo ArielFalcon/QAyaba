@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appSuiteStoreDir, createRewrittenEngineFactory, engineAgentDeps, buildRewrittenCompositionConfig, buildVcsPublish, resolveCodeSandbox, type ContextHealRunRequest } from "./rewritten-engine-factory";
+import { appSuiteStoreDir, createRunEngineFactory, engineAgentDeps, buildCompositionConfig, buildVcsPublish, resolveCodeSandbox, type ContextHealRunRequest } from "./run-engine-factory";
 import { AppConfig } from "../orchestrator/config-loader";
 import { CodeGraphToolRegistry } from "@contexts/qa-run-orchestration/infrastructure/code-graph-tool-registry";
 import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
@@ -76,11 +76,11 @@ function stubAgentDeps(): AgentDeps {
   };
 }
 
-/* ── buildRewrittenCompositionConfig — the AppConfig -> CompositionConfig mapping ────────────────── */
+/* ── buildCompositionConfig — the AppConfig -> CompositionConfig mapping ────────────────── */
 
-test("buildRewrittenCompositionConfig maps an e2e AppConfig into a complete CompositionConfig", () => {
+test("buildCompositionConfig maps an e2e AppConfig into a complete CompositionConfig", () => {
   const app = cfg("factory-e2e");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, env: { [REFLECTOR_ENABLED_ENV]: "true" } }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, env: { [REFLECTOR_ENABLED_ENV]: "true" } }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.repo, "org/demo");
   assert.equal(config.appName, "factory-e2e");
   assert.equal(config.target, "e2e");
@@ -89,7 +89,7 @@ test("buildRewrittenCompositionConfig maps an e2e AppConfig into a complete Comp
   assert.equal(config.needsReview, true);
   assert.equal(config.shadow, true); /* app.qa.shadow=true is honored, not forced */
   assert.equal(config.onFailure, "github-issue");
-  assert.equal(config.diff, "", "static diff is always empty — the rewritten adapters resolve the REAL per-run diff dynamically");
+  assert.equal(config.diff, "", "static diff is always empty — the adapters resolve the REAL per-run diff dynamically");
   assert.ok(config.vcs, "vcs collaborator must be wired");
   assert.ok(config.generationUseCase, "generationUseCase collaborator must be wired");
   assert.ok(config.validationStrategies.e2e, "e2e validation (static gate) collaborator must be wired");
@@ -121,7 +121,7 @@ test("composing an e2e app does not read the auth setup seed, whether or not the
     const publicApp = cfg("public-app");
     const formApp: AppConfig = { ...cfg("form-app"), auth: { kind: "form", usernameEnv: "QA_FORM_USER", passwordEnv: "QA_FORM_PASS" } };
     for (const app of [publicApp, formApp]) {
-      assert.doesNotThrow(() => buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" }), `${app.name} must compose without the seed`);
+      assert.doesNotThrow(() => buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" }), `${app.name} must compose without the seed`);
     }
   } finally {
     if (previousRoot === undefined) delete process.env.QAYABA_ROOT;
@@ -148,7 +148,7 @@ async function authSetupSpawnEnv(app: AppConfig, actionTimeoutMs: string | undef
     process.env.QA_FORM_PASS = "synthetic-pass";
     if (actionTimeoutMs === undefined) delete process.env[AUTH_SETUP_ENV.actionTimeoutMs];
     else process.env[AUTH_SETUP_ENV.actionTimeoutMs] = actionTimeoutMs;
-    const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+    const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
     assert.ok(config.authSession, "an e2e app with a live DEV url composes an auth session");
     await inRunScope(config, () => config.authSession!.prepare({ specDir, baseUrl: "https://dev", phase: "pre-generate", ...(app.auth ? { auth: app.auth } : {}) }));
     const [testIdAttribute = "", timeout = ""] = readFileSync(join(specDir, "setup-env.txt"), "utf8").split("\n");
@@ -193,7 +193,7 @@ async function loginFailingWhileRefused(app: AppConfig, hosts: string[]): Promis
     process.env.PATH = `${binDir}:${saved.get("PATH") ?? ""}`;
     process.env.QA_FORM_USER = "synthetic-user";
     process.env.QA_FORM_PASS = "synthetic-pass";
-    const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+    const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
     assert.ok(config.authSession, "an e2e app with a live DEV url composes an auth session");
     return await inRunScope(config, async () => {
       const refusals = setInterval(() => {
@@ -264,7 +264,7 @@ async function composedDiscovery(app: AppConfig, contextMap?: object): Promise<{
     process.env.QA_FORM_USER = "synthetic-user";
     process.env.QA_FORM_PASS = "synthetic-pass";
     process.env.EXTERNAL_API_TOKEN = ORCHESTRATOR_TOKEN;
-    const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+    const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
     assert.ok(config.authSession, "an e2e app with a live DEV url composes an auth session");
     const result = await inRunScope(config, () => config.authSession!.prepare({ specDir, baseUrl: "https://dev", phase: "pre-generate", ...(config.auth ? { auth: config.auth } : {}) })).catch((error: unknown) => error);
     const inputFile = join(specDir, "login-input.txt");
@@ -312,7 +312,7 @@ test("an e2e app with no login declared never starts discovery", async () => {
 });
 
 test("a code-mode app composes no auth session at all", () => {
-  const config = buildRewrittenCompositionConfig({ name: "discovery-code", repo: "org/demo", code: true, qa: { needsReview: true, testDataPrefix: "qa-bot", shadow: true }, report: { onFailure: "github-issue" } }, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig({ name: "discovery-code", repo: "org/demo", code: true, qa: { needsReview: true, testDataPrefix: "qa-bot", shadow: true }, report: { onFailure: "github-issue" } }, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.authSession, undefined);
 });
 
@@ -322,8 +322,8 @@ test("a code-mode app composes no auth session at all", () => {
    protect. Without this wiring loadCurriculum returns null forever, which is exactly the dead-module
    state this integration exists to end.
  */
-test("buildRewrittenCompositionConfig wires a CurriculumPort backed by the history store", () => {
-  const config = buildRewrittenCompositionConfig(cfg("curriculum-app"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+test("buildCompositionConfig wires a CurriculumPort backed by the history store", () => {
+  const config = buildCompositionConfig(cfg("curriculum-app"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(config.curriculumPort, "curriculumPort must be wired unconditionally");
 });
 
@@ -333,18 +333,18 @@ test("buildRewrittenCompositionConfig wires a CurriculumPort backed by the histo
    (it still calls loadContextMapFromDisk when no stored map exists), so there is no risk surface a
    config flag would protect.
  */
-test("buildRewrittenCompositionConfig wires a ContextMapCapturePort backed by the history store", () => {
-  const config = buildRewrittenCompositionConfig(cfg("contextmap-capture-app"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+test("buildCompositionConfig wires a ContextMapCapturePort backed by the history store", () => {
+  const config = buildCompositionConfig(cfg("contextmap-capture-app"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(config.contextMapCapture, "contextMapCapture must be wired unconditionally");
 });
 
 /* The accepted e2e suite is kept in the data volume for every e2e run, shadow or not; the code target has no e2e suite. */
-test("buildRewrittenCompositionConfig wires the suite store for an e2e run and leaves it out of a code run", () => {
-  const e2e = buildRewrittenCompositionConfig(cfg("suite-store-e2e"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+test("buildCompositionConfig wires the suite store for an e2e run and leaves it out of a code run", () => {
+  const e2e = buildCompositionConfig(cfg("suite-store-e2e"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(e2e.suiteStore, "an e2e run keeps its suite");
-  const shadow = buildRewrittenCompositionConfig({ ...cfg("suite-store-shadow"), qa: { ...cfg("suite-store-shadow").qa, shadow: true } }, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const shadow = buildCompositionConfig({ ...cfg("suite-store-shadow"), qa: { ...cfg("suite-store-shadow").qa, shadow: true } }, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(shadow.suiteStore, "a shadow run keeps its suite too: nothing else would");
-  const code = buildRewrittenCompositionConfig(cfg("suite-store-code"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", target: "code" });
+  const code = buildCompositionConfig(cfg("suite-store-code"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", target: "code" });
   assert.equal(code.suiteStore, undefined);
 });
 
@@ -368,7 +368,7 @@ test("the suite store starts a cold working copy from the engine's seed project 
     mkdirSync(mirror);
     execFileSync("git", ["init", "-q"], { cwd: mirror });
 
-    const config = buildRewrittenCompositionConfig(cfg("suite-store-seeded"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+    const config = buildCompositionConfig(cfg("suite-store-seeded"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
     await config.suiteStore!.restore({ mirrorDir: mirror, specDir: join(mirror, "e2e") });
 
     assert.equal(readFileSync(join(mirror, "e2e", "package.json"), "utf8"), "{\"engine\":\"seed\"}");
@@ -382,7 +382,7 @@ test("the suite store starts a cold working copy from the engine's seed project 
 
 test("the diff time budgets are read from the environment the composition was given, not the process's: a mistyped value throws naming its variable", () => {
   assert.throws(
-    () => buildRewrittenCompositionConfig(cfg("budget-env"), { getAgentDeps: stubAgentDeps, env: { QA_DIFF_TIME_BUDGET_MS_TINY: "soon" } }, "qa-bot-abc1234-run1", { mode: "diff" }),
+    () => buildCompositionConfig(cfg("budget-env"), { getAgentDeps: stubAgentDeps, env: { QA_DIFF_TIME_BUDGET_MS_TINY: "soon" } }, "qa-bot-abc1234-run1", { mode: "diff" }),
     /QA_DIFF_TIME_BUDGET_MS_TINY/,
   );
 });
@@ -392,7 +392,7 @@ test("under the campaign freeze the suite store is read-only: a capture writes n
   const before = process.env.QAYABA_ROOT;
   process.env.QAYABA_ROOT = root;
   try {
-    const config = buildRewrittenCompositionConfig(cfg("suite-store-frozen"), { getAgentDeps: stubAgentDeps, env: { QA_CAMPAIGN_FREEZE: "1" } }, "qa-bot-abc1234-run1", { mode: "diff" });
+    const config = buildCompositionConfig(cfg("suite-store-frozen"), { getAgentDeps: stubAgentDeps, env: { QA_CAMPAIGN_FREEZE: "1" } }, "qa-bot-abc1234-run1", { mode: "diff" });
     const result = await config.suiteStore!.capture({ mirrorDir: root, specDir: join(root, "e2e"), runId: "r", sha: "s", executedGreen: new Map([["flows/a.spec.ts", "0".repeat(64)]]) });
     assert.deepEqual({ admitted: result.admitted, dropped: result.dropped }, { admitted: 0, dropped: 0 });
     assert.equal(existsSync(join(root, "data", "suites")), false);
@@ -407,18 +407,18 @@ test("an app's suite store lives under the data volume, one directory per app", 
   assert.equal(appSuiteStoreDir("/srv/qayaba", "shop"), "/srv/qayaba/data/suites/shop");
 });
 
-test("buildRewrittenCompositionConfig wires groundingCollaborators.loadContextMap: the stored map wins over the repo file when present", () => {
+test("buildCompositionConfig wires groundingCollaborators.loadContextMap: the stored map wins over the repo file when present", () => {
   const app = cfg("factory-contextmap-db-wins");
   const map: ArchitectureContext = { builtAtSha: "sha-db", routes: [{ path: "/db" }], api: [], feBe: [] };
   saveContextMap(app.name, "sha-db", map);
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   const result = config.groundingCollaborators!.loadContextMap!("/definitely/does/not/exist/on/disk");
   assert.deepEqual(result, map, "the DB is the engine's source of truth — it must win even when the repo file is absent (and would win even if present)");
 });
 
-test("buildRewrittenCompositionConfig wires groundingCollaborators.loadContextMap: falls back to the repo file (undefined here) when no stored map exists", () => {
+test("buildCompositionConfig wires groundingCollaborators.loadContextMap: falls back to the repo file (undefined here) when no stored map exists", () => {
   const app = cfg(`factory-contextmap-fallback-${Date.now().toString(36)}`);
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   const result = config.groundingCollaborators!.loadContextMap!("/definitely/does/not/exist/on/disk");
   assert.equal(result, undefined, "no stored map and no real file on disk -> undefined, never throws");
 });
@@ -432,13 +432,13 @@ test("buildRewrittenCompositionConfig wires groundingCollaborators.loadContextMa
  */
 const flushMicrotasks = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
-test("buildRewrittenCompositionConfig — a stale-marked context map is NOT used for grounding (stored map skipped even though present)", () => {
+test("buildCompositionConfig — a stale-marked context map is NOT used for grounding (stored map skipped even though present)", () => {
   const app = cfg(`factory-contextmap-stale-${Date.now().toString(36)}`);
   const map: ArchitectureContext = { builtAtSha: "sha-old", routes: [{ path: "/old" }], api: [], feBe: [] };
   saveContextMap(app.name, "sha-old", map);
   markContextStale(app.name);
 
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", sha: "abc1234" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", sha: "abc1234" });
   const result = config.groundingCollaborators!.loadContextMap!("/definitely/does/not/exist/on/disk");
   assert.equal(result, undefined, "a stale-flagged map must never ground generation, even though a stored map exists");
 });
@@ -461,7 +461,7 @@ async function queueRunThroughRealFactory(app: AppConfig, sha: string): Promise<
       { app: app.name, sha, target: "e2e", mode: "diff", source: "manual" },
       {
         loadApp: () => app,
-        engineFactory: createRewrittenEngineFactory({
+        engineFactory: createRunEngineFactory({
           getAgentDeps: stubAgentDeps,
           mirrorRoot,
           mirror: { ensureMirror: noCheckout, ensureMirrorAtBranch: noCheckout },
@@ -515,7 +515,7 @@ test("the context heal a run requests carries that run's own id as parentRunId",
       { app: app.name, sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
       {
         loadApp: () => app,
-        engineFactory: createRewrittenEngineFactory({
+        engineFactory: createRunEngineFactory({
           getAgentDeps: stubAgentDeps,
           mirrorRoot,
           mirror: { ensureMirror: noCheckout, ensureMirrorAtBranch: noCheckout },
@@ -537,12 +537,12 @@ test("the context heal a run requests carries that run's own id as parentRunId",
   }
 });
 
-test("buildRewrittenCompositionConfig — a run without a runId requests its heal without a parentRunId (unlinked heals stay valid)", async () => {
+test("buildCompositionConfig — a run without a runId requests its heal without a parentRunId (unlinked heals stay valid)", async () => {
   const app = cfg(`factory-contextmap-heal-noparent-${Math.random().toString(36).slice(2)}`);
   markContextStale(app.name);
 
   let captured: ContextHealRunRequest | undefined;
-  buildRewrittenCompositionConfig(
+  buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, enqueueContextRun: (input) => { captured = input; return "run-heal-1"; } },
     "qa-bot-abc1234-run1",
@@ -554,11 +554,11 @@ test("buildRewrittenCompositionConfig — a run without a runId requests its hea
   assert.equal(captured?.parentRunId, undefined, "parentRunId is optional — a caller without a runId links no parent");
 });
 
-test("buildRewrittenCompositionConfig — an accepted heal disarms the stale flag", async () => {
+test("buildCompositionConfig — an accepted heal disarms the stale flag", async () => {
   const app = cfg(`factory-contextmap-heal-accepted-${Date.now().toString(36)}`);
   markContextStale(app.name);
 
-  buildRewrittenCompositionConfig(
+  buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, enqueueContextRun: async () => "run-heal-1" },
     "qa-bot-abc1234-run1",
@@ -574,11 +574,11 @@ for (const [label, enqueueContextRun] of [
   ["thrown synchronously", () => { throw new Error("queue exploded"); }],
   ["not wired", undefined],
 ] as const) {
-  test(`buildRewrittenCompositionConfig — a heal enqueue ${label} keeps the stale flag armed and never blocks the run`, async () => {
+  test(`buildCompositionConfig — a heal enqueue ${label} keeps the stale flag armed and never blocks the run`, async () => {
     const app = cfg(`factory-contextmap-heal-kept-${Math.random().toString(36).slice(2)}`);
     markContextStale(app.name);
 
-    const config = buildRewrittenCompositionConfig(
+    const config = buildCompositionConfig(
       app,
       { getAgentDeps: stubAgentDeps, ...(enqueueContextRun ? { enqueueContextRun } : {}) },
       "qa-bot-abc1234-run1",
@@ -590,22 +590,22 @@ for (const [label, enqueueContextRun] of [
   });
 }
 
-test("buildRewrittenCompositionConfig — a code-mode app never requests a heal (context maps are e2e-only)", () => {
+test("buildCompositionConfig — a code-mode app never requests a heal (context maps are e2e-only)", () => {
   const app: AppConfig = { ...cfg(`factory-contextmap-stale-code-${Date.now().toString(36)}`), code: true, dev: undefined };
   markContextStale(app.name);
 
   let requested = 0;
-  buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, enqueueContextRun: () => { requested += 1; return "run-heal-1"; } }, "qa-bot-abc1234-run1", { mode: "diff", target: "code", sha: "abc1234" });
+  buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, enqueueContextRun: () => { requested += 1; return "run-heal-1"; } }, "qa-bot-abc1234-run1", { mode: "diff", target: "code", sha: "abc1234" });
   assert.equal(requested, 0);
   assert.equal(isContextStale(app.name), true, "the flag stays armed for the next real e2e generating run");
 });
 
-test("buildRewrittenCompositionConfig — a mode:context run never requests its own heal (it is the rebuild)", () => {
+test("buildCompositionConfig — a mode:context run never requests its own heal (it is the rebuild)", () => {
   const app = cfg(`factory-contextmap-stale-context-mode-${Date.now().toString(36)}`);
   markContextStale(app.name);
 
   let requested = 0;
-  buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, enqueueContextRun: () => { requested += 1; return "run-heal-1"; } }, "qa-bot-abc1234-run1", { mode: "context", sha: "abc1234" });
+  buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, enqueueContextRun: () => { requested += 1; return "run-heal-1"; } }, "qa-bot-abc1234-run1", { mode: "context", sha: "abc1234" });
   assert.equal(requested, 0);
 });
 
@@ -646,7 +646,7 @@ for (const [label, enqueueContextRun] of [
       const deps = { getAgentDeps: stubAgentDeps, ...(enqueueContextRun ? { enqueueContextRun } : {}) };
       const specDir = specDirWithContextMap(JSON.stringify(fresh), committedBefore);
       try {
-        const contextRun = buildRewrittenCompositionConfig(app, deps, "qa-bot-def5678-run1", { mode: "context", sha: "def5678" });
+        const contextRun = buildCompositionConfig(app, deps, "qa-bot-def5678-run1", { mode: "context", sha: "def5678" });
         await contextRun.contextMapCapture!.capture(specDir, app.name, "def5678");
       } finally {
         rmSync(specDir, { recursive: true, force: true });
@@ -654,7 +654,7 @@ for (const [label, enqueueContextRun] of [
 
       assert.equal(isContextStale(app.name), false);
       /* The next run is at another commit that changed nothing the map names, so the map fits it. */
-      const nextRun = buildRewrittenCompositionConfig(app, { ...deps, contextMapChanges: () => [] }, "qa-bot-0a1b2c3-run2", { mode: "diff", sha: "0a1b2c3" });
+      const nextRun = buildCompositionConfig(app, { ...deps, contextMapChanges: () => [] }, "qa-bot-0a1b2c3-run2", { mode: "diff", sha: "0a1b2c3" });
       assert.deepEqual(nextRun.groundingCollaborators!.loadContextMap!("/definitely/does/not/exist/on/disk")?.routes, [{ path: "/fresh" }]);
     });
   }
@@ -668,7 +668,7 @@ for (const [label, enqueueContextRun] of [
     const deps = { getAgentDeps: stubAgentDeps, ...(enqueueContextRun ? { enqueueContextRun } : {}) };
     const specDir = specDirWithContextMap(undefined, JSON.stringify(CONDEMNED_MAP));
     try {
-      const contextRun = buildRewrittenCompositionConfig(app, deps, "qa-bot-def5678-run1", { mode: "context", sha: "def5678" });
+      const contextRun = buildCompositionConfig(app, deps, "qa-bot-def5678-run1", { mode: "context", sha: "def5678" });
       await contextRun.contextMapCapture!.capture(specDir, app.name, "def5678");
     } finally {
       rmSync(specDir, { recursive: true, force: true });
@@ -690,7 +690,7 @@ test("a context run that stores a new map is captured even when git judges the w
   const previous = process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER;
   process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER = "1";
   try {
-    const contextRun = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run1", { mode: "context", sha: "def5678" });
+    const contextRun = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run1", { mode: "context", sha: "def5678" });
     await contextRun.contextMapCapture!.capture(specDir, app.name, "def5678");
   } finally {
     if (previous === undefined) delete process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER;
@@ -704,7 +704,7 @@ test("a context run that stores a new map is captured even when git judges the w
 test("a context run that stores no map (missing or invalid) keeps the stale flag armed", async () => {
   const app = cfg(`factory-contextmap-no-capture-${Math.random().toString(36).slice(2)}`);
   markContextStale(app.name);
-  const contextRun = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run1", { mode: "context", sha: "def5678" });
+  const contextRun = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run1", { mode: "context", sha: "def5678" });
   for (const body of [undefined, JSON.stringify({ builtAtSha: "", routes: [], api: [], feBe: [] })]) {
     const specDir = specDirWithContextMap(body);
     try {
@@ -716,12 +716,12 @@ test("a context run that stores no map (missing or invalid) keeps the stale flag
   assert.equal(isContextStale(app.name), true);
 });
 
-test("buildRewrittenCompositionConfig — a cross-repo (service-triggered) run never requests a primary-app heal", () => {
+test("buildCompositionConfig — a cross-repo (service-triggered) run never requests a primary-app heal", () => {
   const app: AppConfig = { ...cfg(`factory-contextmap-stale-crossrepo-${Date.now().toString(36)}`), services: [{ repo: "org/service" }] };
   markContextStale(app.name);
 
   let requested = 0;
-  buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, enqueueContextRun: () => { requested += 1; return "run-heal-1"; } }, "qa-bot-abc1234-run1", { mode: "diff", triggerRepo: "org/service", sha: "abc1234" });
+  buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, enqueueContextRun: () => { requested += 1; return "run-heal-1"; } }, "qa-bot-abc1234-run1", { mode: "diff", triggerRepo: "org/service", sha: "abc1234" });
   assert.equal(requested, 0, "a service sha is not a primary-repo sha");
   assert.equal(isContextStale(app.name), true);
 });
@@ -731,9 +731,9 @@ test("buildRewrittenCompositionConfig — a cross-repo (service-triggered) run n
    composed use-case's `repair` port is non-undefined; a companion integration test below drives a
    malformed generator verdict through the REAL wrapped checkGeneratorVerdict/repairInstruction.
  */
-test("buildRewrittenCompositionConfig wires a non-undefined RepairPort into GenerateTestsUseCase (the bounded contract-repair was dormant on the production path before this fix)", () => {
+test("buildCompositionConfig wires a non-undefined RepairPort into GenerateTestsUseCase (the bounded contract-repair was dormant on the production path before this fix)", () => {
   const app = cfg("factory-repair");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   /* GenerationPorts.repair is a private constructor field on GenerateTestsUseCase — reach into it
      structurally (same class, no public accessor exists) to confirm the factory actually supplied it.
    */
@@ -741,16 +741,16 @@ test("buildRewrittenCompositionConfig wires a non-undefined RepairPort into Gene
   assert.ok(ports.repair, "GenerationPorts.repair must be wired (was dormant/undefined before this fix)");
 });
 
-test("buildRewrittenCompositionConfig gives GenerateTestsUseCase the transport's own deadline as the ceiling of the generator's time budget", () => {
-  const config = buildRewrittenCompositionConfig(cfg("factory-time-cap"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+test("buildCompositionConfig gives GenerateTestsUseCase the transport's own deadline as the ceiling of the generator's time budget", () => {
+  const config = buildCompositionConfig(cfg("factory-time-cap"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   /* Same structural reach-in as the RepairPort wiring above: the ports are a private field with no accessor. */
   const ports = (config.generationUseCase as unknown as { ports: { promptCapMs?: number } }).ports;
   assert.equal(ports.promptCapMs, agentPromptCapMs());
 });
 
-test("buildRewrittenCompositionConfig gives GenerateTestsUseCase the tiers' time budgets, the defaults unless the environment overrides one", () => {
+test("buildCompositionConfig gives GenerateTestsUseCase the tiers' time budgets, the defaults unless the environment overrides one", () => {
   const budgetsOf = (): unknown => {
-    const config = buildRewrittenCompositionConfig(cfg("factory-time-budgets"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+    const config = buildCompositionConfig(cfg("factory-time-budgets"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
     return (config.generationUseCase as unknown as { ports: { timeBudgets?: unknown } }).ports.timeBudgets;
   };
   const saved = process.env[DIFF_TIME_BUDGET_ENV.tiny];
@@ -767,8 +767,8 @@ test("buildRewrittenCompositionConfig gives GenerateTestsUseCase the tiers' time
   }
 });
 
-test("buildRewrittenCompositionConfig reads the run-level time budgets from the environment it is given and a mistyped value stops the composition", () => {
-  const build = (env: Record<string, string>) => buildRewrittenCompositionConfig(cfg("factory-run-budget"), { getAgentDeps: stubAgentDeps, env }, "qa-bot-abc1234-run1", { mode: "diff" });
+test("buildCompositionConfig reads the run-level time budgets from the environment it is given and a mistyped value stops the composition", () => {
+  const build = (env: Record<string, string>) => buildCompositionConfig(cfg("factory-run-budget"), { getAgentDeps: stubAgentDeps, env }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(build({}).runDeadline, "the deadline is wired into the composition");
   assert.throws(() => build({ [RUN_TIME_BUDGET_ENV["diff-broad"]]: "1h" }), new RegExp(RUN_TIME_BUDGET_ENV["diff-broad"]));
 });
@@ -777,7 +777,7 @@ test("the composed engine's agent turns are held to the run's deadline: once it 
   let opened = 0;
   const clock = { t: 1_000 };
   const fakeAgentDeps: AgentDeps = { open: async () => { opened++; throw new Error("a spent run must not open a session"); } };
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     cfg("factory-run-deadline"),
     { getAgentDeps: () => fakeAgentDeps, now: () => clock.t, env: { [RUN_TIME_BUDGET_ENV.manual]: "60000" } },
     "qa-bot-abc1234-runDeadline",
@@ -799,7 +799,7 @@ test("the composed engine hands the host the app's own step classification, and 
     return { open: async (_agent, _cwd, opts) => { opened.push(opts); return { id: "s", prompt: async () => "{}", dispose: async () => {} }; } };
   };
   const e2e: AppConfig = { ...cfg("factory-turn-intent"), auth: { kind: "form", usernameEnv: "U", passwordEnv: "P", loginPath: "/entrar" }, dev: { baseUrl: "https://dev.example.com" } };
-  const config = buildRewrittenCompositionConfig(e2e, { getAgentDeps: host as never }, "ns-intent", { mode: "manual" });
+  const config = buildCompositionConfig(e2e, { getAgentDeps: host as never }, "ns-intent", { mode: "manual" });
   const session = await config.reviewRuntime.runtime.openSession("reviewer", "/m", { timeoutMs: 1_000, timeLimit: "session-timeout" });
   await session.dispose();
   const { specTargets, authFiles, loginUrls, reviewAgents } = (seen[0] as { intent: { specTargets: unknown; authFiles: string[]; loginUrls: string[]; reviewAgents: string[] } }).intent;
@@ -807,7 +807,7 @@ test("the composed engine hands the host the app's own step classification, and 
   assert.deepEqual([authFiles, loginUrls, reviewAgents], [["e2e/auth.setup.ts"], ["https://dev.example.com/entrar"], ["qa-reviewer"]]);
   assert.equal((opened[0] as { timeLimit?: string }).timeLimit, "session-timeout");
 
-  const code = buildRewrittenCompositionConfig({ ...cfg("factory-turn-intent-code"), code: true, dev: undefined }, { getAgentDeps: host as never }, "ns-intent-code", { mode: "manual", target: "code" });
+  const code = buildCompositionConfig({ ...cfg("factory-turn-intent-code"), code: true, dev: undefined }, { getAgentDeps: host as never }, "ns-intent-code", { mode: "manual", target: "code" });
   await (await code.reviewRuntime.runtime.openSession("reviewer", "/m")).dispose();
   assert.deepEqual((seen[1] as { intent: { specTargets: unknown } }).intent.specTargets, { kind: "any-write" });
 });
@@ -832,7 +832,7 @@ test("engineAgentDeps traces a prompt as an invoke_agent turn when the host has 
 test("until the use case arms the run's deadline, the composed engine's agent turns are not bounded by it", async () => {
   let opened = 0;
   const fakeAgentDeps: AgentDeps = { open: async () => { opened++; return { id: "s", prompt: async () => "{}", dispose: async () => {} }; } };
-  const config = buildRewrittenCompositionConfig(cfg("factory-run-unarmed"), { getAgentDeps: () => fakeAgentDeps, now: () => 5 }, "qa-bot-abc1234-runUnarmed", { mode: "manual" });
+  const config = buildCompositionConfig(cfg("factory-run-unarmed"), { getAgentDeps: () => fakeAgentDeps, now: () => 5 }, "qa-bot-abc1234-runUnarmed", { mode: "manual" });
   const session = await config.reviewRuntime.runtime.openSession("reviewer", "/m");
   await session.dispose();
   assert.equal(opened, 1);
@@ -867,7 +867,7 @@ test("the composed RepairPort drives GenerateTestsUseCase's generator-contract-c
       dispose: async () => {},
     }),
   };
-  const repairApp = buildRewrittenCompositionConfig(
+  const repairApp = buildCompositionConfig(
     app,
     { getAgentDeps: () => fakeAgentDeps },
     "qa-bot-abc1234-run1",
@@ -905,15 +905,15 @@ test("the composed RepairPort drives GenerateTestsUseCase's generator-contract-c
 /* baseUrl, testIdAttribute, mode/guidance, and publish flags must thread through the factory.
  */
 
-test("buildRewrittenCompositionConfig sets baseUrl from app.dev.baseUrl (the live E2eExecutionStrategy crash fix)", () => {
+test("buildCompositionConfig sets baseUrl from app.dev.baseUrl (the live E2eExecutionStrategy crash fix)", () => {
   const app = cfg("factory-baseurl");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.baseUrl, "https://dev", "baseUrl must be threaded from app.dev.baseUrl into CompositionConfig, not just the FaultInjectionOracle");
 });
 
-test("buildRewrittenCompositionConfig leaves baseUrl absent for a code-mode app (no dev block)", () => {
+test("buildCompositionConfig leaves baseUrl absent for a code-mode app (no dev block)", () => {
   const app: AppConfig = { ...cfg("factory-baseurl-code"), code: true, dev: undefined };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.baseUrl, undefined);
 });
 
@@ -922,15 +922,15 @@ test("buildRewrittenCompositionConfig leaves baseUrl absent for a code-mode app 
    ~25.5min worst-case ceiling for a hung reviewer session.
  */
 
-test("buildRewrittenCompositionConfig sets reviewTimeoutMs to the exported REVIEWER_TIMEOUT_MS constant", () => {
+test("buildCompositionConfig sets reviewTimeoutMs to the exported REVIEWER_TIMEOUT_MS constant", () => {
   const app = cfg("factory-review-timeout");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.reviewTimeoutMs, REVIEWER_TIMEOUT_MS, "the reviewer must get its OWN purpose-built budget, not the dispatcher's coarse ceiling");
 });
 
 test("factory threads agentTimeout(mode) into CompositionConfig.agentTimeoutMs", () => {
   const app = cfg("factory-agent-timeout");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.agentTimeoutMs, agentTimeout("diff"));
 });
 
@@ -950,9 +950,9 @@ test("factory threads agentTimeout(mode) into CompositionConfig.agentTimeoutMs",
    fields are PRESENT rather than `{}`.
  */
 
-test("buildRewrittenCompositionConfig wires authDir-aware (not empty) groundingCollaborators for an e2e app", () => {
+test("buildCompositionConfig wires authDir-aware (not empty) groundingCollaborators for an e2e app", () => {
   const app = cfg("factory-grounding-e2e");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(config.groundingCollaborators?.contextPackDeps, "contextPackDeps must be wired so DOM capture reads auth material from authDir, not the mirror");
   assert.ok(config.reviewDomGroundingCollaborators?.captureDomDeps, "captureDomDeps must be wired so DOM capture reads auth material from authDir, not the mirror");
   assert.ok(config.preExecGroundingCollaborators?.captureDomDeps, "captureDomDeps must be wired so pre-exec DOM capture reads auth material from authDir, not the mirror");
@@ -961,7 +961,7 @@ test("buildRewrittenCompositionConfig wires authDir-aware (not empty) groundingC
 test("the composed grounding domDeps carries the app's dev.dataState", () => {
   const dataState = { routes: { "/home": { resultTextSelector: ".count", timeoutMs: 3000 } } };
   const app: AppConfig = { ...cfg("factory-dom-datastate"), dev: { baseUrl: "https://dev", dataState } };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   const domDeps = config.groundingCollaborators?.contextPackDeps?.domDeps;
   assert.ok(domDeps, "a DOM capture is wired");
   assert.deepEqual(domDeps.dataState, dataState, "the app's dataState reaches the composed DOM capture");
@@ -970,13 +970,13 @@ test("the composed grounding domDeps carries the app's dev.dataState", () => {
 test("the composed Context Pack carries the app's dev.routeSamples", () => {
   const routeSamples = { "/shops/:province/:city/:slug": "/shops/madrid/madrid/casa-pepe" };
   const app: AppConfig = { ...cfg("factory-route-samples"), dev: { baseUrl: "https://dev", routeSamples } };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.deepEqual(config.groundingCollaborators?.contextPackDeps?.routeSamples, routeSamples);
 });
 
 test("every DOM capture seam of an e2e app is the authDir-backed capture, never the inert default", () => {
   const app = cfg("factory-dom-capture-seams");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   const seams = {
     "pre-generation Context Pack": config.groundingCollaborators?.contextPackDeps?.domDeps,
     "review DOM grounding": config.reviewDomGroundingCollaborators?.captureDomDeps,
@@ -990,7 +990,7 @@ test("every DOM capture seam of an e2e app is the authDir-backed capture, never 
 
 test("grounding.domPack:false reaches CompositionConfig.domPack=false while the review/pre-exec DOM seams stay wired", () => {
   const app = cfg("factory-dom-pack-off");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", grounding: { domPack: false } });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", grounding: { domPack: false } });
   assert.equal(config.domPack, false, "the lever reaches the CompositionConfig");
   assert.ok(config.groundingCollaborators?.contextPackDeps, "pre-generation collaborators still wired");
   assert.ok(config.reviewDomGroundingCollaborators?.captureDomDeps, "review DOM grounding still wired");
@@ -999,15 +999,15 @@ test("grounding.domPack:false reaches CompositionConfig.domPack=false while the 
 
 test("a context-mode run sets CompositionConfig.contextPack=false, a pipeline run leaves it on", () => {
   const app = cfg("factory-context-pack-off");
-  const context = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run1", { mode: "context", sha: "def5678" });
+  const context = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run1", { mode: "context", sha: "def5678" });
   assert.equal(context.contextPack, false, "context mode skips the discarded pack");
 
-  const pipeline = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", sha: "abc1234" });
+  const pipeline = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", sha: "abc1234" });
   assert.equal(pipeline.contextPack, true, "the pipeline keeps its own pack (the domPack lever unchanged)");
 });
 
 /* The pre-generation grounding wires the authDir-backed DOM capture and the DB-first context map, whatever the app declares. */
-function assertRestOfGroundingWired(app: AppConfig, config: ReturnType<typeof buildRewrittenCompositionConfig>): void {
+function assertRestOfGroundingWired(app: AppConfig, config: ReturnType<typeof buildCompositionConfig>): void {
   const domDeps = config.groundingCollaborators?.contextPackDeps?.domDeps;
   assert.ok(domDeps, "a DOM capture is wired");
   assert.notEqual(domDeps, defaultCaptureDomDeps, "the DOM capture is the authDir-backed one");
@@ -1019,14 +1019,14 @@ test("an e2e app with services[], one with an empty services[] and one with none
   for (const [name, services] of [["factory-grounding-services", [{ repo: "org/ms-orders" }]], ["factory-grounding-empty-services", []], ["factory-grounding-no-services", undefined]] as const) {
     const base = cfg(name);
     const app: AppConfig = services === undefined ? base : { ...base, services: [...services] };
-    const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+    const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
     assertRestOfGroundingWired(app, config);
   }
 });
 
-test("buildRewrittenCompositionConfig still wires groundingCollaborators for a code-mode app (composition-root.ts's own isCode guard is the actual skip point, not the factory)", () => {
+test("buildCompositionConfig still wires groundingCollaborators for a code-mode app (composition-root.ts's own isCode guard is the actual skip point, not the factory)", () => {
   const app: AppConfig = { ...cfg("factory-grounding-code"), code: true, dev: undefined };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   /* The factory's own mapping is target-agnostic here — wireBridges()'s `!cfg.isCode` guard is what
      actually skips constructing both grounding ports for a code target (composition-root.ts), so
      asserting the factory's OWN output stays the same shape whether or not isCode is true is the
@@ -1042,16 +1042,16 @@ test("buildRewrittenCompositionConfig still wires groundingCollaborators for a c
    fresh on every run (the real per-run mirrorDir, only known post-checkout), NOT via this
    composition config's static contextMap field. Never fabricate at composition-build time.
  */
-test("buildRewrittenCompositionConfig leaves contextMap and prChangedFiles absent (no real per-run source at composition-build time)", () => {
+test("buildCompositionConfig leaves contextMap and prChangedFiles absent (no real per-run source at composition-build time)", () => {
   const app = cfg("factory-grounding-contextmap-absent");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.contextMap, undefined, "contextMap requires reading context.json off the REAL per-run mirrorDir, unknown at composition time — never fabricated");
   assert.equal(config.prChangedFiles, undefined, "prChangedFiles requires classifyCommit's per-run diff, unknown at composition time — never fabricated");
 });
 
 test("baseUrl and testIdAttribute reach the grounding phase via CompositionConfig's own top-level fields (not duplicated inside groundingCollaborators)", () => {
   const app: AppConfig = { ...cfg("factory-grounding-static-context"), e2e: { testIdAttribute: "data-cy" } };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   /* composition-root.ts's wireBridges() builds PreGenerationGroundingStaticContext/
      ReviewDomGroundingStaticContext from cfg.baseUrl/cfg.testIdAttribute/cfg.mirrorDir/cfg.e2eRelDir
      directly — this factory only needs to keep supplying those top-level fields (already covered by
@@ -1062,35 +1062,35 @@ test("baseUrl and testIdAttribute reach the grounding phase via CompositionConfi
   assert.equal(config.testIdAttribute, "data-cy");
 });
 
-test("buildRewrittenCompositionConfig sets testIdAttribute from app.e2e.testIdAttribute (closes the worst audit-2026-07 flaky-selector leak on the rewritten path)", () => {
+test("buildCompositionConfig sets testIdAttribute from app.e2e.testIdAttribute (closes the worst audit-2026-07 flaky-selector leak on the run path)", () => {
   const app: AppConfig = { ...cfg("factory-testid"), e2e: { testIdAttribute: "data-qa" } };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.testIdAttribute, "data-qa");
 });
 
-test("buildRewrittenCompositionConfig leaves testIdAttribute undefined when the app declares none (NO 'data-testid' default here — the seed playwright.config.ts owns that default)", () => {
+test("buildCompositionConfig leaves testIdAttribute undefined when the app declares none (NO 'data-testid' default here — the seed playwright.config.ts owns that default)", () => {
   const app = cfg("factory-testid-absent");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.testIdAttribute, undefined);
 });
 
-test("buildRewrittenCompositionConfig wires the code graph and the co-change history so the structural blast-radius signal is ACTIVE in production — an unindexed repo degrades to no section inside the adapter chain", () => {
+test("buildCompositionConfig wires the code graph and the co-change history so the structural blast-radius signal is ACTIVE in production — an unindexed repo degrades to no section inside the adapter chain", () => {
   const app = cfg("factory-code-graph");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(config.codeGraph, "codeGraph must be supplied — absent means no repo is indexed and the agent NEVER receives the blast-radius section");
   assert.ok(config.coChange, "the co-change history must be supplied with it");
   assert.equal(config.codeGraphPrimary, undefined, "a same-repo run indexes one repo");
 });
 
-test("buildRewrittenCompositionConfig sets codeGraphRepoDir to the primary mirror on a same-repo run", () => {
+test("buildCompositionConfig sets codeGraphRepoDir to the primary mirror on a same-repo run", () => {
   const app = cfg("factory-codegraph-primary");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.codeGraphRepoDir, "/tmp/mirrors/org__demo", "same-repo indexing must pin the primary mirror, same formula as cfg.mirrorDir");
 });
 
-test("buildRewrittenCompositionConfig sets codeGraphRepoDir to the SERVICE mirror on a cross-repo run, and indexes the primary repo too", () => {
+test("buildCompositionConfig sets codeGraphRepoDir to the SERVICE mirror on a cross-repo run, and indexes the primary repo too", () => {
   const app: AppConfig = { ...cfg("factory-codegraph-service"), services: [{ repo: "org/orders-svc" }] };
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" },
     "qa-bot-abc1234-run1",
@@ -1101,7 +1101,7 @@ test("buildRewrittenCompositionConfig sets codeGraphRepoDir to the SERVICE mirro
 });
 
 test("the lead's code-graph tool redacts real secrets and the run's own secret values, and leaves the source it shows as it is", () => {
-  const config = buildRewrittenCompositionConfig(cfg("factory-code-graph-redact"), { getAgentDeps: stubAgentDeps, codeGraphRegistry: new CodeGraphToolRegistry() }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(cfg("factory-code-graph-redact"), { getAgentDeps: stubAgentDeps, codeGraphRegistry: new CodeGraphToolRegistry() }, "qa-bot-abc1234-run1", { mode: "diff" });
   const redact = config.codeGraphTools?.redact;
   assert.equal(typeof redact, "function", "the tool is granted a redaction");
   const source = ["const token = this.auth.getToken();", "const password: string = form.password;", "const secret = process.env.SECRET_VALUE;"].join("\n");
@@ -1131,57 +1131,57 @@ test("qa.structuralSignals mode 'off' supplies no code graph, so nothing is inde
     ...cfg("factory-code-graph-off"),
     qa: { ...cfg("factory-code-graph-off").qa, structuralSignals: { mode: "off" } },
   };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.codeGraph, undefined);
   assert.equal(config.coChange, undefined);
   assert.equal(config.codeExplore, undefined);
   assert.equal("codebaseMemory" in config, false, "the lead's code-graph tool is served from the code-graph store, not a separate client");
 });
 
-test("buildRewrittenCompositionConfig sets mode from the passed run param, not a hardcoded 'diff'", () => {
+test("buildCompositionConfig sets mode from the passed run param, not a hardcoded 'diff'", () => {
   const app = cfg("factory-mode-manual");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "manual" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "manual" });
   assert.equal(config.mode, "manual");
 });
 
-test("buildRewrittenCompositionConfig sets guidance from the passed run param when present", () => {
+test("buildCompositionConfig sets guidance from the passed run param when present", () => {
   const app = cfg("factory-guidance");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", {
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", {
     mode: "manual",
     guidance: "test the contact form",
   });
   assert.equal(config.guidance, "test the contact form");
 });
 
-test("buildRewrittenCompositionConfig leaves guidance absent when the run param omits it", () => {
+test("buildCompositionConfig leaves guidance absent when the run param omits it", () => {
   const app = cfg("factory-guidance-absent");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.guidance, undefined);
 });
 
-/* ── Bug fix: rewritten-engine runs left their RunRecord/RunEvents frozen because nothing wired
-   RunQaUseCaseDeps.observer through this factory. buildRewrittenCompositionConfig's 5th (observer)
-   argument and createRewrittenEngineFactory's own 4th (observer) argument close that gap — these
+/* ── Bug fix: engine runs left their RunRecord/RunEvents frozen because nothing wired
+   RunQaUseCaseDeps.observer through this factory. buildCompositionConfig's 5th (observer)
+   argument and createRunEngineFactory's own 4th (observer) argument close that gap — these
    tests pin the threading, not the observer's own behavior (covered in runner.test.ts). ───────────
  */
 
-test("buildRewrittenCompositionConfig threads the passed observer into CompositionConfig.observer", () => {
+test("buildCompositionConfig threads the passed observer into CompositionConfig.observer", () => {
   const app = cfg("factory-observer-present");
   const observer = { onStep: () => {}, onEvent: () => {} };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" }, observer);
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" }, observer);
   assert.equal(config.observer, observer, "the SAME observer instance must reach CompositionConfig, not a copy or a wrapper");
 });
 
-test("buildRewrittenCompositionConfig leaves observer absent when the caller omits it (backward compatible with every pre-existing call site)", () => {
+test("buildCompositionConfig leaves observer absent when the caller omits it (backward compatible with every pre-existing call site)", () => {
   const app = cfg("factory-observer-absent");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.observer, undefined);
 });
 
 /* serviceTopology is ACTIVE-gated on app.services?.length && app.boundaries?.length.
  */
 
-test("buildRewrittenCompositionConfig supplies serviceTopology when the app declares BOTH services[] and boundaries[]", () => {
+test("buildCompositionConfig supplies serviceTopology when the app declares BOTH services[] and boundaries[]", () => {
   const app: AppConfig = {
     ...cfg("factory-service-topology-active"),
     services: [{ repo: "org/ms-orders" }],
@@ -1196,7 +1196,7 @@ test("buildRewrittenCompositionConfig supplies serviceTopology when the app decl
       },
     ],
   } as AppConfig;
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" }, "qa-bot-abc1234-run1", { mode: "diff" });
 
   assert.ok(config.serviceTopology, "serviceTopology must be supplied when BOTH services[] and boundaries[] are non-empty");
   assert.equal(config.serviceTopology?.appName, "factory-service-topology-active");
@@ -1206,13 +1206,13 @@ test("buildRewrittenCompositionConfig supplies serviceTopology when the app decl
   assert.equal(typeof config.serviceTopology?.boundaryProfiles.forApp, "function", "boundaryProfiles must be a real BoundaryProfileProviderPort (YamlBoundaryProfileAdapter)");
 });
 
-test("buildRewrittenCompositionConfig omits serviceTopology when services[] is present but boundaries[] is absent/empty (AND-gate, not OR-gate)", () => {
+test("buildCompositionConfig omits serviceTopology when services[] is present but boundaries[] is absent/empty (AND-gate, not OR-gate)", () => {
   const app: AppConfig = { ...cfg("factory-service-topology-services-only"), services: [{ repo: "org/ms-orders" }] } as AppConfig;
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.serviceTopology, undefined, "services[] alone must NOT activate serviceTopology — boundaries[] is also required (ADR-6 AND-gate)");
 });
 
-test("buildRewrittenCompositionConfig omits serviceTopology when boundaries[] is present but services[] is absent/empty (AND-gate, not OR-gate)", () => {
+test("buildCompositionConfig omits serviceTopology when boundaries[] is present but services[] is absent/empty (AND-gate, not OR-gate)", () => {
   const app: AppConfig = {
     ...cfg("factory-service-topology-boundaries-only"),
     boundaries: [
@@ -1226,13 +1226,13 @@ test("buildRewrittenCompositionConfig omits serviceTopology when boundaries[] is
       },
     ],
   } as AppConfig;
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.serviceTopology, undefined, "boundaries[] alone must NOT activate serviceTopology — services[] is also required (ADR-6 AND-gate)");
 });
 
-test("buildRewrittenCompositionConfig omits serviceTopology when neither services[] nor boundaries[] is declared (the common single-repo-app case)", () => {
+test("buildCompositionConfig omits serviceTopology when neither services[] nor boundaries[] is declared (the common single-repo-app case)", () => {
   const app = cfg("factory-service-topology-neither");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.serviceTopology, undefined);
 });
 
@@ -1257,7 +1257,7 @@ test("qa.structuralSignals mode 'off' omits BOTH the code graph (with its explor
       },
     ],
   } as AppConfig;
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.codeExplore, undefined, "mode:off must omit the code-graph explore the lead's tool reads");
   assert.equal(config.codeGraph, undefined, "mode:off must omit the code graph");
   assert.equal(config.serviceTopology, undefined, "mode:off must omit serviceTopology even though services[]+boundaries[] are both declared");
@@ -1269,7 +1269,7 @@ test("the change dossier is on by default wherever the code graph is wired, and 
   const withDossier = { ...plain, qa: { ...plain.qa, structuralSignals: { mode: "signal", dossier: true } } } as AppConfig;
   const appOff = { ...plain, qa: { ...plain.qa, structuralSignals: { mode: "signal", dossier: false } } } as AppConfig;
   const build = (app: AppConfig, grounding?: { dossier?: boolean; structuralSignal?: boolean }) =>
-    buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", ...(grounding ? { grounding } : {}) });
+    buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", ...(grounding ? { grounding } : {}) });
   assert.equal(build(plain).structuralDossier, true, "on by default");
   assert.equal(build(appOff).structuralDossier, undefined, "the app turns it off");
   assert.equal(build(appOff, { dossier: true }).structuralDossier, true, "the run turns it back on");
@@ -1283,12 +1283,12 @@ test("a run that asks for the structural signal gets the code graph even where t
   const plain = cfg("factory-structural-asked");
   const off = { ...plain, qa: { ...plain.qa, structuralSignals: { mode: "off" } } } as AppConfig;
   const build = (grounding?: { structuralSignal?: boolean }) =>
-    buildRewrittenCompositionConfig(off, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", ...(grounding ? { grounding } : {}) });
+    buildCompositionConfig(off, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", ...(grounding ? { grounding } : {}) });
   assert.equal(build().codeGraph, undefined);
   assert.notEqual(build({ structuralSignal: true }).codeGraph, undefined);
 });
 
-test("buildRewrittenCompositionConfig supplies crossRepoImpact under the SAME gate as serviceTopology (signal + services[] + boundaries[])", () => {
+test("buildCompositionConfig supplies crossRepoImpact under the SAME gate as serviceTopology (signal + services[] + boundaries[])", () => {
   const app: AppConfig = {
     ...cfg("factory-cross-repo-impact-active"),
     services: [{ repo: "org/ms-orders" }],
@@ -1303,12 +1303,12 @@ test("buildRewrittenCompositionConfig supplies crossRepoImpact under the SAME ga
       },
     ],
   } as AppConfig;
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(config.crossRepoImpact, "crossRepoImpact must be supplied when structuralSignals is not off and BOTH services[] and boundaries[] are declared");
   assert.equal(typeof config.crossRepoImpact?.mirrorRoot, "string", "crossRepoImpact must carry the mirrorRoot the factory already computes");
   assert.ok(config.crossRepoImpact?.runner, "crossRepoImpact must reuse a real runner instance for the fetch step");
 
-  const noServices = buildRewrittenCompositionConfig(
+  const noServices = buildCompositionConfig(
     cfg("factory-cross-repo-impact-inactive"),
     { getAgentDeps: stubAgentDeps },
     "qa-bot-abc1234-run1",
@@ -1319,7 +1319,7 @@ test("buildRewrittenCompositionConfig supplies crossRepoImpact under the SAME ga
 
 test("qa.structuralSignals absent supplies the code graph and its explore unconditionally (byte-identical to pre-change behavior)", () => {
   const app = cfg("factory-structural-signals-absent");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(config.codeExplore, "absent config supplies the explore the lead's tool reads");
   assert.equal(config.codeExplore, config.codeGraph, "the explore reads the very index the run builds: one instance");
   assert.ok(config.codeGraph, "absent config supplies the code graph");
@@ -1330,7 +1330,7 @@ test("qa.structuralSignals mode 'signal' supplies the code graph and its explore
     ...cfg("factory-structural-signals-signal"),
     qa: { ...cfg("factory-structural-signals-signal").qa, structuralSignals: { mode: "signal" } },
   };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(config.codeExplore, "mode:signal supplies the explore — same as absent");
   assert.ok(config.codeGraph, "mode:signal supplies the code graph");
 });
@@ -1351,15 +1351,15 @@ test("qa.structuralSignals mode 'signal' still supplies serviceTopology when ser
       },
     ],
   } as AppConfig;
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(config.serviceTopology, "mode:signal must not disturb the pre-existing services[]+boundaries[] AND-gate");
 });
 
-test("createRewrittenEngineFactory forwards its 4th (observer) argument to buildRewrittenCompositionConfig on every call", () => {
+test("createRunEngineFactory forwards its 4th (observer) argument to buildCompositionConfig on every call", () => {
   const app = cfg("factory-observer-e2e");
-  const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
+  const factory = createRunEngineFactory({ getAgentDeps: stubAgentDeps });
   const observer = { onStep: () => {}, onEvent: () => {} };
-  /* buildProduction(cfg) constructs a RewrittenOrchestratorAdapter wrapping RunQaUseCase —
+  /* buildProduction(cfg) constructs a RunPipelineAdapter wrapping RunQaUseCase —
      the adapter has no public read-back of its own deps, so this test asserts the OBSERVABLE
      consequence: the factory call itself never throws when an observer is supplied (proving the
      4th argument's type threads correctly end-to-end), matching this suite's own "construction
@@ -1373,12 +1373,12 @@ test("createRewrittenEngineFactory forwards its 4th (observer) argument to build
    pipeline when the run says target:"code" — otherwise the operator launches "code" and
    Playwright still runs against DEV.
  */
-test("buildRewrittenCompositionConfig honors per-run target code on an e2e-configured app", () => {
+test("buildCompositionConfig honors per-run target code on an e2e-configured app", () => {
   const app: AppConfig = {
     ...cfg("factory-run-target-code"),
     qa: { ...cfg("factory-run-target-code").qa, shadow: true, valueOracle: "signal" },
   };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-tgtcode-run", { mode: "diff", target: "code" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-tgtcode-run", { mode: "diff", target: "code" });
   assert.equal(config.target, "code");
   assert.equal(config.isCode, true);
   assert.equal(
@@ -1388,13 +1388,13 @@ test("buildRewrittenCompositionConfig honors per-run target code on an e2e-confi
   );
 });
 
-test("buildRewrittenCompositionConfig honors per-run target e2e on a code:true app", () => {
+test("buildCompositionConfig honors per-run target e2e on a code:true app", () => {
   const app: AppConfig = {
     ...cfg("factory-run-target-e2e"),
     code: true,
     qa: { ...cfg("factory-run-target-e2e").qa, shadow: true, valueOracle: "signal" },
   };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-tgte2e-run", { mode: "diff", target: "e2e" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-tgte2e-run", { mode: "diff", target: "e2e" });
   assert.equal(config.target, "e2e");
   assert.equal(config.isCode, false);
   assert.equal(
@@ -1404,9 +1404,9 @@ test("buildRewrittenCompositionConfig honors per-run target e2e on a code:true a
   );
 });
 
-test("buildRewrittenCompositionConfig selects the code target + Stryker oracle for a code:true app", () => {
+test("buildCompositionConfig selects the code target + Stryker oracle for a code:true app", () => {
   const app: AppConfig = { ...cfg("factory-code"), code: true, dev: undefined };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run2", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run2", { mode: "diff" });
   assert.equal(config.target, "code");
   assert.equal(config.isCode, true);
   assert.equal(config.versionUrl, undefined, "a code-mode app has no dev.versionUrl — no deploy gate");
@@ -1446,7 +1446,7 @@ test("the value oracle scores a suite whose Playwright config has no desktop pro
     const bin = join(e2eDir, "node_modules", ".bin", "playwright");
     writeFileSync(bin, FAKE_PLAYWRIGHT);
     chmodSync(bin, 0o755);
-    const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+    const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
 
     const result = await inRunScope(config, () => config.objectiveSignal.oracle.measure(
       BlastRadius.of(Sha.of("abc1234"), ["src/login.ts"]),
@@ -1468,37 +1468,37 @@ test("the value oracle scores a suite whose Playwright config has no desktop pro
  */
 test("e2e + valueOracle off wires NullValueOracleAdapter (no fault-injection)", () => {
   const app: AppConfig = { ...cfg("factory-oracle-off"), qa: { ...cfg("factory-oracle-off").qa, valueOracle: "off" } };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.objectiveSignal.oracle.constructor.name, "NullValueOracleAdapter");
 });
 
 test("e2e shadow with omitted valueOracle wires NullValueOracleAdapter (shadow-aware default)", () => {
   const app = cfg("factory-oracle-shadow-default");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.objectiveSignal.oracle.constructor.name, "NullValueOracleAdapter");
 });
 
 test("e2e + valueOracle signal wires FaultInjectionOracleAdapter even in shadow", () => {
   const app: AppConfig = { ...cfg("factory-oracle-signal"), qa: { ...cfg("factory-oracle-signal").qa, shadow: true, valueOracle: "signal" } };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.objectiveSignal.oracle.constructor.name, "FaultInjectionOracleAdapter");
 });
 
 test("code + valueOracle off wires NullValueOracleAdapter (no Stryker)", () => {
   const app: AppConfig = { ...cfg("factory-oracle-code-off"), code: true, dev: undefined, qa: { ...cfg("factory-oracle-code-off").qa, valueOracle: "off" } };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run2", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run2", { mode: "diff" });
   assert.equal(config.objectiveSignal.oracle.constructor.name, "NullValueOracleAdapter");
 });
 
 test("code + valueOracle signal wires StrykerMutationOracleAdapter", () => {
   const app: AppConfig = { ...cfg("factory-oracle-code-signal"), code: true, dev: undefined, qa: { ...cfg("factory-oracle-code-signal").qa, shadow: false, valueOracle: "signal" } };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run2", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run2", { mode: "diff" });
   assert.equal(config.objectiveSignal.oracle.constructor.name, "StrykerMutationOracleAdapter");
 });
 
-test("buildRewrittenCompositionConfig honors coveragePolicy from app.qa.changeCoverage", () => {
+test("buildCompositionConfig honors coveragePolicy from app.qa.changeCoverage", () => {
   const app: AppConfig = { ...cfg("factory-coverage"), qa: { ...cfg("factory-coverage").qa, changeCoverage: { mode: "enforce", minRatio: 0.85 } } };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-cov1234-run3", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-cov1234-run3", { mode: "diff" });
   assert.equal(config.coveragePolicyMode, "enforce");
   assert.equal(config.coveragePolicy.mode, "enforce");
   assert.equal(config.coveragePolicy.minRatio, 0.85);
@@ -1512,17 +1512,17 @@ test("buildRewrittenCompositionConfig honors coveragePolicy from app.qa.changeCo
    not independently computed.
  */
 for (const mode of ["off", "signal", "enforce"] as const) {
-  test(`buildRewrittenCompositionConfig derives coveragePolicyMode FROM coveragePolicy.mode (single source) — mode:${mode}`, () => {
+  test(`buildCompositionConfig derives coveragePolicyMode FROM coveragePolicy.mode (single source) — mode:${mode}`, () => {
     const app: AppConfig = { ...cfg(`factory-single-source-${mode}`), qa: { ...cfg(`factory-single-source-${mode}`).qa, changeCoverage: { mode, minRatio: 0.7 } } };
-    const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, `qa-bot-src${mode}-run`, { mode: "diff" });
+    const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, `qa-bot-src${mode}-run`, { mode: "diff" });
     assert.equal(config.coveragePolicyMode, config.coveragePolicy.mode, "coveragePolicyMode must equal coveragePolicy.mode — single source, never independently derived");
     assert.equal(config.coveragePolicyMode, mode);
   });
 }
 
-test("buildRewrittenCompositionConfig: coveragePolicyMode defaults to \"signal\" when app.qa.changeCoverage is absent, matching coveragePolicy.mode", () => {
+test("buildCompositionConfig: coveragePolicyMode defaults to \"signal\" when app.qa.changeCoverage is absent, matching coveragePolicy.mode", () => {
   const app: AppConfig = cfg("factory-no-coverage-config");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-nocov-run", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-nocov-run", { mode: "diff" });
   assert.equal(config.coveragePolicyMode, "signal");
   assert.equal(config.coveragePolicy.mode, "signal");
   assert.equal(config.coveragePolicyMode, config.coveragePolicy.mode);
@@ -1530,16 +1530,16 @@ test("buildRewrittenCompositionConfig: coveragePolicyMode defaults to \"signal\"
 
 /* Branch/namespace must be per-run, not a static literal — otherwise every run collides on DEV test data. */
 
-test("buildRewrittenCompositionConfig sets branch to the PASSED namespace, not a static literal", () => {
+test("buildCompositionConfig sets branch to the PASSED namespace, not a static literal", () => {
   const app = cfg("factory-namespace");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-runA", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-runA", { mode: "diff" });
   assert.equal(config.branch, "qa-bot-abc1234-runA", "branch must equal the per-run namespace passed in, not a hardcoded literal");
 });
 
-test("two calls to buildRewrittenCompositionConfig with DIFFERENT namespaces produce DIFFERENT branch values", () => {
+test("two calls to buildCompositionConfig with DIFFERENT namespaces produce DIFFERENT branch values", () => {
   const app = cfg("factory-namespace-diff");
-  const configRun1 = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-runA", { mode: "diff" });
-  const configRun2 = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-runB", { mode: "diff" });
+  const configRun1 = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-runA", { mode: "diff" });
+  const configRun2 = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-runB", { mode: "diff" });
   assert.notEqual(configRun1.branch, configRun2.branch, "two runs must never collide on the same DEV test-data namespace/branch");
   assert.equal(configRun1.branch, "qa-bot-abc1234-runA");
   assert.equal(configRun2.branch, "qa-bot-abc1234-runB");
@@ -1554,21 +1554,21 @@ test("two calls to buildRewrittenCompositionConfig with DIFFERENT namespaces pro
    constructor-injected value is the faithful, side-effect-free way to assert this wiring.
  */
 
-test("buildRewrittenCompositionConfig wires githubPr with app.baseBranch as the PR base", () => {
+test("buildCompositionConfig wires githubPr with app.baseBranch as the PR base", () => {
   const app: AppConfig = { ...cfg("factory-basebranch"), baseBranch: "develop" };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   const base = (config.githubPr as unknown as { base?: string }).base;
   assert.equal(base, "develop", "githubPr must be constructed with app.baseBranch, not silently defaulting to GitHubPrAdapter's own 'main' fallback");
 });
 
-test("buildRewrittenCompositionConfig falls back to 'main' when app.baseBranch is absent (matches legacy's app.baseBranch ?? \"main\")", () => {
+test("buildCompositionConfig falls back to 'main' when app.baseBranch is absent (matches legacy's app.baseBranch ?? \"main\")", () => {
   const app = cfg("factory-basebranch-default");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   const base = (config.githubPr as unknown as { base?: string }).base;
   assert.equal(base, "main", "an app with no configured baseBranch must fall back to 'main', mirroring legacy's app.baseBranch ?? \"main\"");
 });
 
-/* ── PROD-BLOCKER fix (buildVcsPublish) — the rewritten publish path never staged/committed/pushed
+/* ── PROD-BLOCKER fix (buildVcsPublish) — the publish path never staged/committed/pushed
    the agent's generated tests before calling GitHub's PR API (VcsWriteAdapter, the only VcsWritePort
    implementation, was never instantiated anywhere in composition-root.ts — grep-confirmed zero
    references outside its own test). buildVcsPublish is the REAL git-write collaborator wired into
@@ -1840,26 +1840,26 @@ test("resolving the code sandbox registers its group with the git hardening, so 
 
 /* config.sanitize must be the real sanitizeText, not an identity fallback. */
 
-test("buildRewrittenCompositionConfig wires config.sanitize to the REAL sanitizeText (redacts a secret-shaped input)", () => {
+test("buildCompositionConfig wires config.sanitize to the REAL sanitizeText (redacts a secret-shaped input)", () => {
   const app = cfg("factory-sanitize");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(typeof config.sanitize, "function", "config.sanitize must be wired — its absence silently falls back to PublicationPortAdapter's identity default, defeating the CLAUDE.md sanitize invariant");
   const redacted = config.sanitize!("const apiKey = sk-abc123XYZ\ntoken: ghs_supersecretvalue");
   assert.ok(!redacted.includes("sk-abc123XYZ"), "a real API-key-shaped secret must be redacted, not passed through verbatim");
   assert.ok(!redacted.includes("ghs_supersecretvalue"), "a real token-shaped secret must be redacted, not passed through verbatim");
 });
 
-/* createRewrittenEngineFactory is the RunnerDeps.engineFactory seam; these tests exercise its documented calling contract. */
+/* createRunEngineFactory is the RunnerDeps.engineFactory seam; these tests exercise its documented calling contract. */
 
-test("createRewrittenEngineFactory returns a factory whose output satisfies RunPipelinePort (has a run() fn)", () => {
-  const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
+test("createRunEngineFactory returns a factory whose output satisfies RunPipelinePort (has a run() fn)", () => {
+  const factory = createRunEngineFactory({ getAgentDeps: stubAgentDeps });
   const port = factory(cfg("factory-port-shape"), "qa-bot-abc1234-runA", { mode: "diff" });
   assert.equal(typeof port.run, "function", "the returned RunPipelinePort must expose run()");
 });
 
-test("createRewrittenEngineFactory never calls getAgentDeps during construction (lazy — only real generation/review calls .open())", () => {
+test("createRunEngineFactory never calls getAgentDeps during construction (lazy — only real generation/review calls .open())", () => {
   let calls = 0;
-  const factory = createRewrittenEngineFactory({
+  const factory = createRunEngineFactory({
     getAgentDeps: () => {
       calls++;
       return stubAgentDeps();
@@ -1871,12 +1871,12 @@ test("createRewrittenEngineFactory never calls getAgentDeps during construction 
 
 /* withUsageSink/withStallWatchdog/withSessionRegistration existed and were fully unit-tested, but
    nothing on the production path ever composed them onto the AgentDeps this factory hands to
-   wireBridges() — a session opened through the rewritten engine never registered for SSE, never
+   wireBridges() — a session opened through the engine never registered for SSE, never
    tripped the stall watchdog, and never fed a usage sink. These tests prove the composition itself
    (the wrapper unit tests already pin each wrapper's own behavior in isolation).
  */
 
-test("createRewrittenEngineFactory wraps deps.getAgentDeps() so a session opened with descriptor.runId registers for SSE (activityRouter.sessionMap())", async () => {
+test("createRunEngineFactory wraps deps.getAgentDeps() so a session opened with descriptor.runId registers for SSE (activityRouter.sessionMap())", async () => {
   let openedSessionId: string | undefined;
   const rawGetAgentDeps = (): AgentDeps => ({
     open: async (_agent, _cwd, _opts) => {
@@ -1885,7 +1885,7 @@ test("createRewrittenEngineFactory wraps deps.getAgentDeps() so a session opened
     },
   });
   const app = cfg("factory-sse-registration");
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     {
       getAgentDeps: () =>
@@ -1924,7 +1924,7 @@ async function generateThroughTransport(
   parts: Array<{ type: string; text?: string }>,
   tracker: { take: () => import("@contexts/generation/domain/turn-efficiency-summary").TurnCallMetrics | null },
   maxSteps: number,
-): Promise<{ result: Awaited<ReturnType<ReturnType<typeof buildRewrittenCompositionConfig>["generationUseCase"]["generate"]>>; persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] }> {
+): Promise<{ result: Awaited<ReturnType<ReturnType<typeof buildCompositionConfig>["generationUseCase"]["generate"]>>; persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] }> {
   const persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] = [];
   const base = createAgentDeps(
     {
@@ -1941,7 +1941,7 @@ async function generateThroughTransport(
       maxStepsFor: () => maxSteps,
     },
   );
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     cfg("factory-turn-stats"),
     {
       getAgentDeps: () =>
@@ -2021,7 +2021,7 @@ test("a generation that ran out of steps ends exhausted and is never sent a repa
  * the real transport policy and the wrapper chain the factory composes. Advancing the clock by the
  * budget the change's tier allows is all it takes for the generator's turn to be stopped and classified.
  */
-async function generateOnAHungTransport(diff: string, advanceMs: number): Promise<{ result: Awaited<ReturnType<ReturnType<typeof buildRewrittenCompositionConfig>["generationUseCase"]["generate"]>>; persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] }> {
+async function generateOnAHungTransport(diff: string, advanceMs: number): Promise<{ result: Awaited<ReturnType<ReturnType<typeof buildCompositionConfig>["generationUseCase"]["generate"]>>; persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] }> {
   const persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] = [];
   let prompting = false;
   const base = createAgentDeps(
@@ -2033,7 +2033,7 @@ async function generateOnAHungTransport(diff: string, advanceMs: number): Promis
     },
     { defaultPromptTimeoutMs: agentPromptCapMs(), getFallbackModel: () => undefined, persistTurn: (turn) => persisted.push(turn) },
   );
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     cfg("factory-time-budget"),
     /* Without the stall watchdog: its inactivity timer would fire on the virtual clock long before the budget, and a hung transport is not what it is under test for. */
     { getAgentDeps: () => withUsageSink(withSessionRegistration(base, { register: registerRunSession, unregister: unregisterRunSession })) },
@@ -2085,9 +2085,9 @@ test("only the final step's text is read as the generator's verdict, through the
   assert.equal(result.turn?.exhausted, false, "the reasoning that recalls hitting max steps is not the turn's ending");
 });
 
-test("createRewrittenEngineFactory's engineFactory (not just buildRewrittenCompositionConfig directly) composes the SAME wrap chain end-to-end", () => {
+test("createRunEngineFactory's engineFactory (not just buildCompositionConfig directly) composes the SAME wrap chain end-to-end", () => {
   let getAgentDepsCalls = 0;
-  const factory = createRewrittenEngineFactory({
+  const factory = createRunEngineFactory({
     getAgentDeps: () => {
       getAgentDepsCalls++;
       return stubAgentDeps();
@@ -2101,14 +2101,14 @@ test("createRewrittenEngineFactory's engineFactory (not just buildRewrittenCompo
   assert.equal(getAgentDepsCalls, 0, "wrapping getAgentDeps must not eagerly invoke the underlying factory");
 });
 
-test("createRewrittenEngineFactory's returned closure threads the namespace argument into branch for two consecutive calls with different namespaces", () => {
-  const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
+test("createRunEngineFactory's returned closure threads the namespace argument into branch for two consecutive calls with different namespaces", () => {
+  const factory = createRunEngineFactory({ getAgentDeps: stubAgentDeps });
   const app = cfg("factory-closure-namespace");
   /* Both calls build a REAL RunPipelinePort via buildProduction — we cannot read `.branch` off
-     the port itself, but buildRewrittenCompositionConfig (already pinned above) proves the config
+     the port itself, but buildCompositionConfig (already pinned above) proves the config
      it builds carries branch=namespace; this test proves the FACTORY CLOSURE's own arity accepts
      and threads a second, distinct namespace argument without throwing (the composition succeeds
-     for both), which is the observable contract at the createRewrittenEngineFactory seam.
+     for both), which is the observable contract at the createRunEngineFactory seam.
    */
   const portRun1 = factory(app, "qa-bot-abc1234-runA", { mode: "diff" });
   const portRun2 = factory(app, "qa-bot-abc1234-runB", { mode: "diff" });
@@ -2121,7 +2121,7 @@ test("createRewrittenEngineFactory's returned closure threads the namespace argu
 test("engineFactory (real production factory) is invoked and drives the run to completion", async () => {
   const queue = new JobQueue();
   let factoryInvoked = false;
-  const realFactory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
+  const realFactory = createRunEngineFactory({ getAgentDeps: stubAgentDeps });
   const id = enqueueTrackedRun(
     queue,
     { app: "factory-dispatch-real", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
@@ -2136,7 +2136,7 @@ test("engineFactory (real production factory) is invoked and drives the run to c
   await queue.drain();
   const r = getRecord(id)!;
   assert.equal(r.status, "done");
-  assert.equal(factoryInvoked, true, "the real rewritten engineFactory must be invoked — it is the only engine");
+  assert.equal(factoryInvoked, true, "the real engineFactory must be invoked — it is the only engine");
 });
 
 /* ── THE VALUE KEYSTONE — assembleChangeCoverage wiring + code-mode coverage trigger ──────────────
@@ -2146,9 +2146,9 @@ test("engineFactory (real production factory) is invoked and drives the run to c
    triggers the repo's own instrumented test run so a report exists to read in the first place.
  */
 
-test("buildRewrittenCompositionConfig supplies a REAL assembleChangeCoverage (the value keystone, previously always absent)", () => {
+test("buildCompositionConfig supplies a REAL assembleChangeCoverage (the value keystone, previously always absent)", () => {
   const app = cfg("factory-assembler");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(typeof config.assembleChangeCoverage, "function", "assembleChangeCoverage must be wired — its absence is exactly what kept measure() at status:'unknown' forever");
 
   /* Prove it is the REAL pure port (parseDiffHunks + computeChangeCoverage), not a stub that always
@@ -2163,9 +2163,9 @@ test("buildRewrittenCompositionConfig supplies a REAL assembleChangeCoverage (th
   assert.deepEqual(cc.uncovered, [{ file: "src/x.ts", lines: [2] }]);
 });
 
-test("buildRewrittenCompositionConfig's coverage collector for an e2e app does NOT trigger runCodeCoverage (code-only trigger)", async () => {
+test("buildCompositionConfig's coverage collector for an e2e app does NOT trigger runCodeCoverage (code-only trigger)", async () => {
   const app = cfg("factory-e2e-no-codecov");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   /* Must resolve without throwing — an e2e app's collector is the plain V8-dump collector, untouched
      by the code-mode wrapper; a nonexistent namespace dir degrades to an empty report (fail-open).
    */
@@ -2174,9 +2174,9 @@ test("buildRewrittenCompositionConfig's coverage collector for an e2e app does N
   assert.deepEqual(report.scripts, { total: 0, withSourceMap: 0 });
 });
 
-test("buildRewrittenCompositionConfig's coverage collector for a code:true app runs best-effort (never throws even with no c8/no test command)", async () => {
+test("buildCompositionConfig's coverage collector for a code:true app runs best-effort (never throws even with no c8/no test command)", async () => {
   const app: AppConfig = { ...cfg("factory-code-coverage-trigger"), code: true, dev: undefined };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run2", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run2", { mode: "diff" });
   /* — best-effort, BEFORE the lcov/Istanbul readers run. A bogus mirrorDir (no repo, no c8, no test
      command) must degrade the whole collect() call to an empty report, never throw.
    */
@@ -2186,7 +2186,7 @@ test("buildRewrittenCompositionConfig's coverage collector for a code:true app r
 test("the runner reaches the real factory and never bypasses it", async () => {
   const queue = new JobQueue();
   let factoryInvoked = false;
-  const realFactory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
+  const realFactory = createRunEngineFactory({ getAgentDeps: stubAgentDeps });
   const id = enqueueTrackedRun(
     queue,
     { app: "factory-dispatch-legacy", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
@@ -2213,17 +2213,17 @@ test("the runner reaches the real factory and never bypasses it", async () => {
    learningRepo must not fall back to StubLearningRepository (a provable no-op).
  */
 
-test("buildRewrittenCompositionConfig wires a REAL SqliteRunHistoryAdapter by default (no historyFilePath override)", () => {
+test("buildCompositionConfig wires a REAL SqliteRunHistoryAdapter by default (no historyFilePath override)", () => {
   const app = cfg("factory-history-default");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
 
   assert.ok(config.runHistory instanceof SqliteRunHistoryAdapter, "runHistory must default to the REAL durable SQLite adapter, not fall through to composition-root's in-memory default");
   assert.equal(config.historyFilePath, undefined, "historyFilePath stays unset — the SQLite adapter is wired via the runHistory override, not the file-JSONL path");
 });
 
-test("buildRewrittenCompositionConfig honors an explicit historyFilePath override (escape hatch — opts OUT of the SQLite default)", () => {
+test("buildCompositionConfig honors an explicit historyFilePath override (escape hatch — opts OUT of the SQLite default)", () => {
   const app = cfg("factory-history-override");
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, historyFilePath: "/tmp/qa-explicit-history.jsonl" },
     "qa-bot-abc1234-run1",
@@ -2234,9 +2234,9 @@ test("buildRewrittenCompositionConfig honors an explicit historyFilePath overrid
   assert.equal(config.runHistory, undefined, "the runHistory override must NOT be set when the caller explicitly opts into the file-backed escape hatch");
 });
 
-test("buildRewrittenCompositionConfig wires a REAL SqliteLearningRepository by default (was: zero production constructors)", () => {
+test("buildCompositionConfig wires a REAL SqliteLearningRepository by default (was: zero production constructors)", () => {
   const app = cfg("factory-learning-default");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
 
   assert.ok(config.learningRepo instanceof SqliteLearningRepository, "learningRepo must default to the REAL SqliteLearningRepository, not composition-root's StubLearningRepository fallback");
 });
@@ -2246,7 +2246,7 @@ test("buildRewrittenCompositionConfig wires a REAL SqliteLearningRepository by d
    integration test: a unique app name per run avoids collisions with other tests' rows.
  */
 test("historyLearningStore(appName).upsert() persists the REAL app name, not the rule's archetype", async () => {
-  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { historyLearningStore } = await import("./run-engine-factory");
   const { listLearningRules } = await import("./history");
   const app = `factory-learning-appname-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -2283,7 +2283,7 @@ test("historyLearningStore(appName).upsert() persists the REAL app name, not the
    through this store.
  */
 test("historyLearningStore(appName).incrementUsage() bridges onto history.ts's incrementRuleUsage", async () => {
-  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { historyLearningStore } = await import("./run-engine-factory");
   const { listLearningRules } = await import("./history");
   const app = `factory-learning-usage-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const ruleId = `rule-usage-${app}`;
@@ -2307,7 +2307,7 @@ test("historyLearningStore(appName).incrementUsage() bridges onto history.ts's i
    tests' rows.
  */
 test("historyLearningStore(appName).recordOutcome() — oracle path folds valueScore into every retrieved rule", async () => {
-  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { historyLearningStore } = await import("./run-engine-factory");
   const { listLearningRules } = await import("./history");
   const app = `factory-learning-oracle-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const ruleId1 = `rule-oracle-1-${app}`;
@@ -2345,7 +2345,7 @@ test("historyLearningStore(appName).recordOutcome() — oracle path folds valueS
    nothing about rules of other classes and can only ever count against a rule of its own class, so it can neither promote
    a candidate nor disturb a proven rule. */
 test("historyLearningStore(appName).recordOutcome() — folding a step-budget outcome mints no active rule and leaves other classes' rules untouched", async () => {
-  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { historyLearningStore } = await import("./run-engine-factory");
   const { listLearningRules, setRuleStatusByHuman } = await import("./history");
   const app = `factory-learning-step-budget-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const own = `rule-step-own-${app}`;
@@ -2391,7 +2391,7 @@ test("historyLearningStore(appName).recordOutcome() — folding a step-budget ou
    pins the full chain green.
  */
 test("integration: upsert -> retrieve (real LearningPortAdapter) -> derive rulesRetrieved by id -> fold (real recordOutcome) advances outcome_count (was frozen at 0 pre-fix)", async () => {
-  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { historyLearningStore } = await import("./run-engine-factory");
   const { listLearningRules } = await import("./history");
   const { SqliteLearningRepository } = await import(
     "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter"
@@ -2415,7 +2415,7 @@ test("integration: upsert -> retrieve (real LearningPortAdapter) -> derive rules
   });
 
   /* Real retrieval path: the SAME SqliteLearningRepository + LearningPortAdapter production wires
-     (buildRewrittenCompositionConfig composes `new SqliteLearningRepository(historyLearningStore(app.name))`
+     (buildCompositionConfig composes `new SqliteLearningRepository(historyLearningStore(app.name))`
      at line ~524 of this module, and composition-root.ts wraps it in LearningPortAdapter).
    */
   const repo = new SqliteLearningRepository(store);
@@ -2454,7 +2454,7 @@ test("integration: upsert -> retrieve (real LearningPortAdapter) -> derive rules
 });
 
 test("historyLearningStore(appName).recordOutcome() — empty rulesRetrieved is a safe no-op", async () => {
-  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { historyLearningStore } = await import("./run-engine-factory");
   const { listLearningRules } = await import("./history");
   const app = `factory-learning-empty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const ruleId = `rule-empty-${app}`;
@@ -2480,7 +2480,7 @@ test("historyLearningStore(appName).recordOutcome() — empty rulesRetrieved is 
 });
 
 test("recordOutcome persists a scorecard entry even when rulesRetrieved is empty", async () => {
-  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { historyLearningStore } = await import("./run-engine-factory");
   const { loadScorecard } = await import("./history");
   const app = `factory-scorecard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const store = historyLearningStore(app);
@@ -2501,7 +2501,7 @@ test("recordOutcome persists a scorecard entry even when rulesRetrieved is empty
 });
 
 test("recordOutcome persists the REAL mutantCount/killedCount from gateSignals, not a hardcoded 0", async () => {
-  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { historyLearningStore } = await import("./run-engine-factory");
   const { loadScorecard } = await import("./history");
   const app = `factory-scorecard-mutant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const store = historyLearningStore(app);
@@ -2520,7 +2520,7 @@ test("recordOutcome persists the REAL mutantCount/killedCount from gateSignals, 
 });
 
 test("recordOutcome persists mutantCount/killedCount as null ('not measured') when gateSignals omits them, never a fabricated 0", async () => {
-  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { historyLearningStore } = await import("./run-engine-factory");
   const { loadScorecard } = await import("./history");
   const app = `factory-scorecard-unmeasured-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const store = historyLearningStore(app);
@@ -2539,7 +2539,7 @@ test("recordOutcome persists mutantCount/killedCount as null ('not measured') wh
 });
 
 test("historyLearningStore(appName).recordOutcome() — prevention path scores via preventionOutcome(rule.errorClass, outcome.errorClass) when valueScore is null", async () => {
-  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { historyLearningStore } = await import("./run-engine-factory");
   const { listLearningRules } = await import("./history");
   const app = `factory-learning-prevention-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const heldRuleId = `rule-prevention-held-${app}`;
@@ -2600,7 +2600,7 @@ test("historyLearningStore(appName).recordOutcome() — prevention path scores v
  * filtering a capped bulk list.
  */
 test("recordOutcome prevention path folds a retrieved rule even when the bulk LEARNING_RULE_LEDGER_LIMIT read would exclude it", async () => {
-  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { historyLearningStore } = await import("./run-engine-factory");
   const { upsertLearningRule, listLearningRules, LEARNING_RULE_LEDGER_LIMIT } = await import("./history");
   const app = `factory-learning-r6-window-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const targetId = `rule-r6-target-${app}`;
@@ -2636,7 +2636,7 @@ test("recordOutcome prevention path folds a retrieved rule even when the bulk LE
    on the prevention path and on the oracle path alike. Walks the real production store
    (historyLearningStore -> recordOutcome) against the real SQLite ledger. */
 async function vetoedRuleAfterFold(gateSignals: { valueScore: number | null }) {
-  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { historyLearningStore } = await import("./run-engine-factory");
   const { upsertLearningRule, setRuleStatusByHuman, getLearningRule } = await import("./history");
   const app = `factory-learning-veto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const ruleId = `rule-veto-${app}`;
@@ -2688,7 +2688,7 @@ test("a rule a human restores after a veto folds outcomes again", async () => {
    must not fold onto it, on either path. */
 for (const [path, valueScore] of [["prevention", null], ["oracle", 0.9]] as const) {
   test(`a superseded rule keeps its status and accrues nothing on the ${path}-path fold of a run that retrieved it`, async () => {
-    const { historyLearningStore } = await import("./rewritten-engine-factory");
+    const { historyLearningStore } = await import("./run-engine-factory");
     const { upsertLearningRule, getLearningRule } = await import("./history");
     const app = `factory-learning-superseded-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const ruleId = `rule-superseded-${app}`;
@@ -2712,7 +2712,7 @@ for (const [path, valueScore] of [["prevention", null], ["oracle", 0.9]] as cons
 /* A store folds only its own app's rules: an outcome naming another app's rule id credits nothing. */
 for (const [path, valueScore] of [["prevention", null], ["oracle", 0.9]] as const) {
   test(`an outcome never folds onto another app's rule on the ${path} path`, async () => {
-    const { historyLearningStore } = await import("./rewritten-engine-factory");
+    const { historyLearningStore } = await import("./run-engine-factory");
     const { upsertLearningRule, listLearningRules } = await import("./history");
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const owner = `factory-learning-owner-${suffix}`;
@@ -2738,7 +2738,7 @@ for (const [path, valueScore] of [["prevention", null], ["oracle", 0.9]] as cons
    shapes; an untagged rule always qualifies, and a run with no diff shapes credits every retrieved
    rule. Walks the real production store against the real SQLite ledger. */
 async function creditedAfterFold(valueScore: number | null, diffArchetypes: string[] | undefined) {
-  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { historyLearningStore } = await import("./run-engine-factory");
   const { upsertLearningRule, getLearningRule } = await import("./history");
   const app = `factory-learning-attribution-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const ids = { matching: `rule-form-${app}`, unrelated: `rule-list-${app}`, untagged: `rule-untagged-${app}` };
@@ -2792,7 +2792,7 @@ test("a run whose diff shapes are unknown credits every retrieved rule", async (
    the duplicate is skipped — proving listAll surfaces real rows, not [].
  */
 test("historyLearningStore(appName).selectAllRules wiring — SqliteLearningRepository.listAll surfaces a DEPRECATED rule so decideDistill skips a normalized duplicate", async () => {
-  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { historyLearningStore } = await import("./run-engine-factory");
   const { SqliteLearningRepository } = await import(
     "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter"
   );
@@ -2858,11 +2858,11 @@ test("historyLearningStore(appName).selectAllRules wiring — SqliteLearningRepo
  * ranking truth) never got a chance to rank a candidate it never saw — silently defeating its own
  * EXPLORATION_SLOTS (rule-governance.service.ts) no matter how governance itself ranked things.
  * This walks the REAL production wiring end to end (the SAME SqliteLearningRepository
- * buildRewrittenCompositionConfig composes, ~line 644) and proves fresh candidates still reach
+ * buildCompositionConfig composes, ~line 644) and proves fresh candidates still reach
  * topRules' exploration slots even with more than LEARNING_RULE_LEDGER_LIMIT active rows seeded.
  */
 test("historyLearningStore(app).selectRules feeds fresh candidates through even with MORE than LEARNING_RULE_LEDGER_LIMIT active rows — topRules' exploration slots are never SQL-starved", async () => {
-  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { historyLearningStore } = await import("./run-engine-factory");
   const { upsertLearningRule, LEARNING_RULE_LEDGER_LIMIT } = await import("./history");
   const app = `factory-learning-no-starve-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -2894,7 +2894,7 @@ test("historyLearningStore(app).selectRules feeds fresh candidates through even 
    an app accumulates, the newest candidates still reach the exploration slots and the best-proven
    actives still reach the top. The clock is mocked so every row gets a distinct, ordered `at`. */
 test("retrieval: the newest candidates reach the exploration slots when the ledger holds more candidates than the ledger window", async (t) => {
-  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { historyLearningStore } = await import("./run-engine-factory");
   const { upsertLearningRule, LEARNING_RULE_LEDGER_LIMIT } = await import("./history");
   const app = `factory-learning-newest-candidates-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const limit = 10;
@@ -2919,7 +2919,7 @@ test("retrieval: the newest candidates reach the exploration slots when the ledg
 });
 
 test("retrieval: the best-proven active rules are retrieved when the ledger holds more actives than the ledger window", async () => {
-  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { historyLearningStore } = await import("./run-engine-factory");
   const { upsertLearningRule, LEARNING_RULE_LEDGER_LIMIT } = await import("./history");
   const app = `factory-learning-best-actives-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const store = historyLearningStore(app);
@@ -2944,9 +2944,9 @@ test("retrieval: the best-proven active rules are retrieved when the ledger hold
   assert.deepEqual(new Set(top.map((r) => r.id)), new Set(provenIds));
 });
 
-test("createRewrittenEngineFactory's produced CompositionConfig carries the SAME real runHistory/learningRepo wiring", () => {
-  const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
-  /* buildRewrittenCompositionConfig is exercised directly above (createRewrittenEngineFactory just
+test("createRunEngineFactory's produced CompositionConfig carries the SAME real runHistory/learningRepo wiring", () => {
+  const factory = createRunEngineFactory({ getAgentDeps: stubAgentDeps });
+  /* buildCompositionConfig is exercised directly above (createRunEngineFactory just
      closes over it + buildProduction) — this test proves the PUBLIC factory seam (the one index.ts
      and cli.ts actually call) produces a real RunPipelinePort without throwing during construction.
    */
@@ -2959,7 +2959,7 @@ test("createRewrittenEngineFactory's produced CompositionConfig carries the SAME
    the primary mirror at baseBranch HEAD." Prior to this fix, run.triggerRepo never reached the
    factory at all — vcs/checkout/gate were hardwired to the PRIMARY repo unconditionally, so a real
    cross-repo run tried `git checkout -f <serviceSha>` inside the PRIMARY mirror and crashed.
-   Testability seam: RewrittenEngineFactoryDeps.mirror lets tests inject spies for
+   Testability seam: RunEngineFactoryDeps.mirror lets tests inject spies for
    ensureMirror/ensureMirrorAtBranch instead of touching real git/disk — mirrors the existing
    deps.mirrorRoot precedent (an explicit test/override seam, defaulting to the real functions).
  */
@@ -2982,7 +2982,7 @@ function spyMirrorDeps() {
   return { mirror, ensureMirrorCalls, ensureMirrorAtBranchCalls };
 }
 
-/* Testability seam: RewrittenEngineFactoryDeps.stageServiceContext lets tests inject a no-op for
+/* Testability seam: RunEngineFactoryDeps.stageServiceContext lets tests inject a no-op for
    the service-context staging side effect, instead of touching real disk/git — mirrors
    spyMirrorDeps' own precedent immediately above. Checkout-focused tests that don't care about
    staging content use this so `checkout()` never performs real fs writes against a spy mirror's
@@ -3005,7 +3005,7 @@ function spyStageServiceContext() {
 test("GUARD: no triggerRepo — checkout(sha) ensures the PRIMARY repo at sha only, never ensureMirrorAtBranch", async () => {
   const app = cfg("factory-guard-same-repo");
   const { mirror, ensureMirrorCalls, ensureMirrorAtBranchCalls } = spyMirrorDeps();
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, mirror },
     "qa-bot-abc1234-run1",
@@ -3020,7 +3020,7 @@ test("GUARD: no triggerRepo — checkout(sha) ensures the PRIMARY repo at sha on
 test("GUARD: triggerRepo: '' (empty string) behaves identically to absent — same-repo path, no ensureMirrorAtBranch", async () => {
   const app: AppConfig = { ...cfg("factory-guard-empty-triggerrepo"), dev: { baseUrl: "https://dev", versionUrl: "https://dev/version" } };
   const { mirror, ensureMirrorCalls, ensureMirrorAtBranchCalls } = spyMirrorDeps();
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, mirror },
     "qa-bot-abc1234-run1",
@@ -3036,7 +3036,7 @@ test("GUARD: triggerRepo: '' (empty string) behaves identically to absent — sa
 
 test("GUARD: no triggerRepo — versionUrl is app.dev?.versionUrl exactly as before", () => {
   const app: AppConfig = { ...cfg("factory-guard-versionurl"), dev: { baseUrl: "https://dev", versionUrl: "https://dev/version" } };
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.versionUrl, "https://dev/version");
   assert.equal(config.deployGateIntervalMs, 2000, "primary defaults are unchanged (2000/60000)");
   assert.equal(config.deployGateTimeoutMs, 60000);
@@ -3044,7 +3044,7 @@ test("GUARD: no triggerRepo — versionUrl is app.dev?.versionUrl exactly as bef
 
 test("GUARD: no triggerRepo — vcs reads the PRIMARY mirror dir", () => {
   const app = cfg("factory-guard-vcs");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal((config.vcs as unknown as { repoDir: string }).repoDir, "/tmp/mirrors/org__demo");
 });
 
@@ -3057,7 +3057,7 @@ test("cross-repo: checkout(sha) ensures the SERVICE repo at the event sha, then 
   const app: AppConfig = { ...cfg("factory-crossrepo-checkout"), services: [{ repo: "org/orders-svc" }] };
   const { mirror, ensureMirrorCalls, ensureMirrorAtBranchCalls } = spyMirrorDeps();
   const { stageServiceContext } = spyStageServiceContext();
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, mirror, stageServiceContext },
     "qa-bot-abc1234-run1",
@@ -3075,7 +3075,7 @@ test("cross-repo: checkout(sha) honors the app's configured baseBranch (not alwa
   const app: AppConfig = { ...cfg("factory-crossrepo-basebranch"), baseBranch: "develop", services: [{ repo: "org/orders-svc" }] };
   const { mirror, ensureMirrorAtBranchCalls } = spyMirrorDeps();
   const { stageServiceContext } = spyStageServiceContext();
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, mirror, stageServiceContext },
     "qa-bot-abc1234-run1",
@@ -3090,7 +3090,7 @@ test("cross-repo: checkout(sha) stages the SERVICE's context INTO the primary wo
   const app: AppConfig = { ...cfg("factory-crossrepo-stage"), services: [{ repo: "org/orders-svc" }] };
   const { mirror } = spyMirrorDeps();
   const { stageServiceContext, calls } = spyStageServiceContext();
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, mirror, stageServiceContext },
     "qa-bot-abc1234-run1",
@@ -3106,7 +3106,7 @@ test("cross-repo: checkout(sha) stages the SERVICE's context INTO the primary wo
 
 test("cross-repo: cfg.vcs is bound to the SERVICE mirror dir (classify source), not the primary", () => {
   const app: AppConfig = { ...cfg("factory-crossrepo-vcs"), services: [{ repo: "org/orders-svc" }] };
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" },
     "qa-bot-abc1234-run1",
@@ -3117,7 +3117,7 @@ test("cross-repo: cfg.vcs is bound to the SERVICE mirror dir (classify source), 
 
 test("cross-repo: composes CompositionConfig.triggerService = {repo, mirrorDir} for the SERVICE mirror (not the primary), when the service declares no openapi hint", () => {
   const app: AppConfig = { ...cfg("factory-crossrepo-triggerservice"), services: [{ repo: "org/orders-svc" }] };
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" },
     "qa-bot-abc1234-run1",
@@ -3131,7 +3131,7 @@ test("cross-repo: composes CompositionConfig.triggerService with openapi when th
     ...cfg("factory-crossrepo-triggerservice-openapi"),
     services: [{ repo: "org/orders-svc", openapi: "openapi/orders.yaml" }],
   };
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" },
     "qa-bot-abc1234-run1",
@@ -3145,7 +3145,7 @@ test("cross-repo: composes CompositionConfig.triggerService with an array openap
     ...cfg("factory-crossrepo-triggerservice-openapi-array"),
     services: [{ repo: "org/orders-svc", openapi: ["openapi/orders.yaml", "openapi/payments.yaml"] }],
   };
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" },
     "qa-bot-abc1234-run1",
@@ -3160,7 +3160,7 @@ test("cross-repo: composes CompositionConfig.triggerService with an array openap
 
 test("GUARD: no triggerRepo (same-repo run) leaves CompositionConfig.triggerService entirely absent — no key, not undefined-valued", () => {
   const app = cfg("factory-guard-triggerservice-absent");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal("triggerService" in config, false, "same-repo runs (the common case) must OMIT triggerService entirely, matching versionUrl's own absent-by-default precedent for this class of field");
 });
 
@@ -3175,7 +3175,7 @@ test("cross-repo: gate uses the SERVICE's own versionUrl + service-level interva
     ...cfg("factory-crossrepo-gate"),
     services: [{ repo: "org/orders-svc", versionUrl: "https://orders-svc/version" }],
   };
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps },
     "qa-bot-abc1234-run1",
@@ -3192,7 +3192,7 @@ test("cross-repo: gate honors explicit service pollIntervalMs/deployTimeoutMs ov
     ...cfg("factory-crossrepo-gate-overrides"),
     services: [{ repo: "org/orders-svc", versionUrl: "https://orders-svc/version", pollIntervalMs: 3000, deployTimeoutMs: 90_000 }],
   };
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps },
     "qa-bot-abc1234-run1",
@@ -3208,7 +3208,7 @@ test("cross-repo: a service WITHOUT versionUrl leaves cfg.versionUrl undefined e
     dev: { baseUrl: "https://dev", versionUrl: "https://dev/version" },
     services: [{ repo: "org/orders-svc" }],
   };
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps },
     "qa-bot-abc1234-run1",
@@ -3224,7 +3224,7 @@ test("cross-repo: an UNDECLARED triggerRepo throws (defense in depth, matches ru
   const app = cfg("factory-crossrepo-undeclared"); /* no services[] declared at all */
   assert.throws(
     () =>
-      buildRewrittenCompositionConfig(
+      buildCompositionConfig(
         app,
         { getAgentDeps: stubAgentDeps },
         "qa-bot-abc1234-run1",
@@ -3238,7 +3238,7 @@ test("cross-repo: mode 'context' triggered by a declared service throws", () => 
   const app: AppConfig = { ...cfg("factory-crossrepo-context-service"), services: [{ repo: "org/orders-svc" }] };
   assert.throws(
     () =>
-      buildRewrittenCompositionConfig(
+      buildCompositionConfig(
         app,
         { getAgentDeps: stubAgentDeps },
         "qa-bot-abc1234-run1",
@@ -3251,7 +3251,7 @@ test("cross-repo: mode 'context' triggered by a declared service throws", () => 
 test("cross-repo: mode 'context' WITHOUT a triggerRepo does not throw (same-repo context runs stay legal)", () => {
   const app: AppConfig = { ...cfg("factory-crossrepo-context-same-repo"), services: [{ repo: "org/orders-svc" }] };
   assert.doesNotThrow(() =>
-    buildRewrittenCompositionConfig(
+    buildCompositionConfig(
       app,
       { getAgentDeps: stubAgentDeps },
       "qa-bot-abc1234-run1",
@@ -3264,7 +3264,7 @@ test("cross-repo: triggerRepo === app.repo takes the same-repo path (no service-
   const app: AppConfig = { ...cfg("factory-crossrepo-selfrepo"), services: [{ repo: "org/orders-svc" }] };
   const { mirror, ensureMirrorCalls, ensureMirrorAtBranchCalls } = spyMirrorDeps();
   const { stageServiceContext, calls } = spyStageServiceContext();
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, mirror, stageServiceContext },
     "qa-bot-abc1234-run1",
@@ -3279,16 +3279,16 @@ test("cross-repo: triggerRepo === app.repo takes the same-repo path (no service-
   assert.strictEqual(ensureMirrorCalls[0]?.deps, defaultMirrorDeps);
 });
 
-/* 6. createRewrittenEngineFactory forwards triggerRepo through to buildRewrittenCompositionConfig. */
+/* 6. createRunEngineFactory forwards triggerRepo through to buildCompositionConfig. */
 
-test("createRewrittenEngineFactory's returned closure accepts and threads a run.triggerRepo argument without throwing", () => {
-  const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
+test("createRunEngineFactory's returned closure accepts and threads a run.triggerRepo argument without throwing", () => {
+  const factory = createRunEngineFactory({ getAgentDeps: stubAgentDeps });
   const app: AppConfig = { ...cfg("factory-crossrepo-closure"), services: [{ repo: "org/orders-svc" }] };
   assert.doesNotThrow(() => factory(app, "qa-bot-abc1234-run1", { mode: "diff", triggerRepo: "org/orders-svc" }));
 });
 
-test("createRewrittenEngineFactory's returned closure propagates the undeclared-triggerRepo throw (guard reachable at the closure seam, not just via buildRewrittenCompositionConfig directly)", () => {
-  const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
+test("createRunEngineFactory's returned closure propagates the undeclared-triggerRepo throw (guard reachable at the closure seam, not just via buildCompositionConfig directly)", () => {
+  const factory = createRunEngineFactory({ getAgentDeps: stubAgentDeps });
   const app: AppConfig = { ...cfg("factory-crossrepo-closure-throw"), services: [{ repo: "org/orders-svc" }] };
   assert.throws(
     () => factory(app, "qa-bot-abc1234-run1", { mode: "diff", triggerRepo: "org/evil-repo" }),
@@ -3313,7 +3313,7 @@ test("context mode: composes CompositionConfig.services = every declared service
       { repo: "org/payments-svc", baseBranch: "develop" },
     ],
   };
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" },
     "qa-bot-abc1234-run1",
@@ -3330,7 +3330,7 @@ test("context mode: composes CompositionConfig.services with an array openapi hi
     ...cfg("factory-context-services-array-openapi"),
     services: [{ repo: "org/orders-svc", openapi: ["openapi/orders.yaml", "openapi/payments.yaml"] }],
   };
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" },
     "qa-bot-abc1234-run1",
@@ -3343,7 +3343,7 @@ test("context mode: composes CompositionConfig.services with an array openapi hi
 
 test("diff mode with declared services: CompositionConfig.services key is entirely absent (only context mode populates it)", () => {
   const app: AppConfig = { ...cfg("factory-diff-mode-services-absent"), services: [{ repo: "org/orders-svc" }] };
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" },
     "qa-bot-abc1234-run1",
@@ -3354,7 +3354,7 @@ test("diff mode with declared services: CompositionConfig.services key is entire
 
 test("context mode with NO declared services: CompositionConfig.services key is entirely absent", () => {
   const app = cfg("factory-context-no-services");
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" },
     "qa-bot-abc1234-run1",
@@ -3373,7 +3373,7 @@ test("context mode: checkout(sha) materializes every declared service via ensure
   };
   const { mirror, ensureMirrorCalls, ensureMirrorAtBranchCalls } = spyMirrorDeps();
   const { stageServiceContext, calls } = spyStageServiceContext();
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, mirror, stageServiceContext },
     "qa-bot-abc1234-run1",
@@ -3401,7 +3401,7 @@ test("diff mode: checkout(sha) materializes every declared service via ensureMir
   };
   const { mirror, ensureMirrorCalls, ensureMirrorAtBranchCalls } = spyMirrorDeps();
   const { stageServiceContext, calls } = spyStageServiceContext();
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, mirror, stageServiceContext },
     "qa-bot-abc1234-run1",
@@ -3429,7 +3429,7 @@ test("cross-repo: checkout(sha) stages sibling services at branch HEAD without r
   };
   const { mirror, ensureMirrorCalls, ensureMirrorAtBranchCalls } = spyMirrorDeps();
   const { stageServiceContext, calls } = spyStageServiceContext();
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, mirror, stageServiceContext },
     "qa-bot-abc1234-run1",
@@ -3453,7 +3453,7 @@ test("code target: checkout(sha) never stages declared services (no e2e dir conc
   const app: AppConfig = { ...cfg("factory-code-skip-staging"), code: true, dev: undefined, services: [{ repo: "org/orders-svc" }] };
   const { mirror, ensureMirrorAtBranchCalls } = spyMirrorDeps();
   const { stageServiceContext, calls } = spyStageServiceContext();
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, mirror, stageServiceContext },
     "qa-bot-abc1234-run1",
@@ -3485,7 +3485,7 @@ test("service staging: declared services are mirrored CONCURRENTLY (Promise.all)
     },
   };
   const { stageServiceContext } = spyStageServiceContext();
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, mirror: patchedMirror, stageServiceContext },
     "qa-bot-abc1234-run1",
@@ -3504,7 +3504,7 @@ test("service staging: declared services are mirrored CONCURRENTLY (Promise.all)
  * the replicates of an A/B campaign start from the same ground.
  */
 test("without the campaign freeze, the learning, process-audit and curriculum collaborators are wired (the reflector only when its own switch is on)", () => {
-  const config = buildRewrittenCompositionConfig(cfg("factory-freeze-off"), { getAgentDeps: stubAgentDeps, env: { [REFLECTOR_ENABLED_ENV]: "true" } }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(cfg("factory-freeze-off"), { getAgentDeps: stubAgentDeps, env: { [REFLECTOR_ENABLED_ENV]: "true" } }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(config.learningRepo, "learning is wired");
   assert.ok(config.reflectorPort, "the reflector is wired");
   assert.ok(config.processAudit, "the process audit is wired");
@@ -3516,16 +3516,16 @@ test("without the campaign freeze, the learning, process-audit and curriculum co
  * while the deterministic fold and the process audit stay wired.
  */
 test("by default the reflector does not run, and the learning fold and the process audit stay wired", () => {
-  const config = buildRewrittenCompositionConfig(cfg("factory-reflector-default"), { getAgentDeps: stubAgentDeps, env: {} }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(cfg("factory-reflector-default"), { getAgentDeps: stubAgentDeps, env: {} }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.reflectorPort, undefined, "no reflection is asked of an agent");
   assert.ok(config.learningRepo, "the deterministic rule fold is still wired");
   assert.ok(config.processAudit, "the process audit is still wired");
 });
 
 test("the reflector is wired when its switch is on, and a mistyped switch stops the composition", () => {
-  const on = buildRewrittenCompositionConfig(cfg("factory-reflector-on"), { getAgentDeps: stubAgentDeps, env: { [REFLECTOR_ENABLED_ENV]: "1" } }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const on = buildCompositionConfig(cfg("factory-reflector-on"), { getAgentDeps: stubAgentDeps, env: { [REFLECTOR_ENABLED_ENV]: "1" } }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(on.reflectorPort);
-  assert.throws(() => buildRewrittenCompositionConfig(cfg("factory-reflector-typo"), { getAgentDeps: stubAgentDeps, env: { [REFLECTOR_ENABLED_ENV]: "yes" } }, "qa-bot-abc1234-run1", { mode: "diff" }), new RegExp(REFLECTOR_ENABLED_ENV));
+  assert.throws(() => buildCompositionConfig(cfg("factory-reflector-typo"), { getAgentDeps: stubAgentDeps, env: { [REFLECTOR_ENABLED_ENV]: "yes" } }, "qa-bot-abc1234-run1", { mode: "diff" }), new RegExp(REFLECTOR_ENABLED_ENV));
 });
 
 test("by default only a proven rule is retrieved for a prompt: a candidate, a low-confidence active rule and a quarantined one are not", async () => {
@@ -3536,14 +3536,14 @@ test("by default only a proven rule is retrieved for a prompt: a candidate, a lo
   for (let i = 0; i < 4; i++) { recordRuleOutcome("proven", 1, null, true); recordRuleOutcome("quarantined", 1, null, true); }
   quarantineLearningRules(app, ["quarantined"], "2026-10-12T00:00:00.000Z");
   const retrieve = async (env: Record<string, string>) =>
-    (await buildRewrittenCompositionConfig(cfg(app), { getAgentDeps: stubAgentDeps, env }, "qa-bot-abc1234-run1", { mode: "diff" }).learningRepo!.topRules(app, Sha.of("abc1234"), 10)).map((r) => r.id);
+    (await buildCompositionConfig(cfg(app), { getAgentDeps: stubAgentDeps, env }, "qa-bot-abc1234-run1", { mode: "diff" }).learningRepo!.topRules(app, Sha.of("abc1234"), 10)).map((r) => r.id);
   assert.deepEqual(await retrieve({}), ["proven"]);
   assert.deepEqual((await retrieve({ [REFLECTOR_ENABLED_ENV]: "true" })).sort(), ["cand", "proven"], "with the switch on the experiments are injected again; the quarantine still holds");
 });
 
 test("with the campaign freeze on, a run neither learns nor reflects nor audits nor reads the curriculum", () => {
   const env = { [CAMPAIGN_FREEZE_ENV]: "1" };
-  const config = buildRewrittenCompositionConfig(cfg("factory-freeze-on"), { getAgentDeps: stubAgentDeps, env }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const config = buildCompositionConfig(cfg("factory-freeze-on"), { getAgentDeps: stubAgentDeps, env }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.learningRepo, undefined, "no rule is retrieved or folded");
   assert.equal(config.reflectorPort, undefined, "the reflector does not run");
   assert.equal(config.processAudit, undefined, "no incident is recorded and no context is marked stale");
@@ -3555,7 +3555,7 @@ test("with the campaign freeze on, a stale-flagged app requests no context rebui
   const app = cfg(`factory-freeze-stale-${Math.random().toString(36).slice(2)}`);
   markContextStale(app.name);
   const requested: string[] = [];
-  buildRewrittenCompositionConfig(
+  buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, env: { [CAMPAIGN_FREEZE_ENV]: "1" }, enqueueContextRun: async (request) => { requested.push(request.sha); return "run-heal"; } },
     "qa-bot-abc1234-run1",
@@ -3585,7 +3585,7 @@ const storedMapApp = (label: string): AppConfig => {
 test("a stored map from another sha is reused when none of the files it names changed between the two commits", async () => {
   const app = storedMapApp("unchanged");
   const requested: string[] = [];
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, contextMapChanges: () => [{ status: "M", path: "src/unrelated.ts" }], enqueueContextRun: (r) => { requested.push(r.sha); return "run-heal"; } },
     "qa-bot-run1",
@@ -3603,7 +3603,7 @@ test("a stored map from another sha is reused when none of the files it names ch
 test("a stored map from another sha is not used when a route declaration it names changed, and a rebuild at the run's sha is requested", async () => {
   const app = storedMapApp("changed");
   const requested: string[] = [];
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, contextMapChanges: () => [{ status: "M", path: "src/shops.routes.ts" }], enqueueContextRun: (r) => { requested.push(r.sha); return "run-heal"; } },
     "qa-bot-run1",
@@ -3623,7 +3623,7 @@ test("a stored map from another sha is not used when a route declaration it name
 test("a context run, which is the rebuild, never asks for another one", async () => {
   const app = storedMapApp("context-run");
   const requested: string[] = [];
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, contextMapChanges: () => [{ status: "M", path: "src/shops.routes.ts" }], enqueueContextRun: (r) => { requested.push(r.sha); return "run-heal"; } },
     "qa-bot-run1",
@@ -3638,7 +3638,7 @@ test("a map that does not fit asks for its rebuild once per commit, however soon
   const app = storedMapApp("once-per-commit");
   const requested: string[] = [];
   const runAt = (sha: string) => {
-    const config = buildRewrittenCompositionConfig(
+    const config = buildCompositionConfig(
       app,
       { getAgentDeps: stubAgentDeps, contextMapChanges: () => [{ status: "M", path: "src/shops.routes.ts" }], enqueueContextRun: (r) => { requested.push(r.sha); return "run-heal"; } },
       "qa-bot-run1",
@@ -3662,7 +3662,7 @@ test("a stored map is reused when a page's implementation files were only modifi
     feBe: [{ route: "/shops", operationId: "listShops" }, { route: "/cart", operationId: "getCart" }],
   });
   const requested: string[] = [];
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, contextMapChanges: () => [{ status: "M", path: "src/shops/shops.page.ts" }], enqueueContextRun: (r) => { requested.push(r.sha); return "run-heal"; } },
     "qa-bot-run1",
@@ -3678,14 +3678,14 @@ test("a stored map is reused when a page's implementation files were only modifi
 
 test("a stored map whose two commits cannot be compared is not used", () => {
   const app = storedMapApp("unverifiable");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, contextMapChanges: () => undefined }, "qa-bot-run1", { mode: "diff", sha: "sha-run" });
+  const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, contextMapChanges: () => undefined }, "qa-bot-run1", { mode: "diff", sha: "sha-run" });
   assert.equal(config.groundingCollaborators!.loadContextMap!("/nowhere"), undefined);
   assert.equal(config.contextMapProvenance!()?.staleReason, "sha-mismatch");
 });
 
 test("a stored map at the run's own sha is used without comparing commits", () => {
   const app = storedMapApp("same");
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, contextMapChanges: () => { throw new Error("no comparison for the same sha"); } },
     "qa-bot-run1",
@@ -3697,7 +3697,7 @@ test("a stored map at the run's own sha is used without comparing commits", () =
 
 test("under the campaign freeze a map that does not fit the run says its recapture was skipped, not that none was needed", () => {
   const app = storedMapApp("frozen");
-  const config = buildRewrittenCompositionConfig(
+  const config = buildCompositionConfig(
     app,
     { getAgentDeps: stubAgentDeps, env: { [CAMPAIGN_FREEZE_ENV]: "1" }, contextMapChanges: () => [{ status: "M", path: "src/shops.routes.ts" }] },
     "qa-bot-run1",
@@ -3718,11 +3718,11 @@ test("an e2e app composes the run_spec loop only when the host has a registry, d
   const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry");
   const app: AppConfig = { ...cfg("loop-app"), qa: { needsReview: true, testDataPrefix: "qa-bot", closedLoop: { enabled: true, maxCalls: 3 } }, auth: { kind: "form", usernameEnv: "LOOP_USER", passwordEnv: "LOOP_PASS" } };
 
-  const without = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "ns", { mode: "diff" });
+  const without = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "ns", { mode: "diff" });
   assert.equal(without.closedLoop, undefined);
 
   const registry = new ClosedLoopRegistry();
-  const withLoop = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff" });
+  const withLoop = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff" });
   assert.equal(withLoop.closedLoop?.registry, registry);
   assert.deepEqual(withLoop.closedLoop?.setting, { enabled: true, limits: { maxCalls: 3, perCallMs: 120_000, maxDevWrites: 20 } });
   assert.equal(withLoop.closedLoop?.account, "loop-app/LOOP_USER");
@@ -3732,11 +3732,11 @@ test("an e2e app composes the run_spec loop only when the host has a registry, d
 test("the loop is off for an app that does not turn it on, and never composed for a code app", async () => {
   const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry");
   const registry = new ClosedLoopRegistry();
-  const off = buildRewrittenCompositionConfig(cfg("loop-off"), { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff" });
+  const off = buildCompositionConfig(cfg("loop-off"), { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff" });
   assert.equal(off.closedLoop?.setting.enabled, false);
 
   const code: AppConfig = { name: "loop-code", repo: "org/demo", code: true, qa: { needsReview: true, testDataPrefix: "qa-bot", closedLoop: { enabled: true } }, report: { onFailure: "github-issue" } };
-  const composed = buildRewrittenCompositionConfig(code, { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff", target: "code" });
+  const composed = buildCompositionConfig(code, { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff", target: "code" });
   assert.equal(composed.closedLoop, undefined);
 });
 
@@ -3744,9 +3744,9 @@ test("only an OpenCode generator, as the facade assigns it now, can call the too
   const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry");
   const app: AppConfig = { ...cfg("loop-runtime"), qa: { needsReview: true, testDataPrefix: "qa-bot", closedLoop: { enabled: true } } };
   const registry = new ClosedLoopRegistry();
-  const codex = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("codex") }, "ns", { mode: "diff" });
+  const codex = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("codex") }, "ns", { mode: "diff" });
   assert.equal(codex.closedLoop?.generatorRuntimeCanCall(), false);
-  const noFacade = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry }, "ns", { mode: "diff" });
+  const noFacade = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry }, "ns", { mode: "diff" });
   assert.equal(noFacade.closedLoop?.generatorRuntimeCanCall(), false, "a host that cannot say which runtime the generator uses is not assumed to be OpenCode");
 });
 
@@ -3775,11 +3775,11 @@ test("an e2e app composes the agent browser only when the host has a registry, w
     auth: { kind: "form", usernameEnv: "BROWSER_USER", passwordEnv: "BROWSER_PASS", loginPath: "/entrar" },
     dev: { baseUrl: "https://dev.example.com" },
   };
-  const without = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "ns", { mode: "diff" });
+  const without = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "ns", { mode: "diff" });
   assert.equal(without.agentBrowser, undefined);
 
   const registry = new AgentBrowserRegistry();
-  const wired = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, agentBrowserRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff" });
+  const wired = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, agentBrowserRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff" });
   assert.equal(wired.agentBrowser?.registry, registry);
   assert.deepEqual(wired.agentBrowser?.setting, { enabled: true, denyRoutes: ["/admin/**"], allowMutating: ["POST /api/search"] });
   assert.equal(wired.agentBrowser?.account, "browser-app/BROWSER_USER");
@@ -3792,21 +3792,21 @@ test("the agent browser is off for an app that does not turn it on, and never co
   const { AgentBrowserRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/agent-browser-registry");
   const registry = new AgentBrowserRegistry();
   const host = { getAgentDeps: stubAgentDeps, agentBrowserRegistry: registry, getAgentFacade: agentFacadeFor("opencode") };
-  const off = buildRewrittenCompositionConfig({ ...cfg("browser-off"), dev: { baseUrl: "https://dev.example.com" } }, host, "ns", { mode: "diff" });
+  const off = buildCompositionConfig({ ...cfg("browser-off"), dev: { baseUrl: "https://dev.example.com" } }, host, "ns", { mode: "diff" });
   assert.equal(off.agentBrowser?.setting.enabled, false);
   assert.deepEqual([off.agentBrowser?.setting.denyRoutes, off.agentBrowser?.setting.allowMutating], [[], []]);
 
   const code: AppConfig = { name: "browser-code", repo: "org/demo", code: true, qa: { needsReview: true, testDataPrefix: "qa-bot", agentBrowser: { enabled: true } }, report: { onFailure: "github-issue" } };
-  assert.equal(buildRewrittenCompositionConfig(code, host, "ns", { mode: "diff", target: "code" }).agentBrowser, undefined);
+  assert.equal(buildCompositionConfig(code, host, "ns", { mode: "diff", target: "code" }).agentBrowser, undefined);
 });
 
 test("only an OpenCode generator, as the facade assigns it now, is granted the browser", async () => {
   const { AgentBrowserRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/agent-browser-registry");
   const app: AppConfig = { ...cfg("browser-runtime"), qa: { needsReview: true, testDataPrefix: "qa-bot", agentBrowser: { enabled: true } }, dev: { baseUrl: "https://dev.example.com" } };
   const registry = new AgentBrowserRegistry();
-  const codex = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, agentBrowserRegistry: registry, getAgentFacade: agentFacadeFor("codex") }, "ns", { mode: "diff" });
+  const codex = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, agentBrowserRegistry: registry, getAgentFacade: agentFacadeFor("codex") }, "ns", { mode: "diff" });
   assert.equal(codex.agentBrowser?.generatorRuntimeCanCall(), false);
-  const noFacade = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, agentBrowserRegistry: registry }, "ns", { mode: "diff" });
+  const noFacade = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, agentBrowserRegistry: registry }, "ns", { mode: "diff" });
   assert.equal(noFacade.agentBrowser?.generatorRuntimeCanCall(), false);
 });
 
@@ -3858,7 +3858,7 @@ test("a session opened with no denied tools installs none", async () => {
 /* ── The acceptance harness an experiment arm is judged by ─────────────────────────────────────── */
 
 test("the acceptance harness's reviewer is opened with the same step classification as a run's agents", async () => {
-  const { buildAcceptanceHarness } = await import("./rewritten-engine-factory");
+  const { buildAcceptanceHarness } = await import("./run-engine-factory");
   const copyDir = mkdtempSync(join(tmpdir(), "acceptance-turn-"));
   try {
     const exec = { isolated: false, workDir: () => copyDir, allocDir: () => copyDir, writeScript: () => "", spawn: () => { throw new Error("no process"); } };
@@ -3874,7 +3874,7 @@ test("the acceptance harness's reviewer is opened with the same step classificat
 });
 
 test("buildAcceptanceHarness composes the pipeline's own gate, execution, coverage and review over a throwaway copy", async () => {
-  const { buildAcceptanceHarness } = await import("./rewritten-engine-factory");
+  const { buildAcceptanceHarness } = await import("./run-engine-factory");
   const copyDir = mkdtempSync(join(tmpdir(), "acceptance-copy-"));
   try {
     const exec = { isolated: false, workDir: () => copyDir, allocDir: () => copyDir, writeScript: () => "", spawn: () => { throw new Error("no process is started by composing"); } };
@@ -3894,7 +3894,7 @@ test("buildAcceptanceHarness composes the pipeline's own gate, execution, covera
 });
 
 test("buildAcceptanceHarness follows the app's coverage policy: signal never blocks, and no reviewer is composed without agent sessions", async () => {
-  const { buildAcceptanceHarness } = await import("./rewritten-engine-factory");
+  const { buildAcceptanceHarness } = await import("./run-engine-factory");
   const copyDir = mkdtempSync(join(tmpdir(), "acceptance-copy-"));
   try {
     const exec = { isolated: false, workDir: () => copyDir, allocDir: () => copyDir, writeScript: () => "", spawn: () => { throw new Error("no process"); } };
@@ -3908,11 +3908,11 @@ test("buildAcceptanceHarness follows the app's coverage policy: signal never blo
 
 test("the composition carries the app's qa.coordination with every limit it left out defaulted, and the defaults when it declares none", () => {
   const host = { getAgentDeps: stubAgentDeps };
-  const plain = buildRewrittenCompositionConfig(cfg("coord-plain"), host, "ns", { mode: "diff" });
+  const plain = buildCompositionConfig(cfg("coord-plain"), host, "ns", { mode: "diff" });
   assert.deepEqual(plain.coordinationSettings, DEFAULT_COORDINATION_SETTINGS);
 
   const app: AppConfig = { ...cfg("coord-on"), qa: { needsReview: true, testDataPrefix: "qa-bot", coordination: { maxFlows: 4, flowBudgetMs: { opencode: 120_000 } } } };
-  const on = buildRewrittenCompositionConfig(app, host, "ns", { mode: "diff" });
+  const on = buildCompositionConfig(app, host, "ns", { mode: "diff" });
   assert.equal(on.coordinationSettings?.maxFlows, 4);
   assert.equal(on.coordinationSettings?.maxParallel, DEFAULT_COORDINATION_SETTINGS.maxParallel);
   assert.equal(on.coordinationSettings?.flowBudgetMs.opencode, 120_000);
@@ -3929,29 +3929,29 @@ test("the run_spec loop and the agent browser take DEV through the same lease, w
     auth: { kind: "form", usernameEnv: "LEASE_USER", passwordEnv: "LEASE_PASS" },
     dev: { baseUrl: "https://dev.example.com" },
   };
-  const wired = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, closedLoopRegistry: new ClosedLoopRegistry(), agentBrowserRegistry: new AgentBrowserRegistry(), getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff" });
+  const wired = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, closedLoopRegistry: new ClosedLoopRegistry(), agentBrowserRegistry: new AgentBrowserRegistry(), getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff" });
   assert.ok(wired.closedLoop?.lock instanceof DevLease);
   assert.equal(wired.agentBrowser?.lock, wired.closedLoop?.lock);
 });
 
 test("an e2e app composes the lead/sidekick mode over a workspace root beside the mirrors, naming the runtime its sidekick role is on now", async () => {
-  const wired = buildRewrittenCompositionConfig(cfg("deleg-app"), { getAgentDeps: stubAgentDeps, getAgentFacade: agentFacadeFor("opencode"), mirrorRoot: "/mirrors" }, "ns", { mode: "diff" });
+  const wired = buildCompositionConfig(cfg("deleg-app"), { getAgentDeps: stubAgentDeps, getAgentFacade: agentFacadeFor("opencode"), mirrorRoot: "/mirrors" }, "ns", { mode: "diff" });
   assert.equal(wired.delegation?.workspaceRoot, "/mirrors/.qa-delegations");
   assert.equal(typeof wired.delegation?.sidekickProvider, "function");
   assert.equal(wired.delegation?.plannerProvider(), "opencode");
   assert.ok(wired.delegation?.deadline, "the run's deadline, as the agents' turns read it");
 
-  const noFacade = buildRewrittenCompositionConfig(cfg("deleg-nofacade"), { getAgentDeps: stubAgentDeps, mirrorRoot: "/mirrors" }, "ns", { mode: "diff" });
+  const noFacade = buildCompositionConfig(cfg("deleg-nofacade"), { getAgentDeps: stubAgentDeps, mirrorRoot: "/mirrors" }, "ns", { mode: "diff" });
   assert.equal(noFacade.delegation?.sidekickProvider(), undefined, "a host that cannot say which runtime the sidekick uses is not assumed to be OpenCode");
   assert.equal(noFacade.delegation?.plannerProvider(), undefined, "nor the one the lead plans on");
 
-  const code = buildRewrittenCompositionConfig({ ...cfg("deleg-code"), code: true }, { getAgentDeps: stubAgentDeps, mirrorRoot: "/mirrors" }, "ns", { mode: "diff", target: "code" });
+  const code = buildCompositionConfig({ ...cfg("deleg-code"), code: true }, { getAgentDeps: stubAgentDeps, mirrorRoot: "/mirrors" }, "ns", { mode: "diff", target: "code" });
   assert.equal(code.delegation, undefined);
 });
 
 test("the sidekick role's runtime is read from the facade as it is now, not as it was when the run was composed", async () => {
   let provider: "opencode" | "codex" = "opencode";
-  const wired = buildRewrittenCompositionConfig(cfg("deleg-switch"), { getAgentDeps: stubAgentDeps, getAgentFacade: () => agentFacadeFor(provider)(), mirrorRoot: "/mirrors" }, "ns", { mode: "diff" });
+  const wired = buildCompositionConfig(cfg("deleg-switch"), { getAgentDeps: stubAgentDeps, getAgentFacade: () => agentFacadeFor(provider)(), mirrorRoot: "/mirrors" }, "ns", { mode: "diff" });
   assert.equal(wired.delegation?.sidekickProvider(), "opencode");
   provider = "codex";
   assert.equal(wired.delegation?.sidekickProvider(), "codex");
@@ -3966,16 +3966,16 @@ test("the authoring location is composed from the app's declared position and pl
     ...cfg("geo-app"),
     dev: { baseUrl: "https://dev.example.com", geolocation: { latitude: 40.4168, longitude: -3.7038, places: { barcelona } } },
   };
-  const without = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "ns", { mode: "diff" });
+  const without = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "ns", { mode: "diff" });
   assert.equal(without.geolocation, undefined);
 
   const registry = new GeolocationRegistry();
-  const wired = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, geolocationRegistry: registry }, "ns", { mode: "diff" });
+  const wired = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, geolocationRegistry: registry }, "ns", { mode: "diff" });
   assert.equal(wired.geolocation?.registry, registry);
   assert.deepEqual(wired.geolocation?.setting, { default: { latitude: 40.4168, longitude: -3.7038 }, places: { barcelona } });
 
   const code: AppConfig = { ...app, code: true, qa: { ...app.qa, needsReview: true, testDataPrefix: "qa-bot" } };
-  assert.equal(buildRewrittenCompositionConfig(code, { getAgentDeps: stubAgentDeps, geolocationRegistry: registry }, "ns", { mode: "diff", target: "code" }).geolocation, undefined);
+  assert.equal(buildCompositionConfig(code, { getAgentDeps: stubAgentDeps, geolocationRegistry: registry }, "ns", { mode: "diff", target: "code" }).geolocation, undefined);
 });
 
 test("the factory tells the geolocation registry about the authoring sessions through the transport", async () => {
@@ -3995,11 +3995,11 @@ test("the factory tells the geolocation registry about the authoring sessions th
 /* T20: the review-loop integrity slice is on unless the app opts out. It is the engine's default
    acceptance behaviour (verified acceptance is always on; C, A and D are the switch), so a new app
    gets it without knowing the knob exists, and only an explicit false turns it off. */
-test("buildRewrittenCompositionConfig grants the review-loop integrity slice unless the app sets it false", () => {
+test("buildCompositionConfig grants the review-loop integrity slice unless the app sets it false", () => {
   const base = cfg("factory-integrity-default");
-  assert.equal(buildRewrittenCompositionConfig(base, { getAgentDeps: stubAgentDeps }, "qa-bot-int0001-run1", { mode: "diff" }).integrity?.reviewLoop, true);
+  assert.equal(buildCompositionConfig(base, { getAgentDeps: stubAgentDeps }, "qa-bot-int0001-run1", { mode: "diff" }).integrity?.reviewLoop, true);
   const off: AppConfig = { ...base, qa: { ...base.qa, reviewLoopIntegrity: false } };
-  assert.equal(buildRewrittenCompositionConfig(off, { getAgentDeps: stubAgentDeps }, "qa-bot-int0001-run1", { mode: "diff" }).integrity?.reviewLoop, false);
+  assert.equal(buildCompositionConfig(off, { getAgentDeps: stubAgentDeps }, "qa-bot-int0001-run1", { mode: "diff" }).integrity?.reviewLoop, false);
 });
 
 test("the lead's sessions of a run are told to the code-graph registry and lose the right when they end; a sidekick's never gets it", async () => {

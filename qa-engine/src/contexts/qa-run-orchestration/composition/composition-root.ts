@@ -22,7 +22,7 @@ import type { AgentBrowserRegistry } from "../infrastructure/agent-browser-regis
 import type { CodeGraphToolRegistry } from "../infrastructure/code-graph-tool-registry.ts";
 import type { BrowserLauncherPort } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
 import type { AuthDeclaration, AuthSessionPort } from "../application/ports/auth-session.port.ts";
-import { RewrittenOrchestratorAdapter, type RewrittenOrchestratorAdapterDeps } from "../infrastructure/rewritten-orchestrator.adapter.ts";
+import { RunPipelineAdapter, type RunPipelineAdapterDeps } from "../infrastructure/run-pipeline.adapter.ts";
 import { SidekickExecutor } from "../application/coordination/sidekick-executor.ts";
 import { LeadSidekicks } from "../application/coordination/lead-sidekicks.ts";
 import { systemTimers } from "../application/coordination/fan-out-dispatcher.ts";
@@ -375,9 +375,9 @@ function stagedRootsOf(workingCopyDir: string, e2eDir: string, stagedDir: string
 
 /* Bridge adapters from a CompositionConfig. buildShadow reuses this and swaps publication + runHistory. */
 
-export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterDeps, "publication" | "runHistory"> & {
-  publication: RewrittenOrchestratorAdapterDeps["publication"];
-  runHistory: RewrittenOrchestratorAdapterDeps["runHistory"];
+export function wireBridges(cfg: CompositionConfig): Omit<RunPipelineAdapterDeps, "publication" | "runHistory"> & {
+  publication: RunPipelineAdapterDeps["publication"];
+  runHistory: RunPipelineAdapterDeps["runHistory"];
 } {
   const changeAnalysis = new ChangeAnalysisPortAdapter(cfg.vcs);
 
@@ -605,7 +605,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
   if (!cfg.sanitize) {
     throw new Error(
       "composition-root.ts: cfg.sanitize is required to wire PublicationPortAdapter — " +
-        "the composition (rewritten-engine-factory.ts's buildRewrittenCompositionConfig, or the test fixture) must supply the real sanitizeText.",
+        "the composition (run-engine-factory.ts's buildCompositionConfig, or the test fixture) must supply the real sanitizeText.",
     );
   }
   const publication = new PublicationPortAdapter(
@@ -760,11 +760,11 @@ function recordedReviewerIndependence(cfg: CompositionConfig): { reviewerIndepen
 }
 
 export function buildProduction(cfg: CompositionConfig): RunPipelinePort {
-  return new RewrittenOrchestratorAdapter(wireBridges(cfg));
+  return new RunPipelineAdapter(wireBridges(cfg));
 }
 
 export function buildShadow(cfg: CompositionConfig): RunPipelinePort {
   /* Strip historyFilePath and any runHistory override — a shadow run must never reach the durable store. */
   const shadowCfg: CompositionConfig = { ...cfg, shadow: true, historyFilePath: undefined, runHistory: undefined };
-  return new RewrittenOrchestratorAdapter(wireBridges(shadowCfg));
+  return new RunPipelineAdapter(wireBridges(shadowCfg));
 }

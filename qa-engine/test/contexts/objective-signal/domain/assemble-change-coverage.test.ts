@@ -202,7 +202,7 @@ test("computeChangeCoverage: intersects, reports uncovered, computes ratio", () 
   assert.equal(cc.overall.coveredChanged, 2);
   assert.equal(cc.overall.ratio, 0.5);
   assert.deepEqual(cc.uncovered, [{ file: "a.ts", lines: [3, 4] }]);
-  assert.equal(cc.branches, null); /* the rewritten port carries no branch-coverage signal (yet) */
+  assert.equal(cc.branches, null); /* the port carries no branch-coverage signal (yet) */
 });
 
 test("computeChangeCoverage: a changed file with NO coverage data → measured stays false", () => {

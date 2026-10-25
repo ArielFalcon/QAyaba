@@ -79,7 +79,7 @@ function repoSlug(repo: string): string {
 
 /*
  * The ONE formula for the staged directory — shared by this module (where it writes) and
- * rewritten-engine-factory.ts (which threads it, synchronously, into triggerService.mirrorDir /
+ * run-engine-factory.ts (which threads it, synchronously, into triggerService.mirrorDir /
  * services[].mirrorDir at composition time). Never re-derive this elsewhere.
  */
 export function serviceContextDir(workingCopyDir: string, repo: string): string {

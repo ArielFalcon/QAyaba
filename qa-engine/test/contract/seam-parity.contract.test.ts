@@ -14,7 +14,7 @@ import { wireBridges, type CompositionConfig } from "@contexts/qa-run-orchestrat
 import { ConfinedPathError } from "../../src/shared-infrastructure/spec-path-confinement.ts";
 
 import { toLegacyRunOutcome, type RunHistorySqliteAdapterDeps, SqliteRunHistoryAdapter } from "../../../src/server/run-history-sqlite-adapter.ts";
-import { buildRewrittenCompositionConfig, type RewrittenEngineFactoryDeps } from "../../../src/server/rewritten-engine-factory.ts";
+import { buildCompositionConfig, type RunEngineFactoryDeps } from "../../../src/server/run-engine-factory.ts";
 import type { AppConfig } from "../../../src/orchestrator/config-loader.ts";
 import type { AgentDeps } from "../../../src/integrations/opencode-client.ts";
 import { DualAgentFacade, SingleAgentFacade } from "../../../src/agent-runtime/facades.ts";
@@ -57,10 +57,10 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
        mapping's run_outcomes row.
      */
     note: "CORRECT BY DESIGN (not a drop): toLegacyRunOutcome never carries outcome.note through because LegacyRunOutcome (src/types.ts's RunOutcome interface) has NO note field to carry it TO — grep/read-confirmed against the full interface. The kernel RunOutcome.note reaches the run record through a SEPARATE seam (QaRunResult.note -> RunRecord.note, src/server/runner.ts's own header), never through this mapping fn's run_outcomes row. Diagnostic-only either way (never gates verdict/publish).",
-    cases: "DELIBERATELY not persisted via toLegacyRunOutcome — LegacyRunOutcome (src/types.ts) has NO cases field at all (grep-confirmed); this field exists on the kernel RunOutcome ONLY for a DIFFERENT driving-side consumer (src/server/runner.ts's runViaRewrittenEngine threads it into history.addCase() calls directly, per this file's own header comment), not for the run_outcomes row this adapter writes. Comparator-blind by the kernel type's own documented construction.",
+    cases: "DELIBERATELY not persisted via toLegacyRunOutcome — LegacyRunOutcome (src/types.ts) has NO cases field at all (grep-confirmed); this field exists on the kernel RunOutcome ONLY for a DIFFERENT driving-side consumer (src/server/runner.ts's runViaEngine threads it into history.addCase() calls directly, per this file's own header comment), not for the run_outcomes row this adapter writes. Comparator-blind by the kernel type's own documented construction.",
     logs: "DELIBERATELY not persisted via toLegacyRunOutcome — same reason as cases above: LegacyRunOutcome has no logs field (grep-confirmed), and the kernel RunOutcome's own header says this is 'the same one-shot... string legacy's own QaRunResult.logs carries', a different sink than the run_outcomes row.",
     diffArchetypes: "CORRECT BY DESIGN (not a drop): a fold-only attribution input. The learning fold reads it in-process from the outcome it is handed (historyLearningStore.recordOutcome) to credit only the retrieved rules attributable to the diff's structural shapes; LearningPort.fold receives the kernel outcome directly, never a persisted row, and LegacyRunOutcome (src/types.ts) has no field for it.",
-    adjudication: "CORRECT BY DESIGN (not a drop): LegacyRunOutcome (src/types.ts) has NO adjudication field at all (the legacy pipeline never threaded FixLoop's lastAdjudicatorVerdict into a persisted RunOutcome). This is a REWRITTEN-ONLY field: the kernel type carries it (wide, optional — see run-outcome.ts's own header) so shouldDistillLearning's fold guard can read it in run-qa.use-case.ts, but toLegacyRunOutcome has no legacy counterpart shape to map it into. Diagnostic/gating-only within the rewritten path; never reaches the legacy run_outcomes row.",
+    adjudication: "CORRECT BY DESIGN (not a drop): LegacyRunOutcome (src/types.ts) has NO adjudication field at all (the legacy pipeline never threaded FixLoop's lastAdjudicatorVerdict into a persisted RunOutcome). This is a REWRITTEN-ONLY field: the kernel type carries it (wide, optional — see run-outcome.ts's own header) so shouldDistillLearning's fold guard can read it in run-qa.use-case.ts, but toLegacyRunOutcome has no legacy counterpart shape to map it into. Diagnostic/gating-only within the run path; never reaches the legacy run_outcomes row.",
   };
 
   test("kernel RunOutcome's own top-level field list matches the allowlist + the mapping fn's carried set exactly", () => {
@@ -191,17 +191,17 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════
-   (e) COMPOSITION surface — CompositionConfig vs buildRewrittenCompositionConfig
+   (e) COMPOSITION surface — CompositionConfig vs buildCompositionConfig
    ════════════════════════════════════════════════════════════════════════════════════════════════
  */
-describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositionConfig)", () => {
-  /* Fields buildRewrittenCompositionConfig deliberately does NOT populate, each with a reason.
+describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)", () => {
+  /* Fields buildCompositionConfig deliberately does NOT populate, each with a reason.
      This is the SAME class of audit that caught the original 5 gaps (baseUrl/branch/mode/guidance/
      testIdAttribute), mechanized: every optional CompositionConfig field must appear here OR be
-     asserted present by buildRewrittenCompositionConfigTest below.
+     asserted present by buildCompositionConfigTest below.
    */
   const OPTIONAL_ALLOWLIST: Record<string, string> = {
-    guidance: "supplied by buildRewrittenCompositionConfig ONLY when run.guidance is present (asserted below as a present-when-given case) — legitimately absent for diff-mode runs with no manual guidance.",
+    guidance: "supplied by buildCompositionConfig ONLY when run.guidance is present (asserted below as a present-when-given case) — legitimately absent for diff-mode runs with no manual guidance.",
     diff: "DELIBERATELY static '' — see this fn's own header 'difference #2': GenerationPortAdapter/ReviewPortAdapter both resolve the REAL per-run diff dynamically from ChangeAnalysisPort.classify() instead, since no per-run diff exists yet at composition-build time.",
     baseUrl: "supplied ONLY when app.dev?.baseUrl is present (asserted below as a present-when-given case) — legitimately absent for code-mode apps (no dev: block).",
     testIdAttribute: "supplied ONLY when app.e2e?.testIdAttribute is present (asserted below as a present-when-given case) — deliberately NO 'data-testid' default applied here (the seed playwright.config.ts already defaults it); legitimately absent when the app declares none.",
@@ -278,19 +278,19 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     } as unknown as AppConfig;
   }
 
-  function fakeFactoryDeps(): RewrittenEngineFactoryDeps {
+  function fakeFactoryDeps(): RunEngineFactoryDeps {
     return { getAgentDeps: () => ({}) as unknown as AgentDeps };
   }
 
-  test("buildRewrittenCompositionConfig supplies every non-optional CompositionConfig field, and every optional field is either present-when-expected or documented in OPTIONAL_ALLOWLIST", () => {
-    const cfg = buildRewrittenCompositionConfig(
+  test("buildCompositionConfig supplies every non-optional CompositionConfig field, and every optional field is either present-when-expected or documented in OPTIONAL_ALLOWLIST", () => {
+    const cfg = buildCompositionConfig(
       fakeAppConfig(),
       fakeFactoryDeps(),
       S("namespace"),
       { mode: "diff", guidance: S("run.guidance") },
     );
 
-    const dyingLayer = "buildRewrittenCompositionConfig() -> CompositionConfig (src/server/rewritten-engine-factory.ts)";
+    const dyingLayer = "buildCompositionConfig() -> CompositionConfig (src/server/run-engine-factory.ts)";
 
     /* Non-optional fields — every one MUST be present (undefined fails these asserts loudly). */
     const nonOptional: Array<keyof typeof cfg> = [
@@ -369,16 +369,16 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
   });
 
   test("qa.reviewLoopIntegrity reaches CompositionConfig.integrity.reviewLoop, and is on unless the app opts out", () => {
-    const byDefault = buildRewrittenCompositionConfig(fakeAppConfig(), fakeFactoryDeps(), S("namespace"), { mode: "diff" });
+    const byDefault = buildCompositionConfig(fakeAppConfig(), fakeFactoryDeps(), S("namespace"), { mode: "diff" });
     assert.deepEqual(byDefault.integrity, { reviewLoop: true }, "the master switch is on unless the app turns it off");
 
-    const off = buildRewrittenCompositionConfig(
+    const off = buildCompositionConfig(
       fakeAppConfig({ qa: { needsReview: true, shadow: false, testDataPrefix: "qa-bot", reviewLoopIntegrity: false } }),
       fakeFactoryDeps(),
       S("namespace"),
       { mode: "diff" },
     );
-    assert.deepEqual(off.integrity, { reviewLoop: false }, "qa.reviewLoopIntegrity: false reaches buildRewrittenCompositionConfig()");
+    assert.deepEqual(off.integrity, { reviewLoop: false }, "qa.reviewLoopIntegrity: false reaches buildCompositionConfig()");
   });
 
   /* The spec reader is the composition root's own: the shell hands it none (asserted above), so what Lever-2 reads
@@ -386,7 +386,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
   test("the composition root reads the delivered specs through the confined reader: a spec inside the spec directory is a source, and a symlink that leaves it is refused", async () => {
     const mirrorRoot = mkdtempSync(join(tmpdir(), "qa-seam-confined-reader-"));
     try {
-      const cfg = buildRewrittenCompositionConfig(fakeAppConfig(), { ...fakeFactoryDeps(), mirrorRoot }, S("namespace"), { mode: "diff" });
+      const cfg = buildCompositionConfig(fakeAppConfig(), { ...fakeFactoryDeps(), mirrorRoot }, S("namespace"), { mode: "diff" });
       const specDir = join(cfg.mirrorDir, cfg.e2eRelDir);
       mkdirSync(join(specDir, "flows"), { recursive: true });
       writeFileSync(join(specDir, "flows", "inside.spec.ts"), "// inside the spec directory\n");
@@ -424,8 +424,8 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     };
   }
 
-  async function inputsBuiltThrough(deps: RewrittenEngineFactoryDeps): Promise<{ cfg: CompositionConfig; generation: OpencodeRunInput; review: ReviewInput }> {
-    const cfg = buildRewrittenCompositionConfig(fakeAppConfig(), deps, S("namespace"), { mode: "diff" });
+  async function inputsBuiltThrough(deps: RunEngineFactoryDeps): Promise<{ cfg: CompositionConfig; generation: OpencodeRunInput; review: ReviewInput }> {
+    const cfg = buildCompositionConfig(fakeAppConfig(), deps, S("namespace"), { mode: "diff" });
     const generated: OpencodeRunInput[] = [];
     const reviewed: ReviewInput[] = [];
     const bridges = wireBridges({
@@ -457,7 +457,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
   test("the step limit of each role crosses the composition root: the generator's reaches the generation input and the reviewer's the review input", async () => {
     const { cfg, generation, review } = await inputsBuiltThrough({ ...fakeFactoryDeps(), getAgentFacade: () => facadeReporting({ primary: 41, reviewer: 17 }) });
 
-    const dyingLayer = "buildRewrittenCompositionConfig() -> wireBridges() (src/server/rewritten-engine-factory.ts -> composition-root.ts)";
+    const dyingLayer = "buildCompositionConfig() -> wireBridges() (src/server/run-engine-factory.ts -> composition-root.ts)";
     assert.notEqual(cfg.stepLimitFor, undefined, `stepLimitFor dropped at ${dyingLayer}`);
     assert.equal(generation.stepLimit, 41, `the generator's limit dropped at ${dyingLayer}`);
     assert.equal(review.stepLimit, 17, `the reviewer's limit dropped at ${dyingLayer}`);
@@ -507,18 +507,18 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
   });
 
   test("every documented OPTIONAL_ALLOWLIST field is a REAL optional field on the type (guards against a stale allowlist entry after a refactor)", () => {
-    const cfg = buildRewrittenCompositionConfig(fakeAppConfig(), fakeFactoryDeps(), S("namespace"), { mode: "diff" });
+    const cfg = buildCompositionConfig(fakeAppConfig(), fakeFactoryDeps(), S("namespace"), { mode: "diff" });
     for (const field of Object.keys(OPTIONAL_ALLOWLIST)) {
       assert.ok(field in cfg || cfg[field as keyof typeof cfg] === undefined, `OPTIONAL_ALLOWLIST references '${field}', which is not a real field on the returned CompositionConfig object shape — stale allowlist entry`);
     }
   });
 
-  test("buildRewrittenCompositionConfig leaves guidance/baseUrl/testIdAttribute/versionUrl/observer absent when the AppConfig/caller omits them (never fabricated)", () => {
+  test("buildCompositionConfig leaves guidance/baseUrl/testIdAttribute/versionUrl/observer absent when the AppConfig/caller omits them (never fabricated)", () => {
     /* CODE-target run: dev.baseUrl is conceptually absent for code mode (no live DEV URL), so this
        app config is legal and the factory must NOT throw the new composition-time baseUrl guard.
        Any e2e-target build must still declare dev.baseUrl — see the guard's own test.
      */
-    const cfg = buildRewrittenCompositionConfig(
+    const cfg = buildCompositionConfig(
       fakeAppConfig({ dev: undefined, e2e: undefined, code: true } as Partial<AppConfig>),
       fakeFactoryDeps(),
       S("namespace"),
@@ -545,7 +545,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     const warn = mock.method(console, "warn", () => undefined);
     try {
       const factsFor = async (app: AppConfig): Promise<unknown> => {
-        const cfg = buildRewrittenCompositionConfig(app, fakeFactoryDeps(), S("namespace"), { mode: "diff" });
+        const cfg = buildCompositionConfig(app, fakeFactoryDeps(), S("namespace"), { mode: "diff" });
         const grounding = wireBridges(cfg).preGenerationGrounding;
         assert.ok(grounding, "an e2e app is composed with a pre-generation grounding port");
         return (await grounding.ground(specDir)).harnessFacts;
@@ -565,9 +565,9 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     }
   });
 
-  test("buildRewrittenCompositionConfig throws when an e2e-target app omits dev.baseUrl (composition-time guard)", () => {
+  test("buildCompositionConfig throws when an e2e-target app omits dev.baseUrl (composition-time guard)", () => {
     assert.throws(
-      () => buildRewrittenCompositionConfig(
+      () => buildCompositionConfig(
         fakeAppConfig({ dev: undefined } as Partial<AppConfig>),
         fakeFactoryDeps(),
         S("namespace"),

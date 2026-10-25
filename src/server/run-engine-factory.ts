@@ -479,7 +479,7 @@ const PROCESS_ACCOUNT_LOCK = new DevLease();
 const AGENT_BROWSER_LIFETIME_SECONDS = 3 * 60 * 60;
 
 /* The host's already-built real collaborators this factory reuses instead of re-assembling. */
-export interface RewrittenEngineFactoryDeps {
+export interface RunEngineFactoryDeps {
   /*
    * Reads the SAME AgentDeps facade the host's currentAgentDeps() resolves (src/index.ts) — the
    * real :4097 supervisor, not a second AgentRuntimeManager instance.
@@ -594,7 +594,7 @@ const contextMapWrittenThisRun: ContextMapWrittenThisRun = (specDir) =>
 function requestContextHeal(
   app: string,
   sha: string | undefined,
-  enqueue: RewrittenEngineFactoryDeps["enqueueContextRun"],
+  enqueue: RunEngineFactoryDeps["enqueueContextRun"],
   parentRunId?: string,
 ): void {
   const keepArmed = (why: string): void => {
@@ -803,9 +803,9 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
   return { validation, execution, objectiveSignal, ...(review ? { review } : {}) };
 }
 
-export function buildRewrittenCompositionConfig(
+export function buildCompositionConfig(
   app: AppConfig,
-  deps: RewrittenEngineFactoryDeps,
+  deps: RunEngineFactoryDeps,
   namespace: string,
   run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] },
 
@@ -1630,7 +1630,7 @@ export interface TurnTelemetryContext {
 const DEFAULT_STEP_INTENT: StepIntentContext = { specTargets: { kind: "dir", relDir: "e2e" }, authFiles: [], loginUrls: [], authOnlyOrigins: [], reviewAgents: [] };
 
 /* The agent transport the engine opens its sessions through: the host's, with live observation, the stall watchdog and usage, and the run_spec and agent-browser registries told which sessions the agents open for which run. */
-export function engineAgentDeps(deps: Pick<RewrittenEngineFactoryDeps, "getAgentDeps" | "closedLoopRegistry" | "agentBrowserRegistry" | "geolocationRegistry" | "codeGraphRegistry" | "telemetry" | "clock">, turn?: TurnTelemetryContext): AgentDeps {
+export function engineAgentDeps(deps: Pick<RunEngineFactoryDeps, "getAgentDeps" | "closedLoopRegistry" | "agentBrowserRegistry" | "geolocationRegistry" | "codeGraphRegistry" | "telemetry" | "clock">, turn?: TurnTelemetryContext): AgentDeps {
   const registry = deps.closedLoopRegistry;
   const browsers = deps.agentBrowserRegistry;
   const geolocations = deps.geolocationRegistry;
@@ -1670,15 +1670,15 @@ export function engineAgentDeps(deps: Pick<RewrittenEngineFactoryDeps, "getAgent
   });
 }
 
-export function createRewrittenEngineFactory(
-  deps: RewrittenEngineFactoryDeps,
+export function createRunEngineFactory(
+  deps: RunEngineFactoryDeps,
 ): (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] }, observer?: ObserverPort, previousNamespace?: string) => RunPipelinePort {
-  const wrappedDeps: RewrittenEngineFactoryDeps = {
+  const wrappedDeps: RunEngineFactoryDeps = {
     ...deps,
     getAgentDeps: (turn) => engineAgentDeps(deps, turn),
   };
   return (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] }, observer?: ObserverPort): RunPipelinePort => {
-    const cfg = buildRewrittenCompositionConfig(appConfig, wrappedDeps, namespace, run, observer);
+    const cfg = buildCompositionConfig(appConfig, wrappedDeps, namespace, run, observer);
     return buildProduction(cfg);
   };
 }

@@ -202,7 +202,7 @@ test("a thrown git error (failed revert) is NOT swallowed by the adapter — it 
   await assert.rejects(() => adapter.enforce("/mirror", false), /permission denied/);
 });
 
-/* ── real throwaway-git-fixture (matches rewritten-engine-factory.publish-excludes.test.ts's harness) ── */
+/* ── real throwaway-git-fixture (matches run-engine-factory.publish-excludes.test.ts's harness) ── */
 
 function initRepo(): string {
   const repo = mkdtempSync(join(tmpdir(), "qa-confinement-"));

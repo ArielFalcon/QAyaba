@@ -287,7 +287,7 @@ test("the run-output-readers preset mutates the strict capped readers of what a 
     "infrastructure/fault-injection-counter-reader.test.ts",
     "infrastructure/fault-injection-oracle.adapter.test.ts",
     "infrastructure/target-coverage-collector.test.ts",
-    "rewritten-engine-factory.fault-injection.test.ts",
+    "run-engine-factory.fault-injection.test.ts",
     "infrastructure/e2e-execution.runner.confinement.test.ts",
   ]) {
     assert.ok(preset.tests.some((t) => t.endsWith(tests)), `${tests} runs against every mutant`);
@@ -415,13 +415,13 @@ test("the step-limit preset mutates the resolver, the lines that read, judge and
     "src/agent-runtime/opencode-strategy.ts",
     "src/agent-runtime/facades.ts",
     "src/integrations/opencode-client.ts",
-    "src/server/rewritten-engine-factory.ts",
+    "src/server/run-engine-factory.ts",
   ]);
-  for (const module of ["step-limit", "opencode-strategy", "facades", "opencode-agents", "opencode-client", "rewritten-engine-factory.step-limit"]) {
+  for (const module of ["step-limit", "opencode-strategy", "facades", "opencode-agents", "opencode-client", "run-engine-factory.step-limit"]) {
     assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s tests run against every mutant`);
   }
   assert.ok(
-    !preset.tests.includes("src/server/rewritten-engine-factory.test.ts"),
+    !preset.tests.includes("src/server/run-engine-factory.test.ts"),
     "the memo's own tests stand apart from the factory's whole test file, which would run once per mutant",
   );
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");

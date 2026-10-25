@@ -90,7 +90,7 @@ qa-engine/src (engine, no SDK)                      src/ (shell)
 │   noop-telemetry.ts                       │      │   host-health.ts (heartbeat, ELD)        │
 │ contexts/*/infrastructure/telemetry/      │      │   metrics.ts (instruments)               │
 │   *-port.traced.ts  (decorators)          │      └──────────────────────────────────────────┘
-│ contexts/evaluation/  (graders, pure)     │           wired in rewritten-engine-factory.ts,
+│ contexts/evaluation/  (graders, pure)     │           wired in run-engine-factory.ts,
 └───────────────────────────────────────────┘           src/index.ts, src/cli.ts
 ```
 
@@ -374,7 +374,7 @@ invoke_agent qa-generator               INTERNAL  one per prompt (turn)
 
 **Where it is built.** The review checked this against the code, and it is spread over four layers:
 - **The turn span lives at the `AgentDeps` facade.** That is the level `RunDeadlineRuntime` and the
-  stall watchdog wrap (`rewritten-engine-factory.ts:851, :1381`). It sees the role, the session, the
+  stall watchdog wrap (`run-engine-factory.ts:851, :1381`). It sees the role, the session, the
   prompt options and the result for **both** runtimes. The raw transport below it sees only
   `{id, cwd, agent, text, model}`.
 - **Attempt spans** come from a new `AgentDepsCollaborators` hook (`onAttempt`), next to the

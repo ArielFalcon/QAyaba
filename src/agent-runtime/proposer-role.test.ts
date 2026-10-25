@@ -1,7 +1,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { roleToAgentName } from "../server/rewritten-engine-factory";
+import { roleToAgentName } from "../server/run-engine-factory";
 import type { AgentRole as RuntimeAgentRole } from "./types";
 import type { AgentRole as KernelAgentRole } from "@kernel/agent-role";
 

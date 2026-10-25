@@ -50,7 +50,7 @@ Two Docker services share a `mirrors` volume, which holds the working copies of 
 ```
 
 **Boundaries you must respect.** They are enforced by `npm run arch:check` and described in the repo's `CLAUDE.md`:
-- `qa-engine/src` (the hexagonal engine) never imports from `src/` (the shell: composition root, API, provider I/O, persistence). Telemetry inside the engine must be a **port** with a no-op default, wired in `src/server/rewritten-engine-factory.ts`.
+- `qa-engine/src` (the hexagonal engine) never imports from `src/` (the shell: composition root, API, provider I/O, persistence). Telemetry inside the engine must be a **port** with a no-op default, wired in `src/server/run-engine-factory.ts`.
 - A new `child_process` import outside the launchers fails the build.
 - The engine is model- and app-agnostic ("golden rule"). Telemetry attributes may *carry* the model id and app name as data. Code must never branch on them.
 - Data that leaves the system must be sanitized. Use `src/orchestrator/sanitizer.ts`, the by-value run-secret redaction in `qa-engine/src/shared-infrastructure/run-secret-redaction.ts`, and `sanitize-text.ts` for prompt text. **Prompt and completion content must not be exported unredacted.** DEV credentials, session cookies and storage values pass through prompts and logs.

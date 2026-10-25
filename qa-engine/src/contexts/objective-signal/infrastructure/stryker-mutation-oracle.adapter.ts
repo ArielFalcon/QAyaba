@@ -137,7 +137,7 @@ export interface MutationOracleDeps {
   /* Starts Stryker, which runs the watched repo's own test command: the shell passes the execution launcher's `install` profile (the child's environment is that profile's). */
   spawn(cmd: string, args: string[], opts: { cwd: string }): ChildProcess;
   detectCodeProject(repoDir: string): CodeProjectLike;
-  /* The consolidated killTree seam (shared-kernel ProcessKillPort) — required, not optional: every caller (production via rewritten-engine-factory.ts, tests via the adapter test's `deps()` builder) supplies a real implementation, matching sandboxed-binary-runner.adapter.ts's pattern. */
+  /* The consolidated killTree seam (shared-kernel ProcessKillPort) — required, not optional: every caller (production via run-engine-factory.ts, tests via the adapter test's `deps()` builder) supplies a real implementation, matching sandboxed-binary-runner.adapter.ts's pattern. */
   processKill: ProcessKillPort;
   timeoutMs?: number;
 }

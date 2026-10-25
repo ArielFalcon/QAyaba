@@ -161,7 +161,7 @@ export const PROTECTED_PATHS: string[] = [
    * port to a weaker (or fake) implementation without ever touching the port/adapter files
    * themselves — the single widest-blast-radius file in the whole security surface.
    */
-  "src/server/rewritten-engine-factory.ts",
+  "src/server/run-engine-factory.ts",
 
   "qa-engine/src/shared-kernel/ports/redaction.port.ts",
   /*

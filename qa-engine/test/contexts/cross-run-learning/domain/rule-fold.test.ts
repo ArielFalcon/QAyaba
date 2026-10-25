@@ -1,6 +1,6 @@
 /* qa-engine/test/contexts/cross-run-learning/domain/rule-fold.test.ts
    preventionOutcome's empty-errorClass guard, pinned at the fold level rather than only at the
-   preventionOutcome unit level. The real caller (rewritten-engine-factory.ts's recordOutcome
+   preventionOutcome unit level. The real caller (run-engine-factory.ts's recordOutcome
    prevention path, forbidden-file — read-only reference here) only ever calls
    applyOutcome/recordRuleOutcome when preventionOutcome(...) returns non-null:
    const score = preventionOutcome(rule.errorClass, errorClass);

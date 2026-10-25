@@ -1,5 +1,5 @@
 /* REAL git-status fixture tests for E2E_PUBLISH_EXCLUDES / CODE_PUBLISH_EXCLUDES. The existing
-   buildVcsPublish tests in rewritten-engine-factory.test.ts use a fake `git` fn that only records
+   buildVcsPublish tests in run-engine-factory.test.ts use a fake `git` fn that only records
    argv — that style is deliberately insufficient here: an array-membership assertion on the exclude
    config would have PASSED on the anchoring bug (the string ".qa/coverage/" WAS already in the
    array; it just excluded nothing because of gitignore mid-pattern-slash anchoring). Only a real
@@ -14,13 +14,13 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, unlinkSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildConfinement, buildVcsPublish } from "./rewritten-engine-factory";
+import { buildConfinement, buildVcsPublish } from "./run-engine-factory";
 import { realGit } from "../integrations/repo-mirror";
 import { closeGitDir, indexedGitlinks, makeEmbeddedRepo } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 import { defaultSpecWriteDeps, writeOwnedSpecFile } from "../../qa-engine/src/shared-infrastructure/spec-path-confinement";
 
 /* The bare git subcommand of an argv, skipping leading `-c <key> <value>` pairs (buildVcsPublish's
-   commit/push decorations prepend -c flags) — mirrors rewritten-engine-factory.test.ts's own
+   commit/push decorations prepend -c flags) — mirrors run-engine-factory.test.ts's own
    subcommandOf helper (duplicated locally; that file does not export it).
  */
 function subcommandOf(args: string[]): string | undefined {

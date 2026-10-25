@@ -5,7 +5,7 @@ import { loadAppConfig, type AppConfig } from "../orchestrator/config-loader";
 import { ensureMirror, defaultMirrorDeps } from "../integrations/repo-mirror";
 import { resolveCampaignFreeze } from "./campaign-freeze";
 import { isContextStale, loadContextMap, type StoredContextMap } from "./history";
-import { gitChangedFiles } from "./rewritten-engine-factory";
+import { gitChangedFiles } from "./run-engine-factory";
 
 export interface ContextMapQuestionDeps {
   loadApp: (name: string) => AppConfig;

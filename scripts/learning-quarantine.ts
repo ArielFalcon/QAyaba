@@ -74,7 +74,7 @@ export async function main(argv: readonly string[], deps: QuarantineDeps): Promi
 /** The run history of the orchestrator container, imported lazily so a test that injects its own never opens it. */
 export async function defaultDeps(): Promise<QuarantineDeps> {
   const { SqliteLearningRepository } = await import("../qa-engine/src/contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter.ts");
-  const { historyLearningStore } = await import("../src/server/rewritten-engine-factory.ts");
+  const { historyLearningStore } = await import("../src/server/run-engine-factory.ts");
   return {
     /* The store is scoped by the app a call names, not by the one it was built for. */
     repo: new SqliteLearningRepository(historyLearningStore("")),

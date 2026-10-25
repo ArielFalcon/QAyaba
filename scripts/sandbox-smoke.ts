@@ -57,7 +57,7 @@ async function main(): Promise<number> {
   const origin = env.QA_SMOKE_ORIGIN || "https://example.com";
   const undeclared = env.QA_SMOKE_UNDECLARED || "https://example.org";
 
-  const { resolveCodeSandbox, buildSetupAdapter } = await import("../src/server/rewritten-engine-factory.ts");
+  const { resolveCodeSandbox, buildSetupAdapter } = await import("../src/server/run-engine-factory.ts");
   const { buildExecWiring } = await import("../src/server/exec-sandbox-factory.ts");
   const { egressGateFor, loadRegistryGroups, resolveRunOrigins } = await import("../src/server/egress-wiring.ts");
   const { qayabaRoot } = await import("../src/paths.ts");

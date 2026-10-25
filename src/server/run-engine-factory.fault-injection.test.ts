@@ -1,11 +1,11 @@
-/* The response oracle re-runs the suite with corrupted responses and asks how many it corrupted by reading the counter file each worker leaves under `.qa/fault-injection/<namespace>`. The workers run code the agent wrote, so a counter can be a named pipe or a link, and the composition root must hand the oracle a reader that waits on neither and follows neither, and that gives a count only when every counter could be read. A fake `playwright` binary stands in for the runner at the process boundary: it leaves the counters a worker would, and whatever the case plants beside them. Apart from rewritten-engine-factory.test.ts, whose many tests would all run once per mutant. */
+/* The response oracle re-runs the suite with corrupted responses and asks how many it corrupted by reading the counter file each worker leaves under `.qa/fault-injection/<namespace>`. The workers run code the agent wrote, so a counter can be a named pipe or a link, and the composition root must hand the oracle a reader that waits on neither and follows neither, and that gives a count only when every counter could be read. A fake `playwright` binary stands in for the runner at the process boundary: it leaves the counters a worker would, and whatever the case plants beside them. Apart from run-engine-factory.test.ts, whose many tests would all run once per mutant. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildRewrittenCompositionConfig } from "./rewritten-engine-factory";
+import { buildCompositionConfig } from "./run-engine-factory";
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { AgentDeps } from "../integrations/opencode-client";
 import { Sha } from "@kernel/sha";
@@ -73,7 +73,7 @@ async function withOracleRun(plant: string, run: (measure: () => Promise<{ value
     const bin = join(e2eDir, "node_modules", ".bin", "playwright");
     writeFileSync(bin, fakePlaywright(plant.replaceAll("OUTSIDE", JSON.stringify(outside))));
     chmodSync(bin, 0o755);
-    const config = buildRewrittenCompositionConfig(app(), { getAgentDeps: stubAgentDeps }, NAMESPACE, { mode: "diff" });
+    const config = buildCompositionConfig(app(), { getAgentDeps: stubAgentDeps }, NAMESPACE, { mode: "diff" });
     /* The oracle's re-run is a child of the run's sandbox: it needs the scope a run opens. */
     const session = await config.execScope!.open({ runId: "fault-injection-test" });
     try {

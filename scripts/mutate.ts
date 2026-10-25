@@ -394,7 +394,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "src/integrations/opencode-client.ts#AgentOnTheWire",
       "src/integrations/opencode-client.ts@list-agent-caps",
       /* The factory's per-run memo: the deadline, the role mapping, the one read and its warning. */
-      "src/server/rewritten-engine-factory.ts@context-map-compare-fallback",
+      "src/server/run-engine-factory.ts@context-map-compare-fallback",
     ],
     tests: [
       "src/agent-runtime/step-limit.test.ts",
@@ -402,8 +402,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "src/agent-runtime/facades.test.ts",
       "src/integrations/opencode-agents.test.ts",
       "src/integrations/opencode-client.test.ts",
-      /* Apart from rewritten-engine-factory.test.ts, whose many tests would all run once per mutant. */
-      "src/server/rewritten-engine-factory.step-limit.test.ts",
+      /* Apart from run-engine-factory.test.ts, whose many tests would all run once per mutant. */
+      "src/server/run-engine-factory.step-limit.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
@@ -523,8 +523,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${OS_INFRA_TEST}/dump-sanitizers.test.ts`,
       /* The real readers behind the collector the factory builds. */
       `${OS_INFRA_TEST}/target-coverage-collector.test.ts`,
-      /* Apart from rewritten-engine-factory.test.ts, whose many tests would all run once per mutant. */
-      "src/server/rewritten-engine-factory.fault-injection.test.ts",
+      /* Apart from run-engine-factory.test.ts, whose many tests would all run once per mutant. */
+      "src/server/run-engine-factory.fault-injection.test.ts",
       /* The scan that the e2e runner reads the failure dumps with: it uses what it can and keeps going, where the readers above use a set whole or not at all. */
       "qa-engine/test/contexts/test-execution/infrastructure/e2e-execution.runner.confinement.test.ts",
     ],

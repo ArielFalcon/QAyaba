@@ -134,7 +134,7 @@ export interface RunnerDeps {
 type LiveAnnouncedStatus = "passed" | "failed" | "flaky";
 
 
-function buildRewrittenObserver(runId: string, runEvents: RunEventStore | undefined, liveAnnounced?: Map<string, LiveAnnouncedStatus>): ObserverPort {
+function buildRunObserver(runId: string, runEvents: RunEventStore | undefined, liveAnnounced?: Map<string, LiveAnnouncedStatus>): ObserverPort {
   return {
     onStep(step: RunStep, detail?: string): void {
       try {
@@ -205,7 +205,7 @@ function specCountsForTrace(runId: string, furthestPhase: string | null): RunFac
   }
 }
 
-async function runViaRewrittenEngine(
+async function runViaEngine(
   port: RunPipelinePort,
   req: RunRequest,
   runId: string,
@@ -480,7 +480,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
       if (!deps.engineFactory) {
         throw new Error(
           "enqueueTrackedRun: RunnerDeps.engineFactory is required. " +
-            "Wire src/server/rewritten-engine-factory.ts's createRewrittenEngineFactory(...) at the caller.",
+            "Wire src/server/run-engine-factory.ts's createRunEngineFactory(...) at the caller.",
         );
       }
 
@@ -491,8 +491,8 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
        * recordCase loop so a case's terminal event publishes once, with a correcting event on divergence.
        */
       const liveAnnounced = new Map<string, LiveAnnouncedStatus>();
-      const observer = buildRewrittenObserver(record.id, deps.runEvents, liveAnnounced);
-      const run = await runViaRewrittenEngine(
+      const observer = buildRunObserver(record.id, deps.runEvents, liveAnnounced);
+      const run = await runViaEngine(
 
         deps.engineFactory(
           appConfig,

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
 import { getLearningRule, listLearningRules, LEARNING_RULE_LEDGER_LIMIT } from "./history";
-import { historyLearningStore } from "./rewritten-engine-factory";
+import { historyLearningStore } from "./run-engine-factory";
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
 import { Sha } from "@kernel/sha";
 

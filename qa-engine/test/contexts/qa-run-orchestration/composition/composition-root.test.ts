@@ -13,7 +13,7 @@ import {
   wireBridges,
   type CompositionConfig,
 } from "@contexts/qa-run-orchestration/composition/composition-root.ts";
-import { RewrittenOrchestratorAdapter } from "@contexts/qa-run-orchestration/infrastructure/rewritten-orchestrator.adapter.ts";
+import { RunPipelineAdapter } from "@contexts/qa-run-orchestration/infrastructure/run-pipeline.adapter.ts";
 import { Sha } from "@kernel/sha.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -33,7 +33,7 @@ import { SpecSnapshotValidationPort } from "@contexts/qa-run-orchestration/infra
 import { TracedSuiteStore } from "@contexts/qa-run-orchestration/infrastructure/bridges/suite-store-trace.ts";
 import { SuiteStoreAdapter } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts";
 /* ── A minimal fake CompositionConfig — every collaborator is a lightweight stub, matching the
-   SAME stub shapes rewritten-orchestrator.adapter.test.ts already uses for the 10-scenario parity
+   SAME stub shapes run-pipeline.adapter.test.ts already uses for the 10-scenario parity
    (this test does not re-run that parity; it proves the composition root wires the RIGHT classes).
  */
 /*
@@ -190,10 +190,10 @@ test("the pre-exec grounding reads the suite through the confined reader, anchor
 
 test("buildProduction wires a pipeline from the composition config alone", () => {
   const port = buildProduction(fakeConfig());
-  assert.ok(port instanceof RewrittenOrchestratorAdapter);
+  assert.ok(port instanceof RunPipelineAdapter);
 });
 
-test("buildProduction(rewritten) drives a full run end-to-end through the 11 wired ports (green-pr shape)", async () => {
+test("buildProduction drives a full run end-to-end through the 11 wired ports (green-pr shape)", async () => {
   const port = buildProduction(fakeConfig());
 
   const outcome = await port.run({
@@ -345,11 +345,11 @@ test("buildProduction omits contextMapCapture entirely when cfg.contextMapCaptur
   assert.equal(outcome.verdict, "pass");
 });
 
-/* ── buildShadow: always rewritten, shadow-log publication, no side effects ──────────────────── */
+/* ── buildShadow: always the run engine, shadow-log publication, no side effects ──────────────────── */
 
-test("buildShadow always returns a RewrittenOrchestratorAdapter", () => {
+test("buildShadow always returns a RunPipelineAdapter", () => {
   const port = buildShadow(fakeConfig());
-  assert.ok(port instanceof RewrittenOrchestratorAdapter);
+  assert.ok(port instanceof RunPipelineAdapter);
 });
 
 test("buildShadow wires the shadow-log publication path — no PR/Issue collaborator is ever invoked", async () => {
@@ -406,7 +406,7 @@ test("buildShadow reads a pre-run history snapshot (read-only) — never persist
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction(rewritten) selects NullDeployGateAdapter when versionUrl is absent (static/code target)", async () => {
+test("buildProduction selects NullDeployGateAdapter when versionUrl is absent (static/code target)", async () => {
   const cfg = fakeConfig({ versionUrl: undefined });
   const port = buildProduction(cfg);
 
@@ -423,7 +423,7 @@ test("buildProduction(rewritten) selects NullDeployGateAdapter when versionUrl i
   assert.notEqual(outcome.verdict, "infra-error");
 });
 
-test("buildProduction(rewritten) selects the real DeployGatePortAdapter when versionUrl is present", async () => {
+test("buildProduction selects the real DeployGatePortAdapter when versionUrl is present", async () => {
   const cfg = fakeConfig({
     versionUrl: "https://dev.example.com/version",
     versionPoll: async () => ({ serving: true }),
@@ -446,7 +446,7 @@ test("buildProduction(rewritten) selects the real DeployGatePortAdapter when ver
    context so PW_TEST_ID_ATTRIBUTE reaches the verdictual Playwright run. NO defaulting logic here —
    undefined flows through; the seed playwright.config.ts already defaults to data-testid.
  */
-test("buildProduction(rewritten) threads testIdAttribute into the ExecutionPortAdapter", async () => {
+test("buildProduction threads testIdAttribute into the ExecutionPortAdapter", async () => {
   let capturedTestIdAttribute: string | undefined;
   const cfg = fakeConfig({
     testIdAttribute: "data-cy",
@@ -480,7 +480,7 @@ test("buildProduction(rewritten) threads testIdAttribute into the ExecutionPortA
    backward-compat path across all the OTHER tests in this file).
  */
 
-test("buildProduction(rewritten) wires setupCollaborators.e2e into the run when target is 'e2e'", async () => {
+test("buildProduction wires setupCollaborators.e2e into the run when target is 'e2e'", async () => {
   let setupCalled = false;
   const cfg = fakeConfig({
     target: "e2e",
@@ -504,7 +504,7 @@ test("buildProduction(rewritten) wires setupCollaborators.e2e into the run when 
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction(rewritten) wires setupCollaborators.code into the run when target is 'code'", async () => {
+test("buildProduction wires setupCollaborators.code into the run when target is 'code'", async () => {
   let setupCalled = false;
   const cfg = fakeConfig({
     target: "code",
@@ -529,7 +529,7 @@ test("buildProduction(rewritten) wires setupCollaborators.code into the run when
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction(rewritten) composes specDir as the bare mirrorDir for a code:true app (WorkspacePortAdapter target-awareness)", async () => {
+test("buildProduction composes specDir as the bare mirrorDir for a code:true app (WorkspacePortAdapter target-awareness)", async () => {
   let capturedSpecDir: string | undefined;
   const cfg = fakeConfig({
     target: "code",
@@ -556,7 +556,7 @@ test("buildProduction(rewritten) composes specDir as the bare mirrorDir for a co
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction(rewritten) dispatches ValidationPort to the code strategy for a code:true app — a toolchain failure resolves to infra-error, never reaches execute()", async () => {
+test("buildProduction dispatches ValidationPort to the code strategy for a code:true app — a toolchain failure resolves to infra-error, never reaches execute()", async () => {
   let executeCalled = false;
   const cfg = fakeConfig({
     target: "code",
@@ -589,7 +589,7 @@ test("buildProduction(rewritten) dispatches ValidationPort to the code strategy 
    "tests" framing (buildReviewerPromptAssembled's own `input.target === "code" ? "tests" : "E2E
    tests"`), not "E2E tests" — closes the ReviewPortAdapter wiring gap (target was never threaded).
  */
-test("buildProduction(rewritten) threads cfg.target:'code' onto ReviewInput.target — the code-mode review no longer renders 'E2E tests' framing", async () => {
+test("buildProduction threads cfg.target:'code' onto ReviewInput.target — the code-mode review no longer renders 'E2E tests' framing", async () => {
   let seenTarget: string | undefined;
   const cfg = fakeConfig({
     target: "code",
@@ -621,7 +621,7 @@ test("buildProduction(rewritten) threads cfg.target:'code' onto ReviewInput.targ
    A fake reviewRuntime.runtime.openSession captures the opts it receives so this test observes the
    SAME seam ReviewPortAdapter's own unit test observes, through the real composition wiring.
  */
-test("buildProduction(rewritten) threads cfg.reviewTimeoutMs onto ReviewPortAdapter's openSession opts.timeoutMs", async () => {
+test("buildProduction threads cfg.reviewTimeoutMs onto ReviewPortAdapter's openSession opts.timeoutMs", async () => {
   let seenTimeoutMs: number | undefined;
   const cfg = fakeConfig({
     needsReview: true,
@@ -651,7 +651,7 @@ test("buildProduction(rewritten) threads cfg.reviewTimeoutMs onto ReviewPortAdap
   assert.equal(seenTimeoutMs, 360_000, "cfg.reviewTimeoutMs must reach ReviewPortAdapter's openSession opts.timeoutMs — the reviewer needs its OWN budget, not a silently-dropped composition-time value");
 });
 
-test("buildProduction(rewritten) with absent cfg.reviewTimeoutMs omits timeoutMs from ReviewPortAdapter's openSession opts (backward compatible)", async () => {
+test("buildProduction with absent cfg.reviewTimeoutMs omits timeoutMs from ReviewPortAdapter's openSession opts (backward compatible)", async () => {
   let sawTimeoutKey = false;
   const cfg = fakeConfig({
     needsReview: true,
@@ -680,7 +680,7 @@ test("buildProduction(rewritten) with absent cfg.reviewTimeoutMs omits timeoutMs
   assert.equal(sawTimeoutKey, false, "absent cfg.reviewTimeoutMs must not fabricate a timeout the composition layer never configured");
 });
 
-test("buildProduction(rewritten) surfaces infra-error when a wired setup collaborator throws", async () => {
+test("buildProduction surfaces infra-error when a wired setup collaborator throws", async () => {
   const cfg = fakeConfig({
     target: "e2e",
     setupCollaborators: {
@@ -702,7 +702,7 @@ test("buildProduction(rewritten) surfaces infra-error when a wired setup collabo
   assert.equal(outcome.verdict, "infra-error", "a setup failure must surface as infra-error, matching src/qa/setup.ts's own contract");
 });
 
-test("buildProduction(rewritten) runs without setupCollaborators (absent -> no-op, backward compatible)", async () => {
+test("buildProduction runs without setupCollaborators (absent -> no-op, backward compatible)", async () => {
   const cfg = fakeConfig(); /* fakeConfig()'s base never supplies setupCollaborators */
   const port = buildProduction(cfg);
 
@@ -718,7 +718,7 @@ test("buildProduction(rewritten) runs without setupCollaborators (absent -> no-o
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction(rewritten) surfaces infra-error when the real deploy gate never serves", async () => {
+test("buildProduction surfaces infra-error when the real deploy gate never serves", async () => {
   const cfg = fakeConfig({
     versionUrl: "https://dev.example.com/version",
     versionPoll: async () => ({ serving: false }),
@@ -784,7 +784,7 @@ test("wireBridges hardcodes needsReview:false into the generation ctx even when 
    already proves the absent-collaborator backward-compat path across the OTHER tests in this file.
  */
 
-test("buildProduction(rewritten) wires groundingCollaborators.buildContextPack into the run when target is 'e2e' — contextPack reaches OpencodeRunInput", async () => {
+test("buildProduction wires groundingCollaborators.buildContextPack into the run when target is 'e2e' — contextPack reaches OpencodeRunInput", async () => {
   let buildCalled = false;
   const seenContextPacks: Array<string | undefined> = [];
   const cfg = fakeConfig({
@@ -821,7 +821,7 @@ test("buildProduction(rewritten) wires groundingCollaborators.buildContextPack i
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction(rewritten) does NOT wire grounding on the code target, even when groundingCollaborators is supplied (isCode has no DOM/routes to ground)", async () => {
+test("buildProduction does NOT wire grounding on the code target, even when groundingCollaborators is supplied (isCode has no DOM/routes to ground)", async () => {
   let buildCalled = false;
   const cfg = fakeConfig({
     target: "code",
@@ -850,7 +850,7 @@ test("buildProduction(rewritten) does NOT wire grounding on the code target, eve
    Absent -> the use-case's own structuralSignal dep stays undefined — NEVER a stub ok([])-shaped fake.
  */
 
-test("buildProduction(rewritten) wires structuralSignal when the code graph and the co-change history are supplied — the rendered advisory block reaches OpencodeRunInput.staticSignal", async () => {
+test("buildProduction wires structuralSignal when the code graph and the co-change history are supplied — the rendered advisory block reaches OpencodeRunInput.staticSignal", async () => {
   const seenStaticSignals: Array<string | undefined> = [];
   const seenSymbolFlags: Array<boolean | undefined> = [];
   const cfg = fakeConfig({
@@ -887,7 +887,7 @@ test("buildProduction(rewritten) wires structuralSignal when the code graph and 
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction(rewritten): a graph that knows only co-change files for the diff gives a signal with no symbol flag on OpencodeRunInput", async () => {
+test("buildProduction: a graph that knows only co-change files for the diff gives a signal with no symbol flag on OpencodeRunInput", async () => {
   const seen: Array<{ signal: string | undefined; flag: boolean | undefined; hasFlagKey: boolean }> = [];
   const cfg = fakeConfig({
     mode: "diff",
@@ -922,7 +922,7 @@ test("buildProduction(rewritten): a graph that knows only co-change files for th
   assert.doesNotMatch(seen[0]?.signal ?? "", /blast radius|call graph/i, "and the block does not present itself as an exploration of what the change reaches");
 });
 
-test("buildProduction(rewritten) leaves structuralSignal undefined when the code graph is absent (no section)", async () => {
+test("buildProduction leaves structuralSignal undefined when the code graph is absent (no section)", async () => {
   const seenStaticSignals: Array<string | undefined> = [];
   const cfg = fakeConfig({
     mode: "diff",
@@ -949,7 +949,7 @@ test("buildProduction(rewritten) leaves structuralSignal undefined when the code
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction(rewritten) degrades structuralSignal to no section when the repo is not indexed (unindexed-repo degrade)", async () => {
+test("buildProduction degrades structuralSignal to no section when the repo is not indexed (unindexed-repo degrade)", async () => {
   const seenStaticSignals: Array<string | undefined> = [];
   const cfg = fakeConfig({
     mode: "diff",
@@ -988,7 +988,7 @@ test("buildProduction(rewritten) degrades structuralSignal to no section when th
    BoundaryProfileProviderPort. Absent -> serviceLinks stays undefined, NEVER a stub.
  */
 
-test("buildProduction(rewritten) wires serviceLinks when a serviceTopology collaborator is supplied — the REAL MirrorRegistryAdapter(mirrorRoot) encoding is exercised end-to-end (existsSync sees the SAME '__'-joined dir wireBridges constructs)", async () => {
+test("buildProduction wires serviceLinks when a serviceTopology collaborator is supplied — the REAL MirrorRegistryAdapter(mirrorRoot) encoding is exercised end-to-end (existsSync sees the SAME '__'-joined dir wireBridges constructs)", async () => {
   const root = mkdtempSync(join(tmpdir(), "composition-service-links-"));
   try {
     /* MirrorRegistryAdapter's own formula: join(mirrorRoot, repo.replaceAll("/", "__")) — creating
@@ -1049,7 +1049,7 @@ test("buildProduction(rewritten) wires serviceLinks when a serviceTopology colla
   }
 });
 
-test("buildProduction(rewritten) leaves serviceLinks undefined when serviceTopology is absent (no key, backward compatible)", async () => {
+test("buildProduction leaves serviceLinks undefined when serviceTopology is absent (no key, backward compatible)", async () => {
   const seenEnrichments: Array<Record<string, unknown>> = [];
   const cfg = fakeConfig({
     mode: "diff",
@@ -1083,7 +1083,7 @@ test("buildProduction(rewritten) leaves serviceLinks undefined when serviceTopol
    the key is omitted entirely.
  */
 
-test("buildProduction(rewritten) threads cfg.triggerService into OpencodeRunInput.service when the run is cross-repo", async () => {
+test("buildProduction threads cfg.triggerService into OpencodeRunInput.service when the run is cross-repo", async () => {
   const seenServices: Array<unknown> = [];
   const cfg = fakeConfig({
     mode: "diff",
@@ -1112,7 +1112,7 @@ test("buildProduction(rewritten) threads cfg.triggerService into OpencodeRunInpu
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction(rewritten) leaves OpencodeRunInput.service entirely absent when cfg.triggerService is not supplied (same-repo run)", async () => {
+test("buildProduction leaves OpencodeRunInput.service entirely absent when cfg.triggerService is not supplied (same-repo run)", async () => {
   const seenInputs: Array<Record<string, unknown>> = [];
   const cfg = fakeConfig({
     mode: "diff",
@@ -1160,7 +1160,7 @@ async function stagedRootsSeenByThePack(overrides: Partial<CompositionConfig>): 
   return "stagedRoots" in seen[0]! ? seen[0]!.stagedRoots : "absent";
 }
 
-test("buildProduction(rewritten) gives the context pack the staged roots of the triggering service, as the working copy and as the e2e dir name them", async () => {
+test("buildProduction gives the context pack the staged roots of the triggering service, as the working copy and as the e2e dir name them", async () => {
   const roots = await stagedRootsSeenByThePack({
     mirrorDir: "/mirrors/org__front",
     e2eRelDir: "e2e",
@@ -1169,7 +1169,7 @@ test("buildProduction(rewritten) gives the context pack the staged roots of the 
   assert.deepEqual(roots, ["e2e/.qa/service-context/org__orders-svc", ".qa/service-context/org__orders-svc"]);
 });
 
-test("buildProduction(rewritten) names the e2e dir's own root from where the e2e dir really is, not from a fixed name", async () => {
+test("buildProduction names the e2e dir's own root from where the e2e dir really is, not from a fixed name", async () => {
   const roots = await stagedRootsSeenByThePack({
     mirrorDir: "/mirrors/org__front",
     e2eRelDir: "tests/e2e",
@@ -1178,7 +1178,7 @@ test("buildProduction(rewritten) names the e2e dir's own root from where the e2e
   assert.deepEqual(roots, ["tests/e2e/.qa/service-context/org__orders-svc", ".qa/service-context/org__orders-svc"]);
 });
 
-test("buildProduction(rewritten) names no root a staged snapshot does not lie inside, and the run stays a cross-repo run", async () => {
+test("buildProduction names no root a staged snapshot does not lie inside, and the run stays a cross-repo run", async () => {
   const insideTheCopyOnly = await stagedRootsSeenByThePack({
     mirrorDir: "/mirrors/org__front",
     e2eRelDir: "e2e",
@@ -1193,7 +1193,7 @@ test("buildProduction(rewritten) names no root a staged snapshot does not lie in
   assert.deepEqual(outsideTheCopy, [], "no directory holds it: nothing to name, but the key is still there");
 });
 
-test("buildProduction(rewritten) gives the context pack no staged roots on a same-repo run", async () => {
+test("buildProduction gives the context pack no staged roots on a same-repo run", async () => {
   assert.equal(await stagedRootsSeenByThePack({}), "absent");
 });
 
@@ -1203,7 +1203,7 @@ test("buildProduction(rewritten) gives the context pack no staged roots on a sam
    the key is omitted entirely.
  */
 
-test("buildProduction(rewritten) threads cfg.services into OpencodeRunInput.services for a context-mode run", async () => {
+test("buildProduction threads cfg.services into OpencodeRunInput.services for a context-mode run", async () => {
   const seenServicesList: Array<unknown> = [];
   const cfg = fakeConfig({
     mode: "context",
@@ -1238,7 +1238,7 @@ test("buildProduction(rewritten) threads cfg.services into OpencodeRunInput.serv
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction(rewritten) leaves OpencodeRunInput.services entirely absent when cfg.services is not supplied", async () => {
+test("buildProduction leaves OpencodeRunInput.services entirely absent when cfg.services is not supplied", async () => {
   const seenInputs: Array<Record<string, unknown>> = [];
   const cfg = fakeConfig({
     mode: "diff",
@@ -1265,7 +1265,7 @@ test("buildProduction(rewritten) leaves OpencodeRunInput.services entirely absen
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction(rewritten) runs without groundingCollaborators/reviewDomGroundingCollaborators (absent -> no-op, backward compatible)", async () => {
+test("buildProduction runs without groundingCollaborators/reviewDomGroundingCollaborators (absent -> no-op, backward compatible)", async () => {
   const cfg = fakeConfig({ target: "e2e", isCode: false }); /* fakeConfig()'s base never supplies either */
   const port = buildProduction(cfg);
 
@@ -1285,7 +1285,7 @@ test("buildProduction(rewritten) runs without groundingCollaborators/reviewDomGr
    (preExecAmbiguityCatches stays 0), and gated `!cfg.isCode` (isCode has no DOM/routes to ground).
  */
 
-test("buildProduction(rewritten) wires preExecGrounding into the run when target is 'e2e' and a captureRouteTrees-shaped collaborator is supplied", async () => {
+test("buildProduction wires preExecGrounding into the run when target is 'e2e' and a captureRouteTrees-shaped collaborator is supplied", async () => {
   /* A REAL specDir with at least one on-disk *.spec.ts — the adapter enumerates + reads specs off
      disk itself (the "adapter resolves its own paths" precedent), so an unpopulated fakeConfig()
      mirrorDir (never a real directory) would short-circuit BEFORE ever calling captureRouteTrees.
@@ -1328,7 +1328,7 @@ test("buildProduction(rewritten) wires preExecGrounding into the run when target
   }
 });
 
-test("buildProduction(rewritten) does NOT wire preExecGrounding on the code target, even when preExecGroundingCollaborators is supplied (isCode has no DOM/routes to ground)", async () => {
+test("buildProduction does NOT wire preExecGrounding on the code target, even when preExecGroundingCollaborators is supplied (isCode has no DOM/routes to ground)", async () => {
   let captureCalled = false;
   const cfg = fakeConfig({
     target: "code",
@@ -1353,7 +1353,7 @@ test("buildProduction(rewritten) does NOT wire preExecGrounding on the code targ
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction(rewritten) runs without preExecGroundingCollaborators (absent -> no-op, backward compatible)", async () => {
+test("buildProduction runs without preExecGroundingCollaborators (absent -> no-op, backward compatible)", async () => {
   const cfg = fakeConfig({ target: "e2e", isCode: false }); /* fakeConfig()'s base never supplies it */
   const port = buildProduction(cfg);
 
@@ -1371,7 +1371,7 @@ test("buildProduction(rewritten) runs without preExecGroundingCollaborators (abs
 
 /* The gate must actually fire through composition, not just receive a call: a duplicate
    page-rooted selector must produce preExecAmbiguityCatches > 0. */
-test("buildProduction(rewritten) end-to-end: a duplicate page-rooted selector in the captured route trips the pre-exec ambiguity gate (preExecAmbiguityCatches > 0)", async () => {
+test("buildProduction end-to-end: a duplicate page-rooted selector in the captured route trips the pre-exec ambiguity gate (preExecAmbiguityCatches > 0)", async () => {
   /* A REAL specDir (mirrorDir/e2eRelDir) — the adapter under test resolves its own paths off disk
      (the "adapter resolves its own paths" precedent SetupPort/ExecutionPort/ReviewDomGroundingPort
      already use), so this is exercised against real fs, not a readSpecSource passthrough.
@@ -1463,7 +1463,7 @@ const diffVcs = {
   diff: async () => "diff --git a/src/x.ts b/src/x.ts\n+ handleX();",
 };
 
-test("buildProduction(rewritten) indexes the repo through cfg.codeGraph and the structural signal reads that same instance", async () => {
+test("buildProduction indexes the repo through cfg.codeGraph and the structural signal reads that same instance", async () => {
   const { calls, codeGraph } = recordingCodeGraph();
   const cfg = fakeConfig({ mode: "diff", codeGraph, coChange: quietCoChange, vcs: diffVcs });
   const port = buildProduction(cfg);
@@ -1474,7 +1474,7 @@ test("buildProduction(rewritten) indexes the repo through cfg.codeGraph and the 
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction(rewritten) still indexes without the co-change history, but builds no structural signal", async () => {
+test("buildProduction still indexes without the co-change history, but builds no structural signal", async () => {
   const { calls, codeGraph } = recordingCodeGraph();
   const cfg = fakeConfig({ mode: "diff", codeGraph, vcs: diffVcs });
   const port = buildProduction(cfg);

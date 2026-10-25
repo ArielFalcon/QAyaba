@@ -275,7 +275,7 @@ test("withStallWatchdog: an observed session with no activity still trips the wa
 
 /* ─── withSessionRegistration ─────────────────────────────────────────────────────────────────────
    `collaborators` is REQUIRED: qa-engine cannot reach the shell registerRunSession/unregisterRunSession
-   functions on its own, so the composition root (src/server/rewritten-engine-factory.ts) must inject
+   functions on its own, so the composition root (src/server/run-engine-factory.ts) must inject
    them explicitly.
  */
 
