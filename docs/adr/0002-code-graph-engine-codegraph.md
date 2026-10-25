@@ -236,7 +236,7 @@ The owner asked for "esta pagina llega a esta accion". The measurement says the 
 
 The adoption failure is an interface failure, and a tool description is a weak interface.
 
-- The orchestrator puts the engine's read-equivalent answer for the change's top symbols into `static-signal`, inside its existing budget. This works for any model, and for Codex, which has no custom tools.
+- The orchestrator puts the engine's read-equivalent answer for the change's top symbols into `static-signal`, inside its existing budget. This works for any model.
 - `explore` remains for follow-up questions, with the steering as a linted prompt layer.
 - The dossier is on by default: the owner made the code graph part of the grounding (`odd/tasks/codegraph-migration.md`, L38); an app or a run can still turn it off.
 

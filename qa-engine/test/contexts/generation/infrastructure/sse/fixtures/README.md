@@ -14,8 +14,7 @@ emitted on the SSE stream as `message.part.updated` events whose
 `properties.part.type` is `"step-start"` / `"step-finish"` (events 13 and 17,
 zero-based, in the array). This means `stepsUsed` (the distinct count of
 `step-start` parts) can be non-null for
-OpenCode-backed turns — it is not resolvable from Codex, which never streams
-tool/step events.
+OpenCode-backed turns.
 
 The array is otherwise unmodified raw output — no prompt/response content was
 redacted because the fixture only carries the trivial ack exchange, not real

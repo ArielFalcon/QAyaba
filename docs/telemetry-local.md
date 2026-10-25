@@ -52,7 +52,6 @@ this to a running stack needs the orchestrator and `collector` recreated (new en
 | `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | `.env` | Optional logs URL; when unset the generic endpoint gets `/v1/logs`. It does not enable the exporter by itself (the generic endpoint or a traces endpoint must exist). |
 | `OTEL_SERVICE_NAME` | set by the telemetry file (`qayaba-orchestrator`) | Resource service name. |
 | `QA_TELEMETRY` | `.env` | `local` (default) or `off`. |
-| `QA_AGENT_OTLP_ENDPOINT` | set by the telemetry file on the agents service (`http://collector-agents:4319`) | The supervisor then gives Codex a trace exporter (`[otel]` in its `config.toml`) pointed at the untrusted receiver, and the orchestrator passes the attempt's `traceparent` so Codex's spans hang under it. Unset (plain compose): Codex exports nothing and its config is unchanged. |
 | `QA_TELEMETRY_MAX_CAPTURE` | `.env` | The most content any run's trace may carry: `off`, `metadata` (default) or `full`. A request's `captureMode` is capped at it. Turning `full` on is a deliberate operator act: it exports message bodies. The console tap reads the run's mode under the same ceiling. |
 | `QA_TELEMETRY_RETENTION_DAYS`, `QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS` | `.env` | How long an ordinary run keeps its spans and agent turns (30) and how long a campaign-tagged run does (180). Loki logs use the campaign window (180) globally: a log cannot carry the campaign tag. |
 | `OTEL_BSP_SCHEDULE_DELAY`, `OTEL_BSP_MAX_QUEUE_SIZE`, `OTEL_BSP_MAX_EXPORT_BATCH_SIZE`, `OTEL_BSP_EXPORT_TIMEOUT`, `OTEL_RESOURCE_ATTRIBUTES` | `.env` | Optional exporter tuning. |
@@ -139,7 +138,7 @@ trusted port to the agents. Each receiver is therefore its own service with its 
 | Service | Config | Receiver | Networks | Who writes to it | Pipeline |
 |---|---|---|---|---|---|
 | `collector` | `config/otel/collector.yaml` | `otlp/orchestrator` :4318 | `telemetry-internal` only | the orchestrator | trusted; secret redaction only; traces, metrics and logs |
-| `collector-agents` | `config/otel/collector-agents.yaml` | `otlp/agents` :4319 | `agent-otlp` + `telemetry-internal` (the latter only to export to lgtm) | the agents container (OpenCode's logs and traces, Codex's traces) | untrusted; deletes `qayaba.*`, `langfuse.*` and prompt/response content keys from spans and logs, then sets `qayaba.trust=agent`; drops `service.name=opencode` traces |
+| `collector-agents` | `config/otel/collector-agents.yaml` | `otlp/agents` :4319 | `agent-otlp` + `telemetry-internal` (the latter only to export to lgtm) | the agents container (OpenCode's logs and traces) | untrusted; deletes `qayaba.*`, `langfuse.*` and prompt/response content keys from spans and logs, then sets `qayaba.trust=agent`; drops `service.name=opencode` traces |
 
 - The agents container is on `agent-otlp` and **not** on `telemetry-internal`, so it can reach `collector-agents` and
   nothing else of the stack: not the trusted receiver, not Grafana, not lgtm. The `qayaba.trust=agent` tag therefore

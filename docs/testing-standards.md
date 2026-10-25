@@ -833,7 +833,7 @@ because a tier is only an upper bound on the effort and always admits the no-op.
 
 The matrix then learned to assemble each layer's cell for its own runtime (2026-10-07, 3 workers, 770
 mutants, 254 of them compile errors, 13 minutes 51 seconds): the OpenCode runtime enforces a step limit
-and a prompt for it is handed one, the Codex runtime has none to report, so every combination is built
+and a prompt for it is handed one, a role the runtime reports no cap for gets none, so every combination is built
 twice, with a limit and without, and a cell with one is budgeted in the bucket of its twin plus a `/limit`
 suffix. No prompt states the limit yet, so each limited bucket equals its twin: the first record held it to
 the budget its twin had in the committed baseline (a raise needs a reason) and moved no budget, 1,161
@@ -881,8 +881,8 @@ generator's, the in-generate reviewer's, and the review port's), and the transpo
 exhaustion against that number, and against the agent's configured limit only when the prompt stated none; a
 verdict repair runs in the same session under the same limit, so it is sent the number of the prompt it
 repairs, with its text unchanged. Each OpenCode `/limit` bucket grew by its sections, 46 bytes on a turn that
-writes no tests, 127 on a regeneration and 119 on a first pass that writes tests, and no directive. The Codex
-buckets, both static layers and the global ceiling did not move, and the matrix ceiling went from 9,415 to
+writes no tests, 127 on a regeneration and 119 on a first pass that writes tests, and no directive. The unlimited
+buckets, the static layer and the global ceiling did not move, and the matrix ceiling went from 9,415 to
 9,542 bytes. The record was refused without a reason and taken with the owner's one; what it names is the
 1,161 limited buckets and the ceiling.
 
@@ -933,7 +933,7 @@ reviewer's verdict repair sent with the limit, which held until the review fix t
 two tests of the repairs now hold that they are sent the stated number, and the mutants of the old rule were
 replaced by seven of the new (dropped, carried with no value, the other role's, off by one). One lived in the
 second pass: a phrase for the regeneration's second outcome that told the agent to write nothing, a wording
-the tests read from the phrase table; a prompt-sync test now holds the words of the two honest outcomes to the
+the tests read from the phrase table; an agents-prompts test now holds the words of the two honest outcomes to the
 verdict contract the static layers define (the closing verdict, the no-op reason), and it dies. Two are not
 on the list below: the statement's quantifier ("at most" for "exactly"), which is wording and, like the rest of
 the sentence, is pinned by no test, and a non-null assertion for an optional call in the transport policy, an

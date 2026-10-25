@@ -3,18 +3,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 /* The agent must NEVER fabricate a selector it did not observe. The fabrication license
-   ("derive selectors from source code when no live DOM is reachable") is removed from BOTH
-   authoring roles in BOTH prompt trees, and the grounded-only contract is explicit. This test
+   ("derive selectors from source code when no live DOM is reachable") is removed from the
+   authoring roles, and the grounded-only contract is explicit. This test
    fails CI if that license returns.
  */
 
 const AUTHORING_PROMPTS = [
-  "agent/roles/qa-generator.md",
   "agents/agent/qa-generator.md",
 ];
 
 const REVIEWER_PROMPTS = [
-  "agent/roles/qa-reviewer.md",
   "agents/agent/qa-reviewer.md",
 ];
 

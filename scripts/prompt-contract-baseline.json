@@ -6151,8 +6151,7 @@
       "manual/e2e/first/tree-none/pack/signal/limit:bytes",
       "manual/e2e/first/tree-none/pack/signal/no-suite:bytes",
       "manual/e2e/first/tree-none/pack/signal/no-suite/limit:bytes",
-      "static:opencode",
-      "static:codex"
+      "static:opencode"
     ]
   }
 }

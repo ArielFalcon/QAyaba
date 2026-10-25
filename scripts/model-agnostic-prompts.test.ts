@@ -1,4 +1,4 @@
-/* The model-agnostic prompt guard: no prompt names a model. A limit, a tier or a budget comes from the runtime or from a named constant, never from which model runs, so a text that names a model id or a family is a defect wherever it stands. The guard scans the static role and shared layers of both mirrors, the skills and every prompt the harness sends to an agent (generator, context task, reviewer, verdict repair, sidekick, maintainer, assistant, reflector, proposer), in three layers:
+/* The model-agnostic prompt guard: no prompt names a model. A limit, a tier or a budget comes from the runtime or from a named constant, never from which model runs, so a text that names a model id or a family is a defect wherever it stands. The guard scans the static role and shared layers, the skills and every prompt the harness sends to an agent (generator, context task, reviewer, verdict repair, sidekick, maintainer, assistant, reflector, proposer), in three layers:
    - derived: every id and label a declared model source holds (the runtime agent config and its fallbacks, each provider's role defaults, the cataloged windows, the proposer's pin), so a model configured later is caught with no edit here. An id is forbidden anywhere, its family only next to a version chunk;
    - fixed list: well-known vendor and family names, forbidden anywhere. The list only forbids: nothing selects a prompt, a limit or a rule by it;
    - headings: the parenthetical of a role's title holds no version-like token and no letter segment of a declared id.
@@ -358,25 +358,25 @@ const markdownIn = (dir: string): string[] =>
     .map((f) => `${dir}/${f}`.replaceAll("\\", "/"));
 const readAll = (paths: readonly string[]): PromptText[] => paths.map((source) => ({ source, text: readFileSync(join(ROOT, source), "utf8") }));
 
-const rolePromptFiles = (): string[] => ["agents/AGENTS.md", "agent/AGENTS.md", ...markdownIn("agents/agent"), ...markdownIn("agent/roles")];
-const skillFiles = (): string[] => [...markdownIn("agents/skill"), ...markdownIn("agent/skills")];
+const rolePromptFiles = (): string[] => ["agents/AGENTS.md", ...markdownIn("agents/agent")];
+const skillFiles = (): string[] => markdownIn("agents/skill");
 
-test("the role and shared prompts of both mirrors name no model", async () => {
+test("the role and shared prompts name no model", async () => {
   const terms = await repoTerms();
   const prompts = readAll(rolePromptFiles());
   const scanned = prompts.map((p) => p.source);
-  for (const path of ["agents/AGENTS.md", "agent/AGENTS.md", "agents/agent/qa-generator.md", "agent/roles/qa-generator.md"]) {
+  for (const path of ["agents/AGENTS.md", "agents/agent/qa-generator.md"]) {
     assert.ok(scanned.includes(path), `${path} is scanned`);
   }
   const findings = prompts.flatMap((p) => [...scanText(p.source, p.text, terms), ...titleFindings(p.source, p.text, terms)]);
   assert.equal(findings.length, 0, `model references in the role prompts:\n${describeFindings(findings)}`);
 });
 
-test("the skills of both mirrors name no model", async () => {
+test("the skills name no model", async () => {
   const terms = await repoTerms();
   const skills = readAll(skillFiles());
   const scanned = skills.map((s) => s.source);
-  for (const path of ["agents/skill/playwright-authoring/SKILL.md", "agent/skills/playwright-authoring/SKILL.md"]) {
+  for (const path of ["agents/skill/playwright-authoring/SKILL.md"]) {
     assert.ok(scanned.includes(path), `${path} is scanned`);
   }
   const findings = skills.flatMap((s) => scanText(s.source, s.text, terms));

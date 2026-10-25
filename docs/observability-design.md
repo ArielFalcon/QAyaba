@@ -3,7 +3,7 @@
 > **Status:** decisions resolved (§17); adversarial review incorporated (§18); the R3 deviation was approved by the owner on 2026-10-17. No code yet.
 > **Inputs:** `docs/observability-context.md` (what to measure and why), the external
 > "qayaba-observability" brief (how to build it), a code survey of `feat/plan-v4` (2026-10-17),
-> and a survey of the current OpenTelemetry, Langfuse, OpenCode and Codex docs and source.
+> and a survey of the current OpenTelemetry, Langfuse and OpenCode docs and source.
 > **Scope:** tracing, metrics, host health, graders, evals and the public contract. Implementation
 > follows in the slices of §14, after this document is approved.
 
@@ -17,7 +17,7 @@ Read this table first. Each row is defended later in the section it names.
 | D2 | The engine sees a `TelemetryPort` with **no SDK types**. The OpenTelemetry SDK is imported only in `src/telemetry/`. A cruiser rule enforces this. | §3 |
 | D3 | **The run store stays the system of record.** Spans are also written, metadata-only, to a local SQLite span ledger (`run_spans`). OTLP export is optional. Graders and the public API read the ledger, never Langfuse. | §3.3 |
 | D4 | Phases are tracked by a **phase cursor** in `RunQaUseCase`: `phase.enter(x)` closes the previous phase. There are no closures around the 1500-line `execute()`. `furthest_phase` and `phaseTimings` are persisted on `run_outcomes`. | §4.2 |
-| D5 | Agent turns: the orchestrator **synthesizes** `invoke_agent` / `chat` / `execute_tool` spans at the **`AgentDeps` facade** (covering both runtimes) and in `codex-strategy.ts`. Each limit records itself in the layer that fires it. | §5 |
+| D5 | Agent turns: the orchestrator **synthesizes** `invoke_agent` / `chat` / `execute_tool` spans at the **`AgentDeps` facade** (covering the agent runtime). Each limit records itself in the layer that fires it. | §5 |
 | D6 | `run_spec` and `authbrowser_*` callbacks are joined **in-process** by session id. They are opened with an **explicit parent** (`withParent`) inside the run-context snapshot those ports restore. | §5.5 |
 | D14 | **One clock.** Every span gets explicit wall-clock `startTime`/`endTime` from an injected `Clock`, never the SDK's monotonic delta. So native and synthesized spans agree across a host suspend. | §3.1, §7 |
 | D7 | Sandboxed children get **no `TRACEPARENT`**. They cannot reach a collector by design. The launcher records an orchestrator-side span per child, and Playwright per-test spans are synthesized from the JSON report. | §6 |
@@ -47,7 +47,7 @@ attribute (§4.3) and the campaign re-run graders (§12).
 **Non-goals for v1:**
 - Alerting and paging.
 - Multi-host collectors.
-- Upgrading OpenCode, Codex or Playwright for telemetry. The pins stay.
+- Upgrading OpenCode or Playwright for telemetry. The pins stay.
 - Changing any verdict rule. The only planned gate change is gated behind evidence (§11.2).
 
 ---
@@ -304,7 +304,7 @@ Grouped. The full list lives in the registry (§9.3).
 | Group | Attributes |
 |---|---|
 | Identity | `qayaba.run.id`, `qayaba.app`, `qayaba.commit.sha`, `qayaba.trigger`, `qayaba.mode`, `qayaba.target`, `qayaba.parent_run.id`, `qayaba.trigger_repo`, `qayaba.shadow` |
-| Config in effect | `qayaba.runtime` (opencode\|codex), `qayaba.closed_loop.enabled`, `qayaba.agent_browser.enabled`, `qayaba.coverage.policy`, `qayaba.reflector.enabled`, `qayaba.campaign.freeze`, `qayaba.prompt.static_hash` (hash of `agents/AGENTS.md` plus role files), `qayaba.capture_mode` |
+| Config in effect | `qayaba.runtime` (the runtime that served the turn), `qayaba.closed_loop.enabled`, `qayaba.agent_browser.enabled`, `qayaba.coverage.policy`, `qayaba.reflector.enabled`, `qayaba.campaign.freeze`, `qayaba.prompt.static_hash` (hash of `agents/AGENTS.md` plus role files), `qayaba.capture_mode` |
 | Campaign | `qayaba.campaign.id`, `qayaba.campaign.variant.<key>`, `qayaba.campaign.replicate` |
 | Budgets | `qayaba.deadline.label`, `qayaba.deadline.budget_ms`, `qayaba.tier`, `qayaba.tier.budget_ms` |
 | Outcome | `qayaba.verdict`, `qayaba.error_class`, `qayaba.generation.end`, `qayaba.decision`, `qayaba.furthest_phase`, `qayaba.specs.generated/valid/passed`, `qayaba.reviewer.turn_happened`, `qayaba.limit.fired` |
@@ -357,7 +357,7 @@ So:
   It records the repo commit it follows in `qayaba.semconv.genai_rev`.
 - We emit the current names only. We do not double-emit legacy names.
 - `gen_ai.conversation.id` is set **only** to OpenCode's real session id. Per the spec, it is never
-  synthesized from a run id. Codex has no session id we can see, so it gets none.
+  synthesized from a run id.
 
 ### 5.2 Shape
 
@@ -375,12 +375,10 @@ invoke_agent qa-generator               INTERNAL  one per prompt (turn)
 **Where it is built.** The review checked this against the code, and it is spread over four layers:
 - **The turn span lives at the `AgentDeps` facade.** That is the level `RunDeadlineRuntime` and the
   stall watchdog wrap (`run-engine-factory.ts:851, :1381`). It sees the role, the session, the
-  prompt options and the result for **both** runtimes. The raw transport below it sees only
+  prompt options and the result. The raw transport below it sees only
   `{id, cwd, agent, text, model}`.
 - **Attempt spans** come from a new `AgentDepsCollaborators` hook (`onAttempt`), next to the
   existing `prepareAttempt`, inside `createAgentDeps`. That is where primary and fallback are known.
-- **Codex** never goes through `createAgentDeps`. `codex-strategy.ts` opens the same attempt span
-  shape itself.
 - **Each limit records itself in the layer that fires it.** `RunDeadlineRuntime` sets
   `run-deadline` or `tier-budget`, the stall watchdog sets `stall`, `withTimeout` sets `host-cap`
   or `repair-cap` or `session-timeout`, and the tracker sets `step-cap`. Each writes
@@ -509,33 +507,6 @@ stamped like spans) and drops `service.name=opencode` traces. `experimental.open
 synthesized from SSE. R6 records the decision.
 
 Either way, the turn span's `error.type` (§5.3) already covers what reaches the orchestrator.
-
-### 5.8 Codex parity
-
-- **Same span shape.** `invoke_agent` plus `qayaba.agent.attempt`, built by the same decorator.
-- **Usage.** `codex exec --json` at the pinned 0.139.0 already emits `turn.completed` with
-  `usage {input_tokens, cached_input_tokens, output_tokens, reasoning_output_tokens}` (confirmed in
-  source). The supervisor discards it today and returns only `{message}`. It will return
-  `{message, usage}`, so Codex turns get `qayaba.usage.source=final-message` instead of `none`.
-- **Native child spans.** These are confirmed in 0.139.0 source:
-  - `codex exec` parents its root span on `TRACEPARENT`/`TRACESTATE` from its environment
-    (`otel/src/trace_context.rs`, `exec/src/lib.rs:511`).
-  - `[otel] trace_exporter="otlp-http"` exists, and its spans carry `gen_ai.usage.*` attributes.
-    They are not full GenAI span naming.
-
-  The wiring:
-  1. the orchestrator injects `traceparent` in the `/codex/exec` POST header;
-  2. the supervisor passes it as `TRACEPARENT` in the child env (`CODEX_EXEC_ENV_PREFIX` allowlist);
-  3. Codex spans become **real children** of the attempt span.
-
-  S0.3 shrinks to a live smoke of that hop.
-- **Persisted rows.** Codex turn rows in `agent_turns` now also carry what the OpenCode funnel's carry: tokens (input without the cache, as every row holds it), prompt hash, section hashes, applied and fired limits, `ended`, the requested model and provider. Cost, cache writes, model answered, step budget and call metrics stay null. Run-level `gateSignals.usage` is still not fed by Codex.
-- **Assumption to verify live.** A `turn.completed` usage is read as the spend of that turn alone (a delta). One exec is one turn, so the sum over an exec's events is right either way; the fixture-level check against a real capture is still open.
-- **Langfuse shows no usage or cost for Codex turns.** A Codex turn has no `chat` child span (only the turn's final usage), and
-  Langfuse prices `generation` observations only. The run store and the API still carry Codex's tokens (`agent_turns`,
-  `qayaba.usage.*` on the turn). No fake generation is synthesized to fill the gap.
-- Set `metrics_exporter="none"`, because the default is `statsig`, an OpenAI endpoint, which would
-  break the "no SaaS" rule.
 
 ---
 
@@ -731,7 +702,7 @@ Q3 and Q4 need no content at all; F3's "62k reasoning" replay needs `full`, or t
   The collector holds its own copy for OTLP ingestion. Neither key is ever in the agents container.
 - **Sandbox uid.** It cannot reach the collector, and no change is made there.
 - **Agent-emitted telemetry (D13).**
-  - What the agents side emits (OpenCode AI SDK spans, Codex spans) is **untrusted**. A
+  - What the agents side emits (OpenCode AI SDK spans) is **untrusted**. A
     shell-capable agent holds the trace id, through `TRACEPARENT`, and could forge spans into the
     run's trace.
   - The `:4319` pipeline therefore deletes every `langfuse.*`, `qayaba.*` and content key, and
@@ -741,14 +712,11 @@ Q3 and Q4 need no content at all; F3's "62k reasoning" replay needs `full`, or t
   (`QA_TELEMETRY_MAX_CAPTURE`, default `metadata`). A caller with a token cannot turn `full` content
   export on by itself, because that would be an exfiltration lever. Within a campaign, all arms are
   forced to the same mode (a run that would apply a different one is refused with a 409, section 14).
-- **Codex env.** `TRACEPARENT`/`TRACESTATE` go into the **exact-name** allowlist
-  `CODEX_EXEC_ENV_EXACT`, mirrored in `agents/agent-supervisor.mjs:29` and `codex-strategy.ts:165`.
-  The prefix list would not match them.
-- **No SaaS.** Codex `metrics_exporter="none"`. No exporter points outside the compose network.
+- **No SaaS.** No exporter points outside the compose network.
 - **Governance (own commits, per CLAUDE.md and the owner's one-branch rule):**
   - the compose networks and receiver split;
   - the `tools-endpoint` parser change (`messageID`);
-  - the Codex env allowlist;
+  - the agent runtime env allowlist;
   - enabling OpenCode's own log export (`OTEL_EXPORTER_OTLP_ENDPOINT` on the agents service; logs only, the
     content-bearing `experimental.openTelemetry` stays off);
   - enabling OpenCode content export;
@@ -794,8 +762,7 @@ services:
     OTel `input_tokens` is **inclusive**. Without this, cost is double-counted.
   - Cost attaches only to `generation` observations, so `chat` spans set
     `langfuse.observation.type=generation`.
-- **Codex turns have no usage or cost in Langfuse.** Usage and cost sit on `chat` spans (generations) only, and a Codex turn has
-  none (§5.8). Its tokens remain in the run store and the API. Do not synthesize a generation for it.
+- **A turn with no `chat` span has no usage or cost in Langfuse.** Usage and cost sit on `chat` spans (generations) only. Its tokens remain in the run store and the API. Do not synthesize a generation for it.
 - **Resources.** The Langfuse docs recommend 4 cores and 16 GiB. On the owner's Mac, Langfuse is
   for campaign review sessions, not always-on.
 - **Score configs** are created idempotently at boot by the score sink (§11.3).
@@ -860,8 +827,8 @@ qa-engine/src/contexts/evaluation/
 | `spec_pass_rate` | NUMERIC 0..1 | passed / valid; absent when valid=0 | |
 | `selector_stability` | NUMERIC 0..1 | 1 − strict-mode failures / failures; comment lists the match counts | F10 |
 | `budget_exhaustion` | CATEGORICAL | `none` or `<limit>@<phase>/<role>/<intent>` | |
-| `step_intent_mix` | NUMERIC per intent (`step_intent_mix.<intent>`) | Share of steps per intent: `auth\|explore\|write_spec\|run_spec\|review\|other` | Classified from the step's tool calls by a pure rule table **fed by config, never by names**. A write under the app's `specRelDir` → write_spec (so code-target runs classify correctly). Navigation to the app's **declared** login URL or origin, or a read of `auth.setup.ts` → auth. OpenCode only: Codex has no steps, so this is `n/a` for it |
-| `auth_overhead` | NUMERIC 0..1 | auth steps / steps | `n/a` for Codex |
+| `step_intent_mix` | NUMERIC per intent (`step_intent_mix.<intent>`) | Share of steps per intent: `auth\|explore\|write_spec\|run_spec\|review\|other` | Classified from the step's tool calls by a pure rule table **fed by config, never by names**. A write under the app's `specRelDir` → write_spec (so code-target runs classify correctly). Navigation to the app's **declared** login URL or origin, or a read of `auth.setup.ts` → auth. |
+| `auth_overhead` | NUMERIC 0..1 | auth steps / steps | |
 | `approval_consistent` | BOOLEAN | `false` when accepted while a deterministic signal said no: coverage `fail` under `enforce`, catalog gate fail-closed, or static failure | B6 |
 | `context_utilization` | NUMERIC 0..1, per source and overall | \|referenced ∩ provided\| / \|provided\|; comment lists referenced-but-not-provided ids | Brief §3 |
 | `context_complete` | BOOLEAN | `true` when no source was truncated; comment lists what was lost | |
@@ -914,7 +881,7 @@ These follow Hamel Husain's evals practice.
   `qa-reflector`, pinned by a test), so it carries no `read` block (per the credentials invariant); each prompt is also sent with
   `withoutTools`. It is deliberately **not** in the role table (`src/agent-runtime/types.ts`): that table routes a run's roles by their
   assignment, and a judge is routed by nobody. `createJudgeAgent` opens it by name in an empty directory
-  (`<mirrors>/.qa-judge`). It is OpenCode-only; Codex has no judge. See §19 for the owner's live step that adds it.
+  (`<mirrors>/.qa-judge`). It is OpenCode-only. See §19 for the owner's live step that adds it.
 - **Fail-open and inert.** A judge never changes a verdict, a decision or a run's evaluation status. It refuses to run, with a log line,
   when the live server's agent list does not hold `qa-judge`.
 - **Calibration.** Human labels (`source=human`, `graderVersion: human`) are paired with the judge's newest scores (newest prompt version
@@ -1147,7 +1114,6 @@ the contract above is unaffected:
 | Host health: a wall jump with flat monotonic time → `host_suspended`; a late tick with no wall jump → blocked | injected clocks (no real time) |
 | Graders on fixture evidence, including the F-catalog cases | pure functions |
 | Reconciliation with `probe-report` | fixture DB |
-| Cross-boundary: Codex child spans parent to the attempt (if S0.3 passes) | an in-container smoke, like the existing `agents/smoke/*` |
 | Overhead: a representative run in `off` versus `metadata` versus `full`, reported, not gated | a script, like `efficiency-benchmark` |
 
 Mutation presets are added for the pure modules: graders, `context-refs`, the failure classifier,
@@ -1163,12 +1129,12 @@ their own commits.
 
 | Slice | Content | Unblocks |
 |---|---|---|
-| **S0 Spikes** (no product code) | S0.1 suspend detection inside Docker Desktop; S0.2 OpenCode 1.17.7 export, and whether an inbound `traceparent` parents its spans (Effect server tracer); S0.3 a live smoke of the Codex `TRACEPARENT` hop through the supervisor; S0.4 that the reconstructed tool set matches what the model received; S0.5 Langfuse v4 mapping of our attributes, checked on a real instance | Removes the remaining unverified assumptions |
+| **S0 Spikes** (no product code) | S0.1 suspend detection inside Docker Desktop; S0.2 OpenCode 1.17.7 export, and whether an inbound `traceparent` parents its spans (Effect server tracer); S0.4 that the reconstructed tool set matches what the model received; S0.5 Langfuse v4 mapping of our attributes, checked on a real instance | Removes the remaining unverified assumptions |
 | **S1a Phase cursor** (engine only, no SDK) | Phase cursor; `phaseTimings` and `furthestPhase` persisted on `run_outcomes`; funnel query over `run_outcomes` | F1 and the north star, with no telemetry stack |
 | **S1b SDK and ledger** | Port, registry, semconv module, injected clock, no-op; SDK adapter with manual env mapping; buffered ledger with rows on start; root on `ROOT_CONTEXT` plus queue link; phase spans from the cursor; exec spans; scoped redaction; `/telemetry/health`; tests (tree, ended spans, throwing port, secrets, cardinality, disabled) | C1 (partial) |
 | **S1c Host health** (after S0.1) | Heartbeat, event-loop delay, zombies, sandbox gauges | F2, F11, F12, C2 |
 | **S1d Compose** (governance commit) | `telemetry` profile, networks, receiver split, 127.0.0.1 binds, Grafana auth | Local viewing |
-| **S2 Agent turns** | Facade turn spans; `onAttempt` hook; Codex spans and usage; tracker `state.time` plus per-step records; model answered; error classes; per-layer limits; section hashes over the bytes sent; `run_spec`/`authbrowser` server spans via `withParent` with lease wait; Codex native spans (S0.3) | F3, F4, F7, F8, F9, F13, F14, F15, C3–C5, C9, C11 |
+| **S2 Agent turns** | Facade turn spans; `onAttempt` hook; tracker `state.time` plus per-step records; model answered; error classes; per-layer limits; section hashes over the bytes sent; `run_spec`/`authbrowser` server spans via `withParent` with lease wait | F3, F4, F7, F8, F9, F13, F14, F15, C3–C5, C9, C11 |
 | **S3 Grounding and execution** | Context spans and item ids; login attempts; suite-store spans; validation and test spans; failure classifier (pinned to Playwright 1.60 message fixtures); **spec snapshots** | F5, F6, F10, F16, C6, C7, C10 |
 | **S3b DOM capture per route** | The capture script reports per-route timing and state (its output changes) | C8, F11 |
 | **S4 Evaluation** | `evaluation` context; deterministic graders; `run_scores`; API #2–#6 | B3–B6, B8 |
@@ -1181,8 +1147,7 @@ their own commits.
 `execute_tool` tree at the `AgentDeps` facade (`generation/infrastructure/telemetry/`), the `onAttempt` hook, per-layer limit
 names (`AgentPromptOpts.timeLimit`, the stall watchdog's `onStall`), the error classifier, section and prompt hashes over the bytes
 sent (a new `metadata` content class: exported in `metadata` and `full`, never in `off`), the `agent_turns` columns (read back
-through `getAgentTurnTraces`, not through the public turn view) and the turn metrics. Not in S2a: Codex attempts and usage
-(S2c), the verdict-shape attributes (`qayaba.agent.verdict.*`: the verdict is parsed above the facade),
+through `getAgentTurnTraces`, not through the public turn view) and the turn metrics. Not in S2a: the verdict-shape attributes (`qayaba.agent.verdict.*`: the verdict is parsed above the facade),
 `run_spec`/`authbrowser` server spans, tool schema bytes (§5.6), and the S3 attributes of W16 (`context.item_ids.referenced`,
 `selector.strategy`). Reasoning effort and the configured model are read from the orchestrator's copy of `agents/opencode.json`
 (what is configured, not what the server proved it used; the model that answered comes from the answer). OpenCode's
@@ -1204,22 +1169,6 @@ in one process-wide trace with no root, so they cannot answer a per-run question
 prompt and response bodies. Its logs are shipped instead (R6), through the same untrusted receiver, stripped and stamped; the agent
 collector drops `service.name=opencode` traces.
 
-**S2c status (Codex parity).** Delivered: the supervisor returns `{message, usage}` from the `turn.completed` events
-of `codex exec --json` (`extractCodexUsage`, summed, a field that is not a plain count read as none), the direct and the supervised
-transport hand it to the strategy through `onUsage`, and `CodexRuntimeStrategy` opens the same attempt events the OpenCode funnel does
-(`start`, `end`, `turn` into the registry the turn decorator fills), so a Codex prompt is `invoke_agent` plus `qayaba.agent.attempt`
-with `qayaba.usage.source=final-message`. Codex's input is inclusive of its cache and OpenCode's is not; the strategy puts Codex's
-usage in OpenCode's shape (`codexUsageAsRuntime`) so the one normalization serves both and the persisted row holds one convention.
-Cost and cache writes are not reported by Codex and are left absent, never zero. `error.type` comes from `classifyCodexFault`, which
-reads the same signals as `codexErrorToInfra` from the exec's own text. 
-**Codex native spans (S0.3 status).** Wired, not yet proven live: the orchestrator sends the attempt's `traceparent` as a header on
-`POST /codex/exec` (only when the attempt span is real), the supervisor validates it and gives the child `TRACEPARENT`/`TRACESTATE`
-(both names are in the exact-name allowlist of the supervisor and of the orchestrator's builder, pinned equal by a test; an ambient value
-in either process is dropped), and `QA_AGENT_OTLP_ENDPOINT` (set only on the agents service in `docker-compose.yml`) makes the supervisor write
-an `[otel]` table with `trace_exporter = otlp-http`, `exporter = "none"`, `metrics_exporter = "none"` and `log_user_prompt = false`.
-Whether Codex 0.139.0 parents its spans on the environment's `TRACEPARENT` and exports them to the untrusted receiver is the
-S0.3 smoke; until it runs, Codex spans are neither connected nor correlated by anything but the trace id the header carries.
-
 ---
 
 ## 17. Resolved decisions
@@ -1232,7 +1181,7 @@ reliable, deterministic; trust over features; local operability on a Mac.
 | R1 | Is the local ledger on by default? | **Yes.** `QA_TELEMETRY=local` is the default. `off` is the opt-out and the overhead baseline. | Retroactive graders and the public API must work when no collector ran. That matches the brief's own principle 8, which outranks the "zero overhead" wording of principle 2. Network stays at zero without an endpoint. The ledger write is one synchronous SQLite insert per span, on a sequential queue. |
 | R2 | Which viewer is the default? | **`telemetry` profile = collector + LGTM.** `langfuse` is a second profile that adds Langfuse to the same collector. | LGTM is one container and answers the diagnostic questions (C1–C12) with traces and metrics. Langfuse carries the eval workflow (scores UI, annotation queues, datasets), but needs about 6 containers and 16 GiB. Scores never depend on it (D12), so turning it on later loses nothing. |
 | R3 | Does `empty_output_guard` gate? | **Grader only.** It becomes a gate only if it ever fails on real data, and then as a governance-sensitive change in its own commit. | The invariant already exists (no-op → `skipped`, zero specs → `E-NO-DECISION`, "approved is never a no-op"). A second gate on the same condition adds a path that can disagree with the first, and CLAUDE.md rules out piling up LLM-free gates without evidence. |
-| R5 | Do we upgrade OpenCode (1.17.7 → 1.19.3) or Codex (0.139.0 → 0.163.0) for better telemetry? | **No.** The telemetry components (OTel JS 2.12 / 0.223, Collector 0.163.0, otel-lgtm 0.37.0, Langfuse 4.63.0) are adopted at their latest versions. | A source diff of both tags found no telemetry gain in OpenCode: the same `ai` 6.0.168, the same `experimental.openTelemetry`, no step timestamps, the same tool-list API, no trace context in `ToolContext`. Codex 0.139.0 already has `TRACEPARENT`, OTLP traces and per-turn usage; 0.163.0 only adds `cache_write` tokens. Moving a pin costs a re-recorded agent-list fixture, re-run smokes and new behaviour risk on the execution path, for no telemetry gain. Revisit when either runtime ships GenAI semconv or step timestamps. |
+| R5 | Do we upgrade OpenCode (1.17.7 → 1.19.3) for better telemetry? | **No.** The telemetry components (OTel JS 2.12 / 0.223, Collector 0.163.0, otel-lgtm 0.37.0, Langfuse 4.63.0) are adopted at their latest versions. | A source diff of both tags found no telemetry gain in OpenCode: the same `ai` 6.0.168, the same `experimental.openTelemetry`, no step timestamps, the same tool-list API, no trace context in `ToolContext`. Moving a pin costs a re-recorded agent-list fixture, re-run smokes and new behaviour risk on the execution path, for no telemetry gain. Revisit when the runtime ships GenAI semconv or step timestamps. |
 | R4 | How long are records kept? | **`run_spans` 30 days, like `agent_turns`. Campaign-tagged runs keep both for 180 days.** `QA_TELEMETRY_RETENTION_DAYS` and `QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS` override them. `run_scores` are never pruned (they are tiny). | Campaign runs are the eval baselines that later graders and judges re-score (principle 8). Ordinary runs are diagnostic and lose value fast. |
 | R6 | Where do logs live, and for how long? | **OpenCode's own logs and the orchestrator's console lines go to Loki through the two existing collectors; OpenCode's spans are dropped.** Logs are kept 180 days (`config/otel/loki-config.yaml`), the campaign window. | OpenCode's spans cannot be joined to a run: 1.17.7 ignores `traceparent` and puts every span in one rootless process trace (verified live). Its logs are the useful part; the collector strips and stamps them like spans. A log cannot carry the campaign tag, so the only window that never cuts a campaign's logs early is the longest one, and a log line is cheap. The tap exports only while a span is active and under the run's capture mode, so `runs.logs`/`run_events` stay the API's record. |
 
@@ -1246,7 +1195,7 @@ findings, 16 warnings and 11 suggestions. The load-bearing claims were re-verifi
 |---|---|---|
 | C1 snapshot context breaks D6 parenting | `withParent` inside `inRunContext`, plus a grandchild test | §3.1, §5.5 |
 | C2 mixed clocks across a suspend | D14: explicit wall-clock times from an injected clock | §0, §3.1 |
-| C3 turn decorator at the wrong layer; Codex bypasses it | Facade turn span, `onAttempt` hook, Codex instrumented, per-layer limits | §5.2 |
+| C3 turn decorator at the wrong layer | Facade turn span, `onAttempt` hook, per-layer limits | §5.2 |
 | C5 security claims (keys, networks, agent spans, UIs) | Networks, receiver split, key ownership stated, 127.0.0.1, governance list | §9.2, §10 |
 | C6 OpenCode content export bypasses capture and redaction | Off by default; agent pipeline deletes `ai.*` content; deferred | §5.7 |
 | C7 retroactive grading lacks spec text | `run_spec_snapshots` | §11.1 |
@@ -1258,18 +1207,18 @@ findings, 16 warnings and 11 suggestions. The load-bearing claims were re-verifi
 | W5 abandoned fan-out flows | The flow span ends on `TIMED_OUT`; added to the ended-span matrix | §15 |
 | W6 egress attribution | Renamed co-temporal | §6.1 |
 | W7 context utilization validity | Extractable vs n/a per source; recall over change-relevant items; no self-report | §11.1 |
-| W8 step intent via names | Config-fed rules; `specRelDir`; n/a for Codex | §11.2 |
+| W8 step intent via names | Config-fed rules; `specRelDir` | §11.2 |
 | W9 wasted navigations | An in-process classifier over Playwright MCP tool output emits `qayaba.nav.outcome` (`ok\|auth_challenge\|http_error\|blocked\|unknown`) in every capture mode | §5.3 (S2) |
 | W10 per-route capture timing missing | Its own slice, S3b | §16 |
 | W11 MCP tools are not in `/experimental/tool` | S0.4 must check MCP tools. Where they are missing, `tools_offered.source=estimated` covers registry tools only, and the gap is stated | §5.6 |
 | W12 token semantics, Langfuse double cost | Per-runtime normalization to semconv (inclusive) in the mapping module; Langfuse gets exclusive `usage_details`; `invoke_agent` and root set `langfuse.observation.type` (agent/span) and keep sums under `qayaba.usage.*` | §5.1, §10 |
 | W13 histogram buckets, Q12 without a collector | Explicit Views; Q12 from the ledger | §8.1 |
 | W14 judges and the quota | On the queue, budgeted, tool-less `qa-judge` role | §11.3 |
-| W15 governance list, Codex env name | Completed; `CODEX_EXEC_ENV_EXACT` | §9.2 |
+| W15 governance list | Completed | §9.2 |
 | W16 dropped requirements | `chat` spans carry `qayaba.agent.step`, `qayaba.step.intent` and `qayaba.agent.step_budget.remaining`. `execute_tool` spans that write or run a spec carry `qayaba.context.item_ids.referenced`. Spec spans carry `qayaba.selector.strategy` (`testid\|role\|text\|css`, parsed from the locator). The root records the effective stitcher, structural-signal and curriculum flags. Turns record `qayaba.prompt.budget_bytes` vs `.bytes`. `approved_against_signals` grader added. Tests add required-attributes and a real `run_spec` hop smoke. `--target code` runs use the same tree, with `qayaba.phase.execute` holding one `qayaba.exec code-test` and no per-case spans. `specs.valid` = specs delivered **by this run** that passed validation | §4–§6, §11, §15 |
 | S1 BSP env vars ignored without NodeSDK | Manual mapping | §3.3 |
 | S2 `ToolContext.callID` | Checked live in S0.2. If present at runtime, it replaces the messageID plus time-overlap join | §5.5 |
-| S3 hash over the bytes sent; stale static hash | `prompt.hash` over the bytes sent after redaction and the Codex preamble. `static_hash` read from the agents side | §5.3 |
+| S3 hash over the bytes sent; stale static hash | `prompt.hash` over the bytes sent after redaction. `static_hash` read from the agents side | §5.3 |
 | S4 template keys; never throw | Done | §3.1 |
 | S5 suspend fallback clock | The fallback uses the HTTP `Date` header of an outbound call from the root process, not `host.docker.internal` | §7 |
 | S6 Langfuse trace attrs on the late root | `langfuse.trace.*` is also set on the first exported span of the run. Tempo and Langfuse retention follow R4 | §4.3, §10 |
@@ -1294,8 +1243,6 @@ both.
 - `chat` (step) spans have **receive-time** timestamps. OpenCode 1.17.7 step parts carry none.
 - OpenCode's own spans (title calls, provider retries) are connected only if S0.2 proves that
   Effect's server tracer parents them. Otherwise they are **correlated by session id**.
-- Codex turns have per-turn usage, but per-step and per-tool detail exists only in Codex's native
-  spans.
 - The offered tool schema bytes are reconstructed by the orchestrator. S0.4 checks that they match
   what the model received.
 - Sandbox children are traced from the orchestrator's side only.

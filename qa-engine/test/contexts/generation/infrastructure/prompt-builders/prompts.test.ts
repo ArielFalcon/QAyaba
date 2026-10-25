@@ -768,7 +768,7 @@ test("coverage-gap (shedAs critical-recap) survives budget pressure that sheds l
 });
 
 /* The selector priority is unconditional craft: the generator role prompt's Procedure owns it (pinned by
-   prompt-sync.test.ts), so the assembled working rules never restate it (prompts.scaffold.test.ts). */
+   agents-prompts.test.ts), so the assembled working rules never restate it (prompts.scaffold.test.ts). */
 
 /* The skill-exemplars section carries exactly the templates the curriculum selected (input.skillExemplars), in its order, with the marker of each pattern that has caught a defect. It is the only source: the learning fold credits those templates, so the prompt never derives others from the diff. */
 const EXEMPLAR_HEADING = "## Skill exemplars for the detected structural patterns";

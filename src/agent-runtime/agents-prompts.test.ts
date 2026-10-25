@@ -1,14 +1,7 @@
-/* Prompt-sync drift guard. The OpenCode mirror (agents/agent/*.md) and the Codex neutral mirror
-   (agent/roles/*.md) must not drift: a rule one runtime's agent reads and the other's does not is
-   a silent behavior split. The guard covers:
-   - qa-generator.md: EVERY section (Procedure, the stop rule and the final output) byte for byte
-   - qa-reviewer.md: Output format, Anti-pattern catalog, Dual-review protocol, Code-mode review
-   - AGENTS.md: Global rules, Execution context and Protocols, plus the presence of the two
-     no-direct-HTTP statements in Global rules (what the session may do, what a spec may do),
-     each once and in a sentence of its own, and their absence everywhere else
-   - the skill files, byte for byte
-   Conditional rules live in the assembled prompt; these static files hold unconditional craft
-   rules only, so there is nothing that may legitimately differ between the mirrors.
+/* Agent prompt guard. The static prompt layers under agents/ (AGENTS.md, agent/*.md, skill/**) are pinned to the
+   code that reads them: the verdict contract the generator's examples must satisfy, the rules each layer owns
+   against the assembled prompt, and the section contents other code relies on. Conditional rules live in the
+   assembled prompt; the static files hold unconditional craft rules only.
    Section detection: sections are identified by their H2 header text (##).
  */
 
@@ -35,41 +28,13 @@ setCatalogAgentsConfigPath(rosterFixturePath());
 /* Resolve repo root relative to this test file (src/agent-runtime/ → two levels up) */
 const REPO_ROOT = join(import.meta.dirname ?? __dirname, "..", "..");
 
-/* Skill file pairs that must be byte-identical (modulo trailing whitespace) across both trees.
-   Full-file parity is stricter than section-level parity: any one-tree edit fails CI immediately.
-   pinned here (previously waived/skipped) — the Codex mirror is now actually consumed (inlined
-   into the Codex role preamble by withCodexRolePreamble in codex-strategy.ts), so a one-tree edit
-   here would silently desync what the two providers' agents read as craft/review guidance.
- */
-const SKILL_FILE_PAIRS: Array<[string, string]> = [
-  [
-    "agents/skill/playwright-authoring/locators-and-waiting.md",
-    "agent/skills/playwright-authoring/locators-and-waiting.md",
-  ],
-  [
-    "agents/skill/playwright-authoring/auth.md",
-    "agent/skills/playwright-authoring/auth.md",
-  ],
-  [
-    "agents/skill/playwright-authoring/browser-conditions.md",
-    "agent/skills/playwright-authoring/browser-conditions.md",
-  ],
-  [
-    "agents/skill/playwright-authoring/storage-and-uploads.md",
-    "agent/skills/playwright-authoring/storage-and-uploads.md",
-  ],
-  [
-    "agents/skill/playwright-authoring/SKILL.md",
-    "agent/skills/playwright-authoring/SKILL.md",
-  ],
-  [
-    "agents/skill/test-value-review/SKILL.md",
-    "agent/skills/test-value-review/SKILL.md",
-  ],
-  [
-    "agents/skill/architecture-mapping/SKILL.md",
-    "agent/skills/architecture-mapping/SKILL.md",
-  ],
+/* The files of the playwright-authoring skill. */
+const PLAYWRIGHT_AUTHORING_FILES = [
+  "agents/skill/playwright-authoring/SKILL.md",
+  "agents/skill/playwright-authoring/locators-and-waiting.md",
+  "agents/skill/playwright-authoring/auth.md",
+  "agents/skill/playwright-authoring/browser-conditions.md",
+  "agents/skill/playwright-authoring/storage-and-uploads.md",
 ];
 
 function readFile(rel: string): string {
@@ -78,10 +43,8 @@ function readFile(rel: string): string {
   return readFileSync(p, "utf8");
 }
 
-const normalize = (s: string): string => s.replace(/\r\n/g, "\n").replace(/[ \t]+$/gm, "").trim();
-
-/* The two copies of the generator role prompt. */
-const GENERATOR_PROMPTS = ["agents/agent/qa-generator.md", "agent/roles/qa-generator.md"];
+/* The generator role prompt. */
+const GENERATOR_PROMPTS = ["agents/agent/qa-generator.md"];
 
 /* Parse H2 sections out of a markdown document. Returns a map: header text → body. */
 function parseSections(md: string): Map<string, string> {
@@ -98,80 +61,26 @@ function parseSections(md: string): Map<string, string> {
   return sections;
 }
 
-/* The must-match sections for the reviewer role (by canonical header text).
-   These are the sections that define the shared quality contract between runtimes.
-   target:code — it must stay identical across both mirrors like every other quality-contract
-   section, so the Codex reviewer is exactly as strict as OpenCode's for code-mode runs.
- */
-const REVIEWER_MUST_MATCH_SECTIONS = [
-  "Output format",
-  "Anti-pattern catalog (reject on sight)",
-  "Dual-review protocol (judgment-day style)",
-  "Code-mode review (target: code)",
-];
-
-/* Must-match sections for the shared AGENTS.md.
-   "Global rules" contains safety-critical constraints shared by both runtimes and must not diverge.
-   "Execution context" carries the orientation-first and explore-what-the-prompt-lacks contract; the
-   rule not to re-navigate a route the prompt already covers is owned by the assembled prompt.
-   "Protocols (to keep quality from degrading over time)" carries Protocol 4 (cleanup via the UI, or
-   namespaced-and-left; NEVER a fabricated API call) — a stale mirror here lets Codex hallucinate a
-   DELETE endpoint that was never verified to exist.
- */
-const AGENTS_MUST_MATCH_SECTIONS = [
-  "Global rules",
-  "Execution context",
-  "Protocols (to keep quality from degrading over time)",
-];
-
-describe("prompt-sync drift guard", () => {
-  it("agent/roles/qa-reviewer.md contains the {text,severity} structured corrections contract", () => {
-    const codexReviewer = readFile("agent/roles/qa-reviewer.md");
+describe("agent prompt guard", () => {
+  it("agents/agent/qa-reviewer.md contains the {text,severity} structured corrections contract", () => {
+    const reviewer = readFile("agents/agent/qa-reviewer.md");
     /* The structured contract requires both fields in the JSON example.
        Plain-string corrections do NOT have a `severity` field.
      */
     assert.ok(
-      codexReviewer.includes('"severity"'),
-      'agent/roles/qa-reviewer.md is missing the structured corrections contract: ' +
-        'corrections entries must be objects with a "severity" field. ' +
-        'Port the {text,severity} block from agents/agent/qa-reviewer.md.',
+      reviewer.includes('"severity"'),
+      'agents/agent/qa-reviewer.md is missing the structured corrections contract: ' +
+        'corrections entries must be objects with a "severity" field.',
     );
     assert.ok(
-      codexReviewer.includes('"blocking"') || codexReviewer.includes('"advisory"'),
-      'agent/roles/qa-reviewer.md must document "blocking" and "advisory" severity values.',
+      reviewer.includes('"blocking"') || reviewer.includes('"advisory"'),
+      'agents/agent/qa-reviewer.md must document "blocking" and "advisory" severity values.',
     );
   });
 
-  it("agent/roles/qa-reviewer.md Output format section matches agents/agent/qa-reviewer.md", () => {
-    const codexReviewer = parseSections(readFile("agent/roles/qa-reviewer.md"));
-    const opencodeReviewer = parseSections(readFile("agents/agent/qa-reviewer.md"));
 
-    for (const section of REVIEWER_MUST_MATCH_SECTIONS) {
-      const codexBody = codexReviewer.get(section);
-      const opencodeBody = opencodeReviewer.get(section);
-
-      if (opencodeBody === undefined) continue; /* section only in codex mirror is allowed */
-
-      assert.ok(
-        codexBody !== undefined,
-        `prompt-sync DIVERGENCE: section "## ${section}" is present in agents/agent/qa-reviewer.md ` +
-          `but missing from agent/roles/qa-reviewer.md. Port it.`,
-      );
-
-      /* Normalize trailing whitespace for comparison; intentional content differences still fail. */
-      const normalize = (s: string) => s.replace(/\r\n/g, "\n").replace(/[ \t]+$/gm, "").trim();
-      assert.equal(
-        normalize(codexBody),
-        normalize(opencodeBody),
-        `prompt-sync DIVERGENCE in section "## ${section}": ` +
-          `agent/roles/qa-reviewer.md and agents/agent/qa-reviewer.md differ. ` +
-          `The codex mirror must match the canonical OpenCode version.`,
-      );
-    }
-  });
-
-  it("both qa-reviewer.md mirrors carry the code-mode anti-mock rubric", () => {
-    for (const rel of ["agent/roles/qa-reviewer.md", "agents/agent/qa-reviewer.md"]) {
+  it("qa-reviewer.md carries the code-mode anti-mock rubric", () => {
+    for (const rel of ["agents/agent/qa-reviewer.md"]) {
       const content = readFile(rel);
       assert.ok(
         content.includes("Code-mode review (target: code)"),
@@ -184,8 +93,8 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
-  it("both qa-reviewer.md mirrors reject-on-sight a ledger-bypassing 'learned habit' spec comment", () => {
-    for (const rel of ["agent/roles/qa-reviewer.md", "agents/agent/qa-reviewer.md"]) {
+  it("qa-reviewer.md rejects on sight a ledger-bypassing 'learned habit' spec comment", () => {
+    for (const rel of ["agents/agent/qa-reviewer.md"]) {
       const content = readFile(rel);
       assert.ok(
         /ledger-bypassing/i.test(content) && /learned habit/i.test(content),
@@ -195,61 +104,30 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
-  it("agent/roles/qa-reviewer.md contains the app-agnostic warning and ARIA-role selector guidance", () => {
-    const codexReviewer = readFile("agent/roles/qa-reviewer.md");
+  it("agents/agent/qa-reviewer.md contains the app-agnostic warning and ARIA-role selector guidance", () => {
+    const reviewer = readFile("agents/agent/qa-reviewer.md");
     assert.ok(
-      codexReviewer.includes("app-agnostic") || codexReviewer.includes("App-specific"),
-      'agent/roles/qa-reviewer.md must contain the app-agnostic warning block.',
+      reviewer.includes("app-agnostic") || reviewer.includes("App-specific"),
+      'agents/agent/qa-reviewer.md must contain the app-agnostic warning block.',
     );
     /* ARIA / role selector guidance (getByRole is the canonical Playwright ARIA selector) */
     assert.ok(
-      codexReviewer.includes("getByRole") || codexReviewer.includes("ARIA"),
-      'agent/roles/qa-reviewer.md must contain ARIA-role selector guidance.',
+      reviewer.includes("getByRole") || reviewer.includes("ARIA"),
+      'agents/agent/qa-reviewer.md must contain ARIA-role selector guidance.',
     );
   });
 
-  it("a deliberate divergence in Output format is detected — drift structurally caught", () => {
-    const opencodeReviewer = parseSections(readFile("agents/agent/qa-reviewer.md"));
-    const section = "Output format";
-    const opencodeBody = opencodeReviewer.get(section);
-    if (!opencodeBody) return; /* section unexpectedly absent — skip inverse check */
 
-    /* Build a deliberately-diverged in-memory sections map and run it through the SAME
-       comparison code the guard uses in the must-match loop above, confirming assert.equal
-       throws on the diverged copy. This proves the guard catches real drift, not just that
-       string concatenation changes a string.
-     */
-    const divergedBody = opencodeBody + "\n\n<!-- deliberate drift -->";
-    const normalize = (s: string) => s.replace(/\r\n/g, "\n").replace(/[ \t]+$/gm, "").trim();
-
-    assert.throws(
-      () => {
-        assert.equal(
-          normalize(divergedBody),
-          normalize(opencodeBody),
-          `prompt-sync DIVERGENCE in section "## ${section}"`,
-        );
-      },
-      (err: unknown) => err instanceof assert.AssertionError,
-      "The drift guard must throw an AssertionError when the codex mirror diverges from canonical.",
-    );
-  });
-
-  it("agent/roles/qa-generator.md contains the anti-hang/no-op section", () => {
-    const codexGenerator = readFile("agent/roles/qa-generator.md");
-    /* The anti-hang section prevents the generator from over-working past the verdict, which
-       causes run timeouts. It must be present in the codex mirror so both runtimes share this
-       critical timing constraint. Source: agents/agent/qa-generator.md "Stop when the spec is
-       written" section + the "DONE generating" sentinel phrase.
-     */
+  it("agents/agent/qa-generator.md contains the anti-hang/no-op section", () => {
+    const generator = readFile("agents/agent/qa-generator.md");
+    /* The anti-hang section prevents the generator from over-working past the verdict, which causes run timeouts. */
     assert.ok(
-      codexGenerator.includes("DONE generating") ||
-        codexGenerator.includes("Stop when the spec is written") ||
-        codexGenerator.includes("verdict is your LAST action"),
-      "prompt-sync DRIFT: agent/roles/qa-generator.md is missing the anti-hang/no-op section. " +
-        'Port the "Stop when the spec is written — then emit the verdict" section from ' +
-        "agents/agent/qa-generator.md. This section prevents the generator from over-working " +
-        "past the closing verdict.",
+      generator.includes("DONE generating") ||
+        generator.includes("Stop when the spec is written") ||
+        generator.includes("verdict is your LAST action"),
+      "agents/agent/qa-generator.md is missing the anti-hang/no-op section: " +
+        'the "Stop when the spec is written — then emit the verdict" section prevents the generator from ' +
+        "over-working past the closing verdict.",
     );
   });
 
@@ -264,26 +142,8 @@ describe("prompt-sync drift guard", () => {
     assert.match(MILESTONE_OUTCOME_PHRASES["no-op"], /\bno-op\b/i);
   });
 
-  it("every section of agent/roles/qa-generator.md, Procedure included, matches agents/agent/qa-generator.md byte for byte", () => {
-    const codexGenerator = parseSections(readFile("agent/roles/qa-generator.md"));
-    const opencodeGenerator = parseSections(readFile("agents/agent/qa-generator.md"));
 
-    assert.deepEqual(
-      [...codexGenerator.keys()],
-      [...opencodeGenerator.keys()],
-      "prompt-sync DIVERGENCE: the two generator mirrors must have the same sections in the same order.",
-    );
-    for (const [section, opencodeBody] of opencodeGenerator) {
-      assert.equal(
-        normalize(codexGenerator.get(section) ?? ""),
-        normalize(opencodeBody),
-        `prompt-sync DIVERGENCE in section "## ${section}" (generator): ` +
-          `agent/roles/qa-generator.md and agents/agent/qa-generator.md differ. Edit both mirrors in the same step.`,
-      );
-    }
-  });
-
-  it("both generator mirrors state the selector priority once, and it names the configured test-id attribute as the only test-id discriminator", () => {
+  it("the generator states the selector priority once, and it names the configured test-id attribute as the only test-id discriminator", () => {
     for (const rel of GENERATOR_PROMPTS) {
       const procedure = parseSections(readFile(rel)).get("Procedure") ?? "";
       const rules = procedure.match(/Selector priority:[^\n]*/g) ?? [];
@@ -292,7 +152,7 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
-  it("the generator mirrors' Procedure holds unconditional craft: no case split on what the prompt carries and no runtime-signals rule", () => {
+  it("the generator's Procedure holds unconditional craft: no case split on what the prompt carries and no runtime-signals rule", () => {
     for (const rel of GENERATOR_PROMPTS) {
       const procedure = parseSections(readFile(rel)).get("Procedure") ?? "";
       assert.ok(procedure.length > 0, `${rel}: has a Procedure section`);
@@ -304,8 +164,8 @@ describe("prompt-sync drift guard", () => {
   /* The directory every watched repo keeps its suite in; the runner reports spec paths relative to it. */
   const SUITE_DIR = "e2e";
 
-  it("both qa-generator.md copies ask for specs as suite-relative paths, the same ones specMetas names", () => {
-    for (const rel of ["agents/agent/qa-generator.md", "agent/roles/qa-generator.md"]) {
+  it("qa-generator.md asks for specs as suite-relative paths, the same ones specMetas names", () => {
+    for (const rel of GENERATOR_PROMPTS) {
       const finalOutput = parseSections(readFile(rel)).get("Final output") ?? "";
       const example = /```json\n([\s\S]*?)\n```/.exec(finalOutput)?.[1];
       assert.ok(example, `${rel}: the Final output section carries a JSON example`);
@@ -335,7 +195,7 @@ describe("prompt-sync drift guard", () => {
     });
   };
 
-  it("in both qa-generator.md copies the first Final output example delivers specs and every other one declares a no-op, as the real parser and validator read them", () => {
+  it("in qa-generator.md the first Final output example delivers specs and every other one declares a no-op, as the real parser and validator read them", () => {
     for (const rel of GENERATOR_PROMPTS) {
       const examples = finalOutputExamples(rel);
       assert.ok(examples.length >= 2, `${rel}: the Final output section carries a delivery example and a no-op example`);
@@ -350,7 +210,7 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
-  it("no example in either qa-generator.md copy reports an approval", () => {
+  it("no example in qa-generator.md reports an approval", () => {
     for (const rel of GENERATOR_PROMPTS) {
       for (const example of finalOutputExamples(rel)) {
         assert.equal("approved" in (JSON.parse(example) as object), false, `${rel}: ${example}`);
@@ -371,32 +231,6 @@ describe("prompt-sync drift guard", () => {
     assert.equal(endOfExample(example), GENERATION_END.DELIVERED);
   });
 
-  it("AGENTS.md Global rules section matches between agents/ and agent/", () => {
-    const codexAgents = parseSections(readFile("agent/AGENTS.md"));
-    const opencodeAgents = parseSections(readFile("agents/AGENTS.md"));
-
-    for (const section of AGENTS_MUST_MATCH_SECTIONS) {
-      const codexBody = codexAgents.get(section);
-      const opencodeBody = opencodeAgents.get(section);
-
-      if (opencodeBody === undefined) continue;
-
-      assert.ok(
-        codexBody !== undefined,
-        `prompt-sync DIVERGENCE: section "## ${section}" is present in agents/AGENTS.md ` +
-          `but missing from agent/AGENTS.md. Port it.`,
-      );
-
-      const normalize = (s: string) => s.replace(/\r\n/g, "\n").replace(/[ \t]+$/gm, "").trim();
-      assert.equal(
-        normalize(codexBody),
-        normalize(opencodeBody),
-        `prompt-sync DIVERGENCE in section "## ${section}" (AGENTS.md): ` +
-          `agent/AGENTS.md and agents/AGENTS.md differ. ` +
-          `Safety-critical global rules must stay identical across both mirrors.`,
-      );
-    }
-  });
 
   /* The no-direct-HTTP rule has two facets, each stated ONCE, in its own sentence, in AGENTS Global rules:
      what the agent's session may do (no network call outside the Playwright MCP: the prompt-injection
@@ -424,8 +258,8 @@ describe("prompt-sync drift guard", () => {
   const restatementsIn = (text: string): number =>
     RULE_FACETS.reduce((total, [, patterns]) => total + statementsOf(text, patterns).length, 0);
 
-  it("both AGENTS.md mirrors keep a Global rules section that states each facet of the no-direct-HTTP rule once, in a sentence of its own, and no other section restates either", () => {
-    for (const rel of ["agents/AGENTS.md", "agent/AGENTS.md"]) {
+  it("AGENTS.md keeps a Global rules section that states each facet of the no-direct-HTTP rule once, in a sentence of its own, and no other section restates either", () => {
+    for (const rel of ["agents/AGENTS.md"]) {
       const sections = parseSections(readFile(rel));
       const globalRules = sections.get("Global rules");
       assert.ok(globalRules, `${rel}: the Global rules section survives`);
@@ -444,9 +278,7 @@ describe("prompt-sync drift guard", () => {
     for (const rel of [
       ...GENERATOR_PROMPTS,
       "agents/skill/playwright-authoring/SKILL.md",
-      "agent/skills/playwright-authoring/SKILL.md",
       "agents/agent/qa-sidekick.md",
-      "agent/roles/qa-sidekick.md",
     ]) {
       assert.equal(restatementsIn(readFile(rel)), 0, rel);
     }
@@ -698,10 +530,9 @@ describe("prompt-sync drift guard", () => {
   const assembledFor = (shape: OwnedRule["shape"], stepLimit?: number): string => buildPrompt(assembledInputFor(shape, stepLimit));
   const countOf = (text: string, pattern: RegExp): number => [...text.matchAll(pattern)].length;
 
-  it("each craft rule is stated in the layer that owns it and nowhere else, in both runtimes", () => {
+  it("each craft rule is stated in the layer that owns it and nowhere else", () => {
     const staticLayers: Array<[string, string]> = [
       ["OpenCode", ["agents/AGENTS.md", "agents/agent/qa-generator.md"].map(readFile).join("\n")],
-      ["Codex", ["agent/AGENTS.md", "agent/roles/qa-generator.md"].map(readFile).join("\n")],
     ];
     for (const { rule, pattern, shape, inStatic, inAssembled, withLimit } of OWNED_RULES) {
       for (const [runtime, text] of staticLayers) {
@@ -805,18 +636,17 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
-  /* Each mirror: its shared layer, its generator role, and the roles that point at the shared layer for how to orient. */
-  const MIRRORS = [
+  /* The shared layer, the generator role, and the roles that point at the shared layer for how to orient. */
+  const STATIC_LAYERS = [
     { shared: "agents/AGENTS.md", generator: "agents/agent/qa-generator.md", pointers: ["agents/agent/qa-proposer.md"] },
-    { shared: "agent/AGENTS.md", generator: "agent/roles/qa-generator.md", pointers: ["agent/roles/qa-proposer.md"] },
   ] as const;
   const STOP_RULE_SECTION = "Stop when the spec is written or the no-op is declared — then emit the verdict";
   const PROTOCOLS_SECTION = "Protocols (to keep quality from degrading over time)";
   /* The text of the generator procedure's step 1, up to the heading of step 2. */
   const stepOneOf = (procedure: string): string => /### 1\. Understand the change\n([\s\S]*?)\n### 2\./.exec(procedure)?.[1] ?? "";
 
-  it("in both generator mirrors the stop rule's own section holds the last-action rule and the declared no-op clause", () => {
-    for (const { generator } of MIRRORS) {
+  it("the generator's stop rule's own section holds the last-action rule and the declared no-op clause", () => {
+    for (const { generator } of STATIC_LAYERS) {
       const stopRule = parseSections(readFile(generator)).get(STOP_RULE_SECTION) ?? "";
       assert.ok(stopRule.length > 0, `${generator}: has the section "${STOP_RULE_SECTION}"`);
       assert.equal(countOf(stopRule, LAST_ACTION_RULE), 1, `${generator}: the stop rule section states that the verdict is the last action once`);
@@ -824,8 +654,8 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
-  it("the sections that carry the consume-first rule state it, and name no assembled artifact, split no case and number no step, in both mirrors", () => {
-    for (const { shared, generator } of MIRRORS) {
+  it("the sections that carry the consume-first rule state it, and name no assembled artifact, split no case and number no step", () => {
+    for (const { shared, generator } of STATIC_LAYERS) {
       const sharedSections = parseSections(readFile(shared));
       const carriers: Array<[string, string]> = [
         [`${generator} Procedure step 1`, stepOneOf(parseSections(readFile(generator)).get("Procedure") ?? "")],
@@ -842,8 +672,8 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
-  it("the reuse protocol has the agent read the existing spec of a flow before it updates it, in both mirrors", () => {
-    for (const { shared } of MIRRORS) {
+  it("the reuse protocol has the agent read the existing spec of a flow before it updates it", () => {
+    for (const { shared } of STATIC_LAYERS) {
       const protocols = parseSections(readFile(shared)).get(PROTOCOLS_SECTION) ?? "";
       const reuse = /\*\*Reuse > create\.\*\*([\s\S]*?)(?=\n\d+\. \*\*)/.exec(protocols)?.[1] ?? "";
       assert.ok(reuse.length > 0, `${shared}: has the reuse protocol`);
@@ -851,8 +681,8 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
-  it("the shared Execution context and the generator's first step use what the prompt supplies at the confidence the prompt states for each part, never as given, in both mirrors", () => {
-    for (const { shared, generator } of MIRRORS) {
+  it("the shared Execution context and the generator's first step use what the prompt supplies at the confidence the prompt states for each part, never as given", () => {
+    for (const { shared, generator } of STATIC_LAYERS) {
       const carriers: Array<[string, string]> = [
         [`${generator} Procedure step 1`, stepOneOf(parseSections(readFile(generator)).get("Procedure") ?? "")],
         [`${shared} Execution context`, parseSections(readFile(shared)).get("Execution context") ?? ""],
@@ -866,8 +696,8 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
-  it("every role that points at AGENTS.md for orientation finds the orientation rule there, in both mirrors", () => {
-    for (const { shared, pointers } of MIRRORS) {
+  it("every role that points at AGENTS.md for orientation finds the orientation rule there", () => {
+    for (const { shared, pointers } of STATIC_LAYERS) {
       for (const role of pointers) {
         assert.match(readFile(role), /\*\*Orient[^\n]*\(see AGENTS\.md\)/, `${role}: cites AGENTS.md for orientation`);
       }
@@ -875,40 +705,10 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
-  it("a deliberate divergence in generator Final output is structurally caught (inverse)", () => {
-    const opencodeGenerator = parseSections(readFile("agents/agent/qa-generator.md"));
-    const section = "Final output";
-    const opencodeBody = opencodeGenerator.get(section);
-    if (!opencodeBody) return;
-
-    /* Build a deliberately-diverged in-memory body and run it through the SAME comparison
-       the guard uses in the must-match loop above. assert.throws confirms the guard would
-       have caught the divergence — not just that appending text changes a string.
-     */
-    const divergedBody = opencodeBody + "\n\n<!-- deliberate drift -->";
-    const normalize = (s: string) => s.replace(/\r\n/g, "\n").replace(/[ \t]+$/gm, "").trim();
-
-    assert.throws(
-      () => {
-        assert.equal(
-          normalize(divergedBody),
-          normalize(opencodeBody),
-          `prompt-sync DIVERGENCE in section "## ${section}" (generator)`,
-        );
-      },
-      (err: unknown) => err instanceof assert.AssertionError,
-      "The generator Final output drift guard must throw an AssertionError when the codex mirror diverges.",
-    );
-  });
 });
 
 describe("agent-guidance-runtime-semantics drift guard", () => {
-  /* ---------------------------------------------------------------------------
-     The two trees must be byte-identical (modulo trailing whitespace).
-     This assertion PASSES on the current byte-identical files and FAILS on any one-tree edit.
-     ---------------------------------------------------------------------------
-   */
-  it("test-value-review/SKILL.md carries the code-mode anti-mock rubric (both mirrors, via SKILL_FILE_PAIRS parity)", () => {
+  it("test-value-review/SKILL.md carries the code-mode anti-mock rubric ", () => {
     const content = readFile("agents/skill/test-value-review/SKILL.md");
     assert.ok(
       /mock/i.test(content) && /unit under test/i.test(content),
@@ -921,12 +721,12 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
     );
   });
 
-  /* The context run records the map; the pack's route ranking reads three of its fields. The skill that teaches the map names the same fields the reader takes, so a run that follows it records links the ranking can use. Codex inlines the skill into every generator prompt, so what this change adds to it stays within a small budget per mirror. */
+  /* The context run records the map; the pack's route ranking reads three of its fields. The skill that teaches the map names the same fields the reader takes, so a run that follows it records links the ranking can use. What this change adds to it stays within a small budget. */
   const MAP_FIELDS_ADDED_BY_RANKING = [ROUTE_LINK_FIELDS.implementationFiles, ROUTE_LINK_FIELDS.spec];
   const MAP_FIELDS_ADDED_BUDGET_BYTES = 200;
 
-  it("architecture-mapping/SKILL.md documents every map field the route ranking reads, and the two it added stay within their budget (both mirrors)", () => {
-    for (const rel of ["agents/skill/architecture-mapping/SKILL.md", "agent/skills/architecture-mapping/SKILL.md"]) {
+  it("architecture-mapping/SKILL.md documents every map field the route ranking reads, and the two it added stay within their budget", () => {
+    for (const rel of ["agents/skill/architecture-mapping/SKILL.md"]) {
       const lines = readFile(rel).split("\n");
       const documenting = (field: string): string[] => lines.filter((line) => line.includes(`\`${field}\``));
       for (const field of Object.values(ROUTE_LINK_FIELDS)) {
@@ -940,45 +740,14 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
   /* The authoring skill is loaded by more than one role (the generator and the sidekick), so it cannot lean on one role's prompt: it names no role prompt and no step of one. */
   const ROLE_PROMPT_REFERENCE = /\b(?:generator|reviewer|worker|proposer|sidekick|maintainer)\s+role\b|\brole prompt\b|\bProcedure \(step \d+\)/i;
 
-  it("no file of the playwright-authoring skill refers to a role's prompt or to a step of it, in either tree", () => {
-    const authoring = SKILL_FILE_PAIRS.filter(([opencodeRel]) => opencodeRel.includes("playwright-authoring")).flat();
-    assert.ok(authoring.length > 0);
-    for (const rel of authoring) {
+  it("no file of the playwright-authoring skill refers to a role's prompt or to a step of it", () => {
+    for (const rel of PLAYWRIGHT_AUTHORING_FILES) {
       assert.doesNotMatch(readFile(rel), ROLE_PROMPT_REFERENCE, `${rel}: the skill is loaded by several roles and stays role-neutral`);
     }
   });
 
-  it("playwright-authoring skill file parity: locators-and-waiting.md matches across both trees", () => {
-    for (const [opencodeRel, codexRel] of SKILL_FILE_PAIRS) {
-      const opencodeContent = readFile(opencodeRel);
-      const codexContent = readFile(codexRel);
-      assert.equal(
-        normalize(codexContent),
-        normalize(opencodeContent),
-        `prompt-sync DIVERGENCE: skill file "${opencodeRel}" and "${codexRel}" differ. ` +
-          `Both trees must be byte-identical. Edit both mirrors in the same step.`,
-      );
-    }
-  });
 
   /* Inverse proofs — confirm the guard actually catches divergence.
      (a) Skill-file parity: appending a comment to the in-memory content must trigger AssertionError.
    */
-  it("inverse: skill-file parity guard catches one-tree drift (skill file)", () => {
-    const [opencodeRel] = SKILL_FILE_PAIRS[0]!;
-    const opencodeContent = readFile(opencodeRel);
-    const divergedContent = opencodeContent + "\n\n<!-- drift -->";
-
-    assert.throws(
-      () => {
-        assert.equal(
-          normalize(divergedContent),
-          normalize(opencodeContent),
-          `prompt-sync DIVERGENCE in skill file "${opencodeRel}"`,
-        );
-      },
-      (err: unknown) => err instanceof assert.AssertionError,
-      "The skill-file parity guard must throw an AssertionError when the codex mirror diverges.",
-    );
-  });
 });

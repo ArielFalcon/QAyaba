@@ -41,7 +41,7 @@ Two Docker services share a `mirrors` volume, which holds the working copies of 
 │ Internal tools listener :459 (QA_TOOLS_TOKEN) ◄── run_spec / authbrowser_* calls FROM the agents                    │
 └───────────────▲─────────────────────────────── HTTP + SSE ───────────────────────────────▲─────────────────────────┘
                 │ Basic auth (OPENCODE_SERVER_PASSWORD)                                       │ tool callbacks
-┌───────────────┴──────────────── agents (supervisor :4097, opencode serve :4096 pinned 1.17.7, codex exec) ──────────┐
+┌───────────────┴──────────────── agents (supervisor :4097, opencode serve :4096 pinned 1.17.7)   ──────────┐
 │ OpenCode sessions per agent turn ──► provider "opencode-go" (one shared monthly quota)                              │
 │ MCP servers per session: serena (code symbols), @playwright/mcp (browser)                                           │
 │ Custom tools: agents/tool/run_spec.ts, agents/tool/authbrowser.ts → POST to orchestrator :459                       │
@@ -271,7 +271,7 @@ You are done when each of these can be answered from your traces and metrics alo
 
 - **Never block or fail a run because telemetry failed.** Exporters fail open, and a missing collector is a no-op. This mirrors how grounding is fail-open; the difference is that telemetry must never alter a verdict.
 - **Deterministic engine.** Do not add sampling decisions that differ between the arms of an A/B campaign.
-- **Two runtimes.** OpenCode (via HTTP + SSE) and Codex (`codex exec` per prompt, driven by `agents/agent-supervisor.mjs`). Codex has no step limit and no per-prompt tool map, and it injects MCP server instructions. Parity matters; at minimum, the same span shape per agent turn.
+- **One runtime.** OpenCode (via HTTP + SSE), supervised by `agents/agent-supervisor.mjs`. Another runtime is added behind the same port, and it must emit the same span shape per agent turn.
 - **Cross-container propagation.** The agents container calls back into the orchestrator (`run_spec`, `authbrowser_*`) through tools that live in `agents/tool/*.ts`, run inside OpenCode and are re-verified by smokes in `agents/smoke/`. Correlating those callbacks with the calling turn needs either context headers through the tool's POST, or the session id plus agent name (already sent) as a join key.
 - **Pinned versions on the execution path.** Playwright 1.60.0 and OpenCode 1.17.7. Do not upgrade them for telemetry.
 - **Tests.** `docs/testing-standards.md` applies: behaviour through public seams, fakes for ports, no real network or time, writes only under `os.tmpdir()`. Telemetry as a port makes this straightforward. Wire the real SDK in the composition root.

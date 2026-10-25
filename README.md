@@ -5,7 +5,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue)](https://www.typescriptlang.org)
 [![Playwright](https://img.shields.io/badge/Playwright-1.60-45ba4b)](https://playwright.dev)
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED)](https://www.docker.com)
-[![Agent Runtime](https://img.shields.io/badge/OpenCode%20%2F%20Codex-runtime-7b68ee)](https://opencode.ai)
+[![Agent Runtime](https://img.shields.io/badge/OpenCode-runtime-7b68ee)](https://opencode.ai)
 
 </div>
 
@@ -45,7 +45,7 @@ qayaba turns every deploy into a QA checkpoint, automatically.
 |---|---|
 | **Commit-aware testing** | Reads the diff and commit message to understand what changed. Skips style-only commits, writes targeted tests for features and fixes, runs regression-only for refactors. |
 | **Multi-agent coordination** | The lead agent plans the change's independent flows while bounded sidekick agents author them in parallel, each in a workspace of its own and each closing its own run loop — all subject to the same quality gates. |
-| **Provider-agnostic runtime** | Runs on OpenCode, Codex, or dual mode through one facade. Primary, reviewer, and chat models are configurable from the CLI or Dashboard. |
+| **Provider-agnostic runtime** | Runs on OpenCode through one facade. Primary, reviewer, and chat models are configurable from the CLI or Dashboard. |
 | **Two-model review** | A different AI model reviews every generated test for value. Tests that click without asserting, use fragile selectors, or miss the actual change are rejected before they reach the suite. |
 | **Self-improving suite** | When tests pass and the reviewer approves, they are committed to the app's repository via PR with auto-merge. The suite grows with every deploy and never degrades into "green noise." |
 | **Learning from failures** | Every failed run is reflected on, distilled into a reusable rule, and injected into future runs. Mutation testing measures whether the tests actually catch bugs (valueScore). Rules that correlate with better outcomes are promoted; the rest decay. |
@@ -95,7 +95,7 @@ Receives webhooks, manages the sequential queue, clones repos, runs Playwright a
 <td width="50%" valign="top">
 
 ### Agent Runtime
-**OpenCode, Codex, or dual mode** behind one provider-neutral facade.
+**OpenCode** behind one provider-neutral facade; another runtime is added as a strategy behind it.
 
 The primary (lead) agent reads code via Serena and writes Playwright specs. In the lead/sidekick mode the lead plans and a dedicated sidekick agent authors each flow in a workspace of its own — it may only write the one file its brief names, must report what it actually wrote, and can push the work back when the brief is wrong. The reviewer stays a fully independent judge: neither agent can influence it. `qayaba agent` or the Dashboard's Agent Runtime screen selects provider, role assignments, models, and API keys.
 
@@ -218,7 +218,7 @@ Four layers prevent low-quality tests from entering the suite:
 
 - **Node.js 24** or later
 - **Docker** and Docker Compose (for production deployment)
-- An **OpenCode API key** or a **Codex/OpenAI API key**. Dual mode requires both.
+- An **OpenCode API key**.
 - A GitHub repo you want to watch, deployed to a DEV environment
 
 ### Install and verify
@@ -237,16 +237,14 @@ npm run typecheck  # strict TypeScript validation
 cp .env.example .env
 ```
 
-Edit `.env` and set at least one provider key:
+Edit `.env` and set the provider key:
 
 ```
 OPENCODE_API_KEY=opencode-go-your-key-here
-# or
-CODEX_API_KEY=sk-your-key-here
 ```
 
 > [!IMPORTANT]
-> One provider key is enough for single mode. Dual mode requires both provider keys. For production, you also need `GITHUB_TOKEN` and `WEBHOOK_SECRET`.
+> For production, you also need `GITHUB_TOKEN` and `WEBHOOK_SECRET`.
 
 ### AI model configuration
 
@@ -263,13 +261,13 @@ Every role defaults to a free model, so a run keeps working after the paid Go us
 The coordination sidekick runs on its own role (`sidekick`) with the same base model as the lead tier; assign it a stronger model via `COORDINATION_ESCALATED_MODEL` when you want escalated sidekick sessions to use a different capacity.
 
 > [!TIP]
-> `qayaba --opencode`, `qayaba --codex`, and `qayaba --dual` select the runtime before a command. `qayaba agent` opens the runtime editor; `qayaba agent status` prints the current config.
+> `qayaba agent` opens the runtime editor; `qayaba agent status` prints the current config.
 
 **What you must configure manually:**
 
 | Item | Where | Required |
 |---|---|---|
-| Provider key | `.env` as `OPENCODE_API_KEY` or `CODEX_API_KEY` | One key for single mode; both for dual |
+| Provider key | `.env` as `OPENCODE_API_KEY` | The key of the one runtime |
 | Runtime mode/provider | Dashboard Agent Runtime, `qayaba agent`, or `AGENT_*` env vars | Only if defaults are not desired |
 | Model IDs | Dashboard Agent Runtime or `AGENT_PRIMARY_MODEL`/`AGENT_REVIEWER_MODEL`/`AGENT_CHAT_MODEL` | Only if the defaults are unavailable |
 | GitHub token | `.env` as `GITHUB_TOKEN` | Yes, for PR and Issue creation |
@@ -280,10 +278,9 @@ The coordination sidekick runs on its own role (`sidekick`) with the same base m
 
 | Item | Where | Notes |
 |---|---|---|
-| Provider-neutral prompts and procedures | `agent/` | Shared by Codex and future OpenCode config |
-| OpenCode compatibility prompts | `agents/agent/*.md` | Kept during migration |
-| Playwright authoring skills | `agent/skills/playwright-authoring/` | Login, geolocation, mobile, uploads |
-| Quality review criteria | `agent/skills/test-value-review/` | False-positive pattern catalog |
+| Role prompts and procedures | `agents/agent/*.md` | One prompt per role, with the shared rules in `agents/AGENTS.md` |
+| Playwright authoring skills | `agents/skill/playwright-authoring/` | Login, geolocation, mobile, uploads |
+| Quality review criteria | `agents/skill/test-value-review/` | False-positive pattern catalog |
 | MCP servers (Serena, Playwright) | `agents/opencode.json` and agent container | Code navigation + live DEV exploration |
 | Multi-agent coordination | `qa.coordination` in the app YAML (limits only) | Every e2e run: the lead plans, sidekicks (`qa-sidekick`) author the flows; durable telemetry at `data/coordination-events.jsonl`, per-flow time budgets. |
 | Docker images | `Dockerfile`, `agents/Dockerfile` | Both services build from these |

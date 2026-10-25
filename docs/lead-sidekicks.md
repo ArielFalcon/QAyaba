@@ -18,7 +18,6 @@ qa:
     planBudgetMs: 180000     # the lead's planning turn
     flowBudgetMs:            # one flow, per runtime
       opencode: 480000
-      codex: 600000
 ```
 
 A run with a login needs `qa.closedLoop` and/or `qa.agentBrowser` enabled for its sidekicks to author against the
@@ -80,7 +79,7 @@ change is linked to, up to `MAX_ROUTES_PER_CHANGE`.
 
 A sidekick's prompts are denied `serena*` always (its symbol edits write wherever the server's project points),
 `playwright*` unless the mode is `unauthenticated-browser`, and `run_spec` unless its flow holds a loop. The denial
-is a per-prompt `tools` map, so a session the run did not grant a tool never sees it. Codex sidekicks are excluded.
+is a per-prompt `tools` map, so a session the run did not grant a tool never sees it.
 
 ## Authoring location
 
@@ -226,6 +225,5 @@ leaves nothing behind).
 - Read-only concurrency is unreachable until the proxy can enforce read-only access.
 - Each flow's `run_spec` and browser caps are shares of the run's; the shares are not reconciled with what the
   generator spends in the same run.
-- Codex sidekicks are excluded.
 - No live run of this mode has been recorded: the behavior is verified by unit and contract tests, not by a
   campaign.
