@@ -105,6 +105,31 @@ RUN ARCH="$(dpkg --print-architecture)" \
   && curl -fsSL "https://github.com/DeusData/codebase-memory-mcp/releases/download/v0.8.1/codebase-memory-mcp-linux-${GOARCH}.tar.gz" \
   | tar -C /usr/local/bin -xz codebase-memory-mcp
 
+# codegraph v1.6.2, the code-graph engine (docs/adr/0002-code-graph-engine-codegraph.md). Each npm
+# platform package is self-contained: `bin/codegraph` (a sh launcher) next to its own `node` and its
+# `lib/`, so neither the npm shim nor an install step runs. Pinned per arch by the registry's sha512
+# integrity, checked here against the downloaded bytes (fail loud on a mismatch); both packages carry an
+# SLSA provenance attestation (`npm view @colbymchenry/codegraph-linux-<arch>@1.6.2 dist.attestations`),
+# checked when the pin was set. The engine parses source from repos the system does not control, so it
+# only ever runs through the execution launcher's `graph` profile (sandbox uid, no network); nothing
+# here makes it reachable as root. When the pin moves: update both integrity values, re-run
+# `npm run sandbox:smoke` in the new image, and re-record the adapter's fixtures.
+RUN ARCH="$(dpkg --print-architecture)" \
+  && case "$ARCH" in \
+       amd64) PKG=linux-x64; SRI=sha512-DJWizz1qHNr1MsbK6fz1mjVUQjeTH3T+L0D2BGaLkygWzBnNMG30MvLq1ae0m6cUV414U8aEow5Eb/kIORA8+w== ;; \
+       arm64) PKG=linux-arm64; SRI=sha512-4sUICiYzHgC3brCKw4FDiY10jVQ79oIm2wwE978IOAXj36sDxji6d9l5SEvGyHyolgSXsLImLtagTsIEN2Pvnw== ;; \
+       *) echo "unsupported arch for codegraph: $ARCH" >&2; exit 1 ;; \
+     esac \
+  && curl -fsSL -o /tmp/codegraph.tgz "https://registry.npmjs.org/@colbymchenry/codegraph-${PKG}/-/codegraph-${PKG}-1.6.2.tgz" \
+  && WANT="$(printf '%s' "${SRI#sha512-}" | base64 -d | od -An -tx1 | tr -d ' \n')" \
+  && GOT="$(sha512sum /tmp/codegraph.tgz | cut -d' ' -f1)" \
+  && if [ "$WANT" != "$GOT" ]; then echo "codegraph ${PKG} integrity mismatch" >&2; exit 1; fi \
+  && mkdir -p /opt/codegraph \
+  && tar -C /opt/codegraph --strip-components=1 --no-same-owner -xzf /tmp/codegraph.tgz \
+  && rm /tmp/codegraph.tgz \
+  && chmod -R a+rX,go-w /opt/codegraph \
+  && ln -s /opt/codegraph/bin/codegraph /usr/local/bin/codegraph
+
 # Unprivileged user for executing UNTRUSTED code: the agent-written Playwright specs, the e2e project's
 # own tsc/eslint/install, a login script, and the watched repo's own install/test/coverage. The
 # orchestrator runs as root and DROPS to this user for every one of those spawns (the execution

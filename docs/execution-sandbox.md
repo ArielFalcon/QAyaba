@@ -31,6 +31,7 @@ detached, as the sandbox uid and gid (`CODE_SANDBOX_UID`, `1002` in the image), 
 | `suite` | the specs, the cleanup spec, the DOM capture | `PW_*` the caller names, `PW_STORAGE_STATE` (a per-spawn copy), the client certificate (a copy) and its passphrase, `DEV_ENV_USER/PASS` (the DEV HTTP-Basic gate) | the app's origins |
 | `login` | the auth setup, the login discovery | the `suite` set without a session, plus **`DEV_TEST_USER/PASS` (the test account)** | the app's origins |
 | `install` | `npm ci`, a code-mode install / test / coverage, Stryker | the package-manager and toolchain variables (`npm_config_*`, `JAVA_HOME`, `GOPATH`, ...) rebased under the run's home | registries |
+| `graph` | the code-graph engine (`codegraph`, pinned in the image under `/opt/codegraph`) and its store reader, on the run's graph workspace | the engine's off switches: `DO_NOT_TRACK=1`, `CODEGRAPH_TELEMETRY=0`, `CODEGRAPH_NO_UPDATE_CHECK=1` | none |
 
 The environment is built from an allowlist per profile, not by removing known secrets from the orchestrator's: a secret
 the orchestrator gains later is absent from every child without anyone listing it. A caller can add only the
@@ -269,7 +270,8 @@ holds: `/proc/1/environ`, `/app/data`, the API token (`/app/data/.api_token`, an
 `/app/config` are `EACCES`; an app config cannot be written; no mount under `/app` can be written; the mirror it runs in and
 another one cannot be written or listed; an undeclared host, raw TCP/UDP to a public address, IPv6 and the API on loopback all fail; no secret is in
 `process.env`; and the one declared origin (`QA_SMOKE_ORIGIN`, default `https://example.com`) loads in a real browser. Exit 0
-only if every expected case ran and passed. `QA_SMOKE_UNDECLARED` (default `https://example.org`) is the host that must stay
+only if every expected case ran and passed. Its harness checks also prove that a `graph`-profile child cannot reach the npm
+registry (a host the `install` profile may reach) and that the pinned `codegraph` starts under that profile. `QA_SMOKE_UNDECLARED` (default `https://example.org`) is the host that must stay
 unreachable.
 
 Docker Desktop: the LinuxKit kernel carries `xt_owner` and the nft backend, so the egress self-test passes there; its file sharing

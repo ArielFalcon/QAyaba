@@ -166,6 +166,17 @@ test("each profile holds a lease on its own origins until the child is gone", ()
   }
 });
 
+test("the graph profile holds a lease on no origin: the engine parses untrusted source and needs no network", () => {
+  const gate = new FakeGate("enforce", true);
+  const h = harness({ egress: gate });
+  try {
+    h.port.spawn("codegraph", ["sync", "-q", "."], { cwd: "/m", profile: "graph", commandClass: "code-graph", scope: h.scope });
+    assert.deepEqual(gate.leases, [[]]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
 test("enforce with the egress filter down refuses to spawn; warn runs unfiltered and records it", () => {
   const enforce = harness({ egress: new FakeGate("enforce", false) });
   try {

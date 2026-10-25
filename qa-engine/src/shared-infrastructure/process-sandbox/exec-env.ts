@@ -7,8 +7,9 @@ import { scrubEnvFrom } from "./scrub-env.ts";
 /* offline: runs agent code with no network (tsc, eslint, `playwright test --list`).
    suite: runs the agent's specs against DEV with the saved session, never the account.
    login: the profile that carries the test account (the auth setup and the login discovery); a suite gets it only when its app opted in (e2e.specCredentials: account).
-   install: package-manager and toolchain work that reaches registries only (npm ci, mvn, pip, cargo, go). */
-export const SANDBOX_PROFILES = ["offline", "suite", "login", "install"] as const;
+   install: package-manager and toolchain work that reaches registries only (npm ci, mvn, pip, cargo, go).
+   graph: the code-graph engine, which parses source from repos the system does not control: no network, its telemetry and update check off, nothing a page or a registry needs. */
+export const SANDBOX_PROFILES = ["offline", "suite", "login", "install", "graph"] as const;
 export type SandboxProfile = (typeof SANDBOX_PROFILES)[number];
 
 export interface StagedAuth {
@@ -49,6 +50,9 @@ const EXTRA_ENV_ALLOWED = /^(?:PW_[A-Z0-9_]+|PLAYWRIGHT_JSON_OUTPUT_NAME|QA_FAIL
 
 /* The names the launcher owns outside a login: a caller cannot point a suite at another session. */
 const LAUNCHER_MANAGED = new Set(["PW_STORAGE_STATE", "PW_CLIENT_CERT_PATH"]);
+
+/* The code-graph engine's own switches: telemetry is on by default (DO_NOT_TRACK or CODEGRAPH_TELEMETRY turns it off) and it checks for a newer release. The egress chain refuses the hosts anyway; these keep the engine from trying, so a refusal never reads as something the run did. */
+const GRAPH_ENV: Readonly<Record<string, string>> = { DO_NOT_TRACK: "1", CODEGRAPH_TELEMETRY: "0", CODEGRAPH_NO_UPDATE_CHECK: "1" };
 
 /* Variables an install must not inherit even though the package-manager family allows them. */
 const INSTALL_DROP = ["NODE_OPTIONS", "NODE_PATH", "SSH_AUTH_SOCK"] as const;
@@ -92,6 +96,7 @@ export function buildExecEnv(input: ExecEnvInput): Record<string, string> {
   raw.TEMP = tmp;
 
   Object.assign(raw, checkedExtra(input));
+  if (input.profile === "graph") Object.assign(raw, GRAPH_ENV);
 
   /* Playwright's config and the DOM-capture script read the app's position from these names. Only a profile that opens pages gets it. */
   if (input.geolocation && (input.profile === "suite" || input.profile === "login")) {

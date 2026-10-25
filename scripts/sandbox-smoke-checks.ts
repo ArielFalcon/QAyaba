@@ -5,6 +5,7 @@
  * Add a check here for every fix whose effect can be observed in a running container.
  */
 
+import type { ChildProcess } from "node:child_process";
 import { cpSync, existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ExecSandboxPort } from "../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts";
@@ -127,4 +128,31 @@ export const dumpFolderIsNotAChannel: SmokeCheck = {
   },
 };
 
-export const SMOKE_CHECKS: readonly SmokeCheck[] = [specSelectionIsExact, detachedDaemonIsGoneAfterTheCall, survivorCannotReadALaterChildEnvironment, dumpFolderIsNotAChannel];
+/* What a child printed and how it ended, or a timeout. */
+function outputOf(child: ChildProcess, ms: number): Promise<{ code: number | null; stdout: string }> {
+  return new Promise((resolve) => {
+    let stdout = "";
+    child.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
+    const timer = setTimeout(() => { child.kill("SIGKILL"); resolve({ code: null, stdout }); }, ms);
+    child.once("close", (code: number | null) => { clearTimeout(timer); resolve({ code, stdout }); });
+  });
+}
+
+/* A host the install profile may reach (the npm registry) and the graph profile may not. */
+export const GRAPH_PROBE_URL = "https://registry.npmjs.org/";
+
+/* The code-graph engine parses source from repos the system does not control: its profile reaches no host, not even one another profile of the same run may, and the pinned engine starts there. */
+export const graphProfileReachesNoHost: SmokeCheck = {
+  name: "a child of the graph profile reaches no host, and the pinned code-graph engine runs there",
+  async run(ctx) {
+    const probe = `fetch(${JSON.stringify(GRAPH_PROBE_URL)}).then((r) => console.log("REACHED " + r.status), () => console.log("BLOCKED"))`;
+    const fetched = await outputOf(ctx.exec.spawn("node", ["-e", probe], { cwd: ctx.workDir, profile: "graph", commandClass: "code-graph", stdio: ["ignore", "pipe", "ignore"] }), 15_000);
+    const problems: string[] = [];
+    if (!/^BLOCKED/m.test(fetched.stdout)) problems.push(`a graph-profile child reached ${GRAPH_PROBE_URL} (${fetched.stdout.trim() || `exit ${fetched.code}`})`);
+    const version = await outputOf(ctx.exec.spawn("codegraph", ["--version"], { cwd: ctx.workDir, profile: "graph", commandClass: "code-graph", stdio: ["ignore", "pipe", "ignore"] }), 15_000);
+    if (version.code !== 0 || !/\d+\.\d+\.\d+/.test(version.stdout)) problems.push(`the code-graph engine did not start under the graph profile (exit ${version.code}, "${version.stdout.trim()}")`);
+    return problems;
+  },
+};
+
+export const SMOKE_CHECKS: readonly SmokeCheck[] = [specSelectionIsExact, detachedDaemonIsGoneAfterTheCall, survivorCannotReadALaterChildEnvironment, dumpFolderIsNotAChannel, graphProfileReachesNoHost];

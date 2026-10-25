@@ -74,7 +74,7 @@ export interface EgressGate {
 }
 
 /* What a child is for, named by the call site: a closed set, so the trace can group children without parsing a command line. */
-export const EXEC_COMMAND_CLASSES = ["tsc", "eslint", "playwright-list", "playwright-test", "npm-ci", "login", "dom-capture", "browser", "code-test", "other"] as const;
+export const EXEC_COMMAND_CLASSES = ["tsc", "eslint", "playwright-list", "playwright-test", "npm-ci", "login", "dom-capture", "browser", "code-test", "code-graph", "other"] as const;
 export type ExecCommandClass = (typeof EXEC_COMMAND_CLASSES)[number];
 
 export interface ExecSpawnOptions {
@@ -134,7 +134,7 @@ export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
   const telemetry = deps.telemetry ? guardTelemetry(deps.telemetry) : undefined;
 
   const originsFor = (profile: SandboxProfile, scope: RunScope): readonly string[] =>
-    profile === "offline" ? [] : profile === "install" ? scope.egress.install : scope.egress.dev;
+    profile === "offline" || profile === "graph" ? [] : profile === "install" ? scope.egress.install : scope.egress.dev;
 
   return {
     isolated: deps.sandbox !== null,

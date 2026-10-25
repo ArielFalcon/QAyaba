@@ -176,3 +176,23 @@ test("no profile's child checks the package registry for a newer npm: a tool mus
     assert.equal(buildExecEnv(input(profile, { base: { ...SECRETS, npm_config_update_notifier: "true" } })).npm_config_update_notifier, "false", `${profile} with the orchestrator's own setting`);
   }
 });
+
+test("the graph profile turns the engine's telemetry and update check off and carries nothing a page or a registry needs", () => {
+  const staged = { storageState: "/s/user.json", clientCert: "/s/client.p12", certPass: "pw" };
+  const env = buildExecEnv(input("graph", { staged, gateCreds: { user: "g", pass: "gp" }, account: { user: "acct", pass: "acct-pass" }, suiteAccount: { user: "s", pass: "sp" }, geolocation: { latitude: 1, longitude: 2 } }));
+  assert.equal(env.DO_NOT_TRACK, "1");
+  assert.equal(env.CODEGRAPH_TELEMETRY, "0");
+  assert.equal(env.CODEGRAPH_NO_UPDATE_CHECK, "1");
+  assert.equal(env.HOME, "/tmp/qa-exec/run-1/home");
+  assert.equal(env.TMPDIR, "/tmp/qa-exec/run-1/tmp");
+  for (const key of ["PW_STORAGE_STATE", "PW_CLIENT_CERT_PATH", "DEV_CLIENT_CERT_PASS", "DEV_ENV_USER", "DEV_ENV_PASS", "DEV_TEST_USER", "DEV_TEST_PASS", "PW_GEO_LAT", "npm_config_registry", "npm_config_cache", "JAVA_HOME"]) {
+    assert.equal(key in env, false, `the graph profile carries ${key}`);
+  }
+});
+
+test("only the graph profile names the engine's switches", () => {
+  for (const profile of SANDBOX_PROFILES.filter((p) => p !== "graph")) {
+    const env = buildExecEnv(input(profile));
+    assert.equal("CODEGRAPH_TELEMETRY" in env, false, profile);
+  }
+});
