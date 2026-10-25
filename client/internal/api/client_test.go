@@ -110,11 +110,11 @@ func TestAgentRuntimeMethodsUseContractPaths(t *testing.T) {
 		seen = append(seen, seenRequest{method: r.Method, path: r.URL.Path, query: r.URL.RawQuery, body: string(data)})
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/agent/config":
-			_, _ = w.Write([]byte(`{"mode":"single","singleProvider":"opencode","assignments":{"primary":{"provider":"opencode","model":"opencode-go/deepseek-v4-pro"},"reviewer":{"provider":"opencode","model":"opencode-go/qwen3.7-max"},"chat":{"provider":"opencode","model":"opencode-go/deepseek-v4-flash"}},"keys":{"opencode":true,"codex":false},"validation":{"ok":true,"errors":[]}}`))
+			_, _ = w.Write([]byte(`{"assignments":{"primary":{"provider":"opencode","model":"opencode-go/deepseek-v4-pro"},"reviewer":{"provider":"opencode","model":"opencode-go/qwen3.7-max"},"chat":{"provider":"opencode","model":"opencode-go/deepseek-v4-flash"}},"keys":{"opencode":true},"validation":{"ok":true,"errors":[]}}`))
 		case r.Method == http.MethodPut && r.URL.Path == "/api/v1/agent/config":
-			_, _ = w.Write([]byte(`{"config":{"mode":"single","singleProvider":"codex","assignments":{"primary":{"provider":"codex","model":"gpt-5.4"},"reviewer":{"provider":"codex","model":"gpt-5.4"},"chat":{"provider":"codex","model":"gpt-5.4-mini"}},"keys":{"opencode":true,"codex":true},"validation":{"ok":true,"errors":[]}},"restarted":["codex"]}`))
+			_, _ = w.Write([]byte(`{"config":{"assignments":{"primary":{"provider":"opencode","model":"model-a"},"reviewer":{"provider":"opencode","model":"model-a"},"chat":{"provider":"opencode","model":"model-b"}},"keys":{"opencode":true},"validation":{"ok":true,"errors":[]}},"restarted":["opencode"]}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/agent/models":
-			_, _ = w.Write([]byte(`{"provider":"codex","models":[{"id":"gpt-5.4"}]}`))
+			_, _ = w.Write([]byte(`{"provider":"opencode","models":[{"id":"model-a"}]}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/agent/restart":
 			_, _ = w.Write([]byte(`{"health":{"provider":"opencode","status":"healthy","configured":true}}`))
 		default:
@@ -125,23 +125,18 @@ func TestAgentRuntimeMethodsUseContractPaths(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL, "")
-	if cfg, err := c.GetAgentConfig(context.Background()); err != nil || cfg.SingleProvider != "opencode" {
+	if cfg, err := c.GetAgentConfig(context.Background()); err != nil || cfg.Assignments.Primary.Provider != "opencode" {
 		t.Fatalf("GetAgentConfig = %+v, %v", cfg, err)
 	}
-	codexKey := "sk-codex"
-	mode := contract.AgentConfigUpdateModeSingle
-	single := contract.AgentConfigUpdateSingleProvider("codex")
+	openKey := "sk-opencode"
 	if res, err := c.UpdateAgentConfig(context.Background(), contract.AgentConfigUpdate{
-		Mode:           &mode,
-		SingleProvider: &single,
 		ApiKeys: &struct {
-			Codex    *string `json:"codex,omitempty"`
 			Opencode *string `json:"opencode,omitempty"`
-		}{Codex: &codexKey},
+		}{Opencode: &openKey},
 	}); err != nil || len(res.Restarted) != 1 {
 		t.Fatalf("UpdateAgentConfig = %+v, %v", res, err)
 	}
-	if models, err := c.ListAgentModels(context.Background(), "codex"); err != nil || models.Models[0].Id != "gpt-5.4" {
+	if models, err := c.ListAgentModels(context.Background(), "opencode"); err != nil || models.Models[0].Id != "model-a" {
 		t.Fatalf("ListAgentModels = %+v, %v", models, err)
 	}
 	if restart, err := c.RestartAgentProvider(context.Background(), "opencode"); err != nil || restart.Health.Status != contract.AgentProviderHealthStatusHealthy {
@@ -151,10 +146,10 @@ func TestAgentRuntimeMethodsUseContractPaths(t *testing.T) {
 	if seen[0].method != http.MethodGet || seen[0].path != "/api/v1/agent/config" {
 		t.Fatalf("get config request: %+v", seen[0])
 	}
-	if seen[1].method != http.MethodPut || seen[1].path != "/api/v1/agent/config" || !strings.Contains(seen[1].body, `"codex":"sk-codex"`) {
+	if seen[1].method != http.MethodPut || seen[1].path != "/api/v1/agent/config" || !strings.Contains(seen[1].body, `"opencode":"sk-opencode"`) {
 		t.Fatalf("update config request: %+v", seen[1])
 	}
-	if seen[2].method != http.MethodGet || seen[2].path != "/api/v1/agent/models" || seen[2].query != "provider=codex" {
+	if seen[2].method != http.MethodGet || seen[2].path != "/api/v1/agent/models" || seen[2].query != "provider=opencode" {
 		t.Fatalf("models request: %+v", seen[2])
 	}
 	if seen[3].method != http.MethodPost || seen[3].path != "/api/v1/agent/restart" || !strings.Contains(seen[3].body, `"provider":"opencode"`) {

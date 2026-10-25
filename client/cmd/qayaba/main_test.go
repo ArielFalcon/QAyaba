@@ -10,15 +10,13 @@ import (
 	"github.com/ArielFalcon/qayaba/internal/api"
 )
 
-func TestParseRuntimeFlags(t *testing.T) {
-	flags, rest := parseRuntimeFlags([]string{"--opencode", "agent", "status"})
-	if flags.provider != "opencode" || flags.dual || len(rest) != 2 || rest[0] != "agent" {
-		t.Fatalf("opencode parse: flags=%+v rest=%v", flags, rest)
-	}
-
-	flags, rest = parseRuntimeFlags([]string{"--dual", "agent", "set", "--codex"})
-	if flags.provider != "codex" || flags.dual || len(rest) != 2 || rest[0] != "agent" || rest[1] != "set" {
-		t.Fatalf("last runtime flag should win: flags=%+v rest=%v", flags, rest)
+func TestUsageOffersNoRuntimeSelection(t *testing.T) {
+	var out bytes.Buffer
+	printInfo([]string{"--help"}, &out)
+	for _, gone := range []string{"--codex", "--dual", "--opencode", "agent set", "codex"} {
+		if strings.Contains(out.String(), gone) {
+			t.Fatalf("usage still mentions %q:\n%s", gone, out.String())
+		}
 	}
 }
 
@@ -57,7 +55,7 @@ func TestHelpNamesTheCommandsAndTheDefaultHost(t *testing.T) {
 
 func TestHelpIsHandledAfterASubcommandToo(t *testing.T) {
 	var out bytes.Buffer
-	if !printInfo([]string{"agent", "set", "--help"}, &out) || out.Len() == 0 {
+	if !printInfo([]string{"agent", "models", "--help"}, &out) || out.Len() == 0 {
 		t.Fatal("a --help after a subcommand must print the usage instead of running it")
 	}
 }

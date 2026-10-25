@@ -745,29 +745,29 @@ func TestAgentRendersLoadingAndConfig(t *testing.T) {
 		t.Fatalf("loading view missing 'loading':\n%s", out)
 	}
 
-	healthCodex := contract.AgentProviderHealth{
-		Provider:   "codex",
+	healthOpencode := contract.AgentProviderHealth{
+		Provider:   "opencode",
 		Status:     "needs_config",
 		Configured: false,
 	}
-	cfg := contract.PublicAgentConfig{
-		Mode:           "single",
-		SingleProvider: "opencode",
-	}
+	cfg := contract.PublicAgentConfig{}
 	cfg.Keys.Opencode = true
-	cfg.Keys.Codex = false
 	cfg.Health = &struct {
-		Codex    *contract.AgentProviderHealth `json:"codex,omitempty"`
 		Opencode *contract.AgentProviderHealth `json:"opencode,omitempty"`
-	}{Codex: &healthCodex}
+	}{Opencode: &healthOpencode}
 	cfg.Assignments.Primary = contract.RoleAssignment{Provider: "opencode", Model: "deepseek-v4-pro"}
 	cfg.Assignments.Reviewer = contract.RoleAssignment{Provider: "opencode", Model: "qwen3.7-max"}
 	cfg.Assignments.Chat = contract.RoleAssignment{Provider: "opencode", Model: "deepseek-v4-flash"}
 	m.loading = false
 	m.config = &cfg
 	out = m.View()
-	if !strings.Contains(out, "AGENT RUNTIME") || !strings.Contains(out, "single") {
-		t.Fatalf("config view missing mode:\n%s", out)
+	if !strings.Contains(out, "AGENT RUNTIME") {
+		t.Fatalf("config view missing title:\n%s", out)
+	}
+	for _, gone := range []string{"codex", "dual", "single"} {
+		if strings.Contains(strings.ToLower(out), gone) {
+			t.Fatalf("config view still mentions %q:\n%s", gone, out)
+		}
 	}
 	if !strings.Contains(out, "deepseek-v4-pro") {
 		t.Fatalf("config view missing model:\n%s", out)
@@ -832,16 +832,15 @@ func TestAgentApiKeyInputStagesSecretForApply(t *testing.T) {
 	if m.screen != agentScreenMenu {
 		t.Fatalf("screen after submit = %v, want menu", m.screen)
 	}
-	update := m.agentConfigUpdate(false)
+	update := m.agentConfigUpdate()
 	if update.ApiKeys == nil || update.ApiKeys.Opencode == nil || *update.ApiKeys.Opencode != "opencode-secret" {
 		t.Fatalf("opencode key was not staged in update: %+v", update.ApiKeys)
 	}
 }
 
-func TestAgentRoleModelSelectionUsesOnlySingleProviderModels(t *testing.T) {
+func TestAgentRoleModelSelectionUsesTheRuntimesModels(t *testing.T) {
 	m := agentModelWithConfig(sampleAgentConfig())
 	m.openModels = []contract.AgentModelInfo{{Id: "opencode-go/deepseek-v4-pro"}, {Id: "opencode-go/qwen3.7-max"}}
-	m.codexModels = []contract.AgentModelInfo{{Id: "gpt-5.4"}}
 	m.cursor = cursorForAgentAction(m, agentActionEditReviewer)
 
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -850,7 +849,7 @@ func TestAgentRoleModelSelectionUsesOnlySingleProviderModels(t *testing.T) {
 	}
 	for _, opt := range m.roleOptions("reviewer") {
 		if opt.provider != "opencode" {
-			t.Fatalf("single mode exposed non-selected provider: %+v", opt)
+			t.Fatalf("role selector exposed a provider the host does not run: %+v", opt)
 		}
 	}
 
@@ -861,50 +860,28 @@ func TestAgentRoleModelSelectionUsesOnlySingleProviderModels(t *testing.T) {
 	}
 }
 
-func TestAgentDualApplyWithOneProviderRequiresConfirmation(t *testing.T) {
-	cfg := sampleAgentConfig()
-	cfg.Mode = "dual"
-	cfg.Assignments.Primary.Provider = "opencode"
-	cfg.Assignments.Reviewer.Provider = "opencode"
-	cfg.Assignments.Chat.Provider = "opencode"
-	m := agentModelWithConfig(cfg)
-	m.cursor = cursorForAgentAction(m, agentActionApply)
-
-	var cmd tea.Cmd
-	m, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if cmd != nil {
-		t.Fatal("single-provider dual apply must wait for confirmation before issuing API command")
-	}
-	if m.screen != agentScreenConfirmDowngrade {
-		t.Fatalf("screen=%v, want confirm downgrade", m.screen)
-	}
-	update := m.agentConfigUpdate(true)
-	if update.ConfirmSingleDowngrade == nil || !*update.ConfirmSingleDowngrade {
-		t.Fatalf("confirm flag missing: %+v", update.ConfirmSingleDowngrade)
+func TestAgentMenuOffersNoModeOrSecondProviderActions(t *testing.T) {
+	m := agentModelWithConfig(sampleAgentConfig())
+	for _, item := range m.menuItems() {
+		label := strings.ToLower(item.label)
+		if strings.Contains(label, "codex") || strings.Contains(label, "dual") || strings.Contains(label, "single") {
+			t.Fatalf("menu item %q belongs to a removed runtime mode", item.label)
+		}
 	}
 }
 
-func TestAgentToggleDualAssignsReviewerToOppositeProvider(t *testing.T) {
+func TestAgentApplyIssuesTheUpdateWithoutAConfirmationStep(t *testing.T) {
 	m := agentModelWithConfig(sampleAgentConfig())
-	m.codexModels = []contract.AgentModelInfo{{Id: "gpt-5.4"}}
-	m.cursor = cursorForAgentAction(m, agentActionToggleMode)
-
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if m.draft.Mode != "dual" {
-		t.Fatalf("mode = %q, want dual", m.draft.Mode)
-	}
-	if m.draft.Assignments.Reviewer.Provider != "codex" || m.draft.Assignments.Reviewer.Model != "gpt-5.4" {
-		t.Fatalf("reviewer assignment = %+v", m.draft.Assignments.Reviewer)
+	m.cursor = cursorForAgentAction(m, agentActionApply)
+	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil || m.screen != agentScreenMenu {
+		t.Fatalf("apply must issue the API command straight away: cmd=%v screen=%v", cmd != nil, m.screen)
 	}
 }
 
 func sampleAgentConfig() contract.PublicAgentConfig {
-	cfg := contract.PublicAgentConfig{
-		Mode:           "single",
-		SingleProvider: "opencode",
-	}
+	cfg := contract.PublicAgentConfig{}
 	cfg.Keys.Opencode = true
-	cfg.Keys.Codex = false
 	cfg.Validation.Ok = true
 	cfg.Assignments.Primary = contract.RoleAssignment{Provider: "opencode", Model: "opencode-go/deepseek-v4-pro"}
 	cfg.Assignments.Reviewer = contract.RoleAssignment{Provider: "opencode", Model: "opencode-go/deepseek-v4-pro"}

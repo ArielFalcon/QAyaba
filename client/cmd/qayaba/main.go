@@ -17,11 +17,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-type runtimeFlagState struct {
-	provider string
-	dual     bool
-}
-
 // version is set at build time with -ldflags "-X main.version=<v>"; otherwise it is the module
 // version a `go install` records, or "dev".
 var version = ""
@@ -30,9 +25,9 @@ func main() {
 	if printInfo(os.Args[1:], os.Stdout) {
 		return
 	}
-	runtimeFlags, args := parseRuntimeFlags(os.Args[1:])
-	if runtimeFlags.provider != "" || runtimeFlags.dual || firstArg(args) == "agent" {
-		if err := runCommand(runtimeFlags, args); err != nil {
+	args := os.Args[1:]
+	if firstArg(args) == "agent" {
+		if err := runCommand(args); err != nil {
 			fmt.Fprintln(os.Stderr, "qayaba:", err)
 			os.Exit(1)
 		}
@@ -67,11 +62,8 @@ func usage() string {
 
 Usage:
   qayaba                                       open the interactive UI (needs a terminal)
-  qayaba --opencode | --codex                  run every agent role on one provider, then open the UI
-  qayaba --dual                                run primary and reviewer on different providers, then open the UI
   qayaba agent [status]                        print the agent runtime configuration
-  qayaba agent models <provider>               list a provider's models
-  qayaba agent set --opencode|--codex|--dual   change the agent runtime without opening the UI
+  qayaba agent models [provider]               list a provider's models
   qayaba --help | --version
 
 Environment:
@@ -90,40 +82,11 @@ func versionString() string {
 	return "dev"
 }
 
-func parseRuntimeFlags(args []string) (runtimeFlagState, []string) {
-	var state runtimeFlagState
-	rest := make([]string, 0, len(args))
-	for _, arg := range args {
-		switch arg {
-		case "--opencode":
-			state = runtimeFlagState{provider: "opencode"}
-		case "--codex":
-			state = runtimeFlagState{provider: "codex"}
-		case "--dual":
-			state = runtimeFlagState{dual: true}
-		default:
-			rest = append(rest, arg)
-		}
-	}
-	return state, rest
-}
-
-func runCommand(runtimeFlags runtimeFlagState, args []string) error {
+func runCommand(args []string) error {
 	client := api.New(defaultHostURL(), defaultToken())
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	if runtimeFlags.provider != "" || runtimeFlags.dual {
-		if err := applyRuntimeFlags(ctx, client, runtimeFlags); err != nil {
-			return err
-		}
-	}
-
-	if firstArg(args) != "agent" {
-		p := tea.NewProgram(ui.New(), tea.WithAltScreen())
-		_, err := p.Run()
-		return err
-	}
 	return runAgentCommand(ctx, client, args[1:])
 }
 
@@ -149,58 +112,13 @@ func runAgentCommand(ctx context.Context, client *api.Client, args []string) err
 			fmt.Printf("%s\t%s\n", models.Provider, model.Id)
 		}
 		return nil
-	case "set":
-		flags, _ := parseRuntimeFlags(args[1:])
-		return applyRuntimeFlags(ctx, client, flags)
 	default:
-		return fmt.Errorf("usage: qayaba agent [status|models <provider>|set --opencode|--codex|--dual]")
+		return fmt.Errorf("usage: qayaba agent [status|models [provider]]")
 	}
-}
-
-func applyRuntimeFlags(ctx context.Context, client *api.Client, flags runtimeFlagState) error {
-	if flags.provider != "" {
-		mode := contract.AgentConfigUpdateModeSingle
-		single := contract.AgentConfigUpdateSingleProvider(flags.provider)
-		_, err := client.UpdateAgentConfig(ctx, contract.AgentConfigUpdate{Mode: &mode, SingleProvider: &single})
-		return err
-	}
-	if !flags.dual {
-		return nil
-	}
-	cfg, err := client.GetAgentConfig(ctx)
-	if err != nil {
-		return err
-	}
-	primaryProvider := string(cfg.Assignments.Primary.Provider)
-	reviewerProvider := oppositeProvider(primaryProvider)
-	reviewerModels, err := client.ListAgentModels(ctx, reviewerProvider)
-	if err != nil {
-		return err
-	}
-	mode := contract.AgentConfigUpdateModeDual
-	single := contract.AgentConfigUpdateSingleProvider(cfg.SingleProvider)
-	primary := cfg.Assignments.Primary
-	reviewer := contract.RoleAssignment{Provider: contract.RoleAssignmentProvider(reviewerProvider), Model: firstModel(reviewerModels.Models, cfg.Assignments.Reviewer.Model)}
-	chat := cfg.Assignments.Chat
-	_, err = client.UpdateAgentConfig(ctx, contract.AgentConfigUpdate{
-		Mode:           &mode,
-		SingleProvider: &single,
-		Assignments: &struct {
-			Chat     *contract.RoleAssignment `json:"chat,omitempty"`
-			Primary  *contract.RoleAssignment `json:"primary,omitempty"`
-			Reviewer *contract.RoleAssignment `json:"reviewer,omitempty"`
-		}{Primary: &primary, Reviewer: &reviewer, Chat: &chat},
-	})
-	return err
 }
 
 func printAgentConfig(cfg contract.PublicAgentConfig) {
-	fmt.Printf("mode: %s", cfg.Mode)
-	if cfg.Mode == "single" {
-		fmt.Printf("/%s", cfg.SingleProvider)
-	}
-	fmt.Println()
-	fmt.Printf("keys: opencode=%t codex=%t\n", cfg.Keys.Opencode, cfg.Keys.Codex)
+	fmt.Printf("keys: opencode=%t\n", cfg.Keys.Opencode)
 	for _, role := range []struct {
 		name string
 		a    contract.RoleAssignment
@@ -246,18 +164,4 @@ func firstArg(args []string) string {
 		return ""
 	}
 	return args[0]
-}
-
-func oppositeProvider(provider string) string {
-	if provider == "opencode" {
-		return "codex"
-	}
-	return "opencode"
-}
-
-func firstModel(models []contract.AgentModelInfo, fallback string) string {
-	if len(models) > 0 {
-		return models[0].Id
-	}
-	return fallback
 }

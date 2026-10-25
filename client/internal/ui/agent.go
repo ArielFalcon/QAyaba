@@ -18,21 +18,16 @@ const (
 	agentScreenMenu agentScreen = iota
 	agentScreenKey
 	agentScreenRole
-	agentScreenConfirmDowngrade
 )
 
 type agentMenuAction string
 
 const (
-	agentActionToggleMode     agentMenuAction = "toggle-mode"
-	agentActionSwitchProvider agentMenuAction = "switch-provider"
 	agentActionEditPrimary    agentMenuAction = "edit-primary"
 	agentActionEditReviewer   agentMenuAction = "edit-reviewer"
 	agentActionEditChat       agentMenuAction = "edit-chat"
 	agentActionSetOpenKey     agentMenuAction = "set-opencode-key"
-	agentActionSetCodexKey    agentMenuAction = "set-codex-key"
 	agentActionRestartOpen    agentMenuAction = "restart-opencode"
-	agentActionRestartCodex   agentMenuAction = "restart-codex"
 	agentActionApply          agentMenuAction = "apply"
 	agentActionReset          agentMenuAction = "reset"
 )
@@ -57,7 +52,6 @@ type agentModel struct {
 	cursor        int
 	screen        agentScreen
 	openModels    []contract.AgentModelInfo
-	codexModels   []contract.AgentModelInfo
 	modelErrors   map[string]string
 	modelsLoading bool
 	keyProvider   string
@@ -87,7 +81,7 @@ func newAgentModel(client *api.Client) agentModel {
 }
 
 func (m agentModel) Init() tea.Cmd {
-	return tea.Batch(fetchAgentConfigCmd(m.client), fetchAgentModelsCmd(m.client, "opencode"), fetchAgentModelsCmd(m.client, "codex"), loadQueueCmd(m.client))
+	return tea.Batch(fetchAgentConfigCmd(m.client), fetchAgentModelsCmd(m.client, "opencode"), loadQueueCmd(m.client))
 }
 
 func (m agentModel) Update(msg tea.Msg) (agentModel, tea.Cmd) {
@@ -122,8 +116,6 @@ func (m agentModel) Update(msg tea.Msg) (agentModel, tea.Cmd) {
 		}
 		if msg.provider == "opencode" {
 			m.openModels = msg.models
-		} else {
-			m.codexModels = msg.models
 		}
 		return m, nil
 	case agentConfigAppliedMsg:
@@ -135,9 +127,6 @@ func (m agentModel) Update(msg tea.Msg) (agentModel, tea.Cmd) {
 			m.status = "applied · restarted " + strings.Join(restarted, ", ")
 		} else {
 			m.status = "applied · no restart needed"
-		}
-		if msg.result.Downgraded != nil && *msg.result.Downgraded {
-			m.status += " · downgraded to single"
 		}
 		cfg := msg.result.Config
 		draft := cloneAgentConfig(cfg)
@@ -154,16 +143,12 @@ func (m agentModel) Update(msg tea.Msg) (agentModel, tea.Cmd) {
 			switch msg.provider {
 			case "opencode":
 				m.config.Health.Opencode = &msg.health
-			case "codex":
-				m.config.Health.Codex = &msg.health
 			}
 		}
 		if m.draft != nil && m.draft.Health != nil {
 			switch msg.provider {
 			case "opencode":
 				m.draft.Health.Opencode = &msg.health
-			case "codex":
-				m.draft.Health.Codex = &msg.health
 			}
 		}
 		return m, nil
@@ -187,8 +172,6 @@ func (m agentModel) handleKey(msg tea.KeyMsg) (agentModel, tea.Cmd) {
 		return m.handleKeyInput(msg)
 	case agentScreenRole:
 		return m.handleRoleSelect(msg)
-	case agentScreenConfirmDowngrade:
-		return m.handleDowngradeConfirm(msg)
 	default:
 		return m.handleMenuKey(msg)
 	}
@@ -263,27 +246,11 @@ func (m agentModel) handleRoleSelect(msg tea.KeyMsg) (agentModel, tea.Cmd) {
 	return m, nil
 }
 
-func (m agentModel) handleDowngradeConfirm(msg tea.KeyMsg) (agentModel, tea.Cmd) {
-	switch msg.String() {
-	case "enter", "y":
-		return m, applyAgentConfigCmd(m.client, m.agentConfigUpdate(true))
-	case "esc", "n":
-		m.screen = agentScreenMenu
-	}
-	return m, nil
-}
-
 func (m agentModel) triggerAction(action agentMenuAction) (agentModel, tea.Cmd) {
 	if m.draft == nil {
 		return m, nil
 	}
 	switch action {
-	case agentActionToggleMode:
-		toggleDraftMode(m.draft, m.openModels, m.codexModels)
-		m.status = fmt.Sprintf("mode staged: %s", m.draft.Mode)
-	case agentActionSwitchProvider:
-		switchDraftSingleProvider(m.draft, m.openModels, m.codexModels)
-		m.status = fmt.Sprintf("provider staged: %s", m.draft.SingleProvider)
 	case agentActionEditPrimary:
 		m.openRoleEditor("primary")
 	case agentActionEditReviewer:
@@ -292,12 +259,8 @@ func (m agentModel) triggerAction(action agentMenuAction) (agentModel, tea.Cmd) 
 		m.openRoleEditor("chat")
 	case agentActionSetOpenKey:
 		return m.openKeyEditor("opencode"), textinput.Blink
-	case agentActionSetCodexKey:
-		return m.openKeyEditor("codex"), textinput.Blink
 	case agentActionRestartOpen:
 		return m, restartAgentProviderCmd(m.client, "opencode")
-	case agentActionRestartCodex:
-		return m, restartAgentProviderCmd(m.client, "codex")
 	case agentActionApply:
 		if m.busyRun != "" {
 			/* The server hard-blocks (409) runtime changes while a run is active, and they
@@ -305,11 +268,7 @@ func (m agentModel) triggerAction(action agentMenuAction) (agentModel, tea.Cmd) 
 			m.err = "a run is active on '" + m.busyRun + "' — its session keeps its current models; runtime changes are locked until it finishes. Stop the run from the NOW panel to change now."
 			return m, nil
 		}
-		if draftNeedsDowngradeConfirmation(*m.draft) {
-			m.screen = agentScreenConfirmDowngrade
-			return m, nil
-		}
-		return m, applyAgentConfigCmd(m.client, m.agentConfigUpdate(false))
+		return m, applyAgentConfigCmd(m.client, m.agentConfigUpdate())
 	case agentActionReset:
 		if m.config != nil {
 			draft := cloneAgentConfig(*m.config)
@@ -372,16 +331,13 @@ func (m agentModel) View() string {
 		return m.renderKeyInput()
 	case agentScreenRole:
 		return m.renderRoleSelect()
-	case agentScreenConfirmDowngrade:
-		return m.renderDowngradeConfirm()
 	}
 
 	w := contentWidth(m.width)
 	/* Reset the builder: the redesigned screen leads with a labelled rule, not the
 	   plain title written above (kept only for the loading / error fallbacks). */
 	b.Reset()
-	right := renderSegs("", sg("mode ", colFaint), sg(string(cfg.Mode), colFg), sg(" · ", colFaint), sg(string(cfg.SingleProvider), colDim))
-	b.WriteString(accentRule(w, "agent runtime", right) + "\n")
+	b.WriteString(accentRule(w, "agent runtime", "") + "\n")
 	if m.busyRun != "" {
 		b.WriteString(shadowStyle.Render(fmt.Sprintf("⚠ a run is active on '%s' — its session keeps its current models; runtime changes are locked until it finishes (stop the run from the NOW panel)", m.busyRun)) + "\n")
 	}
@@ -435,41 +391,20 @@ func (m agentModel) renderRoleSelect() string {
 	return screenStyle.Render(b.String())
 }
 
-func (m agentModel) renderDowngradeConfirm() string {
-	if m.draft == nil {
-		return screenStyle.Render(errorStyle.Render("agent config not loaded"))
-	}
-	w := contentWidth(m.width)
-	provider := uniqueDraftProvider(*m.draft)
-	if provider == "" {
-		provider = string(m.draft.SingleProvider)
-	}
-	var b strings.Builder
-	b.WriteString(accentRule(w, "agent runtime", shadowStyle.Render("confirm")) + "\n\n")
-	b.WriteString(shadowStyle.Render(fmt.Sprintf("dual uses only %s roles", provider)) + "\n")
-	b.WriteString(okStyle.Render("enter/y") + " convert to single/" + provider + "\n")
-	b.WriteString(hintStyle.Render("esc/n cancel"))
-	return screenStyle.Render(b.String())
-}
-
 /* renderProviders draws the providers as an aligned table under a labelled rule: a
    faint header row, a hairline, then one row per provider. Status (auth + health) uses
    the verdict ramp, never ad-hoc color, so the column reads at a glance. */
 func (m agentModel) renderProviders(w int, cfg *contract.PublicAgentConfig) string {
 	var b strings.Builder
-	b.WriteString(labelRule(w, "providers", hintStyle.Render("2")) + "\n")
+	b.WriteString(labelRule(w, "providers", hintStyle.Render("1")) + "\n")
 	b.WriteString(hintStyle.Render("  "+padRight("provider", 16)+padRight("auth", 10)+padRight("state", 16)+"health") + "\n")
 	b.WriteString(hairline(w) + "\n")
-	b.WriteString(providerRow("opencode", cfg, m.stagedKeys["opencode"] != "") + "\n")
-	b.WriteString(providerRow("codex", cfg, m.stagedKeys["codex"] != ""))
+	b.WriteString(providerRow("opencode", cfg, m.stagedKeys["opencode"] != ""))
 	return b.String()
 }
 
 func providerRow(provider string, cfg *contract.PublicAgentConfig, staged bool) string {
 	hasKey := cfg.Keys.Opencode
-	if provider == "codex" {
-		hasKey = cfg.Keys.Codex
-	}
 	authText, authCol := "ok", colPass
 	stateText, stateCol := "configured", colDim
 	if !hasKey {
@@ -483,13 +418,7 @@ func providerRow(provider string, cfg *contract.PublicAgentConfig, staged bool) 
 
 	icon, healthText, hcol := "○", "unknown", colFaint
 	if cfg.Health != nil {
-		var h *contract.AgentProviderHealth
-		if provider == "opencode" {
-			h = cfg.Health.Opencode
-		} else {
-			h = cfg.Health.Codex
-		}
-		if h != nil {
+		if h := cfg.Health.Opencode; h != nil {
 			healthText = string(h.Status)
 			switch h.Status {
 			case "healthy":
@@ -552,34 +481,22 @@ func (m agentModel) menuItems() []agentMenuItem {
 	if m.draft == nil {
 		return nil
 	}
-	items := []agentMenuItem{
-		{label: modeActionLabel(*m.draft), action: agentActionToggleMode},
-	}
-	if m.draft.Mode == "single" {
-		items = append(items, agentMenuItem{label: "switch single provider", action: agentActionSwitchProvider})
-	}
-	items = append(items,
+	return []agentMenuItem{
 		agentMenuItem{label: fmt.Sprintf("edit primary model (%s)", roleAssignment(*m.draft, "primary").Model), action: agentActionEditPrimary},
 		agentMenuItem{label: fmt.Sprintf("edit reviewer model (%s)", roleAssignment(*m.draft, "reviewer").Model), action: agentActionEditReviewer},
 		agentMenuItem{label: fmt.Sprintf("edit chat model (%s)", roleAssignment(*m.draft, "chat").Model), action: agentActionEditChat},
 		agentMenuItem{label: "set opencode api key", action: agentActionSetOpenKey},
-		agentMenuItem{label: "set codex api key", action: agentActionSetCodexKey},
 		agentMenuItem{label: "restart opencode", action: agentActionRestartOpen},
-		agentMenuItem{label: "restart codex", action: agentActionRestartCodex},
 		agentMenuItem{label: "apply changes", action: agentActionApply},
 		agentMenuItem{label: "reset draft", action: agentActionReset},
-	)
-	return items
+	}
 }
 
 func (m agentModel) roleOptions(role string) []agentRoleOption {
 	if m.draft == nil {
 		return nil
 	}
-	providers := []string{"opencode", "codex"}
-	if m.draft.Mode == "single" {
-		providers = []string{string(m.draft.SingleProvider)}
-	}
+	providers := []string{"opencode"}
 	current := roleAssignment(*m.draft, role)
 	var options []agentRoleOption
 	for _, provider := range providers {
@@ -605,21 +522,17 @@ func (m agentModel) modelsFor(provider string) []contract.AgentModelInfo {
 	if provider == "opencode" {
 		return m.openModels
 	}
-	return m.codexModels
+	return nil
 }
 
-func (m agentModel) agentConfigUpdate(confirm bool) contract.AgentConfigUpdate {
+func (m agentModel) agentConfigUpdate() contract.AgentConfigUpdate {
 	if m.draft == nil {
 		return contract.AgentConfigUpdate{}
 	}
-	mode := contract.AgentConfigUpdateMode(m.draft.Mode)
-	single := contract.AgentConfigUpdateSingleProvider(m.draft.SingleProvider)
 	primary := m.draft.Assignments.Primary
 	reviewer := m.draft.Assignments.Reviewer
 	chat := m.draft.Assignments.Chat
 	input := contract.AgentConfigUpdate{
-		Mode:           &mode,
-		SingleProvider: &single,
 		Assignments: &struct {
 			Chat     *contract.RoleAssignment `json:"chat,omitempty"`
 			Primary  *contract.RoleAssignment `json:"primary,omitempty"`
@@ -632,19 +545,12 @@ func (m agentModel) agentConfigUpdate(confirm bool) contract.AgentConfigUpdate {
 	}
 	if len(m.stagedKeys) > 0 {
 		keys := struct {
-			Codex    *string `json:"codex,omitempty"`
 			Opencode *string `json:"opencode,omitempty"`
 		}{}
 		if v := m.stagedKeys["opencode"]; v != "" {
 			keys.Opencode = &v
 		}
-		if v := m.stagedKeys["codex"]; v != "" {
-			keys.Codex = &v
-		}
 		input.ApiKeys = &keys
-	}
-	if confirm {
-		input.ConfirmSingleDowngrade = &confirm
 	}
 	return input
 }
@@ -749,75 +655,6 @@ func setDraftRole(cfg *contract.PublicAgentConfig, role, provider, model string)
 	default:
 		cfg.Assignments.Primary = assignment
 	}
-}
-
-func modeActionLabel(cfg contract.PublicAgentConfig) string {
-	if cfg.Mode == "dual" {
-		return "switch to single"
-	}
-	return "switch to dual"
-}
-
-func toggleDraftMode(cfg *contract.PublicAgentConfig, openModels, codexModels []contract.AgentModelInfo) {
-	if cfg.Mode == "dual" {
-		asSingleDraft(cfg, string(cfg.SingleProvider), openModels, codexModels)
-		return
-	}
-	cfg.Mode = "dual"
-	reviewerProvider := oppositeAgentProvider(string(cfg.SingleProvider))
-	cfg.Assignments.Reviewer = contract.RoleAssignment{
-		Provider: contract.RoleAssignmentProvider(reviewerProvider),
-		Model:    firstAgentModel(reviewerProvider, roleAssignment(*cfg, "reviewer").Model, openModels, codexModels),
-	}
-}
-
-func switchDraftSingleProvider(cfg *contract.PublicAgentConfig, openModels, codexModels []contract.AgentModelInfo) {
-	asSingleDraft(cfg, oppositeAgentProvider(string(cfg.SingleProvider)), openModels, codexModels)
-}
-
-func asSingleDraft(cfg *contract.PublicAgentConfig, provider string, openModels, codexModels []contract.AgentModelInfo) {
-	cfg.Mode = "single"
-	cfg.SingleProvider = contract.PublicAgentConfigSingleProvider(provider)
-	for _, role := range agentRoles() {
-		current := roleAssignment(*cfg, role).Model
-		setDraftRole(cfg, role, provider, firstAgentModel(provider, current, openModels, codexModels))
-	}
-}
-
-func firstAgentModel(provider, fallback string, openModels, codexModels []contract.AgentModelInfo) string {
-	models := openModels
-	if provider == "codex" {
-		models = codexModels
-	}
-	if len(models) > 0 {
-		return models[0].Id
-	}
-	return fallback
-}
-
-func oppositeAgentProvider(provider string) string {
-	if provider == "opencode" {
-		return "codex"
-	}
-	return "opencode"
-}
-
-func draftNeedsDowngradeConfirmation(cfg contract.PublicAgentConfig) bool {
-	return cfg.Mode == "dual" && uniqueDraftProvider(cfg) != ""
-}
-
-func uniqueDraftProvider(cfg contract.PublicAgentConfig) string {
-	providers := map[string]bool{}
-	for _, role := range agentRoles() {
-		providers[string(roleAssignment(cfg, role).Provider)] = true
-	}
-	if len(providers) != 1 {
-		return ""
-	}
-	for provider := range providers {
-		return provider
-	}
-	return ""
 }
 
 func currentRoleOptionIndex(options []agentRoleOption, assignment contract.RoleAssignment) int {

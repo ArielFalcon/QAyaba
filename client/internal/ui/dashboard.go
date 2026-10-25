@@ -990,18 +990,11 @@ func passRateStyle(rate float64, total int) lipgloss.Style {
 
 /* renderModels is the roster AND the entry to the switcher: each role's provider, model,
    and a provider health dot. When focused, ↑↓ picks a role and ↵ opens the full agent
-   screen (provider/model/dual/restart). The header states the runtime mode (single·dual). */
+   screen (provider/model/restart). */
 func (m dashboardModel) renderModels(w int) string {
 	focused := m.focus == focusModels
-	right := ""
-	switch string(m.sys.agent.Mode) {
-	case "dual":
-		right = renderSegs("", sg("dual", colFlaky))
-	case "single":
-		right = hintStyle.Render("single · " + string(m.sys.agent.SingleProvider))
-	}
 	var b strings.Builder
-	b.WriteString(panelRule(w, focused, "models", right) + "\n")
+	b.WriteString(panelRule(w, focused, "models", "") + "\n")
 	for i, r := range m.modelRoleList() {
 		model := r.as.Model
 		if model == "" {
@@ -1034,11 +1027,8 @@ func (m dashboardModel) providerDot(provider string) string {
 		return hintStyle.Render("·")
 	}
 	var h *contract.AgentProviderHealth
-	switch provider {
-	case "opencode":
+	if provider == "opencode" {
 		h = m.sys.agent.Health.Opencode
-	case "codex":
-		h = m.sys.agent.Health.Codex
 	}
 	if h == nil {
 		return hintStyle.Render("·")

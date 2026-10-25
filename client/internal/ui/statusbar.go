@@ -69,9 +69,6 @@ func healthDots(sys systemState) string {
 	if h := sys.agent.Health.Opencode; h != nil {
 		dots = append(dots, healthDot(h.Status))
 	}
-	if h := sys.agent.Health.Codex; h != nil {
-		dots = append(dots, healthDot(h.Status))
-	}
 	return strings.Join(dots, " ")
 }
 

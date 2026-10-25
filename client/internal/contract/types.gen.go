@@ -59,52 +59,13 @@ func (e AgentActivityStatus) Valid() bool {
 
 // Defines values for AgentConfigApplyResultRestarted.
 const (
-	AgentConfigApplyResultRestartedCodex    AgentConfigApplyResultRestarted = "codex"
 	AgentConfigApplyResultRestartedOpencode AgentConfigApplyResultRestarted = "opencode"
 )
 
 // Valid indicates whether the value is a known member of the AgentConfigApplyResultRestarted enum.
 func (e AgentConfigApplyResultRestarted) Valid() bool {
 	switch e {
-	case AgentConfigApplyResultRestartedCodex:
-		return true
 	case AgentConfigApplyResultRestartedOpencode:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for AgentConfigUpdateMode.
-const (
-	AgentConfigUpdateModeDual   AgentConfigUpdateMode = "dual"
-	AgentConfigUpdateModeSingle AgentConfigUpdateMode = "single"
-)
-
-// Valid indicates whether the value is a known member of the AgentConfigUpdateMode enum.
-func (e AgentConfigUpdateMode) Valid() bool {
-	switch e {
-	case AgentConfigUpdateModeDual:
-		return true
-	case AgentConfigUpdateModeSingle:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for AgentConfigUpdateSingleProvider.
-const (
-	AgentConfigUpdateSingleProviderCodex    AgentConfigUpdateSingleProvider = "codex"
-	AgentConfigUpdateSingleProviderOpencode AgentConfigUpdateSingleProvider = "opencode"
-)
-
-// Valid indicates whether the value is a known member of the AgentConfigUpdateSingleProvider enum.
-func (e AgentConfigUpdateSingleProvider) Valid() bool {
-	switch e {
-	case AgentConfigUpdateSingleProviderCodex:
-		return true
-	case AgentConfigUpdateSingleProviderOpencode:
 		return true
 	default:
 		return false
@@ -113,15 +74,12 @@ func (e AgentConfigUpdateSingleProvider) Valid() bool {
 
 // Defines values for AgentModelInfoProvider.
 const (
-	AgentModelInfoProviderCodex    AgentModelInfoProvider = "codex"
 	AgentModelInfoProviderOpencode AgentModelInfoProvider = "opencode"
 )
 
 // Valid indicates whether the value is a known member of the AgentModelInfoProvider enum.
 func (e AgentModelInfoProvider) Valid() bool {
 	switch e {
-	case AgentModelInfoProviderCodex:
-		return true
 	case AgentModelInfoProviderOpencode:
 		return true
 	default:
@@ -131,15 +89,12 @@ func (e AgentModelInfoProvider) Valid() bool {
 
 // Defines values for AgentModelsResponseProvider.
 const (
-	AgentModelsResponseProviderCodex    AgentModelsResponseProvider = "codex"
 	AgentModelsResponseProviderOpencode AgentModelsResponseProvider = "opencode"
 )
 
 // Valid indicates whether the value is a known member of the AgentModelsResponseProvider enum.
 func (e AgentModelsResponseProvider) Valid() bool {
 	switch e {
-	case AgentModelsResponseProviderCodex:
-		return true
 	case AgentModelsResponseProviderOpencode:
 		return true
 	default:
@@ -149,15 +104,12 @@ func (e AgentModelsResponseProvider) Valid() bool {
 
 // Defines values for AgentProviderHealthProvider.
 const (
-	AgentProviderHealthProviderCodex    AgentProviderHealthProvider = "codex"
 	AgentProviderHealthProviderOpencode AgentProviderHealthProvider = "opencode"
 )
 
 // Valid indicates whether the value is a known member of the AgentProviderHealthProvider enum.
 func (e AgentProviderHealthProvider) Valid() bool {
 	switch e {
-	case AgentProviderHealthProviderCodex:
-		return true
 	case AgentProviderHealthProviderOpencode:
 		return true
 	default:
@@ -197,15 +149,12 @@ func (e AgentProviderHealthStatus) Valid() bool {
 
 // Defines values for AgentRestartRequestProvider.
 const (
-	AgentRestartRequestProviderCodex    AgentRestartRequestProvider = "codex"
 	AgentRestartRequestProviderOpencode AgentRestartRequestProvider = "opencode"
 )
 
 // Valid indicates whether the value is a known member of the AgentRestartRequestProvider enum.
 func (e AgentRestartRequestProvider) Valid() bool {
 	switch e {
-	case AgentRestartRequestProviderCodex:
-		return true
 	case AgentRestartRequestProviderOpencode:
 		return true
 	default:
@@ -864,60 +813,6 @@ func (e OnboardingJobStatusState) Valid() bool {
 	}
 }
 
-// Defines values for PublicAgentConfigMode.
-const (
-	PublicAgentConfigModeDual   PublicAgentConfigMode = "dual"
-	PublicAgentConfigModeSingle PublicAgentConfigMode = "single"
-)
-
-// Valid indicates whether the value is a known member of the PublicAgentConfigMode enum.
-func (e PublicAgentConfigMode) Valid() bool {
-	switch e {
-	case PublicAgentConfigModeDual:
-		return true
-	case PublicAgentConfigModeSingle:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for PublicAgentConfigSingleProvider.
-const (
-	PublicAgentConfigSingleProviderCodex    PublicAgentConfigSingleProvider = "codex"
-	PublicAgentConfigSingleProviderOpencode PublicAgentConfigSingleProvider = "opencode"
-)
-
-// Valid indicates whether the value is a known member of the PublicAgentConfigSingleProvider enum.
-func (e PublicAgentConfigSingleProvider) Valid() bool {
-	switch e {
-	case PublicAgentConfigSingleProviderCodex:
-		return true
-	case PublicAgentConfigSingleProviderOpencode:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for PublicAgentConfigValidationDowngradeProvider.
-const (
-	PublicAgentConfigValidationDowngradeProviderCodex    PublicAgentConfigValidationDowngradeProvider = "codex"
-	PublicAgentConfigValidationDowngradeProviderOpencode PublicAgentConfigValidationDowngradeProvider = "opencode"
-)
-
-// Valid indicates whether the value is a known member of the PublicAgentConfigValidationDowngradeProvider enum.
-func (e PublicAgentConfigValidationDowngradeProvider) Valid() bool {
-	switch e {
-	case PublicAgentConfigValidationDowngradeProviderCodex:
-		return true
-	case PublicAgentConfigValidationDowngradeProviderOpencode:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for QaCaseNetworkClass.
 const (
 	Backend QaCaseNetworkClass = "backend"
@@ -1172,15 +1067,12 @@ func (e ReportInsightUnit) Valid() bool {
 
 // Defines values for RoleAssignmentProvider.
 const (
-	RoleAssignmentProviderCodex    RoleAssignmentProvider = "codex"
 	RoleAssignmentProviderOpencode RoleAssignmentProvider = "opencode"
 )
 
 // Valid indicates whether the value is a known member of the RoleAssignmentProvider enum.
 func (e RoleAssignmentProvider) Valid() bool {
 	switch e {
-	case RoleAssignmentProviderCodex:
-		return true
 	case RoleAssignmentProviderOpencode:
 		return true
 	default:
@@ -1676,16 +1568,13 @@ func (e UpdateAppInputTarget) Valid() bool {
 
 // Defines values for ListAgentModelsParamsProvider.
 const (
-	ListAgentModelsParamsProviderCodex    ListAgentModelsParamsProvider = "codex"
-	ListAgentModelsParamsProviderOpencode ListAgentModelsParamsProvider = "opencode"
+	Opencode ListAgentModelsParamsProvider = "opencode"
 )
 
 // Valid indicates whether the value is a known member of the ListAgentModelsParamsProvider enum.
 func (e ListAgentModelsParamsProvider) Valid() bool {
 	switch e {
-	case ListAgentModelsParamsProviderCodex:
-		return true
-	case ListAgentModelsParamsProviderOpencode:
+	case Opencode:
 		return true
 	default:
 		return false
@@ -1777,9 +1666,8 @@ type AgentActivityStatus string
 
 // AgentConfigApplyResult defines model for AgentConfigApplyResult.
 type AgentConfigApplyResult struct {
-	Config     PublicAgentConfig                 `json:"config"`
-	Downgraded *bool                             `json:"downgraded,omitempty"`
-	Restarted  []AgentConfigApplyResultRestarted `json:"restarted"`
+	Config    PublicAgentConfig                 `json:"config"`
+	Restarted []AgentConfigApplyResultRestarted `json:"restarted"`
 }
 
 // AgentConfigApplyResultRestarted defines model for AgentConfigApplyResult.Restarted.
@@ -1788,7 +1676,6 @@ type AgentConfigApplyResultRestarted string
 // AgentConfigUpdate defines model for AgentConfigUpdate.
 type AgentConfigUpdate struct {
 	ApiKeys *struct {
-		Codex    *string `json:"codex,omitempty"`
 		Opencode *string `json:"opencode,omitempty"`
 	} `json:"apiKeys,omitempty"`
 	Assignments *struct {
@@ -1796,16 +1683,7 @@ type AgentConfigUpdate struct {
 		Primary  *RoleAssignment `json:"primary,omitempty"`
 		Reviewer *RoleAssignment `json:"reviewer,omitempty"`
 	} `json:"assignments,omitempty"`
-	ConfirmSingleDowngrade *bool                            `json:"confirmSingleDowngrade,omitempty"`
-	Mode                   *AgentConfigUpdateMode           `json:"mode,omitempty"`
-	SingleProvider         *AgentConfigUpdateSingleProvider `json:"singleProvider,omitempty"`
 }
-
-// AgentConfigUpdateMode defines model for AgentConfigUpdate.Mode.
-type AgentConfigUpdateMode string
-
-// AgentConfigUpdateSingleProvider defines model for AgentConfigUpdate.SingleProvider.
-type AgentConfigUpdateSingleProvider string
 
 // AgentModelInfo defines model for AgentModelInfo.
 type AgentModelInfo struct {
@@ -2461,32 +2339,17 @@ type PublicAgentConfig struct {
 		Reviewer RoleAssignment `json:"reviewer"`
 	} `json:"assignments"`
 	Health *struct {
-		Codex    *AgentProviderHealth `json:"codex,omitempty"`
 		Opencode *AgentProviderHealth `json:"opencode,omitempty"`
 	} `json:"health,omitempty"`
 	Keys struct {
-		Codex    bool `json:"codex"`
 		Opencode bool `json:"opencode"`
 	} `json:"keys"`
-	Mode           PublicAgentConfigMode           `json:"mode"`
-	SingleProvider PublicAgentConfigSingleProvider `json:"singleProvider"`
-	Validation     struct {
-		DowngradeProvider                   *PublicAgentConfigValidationDowngradeProvider `json:"downgradeProvider,omitempty"`
-		Errors                              []string                                      `json:"errors"`
-		Ok                                  bool                                          `json:"ok"`
-		RequiresSingleDowngradeConfirmation *bool                                         `json:"requiresSingleDowngradeConfirmation,omitempty"`
-		Warnings                            *[]string                                     `json:"warnings,omitempty"`
+	Validation struct {
+		Errors   []string  `json:"errors"`
+		Ok       bool      `json:"ok"`
+		Warnings *[]string `json:"warnings,omitempty"`
 	} `json:"validation"`
 }
-
-// PublicAgentConfigMode defines model for PublicAgentConfig.Mode.
-type PublicAgentConfigMode string
-
-// PublicAgentConfigSingleProvider defines model for PublicAgentConfig.SingleProvider.
-type PublicAgentConfigSingleProvider string
-
-// PublicAgentConfigValidationDowngradeProvider defines model for PublicAgentConfig.Validation.DowngradeProvider.
-type PublicAgentConfigValidationDowngradeProvider string
 
 // QaCase defines model for QaCase.
 type QaCase struct {

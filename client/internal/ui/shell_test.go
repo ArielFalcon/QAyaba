@@ -65,7 +65,6 @@ func TestHealthDots(t *testing.T) {
 	}
 	s := systemState{}
 	s.agent.Health = &struct {
-		Codex    *contract.AgentProviderHealth `json:"codex,omitempty"`
 		Opencode *contract.AgentProviderHealth `json:"opencode,omitempty"`
 	}{Opencode: &contract.AgentProviderHealth{Status: contract.AgentProviderHealthStatusHealthy}}
 	if dots := healthDots(s); !strings.Contains(dots, "●") {
