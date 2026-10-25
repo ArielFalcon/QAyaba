@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AppConfigInvalidError, AppNotFoundError, expandEnv, loadAppConfig, loadAppConfigsByRepo } from "./config-loader";
+import { AppConfigInvalidError, AppNotFoundError, describeAppLoadFailure, expandEnv, loadAppConfig, loadAppConfigsByRepo } from "./config-loader";
 
 test("expandEnv resolves mixed-case ${Var} names, not just UPPERCASE", () => {
   const out = expandEnv("a: ${myToken}\nb: ${UPPER}", { myToken: "x", UPPER: "y" });
@@ -151,3 +151,9 @@ report:
     }
   });
 }
+
+test("describeAppLoadFailure words an absent app and an unloadable config, and leaves any other failure to the caller", () => {
+  assert.equal(describeAppLoadFailure("shop", new AppNotFoundError("shop")), "app not found: 'shop'");
+  assert.equal(describeAppLoadFailure("shop", new AppConfigInvalidError("shop", "bad yaml")), "app config invalid: 'shop': bad yaml");
+  assert.equal(describeAppLoadFailure("shop", new Error("disk unreachable")), undefined);
+});

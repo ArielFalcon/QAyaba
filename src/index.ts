@@ -9,7 +9,7 @@ import { randomBytes } from "node:crypto";
 import { writeFileSync, readFileSync, rmSync, unlinkSync, existsSync } from "node:fs";
 import { JobQueue } from "./server/queue";
 import { handleWebhook } from "./server/webhook";
-import { loadAppConfig, listAppConfigs } from "./orchestrator/config-loader";
+import { describeAppLoadFailure, loadAppConfig, listAppConfigs } from "./orchestrator/config-loader";
 
 import { YamlAppConfigAdapter } from "../qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter";
 import { resolveWebhookDispatch, type WebhookDispatch } from "./server/webhook-routing";
@@ -689,8 +689,10 @@ const apiDeps: ApiDeps = {
       let app;
       try {
         app = loadAppConfig(name);
-      } catch {
-        return { ok: false, error: `app not found: '${name}'` };
+      } catch (err) {
+        const error = describeAppLoadFailure(name, err);
+        if (error === undefined) throw err;
+        return { ok: false, error };
       }
       const repo = input.repo ?? app.repo;
       const services = input.services ?? app.services?.map((s) => s.repo) ?? [];

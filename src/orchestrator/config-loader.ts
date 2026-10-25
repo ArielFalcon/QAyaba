@@ -29,6 +29,13 @@ export class AppConfigInvalidError extends Error {
   }
 }
 
+/** The words a caller that reports instead of throwing uses for a failed load, or undefined when the failure is not about the app's config and must propagate. */
+export function describeAppLoadFailure(name: string, err: unknown): string | undefined {
+  if (err instanceof AppNotFoundError) return `app not found: '${name}'`;
+  if (err instanceof AppConfigInvalidError) return err.message;
+  return undefined;
+}
+
 /** Throws AppNotFoundError when the app has no config file and AppConfigInvalidError when the file cannot be loaded; these two are the only errors a caller is meant to tell apart. */
 export function loadAppConfig(name: string, root = ROOT): ValidatedAppConfig {
   const path = join(root, "config", "apps", `${name}.yaml`);
