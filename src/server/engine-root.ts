@@ -45,12 +45,10 @@ import { TracedObjectiveSignalPort } from "../../qa-engine/src/contexts/objectiv
 import type { SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port";
 import { sanitizedPlanSnapshots, type PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port";
 
-import { ChangeAnalysisPortAdapter } from "../../qa-engine/src/contexts/change-analysis/infrastructure/adapters/change-analysis-port.adapter";
 import { GenerationPortAdapter, type GenerationPortCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/generation-port.adapter";
 import { ReviewPortAdapter, type ReviewPortRuntime } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/review-port.adapter";
 import { ValidationPortAdapter } from "../../qa-engine/src/contexts/test-execution/infrastructure/adapters/validation-port.adapter";
 import { ExecutionPortAdapter } from "../../qa-engine/src/contexts/test-execution/infrastructure/adapters/execution-port.adapter";
-import { ObjectiveSignalPortAdapter } from "../../qa-engine/src/contexts/objective-signal/infrastructure/adapters/objective-signal-port.adapter";
 import { PublicationPortAdapter, type GitHubPrCollaborator, type GitHubIssueCollaborator, type VcsPublishCollaborator } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter";
 import { LearningPortAdapter } from "../../qa-engine/src/contexts/cross-run-learning/infrastructure/adapters/learning-port.adapter";
 import { WorkspaceRegistry } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/workspace-registry";
@@ -64,22 +62,19 @@ import { CleanupPortAdapter, type CleanupPortCollaborators } from "../../qa-engi
 import { PreGenerationGroundingPortAdapter, type PreGenerationGroundingCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter";
 import { ReviewDomGroundingPortAdapter, type ReviewDomGroundingCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/review-dom-grounding-port.adapter";
 import { PreExecGroundingPortAdapter, type PreExecGroundingCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/pre-exec-grounding-port.adapter";
-import { ADVISORY_BUDGET, StructuralSignalPortAdapter } from "../../qa-engine/src/contexts/change-analysis/infrastructure/adapters/structural-signal-port.adapter";
-import { ChangePagesPortAdapter } from "../../qa-engine/src/contexts/service-topology/infrastructure/adapters/change-pages-port.adapter";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port";
 import type { CoChangePort } from "@kernel/ports/co-change.port";
 import type { CodeExplorePort } from "@kernel/ports/code-explore.port";
-import { ServiceLinksPortAdapter } from "../../qa-engine/src/contexts/service-topology/infrastructure/adapters/service-links-port.adapter";
-import { MirrorRegistryAdapter } from "@contexts/service-topology/infrastructure/mirror-registry.adapter";
 import type { BoundaryProfileProviderPort } from "@contexts/service-topology/application/index";
-import { CrossRepoImpactPortAdapter } from "../../qa-engine/src/contexts/service-topology/infrastructure/adapters/cross-repo-impact-port.adapter";
-import { GitMirrorReadAdapter } from "@contexts/change-analysis/infrastructure/git-mirror-read.adapter";
 import type { ExecScopePort } from "../../qa-engine/src/shared-kernel/ports/exec-scope.port";
 import type { SandboxedBinaryRunner } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner";
 import { PatternRedactionAdapter } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
 import { readConfinedSpecFile } from "../../qa-engine/src/shared-infrastructure/spec-path-confinement";
 import { confinedSpecFiles } from "../../qa-engine/src/shared-infrastructure/spec-files.adapter";
 
+import { buildChangeAnalysis } from "../../qa-engine/src/contexts/change-analysis/composition/build-change-analysis";
+import { buildServiceTopology } from "../../qa-engine/src/contexts/service-topology/composition/build-service-topology";
+import { buildObjectiveSignal } from "../../qa-engine/src/contexts/objective-signal/composition/build-objective-signal";
 import { GenerateTestsUseCase, type GenerationResult, type GenerateOpts } from "@contexts/generation/application/generate-tests.use-case";
 import type { OpencodeRunInput, ArchitectureContext, StepLimitFor } from "@contexts/generation/application/index";
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance";
@@ -89,7 +84,7 @@ import type { StaticGateAdapter } from "@contexts/test-execution/infrastructure/
 import type { E2eExecutionStrategy } from "@contexts/test-execution/infrastructure/e2e-execution.strategy";
 import type { CodeExecutionStrategy } from "@contexts/test-execution/infrastructure/code-execution.strategy";
 import type { CodeValidationStrategy } from "@contexts/test-execution/infrastructure/code-validation.strategy";
-import { DecideCoverageService, type CoveragePolicy, type ChangeCoverage } from "@contexts/objective-signal/domain/decide-coverage.service";
+import type { CoveragePolicy, ChangeCoverage } from "@contexts/objective-signal/domain/decide-coverage.service";
 import type { CoverageCollectorPort, ValueOraclePort } from "@contexts/objective-signal/application/index";
 import { PublishDecisionService } from "@contexts/workspace-and-publication/domain/publish-decision.service";
 import { ShadowLogAdapter } from "@contexts/workspace-and-publication/infrastructure/shadow-log.adapter";
@@ -97,7 +92,6 @@ import { renderIssue, renderPrBody } from "@contexts/workspace-and-publication/d
 import type { VcsReadPort } from "@contexts/change-analysis/application/index";
 import type { LearningRepositoryPort, ReflectorPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/index";
 import { StubLearningRepository } from "@contexts/cross-run-learning/infrastructure/stub-learning-repository.adapter";
-import { extractSpecContract } from "@contexts/objective-signal/infrastructure/ts-spec-contract.extractor";
 
 /* What the shell hands the root to let a run grant its generator the run_spec tool. Absent: the run never does. */
 export interface ClosedLoopWiring {
@@ -395,7 +389,22 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
   publication: RunPipelineAdapterDeps["publication"];
   runHistory: RunPipelineAdapterDeps["runHistory"];
 } {
-  const changeAnalysis = new ChangeAnalysisPortAdapter(cfg.vcs);
+  const codeGraphPort = cfg.codeGraph;
+  const changeAnalysisApi = buildChangeAnalysis({
+    vcs: cfg.vcs,
+    ...(codeGraphPort && cfg.coChange
+      ? {
+          structural: {
+            codeGraph: codeGraphPort,
+            coChange: cfg.coChange,
+            /* Classify-source repo root (SERVICE on a webhook, PRIMARY otherwise) — not the e2e subfolder and not always the primary suite mirror (see StructuralSignalPortAdapter). */
+            repoDir: cfg.codeGraphRepoDir ?? cfg.mirrorDir,
+            ...(cfg.structuralDossier && cfg.codeExplore ? { explore: cfg.codeExplore } : {}),
+          },
+        }
+      : {}),
+  });
+  const changeAnalysis = changeAnalysisApi.changeAnalysis;
 
   const generation = new GenerationPortAdapter(
     cfg.generationUseCase as GenerateTestsUseCase,
@@ -498,14 +507,30 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
   const geolocation = cfg.geolocation && !cfg.isCode ? new GeolocationPortAdapter(cfg.geolocation) : undefined;
 
   /* The change's pages over the run's call graph: the index the index phase built (the change's repo, and on a service run the app's own). */
-  const changePages = cfg.codeGraph && !cfg.isCode
-    ? new ChangePagesPortAdapter({
-        codeGraph: cfg.codeGraph,
-        repoDir: cfg.codeGraphRepoDir ?? cfg.mirrorDir,
-        ...(cfg.codeGraphPrimary ? { pagesRepoDir: cfg.codeGraphPrimary.repoDir } : {}),
-        budget: ADVISORY_BUDGET,
-      })
-    : undefined;
+  const topology = buildServiceTopology({
+    ...(cfg.serviceTopology ? { links: { ...cfg.serviceTopology } } : {}),
+    ...(cfg.crossRepoImpact
+      ? {
+          impact: {
+            mirrorRoot: cfg.crossRepoImpact.mirrorRoot,
+            runner: cfg.crossRepoImpact.runner,
+            makeVcs: (repoDir) => changeAnalysisApi.mirrorReader(repoDir, cfg.crossRepoImpact!.runner),
+            ...(codeGraphPort ? { codeGraph: codeGraphPort } : {}),
+          },
+        }
+      : {}),
+    ...(cfg.codeGraph && !cfg.isCode
+      ? {
+          pages: {
+            codeGraph: cfg.codeGraph,
+            repoDir: cfg.codeGraphRepoDir ?? cfg.mirrorDir,
+            ...(cfg.codeGraphPrimary ? { pagesRepoDir: cfg.codeGraphPrimary.repoDir } : {}),
+            budget: changeAnalysisApi.advisoryBudget,
+          },
+        }
+      : {}),
+  });
+  const changePages = topology.changePages;
   const groundingCollaborators: PreGenerationGroundingCollaborators = { ...(changePages ? { changePages } : {}), ...cfg.groundingCollaborators };
   const preGenerationGrounding = !cfg.isCode
     ? new PreGenerationGroundingPortAdapter(
@@ -549,56 +574,23 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
     : undefined;
 
   /* StructuralSignalPort: optional, never a stub. It reads the same CodeGraphPort RunQaUseCaseDeps.codeGraph indexes — do not double-construct. Unindexed repo → empty advisory. */
-  const codeGraphPort = cfg.codeGraph;
-  const plainStructuralSignal = codeGraphPort && cfg.coChange
-    ? new StructuralSignalPortAdapter(
-        codeGraphPort,
-        cfg.coChange,
-        /* Classify-source repo root (SERVICE on a webhook, PRIMARY otherwise) — not the e2e subfolder and not always the primary suite mirror (see StructuralSignalPortAdapter). */
-        cfg.codeGraphRepoDir ?? cfg.mirrorDir,
-        cfg.structuralDossier && cfg.codeExplore ? { explore: cfg.codeExplore } : undefined,
-      )
-    : undefined;
+  const plainStructuralSignal = changeAnalysisApi.structuralSignal;
   const structuralSignal = plainStructuralSignal && cfg.telemetry ? new TracedStructuralSignalPort(plainStructuralSignal, cfg.telemetry) : plainStructuralSignal;
 
-  const plainServiceLinks = cfg.serviceTopology
-    ? new ServiceLinksPortAdapter(
-        cfg.serviceTopology.boundaryProfiles,
-        new MirrorRegistryAdapter(cfg.serviceTopology.mirrorRoot), /* DI: real port impl, not a static call */
-        {
-          appName: cfg.serviceTopology.appName,
-          primaryRepo: cfg.serviceTopology.primaryRepo,
-          services: cfg.serviceTopology.services,
-        },
-      )
-    : undefined;
-  const serviceLinks = plainServiceLinks && cfg.telemetry ? new TracedServiceLinksPort(plainServiceLinks, cfg.telemetry) : plainServiceLinks;
+  const serviceLinks = topology.serviceLinks && cfg.telemetry ? new TracedServiceLinksPort(topology.serviceLinks, cfg.telemetry) : topology.serviceLinks;
+  const crossRepoImpact = topology.crossRepoImpact && cfg.telemetry ? new TracedCrossRepoImpactPort(topology.crossRepoImpact, cfg.telemetry) : topology.crossRepoImpact;
 
-  const plainCrossRepoImpact = cfg.crossRepoImpact
-    ? new CrossRepoImpactPortAdapter({
-        mirrors: new MirrorRegistryAdapter(cfg.crossRepoImpact.mirrorRoot),
-        makeVcs: (repoDir) => new GitMirrorReadAdapter(repoDir, cfg.crossRepoImpact!.runner),
-        ...(codeGraphPort ? { codeGraph: codeGraphPort } : {}),
-        runner: cfg.crossRepoImpact.runner, /* same runner — no extra spawn surface */
-      })
-    : undefined;
-  const crossRepoImpact = plainCrossRepoImpact && cfg.telemetry ? new TracedCrossRepoImpactPort(plainCrossRepoImpact, cfg.telemetry) : plainCrossRepoImpact;
-
-  const plainObjectiveSignal = new ObjectiveSignalPortAdapter(
-    {
-      collector: cfg.objectiveSignal.collector as CoverageCollectorPort,
-      decide: new DecideCoverageService(),
-      oracle: cfg.objectiveSignal.oracle as ValueOraclePort,
-    },
-    {
-      policy: cfg.coveragePolicy,
-      repoDir: cfg.mirrorDir,
-      /* Same per-run namespace ExecutionPortAdapter uses (`cfg.branch`) so coverage dumps are read from the directory execution wrote. */
-      namespace: cfg.branch,
-      ...(cfg.assembleChangeCoverage ? { assembleChangeCoverage: cfg.assembleChangeCoverage } : {}),
-      ...(cfg.baselineCases ? { baselineCases: cfg.baselineCases } : {}),
-    },
-  );
+  const objectiveSignalApi = buildObjectiveSignal({
+    collector: cfg.objectiveSignal.collector,
+    oracle: cfg.objectiveSignal.oracle,
+    policy: cfg.coveragePolicy,
+    repoDir: cfg.mirrorDir,
+    /* Same per-run namespace ExecutionPortAdapter uses (`cfg.branch`) so coverage dumps are read from the directory execution wrote. */
+    namespace: cfg.branch,
+    ...(cfg.assembleChangeCoverage ? { assembleChangeCoverage: cfg.assembleChangeCoverage } : {}),
+    ...(cfg.baselineCases ? { baselineCases: cfg.baselineCases } : {}),
+  });
+  const plainObjectiveSignal = objectiveSignalApi.objectiveSignal;
   const objectiveSignal: ObjectiveSignalPort = cfg.telemetry ? new TracedObjectiveSignalPort(plainObjectiveSignal, cfg.telemetry) : plainObjectiveSignal;
 
   const plainLearning = new LearningPortAdapter(cfg.learningRepo ?? new StubLearningRepository(), cfg.appName);
@@ -668,7 +660,7 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
     deployGate,
     runHistory,
     /* The intent lock's parser: pure, no I/O, so one instance serves every run. */
-    intentContract: { extract: extractSpecContract },
+    intentContract: objectiveSignalApi.intentContract,
     ...(cfg.execScope ? { execScope: cfg.execScope } : {}),
     ...(closedLoop ? { closedLoop } : {}),
     ...(agentBrowser ? { agentBrowser } : {}),
