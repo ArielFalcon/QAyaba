@@ -187,6 +187,12 @@ export const PROTECTED_PATHS: string[] = [
    * publication around the registry or drop the sanitizer without touching the adapters.
    */
   "qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication.ts",
+  /*
+   * The agent-tools builder — decides which tool a run grants its authoring agents (run_spec, the authenticated
+   * browser, the code-graph tools) and for which target. An autonomous edit can grant a tool to a code run or
+   * drop the account lease without touching the adapters.
+   */
+  "qa-engine/src/contexts/agent-tools/composition/build-agent-tools.ts",
 
   "qa-engine/src/shared-kernel/ports/redaction.port.ts",
   /*
