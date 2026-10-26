@@ -256,7 +256,7 @@ export const AppConfigSchema = z
        */
       valueOracle: z.enum(["off", "signal"]).optional(),
       /*
-       * The code graph is part of every run's grounding (ADR-0002); the app declares only its scope.
+       * The code graph is part of every run's grounding; the app declares only its scope.
        * `exclude`: repo-relative globs kept out of the index (generated or vendored source the app commits).
        */
       structuralSignals: z

@@ -87,7 +87,7 @@ RUN ARCH="$(dpkg --print-architecture)" \
   && unzip -j /tmp/sg.zip sg ast-grep -d /usr/local/bin \
   && rm /tmp/sg.zip
 
-# codegraph v1.6.2, the code-graph engine (docs/adr/0002-code-graph-engine-codegraph.md). Each npm
+# codegraph v1.6.2, the code-graph engine. Each npm
 # platform package is self-contained: `bin/codegraph` (a sh launcher) next to its own `node` and its
 # `lib/`, so neither the npm shim nor an install step runs. Pinned per arch by the registry's sha512
 # integrity, checked here against the downloaded bytes (fail loud on a mismatch); both packages carry an

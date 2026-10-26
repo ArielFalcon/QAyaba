@@ -6,12 +6,6 @@
     "reason": "A watched repo's own CLAUDE.md is prompt text; the mention is the final state."
   },
   {
-    "rule": "codebase-memory",
-    "path": "docs/adr/0002-code-graph-engine-codegraph.md",
-    "contains": "codebase-memory",
-    "reason": "The ADR records the engine it superseded."
-  },
-  {
     "rule": "claude-md",
     "path": ".gitignore",
     "contains": "CLAUDE.md",
