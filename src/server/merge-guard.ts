@@ -181,6 +181,12 @@ export const PROTECTED_PATHS: string[] = [
    * through the wrong sandbox profile without touching the strategies themselves.
    */
   "qa-engine/src/contexts/test-execution/composition/build-test-execution.ts",
+  /*
+   * The workspace-and-publication builder — the one place the VCS write seam, the publication route and the
+   * handle registry that gates publication, confinement and gc are wired. An autonomous edit can route a
+   * publication around the registry or drop the sanitizer without touching the adapters.
+   */
+  "qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication.ts",
 
   "qa-engine/src/shared-kernel/ports/redaction.port.ts",
   /*
