@@ -15,7 +15,7 @@ const RECENT_WRITE_GRACE_MS = 60 * 60 * 1000;
 /* app-<timestamp>-p<pid>.log; files from before the owner pid was recorded have no -p<pid>. */
 const LOG_FILE_RE = /^app-.+?(?:-p(\d+))?\.log$/;
 
-type LogLevel = "info" | "warn" | "error";
+export type LogLevel = "debug" | "info" | "warn" | "error";
 
 export interface JsonLoggerOptions {
   dir: string;
