@@ -227,7 +227,7 @@ Branch: `arch/remediation` (the worktree's branch; the original `fix/failure-obs
 - [x] T7 — S3c — inline — `ApiDeps.enqueue(req: ApiRunRequest)` replaces 13 positional parameters — commit: 13848bd7, see L15
 - [x] T8 — S4a — inline — Prompt section registries and `derivePromptContext`, byte-identical by the matrix differential (after P1.5; before P4.1 preferred) — commit: 97aa1ee2, see L17
 - [x] T9 — S4b — delegated: parallelism (three disjoint test-file units, each well over 100 changed lines) — Convert wording assertions to claims, section ids and imported tokens — commit: d8ae7520 (A), 10f43edf (B), 7f1cbe13 (C)
-- [ ] T9b — S4b — delegated: context backstop — Add the claims and exported constants the units proposed (L19) and convert the prose assertions they leave; re-record the section digests only where claims change, never prompt text — commit: pending
+- [x] T9b — S4b — delegated: context backstop — Add the claims and exported constants the units proposed (L19) and convert the prose assertions they leave; re-record the section digests only where claims change, never prompt text — commit: 2ef2bbb0 (match calls 56 to 18, done-when scan empty, prompt text 0 differences over 264,963 inputs; not done: the pack owning `fe-be-links`, which would change text, and `spec-location-helper`, which no test pins)
 - [ ] T10 — S5a — inline — `LoggerPort`, redacting adapter over `logJson`, console and raw-error migration in slices, `no-console` gate — commit: pending
 - [ ] T11 — S5b — inline — Embedded capture script and single-source fixture block, typed and linted — commit: pending
 - [ ] T12 — S6 — inline — Phase gate: transaction gate test, settings gate, full gate — commit: pending
