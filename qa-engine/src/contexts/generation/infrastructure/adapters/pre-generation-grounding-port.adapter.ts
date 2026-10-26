@@ -4,8 +4,7 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { GroundingChange } from "../../domain/grounding-change.ts";
 import type { PreGenerationGroundingPort } from "../../application/ports/pre-generation-grounding.port.ts";
 import type { GroundingResult } from "../../domain/pre-generation-grounding.ts";
-import type { HarnessFacts } from "@kernel/grounding.ts";
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "node:fs";
+import { exportedSignatures, fixtureMembers, playwrightConfigFacts, type HarnessFacts } from "../../domain/harness-facts.ts";
 import { join } from "node:path";
 import { buildContextPack, defaultContextPackDeps, packDeliveredItemIds } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { ContextPackAssembly, ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
@@ -155,44 +154,48 @@ export function loadContextMapFromDisk(specDir: string): ArchitectureContext | u
   }
   return map;
 }
+/* mutation-scope:end context-map-json-read */
 
 /* Every *.spec.ts under `dir`, relative to it, without following a link: the listing of the module that confines what the agent writes. */
 export const enumerateExistingSpecFiles = listSpecFiles;
 
-/* The fixtures file is repo content of unknown shape: it is scanned only when it is a small regular file. */
+/* The harness files are repo content of unknown shape: each is read strictly (readOwnedSpecFile: no link anywhere on the way, a regular file within the cap, a pipe never waited on). */
 export const MAX_FIXTURES_FILE_BYTES = 256 * 1024;
 const FIXTURES_FILE = "fixtures.ts";
+const PLAYWRIGHT_CONFIG_FILE = "playwright.config.ts";
 
-function skipFixtures(path: string, reason: string): undefined {
-  engineLog.warn(`[qa] WARNING: harness facts: fixtures file ${path} not scanned (${reason}) — no fixture facts this run (non-blocking).`);
+function skipHarnessFile(path: string, what: string, reason: string): undefined {
+  engineLog.warn(`[qa] WARNING: harness facts: ${what} ${path} not scanned (${reason}) — no ${what} facts this run (non-blocking).`);
   return undefined;
 }
 
-/* A regular file within the size cap, read through a descriptor that does not follow a symlink, and never more than the cap. Any failure omits the fixtures facts with a warning; nothing is thrown and nothing replaces them. */
-function readFixtureFacts(specDir: string): HarnessFacts["fixtures"] {
-  const path = join(specDir, FIXTURES_FILE);
+/* The text of one harness file, or undefined (with a warning) when it cannot be read; an absent file is silent unless `warnWhenAbsent`. Nothing is thrown. */
+function readHarnessText(specDir: string, file: string, what: string, warnWhenAbsent: boolean): string | undefined {
+  const path = join(specDir, file);
   try {
-    /* Judged by what it is before it is opened: opening a named pipe for reading waits for a writer that never comes. The open does not wait either, should a pipe be put there after that look. */
-    if (!lstatSync(path).isFile()) return skipFixtures(path, "not a regular file");
-    const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-    let source: string;
-    try {
-      const { size } = fstatSync(fd);
-      if (size > MAX_FIXTURES_FILE_BYTES) return skipFixtures(path, `larger than ${MAX_FIXTURES_FILE_BYTES} bytes`);
-      const buffer = Buffer.alloc(size);
-      const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
-      source = buffer.toString("utf8", 0, bytesRead);
-    } finally {
-      closeSync(fd);
-    }
-    /* A name that needed redaction is not a plain identifier worth stating: it is dropped, never passed on redacted. */
-    const exports = extractExportedNames(source).filter((name) => sanitizeText(name).text === name);
-    if (exports.length === 0) return skipFixtures(path, "no exports found");
-    return { file: FIXTURES_FILE, exports };
+    const read = readOwnedSpecFile({ mirrorDir: specDir, specDir }, file, MAX_FIXTURES_FILE_BYTES);
+    if ("bytes" in read) return read.bytes.toString("utf8");
+    if ("absent" in read) return warnWhenAbsent ? skipHarnessFile(path, what, "not found") : undefined;
+    return skipHarnessFile(path, what, read.reason);
   } catch (err) {
-  /* mutation-scope:end context-map-json-read */
-    return skipFixtures(path, err instanceof Error ? err.message : String(err));
+    return skipHarnessFile(path, what, readFailureReason(err));
   }
+}
+
+function readFixtureFacts(specDir: string): HarnessFacts["fixtures"] {
+  const source = readHarnessText(specDir, FIXTURES_FILE, "fixtures file", true);
+  if (source === undefined) return undefined;
+  /* A name that needed redaction is not a plain identifier worth stating: it is dropped, never passed on redacted. */
+  const exports = extractExportedNames(source).filter((name) => sanitizeText(name).text === name);
+  if (exports.length === 0) return skipHarnessFile(join(specDir, FIXTURES_FILE), "fixtures file", "no exports found");
+  const signatures = exportedSignatures(source);
+  const members = fixtureMembers(source);
+  return { file: FIXTURES_FILE, exports, ...(signatures.length > 0 ? { signatures } : {}), ...(members.length > 0 ? { members } : {}) };
+}
+
+function readPlaywrightFacts(specDir: string): HarnessFacts["playwright"] {
+  const source = readHarnessText(specDir, PLAYWRIGHT_CONFIG_FILE, "Playwright config", false);
+  return source === undefined ? undefined : playwrightConfigFacts(source);
 }
 
 function readAttributeFact(testIdAttribute: string | undefined): string | undefined {
@@ -207,8 +210,9 @@ function readAttributeFact(testIdAttribute: string | undefined): string | undefi
 export function readHarnessFacts(input: { specDir: string; testIdAttribute?: string }): HarnessFacts | undefined {
   const testIdAttribute = readAttributeFact(input.testIdAttribute);
   const fixtures = readFixtureFacts(input.specDir);
-  if (testIdAttribute === undefined && fixtures === undefined) return undefined;
-  return { ...(testIdAttribute !== undefined ? { testIdAttribute } : {}), ...(fixtures ? { fixtures } : {}) };
+  const playwright = readPlaywrightFacts(input.specDir);
+  if (testIdAttribute === undefined && fixtures === undefined && playwright === undefined) return undefined;
+  return { ...(testIdAttribute !== undefined ? { testIdAttribute } : {}), ...(fixtures ? { fixtures } : {}), ...(playwright ? { playwright } : {}) };
 }
 
 /* The elements and quoted labels of a diff, with the unchanged lines of the working copy that already hold each label. With a map, the labels of the changed files it links to pages come first (see `filesLinkedToPages`). A single repo only: across repos the diff is the service's, so its labels say nothing about the pages and the working copy belongs to the other repo. */

@@ -124,3 +124,27 @@ test("a section shed by the byte budget contributes no provided path", () => {
   assert.ok(withoutMap.sectionSizes[HARNESS_FACTS_SECTION_ID] !== undefined, "the facts survived");
   assert.deepEqual(withoutMap.providedPaths, ["tests/e2e/fixtures.ts"]);
 });
+
+test("the declarations of the fixtures and of the Playwright config reach the section as facts, within a bounded size", () => {
+  const facts: HarnessFacts = {
+    fixtures: {
+      file: "fixtures.ts",
+      exports: ["test", "expect", "ns"],
+      signatures: ["export function ns(namespace: string, name: string): string"],
+      members: ["authenticate: () => Promise<void>; // the app login"],
+    },
+    playwright: { testDir: ".", storageState: true, projects: [{ name: "setup" }, { name: "desktop", device: "Desktop Chrome", dependencies: ["setup"] }] },
+  };
+  const a = buildPromptAssembled(mkInput({ harnessFacts: facts }));
+  const section = sectionText(a, HARNESS_FACTS_SECTION_ID);
+  for (const needle of ["ns(namespace: string", "authenticate", "desktop", "Desktop Chrome", "setup"]) assert.ok(section.includes(needle), needle);
+  assert.ok(Buffer.byteLength(section, "utf8") < 4096);
+});
+
+test("the Playwright config is a provided path only when its facts are in the prompt", () => {
+  const fixtures = { file: "fixtures.ts", exports: ["test"] };
+  const withConfig = buildPromptAssembled(mkInput({ harnessFacts: { fixtures, playwright: { storageState: false, projects: [{ name: "desktop" }] } } }));
+  assert.ok(withConfig.providedPaths?.includes("tests/e2e/playwright.config.ts"));
+  const without = buildPromptAssembled(mkInput({ harnessFacts: { fixtures } }));
+  assert.ok(!without.providedPaths?.includes("tests/e2e/playwright.config.ts"));
+});

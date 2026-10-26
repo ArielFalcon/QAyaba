@@ -2,7 +2,7 @@
 export { GenerateTestsUseCase } from "./generate-tests.use-case.ts";
 export { declaredRelativeFiles } from "../domain/declared-resources.ts";
 export { GENERATION_NOTE_MAX_CHARS } from "../domain/generation-end.ts";
-export { extractExportedNames, isSafeAttributeName } from "../domain/harness-facts.ts";
+export { extractExportedNames, harnessFactLines, isSafeAttributeName } from "../domain/harness-facts.ts";
 export { packPagesFor } from "../domain/pack-pages.ts";
 export { promptFactsOpts } from "../domain/prompt-facts.ts";
 export { PROMPT_HEADINGS } from "../domain/prompt-headings.ts";

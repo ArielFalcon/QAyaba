@@ -1,3 +1,4 @@
+import type { HarnessFacts } from "@kernel/grounding.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { AcceptanceCriterion } from "./coordination-context.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
@@ -54,6 +55,12 @@ export interface DelegationBrief {
   readonly proofs?: readonly string[];
   /* The use cases the flow must exercise: ids to report on, the symbols and hunks that reach them, and where the expected behavior comes from. */
   readonly candidates?: readonly BriefCandidate[];
+  /* What the suite's harness declares, as the run grounded it (facts, never source). */
+  readonly harnessFacts?: HarnessFacts;
+  /* The suite directory the facts name files under, relative to the repository. */
+  readonly specRelDir?: string;
+  /* The specs the suite holds, one line each (path, flow, objective), never source. */
+  readonly suite?: readonly string[];
 }
 
 export function createDelegationBrief(input: {
@@ -71,6 +78,9 @@ export function createDelegationBrief(input: {
   pages?: string;
   proofs?: readonly string[];
   candidates?: readonly BriefCandidate[];
+  harnessFacts?: HarnessFacts;
+  specRelDir?: string;
+  suite?: readonly string[];
 }): DelegationBrief {
   const scrub = (text: string): string => input.redaction.redact(text);
   if (!input.delegationId) throw new Error("DelegationBrief requires delegationId");
@@ -88,6 +98,8 @@ export function createDelegationBrief(input: {
     authority: SIDEKICK_AUTHORITY,
     ...(input.pages ? { pages: scrub(input.pages) } : {}),
     ...(input.proofs?.length ? { proofs: input.proofs.map(scrub) } : {}),
+    ...(input.harnessFacts ? { harnessFacts: input.harnessFacts, ...(input.specRelDir ? { specRelDir: input.specRelDir } : {}) } : {}),
+    ...(input.suite?.length ? { suite: input.suite.map(scrub) } : {}),
     ...(input.candidates?.length
       ? {
           candidates: input.candidates.map((c) => ({

@@ -20,6 +20,11 @@ export interface GenerationEnrichment {
   /** Changed lines a green run failed to exercise (enforce-mode coverage regen). */
   coverageGap?: string;
   /**
+   * The same gap as separate units (a file's uncovered lines, an arm no test ran), in the order the gap lists them. Only the lead's
+   * routing reads it, so that a number it cites names one unit; an author reads `coverageGap`.
+   */
+  coverageGapItems?: readonly string[];
+  /**
    * The intent lock's violations of the turn before this one (A-2b): what the contract held before and
    * after, handed back as facts so the generator can repair the weakening it introduced. Structural
    * mirror of the domain's ContractFeedback: this barrel carries no cross-context type.

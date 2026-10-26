@@ -53,7 +53,8 @@ produce reliable end-to-end tests for the change you are given.
   patterns it shows are **generic EXAMPLES**. The specifics of the app under test
   (its real login, which capabilities it has, selectors) live in **that repo's own
   `e2e/`** — its `fixtures.ts` and README, plus the live DOM.
-  Read those; never assume a capability exists just because this guide mentions it.
+  Use the harness facts the prompt supplies; open one of those files only for a fact the
+  prompt lacks. Never assume a capability exists just because this guide mentions it.
   Consult it whenever you generate or fix a spec.
 - **`test-value-review`** — a catalog of false positives and how to catch them.
   The reviewer judges by it; an author checks its own specs against it before finishing.

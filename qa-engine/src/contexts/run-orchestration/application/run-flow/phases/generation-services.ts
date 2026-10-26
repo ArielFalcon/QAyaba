@@ -96,10 +96,9 @@ export async function regenerateByAuthor(state: Readonly<RunState>, ctx: Workspa
 const MAX_FINDING_DETAIL_CHARS = 2_000;
 const cutDetail = (text: string): string => (text.length > MAX_FINDING_DETAIL_CHARS ? `${text.slice(0, MAX_FINDING_DETAIL_CHARS)} … (cut)` : text);
 
-/* One finding a regeneration's evidence yields, and the slice of that evidence it stands for: what an author regenerates with when no flow takes it. */
+/* One finding a regeneration's evidence yields. */
 export interface EvidenceFinding {
   finding: CorrectionFinding;
-  piece: Pick<GenerationEnrichment, "fixCases" | "selectorContradictions" | "coverageGap" | "contractFeedback">;
 }
 
 /* A contract delta the intent lock found, as a finding: the clause, what it held before and what it holds now. */
@@ -111,46 +110,28 @@ export function contractFindingText(v: { rule: string; file: string; clauseId: s
 export function staticGateFindings(errors: readonly string[]): EvidenceFinding[] {
   return errors.map((error) => error.trim()).filter(Boolean).map((error) => ({
     finding: { text: `the static gate refused the spec: ${cutDetail(error)}` },
-    piece: { fixCases: [{ name: "static-gate", status: "fail", detail: cutDetail(error) }] },
   }));
 }
 
-/* The findings a regeneration's evidence names: one per failing case, contradiction and contract delta, and one for the uncovered gap. */
+/* The findings a regeneration's evidence names: one per failing case, contradiction and contract delta, and one per unit of the uncovered gap. */
 function findingsOf(enrichment: GenerationEnrichment): EvidenceFinding[] {
   const out: EvidenceFinding[] = [];
   for (const c of enrichment.fixCases ?? []) {
     const text = `test "${c.name}"${c.file ? ` in ${c.file}` : ""} ${c.status === "flaky" ? "passed only on retry" : "failed"}${c.detail ? `: ${cutDetail(c.detail)}` : ""}`;
-    out.push({ finding: { text, ...(c.file ? { spec: c.file } : {}) }, piece: { fixCases: [c] } });
+    out.push({ finding: { text, ...(c.file ? { spec: c.file } : {}) } });
   }
   const attributed = enrichment.attributedSpecFiles ?? [];
   for (const text of enrichment.selectorContradictions ?? []) {
-    out.push({ finding: { text, ...(attributed.length === 1 ? { spec: attributed[0]! } : {}) }, piece: { selectorContradictions: [text] } });
+    out.push({ finding: { text, ...(attributed.length === 1 ? { spec: attributed[0]! } : {}) } });
   }
-  if (enrichment.coverageGap) out.push({ finding: { text: enrichment.coverageGap }, piece: { coverageGap: enrichment.coverageGap } });
+  /* The gap is one finding per unit it lists, so a number the lead cites is one item; a gap with no units stays one finding. */
+  const gapItems = enrichment.coverageGapItems ?? [];
+  if (gapItems.length > 0) for (const text of gapItems) out.push({ finding: { text } });
+  else if (enrichment.coverageGap) out.push({ finding: { text: enrichment.coverageGap } });
   for (const v of enrichment.contractFeedback ?? []) {
-    out.push({ finding: { text: contractFindingText(v), spec: v.file }, piece: { contractFeedback: [v] } });
+    out.push({ finding: { text: contractFindingText(v), spec: v.file } });
   }
   return out;
-}
-
-/*
- * The evidence no flow took, as an author's regeneration reads it: what the enrichment says beside the evidence, and the slices of
- * the findings left. The failure DOM goes with the failing cases it was captured for, the attribution with the contradictions.
- */
-function leftoverOf(enrichment: GenerationEnrichment, findings: readonly EvidenceFinding[], unrouted: readonly number[]): GenerationEnrichment {
-  const { fixCases: _cases, selectorContradictions: _contradictions, coverageGap: _gap, contractFeedback: _deltas, domSnapshot, attributedSpecFiles, ...rest } = enrichment;
-  const pieces = unrouted.map((i) => findings[i]!.piece);
-  const cases = pieces.flatMap((p) => p.fixCases ?? []);
-  const contradictions = pieces.flatMap((p) => p.selectorContradictions ?? []);
-  const deltas = pieces.flatMap((p) => p.contractFeedback ?? []);
-  const gap = pieces.find((p) => p.coverageGap)?.coverageGap;
-  return {
-    ...rest,
-    ...(cases.length > 0 ? { fixCases: cases, ...(domSnapshot ? { domSnapshot } : {}) } : {}),
-    ...(contradictions.length > 0 ? { selectorContradictions: contradictions, ...(attributedSpecFiles ? { attributedSpecFiles } : {}) } : {}),
-    ...(gap ? { coverageGap: gap } : {}),
-    ...(deltas.length > 0 ? { contractFeedback: deltas } : {}),
-  };
 }
 
 /* A regeneration's generation and the corrections it routed through the lead's pass (0 or 1): the step adds them to `loops.leadCorrections`. */
@@ -166,10 +147,11 @@ export function mayCorrectThroughLead(state: Readonly<RunState>, ctx: WorkspaceR
 
 /*
  * One regeneration over what the run has delivered so far; what it delivers joins that. In a run whose flows were authored by
- * sidekicks and whose pass is still open, the evidence goes to the lead first, which routes each finding to the flow whose spec it
- * names, as the reviewer's corrections are; what no flow takes goes to the lead's own regeneration with only that evidence. The
- * findings are read from the enrichment unless the caller names them (the static gate's errors, which the lead alone reads as one
- * case). A run the lead authored alone, or evidence that names nothing to correct, regenerates as it always did.
+ * sidekicks and whose pass is still open, the evidence goes to the lead first, which routes each finding to a flow (the one whose
+ * spec it names, or any it names for a finding that cites none), as the reviewer's corrections are; what no flow takes stays
+ * unrouted and is recorded, never handed to a cold author. The findings are read from the enrichment unless the caller names them
+ * (the static gate's errors, which the lead alone reads as one case). A run the lead authored alone, or evidence that names nothing
+ * to correct, regenerates as it always did.
  */
 export async function regenerate(
   state: Readonly<RunState>,
@@ -182,23 +164,23 @@ export async function regenerate(
   const pass = ctx.trail.coordinatedPass;
   const findings = pass ? (evidence ?? findingsOf(enrichment)) : [];
   if (!pass || findings.length === 0 || !mayCorrectThroughLead(state, ctx)) return { output: await regenerateByAuthor(state, ctx, regenerationSignal, enrichment), leadCorrections: 0 };
-  return correctThroughLead(state, ctx, pass, findings.map((f) => f.finding), regenerationSignal, origin, (unrouted) => leftoverOf(enrichment, findings, unrouted));
+  return correctThroughLead(state, ctx, pass, findings.map((f) => f.finding), regenerationSignal, origin);
 }
 
 /*
  * Findings of one origin in a coordinated run: the lead routes them to the sidekicks of its flows, which correct their specs in
- * their own sessions; what no flow was sent goes to a regeneration, as in a run the lead authored alone. What both deliver joins
- * the run's delivery and goes through the caller's acceptance like any regeneration. The reviewer's findings are the default, and
- * what no flow took of them is regenerated as the reviewer's corrections.
+ * their own sessions. What no flow was sent is recorded unrouted by the pass and is not regenerated: a fresh author with no flow
+ * spec, no run_spec history and no instruction of the lead's is the cold start this route replaces. What the flows deliver joins
+ * the run's delivery and goes through the caller's acceptance like any regeneration. The signal is unused: no turn of this route
+ * is the run's own author.
  */
 export async function correctThroughLead(
   state: Readonly<RunState>,
   ctx: WorkspaceRunContext,
   pass: CoordinatedPass,
   findings: readonly CorrectionFinding[],
-  regenerationSignal: AbortSignal | undefined,
+  _regenerationSignal: AbortSignal | undefined,
   origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW,
-  leftover: (unrouted: readonly number[]) => GenerationEnrichment = (unrouted) => ({ reviewCorrections: unrouted.map((i) => findings[i]!.text) }),
 ): Promise<Regenerated> {
   const corrected = await pass.correct(findings, origin);
   /* Recorded after every turn, so however the run ends from here what the lead routed is on its record. */
@@ -210,30 +192,16 @@ export async function correctThroughLead(
     parsed: corrected.readable,
   });
   mergeDelivered(state, byFlows, "sidekick");
-  const regenerated = corrected.unrouted.length > 0 ? await regenerateByAuthor(state, ctx, regenerationSignal, leftover(corrected.unrouted)) : undefined;
-  const rebuttals = [...corrected.rebuttals, ...(regenerated?.rebuttals ?? [])];
-  const specs = [...new Set([...byFlows.specs, ...(regenerated?.specs ?? [])])];
-  const specSources = sourcesOf(specs, [byFlows, ...(regenerated ? [regenerated] : [])]);
-  /* A claim that the test is right stands only for a turn that changed no spec, the lead's regeneration included. */
-  const testCorrect = specs.length === 0 ? (regenerated?.testCorrect ?? corrected.testCorrect) : undefined;
-  const { testCorrect: _claim, specSources: _sources, ...base } = regenerated ?? byFlows;
+  const { testCorrect: _claim, specSources: _sources, ...base } = byFlows;
+  const testCorrect = corrected.specs.length === 0 ? corrected.testCorrect : undefined;
   return {
     leadCorrections: 1,
     output: {
       ...base,
-      specs,
-      end: specs.length > 0 ? GENERATION_END.DELIVERED : (regenerated?.end ?? byFlows.end),
-      ...(specSources ? { specSources } : {}),
+      specs: byFlows.specs,
+      ...(byFlows.specSources ? { specSources: byFlows.specSources } : {}),
       ...(testCorrect ? { testCorrect } : {}),
-      ...(rebuttals.length > 0 ? { rebuttals } : {}),
+      ...(corrected.rebuttals.length > 0 ? { rebuttals: corrected.rebuttals } : {}),
     },
   };
-}
-
-/* The source of each spec, in order, from the generations that delivered them; absent when any one of them is unknown. */
-function sourcesOf(specs: readonly string[], outputs: readonly Pick<GenerationOutput, "specs" | "specSources">[]): string[] | undefined {
-  const known = new Map<string, string>();
-  for (const output of outputs) output.specs.forEach((spec, i) => { const source = output.specSources?.[i]; if (source !== undefined) known.set(spec, source); });
-  const sources = specs.map((spec) => known.get(spec));
-  return sources.every((source) => source !== undefined) ? (sources as string[]) : undefined;
 }

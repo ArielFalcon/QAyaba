@@ -143,7 +143,8 @@ or an architectural decision is required, report `needs-lead` with `unresolvedQu
 Run no command, none is needed: the ORCHESTRATOR validates and runs the specs (typecheck, lint,
 Playwright's spec listing and the manifest check, then the suite against live DEV) and then an independent
 reviewer judges them. A validation failure or a failing test comes back to you in a follow-up turn
-with the concrete errors. So read your specs once for imports, types and the shared harness, then
+with the concrete errors. So take the shared harness from the harness facts the prompt supplies (open a harness file
+only for a fact they lack), read your specs once for imports and types, then
 STOP touching the suite. Do not run a script, install anything or execute a variant of the suite.
 
 The one exception is the `run_spec` tool, and only when your task states its budget (without one

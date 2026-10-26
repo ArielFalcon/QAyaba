@@ -168,9 +168,23 @@ export function renderLeadCorrection(redaction: RedactionPort, flows: readonly F
     rebuttable(origin) ? "" : "These are facts the run observed: each one is corrected, none is rebutted.",
     ...blocks,
     loose.length > 0
-      ? ["### Findings that cite no flow", rebuttable(origin) ? "Name the flow each one belongs to, or rebut it." : "Name the flow each one belongs to; one no flow takes goes to a regeneration of its own.", ...loose.map(line)].join("\n")
+      ? ["### Findings that cite no flow", rebuttable(origin) ? "Name the flow each one belongs to, or rebut it." : "Name the flow each one belongs to: an order lists the numbers of the findings the flow is to take. One no flow takes is recorded unrouted and no one corrects it.", ...loose.map(line)].join("\n")
       : "",
   ].filter(Boolean).join("\n\n");
+}
+
+/*
+ * The one request that sends a refused answer back to the lead: why each part of it was not admitted, the numbers that are findings, and
+ * what to answer. The lead's answer is untrusted text and a number outside the list is a correctable slip, not a decision.
+ */
+export function renderRefusedCorrection(refused: CorrectionAdmission["refused"], findingCount: number): string {
+  return [
+    "## Your correction was not admitted",
+    "The orchestrator did not admit these parts of your answer:",
+    ...refused.map((r) => `- ${r.flowId ? `flow ${r.flowId}` : "the answer"}${r.finding ? `, finding ${r.finding}` : ""}: ${r.reason}`),
+    `The findings are numbered 1..${findingCount}, each number is one finding, and an order names the findings its flow is to take by those numbers.`,
+    "Answer with ONLY the corrected JSON object of the correction contract, complete (repeat every order and rebuttal you still hold). This is the only other correction turn for these findings.",
+  ].join("\n");
 }
 
 function textOf(redaction: RedactionPort, value: unknown, max: number): string {

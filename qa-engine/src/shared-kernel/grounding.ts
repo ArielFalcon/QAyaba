@@ -11,7 +11,21 @@ export interface ArchitectureContext {
 export interface HarnessFacts {
   /** Only when the app declares one: no default is invented. */
   testIdAttribute?: string;
-  fixtures?: { file: string; exports: readonly string[] };
+  fixtures?: {
+    file: string;
+    exports: readonly string[];
+    /** The exported functions as declared, one line each. */
+    signatures?: readonly string[];
+    /** The fixtures a test receives, as the file's own type declares them, one line each. */
+    members?: readonly string[];
+  };
+  /** What the suite's Playwright config declares. */
+  playwright?: {
+    testDir?: string;
+    testMatch?: string;
+    storageState: boolean;
+    projects: readonly { name: string; device?: string; viewport?: string; dependencies?: readonly string[]; testMatch?: string }[];
+  };
 }
 
 /** What a grounding step left out of the context it built, and why. */

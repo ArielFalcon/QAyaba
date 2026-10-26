@@ -48,8 +48,9 @@ import { SIDEKICK_AUTHORING, sidekickAuthoring, sidekickDeniedTools, type Sideki
 import type { SidekickExecutor, SidekickSession } from "./sidekick-executor.ts";
 import { packPagesFor } from "@contexts/generation/application/index.ts";
 import { namesTemplatePage } from "@contexts/generation/application/index.ts";
+import type { HarnessFacts } from "@kernel/grounding.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
-import { CORRECTION_ORIGIN, admitLeadCorrection, correctionPreamble, renderLeadCorrection, type CorrectionOrigin, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type CorrectionFinding } from "./lead-correction.ts";
+import { CORRECTION_ORIGIN, admitLeadCorrection, correctionPreamble, renderLeadCorrection, renderRefusedCorrection, type CorrectionOrigin, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type CorrectionFinding } from "./lead-correction.ts";
 
 /* The flow's slice of the Context Pack, as a brief field, or nothing when the pack did not read its pages. */
 const pagesOf = (pack: string | undefined, routes: readonly string[]): { pages: string } | undefined => {
@@ -124,6 +125,9 @@ export interface CoordinateInput {
   confirmedDataRoutes?: readonly { path: string; resultCount: number }[];
   /* The run's Context Pack: each flow's brief carries the Live DOM of the pages that flow visits. */
   contextPack?: string;
+  /* What the suite's harness declares and the specs the suite holds: each flow's brief states them so its author need not open the harness files. */
+  harnessFacts?: HarnessFacts;
+  existingSpecs?: readonly string[];
   /* The use cases the change makes testable: the planning turn is told their pages, those no admitted flow visits are reported, and each flow's brief carries the evidence of the pages it visits. */
   candidates?: readonly UseCaseCandidate[];
   /* What the briefs quote of the change: the diff of each repo of the change and the anchor commit's subject. */
@@ -630,6 +634,8 @@ export class LeadSidekicks {
       knownFacts: knownFactsOf(this.deps.redaction, input),
       ...(pagesOf(input.contextPack, flow.routes) ?? {}),
       ...(proofsOf(input.candidates, flow.routes) ?? {}),
+      ...(input.harnessFacts ? { harnessFacts: input.harnessFacts, specRelDir: input.specRelDir } : {}),
+      ...(input.existingSpecs?.length ? { suite: input.existingSpecs } : {}),
       ...candidatesOf(flow, input),
       ...(input.devBaseUrl ? { artifactRefs: [{ id: "dev-base-url", path: input.devBaseUrl }] } : {}),
     });
@@ -856,27 +862,46 @@ export class LeadSidekicks {
       const spec = this.deps.readSpec ? await this.deps.readSpec({ mirrorDir: input.mirrorDir, specDir: input.specDir }, flow.specFile).catch(() => undefined) : undefined;
       return { id: flow.id, objective: flow.objective, specFile: flow.specFile, sessionOpen: live.get(flow.id)!.session !== undefined, ...(spec !== undefined ? { spec } : {}) };
     }));
-    let output = "";
-    try {
-      const answer = await lead.ask(renderLeadCorrection(this.deps.redaction, under, findings, origin), { timeoutMs: Math.min(input.settings.planBudgetMs, room ?? input.settings.planBudgetMs) });
-      if (answer.timedOut) this.record(input, { kind: "lead-decision", reason: `correction (${origin}): the lead ran out of its time; each flow is sent its own findings` });
-      else output = answer.output;
-    } catch (err) {
-      if (isRunDeadlineError(err)) throw err;
-      this.record(input, { kind: "lead-decision", reason: `correction (${origin}): the lead's turn failed (${err instanceof Error ? err.message : String(err)}); each flow is sent its own findings` });
-    }
+    const askLead = async (request: string, again: boolean): Promise<string> => {
+      try {
+        const answer = await lead.ask(request, { timeoutMs: Math.min(input.settings.planBudgetMs, this.room(input) ?? input.settings.planBudgetMs) });
+        if (answer.timedOut) this.record(input, { kind: "lead-decision", reason: `correction (${origin}): the lead ran out of its time${again ? "; its first answer stands" : "; each flow is sent its own findings"}` });
+        else return answer.output;
+      } catch (err) {
+        if (isRunDeadlineError(err)) throw err;
+        this.record(input, { kind: "lead-decision", reason: `correction (${origin}): the lead's turn failed (${err instanceof Error ? err.message : String(err)})${again ? "; its first answer stands" : "; each flow is sent its own findings"}` });
+      }
+      return "";
+    };
+    const output = await askLead(renderLeadCorrection(this.deps.redaction, under, findings, origin), false);
     tally.turns += 1;
-    const admission = admitLeadCorrection(this.deps.redaction, output, under, findings, origin);
-    tally.rebutted += admission.rebuttals.length;
-    tally.unrouted += admission.unrouted.length;
+    let admission = admitLeadCorrection(this.deps.redaction, output, under, findings, origin);
     for (const r of admission.refused) this.record(input, { kind: "lead-decision", reason: `correction (${origin}): ${r.flowId ? `flow ${r.flowId} ` : ""}${r.finding ? `finding ${r.finding} ` : ""}not taken: ${r.reason}` });
+    /* An order the orchestrator refused leaves findings with no flow: the lead is told why once, in its open session, and its re-answer is admitted as any answer. */
+    const roomAgain = this.room(input);
+    if (admission.refused.length > 0 && admission.unrouted.length > 0 && !state.released && !input.signal?.aborted && (roomAgain === undefined || roomAgain >= MIN_FLOW_MS)) {
+      this.record(input, { kind: "lead-decision", reason: `correction (${origin}): ${admission.refused.length} part(s) of the answer not admitted; asking the lead once more with the reasons` });
+      const again = await askLead(renderRefusedCorrection(admission.refused, findings.length), true);
+      tally.turns += 1;
+      const second = admitLeadCorrection(this.deps.redaction, again, under, findings, origin);
+      if (second.readable && second.unrouted.length <= admission.unrouted.length) {
+        admission = second;
+        for (const r of second.refused) this.record(input, { kind: "lead-decision", reason: `correction (${origin}): ${r.flowId ? `flow ${r.flowId} ` : ""}${r.finding ? `finding ${r.finding} ` : ""}not taken after the second asking: ${r.reason}` });
+      } else this.record(input, { kind: "lead-decision", reason: `correction (${origin}): the lead's second answer did not improve on the first; the first stands` });
+    }
+    tally.rebutted += admission.rebuttals.length;
     const after = this.room(input);
     const stopped = state.released || input.signal?.aborted === true || (after !== undefined && after < MIN_FLOW_MS);
     const orders = stopped ? [] : admission.orders.filter((o) => live.has(o.flowId));
-    /* A finding the lead sent to a flow that cannot take it now is not lost: it goes to a regeneration, as a finding no flow was sent. */
+    /* A finding the lead sent to a flow that cannot take it now is counted unrouted, as a finding no flow was sent. */
     const untaken = admission.orders.filter((o) => !orders.includes(o)).flatMap((o) => o.indices);
-    tally.unrouted += untaken.length;
-    if (untaken.length > 0) this.record(input, { kind: "lead-decision", reason: `correction (${origin}): ${untaken.length} finding(s) the flows could not take go to a regeneration` });
+    const unrouted = [...admission.unrouted, ...untaken];
+    tally.unrouted += unrouted.length;
+    if (unrouted.length > 0) {
+      const which = unrouted.map((i) => i + 1).join(", ");
+      this.record(input, { kind: "lead-decision", reason: `correction (${origin}): finding(s) ${which} left unrouted: no flow took them and no cold author is run for them` });
+      engineLog.error(`[qa] correction (${origin}): ${unrouted.length} finding(s) no flow took are left unrouted (${which}); nothing regenerates them`);
+    }
     for (const order of orders) {
       tally.routed += order.findings.length;
       if (order.action === REVIEW_ACTION.REVISE) tally.revised += 1;
@@ -902,7 +927,7 @@ export class LeadSidekicks {
       specs,
       ...(specSources && specSources.every((source) => source !== undefined) ? { specSources: specSources as string[] } : {}),
       rebuttals: admission.rebuttals,
-      unrouted: [...admission.unrouted, ...untaken],
+      unrouted,
       ...(claims.length > 0 ? { testCorrect: { cause: claims.every((c) => c.cause === "env") ? "env" : "app", reason: claims.map((c) => c.reason).join("; ") } } : {}),
     };
   }

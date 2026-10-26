@@ -562,10 +562,10 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
       const declared = "data-seam-sentinel-attr";
       assert.deepEqual(await factsFor(fakeAppConfig({ e2e: { testIdAttribute: declared } } as Partial<AppConfig>)), {
         testIdAttribute: declared,
-        fixtures: { file: "fixtures.ts", exports: ["test", "authenticate"] },
+        fixtures: { file: "fixtures.ts", exports: ["test", "authenticate"], signatures: ["export function authenticate()"] },
       });
       assert.deepEqual(await factsFor(fakeAppConfig({ e2e: {} } as Partial<AppConfig>)), {
-        fixtures: { file: "fixtures.ts", exports: ["test", "authenticate"] },
+        fixtures: { file: "fixtures.ts", exports: ["test", "authenticate"], signatures: ["export function authenticate()"] },
       });
     } finally {
       warn.mock.restore();

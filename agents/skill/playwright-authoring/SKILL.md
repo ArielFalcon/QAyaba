@@ -39,7 +39,8 @@ adapted from [TestDino playwright-skill](https://github.com/testdino-hq/playwrig
 These references are **generic patterns with illustrative examples**. Whether the app
 under test actually has a given capability — and its real selectors/flow — comes from
 **the repo's own `e2e/` (`fixtures.ts`, README) and the live DOM (Playwright MCP)**, not
-from here. Read the specific file only when the test needs that pattern:
+from here. Use the harness facts the prompt supplies and open a harness file only for a
+fact it lacks. Read the specific reference below only when the test needs that pattern:
 
 - **`auth.md`** — patterns for app login: an environment HTTP Basic gate, a redirect-based
   IdP login (e.g. Keycloak/OAuth), caching the session with storageState, and testing

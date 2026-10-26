@@ -13,18 +13,13 @@ import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts"
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import { diffWithoutTestFiles } from "@kernel/diff-parser/diff-without-test-files.ts";
 import type { MilestoneOutcome, StepMilestone } from "@contexts/generation/domain/step-limit.ts";
-import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
+import { harnessFactLines, type HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 import type { OpencodeRunInput } from "../../domain/opencode-run-input.ts";
 import { COMMIT_DIFF_HEADING, cappedDiffText, redactForModel } from "./prompt-text.ts";
 
-/* Facts only: what the harness is configured with and what its shared fixtures export. Every value is sanitized; nothing here directs the agent. Absent facts render no section. */
+/* Facts only: what the harness is configured with, what the suite's shared fixtures export and declare, and what its Playwright config declares. Every value is sanitized; nothing here directs the agent. Absent facts render no section. */
 export function renderHarnessFacts(facts: HarnessFacts, e2eRelDir: string): string {
-  const s = (x: string): string => sanitizeText(x).text;
-  const lines: string[] = [];
-  if (facts.testIdAttribute) lines.push(`testIdAttribute: ${s(facts.testIdAttribute)}`);
-  if (facts.fixtures?.exports.length) {
-    lines.push(`fixtures: ${s(`${e2eRelDir}/${facts.fixtures.file}`)} exports ${facts.fixtures.exports.map(s).join(", ")}`);
-  }
+  const lines = harnessFactLines(facts, e2eRelDir, (x) => sanitizeText(x).text);
   return lines.length > 0 ? [`## ${PROMPT_HEADINGS.harnessFacts}`, ...lines, ``].join("\n") : "";
 }
 

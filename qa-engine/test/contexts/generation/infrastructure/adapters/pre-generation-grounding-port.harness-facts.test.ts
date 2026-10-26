@@ -9,6 +9,7 @@ import {
   PreGenerationGroundingPortAdapter,
   MAX_FIXTURES_FILE_BYTES,
 } from "@contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter.ts";
+import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 import { withoutWaitingOnNamedPipe } from "../../../../support/named-pipe-watch.ts";
 
 const noPack = { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) };
@@ -43,7 +44,7 @@ test("a fixtures file's exports become facts, listed by name", async () => {
     (dir) => writeFileSync(join(dir, "fixtures.ts"), "export const test = base;\nexport function authenticate() {}\nexport { expect };\n"),
     async (dir) => {
       const { result, warnings } = await groundWith(dir);
-      assert.deepEqual(result.harnessFacts, { fixtures: { file: "fixtures.ts", exports: ["test", "authenticate", "expect"] } });
+      assert.deepEqual(result.harnessFacts, { fixtures: { file: "fixtures.ts", exports: ["test", "authenticate", "expect"], signatures: ["export function authenticate()"] } });
       assert.deepEqual(warnings, []);
     },
   );
@@ -213,6 +214,37 @@ test("a test-id attribute that is a plain name but would need redaction is left 
       const { result, warnings } = await groundWith(dir, "ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
       assert.equal(result.harnessFacts?.testIdAttribute, undefined);
       assert.ok(warnings.some((w) => /test-id attribute/i.test(w)));
+    },
+  );
+});
+
+test("the fixtures' declarations and the Playwright config's projects become facts", async () => {
+  await withSuite(
+    (dir) => {
+      writeFileSync(join(dir, "fixtures.ts"), "interface Fx {\n  authenticate: () => Promise<void>;\n}\nexport const test = base.extend<Fx>({});\nexport function ns(a: string): string { return a; }\n");
+      writeFileSync(join(dir, "playwright.config.ts"), 'export default { testDir: ".", projects: [{ name: "desktop", use: { ...devices["Desktop Chrome"] } }] };');
+    },
+    async (dir) => {
+      /* The shared-kernel port type does not name the declarations yet; the value carries them. */
+      const facts = (await groundWith(dir)).result.harnessFacts as HarnessFacts | undefined;
+      assert.deepEqual(facts?.fixtures?.signatures, ["export function ns(a: string): string"]);
+      assert.deepEqual(facts?.fixtures?.members, ["authenticate: () => Promise<void>;"]);
+      assert.deepEqual(facts?.playwright?.projects, [{ name: "desktop", device: "Desktop Chrome" }]);
+    },
+  );
+});
+
+test("a Playwright config that is absent or a symlink states nothing, and the fixtures facts stand", async () => {
+  await withSuite(
+    (dir) => {
+      writeFileSync(join(dir, "fixtures.ts"), "export const test = 1;");
+      writeFileSync(join(dir, "real.ts"), 'export default { testDir: "." };');
+      symlinkSync(join(dir, "real.ts"), join(dir, "playwright.config.ts"));
+    },
+    async (dir) => {
+      const { result } = await groundWith(dir);
+      assert.equal((result.harnessFacts as HarnessFacts | undefined)?.playwright, undefined);
+      assert.deepEqual(result.harnessFacts?.fixtures?.exports, ["test"]);
     },
   );
 });

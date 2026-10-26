@@ -127,7 +127,7 @@ interface GapRegeneration {
  * bytes. A throw propagates; a spent run deadline is the one the policy degrades (this step runs after a green suite), so the first
  * measurement stands.
  */
-async function regenerateAtGap(state: Readonly<RunState>, ctx: WorkspaceRunContext, gap: string): Promise<GapRegeneration> {
+async function regenerateAtGap(state: Readonly<RunState>, ctx: WorkspaceRunContext, gap: string, items: readonly string[]): Promise<GapRegeneration> {
   const { input, trail, workspace, services } = ctx;
   const { acceptance, integrityCounters, snapshotPort, runDeadlinePort, suiteChangedFiles, snapshotSuite, acceptanceScope } = services;
   let { acceptanceCalls } = state.coverage;
@@ -136,7 +136,7 @@ async function regenerateAtGap(state: Readonly<RunState>, ctx: WorkspaceRunConte
   /* mutation-scope:begin delivered-before-coverage-regen */
   const deliveredBefore = state.generation.delivered;
   /* mutation-scope:end delivered-before-coverage-regen */
-  const regenerated = await regenerate(state, ctx, undefined, { coverageGap: gap }, CORRECTION_ORIGIN.COVERAGE);
+  const regenerated = await regenerate(state, ctx, undefined, { coverageGap: gap, coverageGapItems: items }, CORRECTION_ORIGIN.COVERAGE);
   const regen = regenerated.output;
   const { leadCorrections } = regenerated;
   await services.confinement.enforce();
@@ -209,17 +209,33 @@ async function recountAfter(state: Readonly<RunState>, ctx: WorkspaceRunContext,
   };
 }
 
+/* The most units of a gap the lead is shown, as many as the gap text lists of each kind. */
+const MAX_GAP_FILES = 10;
+const MAX_GAP_ARMS = 20;
+
+/*
+ * The gap as separate units, one per file with uncovered changed lines and one per decision arm no test ran: the lead routes findings
+ * by number, so each number must name one unit it can hand to a flow.
+ */
+function gapUnits(uncovered: CoverageOutcome["uncovered"], arms: CoverageOutcome["untakenArms"], candidates: RunState["grounding"]["candidates"]): string[] {
+  return [
+    ...uncovered.slice(0, MAX_GAP_FILES).map((u) => renderCoverageGap([u], undefined, candidates)),
+    ...arms.slice(0, MAX_GAP_ARMS).map((u) => `decision arm on a changed line that NO test ran: ${u.file}:${u.line} ${u.kind}: ${u.arm}`),
+  ];
+}
+
 /* Enforce-mode one-shot coverage regeneration at the uncovered lines and the arms no test ran; it runs at most once per run and is independent of the FixLoop budget. The whole-suite re-measure that decides coverage is the single final re-measure before decide. */
 export async function regenerateForCoverage(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const gap = [renderCoverageGap(state.coverage.uncovered, undefined, state.grounding.candidates), renderBranchGap(state.coverage.untakenArms)].filter(Boolean).join("\n\n");
-  const regen = await regenerateAtGap(state, ctx, gap);
+  const { uncovered, untakenArms } = state.coverage;
+  const gap = [renderCoverageGap(uncovered, undefined, state.grounding.candidates), renderBranchGap(untakenArms)].filter(Boolean).join("\n\n");
+  const regen = await regenerateAtGap(state, ctx, gap, gapUnits(uncovered, untakenArms, state.grounding.candidates));
   return { update: { execution: withRun(state.execution, regen.run), coverage: await recountAfter(state, ctx, regen), loops: { ...state.loops, coverageRegen: state.loops.coverageRegen + 1, leadCorrections: state.loops.leadCorrections + regen.leadCorrections } } };
 }
 
 /* The one regeneration from the arms of the changed code no test ran: they are the cases still missing. It never blocks; what it did is recorded with the arms before and after it. */
 export async function regenerateForBranchCases(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const armsBefore = state.coverage.untakenArms.length;
-  const regen = await regenerateAtGap(state, ctx, renderBranchGap(state.coverage.untakenArms));
+  const regen = await regenerateAtGap(state, ctx, renderBranchGap(state.coverage.untakenArms), gapUnits([], state.coverage.untakenArms, []));
   const coverage = await recountAfter(state, ctx, regen);
   const armsAfter = regen.outcome !== "accepted" ? armsBefore : coverage.untakenArmsCurrent ? coverage.untakenArms.length : undefined;
   return {

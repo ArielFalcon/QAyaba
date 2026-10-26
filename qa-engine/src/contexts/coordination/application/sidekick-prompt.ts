@@ -1,6 +1,7 @@
 /* Sidekick prompt assembly lives here so generation does not import DelegationBrief. Injected into SidekickExecutor.
 Free-form brief fields are redacted through the RedactionPort at this egress, so secrets never reach the provider. */
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
+import { harnessFactLines } from "@contexts/generation/application/index.ts";
 import type { BriefCandidate, DelegationBrief } from "./delegation-brief.ts";
 import { ACCEPTANCE_STATUSES } from "./acceptance-report.ts";
 import { CANDIDATE_CLAIMS } from "./delegation-result.ts";
@@ -19,6 +20,25 @@ function changeSection(candidates: readonly BriefCandidate[], scrub: (text: stri
     ].filter(Boolean)),
   ].join("\n");
 }
+
+/* How many suite lines a brief lists, and the longest of them; the rest are counted. */
+export const BRIEF_MAX_SUITE_LINES = 30;
+export const BRIEF_MAX_SUITE_LINE_CHARS = 300;
+
+const harnessSection = (brief: DelegationBrief, scrub: (text: string) => string): string | undefined => {
+  const lines = brief.harnessFacts ? harnessFactLines(brief.harnessFacts, brief.specRelDir ?? "e2e", scrub) : [];
+  return lines.length > 0 ? ["## Harness facts", ...lines].join("\n") : undefined;
+};
+
+const suiteSection = (suite: readonly string[] | undefined, scrub: (text: string) => string): string | undefined => {
+  if (suite === undefined || suite.length === 0) return undefined;
+  const shown = suite.slice(0, BRIEF_MAX_SUITE_LINES).map((line) => {
+    const flat = scrub(line).replace(/\s+/g, " ").trim();
+    return `- ${flat.length > BRIEF_MAX_SUITE_LINE_CHARS ? `${flat.slice(0, BRIEF_MAX_SUITE_LINE_CHARS - 1)}…` : flat}`;
+  });
+  const more = suite.length - shown.length;
+  return ["## Specs the suite already holds", ...shown, ...(more > 0 ? [`(+${more} more)`] : [])].join("\n");
+};
 
 export function renderSidekickBrief(redaction: RedactionPort, brief: DelegationBrief): {
   text: string;
@@ -90,6 +110,8 @@ export function renderSidekickBrief(redaction: RedactionPort, brief: DelegationB
     scope,
     authority,
     facts,
+    ...(harnessSection(brief, scrub) ? { harness: harnessSection(brief, scrub)! } : {}),
+    ...(suiteSection(brief.suite, scrub) ? { suite: suiteSection(brief.suite, scrub)! } : {}),
     ...(brief.pages ? { pages: ["## Pages of this flow (from the run's Context Pack)", brief.pages].join("\n") } : {}),
     ...(brief.proofs?.length ? { proofs: ["## How the change reaches this flow's pages (from the run's call graph)", ...brief.proofs.map((proof) => `- ${scrub(proof)}`)].join("\n") } : {}),
     ...(withCandidates ? { change: changeSection(brief.candidates!, scrub) } : {}),

@@ -932,6 +932,22 @@ test("each sidekick's brief carries the Live DOM of its own flow's pages from th
   assert.equal(brief("login").pages, undefined, "a flow whose pages the pack did not read gets no slice");
 });
 
+test("each sidekick's brief carries the run's harness facts and the specs the suite holds, and none of either when the run has none", async () => {
+  const plan = { kind: "fanout", flows: [{ id: "cart", objective: "the cart total", routes: ["/cart"] }] };
+  const harnessFacts = { fixtures: { file: "fixtures.ts", exports: ["test", "expect"] } };
+  const existingSpecs = ["flows/home.spec.ts — flow: home, objective: landing"];
+  const withFacts = rig();
+  await withFacts.coordinator.coordinate(input(withFacts, { harnessFacts, existingSpecs, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  const brief = withFacts.executed.find((e) => e.brief.delegationId === "run-1-flow-cart")!.brief;
+  assert.deepEqual(brief.harnessFacts, harnessFacts);
+  assert.deepEqual(brief.suite, existingSpecs);
+  const bare = rig();
+  await bare.coordinator.coordinate(input(bare, { plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  const bareBrief = bare.executed.find((e) => e.brief.delegationId === "run-1-flow-cart")!.brief;
+  assert.equal(bareBrief.harnessFacts, undefined);
+  assert.equal(bareBrief.suite, undefined);
+});
+
 test("each sidekick's brief carries the evidence for the candidate pages its flow visits, and none of another flow's", async () => {
   const r = rig();
   const candidates = [
@@ -1080,6 +1096,54 @@ test("findings the lead sends to a flow when too little of the run is left for i
   assert.deepEqual(corrected.unrouted, [0]);
   assert.equal(r.executed.some((e) => e.asked), false, "no sidekick was asked");
   assert.equal(outcome.pass!.tally().unrouted, 1);
+});
+
+const LOOSE_ARMS = [{ text: "decision arm src/a.ts:4 if: the else" }, { text: "decision arm src/a.ts:9 ?: the right branch" }];
+const OUT_OF_RANGE_ORDER = JSON.stringify({ corrections: [{ flow: "cart", action: "revise", findings: [5, 6], instruction: "cover the arms" }] });
+const VALID_ORDER = JSON.stringify({ corrections: [{ flow: "cart", action: "revise", findings: [1, 2], instruction: "cover the arms" }] });
+
+test("an order that names no finding goes back to the lead once with the reason, and the re-answer is admitted as any answer", async () => {
+  const lead = leadAnswering([ACCEPT_ALL, OUT_OF_RANGE_ORDER, VALID_ORDER]);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  const corrected = await outcome.pass!.correct(LOOSE_ARMS, CORRECTION_ORIGIN.COVERAGE);
+  await outcome.pass!.release();
+  assert.equal(lead.asked.length, 3, "the correction turn and the one re-ask");
+  assert.match(lead.asked[2]!, /not admitted/);
+  assert.match(lead.asked[2]!, /the order names no finding the flow is to correct/);
+  assert.match(lead.asked[2]!, /1\.\.2/, "it says which numbers are findings");
+  assert.deepEqual(corrected.specs, ["flows/cart.spec.ts"]);
+  assert.deepEqual(corrected.unrouted, []);
+  const asked = r.executed.find((e) => e.asked && e.brief.delegationId === "run-1-flow-cart")!;
+  assert.match(asked.opts.feedback!, /decision arm src\/a\.ts:4/);
+  assert.match(asked.opts.feedback!, /decision arm src\/a\.ts:9/);
+});
+
+test("an order the re-answer still gets refused is recorded, asked about once only, and its findings are left unrouted with no cold regeneration", async () => {
+  const lead = leadAnswering([ACCEPT_ALL, OUT_OF_RANGE_ORDER, OUT_OF_RANGE_ORDER]);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  const corrected = await outcome.pass!.correct(LOOSE_ARMS, CORRECTION_ORIGIN.COVERAGE);
+  await outcome.pass!.release();
+  assert.equal(lead.asked.length, 3, "never a second re-ask");
+  assert.deepEqual(corrected.specs, []);
+  assert.deepEqual(corrected.unrouted, [0, 1]);
+  assert.equal(r.executed.some((e) => e.asked), false, "no sidekick was asked");
+  assert.ok(r.events.some((e) => /not taken: the order names no finding/.test(e.reason ?? "")), "the refusal is on the record");
+  assert.ok(r.events.some((e) => /left unrouted/.test(e.reason ?? "")), "the unrouted findings are on the record");
+  assert.equal(outcome.pass!.tally().unrouted, 2, "counted once, not once per asking");
+});
+
+test("an answer that is admitted at once is not asked about again", async () => {
+  const lead = leadAnswering([ACCEPT_ALL, VALID_ORDER]);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  await outcome.pass!.correct(LOOSE_ARMS, CORRECTION_ORIGIN.COVERAGE);
+  await outcome.pass!.release();
+  assert.equal(lead.asked.length, 2);
 });
 
 test("a sidekick that holds its failing test right changes nothing and its claim comes back; beside a change, or on another origin, it does not", async () => {

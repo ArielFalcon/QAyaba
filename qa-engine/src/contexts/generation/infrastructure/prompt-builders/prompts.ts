@@ -28,6 +28,7 @@ function providedPathsOf(input: OpencodeRunInput, sectionSizes: Record<string, n
   if (sectionSizes[HARNESS_FACTS_SECTION_ID] !== undefined && input.harnessFacts?.fixtures) {
     paths.push(`${input.e2eRelDir}/${input.harnessFacts.fixtures.file}`);
   }
+  if (sectionSizes[HARNESS_FACTS_SECTION_ID] !== undefined && input.harnessFacts?.playwright) paths.push(`${input.e2eRelDir}/playwright.config.ts`);
   if (sectionSizes["static-signal"] !== undefined) paths.push(...(input.staticSignalFiles ?? []));
   return paths;
 }

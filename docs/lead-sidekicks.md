@@ -198,10 +198,16 @@ findings, the run asks the lead, in the same planning session, instead of regene
 3. The orchestrator's facts decide: a flow is always sent the findings that cite it, a finding that cites one flow is never moved
    to another, a flow with findings the lead ignored is sent them with the orchestrator's own instruction, and a closed session is
    replaced. An answer that cannot be read still sends each flow its own findings.
+   An answer with a part the orchestrator does not admit (an order naming no finding, an unknown flow) while findings are left
+   with no flow goes back to the lead once, in the same session, with the reasons and the range of finding numbers
+   (`renderRefusedCorrection`); the re-answer is admitted as any answer, and one that still leaves findings unrouted keeps the
+   first answer's result when it is no better. Never a third asking.
 4. Each flow's workspace is refreshed from the working copy (the run may have changed the spec since), then its sidekick gets the
    findings verbatim, the lead's instruction and the orchestrator's facts. Only a change made after the refresh comes back.
-5. Findings no flow took go to a regeneration with only those findings. Everything delivered goes through the round's acceptance,
-   and the lead's rebuttals through the same check as a generator's.
+5. Findings no flow took are recorded as unrouted (a `lead-decision` event naming their numbers, an error line in the log and
+   `corrections.unrouted`) and nobody corrects them: a fresh run-level author, with no flow spec, no `run_spec` history and no
+   instruction of the lead's, would repeat the whole first pass cold. Everything the flows delivered goes through the round's
+   acceptance, and the lead's rebuttals through the same check as a generator's.
 
 ## The run's own checks
 
@@ -214,16 +220,16 @@ the sidekick's instruction (`CORRECTION_ORIGIN`, `lead-correction.ts`):
 | `pre-exec` | one per selector contradiction, citing the spec it was attributed to when only one was |
 | `static-gate` | one per error block the gate reported (each names its file) |
 | `execution` | one per failing case of the fix loop, citing its spec, plus one per contract delta of a round the intent lock refused |
-| `coverage` | the uncovered change lines, citing no flow |
+| `coverage` | one per file with uncovered change lines and one per decision arm no test ran (up to the caps the gap text lists), citing no flow |
 
 These are facts the run observed: the lead is not offered a rebuttal, and one it gives anyway is not taken. What no flow takes
-goes to the lead's own regeneration with only that evidence (the failure DOM stays with the failing cases it belongs to); the
-turn's findings are told apart by their position, never by their text. A finding that cites no spec belongs to the one flow whose
+stays unrouted, as above, and is not regenerated; the turn's findings are told apart by their position, never by their text, and
+the lead can hand a finding that cites no flow to any flow by its number. A finding that cites no spec belongs to the one flow whose
 spec its text names as a whole path; one that names several is the lead's to place. A correction hands back the source of every
 spec it took, for the fix loop's next post-failure selector check. On a failing execution a sidekick may answer, changing
 nothing, that its test is right and the app or the environment is not (`testCorrect`); the claim reaches the fix loop as a
 generator's does, only when no flow changed a spec, and is checked against the run's evidence there. The
-round's acceptance, contract check and budgets are the caller's, unchanged. A run without a pass regenerates as it always did.
+round's acceptance, contract check and budgets are the caller's, unchanged. A run without a pass regenerates as it always did (and so does a run whose budget of corrections through the lead is spent).
 
 The pass is released as soon as the review ends, and in the run's `finally` however it ends. The corrections of every origin are
 recorded as `gateSignals.coordination.corrections { turns, routed, unrouted, revised, replaced, rebutted }`.
