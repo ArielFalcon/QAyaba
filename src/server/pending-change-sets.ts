@@ -22,6 +22,8 @@ interface Queued {
   app: string;
   shadow: boolean | undefined;
   set: ChangeSet;
+  /* Whether another push joined: a later push of the same repo widens an entry without adding one, so the count cannot say it. */
+  joined: boolean;
 }
 
 /*
@@ -77,7 +79,7 @@ export class PendingChangeSets {
   /* Records the set of a run that was just queued. A request that cannot share a run is not recorded. */
   register(runId: string, req: RunRequest, declared: DeclaredRepos): void {
     if (!isCoalescible(req)) return;
-    this.queued.set(runId, { app: declared.app, shadow: req.shadow, set: ChangeSet.of(declared.app, [changeEntryOf(req, declared.primary)]) });
+    this.queued.set(runId, { app: declared.app, shadow: req.shadow, set: ChangeSet.of(declared.app, [changeEntryOf(req, declared.primary)]), joined: false });
   }
 
   /* Joins the push to the latest queued run of its app and returns that run's id; undefined when no queued run can take it. */
@@ -95,14 +97,17 @@ export class PendingChangeSets {
     const merged = existing ? extend(existing, entry) : entry;
     if (!merged) return undefined;
     const entries = existing ? held.set.entries.map((e) => (e === existing ? merged : e)) : [...held.set.entries, merged];
-    this.queued.set(runId, { ...held, set: ChangeSet.of(held.set.app, entries) });
+    this.queued.set(runId, { ...held, set: ChangeSet.of(held.set.app, entries), joined: true });
     return runId;
   }
 
-  /* Closes the run's set and returns it: a push that arrives later queues a run of its own. */
+  /*
+   * Closes the run's set: a push that arrives later queues a run of its own. Returns the set when another push joined it;
+   * undefined when the run kept the single entry of its own request.
+   */
   take(runId: string): ChangeSet | undefined {
     const held = this.queued.get(runId);
     this.queued.delete(runId);
-    return held?.set;
+    return held?.joined ? held.set : undefined;
   }
 }

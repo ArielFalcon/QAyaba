@@ -1907,6 +1907,21 @@ test("two webhook pushes of one app that land while the queue is busy are one ru
   assert.equal((rig.factoryRuns[0]?.changeSet as { entries: unknown[] }).entries.length, 2);
 });
 
+test("two pushes of one repo that land while the queue is busy are one run over both pushes' range", async () => {
+  const rig = coalescingRig("coalesce-same-repo");
+  const first = enqueueTrackedRun(rig.queue, frontPush(rig.app), rig.deps);
+  const second = enqueueTrackedRun(rig.queue, { ...frontPush(rig.app), sha: "f222222", baseSha: "f111111" }, rig.deps);
+  assert.equal(second, first, "the second push joins the first run");
+
+  rig.release();
+  await rig.queue.drain();
+
+  assert.equal(rig.calls.length, 1);
+  const entries = rig.calls[0]!.changeSet.entries;
+  assert.deepEqual(entries.map((e) => `${e.repo}@${e.headSha.value}..${e.baseSha?.value}`), ["org/demo@f222222..f000000"]);
+  assert.equal(rig.factoryRuns[0]?.sha, "f222222", "the run tests the later head");
+});
+
 test("a push that lands after the run started queues a run of its own", async () => {
   const rig = coalescingRig("coalesce-late");
   const first = enqueueTrackedRun(rig.queue, frontPush(rig.app), rig.deps);
@@ -1943,6 +1958,20 @@ test("a push that would join a run cancelled while it waited queues a run of its
   await rig.queue.drain();
   assert.equal(rig.calls.length, 1);
   assert.equal(rig.calls[0]!.changeSet.anchor.repo, "org/orders-svc");
+});
+
+test("cancelling a queued run that pushes joined logs the pushes it drops", async (t) => {
+  const rig = coalescingRig("coalesce-cancel-joined");
+  const first = enqueueTrackedRun(rig.queue, frontPush(rig.app), rig.deps);
+  enqueueTrackedRun(rig.queue, servicePush(rig.app), rig.deps);
+  const logged = t.mock.method(console, "log", () => {});
+  cancelTrackedRun(rig.queue, first);
+  rig.release();
+  await rig.queue.drain();
+
+  assert.equal(rig.calls.length, 0, "nothing runs");
+  const lines = logged.mock.calls.map((c) => String(c.arguments[0]));
+  assert.ok(lines.some((l) => l.includes(first) && l.includes("org/demo@f111111") && l.includes("org/orders-svc@b222222")), lines.join("\n"));
 });
 
 test("without a registry a second push queues its own run, as before", async () => {

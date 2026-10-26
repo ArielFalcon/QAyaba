@@ -440,8 +440,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
 
   const job = async (signal: AbortSignal, trace: RunTrace): Promise<void> => {
     /* First thing at its turn: the run closes its set, so a push that arrives from here on queues a run of its own. */
-    const joinedSet = deps.pendingChangeSets?.take(record.id);
-    const joined = joinedSet && joinedSet.entries.length > 1 ? joinedSet : undefined;
+    const joined = deps.pendingChangeSets?.take(record.id);
     try {
       /*
        * If the run was cancelled while still enqueued, the record is already finalized
@@ -449,6 +448,11 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
        */
       if (getRecord(record.id)?.status === "done") {
         console.log(`[qa] skipping ${req.app}@${req.sha} — cancelled before it started`);
+        /* The pushes that joined it were acknowledged into this run; the cancel drops them with it, and says which. */
+        if (joined) {
+          const pushes = joined.entries.map((e) => `${e.repo}@${e.headSha.toString()}`).join(", ");
+          console.log(`[qa] cancelled run ${record.id} drops the pushes that joined it: ${pushes}`);
+        }
         cancelledTrace(record.id, trace);
         return;
       }

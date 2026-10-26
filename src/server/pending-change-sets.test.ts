@@ -16,6 +16,12 @@ test("an offer on an empty registry joins nothing", () => {
   assert.equal(new PendingChangeSets().offer(BACK_REQ, APP, alwaysQueued), undefined);
 });
 
+test("a run no push joined takes no set: it runs its own request", () => {
+  const registry = new PendingChangeSets();
+  registered(registry, "run-1", FRONT_REQ);
+  assert.equal(registry.take("run-1"), undefined);
+});
+
 test("a second push of the app joins the queued run and adds its repo as an entry", () => {
   const registry = new PendingChangeSets();
   registered(registry, "run-1", FRONT_REQ);
