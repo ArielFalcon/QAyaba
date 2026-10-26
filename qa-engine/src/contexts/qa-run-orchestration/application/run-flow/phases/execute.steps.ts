@@ -192,13 +192,13 @@ export async function checkHealth(state: Readonly<RunState>, ctx: WorkspaceRunCo
  */
 export async function prepareExecuteAuth(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { workspace, signal } = ctx;
-  const auth = await ctx.ends.prepareAuth(workspace.specDir, "pre-execute", signal);
+  const auth = await ctx.host.prepareAuth(workspace.specDir, "pre-execute", signal);
   if ("failed" in auth) return await preExecuteInfraError(state, ctx, auth.failed);
   if ("precondition" in auth) {
     if (signal?.aborted) return end("aborted");
     /* Reached only by a run that generates tests (the guard above), which a failed login always ends. */
-    ctx.ends.announcePrecondition(auth.precondition, true);
-    return await preExecuteInfraError(state, ctx, ctx.ends.preconditionNote(auth.precondition), { preconditionFailed: true });
+    ctx.host.announcePrecondition(auth.precondition, true);
+    return await preExecuteInfraError(state, ctx, ctx.host.preconditionNote(auth.precondition), { preconditionFailed: true });
   }
   return { update: { execution: { ...state.execution, authVerifiedSha256: auth.setupSha256 } } };
 }

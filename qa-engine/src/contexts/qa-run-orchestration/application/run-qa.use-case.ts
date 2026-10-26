@@ -22,7 +22,7 @@ import { finalizeRun, recordCrashEvidence } from "./run-flow/finalize-run.ts";
 import type { RunState } from "./run-flow/run-state.ts";
 import { initialRunState } from "./run-flow/run-state.ts";
 import { createRunServices } from "./run-flow/run-services.ts";
-import type { RunContext, RunEnds, WorkspaceRunContext } from "./run-flow/run-context.ts";
+import type { RunContext, RunHost, WorkspaceRunContext } from "./run-flow/run-context.ts";
 import { BEFORE_WORKSPACE, IN_WORKSPACE } from "./run-flow/run-steps.ts";
 import { ProbeSweepError } from "./run-flow/phases/generation-services.ts";
 import { DEMOTE_REASON } from "@kernel/ports/suite-store.port.ts";
@@ -397,7 +397,7 @@ export class RunQaUseCase {
       agentTimeoutMs: cfg.agentTimeoutMs ?? 0,
       ...(cfg.wallClockBudgetMs !== undefined ? { wallClockBudgetMs: cfg.wallClockBudgetMs } : {}),
     });
-    const ends: RunEnds = {
+    const host: RunHost = {
       recordCoordination: (coordinationSignal) => void this.coordinationOf.set(input, coordinationSignal),
       recordCorrections: () => this.recordCorrections(input, trail),
       closeCoordinatedPass: () => this.closeCoordinatedPass(trail),
@@ -413,7 +413,7 @@ export class RunQaUseCase {
       sandboxRefused: () => sandboxRefused(),
       sandboxSignal: () => sandboxSignal(),
     };
-    return { input, signal, trail, deps: this.deps, telemetry: this.telemetry, cfg, startedAt, cycleBudget, wallClockBudget, ends };
+    return { input, signal, trail, deps: this.deps, telemetry: this.telemetry, cfg, startedAt, cycleBudget, wallClockBudget, host };
   }
 
   /* Walks the step tables and finalizes the end they reach. */

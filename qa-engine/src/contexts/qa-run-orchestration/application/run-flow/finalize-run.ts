@@ -81,7 +81,7 @@ async function finalizeShape(shape: Shape, effects: EndEffects, ctx: RunContext)
   }
   const prune = async (): Promise<void> => {
     const mirrorDir = ctx.trail.mirrorDir;
-    if (mirrorDir) await ctx.ends.pruneMirror(mirrorDir);
+    if (mirrorDir) await ctx.host.pruneMirror(mirrorDir);
   };
   if (effects.prune === "before-persist") await prune();
 
@@ -238,7 +238,7 @@ function outcomeOf(shape: Shape, decision: RunDecision, note: string | undefined
 /* invalid → E-STATIC, infra-error → E-INFRA, unless a generation end or a failed precondition that ended the run names its own class. */
 function errorClassOf(terminal: TerminalShape, ctx: RunContext): string | null {
   const { generationEnd, preconditionFailed, reviewerUnavailable, reviewDisputed } = terminal;
-  return deriveErrorClass(terminal.verdict, null, null, [], { generationEnd, preconditionFailed, reviewerUnavailable, reviewDisputed, sandboxRefused: ctx.ends.sandboxRefused() });
+  return deriveErrorClass(terminal.verdict, null, null, [], { generationEnd, preconditionFailed, reviewerUnavailable, reviewDisputed, sandboxRefused: ctx.host.sandboxRefused() });
 }
 
 /* The same learning gates as the decided end, at the terminal stage: a terminal outcome teaches only through a class that teaches. */
@@ -267,12 +267,12 @@ async function learnFromTerminal(outcome: RunOutcome, terminal: TerminalShape, c
 }
 
 function resultOf(shape: Shape, decision: RunDecision, outcome: RunOutcome | undefined, note: string | undefined, persisted: boolean, ctx: RunContext): RunQaResult {
-  const { ends } = ctx;
+  const { host } = ctx;
   if (shape.kind === "failure") {
     return {
       decision,
       /* An end that persists nothing still derives its class for the returned result. */
-      errorClass: deriveErrorClass("infra-error", null, null, [], { sandboxRefused: ctx.ends.sandboxRefused() }),
+      errorClass: deriveErrorClass("infra-error", null, null, [], { sandboxRefused: ctx.host.sandboxRefused() }),
       gateSignals: { static: false, coverageRatio: null, valueScore: null, retries: 0, ...NO_GROUNDING_SIGNALS },
       cases: [],
       rulesRetrieved: [],
@@ -301,7 +301,7 @@ function resultOf(shape: Shape, decision: RunDecision, outcome: RunOutcome | und
   }
   const { terminal } = shape;
   const grounding = terminal.groundingSignals ?? NO_GROUNDING_SIGNALS;
-  const coordination = ends.coordination();
+  const coordination = host.coordination();
   return {
     decision,
     ...(outcome ? { outcome } : {}),

@@ -8,8 +8,8 @@ import type { CoordinationGateSignal } from "@kernel/coordination.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { PreparedWorkspace, RunServices } from "./run-services.ts";
 
-/* The use case's own ways to end a run and the trail notes it keeps, bound to the run. */
-export interface RunEnds {
+/* What the use case does for a run that is not an end: the notes it keeps on the trail, the login and suite helpers, and the ambient sandbox facts. Bound to the run. */
+export interface RunHost {
   /** What the lead/sidekick mode came to, read when the run's outcome is built. */
   recordCoordination(signal: CoordinationGateSignal): void;
   /** Records what the lead routed of the reviewer's corrections with the run's coordination. */
@@ -43,7 +43,7 @@ export interface RunContext {
   startedAt: number;
   cycleBudget: CycleBudget;
   wallClockBudget: WallClockBudget;
-  ends: RunEnds;
+  host: RunHost;
 }
 
 /* The specs this run has delivered so far, merged after every generation pass: a lead pass refreshes what its verdict declared for each spec, a sidekick pass adds paths only. Every regeneration is handed them. The one mutable fact of the generation, so the context owns it. */

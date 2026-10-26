@@ -188,7 +188,7 @@ export async function correctThroughLead(
 ): Promise<GenerationOutput> {
   const corrected = await pass.correct(findings, origin);
   /* Recorded after every turn, so however the run ends from here what the lead routed is on its record. */
-  ctx.ends.recordCorrections();
+  ctx.host.recordCorrections();
   const byFlows = await afterGeneration<GenerationOutput>(ctx, {
     specs: corrected.specs,
     ...(corrected.specSources ? { specSources: corrected.specSources } : {}),

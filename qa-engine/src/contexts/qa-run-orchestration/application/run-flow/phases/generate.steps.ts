@@ -67,10 +67,10 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
   } catch (err) {
     rethrowIfRunDeadline(err);
     console.error(`[qa] coordination failed (the lead authors the change alone): ${err instanceof Error ? err.message : String(err)}`);
-    ctx.ends.recordCoordination({ downgrade: "coordination failed", flows: 0, delivered: 0, incomplete: 0, takeover: false });
+    ctx.host.recordCoordination({ downgrade: "coordination failed", flows: 0, delivered: 0, incomplete: 0, takeover: false });
     return {};
   }
-  ctx.ends.recordCoordination(result.signal);
+  ctx.host.recordCoordination(result.signal);
   if (result.action === "lead") return result.unvisited ? { unvisitedChangePages: result.unvisited } : {};
   if (result.action === "noop") {
     /* A plan names no kind of no-op. */
@@ -240,7 +240,7 @@ export async function groundBeforeExecution(state: Readonly<RunState>, ctx: Work
     catalogGateInWindow += result.catalogGateInWindow;
     catalogGateAdvisory += result.catalogGateAdvisory;
     catalogGateFailClosed += result.catalogGateFailClosed;
-    ctx.ends.noteGroundingGates(result);
+    ctx.host.noteGroundingGates(result);
     /* mutation-scope:end catalog-gate-counters */
     return { corrections: result.corrections, attributedSpecFiles: attributeContradictions(result.corrections, result.origins, specFiles) };
   };

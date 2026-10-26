@@ -25,13 +25,13 @@ export async function restoreAcceptedSuite(state: Readonly<RunState>, ctx: Works
       const restored = await deps.suiteStore.restore({ mirrorDir: workspace.mirrorDir, specDir: workspace.specDir });
       suiteRestored = true;
       storeRestoredLogin = restored.authRestored;
-      ctx.ends.announceSuite(
+      ctx.host.announceSuite(
         `[qa] suite store: restored ${restored.restored} file(s), overlaid ${restored.overlaid} unpublished change(s) over git, left ${restored.trackedWins} to git${restored.authRestored ? "; the app's login was restored" : ""}`,
         "info",
       );
     } catch (err) {
       rethrowIfUntrusted(err);
-      ctx.ends.announceSuite(`[qa] suite store restore failed (off-path; the run starts cold and keeps nothing): ${err instanceof Error ? err.message : String(err)}`, "warn");
+      ctx.host.announceSuite(`[qa] suite store restore failed (off-path; the run starts cold and keeps nothing): ${err instanceof Error ? err.message : String(err)}`, "warn");
     }
   }
   return { update: { setup: { ...state.setup, suiteRestored, storeRestoredLogin } } };
@@ -61,21 +61,21 @@ export async function prepareLogin(state: Readonly<RunState>, ctx: WorkspaceRunC
   const { generating } = state.classification;
   let authSeedUnauthored = false;
   if (!cfg.isCode) {
-    let auth = await ctx.ends.prepareAuth(workspace.specDir, "pre-generate", signal);
+    let auth = await ctx.host.prepareAuth(workspace.specDir, "pre-generate", signal);
     if ("failed" in auth && state.setup.storeRestoredLogin) {
       /* The login the store brought back no longer signs in (the app changed since): the stock seed takes its place and the login is tried once more, which falls into discovery or the unauthored path. */
-      const healed = await ctx.ends.replaceRestoredLogin(workspace, signal);
+      const healed = await ctx.host.replaceRestoredLogin(workspace, signal);
       if (healed === "setup-failed") return end("auth-failed", { note: "setup failed while the app's stored login was replaced by the stock one" });
-      if (healed === "replaced") auth = await ctx.ends.prepareAuth(workspace.specDir, "pre-generate", signal);
+      if (healed === "replaced") auth = await ctx.host.prepareAuth(workspace.specDir, "pre-generate", signal);
     }
     if ("failed" in auth) return end("auth-failed", { note: auth.failed });
     if ("precondition" in auth) {
       /* A cancelled run is not a failed login: whatever the killed attempt saw, the abort wins. */
       if (signal?.aborted) return end("aborted");
       const terminal = terminalForPrecondition(input.mode);
-      ctx.ends.announcePrecondition(auth.precondition, terminal.action === "end");
+      ctx.host.announcePrecondition(auth.precondition, terminal.action === "end");
       if (terminal.action === "end") {
-        return end("login-precondition", { generating, note: ctx.ends.preconditionNote(auth.precondition) });
+        return end("login-precondition", { generating, note: ctx.host.preconditionNote(auth.precondition) });
       }
     } else {
       authSeedUnauthored = auth.unauthored;

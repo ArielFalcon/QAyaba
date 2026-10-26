@@ -61,12 +61,12 @@ function context(opts: { mode?: RunQaInput["mode"]; mirrorDir?: string | undefin
     startedAt: 0,
     cycleBudget,
     wallClockBudget: WallClockBudget.derive({ cycleBudget, agentTimeoutMs: 0 }),
-    ends: {
+    host: {
       pruneMirror: async (dir: string) => { calls.order.push("prune"); calls.pruned.push(dir); },
       coordination: () => undefined,
       sandboxRefused: () => false,
       sandboxSignal: () => undefined,
-    } as unknown as RunContext["ends"],
+    } as unknown as RunContext["host"],
   };
   return { ctx, calls };
 }

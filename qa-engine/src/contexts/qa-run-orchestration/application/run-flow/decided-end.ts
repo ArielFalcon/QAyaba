@@ -44,7 +44,7 @@ export async function finalizeDecided(state: Readonly<RunState>, ctx: WorkspaceR
   }
 
   /* Once, after confinement and publish, so gc never races this run's git write. */
-  await ctx.ends.pruneMirror(ctx.workspace.mirrorDir);
+  await ctx.host.pruneMirror(ctx.workspace.mirrorDir);
 
   const persisted = await persistOutcome(state, ctx, publishOutcome);
   if (persisted.mainlineOutcome) {
@@ -56,9 +56,9 @@ export async function finalizeDecided(state: Readonly<RunState>, ctx: WorkspaceR
 
 /* A coordinated run says how it ended: the verdict with the quality sampled at the same instant, and how many flows were handed back. */
 async function recordCoordinationOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<void> {
-  const { deps, input, ends, startedAt } = ctx;
+  const { deps, input, host, startedAt } = ctx;
   const { decision } = decidedOf(state);
-  const coordinationSignal = ends.coordination();
+  const coordinationSignal = host.coordination();
   if (!coordinationSignal || !deps.coordinationTelemetry) return;
   const { coverageRatio, valueScore } = state.coverage;
   const reviewerApprovedForOutcome = reviewerApprovedForOutcomeOf(state);
@@ -111,7 +111,7 @@ const keepsSuite = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolea
   !!ctx.deps.suiteStore && state.setup.suiteRestored && isAccepted(decidedOf(state).evidence);
 
 async function keepAcceptedSuite(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<void> {
-  const { deps, input, workspace, services, ends } = ctx;
+  const { deps, input, workspace, services, host } = ctx;
   const { authVerifiedSha256 } = state.execution;
   try {
     const kept = await deps.suiteStore!.capture({
@@ -123,10 +123,10 @@ async function keepAcceptedSuite(state: Readonly<RunState>, ctx: WorkspaceRunCon
       executedGreen: new Map([...services.proofLedger].map(([file, proof]) => [file, proof.sha256])),
       ...(authVerifiedSha256 !== undefined ? { authVerifiedSha256 } : {}),
     });
-    ends.announceSuite(`[qa] suite store: kept ${kept.entries} file(s) (${kept.admitted} new or changed, ${kept.dropped} dropped${kept.skipped.length > 0 ? `, ${kept.skipped.length} left out` : ""})`, "info");
+    host.announceSuite(`[qa] suite store: kept ${kept.entries} file(s) (${kept.admitted} new or changed, ${kept.dropped} dropped${kept.skipped.length > 0 ? `, ${kept.skipped.length} left out` : ""})`, "info");
   } catch (captureErr) {
     rethrowIfUntrusted(captureErr);
-    ends.announceSuite(`[qa] suite store capture failed (off-path; verdict unchanged): ${captureErr instanceof Error ? captureErr.message : String(captureErr)}`, "warn");
+    host.announceSuite(`[qa] suite store capture failed (off-path; verdict unchanged): ${captureErr instanceof Error ? captureErr.message : String(captureErr)}`, "warn");
   }
 }
 
@@ -226,7 +226,7 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
   /* Thread the review loop's real final-round corrections into errorClass derivation. */
   const errorClass = deriveErrorClass(decision.verdict, coverageRatio, valueScore, finalReviewerCorrections, {
     ...(state.fixLoop.devNotRenderedConclusive ? { preconditionFailed: true } : {}),
-    sandboxRefused: ctx.ends.sandboxRefused(),
+    sandboxRefused: ctx.host.sandboxRefused(),
   });
   if (isContextCleanPass) return { errorClass, loopSignal, mainlineOutcome: undefined };
   const mainlineOutcome = toRunOutcome(ctx, decision, run.cases, retries, coverageRatio, errorClass, {

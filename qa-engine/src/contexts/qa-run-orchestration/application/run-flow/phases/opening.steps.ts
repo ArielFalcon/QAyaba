@@ -58,7 +58,7 @@ export async function armRunDeadline(state: Readonly<RunState>, ctx: WorkspaceRu
   const { diff, intent } = state.classification;
   ctx.services.intentState.tokens = changeTokens(diff ?? "");
   ctx.deps.runDeadline?.arm({ mode: ctx.input.mode, ...(diff !== undefined ? { diff } : {}), ...(intent ? { changedFiles: intent.changedFiles } : {}) });
-  ctx.ends.noteDeadlineArmed();
+  ctx.host.noteDeadlineArmed();
 }
 
 /*

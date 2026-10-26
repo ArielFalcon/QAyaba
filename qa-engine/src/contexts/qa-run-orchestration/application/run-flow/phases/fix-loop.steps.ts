@@ -346,6 +346,6 @@ export async function fingerprintGreenSuite(state: Readonly<RunState>, ctx: Work
     }
   } catch (fingerprintErr) {
     rethrowIfUntrusted(fingerprintErr);
-    ctx.ends.announceSuite(`[qa] suite store fingerprint failed (off-path; no spec is admitted): ${fingerprintErr instanceof Error ? fingerprintErr.message : String(fingerprintErr)}`, "warn");
+    ctx.host.announceSuite(`[qa] suite store fingerprint failed (off-path; no spec is admitted): ${fingerprintErr instanceof Error ? fingerprintErr.message : String(fingerprintErr)}`, "warn");
   }
 }

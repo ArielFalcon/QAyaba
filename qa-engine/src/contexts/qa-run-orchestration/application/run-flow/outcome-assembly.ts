@@ -139,7 +139,7 @@ export function toReflectionInput(outcome: RunOutcome, archetype: string | null)
 
 /** The outcome the run persists for a decision, bound to this run's input. */
 export function toRunOutcome(
-  ctx: Pick<RunContext, "input" | "deps" | "ends">,
+  ctx: Pick<RunContext, "input" | "deps" | "host">,
   decision: RunDecision,
   cases: QaCase[],
   retries: number,
@@ -148,8 +148,8 @@ export function toRunOutcome(
   extra?: OutcomeExtras,
 ): RunOutcome {
   const { input, deps } = ctx;
-  const coordination = ctx.ends.coordination();
-  const sandbox = ctx.ends.sandboxSignal();
+  const coordination = ctx.host.coordination();
+  const sandbox = ctx.host.sandboxSignal();
   const gateCoverageRatio = coverageRatio;
   const gateValueScore = extra?.valueScore ?? null;
   return {

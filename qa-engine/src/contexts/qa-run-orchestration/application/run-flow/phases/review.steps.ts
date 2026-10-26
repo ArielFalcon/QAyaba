@@ -527,5 +527,5 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
 
 /* The coordinated pass is kept only for the reviewer's corrections: once the review is over, or did not run, nothing can correct through it, and its sessions, workspaces and loops are released. Nothing when the run held none. */
 export async function releaseCoordinatedPass(_state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  await ctx.ends.closeCoordinatedPass();
+  await ctx.host.closeCoordinatedPass();
 }
