@@ -2,7 +2,7 @@
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { WriteConfinementService } from "../../qa-engine/src/contexts/workspace-and-publication/domain/write-confinement.service";
+import { WriteConfinementService } from "../../qa-engine/src/contexts/workspace-and-publication/application/index";
 
 /*
  * Validation + safety layers gating the maintainer's autonomous self-merge — the
@@ -175,10 +175,10 @@ export const PROTECTED_PATHS: string[] = [
    */
   "qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts",
   /*
-   * The composition root — wires RedactionPortAdapter, WriteConfinementAdapter, VcsWriteAdapter,
-   * the code publish excludes, and every GitHub adapter. An autonomous edit here can rewire ANY security
-   * port to a weaker (or fake) implementation without ever touching the port/adapter files
-   * themselves — the single widest-blast-radius file in the whole security surface.
+   * The shell's mapping of an app's configuration and host collaborators (git credentials, the commit
+   * identity, the GitHub clients, the sandbox, the data directory) into the engine root's dependencies. An
+   * autonomous edit here can hand any security port a weaker (or fake) collaborator without ever touching
+   * the port/adapter files themselves — the widest-blast-radius file of the shell.
    */
   "src/server/run-engine-factory.ts",
   "src/server/engine-root.ts",
@@ -188,6 +188,22 @@ export const PROTECTED_PATHS: string[] = [
    * through the wrong sandbox profile without touching the strategies themselves.
    */
   "qa-engine/src/contexts/test-execution/composition/build-test-execution.ts",
+  /*
+   * The generation builder — the one place the generation and review ports are bound to the run's agent runtime
+   * and the three groundings that shape what a model reads are wired. An autonomous edit can route a role to
+   * another runtime or drop a grounding without touching the adapters.
+   */
+  "qa-engine/src/contexts/generation/composition/build-generation.ts",
+  /*
+   * The coordination builder — where the lead, the sidekicks and the place for their workspaces are wired. An
+   * autonomous edit can hand a sidekick a workspace outside the run's mirror or widen what it may write back.
+   */
+  "qa-engine/src/contexts/coordination/composition/build-coordination.ts",
+  /*
+   * The workspace-and-publication public surface — the file every other module imports the confinement service
+   * through. An autonomous edit can export another seam of this context to the rest of the system.
+   */
+  "qa-engine/src/contexts/workspace-and-publication/application/index.ts",
   /*
    * The workspace-and-publication builder — the one place the VCS write seam, the publication route and the
    * handle registry that gates publication, confinement and gc are wired. An autonomous edit can route a
