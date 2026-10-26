@@ -61,11 +61,20 @@ export class CodeGraphToolsPortAdapter implements CodeGraphToolsPort {
     };
     const { repos } = this.deps;
     const serve = async (request: CodeGraphToolRequest, observer: ToolObserver): Promise<CodeGraphToolResponse> => {
-      /* The file and character budgets are the run's, shared by the repos; one repo keeps them whole. */
-      const maxFiles = Math.max(1, Math.floor(limits.maxFiles / repos.length));
-      const maxChars = Math.floor(limits.maxAnswerChars / repos.length);
+      /*
+       * The file and character budgets are the run's, shared by the repos; one repo keeps them whole. With more repos than
+       * files, the first ones get a file each and the rest are not asked, so the files asked never exceed the budget.
+       */
+      const asked = repos.slice(0, Math.max(1, limits.maxFiles));
+      const notAsked = repos.slice(asked.length);
+      const maxFiles = Math.max(1, Math.floor(limits.maxFiles / asked.length));
+      const label = (repo: string): string => `## Repository ${repo}\n`;
+      const notAskedSections = notAsked.map(({ repo }) => `${label(repo)}[not asked: the run's file budget went to the repositories above]`);
+      /* Labels, separators and the not-asked sections come out of the character budget first; the rest is shared. */
+      const overhead = asked.reduce((n, { repo }) => n + label(repo).length, 0) + notAskedSections.reduce((n, t) => n + t.length, 0) + 2 * (repos.length - 1);
+      const maxChars = Math.max(0, Math.floor((limits.maxAnswerChars - overhead) / asked.length));
       const answers = await Promise.all(
-        repos.map(async ({ repo, repoDir }) => ({
+        asked.map(async ({ repo, repoDir }) => ({
           repo,
           answer: await this.deps.explore.explore(repoDir, request.query.terms, maxFiles).catch((cause: unknown) => err({ reason: cause instanceof Error ? cause.message : String(cause) })),
         })),
@@ -90,12 +99,13 @@ export class CodeGraphToolsPortAdapter implements CodeGraphToolsPort {
       }
       let truncated = false;
       const sections = answers.map(({ repo, answer }) => {
-        if (!answer.ok) return `## Repository ${repo}\n[unavailable: the code graph could not answer for this repository]`;
+        if (!answer.ok) return `${label(repo)}${"[unavailable: the code graph could not answer for this repository]".slice(0, maxChars)}`;
         const shaped = shapeExploreAnswer(answer.value.text, maxChars, this.deps.redact);
         truncated ||= shaped.truncated;
-        return `## Repository ${repo}\n${shaped.result}`;
+        return `${label(repo)}${shaped.result}`;
       });
-      return { ok: true, result: sections.join("\n\n"), truncated, indexedSha: first.value.indexedSha, callsLeft: limits.maxCalls - counts.calls };
+      truncated ||= notAsked.length > 0;
+      return { ok: true, result: [...sections, ...notAskedSections].join("\n\n"), truncated, indexedSha: first.value.indexedSha, callsLeft: limits.maxCalls - counts.calls };
     };
     this.deps.registry.register({
       runId: input.runId,

@@ -268,13 +268,17 @@ test("an explore session with no share has no calls, and a role that is neither 
   assert.equal(swapped.ok === false && swapped.code, "wrong-agent", "an explore agent name on the lead's session (no delegation) is refused");
 });
 
-function multiRepo(answers: Record<string, Result<ExploreAnswer, CodeGraphUnavailable>>, limits: { maxFiles: number; maxAnswerChars: number } = { maxFiles: 8, maxAnswerChars: 12_000 }) {
+function multiRepo(
+  answers: Record<string, Result<ExploreAnswer, CodeGraphUnavailable>>,
+  limits: { maxFiles: number; maxAnswerChars: number } = { maxFiles: 8, maxAnswerChars: 12_000 },
+  repos: Array<{ repo: string; repoDir: string }> = [{ repo: "org/web", repoDir: "/m/web" }, { repo: "org/api", repoDir: "/m/api" }],
+) {
   const calls: Array<{ repoDir: string; terms: readonly string[]; maxFiles: number }> = [];
   const registry = new CodeGraphToolRegistry();
   const port = new CodeGraphToolsPortAdapter({
     registry,
     explore: { explore: async (repoDir, terms, maxFiles) => { calls.push({ repoDir, terms, maxFiles }); return answers[repoDir]!; } },
-    repos: [{ repo: "org/web", repoDir: "/m/web" }, { repo: "org/api", repoDir: "/m/api" }],
+    repos,
     generatorRuntimeCanCall: () => true,
     limits: { maxCalls: 40, ...limits },
   });
@@ -297,6 +301,33 @@ test("with several repos in the change one call asks each the same terms and lab
   assert.match(answer.result, /^## Repository org\/web\n\*\*`web\/a\.ts`\*\*[\s\S]*\n\n## Repository org\/api\n\*\*`api\/B\.java`\*\*/);
   assert.equal(answer.indexedSha, "w1");
   assert.deepEqual(handle.signals(), { calls: 1, refused: 0, failed: 0 });
+});
+
+test("with more repos than the run's file budget, the files asked never exceed it and the repos left out are named as not asked", async () => {
+  const text = (repo: string) => ok({ text: `**\`${repo}/a.ts\`** — a\n\`\`\`ts\nA\n\`\`\``, indexedSha: repo });
+  const m = multiRepo(
+    { "/m/web": text("web"), "/m/api": text("api"), "/m/billing": text("billing") },
+    { maxFiles: 2, maxAnswerChars: 4_000 },
+    [{ repo: "org/web", repoDir: "/m/web" }, { repo: "org/api", repoDir: "/m/api" }, { repo: "org/billing", repoDir: "/m/billing" }],
+  );
+  const { live } = await leadOf(m);
+  const answer = await live.call(request());
+  assert.ok(answer.ok);
+  if (!answer.ok) return;
+  assert.ok(m.calls.reduce((n, c) => n + c.maxFiles, 0) <= 2, JSON.stringify(m.calls));
+  assert.deepEqual(m.calls.map((c) => c.repoDir), ["/m/web", "/m/api"]);
+  assert.match(answer.result, /## Repository org\/billing\n\[not asked: /);
+});
+
+test("with several repos the whole answer, section labels included, stays within the run's character budget", async () => {
+  const long = (repo: string) => ok({ text: `**\`${repo}/a.ts\`** — a\n\`\`\`ts\n${"x\n".repeat(400)}\`\`\``, indexedSha: repo });
+  const m = multiRepo({ "/m/web": long("web"), "/m/api": long("api") }, { maxFiles: 8, maxAnswerChars: 600 });
+  const { live } = await leadOf(m);
+  const answer = await live.call(request());
+  assert.ok(answer.ok);
+  if (!answer.ok) return;
+  assert.ok(answer.result.length <= 600, `answer is ${answer.result.length} chars`);
+  assert.equal(answer.truncated, true);
 });
 
 test("a repo whose index cannot answer is named as unavailable and the other still answers, with nothing of the engine's reason", async () => {
