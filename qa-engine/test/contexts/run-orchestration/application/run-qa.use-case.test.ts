@@ -6973,7 +6973,7 @@ test("wall-clock ceiling skips FixLoop regeneration without aborting the first g
   assert.equal(executeCalls, 1, "FixLoop must not re-execute after skipping regeneration");
 });
 
-test("a run deadline with no time left for a regeneration skips the fix loop's regeneration, like a spent wall-clock budget, without aborting the first generate", async () => {
+test("a run deadline with no time left for the fix loop's regeneration ends the run E-TIME-BUDGET, not a fail with an Issue", async () => {
   let generateCalls = 0;
   let executeCalls = 0;
   const { ports } = stubPorts({
@@ -6983,10 +6983,18 @@ test("a run deadline with no time left for a regeneration skips the fix loop's r
       return { verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom", file: "owners.spec.ts" }], logs: "" };
     },
   });
-  const runDeadline = { arm: () => {}, remainingMs: () => 60_000, allowance: (purpose: string) => (purpose === "regeneration" ? 0 : 60_000) };
-  await new RunQaUseCase({ ...ports, runDeadline, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, runId: "deadline-allowance-regen" });
+  const runDeadline = {
+    arm: () => {},
+    remainingMs: () => 60_000,
+    allowance: (purpose: string) => (purpose === "regeneration" ? 0 : 60_000),
+    describe: () => ({ label: "diff", budgetMs: 600_000 }),
+  };
+  const out = await new RunQaUseCase({ ...ports, runDeadline, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, runId: "deadline-allowance-regen" });
   assert.equal(generateCalls, 1, "no time for a regeneration starts no further agent turn");
   assert.equal(executeCalls, 1);
+  assert.equal(out.decision.verdict, "infra-error", "the suite could not be repaired in time: the deadline ends the run, it says nothing about the app");
+  assert.equal(out.errorClass, ERROR_CLASS.TIME_BUDGET);
+  assert.notEqual(out.decision.sideEffect, "issue");
 });
 
 test("a run deadline with time left for a regeneration lets the fix loop regenerate", async () => {

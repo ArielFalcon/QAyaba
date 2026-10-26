@@ -77,7 +77,7 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
   const fixLoopRegeneration: FixLoopRegenerationPort = {
     /* Forward FixLoopGenerateInput so a retry prompt sees what failed. */
     regenerate: async (fixLoopInput) => {
-      /* A run with no time left, or a spent wall-clock budget, starts no further agent turn: the round returns nothing and the loop ends on what it has. */
+      /* A run with no time left ends on its time budget; a spent wall-clock budget starts no further agent turn: the round returns nothing and the loop ends on what it has. */
       if (!regenerationAllowed(ctx)) {
         return { specs: [], note: "wall-clock budget exhausted: no further regeneration" };
       }
