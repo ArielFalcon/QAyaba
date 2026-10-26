@@ -24,7 +24,8 @@ import {
 import type { TelemetryHealth } from "../telemetry/telemetry-health";
 import { RunEventSchema, RunEvent } from "../contract/events";
 import { createRunEventStore, RunEventStore } from "./run-events";
-import type { AgentTurnRecord, TelemetryAnalysis } from "./history";
+import type { AgentTurnRecord } from "./persistence/repositories/telemetry.repository";
+import type { TelemetryAnalysis } from "./persistence/telemetry-analysis.query";
 
 function mkReq(method: string, url: string, body?: string, headers?: Record<string, string>): any {
   const r: any = Readable.from(body != null ? [body] : []);

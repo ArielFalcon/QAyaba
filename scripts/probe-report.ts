@@ -16,7 +16,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RunEventBody } from "@kernel/contract/events.ts";
 import { readConfinedSpecFile } from "../qa-engine/src/shared-infrastructure/spec-path-confinement.ts";
-import type { AgentTurnRecord } from "../src/server/history.ts";
+import type { AgentTurnRecord } from "../src/server/persistence/repositories/telemetry.repository.ts";
 import type { RunOutcome, RunRecord } from "../src/types.ts";
 import { buildPipelineReport, parseGroundTruth, renderMarkdown, type GroundTruth, type ProbeReport, type TimedRunEvent } from "./probe-metrics.ts";
 
@@ -151,7 +151,7 @@ export async function defaultReportDeps(warn: (line: string) => void = (l) => co
     events: (runId) => history.loadRunEvents(runId).map((e) => ({ ts: e.ts, body: e.body as RunEventBody })),
     outcome: (runId) => getHistory().learning.getRunOutcome(runId),
     record: (runId) => history.getRecord(runId),
-    turns: (runId) => history.getAgentTurns(runId),
+    turns: (runId) => getHistory().telemetry.getAgentTurns(runId),
     changedFiles: async (record) => {
       const app = appOf(record);
       if (!app) return null;
@@ -167,7 +167,7 @@ export async function defaultReportDeps(warn: (line: string) => void = (l) => co
     },
     specLines: (record, reported) => new Map([...readSpecs(record, reported)].map(([path, text]) => [path, text === null ? null : countLines(text)])),
     specSources: readSpecs,
-    contextIds: (runId) => history.listRunSpans(runId).flatMap((span) => {
+    contextIds: (runId) => getHistory().telemetry.listRunSpans(runId).flatMap((span) => {
       if (!span.name.startsWith("qayaba.context.") && !span.name.startsWith("qayaba.delivered.")) return [];
       try {
         const attrs = JSON.parse(span.attrs) as Record<string, unknown>;

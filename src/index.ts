@@ -27,7 +27,7 @@ import { toRunReportView } from "./server/run-report-view";
 import { createDurableRunEventStore } from "./server/durable-run-events";
 import { serveDashboard, resolveDashboardDir } from "./server/static";
 import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents } from "./server/maintainer";
-import { getRecord, listRecords, currentRun, continuationDepth, MAX_CONTINUATION_DEPTH, getRunFacts, getAgentTurns, computeTelemetryAnalysis } from "./server/history";
+import { getRecord, listRecords, currentRun, continuationDepth, MAX_CONTINUATION_DEPTH, getRunFacts } from "./server/history";
 import { createEvaluationService } from "./server/evaluation-service";
 import { composeJudges } from "./server/judges-composition";
 import { LangfuseScoreSink, resolveLangfuseConfig, scoreSinkHealthOf } from "./telemetry/langfuse-score-sink";
@@ -724,11 +724,11 @@ const apiDeps: ApiDeps = {
     confirm: (name) => onboardingJob.confirm(name),
   },
 
-  getAgentTurns: (runId) => getAgentTurns(runId),
+  getAgentTurns: (runId) => getHistory().telemetry.getAgentTurns(runId),
   runExtras: (runId) => buildRunViewExtras(runId, runViewDeps),
   evaluation,
 
-  telemetryAnalysis: (app, windowDays) => computeTelemetryAnalysis(app, windowDays),
+  telemetryAnalysis: (app, windowDays) => getHistory().telemetry.computeTelemetryAnalysis(app, windowDays),
   resolveRef: (repo, ref) => resolveRef(repo, ref, defaultMirrorDeps),
   getRecord,
   listRecords,

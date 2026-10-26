@@ -9,7 +9,7 @@ import { join } from "node:path";
 import type { Agent as OpenCodeAgent } from "@opencode-ai/sdk/v2";
 
 import { RunMode } from "../types";
-import { saveAgentTurnEvent } from "../server/history";
+import { getHistory } from "../server/persistence/index";
 import { SERENA_WRITE_TOOL_NAMES } from "@contexts/generation/application/index";
 import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
 import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
@@ -714,7 +714,7 @@ export async function defaultAgentDeps(): Promise<AgentDeps> {
   return createAgentDeps(raw, {
     defaultPromptTimeoutMs: dispatcherTimeoutMs,
     getFallbackModel,
-    persistTurn: saveAgentTurnEvent,
+    persistTurn: (turn) => getHistory().telemetry.saveAgentTurnEvent(turn),
     takeTurnCalls: (sessionId, promptText, providedPaths) => callEfficiencyTracker.take(sessionId, promptText, providedPaths),
     prepareAttempt: (sessionId, attempt) => callEfficiencyTracker.prepareAttempt(sessionId, attempt),
     maxStepsFor: (agent) => turnStepLimit(agent),

@@ -73,3 +73,17 @@ test("the learning repository writes only inside transactions", (t) => {
   assert.ok(writes.length >= 9);
   assert.deepEqual(writes.filter((w) => !w.inTransaction), []);
 });
+
+test("the telemetry repository writes only inside transactions", (t) => {
+  const { history, writes } = instrumented(t);
+  history.telemetry.commitRunSpans([
+    { traceId: "t", spanId: "s", parentSpanId: null, runId: null, name: "n", kind: "internal", startNs: 1n, endNs: null, status: "unset", statusMessage: null, attrs: "{}", events: "[]", links: "[]" },
+  ]);
+  history.telemetry.saveAgentTurn({
+    runId: null, sessionId: "s", role: "qa-author", round: 0, isRepair: false, ts: "2026-10-01T00:00:00.000Z", objective: null, promptText: "p", outputText: "o", promptBytes: 1,
+    tokensInput: null, tokensOutput: null, tokensReasoning: null, tokensCacheRead: null, tokensCacheWrite: null, cost: null,
+  });
+
+  assert.equal(writes.length, 2);
+  assert.deepEqual(writes.filter((w) => !w.inTransaction), []);
+});

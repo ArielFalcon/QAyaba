@@ -18,7 +18,7 @@ import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import type { RunEventBody } from "@kernel/contract/events.ts";
 import { DIFF_TIER_NAMES } from "@kernel/diff-stat.ts";
 import { type RunOutcome, type RunRecord } from "../src/types.ts";
-import type { AgentTurnRecord } from "../src/server/history.ts";
+import type { AgentTurnRecord } from "../src/server/persistence/repositories/telemetry.repository.ts";
 
 const activity = (callId: string, kind: "analyzing" | "writing" | "command" | "subagent"): RunEventBody => ({
   type: "agent.activity", kind, target: "t", status: "completed", callId,

@@ -5,9 +5,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { computeTelemetryAnalysis } from "./history";
-import { saveAgentTurn } from "./history";
-import type { AgentTurnRecord } from "./history";
+import type { AgentTurnRecord } from "./persistence/repositories/telemetry.repository";
 import type { RunOutcome } from "../types";
 import { getHistory } from "./persistence/index";
 
@@ -64,7 +62,7 @@ function turn(runId: string, overrides: Partial<AgentTurnRecord> = {}): AgentTur
 describe("computeTelemetryAnalysis — empty app returns zero-state", () => {
   it("returns zero runCount and null aggregates when no turns exist for the app", () => {
     const app = uniqueApp("tel-empty");
-    const analysis = computeTelemetryAnalysis(app);
+    const analysis = getHistory().telemetry.computeTelemetryAnalysis(app);
     assert.equal(analysis.app, app);
     assert.equal(analysis.runCount, 0, "no runs recorded");
     assert.equal(analysis.byRole.length, 0, "no role stats when no turns");
@@ -81,11 +79,11 @@ describe("computeTelemetryAnalysis — per-role prompt size aggregates", () => {
     const app = uniqueApp("tel-role");
     const runId = `run-tel-role-${Date.now()}`;
     getHistory().learning.saveRunOutcome(outcome(runId, app));
-    saveAgentTurn(turn(runId, { role: "qa-author", promptBytes: 200 }));
-    saveAgentTurn(turn(runId, { role: "qa-author", promptBytes: 400 }));
-    saveAgentTurn(turn(runId, { role: "qa-reviewer", promptBytes: 150 }));
+    getHistory().telemetry.saveAgentTurn(turn(runId, { role: "qa-author", promptBytes: 200 }));
+    getHistory().telemetry.saveAgentTurn(turn(runId, { role: "qa-author", promptBytes: 400 }));
+    getHistory().telemetry.saveAgentTurn(turn(runId, { role: "qa-reviewer", promptBytes: 150 }));
 
-    const analysis = computeTelemetryAnalysis(app);
+    const analysis = getHistory().telemetry.computeTelemetryAnalysis(app);
     const gen = analysis.byRole.find((r) => r.role === "qa-author");
     const rev = analysis.byRole.find((r) => r.role === "qa-reviewer");
 
@@ -104,10 +102,10 @@ describe("computeTelemetryAnalysis — cache hit rate", () => {
     const app = uniqueApp("tel-cache");
     const runId = `run-tel-cache-${Date.now()}`;
     getHistory().learning.saveRunOutcome(outcome(runId, app));
-    saveAgentTurn(turn(runId, { role: "qa-author", tokensInput: 100, tokensCacheRead: 20 }));
-    saveAgentTurn(turn(runId, { role: "qa-author", tokensInput: 100, tokensCacheRead: 50 }));
+    getHistory().telemetry.saveAgentTurn(turn(runId, { role: "qa-author", tokensInput: 100, tokensCacheRead: 20 }));
+    getHistory().telemetry.saveAgentTurn(turn(runId, { role: "qa-author", tokensInput: 100, tokensCacheRead: 50 }));
 
-    const analysis = computeTelemetryAnalysis(app);
+    const analysis = getHistory().telemetry.computeTelemetryAnalysis(app);
     const gen = analysis.byRole.find((r) => r.role === "qa-author");
     assert.ok(gen, "qa-author must appear");
     assert.ok(gen.medianCacheHitRate !== null, "cache hit rate should be populated");
@@ -118,9 +116,9 @@ describe("computeTelemetryAnalysis — cache hit rate", () => {
     const app = uniqueApp("tel-no-tokens");
     const runId = `run-tel-no-tokens-${Date.now()}`;
     getHistory().learning.saveRunOutcome(outcome(runId, app));
-    saveAgentTurn(turn(runId, { role: "qa-author", tokensInput: null, tokensCacheRead: null }));
+    getHistory().telemetry.saveAgentTurn(turn(runId, { role: "qa-author", tokensInput: null, tokensCacheRead: null }));
 
-    const analysis = computeTelemetryAnalysis(app);
+    const analysis = getHistory().telemetry.computeTelemetryAnalysis(app);
     const gen = analysis.byRole.find((r) => r.role === "qa-author");
     assert.ok(gen, "qa-author must appear");
     assert.equal(gen.medianCacheHitRate, null, "null when no token data");
@@ -132,16 +130,16 @@ describe("computeTelemetryAnalysis — grounding presence", () => {
     const app = uniqueApp("tel-grnd");
     const runId = `run-tel-grnd-${Date.now()}`;
     getHistory().learning.saveRunOutcome(outcome(runId, app));
-    saveAgentTurn(turn(runId, {
+    getHistory().telemetry.saveAgentTurn(turn(runId, {
       role: "qa-author", round: 0, isRepair: false,
       promptText: "## System\n...## Context Pack\n<routes>...</routes>",
     }));
-    saveAgentTurn(turn(runId, {
+    getHistory().telemetry.saveAgentTurn(turn(runId, {
       role: "qa-author", round: 0, isRepair: false,
       promptText: "## System\n... no context pack here",
     }));
 
-    const analysis = computeTelemetryAnalysis(app);
+    const analysis = getHistory().telemetry.computeTelemetryAnalysis(app);
     assert.ok(analysis.groundingPresence !== null, "grounding presence should be computed");
     assert.equal(analysis.groundingPresence, 0.5, "1 of 2 first-round turns grounded = 0.5");
   });
@@ -153,11 +151,11 @@ describe("computeTelemetryAnalysis — repair fraction", () => {
     const app = uniqueApp("tel-repair");
     const runId = `run-tel-repair-${Date.now()}`;
     getHistory().learning.saveRunOutcome(outcome(runId, app));
-    saveAgentTurn(turn(runId, { isRepair: false }));
-    saveAgentTurn(turn(runId, { isRepair: false }));
-    saveAgentTurn(turn(runId, { isRepair: true }));  /* 1 of 3 turns = 1/3 ≈ 0.333 */
+    getHistory().telemetry.saveAgentTurn(turn(runId, { isRepair: false }));
+    getHistory().telemetry.saveAgentTurn(turn(runId, { isRepair: false }));
+    getHistory().telemetry.saveAgentTurn(turn(runId, { isRepair: true }));  /* 1 of 3 turns = 1/3 ≈ 0.333 */
 
-    const analysis = computeTelemetryAnalysis(app);
+    const analysis = getHistory().telemetry.computeTelemetryAnalysis(app);
     assert.ok(analysis.repairFraction !== null);
     assert.ok(Math.abs(analysis.repairFraction! - 1 / 3) < 1e-9, `expected 1/3, got ${analysis.repairFraction}`);
   });
@@ -171,7 +169,7 @@ describe("computeTelemetryAnalysis — reviewer convergence approveRate", () => 
     getHistory().learning.saveRunOutcome(outcome(run1, app, { verdict: "pass" }));
     getHistory().learning.saveRunOutcome(outcome(run2, app, { verdict: "fail" }));
 
-    const analysis = computeTelemetryAnalysis(app);
+    const analysis = getHistory().telemetry.computeTelemetryAnalysis(app);
     assert.ok(analysis.reviewerConvergence.approveRate !== null);
     assert.equal(analysis.reviewerConvergence.approveRate, 0.5);
   });
@@ -182,11 +180,11 @@ describe("computeTelemetryAnalysis — turns per run and wall-clock", () => {
     const app = uniqueApp("tel-turns");
     const runId = `run-tel-turns-${Date.now()}`;
     getHistory().learning.saveRunOutcome(outcome(runId, app));
-    saveAgentTurn(turn(runId));
-    saveAgentTurn(turn(runId));
-    saveAgentTurn(turn(runId));
+    getHistory().telemetry.saveAgentTurn(turn(runId));
+    getHistory().telemetry.saveAgentTurn(turn(runId));
+    getHistory().telemetry.saveAgentTurn(turn(runId));
 
-    const analysis = computeTelemetryAnalysis(app);
+    const analysis = getHistory().telemetry.computeTelemetryAnalysis(app);
     assert.equal(analysis.runCount, 1);
     assert.equal(analysis.medianTurnsPerRun, 3, "3 turns in the only run → median = 3");
   });
@@ -197,10 +195,10 @@ describe("computeTelemetryAnalysis — turns per run and wall-clock", () => {
     getHistory().learning.saveRunOutcome(outcome(runId, app));
     const t0 = new Date();
     const t1 = new Date(t0.getTime() + 5000);
-    saveAgentTurn(turn(runId, { ts: t0.toISOString() }));
-    saveAgentTurn(turn(runId, { ts: t1.toISOString() }));
+    getHistory().telemetry.saveAgentTurn(turn(runId, { ts: t0.toISOString() }));
+    getHistory().telemetry.saveAgentTurn(turn(runId, { ts: t1.toISOString() }));
 
-    const analysis = computeTelemetryAnalysis(app);
+    const analysis = getHistory().telemetry.computeTelemetryAnalysis(app);
     assert.ok(analysis.medianWallClockSec !== null);
     assert.ok(analysis.medianWallClockSec! >= 5, `expected >= 5s, got ${analysis.medianWallClockSec}`);
   });
@@ -211,11 +209,11 @@ describe("computeTelemetryAnalysis — turns of every role", () => {
     const app = uniqueApp("tel-all-roles");
     const runId = `run-all-roles-${Date.now()}`;
     getHistory().learning.saveRunOutcome(outcome(runId, app));
-    saveAgentTurn(turn(runId));
-    saveAgentTurn(turn(runId, { isRepair: true }));
-    saveAgentTurn(turn(runId, { role: "qa-reviewer" }));
+    getHistory().telemetry.saveAgentTurn(turn(runId));
+    getHistory().telemetry.saveAgentTurn(turn(runId, { isRepair: true }));
+    getHistory().telemetry.saveAgentTurn(turn(runId, { role: "qa-reviewer" }));
 
-    const analysis = computeTelemetryAnalysis(app);
+    const analysis = getHistory().telemetry.computeTelemetryAnalysis(app);
 
     assert.equal(analysis.runCount, 1);
     assert.equal(analysis.medianTurnsPerRun, 3, "the run's three turns, whatever their role");
@@ -227,9 +225,9 @@ describe("computeTelemetryAnalysis — turns of every role", () => {
     const app = uniqueApp("tel-one-role");
     const runId = `run-one-role-${Date.now()}`;
     getHistory().learning.saveRunOutcome(outcome(runId, app));
-    saveAgentTurn(turn(runId, { role: "qa-unlisted-role" }));
+    getHistory().telemetry.saveAgentTurn(turn(runId, { role: "qa-unlisted-role" }));
 
-    assert.equal(computeTelemetryAnalysis(app).runCount, 1);
+    assert.equal(getHistory().telemetry.computeTelemetryAnalysis(app).runCount, 1);
   });
 });
 
@@ -243,10 +241,10 @@ describe("computeTelemetryAnalysis — windowDays filtering", () => {
     getHistory().learning.saveRunOutcome(outcome(oldRunId, app, { at: oldAt }));
     getHistory().learning.saveRunOutcome(outcome(newRunId, app));
 
-    saveAgentTurn(turn(oldRunId, { ts: oldAt }));
-    saveAgentTurn(turn(newRunId));
+    getHistory().telemetry.saveAgentTurn(turn(oldRunId, { ts: oldAt }));
+    getHistory().telemetry.saveAgentTurn(turn(newRunId));
 
-    const analysis = computeTelemetryAnalysis(app, 1);
+    const analysis = getHistory().telemetry.computeTelemetryAnalysis(app, 1);
     assert.equal(analysis.runCount, 1, "only the new run should be within the 1-day window");
     assert.equal(analysis.medianTurnsPerRun, 1, "only 1 turn in the window");
   });
@@ -266,9 +264,9 @@ describe("computeTelemetryAnalysis — efficiency aggregates", () => {
     const app = uniqueApp("tel-eff-empty");
     const runId = `run-eff-empty-${Date.now()}`;
     getHistory().learning.saveRunOutcome(outcome(runId, app));
-    saveAgentTurn(turn(runId));
+    getHistory().telemetry.saveAgentTurn(turn(runId));
 
-    const { efficiency } = computeTelemetryAnalysis(app);
+    const { efficiency } = getHistory().telemetry.computeTelemetryAnalysis(app);
     assert.equal(efficiency.turnsMeasured, 0);
     assert.equal(efficiency.medianCallsBeforeFirstWrite, null);
     assert.equal(efficiency.exhaustedRate, null);
@@ -280,11 +278,11 @@ describe("computeTelemetryAnalysis — efficiency aggregates", () => {
     const app = uniqueApp("tel-eff");
     const runId = `run-eff-${Date.now()}`;
     getHistory().learning.saveRunOutcome(outcome(runId, app));
-    saveAgentTurn(turn(runId, measured({ totalCalls: 10, callsBeforeFirstWrite: 8, redundantReadCount: 2, duplicateCallCount: 1, exhausted: true })));
-    saveAgentTurn(turn(runId, measured({ totalCalls: 10, callsBeforeFirstWrite: 4, redundantReadCount: 0, duplicateCallCount: 1, exhausted: false })));
-    saveAgentTurn(turn(runId, measured({ totalCalls: 20, callsBeforeFirstWrite: 20, redundantReadCount: 4, duplicateCallCount: 2, exhausted: false })));
+    getHistory().telemetry.saveAgentTurn(turn(runId, measured({ totalCalls: 10, callsBeforeFirstWrite: 8, redundantReadCount: 2, duplicateCallCount: 1, exhausted: true })));
+    getHistory().telemetry.saveAgentTurn(turn(runId, measured({ totalCalls: 10, callsBeforeFirstWrite: 4, redundantReadCount: 0, duplicateCallCount: 1, exhausted: false })));
+    getHistory().telemetry.saveAgentTurn(turn(runId, measured({ totalCalls: 20, callsBeforeFirstWrite: 20, redundantReadCount: 4, duplicateCallCount: 2, exhausted: false })));
 
-    const { efficiency } = computeTelemetryAnalysis(app);
+    const { efficiency } = getHistory().telemetry.computeTelemetryAnalysis(app);
     assert.equal(efficiency.turnsMeasured, 3);
     assert.equal(efficiency.medianCallsBeforeFirstWrite, 8);
     assert.equal(efficiency.exhaustedRate, 1 / 3);
@@ -296,11 +294,11 @@ describe("computeTelemetryAnalysis — efficiency aggregates", () => {
     const app = uniqueApp("tel-eff-null");
     const runId = `run-eff-null-${Date.now()}`;
     getHistory().learning.saveRunOutcome(outcome(runId, app));
-    saveAgentTurn(turn(runId, measured({ totalCalls: 10, callsBeforeFirstWrite: 6, redundantReadCount: 1, duplicateCallCount: 0, exhausted: true })));
-    saveAgentTurn(turn(runId));
-    saveAgentTurn(turn(runId, { exhausted: null, totalCalls: null }));
+    getHistory().telemetry.saveAgentTurn(turn(runId, measured({ totalCalls: 10, callsBeforeFirstWrite: 6, redundantReadCount: 1, duplicateCallCount: 0, exhausted: true })));
+    getHistory().telemetry.saveAgentTurn(turn(runId));
+    getHistory().telemetry.saveAgentTurn(turn(runId, { exhausted: null, totalCalls: null }));
 
-    const { efficiency } = computeTelemetryAnalysis(app);
+    const { efficiency } = getHistory().telemetry.computeTelemetryAnalysis(app);
     assert.equal(efficiency.turnsMeasured, 1);
     assert.equal(efficiency.exhaustedRate, 1);
     assert.equal(efficiency.medianCallsBeforeFirstWrite, 6);
@@ -311,10 +309,10 @@ describe("computeTelemetryAnalysis — efficiency aggregates", () => {
     const app = uniqueApp("tel-eff-zero");
     const runId = `run-eff-zero-${Date.now()}`;
     getHistory().learning.saveRunOutcome(outcome(runId, app));
-    saveAgentTurn(turn(runId, measured({ totalCalls: 0, callsBeforeFirstWrite: 0 })));
-    saveAgentTurn(turn(runId, measured({ totalCalls: 12, callsBeforeFirstWrite: 9 })));
+    getHistory().telemetry.saveAgentTurn(turn(runId, measured({ totalCalls: 0, callsBeforeFirstWrite: 0 })));
+    getHistory().telemetry.saveAgentTurn(turn(runId, measured({ totalCalls: 12, callsBeforeFirstWrite: 9 })));
 
-    const { efficiency } = computeTelemetryAnalysis(app);
+    const { efficiency } = getHistory().telemetry.computeTelemetryAnalysis(app);
     assert.equal(efficiency.medianCallsBeforeFirstWrite, 9);
   });
 });

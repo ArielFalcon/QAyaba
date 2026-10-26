@@ -10,7 +10,8 @@ import { RUN_PHASES } from "@kernel/run-step";
 import type { EvidencePort } from "@contexts/evaluation/application/index.ts";
 import type { ContextEvidence, ContextFreshness, DeliveredContextSource, DeliveredOmission, DeliveredSpecEvidence, PlanEvidence, ReferenceEvidence, RunEvaluationEvidence, RunSpecCallEvidence, SidekickReportEvidence } from "@contexts/evaluation/application/index";
 import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
-import { getRecord, getRunFacts, getRunPhases, getAgentTurns, getRunPlan, listRunSpans, listSpecSnapshots, type AgentTurnRecord, type RunFactsPatch, type RunPhases, type SpecSnapshotRow } from "./history";
+import { getRecord, getRunFacts, getRunPhases, getRunPlan, listSpecSnapshots, type RunFactsPatch, type RunPhases, type SpecSnapshotRow } from "./history";
+import type { AgentTurnRecord } from "./persistence/repositories/telemetry.repository";
 import type { RunOutcome, RunRecord } from "../types";
 import { namesTemplatePage } from "@contexts/generation/application/index";
 import { referenceFor, type UseCaseReference } from "@contexts/evaluation/application/index";
@@ -43,8 +44,8 @@ export const defaultEvidenceDeps: EvidenceDeps = {
   getRunPhases,
   getRunFacts,
   getRunOutcome: (id) => getHistory().learning.getRunOutcome(id),
-  getAgentTurns,
-  runSpans: (id) => listRunSpans(id).map((s) => ({ name: s.name, spanId: s.spanId, parentSpanId: s.parentSpanId, attrs: s.attrs })),
+  getAgentTurns: (id) => getHistory().telemetry.getAgentTurns(id),
+  runSpans: (id) => getHistory().telemetry.listRunSpans(id).map((s) => ({ name: s.name, spanId: s.spanId, parentSpanId: s.parentSpanId, attrs: s.attrs })),
   listSpecSnapshots,
   getRunPlan,
 };

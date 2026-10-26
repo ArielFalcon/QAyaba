@@ -9,7 +9,7 @@ import type { TelemetryClock } from "@kernel/telemetry/telemetry.port";
 import { GENAI } from "@kernel/telemetry/genai-semconv";
 import { attrKey, lookupAttribute } from "@kernel/telemetry/attribute-registry";
 import { LedgerSpanProcessor } from "./ledger";
-import type { RunSpanRow } from "../server/history";
+import type { RunSpanRow } from "../server/persistence/repositories/telemetry.repository";
 
 const T0 = 1_760_000_000_000;
 

@@ -9,7 +9,7 @@ import { SpanStatusCode } from "@opentelemetry/api";
 import type { ReadableSpan, Span, SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { SpanKind } from "@opentelemetry/api";
 import type { HrTime } from "@opentelemetry/api";
-import type { RunSpanRow } from "../server/history";
+import type { RunSpanRow } from "../server/persistence/repositories/telemetry.repository";
 
 export interface RunSpanStore {
   commit(rows: readonly RunSpanRow[]): void;

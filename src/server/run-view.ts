@@ -6,8 +6,10 @@
 import { RUN_PHASES } from "@kernel/run-step";
 import type { RunDetail, RunRecord } from "../contract/commands";
 import { HistoryEvidenceAdapter } from "./evaluation-evidence";
-import { getAgentRoleFacts, getAgentTurns, getRunCampaign, getRunFacts, getRunPhases, getStoredEffectiveConfig, type AgentTurnRecord } from "./history";
+import { getRunCampaign, getRunFacts, getRunPhases, getStoredEffectiveConfig } from "./history";
+import type { AgentRoleFacts, AgentTurnRecord } from "./persistence/repositories/telemetry.repository";
 import { buildEffectiveConfig, parseStoredRunConfig } from "./effective-config";
+import { getHistory } from "./persistence/index";
 
 export type RunViewExtras = Omit<RunDetail, keyof RunRecord | "schemaVersion">;
 
@@ -17,7 +19,7 @@ export interface RunViewDeps {
   getRunCampaign: typeof getRunCampaign;
   getStoredEffectiveConfig: typeof getStoredEffectiveConfig;
   getAgentTurns(id: string): AgentTurnRecord[];
-  getAgentRoleFacts: typeof getAgentRoleFacts;
+  getAgentRoleFacts(id: string): AgentRoleFacts[];
   evidence: Pick<HistoryEvidenceAdapter, "assemble">;
   /* False when QA_TELEMETRY=off: the run view then says null, whatever the history holds. */
   telemetryOn: () => boolean;
@@ -31,8 +33,8 @@ export function defaultRunViewDeps(telemetryOn: () => boolean, env: Record<strin
     getRunPhases,
     getRunCampaign,
     getStoredEffectiveConfig,
-    getAgentTurns,
-    getAgentRoleFacts,
+    getAgentTurns: (id) => getHistory().telemetry.getAgentTurns(id),
+    getAgentRoleFacts: (id) => getHistory().telemetry.getAgentRoleFacts(id),
     evidence: new HistoryEvidenceAdapter(),
     telemetryOn,
     traceUrlTemplate: () => env.QA_TRACE_URL_TEMPLATE?.trim() || undefined,

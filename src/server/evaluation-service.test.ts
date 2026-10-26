@@ -6,7 +6,7 @@ import { HistoryEvidenceAdapter, countPassedSpecs, defaultEvidenceDeps } from ".
 import { buildRunViewExtras, type RunViewDeps } from "./run-view";
 import Database from "better-sqlite3";
 import { RegradeRequestError } from "@contexts/evaluation/application/index";
-import { createRecord, updateRecord, addCase, getRunFacts, saveAgentTurn, getRunIdByTraceId, getRecord } from "./history";
+import { createRecord, updateRecord, addCase, getRunFacts, getRunIdByTraceId, getRecord } from "./history";
 import { traceHarness } from "../telemetry/trace-harness";
 import { ScoreMetricsSink, composeScoreSinks } from "../telemetry/score-metrics-sink";
 import type { RunOutcome } from "../types";
@@ -57,7 +57,7 @@ function finishedRun(app: string, over: { verdict?: RunOutcome["verdict"]; decis
     rulesRetrieved: [], at: "2026-10-17T10:00:00.000Z",
   };
   getHistory().learning.saveRunOutcome(outcome);
-  saveAgentTurn({
+  getHistory().telemetry.saveAgentTurn({
     runId: r.id, sessionId: "s", role: over.reviewerTurn === false ? "qa-author" : "qa-reviewer", round: 0, isRepair: false, ts: "2026-10-17T10:00:00.000Z", objective: null, promptText: "p", outputText: "o", promptBytes: 1,
     tokensInput: 10, tokensOutput: 5, tokensReasoning: null, tokensCacheRead: null, tokensCacheWrite: null, cost: 0.5,
   });

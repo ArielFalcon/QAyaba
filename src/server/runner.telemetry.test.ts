@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, type RunnerDeps, type RunRequest } from "./runner";
-import { commitSpecSnapshots, getRecord, listRunSpans } from "./history";
+import { commitSpecSnapshots, getRecord } from "./history";
 import { HistoryEvidenceAdapter, defaultEvidenceDeps } from "./evaluation-evidence";
 import { gradeEvidence } from "@contexts/evaluation/application/index";
 import { recordPhaseSnapshot } from "@contexts/run-orchestration/application/index";
@@ -451,7 +451,7 @@ test("with the real bootstrap in local mode, the ledger holds the run's spans un
   await queue.drain();
   await handle.shutdown(1000);
 
-  const rows = listRunSpans(id);
+  const rows = getHistory().telemetry.listRunSpans(id);
   const names = rows.map((r) => r.name).sort();
   assert.deepEqual(names, ["qayaba.phase.gate", "qayaba.run", "qayaba.run.enqueue"]);
   assert.ok(rows.every((r) => r.endNs !== null));

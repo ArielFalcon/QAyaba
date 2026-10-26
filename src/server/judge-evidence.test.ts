@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { HistoryJudgeEvidence, extractCommitDiff, type JudgeEvidenceDeps } from "./judge-evidence";
 import { COMMIT_DIFF_HEADING } from "@contexts/generation/infrastructure/prompt-builders/prompts";
-import type { AgentTurnRecord, SpecSnapshotRow } from "./history";
+import type { SpecSnapshotRow } from "./history";
+import type { AgentTurnRecord } from "./persistence/repositories/telemetry.repository";
 import type { RunRecord } from "../types";
 
 const DIFF = "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old\n+new";

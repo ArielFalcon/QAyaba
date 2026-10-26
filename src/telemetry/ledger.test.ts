@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
 import { SpanStatusCode, ROOT_CONTEXT, trace } from "@opentelemetry/api";
 import { LedgerSpanProcessor, type RunSpanStore } from "./ledger";
-import { commitRunSpans, listRunSpans, createRecord, type RunSpanRow } from "../server/history";
+import { createRecord } from "../server/history";
+import type { RunSpanRow } from "../server/persistence/repositories/telemetry.repository";
 import { getHistoryDatabase } from "../server/persistence/index";
 import { pruneRunSpans } from "../server/persistence/retention";
+import { getHistory } from "../server/persistence/index";
 
 function fakeStore(): RunSpanStore & { commits: RunSpanRow[][]; failNext: boolean } {
   const store = {
@@ -134,14 +136,14 @@ test("shutdown flushes what is buffered and a later flush is a no-op", async () 
 });
 
 test("rows reach the history database, keyed by span, and update in place", () => {
-  const { ledger, tracer } = setup({ commit: commitRunSpans });
+  const { ledger, tracer } = setup({ commit: (rows) => getHistory().telemetry.commitRunSpans(rows) });
   const span = tracer.startSpan("db-span", { startTime: T0, attributes: { "qayaba.run.id": "db-run-1" } });
   ledger.flush();
-  assert.equal(listRunSpans("db-run-1").length, 1);
-  assert.equal(listRunSpans("db-run-1")[0]!.endNs, null);
+  assert.equal(getHistory().telemetry.listRunSpans("db-run-1").length, 1);
+  assert.equal(getHistory().telemetry.listRunSpans("db-run-1")[0]!.endNs, null);
   span.end(T0 + 7);
   ledger.flush();
-  const rows = listRunSpans("db-run-1");
+  const rows = getHistory().telemetry.listRunSpans("db-run-1");
   assert.equal(rows.length, 1);
   assert.equal(rows[0]!.endNs, BigInt(T0 + 7) * 1_000_000n);
 });
@@ -150,9 +152,9 @@ test("pruning removes spans older than the retention window and keeps newer ones
   const now = Date.now();
   const day = 24 * 60 * 60 * 1000;
   const row = (spanId: string, startMs: number): RunSpanRow => ({ traceId: "t".padEnd(32, "0"), spanId, parentSpanId: null, runId: "prune-run", name: spanId, kind: "internal", startNs: BigInt(startMs) * 1_000_000n, endNs: null, status: "unset", statusMessage: null, attrs: "{}", events: "[]", links: "[]" });
-  commitRunSpans([row("old", now - 31 * day), row("fresh", now - 1 * day)]);
+  getHistory().telemetry.commitRunSpans([row("old", now - 31 * day), row("fresh", now - 1 * day)]);
   pruneRunSpans(getHistoryDatabase(), 30, now);
-  assert.deepEqual(listRunSpans("prune-run").map((r) => r.spanId), ["fresh"]);
+  assert.deepEqual(getHistory().telemetry.listRunSpans("prune-run").map((r) => r.spanId), ["fresh"]);
 });
 
 test("every span of a trace with more than 5000 spans gets the run id, none is left null", () => {
@@ -260,9 +262,9 @@ test("pruning deletes in bounded chunks", () => {
   const now = Date.now();
   const day = 24 * 60 * 60 * 1000;
   const row = (spanId: string): RunSpanRow => ({ traceId: "c".padEnd(32, "0"), spanId, parentSpanId: null, runId: "chunk-run", name: spanId, kind: "internal", startNs: BigInt(now - 40 * day) * 1_000_000n, endNs: null, status: "unset", statusMessage: null, attrs: "{}", events: "[]", links: "[]" });
-  commitRunSpans([row("a"), row("b"), row("c")]);
+  getHistory().telemetry.commitRunSpans([row("a"), row("b"), row("c")]);
   assert.equal(pruneRunSpans(getHistoryDatabase(), 30, now, 2), 2);
-  assert.equal(listRunSpans("chunk-run").length, 1);
+  assert.equal(getHistory().telemetry.listRunSpans("chunk-run").length, 1);
   assert.equal(pruneRunSpans(getHistoryDatabase(), 30, now, 2), 1);
 });
 
@@ -278,13 +280,13 @@ test("the spans of a campaign run outlive the ordinary window and go with the ca
   const stale = (runId: string, now: number): RunSpanRow => ({ traceId: runId.padEnd(32, "0").slice(0, 32), spanId: "s1", parentSpanId: null, runId, name: "x", kind: "internal", startNs: BigInt(now - 40 * day) * 1_000_000n, endNs: null, status: "unset", statusMessage: null, attrs: "{}", events: "[]", links: "[]" });
 
   const early = Date.now() + 100 * day;
-  commitRunSpans([stale(campaign.id, early), stale(ordinary.id, early)]);
+  getHistory().telemetry.commitRunSpans([stale(campaign.id, early), stale(ordinary.id, early)]);
   pruneRunSpans(getHistoryDatabase(), 30, early, 100, 180);
-  assert.equal(listRunSpans(campaign.id).length, 1, "a campaign run within its window keeps its spans");
-  assert.equal(listRunSpans(ordinary.id).length, 0);
+  assert.equal(getHistory().telemetry.listRunSpans(campaign.id).length, 1, "a campaign run within its window keeps its spans");
+  assert.equal(getHistory().telemetry.listRunSpans(ordinary.id).length, 0);
 
   const late = Date.now() + 200 * day;
-  commitRunSpans([stale(campaign.id, late)]);
+  getHistory().telemetry.commitRunSpans([stale(campaign.id, late)]);
   pruneRunSpans(getHistoryDatabase(), 30, late, 100, 180);
-  assert.equal(listRunSpans(campaign.id).length, 0, "past the campaign window the spans go too");
+  assert.equal(getHistory().telemetry.listRunSpans(campaign.id).length, 0, "past the campaign window the spans go too");
 });

@@ -4,7 +4,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AgentTurnViewSchema, AppTelemetryViewSchema } from "../contract/commands";
-import { computeTelemetryAnalysis, getAgentTurns, saveAgentTurnEvent } from "./history";
 import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
 import type { RunOutcome } from "../types";
 import { getHistory } from "./persistence/index";
@@ -64,10 +63,10 @@ function outcome(runId: string, app: string): RunOutcome {
 
 test("every stored turn, measured or not, validates against the documented turn schema with no undocumented field", () => {
   const runId = `run-contract-turns-${Date.now()}`;
-  saveAgentTurnEvent(turnEvent(runId, { stepBudget: { maxSteps: 50, exhausted: false }, callMetrics: measuredMetrics, durationMs: 42_000 }));
-  saveAgentTurnEvent(turnEvent(runId));
+  getHistory().telemetry.saveAgentTurnEvent(turnEvent(runId, { stepBudget: { maxSteps: 50, exhausted: false }, callMetrics: measuredMetrics, durationMs: 42_000 }));
+  getHistory().telemetry.saveAgentTurnEvent(turnEvent(runId));
 
-  const turns = getAgentTurns(runId);
+  const turns = getHistory().telemetry.getAgentTurns(runId);
   assert.equal(turns.length, 2);
   for (const turn of turns) assert.doesNotThrow(() => AgentTurnViewSchema.strict().parse(turn));
 });
@@ -76,16 +75,16 @@ test("the app telemetry, with measured and unmeasured turns, validates against t
   const app = `contract-app-${Date.now()}`;
   const runId = `run-contract-telemetry-${Date.now()}`;
   getHistory().learning.saveRunOutcome(outcome(runId, app));
-  saveAgentTurnEvent(turnEvent(runId, { stepBudget: { maxSteps: 50, exhausted: true }, callMetrics: measuredMetrics }));
-  saveAgentTurnEvent(turnEvent(runId));
+  getHistory().telemetry.saveAgentTurnEvent(turnEvent(runId, { stepBudget: { maxSteps: 50, exhausted: true }, callMetrics: measuredMetrics }));
+  getHistory().telemetry.saveAgentTurnEvent(turnEvent(runId));
 
-  const analysis = computeTelemetryAnalysis(app);
+  const analysis = getHistory().telemetry.computeTelemetryAnalysis(app);
   assert.doesNotThrow(() => AppTelemetryViewSchema.strict().parse(analysis));
   assert.doesNotThrow(() => AppTelemetryViewSchema.shape.efficiency.strict().parse(analysis.efficiency));
   assert.equal(analysis.efficiency.turnsMeasured, 1);
 });
 
 test("the telemetry of an app with no turns still validates against the documented schema", () => {
-  const analysis = computeTelemetryAnalysis(`contract-empty-${Date.now()}`);
+  const analysis = getHistory().telemetry.computeTelemetryAnalysis(`contract-empty-${Date.now()}`);
   assert.doesNotThrow(() => AppTelemetryViewSchema.strict().parse(analysis));
 });

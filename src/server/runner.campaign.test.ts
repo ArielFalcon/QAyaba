@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun, type RunnerDeps, type RunRequest } from "./runner";
-import { getRecord, getRunCampaign, getStoredEffectiveConfig, listCampaignRuns, saveAgentTurn } from "./history";
+import { getRecord, getRunCampaign, getStoredEffectiveConfig, listCampaignRuns } from "./history";
 import { buildRunViewExtras, defaultRunViewDeps } from "./run-view";
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { RunPipelinePort, RunInput } from "@contexts/run-orchestration/application/index.ts";
@@ -12,6 +12,7 @@ import type { CampaignIdentity } from "../contract/campaign";
 import { traceHarness } from "../telemetry/trace-harness";
 import { CampaignCaptureMismatchError } from "./campaign-capture";
 import type { RunConfigEnvironment } from "./effective-config";
+import { getHistory } from "./persistence/index";
 
 const cfg = (name: string, qa: Record<string, unknown> = {}): AppConfig =>
   ({
@@ -186,9 +187,9 @@ test("the roles a run invoked come from its recorded turns; a role the run never
     run: async (i) => {
       runId = i.runId;
       const base = { runId, sessionId: "s", round: 0, isRepair: false, ts: "2026-10-17T10:00:00.000Z", objective: null, promptText: "p", outputText: "o", promptBytes: 1, tokensInput: 1, tokensOutput: 1, tokensReasoning: null, tokensCacheRead: null, tokensCacheWrite: null, cost: 0 };
-      saveAgentTurn({ ...base, role: "qa-author", provider: "opencode-go", modelRequested: "req", modelAnswered: "glm", maxSteps: 40 });
-      saveAgentTurn({ ...base, role: "qa-author", provider: "opencode-go", modelRequested: null, modelAnswered: "glm", maxSteps: 50, round: 1 });
-      saveAgentTurn({ ...base, role: "qa-reviewer", provider: null, modelRequested: "mm", modelAnswered: null, maxSteps: null });
+      getHistory().telemetry.saveAgentTurn({ ...base, role: "qa-author", provider: "opencode-go", modelRequested: "req", modelAnswered: "glm", maxSteps: 40 });
+      getHistory().telemetry.saveAgentTurn({ ...base, role: "qa-author", provider: "opencode-go", modelRequested: null, modelAnswered: "glm", maxSteps: 50, round: 1 });
+      getHistory().telemetry.saveAgentTurn({ ...base, role: "qa-reviewer", provider: null, modelRequested: "mm", modelAnswered: null, maxSteps: null });
       return outcomeOf(i);
     },
   }));

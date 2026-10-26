@@ -5,6 +5,7 @@ import { ContextRepository } from "./repositories/context.repository";
 import { EvaluationRepository } from "./repositories/evaluation.repository";
 import { JudgeRepository } from "./repositories/judge.repository";
 import { LearningRepository } from "./repositories/learning.repository";
+import { TelemetryRepository } from "./repositories/telemetry.repository";
 
 let shared: HistoryDatabase | undefined;
 let history: History | undefined;
@@ -15,11 +16,12 @@ export interface History {
   readonly judges: JudgeRepository;
   readonly evaluations: EvaluationRepository;
   readonly learning: LearningRepository;
+  readonly telemetry: TelemetryRepository;
 }
 
 /* The repositories over `db`, their statements prepared once. */
 export function createHistory(db: HistoryDatabase): History {
-  return { contexts: new ContextRepository(db), judges: new JudgeRepository(db), evaluations: new EvaluationRepository(db), learning: new LearningRepository(db) };
+  return { contexts: new ContextRepository(db), judges: new JudgeRepository(db), evaluations: new EvaluationRepository(db), learning: new LearningRepository(db), telemetry: new TelemetryRepository(db) };
 }
 
 /*

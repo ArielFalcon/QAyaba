@@ -17,8 +17,7 @@ import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
 import type { TelemetryHealth } from "./telemetry-health";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { resolveCampaignFreeze } from "../server/campaign-freeze";
-import { commitRunSpans } from "../server/history";
-import { getHistoryDatabase } from "../server/persistence/index";
+import { getHistory, getHistoryDatabase } from "../server/persistence/index";
 import { pruneRunPlans, pruneRunSpans, pruneSpecSnapshots } from "../server/persistence/retention";
 import { sanitizeText } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
 import { resolveTelemetryConfig, type TelemetryConfig } from "./config";
@@ -156,7 +155,7 @@ export function createTelemetry(deps: BootstrapDeps): TelemetryHandle {
   if (config.mode === "off") return offHandle(freeze, clock);
 
   const resource = resourceFromAttributes({ ...config.resourceAttributes, "service.name": config.serviceName });
-  const ledger = new LedgerSpanProcessor(deps.store ?? { commit: commitRunSpans, prune: retentionPrune(config) });
+  const ledger = new LedgerSpanProcessor(deps.store ?? { commit: (rows) => getHistory().telemetry.commitRunSpans(rows), prune: retentionPrune(config) });
   const exporterStatus: ExporterStatus = { dropped: 0 };
   const spanProcessors: Array<LedgerSpanProcessor | BatchSpanProcessor> = [ledger];
 

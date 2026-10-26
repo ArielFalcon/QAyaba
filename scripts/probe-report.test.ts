@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentTurnRecord } from "../src/server/history.ts";
+import type { AgentTurnRecord } from "../src/server/persistence/repositories/telemetry.repository.ts";
 import type { RunRecord } from "../src/types.ts";
 import type { ProbeReport, TimedRunEvent } from "./probe-metrics.ts";
 import { DEFAULT_COVERAGE_MIN_RATIO, collectReport, main, type ReportDeps } from "./probe-report.ts";

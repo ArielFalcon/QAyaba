@@ -16,7 +16,7 @@ import { isCaptureMode, type CaptureMode } from "@kernel/telemetry/capture-mode"
 import { serviceTopologyWired, structuralSignalsMode, toolsApply } from "./run-config-gates";
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { EffectiveConfig, GroundingInput } from "../contract/commands";
-import type { AgentRoleFacts } from "./history";
+import type { AgentRoleFacts } from "./persistence/repositories/telemetry.repository";
 import type { RunConfigInEffect } from "./run-trace";
 
 /* The part of the configuration fixed when the run starts. `agents` is not in it: it comes from the turns the run recorded. */

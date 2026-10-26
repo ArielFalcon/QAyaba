@@ -4,7 +4,7 @@ import { InMemorySpanExporter, type SpanExporter, type ReadableSpan } from "@ope
 import { ExportResultCode, type ExportResult } from "@opentelemetry/core";
 import { createTelemetry, type BootstrapDeps } from "./bootstrap";
 import type { LogRecordExporter, ReadableLogRecord } from "@opentelemetry/sdk-logs";
-import type { RunSpanRow } from "../server/history";
+import type { RunSpanRow } from "../server/persistence/repositories/telemetry.repository";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
 
 const T0 = 1_760_000_000_000;

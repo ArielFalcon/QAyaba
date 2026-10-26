@@ -27,7 +27,7 @@ import { CALL_BUCKETS } from "@contexts/generation/application/index.ts";
 import { delegateRun } from "../src/server/run-delegate.ts";
 import { discoverApiToken } from "../src/server/api-token.ts";
 import { type RunOutcome, type RunRecord } from "../src/types.ts";
-import type { AgentTurnRecord } from "../src/server/history.ts";
+import type { AgentTurnRecord } from "../src/server/persistence/repositories/telemetry.repository.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -670,7 +670,7 @@ async function historySource(): Promise<(runId: string) => RunDataSource> {
     events: (runId) => history.loadRunEvents(runId).map((e) => e.body as RunEventBody),
     outcome: (runId) => getHistory().learning.getRunOutcome(runId),
     record: (runId) => history.getRecord(runId),
-    turns: (runId) => history.getAgentTurns(runId),
+    turns: (runId) => getHistory().telemetry.getAgentTurns(runId),
   };
   return () => source;
 }
