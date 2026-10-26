@@ -122,7 +122,7 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
     },
     contractCheck,
   });
-  const runDeadlinePort = deps.runDeadline ?? { arm: () => {}, describe: () => undefined, remainingMs: () => undefined };
+  const runDeadlinePort = deps.runDeadline ?? { arm: () => {}, describe: () => undefined, remainingMs: () => undefined, allowance: () => null };
 
   /*
    * The suite's files a turn may change — the specs and the support files they import, both read by name

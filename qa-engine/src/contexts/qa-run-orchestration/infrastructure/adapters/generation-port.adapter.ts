@@ -88,6 +88,8 @@ export interface GenerationPortCollaborators {
   readSpecSource?: (root: SpecRoot, reported: string) => string;
   /* The step limit the runtime enforces for a role this run, asked for on every generation. Absent -> no input states a limit. */
   stepLimitFor?: StepLimitFor;
+  /** The run's deadline, handed to every first pass so it is never given more time than the run has left. Absent: nothing bounds the run. */
+  deadline?: { allowance?(purpose: "first-pass"): number | null };
 }
 
 export class GenerationPortAdapter implements GenerationPort {
@@ -119,7 +121,8 @@ export class GenerationPortAdapter implements GenerationPort {
     const input = await this.buildInput(specDir, diff, enrichment);
     const root: SpecRoot = { mirrorDir: this.ctx.mirrorDir, specDir };
 
-    const generated = await this.useCase.generate(input, { ...(signal ? { signal } : {}) });
+    const { deadline } = this.collaborators;
+    const generated = await this.useCase.generate(input, { ...(signal ? { signal } : {}), ...(deadline ? { deadline } : {}) });
 
     const result: GenerationOutput = {
       specs: generated.specs,

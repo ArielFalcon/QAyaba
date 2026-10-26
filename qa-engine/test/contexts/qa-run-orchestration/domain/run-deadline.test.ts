@@ -87,3 +87,18 @@ test("the note says what the budget was, where the run stopped and that it is no
   assert.match(before, /91 s \(manual\)/);
   assert.match(before, /next reviewer turn was not started/);
 });
+
+test("every purpose is allowed exactly what the deadline has left, nothing while it is unarmed, and the cut-off instant is the deadline's own", () => {
+  let t = 0;
+  const deadline = new RunDeadline({ now: () => t, budgets: { ...RUN_TIME_BUDGET_MS, manual: 1_000 } });
+  for (const purpose of ["first-pass", "regeneration"] as const) assert.equal(deadline.allowance(purpose), null, `${purpose} unarmed`);
+  deadline.arm({ mode: "manual" });
+  for (const at of [0, 400, 999, 1_000, 1_500]) {
+    t = at;
+    for (const purpose of ["first-pass", "regeneration"] as const) {
+      assert.equal(deadline.allowance(purpose), deadline.remainingMs(), `${purpose} at ${at}`);
+    }
+  }
+  t = 1_000;
+  assert.equal(deadline.allowance("regeneration"), 0, "no time left for it at the instant the deadline fires");
+});

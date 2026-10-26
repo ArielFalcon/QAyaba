@@ -6,6 +6,9 @@
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import { runTimeBudgetKey, type RunTimeBudgets, type RunTimeBudgetScope } from "./run-time-budget.ts";
 
+/** What a stretch of agent time is spent on: the generator's first pass, or a regeneration of specs already delivered. */
+export type DeadlinePurpose = "first-pass" | "regeneration";
+
 export interface RunDeadlineDeps {
   /** The clock, in milliseconds. Injected so a test never waits for real time. */
   now: () => number;
@@ -27,6 +30,15 @@ export class RunDeadline implements RunDeadlineView {
 
   remainingMs(): number | undefined {
     return this.armed ? this.armed.deadlineAt - this.deps.now() : undefined;
+  }
+
+  /** What each purpose may still spend: today every purpose is bounded by the whole of what is left, and the switch is the one place that would say otherwise. */
+  allowance(purpose: DeadlinePurpose): number | null {
+    switch (purpose) {
+      case "first-pass":
+      case "regeneration":
+        return this.remainingMs() ?? null;
+    }
   }
 
   describe(): { label: string; budgetMs: number } | undefined {

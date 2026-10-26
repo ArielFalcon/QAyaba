@@ -400,7 +400,7 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
       ...(cfg.triggerService ? { service: cfg.triggerService } : {}),
       ...(cfg.services?.length ? { services: cfg.services } : {}),
     },
-    { readSpecSource: cfg.readSpecSource ?? readConfinedSpecFile, stepLimitFor: cfg.stepLimitFor },
+    { readSpecSource: cfg.readSpecSource ?? readConfinedSpecFile, stepLimitFor: cfg.stepLimitFor, ...(cfg.runDeadline ? { deadline: cfg.runDeadline } : {}) },
   );
 
   const review = new ReviewPortAdapter(cfg.reviewRuntime as ReviewPortRuntime, {

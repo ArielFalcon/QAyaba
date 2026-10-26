@@ -7012,6 +7012,33 @@ test("wall-clock ceiling skips FixLoop regeneration without aborting the first g
   assert.equal(executeCalls, 1, "FixLoop must not re-execute after skipping regeneration");
 });
 
+test("a run deadline with no time left for a regeneration skips the fix loop's regeneration, like a spent wall-clock budget, without aborting the first generate", async () => {
+  let generateCalls = 0;
+  let executeCalls = 0;
+  const { ports } = stubPorts({
+    generate: async () => { generateCalls++; return scriptedGeneration({ specs: ["a.spec.ts"], approved: true }); },
+    execute: async () => {
+      executeCalls++;
+      return { verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom", file: "owners.spec.ts" }], logs: "" };
+    },
+  });
+  const runDeadline = { arm: () => {}, remainingMs: () => 60_000, allowance: (purpose: string) => (purpose === "regeneration" ? 0 : 60_000) };
+  await new RunQaUseCase({ ...ports, runDeadline, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, runId: "deadline-allowance-regen" });
+  assert.equal(generateCalls, 1, "no time for a regeneration starts no further agent turn");
+  assert.equal(executeCalls, 1);
+});
+
+test("a run deadline with time left for a regeneration lets the fix loop regenerate", async () => {
+  let generateCalls = 0;
+  const { ports } = stubPorts({
+    generate: async () => { generateCalls++; return scriptedGeneration({ specs: ["a.spec.ts"], approved: true }); },
+    execute: async () => ({ verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom", file: "owners.spec.ts" }], logs: "" }),
+  });
+  const runDeadline = { arm: () => {}, remainingMs: () => 60_000, allowance: () => 60_000 };
+  await new RunQaUseCase({ ...ports, runDeadline, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, runId: "deadline-allowance-regen-ok" });
+  assert.ok(generateCalls >= 2, `expected a regeneration, got ${generateCalls} generate call(s)`);
+});
+
 /* ── Curriculum wiring: CurriculumPort.select() -> the generation enrichment ─────────────────
    select() runs alongside learning retrieval, after classify() and before any prompt is built. Its
    output is the ONE list the run offered the generator, so it must reach the enrichment verbatim.

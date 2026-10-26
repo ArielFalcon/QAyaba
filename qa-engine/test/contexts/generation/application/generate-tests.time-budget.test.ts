@@ -326,3 +326,37 @@ test("a repair that fails for any reason other than time is still the integratio
   const { ports } = build([{ output: "no verdict at all" }, { throws: new AgentUnavailableError("provider rejected: out of credits") }], { repairInvalid: true });
   await assert.rejects(new GenerateTestsUseCase(ports).generate(baseInput()), AgentUnavailableError);
 });
+
+const deadlineLeaving = (leftMs: number | null) => ({
+  remainingMs: () => leftMs ?? undefined,
+  describe: () => ({ label: "diff-tiny", budgetMs: 1 }),
+  allowance: () => leftMs,
+});
+
+test("a first pass never outlives what the run deadline has left: the session and its prompts are given the smaller of the tier's time and that", async () => {
+  const left = TINY_MS - 60_000;
+  const { ports, seen } = build([{ output: "SPECS" }]);
+  await new GenerateTestsUseCase(ports).generate(baseInput(), { deadline: deadlineLeaving(left) });
+  assert.equal(generatorOpen(seen)?.opts?.timeoutMs, left);
+  assert.ok((seen.prompts[0]?.timeoutMs ?? Infinity) <= left);
+});
+
+test("a first pass the run deadline leaves more time than its tier keeps the tier's time, and one with no deadline armed keeps it too", async () => {
+  for (const left of [TINY_MS + 1, null]) {
+    const { ports, seen } = build([{ output: "SPECS" }]);
+    await new GenerateTestsUseCase(ports).generate(baseInput(), { deadline: deadlineLeaving(left) });
+    assert.equal(generatorOpen(seen)?.opts?.timeoutMs, TINY_MS);
+  }
+});
+
+test("a tier that bounds nothing stays unbounded whatever the deadline leaves: the deadline's own runtime ends such a turn", async () => {
+  const { ports, seen } = build([{ output: "SPECS" }], { timeBudgets: { tiny: 45_000, focused: 90_000, broad: null } });
+  await new GenerateTestsUseCase(ports).generate(baseInput({ diff: BROAD_DIFF }), { deadline: deadlineLeaving(10_000) });
+  assert.equal("timeoutMs" in (generatorOpen(seen)?.opts ?? {}), false);
+});
+
+test("a regeneration keeps the host's default whatever the deadline leaves", async () => {
+  const { ports, seen } = build([{ output: "SPECS" }]);
+  await new GenerateTestsUseCase(ports).generate(baseInput({ fixCases: [{ name: "c", status: "fail" } as never] }), { deadline: deadlineLeaving(1_000) });
+  assert.equal("timeoutMs" in (generatorOpen(seen)?.opts ?? {}), false);
+});

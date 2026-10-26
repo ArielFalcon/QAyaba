@@ -74,6 +74,8 @@ export interface GenerationResult {
 
 export interface GenerateOpts {
   signal?: AbortSignal;
+  /** The run's deadline, when the host states one: the first pass is never given more time than it leaves. */
+  deadline?: { allowance?(purpose: "first-pass"): number | null };
   onRepair?: () => void;
 }
 
@@ -203,7 +205,7 @@ export class GenerateTestsUseCase {
     const assembled = reused ? rendering.renderMain(input, { continuation: true }) : rendering.renderMain(input);
 
     /* The wall time this first pass may take, from the change's size, which the step cap never bounds because a step can be arbitrarily long. A regeneration keeps the host's default: its callers read a turn without specs as "no fixes", and an expired budget must not hide there. */
-    const timeBudgetMs = isReGenTurn(input)
+    const tierBudgetMs = isReGenTurn(input)
       ? undefined
       : generatorTimeBudgetMs({
           mode: input.mode,
@@ -211,6 +213,9 @@ export class GenerateTestsUseCase {
           ...(this.ports.promptCapMs !== undefined ? { capMs: this.ports.promptCapMs } : {}),
           ...(this.ports.timeBudgets ? { budgets: this.ports.timeBudgets } : {}),
         });
+    /* The tier's time never outlives the run's: the smaller of the two bounds the pass. A tier that bounds nothing stays so, and the deadline's own runtime ends such a turn. */
+    const runAllowanceMs = tierBudgetMs !== undefined ? opts?.deadline?.allowance?.("first-pass") ?? null : null;
+    const timeBudgetMs = tierBudgetMs !== undefined && runAllowanceMs !== null ? Math.min(tierBudgetMs, runAllowanceMs) : tierBudgetMs;
 
     /* The budget bounds the whole first pass, the repair included: every prompt is given only what is left of it, and a prompt that finds none left is not sent. */
     const now = this.ports.now ?? Date.now;

@@ -17,6 +17,7 @@ import { addRetries, withRun } from "../reducers.ts";
 import { checkDevHealth, executeAccepted, liveExecutionOptions, validateAccepted } from "./execute.steps.ts";
 import { loopClosedNow, regenerate } from "./generation-services.ts";
 import { carryOn } from "../failure-policy.ts";
+import { regenerationAllowed } from "../regeneration-allowed.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
 
@@ -68,7 +69,7 @@ interface LeadTally {
 
 /* The ports of the fix loop, over the working copy and the services of this run; the loop's own state lives in its session, so a step rebuilds them each time. */
 function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending: FixLoopSession["pending"], tally: LeadTally): FixLoop {
-  const { deps, workspace, signal, services, trail, startedAt, wallClockBudget } = ctx;
+  const { deps, workspace, signal, services, trail } = ctx;
   const { closedLoop } = trail;
   const { lastGenerated } = state.execution;
   const { snapshotSuite, acceptanceScope, suiteChangedFiles, acceptance, integrityCounters, runDeadlinePort, snapshotPort } = services;
@@ -92,8 +93,8 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
   const fixLoopGeneration: FixLoopGenerationPort = {
     /* Forward FixLoopGenerateInput so a retry prompt sees what failed. */
     generate: async (fixLoopInput) => {
-      /* A spent wall-clock budget starts no further agent turn: the round returns nothing and the loop ends on what it has. */
-      if (wallClockBudget.exhausted(Date.now() - startedAt)) {
+      /* A run with no time left, or a spent wall-clock budget, starts no further agent turn: the round returns nothing and the loop ends on what it has. */
+      if (!regenerationAllowed(ctx)) {
         return { specs: [], approved: lastGenerated.approved, note: "wall-clock budget exhausted: no further regeneration" };
       }
       /*
