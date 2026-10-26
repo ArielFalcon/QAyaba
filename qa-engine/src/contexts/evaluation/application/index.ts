@@ -31,7 +31,7 @@ export { DEFAULT_CALIBRATION, calibrate, splitOfRun } from "../domain/judge-cali
 export type { CalibrationReport } from "../domain/judge-calibration.ts";
 export { JUDGE_NAMES, isJudgeName, judgeCatalog, judgeDefinition, judgeGraderVersion, judgeLabelSpec, judgeScore, parseJudgeGraderVersion, parseJudgePromptVersion } from "../domain/judges.ts";
 export type { JudgeCatalogEntry, JudgeEvidence, JudgeName, JudgeStatus } from "../domain/judges.ts";
-export type { ContextEvidence, ContextFreshness, DeliveredContextSource, DeliveredOmission, DeliveredSpecEvidence, PlanEvidence, RunEvaluationEvidence, RunSpecCallEvidence, SidekickReportEvidence } from "../domain/run-evaluation-evidence.ts";
+export type { ContextEvidence, ContextFreshness, DeliveredContextSource, DeliveredOmission, DeliveredSpecEvidence, PlanEvidence, ReferenceEvidence, RunEvaluationEvidence, RunSpecCallEvidence, SidekickReportEvidence } from "../domain/run-evaluation-evidence.ts";
 export type { Score, ScoreDataType, ScorePolarity, ScoreSource } from "../domain/score.ts";
 export { parseUseCaseReference, referenceFor } from "../domain/use-case-reference.ts";
 export type { UseCaseReference } from "../domain/use-case-reference.ts";

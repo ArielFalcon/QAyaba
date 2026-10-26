@@ -62,7 +62,7 @@ export interface PlanEvidence {
   /* The pages of the app's map the change is linked to. */
   changeRoutes: readonly string[];
   /* The use cases the plan had to answer for and what became of each; empty when the run kept none. */
-  candidates: ReadonlyArray<{ id: string; state: "planned" | "dropped" | "unplanned"; reason?: string }>;
+  candidates: ReadonlyArray<{ id: string; state: "planned" | "dropped" | "unplanned"; reason?: string; pages?: readonly string[] }>;
   flows: ReadonlyArray<{
     id: string;
     /* The change pages the flow visits. */
@@ -102,6 +102,14 @@ export interface SidekickReportEvidence {
   status: string;
   /* The flow's last run_spec outcome when it reported; undefined when the flow had made no call. */
   lastRunSpec: string | undefined;
+}
+
+/* What a person labelled for the change the run measures, set against the candidates the run detected; only the use cases reachable on dev. */
+export interface ReferenceEvidence {
+  /* Each dev-reachable use case of the change and whether a candidate of the run names one of its routes. */
+  useCases: ReadonlyArray<{ id: string; named: boolean }>;
+  /* The candidates that match no use case of the reference: unlabelled, never counted as false positives. */
+  unlabelledCandidates: number;
 }
 
 export interface RunEvaluationEvidence {
@@ -152,6 +160,8 @@ export interface RunEvaluationEvidence {
   context: ContextEvidence | undefined;
   /* What the lead planned and how its flows ended (`run_plans`); absent when the run kept no plan (it did not coordinate, or nothing was kept). */
   plan: PlanEvidence | undefined;
+  /* The reference labels for the change the run measures, set against its plan's candidates; absent without a reference, or when the plan kept no candidate pages. */
+  reference?: ReferenceEvidence;
   /* The closed loop's run_spec calls; empty when the run made none. */
   runSpecCalls: readonly RunSpecCallEvidence[];
   /* The specs the run delivered, with their final bytes and final-execution result. */

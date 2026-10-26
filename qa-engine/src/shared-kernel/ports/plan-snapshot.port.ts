@@ -45,6 +45,8 @@ export interface PlanSnapshotCandidate {
   tier: string;
   reachability: string;
   state: PlanCandidateState;
+  /* The pages through which a browser reaches the candidate (its own route for a page, the pages that reach it for an operation); empty for a backend-only one. */
+  pages?: string[];
   /* The lead's reason, for a dropped candidate. */
   reason?: string;
 }

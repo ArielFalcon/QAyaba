@@ -321,3 +321,37 @@ test("a delivered source counts the ids its span could not list past the cap", a
   const uncapped = (await new HistoryEvidenceAdapter(deps({ runSpans: () => [deliveredSpan("context-pack", ["dom:/a#x"])] })).load("run-1"))!;
   assert.equal(uncapped.context?.delivered[0]?.idsOverflow, undefined);
 });
+
+test("a reference use case is named when a candidate's page names one of its routes, a renamed parameter included, and a candidate no use case matches is counted", async () => {
+  const plan = JSON.stringify({
+    kind: "fanout",
+    changeRoutes: [],
+    flows: [],
+    candidates: [
+      { id: "uc-1", tier: "direct", reachability: "page", state: "planned", pages: ["/r/:province/:city/:slug"] },
+      { id: "uc-2", tier: "direct", reachability: "via-page", state: "planned", pages: ["/cart"] },
+      { id: "uc-3", tier: "direct", reachability: "backend-only", state: "unplanned", pages: [] },
+    ],
+  });
+  const references = [{
+    app: "demo",
+    changes: [{
+      sha: "abcdef1",
+      summary: "s",
+      useCases: [
+        { id: "ref-renamed", description: "d", reachability: "dev" as const, routes: ["/r/:province/:city/:restaurantSlug"] },
+        { id: "ref-missed", description: "d", reachability: "dev" as const, routes: ["/orders"] },
+        { id: "ref-error", description: "d", reachability: "fault-injection" as const, routes: ["/cart"] },
+      ],
+    }],
+  }];
+  const evidence = (await new HistoryEvidenceAdapter(deps({ getRunPlan: () => plan }), () => references).load("run-1"))!;
+  assert.deepEqual(evidence.reference, { useCases: [{ id: "ref-renamed", named: true }, { id: "ref-missed", named: false }], unlabelledCandidates: 1 });
+});
+
+test("no reference evidence without a reference for the change or when the plan did not keep its candidates' pages", async () => {
+  const kept = JSON.stringify({ kind: "fanout", changeRoutes: [], flows: [], candidates: [{ id: "uc-1", tier: "direct", reachability: "page", state: "planned" }] });
+  const references = [{ app: "demo", changes: [{ sha: "abcdef1", summary: "s", useCases: [{ id: "r", description: "d", reachability: "dev" as const, routes: ["/cart"] }] }] }];
+  assert.equal((await new HistoryEvidenceAdapter(deps({ getRunPlan: () => kept }), () => references).load("run-1"))!.reference, undefined);
+  assert.equal((await new HistoryEvidenceAdapter(deps({ getRunPlan: () => kept }), () => []).load("run-1"))!.reference, undefined);
+});

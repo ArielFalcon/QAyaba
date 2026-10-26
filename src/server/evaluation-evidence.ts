@@ -8,10 +8,13 @@
 
 import { RUN_PHASES } from "@kernel/run-step";
 import type { EvidencePort } from "@contexts/evaluation/application/index.ts";
-import type { ContextEvidence, ContextFreshness, DeliveredContextSource, DeliveredOmission, DeliveredSpecEvidence, PlanEvidence, RunEvaluationEvidence, RunSpecCallEvidence, SidekickReportEvidence } from "@contexts/evaluation/application/index";
+import type { ContextEvidence, ContextFreshness, DeliveredContextSource, DeliveredOmission, DeliveredSpecEvidence, PlanEvidence, ReferenceEvidence, RunEvaluationEvidence, RunSpecCallEvidence, SidekickReportEvidence } from "@contexts/evaluation/application/index";
 import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
 import { getRecord, getRunFacts, getRunOutcome, getRunPhases, getAgentTurns, getRunPlan, listRunSpans, listSpecSnapshots, type AgentTurnRecord, type RunFactsPatch, type RunPhases, type SpecSnapshotRow } from "./history";
 import type { RunOutcome, RunRecord } from "../types";
+import { namesTemplatePage } from "@contexts/generation/application/index";
+import { referenceFor, type UseCaseReference } from "@contexts/evaluation/application/index";
+import { loadReferencesLeniently } from "./use-case-reference-loader";
 
 /* The slice of a ledger span the evidence reads. */
 export interface LedgerSpan {
@@ -127,15 +130,31 @@ export function planEvidenceOf(raw: string | undefined, record: Pick<RunRecord, 
   return { kind: plan.kind, changeRoutes: asStringArray(plan.changeRoutes), candidates: planCandidatesOf(plan.candidates), flows };
 }
 
+/*
+ * The labelled use cases reachable on dev for the change, each with whether a candidate of the plan names one of its routes (a candidate's
+ * page is a route template; `namesTemplatePage` lets a renamed parameter match), and the candidates that match no labelled use case.
+ * Undefined without a reference for the change, without a dev use case, or when the plan kept its candidates without their pages.
+ */
+export function referenceEvidenceOf(references: readonly UseCaseReference[], run: { app: string; sha: string }, plan: PlanEvidence | undefined): ReferenceEvidence | undefined {
+  const change = referenceFor(references, run.app, run.sha);
+  if (!change || !plan || plan.candidates.some((c) => c.pages === undefined)) return undefined;
+  const dev = change.useCases.filter((u) => u.reachability === "dev");
+  if (dev.length === 0) return undefined;
+  const pages = plan.candidates.map((c) => c.pages ?? []);
+  const names = (routes: readonly string[]): boolean => pages.some((candidatePages) => candidatePages.some((page) => routes.some((route) => namesTemplatePage(page, route))));
+  const unlabelled = pages.filter((candidatePages) => !change.useCases.some((u) => candidatePages.some((page) => u.routes.some((route) => namesTemplatePage(page, route))))).length;
+  return { useCases: dev.map((u) => ({ id: u.id, named: names(u.routes) })), unlabelledCandidates: unlabelled };
+}
+
 const CANDIDATE_STATES = new Set(["planned", "dropped", "unplanned"]);
 
 /* The use cases the plan had to answer for, as the run kept them; an entry of another shape is left out. */
 function planCandidatesOf(value: unknown): PlanEvidence["candidates"] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((entry: unknown) => {
-    const c = entry as { id?: unknown; state?: unknown; reason?: unknown } | null;
+    const c = entry as { id?: unknown; state?: unknown; reason?: unknown; pages?: unknown } | null;
     if (c === null || typeof c !== "object" || typeof c.id !== "string" || typeof c.state !== "string" || !CANDIDATE_STATES.has(c.state)) return [];
-    return [{ id: c.id, state: c.state as "planned" | "dropped" | "unplanned", ...(typeof c.reason === "string" ? { reason: c.reason } : {}) }];
+    return [{ id: c.id, state: c.state as "planned" | "dropped" | "unplanned", ...(typeof c.reason === "string" ? { reason: c.reason } : {}), ...(Array.isArray(c.pages) ? { pages: asStringArray(c.pages) } : {}) }];
   });
 }
 
@@ -410,7 +429,7 @@ function limitIntentOf(spans: readonly LedgerSpan[], role: string | undefined): 
 }
 
 export class HistoryEvidenceAdapter implements EvidencePort {
-  constructor(private readonly deps: EvidenceDeps = defaultEvidenceDeps) {}
+  constructor(private readonly deps: EvidenceDeps = defaultEvidenceDeps, private readonly references: () => readonly UseCaseReference[] = () => loadReferencesLeniently()) {}
 
   async load(runId: string): Promise<RunEvaluationEvidence | undefined> {
     return this.assemble(runId);
@@ -432,6 +451,8 @@ export class HistoryEvidenceAdapter implements EvidencePort {
     const snapshots = d.listSpecSnapshots(runId);
     const specs = specCountsOf(record, snapshots, furthestPhase);
     const g = outcome?.gateSignals;
+    const plan = planEvidenceOf(d.getRunPlan(runId), record);
+    const reference = referenceEvidenceOf(this.references(), record, plan);
     const coverageStatus = COVERAGE_STATUSES.find((c) => c === facts?.coverageStatus);
 
     return {
@@ -462,7 +483,8 @@ export class HistoryEvidenceAdapter implements EvidencePort {
       limit: facts?.limitFired ? { fired: facts.limitFired, role: facts.limitRole ?? undefined, intent: limitIntentOf(spans, facts.limitRole ?? undefined) } : undefined,
       stepIntents: stepIntentsOf(spans),
       context: contextOf(spans, turns, snapshots),
-      plan: planEvidenceOf(d.getRunPlan(runId), record),
+      plan,
+      ...(reference ? { reference } : {}),
       runSpecCalls: runSpecCallsOf(spans),
       deliveredSpecs: deliveredSpecsOf(deliveredSpecNames(record, snapshots), snapshots, record),
       sidekickReports: sidekickReportsOf(spans),

@@ -291,6 +291,7 @@ test("the run keeps the plan it admitted, the change pages each flow visits and 
   assert.deepEqual(last.changeRoutes, ["/cart", "/orders"]);
   assert.deepEqual(last.unvisited, ["/orders"]);
   assert.deepEqual(last.candidates.map((c) => [c.id, c.state]), [["uc-/cart", "planned"], ["uc-/orders", "unplanned"]]);
+  assert.deepEqual(last.candidates.map((c) => c.pages), [["/cart"], ["/orders"]], "the snapshot keeps the pages that reach each candidate");
   const cart = last.flows.find((f) => f.id === "cart")!;
   assert.deepEqual({ objective: cart.objective, acceptance: cart.acceptance, routes: cart.routes, specFile: cart.specFile, visits: cart.visits }, { objective: "the cart total", acceptance: ["the total adds the lines"], routes: ["/cart"], specFile: "flows/cart.spec.ts", visits: ["/cart"] });
   assert.equal(cart.outcome?.kind, "delivered");

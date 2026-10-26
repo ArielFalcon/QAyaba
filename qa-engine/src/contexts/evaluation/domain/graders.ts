@@ -361,6 +361,25 @@ const planCandidates: Grader = {
   }),
 };
 
+/*
+ * Whether the harness detected the use cases the change introduces: of the use cases a person labelled reachable on dev for the change,
+ * the share some candidate names. The comment lists the ids no candidate names and the candidates that match no labelled use case
+ * (unlabelled, never counted as false positives). Nothing without a reference, or without a dev use case.
+ */
+const candidateRecall: Grader = {
+  names: ["candidate_recall"],
+  grade: finishedOnly((e) => {
+    const reference = e.reference;
+    if (!fanoutPlan(e) || !reference || reference.useCases.length === 0) return [];
+    const missed = reference.useCases.filter((u) => !u.named).map((u) => u.id);
+    const notes = [
+      ...(missed.length > 0 ? [`no candidate names: ${missed.join(", ")}`] : []),
+      ...(reference.unlabelledCandidates > 0 ? [`${reference.unlabelledCandidates} candidate(s) match no reference use case`] : []),
+    ];
+    return [{ name: "candidate_recall", value: ratio(reference.useCases.length - missed.length, reference.useCases.length), ...(notes.length > 0 ? { comment: notes.join("; ") } : {}) }];
+  }),
+};
+
 /* The share of the plan's flows that delivered a spec whose every case passed the final execution. */
 const flowDeliveryRate: Grader = {
   names: ["flow_delivery_rate"],
@@ -457,6 +476,7 @@ export const GRADERS: readonly Grader[] = [
   noopConsistent,
   planReach,
   planCandidates,
+  candidateRecall,
   flowDeliveryRate,
   changePagesGrounded,
   runSpecFinalAgreement,

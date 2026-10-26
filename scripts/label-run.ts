@@ -13,15 +13,14 @@
  *
  * It reads and writes the orchestrator's run history, so run it inside the orchestrator container, as the other operator scripts.
  */
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { MAX_SCORE_COMMENT_CHARS, specOfScore } from "../qa-engine/src/contexts/evaluation/application/index.ts";
 import { judgeLabelSpec } from "../qa-engine/src/contexts/evaluation/application/index.ts";
-import { parseUseCaseReference, referenceFor, type UseCaseReference } from "../qa-engine/src/contexts/evaluation/application/index.ts";
+import { referenceFor, type UseCaseReference } from "../qa-engine/src/contexts/evaluation/application/index.ts";
+import { USE_CASES_DIR, loadReferences } from "../src/server/use-case-reference-loader.ts";
 import type { LabelRow } from "./langfuse-labels.ts";
 
-export const USE_CASES_DIR = "config/benchmarks/use-cases";
+export { USE_CASES_DIR, loadReferences };
 
 export type Parsed =
   | { ok: true; runId: string; show: true }
@@ -162,17 +161,6 @@ export function main(argv: readonly string[], deps: LabelRunDeps): number {
   );
   deps.out(`labelled ${parsed.runId} ${parsed.name} = ${String(typed.value)}`);
   return 0;
-}
-
-/* Every reference set of the directory; a file that is not one stops the command, naming it. */
-export function loadReferences(dir: string = USE_CASES_DIR): UseCaseReference[] {
-  let names: string[];
-  try {
-    names = readdirSync(dir).filter((n) => n.endsWith(".json")).sort();
-  } catch {
-    return [];
-  }
-  return names.map((n) => parseUseCaseReference(JSON.parse(readFileSync(join(dir, n), "utf8")) as unknown, n));
 }
 
 /** The run history of the orchestrator container, imported lazily so a test that injects its own never opens it. */
