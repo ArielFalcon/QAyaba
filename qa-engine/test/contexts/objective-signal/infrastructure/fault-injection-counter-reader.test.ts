@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { MAX_FAULT_INJECTION_COUNTER_BYTES } from "@contexts/objective-signal/domain/dump-sanitizers.ts";
 import {
   countInjectedResponses,
+  readFaultCounters,
 } from "@contexts/objective-signal/infrastructure/fault-injection-counter-reader.ts";
 import { withoutWaitingOnNamedPipe } from "../../../support/named-pipe-watch.ts";
 
@@ -199,4 +200,28 @@ test("counters within the budget are added up, and more than the budget or the e
     assert.equal(overEntries.value, undefined);
     assert.equal(overBudget.warnings.length + overEntries.warnings.length, 2, "each is said once");
   });
+});
+
+test("each test's counter is read with its operations and its test, and the sum is the count the old reader gave", async () => {
+  await withRun((r) => {
+    writeCounter(r.e2e, "injected-101-0.json", JSON.stringify({ corrupted: 3, byOperation: { "GET ^/a$": 3 }, test: "flows/a.spec.ts::lists" }));
+    writeCounter(r.e2e, "injected-101-1.json", JSON.stringify({ corrupted: 2, byOperation: { "GET ^/a$": 1, "POST ^/b$": 1 }, test: "flows/b.spec.ts::posts" }));
+    writeCounter(r.e2e, "injected-202.json", JSON.stringify({ corrupted: 4 }));
+    const records = readFaultCounters(r.e2e, NS) ?? [];
+    assert.equal(records.length, 3);
+    assert.deepEqual(records.find((c) => c.test === "flows/b.spec.ts::posts"), { corrupted: 2, byOperation: { "GET ^/a$": 1, "POST ^/b$": 1 }, test: "flows/b.spec.ts::posts" });
+    assert.deepEqual(records.find((c) => c.test === undefined), { corrupted: 4 });
+    assert.equal(countInjectedResponses(r.e2e, NS), 9);
+  });
+});
+
+test("a counter with an oversized operation key or a count that is not an integer leaves the count unknown", async () => {
+  for (const bad of [{ corrupted: 1, byOperation: { ["G".repeat(300)]: 1 } }, { corrupted: 1, byOperation: { "GET ^/a$": 1.5 } }]) {
+    await withRun((r) => {
+      writeCounter(r.e2e, "injected-1.json", JSON.stringify({ corrupted: 5 }));
+      writeCounter(r.e2e, "injected-2.json", JSON.stringify(bad));
+      const { value } = capturing(() => countInjectedResponses(r.e2e, NS));
+      assert.equal(value, undefined);
+    });
+  }
 });

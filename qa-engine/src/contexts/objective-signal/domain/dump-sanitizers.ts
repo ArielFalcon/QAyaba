@@ -68,7 +68,44 @@ function sanitizeV8Entry(raw: unknown): Record<string, unknown> {
 /* The largest count a counter may hold: far beyond any suite's responses, and a bound on what the field can carry. */
 export const MAX_FAULT_INJECTION_COUNT = 1_000_000_000;
 
-/* A counter as the orchestrator keeps it for the reader: `{ "corrupted": n }` with nothing else, rebuilt from the count. The counter is written by the suite's fixtures (agent-editable code) and reaches a folder the agent reads, so no other key survives. Throws RangeError on anything that is not a non-negative integer count. */
+/* The most operations one counter may name, the longest key it may name one by (`<VERB> <pattern>`: a verb and a pattern of at most 200 characters) and the longest test title it may carry. */
+export const MAX_FAULT_COUNTER_OPERATIONS = 64;
+export const MAX_FAULT_COUNTER_KEY_CHARS = 220;
+export const MAX_FAULT_COUNTER_TEST_CHARS = 400;
+
+/* One test's counter: how many responses its run corrupted, per operation, and which test it was. */
+export interface FaultCounterRecord {
+  corrupted: number;
+  /* Absent in a counter that names no operation. */
+  byOperation?: Record<string, number>;
+  /* `<spec file>::<title>`; absent in a counter that names no test. */
+  test?: string;
+}
+
+/* The operation counts and the test of a counter, rebuilt field by field. Throws RangeError on a map that is not within the bounds or holds anything but integer counts: the counter is refused whole. */
+export function parseFaultCounterFields(parsed: unknown): Pick<FaultCounterRecord, "byOperation" | "test"> {
+  const out: Pick<FaultCounterRecord, "byOperation" | "test"> = {};
+  const raw = isRecord(parsed) ? parsed : {};
+  if (raw.byOperation !== undefined) {
+    if (!isRecord(raw.byOperation)) throw new RangeError("byOperation is not an object");
+    const entries = Object.entries(raw.byOperation);
+    if (entries.length > MAX_FAULT_COUNTER_OPERATIONS) throw new RangeError("too many operations");
+    const byOperation: Record<string, number> = {};
+    for (const [key, count] of entries) {
+      if (key.length > MAX_FAULT_COUNTER_KEY_CHARS) throw new RangeError("an operation key is too long");
+      if (!isCount(count) || count > MAX_FAULT_INJECTION_COUNT) throw new RangeError("an operation count is not a count");
+      byOperation[key] = count;
+    }
+    out.byOperation = byOperation;
+  }
+  if (raw.test !== undefined) {
+    if (typeof raw.test !== "string") throw new RangeError("test is not a string");
+    out.test = raw.test.slice(0, MAX_FAULT_COUNTER_TEST_CHARS);
+  }
+  return out;
+}
+
+/* A counter as the orchestrator keeps it for the reader: the count, the per-operation counts and the test, each rebuilt and bounded, and nothing else. The counter is written by the suite's fixtures (agent-editable code) and reaches a folder the agent reads, so no other key survives. Throws RangeError on anything that is not a non-negative integer count, or whose operation map is not within its bounds. */
 export function sanitizeFaultCounter(bytes: Buffer): Buffer {
   let parsed: unknown;
   try {
@@ -78,5 +115,5 @@ export function sanitizeFaultCounter(bytes: Buffer): Buffer {
   }
   const corrupted = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? (parsed as { corrupted?: unknown }).corrupted : undefined;
   if (typeof corrupted !== "number" || !Number.isInteger(corrupted) || corrupted < 0 || corrupted > MAX_FAULT_INJECTION_COUNT) throw new RangeError("not a count");
-  return Buffer.from(JSON.stringify({ corrupted }));
+  return Buffer.from(JSON.stringify({ corrupted, ...parseFaultCounterFields(parsed) }));
 }
