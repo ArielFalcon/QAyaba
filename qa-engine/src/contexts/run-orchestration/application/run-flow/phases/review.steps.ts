@@ -117,7 +117,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
     runId: input.runId,
     ...(retrievedRules.length ? { learnedRules: retrievedRules } : {}),
   };
-  const specRoot: SpecRoot = { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir };
+  const specRoot: SpecRoot = services.specRoot;
   const reviewCases = session.reviewCases;
   const previousRoundSpecs = session.previousRoundSpecs;
   const previousRoundCorrections = session.previousRoundCorrections;

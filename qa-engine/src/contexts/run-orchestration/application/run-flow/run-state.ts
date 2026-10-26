@@ -253,11 +253,10 @@ export interface Degradation {
   note: string;
 }
 
-/* What the run's trace and its crash records say, once known: how generation ended, the limit that stopped the run, where the working copy is and which rules were retrieved. */
+/* What the run's trace and its crash records say, once known: how generation ended, the limit that stopped the run, which rules were retrieved. */
 export interface RunFacts {
   generationEnd: string | undefined;
   limit: { fired: string; role: string } | undefined;
-  mirrorDir: string | undefined;
   rulesRetrieved: string[] | undefined;
   /** Why the run ended, once it did. */
   endReason: EndReason | undefined;
@@ -359,7 +358,7 @@ export function initialRunState(): RunState {
     decided: undefined,
     loops: initialLoopCounters(),
     degraded: [],
-    run: { generationEnd: undefined, limit: undefined, mirrorDir: undefined, rulesRetrieved: undefined, endReason: undefined, reviewRequired: undefined },
+    run: { generationEnd: undefined, limit: undefined, rulesRetrieved: undefined, endReason: undefined, reviewRequired: undefined },
     coordination: undefined,
     proof: {},
   };

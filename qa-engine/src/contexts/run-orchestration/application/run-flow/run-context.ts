@@ -5,7 +5,8 @@ import type { WallClockBudget } from "../../../../shared-kernel/wall-clock-budge
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { PreconditionFailure, RunQaConfig, RunQaInput, RunQaUseCaseDeps, RunTrail } from "./run-types.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
-import type { PreparedWorkspace, RunServices } from "./run-services.ts";
+import type { WorkspaceHandle } from "../../domain/workspace-handle.ts";
+import type { RunServices } from "./run-services.ts";
 
 /* What the use case does for a run that is not an end: the notes it keeps on the trail, the login and suite helpers, and the ambient sandbox facts. Bound to the run. */
 export interface RunHost {
@@ -16,12 +17,12 @@ export interface RunHost {
   /** Releases the coordinated pass kept open for the reviewer's corrections; nothing when none is open. */
   closeCoordinatedPass(): Promise<void>;
   noteGroundingGates(result: { preExecAmbiguityCatches: number; catalogGateInWindow: number; catalogGateAdvisory: number; catalogGateFailClosed: number }): void;
-  pruneMirror(mirrorDir: string): Promise<void>;
+  pruneMirror(workspace: WorkspaceHandle): Promise<void>;
   noteDeadlineArmed(): void;
   /** The text with the secrets of this run replaced. */
   redact(text: string): string;
   prepareAuth(specDir: string, phase: "pre-generate" | "pre-execute", signal?: AbortSignal): Promise<{ unauthored: boolean; setupSha256?: string } | { failed: string } | { precondition: PreconditionFailure }>;
-  replaceRestoredLogin(workspace: { specDir: string; mirrorDir: string }, signal?: AbortSignal): Promise<"replaced" | "unchanged" | "setup-failed">;
+  replaceRestoredLogin(workspace: WorkspaceHandle, signal?: AbortSignal): Promise<"replaced" | "unchanged" | "setup-failed">;
   announceSuite(text: string, level: "info" | "warn"): void;
   announcePrecondition(failure: PreconditionFailure, ends: boolean): void;
   preconditionNote(failure: PreconditionFailure): string;
@@ -48,6 +49,6 @@ export interface RunContext {
 }
 
 export interface WorkspaceRunContext extends RunContext {
-  workspace: PreparedWorkspace;
+  workspace: WorkspaceHandle;
   services: RunServices;
 }

@@ -242,7 +242,7 @@ export interface RunQaUseCaseDeps {
   codeGraph?: CodeGraphPort;
   /**
    * Classify-source repo root (SERVICE mirror on a webhook, PRIMARY otherwise).
-   * Absent → index workspace.mirrorDir.
+   * Absent → index the run's mirror root.
    */
   codeGraphRepoDir?: string;
   /** On a service-triggered run, the primary repo, indexed too at the commit it is checked out at. */

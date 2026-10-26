@@ -3,7 +3,8 @@
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { SecretLeakError } from "@kernel/ports/redaction.port.ts";
-import type { PublicationPort } from "@contexts/run-orchestration/application/index.ts";
+import type { PublicationPort, WorkspaceHandle } from "@contexts/run-orchestration/application/index.ts";
+import type { WorkspaceRegistry } from "./workspace-registry.ts";
 
 /* Local structural mirror of workspace-and-publication's PublishContext/PublishDecision (domain/publish-decision.service.ts) — duck-typed, NOT imported, per the security-boundary note. */
 export interface PublishDecisionCollaborator {
@@ -76,6 +77,8 @@ export interface PublicationPortStaticContext {
   coverageBlocks: boolean;
   shadow: boolean;
   e2eChanged: boolean;
+  /* Code vs e2e wording of a PR body. Absent renders e2e-flavored copy. */
+  isCode?: boolean;
 }
 
 /* Sanitize the verdict in the title the same way every other rendered field is sanitized. */
@@ -87,6 +90,7 @@ export class PublicationPortAdapter implements PublicationPort {
   constructor(
     private readonly deps: PublicationPortCollaborators,
     private readonly ctx: PublicationPortStaticContext,
+    private readonly registry: WorkspaceRegistry,
   ) {
     /* Fail-closed: a loose object can omit a required TS field — throw rather than identity-pass secrets into a public Issue. */
     if (typeof this.deps.sanitize !== "function") {
@@ -115,13 +119,13 @@ export class PublicationPortAdapter implements PublicationPort {
     adjudication?: { class: string; confidence: string; reason: string };
     /* Reviewer-unavailable rationale (fail-closed catch), never a genuine rejection. Absent → no section. */
     reviewerNote?: string;
-    /* Per-run mirrorDir + sha for the "pr" git-write. Optional at the type; required in practice on that route. */
-    mirrorDir?: string;
-    sha?: string;
+    /* The run's working copy: the "pr" git-write reads the mirror and the commit from it. Optional at the type; required in practice on that route. */
+    workspace?: WorkspaceHandle;
     tested?: { flow?: string; objective?: string }[];
-    isCode?: boolean;
     parentRunId?: string;
   }): Promise<{ outcome: string; revertedDenylisted?: string[]; revertedDangerous?: string[] }> {
+    /* A handle this registry did not issue throws here, on every route, before anything is rendered or sent. */
+    const workspace = decision.workspace ? this.registry.resolve(decision.workspace) : undefined;
     const publishDecision = this.deps.decide.decide({
       verdict: decision.verdict,
       reviewerApproved: decision.reviewerApproved ?? this.ctx.reviewerApproved,
@@ -138,7 +142,7 @@ export class PublicationPortAdapter implements PublicationPort {
         this.deps.render.issue({
           verdict: decision.verdict,
           cases: decision.cases,
-          ...(decision.sha ? { sha: decision.sha } : {}),
+          ...(workspace ? { sha: workspace.sha } : {}),
           ...(decision.tested?.length ? { tested: decision.tested } : {}),
           ...(decision.adjudication ? { adjudication: decision.adjudication } : {}),
           ...(decision.reviewerNote ? { reviewerNote: decision.reviewerNote } : {}),
@@ -147,8 +151,8 @@ export class PublicationPortAdapter implements PublicationPort {
     const prBodyText = (): string =>
       sanitize(
         this.deps.render.prBody({
-          ...(decision.sha ? { sha: decision.sha } : {}),
-          isCode: decision.isCode ?? false,
+          ...(workspace ? { sha: workspace.sha } : {}),
+          isCode: workspace?.isCode ?? this.ctx.isCode ?? false,
           ...(decision.tested?.length ? { tested: decision.tested } : {}),
           ...(decision.parentRunId ? { parentRunId: decision.parentRunId } : {}),
         }),
@@ -182,17 +186,17 @@ export class PublicationPortAdapter implements PublicationPort {
               "the composition root must inject the real git-write collaborator; refusing to open a PR against an unpushed branch.",
           );
         }
-        /* mirrorDir/sha are optional at the type but required on a real "pr" route — throw rather than push to "". */
-        if (!decision.mirrorDir || !decision.sha) {
+        /* The handle is optional at the type but required on a real "pr" route — throw rather than push to "". */
+        if (!workspace) {
           throw new Error(
-            "PublicationPortAdapter: the 'pr' route requires decision.mirrorDir and decision.sha (the per-run values " +
-              "RunQaUseCase threads from WorkspacePort.prepare()/input.sha) — refusing to stage/commit/push with no mirror to operate on.",
+            "PublicationPortAdapter: the 'pr' route requires decision.workspace (the handle " +
+              "RunQaUseCase threads from WorkspacePort.prepare()) — refusing to stage/commit/push with no mirror to operate on.",
           );
         }
         const written = await this.deps.vcsWrite.publish({
-          mirrorDir: decision.mirrorDir,
+          mirrorDir: workspace.mirrorDir,
           branch: this.ctx.branch,
-          sha: decision.sha,
+          sha: workspace.sha,
         });
         if (!written.changed) {
           return { outcome: "noop: vcsWrite reported no changes to publish — the suite already covers the change, no PR opened" };

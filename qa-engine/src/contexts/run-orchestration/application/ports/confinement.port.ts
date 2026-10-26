@@ -1,4 +1,5 @@
 import type { ConfinementResult } from "../../domain/confinement-result.ts";
+import type { WorkspaceHandle } from "../../domain/workspace-handle.ts";
 
 /**
  * Detects and reverts agent writes outside the permitted area (e2e-target:
@@ -10,5 +11,5 @@ import type { ConfinementResult } from "../../domain/confinement-result.ts";
  * the verdict or block publish. The adapter itself does not swallow git errors.
  */
 export interface ConfinementPort {
-  enforce(mirrorDir: string, isCode: boolean, signal?: AbortSignal): Promise<ConfinementResult>;
+  enforce(workspace: WorkspaceHandle, signal?: AbortSignal): Promise<ConfinementResult>;
 }

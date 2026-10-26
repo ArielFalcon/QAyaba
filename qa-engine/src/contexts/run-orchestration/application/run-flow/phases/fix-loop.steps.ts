@@ -257,7 +257,7 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
     deps.observer?.onEvent({ type: "log.line", level: "info", text: "[qa] the suite failed, but every delivered spec was seen passing through run_spec: the failure is adjudicated and not regenerated" });
   }
   /* The failing set and the spec-set digest before the loop, so the phase span can carry what the loop changed. */
-  const fixLoopSpecRoot: SpecRoot = { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir };
+  const fixLoopSpecRoot: SpecRoot = ctx.services.specRoot;
   const failingBefore = initialRun.cases.filter((c) => c.status === "fail").length;
   const specShaBefore = specSetDigest((file) => readConfinedSpecFile(fixLoopSpecRoot, file), initialRun.cases.map((c) => c.file).filter((f): f is string => !!f));
   const loopInput: FixLoopInput = {
@@ -339,7 +339,7 @@ export async function settleFixLoop(state: Readonly<RunState>, ctx: WorkspaceRun
   const fixLoopResult = loop.result(liveLoop);
   ctx.services.fixLoopHandle.current = undefined;
   const { failingBefore, specShaBefore } = session;
-  const fixLoopSpecRoot: SpecRoot = { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir };
+  const fixLoopSpecRoot: SpecRoot = ctx.services.specRoot;
   const run = { verdict: fixLoopResult.run.verdict, cases: fixLoopResult.run.cases, logs: initialRun.logs };
   /* The fix_loop phase span carries what the loop came to, so a false positive (a failed run the loop changed nothing in) is queryable. */
   const failingAfter = run.cases.filter((c) => c.status === "fail").length;
@@ -400,7 +400,7 @@ export async function fingerprintGreenSuite(state: Readonly<RunState>, ctx: Work
     /* The green run executed the whole suite: every delivered spec on disk at this instant has run in these bytes. The store
      * leaves out a spec it cannot read confined, which seeds no proof (the final guard then refuses to publish it). */
     const fingerprints = await deps.suiteStore.fingerprint(
-      { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir },
+      services.specRoot,
       state.generation.delivered.map((d) => d.file),
     );
     /* The ledger holds the green bytes themselves when they can be read, so a later restore has them. */

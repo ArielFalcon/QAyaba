@@ -8,6 +8,7 @@ import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RunQaUseCase, type RunQaConfig, type RunQaUseCaseDeps } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
+import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 
 async function persistedOutcome(config: Partial<RunQaConfig>): Promise<RunOutcome> {
   const ws = runWorkspace("qa-reviewer-independence-");
@@ -21,7 +22,7 @@ async function persistedOutcome(config: Partial<RunQaConfig>): Promise<RunOutcom
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
-    workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+    workspace: fakeWorkspace(ws),
     suiteStore: ws.suiteStore,
     deployGate: { waitUntilServing: async () => ok(true) },
     runHistory: { save: async (outcome: RunOutcome) => { saved.push(outcome); } },

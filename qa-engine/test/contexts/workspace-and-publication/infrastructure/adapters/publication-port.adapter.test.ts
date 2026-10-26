@@ -4,11 +4,20 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PublicationPortAdapter } from "@contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter.ts";
+import { PublicationPortAdapter as RegistryBoundAdapter, type PublicationPortCollaborators, type PublicationPortStaticContext } from "@contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter.ts";
+import { WorkspaceRegistry } from "@contexts/workspace-and-publication/infrastructure/adapters/workspace-registry.ts";
 import { PublishDecisionService } from "@contexts/workspace-and-publication/domain/publish-decision.service.ts";
 import { GitHubPrAdapter } from "@contexts/workspace-and-publication/infrastructure/github-pr.adapter.ts";
 import { GitHubIssueAdapter } from "@contexts/workspace-and-publication/infrastructure/github-issue.adapter.ts";
 import type { GitHubHttpDeps } from "@contexts/workspace-and-publication/infrastructure/github-http.ts";
+/* One registry for the file: the handle a test publishes with is one this registry issued, as the composition's workspace adapter would. */
+const registry = new WorkspaceRegistry();
+const handle = (mirrorDir = "/mirrors/org/app", sha = "abc1234", isCode = false) => registry.register({ mirrorDir, specDir: `${mirrorDir}/e2e`, sha, isCode });
+class PublicationPortAdapter extends RegistryBoundAdapter {
+  constructor(deps: PublicationPortCollaborators, ctx: PublicationPortStaticContext) {
+    super(deps, ctx, registry);
+  }
+}
 import { ShadowLogAdapter } from "@contexts/workspace-and-publication/infrastructure/shadow-log.adapter.ts";
 import { renderIssue, renderPrBody } from "@contexts/workspace-and-publication/domain/render-publication.ts";
 import { SecretLeakError } from "@kernel/ports/redaction.port.ts";
@@ -67,7 +76,7 @@ test("publish() routes to GitHubPrAdapter when the decision resolves to 'pr' (gr
     repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true,
   });
 
-  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", mirrorDir: "/mirrors/org/app", sha: "abc1234" });
+  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", workspace: handle() });
 
   assert.match(result.outcome, /pr/);
 });
@@ -153,7 +162,7 @@ test("publish() 'issue' route: containsSecret is never consulted on the 'pr'/'sh
     { repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true },
   );
 
-  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", mirrorDir: "/mirrors/org/app", sha: "abc1234" });
+  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", workspace: handle() });
 
   assert.match(result.outcome, /pr/, "the 'pr' route must never be blocked by containsSecret — the spec names logs→Issue as the boundary, not pr");
 });
@@ -223,7 +232,7 @@ test("publish() falls back to ctx.reviewerApproved (static) when the decision om
     repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true,
   });
 
-  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", mirrorDir: "/mirrors/org/app", sha: "abc1234" });
+  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", workspace: handle() });
 
   assert.match(result.outcome, /pr/, "with no dynamic override, the static ctx.reviewerApproved:true must still apply");
 });
@@ -293,7 +302,7 @@ test("publish() still targets ctx.repo for a PR even when issueRepo is supplied 
     repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true,
   });
 
-  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", issueRepo: "org/orders-svc", mirrorDir: "/mirrors/org/app", sha: "abc1234" });
+  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", issueRepo: "org/orders-svc", workspace: handle() });
 
   assert.match(result.outcome, /pr/);
   assert.equal(prRepoSeen, "org/app", "PR creation must always target ctx.repo (the primary repo), never the trigger repo, even when issueRepo is present");
@@ -384,7 +393,7 @@ test("PROD-BLOCKER: publish() invokes vcsWrite BEFORE pr.openWithAutoMerge on th
     repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true,
   });
 
-  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", mirrorDir: "/mirrors/org/app", sha: "abc1234" });
+  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", workspace: handle() });
 
   assert.match(result.outcome, /pr/);
   assert.deepEqual(order, ["vcsWrite.publish", "pr.openWithAutoMerge"], "the git write must land BEFORE the PR is opened");
@@ -404,7 +413,7 @@ test("publish() surfaces vcsWrite's revertedDenylisted on the 'pr' route", async
     repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true,
   });
 
-  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", mirrorDir: "/mirrors/org/app", sha: "abc1234" });
+  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", workspace: handle() });
 
   assert.deepEqual(result.revertedDenylisted, ["Dockerfile"], "a reverted denylisted path must be surfaced to the caller, not swallowed at this adapter");
 });
@@ -419,7 +428,7 @@ test("publish() omits revertedDenylisted when vcsWrite reports none (never fabri
     repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true,
   });
 
-  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", mirrorDir: "/mirrors/org/app", sha: "abc1234" });
+  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", workspace: handle() });
 
   assert.equal(result.revertedDenylisted, undefined);
 });
@@ -435,7 +444,7 @@ test("PROD-BLOCKER: publish() threads mirrorDir/branch/sha from the decision + c
     repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true,
   });
 
-  await adapter.publish({ verdict: "pass", cases: [], logs: "", mirrorDir: "/mirrors/org/app", sha: "abc1234" });
+  await adapter.publish({ verdict: "pass", cases: [], logs: "", workspace: handle() });
 
   assert.deepEqual(seen, { mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" }, "vcsWrite must push to the SAME branch the PR is opened against, not an independently-computed one");
 });
@@ -519,7 +528,7 @@ test("PROD-BLOCKER: publish() short-circuits to a noop-shaped outcome when vcsWr
     repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true,
   });
 
-  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", mirrorDir: "/mirrors/org/app", sha: "abc1234" });
+  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", workspace: handle() });
 
   assert.equal(prCalled, false, "no changes to publish -> the PR must never be opened");
   assert.match(result.outcome, /noop/, "the outcome must honestly reflect that nothing was published");
@@ -539,7 +548,7 @@ test("PROD-BLOCKER: publish() throws loudly on the 'pr' route when vcsWrite is a
   );
 
   await assert.rejects(
-    () => adapter.publish({ verdict: "pass", cases: [], logs: "", mirrorDir: "/mirrors/org/app", sha: "abc1234" }),
+    () => adapter.publish({ verdict: "pass", cases: [], logs: "", workspace: handle() }),
     /vcsWrite/i,
     "a 'pr' route with no vcsWrite collaborator wired must throw naming the gap, never silently call pr.openWithAutoMerge against an unpushed branch",
   );
@@ -812,7 +821,7 @@ test("reviewer-outage note: publish() sanitizes reviewerNote through the SAME in
    pinned at the render-publication.ts unit level; these tests pin the ADAPTER'S OWN threading).
  */
 
-test("publish() threads tested/isCode/parentRunId into the PR body render", async () => {
+test("publish() threads tested/the handle's target/parentRunId into the PR body render", async () => {
   const decide = new PublishDecisionService();
   let bodySeen = "";
   const pr = { openWithAutoMerge: async (_repo: string, _branch: string, _title: string, body: string) => { bodySeen = body; return { url: "https://github.com/org/app/pull/1", number: 1 }; } };
@@ -827,15 +836,13 @@ test("publish() threads tested/isCode/parentRunId into the PR body render", asyn
     verdict: "pass",
     cases: [],
     logs: "",
-    mirrorDir: "/mirrors/org/app",
-    sha: "abc1234",
-    isCode: true,
+    workspace: handle("/mirrors/org/app", "abc1234", true),
     tested: [{ flow: "parseConfig", objective: "rejects malformed YAML" }],
     parentRunId: "run-deadbeef",
   });
 
   assert.match(result.outcome, /pr/);
-  assert.match(bodySeen, /Source-code tests generated\/updated by qayaba/, "isCode:true must select the code-flavored PR wording");
+  assert.match(bodySeen, /Source-code tests generated\/updated by qayaba/, "a code handle must select the code-flavored PR wording");
   assert.match(bodySeen, /\*\*Covers:\*\*/);
   assert.match(bodySeen, /\*\*parseConfig\*\*/);
   assert.match(bodySeen, /Continuation of run-deadbeef/);
@@ -874,7 +881,7 @@ test("publish() with no tested/isCode/parentRunId supplied still renders a compl
     repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true,
   });
 
-  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", mirrorDir: "/mirrors/org/app", sha: "abc1234" });
+  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", workspace: handle() });
 
   assert.match(result.outcome, /pr/);
   assert.match(bodySeen, /E2E tests generated\/updated by qayaba/, "absent isCode falls back to the e2e-flavored wording");

@@ -16,6 +16,7 @@ import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/app-catalog/
 import { ERROR_CLASS } from "@contexts/cross-run-learning/domain/error-class.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../support/run-workspace.ts";
+import { fakeHandle, rootsOf } from "./run-flow/fake-workspace.ts";
 const INPUT = { app: "demo", sha: Sha.of("abc1234"), source: "manual" as const, mode: "diff" as const, target: "e2e" as const, runId: "suite-run" };
 const sha256 = (text: string): string => createHash("sha256").update(text).digest("hex");
 
@@ -78,7 +79,7 @@ function rig(opts: { authRestored?: boolean; restoreThrows?: Error; captureThrow
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => (events.push("publish"), { outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
-    workspace: { prepare: async () => (events.push("prepare"), { specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+    workspace: { readRoots: rootsOf, prepare: async () => (events.push("prepare"), fakeHandle({ specDir: ws.specDir, mirrorDir: ws.mirrorDir })) },
     deployGate: { waitUntilServing: async () => ok(true) },
     runHistory: { save: async () => {} },
     setup: { setup: async () => void events.push("setup") },

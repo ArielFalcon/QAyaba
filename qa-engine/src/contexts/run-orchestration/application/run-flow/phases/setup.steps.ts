@@ -21,7 +21,7 @@ export async function restoreAcceptedSuite(state: Readonly<RunState>, ctx: Works
   let storeRestoredLogin = false;
   if (deps.suiteStore && !cfg.isCode && input.mode !== "context") {
     try {
-      const restored = await deps.suiteStore.restore({ mirrorDir: workspace.mirrorDir, specDir: workspace.specDir });
+      const restored = await deps.suiteStore.restore(ctx.services.specRoot);
       suiteRestored = true;
       storeRestoredLogin = restored.authRestored;
       ctx.host.announceSuite(
@@ -144,8 +144,7 @@ export async function openAuthoringHandles(state: Readonly<RunState>, ctx: Works
         runId: input.runId,
         app: input.app,
         mode: input.mode,
-        mirrorDir: workspace.mirrorDir,
-        specDir: workspace.specDir,
+        ...ctx.services.specRoot,
         ...(input.purpose !== undefined ? { purpose: input.purpose } : {}),
         ...(input.closedLoop !== undefined ? { enabled: input.closedLoop } : {}),
         ...(signal ? { signal } : {}),

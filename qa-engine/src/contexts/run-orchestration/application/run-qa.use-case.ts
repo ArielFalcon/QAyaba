@@ -25,6 +25,7 @@ import type { StepId } from "./run-flow/step-ids.ts";
 import { type RunEnd } from "./run-flow/run-end.ts";
 import { finalizeRun, recordCrashEvidence } from "./run-flow/finalize-run.ts";
 import type { RunState } from "./run-flow/run-state.ts";
+import type { WorkspaceHandle } from "../domain/workspace-handle.ts";
 import { initialRunState } from "./run-flow/run-state.ts";
 import { recordCoordination, recordProof, recordRunFact } from "./run-flow/reducers.ts";
 import { createRunServices } from "./run-flow/run-services.ts";
@@ -367,7 +368,7 @@ export class RunQaUseCase {
       recordCorrections: () => this.recordCorrections(state, trail),
       closeCoordinatedPass: () => this.closeCoordinatedPass(trail),
       noteGroundingGates: (result) => this.noteGroundingGates(trail, result),
-      pruneMirror: (mirrorDir) => this.pruneMirrorIfWired(mirrorDir),
+      pruneMirror: (workspace) => this.pruneMirrorIfWired(workspace),
       noteDeadlineArmed: () => this.noteDeadlineArmed(trail),
       redact: (text) => redactByValue(text),
       prepareAuth: (specDir, phase, abortSignal) => this.prepareAuth(specDir, phase, abortSignal),
@@ -412,7 +413,6 @@ export class RunQaUseCase {
 
     trail.phases.enter("workspace");
     const workspace = await this.deps.workspace.prepare(input.sha);
-    recordRunFact(state, "mirrorDir", workspace.mirrorDir);
     const services = createRunServices(this.deps, baseCtx.cfg, workspace, signal, (file, sha256) => recordProof(state, file, sha256));
     const ctx: WorkspaceRunContext = { ...baseCtx, workspace, services };
     live = ctx;
@@ -459,9 +459,9 @@ export class RunQaUseCase {
    * the project setup run again, which seeds the stock login. "unchanged" when the store could not be told (the original failure
    * stands), "setup-failed" when the setup that follows threw, "replaced" when the caller should try the login once more.
    */
-  private async replaceRestoredLogin(workspace: { specDir: string; mirrorDir: string }, signal?: AbortSignal): Promise<"replaced" | "unchanged" | "setup-failed"> {
+  private async replaceRestoredLogin(workspace: WorkspaceHandle, signal?: AbortSignal): Promise<"replaced" | "unchanged" | "setup-failed"> {
     try {
-      await this.deps.suiteStore!.demoteAuth(workspace, DEMOTE_REASON.LOGIN_DID_NOT_SIGN_IN);
+      await this.deps.suiteStore!.demoteAuth(this.deps.workspace.readRoots(workspace), DEMOTE_REASON.LOGIN_DID_NOT_SIGN_IN);
     } catch (err) {
       carryOn(err);
       this.announceSuite(`[qa] suite store could not demote the failed login (the failure stands): ${err instanceof Error ? err.message : String(err)}`, "warn");
@@ -505,10 +505,10 @@ export class RunQaUseCase {
    * exits before prepare() never call this. A thrown prune() is logged and never
    * alters the verdict.
    */
-  private async pruneMirrorIfWired(mirrorDir: string): Promise<void> {
+  private async pruneMirrorIfWired(workspace: WorkspaceHandle): Promise<void> {
     if (!this.deps.mirrorGc) return;
     try {
-      await this.deps.mirrorGc.prune(mirrorDir);
+      await this.deps.mirrorGc.prune(workspace);
     } catch (err) {
       carryOn(err); /* a git dir that is not the orchestrator's is a security refusal, never a fault to isolate */
       console.error(

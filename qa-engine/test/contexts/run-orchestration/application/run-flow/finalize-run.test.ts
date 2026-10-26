@@ -22,6 +22,8 @@ import { decide, type RunEvidence } from "@contexts/run-orchestration/domain/run
 import type { RunQaConfig, RunQaInput, RunQaResult, RunQaUseCaseDeps } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
 import { RUN_END_ROWS } from "./run-end-rows.ts";
 import { dispose, newRig } from "./run-end-rig.ts";
+import type { WorkspaceHandle } from "@contexts/run-orchestration/application/index.ts";
+import { fakeHandle, rootsOf } from "./fake-workspace.ts";
 
 const MIRROR = "/mirrors/org__app";
 
@@ -53,9 +55,8 @@ function context(opts: { mode?: RunQaInput["mode"]; mirrorDir?: string | undefin
   const trail = { phases: new RunPhaseCursor(clock, spans), spans };
   const state = initialRunState();
   const mirrorDir = "mirrorDir" in opts ? opts.mirrorDir : MIRROR;
-  if (mirrorDir) recordRunFact(state, "mirrorDir", mirrorDir);
   const cycleBudget = CycleBudget.derive({ maxRetries: cfg.maxRetries });
-  const ctx: RunContext = {
+  const ctx: RunContext & { workspace?: WorkspaceHandle } = {
     input: { app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: opts.mode ?? "diff", target: "e2e", runId: "finalize-run" },
     signal: undefined,
     trail,
@@ -65,8 +66,9 @@ function context(opts: { mode?: RunQaInput["mode"]; mirrorDir?: string | undefin
     startedAt: 0,
     cycleBudget,
     wallClockBudget: WallClockBudget.derive({ cycleBudget, agentTimeoutMs: 0 }),
+    ...(mirrorDir ? { workspace: fakeHandle({ mirrorDir, specDir: `${mirrorDir}/e2e` }) } : {}),
     host: {
-      pruneMirror: async (dir: string) => { calls.order.push("prune"); calls.pruned.push(dir); },
+      pruneMirror: async (workspace: WorkspaceHandle) => { calls.order.push("prune"); calls.pruned.push(rootsOf(workspace).mirrorDir); },
       coordination: () => undefined,
       sandboxRefused: () => false,
       sandboxSignal: () => undefined,
@@ -261,7 +263,7 @@ function decidedRun(opts: { verdict: "pass" | "fail"; mode?: RunQaInput["mode"];
   const decision = decide(evidence);
   state.decided = { evidence, decision, isContextCleanPass: ctx.input.mode === "context" && decision.verdict === "pass" };
   const services = { confinement: { enforce: async () => { calls.order.push("enforce"); }, add: () => {}, totals: undefined }, proofBytes: new Map(), integrityCounters: { acceptances: 0, rejected: 0, capHit: false }, intentLock: { mode: "signal" }, intentState: { clauses: 0, violations: 0, wouldReject: 0, opaque: 0, opacityHigh: false } };
-  const wctx = { ...ctx, workspace: { mirrorDir: MIRROR, specDir: `${MIRROR}/e2e` }, services } as unknown as WorkspaceRunContext;
+  const wctx = { ...ctx, workspace: fakeHandle({ mirrorDir: MIRROR, specDir: `${MIRROR}/e2e` }), services } as unknown as WorkspaceRunContext;
   if (opts.publishFails) (wctx.deps.publication as { publish: unknown }).publish = async () => { calls.order.push("publish"); throw new Error("the forge is down"); };
   return { ctx: wctx, state, calls };
 }

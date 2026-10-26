@@ -184,6 +184,8 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
   /* Also covered by the adapters/ prefix below; listed so narrowing that prefix cannot unprotect it. */
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter.ts",
+  /* The only map from a workspace handle to the mirror, the commit and the target; also covered by the adapters/ prefix below, listed so narrowing that prefix cannot unprotect it. */
+  "qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/workspace-registry.ts",
 
   "src/server/auth.ts",
   "src/server/github-auth.ts",

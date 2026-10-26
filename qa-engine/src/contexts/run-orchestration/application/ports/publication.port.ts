@@ -1,5 +1,6 @@
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import type { WorkspaceHandle } from "../../domain/workspace-handle.ts";
 
 export interface PublicationPort {
   /**
@@ -31,16 +32,13 @@ export interface PublicationPort {
      */
     reviewerNote?: string;
     /**
-     * Real per-run mirrorDir + sha for the "pr" route's git-write. Absent on an
-     * actual "pr" route with a required vcsWrite collaborator is a composition
-     * defect: the adapter throws rather than skip the write (fail-closed).
+     * The run's working copy, for the "pr" route's git-write: the adapter reads the mirror, the commit and the target from the
+     * handle it issued, so no path comes from the caller. Absent on an actual "pr" route with a required vcsWrite collaborator is a
+     * composition defect: the adapter throws rather than skip the write (fail-closed). A handle the adapter did not issue throws.
      */
-    mirrorDir?: string;
-    sha?: string;
+    workspace?: WorkspaceHandle;
     /** Agent "what was tested" evidence. Absent omits the section; never throws. */
     tested?: { flow?: string; objective?: string }[];
-    /** Code vs e2e wording. Absent renders e2e-flavored copy. */
-    isCode?: boolean;
     /** Continuation provenance. Absent: no continuation reference rendered. */
     parentRunId?: string;
   }): Promise<{

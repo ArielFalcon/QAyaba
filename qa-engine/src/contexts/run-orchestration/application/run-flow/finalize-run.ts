@@ -19,6 +19,7 @@ import type { RunQaResult } from "./run-types.ts";
 import type { RunContext, WorkspaceRunContext } from "./run-context.ts";
 import { deriveErrorClass, toReflectionInput, toRunOutcome } from "./outcome-assembly.ts";
 import { CRASH_EVIDENCE_EFFECTS, END_EFFECTS, type EndEffects, type EndEvidence, type GroundingSignals, type RunEnd } from "./run-end.ts";
+import type { WorkspaceHandle } from "../../domain/workspace-handle.ts";
 import type { RunState } from "./run-state.ts";
 import { finalizeDecided } from "./decided-end.ts";
 
@@ -46,6 +47,8 @@ type Shape =
   | { kind: "skip"; note: string | undefined; reviewerApproved: boolean | undefined; noop?: { kind: NoopKind } | undefined; confinement?: EndEvidence["confinement"]; closedLoop?: EndEvidence["closedLoop"]; agentBrowser?: EndEvidence["agentBrowser"] }
   | { kind: "terminal"; terminal: TerminalShape };
 
+/* The working copy exists once the run prepared it, whether or not the services over it were built. */
+const hasWorkspace = (ctx: RunContext): ctx is RunContext & { workspace: WorkspaceHandle } => "workspace" in ctx;
 const isWorkspaceContext = (ctx: RunContext): ctx is WorkspaceRunContext => "workspace" in ctx && "services" in ctx;
 
 export async function finalizeRun(end: RunEnd, ctx: RunContext, state: Readonly<RunState>): Promise<RunQaResult> {
@@ -82,8 +85,7 @@ async function finalizeShape(shape: Shape, effects: EndEffects, ctx: RunContext,
     publishOutcome = await publishTerminal(shape, ctx);
   }
   const prune = async (): Promise<void> => {
-    const { mirrorDir } = state.run;
-    if (mirrorDir) await ctx.host.pruneMirror(mirrorDir);
+    if (hasWorkspace(ctx)) await ctx.host.pruneMirror(ctx.workspace);
   };
   if (effects.prune === "before-persist") await prune();
 
@@ -194,8 +196,7 @@ async function publishTerminal(shape: Shape, ctx: RunContext): Promise<string | 
     reviewerApproved: terminal.reviewerApproved,
     coverageBlocks: false,
     ...(ctx.input.triggerRepo ? { issueRepo: ctx.input.triggerRepo } : {}),
-    /* isCode and tested still render into the Issue body when present. A terminal never routes to "pr". */
-    isCode: ctx.cfg.isCode,
+    /* tested still renders into the Issue body when present. A terminal never routes to "pr". */
     ...(terminal.tested?.length ? { tested: terminal.tested } : {}),
   } satisfies Parameters<PublicationPort["publish"]>[0]);
   return published.outcome;

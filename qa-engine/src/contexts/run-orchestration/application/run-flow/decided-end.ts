@@ -33,7 +33,7 @@ export async function finalizeDecided(state: Readonly<RunState>, ctx: WorkspaceR
   if (decidedOf(state).decision.sideEffect !== "none") publishOutcome = await publishDecision(state, ctx);
 
   /* Once, after confinement and publish, so gc never races this run's git write. */
-  await ctx.host.pruneMirror(ctx.workspace.mirrorDir);
+  await ctx.host.pruneMirror(ctx.workspace);
 
   /* What the run went on past is said on its record beside what publication came to. */
   const note = [...state.degraded.map((d) => d.note), ...(publishOutcome !== undefined ? [publishOutcome] : [])].join("; ") || undefined;
@@ -108,8 +108,7 @@ async function keepAcceptedSuite(state: Readonly<RunState>, ctx: WorkspaceRunCon
   const { authVerifiedSha256 } = state.execution;
   try {
     const kept = await deps.suiteStore!.capture({
-      mirrorDir: workspace.mirrorDir,
-      specDir: workspace.specDir,
+      ...services.specRoot,
       runId: input.runId,
       sha: input.sha.toString(),
       /* The ledger's own hashes: every file admitted is one whose green bytes this run holds. */
@@ -129,7 +128,7 @@ async function keepAcceptedSuite(state: Readonly<RunState>, ctx: WorkspaceRunCon
  * omitted (no computed source: do not fabricate). Cross-repo Issues file in triggerRepo; PRs still target the primary.
  */
 async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<string> {
-  const { deps, input, cfg, workspace, services } = ctx;
+  const { deps, input, workspace, services } = ctx;
   const run = runOf(state);
   const { reviewerApproved } = state.review;
   const { lastAdjudicatorVerdict } = state.fixLoop;
@@ -144,12 +143,10 @@ async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunConte
       ...(input.triggerRepo ? { issueRepo: input.triggerRepo } : {}),
       /* Adjudication is absent when FixLoop never engaged: never fabricated. */
       ...(lastAdjudicatorVerdict ? { adjudication: lastAdjudicatorVerdict } : {}),
-      /* Real per-run mirrorDir + sha for the "pr" git-write. This is the only pr-capable call site. */
-      mirrorDir: workspace.mirrorDir,
-      sha: input.sha.toString(),
+      /* The run's handle: the "pr" git-write reads the mirror and the commit from it. This is the only pr-capable call site. */
+      workspace,
       /* tested omitted when empty. parentRunId only from /continue, never fabricated. Intra-run regens reuse this same input object. */
       ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
-      isCode: cfg.isCode,
       ...(resolveTested(state)?.length ? { tested: resolveTested(state) } : {}),
     });
   } catch (pubErr) {

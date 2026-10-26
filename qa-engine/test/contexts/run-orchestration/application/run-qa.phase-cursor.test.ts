@@ -8,6 +8,7 @@ import { Sha } from "@kernel/sha.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
+import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 
 /* A clock that only moves when a port "takes time", so phase durations are exact. */
 function steppedClock() {
@@ -36,7 +37,7 @@ function harness(overrides: Overrides = {}) {
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
-    workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+    workspace: fakeWorkspace(ws),
     suiteStore: ws.suiteStore,
     deployGate: { waitUntilServing: async () => ok(true) },
     /* What the store keeps is the bytes at save time: a later change to the object must not reach it. */

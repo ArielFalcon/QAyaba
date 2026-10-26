@@ -9,6 +9,7 @@ import { RunQaUseCase } from "@contexts/run-orchestration/application/run-qa.use
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
 import { activeRunSecretScope, redactByValue, type RunSecretScope } from "../../../../src/shared-infrastructure/run-secret-redaction.ts";
+import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 
 const SECRET = "account-secret-7731";
 
@@ -43,7 +44,7 @@ async function runOnce(runId: string, observe: { atGenerate?: RunSecretScope | u
       objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
       publication: { publish: async () => ({ outcome: "pr" }) },
       learning: { fold: async () => {}, retrieve: async () => [] },
-      workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+      workspace: fakeWorkspace(ws),
       suiteStore: ws.suiteStore,
       deployGate: { waitUntilServing: async () => ok(true) },
       runHistory: { save: async () => {} },

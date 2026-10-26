@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { RunQaUseCase, type RunQaUseCaseDeps } from "@contexts/run-orchestration/application/run-qa.use-case";
 import { ok } from "@kernel/result";
+import { fakeWorkspace } from "../../qa-engine/test/contexts/run-orchestration/application/run-flow/fake-workspace";
 import { Sha } from "@kernel/sha";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
@@ -23,7 +24,7 @@ function useCase(telemetry: TelemetryPort | undefined, withGrounding = true, val
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
-    workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+    workspace: fakeWorkspace(ws),
     suiteStore: ws.suiteStore,
     deployGate: { waitUntilServing: async () => ok(true) },
     runHistory: { save: async () => {} },

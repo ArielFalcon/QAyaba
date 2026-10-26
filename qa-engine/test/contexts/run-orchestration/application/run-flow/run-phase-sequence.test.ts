@@ -9,6 +9,7 @@ import type { SpanHandle, StartSpanOptions } from "@kernel/telemetry/telemetry.p
 import { RunQaUseCase, type RunQaInput, type RunQaUseCaseDeps } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
 import { scriptedGeneration } from "../../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../../support/run-workspace.ts";
+import { fakeWorkspace } from "./fake-workspace.ts";
 
 const PHASE_SPAN_PREFIX = "qayaba.phase.";
 
@@ -51,7 +52,7 @@ async function runOf(input: RunQaInput, execute?: RunQaUseCaseDeps["execution"][
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
-    workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+    workspace: fakeWorkspace(ws),
     suiteStore: ws.suiteStore,
     deployGate: { waitUntilServing: async () => ok(true) },
     runHistory: { save: async () => {} },

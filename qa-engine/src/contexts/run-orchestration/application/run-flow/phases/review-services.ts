@@ -41,7 +41,7 @@ export type ReviewedSpecs = ReturnType<typeof readReviewedSpecs>;
  * cannot check stays unverified, so the finding it answers keeps standing.
  */
 export function rebuttalEvidence(ctx: WorkspaceRunContext, cases: readonly QaCase[], rebuttals: readonly ReviewRebuttal[]): RebuttalEvidence {
-  const specRoot: SpecRoot = { mirrorDir: ctx.workspace.mirrorDir, specDir: ctx.workspace.specDir };
+  const specRoot: SpecRoot = ctx.services.specRoot;
   const { intentState } = ctx.services;
   const failedFiles = new Set(cases.filter((c) => c.status !== "pass" && c.file).map((c) => c.file!));
   const greenCaseRefs = new Set<string>();

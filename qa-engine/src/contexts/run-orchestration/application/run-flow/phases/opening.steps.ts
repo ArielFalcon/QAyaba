@@ -64,7 +64,7 @@ export async function armRunDeadline(state: Readonly<RunState>, ctx: WorkspaceRu
 export async function indexMirror(_state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { deps, input, workspace } = ctx;
   if (deps.codeGraph) {
-    const sourceDir = deps.codeGraphRepoDir ?? workspace.mirrorDir;
+    const sourceDir = deps.codeGraphRepoDir ?? ctx.services.specRoot.mirrorDir;
     await indexOne(ctx, deps.codeGraph, sourceDir, input.sha.toString());
     const primary = deps.codeGraphPrimary;
     if (primary && primary.repoDir !== sourceDir) {

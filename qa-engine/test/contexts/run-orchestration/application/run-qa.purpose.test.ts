@@ -9,6 +9,7 @@ import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RunQaUseCase } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
+import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 
 const INPUT = { app: "demo", sha: Sha.of("abc1234"), source: "manual" as const, mode: "manual" as const, target: "e2e" as const, runId: "purpose-run" };
 
@@ -23,7 +24,7 @@ function useCase(saved: RunOutcome[], opts: { verdict?: "pass" | "fail"; note?: 
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
-    workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+    workspace: fakeWorkspace(ws),
     suiteStore: ws.suiteStore,
     deployGate: { waitUntilServing: async () => ok(true) },
     runHistory: { save: async (outcome) => { saved.push(outcome); } },

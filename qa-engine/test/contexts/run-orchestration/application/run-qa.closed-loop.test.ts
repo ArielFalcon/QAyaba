@@ -13,6 +13,7 @@ import type { ClosedLoopHandle, ClosedLoopOpenInput } from "@contexts/agent-tool
 import type { GenerationEnrichment } from "@contexts/generation/application/index.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../support/run-workspace.ts";
+import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 
 const INPUT: RunQaInput = { app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "loop-run" };
 const LIMITS = { maxCalls: 8, perCallMs: 120_000, maxDevWrites: 20 };
@@ -66,7 +67,7 @@ function rig(opts: { closed?: boolean; openThrows?: boolean; grant?: boolean } =
       objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
       publication: { publish: async () => ({ outcome: "pr" }) },
       learning: { fold: async () => {}, retrieve: async () => [] },
-      workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+      workspace: fakeWorkspace(ws),
       suiteStore: ws.suiteStore,
       deployGate: { waitUntilServing: async () => ok(true) },
       runHistory: { save: async (outcome) => void r.saved.push(outcome) },

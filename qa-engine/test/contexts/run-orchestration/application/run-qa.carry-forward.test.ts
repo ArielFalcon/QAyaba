@@ -10,6 +10,7 @@ import type { GenerationEnrichment, GenerationOutput, PreExecGroundingPort, Revi
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
+import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 
 /** A spec the lead delivered and declared. */
 const declared = (file: string, objective: string): DeliveredSpec => ({ file, flow: `${file} flow`, objective });
@@ -103,7 +104,7 @@ async function run(scenario: Scenario): Promise<GenerationEnrichment[]> {
       objectiveSignal: { measure: scenario.measure ?? (async () => ({ status: "unknown", ratio: null })), blocks: scenario.blocks ?? (() => false) },
       publication: { publish: async () => ({ outcome: "pr" }) },
       learning: { fold: async () => {}, retrieve: async () => [] },
-      workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+      workspace: fakeWorkspace(ws),
       suiteStore: ws.suiteStore,
       deployGate: { waitUntilServing: async () => ok(true) },
       runHistory: { save: async () => {} },

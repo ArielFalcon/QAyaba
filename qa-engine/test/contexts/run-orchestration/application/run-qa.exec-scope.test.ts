@@ -16,6 +16,7 @@ import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.t
 import { createExecSandbox, SandboxUnavailableError } from "../../../../src/shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { activeExecScope, type ExecScopePort } from "../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 import { createExecScopeProvider } from "../../../../src/shared-infrastructure/process-sandbox/exec-scope-provider.ts";
+import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 
 async function runWith(options: { execScope?: ExecScopePort; observer?: ObserverPort; execute: () => Promise<{ verdict: "pass"; cases: []; logs: string }> }): Promise<{ saved: RunOutcome[]; threw?: unknown }> {
   const ws = runWorkspace("qa-run-exec-scope-");
@@ -38,7 +39,7 @@ async function runWith(options: { execScope?: ExecScopePort; observer?: Observer
       objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
       publication: { publish: async () => ({ outcome: "pr" }) },
       learning: { fold: async () => {}, retrieve: async () => [] },
-      workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+      workspace: fakeWorkspace(ws),
       suiteStore: ws.suiteStore,
       deployGate: { waitUntilServing: async () => ok(true) },
       runHistory: { save: async (outcome: RunOutcome) => { saved.push(outcome); } },

@@ -56,6 +56,8 @@ import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { extractSpecContract } from "@contexts/objective-signal/infrastructure/ts-spec-contract.extractor.ts";
 import { reassignableGeneration, runWorkspace } from "../../../support/run-workspace.ts";
 import { scriptedLoginEvidence } from "../../../support/login-evidence.ts";
+import type { WorkspaceHandle } from "@contexts/run-orchestration/application/index.ts";
+import { fakeHandle, rootsOf } from "./run-flow/fake-workspace.ts";
 /* Ports through the full lifecycle. NO inline IO, NO prompt strings, NO learning side-effects on
    the verdict path (LearningPort.fold is off-path). Drives the SAME stub shapes scenarios.ts
    provides for the equivalent runPipeline scenario.
@@ -130,7 +132,8 @@ function stubPorts(overrides: Partial<{
     retrieve: overrides.retrieve ?? (async () => []),
   };
   const workspace: WorkspacePort = {
-    prepare: overrides.prepare ?? (async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir })),
+    readRoots: rootsOf,
+    prepare: overrides.prepare ?? (async () => fakeHandle({ specDir: ws.specDir, mirrorDir: ws.mirrorDir })),
   };
   const deployGate: DeployGatePort = {
     waitUntilServing: overrides.waitUntilServing ?? (async () => ok(true)),
@@ -190,7 +193,7 @@ function realCoverageWorkspace(): { prepare: WorkspacePort["prepare"]; generate:
   const specDir = join(dir, "e2e");
   let calls = 0;
   return {
-    prepare: async () => ({ specDir, mirrorDir: dir }),
+    prepare: async () => fakeHandle({ specDir, mirrorDir: dir }),
     generate: async () => {
       calls += 1;
       mkdirSync(specDir, { recursive: true });
@@ -1990,7 +1993,7 @@ test("an unavailable reviewer ends the run at once: no regeneration round is bur
     generate: async () => { generated++; return scriptedGeneration({ specs: ["a.spec.ts"], approved: true }); },
     review: async () => { reviews++; return reviewerDown(); },
   });
-  await new RunQaUseCase({ ...ports, config: baseConfig, mirrorGc: { prune: async (d: string) => { pruned.push(d); } } }).run({ ...baseInput, runId: "reviewer-down-no-regen" });
+  await new RunQaUseCase({ ...ports, config: baseConfig, mirrorGc: { prune: async (w: WorkspaceHandle) => { pruned.push(rootsOf(w).mirrorDir); } } }).run({ ...baseInput, runId: "reviewer-down-no-regen" });
   assert.deepEqual([generated, reviews, pruned], [1, 1, [ws.mirrorDir]]);
 });
 
@@ -2601,7 +2604,7 @@ test("signal mode — an accepted regeneration after the measurement reuses it a
     let generation = 0;
     let reviews = 0;
     const { ports } = stubPorts({
-      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
       measure: async () => {
         measureCalls++;
@@ -2650,7 +2653,7 @@ test("enforce mode — a review regeneration after the measurement gets ONE fina
     const executeNamespaces: (string | undefined)[] = [];
     const measureNamespaces: (string | undefined)[] = [];
     const { ports } = stubPorts({
-      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       execute: async (_specDir, opts) => {
         executeNamespaces.push((opts as { namespace?: string } | undefined)?.namespace);
         return { verdict: "pass" as const, cases: [], logs: "" };
@@ -2698,7 +2701,7 @@ test("the final guard restores the proven bytes when a spec changes after its gr
   const fixtures = reviewFixtures();
   try {
     const { ports } = stubPorts({
-      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
       /* The measurement tampers with the spec after the green run: the guard must put the proven bytes back. */
       measure: async () => {
@@ -3126,15 +3129,13 @@ test("publish() is called with the coverageBlocks field threaded (not dropped) u
   assert.equal(publishedDecision!.coverageBlocks, false, "publish() must receive a threaded coverageBlocks field (undefined here would mean the call site dropped it)");
 });
 
-/* PROD-BLOCKER fix: the publish "pr" route needs the REAL per-run mirrorDir (WorkspacePort.prepare()'s
-   own return value) + sha to stage/commit/push the agent's generated tests before the PR is opened
-   (publication-port.adapter.ts's own vcsWrite collaborator). Previously WorkspacePort.prepare() only
-   returned specDir, so there was NO source for mirrorDir anywhere in this use-case — this pins that
-   the mainline publish() call site (the only one that can ever route to "pr") threads both fields.
+/* The publish "pr" route stages, commits and pushes the agent's generated tests from the run's own working copy. The use case threads
+   the handle WorkspacePort.prepare() issued (the mainline publish() call site is the only one that can ever route to "pr"); the mirror root
+   and the commit are the adapter's to resolve, never the caller's to name.
  */
 
-test("publish() is called with mirrorDir threaded from WorkspacePort.prepare()'s own return value on the 'pr' side effect", async () => {
-  let publishedDecision: { verdict: string; mirrorDir?: string; sha?: string } | undefined;
+test("publish() is called with the handle WorkspacePort.prepare() issued on the 'pr' side effect", async () => {
+  let publishedDecision: { verdict: string; workspace?: WorkspaceHandle } | undefined;
   const { ports, ws } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
     review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }),
@@ -3142,27 +3143,12 @@ test("publish() is called with mirrorDir threaded from WorkspacePort.prepare()'s
   ports.publication.publish = async (decision) => { publishedDecision = decision; return { outcome: "pr" }; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
-  const out = await useCase.run({ ...baseInput, runId: "prod-blocker-mirrordir-threaded" });
+  const out = await useCase.run({ ...baseInput, runId: "prod-blocker-workspace-threaded" });
 
   assert.equal(out.decision.sideEffect, "pr");
-  assert.ok(publishedDecision, "publication.publish() must have been called for the 'pr' side effect");
-  assert.equal(publishedDecision!.mirrorDir, ws.mirrorDir, "publish() must receive the REAL per-run mirrorDir from WorkspacePort.prepare(), not a dropped/undefined value");
-});
-
-test("publish() is called with sha threaded from input.sha on the 'pr' side effect", async () => {
-  let publishedDecision: { verdict: string; mirrorDir?: string; sha?: string } | undefined;
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
-    review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }),
-  });
-  ports.publication.publish = async (decision) => { publishedDecision = decision; return { outcome: "pr" }; };
-  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
-
-  const out = await useCase.run({ ...baseInput, sha: Sha.of("def5678"), runId: "prod-blocker-sha-threaded" });
-
-  assert.equal(out.decision.sideEffect, "pr");
-  assert.ok(publishedDecision, "publication.publish() must have been called for the 'pr' side effect");
-  assert.equal(publishedDecision!.sha, "def5678", "publish() must receive this run's REAL sha, not a dropped/undefined value");
+  assert.ok(publishedDecision?.workspace, "publication.publish() must have been called with the run's handle for the 'pr' side effect");
+  assert.deepEqual(rootsOf(publishedDecision.workspace), { mirrorDir: ws.mirrorDir, specDir: ws.specDir }, "publish() must receive the handle of the REAL per-run working copy");
+  assert.deepEqual(Object.keys(publishedDecision.workspace).sort(), ["kind", "specDir"], "the handle carries no mirror path");
 });
 
 test("reviewerApproved on a genuine pass+review call still reflects the INDEPENDENT reviewer's verdict, not generation's", async () => {
@@ -6241,8 +6227,8 @@ function makeFakeConfinement(
   onEnforce: (mirrorDir: string, isCode: boolean) => { strays: number; dangerous: number; reverted: string[] } | Error,
 ): ConfinementPort {
   return {
-    enforce: async (mirrorDir, isCode) => {
-      const result = onEnforce(mirrorDir, isCode);
+    enforce: async (workspace) => {
+      const result = onEnforce(rootsOf(workspace).mirrorDir, workspace.kind === "code");
       if (result instanceof Error) throw result;
       return result;
     },
@@ -6478,7 +6464,9 @@ test("confinement wiring: publish() with no revertedDenylisted (the common case)
 
 test("confinement wiring: code target — enforce() receives isCode:true", async () => {
   const calls: Array<{ mirrorDir: string; isCode: boolean }> = [];
-  const { ports } = stubPorts();
+  const { ports, ws } = stubPorts();
+  /* A code run's workspace adapter issues a code handle: the target rides on the handle, not on a flag the caller passes. */
+  ports.workspace = { ...ports.workspace, prepare: async () => fakeHandle({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }, "code") };
   const confinement = makeFakeConfinement((mirrorDir, isCode) => {
     calls.push({ mirrorDir, isCode });
     return { strays: 0, dangerous: 0, reverted: [] };
@@ -6600,8 +6588,8 @@ test("absent specMetas everywhere never throws and publish() receives no tested 
 
 function makeFakeMirrorGc(onPrune: (mirrorDir: string) => void | Error): MirrorGcPort {
   return {
-    prune: async (mirrorDir) => {
-      const result = onPrune(mirrorDir);
+    prune: async (workspace) => {
+      const result = onPrune(rootsOf(workspace).mirrorDir);
       if (result instanceof Error) throw result;
     },
   };
@@ -7916,7 +7904,7 @@ async function runEndingWith(generation: ReturnType<typeof scriptedGeneration>, 
     execute: async () => { executed++; return { verdict: "pass", cases: [], logs: "" }; },
   });
   const { observer, events } = fakeObserver();
-  const out = await new RunQaUseCase({ ...ports, observer, config, mirrorGc: { prune: async (dir: string) => { pruned.push(dir); } } }).run(baseInput);
+  const out = await new RunQaUseCase({ ...ports, observer, config, mirrorGc: { prune: async (w: WorkspaceHandle) => { pruned.push(rootsOf(w).mirrorDir); } } }).run(baseInput);
   return { out, savedOutcomes, events, published, validated, executed, pruned, mirrorDir: ws.mirrorDir };
 }
 
@@ -8318,7 +8306,7 @@ async function runEndedByDeadline(over: Parameters<typeof stubPorts>[0], config:
   });
   const { observer, events } = fakeObserver();
   const reflector = makeFakeReflector((i) => { learned.reflected.push(i); });
-  const out = await new RunQaUseCase({ ...ports, observer, reflector, config, mirrorGc: { prune: async (d: string) => { pruned.push(d); } } }).run(baseInput);
+  const out = await new RunQaUseCase({ ...ports, observer, reflector, config, mirrorGc: { prune: async (w: WorkspaceHandle) => { pruned.push(rootsOf(w).mirrorDir); } } }).run(baseInput);
   return { out, savedOutcomes, events, published: () => published, pruned, learned, mirrorDir: ws.mirrorDir };
 }
 
@@ -8444,7 +8432,7 @@ test("reviewer pre-check (R4): a spec asserting an empty state the captured DOM 
     let modelReviews = 0;
     const regenCorrections: (readonly string[] | undefined)[] = [];
     const { ports, savedOutcomes } = stubPorts({
-      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       captureReviewDom: async () => R4_DOM,
       execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
       review: async () => { modelReviews++; return { approved: true, corrections: [], blockingCount: 0, parsed: true }; },
@@ -8480,7 +8468,7 @@ test("reviewer pre-check: a legitimate spec whose assertions the captured DOM co
   try {
     let modelReviews = 0;
     const { ports, savedOutcomes } = stubPorts({
-      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       captureReviewDom: async () => R4_DOM,
       execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
       review: async () => {
@@ -8511,7 +8499,7 @@ test("a generator that changes nothing after a rejection is not reviewed twice: 
   try {
     let modelReviews = 0;
     const { ports, savedOutcomes } = stubPorts({
-      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
       review: async () => {
         modelReviews++;
@@ -8541,7 +8529,7 @@ test("a regeneration that only adds comments does not buy a second review: the r
     let modelReviews = 0;
     let generation = 0;
     const { ports } = stubPorts({
-      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
       review: async () => {
         modelReviews++;
@@ -8570,7 +8558,7 @@ test("a materially changed spec is re-reviewed with the prior corrections and th
     const seen: Array<{ priorCorrections?: readonly string[]; specChanges?: string }> = [];
     let generation = 0;
     const { ports } = stubPorts({
-      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
       review: async (_specDir, _cases, _diff, enrichment) => {
         seen.push({ ...(enrichment?.priorCorrections ? { priorCorrections: enrichment.priorCorrections } : {}), ...(enrichment?.specChanges ? { specChanges: enrichment.specChanges } : {}) });
@@ -8624,7 +8612,7 @@ test("each review round records a bounded qayaba.review metric: what decided it 
   try {
     const telemetry = new RecordingTelemetry();
     const { ports } = stubPorts({
-      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       captureReviewDom: async () => R4_DOM,
       execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
     });
@@ -8659,7 +8647,7 @@ test("the reviewer judges only the specs this run delivered; the existing suite 
   try {
     const seen: Array<{ cases: string[]; existing?: readonly string[] }> = [];
     const { ports, savedOutcomes } = stubPorts({
-      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       captureReviewDom: async () => R4_DOM,
       execute: async () => ({
         verdict: "pass",
@@ -8701,7 +8689,7 @@ test("the reviewer decision span carries the delivered targets, the existing sui
   try {
     const h = new RecordingTelemetry();
     const { ports } = stubPorts({
-      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       execute: async () => ({
         verdict: "pass",
         cases: [
@@ -8752,7 +8740,7 @@ test("the fix_loop phase span carries its outcome, the failing counts and the sp
     const telemetry = new RecordingTelemetry();
     let executeCallCount = 0;
     const { ports } = stubPorts({
-      prepare: async () => ({ specDir, mirrorDir }),
+      prepare: async () => fakeHandle({ specDir, mirrorDir }),
       execute: async () => {
         executeCallCount++;
         return executeCallCount === 1
@@ -8786,7 +8774,7 @@ function intentWorkspace(bodies: readonly string[]): { prepare: WorkspacePort["p
   const specDir = join(dir, "e2e");
   let calls = 0;
   return {
-    prepare: async () => ({ specDir, mirrorDir: dir }),
+    prepare: async () => fakeHandle({ specDir, mirrorDir: dir }),
     generate: async () => {
       const body = bodies[Math.min(calls, bodies.length - 1)]!;
       calls += 1;
@@ -9057,7 +9045,7 @@ test("with the integrity switch on, a blocking finding that cites a spec outside
   const { fixtures, generate } = findingFixtures();
   try {
     const { ports } = stubPorts({
-      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
       review: citedReview({ kind: "contract", ref: "specs/auth.spec.ts#clause-1" }),
     });
@@ -9080,7 +9068,7 @@ test("with the switch off, the same finding keeps its pre-change behaviour and t
   const { fixtures, generate } = findingFixtures();
   try {
     const { ports } = stubPorts({
-      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
       review: citedReview({ kind: "contract", ref: "specs/auth.spec.ts#clause-1" }),
     });
@@ -9102,7 +9090,7 @@ test("a verified blocking finding on a spec this run delivered still rejects", a
   const { fixtures, generate } = findingFixtures();
   try {
     const { ports } = stubPorts({
-      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       execute: async () => ({
         verdict: "pass" as const,
         cases: [{ name: "checkout", file: "flows/checkout.spec.ts", status: "pass" as const }],
@@ -9162,7 +9150,7 @@ function rebuttingGeneration(rebuttal: (correction: string) => object, specsAtPr
 
 function disputedPorts(fixtures: ReturnType<typeof reviewFixtures>, generate: () => Promise<ReturnType<typeof scriptedGeneration>>, review: ReviewPort["review"]) {
   const { ports, savedOutcomes, foldedOutcomes } = stubPorts({
-    prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+    prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
     execute: async () => ({
       verdict: "pass" as const,
       cases: [{ name: "checkout", file: "flows/checkout.spec.ts", status: "pass" as const }],
@@ -9246,7 +9234,7 @@ function supportChangeWorkspace(): { prepare: WorkspacePort["prepare"]; write: (
   const specDir = join(dir, "e2e");
   mkdirSync(specDir, { recursive: true });
   return {
-    prepare: async () => ({ specDir, mirrorDir: dir }),
+    prepare: async () => fakeHandle({ specDir, mirrorDir: dir }),
     write: (file, text) => {
       mkdirSync(join(specDir, file, ".."), { recursive: true });
       writeFileSync(join(specDir, file), text);
@@ -9383,7 +9371,7 @@ test("a failure that reads empty, twice, a page the Context Pack read with resul
       failureResultCount: 0,
     };
     const { ports } = stubPorts({
-      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       ground: async () => ({ packConfirmedDataRoutes: [{ path: "/owners/list", resultCount: 3 }] }),
       generate: async () => {
         generations++;
@@ -9433,7 +9421,7 @@ test("the fix_loop phase span says what made the triage re-read a failure and wh
     };
     const telemetry = new RecordingTelemetry();
     const { ports } = stubPorts({
-      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
       ground: async () => ({ packConfirmedDataRoutes: [{ path: "/owners/list", resultCount: 3 }] }),
       generate: async () => {
         fixtures.write("flows/owners.spec.ts", "test('owners list', async () => {});\n");

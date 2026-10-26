@@ -11,6 +11,7 @@ import { RunQaUseCase, type RunQaInput, type RunQaUseCaseDeps } from "@contexts/
 import type { CodeGraphToolsHandle } from "@contexts/agent-tools/application/index.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
+import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 
 const INPUT: RunQaInput = { app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "graph-run" };
 const PASS: QaCase[] = [{ name: "a", status: "pass", file: "flows/a.spec.ts" }];
@@ -40,7 +41,7 @@ function rig(opts: { openThrows?: boolean; generateThrows?: boolean; closeThrows
       objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
       publication: { publish: async () => ({ outcome: "pr" }) },
       learning: { fold: async () => {}, retrieve: async () => [] },
-      workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+      workspace: fakeWorkspace(ws),
       suiteStore: ws.suiteStore,
       deployGate: { waitUntilServing: async () => ok(true) },
       runHistory: { save: async () => {} },

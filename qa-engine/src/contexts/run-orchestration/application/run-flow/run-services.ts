@@ -16,12 +16,8 @@ import { diffContracts, type IntentViolation } from "@contexts/objective-signal/
 import type { SpecIntentView } from "../../domain/intent-contract.ts";
 import type { RunQaConfig, RunQaUseCaseDeps } from "./run-types.ts";
 import { carryOn } from "./failure-policy.ts";
+import type { WorkspaceHandle } from "../../domain/workspace-handle.ts";
 import type { FixLoopState } from "../../domain/fix-loop.aggregate.ts";
-
-export interface PreparedWorkspace {
-  specDir: string;
-  mirrorDir: string;
-}
 
 export interface ConfinementTotals {
   strays: number;
@@ -31,14 +27,14 @@ export interface ConfinementTotals {
 
 export type RunServices = ReturnType<typeof createRunServices>;
 
-export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, workspace: PreparedWorkspace, signal: AbortSignal | undefined, recordProof: (file: string, sha256: string) => void) {
+export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, workspace: WorkspaceHandle, signal: AbortSignal | undefined, recordProof: (file: string, sha256: string) => void) {
   /*
    * The run's proof: for every delivered spec file, the bytes that executed green — either in the first pass or in an accepted
    * regeneration — keyed by suite-relative path. The state holds their sha256 (`state.proof`, written through the callback); the bytes, which a restore needs,
    * are held here. A delivered file with no entry has no proof, and the final guard fails the run closed rather than publish its
    * unexecuted bytes. Seeded after the first execution; every accepted regeneration adds or replaces its changed files' entries.
    */
-  const specRoot: SpecRoot = { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir };
+  const specRoot: SpecRoot = deps.workspace.readRoots(workspace);
   const proofBytes = new Map<string, Uint8Array>();
   const keepProof = (file: string, sha256: string, bytes?: Uint8Array): void => {
     recordProof(file, sha256);
@@ -169,7 +165,7 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
   const enforceConfinement = async (): Promise<void> => {
     if (!deps.confinement) return;
     try {
-      const result = await deps.confinement.enforce(workspace.mirrorDir, cfg.isCode, signal);
+      const result = await deps.confinement.enforce(workspace, signal);
       confinementAcc = {
         strays: (confinementAcc?.strays ?? 0) + result.strays,
         dangerous: (confinementAcc?.dangerous ?? 0) + result.dangerous,

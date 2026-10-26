@@ -20,6 +20,7 @@ import type { SetupPort } from "@contexts/run-orchestration/application/ports/se
 import type { WorkspacePort } from "@contexts/run-orchestration/application/ports/workspace.port.ts";
 import { scriptedGeneration } from "../../../../support/generation-output.ts";
 import { reassignableGeneration, runWorkspace, type RunWorkspace } from "../../../../support/run-workspace.ts";
+import { fakeHandle, rootsOf } from "./fake-workspace.ts";
 
 /** Where a run stood and what it did to the outside when it ended. */
 export interface Observed {
@@ -81,7 +82,7 @@ export function newRig(): Rig {
     publish: async () => ({ outcome: "pr" }),
     setup: async () => {},
     waitUntilServing: async () => ok(true),
-    prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }),
+    prepare: async () => fakeHandle({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }),
     store: ws.suiteStore,
     extra: {},
     onDispose: [],
@@ -120,7 +121,7 @@ export async function observe(rig: Rig, runId: string): Promise<Observed> {
     objectiveSignal: { measure: rig.measure, blocks: rig.blocks },
     publication: { publish: async (input) => { publishCalls += 1; return await rig.publish(input); } },
     learning: { fold: async (outcome) => { folded.push(outcome); }, retrieve: async () => [] },
-    workspace: { prepare: rig.prepare },
+    workspace: { prepare: rig.prepare, readRoots: rootsOf },
     deployGate: { waitUntilServing: async () => await rig.waitUntilServing() },
     runHistory: { save: async (outcome) => { saved.push(outcome); } },
     reflector: { reflect: async () => { reflections += 1; } },

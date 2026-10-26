@@ -6,6 +6,7 @@ import { RunQaUseCase, type RunQaUseCaseDeps, type RunQaResult } from "@contexts
 import { RUN_PHASES } from "@contexts/run-orchestration/domain/run-phase-cursor";
 import { RunDeadlineExceededError } from "@kernel/run-deadline";
 import { ok } from "@kernel/result";
+import { fakeWorkspace } from "../../qa-engine/test/contexts/run-orchestration/application/run-flow/fake-workspace";
 import { traceFactsOf } from "@kernel/run-trace-facts";
 import { Sha } from "@kernel/sha";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
@@ -43,7 +44,7 @@ function baseDeps(clock: { now(): number }, overrides: Overrides = {}): RunQaUse
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
-    workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+    workspace: fakeWorkspace(ws),
     suiteStore: ws.suiteStore,
     deployGate: { waitUntilServing: async () => ok(true) },
     runHistory: { save: async () => {} },

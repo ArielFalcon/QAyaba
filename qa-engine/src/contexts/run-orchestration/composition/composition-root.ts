@@ -6,8 +6,6 @@ import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import type { RunPipelinePort } from "../application/ports/run-pipeline.port.ts";
 import type { ObserverPort } from "../application/ports/observer.port.ts";
 import type { RunHistoryPort } from "../application/ports/run-history.port.ts";
-import type { ConfinementPort } from "../application/ports/confinement.port.ts";
-import type { MirrorGcPort } from "../application/ports/mirror-gc.port.ts";
 import type { CurriculumPort, LearningPort } from "@contexts/cross-run-learning/application/index.ts";
 import type { ContextMapCapturePort } from "@contexts/generation/application/index.ts";
 import type { RunDeadlinePort } from "../application/ports/run-deadline.port.ts";
@@ -55,6 +53,9 @@ import { ExecutionPortAdapter } from "../../test-execution/infrastructure/adapte
 import { ObjectiveSignalPortAdapter } from "../../objective-signal/infrastructure/adapters/objective-signal-port.adapter.ts";
 import { PublicationPortAdapter, type GitHubPrCollaborator, type GitHubIssueCollaborator, type VcsPublishCollaborator } from "../../workspace-and-publication/infrastructure/adapters/publication-port.adapter.ts";
 import { LearningPortAdapter } from "../../cross-run-learning/infrastructure/adapters/learning-port.adapter.ts";
+import { WorkspaceRegistry } from "../../workspace-and-publication/infrastructure/adapters/workspace-registry.ts";
+import { ConfinementPortAdapter, type PathConfinementCollaborator } from "../../workspace-and-publication/infrastructure/adapters/confinement-port.adapter.ts";
+import { MirrorGcPortAdapter, type PathMirrorGcCollaborator } from "../../workspace-and-publication/infrastructure/adapters/mirror-gc-port.adapter.ts";
 import { WorkspacePortAdapter, type CheckoutFn } from "../../workspace-and-publication/infrastructure/adapters/workspace-port.adapter.ts";
 import { DeployGatePortAdapter, NullDeployGateAdapter, type VersionPollFn } from "../infrastructure/adapters/deploy-gate-port.adapter.ts";
 import { InMemoryRunHistoryAdapter, FileRunHistoryAdapter } from "../infrastructure/adapters/run-history-port.adapter.ts";
@@ -327,11 +328,11 @@ export interface CompositionConfig {
 
   reflectorPort?: ReflectorPort;
 
-  /* Write confinement. Optional, no stub: absent omits RunQaUseCaseDeps.confinement. The shell factory constructs WriteConfinementAdapter (needs src-only git/fs); this root must not import that adapter. */
-  confinement?: ConfinementPort;
+  /* Write confinement. Optional, no stub: absent omits RunQaUseCaseDeps.confinement. The shell factory constructs WriteConfinementAdapter (needs src-only git/fs); this root must not import that adapter, and binds it to the run's handle. */
+  confinement?: PathConfinementCollaborator;
 
   /* Mirror GC. Optional, no stub: absent omits RunQaUseCaseDeps.mirrorGc. The shell factory constructs MirrorGcAdapter (needs src-only git). */
-  mirrorGc?: MirrorGcPort;
+  mirrorGc?: PathMirrorGcCollaborator;
 
   /* Process audit. Optional, no stub: absent omits RunQaUseCaseDeps.processAudit. The shell factory constructs ProcessAuditPortAdapter (src-only sinks). */
   processAudit?: ProcessAuditPort;
@@ -598,7 +599,9 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
   const plainLearning = new LearningPortAdapter(cfg.learningRepo ?? new StubLearningRepository(), cfg.appName);
   const learning: LearningPort = cfg.telemetry ? new TracedLearningPort(plainLearning, cfg.telemetry) : plainLearning;
 
-  const workspace = new WorkspacePortAdapter(cfg.checkout, { specRelDir: cfg.isCode ? "" : cfg.e2eRelDir });
+  /* One registry per composition: the handle WorkspacePortAdapter issues is the only key the publication, confinement and gc adapters accept. */
+  const workspaceRegistry = new WorkspaceRegistry();
+  const workspace = new WorkspacePortAdapter(cfg.checkout, { specRelDir: cfg.isCode ? "" : cfg.e2eRelDir, isCode: cfg.isCode }, workspaceRegistry);
 
   const deployGate = cfg.versionUrl
     ? new DeployGatePortAdapter(
@@ -638,7 +641,9 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
       coverageBlocks: cfg.coverageBlocksForPublish ?? false,
       shadow: cfg.shadow,
       e2eChanged: cfg.e2eChangedForPublish ?? true,
+      isCode: cfg.isCode,
     },
+    workspaceRegistry,
   );
 
   /* Explicit runHistory wins over historyFilePath; file/in-memory adapters are the fallback when neither is a durable store supplied by the factory. */
@@ -686,9 +691,9 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
     ...(cfg.observer ? { observer: cfg.observer } : {}),
     ...(cfg.reflectorPort ? { reflector: cfg.reflectorPort } : {}),
     /* Absent confinement is omitted entirely — never a fabricated no-op stub. */
-    ...(cfg.confinement ? { confinement: cfg.confinement } : {}),
+    ...(cfg.confinement ? { confinement: new ConfinementPortAdapter(workspaceRegistry, cfg.confinement) } : {}),
     /* Absent mirrorGc is omitted entirely — never a fabricated no-op stub. */
-    ...(cfg.mirrorGc ? { mirrorGc: cfg.mirrorGc } : {}),
+    ...(cfg.mirrorGc ? { mirrorGc: new MirrorGcPortAdapter(workspaceRegistry, cfg.mirrorGc) } : {}),
     /* Absent processAudit is omitted entirely — never a fabricated no-op stub. */
     ...(cfg.processAudit ? { processAudit: cfg.processAudit } : {}),
     /* Absent runDeadline is omitted entirely — never a fabricated deadline that bounds nothing. */

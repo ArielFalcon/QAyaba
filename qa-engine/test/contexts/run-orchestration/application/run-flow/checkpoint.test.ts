@@ -14,6 +14,7 @@ import { EMPTY_SPEC_SET_DIGEST, specSetDigest } from "@contexts/run-orchestratio
 import { STEP_IDS } from "@contexts/run-orchestration/application/run-flow/step-ids.ts";
 import { scriptedGeneration } from "../../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../../support/run-workspace.ts";
+import { fakeWorkspace } from "./fake-workspace.ts";
 
 const base = { app: "demo", sha: Sha.of("abc1234"), source: "manual" as const, target: "e2e" as const, mode: "diff" as const };
 const SECRET = "hunter2-hunter2-secret";
@@ -28,7 +29,7 @@ function depsFor(ws: RunWorkspace, seen: RunCheckpoint[], over: Partial<RunQaUse
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
-    workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+    workspace: fakeWorkspace(ws),
     suiteStore: ws.suiteStore,
     deployGate: { waitUntilServing: async () => ok(true) },
     runHistory: { save: async () => {} },

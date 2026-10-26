@@ -21,6 +21,7 @@ import type { SuiteStorePort } from "@kernel/ports/suite-store.port.ts";
 import type { ReviewPort } from "@contexts/generation/application/index.ts";
 import { scriptedGeneration } from "../../../../support/generation-output.ts";
 import { RIG_SPEC, scratchDir, type Rig } from "./run-end-rig.ts";
+import { fakeHandle, rootsOf } from "./fake-workspace.ts";
 
 export type Published = "none" | "pr" | "issue" | "quarantine" | "shadow-log";
 
@@ -132,7 +133,7 @@ export const RUN_END_ROWS: readonly RunEndRow[] = [
   { id: "aborted-at-gate", endReason: "aborted", setup: (rig) => abortFrom(rig), expect: { verdict: "infra-error", errorClass: "E-INFRA", furthestPhase: null, persisted: false, published: "none", publishCalled: false, folded: false, reflected: false } },
   { id: "gate-never-serves-sha", endReason: "deploy-gate-failed", setup: (rig) => { rig.waitUntilServing = async () => ({ ok: false, error: new Error("DEV did not serve sha abc1234 within 5000ms") }); }, expect: { verdict: "infra-error", errorClass: "E-INFRA", furthestPhase: "gate", persisted: false, published: "none", publishCalled: false, folded: false, reflected: false, note: /DEV did not serve sha/ } },
   { id: "classify-skip", endReason: "classify-skipped", setup: (rig) => { rig.classify = async () => ({ action: "skip", reason: "docs-only commit", diff: "" }); }, expect: { verdict: "skipped", errorClass: null, furthestPhase: "classify", persisted: false, published: "none", publishCalled: false, folded: false, reflected: false } },
-  { id: "aborted-after-workspace", endReason: "aborted", setup: (rig) => { rig.prepare = async () => { abortFrom(rig); return { specDir: rig.ws.specDir, mirrorDir: rig.ws.mirrorDir }; }; }, expect: { verdict: "infra-error", errorClass: "E-INFRA", furthestPhase: "workspace", persisted: false, published: "none", publishCalled: false, folded: false, reflected: false } },
+  { id: "aborted-after-workspace", endReason: "aborted", setup: (rig) => { rig.prepare = async () => { abortFrom(rig); return fakeHandle({ specDir: rig.ws.specDir, mirrorDir: rig.ws.mirrorDir }); }; }, expect: { verdict: "infra-error", errorClass: "E-INFRA", furthestPhase: "workspace", persisted: false, published: "none", publishCalled: false, folded: false, reflected: false } },
   { id: "aborted-during-setup", endReason: "aborted", setup: (rig) => { rig.setup = async () => { abortFrom(rig); }; }, expect: { verdict: "infra-error", errorClass: "E-INFRA", furthestPhase: "setup", persisted: false, published: "none", publishCalled: false, folded: false, reflected: false } },
   { id: "aborted-during-ground", endReason: "aborted", setup: (rig) => { rig.extra = { ...rig.extra, preGenerationGrounding: { ground: async () => { abortFrom(rig); return {}; } } }; }, expect: { verdict: "infra-error", errorClass: "E-INFRA", furthestPhase: "ground", persisted: false, published: "none", publishCalled: false, folded: false, reflected: false } },
   { id: "aborted-during-generate", endReason: "aborted", setup: (rig) => { rig.generate = async () => { abortFrom(rig); return scriptedGeneration({ specs: [RIG_SPEC], approved: true }); }; }, expect: { verdict: "infra-error", errorClass: "E-INFRA", furthestPhase: "generate", persisted: false, published: "none", publishCalled: false, folded: false, reflected: false } },
