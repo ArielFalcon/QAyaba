@@ -32,6 +32,9 @@ export function readReviewedSpecs(specRoot: SpecRoot, cases: readonly QaCase[]):
   return specs;
 }
 
+/** The specs a round judged, as the reader returned them. */
+export type ReviewedSpecs = ReturnType<typeof readReviewedSpecs>;
+
 /*
  * What the current bytes prove, the only facts a rebuttal can rest on: the cases that ran green (a case name,
  * or a spec file whose every case passed), and the contract clauses the bytes still hold. A basis the run

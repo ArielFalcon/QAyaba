@@ -12,7 +12,7 @@ import { generateFirstPass, groundBeforeExecution, preExecRegenerate, settleGene
 import { announceExecution, checkHealth, executeSpecs, prepareExecuteAuth, staticFixRound, validateStatically } from "./phases/execute.steps.ts";
 import { fingerprintGreenSuite, fixAccept, fixAdjudicate, fixReexecute, fixRegenerate, fixTriage, runFixLoop, settleFixLoop } from "./phases/fix-loop.steps.ts";
 import { announceCoverage, announcesCoverage, measureCoverage, measuresCoverage, regenerateForCoverage, regeneratesForCoverage } from "./phases/coverage.steps.ts";
-import { releaseCoordinatedPass, remeasureStaleCoverage, remeasuresStaleCoverage, reviewTests, reviewsRun } from "./phases/review.steps.ts";
+import { releaseCoordinatedPass, remeasureStaleCoverage, remeasuresStaleCoverage, reviewCorrect, reviewInProgress, reviewResolve, reviewRound, reviewSettle, reviewTests, reviewsRun } from "./phases/review.steps.ts";
 import { decideRun, guardFinalProof, guardsFinalProof } from "./phases/decide.steps.ts";
 import { armRunDeadline, classifyChange, indexMirror, waitForDeploy } from "./phases/opening.steps.ts";
 
@@ -60,6 +60,10 @@ export const IN_WORKSPACE: ReadonlyArray<FlowStep<RunState, WorkspaceRunContext>
   { id: "measure-coverage", runs: measuresCoverage, run: measureCoverage },
   { id: "regenerate-for-coverage", runs: regeneratesForCoverage, run: regenerateForCoverage },
   { id: "review-tests", phase: "review", runs: reviewsRun, run: reviewTests },
+  { id: "review-round", runs: reviewInProgress, run: reviewRound },
+  { id: "review-correct", runs: reviewInProgress, run: reviewCorrect },
+  { id: "review-resolve", runs: reviewInProgress, run: reviewResolve },
+  { id: "review-settle", runs: reviewInProgress, run: reviewSettle },
   { id: "release-coordinated-pass", run: releaseCoordinatedPass },
   { id: "remeasure-stale-coverage", runs: remeasuresStaleCoverage, run: remeasureStaleCoverage },
   { id: "guard-final-proof", runs: guardsFinalProof, run: guardFinalProof },

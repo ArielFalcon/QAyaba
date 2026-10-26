@@ -39,13 +39,13 @@ class PhaseRecorder extends NoopTelemetry {
   }
 }
 
-async function runOf(input: RunQaInput, execute?: RunQaUseCaseDeps["execution"]["execute"], expectVerdict = "pass"): Promise<PhaseRecorder> {
+async function runOf(input: RunQaInput, execute?: RunQaUseCaseDeps["execution"]["execute"], expectVerdict = "pass", review?: RunQaUseCaseDeps["review"]["review"]): Promise<PhaseRecorder> {
   const ws = runWorkspace("qa-phase-sequence-");
   const telemetry = new PhaseRecorder();
   const deps: RunQaUseCaseDeps = {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
     generation: generationOnDisk({ generate: async () => scriptedGeneration({ specs: ["a.spec.ts"], approved: true }) }),
-    review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
+    review: { review: review ?? (async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true })) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
     execution: { execute: execute ?? (async () => ({ verdict: "pass", cases: [], logs: "" })) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
@@ -85,7 +85,7 @@ test("a green diff run reports the steps it ran, and the ones it passed over, by
     "wait-for-deploy", "classify-change", "arm-run-deadline", "index-mirror", "restore-accepted-suite", "set-up-project", "prepare-login", "clean-prior-run",
     "open-authoring-handles", "read-diff-shapes", "retrieve-rules", "select-exemplars", "resolve-blast-radius", "resolve-service-links", "resolve-cross-repo-impact", "ground-repository",
     "assemble-enrichment", "generate-first-pass", "settle-generation-end", "ground-before-execution", "pre-exec-regenerate", "validate-statically", "static-fix-round", "check-health", "prepare-execute-auth", "announce-execution",
-    "execute-specs", "fingerprint-green-suite", "announce-coverage", "measure-coverage", "review-tests", "release-coordinated-pass", "guard-final-proof",
+    "execute-specs", "fingerprint-green-suite", "announce-coverage", "measure-coverage", "review-tests", "review-round", "review-settle", "release-coordinated-pass", "guard-final-proof",
   ]);
   assert.deepEqual(await idsOf(input, "skipped"), ["run-fix-loop", "fix-triage", "fix-adjudicate", "fix-regenerate", "fix-accept", "fix-reexecute", "settle-fix-loop", "regenerate-for-coverage", "remeasure-stale-coverage"]);
   assert.deepEqual((await runOf(input)).steps.filter((step) => step.outcome === "ended"), [{ id: "decide-run", outcome: "ended", phase: "decide", reason: "decided" }]);
@@ -114,4 +114,16 @@ test("a failing execution repairs through the fix loop steps, one stage per step
   const ran = recorder.steps.filter((step) => step.outcome === "ran" && step.phase === "fix_loop").map((step) => step.id);
   assert.deepEqual(ran.slice(0, 4), ["run-fix-loop", "fix-triage", "fix-adjudicate", "fix-regenerate"]);
   assert.ok(ran.includes("settle-fix-loop"));
+});
+
+test("a rejected review corrects through its own steps, then judges the corrected specs again", async () => {
+  let reviews = 0;
+  const recorder = await runOf(
+    { ...base, mode: "diff", runId: "sequence-review-rounds" },
+    undefined,
+    "pass",
+    async () => (++reviews === 1 ? { approved: false, corrections: ["assert the confirmation text"], blockingCount: 1, parsed: true } : { approved: true, corrections: [], blockingCount: 0, parsed: true }),
+  );
+  const ran = recorder.steps.filter((step) => step.outcome === "ran" && step.id.startsWith("review-")).map((step) => step.id);
+  assert.deepEqual(ran, ["review-tests", "review-round", "review-correct", "review-resolve", "review-round", "review-settle"]);
 });

@@ -16,6 +16,13 @@ import type {
   SelectedExemplar,
   ServiceLink,
 } from "../ports/index.ts";
+import type { QaCase } from "@kernel/qa-case.ts";
+import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
+import type { ContractFeedback } from "../../domain/contract-feedback.ts";
+import type { ReviewPort } from "../ports/index.ts";
+import type { SpecSnapshot } from "../ports/spec-snapshot.port.ts";
+import type { RegenerationAcceptance } from "../regeneration-acceptance.ts";
+import type { ReviewedSpecs, ReviewTally } from "./phases/review-services.ts";
 import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
 import type { FixLoopState } from "../../domain/fix-loop.aggregate.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
@@ -162,8 +169,46 @@ export interface CoverageOutcome {
   valueStale: boolean;
 }
 
+/** The round in progress: what a step hands to the next one of the same round. */
+export interface ReviewRoundScratch {
+  reviewResult: Awaited<ReturnType<ReviewPort["review"]>>;
+  decidedBy: "model" | "precheck" | "unchanged";
+  /** The spec each verified finding's citation names. */
+  blockingSpecs: Map<string, string>;
+  snapshot: SpecSnapshot;
+  deliveredBefore: readonly DeliveredSpec[];
+  regen: GenerationOutput | undefined;
+  changedSpecFiles: string[];
+  changedSupportFiles: string[];
+  outcome: Awaited<ReturnType<RegenerationAcceptance["accept"]>> | undefined;
+  /** A refused attempt hands the contract's violations to the next one. */
+  contractFeedback: readonly ContractFeedback[] | undefined;
+}
+
+/** The review's convergence context between rounds: data, so the rounds are steps and not one function's locals. */
+export interface ReviewSession {
+  round: number;
+  finalRunVerdict: Awaited<ReturnType<ExecutionPort["execute"]>>["verdict"];
+  reviewCases: QaCase[];
+  existingSpecFiles: string[];
+  reviewerApproved: boolean;
+  finalReviewerCorrections: string[];
+  previousRoundCorrections: string[] | undefined;
+  previousRoundBlocking: number | undefined;
+  previousRoundSpecs: ReviewedSpecs | undefined;
+  previousRoundCaseCount: number;
+  stats: ReviewTally;
+  lastReviewOutcome: string | undefined;
+  lastCorrectionClass: string | undefined;
+  reviewDomSnapshot: string | undefined;
+  lastReviewSpecsKey: string | undefined;
+  current: ReviewRoundScratch | undefined;
+}
+
 /* What the review phase decided; the defaults stand when the phase never ran. */
 export interface ReviewOutcome {
+  /** The review in progress; undefined before it opens and after it settles. */
+  session: ReviewSession | undefined;
   reviewerApproved: boolean;
   /** Set once a genuine review verdict stands; undefined while none does, so the run falls back to what the generation itself reported. */
   reviewerApprovedForOutcome: boolean | undefined;
@@ -280,7 +325,7 @@ export function initialRunState(): RunState {
       coverageStale: false,
       valueStale: false,
     },
-    review: { reviewerApproved: true, reviewerApprovedForOutcome: undefined, finalReviewerCorrections: [], reviewerSignal: undefined },
+    review: { session: undefined, reviewerApproved: true, reviewerApprovedForOutcome: undefined, finalReviewerCorrections: [], reviewerSignal: undefined },
     decided: undefined,
     loops: initialLoopCounters(),
   };
