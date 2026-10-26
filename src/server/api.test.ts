@@ -778,8 +778,8 @@ test("GET /api/health surfaces a degraded backend as a flag without its reason, 
 });
 
 test("the telemetry health route is not a public control-plane route", async () => {
-  const { isPublicControlPlaneRoute } = await import("./auth");
-  assert.equal(isPublicControlPlaneRoute("GET", "/api/telemetry/health"), false);
+  const { isPublicRoute } = await import("./api/route-table");
+  assert.equal(isPublicRoute("GET", "/api/telemetry/health"), false);
 });
 
 const publicAgentConfig = {

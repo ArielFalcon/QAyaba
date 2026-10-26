@@ -170,18 +170,6 @@ export function createLocalConsoleLogin(
 }
 
 /*
- * Pre-auth control-plane surface. Login MUST be public (it is how a client with no
- * token yet obtains one). /auth/local is public too — the handler itself refuses
- * untrusted callers with 404, so the gate does not have to know about docker IPs.
- */
-export function isPublicControlPlaneRoute(method: string, apiPath: string): boolean {
-  if (method === "GET" && (apiPath === "/api/health" || apiPath === "/api/version" || apiPath === "/api/auth/local")) {
-    return true;
-  }
-  return method === "POST" && apiPath === "/api/auth/login";
-}
-
-/*
  * authorizeBearer is the request authorizer: it accepts EITHER the static machine token
  * (constant-time compared) OR a valid user-session JWT, and returns the principal it
  * authenticated — "machine" or the GitHub username — or null when neither matches. This is

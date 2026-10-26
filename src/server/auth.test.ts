@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import { issueSession, validateSession, authorizeBearer, allowLocalWebLogin, isLoopbackHost, isPublicControlPlaneRoute, localWebLoginAllowed, createLocalConsoleLogin, LOCAL_CONSOLE_PRINCIPAL } from "./auth";
+import { issueSession, validateSession, authorizeBearer, allowLocalWebLogin, isLoopbackHost, localWebLoginAllowed, createLocalConsoleLogin, LOCAL_CONSOLE_PRINCIPAL } from "./auth";
 
 const secret = "test-signing-secret";
 
@@ -194,11 +194,3 @@ test("local web login: the session reports the expiry its own token enforces, tt
   assert.equal(validateSession(login.token, "local-secret", expiresAt + 1000), null);
 });
 
-test("isPublicControlPlaneRoute includes the local-console bootstrap and the existing pre-auth surface", () => {
-  assert.equal(isPublicControlPlaneRoute("GET", "/api/health"), true);
-  assert.equal(isPublicControlPlaneRoute("GET", "/api/version"), true);
-  assert.equal(isPublicControlPlaneRoute("POST", "/api/auth/login"), true);
-  assert.equal(isPublicControlPlaneRoute("GET", "/api/auth/local"), true);
-  assert.equal(isPublicControlPlaneRoute("POST", "/api/auth/local"), false);
-  assert.equal(isPublicControlPlaneRoute("GET", "/api/apps"), false);
-});

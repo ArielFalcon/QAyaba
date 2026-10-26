@@ -1,7 +1,7 @@
 /* The control plane's request sequence, in order: CORS preflight, the `/api` surface (version prefix normalization, the Bearer auth gate, the per-address throttle on the public sign-in routes, metrics, the maintainer routes, the API), the same-origin web console, and the deployment webhook for any other POST. Everything it touches is injected, so the whole sequence runs over fakes. */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { isPublicControlPlaneRoute } from "./auth";
+import { isPublicRoute, normalizeApiPath } from "./api/route-table";
 import type { RateLimiter } from "./rate-limit";
 
 export interface ControlPlaneDeps {
@@ -49,13 +49,13 @@ export function createControlPlaneHandler(deps: ControlPlaneDeps): (req: Incomin
        * and the connect screen needs the latter BEFORE auth so a stale binary can be
        * told to update even with a wrong token. Neither exposes secrets.
        */
-      const apiPath = path.replace(/^\/api\/v1(?=\/|$)/, "/api");
+      const apiPath = normalizeApiPath(path);
       /*
        * Public (pre-auth) surface: liveness, the version handshake, GitHub login, and the
        * same-origin local-console bootstrap. None of these return the API token. /auth/local
        * is public at the gate; the handler 404s untrusted callers (see localWebLoginAllowed).
        */
-      const isPublic = isPublicControlPlaneRoute(req.method ?? "GET", apiPath);
+      const isPublic = isPublicRoute(req.method ?? "GET", apiPath);
       if (!isPublic && !deps.authorize(req)) {
         json(res, 401, { schemaVersion: 1, error: "unauthorized" });
         return;
