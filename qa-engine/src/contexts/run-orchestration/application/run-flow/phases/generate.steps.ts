@@ -1,5 +1,6 @@
 /* The generate phase of a run: the agent writes the specs (or the lead/sidekick mode authors them as flows), the way the generation ended decides whether the run goes on, and the pre-exec grounding may ask for one corrective regeneration before the static gate. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { CORRECTION_ORIGIN, authorTargetOf, dispatchAuthor } from "@contexts/coordination/application/index.ts";
 import { relative } from "node:path";
 import { AUTHORING_REFUSAL, DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
@@ -78,7 +79,7 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
   } catch (err) {
     carryOn(err);
     const reason = err instanceof Error ? err.message : String(err);
-    console.error(`[qa] coordination failed (no author sidekick ran): ${reason}`);
+    engineLog.error(`[qa] coordination failed (no author sidekick ran): ${reason}`);
     ctx.host.recordCoordination({ refusal: AUTHORING_REFUSAL.COORDINATION_FAILED, flows: 0, delivered: 0, incomplete: 0 });
     throw new NoAuthorError(AUTHORING_REFUSAL.COORDINATION_FAILED, reason, { cause: err });
   }
@@ -98,7 +99,7 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
   /* Kept open for the reviewer's corrections only when the flows delivered: nothing else reaches a review. */
   if (result.pass) {
     if (aggregated.end === GENERATION_END.DELIVERED) ctx.trail.coordinatedPass = result.pass;
-    else await result.pass.release().catch((err: unknown) => console.error(`[qa] releasing the coordinated pass failed: ${err instanceof Error ? err.message : String(err)}`));
+    else await result.pass.release().catch((err: unknown) => engineLog.error(`[qa] releasing the coordinated pass failed: ${err instanceof Error ? err.message : String(err)}`));
   }
   if (aggregated.end !== GENERATION_END.DELIVERED) {
     return { leadReviewTurns, flowCandidates: result.flowCandidates, generated: { specs: [], end: aggregated.end, parsed: true, ...(aggregated.note ? { note: aggregated.note } : {}) } };
@@ -203,7 +204,7 @@ export async function settleGenerationEnd(state: Readonly<RunState>, ctx: Worksp
       });
     } else if (terminal.persisted) {
       const endNote = generated.note ?? `generation ended without specs (${generated.end})`;
-      console.error(`[qa] generation ended without specs (${generated.end}): ${endNote}`);
+      engineLog.error(`[qa] generation ended without specs (${generated.end}): ${endNote}`);
       deps.observer?.onEvent({ type: "agent.error", detail: endNote });
       deps.observer?.onEvent({
         type: "log.line",
@@ -226,7 +227,7 @@ export async function settleGenerationEnd(state: Readonly<RunState>, ctx: Worksp
         "generation produced no parseable output — the agent runtime returned an empty/errored session " +
           "(provider unavailable, quota exhausted, timeout, or model refusal). Not a code defect and not a " +
           "no-op decision; surfaced as infra-error so it is diagnosable rather than a silent skip.";
-      console.error(`[qa] generation runtime failure (empty, unparseable output): ${emptyNote}`);
+      engineLog.error(`[qa] generation runtime failure (empty, unparseable output): ${emptyNote}`);
       return end("generation-empty-output", { note: emptyNote });
     }
   }
@@ -256,7 +257,7 @@ export async function groundBeforeExecution(state: Readonly<RunState>, ctx: Work
     preExecAmbiguityCatches += result.preExecAmbiguityCatches;
     if (result.ambiguities.length > 0) {
       const text = `[qa] pre-exec ambiguity check (advisory, execution decides): ${result.ambiguities.join(" | ")}`;
-      console.warn(text);
+      engineLog.warn(text);
       deps.observer?.onEvent({ type: "log.line", level: "warn", text });
     }
     /* mutation-scope:begin catalog-gate-counters */

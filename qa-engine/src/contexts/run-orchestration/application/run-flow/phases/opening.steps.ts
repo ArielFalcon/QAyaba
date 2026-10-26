@@ -1,5 +1,6 @@
 /* The opening of a run: the deploy gate, then (in the prepared working copy) the change's classification, the run deadline and the code index. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { isOk } from "@kernel/result.ts";
 import { ACTION_SEVERITY } from "@contexts/change-analysis/application/index.ts";
 import { changeTokens } from "@contexts/objective-signal/application/index.ts";
@@ -101,9 +102,9 @@ export async function indexMirror(_state: Readonly<RunState>, ctx: WorkspaceRunC
       try {
         const head = await primary.headSha();
         if (head) await indexOne(ctx, deps.codeGraph, primary.repoDir, head);
-        else console.warn("[qa] the primary repo's commit could not be read; it is not indexed this run");
+        else engineLog.warn("[qa] the primary repo's commit could not be read; it is not indexed this run");
       } catch (err) {
-        console.warn("[qa] the primary repo's commit could not be read; it is not indexed this run:", err);
+        engineLog.warn("[qa] the primary repo's commit could not be read; it is not indexed this run:", { error: err });
       }
     }
     /* Every other service entry of the change is indexed at its own head. */
@@ -119,10 +120,10 @@ async function indexOne(ctx: WorkspaceRunContext, codeGraph: CodeGraphPort, repo
   try {
     record = await codeGraph.syncTo(repoDir, sha, ctx.signal);
   } catch (err) {
-    console.warn("[qa] code-graph indexing failed (non-blocking):", err);
+    engineLog.warn("[qa] code-graph indexing failed (non-blocking):", { error: err });
     return;
   }
-  if (record.outcome === "failed" || record.outcome === "timeout") console.warn(`[qa] code-graph indexing of ${record.repo} ${record.outcome} (non-blocking): ${record.reason ?? "no reason given"}`);
+  if (record.outcome === "failed" || record.outcome === "timeout") engineLog.warn(`[qa] code-graph indexing of ${record.repo} ${record.outcome} (non-blocking): ${record.reason ?? "no reason given"}`);
   recordIndex(ctx, record);
 }
 
@@ -144,7 +145,7 @@ function recordIndex(ctx: WorkspaceRunContext, record: CodeGraphIndexRecord): vo
       },
     }).end();
   } catch (err) {
-    console.error(`[telemetry] the code-graph index span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+    engineLog.error(`[telemetry] the code-graph index span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
   }
   telemetry.counter("qayaba.code_graph.index")(1, { "qayaba.code_graph.outcome": record.outcome });
 }

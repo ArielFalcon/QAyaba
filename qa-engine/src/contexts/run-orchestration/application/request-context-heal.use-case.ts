@@ -1,4 +1,5 @@
 /* Asks for a context-map rebuild and disarms the stale flag only once the queue has accepted it. A refused (""), rejected, thrown or unwired enqueue — or a run with no sha — keeps the flag armed, so the next qualifying run retries instead of the heal being lost. */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { ContextStaleFlagPort } from "./ports/context-stale-flag.port.ts";
 import type { EnqueueContextRunPort } from "./ports/enqueue-context-run.port.ts";
 
@@ -10,7 +11,7 @@ export class RequestContextHeal {
 
   execute(app: string, sha: string | undefined, parentRunId?: string): void {
     const keepArmed = (why: string): void => {
-      console.warn(`[qa] WARNING: context-map rebuild for ${app} not enqueued (${why}); the stale flag stays armed for the next run.`);
+      engineLog.warn(`[qa] WARNING: context-map rebuild for ${app} not enqueued (${why}); the stale flag stays armed for the next run.`);
     };
     if (!this.enqueue) return keepArmed("no rebuild trigger is wired");
     if (!sha) return keepArmed("the run has no sha to rebuild at");

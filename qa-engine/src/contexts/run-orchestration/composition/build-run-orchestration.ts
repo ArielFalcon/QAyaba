@@ -1,5 +1,6 @@
 /* Builds the run-orchestration context: the deploy gate, the run history, the run's configuration block and the pipeline that runs the flow over the ports the other contexts serve. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";
 import type { RunHistoryPort } from "../application/ports/run-history.port.ts";
 import type { RunPipelinePort } from "../application/ports/run-pipeline.port.ts";
@@ -77,7 +78,7 @@ function recordedReviewerIndependence(config: RunConfigDeps): { reviewerIndepend
     const value = config.reviewerIndependence();
     return value !== undefined ? { reviewerIndependence: value } : {};
   } catch (err) {
-    console.warn(`[qa] the reviewer's model assignment could not be read, so the run records no reviewer independence: ${err instanceof Error ? err.message : String(err)}`);
+    engineLog.warn(`[qa] the reviewer's model assignment could not be read, so the run records no reviewer independence: ${err instanceof Error ? err.message : String(err)}`);
     return {};
   }
 }

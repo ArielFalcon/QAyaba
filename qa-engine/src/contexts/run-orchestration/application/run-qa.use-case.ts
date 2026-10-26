@@ -8,6 +8,7 @@
  * Pre-exec gateSignals use the number 0, not undefined, when unwired.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../shared-kernel/run-secret-redaction.ts";
 import type { ExecScopePort } from "../../../shared-kernel/ports/exec-scope.port.ts";
 import type { AuthSession } from "@contexts/app-catalog/application/index.ts";
@@ -138,7 +139,7 @@ export class RunQaUseCase {
       try {
         if (typeof err === "object" && err !== null) attachTraceFacts(err, this.traceFactsOf(undefined, state));
       } catch (traceErr) {
-        console.error(`[qa] the crash could not be described for the trace (the run's failure stands): ${traceErr instanceof Error ? traceErr.message : String(traceErr)}`);
+        engineLog.error(`[qa] the crash could not be described for the trace (the run's failure stands): ${traceErr instanceof Error ? traceErr.message : String(traceErr)}`);
       }
       throw err;
     } finally {
@@ -180,7 +181,7 @@ export class RunQaUseCase {
         });
       }
     } catch (err) {
-      console.error(`[qa] the pre-execution gates could not be traced (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] the pre-execution gates could not be traced (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -193,7 +194,7 @@ export class RunQaUseCase {
       trail.spans.annotate(attrs);
       trail.spans.event("deadline_armed", attrs);
     } catch (err) {
-      console.error(`[qa] the armed deadline could not be described for the trace (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] the armed deadline could not be described for the trace (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -219,7 +220,7 @@ export class RunQaUseCase {
         traceFacts,
       );
     } catch (err) {
-      console.error(`[qa] the phase record could not be attached (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] the phase record could not be attached (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
       return result;
     }
   }
@@ -237,7 +238,7 @@ export class RunQaUseCase {
     try {
       await recordCrashEvidence(`The run ended on ${kind} before it reached a verdict; only what the sandbox saw is kept here.`, ctx, state);
     } catch (persistErr) {
-      console.error(`[qa] could not persist the sandbox evidence of a run that ended on an error: ${persistErr instanceof Error ? persistErr.message : String(persistErr)}`);
+      engineLog.error(`[qa] could not persist the sandbox evidence of a run that ended on an error: ${persistErr instanceof Error ? persistErr.message : String(persistErr)}`);
     }
   }
 
@@ -248,7 +249,7 @@ export class RunQaUseCase {
     const shown = denied.slice(0, DENIED_HOSTS_SHOWN).map(printableHost);
     const more = denied.length > shown.length ? ` (and ${denied.length - shown.length} more)` : "";
     const text = `[qa] sandbox: egress denied ${denied.length} host(s): ${shown.join(", ")}${more}`;
-    console.warn(text);
+    engineLog.warn(text);
     this.deps.observer?.onEvent({ type: "log.line", level: "warn", text });
   }
 
@@ -260,7 +261,7 @@ export class RunQaUseCase {
     try {
       await browser.close();
     } catch (err) {
-      console.error(`[qa] closing the agent browser failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] closing the agent browser failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -276,7 +277,7 @@ export class RunQaUseCase {
     const pass = trail.coordinatedPass;
     if (!pass) return;
     trail.coordinatedPass = undefined;
-    await pass.release().catch((err: unknown) => console.error(`[qa] releasing the coordinated pass failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`));
+    await pass.release().catch((err: unknown) => engineLog.error(`[qa] releasing the coordinated pass failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`));
   }
 
   /* Revokes the lead's code-graph tools and says what the run made of them. A fault is said and never changes how the run ended. */
@@ -287,9 +288,9 @@ export class RunQaUseCase {
     try {
       const used = tools.signals();
       tools.close();
-      console.log(`[qa] code-graph tools: ${used.calls} call(s), ${used.refused} refused, ${used.failed} the graph could not answer`);
+      engineLog.info(`[qa] code-graph tools: ${used.calls} call(s), ${used.refused} refused, ${used.failed} the graph could not answer`);
     } catch (err) {
-      console.error(`[qa] closing the code-graph tools failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] closing the code-graph tools failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -301,7 +302,7 @@ export class RunQaUseCase {
     try {
       geolocation.close();
     } catch (err) {
-      console.error(`[qa] closing the authoring location failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] closing the authoring location failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -313,7 +314,7 @@ export class RunQaUseCase {
     try {
       await loop.close();
     } catch (err) {
-      console.error(`[qa] closing the run_spec loop failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] closing the run_spec loop failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -433,10 +434,10 @@ export class RunQaUseCase {
     } catch (err) {
       if (err instanceof AuthPreconditionError) {
         /* Its own fields only: a login failure never prints the error object, which could carry anything a page or a network said. */
-        console.error(`[qa] auth precondition failed${phase === "pre-execute" ? " before execute" : ""}: kind=${err.kind} note=${err.note} ms=${err.ms}`);
+        engineLog.error(`[qa] auth precondition failed${phase === "pre-execute" ? " before execute" : ""}: kind=${err.kind} note=${err.note} ms=${err.ms}`);
         return { precondition: { kind: err.kind, note: err.note, ms: err.ms } };
       }
-      console.error(`[qa] auth session failed${phase === "pre-execute" ? " before execute" : ""}:`, err);
+      engineLog.error(`[qa] auth session failed${phase === "pre-execute" ? " before execute" : ""}:`, { error: err });
       return { failed: `auth session failed: ${err instanceof Error ? err.message : String(err)}` };
     }
     if (session.unauthored) {
@@ -463,7 +464,7 @@ export class RunQaUseCase {
     try {
       await this.deps.setup.setup(workspace.specDir, signal);
     } catch (err) {
-      console.error("[qa] setup phase failed while replacing the restored login:", err);
+      engineLog.error("[qa] setup phase failed while replacing the restored login:", { error: err });
       return "setup-failed";
     }
     return "replaced";
@@ -471,7 +472,7 @@ export class RunQaUseCase {
 
   /* One line about the suite store, on the console and on the run's own log. */
   private announceSuite(text: string, level: "info" | "warn"): void {
-    (level === "warn" ? console.warn : console.log)(text);
+    (level === "warn" ? ((m: string): void => engineLog.warn(m)) : ((m: string): void => engineLog.info(m)))(text);
     this.deps.observer?.onEvent({ type: "log.line", level, text });
   }
 
@@ -502,7 +503,7 @@ export class RunQaUseCase {
       await this.deps.mirrorGc.prune(workspace);
     } catch (err) {
       carryOn(err); /* a git dir that is not the orchestrator's is a security refusal, never a fault to isolate */
-      console.error(
+      engineLog.error(
         `[qa] mirror gc FAILED (fault-isolated — run continues, never blocks publish): ${err instanceof Error ? err.message : String(err)}`,
       );
     }

@@ -1,5 +1,6 @@
 /* The review phase of a run: the independent reviewer's rounds over a green run, and the re-measure of a coverage that an accepted regeneration made stale. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { faultAimOf } from "../fault-aim.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
@@ -133,7 +134,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
       } catch (err) {
         /* Abort during capture stops the run, not an ungrounded review round. */
         throwIfAborted(signal);
-        console.error("[qa] WARNING: reviewer DOM grounding failed (non-fatal, review continues ungrounded):", err);
+        engineLog.error("[qa] WARNING: reviewer DOM grounding failed (non-fatal, review continues ungrounded):", { error: err });
         session.reviewDomSnapshot = undefined;
       }
       session.lastReviewSpecsKey = specsKey;
@@ -171,7 +172,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
       parsed: true,
     };
     decidedBy = "unchanged";
-    console.error("[qa] reviewer: the specs did not change since the last rejection (comments/whitespace only) — the previous verdict stands without a second model round.");
+    engineLog.error("[qa] reviewer: the specs did not change since the last rejection (comments/whitespace only) — the previous verdict stands without a second model round.");
     deps.observer?.onEvent({
       type: "log.line",
       level: "info",
@@ -196,8 +197,8 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
         parsed: true,
       };
       decidedBy = "precheck";
-      console.error(`[qa] reviewer pre-check: ${precheckFindings.length} clear contradiction(s) between the specs and the captured DOM — rejecting without a model round.`);
-      for (const finding of precheckFindings) console.error(`[qa] reviewer pre-check: ${finding.correction}`);
+      engineLog.error(`[qa] reviewer pre-check: ${precheckFindings.length} clear contradiction(s) between the specs and the captured DOM — rejecting without a model round.`);
+      for (const finding of precheckFindings) engineLog.error(`[qa] reviewer pre-check: ${finding.correction}`);
     } else {
       const specChanges = previousRoundSpecs
         ? renderSpecChanges(previousRoundSpecs, reviewedSpecs)
@@ -247,7 +248,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
         ctx.telemetry.counter("qayaba.review.filtered")(filtered.dropped.length, { "qayaba.app": input.app });
         ctx.telemetry.counter("qayaba.review.advisory")(filtered.advisory.length, { "qayaba.app": input.app });
       } catch (err) {
-        console.error(`[telemetry] the filtered-findings counter could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+        engineLog.error(`[telemetry] the filtered-findings counter could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
       }
     }
     reviewResult = {
@@ -296,7 +297,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
   const parsed = reviewResult.parsed !== false;
   const executedRed = parsed && round === 0 && session.finalRunVerdict === "fail";
   if (executedRed) {
-    console.error("[qa] executedRed override: the executed run was red — reviewer approval overridden fail-closed (round 0, known-red spec, no regeneration).");
+    engineLog.error("[qa] executedRed override: the executed run was red — reviewer approval overridden fail-closed (round 0, known-red spec, no regeneration).");
   }
   const gateApproves = reviewResult.approved && reviewedBlocking === 0;
   const next = reviewAction({ after: "judgment", round, maxRounds: MAX_REVIEW_ROUNDS, unavailable: false, parsed, executedRed, gateApproves, unchangedSinceRejection });
@@ -426,7 +427,7 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
       ctx.telemetry.counter("qayaba.review.rebuttal")(settled.withdrawn.length, { "qayaba.app": input.app, "qayaba.review.rebuttal.outcome": "withdrawn" });
       ctx.telemetry.counter("qayaba.review.rebuttal")(settled.disputed.length, { "qayaba.app": input.app, "qayaba.review.rebuttal.outcome": "disputed" });
     } catch (err) {
-      console.error(`[telemetry] the rebuttal counter could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[telemetry] the rebuttal counter could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   if (regen.specs.length === 0) {
@@ -585,13 +586,13 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
     try {
       telemetry.counter("qayaba.value.stale")(1, { "qayaba.app": input.app });
     } catch (err) {
-      console.error(`[telemetry] the stale-value counter could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[telemetry] the stale-value counter could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   try {
     telemetry.counter("qayaba.coverage.stale")(1, { "qayaba.app": input.app });
   } catch (err) {
-    console.error(`[telemetry] the stale-coverage counter could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+    engineLog.error(`[telemetry] the stale-coverage counter could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
   }
   return { update: { coverage: { ...state.coverage, coverageStale: true, valueStale } } };
 }

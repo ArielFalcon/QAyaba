@@ -4,6 +4,7 @@
  * use them, and a checkpoint of the run's state never holds them.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { SpecRoot } from "@kernel/ports/spec-files.port.ts";
 import { sha256Hex } from "../../../../shared-kernel/content-hash.ts";
 import { specSetDigest } from "./spec-set-digest.ts";
@@ -178,7 +179,7 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
        * enforce() means this call's counts are unknowable — increment dangerous
        * without fabricating a reverted path.
        */
-      console.error(
+      engineLog.error(
         `[qa] write-confinement enforcement FAILED (fault-isolated — run continues, never blocks publish): ${err instanceof Error ? err.message : String(err)}`,
       );
       confinementAcc = {

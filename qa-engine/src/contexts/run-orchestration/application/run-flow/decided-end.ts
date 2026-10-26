@@ -6,6 +6,7 @@
  * a decided run does is read in one place.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
 import { isAccepted } from "../../domain/run-decision.service.ts";
 import { learningGates } from "@contexts/cross-run-learning/application/index.ts";
@@ -90,7 +91,7 @@ async function captureContextMap(state: Readonly<RunState>, ctx: WorkspaceRunCon
   } catch (captureErr) {
     /* A git dir that is not the orchestrator's is a security refusal, however the capture was asked: it reaches the caller. */
     carryOn(captureErr);
-    console.warn(
+    engineLog.warn(
       `[qa] context-map capture failed (off-path; verdict unchanged): ${captureErr instanceof Error ? captureErr.message : String(captureErr)}`,
     );
   }
@@ -158,7 +159,7 @@ async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunConte
       { cause: pubErr },
     );
     if (actionFor(failure, "publish").do !== "degrade") throw failure;
-    console.error(`[qa] ${failure.message}`);
+    engineLog.error(`[qa] ${failure.message}`);
     return failure.message;
   }
   /*

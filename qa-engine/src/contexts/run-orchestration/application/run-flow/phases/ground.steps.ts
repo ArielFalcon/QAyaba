@@ -1,5 +1,6 @@
 /* The ground phase of a run: what the agent is handed before it writes anything. The learned rules are retrieved, the curriculum's exemplars chosen, the repository grounded, and the blast radius, the service links and the cross-repo impact resolved; together they make the enrichment every generation starts from. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { RetrievedRule } from "@kernel/learned-rule.ts";
 import type { ServiceLink, ContractDrift, CrossRepoImpact } from "@kernel/service-links.ts";
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
@@ -54,7 +55,7 @@ export async function retrieveRules(state: Readonly<RunState>, ctx: WorkspaceRun
   try {
     retrievedRules = await deps.learning.retrieve(input.sha, state.grounding.retrievalRelevance);
   } catch (err) {
-    console.error("[qa] learning retrieval failed (non-fatal, generation continues ungrounded):", err);
+    engineLog.error("[qa] learning retrieval failed (non-fatal, generation continues ungrounded):", { error: err });
   }
   const retrievedRuleIds = retrievedRules.map((r) => r.id);
   recordRunFact(state, "rulesRetrieved", retrievedRuleIds);
@@ -114,7 +115,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
       carryOn(err);
       /* Abort during grounding takes the abort route, not ungrounded continue. */
       throwIfAborted(signal);
-      console.error("[qa] WARNING: pre-generation grounding failed (non-fatal, generation continues ungrounded):", err);
+      engineLog.error("[qa] WARNING: pre-generation grounding failed (non-fatal, generation continues ungrounded):", { error: err });
     }
   }
   return {
@@ -157,7 +158,7 @@ export async function resolveBlastRadius(state: Readonly<RunState>, ctx: Workspa
       blastRadiusSignalHasSymbols = rendered.hasSymbols;
       blastRadiusSignalFiles = rendered.providedFiles ?? [];
     } catch (err) {
-      console.error("[qa] WARNING: structural blast-radius signal failed (non-fatal, generation continues without it):", err);
+      engineLog.error("[qa] WARNING: structural blast-radius signal failed (non-fatal, generation continues without it):", { error: err });
     }
   }
   return { update: { grounding: { ...state.grounding, blastRadiusSignal, blastRadiusSignalHasSymbols, blastRadiusSignalFiles } } };
@@ -174,7 +175,7 @@ export async function resolveServiceLinks(state: Readonly<RunState>, ctx: Worksp
       resolvedServiceLinks = r.links;
       resolvedContractDrift = r.drift;
     } catch (err) {
-      console.error("[qa] WARNING: service-links resolution failed (non-fatal, generation continues without it):", err);
+      engineLog.error("[qa] WARNING: service-links resolution failed (non-fatal, generation continues without it):", { error: err });
     }
   }
   return { update: { grounding: { ...state.grounding, serviceLinks: resolvedServiceLinks, contractDrift: resolvedContractDrift } } };
@@ -206,7 +207,7 @@ export async function resolveCrossRepoImpact(state: Readonly<RunState>, ctx: Wor
         if (impact) impacts.push(impact);
       } catch (err) {
         carryOn(err);
-        console.error("[qa] WARNING: cross-repo impact resolution failed (non-fatal, generation continues without it):", err);
+        engineLog.error("[qa] WARNING: cross-repo impact resolution failed (non-fatal, generation continues without it):", { error: err });
       }
     }
   }
@@ -262,7 +263,7 @@ export async function computeChangeScope(state: Readonly<RunState>, ctx: Workspa
     });
   } catch (err) {
     carryOn(err);
-    console.error("[qa] WARNING: the change scope could not be computed (non-fatal, the run goes on without it):", err);
+    engineLog.error("[qa] WARNING: the change scope could not be computed (non-fatal, the run goes on without it):", { error: err });
     scope = { repos: [], reach: [], hubs: [], disagreements: [], omitted: 0, degraded: [{ repo: input.changeSet.anchor.repo, reason: err instanceof Error ? err.message : String(err) }] };
   }
   const withSkipped: ChangeScope = skipped.length > 0 ? { ...scope, degraded: [...scope.degraded, ...skipped] } : scope;
@@ -272,7 +273,7 @@ export async function computeChangeScope(state: Readonly<RunState>, ctx: Workspa
     candidates = await deps.changeScope.candidates({ specDir: workspace.specDir, scope: withSkipped });
   } catch (err) {
     carryOn(err);
-    console.error("[qa] WARNING: the use-case candidates could not be derived (non-fatal, the run goes on without them):", err);
+    engineLog.error("[qa] WARNING: the use-case candidates could not be derived (non-fatal, the run goes on without them):", { error: err });
   }
   recordCandidates(ctx, candidates);
   return { update: { grounding: { ...state.grounding, changeScope: withSkipped, candidates } } };
@@ -296,7 +297,7 @@ function recordScope(ctx: WorkspaceRunContext, scope: ChangeScope): void {
       },
     }).end();
   } catch (err) {
-    console.error(`[telemetry] the change-scope span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+    engineLog.error(`[telemetry] the change-scope span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -318,7 +319,7 @@ function recordCandidates(ctx: WorkspaceRunContext, candidates: readonly UseCase
       },
     }).end();
   } catch (err) {
-    console.error(`[telemetry] the candidates span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+    engineLog.error(`[telemetry] the candidates span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

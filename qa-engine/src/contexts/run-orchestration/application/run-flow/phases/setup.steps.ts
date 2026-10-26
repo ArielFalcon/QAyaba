@@ -1,5 +1,6 @@
 /* The setup of a run: the accepted suite comes back, the project is set up, the login is prepared, a prior run's data is cleaned and the run's authoring handles (location, run_spec loop, agent browser) are opened. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { RUN_PURPOSE } from "@kernel/run-mode.ts";
 import { terminalForPrecondition } from "../../../domain/helpers/precondition-terminal.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle, GeolocationHandle } from "@contexts/agent-tools/application/index.ts";
@@ -49,7 +50,7 @@ export async function setUpProject(_state: Readonly<RunState>, ctx: WorkspaceRun
     } catch (err) {
       /* Never swallow an integration error into an empty result. */
       const msg = err instanceof Error ? err.message : String(err);
-      console.error("[qa] setup phase failed:", err);
+      engineLog.error("[qa] setup phase failed:", { error: err });
       return end("setup-failed", { note: `setup failed: ${msg}` });
     }
   }
@@ -95,7 +96,7 @@ export async function cleanPriorRun(_state: Readonly<RunState>, ctx: WorkspaceRu
         signal,
       });
     } catch (err) {
-      console.error(`[qa] cleanup warning (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] cleanup warning (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }
@@ -132,7 +133,7 @@ export async function openAuthoringHandles(state: Readonly<RunState>, ctx: Works
       });
     } catch (err) {
       carryOn(err);
-      console.error(`[qa] the authoring location could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] the authoring location could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
     }
     trail.geolocation = geolocation;
   }
@@ -151,7 +152,7 @@ export async function openAuthoringHandles(state: Readonly<RunState>, ctx: Works
       });
     } catch (err) {
       carryOn(err);
-      console.error(`[qa] the run_spec loop could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] the run_spec loop could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
     }
     trail.closedLoop = closedLoop;
   }
@@ -172,7 +173,7 @@ export async function openAuthoringHandles(state: Readonly<RunState>, ctx: Works
       });
     } catch (err) {
       carryOn(err);
-      console.error(`[qa] the agent browser could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] the agent browser could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
     }
     trail.agentBrowser = agentBrowser;
   }
@@ -183,7 +184,7 @@ export async function openAuthoringHandles(state: Readonly<RunState>, ctx: Works
       trail.codeGraphTools = await deps.codeGraphTools.open({ runId: input.runId });
     } catch (err) {
       carryOn(err);
-      console.error(`[qa] the code-graph tools could not be opened (the run goes on without them): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] the code-graph tools could not be opened (the run goes on without them): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }

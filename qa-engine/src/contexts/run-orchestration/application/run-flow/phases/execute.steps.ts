@@ -1,5 +1,6 @@
 /* The validate, health and execute phases of a run: the static gate with its bounded repair, the DEV pre-flight, the login that signs in just before the specs run, and the primary execution. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/index.ts";
 import { stripAnsi } from "@kernel/ansi.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -141,7 +142,7 @@ export async function staticFixRound(state: Readonly<RunState>, ctx: WorkspaceRu
     /*
      * validation.infra is infra-error: the gate itself could not run, not a code defect.
      */
-    console.error("[qa] static gate failed:", validation.errors);
+    engineLog.error("[qa] static gate failed:", { errors: validation.errors });
     const staticGateNote = validation.errors.slice(0, 2).join("\n\n") || undefined;
     return end(validation.infra ? "pre-execute-infra" : "static-gate-failed", {
       generating,
@@ -182,7 +183,7 @@ export async function checkHealth(state: Readonly<RunState>, ctx: WorkspaceRunCo
   const health = await checkDevHealth(ctx);
   if (!health.healthy) {
     const healthReason = health.reason;
-    console.error("[qa] health pre-flight failed before execute:", healthReason);
+    engineLog.error("[qa] health pre-flight failed before execute:", { healthReason });
     return await preExecuteInfraError(state, ctx, healthReason);
   }
 }

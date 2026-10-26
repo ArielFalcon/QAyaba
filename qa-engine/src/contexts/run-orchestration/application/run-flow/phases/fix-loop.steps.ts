@@ -1,5 +1,6 @@
 /* The fix_loop phase of a run: the bounded repair of a failing primary execution, and the fingerprint the suite store takes of a green one. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/index.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { MAX_SPEC_SOURCE_BYTES, type SpecRoot } from "@kernel/ports/spec-files.port.ts";
@@ -285,7 +286,7 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
               try {
                 return await closedLoop.isClosed([file]);
               } catch (err) {
-                console.error(`[qa] could not read the green proof of ${file} (triage treats it as unproven): ${err instanceof Error ? err.message : String(err)}`);
+                engineLog.error(`[qa] could not read the green proof of ${file} (triage treats it as unproven): ${err instanceof Error ? err.message : String(err)}`);
                 return false;
               }
             },
@@ -366,7 +367,7 @@ export async function settleFixLoop(state: Readonly<RunState>, ctx: WorkspaceRun
         : {}),
     });
   } catch (err) {
-    console.error(`[qa] the fix-loop phase outcome could not be traced (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+    engineLog.error(`[qa] the fix-loop phase outcome could not be traced (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
   }
   if (fixLoopResult.rejectedClaims > 0) {
     deps.observer?.onEvent({ type: "log.line", level: "info", text: `[qa] ${fixLoopResult.rejectedClaims} test-correct claim(s) rejected as unverified; the loop kept repairing` });

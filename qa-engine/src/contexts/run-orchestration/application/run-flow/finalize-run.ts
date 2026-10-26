@@ -7,6 +7,7 @@
  * decided-end.ts and goes through the same body, and a crash goes through it with the evidence the run has (CRASH_EVIDENCE_EFFECTS).
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
 import type { NoopKind } from "@kernel/noop-kind.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
@@ -115,7 +116,7 @@ function shapeOf(end: Exclude<RunEnd, { reason: "decided" | "context-pass" }>, c
     case "auth-failed":
     case "generation-empty-output":
     case "final-proof-guard":
-      console.error("[qa] infra-error terminal:", end.note);
+      engineLog.error("[qa] infra-error terminal:", { note: end.note });
       return { kind: "failure", note: end.note };
     case "generation-noop":
       return { kind: "skip", note: end.note, noop: end.noop, confinement: end.confinement, closedLoop: end.closedLoop, agentBrowser: end.agentBrowser };
@@ -135,7 +136,7 @@ function shapeOf(end: Exclude<RunEnd, { reason: "decided" | "context-pass" }>, c
     }
     case "reviewer-unavailable": {
       const note = `The reviewer was unavailable (${end.rationale ?? "no reason reported"}), so the suite (${end.passedCases} case(s), green) was never judged. Nothing was published: no PR, and no Issue, since this is not a rejection.`;
-      console.error(`[qa] ${note}`);
+      engineLog.error(`[qa] ${note}`);
       deps.observer?.onEvent({ type: "agent.error", detail: note });
       deps.observer?.onEvent({
         type: "log.line",
@@ -148,7 +149,7 @@ function shapeOf(end: Exclude<RunEnd, { reason: "decided" | "context-pass" }>, c
     case "review-disputed": {
       const findings = end.disputed.map((entry) => `"${entry.finding}" (rebutted: ${entry.rebuttal.reason})`).join("; ");
       const note = `The reviewer and the generator could not settle ${end.disputed.length} finding(s), so the suite (${end.passedCases} case(s), green) was never approved: ${findings}. The rebuttal rests on evidence the orchestrator could not verify, and the generator delivered nothing else. Nothing was published: no PR, and no Issue, since the engine could not decide.`;
-      console.error(`[qa] ${note}`);
+      engineLog.error(`[qa] ${note}`);
       deps.observer?.onEvent({ type: "agent.error", detail: note });
       deps.observer?.onEvent({
         type: "log.line",

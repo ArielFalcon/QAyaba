@@ -5,6 +5,7 @@
  * held on `state.generation` and changed only by the reducers.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
@@ -60,7 +61,7 @@ export async function loopClosedNow(state: Readonly<RunState>, ctx: WorkspaceRun
   try {
     return await closedLoop.isClosed(delivered.map((d) => d.file));
   } catch (err) {
-    console.error(`[qa] could not tell whether the run_spec loop is closed (regenerations stay on): ${err instanceof Error ? err.message : String(err)}`);
+    engineLog.error(`[qa] could not tell whether the run_spec loop is closed (regenerations stay on): ${err instanceof Error ? err.message : String(err)}`);
     return false;
   }
 }

@@ -8,6 +8,7 @@
  * This file is pure: it runs no step and builds no end; the caller that knows the run builds the end a reason calls for.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { isInfraError, isUntrustedGitTreeError } from "../../../../shared-kernel/domain-error.ts";
 import { isRunDeadlineError } from "../../../../shared-kernel/run-deadline.ts";
 import { RunAbortedError } from "./abort.ts";
@@ -114,14 +115,14 @@ export async function guarded<O, E>(
       case "rethrow":
         throw err;
       case "fail-open":
-        console.error(`[qa] ${site.id}: ${classifyFailure(err)} fault carried on (${site.class} step): ${messageOf(err)}`);
+        engineLog.error(`[qa] ${site.id}: ${classifyFailure(err)} fault carried on (${site.class} step): ${messageOf(err)}`);
         return undefined;
       case "end":
         return { end: endOf(action.reason, err) };
       case "degrade":
         /* Only a caller that knows where the run goes on from a degraded step says so; an effect that degrades asks the policy itself. */
         if (!degradeOf) throw err;
-        console.error(`[qa] ${site.id}: ${classifyFailure(err)} fault degraded the run (${action.reason}): ${messageOf(err)}`);
+        engineLog.error(`[qa] ${site.id}: ${classifyFailure(err)} fault degraded the run (${action.reason}): ${messageOf(err)}`);
         return await degradeOf(action.reason, err);
     }
   }

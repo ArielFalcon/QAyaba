@@ -1,5 +1,6 @@
 /* The coverage phase of a run: the change-coverage measurement of a green execution and, in enforce mode, the one regeneration at the uncovered lines. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/index.ts";
 import { faultAimOf } from "../fault-aim.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
@@ -40,7 +41,7 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
    */
   if (input.triggerRepo) {
     /* Log so a cross-repo "unknown" is diagnosable, never a silent null. */
-    console.log(`[qa] change-coverage: skipped — the changed lines live in ${input.triggerRepo}; browser coverage maps only the frontend (status=unknown).`);
+    engineLog.info(`[qa] change-coverage: skipped — the changed lines live in ${input.triggerRepo}; browser coverage maps only the frontend (status=unknown).`);
   }
   /* This pass's own passing case names — the green baseline the fault-injection oracle needs. */
   const baselineCases = run.cases.filter((c) => c.status === "pass").map((c) => c.name);

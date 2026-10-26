@@ -4,6 +4,7 @@
  * loop in review.steps.ts stays the one place that decides.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { ReviewStats } from "@contexts/generation/application/index.ts";
 import { diffContracts } from "@contexts/objective-signal/application/index.ts";
@@ -137,7 +138,7 @@ export function annotateReviewPhase(ctx: WorkspaceRunContext, tally: ReviewTally
       "qayaba.review.correction_class": correctionClass ?? "none",
     });
   } catch (err) {
-    console.error(`[qa] the review phase outcome could not be traced (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+    engineLog.error(`[qa] the review phase outcome could not be traced (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -185,7 +186,7 @@ export function recordReviewDecision(ctx: WorkspaceRunContext, record: ReviewDec
     });
     reviewSpan.end();
   } catch (err) {
-    console.error(`[telemetry] the reviewer decision span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+    engineLog.error(`[telemetry] the reviewer decision span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
   }
   telemetry.counter("qayaba.review")(1, {
     "qayaba.app": input.app,

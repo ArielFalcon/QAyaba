@@ -14,6 +14,7 @@
  * - Nothing here is stored in the run history of outcomes: the run's record holds it.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { RUN_PHASES, type RunPhase } from "@kernel/run-step.ts";
 
 export interface PhaseClock {
@@ -66,7 +67,7 @@ export class RunPhaseCursor {
     try {
       notify();
     } catch (err) {
-      console.error(`[qa] a phase observer failed (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] a phase observer failed (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
