@@ -57,6 +57,7 @@ import { pruneHistory, retentionPolicyFrom } from "./server/persistence/retentio
 import { backupDatabase } from "./server/persistence/backup";
 import { type RunMode, type TestTarget } from "./types";
 import { installShutdown, installUnhandledRejectionRecorder } from "./server/shutdown";
+import { startHealthPoller } from "./server/health-poller";
 import { github } from "./integrations/github";
 import { createApp as adminCreateApp, updateApp as adminUpdateApp, deleteApp as adminDeleteApp, type AppAdminDeps } from "./server/app-admin";
 import { writeConfig, configExists } from "./server/onboard";
@@ -444,9 +445,6 @@ function generatePrometheusMetrics(queue: JobQueue, openSessions: number): strin
   return lines.join("\n");
 }
 
-let backupTick = 0;
-let pruneTick = 0;
-
 /* Deletes the history the retention windows no longer keep. A failure is logged and never stops the process. */
 function runHistoryRetention(): void {
   try {
@@ -456,57 +454,21 @@ function runHistoryRetention(): void {
     logJson("error", "history retention failed", { error: redactionPort.redactError(err) });
   }
 }
-const PRUNE_INTERVAL_TICKS = 360;  /* 6 hours (360 × 60 s) */
-
-function startHealthPoller(): void {
-  let fails = 0;
-  let lastQueueWarn = 0;
-  setInterval(async () => {
-    try {
-      const res = await fetch(`http://localhost:${port}/api/health`);
-      if (!res.ok) throw new Error(`health probe returned ${res.status}`);
-      fails = 0;
-    } catch {
-      fails++;
-      if (fails === 3) {
-        recordIncident({ source: "health-check", severity: "critical", summary: "orchestrator health check failing (3 consecutive failures)" });
-      }
-      if (fails === 10) {
-        recordIncident({ source: "health-check", severity: "critical", summary: "orchestrator health check failing (10 consecutive failures — likely crashed)" });
-      }
-    }
-    await cleanupOrphanedSessions();
-    const depth = queue.size;
-    if (depth > 10 && lastQueueWarn <= 10) {
-      recordIncident({ source: "health-check", severity: "warn", summary: `queue depth is ${depth} (possible stuck job)` });
-    }
-    lastQueueWarn = depth;
-
-    const pending = getIncidents().filter((i) => i.status === "pending");
-    if (pending.length > 0 && getMaintainerStatus() === "idle") {
-      triggerMaintainer();
-    }
-
-    /* SQLite backup every 24h (1440 ticks at 60s intervals) */
-    backupTick++;
-    if (backupTick >= 1440) {
-      backupTick = 0;
-      runHistoryRetention();
-      const r = await backupDatabase(getHistoryDatabase());
-      if (r.backedUp) {
-        logJson("info", "SQLite backup created", { path: r.path });
-      } else if (r.error) {
-        logJson("warn", "SQLite backup failed", { error: r.error });
-      }
-    }
-
-    /* Mirror prune every 6h (360 ticks at 60s intervals) */
-    pruneTick++;
-    if (pruneTick >= PRUNE_INTERVAL_TICKS) {
-      pruneTick = 0;
-      pruneMirrors(defaultMirrorPruneDeps(() => queue.current));
-    }
-  }, 60_000);
+function startPoller(): void {
+  startHealthPoller({
+    port,
+    fetch: (url) => fetch(url),
+    queueSize: () => queue.size,
+    recordIncident,
+    hasPendingIncidents: () => getIncidents().some((i) => i.status === "pending"),
+    maintainerIdle: () => getMaintainerStatus() === "idle",
+    triggerMaintainer: () => void triggerMaintainer(),
+    cleanupOrphanedSessions,
+    runHistoryRetention,
+    backupDatabase: () => backupDatabase(getHistoryDatabase()),
+    pruneMirrors: () => void pruneMirrors(defaultMirrorPruneDeps(() => queue.current)),
+    log: logJson,
+  });
 }
 
 /*
@@ -995,7 +957,7 @@ server.listen(port, listenHost, () => {
   )?.catch((err) => logJson("warn", "event stream reconnect loop failed", { error: err instanceof Error ? err.message : String(err) }));
   recoverRollbackRecord();
   confirmSwapAfterBoot();
-  startHealthPoller();
+  startPoller();
   recoverMaintainerState();
 });
 
