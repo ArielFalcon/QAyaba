@@ -8,6 +8,7 @@
  * path: it starts the process that holds the credentials.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -51,7 +52,7 @@ export interface LoginDiscoveryRunnerDeps {
   runner: SandboxedBinaryRunner;
   /** Writes the script where the child can read it and cannot change it (the launcher's work dir). Absent: a fresh temp directory outside the watched repo, for a runner that is not a launcher. */
   writeScript?(name: string, content: string): string;
-  /** Where a crash and the child's own complaints are reported; console.error unless a test says otherwise. */
+  /** Where a crash and the child's own complaints are reported; the process logger's error level unless a test says otherwise. */
   log?(line: string): void;
 }
 
@@ -97,7 +98,7 @@ function readChildOutput(stdout: string): ChildOutput {
 const failedBeforeStart = (error: unknown): boolean => isRecord(error) && typeof error.syscall === "string" && error.syscall.startsWith("spawn");
 
 export function createDiscoverLogin(deps: LoginDiscoveryRunnerDeps): (input: LoginDiscoveryInput, signal?: AbortSignal) => Promise<LoginDiscoveryResult> {
-  const log = deps.log ?? ((line: string): void => console.error(line));
+  const log = deps.log ?? ((line: string): void => engineLog.error(line));
   return async (input, signal) => {
     /* An abort that came before the child started must not start one. */
     if (signal?.aborted) return { crashed: true, attempted: false };

@@ -1,3 +1,4 @@
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { basename, dirname, join, resolve } from "node:path";
 import { assertTrustedGitTree, UntrustedGitTreeError } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
 
@@ -55,7 +56,7 @@ export class MirrorProvisionAdapter {
       return await this.syncAndCheckout(repo, rev);
     } catch (err) {
       if (!(err instanceof UntrustedGitTreeError) || !existed || !this.deps.removeTree || !this.isDirectChildOfRoot(dir)) throw err;
-      console.error(`[qa] mirror ${dir} is not usable (${err.message}); it is a regenerable cache, so it is deleted and cloned afresh`);
+      engineLog.error(`[qa] mirror ${dir} is not usable (${err.message}); it is a regenerable cache, so it is deleted and cloned afresh`);
       this.deps.removeTree(dir);
       return this.syncAndCheckout(repo, rev);
     }

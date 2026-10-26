@@ -1,5 +1,6 @@
 /* E2E project setup: bootstrap the seed if missing, then install deps. This adapter never reads env — seedDir is injected. FAILURE_CAPTURE_BLOCK is data appended into the watched app's fixtures (runs in that app's Playwright process), not code this module executes.
    The project directory is one the agent writes into, and part of it (node_modules, so the install marker) outlives a run: every file of it that setup reads or replaces (the fixtures file, the ignore file, the login setup, the Playwright config, the lock file, the install marker) goes through the strict read and write of spec-path-confinement, never a bare fs call. A file it cannot vouch for (a link, a named pipe, a directory, a file over its cap) fails the setup aloud, which the pipeline reports as an infra-error: it is never waited on, followed or skipped. The one exception is what would fail every later run for good: the install marker and the node_modules above it survive a clean, so what refuses them is removed (a name unlinked, a directory set aside) without being opened or followed, said aloud, and the marker is read once more. The seed is the orchestrator's own and is read plainly; it is copied in, and flows/ made, through the same strict calls, so that nothing is made or written through a link. */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -561,7 +562,7 @@ export class SetupAdapter {
     this.ensurePlaywrightEnvKeys(e2eDir);
     this.purgeSystemOwned(e2eDir);
     if (this.installIsCurrent(e2eDir)) {
-      console.log("[qa] e2e dependencies up to date; skipping npm ci");
+      engineLog.info("[qa] e2e dependencies up to date; skipping npm ci");
       return;
     }
     if (opts?.signal?.aborted) throw new Error("e2e dependency install aborted by operator cancel");
@@ -607,9 +608,9 @@ export class SetupAdapter {
       try {
         const purged = purge();
         if ("nothing" in purged) continue;
-        console.warn(`[qa] WARNING: ${join(e2eDir, purged.removed)} stood where ${join(e2eDir, rel)} is made, and was not ${what}; it was ${purged.how === "unlinked" ? "removed" : "set aside"} without being opened or followed, and the run makes it again.`);
+        engineLog.warn(`[qa] WARNING: ${join(e2eDir, purged.removed)} stood where ${join(e2eDir, rel)} is made, and was not ${what}; it was ${purged.how === "unlinked" ? "removed" : "set aside"} without being opened or followed, and the run makes it again.`);
       } catch (err) {
-        console.warn(`[qa] WARNING: ${join(e2eDir, rel)} could not be checked or cleared (${readFailureReason(err)}); what a run leaves there may be unusable, and the coverage or the score that depends on it is unknown.`);
+        engineLog.warn(`[qa] WARNING: ${join(e2eDir, rel)} could not be checked or cleared (${readFailureReason(err)}); what a run leaves there may be unusable, and the coverage or the score that depends on it is unknown.`);
       }
     }
   }
@@ -656,7 +657,7 @@ export class SetupAdapter {
     const withBlock = withCaptureBlock(src);
     const withFixture = withCaptureFixture(withBlock);
     if (withFixture === undefined) {
-      console.warn(`[qa] WARNING: ${join(e2eDir, FIXTURES_FILE)} has no failure-capture fixture and setup could not add one (its test.extend is not the seed's, or its capture block was edited); the capture's hooks reach only the first spec file each worker loads, so a later spec's failed attempts run without a failure capture.`);
+      engineLog.warn(`[qa] WARNING: ${join(e2eDir, FIXTURES_FILE)} has no failure-capture fixture and setup could not add one (its test.extend is not the seed's, or its capture block was edited); the capture's hooks reach only the first spec file each worker loads, so a later spec's failed attempts run without a failure capture.`);
     }
     const out = withFixture ?? withBlock;
     if (out !== src) this.writeProject(e2eDir, FIXTURES_FILE, out);
@@ -703,7 +704,7 @@ export class SetupAdapter {
     }
     const missing = PLAYWRIGHT_CONFIG_MANAGED_KEYS.filter((key) => !src.includes(key));
     if (missing.length === 0) return;
-    console.warn(
+    engineLog.warn(
       `[qa] ${join(e2eDir, PLAYWRIGHT_CONFIG_FILE)} is missing managed env-passthrough key(s) [${missing.join(", ")}] and is not a ` +
         `shipped seed revision — the repo owns it, so it will NOT be overwritten. Add the missing ` +
         `key(s) manually if this repo wants them.`,
@@ -735,11 +736,11 @@ export class SetupAdapter {
     try {
       purged = this.deps.fs.purgeRefused(this.projectRoot(e2eDir), INSTALL_MARKER_FILE, MAX_INSTALL_MARKER_BYTES);
     } catch (err) {
-      console.warn(`[qa] WARNING: ${refusal.path} could not be vouched for (${refusal.reason}) and could not be removed (${readFailureReason(err)}); setup fails.`);
+      engineLog.warn(`[qa] WARNING: ${refusal.path} could not be vouched for (${refusal.reason}) and could not be removed (${readFailureReason(err)}); setup fails.`);
       return false;
     }
     if ("nothing" in purged) return false;
-    console.warn(`[qa] WARNING: ${join(e2eDir, purged.removed)} could not be vouched for (${refusal.reason}); it was ${purged.how === "unlinked" ? "removed" : "set aside"} without being opened, and the install is checked once more.`);
+    engineLog.warn(`[qa] WARNING: ${join(e2eDir, purged.removed)} could not be vouched for (${refusal.reason}); it was ${purged.how === "unlinked" ? "removed" : "set aside"} without being opened, and the install is checked once more.`);
     return true;
   }
 
@@ -755,7 +756,7 @@ export class SetupAdapter {
       marker = this.readProject(e2eDir, INSTALL_MARKER_FILE, MAX_INSTALL_MARKER_BYTES);
     } catch (err) {
       if (err instanceof ConfinedPathError) throw err;
-      console.warn(`[qa] WARNING: ${join(e2eDir, INSTALL_MARKER_FILE)} could not be read (${readFailureReason(err)}); the e2e dependencies are installed again.`);
+      engineLog.warn(`[qa] WARNING: ${join(e2eDir, INSTALL_MARKER_FILE)} could not be read (${readFailureReason(err)}); the e2e dependencies are installed again.`);
       return false;
     }
     if (marker === undefined) return false;

@@ -11,6 +11,7 @@
  * against its hash. Git is the other source of truth: a path git tracks with other content than the one a stored file was admitted
  * over belongs to git, so a merged pull request is never overwritten by an older stored copy.
  */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -464,9 +465,9 @@ export class SuiteStoreAdapter implements SuiteStorePort {
     try {
       const bytes = readFileSync(path);
       if (sha256Of(bytes) === entry.sha256) return bytes;
-      (this.deps.warn ?? console.error)(`[suite-store] ${entry.path}: the stored copy no longer matches its hash; it is left out and dropped at the next capture`);
+      (this.deps.warn ?? ((m: string): void => engineLog.error(m)))(`[suite-store] ${entry.path}: the stored copy no longer matches its hash; it is left out and dropped at the next capture`);
     } catch (err) {
-      (this.deps.warn ?? console.error)(`[suite-store] ${entry.path}: the stored copy cannot be read (${err instanceof Error ? err.message : String(err)}); it is left out and dropped at the next capture`);
+      (this.deps.warn ?? ((m: string): void => engineLog.error(m)))(`[suite-store] ${entry.path}: the stored copy cannot be read (${err instanceof Error ? err.message : String(err)}); it is left out and dropped at the next capture`);
     }
     return undefined;
   }

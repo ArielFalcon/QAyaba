@@ -1,3 +1,4 @@
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { AppRepositoryPort } from "../application/ports/app-repository.port.ts";
 import type { AppConfigSnapshot, RepoRole } from "../domain/app-repository.ts";
 import { App } from "../domain/app.aggregate.ts";
@@ -19,7 +20,7 @@ export type ConfigSkipLogger = (name: string, err: unknown) => void;
 
 const defaultConfigSkipLogger: ConfigSkipLogger = (name, err) => {
   const msg = err instanceof Error ? err.message : String(err);
-  console.warn(`[qa] skipping app config "${name}" — failed aggregate validation: ${msg}`);
+  engineLog.warn(`[qa] skipping app config "${name}" — failed aggregate validation: ${msg}`);
 };
 
 function toSnapshot(cfg: LoadedAppConfig): AppConfigSnapshot {

@@ -23,9 +23,6 @@ const ALLOWED: readonly string[] = [
 
 /* Files not migrated yet. The list only shrinks: a file that no longer calls console must leave it. */
 const NOT_MIGRATED: readonly string[] = [
-  "qa-engine/src/contexts/app-catalog/infrastructure/auth-session.adapter.ts",
-  "qa-engine/src/contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner.ts",
-  "qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter.ts",
   "qa-engine/src/contexts/generation/application/generate-tests.use-case.ts",
   "qa-engine/src/contexts/generation/infrastructure/adapters/context-map-capture-port.adapter.ts",
   "qa-engine/src/contexts/generation/infrastructure/adapters/context-trace.ts",
@@ -47,12 +44,6 @@ const NOT_MIGRATED: readonly string[] = [
   "qa-engine/src/contexts/generation/infrastructure/telemetry/turn-trace-registry.ts",
   "qa-engine/src/contexts/generation/infrastructure/telemetry/with-turn-telemetry.ts",
   "qa-engine/src/contexts/generation/infrastructure/verdict-parser.adapter.ts",
-  "qa-engine/src/contexts/workspace-and-publication/infrastructure/mirror-provision.adapter.ts",
-  "qa-engine/src/contexts/workspace-and-publication/infrastructure/setup.adapter.ts",
-  "qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts",
-  "qa-engine/src/contexts/workspace-and-publication/infrastructure/vcs-write.adapter.ts",
-  "qa-engine/src/contexts/workspace-and-publication/infrastructure/write-confinement.adapter.ts",
-  "qa-engine/src/shared-infrastructure/process-sandbox/scrub-env.ts",
   "qa-engine/src/shared-kernel/telemetry/guarded-telemetry.ts",
 ];
 

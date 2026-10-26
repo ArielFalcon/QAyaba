@@ -1,3 +1,5 @@
+import { engineLog } from "@kernel/ports/process-logger.ts";
+
 /* Scrubbed environment for an untrusted spawn. Drops orchestrator secrets; keeps OS + language vars. Callers widen the base only for their own spawns (`extraAllowed`). */
 
 /* Secret FAMILIES that must never reach untrusted code (prefix match). Defense-in-depth: the allowlist is the real gate, but blocking secrets explicitly guards against an allowlist entry widening to one. */
@@ -53,7 +55,7 @@ export function scrubEnvFrom(source: NodeJS.ProcessEnv, opts?: ScrubEnvOptions):
   const set = dropped.join(",");
   if (dropped.length > 0 && opts?.quiet !== true && !named.has(set)) {
     named.add(set);
-    console.warn(`[qa] scrubEnv dropped ${dropped.length} env var(s) not in allowlist: ${dropped.join(", ")}`);
+    engineLog.warn(`[qa] scrubEnv dropped ${dropped.length} env var(s) not in allowlist: ${dropped.join(", ")}`);
   }
   return env;
 }

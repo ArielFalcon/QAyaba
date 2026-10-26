@@ -1,4 +1,5 @@
 /* Tracked strays revert via staged-aware `git restore --staged --worktree --source=HEAD` (a plain checkout would leave a staged-new stray). Untracked strays: `git clean -f`. A symlink whose realpath escapes mirrorDir is dangerous and reverted in both targets (code-mode stages `.`). Git errors throw here; RunQaUseCase fail-opens around enforce(). */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { dirname, isAbsolute, join, sep } from "node:path";
 import { WriteConfinementService, type GitRename } from "../domain/write-confinement.service.ts";
 
@@ -109,7 +110,7 @@ export class WriteConfinementAdapter {
       if (isAbsolute(path) || path.split("/").includes("..") || !`${this.deps.realpath(dirname(target))}${sep}`.startsWith(mirrorReal)) {
         throw new Error(`refusing to remove the embedded repository ${JSON.stringify(path)}: it does not resolve inside the working copy`);
       }
-      console.error(`[qa] write-confinement: removing the embedded repository ${JSON.stringify(path)} (a repository under the working copy would be staged as a gitlink)`);
+      engineLog.error(`[qa] write-confinement: removing the embedded repository ${JSON.stringify(path)} (a repository under the working copy would be staged as a gitlink)`);
       remove(target);
     }
   }

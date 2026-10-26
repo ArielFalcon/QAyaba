@@ -7,6 +7,7 @@
  * env-overlay reader) and every execute/DOM-capture caller must be given this SAME authDir.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -125,7 +126,7 @@ export class AuthSessionAdapter implements AuthSessionPort {
       span = startRunChildSpan(telemetry, "qayaba.auth.login", { "qayaba.auth.method": method, "qayaba.auth.attempt": this.attempts });
       window = openDeniedWindow();
     } catch (err) {
-      console.error(`[telemetry] a login attempt could not be traced (it goes on untraced): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[telemetry] a login attempt could not be traced (it goes on untraced): ${err instanceof Error ? err.message : String(err)}`);
     }
     const conclude = (outcome: AttemptOutcome, error?: unknown): void => {
       try {
@@ -147,7 +148,7 @@ export class AuthSessionAdapter implements AuthSessionPort {
         span?.end();
         telemetry.counter("qayaba.auth.attempts")(1, { "qayaba.auth.outcome": outcome.outcome });
       } catch (err) {
-        console.error(`[telemetry] a login attempt could not be concluded (it goes on): ${err instanceof Error ? err.message : String(err)}`);
+        engineLog.error(`[telemetry] a login attempt could not be concluded (it goes on): ${err instanceof Error ? err.message : String(err)}`);
       }
     };
     let result: T;
