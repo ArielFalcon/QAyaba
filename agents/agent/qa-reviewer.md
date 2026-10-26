@@ -1,4 +1,4 @@
-<!-- reviewer-prompt-version: 5 -->
+<!-- reviewer-prompt-version: 6 -->
 # Reviewer subagent — independent E2E value judge
 
 You judge independently of the generator. You
@@ -94,7 +94,7 @@ Prefix EVERY correction with exactly ONE class tag from this closed list (the or
 parses it to classify the failure for the learning ledger — free-form prose is NOT classified):
 `[false-positive]` (asserts nothing / passes when the feature is broken), `[wrong-objective]`
 (does not test the change), `[fragile-selector]` (ambiguous or brittle locator), `[no-cleanup]`
-(leaves test data behind), or `[other]`.
+(leaves test data behind), or `[other]` — and, for a missing case only (below), `[missing-case]`.
 
 Each correction MUST be a structured object with three fields:
 - `"text"`: the actionable message, prefixed with the class tag (as above).
@@ -103,6 +103,10 @@ Each correction MUST be a structured object with three fields:
   - `"contract"`: the spec's contract clause it violates; `ref` is `<spec path>#<clause>`.
   - `"execution"`: an execution of this run that shows it; `ref` is the `<spec path>` that ran.
   - `"dom"`: a fact from the DOM snapshot you were given; `ref` is the `<spec path>` it concerns.
+  - `"arm"`: only when the prompt lists the decisions of the change no test ran; `ref` is the
+    `<file>:<line>` of one listed arm. Such a correction is a missing case: tag it `[missing-case]`,
+    give it `"advisory"`, and name the behaviour that arm decides. It is recorded and shown with
+    the run and never changes `approved`.
   Cite only evidence you actually hold. A correction with no citation can never block: the
   orchestrator treats it as advisory at most, so an uncited blocking correction changes nothing.
   - **blocking**: the test is worthless or actively harmful (false-positive, wrong-objective,

@@ -522,6 +522,7 @@ export interface OutcomeExtras {
   branchCoverage?: RunOutcome["gateSignals"]["branchCoverage"];
   bundleMutation?: RunOutcome["gateSignals"]["bundleMutation"];
   branchCases?: RunOutcome["gateSignals"]["branchCases"];
+  missingCases?: string[];
   note?: string;
   rulesRetrieved?: string[];
   diffArchetypes?: string[];
@@ -1024,6 +1025,7 @@ export class RunQaUseCase {
         ...(extra?.branchCoverage ? { branchCoverage: extra.branchCoverage } : {}),
         ...(extra?.bundleMutation ? { bundleMutation: extra.bundleMutation } : {}),
         ...(extra?.branchCases ? { branchCases: extra.branchCases } : {}),
+        ...(extra?.missingCases?.length ? { missingCases: extra.missingCases } : {}),
         reviewerCorrections: extra?.reviewerCorrections ?? [],
         /* Conditional-spread: true undefined survives when no reviewer-unavailable rationale exists. */
         ...(extra?.reviewerRationale !== undefined ? { reviewerRationale: extra.reviewerRationale } : {}),

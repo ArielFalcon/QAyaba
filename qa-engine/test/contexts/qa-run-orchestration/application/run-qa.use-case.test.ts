@@ -9613,3 +9613,63 @@ test("an accepted branch regeneration the port cannot recount leaves the arms af
     real.cleanup();
   }
 });
+
+/* ── The reviewer's missing cases: judged against the arms no test ran, recorded and shown, never a gate ── */
+
+test("the reviewer is given the arms no test ran, and a missing case it cites from them is recorded and published without rejecting the run", async () => {
+  let given: unknown;
+  let published: Parameters<PublicationPort["publish"]>[0] | undefined;
+  const { ports, savedOutcomes } = stubPorts({
+    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "a works", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
+    measure: async () => ({ status: "pass" as const, ratio: 0.9, uncovered: [], untakenArms: ARMS }),
+    review: async (_dir, _cases, _diff, enrichment) => {
+      given = enrichment?.untakenArms;
+      return {
+        approved: false,
+        corrections: ["[missing-case] the else of src/a.ts:3 (no results) is not tested", "[missing-case] an arm the run never measured"],
+        severities: ["blocking", "blocking"],
+        citations: [{ kind: "arm", ref: "src/a.ts:3" }, { kind: "arm", ref: "src/z.ts:1" }],
+        blockingCount: 2,
+        parsed: true,
+      };
+    },
+    publish: async (decision) => {
+      published = decision;
+      return { outcome: "pr" };
+    },
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true, coveragePolicyMode: "signal" } });
+
+  await useCase.run({ ...baseInput, runId: "missing-cases-recorded" });
+
+  assert.deepEqual(given, ARMS);
+  const saved = savedOutcomes.at(-1)!;
+  assert.equal(saved.verdict, "pass");
+  assert.deepEqual(saved.gateSignals.missingCases, ["[missing-case] the else of src/a.ts:3 (no results) is not tested"]);
+  assert.equal(published?.reviewerApproved, true, "a missing case never rejects");
+  assert.deepEqual(published?.missingCases, ["[missing-case] the else of src/a.ts:3 (no results) is not tested"]);
+});
+
+test("after an accepted regeneration whose coverage could not be recounted, the reviewer is given no arms", async () => {
+  const real = realCoverageWorkspace();
+  let given: unknown = "not called";
+  try {
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      generate: real.generate,
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      measure: async () => ({ status: "pass" as const, ratio: 0.9, uncovered: [], untakenArms: ARMS }),
+      review: async (_dir, _cases, _diff, enrichment) => {
+        given = enrichment?.untakenArms;
+        return { approved: true, corrections: [], blockingCount: 0, parsed: true };
+      },
+    });
+    const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true, coveragePolicyMode: "signal", coverageBranchCases: "regenerate" } });
+
+    await useCase.run({ ...baseInput, runId: "missing-cases-stale-arms" });
+
+    assert.equal(given, undefined);
+  } finally {
+    real.cleanup();
+  }
+});

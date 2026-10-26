@@ -2,12 +2,14 @@
  * The reviewer's findings, judged by the orchestrator instead of by the model's own severity. A finding
  * may block only when it cites evidence the orchestrator can check: a spec's contract clause, an
  * execution the run performed, or a DOM fact. Anything else is advisory telemetry — never sent to the
- * generator, never a gate. Pure: no I/O. See docs and the D slice of the change spec.
+ * generator, never a gate. A finding that names an arm of the changed code no test ran is a missing case:
+ * kept when the run's measurement lists that arm, recorded and shown, never a requirement or a gate.
+ * Pure: no I/O. See docs and the D slice of the change spec.
  */
 
-export type ReviewCitationKind = "contract" | "execution" | "dom";
+export type ReviewCitationKind = "contract" | "execution" | "dom" | "arm";
 
-/** What a finding claims to rest on. The ref names the spec (and, for a contract, its clause). */
+/** What a finding claims to rest on. The ref names the spec (and, for a contract, its clause), or for an arm its `<file>:<line>`. */
 export interface ReviewCitation {
   readonly kind: ReviewCitationKind;
   readonly ref: string;
@@ -64,6 +66,11 @@ export function filterReviewFindings(
       dropped.push(finding.text);
       continue;
     }
+    if (citation.kind === "arm") {
+      /* Missing cases are taken out before this filter: an arm here was never checked against the run's list. */
+      dropped.push(finding.text);
+      continue;
+    }
     if (citation.kind === "dom") {
       /* A DOM fact can show a selector is wrong; it cannot prove what the test is for. */
       advisory.push(finding.text);
@@ -83,4 +90,21 @@ export function filterReviewFindings(
   }
 
   return { blocking, advisory, dropped };
+}
+
+/**
+ * The findings that cite an arm of the changed code no test ran (`<file>:<line>`, as the run's measurement lists them in
+ * `untakenArms`): one whose arm is listed is a missing case, whatever severity the reviewer gave it; one whose arm is not
+ * listed is dropped. Every other finding is returned as it came, for the evidence filter.
+ */
+export function takeMissingCases<T extends CitedFinding>(findings: readonly T[], untakenArms: ReadonlySet<string>): { missingCases: string[]; dropped: string[]; rest: T[] } {
+  const missingCases: string[] = [];
+  const dropped: string[] = [];
+  const rest: T[] = [];
+  for (const finding of findings) {
+    if (finding.citation?.kind !== "arm") rest.push(finding);
+    else if (untakenArms.has(finding.citation.ref.trim())) missingCases.push(finding.text);
+    else dropped.push(finding.text);
+  }
+  return { missingCases, dropped, rest };
 }

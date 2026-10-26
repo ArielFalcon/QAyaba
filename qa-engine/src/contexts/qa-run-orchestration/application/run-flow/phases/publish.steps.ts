@@ -105,6 +105,7 @@ export async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceR
        */
       ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
       isCode: cfg.isCode,
+      ...(state.review.missingCases.length ? { missingCases: state.review.missingCases } : {}),
       ...(resolveTested(state)?.length ? { tested: resolveTested(state) } : {}),
     });
   } catch (pubErr) {

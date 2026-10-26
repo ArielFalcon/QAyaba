@@ -82,6 +82,13 @@ Mocking a genuinely external boundary (network, filesystem, clock, a third-party
 test deterministic is fine — the rubric above targets mocking the code under test itself, not its
 environment.
 
+## Missing cases
+
+When the prompt lists the decisions of the change that no test ran, judge each listed arm: one
+that is a behaviour worth a test (an error, an empty result, a rejected input the page can be
+brought to through the UI) is a missing case, reported as the output format says. It is a record
+for the team, never a reason to reject; an arm only a mocked network could reach is not a case.
+
 ## How you emit the verdict
 
 For each problem, one **specific, actionable** correction (what to change and why).

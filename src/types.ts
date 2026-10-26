@@ -275,6 +275,8 @@ export interface RunOutcome {
     bundleMutation?: { applied: number; killed: number; survived: { file: string; line: number; operator: string }[] };
     /* What the one regeneration from the arms of the changed code no test ran did: its outcome and the arms before and after it. A signal, never a gate; absent when it did not run. */
     branchCases?: { outcome: "accepted" | "empty" | "rejected" | "capped" | "deadline"; armsBefore: number; armsAfter?: number };
+    /* The reviewer's missing cases: findings that cite an arm of the changed code no test ran. A record, never a gate; absent when there were none. */
+    missingCases?: string[];
     reviewerCorrections: string[];
     /*
      * The reviewer's one/two-sentence reasoning for its verdict — on APPROVAL too, not only

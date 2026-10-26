@@ -559,3 +559,21 @@ test("review() with no execution evidence omits the section entirely (never an e
 
   assert.equal(seenInput?.executionResult, undefined);
 });
+
+test("review() hands the reviewer prompt the arms no test ran, and none when the enrichment has none", async () => {
+  const seen: unknown[] = [];
+  const rendering: PromptRenderingPort = {
+    ...fakeRendering(),
+    renderReviewer: (input) => { seen.push((input as { untakenArms?: unknown }).untakenArms); return { text: "reviewer-prompt", sectionSizes: {} }; },
+  };
+  const verdicts = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
+  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
+    diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
+  });
+  const arms = [{ file: "src/a.ts", line: 3, kind: "if", arm: "else" }];
+
+  await adapter.review("/mirrors/org/app/e2e", cases, undefined, { untakenArms: arms });
+  await adapter.review("/mirrors/org/app/e2e", cases, undefined, { untakenArms: [] });
+
+  assert.deepEqual(seen, [arms, undefined]);
+});

@@ -881,3 +881,15 @@ test("publish() with no tested/isCode/parentRunId supplied still renders a compl
   assert.ok(!bodySeen.includes("Covers:"), "no tested metadata was supplied, so the section must be absent");
   assert.ok(!bodySeen.includes("Continuation of"), "no parentRunId was supplied, so no continuation reference should render");
 });
+
+test("publish() puts the reviewer's missing cases into the PR body it renders", async () => {
+  let body = "";
+  const pr = { openWithAutoMerge: async (_repo: string, _branch: string, _title: string, b: string) => { body = b; return { url: "u", number: 1 }; } };
+  const adapter = new PublicationPortAdapter({ decide: new PublishDecisionService(), pr, issue: fakeIssue(), shadowLog: new ShadowLogAdapter(() => {}), sanitize: identitySanitize, vcsWrite: fakeVcsWrite([]), render: realRender() }, {
+    repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true,
+  });
+
+  await adapter.publish({ verdict: "pass", cases: [], logs: "", mirrorDir: "/m", sha: "abc1234", missingCases: ["[missing-case] the empty search result is not tested"] });
+
+  assert.ok(body.includes("[missing-case] the empty search result is not tested"));
+});

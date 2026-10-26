@@ -57,7 +57,7 @@ interface LegacyReviewer {
   /* The effective severity of each correction, in order, when the parser can tell them apart. */
   correctionSeverities?: ("blocking" | "advisory")[];
   /* The evidence each correction cites, in order; a hole means that entry cited none. */
-  citations?: ({ kind: "contract" | "execution" | "dom"; ref: string } | undefined)[];
+  citations?: ({ kind: "contract" | "execution" | "dom" | "arm"; ref: string } | undefined)[];
 }
 
 export interface VerdictParsers {

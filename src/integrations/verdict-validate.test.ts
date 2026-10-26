@@ -528,3 +528,10 @@ test("the correction cap never hides a blocking finding behind six advisory ones
   assert.match(j.corrections[0] ?? "", /^\[false-positive\]/, "the blocking correction survives the count cap, first");
   assert.ok(j.corrections.slice(1).every((c) => c.startsWith("[fragile-selector]")));
 });
+
+test("parseReviewerVerdict keeps the evidence each correction cites, an arm of the changed code included", () => {
+  const r = parseReviewerVerdict(
+    '{"approved":true,"rationale":"ok","corrections":[{"text":"[missing-case] the empty search is not tested","severity":"advisory","citation":{"kind":"arm","ref":"src/search.ts:12"}},{"text":"[false-positive] a.spec.ts asserts nothing","severity":"blocking","citation":{"kind":"execution","ref":"a.spec.ts"}}]}',
+  );
+  assert.deepEqual(r.citations, [{ kind: "arm", ref: "src/search.ts:12" }, { kind: "execution", ref: "a.spec.ts" }]);
+});

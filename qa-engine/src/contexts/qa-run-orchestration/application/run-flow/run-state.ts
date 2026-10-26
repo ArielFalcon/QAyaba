@@ -168,6 +168,8 @@ export interface ReviewOutcome {
   reviewerApprovedForOutcome: boolean | undefined;
   /** Stays [] when the review loop never runs, never fabricated. */
   finalReviewerCorrections: string[];
+  /** The reviewer's missing cases: findings that cite an arm of the changed code no test ran. Recorded and shown, never a gate. */
+  missingCases: string[];
   /** What the review phase cost and decided; absent when the phase never ran. */
   reviewerSignal: RunOutcome["gateSignals"]["reviewer"];
 }
@@ -272,7 +274,7 @@ export function initialRunState(): RunState {
       coverageStale: false,
       valueStale: false,
     },
-    review: { reviewerApproved: true, reviewerApprovedForOutcome: undefined, finalReviewerCorrections: [], reviewerSignal: undefined },
+    review: { reviewerApproved: true, reviewerApprovedForOutcome: undefined, finalReviewerCorrections: [], missingCases: [], reviewerSignal: undefined },
     decided: undefined,
     publication: { publishOutcome: undefined },
     persisted: undefined,

@@ -42,7 +42,7 @@ Branch: `main`, as the owner asked ("directo en esta rama"), one commit per task
 | T1 | S1 | inline | done (RED→GREEN scope-guard; prompt-sync, matrix, generation + coordination suites 2321 green after the recorded baseline raise) | see git log |
 | T2 | S3 recount port (collector over several namespaces, dump exclusion, `recount` on the port and its traced wrapper) | inline | done (RED→GREEN: dump names, reader filter, recollect, bridge recount, trace span; objective-signal 274 + orchestration infra 917 green, arch ok) | see git log |
 | T3 | S2, S3 regeneration step, config key, gate signal, persistence | inline | done (RED→GREEN use-case tests: regen + recount + record, no regen without arms/off/unset/enforce-blocking, empty keeps first, no recount → armsAfter absent; orchestration + server 4010 green, 1 known base fail) | see git log |
-| T4 | S4 | inline | pending | |
+| T4 | S4 | inline | done (RED→GREEN: takeMissingCases + arm guard, parser arm citation, reviewer section, use case records/publishes and never rejects, no arms after an unrecounted regen, PR/Issue render, adapter mapping; reviewer contract v6; broad suites 4716 green, 1 known base fail) | see git log |
 | T5 | S5 | inline | pending | |
 
 ## Log
@@ -59,3 +59,4 @@ Branch: `main`, as the owner asked ("directo en esta rama"), one commit per task
   - `renderCoverageGap([])` returns a sentence, not `""`, so an arms-only gap must not include it.
   - The enforce re-measure leaves `uncovered` and `untakenArms` stale (fixed in S3).
 - **L6** (2026-10-26, T3): the branch regeneration reuses the coverage regeneration's acceptance and lead routing (one `regenerateAtGap`). The engine default is off when a caller states nothing; real apps get `regenerate` from the factory (`qa.changeCoverage.branchCases`). The regeneration's gap framing now covers arms-only gaps and says an arm the UI cannot reach is not a case. The prompt baseline was raised with that reason. Stale `scripts/mutate.ts` lines for `coverage.steps.ts`/`review.steps.ts` were resynced by content.
+- **L7** (2026-10-26, T4): missing cases are taken out of the reviewer's findings before the evidence filter, whatever the integrity switch, so an arm citation can never block. A rejection that rested only on arm-cited blocking findings becomes an approval. The arms reach the reviewer only while they describe the bytes under review (not after a review-round regeneration). The reviewer contract version is 6.

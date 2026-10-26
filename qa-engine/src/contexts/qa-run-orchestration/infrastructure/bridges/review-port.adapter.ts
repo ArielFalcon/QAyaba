@@ -83,6 +83,7 @@ export class ReviewPortAdapter implements ReviewPort {
       ...(enrichment?.specChanges ? { specChanges: enrichment.specChanges } : {}),
       ...(enrichment?.learnedRules?.length ? { learnedRules: renderLearnedRulesForReviewer(enrichment.learnedRules) } : {}),
       ...(enrichment?.domSnapshot ? { domSnapshot: enrichment.domSnapshot } : {}),
+      ...(enrichment?.untakenArms?.length ? { untakenArms: [...enrichment.untakenArms] } : {}),
       ...(enrichment?.executionEvidence ? { executionResult: renderExecutionResult({ verdict: enrichment.executionEvidence.verdict, cases: enrichment.executionEvidence.cases.map(executionResultCase) }) } : {}),
       ...(enrichment?.runId ? { runId: enrichment.runId } : {}),
       /* The limit the runtime enforces for the reviewer's session. Absent -> omitted, never a made-up number. */

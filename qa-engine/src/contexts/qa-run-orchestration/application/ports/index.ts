@@ -487,6 +487,8 @@ export interface LeadSessionHandle {
  */
 export interface ReviewEnrichment {
   priorCorrections?: readonly string[];
+  /* The arms of the changed code no delivered test ran, when the measurement describes the bytes under review: the facts a missing case cites. */
+  untakenArms?: readonly UntakenArm[];
   /* The spec lines that changed since the prior rejection, already bounded and rendered. */
   specChanges?: string;
   /* Paths of the suite's existing specs: context only, never a target and never a reason to reject. */
@@ -565,7 +567,7 @@ export interface ReviewPort {
     parsed?: boolean;
     /* The reviewer's own severity per correction, and the evidence it cites, in the same order. */
     severities?: ("blocking" | "advisory")[];
-    citations?: ({ kind: "contract" | "execution" | "dom"; ref: string } | undefined)[];
+    citations?: ({ kind: "contract" | "execution" | "dom" | "arm"; ref: string } | undefined)[];
     /**
      * True when no judgment was possible because the reviewer's runtime failed or returned nothing: an
      * integration fault, which is neither an approval nor a rejection. Absent on every review that
@@ -736,6 +738,8 @@ export interface PublicationPort {
      * genuine rejection (corrections already signal that).
      */
     reviewerNote?: string;
+    /** The reviewer's missing cases (findings on arms of the changed code no test ran): shown in the PR or Issue, never a gate. */
+    missingCases?: readonly string[];
     /**
      * Real per-run mirrorDir + sha for the "pr" route's git-write. Absent on an
      * actual "pr" route with a required vcsWrite collaborator is a composition

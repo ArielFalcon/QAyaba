@@ -7,7 +7,7 @@ import { renderSpecChanges, sameReviewedSpecs, type ReviewSpecText } from "@cont
 import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rule.ts";
 import type { SpecRoot } from "../../../../../shared-infrastructure/spec-path-confinement.ts";
 import { precheckSpecsAgainstDom } from "../../../domain/deterministic-review-precheck.ts";
-import { citedSpec, filterReviewFindings } from "../../../domain/review-finding-filter.service.ts";
+import { citedSpec, filterReviewFindings, takeMissingCases } from "../../../domain/review-finding-filter.service.ts";
 import { verifyRebuttals, findingKey } from "../../../domain/review-rebuttals.service.ts";
 import type { ContractFeedback } from "../../../domain/contract-feedback.ts";
 import type { GenerationOutput, ReviewPort } from "../../ports/index.ts";
@@ -58,6 +58,11 @@ export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunCo
     runId: input.runId,
     ...(retrievedRules.length ? { learnedRules: retrievedRules } : {}),
   };
+  /* The arms no test ran describe the bytes under review until the review accepts a regeneration of its own. */
+  let armsCurrent = state.coverage.untakenArmsCurrent && state.coverage.untakenArms.length > 0;
+  const untakenArmRefs = new Set(state.coverage.untakenArms.map((u) => `${u.file}:${u.line}`));
+  /* The reviewer's missing cases, each once across the rounds. */
+  const missingCases: string[] = [];
   const agentBrowserSignal = () => trail.agentBrowser?.signals();
   /* What a terminal exit knows when the review ends the run. */
   const exitFacts = async () => ({
@@ -192,6 +197,7 @@ export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunCo
           ...(specChanges ? { specChanges } : {}),
           ...(reviewDomSnapshot ? { domSnapshot: reviewDomSnapshot } : {}),
           ...(existingSpecFiles.length ? { existingSpecFiles } : {}),
+          ...(armsCurrent ? { untakenArms: state.coverage.untakenArms } : {}),
           /* The run's own execution of the specs under review: the reviewer weighs a 5xx or a redirect against the test instead of guessing. */
           ...(reviewCases.length > 0 ? { executionEvidence: { verdict: run.verdict, cases: reviewCases } } : {}),
         });
@@ -206,6 +212,27 @@ export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunCo
      * generator. The pre-check is the orchestrator's own deterministic evidence, so it is not a
      * reviewer finding and is never filtered. Gated by the master switch.
      */
+    /* The missing cases the reviewer cites from the arms no test ran are taken out first, whatever the integrity switch: recorded and shown, never a requirement or a gate. */
+    if (decidedBy === "model" && reviewResult.citations?.some((citation) => citation?.kind === "arm")) {
+      const cited = reviewResult.corrections.map((text, index) => ({
+        text,
+        severity: reviewResult.severities?.[index] ?? ("blocking" as const),
+        ...(reviewResult.citations?.[index] ? { citation: reviewResult.citations[index]! } : {}),
+      }));
+      const taken = takeMissingCases(cited, armsCurrent ? untakenArmRefs : new Set<string>());
+      for (const text of taken.missingCases) if (!missingCases.includes(text)) missingCases.push(text);
+      const blocking = taken.rest.filter((f) => f.severity === "blocking").length;
+      const restedOnArms = cited.some((f) => f.citation?.kind === "arm" && f.severity === "blocking");
+      reviewResult = {
+        ...reviewResult,
+        /* A rejection that rested only on missing cases is no rejection. */
+        approved: reviewResult.approved || (restedOnArms && blocking === 0),
+        corrections: taken.rest.map((f) => f.text),
+        severities: taken.rest.map((f) => f.severity),
+        citations: taken.rest.map((f) => f.citation),
+        blockingCount: blocking,
+      };
+    }
     let filteredReviewFindings = 0;
     let advisoryReviewFindings = 0;
     /* The spec each verified finding's citation names, for routing it to the flow that owns that spec. */
@@ -413,6 +440,7 @@ export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunCo
       integrityCounters.acceptances += 1;
       if (outcome.executedSpecs.length === 0) integrityCounters.proofReused += 1;
       acceptedRegenAfterMeasure = true;
+      armsCurrent = false;
       const changedSet = new Set(changedSpecFiles);
       const realCases = outcome.execution?.cases ?? [];
       if (realCases.length > 0) {
@@ -440,6 +468,7 @@ export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunCo
         /* A genuine review verdict overwrites generation's self-approval default. */
         reviewerApprovedForOutcome: reviewerApproved,
         finalReviewerCorrections,
+        missingCases,
         reviewerSignal: {
           rounds: reviewStats.rounds,
           modelRounds: reviewStats.modelRounds,

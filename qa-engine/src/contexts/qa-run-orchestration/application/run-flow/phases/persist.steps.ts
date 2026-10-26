@@ -46,7 +46,7 @@ export async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRu
   const { decision, isContextCleanPass } = decidedOf(state);
   const { run, retries, validation } = state.execution;
   const { coverageRatio, valueScore, mutantCount, killedCount, branchCoverage, bundleMutation, branchCases } = state.coverage;
-  const { finalReviewerCorrections, reviewerSignal } = state.review;
+  const { finalReviewerCorrections, reviewerSignal, missingCases } = state.review;
   const { retrievedRuleIds, diffArchetypes, blastRadiusSignal, serviceLinks, contractDrift, crossRepoImpact } = state.grounding;
   const { preExecAmbiguityCatches, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed } = state.generation;
   const { publishOutcome } = state.publication;
@@ -66,6 +66,7 @@ export async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRu
     ...(branchCoverage ? { branchCoverage } : {}),
     ...(bundleMutation ? { bundleMutation } : {}),
     ...(branchCases ? { branchCases } : {}),
+    ...(missingCases.length ? { missingCases } : {}),
     reviewerCorrections: finalReviewerCorrections,
     ...(reviewerSignal !== undefined ? { reviewer: reviewerSignal } : {}),
     /* Publish outcome string — never fabricated when publish() was not called. */

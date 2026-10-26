@@ -46,12 +46,14 @@ export interface PublicationRenderCollaborator {
     tested?: { flow?: string; objective?: string }[];
     adjudication?: { class: string; confidence: string; reason: string };
     reviewerNote?: string;
+    missingCases?: readonly string[];
   }): string;
   prBody(input: {
     sha?: string;
     isCode: boolean;
     tested?: { flow?: string; objective?: string }[];
     parentRunId?: string;
+    missingCases?: readonly string[];
   }): string;
 }
 
@@ -121,6 +123,7 @@ export class PublicationPortAdapter implements PublicationPort {
     tested?: { flow?: string; objective?: string }[];
     isCode?: boolean;
     parentRunId?: string;
+    missingCases?: readonly string[];
   }): Promise<{ outcome: string; revertedDenylisted?: string[]; revertedDangerous?: string[] }> {
     const publishDecision = this.deps.decide.decide({
       verdict: decision.verdict,
@@ -142,6 +145,7 @@ export class PublicationPortAdapter implements PublicationPort {
           ...(decision.tested?.length ? { tested: decision.tested } : {}),
           ...(decision.adjudication ? { adjudication: decision.adjudication } : {}),
           ...(decision.reviewerNote ? { reviewerNote: decision.reviewerNote } : {}),
+          ...(decision.missingCases?.length ? { missingCases: decision.missingCases } : {}),
         }),
       );
     const prBodyText = (): string =>
@@ -151,6 +155,7 @@ export class PublicationPortAdapter implements PublicationPort {
           isCode: decision.isCode ?? false,
           ...(decision.tested?.length ? { tested: decision.tested } : {}),
           ...(decision.parentRunId ? { parentRunId: decision.parentRunId } : {}),
+          ...(decision.missingCases?.length ? { missingCases: decision.missingCases } : {}),
         }),
       );
     /* Issues open in the triggering repo when supplied; PRs always target ctx.repo (primary). */

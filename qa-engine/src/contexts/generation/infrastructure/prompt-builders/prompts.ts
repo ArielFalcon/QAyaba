@@ -121,6 +121,8 @@ function renderCommitMessage(intent: CommitIntent | undefined, includeBody: bool
 
 /* The reviewer's statement of its own cap is a section of its own, apart from the generator's. */
 export const REVIEWER_STEP_LIMIT_SECTION_ID = "reviewer-step-limit";
+/* The reviewer section that lists the arms of the changed code no delivered test ran. */
+export const REVIEWER_MISSING_CASES_SECTION_ID = "reviewer-missing-cases";
 
 /* The cap the runtime enforces for the turn, stated as a fact: the number and nothing else. It bounds the turn the prompt is sent for, never the session. A generator prompt and a reviewer prompt state it the same way. */
 function renderStepLimit(limit: number): string {
@@ -1559,6 +1561,18 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
 
   const learnedRulesContent = input.learnedRules ? [``, input.learnedRules].join("\n") : "";
 
+  /* The arms of the changed code no delivered test ran, measured by the orchestrator: a missing case cites one of them, and it is a record, never a reason to reject. */
+  const missingCasesContent = input.untakenArms?.length
+    ? [
+        `## Decisions of the change no test ran — measured by the orchestrator`,
+        `Each line is an arm of a decision on a changed line that no delivered test ran in this run's browser coverage.`,
+        `When one is a behaviour worth a test that the page can be brought to through the UI against DEV, report it as a`,
+        `correction prefixed [missing-case], with "severity":"advisory" and "citation":{"kind":"arm","ref":"<file>:<line>"} as listed.`,
+        `A missing case is recorded and shown with the run; it never changes "approved".`,
+        ...input.untakenArms.map((u) => `- ${sanitizeText(`${u.file}:${u.line} ${u.kind}: ${u.arm}`, "model").text}`),
+      ].join("\n")
+    : "";
+
   const PRIOR_CORRECTIONS_MAX_BYTES = 8_000;
   const priorCorrectionsContent = (() => {
     if (!input.priorCorrections || input.priorCorrections.length === 0) return "";
@@ -1612,6 +1626,7 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     section("reviewer-specs", "volatile", specContent, { priority: 2, maxBytes: 44_000, overflow: "summarize" }),
     ...(existingSpecsContent ? [section("reviewer-existing-suite", "volatile", existingSpecsContent, { priority: 3, maxBytes: 8_000, overflow: "summarize" })] : []),
     ...(learnedRulesContent ? [section("reviewer-learned-rules", "volatile", learnedRulesContent, { priority: 3 })] : []),
+    ...(missingCasesContent ? [section(REVIEWER_MISSING_CASES_SECTION_ID, "volatile", missingCasesContent, { priority: 3, maxBytes: 4_000, overflow: "summarize" })] : []),
     /* VOLATILE: prior-round corrections (priority 4 — convergence context; lowest priority in VOLATILE so it does not crowd out the spec contents or DOM grounding on budget overflow). */
     ...(priorCorrectionsContent ? [section("reviewer-prior-corrections", "volatile", priorCorrectionsContent, { priority: 4 })] : []),
     /* What the generator changed since the rejection this round answers: the smallest section in the

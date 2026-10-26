@@ -79,6 +79,15 @@ export interface RenderIssueInput {
   tested?: TestedItem[];
   adjudication?: AdjudicationLabel;
   reviewerNote?: string;
+  /* The reviewer's missing cases: behaviours the change decides that no test runs. */
+  missingCases?: readonly string[];
+}
+
+/* The reviewer's missing cases as a section of their own; empty when there are none. A record for the reader, never a gate. */
+function renderMissingCasesSection(missingCases: readonly string[] | undefined): string {
+  const shown = (missingCases ?? []).filter((text) => text.trim() !== "").slice(0, MAX_ITEMS);
+  if (shown.length === 0) return "";
+  return `**Cases the change decides that no test runs** (the reviewer's reading of the measured arms; not a gate):\n${shown.map((text) => `- ${cap(text, CAP_OBJECTIVE)}`).join("\n")}`;
 }
 
 export function renderIssue(input: RenderIssueInput): string {
@@ -111,6 +120,8 @@ export function renderIssue(input: RenderIssueInput): string {
   if (input.reviewerNote && input.reviewerNote.trim()) {
     blocks.push(renderReviewerNoteSection(input.reviewerNote));
   }
+  const missing = renderMissingCasesSection(input.missingCases);
+  if (missing) blocks.push(missing);
 
   const head = blocks.join("\n\n");
   const footer = "\n\n_Full trace + logs in the run artifacts (trace on-first-retry)._";
@@ -122,6 +133,8 @@ export interface RenderPrBodyInput {
   isCode: boolean;
   tested?: TestedItem[];
   parentRunId?: string;
+  /* The reviewer's missing cases: behaviours the change decides that no test runs. */
+  missingCases?: readonly string[];
 }
 
 export function renderPrBody(input: RenderPrBodyInput): string {
@@ -139,6 +152,9 @@ export function renderPrBody(input: RenderPrBodyInput): string {
       ? "**Validation:** the repo's own test suite passed (exit code 0) and the change was approved by the independent reviewer."
       : "**Validation:** harness green (typecheck + lint + stable run against the live DEV) and approved by the independent reviewer.",
   );
+
+  const missing = renderMissingCasesSection(input.missingCases);
+  if (missing) blocks.push(missing);
 
   if (input.parentRunId) blocks.push(`> ⛓️ Continuation of ${input.parentRunId}`);
 
