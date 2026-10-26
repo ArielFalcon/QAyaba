@@ -35,11 +35,10 @@ export async function routeApi(req: IncomingMessage, res: ServerResponse, deps: 
       respondError(res, err);
       return true;
     }
-    /* A fault no route named: the operator reads the redacted message in the log, the caller gets it redacted and nothing more (no stack, no cause). */
-    const message = redactionPort.redactError(err);
-    logJson("error", "api request failed", { method: req.method, path: url.pathname, error: message });
+    /* A fault no route named: the operator reads the redacted message in the log; the caller learns only that it failed (a fault's text can carry paths, stacks or queries). */
+    logJson("error", "api request failed", { method: req.method, path: url.pathname, error: redactionPort.redactError(err) });
     if (res.headersSent) res.end();
-    else respondError(res, new ApiError(500, message));
+    else respondError(res, new ApiError(500, "internal error"));
   }
   return true;
 }

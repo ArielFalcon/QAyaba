@@ -1779,7 +1779,7 @@ for (const { route, method, path, body, over } of APP_ROUTES) {
     const res = mkRes();
     await routeApi(mkReq(method, path, body), res, deps({ ...over, loadApp: () => { throw new Error("disk unreachable"); } }));
     assert.equal(res.status, 500);
-    assert.deepEqual(JSON.parse(res.body), { schemaVersion: 1, error: "disk unreachable" });
+    assert.deepEqual(JSON.parse(res.body), { schemaVersion: 1, error: "internal error" });
   });
 }
 

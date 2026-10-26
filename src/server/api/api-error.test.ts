@@ -61,13 +61,12 @@ for (const route of routes) {
   });
 }
 
-test("a failure the route did not name answers 500 with the redacted message", async () => {
+test("a failure the route did not name answers a generic 500: no message, path or stack of the fault reaches the caller", async () => {
+  const fault = `ENOENT: no such file or directory, open '/app/data/.api_token' ${SECRET}\n    at Object.run (/app/src/x.ts:10:5)`;
   const res = mkRes();
-  await routeApi(mkReq("GET", "/api/queue"), res, { queue: { size: 0 }, currentRun: () => { throw new Error(`boom ${SECRET}`); } } as unknown as ApiDeps);
+  await routeApi(mkReq("GET", "/api/queue"), res, { queue: { size: 0 }, currentRun: () => { throw new Error(fault); } } as unknown as ApiDeps);
   assert.equal(res.status, 500);
-  const body = ApiErrorSchema.parse(JSON.parse(res.body));
-  assert.match(body.error, /^boom /);
-  assert.ok(!body.error.includes(SECRET));
+  assert.deepEqual(ApiErrorSchema.parse(JSON.parse(res.body)), { schemaVersion: 1, error: "internal error" });
 });
 
 test("an error a dependency throws while enqueueing a run reaches the client redacted", async () => {
