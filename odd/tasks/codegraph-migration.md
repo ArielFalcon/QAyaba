@@ -113,7 +113,7 @@ Branch: the current working branch (single-branch rule, owner 2026-10-12); gover
 
 ### Phase 4 — acceptance and removal
 
-- **S16** (measured acceptance): defaults change only through ADR-0001's ablation harness.
+- **S16** (measured acceptance, superseded by L42): defaults change only through ADR-0001's ablation harness.
   - **Variants:** baseline vs graph variants, at least 3 replicates.
   - **Apps:** one Java and one JS/TS app, single-repo, plus a multi-repo app once it has a green run.
   - **Outcomes:**
@@ -155,7 +155,7 @@ Branch: the current working branch (single-branch rule, owner 2026-10-12); gover
 | T6 | S10, S11, S12 | inline | item 3 (`changeRoutes` consumers: graders, lead review, DOM capture) + item 6 | done — the join (three proofs, hubs, cap, disagreements) in `qa-run-orchestration/domain/change-pages.ts`; graph pages rank after the map's links in the pack (so DOM capture, the plan, the lead review and the graders see them); basis per page on the route-ranking span; the join on `qayaba.code_graph.change_pages`; graph pages scored apart; independent verifier: one blocker (operationId key needed a route node), fixed (L30, L31) | `e516984a`, `ab164e67` |
 | T7 | S13 | delegated (writer reason: parallel unit with T5/T6, disjoint surface; worktree) | item 2 (agent tool surface invariant) — own commit | done — `explore` replaces the three actions (admission, endpoint, adapter, tool file, client); answer redacted then cut at file boundaries; agent-list fixture re-recorded in the agents container; codegraph smoke 14/14 in the image; independent verifier: no blockers (L29) | `56c2ae43` |
 | T8 | S14, S15 | inline | item 3 (prompt contract) | done — sidekick proof path (S15) and the change dossier in `static-signal` behind `grounding.dossier` / `qa.structuralSignals.dossier` (off by default, the T9 lever); prompt-contract matrix: 0 findings, no baseline re-record needed (L31) | `03af259f`, `98b031a2` |
-| T9 | S16 | per-action workers (long runs) | item 6 | pending — the ablation rounds; the verdict per default in the Log | |
+| T9 | S16 | none | none | closed by owner decision (L42): the code graph and the dossier are always on, no ablation; the levers are deleted by `arch-p5` T10 | n/a |
 | T10 | S17 | inline | item 5 | done — codebase-memory-mcp removed from the image, compose, entrypoint, file boundary, engine and tests; CI gate green, live `sandbox:smoke` 22+5 green (L32) | `dcff6a7c` |
 | T11 | S18 | delegated (parallel unit A) | item 2 (redaction) | done — all 5 findings confirmed and fixed test-first; the tool redacts through `redactSourceForModel` in the sanitizer (L35) | `5fe3bdf7` |
 | T12 | S18 | delegated (parallel unit B) | items 1, 4 (store, lock) | done — 7 findings confirmed; the abort signal wired through `syncTo` (L35); a deleted file still seeds nothing (design limit, L35) | `bd52e90b`, `66cd1e33`, `559bd609` |
@@ -496,3 +496,4 @@ Order: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10
     - Tempo holds every trace, with no error span;
     - Loki holds 9 warn lines: egress noise, a budget-cut walk on R11, and DOM capture of `/` and `/login` redirected to `/home`.
   - The localhost:4200 pair was dropped by the owner ("Sino seguimos con dev"). The sandbox closes loopback to the browser, and Keycloak's admin password is a restricted Doppler secret.
+- **L42** (2026-10-26) owner (verbatim): "no se que es la señal estructural ni la ablacion. codegraph se queda encendido siempre, que es esa señal estructural? resuelve todos los pendientes como entiendas mejor para el resultado final del proyecto". T9 is closed with no ablation: the code graph is part of every run's grounding and has no switch. `odd/tasks/arch-p5-change-scope-use-cases.md` T10 deletes the run and app levers.
