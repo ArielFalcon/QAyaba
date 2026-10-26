@@ -12,6 +12,7 @@ import {
   MAX_INSTALL_MARKER_BYTES,
   MAX_LOCK_FILE_BYTES,
   SetupAdapter,
+  failureCaptureBlockFrom,
   nodeFsDeps,
 } from "@contexts/workspace-and-publication/infrastructure/setup.adapter.ts";
 import { ConfinedPathError, MAX_SPEC_SOURCE_BYTES, defaultSpecReadDeps } from "../../../../src/shared-infrastructure/spec-path-confinement.ts";
@@ -19,6 +20,9 @@ import type { SandboxedBinaryRunner, SandboxedRunRequest, SandboxedRunResult } f
 import { withoutWaitingOnNamedPipe } from "../../../support/named-pipe-watch.ts";
 
 const REAL_SEED_DIR = fileURLToPath(new URL("../../../../../config/e2e", import.meta.url));
+
+/* A seed of a test needs the capture block in its fixtures.ts, as the real seed has it: setup appends the seed's block into every fixtures.ts that lacks one. */
+const SEED_CAPTURE_BLOCK = failureCaptureBlockFrom(REAL_SEED_DIR);
 const SEED_REVISIONS_DIR = fileURLToPath(new URL("./__fixtures__/seed-revisions", import.meta.url));
 
 /* The exact bytes of a seed file as an earlier revision shipped it into watched repos. */
@@ -592,7 +596,7 @@ test("setup on a directory with no project seeds it, without the seed's node_mod
     rmSync(join(p.e2e, "package.json"));
     const seed = mkdtempSync(join(p.tmp, "seed-"));
     writeFileSync(join(seed, "package.json"), '{"name":"seeded"}');
-    writeFileSync(join(seed, "fixtures.ts"), "export const seeded = 1;\n");
+    writeFileSync(join(seed, "fixtures.ts"), `export const seeded = 1;\n${SEED_CAPTURE_BLOCK}`);
     mkdirSync(join(seed, "node_modules", "dep"), { recursive: true });
     writeFileSync(join(seed, "node_modules", "dep", "index.js"), "module.exports = 1;\n");
 
@@ -730,7 +734,7 @@ function writeSeed(seed: string): void {
   mkdirSync(join(seed, "assets"), { recursive: true });
   mkdirSync(join(seed, "node_modules", "pkg"), { recursive: true });
   writeFileSync(join(seed, "package.json"), '{"name":"seed"}');
-  writeFileSync(join(seed, "fixtures.ts"), "export const seed = true;\n");
+  writeFileSync(join(seed, "fixtures.ts"), `export const seed = true;\n${SEED_CAPTURE_BLOCK}`);
   writeFileSync(join(seed, "assets", "notes.txt"), "a note\n");
   writeFileSync(join(seed, "assets", "photo.bin"), Buffer.from([0, 255, 128, 10, 13, 0, 1]));
   writeFileSync(join(seed, "node_modules", "pkg", "index.js"), "never copied\n");

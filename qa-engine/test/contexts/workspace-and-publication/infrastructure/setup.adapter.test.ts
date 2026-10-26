@@ -10,7 +10,7 @@ import {
   SetupAdapter,
   nodeFsDeps,
   FAILURE_CAPTURE_MARKER,
-  FAILURE_CAPTURE_BLOCK,
+  failureCaptureBlockFrom,
   type SetupAdapterFsDeps,
 } from "@contexts/workspace-and-publication/infrastructure/setup.adapter.ts";
 import type { SandboxedBinaryRunner, SandboxedRunRequest, SandboxedRunResult } from "../../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
@@ -20,6 +20,9 @@ import type { SandboxedBinaryRunner, SandboxedRunRequest, SandboxedRunResult } f
    verified empirically against the real config/e2e/ tree before writing this file.
  */
 const REAL_SEED_DIR = fileURLToPath(new URL("../../../../../config/e2e", import.meta.url));
+
+/* The block setup appends into a repo: the region of the real seed's fixtures.ts between the capture markers. */
+const SEED_CAPTURE_BLOCK = failureCaptureBlockFrom(REAL_SEED_DIR);
 
 function okResult(overrides: Partial<SandboxedRunResult> = {}): SandboxedRunResult {
   return { exitCode: 0, stdout: "", stderr: "", timedOut: false, ...overrides };
@@ -253,7 +256,7 @@ test("ensureFailureCapture: first injection appends the block; existing lines un
     /* Existing lines must still be present at the start (append-only). */
     assert.ok(after.startsWith(existingContent), "existing content was modified (not append-only)");
     assert.equal(after.slice(0, existingContent.length), existingContent);
-    /* retry) and the new body fields — guarding that setup.adapter.ts's FAILURE_CAPTURE_BLOCK stays
+    /* retry) and the new body fields — guarding that setup.adapter.ts's SEED_CAPTURE_BLOCK stays
        in sync with the fixture. The block must be ESM-safe — dynamic import(), never require().
      */
     assert.match(after, /testInfo\.project\.name/, "the injected block must record the project name");
@@ -519,12 +522,12 @@ test("ensurePlaywrightEnvKeys: missing playwright.config.ts is a no-op (new onbo
    the block (a) contains no require( token and (b) actually writes a dump when run as a real ES module.
  */
 
-test("FAILURE_CAPTURE_BLOCK contains no require( token (ESM-safe)", () => {
-  assert.doesNotMatch(FAILURE_CAPTURE_BLOCK, /require\(/, "the injected block must not use require() — it runs in a native-ESM fixtures.ts");
+test("SEED_CAPTURE_BLOCK contains no require( token (ESM-safe)", () => {
+  assert.doesNotMatch(SEED_CAPTURE_BLOCK, /require\(/, "the injected block must not use require() — it runs in a native-ESM fixtures.ts");
   /* And it MUST pull its deps via dynamic import() instead. */
-  assert.match(FAILURE_CAPTURE_BLOCK, /await import\("node:fs"\)/);
-  assert.match(FAILURE_CAPTURE_BLOCK, /await import\("node:path"\)/);
-  assert.match(FAILURE_CAPTURE_BLOCK, /await import\("node:crypto"\)/);
+  assert.match(SEED_CAPTURE_BLOCK, /await import\("node:fs"\)/);
+  assert.match(SEED_CAPTURE_BLOCK, /await import\("node:path"\)/);
+  assert.match(SEED_CAPTURE_BLOCK, /await import\("node:crypto"\)/);
 });
 
 test("the afterEach body, run as a real ES module, writes a dump (no ReferenceError)", async () => {
@@ -532,7 +535,7 @@ test("the afterEach body, run as a real ES module, writes a dump (no ReferenceEr
   try {
     const moduleSrc =
       `const test = { beforeEach(fn) { globalThis.__qaBeforeEach = fn; }, afterEach(fn) { globalThis.__qaCapture = fn; } };\n` +
-      FAILURE_CAPTURE_BLOCK +
+      SEED_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBeforeEach;\nexport const afterEachFn = globalThis.__qaCapture;\n`;
     const modPath = join(dir, "capture.mts");
     writeFileSync(modPath, moduleSrc);
@@ -603,7 +606,7 @@ test("the afterEach body, run as a real ES module, writes a dump (no ReferenceEr
 async function loadCaptureModule(dir: string, name: string): Promise<{ beforeEachFn: (args: unknown) => Promise<void>; afterEachFn: (args: unknown, info: unknown) => Promise<void> }> {
   const moduleSrc =
     `const test = { beforeEach(fn) { globalThis.__qa_${name}_before = fn; }, afterEach(fn) { globalThis.__qa_${name}_after = fn; } };\n` +
-    FAILURE_CAPTURE_BLOCK +
+    SEED_CAPTURE_BLOCK +
     `\nexport const beforeEachFn = globalThis.__qa_${name}_before;\nexport const afterEachFn = globalThis.__qa_${name}_after;\n`;
   const modPath = join(dir, `${name}.mts`);
   writeFileSync(modPath, moduleSrc);
@@ -770,7 +773,7 @@ test("httpStatus is absent when no ≥500 response was observed", async () => {
   try {
     const moduleSrc =
       `const test = { beforeEach(fn) { globalThis.__qaBefore_no5xx = fn; }, afterEach(fn) { globalThis.__qaAfter_no5xx = fn; } };\n` +
-      FAILURE_CAPTURE_BLOCK +
+      SEED_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBefore_no5xx;\nexport const afterEachFn = globalThis.__qaAfter_no5xx;\n`;
     const modPath = join(dir, "no5xx.mts");
     writeFileSync(modPath, moduleSrc);
@@ -813,7 +816,7 @@ test("httpStatus is absent when only a background ping/beacon 500 was observed",
   try {
     const moduleSrc =
       `const test = { beforeEach(fn) { globalThis.__qaBefore_bgping = fn; }, afterEach(fn) { globalThis.__qaAfter_bgping = fn; } };\n` +
-      FAILURE_CAPTURE_BLOCK +
+      SEED_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBefore_bgping;\nexport const afterEachFn = globalThis.__qaAfter_bgping;\n`;
     const modPath = join(dir, "bgping.mts");
     writeFileSync(modPath, moduleSrc);
@@ -856,7 +859,7 @@ test("httpStatus is absent when only a cross-origin 500 was observed", async () 
   try {
     const moduleSrc =
       `const test = { beforeEach(fn) { globalThis.__qaBefore_xorigin = fn; }, afterEach(fn) { globalThis.__qaAfter_xorigin = fn; } };\n` +
-      FAILURE_CAPTURE_BLOCK +
+      SEED_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBefore_xorigin;\nexport const afterEachFn = globalThis.__qaAfter_xorigin;\n`;
     const modPath = join(dir, "xorigin.mts");
     writeFileSync(modPath, moduleSrc);
@@ -899,7 +902,7 @@ test("errorResponses resets between tests — reused page does not cross-attribu
   try {
     const moduleSrc =
       `const test = { beforeEach(fn) { globalThis.__qaBefore_reset = fn; }, afterEach(fn) { globalThis.__qaAfter_reset = fn; } };\n` +
-      FAILURE_CAPTURE_BLOCK +
+      SEED_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBefore_reset;\nexport const afterEachFn = globalThis.__qaAfter_reset;\n`;
     const modPath = join(dir, "reset.mts");
     writeFileSync(modPath, moduleSrc);
@@ -947,7 +950,7 @@ test("the afterEach body is a no-op when QA_FAILURE_CAPTURE_DIR is unset (no dum
   try {
     const moduleSrc =
       `const test = { beforeEach(fn) { globalThis.__qaBeforeNoop = fn; }, afterEach(fn) { globalThis.__qaCaptureNoop = fn; } };\n` +
-      FAILURE_CAPTURE_BLOCK +
+      SEED_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBeforeNoop;\nexport const afterEachFn = globalThis.__qaCaptureNoop;\n`;
     const modPath = join(dir, "capture-noop.mts");
     writeFileSync(modPath, moduleSrc);
@@ -971,142 +974,22 @@ test("the afterEach body is a no-op when QA_FAILURE_CAPTURE_DIR is unset (no dum
   }
 });
 
-/* ── Byte-twin token guard for config/e2e/fixtures.ts ─────────────────
-   The setup.adapter.ts FAILURE_CAPTURE_BLOCK is asserted by the tests above. Nothing
-   asserted that config/e2e/fixtures.ts's qa-failure-capture block stays in sync. These token-presence
-   tests catch a future edit that updates one twin but not the other.
- */
-
-test("config/e2e/fixtures.ts qa-failure-capture block contains test.beforeEach", () => {
-  const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
-  const content = readFileSync(fixturesPath, "utf8");
-  const start = content.indexOf(">>> qa-failure-capture");
-  const end = content.indexOf("<<< qa-failure-capture");
-  assert.ok(start !== -1, "fixtures.ts must contain the qa-failure-capture start marker");
-  assert.ok(end !== -1, "fixtures.ts must contain the qa-failure-capture end marker");
-  const block = content.slice(start, end);
-  assert.ok(block.includes("test.beforeEach"), "fixtures.ts qa-failure-capture block must contain test.beforeEach");
+test("failureCaptureBlockFrom returns the seed's marker region, from the newline before the opening marker through the closing marker line", () => {
+  const lines = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8").split("\n");
+  const open = lines.findIndex((line) => line.includes(FAILURE_CAPTURE_MARKER));
+  const close = lines.findIndex((line) => line === "// <<< qa-failure-capture <<<");
+  assert.ok(open !== -1 && close > open, "the seed carries both markers");
+  assert.equal(failureCaptureBlockFrom(REAL_SEED_DIR), `\n${lines.slice(open, close + 1).join("\n")}\n`);
 });
 
-test("config/e2e/fixtures.ts qa-failure-capture block contains page.on('response'", () => {
-  const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
-  const content = readFileSync(fixturesPath, "utf8");
-  const start = content.indexOf(">>> qa-failure-capture");
-  const end = content.indexOf("<<< qa-failure-capture");
-  const block = content.slice(start, end);
-  assert.ok(block.includes("page.on('response'"), "fixtures.ts qa-failure-capture block must contain page.on('response'");
-});
-
-test("config/e2e/fixtures.ts qa-failure-capture block contains errorResponses", () => {
-  const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
-  const content = readFileSync(fixturesPath, "utf8");
-  const start = content.indexOf(">>> qa-failure-capture");
-  const end = content.indexOf("<<< qa-failure-capture");
-  const block = content.slice(start, end);
-  assert.ok(block.includes("errorResponses"), "fixtures.ts qa-failure-capture block must contain errorResponses");
-});
-
-test("config/e2e/fixtures.ts qa-failure-capture block contains finalUrl", () => {
-  const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
-  const content = readFileSync(fixturesPath, "utf8");
-  const start = content.indexOf(">>> qa-failure-capture");
-  const end = content.indexOf("<<< qa-failure-capture");
-  const block = content.slice(start, end);
-  assert.ok(block.includes("finalUrl"), "fixtures.ts qa-failure-capture block must contain finalUrl");
-});
-
-test("config/e2e/fixtures.ts qa-failure-capture block contains httpStatus", () => {
-  const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
-  const content = readFileSync(fixturesPath, "utf8");
-  const start = content.indexOf(">>> qa-failure-capture");
-  const end = content.indexOf("<<< qa-failure-capture");
-  const block = content.slice(start, end);
-  assert.ok(block.includes("httpStatus"), "fixtures.ts qa-failure-capture block must contain httpStatus");
-});
-
-/* ── Byte-twin token guard — runtimeErrors capture ──────────────────
-   Same FIX4 pattern: catches a future edit that updates the fixtures.ts seed but not the
-   setup.adapter.ts FAILURE_CAPTURE_BLOCK twin (existing repos are only ever updated via the twin).
- */
-
-test("config/e2e/fixtures.ts qa-failure-capture block contains page.on('console'", () => {
-  const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
-  const content = readFileSync(fixturesPath, "utf8");
-  const start = content.indexOf(">>> qa-failure-capture");
-  const end = content.indexOf("<<< qa-failure-capture");
-  const block = content.slice(start, end);
-  assert.ok(block.includes("page.on('console'"), "fixtures.ts qa-failure-capture block must contain page.on('console'");
-});
-
-test("config/e2e/fixtures.ts qa-failure-capture block contains page.on('pageerror'", () => {
-  const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
-  const content = readFileSync(fixturesPath, "utf8");
-  const start = content.indexOf(">>> qa-failure-capture");
-  const end = content.indexOf("<<< qa-failure-capture");
-  const block = content.slice(start, end);
-  assert.ok(block.includes("page.on('pageerror'"), "fixtures.ts qa-failure-capture block must contain page.on('pageerror'");
-});
-
-test("config/e2e/fixtures.ts qa-failure-capture block contains runtimeErrors", () => {
-  const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
-  const content = readFileSync(fixturesPath, "utf8");
-  const start = content.indexOf(">>> qa-failure-capture");
-  const end = content.indexOf("<<< qa-failure-capture");
-  const block = content.slice(start, end);
-  assert.ok(block.includes("runtimeErrors"), "fixtures.ts qa-failure-capture block must contain runtimeErrors");
-});
-
-test("config/e2e/fixtures.ts qa-failure-capture block contains page.on('requestfailed'", () => {
-  const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
-  const content = readFileSync(fixturesPath, "utf8");
-  const start = content.indexOf(">>> qa-failure-capture");
-  const end = content.indexOf("<<< qa-failure-capture");
-  const block = content.slice(start, end);
-  assert.ok(block.includes("page.on('requestfailed'"), "fixtures.ts qa-failure-capture block must contain page.on('requestfailed'");
-});
-
-test("config/e2e/fixtures.ts qa-failure-capture block contains networkErrors", () => {
-  const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
-  const content = readFileSync(fixturesPath, "utf8");
-  const start = content.indexOf(">>> qa-failure-capture");
-  const end = content.indexOf("<<< qa-failure-capture");
-  const block = content.slice(start, end);
-  assert.ok(block.includes("networkErrors"), "fixtures.ts qa-failure-capture block must contain networkErrors");
-});
-
-test("setup.adapter.ts FAILURE_CAPTURE_BLOCK contains page.on('requestfailed' and carries networkErrors in the dump body (twin sync)", () => {
-  assert.ok(FAILURE_CAPTURE_BLOCK.includes("page.on('requestfailed'"), "FAILURE_CAPTURE_BLOCK must register a requestfailed listener");
-  assert.ok(FAILURE_CAPTURE_BLOCK.includes("networkErrors"), "FAILURE_CAPTURE_BLOCK must carry networkErrors");
-  assert.match(
-    FAILURE_CAPTURE_BLOCK,
-    /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors, settle, resultCount \}\)/,
-    "FAILURE_CAPTURE_BLOCK's dump body must carry networkErrors alongside runtimeErrors",
-  );
-});
-
-test("the seed's capture block is byte-identical to FAILURE_CAPTURE_BLOCK", () => {
-  const content = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
-  const start = content.indexOf(`\n// ${FAILURE_CAPTURE_MARKER}`);
-  assert.notEqual(start, -1, "the seed must carry the capture block marker");
-  const closing = "// <<< qa-failure-capture <<<\n";
-  const endMarker = content.indexOf(closing, start);
-  assert.notEqual(endMarker, -1, "the seed must carry the closing marker");
-  assert.equal(
-    content.slice(start, endMarker + closing.length),
-    FAILURE_CAPTURE_BLOCK,
-    "the seed block and FAILURE_CAPTURE_BLOCK drifted: update both twins and record the outgoing revision",
-  );
-});
-
-test("setup.adapter.ts FAILURE_CAPTURE_BLOCK contains page.on('console'/'pageerror' and runtimeErrors (twin sync)", () => {
-  assert.ok(FAILURE_CAPTURE_BLOCK.includes("page.on('console'"), "FAILURE_CAPTURE_BLOCK must register a console listener");
-  assert.ok(FAILURE_CAPTURE_BLOCK.includes("page.on('pageerror'"), "FAILURE_CAPTURE_BLOCK must register a pageerror listener");
-  assert.ok(FAILURE_CAPTURE_BLOCK.includes("runtimeErrors"), "FAILURE_CAPTURE_BLOCK must carry runtimeErrors");
-  assert.match(
-    FAILURE_CAPTURE_BLOCK,
-    /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors[^}]*\}\)/,
-    "FAILURE_CAPTURE_BLOCK's dump body must carry runtimeErrors alongside the existing fields",
-  );
+test("failureCaptureBlockFrom refuses a seed whose fixtures.ts carries no capture block", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-seed-"));
+  try {
+    writeFileSync(join(dir, "fixtures.ts"), "export const x = 1;\n");
+    assert.throws(() => failureCaptureBlockFrom(dir), /carries no failure-capture block/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 /* The capture block is type-checked under the seed's tsconfig in setup.adapter.type-check.test.ts, which runs the compiler. */
@@ -1114,7 +997,7 @@ const REPO_FIXTURES = 'import { test as base, expect } from "@playwright/test";\
 
 /* Every capture block a repo received, appended or in the seed's fixtures.ts, is recorded as a
    failure-capture.revN.txt fixture; the newest is the block shipped today. Only a block that is still
-   byte-for-byte an earlier revision is upgraded, in place. Changing FAILURE_CAPTURE_BLOCK means
+   byte-for-byte an earlier revision is upgraded, in place. Changing SEED_CAPTURE_BLOCK means
    recording it as the next revision, which makes the outgoing block an earlier one that must upgrade. */
 const FAILURE_CAPTURE_REVISIONS = readdirSync(SEED_REVISIONS_DIR)
   .filter((name) => /^failure-capture\.rev\d+\.txt$/.test(name))
@@ -1124,8 +1007,8 @@ test("the block shipped today is the newest recorded capture block revision", ()
   const newest = FAILURE_CAPTURE_REVISIONS.at(-1)!;
   assert.equal(
     shippedRevision(newest),
-    FAILURE_CAPTURE_BLOCK,
-    `FAILURE_CAPTURE_BLOCK changed: record it as the next failure-capture.revN.txt after ${newest} and add the outgoing block's sha256 to the earlier revisions`,
+    SEED_CAPTURE_BLOCK,
+    `SEED_CAPTURE_BLOCK changed: record it as the next failure-capture.revN.txt after ${newest} and add the outgoing block's sha256 to the earlier revisions`,
   );
 });
 
@@ -1135,7 +1018,7 @@ test("ensureFailureCapture upgrades every earlier recorded block revision in pla
   assert.ok(earlier.length > 0, "precondition: earlier revisions are recorded");
   for (const revision of earlier) {
     const after = afterEnsure("fixtures.ts", REPO_FIXTURES + shippedRevision(revision) + later, (adapter, dir) => adapter.ensureFailureCapture(dir));
-    assert.equal(after, REPO_FIXTURES + FAILURE_CAPTURE_BLOCK + later, `${revision} is an earlier capture block`);
+    assert.equal(after, REPO_FIXTURES + SEED_CAPTURE_BLOCK + later, `${revision} is an earlier capture block`);
   }
 });
 
@@ -1145,7 +1028,7 @@ test("ensureFailureCapture upgrades every earlier recorded block revision in pla
 test("ensureFailureCapture replaces in place the capture block appended without markers", () => {
   const later = "export const helperAddedLater = 1;\n";
   const after = afterEnsure("fixtures.ts", REPO_FIXTURES + shippedRevision("failure-capture.unmarked.txt") + later, (adapter, dir) => adapter.ensureFailureCapture(dir));
-  assert.equal(after, REPO_FIXTURES + FAILURE_CAPTURE_BLOCK + later);
+  assert.equal(after, REPO_FIXTURES + SEED_CAPTURE_BLOCK + later);
 });
 
 test("ensureFailureCapture leaves an edited copy of the block appended without markers as it is, appending nothing", () => {
@@ -1163,27 +1046,6 @@ test("ensureFailureCapture never touches an appended capture block someone edite
   assert.equal(afterEnsure("fixtures.ts", edited, (adapter, dir) => adapter.ensureFailureCapture(dir)), edited);
 });
 
-/* The seed's fixtures.ts (new onboards) and FAILURE_CAPTURE_BLOCK (appended into existing repos)
-   are the same capture code: a repo must get identical failure evidence whichever way it received the
-   block. Both are strict TypeScript, so they are compared as-is — a token-presence check would miss a
-   silent change such as a NUL byte in the runtimeErrors dedup key. */
-test("the seed fixtures.ts carries exactly the capture block that is appended into existing repos", () => {
-  const content = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
-  const start = content.indexOf(">>> qa-failure-capture");
-  assert.ok(start !== -1, "fixtures.ts must contain the qa-failure-capture start marker");
-  const blockStart = content.lastIndexOf("\n", start); /* the newline just before "// >>>" */
-  const endMarkerLine = "// <<< qa-failure-capture <<<";
-  const endMarkerIdx = content.indexOf(endMarkerLine, start);
-  assert.ok(endMarkerIdx !== -1, "fixtures.ts must contain the full end marker line");
-  const seedBlock = content.slice(blockStart, endMarkerIdx + endMarkerLine.length + 1); /* include the trailing newline */
-
-  assert.equal(
-    seedBlock,
-    FAILURE_CAPTURE_BLOCK,
-    "config/e2e/fixtures.ts's capture block has drifted from setup.adapter.ts's FAILURE_CAPTURE_BLOCK — existing repos only ever receive FAILURE_CAPTURE_BLOCK, so the two must stay identical",
-  );
-});
-
 /* ── The afterEach body, run as a real ES module, dumps runtimeErrors ─────────
    Same harness as the ESM tests above: run the block's beforeEach/afterEach as genuine ESM
    callbacks against a fake page that emits console/pageerror events, and assert the dump.
@@ -1194,7 +1056,7 @@ test("dump carries deduped+capped runtimeErrors from console('error')+pageerror 
   try {
     const moduleSrc =
       `const test = { beforeEach(fn) { globalThis.__qaBefore_rt = fn; }, afterEach(fn) { globalThis.__qaAfter_rt = fn; } };\n` +
-      FAILURE_CAPTURE_BLOCK +
+      SEED_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBefore_rt;\nexport const afterEachFn = globalThis.__qaAfter_rt;\n`;
     const modPath = join(dir, "runtime.mts");
     writeFileSync(modPath, moduleSrc);
@@ -1254,7 +1116,7 @@ test("runtimeErrors is reset between tests — reused page does not cross-attrib
   try {
     const moduleSrc =
       `const test = { beforeEach(fn) { globalThis.__qaBefore_rtreset = fn; }, afterEach(fn) { globalThis.__qaAfter_rtreset = fn; } };\n` +
-      FAILURE_CAPTURE_BLOCK +
+      SEED_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBefore_rtreset;\nexport const afterEachFn = globalThis.__qaAfter_rtreset;\n`;
     const modPath = join(dir, "runtime-reset.mts");
     writeFileSync(modPath, moduleSrc);
@@ -1302,7 +1164,7 @@ test("the afterEach body remains a no-op when QA_FAILURE_CAPTURE_DIR is unset, e
   try {
     const moduleSrc =
       `const test = { beforeEach(fn) { globalThis.__qaBeforeRtNoop = fn; }, afterEach(fn) { globalThis.__qaCaptureRtNoop = fn; } };\n` +
-      FAILURE_CAPTURE_BLOCK +
+      SEED_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBeforeRtNoop;\nexport const afterEachFn = globalThis.__qaCaptureRtNoop;\n`;
     const modPath = join(dir, "capture-rt-noop.mts");
     writeFileSync(modPath, moduleSrc);
