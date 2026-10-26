@@ -81,6 +81,23 @@ test("reach is ordered by tier, then confidence, and capped with the rest counte
   assert.deepEqual([built.reach.map((r) => (r.entry as { route: string }).route), built.omitted], [["/profile"], 1]);
 });
 
+test("pages and operations are capped each on their own, so operations never crowd a page out of the reach", () => {
+  const hit = (entry: ReachHit["entry"], hops: number): ReachHit => ({ entry, basis: "contract", seed: { file: "x.ts", symbol: `x${hops}` }, hops, evidence: ["x.ts::x"], confidence: 1, seedCut: false });
+  const fake: ReachProof = {
+    id: "fake",
+    prove: (): readonly ReachHit[] => [
+      ...["/a", "/b", "/c"].map((path) => hit({ kind: "operation", repo: "org/api", verb: "GET", path: `/api${path}` }, 0)),
+      ...["/x", "/y", "/z"].map((route) => hit({ kind: "page", repo: "org/web", route }, 2)),
+    ],
+  };
+
+  const built = scope([], { limits: { maxReach: 2, hubEntries: CHANGE_SCOPE_LIMITS.hubEntries } }, {}, [fake]);
+
+  assert.deepEqual(built.reach.filter((r) => r.entry.kind === "page").map((r) => (r.entry as { route: string }).route), ["/x", "/y"]);
+  assert.deepEqual(built.reach.filter((r) => r.entry.kind === "operation").map((r) => (r.entry as { path: string }).path), ["/api/a", "/api/b"]);
+  assert.equal(built.omitted, 2);
+});
+
 test("a new proof contributes entries without any change to buildChangeScope", () => {
   const fake: ReachProof = { id: "fake", prove: (): readonly ReachHit[] => [{ entry: { kind: "page", repo: "org/web", route: "/home" }, basis: "contract", seed: { file: "x.ts", symbol: "x" }, hops: 0, evidence: ["x.ts::x", "page /home"], confidence: 1, seedCut: false }] };
 

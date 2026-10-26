@@ -8,6 +8,7 @@ import type { GraphRoute, ImpactedSymbol } from "@kernel/code/index.ts";
 import { keyOf, pageFiles, type PageMap } from "./page-files.ts";
 import { entryKey, type ChangedSymbol, type ChangeScope, type EntryPoint, type ReachBasis, type ReachEntry, type ReachTier, type RepoScope } from "./change-scope.ts";
 
+/* maxReach: the entries kept per kind (pages, operations); hubEntries: the entries of one kind past which a changed symbol is a hub. */
 export const CHANGE_SCOPE_LIMITS = { maxReach: 6, hubEntries: 4 } as const;
 
 /* One walk the index answered: the symbols reached (depth 0 are its seeds), what opens each proof (the link it crossed, across repos), and whether the walk is of the repo the map's operations belong to. */
@@ -139,12 +140,20 @@ export function buildChangeScope(input: ScopeInput, proofs: readonly ReachProof[
   });
   reach.sort((a, b) => TIER_ORDER[a.tier] - TIER_ORDER[b.tier] || b.confidence - a.confidence || a.evidence.length - b.evidence.length || entryKey(a.entry).localeCompare(entryKey(b.entry)));
 
+  /* Pages and operations are capped each on their own: an operation never takes a page's slot. */
+  const kept = new Map<ReachEntry["entry"]["kind"], number>();
+  const capped = reach.filter((r) => {
+    const n = kept.get(r.entry.kind) ?? 0;
+    kept.set(r.entry.kind, n + 1);
+    return n < limits.maxReach;
+  });
+
   return {
     repos: [...input.repos],
-    reach: reach.slice(0, limits.maxReach),
+    reach: capped,
     hubs,
     disagreements: pageFiles(input.proofs.map, input.proofs.pageRoutes).disagreements,
-    omitted: Math.max(0, reach.length - limits.maxReach),
+    omitted: reach.length - capped.length,
     degraded: [...input.degraded],
   };
 }
