@@ -90,6 +90,7 @@ test("isProtectedPath protects the run engine factory", () => {
 
 test("isProtectedPath protects the engine root that wires every context's builder", () => {
   assert.equal(isProtectedPath("src/server/engine-root.ts"), true);
+  assert.equal(isProtectedPath("qa-engine/src/contexts/test-execution/composition/build-test-execution.ts"), true);
 });
 
 test("isProtectedPath flags the recovery net and build/topology, exact and prefix", () => {

@@ -175,6 +175,12 @@ export const PROTECTED_PATHS: string[] = [
    */
   "src/server/run-engine-factory.ts",
   "src/server/engine-root.ts",
+  /*
+   * The test-execution builder — chooses the validation and execution strategy of a run's target. An
+   * autonomous edit can route the code target to the e2e strategy (or the reverse) and run agent code
+   * through the wrong sandbox profile without touching the strategies themselves.
+   */
+  "qa-engine/src/contexts/test-execution/composition/build-test-execution.ts",
 
   "qa-engine/src/shared-kernel/ports/redaction.port.ts",
   /*
