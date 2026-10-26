@@ -26,7 +26,7 @@ import {
 import { lookupAttribute, type AttrSpec } from "@kernel/telemetry/attribute-registry";
 import { INSTRUMENTS, type InstrumentTable } from "./instrument-table";
 import type { RecordMeasurement, RedactionScope, SpanHandle, SpanKind, StartSpanOptions, TelemetryClock, TelemetryContext, TelemetryPort } from "@kernel/telemetry/telemetry.port";
-import { sanitizeText } from "../orchestrator/sanitizer";
+import { sanitizeText } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
 
 import { capCaptureMode, isCaptureMode, DEFAULT_CAPTURE_MODE, type CaptureMode } from "@kernel/telemetry/capture-mode";
 

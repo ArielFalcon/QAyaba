@@ -1,4 +1,4 @@
-/* Canonical secret-redaction seam. Everything leaving the system (diff → model, execution logs → Issue, delegation briefs → provider) passes through an adapter of this port. qa-engine must not import src/; the shell adapter in src/orchestrator/sanitizer.ts re-exports SecretLeakError from here. */
+/* Canonical secret-redaction seam. Everything leaving the system (diff → model, execution logs → Issue, delegation briefs → provider) passes through an adapter of this port. qa-engine must not import src/; the shell adapter in src/orchestrator/sanitizer.ts adds the orchestrator environment secrets and re-exports SecretLeakError from here. */
 
 export const REDACTED = "[REDACTED]";
 

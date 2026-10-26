@@ -5,7 +5,7 @@
  */
 
 import { RunRecord } from "../types";
-import { sanitizeText } from "../orchestrator/sanitizer";
+import { sanitizeText } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
 import { infraErrorGloss } from "../qa/learning/taxonomy";
 import { listRunOutcomes, listLearningRules, loadCurriculum } from "./history";
 import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";

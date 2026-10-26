@@ -1,4 +1,4 @@
-import { sanitizeText } from "../orchestrator/sanitizer";
+import { sanitizeText } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
 import { infraErrorGloss } from "../qa/learning/taxonomy";
 import { DEFAULT_HOST } from "./port";
 

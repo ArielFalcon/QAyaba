@@ -26,7 +26,7 @@ export interface UsageSnapshot {
 /** What an attempt spent, as its runtime reports it. The cost is absent when the runtime reports none: it is never made up. */
 export type AttemptUsage = Omit<UsageSnapshot, "cost"> & { cost?: number };
 
-/** A single agent prompt/response turn captured at the transport funnel. outputText is sanitized BEFORE emitting (sanitizeText, the qa-engine twin of src/orchestrator/sanitizer.ts). runId is null when the session was opened without a descriptor. */
+/** A single agent prompt/response turn captured at the transport funnel. outputText is sanitized BEFORE emitting (sanitizeText from shared-infrastructure/redaction). runId is null when the session was opened without a descriptor. */
 export interface AgentTurnEvent {
   runId: string | null;
   sessionId: string;

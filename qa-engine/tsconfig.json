@@ -28,7 +28,6 @@
     "test/contexts/generation/infrastructure/verdict-parser.adapter-parity.test.ts",
     "test/contexts/generation/infrastructure/verdict-parser.adapter.noop-kind.test.ts",
     "test/contexts/cross-run-learning/domain/error-class-taxonomy.test.ts",
-    "test/shared-infrastructure/redaction/pattern-redaction-parity.test.ts",
     "test/contract/seam-parity.contract.test.ts"
   ]
 }
