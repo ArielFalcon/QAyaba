@@ -250,17 +250,17 @@ test("with the authenticated browser, a plan is never asked for more flows at on
   assert.equal(seen[0]!.maxParallel, MAX_SESSION_PAGES);
 });
 
-test("the planning turn is told the pages the change is linked to, and the pages no admitted flow visits are reported", async () => {
+test("the planning turn is told the use cases the change makes testable, and those the plan leaves unplanned are reported", async () => {
   const r = rig();
   const seen: PlanningLimits[] = [];
   const plan = { kind: "fanout", flows: [{ id: "cart", objective: "the cart total", routes: ["/cart"] }, { id: "login", objective: "sign in works", routes: ["/shops/madrid"] }] };
   const outcome = await r.coordinator.coordinate(input(r, { candidates: pageCandidates(["/cart", "/shops/:city", "/orders"]), plan: async (p) => (seen.push(p), { plan, parsed: true, timedOut: false }) }));
   if (outcome.action === "fanout") await outcome.pass?.release();
-  assert.deepEqual(seen[0]?.changeRoutes, ["/cart", "/shops/:city", "/orders"]);
-  const reported = r.events.filter((e) => /change page/.test(e.reason ?? ""));
+  assert.deepEqual(seen[0]?.candidates?.map((c) => c.id), ["uc-/cart", "uc-/shops/:city", "uc-/orders"]);
+  const reported = r.events.filter((e) => /unplanned/.test(e.reason ?? ""));
   assert.equal(reported.length, 1);
-  assert.match(reported[0]!.reason, /1 of 3 .*\/orders/);
-  assert.doesNotMatch(reported[0]!.reason, /\/shops/, "a template a flow visits a page of counts as visited");
+  assert.match(reported[0]!.reason, /1 use case.*uc-\/orders/);
+  assert.doesNotMatch(reported[0]!.reason, /shops/, "a template a flow visits a page of counts as covered");
 });
 
 test("the run keeps the plan it admitted, the change pages each flow visits and how each flow ended", async () => {
@@ -273,6 +273,7 @@ test("the run keeps the plan it admitted, the change pages each flow visits and 
   assert.equal(last.kind, "fanout");
   assert.deepEqual(last.changeRoutes, ["/cart", "/orders"]);
   assert.deepEqual(last.unvisited, ["/orders"]);
+  assert.deepEqual(last.candidates.map((c) => [c.id, c.state]), [["uc-/cart", "planned"], ["uc-/orders", "unplanned"]]);
   const cart = last.flows.find((f) => f.id === "cart")!;
   assert.deepEqual({ objective: cart.objective, acceptance: cart.acceptance, routes: cart.routes, specFile: cart.specFile, visits: cart.visits }, { objective: "the cart total", acceptance: ["the total adds the lines"], routes: ["/cart"], specFile: "flows/cart.spec.ts", visits: ["/cart"] });
   assert.equal(cart.outcome?.kind, "delivered");
@@ -285,7 +286,7 @@ test("the run keeps the plan it admitted, the change pages each flow visits and 
 test("a plan that is a no-op or is rejected is kept with why", async () => {
   const noop = rig();
   await noop.coordinator.coordinate(input(noop, { candidates: pageCandidates(["/cart"]), plan: async () => ({ parsed: true, timedOut: false, noopReason: "only a comment changed" }) }));
-  assert.deepEqual(noop.plans.map((p) => [p.kind, p.reason, p.flows.length, p.unvisited]), [["noop", "only a comment changed", 0, ["/cart"]]]);
+  assert.deepEqual(noop.plans.map((p) => [p.kind, p.reason, p.flows.length, p.unvisited, p.candidates]), [["noop", "only a comment changed", 0, ["/cart"], []]]);
   const lead = rig();
   await lead.coordinator.coordinate(input(lead, { plan: async () => ({ plan: { kind: "lead" }, parsed: true, timedOut: false }) }));
   assert.deepEqual(lead.plans.map((p) => [p.kind, p.reason]), [["rejected", PLAN_DOWNGRADE.MALFORMED]]);
@@ -302,19 +303,19 @@ test("a plan of one flow opens exactly one sidekick session and the lead reviews
   assert.ok(lead.asked.length >= 1, "the lead reviewed the flow");
   assert.equal(outcome.signal.flows, 1);
   assert.equal(outcome.signal.delivered, 1);
-  const reported = r.events.filter((e) => /change page/.test(e.reason ?? ""));
+  const reported = r.events.filter((e) => /unplanned/.test(e.reason ?? ""));
   assert.equal(reported.length, 1);
-  assert.match(reported[0]!.reason, /1 of 2 change page\(s\) no flow visits: \/shops\/:province\/:slug\/menu$/);
+  assert.match(reported[0]!.reason, /1 use case.*uc-\/shops\/:province\/:slug\/menu$/);
 });
 
-test("a plan of kind lead is rejected as malformed and names no change page", async () => {
+test("a plan of kind lead is rejected as malformed and names no use case", async () => {
   const lead = rig();
   const outcome = await lead.coordinator.coordinate(input(lead, { candidates: pageCandidates(["/cart"]), plan: async () => ({ plan: { kind: "lead" }, parsed: true, timedOut: false }) }));
   assert.equal(outcome.action === "refused" ? outcome.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.MALFORMED}`);
-  assert.equal(lead.events.filter((e) => /change page/.test(e.reason ?? "")).length, 0);
+  assert.equal(lead.events.filter((e) => /unplanned/.test(e.reason ?? "")).length, 0);
 });
 
-test("the lead's review names the change pages no flow visits and those no flow covers with a spec that passed run_spec", async () => {
+test("the lead's review names the use cases no flow covers and those no flow covers with a spec that passed run_spec", async () => {
   const plan = { kind: "fanout", flows: [{ id: "cart", objective: "the cart total", routes: ["/cart"] }, { id: "login", objective: "sign in works", routes: ["/login"] }] };
   const lead = leadWith([[{ flow: "cart", action: "accept" }, { flow: "login", action: "accept" }]], plan);
   const r = rig();
@@ -325,22 +326,21 @@ test("the lead's review names the change pages no flow visits and those no flow 
   })(r.closedLoop.openFlow);
   const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { candidates: pageCandidates(["/cart", "/login", "/orders"]), plan: lead.plan }));
   if (outcome.action === "fanout") await outcome.pass?.release();
-  /* The flow blocks name no route: every change page is listed once, and a page the review flags is named a second time. */
+  /* The flow blocks carry routes only in their objective: a use case is named in the review only when it is flagged. */
   const first = lead.asked[0]!;
-  const times = (page: string): number => first.split(page).length - 1;
-  assert.equal(times("/orders"), 2, "the page no flow visits");
-  assert.equal(times("/login"), 2, "the page whose only flow has not passed");
-  assert.equal(times("/cart"), 1, "a page a passing flow covers is not flagged");
+  assert.ok(first.includes("uc-/orders"), "the use case no flow covers");
+  assert.ok(first.includes("uc-/login"), "the use case whose only flow has not passed");
+  assert.ok(!first.includes("uc-/cart"), "a use case a passing flow covers is not flagged");
 });
 
-test("a flow that names a change page by its template, whatever its parameters are called, visits it", async () => {
+test("a flow that names a candidate page by its template, whatever its parameters are called, covers it", async () => {
   const r = rig();
   const plan = { kind: "fanout", flows: [{ id: "detail", objective: "the detail page", routes: ["/shops/:province/:shopSlug"] }, { id: "menu", objective: "the menu page", routes: ["/shops/[province]/[slug]/menu"] }] };
   const outcome = await r.coordinator.coordinate(input(r, { candidates: pageCandidates(["/shops/:province/:slug", "/shops/:province/:slug/menu", "/shops/:province"]), plan: async () => ({ plan, parsed: true, timedOut: false }) }));
   if (outcome.action === "fanout") await outcome.pass?.release();
-  const reported = r.events.filter((e) => /change page/.test(e.reason ?? ""));
+  const reported = r.events.filter((e) => /unplanned/.test(e.reason ?? ""));
   assert.equal(reported.length, 1);
-  assert.match(reported[0]!.reason, /1 of 3 change page\(s\) no flow visits: \/shops\/:province$/);
+  assert.match(reported[0]!.reason, /1 use case.*uc-\/shops\/:province$/);
 });
 
 test("the planning turn is given the limits the plan is held to, and one that ran out of time or gave neither plan nor reason is refused", async () => {
@@ -1224,4 +1224,109 @@ test("an exploration that has no time left is not run, and the lead is told so a
   await new LeadSidekicks(r.deps).coordinate(x.input({ deadline }));
   assert.equal(x.opened.length, 0);
   assert.match(x.askedForPlan[0]!, /No exploration ran: too little of the run is left to explore/);
+});
+
+
+/* A lead that answers the plan turn with `first`, and each later plan turn with the next of `again`; it records the text of every plan turn it was asked. */
+function leadReplanning(first: Record<string, unknown>, again: Array<Record<string, unknown> | undefined>): { plan: CoordinateInput["plan"]; replans: string[]; reviews: string[] } {
+  const replans: string[] = [];
+  const reviews: string[] = [];
+  return {
+    replans,
+    reviews,
+    plan: async () => ({
+      plan: first,
+      parsed: true,
+      timedOut: false,
+      lead: {
+        askForPlan: async (text: string) => {
+          replans.push(text);
+          const plan = again[Math.min(replans.length - 1, again.length - 1)];
+          return { parsed: plan !== undefined, timedOut: false, ...(plan ? { plan } : {}) };
+        },
+        ask: async (text: string) => { reviews.push(text); return { output: ACCEPT_ALL, timedOut: false }; },
+        dispose: async () => {},
+      },
+    }),
+  };
+}
+
+const planOf = (flows: unknown[], dropped?: unknown[]): Record<string, unknown> => ({ kind: "fanout", flows, ...(dropped ? { dropped } : {}) });
+const cartFlow = { id: "cart", objective: "the cart total", routes: ["/cart"] };
+const loginFlow = { id: "login", objective: "sign in works", routes: ["/login"] };
+
+test("a plan that answers for every direct candidate is admitted with no second plan turn", async () => {
+  const r = rig();
+  const lead = leadReplanning(planOf([{ ...cartFlow, candidates: ["uc-/cart"] }, { ...loginFlow, routes: [], candidates: ["uc-/login"] }]), [undefined]);
+  const outcome = await r.coordinator.coordinate(input(r, { candidates: pageCandidates(["/cart", "/login"]), plan: lead.plan }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  assert.equal(lead.replans.length, 0);
+  assert.deepEqual(r.plans[0]!.candidates.map((c) => c.state), ["planned", "planned"]);
+});
+
+test("a plan that leaves one direct candidate unmentioned asks the lead once more with that id, and the second plan that covers it is admitted", async () => {
+  const r = rig();
+  const lead = leadReplanning(planOf([cartFlow]), [planOf([cartFlow, loginFlow])]);
+  const outcome = await r.coordinator.coordinate(input(r, { candidates: pageCandidates(["/cart", "/login"]), plan: lead.plan }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  assert.equal(lead.replans.length, 1);
+  assert.ok(lead.replans[0]!.includes("uc-/login") && !lead.replans[0]!.includes("uc-/cart"));
+  assert.deepEqual(r.plans.at(-1)!.flows.map((f) => f.id), ["cart", "login"]);
+  assert.deepEqual(r.plans.at(-1)!.candidates.map((c) => [c.id, c.state]), [["uc-/cart", "planned"], ["uc-/login", "planned"]]);
+  assert.equal(r.events.filter((e) => /unplanned/.test(e.reason ?? "")).length, 0);
+});
+
+test("a candidate dropped with a reason is admitted and kept as dropped; a drop without a reason is unresolved", async () => {
+  const withReason = rig();
+  const dropping = leadReplanning(planOf([cartFlow], [{ candidate: "uc-/login", reason: "only a log line changed" }]), [undefined]);
+  const done = await withReason.coordinator.coordinate(input(withReason, { candidates: pageCandidates(["/cart", "/login"]), plan: dropping.plan }));
+  if (done.action === "fanout") await done.pass?.release();
+  assert.equal(dropping.replans.length, 0);
+  assert.deepEqual(withReason.plans[0]!.candidates.map((c) => [c.id, c.state, c.reason]), [["uc-/cart", "planned", undefined], ["uc-/login", "dropped", "only a log line changed"]]);
+
+  const without = rig();
+  const silent = leadReplanning(planOf([cartFlow], [{ candidate: "uc-/login", reason: "" }]), [undefined]);
+  const second = await without.coordinator.coordinate(input(without, { candidates: pageCandidates(["/cart", "/login"]), plan: silent.plan }));
+  if (second.action === "fanout") await second.pass?.release();
+  assert.equal(silent.replans.length, 1);
+});
+
+test("after the second plan still leaves a candidate unresolved, the plan is admitted, the candidate is recorded unplanned, the lead is not asked again and every review turn names it", async () => {
+  const r = rig();
+  const lead = leadReplanning(planOf([cartFlow]), [planOf([cartFlow])]);
+  const outcome = await r.coordinator.coordinate(input(r, { candidates: pageCandidates(["/cart", "/login"]), plan: lead.plan }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  assert.equal(outcome.action, "fanout");
+  assert.equal(lead.replans.length, 1);
+  assert.deepEqual(r.plans.at(-1)!.candidates.map((c) => [c.id, c.state]), [["uc-/cart", "planned"], ["uc-/login", "unplanned"]]);
+  assert.equal(r.events.filter((e) => /unplanned/.test(e.reason ?? "")).length, 1);
+  assert.ok(lead.reviews.length > 0 && lead.reviews.every((text) => text.includes("uc-/login")));
+});
+
+test("a second answer that is not a plan of flows leaves the first plan standing", async () => {
+  const r = rig();
+  const lead = leadReplanning(planOf([cartFlow]), [{ kind: "noop", reason: "nothing to test" }]);
+  const outcome = await r.coordinator.coordinate(input(r, { candidates: pageCandidates(["/cart", "/login"]), plan: lead.plan }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  assert.equal(outcome.action, "fanout");
+  assert.deepEqual(r.plans.at(-1)!.flows.map((f) => f.id), ["cart"]);
+  assert.equal(r.plans.at(-1)!.candidates.find((c) => c.id === "uc-/login")?.state, "unplanned");
+});
+
+test("indirect and backend-only candidates never trigger a second plan turn", async () => {
+  const r = rig();
+  const lead = leadReplanning(planOf([cartFlow]), [undefined]);
+  const candidates = [pageCandidate("/cart"), pageCandidate("/deep", ["x"], { tier: "indirect" }), pageCandidate("/api/x", ["x"], { entry: { kind: "operation", repo: "org/api", verb: "GET", path: "/api/x" }, reachability: "backend-only" })];
+  const outcome = await r.coordinator.coordinate(input(r, { candidates, plan: lead.plan }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  assert.equal(lead.replans.length, 0);
+});
+
+test("a plan against a run with no candidates is admitted untouched and records none", async () => {
+  const r = rig();
+  const lead = leadReplanning(planOf([cartFlow]), [undefined]);
+  const outcome = await r.coordinator.coordinate(input(r, { plan: lead.plan }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  assert.equal(lead.replans.length, 0);
+  assert.deepEqual(r.plans[0]!.candidates, []);
 });

@@ -33,6 +33,9 @@ export const MAX_ACCEPTANCE_CHARS = 240;
 export const MAX_ROUTES = 12;
 export const MAX_ROUTE_CHARS = 200;
 export const MAX_NOOP_REASON_CHARS = 400;
+export const MAX_FLOW_CANDIDATES = 24;
+export const MAX_DROPPED = 24;
+export const MAX_CANDIDATE_ID_CHARS = 64;
 
 /* A site-relative path, as the app's own links are: no scheme, no host, no whitespace. */
 export const ROUTE = /^\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]*$/;
@@ -74,6 +77,8 @@ export interface AdmittedFlow {
   objective: string;
   acceptance: string[];
   routes: string[];
+  /* The ids of the use cases the flow says it covers; an id no candidate has is ignored by whoever reads them. */
+  candidates: string[];
   /* The spec file relative to the spec directory, and the one path, relative to the repository, the flow may write. */
   specFile: string;
   writablePaths: string[];
@@ -91,7 +96,13 @@ export const PLAN_REJECTED = "rejected" as const;
 export type AdmittedPlan =
   | { kind: typeof LEAD_PLAN_KIND.NOOP; reason: string }
   | { kind: typeof PLAN_REJECTED; downgrade: PlanDowngrade }
-  | { kind: typeof LEAD_PLAN_KIND.FANOUT; flows: AdmittedFlow[]; parallel: number };
+  | { kind: typeof LEAD_PLAN_KIND.FANOUT; flows: AdmittedFlow[]; parallel: number; dropped: PlanDrop[] };
+
+/* A use case the lead says needs no test, with the reason it gave. */
+export interface PlanDrop {
+  candidate: string;
+  reason: string;
+}
 
 function reject(downgrade: PlanDowngrade): AdmittedPlan {
   return { kind: PLAN_REJECTED, downgrade };
@@ -142,7 +153,26 @@ interface RawFlow {
   objective: string;
   acceptance: string[];
   routes: string[];
+  candidates: string[];
   location?: GeoLocation;
+}
+
+function candidateIdsOf(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const ids = value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter((item) => item !== "" && item.length <= MAX_CANDIDATE_ID_CHARS && !/\s/.test(item));
+  return [...new Set(ids)].slice(0, MAX_FLOW_CANDIDATES);
+}
+
+function dropsOf(value: unknown, redaction: RedactionPort): PlanDrop[] {
+  if (!Array.isArray(value)) return [];
+  const drops: PlanDrop[] = [];
+  for (const entry of value) {
+    if (!isRecord(entry)) continue;
+    const [candidate] = candidateIdsOf([entry.candidate]);
+    const reason = text(redaction, entry.reason, MAX_ACCEPTANCE_CHARS);
+    if (candidate !== undefined && reason !== "" && !drops.some((d) => d.candidate === candidate)) drops.push({ candidate, reason });
+  }
+  return drops.slice(0, MAX_DROPPED);
 }
 
 /* The flow's location as the plan gave it: a declared place's name, or a point; anything else is dropped and the flow inherits the lead's. */
@@ -163,6 +193,7 @@ function rawFlowOf(value: unknown, places: Readonly<Record<string, GeoLocation>>
     objective,
     acceptance,
     routes: named.length > 0 ? named : routesOf(pathsIn([objective, ...acceptance])),
+    candidates: candidateIdsOf(value.candidates),
     ...(location !== undefined ? { location } : {}),
   };
 }
@@ -209,6 +240,7 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
   return {
     kind: LEAD_PLAN_KIND.FANOUT,
     parallel,
+    dropped: dropsOf(raw.dropped, deps.redaction),
     flows: flows.map((flow) => {
       const specFile = deps.specFileFor(flow.id);
       return {
@@ -217,6 +249,7 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
         objective: flow.objective,
         acceptance: flow.acceptance,
         routes: flow.routes,
+        candidates: flow.candidates,
         specFile,
         writablePaths: [`${deps.specRelDir.replace(/\/+$/, "")}/${specFile}`],
         budgetMs,

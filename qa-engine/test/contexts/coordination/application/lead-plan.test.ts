@@ -244,3 +244,20 @@ test("a flow that names no route visits the paths its objective and acceptance n
   assert.deepEqual(flows[0]!.routes, ["/shops/madrid/x", "/shops/madrid/:value/menu", "/search"]);
   assert.deepEqual(flows[1]!.routes, ["/b"], "a flow that named its routes keeps exactly those");
 });
+
+test("a flow keeps the candidate ids it cites and the plan keeps the candidates it drops with a reason", () => {
+  const plan = admitLeadPlan({ kind: "fanout", flows: [flow("cart", { candidates: ["uc-1a2b3c4d", "uc-1a2b3c4d", 7, "  "] })], dropped: [{ candidate: "uc-deadbeef", reason: " only a log line changed " }] }, limits, deps);
+  assert.deepEqual(admitted(plan)[0]!.candidates, ["uc-1a2b3c4d"]);
+  assert.deepEqual(plan.kind === LEAD_PLAN_KIND.FANOUT ? plan.dropped : undefined, [{ candidate: "uc-deadbeef", reason: "only a log line changed" }]);
+});
+
+test("a drop without a reason, or without a candidate, is not a drop", () => {
+  const plan = admitLeadPlan({ kind: "fanout", flows: [flow("cart")], dropped: [{ candidate: "uc-1", reason: "" }, { candidate: "uc-2" }, { reason: "r" }, "uc-3"] }, limits, deps);
+  assert.deepEqual(plan.kind === LEAD_PLAN_KIND.FANOUT ? plan.dropped : undefined, []);
+});
+
+test("a plan that names no candidates and drops none is admitted as before", () => {
+  const plan = admitLeadPlan(fanout(flow("cart")), limits, deps);
+  assert.deepEqual(admitted(plan)[0]!.candidates, []);
+  assert.deepEqual(plan.kind === LEAD_PLAN_KIND.FANOUT ? plan.dropped : undefined, []);
+});

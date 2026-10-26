@@ -23,11 +23,12 @@ import type { DelegationWorkspacePort } from "./ports/delegation-workspace.port.
 import { createDelegationBrief } from "./delegation-brief.ts";
 import { proofsFor } from "./change-proofs.ts";
 import { pageRoutesOf, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import { admissionSetOf, MAX_PLAN_ROUNDS, planCoverage, renderReplanRequest, unvisitedBy, type AdmissionSet, type PlanCoverage } from "./plan-coverage.ts";
 import type { DelegationResult } from "./delegation-result.ts";
 import { classifyDelegationFailure } from "./delegation-failure-class.ts";
-import { admitLeadReview, changePagesOf, MAX_REVIEW_TURNS, renderLeadReview, unvisitedBy, REVIEW_ACTION, type FlowUnderReview, type ReviewOrder } from "./lead-review.ts";
+import { admitLeadReview, candidateGapsOf, MAX_REVIEW_TURNS, renderLeadReview, REVIEW_ACTION, type FlowUnderReview, type ReviewOrder } from "./lead-review.ts";
 import type { CoordinationTelemetryPort } from "./coordination-telemetry.ts";
-import { PLAN_SNAPSHOT_KIND, type PlanSnapshotFlow, type PlanSnapshotKind, type PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port.ts";
+import { PLAN_SNAPSHOT_KIND, type PlanSnapshotCandidate, type PlanSnapshotFlow, type PlanSnapshotKind, type PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port.ts";
 import { authorTask } from "./author-task.ts";
 import { SIDEKICK_KIND, SIDEKICK_TIER, type SidekickKind, type SidekickTier } from "./sidekick-kinds.ts";
 import { admitExploreRequest } from "./explore-request.ts";
@@ -58,7 +59,7 @@ const proofsOf = (proofs: readonly UseCaseCandidate[] | undefined, routes: reado
   return lines === undefined ? undefined : { proofs: lines };
 };
 
-/* The pages of the change's candidates, in the order they are offered. */
+/* The pages of the change's candidates, in the order they are offered: the baseline the plan snapshot keeps beside the per-candidate states. */
 const changeRoutesOf = (input: { candidates?: readonly UseCaseCandidate[] }): string[] => pageRoutesOf(input.candidates ?? []);
 
 /* Less than this of a flow's time left and a second attempt is not started; less than this of the run and a plan is not asked for. */
@@ -205,6 +206,12 @@ interface LiveFlow {
   refusal?: string;
 }
 
+/* What the plan came to against the change's use cases: the set it had to answer for and how it answered. */
+interface PlanDecision {
+  admission: AdmissionSet;
+  coverage: PlanCoverage;
+}
+
 interface ReviewTally {
   turns: number;
   accepted: number;
@@ -253,12 +260,14 @@ export class LeadSidekicks {
 
     await this.sweep().catch((err: unknown) => console.error(`[qa] sweeping the delegation workspaces failed (the run goes on): ${err instanceof Error ? err.message : String(err)}`));
     const locations = input.geolocation?.placeNames() ?? [];
+    const admission = admissionSetOf(input.candidates);
     let planned = await input.plan({
       maxFlows: settings.maxFlows,
       maxParallel: parallel,
       budgetMs: settings.planBudgetMs,
       ...(locations.length > 0 ? { locations } : {}),
-      ...(changeRoutesOf(input).length ? { changeRoutes: changeRoutesOf(input) } : {}),
+      ...(admission.required.length > 0 ? { candidates: admission.required } : {}),
+      ...(admission.others > 0 ? { otherCandidates: admission.others } : {}),
     });
     /* The lead's planning session, when the plan kept it: its review of the flows is asked there, and it ends with the pass. */
     let leadHanded = false;
@@ -278,27 +287,14 @@ export class LeadSidekicks {
         return { action: "noop", reason: planned.noopReason, signal: { ...base, plan: LEAD_PLAN_KIND.NOOP, authoring: authoringName } };
       }
 
-      const remaining = this.remaining(input);
-      const loop = input.closedLoop?.limits;
-      const admitted = admitLeadPlan(
-        planned.plan,
-        {
-          maxFlows: settings.maxFlows,
-          maxParallel: parallel,
-          flowBudgetMs: settings.flowBudgetMs.opencode,
-          ...(remaining !== undefined ? { remainingMs: remaining } : {}),
-          reserveMs: remaining === undefined ? 0 : this.reserve(remaining),
-          minFlowMs: MIN_FLOW_MS,
-          ...(loop ? { runSpecCalls: loop.maxCalls, runSpecDevWrites: loop.maxDevWrites } : {}),
-          ...(input.agentBrowser ? { browserCalls: input.agentBrowser.limits.maxCalls } : {}),
-        },
-        {
-          redaction: this.deps.redaction,
-          specRelDir: input.specRelDir,
-          specFileFor: this.deps.specFileFor,
-          ...(input.geolocation ? { places: input.geolocation.facts().places } : {}),
-        },
-      );
+      let admitted = this.admit(input, planned.plan, parallel);
+      let coverage: PlanCoverage = { covered: [], dropped: [], unresolved: [] };
+      if (admitted.kind === LEAD_PLAN_KIND.FANOUT) {
+        coverage = planCoverage(admitted, admission.required);
+        const replanned = await this.replan(input, planned.lead, admitted, coverage, admission, parallel);
+        admitted = replanned.plan;
+        coverage = replanned.coverage;
+      }
       this.record(input, { kind: "proposal", action: admitted.kind === LEAD_PLAN_KIND.FANOUT ? "delegate" : "direct", reason: describePlan(admitted) });
       if (admitted.kind === LEAD_PLAN_KIND.NOOP) {
         this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.NOOP, [], admitted.reason);
@@ -308,14 +304,80 @@ export class LeadSidekicks {
         this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.REJECTED, [], admitted.downgrade);
         return refuse(`${AUTHORING_REFUSAL.PLAN_REJECTED}:${admitted.downgrade}`, `the plan was not admitted (${admitted.downgrade})`, { authoring: authoringName });
       }
-      this.reportUnvisited(input, this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.FANOUT, admitted.flows));
-      const result = await this.fanOut(input, admitted.flows, admitted.parallel, { mode: authoring.mode, ...(planned.lead ? { lead: planned.lead } : {}) }, { ...base, plan: LEAD_PLAN_KIND.FANOUT, authoring: authoringName });
+      this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.FANOUT, admitted.flows, undefined, undefined, coverage);
+      this.reportUnplanned(input, coverage);
+      const result = await this.fanOut(input, admitted.flows, admitted.parallel, { mode: authoring.mode, ...(planned.lead ? { lead: planned.lead } : {}) }, { ...base, plan: LEAD_PLAN_KIND.FANOUT, authoring: authoringName }, { admission, coverage });
       /* A pass kept open holds the lead's session from here on. */
       if (result.action === "fanout" && result.pass) leadHanded = true;
       return result;
     } finally {
       if (!leadHanded) await planned.lead?.dispose().catch((err: unknown) => console.error(`[qa] closing the lead's session failed: ${err instanceof Error ? err.message : String(err)}`));
     }
+  }
+
+  /* The plan the lead emitted, held to the run's limits and the time left now. */
+  private admit(input: CoordinateInput, raw: unknown, parallel: number): AdmittedPlan {
+    const { settings } = input;
+    const remaining = this.remaining(input);
+    const loop = input.closedLoop?.limits;
+    return admitLeadPlan(
+      raw,
+      {
+        maxFlows: settings.maxFlows,
+        maxParallel: parallel,
+        flowBudgetMs: settings.flowBudgetMs.opencode,
+        ...(remaining !== undefined ? { remainingMs: remaining } : {}),
+        reserveMs: remaining === undefined ? 0 : this.reserve(remaining),
+        minFlowMs: MIN_FLOW_MS,
+        ...(loop ? { runSpecCalls: loop.maxCalls, runSpecDevWrites: loop.maxDevWrites } : {}),
+        ...(input.agentBrowser ? { browserCalls: input.agentBrowser.limits.maxCalls } : {}),
+      },
+      {
+        redaction: this.deps.redaction,
+        specRelDir: input.specRelDir,
+        specFileFor: this.deps.specFileFor,
+        ...(input.geolocation ? { places: input.geolocation.facts().places } : {}),
+      },
+    );
+  }
+
+  /*
+   * A flow plan that leaves use cases unresolved goes back to the lead in its open session, once (`MAX_PLAN_ROUNDS`). Its answer
+   * replaces the plan only when it is a flow plan the run admits; otherwise, and when no session, time or round is left, the plan
+   * stands and what it leaves unresolved is recorded as unplanned. Never a refusal, never a second round.
+   */
+  private async replan(
+    input: CoordinateInput,
+    lead: LeadSessionHandle | undefined,
+    first: Extract<AdmittedPlan, { kind: typeof LEAD_PLAN_KIND.FANOUT }>,
+    firstCoverage: PlanCoverage,
+    admission: AdmissionSet,
+    parallel: number,
+  ): Promise<{ plan: AdmittedPlan; coverage: PlanCoverage }> {
+    const stands = { plan: first as AdmittedPlan, coverage: firstCoverage };
+    if (firstCoverage.unresolved.length === 0 || !lead || MAX_PLAN_ROUNDS < 2 || input.signal?.aborted) return stands;
+    const { settings } = input;
+    const left = this.remaining(input);
+    if (left !== undefined && left < settings.planBudgetMs + MIN_RESERVE_MS + MIN_FLOW_MS * 2) {
+      this.record(input, { kind: "lead-decision", reason: `plan: ${firstCoverage.unresolved.length} use case(s) unresolved and too little of the run is left to ask the lead again` });
+      return stands;
+    }
+    this.record(input, { kind: "lead-decision", reason: `plan: asking the lead once more for ${firstCoverage.unresolved.length} use case(s) it neither covers nor drops: ${firstCoverage.unresolved.map((c) => c.id).join(", ")}` });
+    let answered: Awaited<ReturnType<LeadSessionHandle["askForPlan"]>>;
+    try {
+      answered = await lead.askForPlan(renderReplanRequest(this.deps.redaction, firstCoverage.unresolved), { timeoutMs: Math.max(1, left === undefined ? settings.planBudgetMs : Math.min(settings.planBudgetMs, left)) });
+    } catch (err) {
+      if (isRunDeadlineError(err)) throw err;
+      this.record(input, { kind: "lead-decision", reason: `plan: the lead's second plan turn failed (${err instanceof Error ? err.message : String(err)}); the first plan stands` });
+      return stands;
+    }
+    if (input.signal?.aborted) return stands;
+    const second = answered.plan !== undefined ? this.admit(input, answered.plan, parallel) : undefined;
+    if (second?.kind !== LEAD_PLAN_KIND.FANOUT) {
+      this.record(input, { kind: "lead-decision", reason: "plan: the lead's second answer was not a plan of flows the run admits; the first plan stands" });
+      return stands;
+    }
+    return { plan: second, coverage: planCoverage(second, admission.required) };
   }
 
   /*
@@ -367,7 +429,7 @@ export class LeadSidekicks {
   }
 
   /* The flows of an admitted plan: each authored once, then reviewed by the lead, then added up. Every flow's resources end here, however the pass ends. */
-  private async fanOut(input: CoordinateInput, flows: AdmittedFlow[], parallel: number, how: { mode: SidekickAuthoringMode; lead?: LeadSessionHandle }, base: CoordinationGateSignal): Promise<CoordinateResult> {
+  private async fanOut(input: CoordinateInput, flows: AdmittedFlow[], parallel: number, how: { mode: SidekickAuthoringMode; lead?: LeadSessionHandle }, base: CoordinationGateSignal, decided: PlanDecision): Promise<CoordinateResult> {
     const context: FlowContext = { input, mode: how.mode };
     const live = new Map<string, LiveFlow>();
     const reports = new Map<string, FlowReport>();
@@ -377,7 +439,7 @@ export class LeadSidekicks {
       await this.settle(results, live, reports);
 
       const tally: ReviewTally = { turns: 0, accepted: 0, revised: 0, replaced: 0, dropped: 0, refused: 0 };
-      if (how.lead && !input.signal?.aborted) await this.review(how.lead, flows, parallel, context, live, reports, tally);
+      if (how.lead && !input.signal?.aborted) await this.review(how.lead, flows, parallel, context, live, reports, tally, decided);
 
       const outcomes = flows.map((flow) => reports.get(flow.id)?.outcome ?? { id: flow.id, kind: FLOW_OUTCOME.FAILED, reason: "no attempt could be made" });
       const proposals = flows.flatMap((flow) => {
@@ -385,7 +447,7 @@ export class LeadSidekicks {
         return p && p.total > 0 ? [p] : [];
       });
       const aggregated = aggregateFlowOutcomes(outcomes);
-      this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.FANOUT, flows, undefined, outcomes);
+      this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.FANOUT, flows, undefined, outcomes, decided.coverage);
       const signal: CoordinationGateSignal = {
         ...base,
         flows: flows.length,
@@ -583,16 +645,17 @@ export class LeadSidekicks {
   }
 
   /* The lead's review: up to MAX_REVIEW_TURNS turns in its planning session, each followed by the revisions it ordered, while the run has time for them. */
-  private async review(lead: LeadSessionHandle, flows: AdmittedFlow[], parallel: number, context: FlowContext, live: Map<string, LiveFlow>, reports: Map<string, FlowReport>, tally: ReviewTally): Promise<void> {
+  private async review(lead: LeadSessionHandle, flows: AdmittedFlow[], parallel: number, context: FlowContext, live: Map<string, LiveFlow>, reports: Map<string, FlowReport>, tally: ReviewTally, decided: PlanDecision): Promise<void> {
     const { input } = context;
+    const dropped = new Set(decided.coverage.dropped.map((d) => d.candidate.id));
     for (let turn = 1; turn <= MAX_REVIEW_TURNS; turn++) {
       const room = this.room(input);
       if (room !== undefined && room < MIN_FLOW_MS) break;
       const underReview = await Promise.all(flows.map((flow) => this.underReview(flow, live.get(flow.id), reports.get(flow.id)!, input)));
-      const changePages = changePagesOf(changeRoutesOf(input), flows.map((flow, i) => ({ routes: flow.routes, review: underReview[i]! })));
-      let answer: { output: string; timedOut: boolean };
+      const gaps = candidateGapsOf(decided.admission, dropped, flows.map((flow, i) => ({ routes: flow.routes, candidates: flow.candidates, review: underReview[i]! })));
+      let reply: { output: string; timedOut: boolean };
       try {
-        answer = await lead.ask(renderLeadReview(this.deps.redaction, underReview, { turn, maxTurns: MAX_REVIEW_TURNS }, changePages), { timeoutMs: Math.min(input.settings.planBudgetMs, room ?? input.settings.planBudgetMs) });
+        reply = await lead.ask(renderLeadReview(this.deps.redaction, underReview, { turn, maxTurns: MAX_REVIEW_TURNS }, gaps), { timeoutMs: Math.min(input.settings.planBudgetMs, room ?? input.settings.planBudgetMs) });
       } catch (err) {
         /* The run's own time spent ends the run; any other failure of the lead's turn leaves the flows as they are. */
         if (isRunDeadlineError(err)) throw err;
@@ -601,11 +664,11 @@ export class LeadSidekicks {
         break;
       }
       tally.turns += 1;
-      if (answer.timedOut) {
+      if (reply.timedOut) {
         this.record(input, { kind: "lead-decision", reason: `review turn ${turn}: the lead ran out of its time; the flows stand as they are` });
         break;
       }
-      const admission = admitLeadReview(this.deps.redaction, answer.output, underReview, { revisionsAllowed: turn < MAX_REVIEW_TURNS });
+      const admission = admitLeadReview(this.deps.redaction, reply.output, underReview, { revisionsAllowed: turn < MAX_REVIEW_TURNS });
       if (!admission.readable) {
         this.record(input, { kind: "lead-decision", reason: `review turn ${turn}: the lead's answer could not be read; the flows stand as they are` });
         break;
@@ -827,9 +890,10 @@ export class LeadSidekicks {
     await this.deps.workspaces.dispose(entry.workspace);
   }
 
-  /* Keeps what the run planned, and returns the change pages no flow visits. A flow visits a change page when one of its routes names it (`namesTemplatePage`). */
-  private snapshotPlan(input: CoordinateInput, kind: PlanSnapshotKind, flows: readonly AdmittedFlow[], reason?: string, outcomes?: readonly FlowOutcome[]): string[] {
+  /* Keeps what the run planned: the flows, the pages each visits, and what became of every use case the plan had to answer for. A flow visits a page when one of its routes names it (`namesTemplatePage`). */
+  private snapshotPlan(input: CoordinateInput, kind: PlanSnapshotKind, flows: readonly AdmittedFlow[], reason?: string, outcomes?: readonly FlowOutcome[], coverage?: PlanCoverage): void {
     const changeRoutes = changeRoutesOf(input);
+    const known = new Set((input.candidates ?? []).map((c) => c.id));
     const snapshotFlows: PlanSnapshotFlow[] = flows.map((flow) => {
       const outcome = outcomes?.find((o) => o.id === flow.id);
       return {
@@ -839,20 +903,25 @@ export class LeadSidekicks {
         routes: [...flow.routes],
         specFile: flow.specFile,
         visits: changeRoutes.filter((route) => flow.routes.some((visited) => namesTemplatePage(route, visited))),
+        candidates: flow.candidates.filter((id) => known.has(id)),
         ...(outcome ? { outcome: { kind: outcome.kind, ...(outcome.reason !== undefined ? { reason: outcome.reason } : {}), ...(outcome.specs ? { specs: [...outcome.specs] } : {}) } } : {}),
       };
     });
     const unvisited = unvisitedBy(changeRoutes, flows.flatMap((flow) => flow.routes));
+    const state = (candidate: UseCaseCandidate, state: PlanSnapshotCandidate["state"], why?: string): PlanSnapshotCandidate => ({ id: candidate.id, tier: candidate.tier, reachability: candidate.reachability, state, ...(why !== undefined ? { reason: why } : {}) });
+    const candidates: PlanSnapshotCandidate[] = coverage
+      ? [...coverage.covered.map((c) => state(c, "planned")), ...coverage.dropped.map((d) => state(d.candidate, "dropped", d.reason)), ...coverage.unresolved.map((c) => state(c, "unplanned"))]
+      : [];
     try {
-      this.deps.planSnapshots?.record({ runId: input.runId, kind, ...(reason !== undefined ? { reason } : {}), changeRoutes, unvisited, flows: snapshotFlows, recordedAt: this.now() });
+      this.deps.planSnapshots?.record({ runId: input.runId, kind, ...(reason !== undefined ? { reason } : {}), changeRoutes, unvisited, candidates, flows: snapshotFlows, recordedAt: this.now() });
     } catch (err) {
       console.error(`[qa] the run's plan could not be kept (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
     }
-    return unvisited;
   }
 
-  private reportUnvisited(input: CoordinateInput, unvisited: readonly string[]): void {
-    if (unvisited.length > 0) this.record(input, { kind: "lead-decision", reason: `plan: ${unvisited.length} of ${changeRoutesOf(input).length} change page(s) no flow visits: ${unvisited.join(", ")}` });
+  /* The use cases the plan, after its re-plan, still answers for nowhere: said in the run's decisions, never silent. */
+  private reportUnplanned(input: CoordinateInput, coverage: PlanCoverage): void {
+    if (coverage.unresolved.length > 0) this.record(input, { kind: "lead-decision", reason: `plan: ${coverage.unresolved.length} use case(s) neither covered nor dropped, recorded as unplanned: ${coverage.unresolved.map((c) => c.id).join(", ")}` });
   }
 
   private record(input: CoordinateInput, event: { kind: "proposal" | "delegation" | "escalation" | "lead-decision"; action?: "direct" | "delegate" | "escalate-sidekick" | "abort-human"; sidekickKind?: SidekickKind; tier?: SidekickTier; reason: string; delegationId?: string; attempt?: number; durationMs?: number; failureClass?: string; progressFingerprint?: string; sidekickStatus?: string; lastRunSpec?: string }): void {

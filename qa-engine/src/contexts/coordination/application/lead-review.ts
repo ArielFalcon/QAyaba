@@ -8,7 +8,8 @@
  * Pure: no clock, no file, no model.
  */
 
-import { namesTemplatePage } from "@contexts/generation/application/index.ts";
+import { candidateLine, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import { flowCovers, type AdmissionSet } from "./plan-coverage.ts";
 import { FLOW_OUTCOME, type FlowOutcome } from "./flow-outcomes.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 
@@ -91,48 +92,52 @@ function flowBlock(redaction: RedactionPort, flow: FlowUnderReview): string {
   ].filter(Boolean).join("\n");
 }
 
-/* The change pages no route names: a route names a page when it is that page or one of its template's (`namesTemplatePage`). */
-export function unvisitedBy(changeRoutes: readonly string[], routes: readonly string[]): string[] {
-  return changeRoutes.filter((page) => !routes.some((route) => namesTemplatePage(page, route)));
+/* The use cases a review names: those no flow answers for, and those whose answering flows all ran run_spec and none holds a spec that passed it. A use case a flow without run_spec answers for is not called unproven: nothing says so. A use case the lead dropped with a reason is not named. */
+export interface CandidateGaps {
+  /* The use cases the plan had to answer for. */
+  required: readonly UseCaseCandidate[];
+  unvisited: UseCaseCandidate[];
+  unproven: UseCaseCandidate[];
+  /* How many less direct use cases the plan did not have to answer for. */
+  others: number;
 }
 
-/* The change pages a review names: those no flow visits, and those whose visiting flows all ran run_spec and none holds a spec that passed it. A page a flow without run_spec visits is not called unproven: nothing says so. */
-export interface ChangePages {
-  routes: readonly string[];
-  unvisited: string[];
-  unproven: string[];
-}
-
-export function changePagesOf(changeRoutes: readonly string[], flows: ReadonlyArray<{ routes: readonly string[]; review: FlowUnderReview }>): ChangePages | undefined {
-  const unvisited = unvisitedBy(changeRoutes, flows.flatMap((flow) => flow.routes));
-  const unproven = changeRoutes.filter((page) => {
-    const visiting = flows.filter((flow) => unvisitedBy([page], flow.routes).length === 0);
+export function candidateGapsOf(
+  admission: AdmissionSet,
+  dropped: ReadonlySet<string>,
+  flows: ReadonlyArray<{ routes: readonly string[]; candidates: readonly string[]; review: FlowUnderReview }>,
+): CandidateGaps | undefined {
+  const open = admission.required.filter((candidate) => !dropped.has(candidate.id));
+  const unvisited = open.filter((candidate) => !flows.some((flow) => flowCovers(flow, candidate)));
+  const unproven = open.filter((candidate) => {
+    const visiting = flows.filter((flow) => flowCovers(flow, candidate));
     if (visiting.length === 0) return false;
     return visiting.every(({ review }) => review.runSpec !== undefined && !(review.verified && review.outcome.kind === FLOW_OUTCOME.DELIVERED));
   });
-  return unvisited.length > 0 || unproven.length > 0 ? { routes: [...changeRoutes], unvisited, unproven } : undefined;
+  return unvisited.length > 0 || unproven.length > 0 ? { required: admission.required, unvisited, unproven, others: admission.others } : undefined;
 }
 
-function changePagesBlock(pages: ChangePages, last: boolean): string {
+function candidatesBlock(redaction: RedactionPort, gaps: CandidateGaps, last: boolean): string {
+  const lines = (candidates: readonly UseCaseCandidate[]): string[] => candidates.map((candidate) => `- ${redaction.redact(candidateLine(candidate))}`);
   return [
-    "## Change pages",
-    `The change is linked to these pages of the app's map: ${pages.routes.join(", ")}.`,
-    pages.unvisited.length > 0 ? `No flow of your plan visits: ${pages.unvisited.join(", ")}.` : "",
-    pages.unproven.length > 0 ? `No flow that visits it holds a spec that passed run_spec: ${pages.unproven.join(", ")}.` : "",
+    "## Change candidates",
+    `The change makes ${gaps.required.length} use case(s) testable that your plan had to answer for${gaps.others > 0 ? `, and ${gaps.others} less direct one(s) it did not` : ""}.`,
+    gaps.unvisited.length > 0 ? ["No flow of your plan covers:", ...lines(gaps.unvisited)].join("\n") : "",
+    gaps.unproven.length > 0 ? ["No flow that covers it holds a spec that passed run_spec:", ...lines(gaps.unproven)].join("\n") : "",
     last
-      ? "A page named here whose behaviour the change alters stays untested by this run."
-      : `A page named here whose behaviour the change alters is untested: "revise" the flow that should cover it, naming the page and what to assert there.`,
+      ? "A use case named here whose behaviour the change alters stays untested by this run."
+      : `A use case named here whose behaviour the change alters is untested: "revise" the flow that should cover it, naming the page and what to assert there.`,
   ].filter(Boolean).join("\n");
 }
 
-/* The review turn's prompt, as data: the flows as the orchestrator knows them and the change pages no passing flow covers. How to judge them and the answer's shape are the lead's role prompt. */
-export function renderLeadReview(redaction: RedactionPort, flows: readonly FlowUnderReview[], turn: { turn: number; maxTurns: number }, changePages?: ChangePages): string {
+/* The review turn's prompt, as data: the flows as the orchestrator knows them and the use cases no passing flow covers. How to judge them and the answer's shape are the lead's role prompt. */
+export function renderLeadReview(redaction: RedactionPort, flows: readonly FlowUnderReview[], turn: { turn: number; maxTurns: number }, gaps?: CandidateGaps): string {
   const last = turn.turn >= turn.maxTurns;
   return [
     `## Review of the flows (turn ${turn.turn} of ${turn.maxTurns})`,
     last ? "This is the last review: each flow can only be accepted or dropped." : "",
     ...flows.map((flow) => flowBlock(redaction, flow)),
-    ...(changePages ? [changePagesBlock(changePages, last)] : []),
+    ...(gaps ? [candidatesBlock(redaction, gaps, last)] : []),
   ].filter(Boolean).join("\n\n");
 }
 

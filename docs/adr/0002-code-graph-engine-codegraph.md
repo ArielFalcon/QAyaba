@@ -20,13 +20,13 @@ Onboarding also builds the first index (`src/index.ts:580-623`).
 Two facts about the current seam matter as much as the engine:
 
 - **The graph CLI runs as a "trusted binary": as root, with the container's full network** (`sandboxed-binary-runner.ts:30`, `.dependency-cruiser.cjs:77`, `Dockerfile:110`). The egress filter matches only the sandbox uid, so it does not apply. The process parses source from repos the system does not control.
-- **Change pages already exist.** `route-ranking.ts` links a page when a changed file is one of the map's implementation or source files for that page, or when a changed contract reaches it through the map's `feBe`. That result, `changeRoutes`, drives four things:
+- **The change's use cases are derived, not declared.** The change scope (`change-analysis`) links a page or an operation to the change by a map link of a changed file, by the call graph or by a contract operation, and the use-case candidates made of it (`UseCaseCandidate`) drive four things:
   - DOM capture;
-  - the lead's plan;
-  - the lead review's unvisited/unproven pages (`9520f272`);
-  - the route-coverage graders.
+  - the lead's plan, which must cover each direct candidate or drop it with a reason;
+  - the lead review's uncovered/unproven candidates;
+  - the candidate-coverage and route-coverage graders.
 
-  What it cannot do is link a page to a backend change that does not touch the contract, or to a change in a file the map does not name.
+  The map's links are enrichment: with no map, or a stale one, the candidates come from the graph's routes alone.
 
 The owner reports that no agent has ever used the tool, in qayaba or in a personal OpenCode harness. This ADR records what was measured, decides the engine, and moves the boundary of what the graph is *for*.
 
@@ -210,7 +210,7 @@ The current CLI already parses untrusted source as root with the container's net
 - **The root-owned store cache:** it is copied in, synced, validated, and published back by atomic rename under a per-(app, repo) lock, before any agent-influenced code runs. A partial build never reaches it, a spec cannot poison the next run's index, and parallel lanes cannot race.
 - **The index cursor** moves into the cache's own metadata, keyed by engine, version and SHA. The mirror-keyed sidecar could otherwise skip indexing after the swap and leave the graph empty.
 
-### 3.4 Why change pages, and why they extend `changeRoutes`
+### 3.4 Why use-case candidates carry the change pages
 
 The owner asked for "esta pagina llega a esta accion". The measurement says the missing half is not a new section but reachability.
 
@@ -220,9 +220,9 @@ The owner asked for "esta pagina llega a esta accion". The measurement says the 
 - **Backend change in the same repo:** changed symbol → callers → handler → operation (by operationId, or by the handler route's verb + path) → the map's `feBe` → page.
 - **Across repos:** service symbol → … → operation → ServiceLink → frontend call site → callers in the frontend index → page.
 
-**Why extend `changeRoutes` instead of adding a section:**
+**Why one candidate list instead of a section per consumer:**
 
-- `changeRoutes` already drives DOM capture, the lead's plan, the lead review and the graders, so every one of them improves at once and for every app shape.
+- The candidates drive DOM capture, the lead's plan, the lead review and the graders, so every one of them improves at once and for every app shape.
 - A separate section would duplicate the source of pages, and would serve only the one app with ServiceLinks.
 
 **Bounds:**
@@ -278,8 +278,8 @@ A throwaway spike under the real constraints answers six questions before any pr
 - **Unverified engine facts** (§3.6 (b)-(d)) decide feasibility. The gate exists for them.
 - **Resolution accuracy is untested** against the current engine on real apps.
   - Mitigation: a side-by-side parity check on known commits of a Java and a JS/TS app before the engine it replaces is removed.
-  - Mitigation: precision/recall of `changeRoutes` against labelled commits.
-- **Widening `changeRoutes` moves grader baselines.** The basis per page is recorded and the baseline is re-recorded with its reason.
+  - Mitigation: precision/recall of the candidates against labelled commits.
+- **Widening the candidates moves grader baselines.** The basis per page is recorded and the baseline is re-recorded with its reason.
 - **The multi-repo path is unproven, not working:** 3 runs, 0 verdicts. Its acceptance follows a green cross-repo run; it does not block the single-repo acceptance.
 - **Adoption is not guaranteed.** It is judged on outcomes: change-page recall, route coverage, change-coverage, verdicts, and the plan turn's reads/tokens/duration. It is never judged on calls. A baseline is recorded before the surface changes.
 

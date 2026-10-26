@@ -1,5 +1,7 @@
 /* How a run is coordinated, as the layers around it share it: the limits of the lead/sidekick coordination and what a run records about it. */
 
+import type { UseCaseCandidate } from "./use-case-candidate.ts";
+
 /* The shapes of the plan a lead emits when it is asked for one. */
 export const LEAD_PLAN_KIND = {
   /* Nothing is worth a test; the lead says why. */
@@ -19,8 +21,10 @@ export interface PlanningLimits {
   budgetMs: number;
   /* The places the app declares, when it declares a location: a flow may name one. Absent: the plan names no location. */
   locations?: readonly string[];
-  /* The pages of the app's map the change is linked to, in rank order (a template stands for its pages). Absent: the run linked none. */
-  changeRoutes?: readonly string[];
+  /* The use cases the plan must cover or drop with a reason (the admission set), in the order they are offered. Absent: the run derived none. */
+  candidates?: readonly UseCaseCandidate[];
+  /* How many less direct use cases the change reaches that the plan is not required to cover. */
+  otherCandidates?: number;
 }
 
 /* The longest one flow may take, by the runtime its sidekick runs on. */

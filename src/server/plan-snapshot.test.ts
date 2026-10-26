@@ -13,7 +13,8 @@ function snapshot(runId: string, over: Partial<PlanSnapshot> = {}): PlanSnapshot
     kind: "fanout",
     changeRoutes: ["/cart"],
     unvisited: [],
-    flows: [{ id: "cart", objective: `the cart ${SECRET}`, acceptance: [`total ${SECRET}`], routes: ["/cart"], specFile: "flows/cart.spec.ts", visits: ["/cart"], outcome: { kind: "failed", reason: `crashed ${SECRET}` } }],
+    candidates: [{ id: "uc-1", tier: "direct", reachability: "page", state: "dropped", reason: `no test ${SECRET}` }],
+    flows: [{ id: "cart", objective: `the cart ${SECRET}`, acceptance: [`total ${SECRET}`], routes: ["/cart"], specFile: "flows/cart.spec.ts", visits: ["/cart"], candidates: ["uc-1"], outcome: { kind: "failed", reason: `crashed ${SECRET}` } }],
     recordedAt: Date.now(),
     ...over,
   };
@@ -28,6 +29,7 @@ test("a run keeps its last plan, with every text the lead wrote sanitized", () =
   assert.equal(kept.flows[0]!.objective, "the cart [redacted]");
   assert.deepEqual(kept.flows[0]!.acceptance, ["total [redacted]"]);
   assert.equal(kept.flows[0]!.outcome?.reason, "crashed [redacted]");
+  assert.equal(kept.candidates[0]!.reason, "no test [redacted]");
   assert.equal(JSON.stringify(kept).includes(SECRET), false);
   assert.equal(getRunPlan("plan-run-never"), undefined);
 });

@@ -25,8 +25,22 @@ export interface PlanSnapshotFlow {
   specFile: string;
   /* The change pages this flow visits, as the orchestrator matched them. */
   visits: string[];
+  /* The ids of the use cases the flow cited. */
+  candidates: string[];
   /* How the flow ended; absent while its flows have not ended. */
   outcome?: { kind: string; reason?: string; specs?: string[] };
+}
+
+/* What became of a use case the plan had to answer for: a flow covers it, the lead dropped it with a reason, or the plan left it unplanned after the re-plan. */
+export type PlanCandidateState = "planned" | "dropped" | "unplanned";
+
+export interface PlanSnapshotCandidate {
+  id: string;
+  tier: string;
+  reachability: string;
+  state: PlanCandidateState;
+  /* The lead's reason, for a dropped candidate. */
+  reason?: string;
 }
 
 export interface PlanSnapshot {
@@ -38,6 +52,8 @@ export interface PlanSnapshot {
   changeRoutes: string[];
   /* The change pages no admitted flow visits. */
   unvisited: string[];
+  /* The use cases the plan had to answer for (the admission set) and what became of each; empty when the plan is not a flow plan. */
+  candidates: PlanSnapshotCandidate[];
   flows: PlanSnapshotFlow[];
   /* Wall-clock ms. */
   recordedAt: number;
@@ -56,6 +72,7 @@ export function sanitizedPlanSnapshots(port: PlanSnapshotPort, sanitize: (text: 
       port.record({
         ...snapshot,
         ...(snapshot.reason !== undefined ? { reason: sanitize(snapshot.reason) } : {}),
+        candidates: snapshot.candidates.map((candidate) => (candidate.reason !== undefined ? { ...candidate, reason: sanitize(candidate.reason) } : candidate)),
         flows: snapshot.flows.map((flow) => ({
           ...flow,
           objective: sanitize(flow.objective),

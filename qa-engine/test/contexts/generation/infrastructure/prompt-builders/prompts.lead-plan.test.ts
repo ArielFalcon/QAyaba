@@ -11,6 +11,7 @@ import {
 import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/domain/prompt-headings.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import { lintCell, type LintSection } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { pageCandidate } from "../../../../support/use-case-candidate.ts";
 import { LEAD_PLAN_KIND } from "@kernel/coordination.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 
@@ -62,12 +63,16 @@ test("the section states the limits the orchestrator holds the plan to, and the 
   for (const key of ["plan", "kind", "flows", "id", "objective", "acceptance", "routes"]) assert.ok(prompt.includes(`"${key}"`), key);
 });
 
-test("the pages the change is linked to are named in the contract, and a contract without them names none", () => {
-  const changeRoutes = ["/order", "/upload-menu/:step"];
-  const named = sectionOf(assemble({ planning: { ...PLANNING, changeRoutes } }))!;
-  for (const route of changeRoutes) assert.ok(named.text.includes(route), route);
+test("the use cases the change makes testable are named with their ids, and the answer fields for them are in the lead's role prompt", () => {
+  const candidates = [pageCandidate("/order", ["src/order.ts::total", "page /order"]), pageCandidate("/upload-menu/:step")];
+  const named = sectionOf(assemble({ planning: { ...PLANNING, candidates, otherCandidates: 3 } }))!;
+  for (const candidate of candidates) assert.ok(named.text.includes(candidate.id), candidate.id);
+  assert.ok(named.text.includes("/order") && named.text.includes("3"));
+  const prompt = readFileSync(join(process.cwd(), "agents", "agent", "qa-lead.md"), "utf8");
+  for (const key of ["candidates", "dropped", "candidate", "reason"]) assert.ok(prompt.includes(`"${key}"`), key);
   const plain = sectionOf(assemble({ planning: PLANNING }))!;
   assert.equal(plain.text.includes("/order"), false);
+  assert.equal(plain.text.includes("uc-"), false);
 });
 
 test("no planning turn, no section: the prompt is what it always was", () => {

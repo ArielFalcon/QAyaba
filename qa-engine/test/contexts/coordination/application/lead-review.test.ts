@@ -1,10 +1,11 @@
+import { pageCandidate } from "../../../support/use-case-candidate.ts";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   admitLeadReview,
-  changePagesOf,
+  candidateGapsOf,
   MAX_SPEC_CHARS,
   renderLeadReview,
   REVIEW_ACTION,
@@ -150,24 +151,35 @@ test("an accept of a spec whose last run_spec call failed is sent back even when
   assert.match(admitted.orders[0]!.instruction, /expected 3, got 0/);
 });
 
-test("the change pages no flow visits and those no passing flow covers are named; a page a passing flow visits is not", () => {
-  const pages = changePagesOf(["/cart", "/login", "/orders", "/shops/:city"], [
-    { routes: ["/cart"], review: flow() },
-    { routes: ["/login"], review: flow({ id: "login", verified: false, runSpec: { calls: 2, maxCalls: 8, lastStatus: "failed" } }) },
-    { routes: ["/shops/madrid"], review: flow({ id: "shops", runSpec: undefined, verified: false }) },
+const required = [pageCandidate("/cart"), pageCandidate("/login"), pageCandidate("/orders"), pageCandidate("/shops/:city")];
+const ADMISSION = { required, others: 0 };
+
+test("the use cases no flow covers and those no passing flow covers are named; one a passing flow covers is not", () => {
+  const gaps = candidateGapsOf(ADMISSION, new Set(), [
+    { routes: ["/cart"], candidates: [], review: flow() },
+    { routes: ["/login"], candidates: [], review: flow({ id: "login", verified: false, runSpec: { calls: 2, maxCalls: 8, lastStatus: "failed" } }) },
+    { routes: [], candidates: ["uc-/shops/:city"], review: flow({ id: "shops", runSpec: undefined, verified: false }) },
   ]);
-  assert.deepEqual(pages, { routes: ["/cart", "/login", "/orders", "/shops/:city"], unvisited: ["/orders"], unproven: ["/login"] });
+  assert.deepEqual([gaps?.unvisited.map((c) => c.id), gaps?.unproven.map((c) => c.id)], [["uc-/orders"], ["uc-/login"]]);
 });
 
-test("with every change page covered by a passing flow, or no change pages, there is nothing to name", () => {
-  assert.equal(changePagesOf(["/cart"], [{ routes: ["/cart"], review: flow() }]), undefined);
-  assert.equal(changePagesOf([], [{ routes: ["/cart"], review: flow() }]), undefined);
+test("a use case the lead dropped with a reason is not named", () => {
+  const gaps = candidateGapsOf(ADMISSION, new Set(["uc-/orders"]), [
+    { routes: ["/cart", "/login", "/shops/madrid"], candidates: [], review: flow() },
+  ]);
+  assert.equal(gaps, undefined);
 });
 
-test("the review names the change pages left unvisited and unproven, and without them says nothing of change pages", () => {
-  const changePages = { routes: ["/cart", "/login", "/orders"], unvisited: ["/orders"], unproven: ["/login"] };
-  const text = renderLeadReview(redaction, [flow()], { turn: 1, maxTurns: 3 }, changePages);
-  assert.ok(text.includes("/orders") && text.includes("/login"));
-  assert.ok(text.indexOf("/orders") !== text.indexOf("/login"));
-  assert.ok(!renderLeadReview(redaction, [flow()], { turn: 1, maxTurns: 3 }).includes("/orders"));
+test("with every use case covered by a passing flow, or none to answer for, there is nothing to name", () => {
+  assert.equal(candidateGapsOf({ required: [pageCandidate("/cart")], others: 0 }, new Set(), [{ routes: ["/cart"], candidates: [], review: flow() }]), undefined);
+  assert.equal(candidateGapsOf({ required: [], others: 2 }, new Set(), [{ routes: ["/cart"], candidates: [], review: flow() }]), undefined);
+});
+
+test("the review names the use cases left uncovered and unproven, and without them says nothing of candidates", () => {
+  const gaps = candidateGapsOf({ required, others: 2 }, new Set(), [{ routes: ["/cart"], candidates: [], review: flow() }])!;
+  const text = renderLeadReview(redaction, [flow()], { turn: 1, maxTurns: 3 }, gaps);
+  assert.ok(text.includes("uc-/orders") && text.includes("uc-/login"));
+  assert.ok(!text.includes("uc-/cart"), "a use case a passing flow covers is not named");
+  assert.match(text, /2 less direct/);
+  assert.ok(!renderLeadReview(redaction, [flow()], { turn: 1, maxTurns: 3 }).includes("uc-/orders"));
 });

@@ -18,6 +18,7 @@ import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import type { AgentBrowserLimits } from "@kernel/agent-browser.ts";
 import type { GeolocationFacts } from "@kernel/geolocation.ts";
 import { type PlanningLimits } from "@kernel/coordination.ts";
+import { candidateLine } from "@kernel/use-case-candidate.ts";
 import { claim, AGENT_BROWSER_SECTION_ID, APP_LOGIN_SECTION_ID, CLOSED_LOOP_SECTION_ID, GEOLOCATION_SECTION_ID, HARNESS_FACTS_SECTION_ID, LEAD_PLAN_SECTION_ID, STEP_LIMIT_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { STEP_MILESTONE_SECTION_ID, isTestWritingTurn, stepMilestone, type MilestoneOutcome, type StepMilestone } from "@contexts/generation/domain/step-limit.ts";
 import { buildSuiteListing } from "@contexts/generation/domain/suite-listing.ts";
@@ -73,8 +74,13 @@ function renderLeadPlan(limits: PlanningLimits): string {
     `## ${PROMPT_HEADINGS.leadPlan}`,
     `This turn asks for a plan, not for specs: write no file. A plan names at most ${limits.maxFlows} flows, and ${limits.maxParallel} are written at once.`,
     ...(limits.locations?.length ? [`The app's locations a flow may name: ${limits.locations.join(", ")}.`] : []),
-    ...(limits.changeRoutes?.length
-      ? [`The change is linked to these pages of the app's map: ${limits.changeRoutes.join(", ")}. Give a flow to each page whose behaviour the change alters; a page no flow visits is reported with the plan.`]
+    ...(limits.candidates?.length
+      ? [
+          `The change makes these use cases testable (id | entry | reach | evidence | specs the suite holds):`,
+          ...limits.candidates.map((candidate) => `- ${sanitizeText(candidateLine(candidate)).text}`),
+          ...(limits.otherCandidates ? [`${limits.otherCandidates} less direct use case(s) are not listed and need no flow.`] : []),
+          `Give a flow to each one whose behaviour the change alters and cite its id in the flow's "candidates", or list it in "dropped" with the reason it needs no test; one the plan neither covers nor drops is asked of you once more.`,
+        ]
       : []),
     ``,
   ].join("\n");

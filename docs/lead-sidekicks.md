@@ -41,10 +41,13 @@ signed-in app (see below); without either, no sidekick can author and the run en
 2. **Admit.** `admitLeadPlan` treats the plan as untrusted. It slugs the ids, assigns each flow the spec path
    `e2e/flows/<slug>.spec.ts` itself (any write list the lead names is ignored), caps the sizes, and refuses
    duplicates and more than `maxFlows`. A plan that cannot be admitted ends the run `E-NO-AUTHOR` with the reason recorded
-   (`refusal: plan-rejected:<reason>`); a plan of one flow is a fan-out of one. The change pages that plan left
-   unvisited (all of them when it named no flow, those its only flow does not name when it named one) are recorded as a
-   `lead-decision` event and stated in the lead's authoring turn (`unvisitedChangePages`, section `change-pages`): it covers each
-   one whose behaviour the change alters or says in its verdict why it needs no test.
+   (`refusal: plan-rejected:<reason>`); a plan of one flow is a fan-out of one. The plan must answer for each direct
+   use-case candidate of the change that a browser can reach (the admission set, at most `MAX_ADMISSION_CANDIDATES`): a
+   flow covers a candidate when it cites its id (`candidates`) or visits one of its pages, and the lead may drop one with a
+   reason (`dropped`); the planning turn lists them. A plan that leaves one unresolved is returned to the lead once, in
+   its open session (`MAX_PLAN_ROUNDS`); a second answer that is a plan of flows replaces the first. A candidate still
+   unresolved is admitted as it stands, recorded `unplanned` on the plan snapshot and as a `lead-decision` event, and named
+   in every review turn (`plan-coverage.ts`).
 3. **Author.** Each sidekick's brief carries the Live DOM of its flow's pages (by address, or by the map template a
    page was opened from), cut from the run's Context Pack and bounded; a flow whose pages the pack did not read gets
    none. `FanOutDispatcher` runs at most `maxParallel` flows. Each has its own abort signal and time
@@ -118,10 +121,10 @@ open (`PlanOutput.lead`), read-only like the plan, bounded by `planBudgetMs` and
 reserve; at most `MAX_REVIEW_TURNS` (3) turns, and revisions are ordered in every turn but the last (`lead-review.ts`).
 Per flow it is shown the objective and acceptance, what came of the flow, the sidekick's summary and concerns, the
 flow's `run_spec` facts (calls used, the last call's status and failure, whether the spec it holds now is the one that
-passed) and the spec it delivered, read through the confined reader and bounded. When the change is linked to pages of
-the app's map, the turn also names the change pages no flow visits and those whose visiting flows all ran `run_spec`
-and none holds a spec that passed it (`changePagesOf`); a page visited only by a flow without `run_spec` is not called
-unproven. It answers per flow:
+passed) and the spec it delivered, read through the confined reader and bounded. When the plan had use cases to answer
+for, the turn also names those no flow covers and those whose covering flows all ran `run_spec` and none holds a spec
+that passed it (`candidateGapsOf`); a candidate covered only by a flow without `run_spec` is not called unproven, and one
+the lead dropped with a reason is not named. It answers per flow:
 
 - `accept`;
 - `revise`: its instruction goes to the SAME sidekick session, which is kept, with the flow's workspace, `run_spec`
