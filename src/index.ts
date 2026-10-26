@@ -13,7 +13,7 @@ import { describeAppLoadFailure, loadAppConfig, listAppConfigs } from "./orchest
 
 import { YamlAppConfigAdapter } from "../qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter";
 import { handleApi, ApiDeps, type RunObservabilityRequest } from "./server/api";
-import { authorizeBearer, createLocalConsoleLogin, issueSession, isPublicControlPlaneRoute } from "./server/auth";
+import { authorizeBearer, createLocalConsoleLogin, issueSession } from "./server/auth";
 import { verifyGithubIdentity, authorizeUser } from "./server/github-auth";
 import { createFixedWindowLimiter } from "./server/rate-limit";
 import { loadIntelligenceView } from "./server/intelligence-view";
@@ -57,6 +57,7 @@ import { type RunMode, type TestTarget } from "./types";
 import { installShutdown, installUnhandledRejectionRecorder } from "./server/shutdown";
 import { startHealthPoller } from "./server/health-poller";
 import { createWebhookHandler } from "./server/webhook-handler";
+import { createControlPlaneHandler } from "./server/control-plane-router";
 import { github } from "./integrations/github";
 import { createApp as adminCreateApp, updateApp as adminUpdateApp, deleteApp as adminDeleteApp, type AppAdminDeps } from "./server/app-admin";
 import { writeConfig, configExists } from "./server/onboard";
@@ -785,83 +786,21 @@ const webhookHandler = createWebhookHandler({
   log: logJson,
 });
 
-const server = createServer(guardRequestHandler(async (req, res) => {
-  const path = (req.url ?? "/").split("?")[0] ?? "/";
-  const traceId = req.headers["x-trace-id"] as string | undefined;
-  const startTime = Date.now();
+/* The request sequence of the control plane (src/server/control-plane-router.ts). */
+const controlPlane = createControlPlaneHandler({
+  authorize: authorized,
+  loginLimiter,
+  metrics: () => generatePrometheusMetrics(queue, getOpenSessionCount()),
+  maintainer: (req, res) => handleMaintainerApi(req, res, triggerMaintainer),
+  api: (req, res) => handleApi(req, res, apiDeps),
+  dashboard: (req, res) => serveDashboard(req, res, { dir: resolveDashboardDir(ROOT) }),
+  webhook: webhookHandler,
+  shouldLogApiRequest,
+  log: logJson,
+  now: Date.now,
+});
 
-  if (req.method === "OPTIONS") {
-    res.writeHead(204);
-    res.end();
-    return;
-  }
-
-  if (path.startsWith("/api")) {
-    /*
-     * The liveness probe (session count only) and the version/capability handshake
-     * are unauthenticated: the internal poller and external checks need the former,
-     * and the connect screen needs the latter BEFORE auth so a stale binary can be
-     * told to update even with a wrong token. Neither exposes secrets.
-     */
-    const apiPath = path.replace(/^\/api\/v1(?=\/|$)/, "/api");
-    /*
-     * Public (pre-auth) surface: liveness, the version handshake, GitHub login, and the
-     * same-origin local-console bootstrap. None of these return QA_API_TOKEN. /auth/local
-     * is public at the gate; the handler 404s untrusted callers (see localWebLoginAllowed).
-     */
-    const isPublic = isPublicControlPlaneRoute(req.method ?? "GET", apiPath);
-    if (!isPublic && !authorized(req)) {
-      res.writeHead(401, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ schemaVersion: 1, error: "unauthorized" }));
-      return;
-    }
-    /*
-     * Throttle the public auth bootstrap per client IP. Login fans out to GitHub; local
-     * minting is cheap but still unauthenticated, so it shares the same window.
-     */
-    const isAuthBootstrap = apiPath === "/api/auth/login" || apiPath === "/api/auth/local";
-    if (isAuthBootstrap && !loginLimiter.allow(req.socket.remoteAddress ?? "")) {
-      res.writeHead(429, { "Content-Type": "application/json", "Retry-After": "60" });
-      res.end(JSON.stringify({ error: "too many login attempts — try again in a minute" }));
-      return;
-    }
-    if (path === "/api/metrics") {
-      res.writeHead(200, { "Content-Type": "text/plain" });
-      res.end(generatePrometheusMetrics(queue, getOpenSessionCount()));
-      return;
-    }
-    if (path.startsWith("/api/maintainer")) {
-      if (await handleMaintainerApi(req, res, triggerMaintainer)) return;
-      res.writeHead(404, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "not found" }));
-      return;
-    }
-    if (await handleApi(req, res, apiDeps)) {
-      if (shouldLogApiRequest(req.method, res.statusCode)) logJson("info", `API request`, { traceId, path, duration: Date.now() - startTime });
-      return;
-    }
-    res.writeHead(404, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "not found" }));
-    return;
-  }
-
-  /*
-   * The web console (web/public, served as-is) is served same-origin at /app, so it shares the
-   * orchestrator's origin and the operator's credentials (no CORS). A missing web/public answers a
-   * placeholder page. The /api surface above stays Bearer-protected.
-   */
-  if (req.method === "GET" && (path === "/app" || path.startsWith("/app/"))) {
-    if (await serveDashboard(req, res, { dir: resolveDashboardDir(ROOT) })) return;
-  }
-
-  if (req.method === "POST") {
-    webhookHandler(req, res);
-    return;
-  }
-
-  res.writeHead(404, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ error: "not found" }));
-}, (message) => logJson("error", message)));
+const server = createServer(guardRequestHandler(controlPlane, (message) => logJson("error", message)));
 
 /*
  * Finalize zombie runs from a previous process BEFORE accepting traffic: a webhook
