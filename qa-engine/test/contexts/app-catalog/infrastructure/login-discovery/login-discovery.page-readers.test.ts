@@ -4,7 +4,7 @@ import {
   DESCRIBE_PAGE_SOURCE,
   NO_VISIBLE_PASSWORD_SOURCE,
   PAGE_TEXT_MAX,
-} from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.page-readers.ts";
+} from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.page-readers.ts";
 import { FakeDocument, runReader, type FakeElement, type FakeElementInit, type FakeStyle } from "../../../../support/fake-page.ts";
 
 const ORIGIN = "https://app.stub.test";

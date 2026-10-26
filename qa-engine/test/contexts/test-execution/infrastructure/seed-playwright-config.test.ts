@@ -9,7 +9,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { AuthSessionAdapter } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts";
+import { AuthSessionAdapter } from "@contexts/app-catalog/infrastructure/auth-session.adapter.ts";
 
 const repoRoot = join(import.meta.dirname, "..", "..", "..", "..", "..");
 const SEED_CONFIG = join(repoRoot, "config", "e2e", "playwright.config.ts");

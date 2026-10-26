@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync, readFileSync, existsSync, statSync, rmSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AUTH_SETUP_ENV, AuthSessionAdapter, type AuthSessionAdapterDeps } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts";
+import { AUTH_SETUP_ENV, AuthSessionAdapter, type AuthSessionAdapterDeps } from "@contexts/app-catalog/infrastructure/auth-session.adapter.ts";
 import { AUTH_MATERIAL_FILES, authSessionEnv } from "../../../../src/shared-infrastructure/process-sandbox/auth-session-env.ts";
 
 /* The login seed as it ships today, and as an earlier revision shipped it into watched repos. */

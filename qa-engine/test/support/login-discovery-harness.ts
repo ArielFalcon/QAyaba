@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { strict as assert } from "node:assert";
 import { promisify } from "node:util";
-import { buildLoginDiscoveryScript } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.script.ts";
-import { classifyLoginEvidence, type LoginEvidence, type LoginOutcome } from "@contexts/qa-run-orchestration/domain/helpers/login-evidence.ts";
+import { buildLoginDiscoveryScript } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.script.ts";
+import { classifyLoginEvidence, type LoginEvidence, type LoginOutcome } from "@contexts/app-catalog/domain/helpers/login-evidence.ts";
 
 const execFileAsync = promisify(execFile);
 

@@ -26,8 +26,8 @@ import {
 } from "../integrations/opencode-client";
 import type { RunPipelinePort, ObserverPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import { buildProduction, type CompositionConfig } from "@contexts/qa-run-orchestration/composition/composition-root";
-import { AuthSessionAdapter } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter";
-import { createDiscoverLogin } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.runner";
+import { AuthSessionAdapter } from "@contexts/app-catalog/infrastructure/auth-session.adapter";
+import { createDiscoverLogin } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner";
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { domCaptureObserver } from "@contexts/generation/infrastructure/dom-capture-trace";
 import { traceValidateDeps } from "@contexts/test-execution/infrastructure/static-gate.trace";

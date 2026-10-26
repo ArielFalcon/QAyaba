@@ -3,14 +3,14 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { FORM_STATE } from "@contexts/qa-run-orchestration/domain/helpers/login-evidence.ts";
+import { FORM_STATE } from "@contexts/app-catalog/domain/helpers/login-evidence.ts";
 import {
   LOGGED_TEXT_MAX,
   LOGIN_DISCOVERY_HARD_KILL_MS,
   createDiscoverLogin,
   type LoginDiscoveryInput,
-} from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.runner.ts";
-import { CHILD_DEADLINE_MS, SUBMITTED_MARKER } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.script.ts";
+} from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner.ts";
+import { CHILD_DEADLINE_MS, SUBMITTED_MARKER } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.script.ts";
 import type { SandboxedBinaryRunner, SandboxedRunRequest, SandboxedRunResult } from "../../../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import { scriptedLoginEvidence } from "../../../../support/login-evidence.ts";
 

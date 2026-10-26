@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { FORM_STATE } from "@contexts/qa-run-orchestration/domain/helpers/login-evidence.ts";
-import { createDiscoverLogin } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.runner.ts";
-import { SUBMITTED_MARKER } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.script.ts";
+import { FORM_STATE } from "@contexts/app-catalog/domain/helpers/login-evidence.ts";
+import { createDiscoverLogin } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner.ts";
+import { SUBMITTED_MARKER } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.script.ts";
 import type { SandboxedBinaryRunner } from "../../../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import { STUB_PASS, loginForm, loginRequest, runLoginDiscovery, stayingSite, type DiscoveryRun } from "../../../../support/login-discovery-harness.ts";
 

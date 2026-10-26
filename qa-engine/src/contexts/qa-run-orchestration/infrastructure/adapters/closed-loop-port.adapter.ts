@@ -20,7 +20,7 @@ import { PROBE_REL_DIR, RUN_SPEC_FLOW_AGENT, RunSpecCapability, loopClosed } fro
 import { RunSpecUseCase, type RunSpecRequest, type RunSpecResponse } from "@contexts/test-execution/application/index.ts";
 import type { SpecCleanupPort, SpecExecutorPort } from "@contexts/test-execution/application/index.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
-import type { AuthSessionContext, AuthSessionPort } from "../../application/ports/auth-session.port.ts";
+import type { AuthSessionContext, AuthSessionPort } from "@contexts/app-catalog/application/index.ts";
 import type { CleanupPort, ClosedLoopHandle, ClosedLoopOpenInput, ClosedLoopPort, ExecutionPort, FlowLoopHandle, FlowLoopOpenInput } from "../../application/ports/index.ts";
 import type { ClosedLoopRegistry } from "../closed-loop-registry.ts";
 import { trustedSessionRenewal } from "./trusted-session-renewal.ts";

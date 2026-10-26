@@ -5,8 +5,8 @@ import {
   classifyLoginEvidence,
   type LoginEvidence,
   type LoginOutcome,
-} from "@contexts/qa-run-orchestration/domain/helpers/login-evidence.ts";
-import { CLASSIFIED_PRECONDITION_KIND, PRECONDITION_KIND, type PreconditionKind } from "@contexts/qa-run-orchestration/domain/auth-precondition.ts";
+} from "@contexts/app-catalog/domain/helpers/login-evidence.ts";
+import { CLASSIFIED_PRECONDITION_KIND, PRECONDITION_KIND, type PreconditionKind } from "@contexts/app-catalog/domain/auth-precondition.ts";
 import { scriptedLoginEvidence } from "../../../../support/login-evidence.ts";
 
 /* What a login attempt that got in looks like, before a row bends one fact of it. */

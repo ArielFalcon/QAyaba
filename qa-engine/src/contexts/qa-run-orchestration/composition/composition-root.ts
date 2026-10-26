@@ -21,7 +21,7 @@ import { readAgentBrowserSession } from "../infrastructure/adapters/agent-browse
 import type { AgentBrowserRegistry } from "../infrastructure/agent-browser-registry.ts";
 import type { CodeGraphToolRegistry } from "../infrastructure/code-graph-tool-registry.ts";
 import type { BrowserLauncherPort } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
-import type { AuthDeclaration, AuthSessionPort } from "../application/ports/auth-session.port.ts";
+import type { AuthDeclaration, AuthSessionPort } from "../../app-catalog/application/ports/auth-session.port.ts";
 import { RunPipelineAdapter, type RunPipelineAdapterDeps } from "../infrastructure/run-pipeline.adapter.ts";
 import { SidekickExecutor } from "../application/coordination/sidekick-executor.ts";
 import { LeadSidekicks } from "../application/coordination/lead-sidekicks.ts";

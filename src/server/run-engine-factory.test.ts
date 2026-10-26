@@ -20,9 +20,9 @@ import { assertTrustedGitTree, defaultMirrorDeps, hardenGitArgs, UntrustedGitTre
 import { closeGitDir, GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { defaultCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
-import { AUTH_SETUP_ENV } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter";
-import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/qa-run-orchestration/domain/auth-precondition";
-import { SUBMITTED_MARKER } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.script";
+import { AUTH_SETUP_ENV } from "@contexts/app-catalog/infrastructure/auth-session.adapter";
+import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/app-catalog/domain/auth-precondition";
+import { SUBMITTED_MARKER } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.script";
 import { activeExecScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import { scriptedLoginEvidence } from "../../qa-engine/test/support/login-evidence";
 import { createAgentDeps } from "@contexts/generation/infrastructure/agent-transport-policy";

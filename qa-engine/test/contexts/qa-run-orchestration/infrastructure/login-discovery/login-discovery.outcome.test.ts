@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { EVIDENCE_TEXT_MAX, MAX_RENDERED_REQUESTS } from "@contexts/qa-run-orchestration/domain/helpers/login-evidence.ts";
-import { PRECONDITION_KIND } from "@contexts/qa-run-orchestration/domain/auth-precondition.ts";
-import { POST_SUBMIT_MIN_WAIT_MS } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.script.ts";
+import { EVIDENCE_TEXT_MAX, MAX_RENDERED_REQUESTS } from "@contexts/app-catalog/domain/helpers/login-evidence.ts";
+import { PRECONDITION_KIND } from "@contexts/app-catalog/domain/auth-precondition.ts";
+import { POST_SUBMIT_MIN_WAIT_MS } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.script.ts";
 import {
   STUB_PASS,
   STUB_USER,

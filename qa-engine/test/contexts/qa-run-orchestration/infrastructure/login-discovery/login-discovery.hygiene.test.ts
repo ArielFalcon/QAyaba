@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyLoginEvidence, renderLoginEvidence } from "@contexts/qa-run-orchestration/domain/helpers/login-evidence.ts";
-import { PAGE_TEXT_MAX } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.page-readers.ts";
+import { classifyLoginEvidence, renderLoginEvidence } from "@contexts/app-catalog/domain/helpers/login-evidence.ts";
+import { PAGE_TEXT_MAX } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.page-readers.ts";
 import {
   STUB_PASS,
   STUB_USER,

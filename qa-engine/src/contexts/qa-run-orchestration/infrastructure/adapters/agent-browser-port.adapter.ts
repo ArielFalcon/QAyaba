@@ -21,7 +21,7 @@ import { AgentBrowserUseCase } from "@contexts/test-execution/application/index.
 import type { AgentBrowserHostPort } from "@contexts/test-execution/application/index.ts";
 import { PlaywrightAgentBrowserHost } from "@contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts";
 import type { BrowserLauncherPort, SessionMaterial } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
-import type { AuthSessionContext, AuthSessionPort } from "../../application/ports/auth-session.port.ts";
+import type { AuthSessionContext, AuthSessionPort } from "@contexts/app-catalog/application/index.ts";
 import type { AgentBrowserHandle, AgentBrowserOpenInput, AgentBrowserPort } from "../../application/ports/index.ts";
 import type { AgentBrowserRegistry } from "../agent-browser-registry.ts";
 import { trustedSessionRenewal } from "./trusted-session-renewal.ts";

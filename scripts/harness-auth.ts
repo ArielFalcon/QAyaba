@@ -25,8 +25,8 @@ export async function prepareHarnessAuth(input: HarnessAuthInput): Promise<{ una
   const { buildScriptExec } = await import("../src/server/exec-sandbox-factory.ts");
   const { resolveCodeSandbox } = await import("../src/server/run-engine-factory.ts");
   const { blockedHostMatcher, egressGateFor, scriptOriginsFor } = await import("../src/server/egress-wiring.ts");
-  const { AuthSessionAdapter } = await import("../qa-engine/src/contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts");
-  const { createDiscoverLogin } = await import("../qa-engine/src/contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.runner.ts");
+  const { AuthSessionAdapter } = await import("../qa-engine/src/contexts/app-catalog/infrastructure/auth-session.adapter.ts");
+  const { createDiscoverLogin } = await import("../qa-engine/src/contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner.ts");
   const { loadContextMapFromDisk } = await import("../qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/pre-generation-grounding-port.adapter.ts");
   const { RedactionPortAdapter } = await import("../src/orchestrator/sanitizer.ts");
   const redaction = new RedactionPortAdapter();

@@ -5,8 +5,8 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AuthSessionAdapter, type AuthSessionSpawnResult } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts";
-import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/qa-run-orchestration/domain/auth-precondition.ts";
+import { AuthSessionAdapter, type AuthSessionSpawnResult } from "@contexts/app-catalog/infrastructure/auth-session.adapter.ts";
+import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/app-catalog/domain/auth-precondition.ts";
 import { newSandboxReport, withExecScope } from "../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 
 import { scriptedLoginEvidence } from "../../../support/login-evidence.ts";

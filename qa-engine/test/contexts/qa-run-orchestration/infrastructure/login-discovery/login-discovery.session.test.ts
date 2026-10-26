@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { FORM_STATE } from "@contexts/qa-run-orchestration/domain/helpers/login-evidence.ts";
-import { PRECONDITION_KIND } from "@contexts/qa-run-orchestration/domain/auth-precondition.ts";
+import { FORM_STATE } from "@contexts/app-catalog/domain/helpers/login-evidence.ts";
+import { PRECONDITION_KIND } from "@contexts/app-catalog/domain/auth-precondition.ts";
 import {
   STUB_ORIGIN,
   button,

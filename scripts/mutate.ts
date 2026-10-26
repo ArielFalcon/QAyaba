@@ -62,6 +62,8 @@ const LEARN = "qa-engine/src/contexts/cross-run-learning/domain";
 const LEARN_TEST = "qa-engine/test/contexts/cross-run-learning/domain";
 const ORCH = "qa-engine/src/contexts/qa-run-orchestration";
 const ORCH_TEST = "qa-engine/test/contexts/qa-run-orchestration";
+const APP_CATALOG_CTX = "qa-engine/src/contexts/app-catalog";
+const APP_CATALOG_CTX_TEST = "qa-engine/test/contexts/app-catalog";
 const GEN = "qa-engine/src/contexts/generation";
 const GEN_TEST = "qa-engine/test/contexts/generation";
 const PUB = "qa-engine/src/contexts/workspace-and-publication/domain";
@@ -189,7 +191,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
   "precondition-verdict": {
     description: "auth precondition: the typed error, the run terminal it maps to, the E-PRECONDITION class and where it is resolved, and the audit finding that keeps it out of learning",
     mutate: [
-      `${ORCH}/domain/auth-precondition.ts`,
+      `${APP_CATALOG_CTX}/domain/auth-precondition.ts`,
       `${ORCH}/domain/helpers/precondition-terminal.ts`,
       /* Only the lines that name and resolve the class: the rest of these modules belongs to other classes. */
       `${ORCH}/domain/helpers/error-class.ts@error-classes-precondition`,
@@ -199,7 +201,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${LEARN}/process-audit.ts@recurring-class-summary`,
     ],
     tests: [
-      `${ORCH_TEST}/domain/auth-precondition.test.ts`,
+      `${APP_CATALOG_CTX_TEST}/domain/auth-precondition.test.ts`,
       `${ORCH_TEST}/domain/helpers/precondition-terminal.test.ts`,
       `${ORCH_TEST}/domain/helpers/error-class.test.ts`,
       `${ORCH_TEST}/domain/helpers/error-class-taxonomy.test.ts`,
@@ -210,10 +212,10 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
   },
   "login-evidence": {
     description: "login evidence: the classifier that reads a login attempt, and the scrubber and note that keep credentials out of what a failed login writes",
-    mutate: [`${ORCH}/domain/helpers/login-evidence.ts`],
+    mutate: [`${APP_CATALOG_CTX}/domain/helpers/login-evidence.ts`],
     tests: [
-      `${ORCH_TEST}/domain/helpers/login-evidence.test.ts`,
-      `${ORCH_TEST}/domain/helpers/classify-login-evidence.test.ts`,
+      `${APP_CATALOG_CTX_TEST}/domain/helpers/login-evidence.test.ts`,
+      `${APP_CATALOG_CTX_TEST}/domain/helpers/classify-login-evidence.test.ts`,
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
@@ -459,8 +461,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${PUB_INFRA}/setup.adapter.ts@setup-options-and-project-reads`,
       `${PUB_INFRA}/setup.adapter.ts@project-write-head`,
       /* The login's stock check: a strict read whose refusal fails the login. */
-      `${ORCH}/infrastructure/auth-session.adapter.ts@auth-setup-env`,
-      `${ORCH}/infrastructure/auth-session.adapter.ts@unconfirmed-login`,
+      `${APP_CATALOG_CTX}/infrastructure/auth-session.adapter.ts@auth-setup-env`,
+      `${APP_CATALOG_CTX}/infrastructure/auth-session.adapter.ts@unconfirmed-login`,
       /* The verdict parser's listing of the suite: the one walk of the specs, with its cap. */
       `${GEN}/infrastructure/verdict-parser.adapter.ts@parser-region`,
     ],
@@ -486,8 +488,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       /* What setup reads and replaces, and the login's stock check. */
       "qa-engine/test/contexts/workspace-and-publication/infrastructure/setup.adapter.confinement.test.ts",
       "qa-engine/test/contexts/workspace-and-publication/infrastructure/setup.adapter.test.ts",
-      `${ORCH_TEST}/infrastructure/auth-session.adapter.confinement.test.ts`,
-      `${ORCH_TEST}/infrastructure/auth-session.adapter.test.ts`,
+      `${APP_CATALOG_CTX_TEST}/infrastructure/auth-session.adapter.confinement.test.ts`,
+      `${APP_CATALOG_CTX_TEST}/infrastructure/auth-session.adapter.test.ts`,
       /* The verdict parser's listing of the suite. */
       `${GEN_TEST}/infrastructure/verdict-parser.adapter.test.ts`,
     ],

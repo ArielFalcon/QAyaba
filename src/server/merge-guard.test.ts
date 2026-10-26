@@ -172,24 +172,24 @@ test("isProtectedPath flags the secret boundary (a fix must never weaken what sc
    it. Protected the same way as scrub-env.ts / auth-session-env.ts.
  */
 test("isProtectedPath flags the auth-material adapter and its port contract", () => {
-  assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts"), true);
-  assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/application/ports/auth-session.port.ts"), true);
+  assert.equal(isProtectedPath("qa-engine/src/contexts/app-catalog/infrastructure/auth-session.adapter.ts"), true);
+  assert.equal(isProtectedPath("qa-engine/src/contexts/app-catalog/application/ports/auth-session.port.ts"), true);
 });
 
 /* The module that scrubs a login's credentials out of the note and log line a failed login leaves
    behind: weakening it leaks the account into the run history, the logs and any Issue text. It is an
    exact entry, so the helpers beside it stay autonomously editable. */
 test("isProtectedPath flags the login evidence scrubber and only that helper", () => {
-  const helpers = "qa-engine/src/contexts/qa-run-orchestration/domain/helpers";
+  const helpers = "qa-engine/src/contexts/app-catalog/domain/helpers";
   assert.equal(isProtectedPath(`${helpers}/login-evidence.ts`), true);
-  assert.equal(isProtectedPath(`${helpers}/error-class.ts`), false);
+  assert.equal(isProtectedPath(`${helpers}/other-helper.ts`), false);
 });
 
 /* The child that types the account into an app's login form and the runner that starts it: a change
    there decides where the credentials go. The whole directory is protected and scanned, so a file added
    later is covered without another entry, while the orchestration adapters beside it are not swept in. */
 test("isProtectedPath and the completeness walk cover every file of the login discovery directory, present or added later", () => {
-  const dir = "qa-engine/src/contexts/qa-run-orchestration/infrastructure/login-discovery";
+  const dir = "qa-engine/src/contexts/app-catalog/infrastructure/login-discovery";
   assert.equal(isProtectedPath(`${dir}/login-discovery.script.ts`), true);
   assert.equal(isProtectedPath(`${dir}/a-file-added-later.ts`), true);
   assert.equal(isSecuritySensitiveSurface(`${dir}/a-file-added-later.ts`), true);

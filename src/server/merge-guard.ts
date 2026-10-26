@@ -48,25 +48,31 @@ export const PROTECTED_PATHS: string[] = [
    * orchestrator-only authDir — same risk class as scrub-env.ts / auth-session-env.ts above; an
    * unreviewed edit could silently redirect writes back into the agent-visible mirror.
    */
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts",
+  "qa-engine/src/contexts/app-catalog/infrastructure/auth-session.adapter.ts",
   /*
    * The port contract auth-session.adapter.ts implements — an autonomous narrowing
    * (e.g. dropping a request field a caller relies on) silently disables the guard the type exists
    * to require, without touching the adapter file itself.
    */
-  "qa-engine/src/contexts/qa-run-orchestration/application/ports/auth-session.port.ts",
+  "qa-engine/src/contexts/app-catalog/application/ports/auth-session.port.ts",
   /*
    * Scrubs the account's credentials out of the note and log line a failed login leaves behind
    * (exact value, every spelling, before the cut). Weakening it leaks the account into the run
    * history, the logs and any Issue text. An exact entry: the helpers beside it stay editable.
    */
-  "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/login-evidence.ts",
+  "qa-engine/src/contexts/app-catalog/domain/helpers/login-evidence.ts",
   /*
    * The child that types the app's account into a login form and the runner that starts it: they
    * hold the credentials in their env, decide which page they are typed into and print what came
    * back. A directory entry, so a file added here later is protected without another line.
    */
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/login-discovery/",
+  "qa-engine/src/contexts/app-catalog/infrastructure/login-discovery/",
+  /*
+   * Loads each watched app's YAML and expands its `${VARS}` from the environment, so it decides which
+   * credentials and origins reach the rest of the engine. The whole app-catalog adapter directory is a
+   * security-sensitive surface root; this one file has no reason to be edited autonomously.
+   */
+  "qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter.ts",
   /*
    * The login seed copied into every watched repo: it receives the app credentials in its env and
    * decides where the session is saved — an edit could log them or write the session back under
@@ -396,7 +402,7 @@ export const SECURITY_SENSITIVE_SURFACE_ROOTS: string[] = [
   "qa-engine/src/shared-infrastructure/egress/",
   "qa-engine/src/contexts/generation/infrastructure/",
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/",
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/login-discovery/",
+  "qa-engine/src/contexts/app-catalog/infrastructure/",
 ];
 
 /*

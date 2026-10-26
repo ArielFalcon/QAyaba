@@ -5,7 +5,7 @@ import {
   DEFAULT_ACTION_CALL_MS,
   DEFAULT_NAV_TIMEOUT_MS,
   SUBMITTED_MARKER,
-} from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.script.ts";
+} from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.script.ts";
 import {
   STUB_PASS,
   STUB_USER,

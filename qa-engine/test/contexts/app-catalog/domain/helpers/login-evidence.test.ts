@@ -5,9 +5,9 @@ import {
   MAX_RENDERED_REQUESTS,
   renderLoginEvidence,
   scrubSecrets,
-} from "@contexts/qa-run-orchestration/domain/helpers/login-evidence.ts";
+} from "@contexts/app-catalog/domain/helpers/login-evidence.ts";
 import { scriptedLoginEvidence } from "../../../../support/login-evidence.ts";
-import { PRECONDITION_KIND } from "@contexts/qa-run-orchestration/domain/auth-precondition.ts";
+import { PRECONDITION_KIND } from "@contexts/app-catalog/domain/auth-precondition.ts";
 
 /* Synthetic credentials only. Each password carries something an encoder or a regex would treat specially. */
 const USER = "qa.bot+tester@demo.example";

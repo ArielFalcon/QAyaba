@@ -4,10 +4,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, sym
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PRECONDITION_KIND, AuthPreconditionError } from "@contexts/qa-run-orchestration/domain/auth-precondition.ts";
-import { AuthSessionAdapter, type AuthDiscoveryDeps } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts";
-import type { LoginDiscoveryInput, LoginDiscoveryResult } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.runner.ts";
-import { AUTH_RESOLUTION_METHOD, type AuthDeclaration, type AuthSessionRequest } from "@contexts/qa-run-orchestration/application/ports/auth-session.port.ts";
+import { PRECONDITION_KIND, AuthPreconditionError } from "@contexts/app-catalog/domain/auth-precondition.ts";
+import { AuthSessionAdapter, type AuthDiscoveryDeps } from "@contexts/app-catalog/infrastructure/auth-session.adapter.ts";
+import type { LoginDiscoveryInput, LoginDiscoveryResult } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner.ts";
+import { AUTH_RESOLUTION_METHOD, type AuthDeclaration, type AuthSessionRequest } from "@contexts/app-catalog/application/ports/auth-session.port.ts";
 import { AUTH_MATERIAL_FILES } from "../../../../src/shared-infrastructure/process-sandbox/auth-session-env.ts";
 import { scriptedLoginEvidence } from "../../../support/login-evidence.ts";
 

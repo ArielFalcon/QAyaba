@@ -11,7 +11,7 @@
 import { createHash } from "node:crypto";
 import { MAX_SPEC_SOURCE_BYTES, readOwnedSpecFile } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import type { SessionRenewalPort } from "@contexts/test-execution/application/index.ts";
-import type { AuthSessionContext, AuthSessionPort } from "../../application/ports/auth-session.port.ts";
+import type { AuthSessionContext, AuthSessionPort } from "@contexts/app-catalog/application/index.ts";
 
 const LOGIN_SCRIPT = "auth.setup.ts";
 

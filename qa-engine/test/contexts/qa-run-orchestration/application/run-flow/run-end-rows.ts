@@ -8,7 +8,7 @@
  */
 import { chmodSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/qa-run-orchestration/domain/auth-precondition.ts";
+import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/app-catalog/domain/auth-precondition.ts";
 import { ProbeSweepError } from "@contexts/qa-run-orchestration/application/run-flow/phases/generation-services.ts";
 import { activeExecScope, type ExecScopePort } from "../../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 import { createExecSandbox, SandboxUnavailableError } from "../../../../../src/shared-infrastructure/process-sandbox/exec-sandbox.ts";

@@ -210,7 +210,7 @@ test("the precondition-verdict preset mutates the typed precondition error, its 
   const preset = PRESETS["precondition-verdict"];
   assert.ok(preset, "the precondition-verdict preset exists");
   assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], [
-    "qa-engine/src/contexts/qa-run-orchestration/domain/auth-precondition.ts",
+    "qa-engine/src/contexts/app-catalog/domain/auth-precondition.ts",
     "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/precondition-terminal.ts",
     "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/error-class.ts",
     "qa-engine/src/contexts/cross-run-learning/domain/process-audit.ts",
@@ -240,7 +240,7 @@ test("the spec-path-confinement preset mutates the confined reader and the stric
     "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts",
     "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/pre-generation-grounding-port.adapter.ts",
     "qa-engine/src/contexts/workspace-and-publication/infrastructure/setup.adapter.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts",
+    "qa-engine/src/contexts/app-catalog/infrastructure/auth-session.adapter.ts",
     "qa-engine/src/contexts/generation/infrastructure/verdict-parser.adapter.ts",
   ]);
   for (const tests of [
@@ -368,7 +368,7 @@ test("the code-run-reads preset mutates only the lines of a code run's manifest 
 test("the login-evidence preset mutates the classifier, the scrubber and the note in one module, against their own tests", () => {
   const preset = PRESETS["login-evidence"];
   assert.ok(preset, "the login-evidence preset exists");
-  assert.deepEqual(preset.mutate.map(sourcePathOf), ["qa-engine/src/contexts/qa-run-orchestration/domain/helpers/login-evidence.ts"]);
+  assert.deepEqual(preset.mutate.map(sourcePathOf), ["qa-engine/src/contexts/app-catalog/domain/helpers/login-evidence.ts"]);
   for (const module of ["login-evidence", "classify-login-evidence"]) {
     assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s tests run against every mutant`);
   }

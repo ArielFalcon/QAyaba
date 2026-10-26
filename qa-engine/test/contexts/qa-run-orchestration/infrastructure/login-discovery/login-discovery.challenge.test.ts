@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   isVisibleChallenge,
   type ChallengeCandidate,
-} from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.page-readers.ts";
+} from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.page-readers.ts";
 
 const candidate = (over: Partial<ChallengeCandidate> = {}): ChallengeCandidate => ({ tag: "div", role: null, inBadge: false, showing: true, ...over });
 

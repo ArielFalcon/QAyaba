@@ -1,12 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { FORM_STATE } from "@contexts/qa-run-orchestration/domain/helpers/login-evidence.ts";
+import { FORM_STATE } from "@contexts/app-catalog/domain/helpers/login-evidence.ts";
 import {
   LOGIN_WELL_KNOWN_PATHS,
   MAX_GATED_ROUTES,
   SUBMITTED_MARKER,
   buildLoginDiscoveryScript,
-} from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.script.ts";
+} from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.script.ts";
 import { STUB_ORIGIN, STUB_PASS, STUB_USER, button, input, loginForm, nodeChecks, runLoginDiscovery } from "../../../../support/login-discovery-harness.ts";
 
 const FOREIGN = "https://idp.stub.test";
