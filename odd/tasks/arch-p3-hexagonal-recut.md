@@ -207,8 +207,8 @@ Rules (S9 enforces them): `domain/` imports nothing outward; `application/` impo
 - [x] T3 — S1 — inline — Create agent-tools: registries, browser/closed-loop/code-graph/geolocation adapters and ports — commit: see L11
 - [x] T4 — S1 — inline — Create coordination: 29 files, delegation workspace, telemetry adapters — commit: see L12
 - [x] T5 — S1 — inline — Move grounding and selector-check to generation; remaining adapters and ports to their owners — commit: 3d30f67c, b1dce7d6, 74a6ac94 (see L13)
-- [x] T6 — S1 — inline — Rename `qa-run-orchestration` to `run-orchestration` (pure) — commit: see L14
-- [x] T7 — S3 — inline — One port per file, entity types into domain, `ports/index.ts` removed — commit: see L15
+- [x] T6 — S1 — inline — Rename `qa-run-orchestration` to `run-orchestration` (pure) — commit: 457a8e49 (L14)
+- [x] T7 — S3 — inline — One port per file, entity types into domain, `ports/index.ts` removed — commit: a4400060 (L15)
 - [ ] T8 — S3 — inline — Workspace handle (publication and confinement authority) — commit: pending, own commit
 - [ ] T9 — S4 — inline — Sanitizer behind the redaction port, adapter path protected — commit: pending, own commit
 - [ ] T10 — S4 — inline — Spec files port and exec scope port; pure helpers out of shared-infrastructure — commit: pending, own commit
