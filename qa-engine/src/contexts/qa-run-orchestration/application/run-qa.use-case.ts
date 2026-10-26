@@ -8,7 +8,7 @@
  * Pre-exec gateSignals use the number 0, not undefined, when unwired.
  */
 
-import { createRunSecretScope, withRunSecretScope } from "../../../shared-infrastructure/run-secret-redaction.ts";
+import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../shared-infrastructure/run-secret-redaction.ts";
 import { isSandboxUnavailable } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { activeExecScope, refusedScope, sandboxRefused, sandboxSignal, withExecScope, type ExecScopePort } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { AuthSession } from "./ports/auth-session.port.ts";
@@ -19,6 +19,7 @@ import { runFlow, type FlowHooks } from "./run-flow/run-flow.ts";
 import { actionFor, carryOn } from "./run-flow/failure-policy.ts";
 import { failureEnd } from "./run-flow/failure-ends.ts";
 import { degradeFailedStep } from "./run-flow/degrade.ts";
+import { checkpointOf } from "./run-flow/checkpoint.ts";
 import { reviewsTests } from "./run-flow/phases/review.steps.ts";
 import type { StepId } from "./run-flow/step-ids.ts";
 import { type RunEnd } from "./run-flow/run-end.ts";
@@ -368,6 +369,7 @@ export class RunQaUseCase {
       noteGroundingGates: (result) => this.noteGroundingGates(trail, result),
       pruneMirror: (mirrorDir) => this.pruneMirrorIfWired(mirrorDir),
       noteDeadlineArmed: () => this.noteDeadlineArmed(trail),
+      redact: (text) => redactByValue(text),
       prepareAuth: (specDir, phase, abortSignal) => this.prepareAuth(specDir, phase, abortSignal),
       replaceRestoredLogin: (workspace, abortSignal) => this.replaceRestoredLogin(workspace, abortSignal),
       announceSuite: (text, level) => this.announceSuite(text, level),
@@ -383,6 +385,8 @@ export class RunQaUseCase {
   /* Walks the step tables and finalizes the end they reach. */
   private async drive(baseCtx: RunContext, state: RunState): Promise<RunQaResult> {
     const { input, signal, trail } = baseCtx;
+    /* The context the next checkpoint reads: the working copy joins it once it is prepared. */
+    let live: RunContext = baseCtx;
     const hooks: FlowHooks<StepId, RunState> = {
       aborted: () => signal?.aborted === true,
       endOf: (reason, err) => failureEnd(reason, err, baseCtx, state),
@@ -399,6 +403,7 @@ export class RunQaUseCase {
           ...(event.outcome === "ended" ? { "qayaba.run_step.reason": event.reason } : {}),
         });
         this.deps.stateObserver?.(state, event);
+        if (this.deps.onCheckpoint) this.deps.onCheckpoint(checkpointOf(state, live, event.id));
       },
     };
 
@@ -410,6 +415,7 @@ export class RunQaUseCase {
     recordRunFact(state, "mirrorDir", workspace.mirrorDir);
     const services = createRunServices(this.deps, baseCtx.cfg, workspace, signal, (file, sha256) => recordProof(state, file, sha256));
     const ctx: WorkspaceRunContext = { ...baseCtx, workspace, services };
+    live = ctx;
     const flow = await runFlow(IN_WORKSPACE, state, ctx, hooks);
     if ("end" in flow) return await this.finalize(flow.end, ctx, state);
 

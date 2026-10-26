@@ -1,7 +1,6 @@
 /* The fix_loop phase of a run: the bounded repair of a failing primary execution, and the fingerprint the suite store takes of a green one. */
 
 import { CORRECTION_ORIGIN } from "../../coordination/lead-correction.ts";
-import { createHash } from "node:crypto";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { readConfinedSpecFile, listSpecFiles, readOwnedSpecFile, MAX_SPEC_SOURCE_BYTES, type SpecRoot } from "../../../../../shared-infrastructure/spec-path-confinement.ts";
 import { FixLoop, type FixLoopState, type FixLoopInput, type FixLoopAcceptancePort, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../../../domain/fix-loop.aggregate.ts";
@@ -18,6 +17,7 @@ import { checkDevHealth, executeAccepted, liveExecutionOptions, validateAccepted
 import { loopClosedNow, regenerate } from "./generation-services.ts";
 import { carryOn } from "../failure-policy.ts";
 import { regenerationAllowed } from "../regeneration-allowed.ts";
+import { specSetDigest } from "../spec-set-digest.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
 
@@ -35,22 +35,6 @@ function buildFailureDomSnapshot(cases: readonly QaCase[]): string | undefined {
     parts.push(`### ${c.name}\n${lines.join("\n")}`);
   }
   return parts.length > 0 ? parts.join("\n\n") : undefined;
-}
-
-/* One digest for a whole spec set, so the fix loop can say whether it changed the files. Sorted, sha256 over `file + "\0" + bytes`; undefined when the set is empty or any file cannot be read. */
-function specSetDigest(specRoot: SpecRoot, files: readonly string[]): string | undefined {
-  const unique = [...new Set(files)].sort();
-  if (unique.length === 0) return undefined;
-  const hash = createHash("sha256");
-  for (const file of unique) {
-    try {
-      const bytes = readConfinedSpecFile(specRoot, file);
-      hash.update(file).update("\0").update(bytes);
-    } catch {
-      return undefined;
-    }
-  }
-  return hash.digest("hex");
 }
 
 /*
@@ -275,7 +259,7 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
   /* The failing set and the spec-set digest before the loop, so the phase span can carry what the loop changed. */
   const fixLoopSpecRoot: SpecRoot = { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir };
   const failingBefore = initialRun.cases.filter((c) => c.status === "fail").length;
-  const specShaBefore = specSetDigest(fixLoopSpecRoot, initialRun.cases.map((c) => c.file).filter((f): f is string => !!f));
+  const specShaBefore = specSetDigest((file) => readConfinedSpecFile(fixLoopSpecRoot, file), initialRun.cases.map((c) => c.file).filter((f): f is string => !!f));
   const loopInput: FixLoopInput = {
     initialRun: { verdict: initialRun.verdict, cases: initialRun.cases },
     isCode: cfg.isCode,
@@ -359,7 +343,7 @@ export async function settleFixLoop(state: Readonly<RunState>, ctx: WorkspaceRun
   const run = { verdict: fixLoopResult.run.verdict, cases: fixLoopResult.run.cases, logs: initialRun.logs };
   /* The fix_loop phase span carries what the loop came to, so a false positive (a failed run the loop changed nothing in) is queryable. */
   const failingAfter = run.cases.filter((c) => c.status === "fail").length;
-  const specShaAfter = specSetDigest(fixLoopSpecRoot, run.cases.map((c) => c.file).filter((f): f is string => !!f));
+  const specShaAfter = specSetDigest((file) => readConfinedSpecFile(fixLoopSpecRoot, file), run.cases.map((c) => c.file).filter((f): f is string => !!f));
   try {
     trail.spans.annotate({
       "qayaba.phase.outcome": run.verdict,

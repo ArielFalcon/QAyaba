@@ -18,6 +18,8 @@ export interface RunHost {
   noteGroundingGates(result: { preExecAmbiguityCatches: number; catalogGateInWindow: number; catalogGateAdvisory: number; catalogGateFailClosed: number }): void;
   pruneMirror(mirrorDir: string): Promise<void>;
   noteDeadlineArmed(): void;
+  /** The text with the secrets of this run replaced. */
+  redact(text: string): string;
   prepareAuth(specDir: string, phase: "pre-generate" | "pre-execute", signal?: AbortSignal): Promise<{ unauthored: boolean; setupSha256?: string } | { failed: string } | { precondition: PreconditionFailure }>;
   replaceRestoredLogin(workspace: { specDir: string; mirrorDir: string }, signal?: AbortSignal): Promise<"replaced" | "unchanged" | "setup-failed">;
   announceSuite(text: string, level: "info" | "warn"): void;

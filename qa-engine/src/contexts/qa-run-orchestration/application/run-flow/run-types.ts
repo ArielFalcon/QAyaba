@@ -78,6 +78,8 @@ export interface RunQaUseCaseDeps {
   telemetry?: TelemetryPort;
   /** Absent: nothing is observed. Present: told the run's state, by reference, after every step the runner passes over, runs or ends on (the record a checkpoint is made from). It must not change the state. */
   stateObserver?: (state: Readonly<object>, step: { readonly id: string; readonly outcome: string }) => void;
+  /** Absent: no checkpoint is made. Present: handed the run's checkpoint (a `RunCheckpoint`: state, workspace digest, step id) after every step the runner passes over, runs or ends on. Nothing in production sets it; it neither stores nor resumes anything. */
+  onCheckpoint?: (checkpoint: Readonly<object>) => void;
   /** Extracts a spec's clause contract for the intent lock. Absent: the lock has nothing to judge and never rejects. */
   intentContract?: IntentContractPort;
   changeAnalysis: ChangeAnalysisPort;

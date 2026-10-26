@@ -4,8 +4,9 @@
  * use them, and a checkpoint of the run's state never holds them.
  */
 
-import { listSpecFiles, listSuiteFiles, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
+import { listSpecFiles, listSuiteFiles, readConfinedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { sha256Hex } from "../../../../shared-infrastructure/content-hash.ts";
+import { specSetDigest } from "./spec-set-digest.ts";
 import { specSnapshotPort } from "../../infrastructure/adapters/spec-snapshot.adapter.ts";
 import { RegenerationAcceptance } from "../regeneration-acceptance.ts";
 import type { SpecSnapshot } from "../ports/spec-snapshot.port.ts";
@@ -195,6 +196,8 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
 
   return {
     specRoot,
+    /** The digest of these spec files as the working copy holds them now (see `specSetDigest`). */
+    specDigest: (files: readonly string[]) => specSetDigest((file) => readConfinedSpecFile(specRoot, file), files),
     proofBytes,
     keepProof,
     fixLoopHandle,
