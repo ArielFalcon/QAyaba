@@ -2,6 +2,7 @@
  * Control plane: webhook + sequential queue + HTTP API. One run at a time against DEV.
  */
 
+import { PendingChangeSets } from "./server/pending-change-sets";
 import { createServer, IncomingMessage } from "node:http";
 import { join } from "node:path";
 import { qayabaDataDir, qayabaRoot } from "./paths";
@@ -251,8 +252,11 @@ const contextMapNeedsRebuild = contextMapNeedsRebuildFor(process.env);
  * onboarding mirror-race guard — so no path can skip parking while onboarding provisions mirrors.
  * Built at call time: engineFactory and onboardingJob are assigned later in this module.
  */
+/* The change sets of the runs waiting in the queue: a push of an app that lands while one of its runs waits joins it (src/server/pending-change-sets.ts). */
+const pendingChangeSets = new PendingChangeSets();
+
 function runnerDeps(): RunnerDeps {
-  return { runConfig: runConfigEnvironment, runEvents, engineFactory, telemetry: telemetry.telemetry, clock: telemetry.clock, afterRun, isOnboardingActive: () => onboardingJob.isActive(), ...(suiteHoldsVerifiedLogin ? { suiteHoldsVerifiedLogin } : {}), ...(contextMapNeedsRebuild ? { contextMapNeedsRebuild } : {}) };
+  return { pendingChangeSets, runConfig: runConfigEnvironment, runEvents, engineFactory, telemetry: telemetry.telemetry, clock: telemetry.clock, afterRun, isOnboardingActive: () => onboardingJob.isActive(), ...(suiteHoldsVerifiedLogin ? { suiteHoldsVerifiedLogin } : {}), ...(contextMapNeedsRebuild ? { contextMapNeedsRebuild } : {}) };
 }
 
 /*

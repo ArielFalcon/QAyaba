@@ -11,8 +11,11 @@ import {
   ONBOARDING_JOB_CEILING_MS,
   ONBOARDING_INDEXING_CEILING_MS,
   ONBOARDING_WAIT_MARGIN_MS,
+  type RunnerDeps,
+  type RunRequest,
 } from "./runner";
-import { getRecord, createRecord, updateRecord, getRunPhases } from "./history";
+import { PendingChangeSets } from "./pending-change-sets";
+import { getRecord, createRecord, updateRecord, getRunPhases, listRecords } from "./history";
 import { recordPhaseSnapshot } from "@contexts/run-orchestration/application/index";
 import { AppConfig } from "../orchestrator/config-loader";
 import { createRunEventStore } from "./run-events";
@@ -1865,4 +1868,93 @@ test("a service push with a base projects its repo and base onto the run input",
   assert.equal(input.triggerRepo, "org/orders-svc");
   assert.equal(input.baseSha?.value, "bad00001");
   assert.equal(input.changeSet.anchor.baseSha?.value, "bad00001");
+});
+
+function coalescingRig(app: string) {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const pendingChangeSets = new PendingChangeSets();
+  const factoryRuns: Array<{ sha?: string; triggerRepo?: string; changeSet?: unknown }> = [];
+  const deps: RunnerDeps = {
+    loadApp: (name) => ({ ...cfg(name), services: [{ repo: "org/orders-svc" }] }),
+    engineFactory: (_app, _ns, run) => { factoryRuns.push(run); return port; },
+    pendingChangeSets,
+  };
+  /* A job that holds the queue until released, so the runs enqueued behind it are all still waiting. */
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  queue.enqueue(async () => { await held; });
+  return { queue, calls, deps, release, app, factoryRuns };
+}
+const frontPush = (app: string): RunRequest => ({ app, sha: "f111111", baseSha: "f000000", target: "e2e", mode: "diff", source: "webhook" });
+const servicePush = (app: string): RunRequest => ({ app, sha: "b222222", baseSha: "b000000", target: "e2e", mode: "diff", source: "webhook", triggerRepo: "org/orders-svc" });
+
+test("two webhook pushes of one app that land while the queue is busy are one run that reads both repos", async () => {
+  const rig = coalescingRig("coalesce-two");
+  const first = enqueueTrackedRun(rig.queue, frontPush(rig.app), rig.deps);
+  const second = enqueueTrackedRun(rig.queue, servicePush(rig.app), rig.deps);
+  assert.equal(second, first, "the second push joins the first run");
+  assert.equal(listRecords(rig.app, 10).length, 1, "one record, not two");
+
+  rig.release();
+  await rig.queue.drain();
+
+  assert.equal(rig.calls.length, 1);
+  const input = rig.calls[0]!;
+  assert.deepEqual(input.changeSet.entries.map((e) => `${e.repo}@${e.headSha.value}`), ["org/demo@f111111", "org/orders-svc@b222222"]);
+  assert.equal(input.triggerRepo, undefined, "the primary entry anchors the run");
+  assert.equal(rig.factoryRuns[0]?.triggerRepo, undefined);
+  assert.equal((rig.factoryRuns[0]?.changeSet as { entries: unknown[] }).entries.length, 2);
+});
+
+test("a push that lands after the run started queues a run of its own", async () => {
+  const rig = coalescingRig("coalesce-late");
+  const first = enqueueTrackedRun(rig.queue, frontPush(rig.app), rig.deps);
+  rig.release();
+  await new Promise((r) => setTimeout(r, 20)); /* the held job ends, then the first run takes its turn */
+  const late = enqueueTrackedRun(rig.queue, servicePush(rig.app), rig.deps);
+  await rig.queue.drain();
+
+  assert.notEqual(late, first);
+  assert.equal(rig.calls.length, 2);
+  assert.equal(rig.calls[0]!.changeSet.entries.length, 1);
+});
+
+test("a manual run, a guided run and a code-target run never join a queued run", async () => {
+  const rig = coalescingRig("coalesce-refused");
+  const first = enqueueTrackedRun(rig.queue, frontPush(rig.app), rig.deps);
+  const manual = enqueueTrackedRun(rig.queue, { ...servicePush(rig.app), source: "manual" }, rig.deps);
+  const guided = enqueueTrackedRun(rig.queue, { ...servicePush(rig.app), guidance: "test the form" }, rig.deps);
+  const code = enqueueTrackedRun(rig.queue, { ...servicePush(rig.app), target: "code" }, rig.deps);
+
+  assert.equal(new Set([first, manual, guided, code]).size, 4);
+  rig.release();
+  await rig.queue.drain();
+});
+
+test("a push that would join a run cancelled while it waited queues a run of its own", async () => {
+  const rig = coalescingRig("coalesce-cancelled");
+  const first = enqueueTrackedRun(rig.queue, frontPush(rig.app), rig.deps);
+  cancelTrackedRun(rig.queue, first);
+  const second = enqueueTrackedRun(rig.queue, servicePush(rig.app), rig.deps);
+
+  assert.notEqual(second, first);
+  rig.release();
+  await rig.queue.drain();
+  assert.equal(rig.calls.length, 1);
+  assert.equal(rig.calls[0]!.changeSet.anchor.repo, "org/orders-svc");
+});
+
+test("without a registry a second push queues its own run, as before", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort({ verdict: "pass" });
+  const deps: RunnerDeps = { loadApp: (name) => cfg(name), engineFactory: () => port };
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  queue.enqueue(async () => { await held; });
+  const a = enqueueTrackedRun(queue, frontPush("coalesce-off"), deps);
+  const b = enqueueTrackedRun(queue, { ...frontPush("coalesce-off"), sha: "f222222", baseSha: "f111111" }, deps);
+  assert.notEqual(a, b);
+  release();
+  await queue.drain();
 });

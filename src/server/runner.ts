@@ -24,6 +24,7 @@ import type { RunEventStore } from "./run-events";
 import type { RunEventBody } from "../contract/events";
 import { Sha } from "@kernel/sha";
 import { ChangeSet, anchorProjection } from "@contexts/change-analysis/application/index";
+import { changeEntryOf, isCoalescible, PendingChangeSets, type DeclaredRepos } from "./pending-change-sets";
 import { RUN_PURPOSE, type RunPurpose } from "@kernel/run-mode";
 import { isUntrustedGitTreeError } from "@kernel/domain-error";
 import type { CampaignIdentity } from "../contract/campaign";
@@ -93,6 +94,8 @@ export interface RunnerDeps {
   /* The process-level facts a run's effectiveConfig records (agent runtime, static prompt hash, tool grants, switches). Absent: those are recorded as unknown. */
   runConfig?: RunConfigEnvironment;
   loadApp?: (name: string) => AppConfig;  /* defaults to the real config loader */
+  /* The change sets of queued runs: present, a webhook push of an app joins a run of that app still waiting in the queue (see pending-change-sets.ts). Absent: every push is a run of its own. */
+  pendingChangeSets?: PendingChangeSets;
   runEvents?: RunEventStore;
 
   engineFactory?: (
@@ -216,14 +219,11 @@ async function runViaEngine(
   liveAnnounced?: Map<string, LiveAnnouncedStatus>,
 
   previousNamespace?: string,
+  /* The set the run took from the queue's registry when other pushes joined it; absent: the request's own single entry. */
+  joinedChangeSet?: ChangeSet,
 ): Promise<QaRunResult & { phases?: { furthestPhase: string; phaseTimings: Record<string, number> }; facts: RunFacts }> {
   assertTriggerRepoDeclared(appConfig, req.triggerRepo);
-  const changeSet = ChangeSet.of(req.app, [{
-    repo: req.triggerRepo ?? appConfig.repo,
-    role: req.triggerRepo && req.triggerRepo !== appConfig.repo ? "service" : "primary",
-    headSha: Sha.of(req.sha),
-    ...(req.baseSha ? { baseSha: Sha.of(req.baseSha) } : req.commits !== undefined ? { commits: req.commits } : {}),
-  }]);
+  const changeSet = joinedChangeSet ?? ChangeSet.of(req.app, [changeEntryOf(req, appConfig.repo)]);
   const projection = anchorProjection(changeSet);
   const input: RunInput = {
     app: req.app,
@@ -354,11 +354,36 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
   const captureMode = capCaptureMode(req.captureMode, runConfigEnv.maxCapture);
   /* A run joins a campaign only with the capture mode its siblings have; refused before anything is queued or marked. */
   if (req.campaign) assertUniformCapture(req.campaign.id, captureMode, getCampaignCaptureMode(req.campaign.id));
+  /* A push that can join a run still waiting for its turn does: that run reads it, and it needs no run, record or bootstrap of its own. */
+  const declared = declaredRepos(req, deps);
+  const joined = declared ? coalesceInto(req, declared, deps) : undefined;
+  if (joined) return joined;
   /* After every refusal: a refused request must leave nothing behind, a queued bootstrap or a marked app included. */
   enqueueLoginBootstrapFirst(queue, req, deps);
   const run = trackRun(req, deps, captureMode, `queue: ${queue.size + 1}`);
+  if (declared) deps.pendingChangeSets?.register(run.id, req, declared);
   queue.enqueue(run.execute, run.id);
   return run.id;
+}
+
+/* The repos the request's app declares, when the request could share a run and the registry is wired. A config that cannot be read means no sharing, never a failed enqueue: trackRun reports it the way it always has. */
+function declaredRepos(req: RunRequest, deps: RunnerDeps): DeclaredRepos | undefined {
+  if (!deps.pendingChangeSets || !isCoalescible(req)) return undefined;
+  try {
+    const app = (deps.loadApp ?? loadAppConfig)(req.app);
+    return { app: req.app, primary: app.repo, services: (app.services ?? []).map((s) => s.repo) };
+  } catch {
+    return undefined;
+  }
+}
+
+function coalesceInto(req: RunRequest, declared: DeclaredRepos, deps: RunnerDeps): string | undefined {
+  const runId = deps.pendingChangeSets!.offer(req, declared, (id) => getRecord(id)?.status === "enqueued");
+  if (!runId) return undefined;
+  const repo = req.triggerRepo ?? declared.primary;
+  console.log(`[qa] coalesced ${repo}@${req.sha} into ${runId}`);
+  deps.runEvents?.publish(runId, { type: "log.line", level: "info", text: `${repo}@${req.sha} joined this run before it started` });
+  return runId;
 }
 
 /*
@@ -414,6 +439,9 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
   const enqueued = markEnqueued(telemetry, clock, identity, { root: insideRun });
 
   const job = async (signal: AbortSignal, trace: RunTrace): Promise<void> => {
+    /* First thing at its turn: the run closes its set, so a push that arrives from here on queues a run of its own. */
+    const joinedSet = deps.pendingChangeSets?.take(record.id);
+    const joined = joinedSet && joinedSet.entries.length > 1 ? joinedSet : undefined;
     try {
       /*
        * If the run was cancelled while still enqueued, the record is already finalized
@@ -507,7 +535,13 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
         deps.engineFactory(
           appConfig,
           runNamespace,
-          { mode: req.mode, target: req.target, sha: req.sha, runId: record.id, ...(req.guidance ? { guidance: req.guidance } : {}), ...(req.triggerRepo ? { triggerRepo: req.triggerRepo } : {}), ...(resolvedRunConfig ? { grounding: resolvedRunConfig.grounding } : {}) },
+          {
+            mode: req.mode, target: req.target, runId: record.id,
+            /* A run that other pushes joined is anchored on its primary entry, whichever push queued it. */
+            sha: joined ? anchorProjection(joined).sha.toString() : req.sha,
+            ...(req.guidance ? { guidance: req.guidance } : {}),
+            ...(joined ? { changeSet: joined, ...(anchorProjection(joined).triggerRepo ? { triggerRepo: anchorProjection(joined).triggerRepo } : {}) } : req.triggerRepo ? { triggerRepo: req.triggerRepo } : {}),
+            ...(resolvedRunConfig ? { grounding: resolvedRunConfig.grounding } : {}) },
           observer,
           previousNamespace,
         ),
@@ -522,6 +556,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
          * gate.
          */
         previousNamespace,
+        joined,
       );
 
       if (getRecord(record.id)?.status === "done") {
