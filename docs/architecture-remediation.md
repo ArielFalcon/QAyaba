@@ -350,7 +350,7 @@ Owner questions from the phase documents. On 2026-10-25 the owner accepted every
 - **P5, re-plan bound (S5).** One re-plan, then admit and record `unplanned`? Decided: keep.
 - **P5, coalescing scope (S1b).** Only `e2e` webhook runs of one app? Decided: keep; widen only with evidence.
 - **P5, invariant wording (S3c).** The code-graph bullet of `AGENTS.md` must read "each repository of the run's change". Decided: the other session applies the text from the commit message.
-- **P6, apps without a scope.** Accept that an app with `structuralSignals.mode: off` gets no fault-injection score? Decided: accept.
+- **P6, apps without a scope.** Accept that an app with `structuralSignals.mode: off` gets no fault-injection score? Decided: accept. Superseded by P5 L25: the key is gone and every app has the structural signal, so a run without a scope is one whose change the graph could not resolve.
 - **P6, enforce.** Which apps move to `qa.coveragePolicy.mode: enforce`? Decided: none until a local-frontend run with source maps measures coverage in 3 replicates and the S3 calibration passes on the same case.
 - **P6, P4.6.** Same question as P4; the recommended answer is the same.
 - **P6, out-of-reach label.** Should it change what the harness does? Decided: not in this phase; record first.
