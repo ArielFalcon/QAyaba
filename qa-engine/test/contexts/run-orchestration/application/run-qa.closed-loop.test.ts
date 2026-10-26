@@ -59,7 +59,7 @@ function rig(opts: { closed?: boolean; openThrows?: boolean; grant?: boolean } =
           r.generations++;
           events.push("generate");
           r.enrichments.push(enrichment ?? {});
-          return scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true });
+          return scriptedGeneration({ specs: ["flows/a.spec.ts"]});
         },
       }),
       review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
@@ -121,7 +121,7 @@ test("no loop for a code run, a context run, a regression run, a login bootstrap
   assert.equal(code.opened.length, 0, "code");
 
   const context = rig();
-  await new RunQaUseCase(context.deps({ generation: { generate: async () => scriptedGeneration({ specs: [".qa/context.json"], approved: true, note: "map" }) } })).run({ ...INPUT, mode: "context" });
+  await new RunQaUseCase(context.deps({ generation: { generate: async () => scriptedGeneration({ specs: [".qa/context.json"], note: "map" }) } })).run({ ...INPUT, mode: "context" });
   assert.equal(context.opened.length, 0, "context");
 
   const regression = rig();
@@ -181,7 +181,7 @@ test("a handle that fails to close changes nothing about the result", async () =
 test("a probe the generator listed as a deliverable is not delivered", async () => {
   const r = rig({ closed: true });
   const out = await new RunQaUseCase(r.deps({
-    generation: { generate: async () => scriptedGeneration({ specs: ["flows/a.spec.ts", ".qa-probe/try.spec.ts", "e2e/.qa-probe/other.spec.ts"], approved: true }) },
+    generation: { generate: async () => scriptedGeneration({ specs: ["flows/a.spec.ts", ".qa-probe/try.spec.ts", "e2e/.qa-probe/other.spec.ts"]}) },
   })).run(INPUT);
   assert.equal(out.decision.verdict, "pass");
   assert.deepEqual(r.closedAsked.at(-1), ["flows/a.spec.ts"]);
@@ -260,7 +260,7 @@ test("a closed loop never turns a declared no-op into anything but a skip", asyn
   for (const closed of [true, false]) {
     const r = rig({ closed });
     const out = await new RunQaUseCase(r.deps({
-      generation: { generate: async () => scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.DECLARED_NOOP, note: "nothing worth testing" }) },
+      generation: { generate: async () => scriptedGeneration({ specs: [], end: GENERATION_END.DECLARED_NOOP, note: "nothing worth testing" }) },
     })).run(INPUT);
     assert.equal(out.decision.verdict, "skipped", `closed=${closed}`);
     assert.equal(r.events.filter((e) => e === "close").length, 1);
@@ -271,7 +271,7 @@ test("silence is still not a decision, and running out of steps or time still en
   for (const closed of [true, false]) {
     for (const end of [GENERATION_END.UNDECIDED_EMPTY, GENERATION_END.EXHAUSTED, GENERATION_END.TIME_BUDGET]) {
       const r = rig({ closed });
-      const out = await new RunQaUseCase(r.deps({ generation: { generate: async () => scriptedGeneration({ specs: [], approved: false, end, note: "no verdict" }) } })).run({ ...INPUT, runId: `silence-${end}` });
+      const out = await new RunQaUseCase(r.deps({ generation: { generate: async () => scriptedGeneration({ specs: [], end, note: "no verdict" }) } })).run({ ...INPUT, runId: `silence-${end}` });
       assert.equal(out.decision.verdict, "infra-error", `${end} closed=${closed}`);
     }
   }

@@ -73,7 +73,7 @@ function rig(opts: { authRestored?: boolean; restoreThrows?: Error; captureThrow
     const { generation: generationOver, ...rest } = over;
     return {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
-    generation: generationOnDisk(generationOver ?? { generate: async () => scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true }) }),
+    generation: generationOnDisk(generationOver ?? { generate: async () => scriptedGeneration({ specs: ["flows/a.spec.ts"]}) }),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
     execution: { execute: async () => ({ verdict: "pass", cases: PASSING, logs: "" }) },
@@ -107,7 +107,7 @@ test("a code run, a context run and a run that ends at classification never touc
   assert.equal(code.events.includes("restore") || code.events.includes("capture"), false, "code");
 
   const context = rig();
-  await new RunQaUseCase(context.deps({ generation: { generate: async () => scriptedGeneration({ specs: [".qa/context.json"], approved: true, note: "map" }) } })).run({ ...INPUT, mode: "context" });
+  await new RunQaUseCase(context.deps({ generation: { generate: async () => scriptedGeneration({ specs: [".qa/context.json"], note: "map" }) } })).run({ ...INPUT, mode: "context" });
   assert.equal(context.events.includes("restore") || context.events.includes("capture"), false, "context");
 
   const skipped = rig();
@@ -139,7 +139,7 @@ test("a spec the reviewer's correction round rewrote is executed by its acceptan
     generation: {
       generate: async (_specDir, _signal, _diff, enrichment) => {
         if (enrichment?.reviewCorrections !== undefined) r.write("flows/a.spec.ts", "a v2, executed by acceptance");
-        return scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true });
+        return scriptedGeneration({ specs: ["flows/a.spec.ts"]});
       },
     },
     review: { review: async () => (reviews++ === 0 ? { approved: false, corrections: ["assert the total"], blockingCount: 1, parsed: true } : { approved: true, corrections: [], blockingCount: 0, parsed: true }) },
@@ -182,7 +182,7 @@ test("a run that is not accepted keeps nothing: a failed or flaky verdict, a rej
   ];
   for (const [name, over] of cases) {
     const r = rig();
-    await new RunQaUseCase(r.deps({ ...over, generation: { generate: async () => scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: false }) } })).run({ ...INPUT, runId: `not-accepted-${name}` });
+    await new RunQaUseCase(r.deps({ ...over, generation: { generate: async () => scriptedGeneration({ specs: ["flows/a.spec.ts"]}) } })).run({ ...INPUT, runId: `not-accepted-${name}` });
     assert.equal(r.captured.length, 0, name);
   }
 });

@@ -21,6 +21,7 @@ import { failureEnd } from "./run-flow/failure-ends.ts";
 import { degradeFailedStep } from "./run-flow/degrade.ts";
 import { checkpointOf } from "./run-flow/checkpoint.ts";
 import { reviewsTests } from "./run-flow/phases/review.steps.ts";
+import { reviewRequired } from "../domain/review-required.ts";
 import type { StepId } from "./run-flow/step-ids.ts";
 import { type RunEnd } from "./run-flow/run-end.ts";
 import { finalizeRun, recordCrashEvidence } from "./run-flow/finalize-run.ts";
@@ -37,7 +38,6 @@ import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { RedactionScope } from "@kernel/telemetry/telemetry.port.ts";
 import { attachTraceFacts, type RunTraceFacts } from "@kernel/run-trace-facts.ts";
-import { generationRunsReviewer } from "@contexts/generation/application/index.ts";
 import { AuthPreconditionError } from "@contexts/app-catalog/application/index.ts";
 import { CycleBudget } from "../../../shared-kernel/cycle-budget.ts";
 import { WallClockBudget } from "../../../shared-kernel/wall-clock-budget.ts";
@@ -117,7 +117,7 @@ export class RunQaUseCase {
   /* The run's state as it begins: what the generation decides about the reviewer is known from the input and the configuration. */
   private stateOf(input: RunQaInput): RunState {
     const state = initialRunState();
-    recordRunFact(state, "reviewRequired", generationRunsReviewer({ needsReview: { ...DEFAULT_CONFIG, ...this.deps.config }.needsReview, mode: input.mode }));
+    recordRunFact(state, "reviewRequired", reviewRequired({ needsReview: { ...DEFAULT_CONFIG, ...this.deps.config }.needsReview, mode: input.mode }));
     return state;
   }
 

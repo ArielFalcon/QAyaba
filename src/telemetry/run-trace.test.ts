@@ -39,7 +39,7 @@ function baseDeps(clock: { now(): number }, overrides: Overrides = {}): RunQaUse
   const ws = runWorkspace("qa-trace-");
   return {
     changeAnalysis: { classify: overrides.classify ?? (async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" })) },
-    generation: generationOnDisk({ generate: overrides.generate ?? (async () => scriptedGeneration({ specs: ["a.spec.ts"], approved: true })) }),
+    generation: generationOnDisk({ generate: overrides.generate ?? (async () => scriptedGeneration({ specs: ["a.spec.ts"]})) }),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate: overrides.validate ?? (async () => ({ ok: true, errors: [] })) },
     execution: { execute: async () => ({ verdict: "pass", cases: [], logs: "" }) },
@@ -81,7 +81,7 @@ test("a full run is one trace: a root, and the phases it entered as its children
   const useCase = useCaseWith(h.telemetry, h.clock, {
     generate: async () => {
       h.clock.advance(40);
-      return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+      return scriptedGeneration({ specs: ["a.spec.ts"]});
     },
   });
 
@@ -194,7 +194,7 @@ test("each phase records its duration in seconds on the phase histogram, with al
   const useCase = useCaseWith(h.telemetry, h.clock, {
     generate: async () => {
       h.clock.advance(2_500);
-      return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+      return scriptedGeneration({ specs: ["a.spec.ts"]});
     },
   });
   await runUnderRoot(h, useCase);
@@ -240,7 +240,7 @@ test("a run ended by its deadline says which limit fired and in which role", asy
 
 test("a generation cut off by its tier budget reports the tier budget as the limit", async () => {
   const h = traceHarness();
-  const useCase = useCaseWith(h.telemetry, h.clock, { generate: async () => scriptedGeneration({ specs: [], approved: true, end: "time-budget" }) });
+  const useCase = useCaseWith(h.telemetry, h.clock, { generate: async () => scriptedGeneration({ specs: [], end: "time-budget" }) });
   const { result } = await runUnderRoot(h, useCase);
   assert.equal(traceFactsOf(result!)?.generationEnd, "time-budget");
   assert.equal(traceFactsOf(result!)?.limitFired, "tier-budget");
@@ -248,7 +248,7 @@ test("a generation cut off by its tier budget reports the tier budget as the lim
 
 test("a generation that ran out of steps reports the step cap as the limit", async () => {
   const h = traceHarness();
-  const useCase = useCaseWith(h.telemetry, h.clock, { generate: async () => scriptedGeneration({ specs: [], approved: true, end: "exhausted" }) });
+  const useCase = useCaseWith(h.telemetry, h.clock, { generate: async () => scriptedGeneration({ specs: [], end: "exhausted" }) });
   const { result } = await runUnderRoot(h, useCase);
   assert.equal(traceFactsOf(result!)?.limitFired, "step-cap");
 });

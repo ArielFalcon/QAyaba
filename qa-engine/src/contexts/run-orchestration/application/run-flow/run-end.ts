@@ -25,8 +25,6 @@ export interface GroundingSignals {
 
 /** What a persisted end knows about the run so far; each fact is absent unless the end genuinely has it, never fabricated. */
 export interface EndEvidence {
-  /** Present only when a reviewer ran. */
-  reviewerApproved?: boolean | undefined;
   /** Static-fix retries consumed before the end. */
   retries?: number;
   groundingSignals?: GroundingSignals;
@@ -56,7 +54,7 @@ export type RunEnd =
   | { reason: "classify-skipped" }
   | { reason: NotedFailure; note: string }
   /** A declared no-op: a skip the run records. */
-  | { reason: "generation-noop"; note: string | undefined; reviewerApproved: boolean | undefined; noop?: { kind: NoopKind }; confinement?: ConfinementTotals; closedLoop?: ClosedLoopGateSignal; agentBrowser?: AgentBrowserGateSignal }
+  | { reason: "generation-noop"; note: string | undefined; noop?: { kind: NoopKind }; confinement?: ConfinementTotals; closedLoop?: ClosedLoopGateSignal; agentBrowser?: AgentBrowserGateSignal }
   /** The app's login could not be completed, on a positive piece of evidence. */
   | { reason: "login-precondition"; generating: boolean; note: string }
   /** The generation delivered no specs and decided nothing; `generationEnd` names how it ended. */

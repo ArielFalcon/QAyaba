@@ -13,7 +13,7 @@ function build(config: Partial<RunQaConfig>, measure: RunQaUseCaseDeps["objectiv
   const ws = runWorkspace("qa-facts-");
   const deps: RunQaUseCaseDeps = {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
-    generation: generationOnDisk({ generate: async () => scriptedGeneration({ specs: ["a.spec.ts"], approved: true }) }),
+    generation: generationOnDisk({ generate: async () => scriptedGeneration({ specs: ["a.spec.ts"]}) }),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
     execution: { execute: async () => ({ verdict, cases: [], logs: "" }) },

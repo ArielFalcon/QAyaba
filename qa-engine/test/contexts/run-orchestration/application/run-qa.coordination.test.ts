@@ -57,7 +57,7 @@ function rig(result: () => Promise<CoordinateResult> | CoordinateResult = () => 
       generate: async (_d, _s, _diff, enrichment) => {
         calls.push("generate");
         r.enrichments.push(enrichment ?? {});
-        return scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true });
+        return scriptedGeneration({ specs: ["flows/a.spec.ts"]});
       },
       plan: async (_dir, _signal, _diff, enrichment): Promise<PlanOutput> => {
         calls.push("plan");
@@ -160,7 +160,7 @@ test("the proofs of the pages the call graph added reach the coordinator, and a 
 
 test("a generation that cannot plan is told to the coordinator as no planning turn", async () => {
   const r = rig();
-  await new RunQaUseCase(r.deps({ generation: { generate: async () => scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true }) } })).run(INPUT);
+  await new RunQaUseCase(r.deps({ generation: { generate: async () => scriptedGeneration({ specs: ["flows/a.spec.ts"]}) } })).run(INPUT);
   assert.equal(r.coordinated[0]!.plan, undefined);
 });
 
@@ -219,7 +219,7 @@ test("coordination asks for nothing from a code run, a context run, a regression
   assert.equal(code.coordinated.length, 0, "code");
 
   const context = rig();
-  await new RunQaUseCase(context.deps({ generation: { generate: async () => scriptedGeneration({ specs: [".qa/context.json"], approved: true, note: "map" }) } })).run({ ...INPUT, mode: "context" });
+  await new RunQaUseCase(context.deps({ generation: { generate: async () => scriptedGeneration({ specs: [".qa/context.json"], note: "map" }) } })).run({ ...INPUT, mode: "context" });
   assert.equal(context.coordinated.length, 0, "context");
 
   const regression = rig();

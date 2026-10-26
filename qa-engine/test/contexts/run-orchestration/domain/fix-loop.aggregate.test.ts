@@ -1331,7 +1331,7 @@ function loopInput(overrides: Partial<FixLoopInput> = {}): FixLoopInput {
   };
 }
 
-const noFix = (): FixLoopGenerateResult => ({ specs: [], approved: true });
+const noFix = (): FixLoopGenerateResult => ({ specs: []});
 
 test("the first round's absent-selector count is reported, and a later clean round does not overwrite it", async () => {
   const { loop } = recordingLoop({
@@ -1771,7 +1771,7 @@ test("a filtered retry is never reported greener than the runner's own verdict f
     verdict: "fail",
     cases: [makeCase({ name: "a", file: "a.spec.ts" }), { name: "b", status: "pass", file: "b.spec.ts" }],
   };
-  const regen = (): FixLoopGenerateResult => ({ specs: ["a.spec.ts"], approved: true });
+  const regen = (): FixLoopGenerateResult => ({ specs: ["a.spec.ts"]});
   const failed = recordingLoop({ regen, runs: [{ verdict: "fail", cases: [{ name: "a", status: "pass", file: "a.spec.ts" }] }] });
   assert.equal((await failed.loop.run(loopInput({ initialRun }))).run.verdict, "fail");
   const flaky = recordingLoop({ regen, runs: [{ verdict: "flaky", cases: [{ name: "a", status: "pass", file: "a.spec.ts" }] }] });

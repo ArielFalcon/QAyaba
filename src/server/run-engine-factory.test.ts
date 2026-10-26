@@ -904,7 +904,6 @@ test("the composed RepairPort drives GenerateTestsUseCase's generator-contract-c
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    needsReview: false,
     target: "e2e",
     mode: "diff",
     appName: app.name,
@@ -1982,7 +1981,6 @@ async function generateThroughTransport(
     mirrorDir: "/mirrors/org/app",
     e2eRelDir: "e2e",
     namespace: "ns",
-    needsReview: false,
     target: "e2e",
     mode: "diff",
     appName: "factory-turn-stats",
@@ -2067,7 +2065,7 @@ async function generateOnAHungTransport(diff: string, advanceMs: number): Promis
   try {
     const generating = config.generationUseCase.generate({
       repo: "org/demo", sha: "abc1234", diff, mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", namespace: "ns",
-      needsReview: false, target: "e2e", mode: "diff", appName: "factory-time-budget", runId: "run-factory-time",
+      target: "e2e", mode: "diff", appName: "factory-time-budget", runId: "run-factory-time",
     });
     while (!prompting) await new Promise<void>((resolve) => setImmediate(resolve));
     mock.timers.tick(advanceMs);

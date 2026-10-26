@@ -18,7 +18,7 @@ const declared = (file: string, objective: string): DeliveredSpec => ({ file, fl
 
 /** A generation result as the lead's adapter reports one: the specs it delivered and what the verdict declared for them. */
 function lead(...specs: DeliveredSpec[]): GenerationOutput {
-  return scriptedGeneration({ specs: specs.map((spec) => spec.file), declaredSpecs: specs, approved: true });
+  return scriptedGeneration({ specs: specs.map((spec) => spec.file), declaredSpecs: specs});
 }
 
 const A1 = declared("a.spec.ts", "O1");
@@ -190,7 +190,7 @@ test("a FixLoop regeneration is handed the delivered specs", async () => {
 test("a FixLoop regeneration is handed the files its Lever-2 contradictions are attributed to: the specs of the latest generation that raised them", async () => {
   const absentButton = `await page.getByRole("button", { name: "Submit" }).click();`;
   const calls = await run({
-    generations: [scriptedGeneration({ specs: ["a.spec.ts", "b.spec.ts"], declaredSpecs: [A1, B1], approved: true, specSources: [absentButton, `await page.getByRole("link", { name: "Home" }).click();`] })],
+    generations: [scriptedGeneration({ specs: ["a.spec.ts", "b.spec.ts"], declaredSpecs: [A1, B1], specSources: [absentButton, `await page.getByRole("link", { name: "Home" }).click();`] })],
     execute: async () => ({ verdict: "fail", cases: [{ name: "checkout", status: "fail", detail: "boom", failureDom: "heading: Owners\nbutton: Cancel\nlink: Home" }], logs: "" }),
   });
   const regeneration = calls.find((call) => (call.selectorContradictions?.length ?? 0) > 0);
@@ -203,10 +203,10 @@ test("a later FixLoop round attributes its contradictions to the files of the ge
   const clean = `await page.getByRole("heading", { name: "Owners" }).click();`;
   const calls = await run({
     generations: [
-      scriptedGeneration({ specs: ["a.spec.ts"], declaredSpecs: [A1], approved: true, specSources: [clean] }),
+      scriptedGeneration({ specs: ["a.spec.ts"], declaredSpecs: [A1], specSources: [clean] }),
       /* The round changes the spec that failed and adds the one whose selector is absent: the first failure is
          replaced by the round's own execution, so the loop has progress for one more round. */
-      scriptedGeneration({ specs: ["a.spec.ts", "b.spec.ts"], declaredSpecs: [A1, B1], approved: true, specSources: [clean, absentButton] }),
+      scriptedGeneration({ specs: ["a.spec.ts", "b.spec.ts"], declaredSpecs: [A1, B1], specSources: [clean, absentButton] }),
     ],
     execute: (() => {
       let executions = 0;
@@ -311,12 +311,12 @@ test("a coverage pass adds the specs it delivers: the reviewer-correction regene
 });
 
 test("a spec the lead delivered and did not declare is carried by its path", async () => {
-  const calls = await run({ generations: [scriptedGeneration({ specs: ["a.spec.ts"], approved: true })], validate: INVALID_ONCE() });
+  const calls = await run({ generations: [scriptedGeneration({ specs: ["a.spec.ts"]})], validate: INVALID_ONCE() });
   assert.deepEqual(calls[1]!.deliveredSpecs, [{ file: "a.spec.ts" }]);
 });
 
 test("a run that delivered no spec file hands its regenerations no delivered-specs key, not an empty one", async () => {
-  const calls = await run({ generations: [scriptedGeneration({ specs: ["./"], approved: true })], validate: INVALID_ONCE() });
+  const calls = await run({ generations: [scriptedGeneration({ specs: ["./"]})], validate: INVALID_ONCE() });
   assert.equal(calls.length, 2);
   assert.equal(calls[1]!.fixCases?.[0]?.name, "static-gate");
   assert.equal("deliveredSpecs" in calls[1]!, false);
@@ -326,7 +326,7 @@ test("a file that a pre-exec contradiction and a Lever-2 contradiction both poin
   const absentButton = `await page.getByRole("button", { name: "Submit" }).click();`;
   let captures = 0;
   const calls = await run({
-    generations: [scriptedGeneration({ specs: ["a.spec.ts"], declaredSpecs: [A1], approved: true, specSources: [absentButton] })],
+    generations: [scriptedGeneration({ specs: ["a.spec.ts"], declaredSpecs: [A1], specSources: [absentButton] })],
     capture: async () => ({ specFiles: ["a.spec.ts"], specSources: [++captures === 1 ? AMBIGUOUS : CLEAN], routes: captures === 1 ? OWNERS_TWICE : OWNERS_ONCE }),
     execute: async () => ({ verdict: "fail", cases: [{ name: "checkout", status: "fail", detail: "boom", failureDom: "heading: Owners\nbutton: Cancel" }], logs: "" }),
   });

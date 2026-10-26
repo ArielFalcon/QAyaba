@@ -44,7 +44,7 @@ interface TerminalShape extends EndEvidence {
 /* What an end is, once it is told apart by the shape of the result it returns. */
 type Shape =
   | { kind: "failure"; note: string | undefined }
-  | { kind: "skip"; note: string | undefined; reviewerApproved: boolean | undefined; noop?: { kind: NoopKind } | undefined; confinement?: EndEvidence["confinement"]; closedLoop?: EndEvidence["closedLoop"]; agentBrowser?: EndEvidence["agentBrowser"] }
+  | { kind: "skip"; note: string | undefined; noop?: { kind: NoopKind } | undefined; confinement?: EndEvidence["confinement"]; closedLoop?: EndEvidence["closedLoop"]; agentBrowser?: EndEvidence["agentBrowser"] }
   | { kind: "terminal"; terminal: TerminalShape };
 
 /* The working copy exists once the run prepared it, whether or not the services over it were built. */
@@ -109,7 +109,7 @@ function shapeOf(end: Exclude<RunEnd, { reason: "decided" | "context-pass" }>, c
       /* A cancelled run is not a learner failure: the runner writes "cancelled by operator" on the record, so no note here. */
       return { kind: "failure", note: undefined };
     case "classify-skipped":
-      return { kind: "skip", note: undefined, reviewerApproved: undefined };
+      return { kind: "skip", note: undefined };
     case "deploy-gate-failed":
     case "setup-failed":
     case "auth-failed":
@@ -118,7 +118,7 @@ function shapeOf(end: Exclude<RunEnd, { reason: "decided" | "context-pass" }>, c
       console.error("[qa] infra-error terminal:", end.note);
       return { kind: "failure", note: end.note };
     case "generation-noop":
-      return { kind: "skip", note: end.note, reviewerApproved: end.reviewerApproved, noop: end.noop, confinement: end.confinement, closedLoop: end.closedLoop, agentBrowser: end.agentBrowser };
+      return { kind: "skip", note: end.note, noop: end.noop, confinement: end.confinement, closedLoop: end.closedLoop, agentBrowser: end.agentBrowser };
     case "login-precondition":
       return { kind: "terminal", terminal: { verdict: "infra-error", generating: end.generating, static: false, preconditionFailed: true, note: end.note } };
     case "generation-ended-without-specs": {
@@ -193,7 +193,6 @@ async function publishTerminal(shape: Shape, ctx: RunContext): Promise<string | 
     verdict: terminal.verdict,
     cases: [],
     logs: terminal.note ?? "",
-    reviewerApproved: terminal.reviewerApproved,
     coverageBlocks: false,
     ...(ctx.input.triggerRepo ? { issueRepo: ctx.input.triggerRepo } : {}),
     /* tested still renders into the Issue body when present. A terminal never routes to "pr". */
@@ -211,7 +210,6 @@ function noteOf(shape: Shape, publishOutcome: string | undefined): string | unde
 function outcomeOf(shape: Shape, decision: RunDecision, note: string | undefined, ctx: RunContext): RunOutcome | undefined {
   if (shape.kind === "skip") {
     return toRunOutcome(ctx, decision, [], 0, null, deriveErrorClass("skipped", null, null), {
-      reviewerApproved: shape.reviewerApproved,
       ...(shape.noop ? { noop: shape.noop } : {}),
       ...(shape.note !== undefined ? { note: shape.note } : {}),
       ...(shape.confinement !== undefined ? { confinement: shape.confinement } : {}),
@@ -224,7 +222,6 @@ function outcomeOf(shape: Shape, decision: RunDecision, note: string | undefined
   const rulesRetrieved = terminal.rulesRetrieved ?? [];
   return toRunOutcome(ctx, decision, [], terminal.retries ?? 0, null, errorClassOf(terminal, ctx), {
     staticOk: terminal.static,
-    reviewerApproved: terminal.reviewerApproved,
     note,
     ...(terminal.reviewerRationale !== undefined ? { reviewerRationale: terminal.reviewerRationale } : {}),
     ...(terminal.groundingSignals ?? NO_GROUNDING_SIGNALS),
@@ -291,7 +288,6 @@ function resultOf(shape: Shape, decision: RunDecision, outcome: RunOutcome | und
         static: false,
         coverageRatio: null,
         valueScore: null,
-        ...(shape.reviewerApproved !== undefined ? { reviewerApproved: shape.reviewerApproved } : {}),
         retries: 0,
         ...NO_GROUNDING_SIGNALS,
       },
@@ -313,7 +309,6 @@ function resultOf(shape: Shape, decision: RunDecision, outcome: RunOutcome | und
       static: persisted ? terminal.static : false,
       coverageRatio: null,
       valueScore: null,
-      ...(persisted && terminal.reviewerApproved !== undefined ? { reviewerApproved: terminal.reviewerApproved } : {}),
       retries: persisted ? (terminal.retries ?? 0) : 0,
       preExecAmbiguityCatches: persisted ? grounding.preExecAmbiguityCatches : 0,
       deterministicSelectorBlocks: persisted ? grounding.deterministicSelectorBlocks : 0,

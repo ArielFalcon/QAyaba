@@ -23,7 +23,7 @@ const SECRET = "hunter2-hunter2-secret";
 function depsFor(ws: RunWorkspace, seen: RunCheckpoint[], over: Partial<RunQaUseCaseDeps> = {}): RunQaUseCaseDeps {
   return {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
-    generation: generationOnDisk({ generate: async () => scriptedGeneration({ specs: ["a.spec.ts"], approved: true }) }),
+    generation: generationOnDisk({ generate: async () => scriptedGeneration({ specs: ["a.spec.ts"]}) }),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
     execution: { execute: async () => ({ verdict: "pass", cases: [], logs: `login with ${SECRET} worked` }) },

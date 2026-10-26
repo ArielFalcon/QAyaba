@@ -7,7 +7,6 @@ import { isOk } from "@kernel/result.ts";
 import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "../../../../../shared-kernel/derive-cycle-backstop.ts";
 import { staticFixAction } from "../../../domain/static-fix.ts";
-import { reviewerApprovalOf } from "@contexts/generation/application/index.ts";
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
 import { end, goto, type StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
@@ -72,7 +71,6 @@ async function endingEvidence(state: Readonly<RunState>, ctx: WorkspaceRunContex
   const { lastGenerated, retries } = state.execution;
   const { preExecAmbiguityCatches, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed } = state.generation;
   return {
-    reviewerApproved: reviewerApprovalOf(lastGenerated),
     /* Static-fix retries consumed before the exit. */
     retries,
     groundingSignals: { preExecAmbiguityCatches, deterministicSelectorBlocks: DETERMINISTIC_SELECTOR_BLOCKS, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed },

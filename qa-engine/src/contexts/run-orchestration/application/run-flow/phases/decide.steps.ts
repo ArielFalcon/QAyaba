@@ -1,7 +1,6 @@
 /* The decide phase of a run: the final proof guard over the delivered specs, the verdict's decision and the coordinated run's closing telemetry. */
 
 import { decide, type RunEvidence } from "../../../domain/run-decision.service.ts";
-import { reviewerApprovalOf } from "@contexts/generation/application/index.ts";
 import { end, type StepOutcome } from "../run-flow.ts";
 import { runEnd } from "../run-end.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
@@ -16,9 +15,8 @@ export function decidedOf(state: Readonly<RunState>): DecidedOutcome {
   return state.decided;
 }
 
-/* The run's final reviewer verdict for its outcome: a genuine review call's, else the generation's own flag, so fail/flaky/invalid paths still have a value. */
-export const reviewerApprovedForOutcomeOf = (state: Readonly<RunState>): boolean | undefined =>
-  state.review.reviewerApprovedForOutcome ?? reviewerApprovalOf(state.execution.lastGenerated);
+/* The run's reviewer verdict for its outcome: the one the review step's dispatched review gave, absent when the run ended before any review ran. */
+export const reviewerApprovedForOutcomeOf = (state: Readonly<RunState>): boolean | undefined => state.review.reviewerApprovedForOutcome;
 
 /* A context run's pass is synthetic and a code-target run has no suite store: only a generated browser suite has proven bytes to guard. */
 export const guardsFinalProof = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean =>

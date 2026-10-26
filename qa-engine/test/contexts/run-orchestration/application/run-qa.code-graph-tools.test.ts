@@ -33,7 +33,7 @@ function rig(opts: { openThrows?: boolean; generateThrows?: boolean; closeThrows
         generate: async () => {
           events.push("generate");
           if (opts.generateThrows) throw new Error("agent down");
-          return scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true });
+          return scriptedGeneration({ specs: ["flows/a.spec.ts"]});
         },
       }),
       review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
@@ -75,7 +75,7 @@ test("no code-graph tools for a code run, a context run, a regression run or a l
   await new RunQaUseCase(code.deps({ config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: true } })).run({ ...INPUT, target: "code" });
   assert.equal(code.events.some((e) => e.startsWith("open")), false, "code");
   const context = rig();
-  await new RunQaUseCase(context.deps({ generation: { generate: async () => scriptedGeneration({ specs: [".qa/context.json"], approved: true, note: "map" }) } })).run({ ...INPUT, mode: "context" });
+  await new RunQaUseCase(context.deps({ generation: { generate: async () => scriptedGeneration({ specs: [".qa/context.json"], note: "map" }) } })).run({ ...INPUT, mode: "context" });
   assert.equal(context.events.some((e) => e.startsWith("open")), false, "context");
   const regression = rig();
   await new RunQaUseCase(regression.deps({ changeAnalysis: { classify: async () => ({ action: "regression", reason: "no source change", diff: "" }) } })).run(INPUT);

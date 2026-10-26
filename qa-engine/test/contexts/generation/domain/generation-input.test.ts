@@ -10,7 +10,7 @@ import type { ReviewInput } from "@contexts/generation/domain/generation-input.t
 test("OpencodeRunInput accepts the full deterministic-signal field set (contextPack/domSnapshot/staticSignal/staticSignalHasSymbols)", () => {
   const input: OpencodeRunInput = {
     repo: "o/a", sha: "abc", diff: "d", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "qa-bot-abc",
-    needsReview: true, target: "e2e", mode: "diff", appName: "a",
+    target: "e2e", mode: "diff", appName: "a",
     contextPack: "pack", domSnapshot: "dom", staticSignal: "sig", staticSignalHasSymbols: true,
   };
   assert.equal(input.target, "e2e"); /* compile-time is the real assertion; this keeps node:test happy */

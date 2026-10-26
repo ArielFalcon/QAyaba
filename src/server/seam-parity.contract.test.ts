@@ -394,7 +394,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
 
       const delivering = (specs: string[]): EngineRootDeps => ({
         ...cfg,
-        generationUseCase: { generate: async () => ({ specs, approved: true, reviewed: false, end: GENERATION_END.DELIVERED }) },
+        generationUseCase: { generate: async () => ({ specs, end: GENERATION_END.DELIVERED }) },
       });
 
       const inside = await wireEngine(delivering(["flows/inside.spec.ts"])).generation.generate(specDir);
@@ -432,7 +432,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
       generationUseCase: {
         generate: async (input) => {
           generated.push(input);
-          return { specs: [], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
+          return { specs: [], end: GENERATION_END.DELIVERED };
         },
       },
       reviewRuntime: {

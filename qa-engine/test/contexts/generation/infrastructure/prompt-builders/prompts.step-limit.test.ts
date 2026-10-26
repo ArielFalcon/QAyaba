@@ -46,7 +46,6 @@ function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
     mirrorDir: "/mirrors/org__app",
     e2eRelDir: "e2e",
     namespace: "qa-bot-abc1234",
-    needsReview: false,
     target: "e2e",
     mode: "diff",
     appName: "shop",

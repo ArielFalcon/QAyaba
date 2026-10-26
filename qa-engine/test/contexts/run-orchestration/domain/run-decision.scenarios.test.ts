@@ -97,7 +97,7 @@ const goldenCases: ScenarioCase[] = [
     expectedHarnessSideEffect: "shadow-log",
   },
   {
-    /* scenarioApp, context mode's own generate() stub returns { approved: true, reviewed: false },
+    /* scenarioApp, context mode's own generate() stub returns its specs,
        passing(). Context mode's early-return path is synthesized by the harness/adapter but the
        VERDICT it reproduces is real: pass, reviewer-approved, no coverage block configured, not
        shadow → the same green-publish branch.

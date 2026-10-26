@@ -31,7 +31,7 @@ async function runOnce(runId: string, observe: { atGenerate?: RunSecretScope | u
         generate: async () => {
           observe.atGenerate = activeRunSecretScope();
           activeRunSecretScope()?.addAccountSecrets([SECRET]);
-          return scriptedGeneration({ specs: ["a.spec.ts"], declaredSpecs: [{ file: "a.spec.ts", flow: "f", objective: "o" }], approved: true });
+          return scriptedGeneration({ specs: ["a.spec.ts"], declaredSpecs: [{ file: "a.spec.ts", flow: "f", objective: "o" }]});
         },
       }),
       review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },

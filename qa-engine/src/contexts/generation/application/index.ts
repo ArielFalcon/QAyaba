@@ -2,7 +2,6 @@
 export { GenerateTestsUseCase } from "./generate-tests.use-case.ts";
 export { declaredRelativeFiles } from "../domain/declared-resources.ts";
 export { GENERATION_NOTE_MAX_CHARS } from "../domain/generation-end.ts";
-export { generationRunsReviewer } from "../domain/generation-review.ts";
 export { extractExportedNames, isSafeAttributeName } from "../domain/harness-facts.ts";
 export { packPagesFor } from "../domain/pack-pages.ts";
 export { promptFactsOpts } from "../domain/prompt-facts.ts";
@@ -31,7 +30,6 @@ export type { VerdictParserPort } from "./ports/verdict-parser.port.ts";
 export type { GroundingChange } from "../domain/grounding-change.ts";
 export type { ReviewEnrichment } from "../domain/review-enrichment.ts";
 export type { ArchitectureContext, CommitIntent, ReviewInput, StepLimitFor, StepLimitRole } from "../domain/generation-input.ts";
-export { reviewerApprovalOf } from "../domain/generation.ts";
 export type { GenerationOutput } from "../domain/generation.ts";
 export type { GroundingResult } from "../domain/pre-generation-grounding.ts";
 export { REVIEWER_UNAVAILABLE_MARKER } from "../domain/review.ts";

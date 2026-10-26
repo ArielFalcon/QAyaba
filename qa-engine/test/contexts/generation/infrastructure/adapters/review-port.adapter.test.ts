@@ -522,6 +522,38 @@ test("review() maps enrichment.specChanges onto ReviewInput.specChanges verbatim
   assert.equal(seenInput?.specChanges, "### a.spec.ts\n- old\n+ new");
 });
 
+/* The review is the publish gate, so it may only reject on PROVEN (active) learned rules: unproven candidates are generator hints, never grounds for rejection. */
+test("review() hands the reviewer the proven learned rules and never an unproven candidate", async () => {
+  let seenInput: { learnedRules?: string } | undefined;
+  const rendering: PromptRenderingPort = {
+    ...fakeRendering(),
+    renderReviewer: (input) => { seenInput = input as { learnedRules?: string }; return { text: "reviewer-prompt", sectionSizes: {} }; },
+  };
+  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts: approving }, REVIEW_CONTEXT);
+  const proven = { id: "p", trigger: "the diff touches the search form", action: "assert the owners table lists the name", errorClass: "E-FALSE-POSITIVE", status: "active", confidence: "high" } as const;
+  const unproven = { id: "u", trigger: "the diff renders a visit history", action: "assert exactly five visit rows", errorClass: "E-WRONG-OBJECTIVE", status: "candidate", confidence: "low" } as const;
+
+  await adapter.review("/mirrors/org/app/e2e", cases, undefined, { learnedRules: [proven, unproven] });
+
+  assert.ok(seenInput?.learnedRules?.includes(proven.action), "a proven rule reaches the reviewer");
+  assert.ok(!seenInput?.learnedRules?.includes(unproven.action), "an unproven candidate never does");
+});
+
+test("review() opens its session for the review kind: the reviewer role, the reviewer agent and the review timeout", async () => {
+  const opened: Array<{ role: string; agent: string | undefined; timeoutMs: number | undefined }> = [];
+  const runtime: AgentRuntimePort = {
+    openSession: async (role, _cwd, opts) => {
+      opened.push({ role, agent: opts?.descriptor?.role, timeoutMs: opts?.timeoutMs });
+      return { prompt: async () => ({ output: "verdict-json" }), dispose: async () => {} };
+    },
+  };
+  const adapter = new ReviewPortAdapter({ runtime, rendering: fakeRendering(), verdicts: approving }, { ...REVIEW_CONTEXT, timeoutMs: 7_000 });
+
+  await adapter.review("/mirrors/org/app/e2e", cases);
+
+  assert.deepEqual(opened, [{ role: "reviewer", agent: "qa-reviewer", timeoutMs: 7_000 }]);
+});
+
 /* enrichment.executionEvidence must reach the prompt as the reviewer's execution result: the run's own
    captured statuses and URLs, rendered by the one renderer that bounds and sanitizes them. */
 test("review() renders the run's execution evidence into the reviewer prompt, bounded like every other section", async () => {

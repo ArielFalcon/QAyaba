@@ -52,7 +52,7 @@ function rig(opts: { openThrows?: boolean; executeThrows?: boolean; generateThro
         if (opts.generateThrows) throw new Error("agent down");
         /* The agent moves the authoring location during the turn: the prompt had the default, the next execution must not see it. */
         if (opts.moveOnGenerate) move(BARCELONA);
-        return scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true });
+        return scriptedGeneration({ specs: ["flows/a.spec.ts"]});
       },
     }),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
@@ -128,7 +128,7 @@ test("no location for a code run, a context run, a regression run, a login boots
   assert.equal(code.opened.length, 0, "code");
 
   const context = rig();
-  await new RunQaUseCase(context.deps({ generation: { generate: async () => scriptedGeneration({ specs: [".qa/context.json"], approved: true, note: "map" }) } })).run({ ...INPUT, mode: "context" });
+  await new RunQaUseCase(context.deps({ generation: { generate: async () => scriptedGeneration({ specs: [".qa/context.json"], note: "map" }) } })).run({ ...INPUT, mode: "context" });
   assert.equal(context.opened.length, 0, "context");
 
   const regression = rig();

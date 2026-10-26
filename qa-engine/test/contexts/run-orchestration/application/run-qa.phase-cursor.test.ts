@@ -32,7 +32,7 @@ function harness(overrides: Overrides = {}) {
   const saved: RunOutcome[] = [];
   const deps: RunQaUseCaseDeps = {
     changeAnalysis: { classify: overrides.classify ?? (async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" })) },
-    generation: generationOnDisk({ generate: overrides.generate ?? (async () => scriptedGeneration({ specs: ["a.spec.ts"], approved: true })) }),
+    generation: generationOnDisk({ generate: overrides.generate ?? (async () => scriptedGeneration({ specs: ["a.spec.ts"]})) }),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate: overrides.validate ?? (async () => ({ ok: true, errors: [] })) },
     execution: { execute: async () => ({ verdict: "pass", cases: [], logs: "" }) },
@@ -57,7 +57,7 @@ const input = { app: "demo", sha: Sha.of("abc1234"), source: "manual" as const, 
 
 test("a run that passes through every stage reports learn as its furthest phase and the time of each stage it entered", async () => {
   const { useCase, clock } = harness({
-    generate: async () => { clock.spend(40); return scriptedGeneration({ specs: ["a.spec.ts"], approved: true }); },
+    generate: async () => { clock.spend(40); return scriptedGeneration({ specs: ["a.spec.ts"]}); },
   });
 
   const out = await useCase.run(input);

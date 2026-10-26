@@ -378,7 +378,6 @@ export async function buildInput(spec: CellSpec, stepLimit?: number): Promise<Op
     mirrorDir: "/mirrors/org__app",
     e2eRelDir: "e2e",
     namespace: "qa-bot-abc1234",
-    needsReview: false,
     target: spec.target,
     mode: spec.mode,
     appName: "shop",

@@ -22,7 +22,7 @@ function rig(opts: { executeThrows?: boolean; releaseThrows?: boolean } = {}): {
     generation: generationOnDisk({
       generate: async () => {
         events.push("generate");
-        return scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true });
+        return scriptedGeneration({ specs: ["flows/a.spec.ts"]});
       },
       release: async () => {
         events.push("release");

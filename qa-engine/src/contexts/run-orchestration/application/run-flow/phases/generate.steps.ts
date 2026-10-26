@@ -9,7 +9,6 @@ import { attributeContradictions } from "../../../domain/helpers/contradiction-a
 import { engineSideCauseOf, terminalForGenerationEnd } from "../../../domain/helpers/generation-end-terminal.ts";
 import { checkPreExecGrounding } from "@contexts/generation/application/index.ts";
 import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
-import { reviewerApprovalOf } from "@contexts/generation/application/index.ts";
 import type { GenerationOutput } from "@contexts/generation/application/index.ts";
 import type { CoordinateResult } from "@contexts/coordination/application/index.ts";
 import { end, type StepOutcome } from "../run-flow.ts";
@@ -75,7 +74,7 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
   if (result.action === "lead") return { leadReviewTurns };
   if (result.action === "noop") {
     /* A plan names no kind of no-op. */
-    return { leadReviewTurns, generated: { specs: [], end: GENERATION_END.DECLARED_NOOP, noopKind: NOOP_KIND.UNSPECIFIED, reviewed: false, approved: true, parsed: true, note: result.reason } };
+    return { leadReviewTurns, generated: { specs: [], end: GENERATION_END.DECLARED_NOOP, noopKind: NOOP_KIND.UNSPECIFIED, parsed: true, note: result.reason } };
   }
   const { aggregated } = result;
   /* Kept open for the reviewer's corrections only when the flows delivered: nothing else reaches a review. */
@@ -84,11 +83,11 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
     else await result.pass.release().catch((err: unknown) => console.error(`[qa] releasing the coordinated pass failed: ${err instanceof Error ? err.message : String(err)}`));
   }
   if (aggregated.end !== GENERATION_END.DELIVERED) {
-    return { leadReviewTurns, generated: { specs: [], end: aggregated.end, reviewed: false, approved: true, parsed: true, ...(aggregated.note ? { note: aggregated.note } : {}) } };
+    return { leadReviewTurns, generated: { specs: [], end: aggregated.end, parsed: true, ...(aggregated.note ? { note: aggregated.note } : {}) } };
   }
   const unfinished = aggregated.incompleteFlows.map((f) => `${f.id} (${f.kind})`).join(", ");
   if (unfinished) deps.observer?.onEvent({ type: "log.line", level: "warn", text: `coordination: ${aggregated.incompleteFlows.length} flow(s) did not finish: ${unfinished}` });
-  return { leadReviewTurns, generated: await afterGeneration(ctx, { specs: aggregated.specs, end: GENERATION_END.DELIVERED, reviewed: false, approved: true, parsed: true, ...(unfinished ? { note: `flows that did not finish: ${unfinished}` } : {}) }) };
+  return { leadReviewTurns, generated: await afterGeneration(ctx, { specs: aggregated.specs, end: GENERATION_END.DELIVERED, parsed: true, ...(unfinished ? { note: `flows that did not finish: ${unfinished}` } : {}) }) };
 }
 
 /*
@@ -107,7 +106,7 @@ export async function generateFirstPass(state: Readonly<RunState>, ctx: Workspac
   let generated = state.generation.generated;
   let leadReviewTurns = 0;
   if (!generating) {
-    generated = { specs: [], approved: true, reviewed: false, end: null };
+    generated = { specs: [], end: null };
   } else {
   /* mutation-scope:end regression-run-stand-in */
     /*
@@ -172,7 +171,6 @@ export async function settleGenerationEnd(state: Readonly<RunState>, ctx: Worksp
       const skipLoopSignal = await closedLoopSignal(state, ctx);
       return end("generation-noop", {
         note: generated.note,
-        reviewerApproved: reviewerApprovalOf(generated),
         ...(generated.noopKind ? { noop: { kind: generated.noopKind } } : {}),
         ...(services.confinement.totals !== undefined ? { confinement: services.confinement.totals } : {}),
         ...(skipLoopSignal ? { closedLoop: skipLoopSignal } : {}),
@@ -190,7 +188,6 @@ export async function settleGenerationEnd(state: Readonly<RunState>, ctx: Worksp
       return end("generation-ended-without-specs", {
         generationEnd: generated.end,
         note: endNote,
-        reviewerApproved: reviewerApprovalOf(generated),
         rulesRetrieved: retrievedRuleIds,
         diffArchetypes,
         archetype: detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),

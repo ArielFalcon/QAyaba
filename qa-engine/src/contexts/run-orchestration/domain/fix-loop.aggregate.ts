@@ -33,7 +33,6 @@ export interface FixLoopGenerateInput {
 }
 export interface FixLoopGenerateResult {
   specs: string[];
-  approved: boolean;
   note?: string;
   reexploreNavigations?: number;
   specSources?: string[];

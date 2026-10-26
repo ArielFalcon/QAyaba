@@ -60,7 +60,7 @@ const SITES: readonly Site[] = [
     noDeadline: true,
     arm: (rig, fault) => {
       rig.input = { mode: "context" };
-      rig.generate = async () => scriptedGeneration({ specs: [".qa/context.json"], approved: true, note: "built map" });
+      rig.generate = async () => scriptedGeneration({ specs: [".qa/context.json"], note: "built map" });
       rig.extra = { ...rig.extra, contextMapCapture: { capture: failing(fault) } as never };
     },
   },

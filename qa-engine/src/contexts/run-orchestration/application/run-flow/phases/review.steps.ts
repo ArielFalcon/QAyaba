@@ -17,6 +17,7 @@ import type { WorkspaceRunContext } from "../run-context.ts";
 import { runOf, type ReviewSession, type RunState } from "../run-state.ts";
 import { acceptedRegeneration, addRetries, remeasured, rollbackDelivered, withAcceptanceCalls, withRun } from "../reducers.ts";
 import { liveExecutionOptions, executeAccepted, validateAccepted } from "./execute.steps.ts";
+import { reviewRequired } from "../../../domain/review-required.ts";
 import { closedLoopSignal, contractFindingText, correctThroughLead, mayCorrectThroughLead, regenerateByLead } from "./generation-services.ts";
 import { resolveTested } from "./fix-loop.steps.ts";
 import { addReviewStats, annotateReviewPhase, newReviewTally, readReviewedSpecs, rebuttalEvidence, recordReviewDecision } from "./review-services.ts";
@@ -24,7 +25,7 @@ import { addReviewStats, annotateReviewPhase, newReviewTally, readReviewedSpecs,
 type Result = Promise<StepOutcome<RunState>>;
 
 /* A context run's product is the architecture map, not tests: there is nothing for a test reviewer to judge, and a verdict it cannot give would turn a clean pass into an Issue. */
-export const reviewsTests = (ctx: Pick<WorkspaceRunContext, "cfg" | "input">): boolean => ctx.cfg.needsReview && ctx.input.mode !== "context";
+export const reviewsTests = (ctx: Pick<WorkspaceRunContext, "cfg" | "input">): boolean => reviewRequired({ needsReview: ctx.cfg.needsReview, mode: ctx.input.mode });
 
 /* Also gated on generating: a regression run never invokes the reviewer (nothing new to judge; decide()'s !generating branch already wins). */
 export const reviewsRun = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean =>

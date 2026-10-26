@@ -323,7 +323,7 @@ export function initialRunState(): RunState {
       baseEnrichment: {},
     },
     generation: {
-      generated: { specs: [], approved: true, reviewed: false, end: null },
+      generated: { specs: [], end: null },
       delivered: [],
       preExecAmbiguityCatches: 0,
       catalogGateInWindow: 0,
@@ -335,7 +335,7 @@ export function initialRunState(): RunState {
     execution: {
       staticFixRetired: false,
       validation: { ok: true, errors: [] },
-      lastGenerated: { specs: [], approved: true, reviewed: false, end: null },
+      lastGenerated: { specs: [], end: null },
       retries: 0,
       authVerifiedSha256: undefined,
       run: undefined,

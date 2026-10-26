@@ -3,7 +3,7 @@ import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import type { DelegationResult } from "./delegation-result.ts";
-import { sidekickKindSpec, type SidekickKind } from "./sidekick-kinds.ts";
+import { delegatingKindSpec, type SidekickKind } from "./sidekick-kinds.ts";
 
 export interface SidekickRender {
   (brief: DelegationBrief): { text: string; sectionSizes: Record<string, number> };
@@ -52,7 +52,7 @@ export class SidekickExecutor {
 
   /* Opens the sidekick's session and asks it the brief; the session stays open for the holder to ask again and to dispose. */
   async open(brief: DelegationBrief, opts: SidekickExecuteOpts): Promise<SidekickSession> {
-    const spec = sidekickKindSpec(opts.kind);
+    const spec = delegatingKindSpec(opts.kind);
     const role = spec.role;
     const render: SidekickRender = this.deps.render ?? ((b) => spec.render(this.deps.redaction, b));
     const read = (output: string): DelegationResult => spec.parse(this.deps.redaction, output, brief);

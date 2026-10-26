@@ -79,7 +79,7 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
     generate: async (fixLoopInput) => {
       /* A run with no time left, or a spent wall-clock budget, starts no further agent turn: the round returns nothing and the loop ends on what it has. */
       if (!regenerationAllowed(ctx)) {
-        return { specs: [], approved: lastGenerated.approved, note: "wall-clock budget exhausted: no further regeneration" };
+        return { specs: [], note: "wall-clock budget exhausted: no further regeneration" };
       }
       /*
        * Merge leftover pre-exec selector contradictions with FixLoop's post-failure
@@ -116,7 +116,6 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
       /* Forward just-generated specSources so the next Lever-2 check is not empty. */
       return {
         specs: r.specs,
-        approved: r.approved,
         note: r.note,
         specSources: r.specSources,
         ...(r.specMetas ? { specMetas: r.specMetas } : {}),

@@ -105,7 +105,6 @@ export function buildGeneration(deps: GenerationDeps): GenerationApi {
       mirrorDir: run.mirrorDir,
       e2eRelDir: run.e2eRelDir,
       namespace: run.branch,
-      needsReview: false,
       target: run.target,
       mode: run.mode,
       diff: run.diff ?? "",

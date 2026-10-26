@@ -45,7 +45,6 @@ function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
     mirrorDir: "/mirrors/org__app",
     e2eRelDir: "e2e",
     namespace: "qa-bot-abc1234",
-    needsReview: true,
     target: "e2e",
     mode: "diff",
     appName: "testapp",
@@ -234,7 +233,7 @@ test("the reviewer judges the delivered specs and lists the existing suite as co
   assert.match(text, /flows\/auth\.spec\.ts/);
   assert.match(text, /cleanup\.spec\.ts/);
   assert.match(text, /never reject a spec because an existing suite file does not cover this change/);
-  assert.match(text, /reviewer-prompt-version: 5/);
+  assert.match(text, /reviewer-prompt-version: 6/);
 });
 
 test("SECURITY: an ordinary unquoted credential in a priorCorrection is redacted (stricter default mode)", () => {
@@ -1549,7 +1548,7 @@ test("reviewer prompt: stamped with its version and the hard output caps the par
     mode: "diff",
   });
 
-  assert.match(text, /reviewer-prompt-version: 5/);
+  assert.match(text, /reviewer-prompt-version: 6/);
   assert.match(text, /no prose before or after it, no markdown fence/i);
   assert.match(text, /320 characters at most/);
   assert.match(text, /at most 6 entries, each "text" at most 400/);

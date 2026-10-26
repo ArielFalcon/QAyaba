@@ -120,7 +120,7 @@ test("a change the classifier skipped is a skipped run that records nothing and 
 });
 
 test("a declared no-op records its skip first and prunes after, and learns nothing", async () => {
-  const { result, calls } = await end(runEnd("generation-noop", { note: "nothing here is worth a test", reviewerApproved: true, noop: { kind: "unobservable" } as never }));
+  const { result, calls } = await end(runEnd("generation-noop", { note: "nothing here is worth a test", noop: { kind: "unobservable" } as never }));
   assert.equal(result.decision.verdict, "skipped");
   assert.equal(result.errorClass, null);
   assert.equal(result.note, "nothing here is worth a test");
@@ -146,7 +146,7 @@ for (const [generationEnd, errorClass, teaches] of [
   [GENERATION_END.TIME_BUDGET, ERROR_CLASS.TIME_BUDGET, false],
 ] as const) {
   test(`a generation that ended ${generationEnd} without specs is a recorded ${errorClass}${teaches ? " that teaches" : " that teaches nothing"}`, async () => {
-    const { result, calls } = await end(runEnd("generation-ended-without-specs", { generationEnd, note: "no specs", reviewerApproved: false, ...EVIDENCE }));
+    const { result, calls } = await end(runEnd("generation-ended-without-specs", { generationEnd, note: "no specs", ...EVIDENCE }));
     assert.equal(result.decision.verdict, "infra-error");
     assert.equal(result.errorClass, errorClass);
     assert.equal(result.note, "no specs");

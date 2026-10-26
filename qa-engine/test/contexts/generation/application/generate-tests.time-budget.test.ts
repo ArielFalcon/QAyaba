@@ -39,7 +39,7 @@ interface Harness {
 function baseInput(over: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
   return {
     repo: "org/demo", sha: "abc", diff: TINY_DIFF, mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
-    needsReview: false, target: "e2e", mode: "diff", appName: "a",
+    target: "e2e", mode: "diff", appName: "a",
     ...over,
   };
 }
@@ -161,14 +161,6 @@ test("a regeneration turn keeps the host's default: a timeout there is never rea
   assert.equal("timeoutMs" in (generatorOpen(seen)?.opts ?? {}), false);
 });
 
-test("the in-generate reviewer's session is never opened under the generator's time", async () => {
-  const { ports, seen } = build([{ output: "SPECS" }]);
-  await new GenerateTestsUseCase(ports).generate(baseInput({ needsReview: true }));
-  const reviewer = seen.opened.find((o) => o.role === "reviewer");
-  assert.ok(reviewer, "the reviewer ran");
-  assert.equal("timeoutMs" in (reviewer.opts ?? {}), false);
-});
-
 test("a generator turn cut off by its time budget ends the generation as time-budget, with a note naming the budget", async () => {
   const { ports, seen } = build([{ throws: new AgentTimeoutError("OpenCode prompt: timed out after 360000ms") }]);
   const result: GenerationResult = await new GenerateTestsUseCase(ports).generate(baseInput());
@@ -180,9 +172,8 @@ test("a generator turn cut off by its time budget ends the generation as time-bu
 
 test("a generation that ran out of time does not open the reviewer on specs it never produced", async () => {
   const { ports, seen } = build([{ throws: new AgentTimeoutError("timed out") }]);
-  const result = await new GenerateTestsUseCase(ports).generate(baseInput({ needsReview: true }));
+  const result = await new GenerateTestsUseCase(ports).generate(baseInput({ }));
   assert.equal(result.end, GENERATION_END.TIME_BUDGET);
-  assert.equal(result.reviewed, false);
   assert.equal(seen.opened.some((o) => o.role === "reviewer"), false);
 });
 
@@ -193,11 +184,10 @@ test("a declared no-op has no specs for a reviewer to judge: its session is neve
     if (role === "reviewer") throw new RunDeadlineExceededError(600_000, "diff", "reviewer", "before-turn");
     return open(role, cwd, sessionOpts);
   };
-  const result = await new GenerateTestsUseCase(ports).generate(baseInput({ needsReview: true }));
+  const result = await new GenerateTestsUseCase(ports).generate(baseInput({ }));
 
   assert.equal(result.end, GENERATION_END.DECLARED_NOOP);
   assert.deepEqual(result.specs, []);
-  assert.equal(result.reviewed, false);
   assert.equal(seen.opened.some((o) => o.role === "reviewer"), false);
 });
 

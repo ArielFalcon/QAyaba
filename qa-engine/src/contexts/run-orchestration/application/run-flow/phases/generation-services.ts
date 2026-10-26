@@ -200,8 +200,6 @@ export async function correctThroughLead(
     specs: corrected.specs,
     ...(corrected.specSources ? { specSources: corrected.specSources } : {}),
     end: corrected.specs.length > 0 ? GENERATION_END.DELIVERED : GENERATION_END.UNDECIDED_EMPTY,
-    reviewed: false,
-    approved: true,
     parsed: corrected.readable,
   });
   mergeDelivered(state, byFlows, "sidekick");

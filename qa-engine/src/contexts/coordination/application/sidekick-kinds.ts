@@ -9,6 +9,7 @@ import type { DelegationBrief } from "./delegation-brief.ts";
 import { readDelegationResult } from "./delegation-reading.ts";
 import type { DelegationResult } from "./delegation-result.ts";
 import { renderSidekickBrief } from "./sidekick-prompt.ts";
+import { REVIEW_SIDEKICK } from "@kernel/sidekick-session.ts";
 
 export const SIDEKICK_KIND = { AUTHOR: "author", EXPLORE: "explore", REVIEW: "review" } as const;
 export type SidekickKind = (typeof SIDEKICK_KIND)[keyof typeof SIDEKICK_KIND];
@@ -37,7 +38,7 @@ export type SidekickWorkspace = (typeof SIDEKICK_WORKSPACE)[keyof typeof SIDEKIC
 export const SIDEKICK_BUDGET = { FLOW: "flow-budget", EXPLORE: "explore-budget", REVIEW: "review-timeout" } as const;
 export type SidekickBudget = (typeof SIDEKICK_BUDGET)[keyof typeof SIDEKICK_BUDGET];
 
-export interface SidekickKindSpec {
+interface SidekickKindBase {
   readonly id: SidekickKind;
   /* The roster key of the agent that runs the kind. */
   readonly agent: string;
@@ -47,11 +48,23 @@ export interface SidekickKindSpec {
   readonly tiers: readonly SidekickTier[];
   readonly workspace: SidekickWorkspace;
   readonly budget: SidekickBudget;
+}
+
+/* A kind the lead briefs for one flow: the brief is a `DelegationBrief` and the answer a `DelegationResult`. */
+export interface DelegatingKindSpec extends SidekickKindBase {
+  readonly id: typeof SIDEKICK_KIND.AUTHOR | typeof SIDEKICK_KIND.EXPLORE;
   render(redaction: RedactionPort, brief: DelegationBrief): { text: string; sectionSizes: Record<string, number> };
   parse(redaction: RedactionPort, output: string, brief: DelegationBrief): DelegationResult;
 }
 
-const AUTHOR: SidekickKindSpec = {
+/* The independent review: the orchestrator dispatches it and its verdict is the publish gate. Its brief and its answer are the review port's: the prompt rendering port renders the reviewer's input and the verdict parser port reads its verdict, both injected into the adapter that opens the session (the generation context owns that port and cannot depend on this one). */
+export interface ReviewKindSpec extends SidekickKindBase {
+  readonly id: typeof SIDEKICK_KIND.REVIEW;
+}
+
+export type SidekickKindSpec = DelegatingKindSpec | ReviewKindSpec;
+
+const AUTHOR: DelegatingKindSpec = {
   id: SIDEKICK_KIND.AUTHOR,
   agent: "qa-sidekick",
   role: "sidekick",
@@ -63,7 +76,16 @@ const AUTHOR: SidekickKindSpec = {
   parse: (redaction, output, brief) => readDelegationResult(output, brief, redaction),
 };
 
-const KINDS: Readonly<Partial<Record<SidekickKind, SidekickKindSpec>>> = { [SIDEKICK_KIND.AUTHOR]: AUTHOR };
+const REVIEW: ReviewKindSpec = {
+  id: SIDEKICK_KIND.REVIEW,
+  ...REVIEW_SIDEKICK,
+  tools: [AGENT_TOOL.READ],
+  tiers: [SIDEKICK_TIER.STANDARD],
+  workspace: SIDEKICK_WORKSPACE.WORKING_COPY,
+  budget: SIDEKICK_BUDGET.REVIEW,
+};
+
+const KINDS: Readonly<Partial<Record<SidekickKind, SidekickKindSpec>>> = { [SIDEKICK_KIND.AUTHOR]: AUTHOR, [SIDEKICK_KIND.REVIEW]: REVIEW };
 
 /* Every kind the registry holds. */
 export const REGISTERED_SIDEKICK_KINDS = (): SidekickKindSpec[] => Object.values(KINDS);
@@ -71,5 +93,12 @@ export const REGISTERED_SIDEKICK_KINDS = (): SidekickKindSpec[] => Object.values
 export function sidekickKindSpec(kind: SidekickKind): SidekickKindSpec {
   const spec = KINDS[kind];
   if (!spec) throw new Error(`no sidekick kind "${kind}" is registered`);
+  return spec;
+}
+
+/* The kinds the lead briefs for a flow; any other kind has no brief to render. */
+export function delegatingKindSpec(kind: SidekickKind): DelegatingKindSpec {
+  const spec = sidekickKindSpec(kind);
+  if (spec.id === SIDEKICK_KIND.REVIEW) throw new Error(`the sidekick kind "${kind}" is not briefed by the lead`);
   return spec;
 }

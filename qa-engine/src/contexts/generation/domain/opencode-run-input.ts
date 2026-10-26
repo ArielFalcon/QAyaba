@@ -17,7 +17,6 @@ export interface OpencodeRunInput {
   mirrorDir: string;
   e2eRelDir: string;
   namespace: string;
-  needsReview: boolean;
   target: TestTarget;
   mode: RunMode;
   appName: string;
@@ -39,16 +38,12 @@ export interface OpencodeRunInput {
   attributedSpecFiles?: readonly string[];
   /* Generator render of the retrieved rules: proven rules plus unproven candidates framed as hints. */
   learnedRules?: string;
-  /* Reviewer render of the retrieved rules: PROVEN (active) rules only, as reject-on-sight rules. The reviewer is the publish gate, so an unproven candidate must never become grounds for rejection; absent when no proven rule was retrieved. */
-  reviewerLearnedRules?: string;
   domSnapshot?: string;
   failureSourced?: boolean;
   runId?: string;
   contextMap?: ArchitectureContext;
   /* The step limit the runtime enforces for the session this input's prompt is built for: the generator's. Absent = the runtime enforces none or could not be read, and no prompt states one. */
   stepLimit?: number;
-  /* The same for the in-generate reviewer's session, a role with a limit of its own. Set only when that reviewer runs. */
-  reviewerStepLimit?: number;
   contextPack?: string;
   /* The grounding ids and omissions of the context pack, computed at pack-build time from the kept lines (packDeliveredItemIds). Threaded alongside the pack text so the prompt's delivered span is read from the assembly, never parsed from the text. */
   contextPackItemIds?: readonly string[];

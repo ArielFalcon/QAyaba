@@ -43,7 +43,6 @@ function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
     mirrorDir: "/mirrors/org__app",
     e2eRelDir: "e2e",
     namespace: "qa-bot-abc1234",
-    needsReview: true,
     target: "e2e",
     mode: "diff",
     appName: "shop",
@@ -123,8 +122,8 @@ test("the same input assembles an identical prompt whether or not review is enab
   ];
   for (const shape of shapes) {
     assert.equal(
-      buildPrompt(mkInput({ ...shape, needsReview: true })),
-      buildPrompt(mkInput({ ...shape, needsReview: false })),
+      buildPrompt(mkInput({ ...shape})),
+      buildPrompt(mkInput({ ...shape})),
       JSON.stringify(Object.keys(shape)),
     );
   }

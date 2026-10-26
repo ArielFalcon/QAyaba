@@ -74,7 +74,7 @@ export function newRig(): Rig {
     config: {},
     abort: new AbortController(),
     classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }),
-    generate: async () => scriptedGeneration({ specs: [RIG_SPEC], approved: true }),
+    generate: async () => scriptedGeneration({ specs: [RIG_SPEC]}),
     review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }),
     validate: async () => ({ ok: true, errors: [] }),
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),

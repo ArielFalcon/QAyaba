@@ -40,7 +40,7 @@ function rig(opts: { openThrows?: boolean; grant?: boolean; executeThrows?: bool
         events.push("generate");
         enrichments.push(enrichment ?? {});
         if (opts.generateThrows) throw new Error("agent down");
-        return scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true });
+        return scriptedGeneration({ specs: ["flows/a.spec.ts"]});
       },
     }),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
@@ -102,7 +102,7 @@ test("no browser for a code run, a context run, a regression run, a login bootst
   assert.equal(code.opened.length, 0, "code");
 
   const context = rig();
-  await new RunQaUseCase(context.deps({ generation: { generate: async () => scriptedGeneration({ specs: [".qa/context.json"], approved: true, note: "map" }) } })).run({ ...INPUT, mode: "context" });
+  await new RunQaUseCase(context.deps({ generation: { generate: async () => scriptedGeneration({ specs: [".qa/context.json"], note: "map" }) } })).run({ ...INPUT, mode: "context" });
   assert.equal(context.opened.length, 0, "context");
 
   const regression = rig();

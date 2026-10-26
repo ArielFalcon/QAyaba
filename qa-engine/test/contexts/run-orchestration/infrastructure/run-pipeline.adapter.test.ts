@@ -52,7 +52,7 @@ function stubPorts(overrides: Partial<{
     classify: overrides.classify ?? (async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" })),
   };
   const generation: GenerationPort = generationOnDisk({
-    generate: overrides.generate ?? (async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true }))),
+    generate: overrides.generate ?? (async () => (scriptedGeneration({ specs: ["a.spec.ts"]}))),
   });
   const review: ReviewPort = {
     review: overrides.review ?? (async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true })),
@@ -153,7 +153,7 @@ const tenScenarios: TenScenarioCase[] = [
     scenario: "fail-issue",
     overrides: {
       execute: async () => ({ verdict: "fail", cases: [{ name: "login", status: "fail" }], logs: "x" }),
-      generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true })),
+      generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"]})),
     },
     config: baseConfig,
     input: {},
@@ -174,7 +174,7 @@ const tenScenarios: TenScenarioCase[] = [
      */
     scenario: "no-op-skip",
     overrides: {
-      generate: async () => (scriptedGeneration({ specs: [], approved: true })),
+      generate: async () => (scriptedGeneration({ specs: []})),
     },
     config: baseConfig,
     input: {},
@@ -233,7 +233,7 @@ const tenScenarios: TenScenarioCase[] = [
      */
     scenario: "context",
     overrides: {
-      generate: async () => (scriptedGeneration({ specs: [".qa/context.json"], approved: true, note: "built map" })),
+      generate: async () => (scriptedGeneration({ specs: [".qa/context.json"], note: "built map" })),
     },
     config: baseConfig,
     input: { mode: "context" },
@@ -346,7 +346,7 @@ test("valueScore is forwarded into the returned RunOutcome, not hardcoded null",
 test("errorClass is forwarded into the returned RunOutcome, not hardcoded null", async () => {
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "fail", cases: [{ name: "login", status: "fail" }], logs: "x" }),
-    generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true })),
+    generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"]})),
   });
   const adapter = new RunPipelineAdapter({ ...ports, config: baseConfig });
 

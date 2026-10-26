@@ -1,4 +1,4 @@
-/* ReviewPort: standalone reviewer session. Fail-closed on parse miss or session fault (approved:false, parsed:false). A session fault, or a reviewer that returned nothing, is also marked `unavailable`: no judgment was made, which the run must not mistake for a rejection. */
+/* ReviewPort: the `review` sidekick kind (session opened as the registry's review entry names it: `REVIEW_SIDEKICK`). Fail-closed on parse miss or session fault (approved:false, parsed:false). A session fault, or a reviewer that returned nothing, is also marked `unavailable`: no judgment was made, which the run must not mistake for a rejection. */
 
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { ReviewPort } from "../../application/ports/review.port.ts";
@@ -13,6 +13,7 @@ import { renderLearnedRulesForReviewer } from "@contexts/cross-run-learning/appl
 import { promptFactsOpts } from "@contexts/generation/application/index.ts";
 import { renderExecutionResult, type ExecutionResultCase } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { rethrowIfRunDeadline } from "@kernel/run-deadline.ts";
+import { openSidekickSession, REVIEW_SIDEKICK } from "@kernel/sidekick-session.ts";
 
 /* One executed case as the reviewer's execution evidence: only the fields the renderer shows, and only when the run captured them. */
 function executionResultCase(c: QaCase): ExecutionResultCase {
@@ -97,8 +98,8 @@ export class ReviewPortAdapter implements ReviewPort {
 
     /* Reviewer session is loud-but-non-fatal: log the fault and return it as unavailable (parsed:false / approved:false, fail-closed, no regen round); the run ends on it as an infra-error and never reads it as a rejection. */
     try {
-      const session = await runtime.openSession("reviewer", this.ctx.mirrorDir, {
-        descriptor: { runId: enrichment?.runId, role: "qa-reviewer" },
+      const session = await openSidekickSession(runtime, REVIEW_SIDEKICK, this.ctx.mirrorDir, {
+        descriptor: { runId: enrichment?.runId },
         ...(this.ctx.timeoutMs !== undefined ? { timeoutMs: this.ctx.timeoutMs, timeLimit: "session-timeout" as const } : {}),
         /* Usage is reported per attempt; a fallback attempt adds to the same turn. */
         onUsage: (u) => {

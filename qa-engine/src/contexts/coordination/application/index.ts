@@ -59,6 +59,7 @@ export {
   DELEGATION_FAILURE_CLASSES,
   type DelegationFailureClass,
 } from "./delegation-failure-class.ts";
+export { openKindSession } from "./kind-session.ts";
 export { authorTask } from "./author-task.ts";
 export { renderSidekickBrief } from "./sidekick-prompt.ts";
 export {
@@ -68,8 +69,11 @@ export {
   SIDEKICK_KIND,
   SIDEKICK_TIER,
   SIDEKICK_WORKSPACE,
+  delegatingKindSpec,
   sidekickKindSpec,
   type AgentTool,
+  type DelegatingKindSpec,
+  type ReviewKindSpec,
   type SidekickKind,
   type SidekickKindSpec,
   type SidekickTier,

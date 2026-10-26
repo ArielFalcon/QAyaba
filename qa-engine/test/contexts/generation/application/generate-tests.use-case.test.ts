@@ -67,7 +67,6 @@ test("renders → opens session → parses deliverable → reconciles manifest (
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    needsReview: false,
     target: "e2e",
     mode: "diff",
     appName: "a",
@@ -108,7 +107,7 @@ test("the files the rendered prompt already carries are handed to the session wi
   });
   const input: OpencodeRunInput = {
     repo: "org/demo", sha: "abc", diff: "d", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
-    needsReview: false, target: "e2e", mode: "diff", appName: "a",
+    target: "e2e", mode: "diff", appName: "a",
   };
 
   await new GenerateTestsUseCase(build(["e2e/.qa/context.json"])).generate(input);
@@ -160,7 +159,6 @@ test("code target skips manifest reconciliation entirely and passes specMetas th
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    needsReview: false,
     target: "code",
     mode: "diff",
     appName: "a",
@@ -231,7 +229,6 @@ test("fires exactly ONE bounded repair when checkGenerator returns valid:false",
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    needsReview: false,
     target: "e2e",
     mode: "diff",
     appName: "a",
@@ -243,163 +240,6 @@ test("fires exactly ONE bounded repair when checkGenerator returns valid:false",
   const repairPrompt = promptTexts[1] ?? "";
   assert.match(repairPrompt, /REPAIR generator/, "repair prompt fired for the generator");
   assert.deepEqual(out.specs, ["flows/repair.spec.ts"], "repaired specs in result");
-});
-
-test("reviewer contract miss fires exactly ONE bounded re-prompt (valid:false)", async () => {
-  const promptTexts: string[] = [];
-  let reviewCallCount = 0;
-
-  const ports: GenerationPorts = {
-    runtime: {
-      openSession: async (role) => ({
-        prompt: async (text: string) => {
-          promptTexts.push(`[${role}] ${text}`);
-          return { output: "SESSION_OUTPUT" };
-        },
-        dispose: () => {},
-      }),
-    },
-    rendering: {
-      render: () => "",
-      renderMain: () => ({ text: "GEN_PROMPT", sectionSizes: {} }),
-      renderReviewer: () => ({ text: "REV_PROMPT", sectionSizes: {} }),
-      specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
-    },
-    verdicts: {
-      parseGenerator: () => ({ specs: ["flows/a.spec.ts"], parsed: true }),
-      parseReview: () => {
-        reviewCallCount++;
-        if (reviewCallCount === 1) {
-          /* First parse: contract miss — `approved` field present but not boolean */
-          return { approved: false, corrections: [], valid: false, issues: ["approved: expected boolean"], parsed: true };
-        }
-        return { approved: true, corrections: [], valid: true, issues: [], parsed: true };
-      },
-    },
-    manifest: {
-      read: async () => [],
-      reconcile: async (_d, e) => [...e] as ManifestEntry[],
-    },
-    budget: {
-      capDiff: (d) => d,
-      capText: (t) => t,
-      budgetForRole: () => 0,
-    },
-    repair: {
-      checkGenerator: () => ({ valid: true, issues: [] }),
-      instruction: (kind, issues) => `REPAIR ${kind}: ${issues.join(";")}`,
-    },
-  };
-
-  let repairCount = 0;
-  const useCase = new GenerateTestsUseCase(ports);
-  await useCase.generate({
-    repo: "r",
-    sha: "s",
-    diff: "d",
-    mirrorDir: "/m",
-    e2eRelDir: "e2e",
-    namespace: "ns",
-    needsReview: true,
-    target: "e2e",
-    mode: "diff",
-    appName: "a",
-  }, { onRepair: () => { repairCount++; } });
-
-  const repairPrompts = promptTexts.filter((p) => p.includes("REPAIR reviewer"));
-  assert.equal(repairPrompts.length, 1, "exactly one reviewer repair prompt fired");
-  assert.equal(repairCount, 1, "onRepair called once for reviewer repair");
-  assert.equal(reviewCallCount, 2, "parseReview called twice: initial + after repair");
-});
-
-/* The FIRST reviewer pass must ground the review like every regen pass does: the reviewer prompt
-   (rendered by the real prompt builders) carries the live DOM, the base URL and the reviewer's own
-   learned-rule render. Only the agent runtime (the LLM boundary) is faked. */
-async function firstReviewerPrompt(input: Partial<OpencodeRunInput>): Promise<string> {
-  let reviewerPrompt = "";
-  const ports: GenerationPorts = {
-    runtime: {
-      openSession: async (role) => ({
-        prompt: async (text: string) => {
-          if (role === "reviewer") reviewerPrompt = text;
-          return { output: role === "reviewer" ? '{"approved":true,"corrections":[]}' : '{"specs":["flows/contact.spec.ts"]}' };
-        },
-        dispose: () => {},
-      }),
-    },
-    rendering: new PromptRenderingAdapter({
-      buildPromptAssembled, buildReviewerPromptAssembled, specFileForFlow,
-    }),
-    verdicts: {
-      parseGenerator: () => ({ specs: ["flows/contact.spec.ts"], parsed: true }),
-      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [], parsed: true }),
-    },
-    manifest: {
-      read: async () => [],
-      reconcile: async (_d, e) => [...e] as ManifestEntry[],
-    },
-    budget: {
-      capDiff: (d) => d,
-      capText: (t) => t,
-      budgetForRole: () => 0,
-    },
-  };
-
-  await new GenerateTestsUseCase(ports).generate({
-    repo: "r",
-    sha: "s",
-    diff: "diff --git a/src/checkout.ts b/src/checkout.ts\n+export const pay = () => charge();\n",
-    mirrorDir: "/nonexistent/mirror",
-    e2eRelDir: "e2e",
-    namespace: "ns",
-    needsReview: true,
-    target: "e2e",
-    mode: "diff",
-    appName: "a",
-    ...input,
-  });
-  return reviewerPrompt;
-}
-
-test("first reviewer pass: the reviewer prompt carries the live DOM, the base URL and the reviewer's learned rules", async () => {
-  const prompt = await firstReviewerPrompt({
-    baseUrl: "https://dev.example.test",
-    domSnapshot: "button \"Place order\"",
-    reviewerLearnedRules: "- checkout form → assert the confirmation number is shown (E-FALSE-POSITIVE)",
-  });
-
-  assert.ok(prompt.includes("https://dev.example.test"));
-  assert.ok(prompt.includes("button \"Place order\""));
-  assert.ok(prompt.includes("assert the confirmation number is shown"));
-});
-
-test("first reviewer pass: the generator's learned-rule hints never reach the reviewer prompt", async () => {
-  const prompt = await firstReviewerPrompt({
-    learnedRules: "### Experimental rule (E-FLAKY)\n- Consider: wait for the spinner to disappear",
-  });
-
-  assert.ok(!prompt.includes("wait for the spinner to disappear"));
-});
-
-test("first reviewer pass: a guided run is judged against the operator guidance, not the commit diff", async () => {
-  const prompt = await firstReviewerPrompt({
-    mode: "manual",
-    guidance: "verify the contact form sends a message",
-    intent: { type: "fix", breaking: false, message: "fix the checkout flow", changedFiles: ["src/checkout.ts"] },
-  });
-
-  assert.ok(prompt.includes("verify the contact form sends a message"));
-  assert.ok(!prompt.includes("export const pay = () => charge();"));
-});
-
-test("first reviewer pass: the reviewer prompt names the commit's change type", async () => {
-  const withIntent = await firstReviewerPrompt({
-    intent: { type: "perf", breaking: false, message: "speed up checkout", changedFiles: ["src/checkout.ts"] },
-  });
-  const withoutIntent = await firstReviewerPrompt({});
-
-  assert.match(withIntent, /\bperf\b/);
-  assert.doesNotMatch(withoutIntent, /\bperf\b/, "setup check: the change type reaches the prompt only through the intent");
 });
 
 /* Fail-closed: parse miss without review.
@@ -441,7 +281,6 @@ test("parse miss → empty specs (fail-closed, no phantom spec names)", async ()
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    needsReview: false,
     target: "e2e",
     mode: "diff",
     appName: "a",
@@ -496,7 +335,6 @@ test("manifest.reconcile is called with [] when the deliverable carries specs bu
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    needsReview: false,
     target: "e2e",
     mode: "diff",
     appName: "a",
@@ -539,7 +377,7 @@ test("manifest.reconcile receives the run's spec root: the mirror, and the spec 
   const useCase = new GenerateTestsUseCase(ports);
 
   for (const [mirrorDir, e2eRelDir] of [["/m", "e2e"], ["/work/app", "tests"]] as const) {
-    await useCase.generate({ repo: "r", sha: "s", diff: "d", mirrorDir, e2eRelDir, namespace: "ns", needsReview: false, target: "e2e", mode: "diff", appName: "a" });
+    await useCase.generate({ repo: "r", sha: "s", diff: "d", mirrorDir, e2eRelDir, namespace: "ns", target: "e2e", mode: "diff", appName: "a" });
   }
 
   assert.deepEqual(roots, [
@@ -606,7 +444,6 @@ test("manifest entries are built from specMetas with objective/flow/targets + ch
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    needsReview: false,
     target: "e2e",
     mode: "diff",
     appName: "a",
@@ -669,7 +506,6 @@ test("manifest entry changeRef.type falls back to 'unknown' when input.intent is
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    needsReview: false,
     target: "e2e",
     mode: "manual",
     appName: "a",
@@ -731,7 +567,6 @@ test("a spec present in specs[] but ABSENT from specMetas[] gets NO manifest ent
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    needsReview: false,
     target: "e2e",
     mode: "diff",
     appName: "a",
@@ -808,7 +643,6 @@ test("follow-up #27: a malformed generator verdict triggers ONE bounded repair w
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    needsReview: false,
     target: "e2e",
     mode: "diff",
     appName: "a",
@@ -822,75 +656,6 @@ test("follow-up #27: a malformed generator verdict triggers ONE bounded repair w
     '{"note":"oops — forgot specs"}',
     "priorResponseTail carries the generator's own prior (malformed) turn output",
   );
-});
-
-test("follow-up #27: a malformed reviewer verdict triggers ONE bounded repair whose instruction carries priorResponseTail", async () => {
-  const capturedOpts: Array<{ kind: string; issues: string[]; opts?: { priorResponseTail?: string } }> = [];
-  let reviewCallCount = 0;
-
-  const ports: GenerationPorts = {
-    runtime: {
-      openSession: async () => ({
-        prompt: async () => ({ output: "SESSION_OUTPUT_WITH_BAD_APPROVED_FIELD" }),
-        dispose: () => {},
-      }),
-    },
-    rendering: {
-      render: () => "",
-      renderMain: () => ({ text: "GEN_PROMPT", sectionSizes: {} }),
-      renderReviewer: () => ({ text: "REV_PROMPT", sectionSizes: {} }),
-      specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
-    },
-    verdicts: {
-      parseGenerator: () => ({ specs: ["flows/a.spec.ts"], parsed: true }),
-      parseReview: () => {
-        reviewCallCount++;
-        if (reviewCallCount === 1) {
-          return { approved: false, corrections: [], valid: false, issues: ["approved: expected boolean"], parsed: true };
-        }
-        return { approved: true, corrections: [], valid: true, issues: [], parsed: true };
-      },
-    },
-    manifest: {
-      read: async () => [],
-      reconcile: async (_d, e) => [...e] as ManifestEntry[],
-    },
-    budget: {
-      capDiff: (d) => d,
-      capText: (t) => t,
-      budgetForRole: () => 0,
-    },
-    repair: {
-      checkGenerator: () => ({ valid: true, issues: [] }),
-      instruction: (kind, issues, opts) => {
-        capturedOpts.push({ kind, issues, opts });
-        return `REPAIR ${kind}: ${issues.join(";")}`;
-      },
-    },
-  };
-
-  const useCase = new GenerateTestsUseCase(ports);
-  await useCase.generate({
-    repo: "r",
-    sha: "s",
-    diff: "d",
-    mirrorDir: "/m",
-    e2eRelDir: "e2e",
-    namespace: "ns",
-    needsReview: true,
-    target: "e2e",
-    mode: "diff",
-    appName: "a",
-  });
-
-  assert.equal(capturedOpts.length, 1, "instruction() called exactly once (bounded reviewer repair)");
-  assert.equal(capturedOpts[0]?.kind, "reviewer");
-  assert.equal(
-    capturedOpts[0]?.opts?.priorResponseTail,
-    "SESSION_OUTPUT_WITH_BAD_APPROVED_FIELD",
-    "priorResponseTail carries the reviewer's own prior (malformed) turn output",
-  );
-  assert.equal(reviewCallCount, 2, "parseReview called twice: initial + after repair");
 });
 
 /* ── manifest schema conformance: assembled entries satisfy the real static-gate schema ─────────
@@ -945,7 +710,6 @@ test("assembled manifest entries satisfy the real ManifestEntrySchema shape (obj
     mirrorDir: "/m",
     e2eRelDir: "e2e",
     namespace: "ns",
-    needsReview: false,
     target: "e2e",
     mode: "diff",
     appName: "a",
@@ -987,7 +751,7 @@ async function reportedSpecsFor(target: "e2e" | "code"): Promise<string[]> {
     };
     const out = await new GenerateTestsUseCase(ports).generate({
       repo: "org/demo", sha: "abc", diff: "d", mirrorDir, e2eRelDir: "e2e", namespace: "ns",
-      needsReview: false, target, mode: "diff", appName: "a",
+      target, mode: "diff", appName: "a",
     });
     return out.specs;
   } finally {
@@ -1000,56 +764,12 @@ test("an e2e generation reports its specs as suite-relative paths; a code genera
   assert.deepEqual(await reportedSpecsFor("code"), ["login.spec.ts"]);
 });
 
-/* The in-generate reviewer's session runs under a step limit of its own. The caller resolves it from the live
-   runtime and hands it over as the generation input's reviewerStepLimit; it becomes the review input's stepLimit. */
-async function reviewInputFor(input: Partial<OpencodeRunInput>): Promise<ReviewInput | undefined> {
-  let seen: ReviewInput | undefined;
-  const ports: GenerationPorts = {
-    runtime: { openSession: async () => ({ prompt: async () => ({ output: "SESSION_OUTPUT" }), dispose: () => {} }) },
-    rendering: {
-      render: () => "",
-      renderMain: () => ({ text: "GEN_PROMPT", sectionSizes: {} }),
-      renderReviewer: (reviewInput) => {
-        seen = reviewInput;
-        return { text: "REV_PROMPT", sectionSizes: {} };
-      },
-      specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
-    },
-    verdicts: {
-      parseGenerator: () => ({ specs: ["flows/a.spec.ts"], parsed: true }),
-      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [], parsed: true }),
-    },
-    manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
-    budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
-  };
-  await new GenerateTestsUseCase(ports).generate({
-    repo: "r", sha: "s", diff: "d", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
-    needsReview: true, target: "e2e", mode: "diff", appName: "a",
-    ...input,
-  });
-  return seen;
-}
-
-test("the in-generate reviewer's input carries the reviewer's own limit, never the generator's", async () => {
-  const reviewInput = await reviewInputFor({ stepLimit: 41, reviewerStepLimit: 17 });
-
-  assert.equal(reviewInput?.stepLimit, 17);
-});
-
-test("the in-generate reviewer's input carries no limit when the generation was handed none for it, whatever the generator's is", async () => {
-  const reviewInput = await reviewInputFor({ stepLimit: 41 });
-
-  assert.ok(reviewInput, "the reviewer was rendered");
-  assert.equal("stepLimit" in reviewInput, false);
-});
-
-/* A prompt that states a step limit is sent with that limit as an option, so the turn it starts is classified against the number the prompt stated. The generator's prompt and the in-generate reviewer's each carry their own; a verdict repair says nothing of it but runs in the same session under the same limit, so it is sent with the number of the prompt it repairs. */
+/* A prompt that states a step limit is sent with that limit as an option, so the turn it starts is classified against the number the prompt stated. The generator's prompt carries its own; a verdict repair says nothing of it but runs in the same session under the same limit, so it is sent with the number of the prompt it repairs. */
 type SentOptions = Array<Record<string, unknown> | undefined>;
 
-/* Which role answers its first prompt with no verdict, so that it is asked once more. */
-async function optionsSentFor(input: Partial<OpencodeRunInput>, repairing?: "generator" | "reviewer"): Promise<{ generator: SentOptions; reviewer: SentOptions }> {
-  const sent: Record<string, SentOptions> = { primary: [], reviewer: [] };
-  let reviews = 0;
+/* Whether the generator answers its first prompt with no verdict, so that it is asked once more. */
+async function optionsSentFor(input: Partial<OpencodeRunInput>, repairing?: "generator"): Promise<{ generator: SentOptions }> {
+  const sent: Record<string, SentOptions> = { primary: [] };
   const ports: GenerationPorts = {
     runtime: {
       openSession: async (role) => ({
@@ -1068,7 +788,7 @@ async function optionsSentFor(input: Partial<OpencodeRunInput>, repairing?: "gen
     },
     verdicts: {
       parseGenerator: () => ({ specs: ["flows/a.spec.ts"], parsed: true }),
-      parseReview: () => ({ approved: true, corrections: [], valid: repairing !== "reviewer" || reviews++ > 0, issues: [], parsed: true }),
+      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [], parsed: true }),
     },
     manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
     budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
@@ -1083,10 +803,10 @@ async function optionsSentFor(input: Partial<OpencodeRunInput>, repairing?: "gen
   };
   await new GenerateTestsUseCase(ports).generate({
     repo: "r", sha: "s", diff: "d", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
-    needsReview: false, target: "e2e", mode: "diff", appName: "a",
+    target: "e2e", mode: "diff", appName: "a",
     ...input,
   });
-  return { generator: sent["primary"] ?? [], reviewer: sent["reviewer"] ?? [] };
+  return { generator: sent["primary"] ?? [] };
 }
 
 test("the generator's prompt is sent with the limit its input states, beside the options it already carried", async () => {
@@ -1103,22 +823,6 @@ test("a generator prompt whose input states no limit is sent with no limit key",
 
   assert.equal(generator.length, 1);
   assert.equal("stepLimit" in (generator[0] ?? {}), false);
-});
-
-test("the in-generate reviewer's prompt is sent with the reviewer's own limit, never the generator's", async () => {
-  const { generator, reviewer } = await optionsSentFor({ needsReview: true, stepLimit: 41, reviewerStepLimit: 17 });
-
-  assert.equal(generator[0]?.stepLimit, 41);
-  assert.equal(reviewer.length, 1);
-  assert.equal(reviewer[0]?.stepLimit, 17);
-  assert.deepEqual(reviewer[0]?.sectionSizes, { "reviewer-specs": 10 });
-});
-
-test("the in-generate reviewer's prompt carries no limit when none was handed for it, whatever the generator's is", async () => {
-  const { reviewer } = await optionsSentFor({ needsReview: true, stepLimit: 41 });
-
-  assert.equal(reviewer.length, 1);
-  assert.equal("stepLimit" in (reviewer[0] ?? {}), false);
 });
 
 test("a verdict repair runs in the same session under the same limit, so it is sent with the limit of the prompt it repairs, beside the options it already carried", async () => {
@@ -1139,53 +843,37 @@ test("a generator repair whose input states no limit is sent with no limit key e
   assert.equal("stepLimit" in (generator[1] ?? {}), false);
 });
 
-test("the in-generate reviewer's verdict repair is sent with the reviewer's own limit, as the review it repairs is, never the generator's", async () => {
-  const { reviewer } = await optionsSentFor({ needsReview: true, stepLimit: 41, reviewerStepLimit: 17 }, "reviewer");
-
-  assert.equal(reviewer.length, 2, "the review and its repair");
-  assert.equal(reviewer[0]?.stepLimit, 17);
-  assert.equal(reviewer[1]?.isRepair, true);
-  assert.equal(reviewer[1]?.stepLimit, 17);
-});
-
-test("the in-generate reviewer's verdict repair carries no limit when none was handed for the reviewer, whatever the generator's is", async () => {
-  const { reviewer } = await optionsSentFor({ needsReview: true, stepLimit: 41 }, "reviewer");
-
-  assert.equal(reviewer.length, 2, "the review and its repair");
-  assert.equal(reviewer[1]?.isRepair, true);
-  assert.equal("stepLimit" in (reviewer[1] ?? {}), false);
-});
-
-/* A context run's product is the architecture map, not tests: no reviewer session is opened on it and no review verdict is reported, whatever the run is configured to review. */
-test("a context-mode generation opens no reviewer session and reports no review, even when review is on", async () => {
-  const opened: string[] = [];
-  const ports: GenerationPorts = {
-    runtime: {
-      openSession: async (role) => {
-        opened.push(role);
-        return { prompt: async () => ({ output: '{"specs":[]}' }), dispose: () => {} };
+/* The independent review is the `review` sidekick kind the run's review step dispatches: a generation never opens a reviewer session, whatever the mode. */
+for (const mode of ["diff", "context"] as const) {
+  test(`a ${mode}-mode generation never opens a reviewer session`, async () => {
+    const opened: string[] = [];
+    const ports: GenerationPorts = {
+      runtime: {
+        openSession: async (role) => {
+          opened.push(role);
+          return { prompt: async () => ({ output: '{"specs":["flows/a.spec.ts"]}' }), dispose: () => {} };
+        },
       },
-    },
-    rendering: {
-      render: () => "",
-      renderMain: () => ({ text: "PROMPT", sectionSizes: {} }),
-      renderReviewer: () => ({ text: "REVIEW_PROMPT", sectionSizes: {} }),
-      specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
-    },
-    verdicts: {
-      parseGenerator: () => ({ specs: [], parsed: true }),
-      parseReview: () => ({ approved: false, corrections: [], valid: true, issues: [], parsed: true }),
-    },
-    manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
-    budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
-  };
+      rendering: {
+        render: () => "",
+        renderMain: () => ({ text: "PROMPT", sectionSizes: {} }),
+        renderReviewer: () => ({ text: "REVIEW_PROMPT", sectionSizes: {} }),
+        specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
+      },
+      verdicts: {
+        parseGenerator: () => ({ specs: ["flows/a.spec.ts"], parsed: true }),
+        parseReview: () => ({ approved: false, corrections: [], valid: true, issues: [], parsed: true }),
+      },
+      manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
+      budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
+    };
 
-  const result = await new GenerateTestsUseCase(ports).generate({
-    repo: "r", sha: "s", diff: "", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
-    needsReview: true, target: "e2e", mode: "context", appName: "a",
+    const result = await new GenerateTestsUseCase(ports).generate({
+      repo: "r", sha: "s", diff: "", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
+      target: "e2e", mode, appName: "a",
+    });
+
+    assert.equal(opened.includes("reviewer"), false, "no reviewer session was opened");
+    assert.deepEqual(result.specs, ["flows/a.spec.ts"]);
   });
-
-  assert.equal(opened.includes("reviewer"), false, "no reviewer session was opened");
-  assert.equal(result.reviewed, false);
-  assert.equal(result.approved, true, "an unreviewed generation does not carry a rejection");
-});
+}

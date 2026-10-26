@@ -1,4 +1,4 @@
-/* Generate-tests use case. Review is fail-closed: an unparseable verdict is approved:false. A parse miss (parsed:false) is distinct from an explicit rejection. One bounded generator repair and one bounded reviewer repair. Every generation ends in exactly one classified way (GenerationResult.end): with specs the run continues, without them the end says why. */
+/* Generate-tests use case. One bounded generator repair. Every generation ends in exactly one classified way (GenerationResult.end): with specs the run continues, without them the end says why. */
 import type { AgentRuntimePort, AgentSession, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
@@ -10,12 +10,10 @@ import type { PromptBudgetPort } from "./ports/prompt-budget.port.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 import type { GeneratorDeliverable } from "../domain/manifest-repository.ts";
 import type { OpencodeRunInput } from "../domain/opencode-run-input.ts";
-import type { ReviewInput } from "../domain/generation-input.ts";
 import { isAgentTimeoutError } from "@kernel/domain-error.ts";
 import { classifyGenerationEnd, renderGenerationNote } from "../domain/generation-end.ts";
 import { declareSpecs } from "../domain/declared-specs.ts";
 import { diffStat } from "../../../shared-kernel/diff-stat.ts";
-import { generationRunsReviewer } from "../domain/generation-review.ts";
 import { generatorTimeBudgetMs, type DiffTimeBudgets } from "../domain/generator-time-budget.ts";
 import { isReGenTurn } from "../domain/regen-turn.ts";
 import { promptFactsOpts } from "../domain/prompt-facts.ts";
@@ -52,8 +50,6 @@ export interface GenerationResult {
   specMetas?: ManifestEntry[];
   /** What the verdict declares for the specs it delivered (flow, objective), one entry per spec, the verdict's own word and not what the manifest kept: what the run carries forward into its regenerations. Absent when no spec was delivered. `specMetas` is the manifest's side of it, for publication. */
   declaredSpecs?: DeliveredSpec[];
-  approved: boolean;
-  reviewed: boolean;
   /** For a generation that ended without specs, the explanation the run records: the agent's own reason for a declared no-op, otherwise what happened, what the turn measured and the end of its output. */
   note?: string;
   /* parsed: did the GENERATOR emit a parseable closing verdict at all (VerdictParserPort.parseGenerator's own `parsed`)? FALSE means the agent runtime returned no usable output — an empty/errored session (provider quota exhausted, timeout, model refusal, runtime outage), NOT a deliberate agent no-op. */
@@ -191,7 +187,7 @@ export class GenerateTestsUseCase {
     };
   }
 
-  /* Generate E2E tests for a single input. Orchestrates the deterministic shell: 1. Build the generation prompt (via PromptRenderingPort). 2. Open a session and fire the prompt (via AgentRuntimePort). 3. Check generator contract; if invalid, fire ONE bounded repair re-prompt. 4. Parse the deliverable (via VerdictParserPort). 5. Reconcile the manifest (via ManifestRepositoryPort). 6. If the run reviews (needsReview, never in context mode): open a reviewer session, parse the reviewer verdict, fire ONE bounded repair re-prompt on valid:false, apply the fail-closed gate. */
+  /* Generate E2E tests for a single input. Orchestrates the deterministic shell: 1. Build the generation prompt (via PromptRenderingPort). 2. Open a session and fire the prompt (via AgentRuntimePort). 3. Check generator contract; if invalid, fire ONE bounded repair re-prompt. 4. Parse the deliverable (via VerdictParserPort). 5. Reconcile the manifest (via ManifestRepositoryPort). The independent review is the `review` sidekick kind, dispatched by the run's review step. */
   async generate(input: OpencodeRunInput, opts?: GenerateOpts): Promise<GenerationResult> {
     const { runtime, rendering, verdicts, manifest, repair } = this.ports;
 
@@ -348,97 +344,14 @@ export class GenerateTestsUseCase {
     const declaredSpecs = declareSpecs(deliverable.specs, deliverable.specMetas);
     const declared = declaredSpecs.length > 0 ? { declaredSpecs } : {};
 
-    /* A generation that ran out of time, or that declared a no-op, has no specs to review: the reviewer's session would be spent on nothing, and opening it after the run's time is spent would end a valid no-op as a time-budget error. */
-    if (!generationRunsReviewer(input) || end === GENERATION_END.TIME_BUDGET || end === GENERATION_END.DECLARED_NOOP) {
-      return {
-        specs: deliverable.specs,
-        ...declared,
-        reviewed: false,
-        approved: true,
-        parsed: deliverable.parsed,
-        ...(deliverable.testCorrect ? { testCorrect: deliverable.testCorrect } : {}),
-        ...(deliverable.rebuttals?.length ? { rebuttals: deliverable.rebuttals } : {}),
-        ...outcome,
-      };
-    }
-
-    /* ── 6. Independent reviewer session ────────────────────────────────────── The reviewer is the AUTHORITATIVE publish gate. Opens a SEPARATE session to guarantee independence — the generator cannot influence the reviewer. */
-    const reviewerRole: AgentRole = "reviewer";
-    /* Ground this FIRST reviewer pass the same way review-port.adapter.ts grounds every regen
-       pass (domSnapshot, learned rules, guidance, baseUrl, target), plus the full CommitIntent this
-       use case holds, whose type the reviewer prompt names as the run type. The reviewer gets the
-       reviewer render of the learned rules (proven rules only), never the generator render: the
-       generator's unproven candidates must not become grounds for rejection at the publish gate. */
-    const reviewerInput: ReviewInput = {
-      diff: input.diff,
-      specs: deliverable.specs,
-      mirrorDir: input.mirrorDir,
-      e2eRelDir: input.e2eRelDir,
-      appName: input.appName,
-      mode: input.mode,
-      target: input.target,
-      ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}),
-      ...(input.guidance ? { guidance: input.guidance } : {}),
-      ...(input.intent ? { intent: input.intent } : {}),
-      ...(input.reviewerLearnedRules ? { learnedRules: input.reviewerLearnedRules } : {}),
-      ...(input.domSnapshot ? { domSnapshot: input.domSnapshot } : {}),
-      /* The reviewer's session runs under a limit of its own: the generator's never stands in for it. */
-      ...(input.reviewerStepLimit !== undefined ? { stepLimit: input.reviewerStepLimit } : {}),
-    };
-    const reviewerAssembled = rendering.renderReviewer(reviewerInput);
-    const reviewerSession = await runtime.openSession(reviewerRole, input.mirrorDir, {
-      ...(opts?.signal ? { signal: opts.signal } : {}),
-      descriptor: { runId: input.runId, role: "qa-reviewer" },
-    });
-    let reviewJudgment;
-    try {
-      const reviewOut = await reviewerSession.prompt(reviewerAssembled.text, {
-        sectionSizes: reviewerAssembled.sectionSizes,
-        ...promptFactsOpts(reviewerAssembled),
-        ...(reviewerInput.stepLimit !== undefined ? { stepLimit: reviewerInput.stepLimit } : {}),
-      });
-      let reviewText = reviewOut.output;
-
-      let v = verdicts.parseReview(reviewText);
-      if (!v.valid && repair) {
-        opts?.onRepair?.();
-        try {
-          const repaired = await reviewerSession.prompt(
-            repair.instruction("reviewer", v.issues, { priorResponseTail: reviewText }),
-            { isRepair: true, withoutTools: true, timeoutMs: repairCapMs, timeLimit: "repair-cap", ...(reviewerInput.stepLimit !== undefined ? { stepLimit: reviewerInput.stepLimit } : {}) },
-          );
-          reviewText = repaired.output;
-          v = verdicts.parseReview(reviewText);
-        } catch (err) {
-          /* The reviewer's first answer stands, unreadable: the gate below fails closed on it. Any other fault is an integration error and surfaces. */
-          if (!isAgentTimeoutError(err)) throw err;
-          console.error(`[qa] the reviewer's contract-repair turn timed out after ${repairCapMs}ms (tools disabled); its first answer stands`);
-        }
-      }
-
-      reviewJudgment = v;
-    } finally {
-      await reviewerSession.dispose();
-    }
-
-    /* Apply the fail-closed gate: no parseable verdict → approved:false (parse miss, not a real rejection). blockingCount:0 (with parsed:true) → may approve. */
-    const approved = reviewJudgment.parsed === false
-      ? false
-      : (reviewJudgment.blockingCount !== undefined
-          ? reviewJudgment.blockingCount === 0 && reviewJudgment.approved
-          : reviewJudgment.approved);
-
     return {
       specs: deliverable.specs,
       specMetas: reconciledEntries,
       ...declared,
-      reviewed: true,
-      approved,
       parsed: deliverable.parsed,
       ...(deliverable.testCorrect ? { testCorrect: deliverable.testCorrect } : {}),
       ...(deliverable.rebuttals?.length ? { rebuttals: deliverable.rebuttals } : {}),
       ...outcome,
-      note: approved ? outcome.note : (reviewJudgment.rationale ?? "the reviewer did not approve the E2E tests"),
     };
   }
 }

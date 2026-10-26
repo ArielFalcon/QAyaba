@@ -1,13 +1,12 @@
-/* GenerationPort → GenerateTestsUseCase. Static per-run context is constructor config; specDir/objectives/signal/diff vary per call. Per-call `diff` is the live commit diff and takes precedence over ctx.diff. specSources come from optional readSpecSource — absent collaborator omits them (Lever-2 finds nothing). stepLimit (and reviewerStepLimit, when the generation runs its reviewer) come from optional stepLimitFor — absent collaborator, or a role with no limit, omits the key. reexploreNavigations is omitted; FixLoop treats absent as 0. A regeneration turn carries the specs the run delivered so far (deliveredSpecs), the ones a selector contradiction points at (attributedSpecFiles) and the suite's own entries (existingSpecFiles), minus every file the confined reader no longer finds; a first pass carries no delivered or attributed spec, and the suite's entries exactly as the grounding folded them. AbortSignal is forwarded into openSession. */
+/* GenerationPort → GenerateTestsUseCase. Static per-run context is constructor config; specDir/objectives/signal/diff vary per call. Per-call `diff` is the live commit diff and takes precedence over ctx.diff. specSources come from optional readSpecSource — absent collaborator omits them (Lever-2 finds nothing). stepLimit comes from optional stepLimitFor — absent collaborator, or a role with no limit, omits the key. reexploreNavigations is omitted; FixLoop treats absent as 0. A regeneration turn carries the specs the run delivered so far (deliveredSpecs), the ones a selector contradiction points at (attributedSpecFiles) and the suite's own entries (existingSpecFiles), minus every file the confined reader no longer finds; a first pass carries no delivered or attributed spec, and the suite's entries exactly as the grounding folded them. AbortSignal is forwarded into openSession. */
 
 import type { GenerationPort } from "../../application/ports/generation.port.ts";
 import type { GenerationEnrichment } from "../../domain/generation-enrichment.ts";
 import type { GenerationOutput } from "../../domain/generation.ts";
-import { renderLearnedRules, renderLearnedRulesForReviewer } from "@contexts/cross-run-learning/application/index.ts";
+import { renderLearnedRules } from "@contexts/cross-run-learning/application/index.ts";
 import type { PlanOutput } from "@kernel/plan-output.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/index.ts";
 import type { OpencodeRunInput, StepLimitFor, CommitIntent as GenerationCommitIntent } from "@contexts/generation/application/index.ts";
-import { generationRunsReviewer } from "@contexts/generation/application/index.ts";
 import { isReGenTurn } from "@contexts/generation/application/index.ts";
 import { suiteEntryFile } from "@contexts/generation/application/index.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
@@ -24,7 +23,6 @@ export interface GenerationPortStaticContext {
   mirrorDir: string;
   e2eRelDir: string;
   namespace: string;
-  needsReview: boolean;
   target: TestTarget;
   mode: RunMode;
   diff: string;
@@ -83,8 +81,6 @@ export class GenerationPortAdapter implements GenerationPort {
       specs: generated.specs,
       end: generated.end,
       ...(generated.noopKind ? { noopKind: generated.noopKind } : {}),
-      reviewed: generated.reviewed,
-      approved: generated.approved,
       /* mutation-scope:begin note-and-parsed-passthrough */
       ...(generated.note !== undefined ? { note: generated.note } : {}),
       /* mutation-scope:end note-and-parsed-passthrough */
@@ -108,11 +104,8 @@ export class GenerationPortAdapter implements GenerationPort {
 
   /* The run input of one turn, from the run's static context and the enrichment the caller hands. */
   private async buildInput(specDir: string, diff: string | undefined, enrichment: GenerationEnrichment | undefined): Promise<OpencodeRunInput> {
-    const reviewerLearnedRules = enrichment?.learnedRules?.length ? renderLearnedRulesForReviewer(enrichment.learnedRules) : "";
     const stepLimit = await this.collaborators.stepLimitFor?.("generator");
-    /* The in-generate reviewer's limit travels only with a generation that runs that reviewer's session. */
   /* mutation-scope:end generate-return-tail */
-    const reviewerStepLimit = generationRunsReviewer(this.ctx) ? await this.collaborators.stepLimitFor?.("reviewer") : undefined;
     const root: SpecRoot = { mirrorDir: this.ctx.mirrorDir, specDir };
     /* On a regeneration turn only, what the run delivered, what a contradiction points at and the suite's own entries, minus the files that are no longer a regular file inside the spec directory (deleted, renamed away, a link out, a path that climbs): the agent can change the suite between passes, and a path it reported is never trusted. A first pass hands the suite's entries on as the grounding folded them. */
     const regenerating = enrichment !== undefined && isReGenTurn(enrichment) ? enrichment : undefined;
@@ -129,7 +122,6 @@ export class GenerationPortAdapter implements GenerationPort {
       mirrorDir: this.ctx.mirrorDir,
       e2eRelDir: this.ctx.e2eRelDir,
       namespace: this.ctx.namespace,
-      needsReview: this.ctx.needsReview,
       target: this.ctx.target,
       mode: this.ctx.mode,
       appName: this.ctx.appName,
@@ -142,7 +134,6 @@ export class GenerationPortAdapter implements GenerationPort {
       /* The limit the runtime enforces for each session of this generation. Absent -> omitted, never a made-up number. */
       /* mutation-scope:end services-and-step-limit */
       ...(stepLimit !== undefined ? { stepLimit } : {}),
-      ...(reviewerStepLimit !== undefined ? { reviewerStepLimit } : {}),
       ...(enrichment?.reviewCorrections?.length ? { reviewCorrections: [...enrichment.reviewCorrections] } : {}),
       ...(enrichment?.fixCases?.length ? { fixCases: [...enrichment.fixCases] } : {}),
       ...(enrichment?.selectorContradictions?.length ? { selectorContradictions: [...enrichment.selectorContradictions] } : {}),
@@ -156,7 +147,6 @@ export class GenerationPortAdapter implements GenerationPort {
       ...(enrichment?.contractFeedback?.length ? { contractFeedback: enrichment.contractFeedback.map((violation) => ({ ...violation })) } : {}),
       ...(enrichment?.intent ? { intent: toGenerationIntent(enrichment.intent) } : {}),
       ...(enrichment?.learnedRules?.length ? { learnedRules: renderLearnedRules(enrichment.learnedRules) } : {}),
-      ...(reviewerLearnedRules ? { reviewerLearnedRules } : {}),
       ...(enrichment?.contextPack ? { contextPack: enrichment.contextPack } : {}),
       ...(enrichment?.contextPackItemIds ? { contextPackItemIds: enrichment.contextPackItemIds } : {}),
       ...(enrichment?.contextPackOmissions ? { contextPackOmissions: enrichment.contextPackOmissions } : {}),

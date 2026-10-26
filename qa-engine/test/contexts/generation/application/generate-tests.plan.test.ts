@@ -13,7 +13,7 @@ const PLANNING = { maxFlows: 5, maxParallel: 2, budgetMs: 180_000 };
 function planInput(over: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
   return {
     repo: "org/demo", sha: "abc", diff: "diff", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns", runId: "run-1",
-    needsReview: true, target: "e2e", mode: "diff", appName: "a", planning: PLANNING,
+    target: "e2e", mode: "diff", appName: "a", planning: PLANNING,
     ...over,
   };
 }
