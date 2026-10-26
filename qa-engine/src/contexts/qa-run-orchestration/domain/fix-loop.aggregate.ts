@@ -9,6 +9,7 @@ import { adjudicate, classifyRuntimeErrors, type AdjFailureClass, type Adjudicat
 import { decideProgress, classifyFailure, bestRound, isLikelyRealBug, type RoundResult } from "./helpers/progress-gate.ts";
 import type { ContradictionOrigin, SpecSelectorFindings } from "./helpers/selector-check.ts";
 import type { ContractFeedback } from "./contract-feedback.ts";
+import { fixLoopAction, type FixLoopNext, type FixLoopStep, type FixLoopStop } from "./fix-loop-action.ts";
 
 
 export interface FixLoopRun {
@@ -268,410 +269,580 @@ function verifiedTestCorrectReason(
   return undefined;
 }
 
+/** Where the loop is: the next stage to run, or `done` once a stop was reached (the restore of the best round is `settle`). */
+export type FixLoopStage = FixLoopStep | "done";
+
+/* What one round gathers in its triage and hands to its adjudication and regeneration. */
+interface RoundScratch {
+  failed: QaCase[];
+  curRound: RoundResult;
+  gateSpend: boolean;
+  gateReason: string;
+  absentKeys: ReadonlySet<string>;
+  selectorContradictions: string[];
+  origins: ContradictionOrigin[] | undefined;
+  allUnique: boolean;
+  devHealthyNow: boolean;
+  failureDetails: string[];
+  failureClasses: AdjFailureClass[];
+  httpStatuses: (number | undefined)[];
+  runtimeErrorsByCase: { type: string; text: string }[][];
+  fiveXx: number[];
+  devNotRendered: AdjudicatorEvidence["devNotRendered"];
+  roundNs: string;
+  roundToken: unknown;
+  result: FixLoopGenerateResult | undefined;
+}
+
+/**
+ * Everything the loop knows between two of its stages. The loop is a ring of stages (triage, adjudicate, regenerate, accept or
+ * re-execute); `fixLoopAction` says which comes next. A caller can drive it one stage at a time (the run does, as steps of its
+ * table) or let `run` drive it to the end.
+ */
+export interface FixLoopState {
+  readonly input: FixLoopInput;
+  readonly regenerate: boolean;
+  readonly maxRetries: number;
+  stage: FixLoopStage;
+  /** Why the loop stopped; set with `stage: "done"`. */
+  stop: FixLoopStop | undefined;
+  /** The round in progress, from 0. */
+  retry: number;
+  run: FixLoopRun;
+  retries: number;
+  prevRound: RoundResult | null;
+  bestRunSoFar: FixLoopRun;
+  /** The accepted bytes of the best run, and whether a round has ever captured them. */
+  bestToken: unknown;
+  hasBestToken: boolean;
+  realBugDetected: boolean;
+  adjVerdict: AdjudicatorVerdict | undefined;
+  coverageNs: string;
+  absentSelectors: number;
+  preconditionFailed: boolean;
+  rejectedClaims: number;
+  /** The one triage re-execution this loop may spend. */
+  triaged: boolean;
+  triage: FixLoopTriage | undefined;
+  /** A rejected test-correct claim earns one repair even when the progress gate would stop the round. */
+  claimRejected: boolean;
+  /** A round the contract refused never executed, so the progress gate would read it as no progress: it earns one repair all the same. */
+  contractRejected: boolean;
+  /** A round the contract refused leaves its deltas for the next round; an accepted round clears them. */
+  contractFeedback: readonly ContractFeedback[] | undefined;
+  /** Only what a later round reads from the previous regeneration. */
+  lastRegenResult: Pick<FixLoopGenerateResult, "specSources" | "reexploreNavigations" | "specMetas"> | undefined;
+  round: RoundScratch | undefined;
+  /** Whether the current round's acceptance accepted it, and the bytes it leaves for the best-run restore. */
+  roundAccepted: boolean;
+  acceptedToken: unknown;
+}
+
 export class FixLoop {
   constructor(private readonly deps: FixLoopDeps) {}
 
+  /** Drives every stage to the end and settles: the whole loop in one call. */
   async run(input: FixLoopInput): Promise<FixLoopResult> {
-    let run = input.initialRun;
-    let retries = 0;
-    let prevRound: RoundResult | null = null;
-    let bestRunSoFar: FixLoopRun = run;
-    /* The accepted bytes of the best run, and whether a round has ever captured them. */
-    let bestToken: unknown;
-    let hasBestToken = false;
-    let realBugDetected = false;
-    let adjVerdict: AdjudicatorVerdict | undefined;
-    let coverageNs = input.namespace;
-    let absentSelectors = 0;
-    let preconditionFailed = false;
-    let rejectedClaims = 0;
-    /* The one triage re-execution this loop may spend. */
-    let triaged = false;
-    let triage: FixLoopTriage | undefined;
-    /* A rejected test-correct claim earns one repair even when the progress gate would stop the round. */
-    let claimRejected = false;
-    /* A round the contract refused never executed, so the progress gate would read it as no progress: it earns one repair all the same. */
-    let contractRejected = false;
-    /* A round the contract refused leaves its deltas for the next round; an accepted round clears them. */
-    let contractFeedback: readonly ContractFeedback[] | undefined;
-    /* Only what a later round reads from the previous regeneration. */
-    let lastRegenResult: Pick<FixLoopGenerateResult, "specSources" | "reexploreNavigations" | "specMetas"> | undefined =
-      input.initialSpecSources?.length ? { specSources: input.initialSpecSources } : undefined;
+    const state = this.begin(input);
+    while (state.stage !== "done") await this.step(state);
+    await this.settle(state);
+    return this.result(state);
+  }
 
+  /** The state of a loop that has not run a stage yet, already at its first stage (or done, when there is nothing to fix). */
+  begin(input: FixLoopInput): FixLoopState {
     const regenerate = input.regenerate !== false;
-    const maxRetries = regenerate ? input.maxRetries : 1;
-
-    for (let retry = 0; retry < maxRetries && run.verdict === "fail" && input.generating; retry++) {
-      const failed = run.cases.filter((c) => c.status === "fail");
-
-      const failedTrees = failed
-        .map((c) => buildFailureDomLines(c.failureDom))
-        .filter((t) => t.length > 0);
-      const haveTrees = !input.isCode && failedTrees.length > 0;
-      const specSources = haveTrees ? (lastRegenResult?.specSources ?? []) : [];
-      const lever2 = this.deps.selectorCheck.check(specSources, failedTrees);
-      const selectorContradictions = lever2.contradictions;
-      const absentKeys = lever2.absentKeys;
-      const anyVerifiedPresent = lever2.anyVerifiedPresent;
-      const anyNonExtractableLocator = lever2.anyNonExtractable;
-      const anyUnverifiableSelector = lever2.anyUnverifiable;
-
-      /* The first round's absentKeys is the initial failure's divergence evidence; later rounds never overwrite it. */
-      if (retry === 0) absentSelectors = absentKeys.size;
-
-      const lever2Flips = prevRound ? [...prevRound.absentSelectors].filter((k) => !absentKeys.has(k)).length : 0;
-
-      const curRound: RoundResult = {
-        failingNames: new Set(failed.map((c) => c.name)),
-        failingCount: failed.length,
-        absentSelectors: absentKeys,
-        lever2Flips,
-        reexploreNavigations: lastRegenResult?.reexploreNavigations ?? 0,
-      };
-      const gate = claimRejected
-        ? { spend: true, reason: "a rejected test-correct claim is not evidence — asking for the repair" }
-        : contractRejected
-          ? { spend: true, reason: "the contract refused the previous round before it ran: asking for the repair the violations name" }
-          : decideProgress(prevRound, curRound);
-      claimRejected = false;
-      contractRejected = false;
-
-      const allUnique =
-        anyVerifiedPresent &&
-        absentKeys.size === 0 &&
-        !anyNonExtractableLocator &&
-        !anyUnverifiableSelector &&
-        !selectorContradictions.some((c) => c.includes("MULTIPLE"));
-
-      /* Fresh devHealthy() at this snapshot; a separate fresh call happens before retry-execute — never shared or memoized. */
-      const devHealthyNow = input.isCode ? true : await input.devHealthy();
-      /* A missing detail reads as "" — any placeholder text would classify the same ("other", not infra). */
-      const failureDetails = failed.map((c) => c.detail ?? "");
-      const failureClasses = failureDetails.map((detail) => classifyFailure(detail));
-      const httpStatuses = failed.map((c) => c.httpStatus);
-      const runtimeErrorsByCase = failed.map((c) => c.runtimeErrors ?? []);
-      const fiveXx = httpStatuses.filter((status): status is number => status !== undefined && status >= 500 && status <= 599);
-
-      /*
-       * Triage: a failure whose target is verifiably absent while the same bytes have a green proof
-       * is either DEV not rendering the change or an environment fault — never a test defect. One
-       * re-execution (no retries) reads it a second time; a conclusive read ends the loop as a
-       * precondition, an inconclusive one as a possible environment cause. Only while the switch is on.
-       */
-      /*
-       * The second witness: every failure read an empty data state on a page the Context Pack read with
-       * results in this same run. The pack stands where a green proof would, since it saw the target's data.
-       */
-      let devNotRendered: AdjudicatorEvidence["devNotRendered"];
-      const packConflict = failed.length > 0 && failed.every((c) => contradictsPack(c, input.packConfirmedDataRoutes));
-      if (
-        !triaged &&
-        input.integrity &&
-        !input.isCode &&
-        (absentKeys.size > 0 || packConflict) &&
-        failureClasses.length > 0 &&
-        /* A contradicted data state is the page's own reading, whatever the assertion that met it; an absent target stands only on a presence failure. */
-        (packConflict || failureClasses.every((failure) => failure === "locator" || failure === "timeout")) &&
-        failed.every((c) => !!c.file)
-      ) {
-        const failedFiles = [...new Set(failed.map((c) => c.file as string))];
-        const proofs = packConflict ? [] : await Promise.all(failedFiles.map((file) => input.integrity!.hasGreenProof(file)));
-        const record = (outcome: FixLoopTriage["outcome"]): void => {
-          triage ??= { trigger: packConflict ? "pack-conflict" : "absent-selectors", outcome, files: failedFiles.length };
-        };
-        if (!packConflict && !proofs.every(Boolean)) record("unproven");
-        if (packConflict || proofs.every(Boolean)) {
-          triaged = true;
-          const remaining = input.integrity.remainingMs();
-          if ((remaining !== undefined && remaining <= 0) || !input.integrity.spendExecution()) {
-            devNotRendered = "inconclusive";
-            record("no-budget");
-          } else {
-            const triageRun = await this.deps.execution.execute({
-              namespace: `${input.namespace}-triage`,
-              specFiles: failedFiles,
-              retries: 0,
-            });
-            if (triageRun.verdict === "pass" || triageRun.verdict === "flaky") {
-              /* The same bytes passed on a second read: intermittent, as a retry that passes is today. */
-              const reportedFiles = new Set(triageRun.cases.map((c) => c.file));
-              run = {
-                verdict: "flaky",
-                cases: [...run.cases.filter((c) => !reportedFiles.has(c.file)), ...triageRun.cases],
-              };
-              record("passed");
-              break;
-            }
-            const triageFailed = triageRun.cases.filter((c) => c.status === "fail");
-            const triageTrees = triageFailed.map((c) => buildFailureDomLines(c.failureDom)).filter((tree) => tree.length > 0);
-            const triageAbsentKeys = this.deps.selectorCheck.check(specSources, triageTrees).absentKeys;
-            const stable =
-              triageRun.verdict === "fail" &&
-              (packConflict
-                ? triageFailed.length > 0 && triageFailed.every((c) => contradictsPack(c, input.packConfirmedDataRoutes))
-                : [...absentKeys].every((key) => triageAbsentKeys.has(key)));
-            devNotRendered = stable ? "conclusive" : "inconclusive";
-            record(stable ? "dev-not-rendered" : "inconclusive");
-          }
-        }
-      }
-
-      const evidence: AdjudicatorEvidence = {
-        isCode: input.isCode,
-        allUnique,
-        failureDetails,
-        failureClasses,
-        absentKeysCount: absentKeys.size,
-        gateSpend: gate.spend,
-        gateReason: gate.reason,
-        devHealthy: devHealthyNow,
-        mode: input.mode,
-        objectiveSource: input.objectiveSource,
-        failingFiles: failed.map((c) => c.file),
-        httpStatuses,
-        runtimeErrorsByCase,
-        ...(devNotRendered ? { devNotRendered } : {}),
-      };
-      const verdict = adjudicate(evidence);
-      adjVerdict = verdict;
-
-      if (verdict.action === ADJ_ACTION.BREAK_ISSUE) {
-        if (verdict.class === ADJ_CLASS.RUNNER_INFRA || verdict.class === ADJ_CLASS.DEV_INFRA) {
-          run = { verdict: "infra-error", cases: [] };
-        } else if (verdict.class === ADJ_CLASS.DEV_NOT_RENDERED) {
-          run = { verdict: "infra-error", cases: [] };
-          preconditionFailed = true;
-        } else {
-          realBugDetected = true;
-        }
-      }
-      /* Any break-* action ends the loop; for BREAK_NEEDS_HUMAN adjVerdict is already set — the caller labels the Issue. */
-      if (verdict.action !== ADJ_ACTION.CONTINUE) break;
-      if (!regenerate) break;
-
-      prevRound = curRound;
-
-      /*
-       * The round's bytes, captured before the turn: a rejected or capped round is restored from them,
-       * and the first round's are the initial run's bytes if that run stays the best. The namespace is
-       * unique per attempt so a retry cannot collide with its own prior attempt's test data.
-       */
-      const roundNs = `${input.namespace}-r${retry + 1}`;
-      const roundToken = !input.isCode && this.deps.acceptance ? await this.deps.acceptance.begin() : undefined;
-      if (!input.isCode && this.deps.acceptance && !hasBestToken) {
-        bestToken = roundToken;
-        hasBestToken = true;
-      }
-
-      /* Regeneration with review:skip. Cycle/wall-clock budgets are forwarded unread (see the header). */
-      const result = await this.deps.generation.generate({
-        fixCases: failed,
-        ...(selectorContradictions.length > 0 ? { selectorContradictions } : {}),
-        ...(selectorContradictions.length > 0 && lever2.origins ? { selectorContradictionOrigins: lever2.origins } : {}),
-        ...(input.failureDomSnapshot ? { domSnapshot: input.failureDomSnapshot } : {}),
-        ...(contractFeedback ? { contractFeedback } : {}),
-        cycleBudget: input.cycleBudget,
-        wallClockBudget: input.wallClockBudget,
-      });
-      /*
-       * A typed test-correct claim is read only on a turn that delivered no bytes. It is never
-       * evidence: the loop verifies it against this round's artifacts; unverified, it earns one
-       * repair and the claim is not counted as a fix. Bounded by the loop's retry cap.
-       */
-      const claim = result.specs.length === 0 && input.integrity ? result.testCorrect : undefined;
-      if (claim) {
-        const verified = verifiedTestCorrectReason(claim, {
-          fiveXx,
-          failureClasses,
-          runtimeErrorsByCase,
-          ...(devNotRendered ? { devNotRendered } : {}),
-        });
-        if (verified) {
-          if (claim.cause === "env") {
-            run = { verdict: "infra-error", cases: [] };
-            preconditionFailed = true;
-            adjVerdict = {
-              class: ADJ_CLASS.DEV_NOT_RENDERED,
-              confidence: ADJ_CONFIDENCE.HIGH,
-              action: ADJ_ACTION.BREAK_ISSUE,
-              reason: `Environment confirmed: the generator reported the test correct (${claim.reason}); ${verified}.`,
-            };
-          } else {
-            realBugDetected = true;
-            adjVerdict = {
-              class: ADJ_CLASS.APP_DEFECT,
-              confidence: ADJ_CONFIDENCE.HIGH,
-              action: ADJ_ACTION.BREAK_ISSUE,
-              reason: `App defect confirmed: the generator reported the test correct (${claim.reason}); ${verified}.`,
-            };
-          }
-          break;
-        }
-        rejectedClaims++;
-        claimRejected = true;
-        continue;
-      }
-      lastRegenResult = result;
-
-      if (result.specs.length === 0) {
-        /* Retry agent produced no fixes; keep the original verdict. */
-        break;
-      }
-      retries++;
-
-      /* Absent selectors: regenerate without re-executing; loop to the next round. Bounded by the same for-header cap + gate. */
-      if (!input.isCode && absentKeys.size > 0) {
-        continue;
-      }
-
-      /* Whether this round's acceptance accepted it, and the bytes it leaves for the best-run restore. */
-      let roundAccepted = false;
-      let acceptedToken: unknown;
-
-      if (input.isCode) {
-        /* Code mode: re-run the repo's own test suite directly — this branch never calls deps.revalidate (that seam is e2e-only, below). Code-mode pre-execution compile validation lives in the pipeline's validation phase (CodeValidationStrategy), not per-retry here; a code retry's compile failure surfaces through the execute() run itself (exit-code classification). */
-        const codeRun = await this.deps.execution.execute({ namespace: input.namespace });
-        run = codeRun;
-      } else if (this.deps.acceptance) {
-        if (!(await input.devHealthy())) break; /* DEV unhealthy before the round's execution */
-
-        const outcome = await this.deps.acceptance.accept({
-          round: roundToken,
-          specs: result.specs,
-          namespace: roundNs,
-        });
-        if (outcome.kind === "rejected") {
-          /*
-           * The contract refused the round: its bytes are already restored, and the deltas it found are
-           * the next round's facts. The rejected turn already spent its retry, so the loop stays inside
-           * the same cap (A-2b).
-           */
-          if (outcome.violations?.length) {
-            contractFeedback = outcome.violations;
-            contractRejected = true;
-            continue;
-          }
-          /*
-           * A validation failure or an infra-error: the prior verdict and bytes stand. A live
-           * execution that failed while DEV went unhealthy is the run's infra-error, as before.
-           */
-          if (
-            outcome.execution?.verdict === "infra-error" ||
-            (outcome.execution?.verdict === "fail" && !(await input.devHealthy()))
-          ) {
-            run = { verdict: "infra-error", cases: [] };
-          }
-          break;
-        }
-        if (outcome.kind === "cap") break; /* the prior verdict and bytes stand (B-7) */
-
-        run = mergeAcceptedRound(run, outcome);
-        contractFeedback = undefined;
-        coverageNs = roundNs;
-        roundAccepted = true;
-        acceptedToken = outcome.accepted;
-      } else {
-        /* Pre-acceptance retry path, for a caller with no working copy (aggregate unit tests). The run always wires `acceptance`. */
-        if (this.deps.revalidate) {
-          const reValidation = await this.deps.revalidate(input.specDir ?? "");
-          if (!reValidation.ok) break; /* retry validation failed; keep original verdict */
-        }
-        if (!(await input.devHealthy())) break; /* DEV unhealthy before retry execution */
-
-        const retryNs = `${input.namespace}-r${retry + 1}`;
-
-        /* Scope the re-run to failing spec files only when change-coverage will not measure this run. */
-        const failedSpecFiles = [
-          ...new Set(run.cases.filter((c) => c.status === "fail" && c.file).map((c) => c.file as string)),
-        ];
-        const allFailedHaveFile = run.cases.filter((c) => c.status === "fail").every((c) => !!c.file);
-        const failedSpecPaths = new Set(failedSpecFiles.map(normalizeSpecPath));
-        const regenHasOutsiders = result.specs.some((spec) => !failedSpecPaths.has(normalizeSpecPath(spec)));
-        /* Any regen spec outside the failing set means filtering execute() to the stale failing
-           set would never run the file the regen actually wrote — even when some regen specs
-           also overlap the failing set. Only "regen touched nothing but already-failing files"
-           is safe to filter. Paths are compared whole (suite-relative), never by file name: a
-           same-named spec in another folder is a different file, and any path that does not
-           name a failing file exactly re-runs everything (running more is always safe). */
-        const regenStayedInFailedSet = !regenHasOutsiders;
-        const canFilter =
-          allFailedHaveFile &&
-          failedSpecFiles.length > 0 &&
-          regenStayedInFailedSet &&
-          !(input.coverageWillMeasure ?? false);
-
-        const retryRun = await this.deps.execution.execute({
-          namespace: retryNs,
-          ...(canFilter ? { specFiles: failedSpecFiles } : {}),
-        });
-
-        if (retryRun.verdict === "fail" && !(await input.devHealthy())) {
-          run = { verdict: "infra-error", cases: [] };
-          break;
-        }
-
-        /* A retry the runner could not complete (infra-error) is never merged: the run ends
-           inconclusive exactly as an unfiltered retry would, so a spec that never re-ran cannot
-           ride on the carried-forward passes into a green verdict. */
-        if (canFilter && retryRun.verdict !== "infra-error") {
-          /* Every file the retry reported (file-less cases count as one group) replaces its earlier
-             cases; every other file keeps its last result — including a re-run failing spec the
-             retry reported nothing for, whose last observed result is still its failure. */
-          const reportedFiles = new Set(retryRun.cases.map((c) => c.file));
-          const carriedForward = run.cases.filter((c) => !reportedFiles.has(c.file));
-          const mergedCases = [...carriedForward, ...retryRun.cases];
-          /* The merge is never greener than the runner's own verdict for the retry. */
-          const mergedVerdict: RunVerdict =
-            retryRun.verdict === "fail" || mergedCases.some((c) => c.status === "fail")
-              ? "fail"
-              : retryRun.verdict === "flaky" || mergedCases.some((c) => c.status === "flaky")
-                ? "flaky"
-                : "pass";
-          run = { verdict: mergedVerdict, cases: mergedCases };
-        } else {
-          run = retryRun;
-        }
-        coverageNs = retryNs;
-      }
-
-      /* Keep the best EXECUTED run seen so far, with the bytes that produced it. infra-error is never "better". */
-      if (run.verdict !== "infra-error") {
-        const best = bestRound([
-          { failingCount: failCount(bestRunSoFar), run: bestRunSoFar },
-          { failingCount: failCount(run), run },
-        ])!.run;
-        bestRunSoFar = best;
-        /* Only an accepted round has bytes of its own; the initial run's are the first pre-turn snapshot. */
-        if (roundAccepted && best === run) {
-          bestToken = acceptedToken;
-          hasBestToken = true;
-        }
-      }
-    }
-
-    /* Restore bestRunSoFar after the loop, bytes included — skipped when the real-bug branch fired or the loop ended on infra-error. */
-    if (
-      !realBugDetected &&
-      run.verdict !== "infra-error" &&
-      failCount(bestRunSoFar) < failCount(run)
-    ) {
-      /* The best round's own bytes go back first: a failed restore must not leave the worse round's bytes under the best cases. */
-      if (this.deps.acceptance && hasBestToken) await this.deps.acceptance.restore(bestToken);
-      run = bestRunSoFar;
-    }
-
-    return {
-      run,
-      retries,
-      realBugDetected,
-      absentSelectors,
-      lastAdjudicatorVerdict: adjVerdict,
-      coverageNamespace: coverageNs,
-      lastSpecMetas: lastRegenResult?.specMetas,
-      preconditionFailed,
-      rejectedClaims,
-      ...(triage ? { triage } : {}),
+    const state: FixLoopState = {
+      input,
+      regenerate,
+      maxRetries: regenerate ? input.maxRetries : 1,
+      stage: "triage",
+      stop: undefined,
+      retry: 0,
+      run: input.initialRun,
+      retries: 0,
+      prevRound: null,
+      bestRunSoFar: input.initialRun,
+      bestToken: undefined,
+      hasBestToken: false,
+      realBugDetected: false,
+      adjVerdict: undefined,
+      coverageNs: input.namespace,
+      absentSelectors: 0,
+      preconditionFailed: false,
+      rejectedClaims: 0,
+      triaged: false,
+      triage: undefined,
+      claimRejected: false,
+      contractRejected: false,
+      contractFeedback: undefined,
+      lastRegenResult: input.initialSpecSources?.length ? { specSources: input.initialSpecSources } : undefined,
+      round: undefined,
+      roundAccepted: false,
+      acceptedToken: undefined,
     };
+    this.startRound(state);
+    return state;
+  }
+
+  /** Runs the stage the state is at, and moves it to the stage the evidence calls for. */
+  async step(state: FixLoopState): Promise<void> {
+    switch (state.stage) {
+      case "triage":
+        return this.apply(state, await this.triageStage(state));
+      case "adjudicate":
+        return this.apply(state, this.adjudicateStage(state));
+      case "regenerate":
+        return this.apply(state, await this.regenerateStage(state));
+      case "accept":
+        return this.apply(state, await this.acceptStage(state));
+      case "reexecute":
+        return this.apply(state, await this.reexecuteStage(state));
+      case "done":
+        return;
+    }
+  }
+
+  /** After the last stage: puts the best round's bytes back when the loop ended worse than it had been. */
+  async settle(state: FixLoopState): Promise<void> {
+    /* Restore bestRunSoFar after the loop, bytes included — skipped when the real-bug branch fired or the loop ended on infra-error. */
+    if (!state.realBugDetected && state.run.verdict !== "infra-error" && failCount(state.bestRunSoFar) < failCount(state.run)) {
+      /* The best round's own bytes go back first: a failed restore must not leave the worse round's bytes under the best cases. */
+      if (this.deps.acceptance && state.hasBestToken) await this.deps.acceptance.restore(state.bestToken);
+      state.run = state.bestRunSoFar;
+    }
+  }
+
+  result(state: FixLoopState): FixLoopResult {
+    return {
+      run: state.run,
+      retries: state.retries,
+      realBugDetected: state.realBugDetected,
+      absentSelectors: state.absentSelectors,
+      lastAdjudicatorVerdict: state.adjVerdict,
+      coverageNamespace: state.coverageNs,
+      lastSpecMetas: state.lastRegenResult?.specMetas,
+      preconditionFailed: state.preconditionFailed,
+      rejectedClaims: state.rejectedClaims,
+      ...(state.triage ? { triage: state.triage } : {}),
+    };
+  }
+
+  /* The head of a round: is there a failure left to fix, and a retry to spend on it. */
+  private startRound(state: FixLoopState): void {
+    const next = fixLoopAction({ after: "round-start", retry: state.retry, maxRetries: state.maxRetries, verdict: state.run.verdict, generating: state.input.generating });
+    this.apply(state, next);
+  }
+
+  private apply(state: FixLoopState, next: FixLoopNext): void {
+    if ("stop" in next) {
+      state.stage = "done";
+      state.stop = next.stop;
+      return;
+    }
+    if (next.again) {
+      state.retry++;
+      this.startRound(state);
+      return;
+    }
+    state.stage = next.go;
+  }
+
+  private async triageStage(state: FixLoopState): Promise<FixLoopNext> {
+    const { input } = state;
+    const failed = state.run.cases.filter((c) => c.status === "fail");
+
+    const failedTrees = failed
+      .map((c) => buildFailureDomLines(c.failureDom))
+      .filter((t) => t.length > 0);
+    const haveTrees = !input.isCode && failedTrees.length > 0;
+    const specSources = haveTrees ? (state.lastRegenResult?.specSources ?? []) : [];
+    const lever2 = this.deps.selectorCheck.check(specSources, failedTrees);
+    const selectorContradictions = lever2.contradictions;
+    const absentKeys = lever2.absentKeys;
+    const anyVerifiedPresent = lever2.anyVerifiedPresent;
+    const anyNonExtractableLocator = lever2.anyNonExtractable;
+    const anyUnverifiableSelector = lever2.anyUnverifiable;
+
+    /* The first round's absentKeys is the initial failure's divergence evidence; later rounds never overwrite it. */
+    if (state.retry === 0) state.absentSelectors = absentKeys.size;
+
+    const lever2Flips = state.prevRound ? [...state.prevRound.absentSelectors].filter((k) => !absentKeys.has(k)).length : 0;
+
+    const curRound: RoundResult = {
+      failingNames: new Set(failed.map((c) => c.name)),
+      failingCount: failed.length,
+      absentSelectors: absentKeys,
+      lever2Flips,
+      reexploreNavigations: state.lastRegenResult?.reexploreNavigations ?? 0,
+    };
+    const gate = state.claimRejected
+      ? { spend: true, reason: "a rejected test-correct claim is not evidence — asking for the repair" }
+      : state.contractRejected
+        ? { spend: true, reason: "the contract refused the previous round before it ran: asking for the repair the violations name" }
+        : decideProgress(state.prevRound, curRound);
+    state.claimRejected = false;
+    state.contractRejected = false;
+
+    const allUnique =
+      anyVerifiedPresent &&
+      absentKeys.size === 0 &&
+      !anyNonExtractableLocator &&
+      !anyUnverifiableSelector &&
+      !selectorContradictions.some((c) => c.includes("MULTIPLE"));
+
+    /* Fresh devHealthy() at this snapshot; a separate fresh call happens before retry-execute — never shared or memoized. */
+    const devHealthyNow = input.isCode ? true : await input.devHealthy();
+    /* A missing detail reads as "" — any placeholder text would classify the same ("other", not infra). */
+    const failureDetails = failed.map((c) => c.detail ?? "");
+    const failureClasses = failureDetails.map((detail) => classifyFailure(detail));
+    const httpStatuses = failed.map((c) => c.httpStatus);
+    const runtimeErrorsByCase = failed.map((c) => c.runtimeErrors ?? []);
+    const fiveXx = httpStatuses.filter((status): status is number => status !== undefined && status >= 500 && status <= 599);
+
+    /*
+     * Triage: a failure whose target is verifiably absent while the same bytes have a green proof
+     * is either DEV not rendering the change or an environment fault — never a test defect. One
+     * re-execution (no retries) reads it a second time; a conclusive read ends the loop as a
+     * precondition, an inconclusive one as a possible environment cause. Only while the switch is on.
+     */
+    /*
+     * The second witness: every failure read an empty data state on a page the Context Pack read with
+     * results in this same run. The pack stands where a green proof would, since it saw the target's data.
+     */
+    let devNotRendered: AdjudicatorEvidence["devNotRendered"];
+    const packConflict = failed.length > 0 && failed.every((c) => contradictsPack(c, input.packConfirmedDataRoutes));
+    if (
+      !state.triaged &&
+      input.integrity &&
+      !input.isCode &&
+      (absentKeys.size > 0 || packConflict) &&
+      failureClasses.length > 0 &&
+      /* A contradicted data state is the page's own reading, whatever the assertion that met it; an absent target stands only on a presence failure. */
+      (packConflict || failureClasses.every((failure) => failure === "locator" || failure === "timeout")) &&
+      failed.every((c) => !!c.file)
+    ) {
+      const failedFiles = [...new Set(failed.map((c) => c.file as string))];
+      const proofs = packConflict ? [] : await Promise.all(failedFiles.map((file) => input.integrity!.hasGreenProof(file)));
+      const record = (outcome: FixLoopTriage["outcome"]): void => {
+        state.triage ??= { trigger: packConflict ? "pack-conflict" : "absent-selectors", outcome, files: failedFiles.length };
+      };
+      if (!packConflict && !proofs.every(Boolean)) record("unproven");
+      if (packConflict || proofs.every(Boolean)) {
+        state.triaged = true;
+        const remaining = input.integrity.remainingMs();
+        if ((remaining !== undefined && remaining <= 0) || !input.integrity.spendExecution()) {
+          devNotRendered = "inconclusive";
+          record("no-budget");
+        } else {
+          const triageRun = await this.deps.execution.execute({
+            namespace: `${input.namespace}-triage`,
+            specFiles: failedFiles,
+            retries: 0,
+          });
+          if (triageRun.verdict === "pass" || triageRun.verdict === "flaky") {
+            /* The same bytes passed on a second read: intermittent, as a retry that passes is today. */
+            const reportedFiles = new Set(triageRun.cases.map((c) => c.file));
+            state.run = {
+              verdict: "flaky",
+              cases: [...state.run.cases.filter((c) => !reportedFiles.has(c.file)), ...triageRun.cases],
+            };
+            record("passed");
+            return fixLoopAction({ after: "triage", passed: true });
+          }
+          const triageFailed = triageRun.cases.filter((c) => c.status === "fail");
+          const triageTrees = triageFailed.map((c) => buildFailureDomLines(c.failureDom)).filter((tree) => tree.length > 0);
+          const triageAbsentKeys = this.deps.selectorCheck.check(specSources, triageTrees).absentKeys;
+          const stable =
+            triageRun.verdict === "fail" &&
+            (packConflict
+              ? triageFailed.length > 0 && triageFailed.every((c) => contradictsPack(c, input.packConfirmedDataRoutes))
+              : [...absentKeys].every((key) => triageAbsentKeys.has(key)));
+          devNotRendered = stable ? "conclusive" : "inconclusive";
+          record(stable ? "dev-not-rendered" : "inconclusive");
+        }
+      }
+    }
+
+    state.round = {
+      failed,
+      curRound,
+      gateSpend: gate.spend,
+      gateReason: gate.reason,
+      absentKeys,
+      selectorContradictions,
+      origins: lever2.origins,
+      allUnique,
+      devHealthyNow,
+      failureDetails,
+      failureClasses,
+      httpStatuses,
+      runtimeErrorsByCase,
+      fiveXx,
+      devNotRendered,
+      roundNs: `${input.namespace}-r${state.retry + 1}`,
+      roundToken: undefined,
+      result: undefined,
+    };
+    return fixLoopAction({ after: "triage", passed: false });
+  }
+
+  private adjudicateStage(state: FixLoopState): FixLoopNext {
+    const { input } = state;
+    const round = this.roundOf(state);
+    const evidence: AdjudicatorEvidence = {
+      isCode: input.isCode,
+      allUnique: round.allUnique,
+      failureDetails: round.failureDetails,
+      failureClasses: round.failureClasses,
+      absentKeysCount: round.absentKeys.size,
+      gateSpend: round.gateSpend,
+      gateReason: round.gateReason,
+      devHealthy: round.devHealthyNow,
+      mode: input.mode,
+      objectiveSource: input.objectiveSource,
+      failingFiles: round.failed.map((c) => c.file),
+      httpStatuses: round.httpStatuses,
+      runtimeErrorsByCase: round.runtimeErrorsByCase,
+      ...(round.devNotRendered ? { devNotRendered: round.devNotRendered } : {}),
+    };
+    const verdict = adjudicate(evidence);
+    state.adjVerdict = verdict;
+
+    if (verdict.action === ADJ_ACTION.BREAK_ISSUE) {
+      if (verdict.class === ADJ_CLASS.RUNNER_INFRA || verdict.class === ADJ_CLASS.DEV_INFRA) {
+        state.run = { verdict: "infra-error", cases: [] };
+      } else if (verdict.class === ADJ_CLASS.DEV_NOT_RENDERED) {
+        state.run = { verdict: "infra-error", cases: [] };
+        state.preconditionFailed = true;
+      } else {
+        state.realBugDetected = true;
+      }
+    }
+    /* Any break-* action ends the loop; for BREAK_NEEDS_HUMAN adjVerdict is already set — the caller labels the Issue. */
+    const next = fixLoopAction({ after: "adjudication", action: verdict.action, regenerate: state.regenerate });
+    if ("go" in next) state.prevRound = round.curRound;
+    return next;
+  }
+
+  private async regenerateStage(state: FixLoopState): Promise<FixLoopNext> {
+    const { input } = state;
+    const round = this.roundOf(state);
+    /*
+     * The round's bytes, captured before the turn: a rejected or capped round is restored from them,
+     * and the first round's are the initial run's bytes if that run stays the best. The namespace is
+     * unique per attempt so a retry cannot collide with its own prior attempt's test data.
+     */
+    round.roundToken = !input.isCode && this.deps.acceptance ? await this.deps.acceptance.begin() : undefined;
+    if (!input.isCode && this.deps.acceptance && !state.hasBestToken) {
+      state.bestToken = round.roundToken;
+      state.hasBestToken = true;
+    }
+
+    /* Regeneration with review:skip. Cycle/wall-clock budgets are forwarded unread (see the header). */
+    const result = await this.deps.generation.generate({
+      fixCases: round.failed,
+      ...(round.selectorContradictions.length > 0 ? { selectorContradictions: round.selectorContradictions } : {}),
+      ...(round.selectorContradictions.length > 0 && round.origins ? { selectorContradictionOrigins: round.origins } : {}),
+      ...(input.failureDomSnapshot ? { domSnapshot: input.failureDomSnapshot } : {}),
+      ...(state.contractFeedback ? { contractFeedback: state.contractFeedback } : {}),
+      cycleBudget: input.cycleBudget,
+      wallClockBudget: input.wallClockBudget,
+    });
+    round.result = result;
+    /*
+     * A typed test-correct claim is read only on a turn that delivered no bytes. It is never
+     * evidence: the loop verifies it against this round's artifacts; unverified, it earns one
+     * repair and the claim is not counted as a fix. Bounded by the loop's retry cap.
+     */
+    const claim = result.specs.length === 0 && input.integrity ? result.testCorrect : undefined;
+    const transition = { after: "regeneration", delivered: result.specs.length, absentTargets: !input.isCode && round.absentKeys.size > 0, isCode: input.isCode, accepting: !!this.deps.acceptance } as const;
+    if (claim) {
+      const verified = verifiedTestCorrectReason(claim, {
+        fiveXx: round.fiveXx,
+        failureClasses: round.failureClasses,
+        runtimeErrorsByCase: round.runtimeErrorsByCase,
+        ...(round.devNotRendered ? { devNotRendered: round.devNotRendered } : {}),
+      });
+      if (verified) {
+        if (claim.cause === "env") {
+          state.run = { verdict: "infra-error", cases: [] };
+          state.preconditionFailed = true;
+          state.adjVerdict = {
+            class: ADJ_CLASS.DEV_NOT_RENDERED,
+            confidence: ADJ_CONFIDENCE.HIGH,
+            action: ADJ_ACTION.BREAK_ISSUE,
+            reason: `Environment confirmed: the generator reported the test correct (${claim.reason}); ${verified}.`,
+          };
+        } else {
+          state.realBugDetected = true;
+          state.adjVerdict = {
+            class: ADJ_CLASS.APP_DEFECT,
+            confidence: ADJ_CONFIDENCE.HIGH,
+            action: ADJ_ACTION.BREAK_ISSUE,
+            reason: `App defect confirmed: the generator reported the test correct (${claim.reason}); ${verified}.`,
+          };
+        }
+        return fixLoopAction({ ...transition, claim: "verified" });
+      }
+      state.rejectedClaims++;
+      state.claimRejected = true;
+      return fixLoopAction({ ...transition, claim: "rejected" });
+    }
+    state.lastRegenResult = result;
+    const next = fixLoopAction({ ...transition, claim: "none" });
+    /* Retry agent produced no fixes → the original verdict stands (a stop above); otherwise this round spent a retry. */
+    if (result.specs.length > 0) state.retries++;
+    return next;
+  }
+
+  private async acceptStage(state: FixLoopState): Promise<FixLoopNext> {
+    const { input } = state;
+    const round = this.roundOf(state);
+    const acceptance = this.deps.acceptance!;
+    const dev = fixLoopAction({ after: "dev-check", healthy: await input.devHealthy(), then: "accept" });
+    if ("stop" in dev) return dev; /* DEV unhealthy before the round's execution */
+
+    const outcome = await acceptance.accept({
+      round: round.roundToken,
+      specs: round.result?.specs ?? [],
+      namespace: round.roundNs,
+    });
+    if (outcome.kind === "rejected") {
+      /*
+       * The contract refused the round: its bytes are already restored, and the deltas it found are
+       * the next round's facts. The rejected turn already spent its retry, so the loop stays inside
+       * the same cap (A-2b).
+       */
+      if (outcome.violations?.length) {
+        state.contractFeedback = outcome.violations;
+        state.contractRejected = true;
+        return fixLoopAction({ after: "acceptance", kind: "rejected", violations: true });
+      }
+      /*
+       * A validation failure or an infra-error: the prior verdict and bytes stand. A live
+       * execution that failed while DEV went unhealthy is the run's infra-error, as before.
+       */
+      if (
+        outcome.execution?.verdict === "infra-error" ||
+        (outcome.execution?.verdict === "fail" && !(await input.devHealthy()))
+      ) {
+        state.run = { verdict: "infra-error", cases: [] };
+      }
+      return fixLoopAction({ after: "acceptance", kind: "rejected", violations: false });
+    }
+    if (outcome.kind === "cap") return fixLoopAction({ after: "acceptance", kind: "cap", violations: false }); /* the prior verdict and bytes stand (B-7) */
+
+    state.run = mergeAcceptedRound(state.run, outcome);
+    state.contractFeedback = undefined;
+    state.coverageNs = round.roundNs;
+    state.roundAccepted = true;
+    state.acceptedToken = outcome.accepted;
+    this.recordBest(state);
+    return fixLoopAction({ after: "acceptance", kind: "accepted", violations: false });
+  }
+
+  private async reexecuteStage(state: FixLoopState): Promise<FixLoopNext> {
+    const { input } = state;
+    const round = this.roundOf(state);
+    const result = round.result;
+
+    if (input.isCode) {
+      /* Code mode: re-run the repo's own test suite directly — this branch never calls deps.revalidate (that seam is e2e-only, below). Code-mode pre-execution compile validation lives in the pipeline's validation phase (CodeValidationStrategy), not per-retry here; a code retry's compile failure surfaces through the execute() run itself (exit-code classification). */
+      state.run = await this.deps.execution.execute({ namespace: input.namespace });
+      this.recordBest(state);
+      return fixLoopAction({ after: "reexecution", failed: false, devHealthy: true });
+    }
+
+    /* Pre-acceptance retry path, for a caller with no working copy (aggregate unit tests). The run always wires `acceptance`. */
+    if (this.deps.revalidate) {
+      const reValidation = await this.deps.revalidate(input.specDir ?? "");
+      const checked = fixLoopAction({ after: "revalidation", ok: reValidation.ok });
+      if ("stop" in checked) return checked; /* retry validation failed; keep original verdict */
+    }
+    const dev = fixLoopAction({ after: "dev-check", healthy: await input.devHealthy(), then: "reexecute" });
+    if ("stop" in dev) return dev; /* DEV unhealthy before retry execution */
+
+    const retryNs = round.roundNs;
+
+    /* Scope the re-run to failing spec files only when change-coverage will not measure this run. */
+    const failedSpecFiles = [
+      ...new Set(state.run.cases.filter((c) => c.status === "fail" && c.file).map((c) => c.file as string)),
+    ];
+    const allFailedHaveFile = state.run.cases.filter((c) => c.status === "fail").every((c) => !!c.file);
+    const failedSpecPaths = new Set(failedSpecFiles.map(normalizeSpecPath));
+    const regenHasOutsiders = (result?.specs ?? []).some((spec) => !failedSpecPaths.has(normalizeSpecPath(spec)));
+    /* Any regen spec outside the failing set means filtering execute() to the stale failing
+       set would never run the file the regen actually wrote — even when some regen specs
+       also overlap the failing set. Only "regen touched nothing but already-failing files"
+       is safe to filter. Paths are compared whole (suite-relative), never by file name: a
+       same-named spec in another folder is a different file, and any path that does not
+       name a failing file exactly re-runs everything (running more is always safe). */
+    const regenStayedInFailedSet = !regenHasOutsiders;
+    const canFilter =
+      allFailedHaveFile &&
+      failedSpecFiles.length > 0 &&
+      regenStayedInFailedSet &&
+      !(input.coverageWillMeasure ?? false);
+
+    const retryRun = await this.deps.execution.execute({
+      namespace: retryNs,
+      ...(canFilter ? { specFiles: failedSpecFiles } : {}),
+    });
+
+    const devAfter = retryRun.verdict === "fail" ? await input.devHealthy() : true;
+    if (retryRun.verdict === "fail" && !devAfter) {
+      state.run = { verdict: "infra-error", cases: [] };
+      return fixLoopAction({ after: "reexecution", failed: true, devHealthy: false });
+    }
+
+    /* A retry the runner could not complete (infra-error) is never merged: the run ends
+       inconclusive exactly as an unfiltered retry would, so a spec that never re-ran cannot
+       ride on the carried-forward passes into a green verdict. */
+    if (canFilter && retryRun.verdict !== "infra-error") {
+      /* Every file the retry reported (file-less cases count as one group) replaces its earlier
+         cases; every other file keeps its last result — including a re-run failing spec the
+         retry reported nothing for, whose last observed result is still its failure. */
+      const reportedFiles = new Set(retryRun.cases.map((c) => c.file));
+      const carriedForward = state.run.cases.filter((c) => !reportedFiles.has(c.file));
+      const mergedCases = [...carriedForward, ...retryRun.cases];
+      /* The merge is never greener than the runner's own verdict for the retry. */
+      const mergedVerdict: RunVerdict =
+        retryRun.verdict === "fail" || mergedCases.some((c) => c.status === "fail")
+          ? "fail"
+          : retryRun.verdict === "flaky" || mergedCases.some((c) => c.status === "flaky")
+            ? "flaky"
+            : "pass";
+      state.run = { verdict: mergedVerdict, cases: mergedCases };
+    } else {
+      state.run = retryRun;
+    }
+    state.coverageNs = retryNs;
+    this.recordBest(state);
+    return fixLoopAction({ after: "reexecution", failed: false, devHealthy: true });
+  }
+
+  /* Keep the best EXECUTED run seen so far, with the bytes that produced it. infra-error is never "better". */
+  private recordBest(state: FixLoopState): void {
+    if (state.run.verdict !== "infra-error") {
+      const best = bestRound([
+        { failingCount: failCount(state.bestRunSoFar), run: state.bestRunSoFar },
+        { failingCount: failCount(state.run), run: state.run },
+      ])!.run;
+      state.bestRunSoFar = best;
+      /* Only an accepted round has bytes of its own; the initial run's are the first pre-turn snapshot. */
+      if (state.roundAccepted && best === state.run) {
+        state.bestToken = state.acceptedToken;
+        state.hasBestToken = true;
+      }
+    }
+    state.roundAccepted = false;
+    state.acceptedToken = undefined;
+  }
+
+  private roundOf(state: FixLoopState): RoundScratch {
+    if (!state.round) throw new Error("the fix loop ran a stage before its triage");
+    return state.round;
   }
 }
 

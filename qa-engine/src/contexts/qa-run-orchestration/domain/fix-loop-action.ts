@@ -40,16 +40,15 @@ export type FixLoopTransition =
    * whether the run has an acceptance for an e2e round.
    */
   | { after: "regeneration"; claim: "verified" | "rejected" | "none"; delivered: number; absentTargets: boolean; isCode: boolean; accepting: boolean }
-  /** DEV answered (or not) just before a round's execution. */
-  | { after: "dev-check"; healthy: boolean }
+  /** DEV answered (or not) just before a round's execution; `then` is the step that execution belongs to. */
+  | { after: "dev-check"; healthy: boolean; then: "accept" | "reexecute" }
   /** The pre-acceptance retry path: the gate on the regenerated specs. */
   | { after: "revalidation"; ok: boolean }
   /** The acceptance of a round: it was `accepted`, `rejected` (with or without contract deltas to hand back) or `cap`. */
   | { after: "acceptance"; kind: "accepted" | "rejected" | "cap"; violations: boolean }
   /** The re-execution of the retry path: it failed while DEV is not healthy, or it did not. */
   | { after: "reexecution"; failed: boolean; devHealthy: boolean }
-  /** The round's result has been recorded; the next round begins. */
-  | { after: "round-end" };
+;
 
 export function fixLoopAction(t: FixLoopTransition): FixLoopNext {
   switch (t.after) {
@@ -71,7 +70,7 @@ export function fixLoopAction(t: FixLoopTransition): FixLoopNext {
       if (!t.isCode && t.absentTargets) return { go: "triage", again: true };
       return { go: !t.isCode && t.accepting ? "accept" : "reexecute" };
     case "dev-check":
-      return t.healthy ? { go: "reexecute" } : { stop: "dev-unhealthy" };
+      return t.healthy ? { go: t.then } : { stop: "dev-unhealthy" };
     case "revalidation":
       return t.ok ? { go: "reexecute" } : { stop: "revalidation-failed" };
     case "acceptance":
@@ -80,7 +79,5 @@ export function fixLoopAction(t: FixLoopTransition): FixLoopNext {
       return { go: "triage", again: true };
     case "reexecution":
       return t.failed && !t.devHealthy ? { stop: "dev-failed-under-the-run" } : { go: "triage", again: true };
-    case "round-end":
-      return { go: "triage", again: true };
   }
 }

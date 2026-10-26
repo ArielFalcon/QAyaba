@@ -39,7 +39,7 @@ class PhaseRecorder extends NoopTelemetry {
   }
 }
 
-async function runOf(input: RunQaInput): Promise<PhaseRecorder> {
+async function runOf(input: RunQaInput, execute?: RunQaUseCaseDeps["execution"]["execute"], expectVerdict = "pass"): Promise<PhaseRecorder> {
   const ws = runWorkspace("qa-phase-sequence-");
   const telemetry = new PhaseRecorder();
   const deps: RunQaUseCaseDeps = {
@@ -47,7 +47,7 @@ async function runOf(input: RunQaInput): Promise<PhaseRecorder> {
     generation: generationOnDisk({ generate: async () => scriptedGeneration({ specs: ["a.spec.ts"], approved: true }) }),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
-    execution: { execute: async () => ({ verdict: "pass", cases: [], logs: "" }) },
+    execution: { execute: execute ?? (async () => ({ verdict: "pass", cases: [], logs: "" })) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
@@ -60,7 +60,7 @@ async function runOf(input: RunQaInput): Promise<PhaseRecorder> {
     telemetry,
   };
   const out = await new RunQaUseCase(deps).run(input);
-  assert.equal(out.decision.verdict, "pass");
+  assert.equal(out.decision.verdict, expectVerdict);
   return telemetry;
 }
 
@@ -87,7 +87,7 @@ test("a green diff run reports the steps it ran, and the ones it passed over, by
     "assemble-enrichment", "generate-first-pass", "settle-generation-end", "ground-before-execution", "pre-exec-regenerate", "validate-statically", "static-fix-round", "check-health", "prepare-execute-auth", "announce-execution",
     "execute-specs", "fingerprint-green-suite", "announce-coverage", "measure-coverage", "review-tests", "release-coordinated-pass", "guard-final-proof",
   ]);
-  assert.deepEqual(await idsOf(input, "skipped"), ["run-fix-loop", "regenerate-for-coverage", "remeasure-stale-coverage"]);
+  assert.deepEqual(await idsOf(input, "skipped"), ["run-fix-loop", "fix-triage", "fix-adjudicate", "fix-regenerate", "fix-accept", "fix-reexecute", "settle-fix-loop", "regenerate-for-coverage", "remeasure-stale-coverage"]);
   assert.deepEqual((await runOf(input)).steps.filter((step) => step.outcome === "ended"), [{ id: "decide-run", outcome: "ended", phase: "decide", reason: "decided" }]);
 });
 
@@ -96,10 +96,22 @@ test("a green manual run reports the same steps except the ones only a per-commi
   const ran = await idsOf(input, "ran");
   assert.equal(ran.includes("classify-change"), false);
   assert.equal(ran.includes("announce-coverage"), false);
-  assert.deepEqual(await idsOf(input, "skipped"), ["classify-change", "run-fix-loop", "announce-coverage", "regenerate-for-coverage", "remeasure-stale-coverage"]);
+  assert.deepEqual(await idsOf(input, "skipped"), ["classify-change", "run-fix-loop", "fix-triage", "fix-adjudicate", "fix-regenerate", "fix-accept", "fix-reexecute", "settle-fix-loop", "announce-coverage", "regenerate-for-coverage", "remeasure-stale-coverage"]);
 });
 
 test("the first step of a run is reported in the phase it opens", async () => {
   const recorder = await runOf({ ...base, mode: "diff", runId: "sequence-first-phase" });
   assert.deepEqual(recorder.steps[0], { id: "wait-for-deploy", outcome: "ran", phase: "gate" });
+});
+
+test("a failing execution repairs through the fix loop steps, one stage per step, and settles", async () => {
+  let executions = 0;
+  const recorder = await runOf(
+    { ...base, mode: "diff", runId: "sequence-fix-loop" },
+    async () => (++executions === 1 ? { verdict: "fail" as const, cases: [{ name: "login", status: "fail" as const, file: "a.spec.ts", detail: "expect(received).toBe(expected)" }], logs: "" } : { verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
+    "pass",
+  );
+  const ran = recorder.steps.filter((step) => step.outcome === "ran" && step.phase === "fix_loop").map((step) => step.id);
+  assert.deepEqual(ran.slice(0, 4), ["run-fix-loop", "fix-triage", "fix-adjudicate", "fix-regenerate"]);
+  assert.ok(ran.includes("settle-fix-loop"));
 });

@@ -1671,18 +1671,18 @@ test("a diff-mode fail retry computes coverageWillMeasure and threads it into th
      ports/index.ts) and the fixLoopExecution closure below DOES thread FixLoopExecuteInput.specFiles
      through to it (see "filtered-retry threads specFiles" tests further down in this
      file) — that gap is closed. This test's own scope stays coverageWillMeasure specifically: the
-     narrowest port-observable proof is instrumenting FixLoop.run itself and asserting the use-case
+     narrowest port-observable proof is instrumenting FixLoop.begin itself and asserting the use-case
      `generating && mode === "diff" && covPolicy.mode !== "off"` (RunQaInput.triggerRepo exists now,
      but this formula deliberately omits the !triggerRepo conjunct — over-firing true for cross-repo
      only disables the FixLoop's filtered-retry optimization, a documented harmless trade-off; the
      REAL coverage guard lives at the measure() call site, which starves the diff). We patch
-     FixLoop.prototype.run for the duration of this test to capture the actual input the use-case
+     FixLoop.prototype.begin for the duration of this test to capture the actual input the use-case
      constructs, restoring it immediately after — this is the narrowest possible seam that proves
      the WIRING, without inventing a new port.
    */
-  const originalRun = FixLoop.prototype.run;
+  const originalRun = FixLoop.prototype.begin;
   let capturedCoverageWillMeasure: boolean | undefined;
-  FixLoop.prototype.run = async function (input: Parameters<typeof originalRun>[0]) {
+  FixLoop.prototype.begin = function (input: Parameters<typeof originalRun>[0]) {
     capturedCoverageWillMeasure = input.coverageWillMeasure;
     return originalRun.call(this, input);
   };
@@ -1695,7 +1695,7 @@ test("a diff-mode fail retry computes coverageWillMeasure and threads it into th
 
     await useCase.run({ ...baseInput, runId: "fix-d-coverage-will-measure", mode: "diff" });
   } finally {
-    FixLoop.prototype.run = originalRun;
+    FixLoop.prototype.begin = originalRun;
   }
 
   assert.equal(
@@ -1706,9 +1706,9 @@ test("a diff-mode fail retry computes coverageWillMeasure and threads it into th
 });
 
 test("coveragePolicyMode:\"off\" threads coverageWillMeasure:false into the FixLoop", async () => {
-  const originalRun = FixLoop.prototype.run;
+  const originalRun = FixLoop.prototype.begin;
   let capturedCoverageWillMeasure: boolean | undefined;
-  FixLoop.prototype.run = async function (input: Parameters<typeof originalRun>[0]) {
+  FixLoop.prototype.begin = function (input: Parameters<typeof originalRun>[0]) {
     capturedCoverageWillMeasure = input.coverageWillMeasure;
     return originalRun.call(this, input);
   };
@@ -1721,7 +1721,7 @@ test("coveragePolicyMode:\"off\" threads coverageWillMeasure:false into the FixL
 
     await useCase.run({ ...baseInput, runId: "fix-d-coverage-off", mode: "diff" });
   } finally {
-    FixLoop.prototype.run = originalRun;
+    FixLoop.prototype.begin = originalRun;
   }
 
   assert.equal(capturedCoverageWillMeasure, false, "coveragePolicyMode:'off' must never claim coverage will measure this run");

@@ -50,8 +50,9 @@ test("an e2e round with an acceptance goes to accept, otherwise to re-execution"
   assert.deepEqual(fixLoopAction({ ...regen, isCode: true }), { go: "reexecute" });
 });
 test("an unhealthy DEV stops the loop before an execution", () => {
-  assert.deepEqual(fixLoopAction({ after: "dev-check", healthy: false }), { stop: "dev-unhealthy" });
-  assert.deepEqual(fixLoopAction({ after: "dev-check", healthy: true }), { go: "reexecute" });
+  assert.deepEqual(fixLoopAction({ after: "dev-check", healthy: false, then: "accept" }), { stop: "dev-unhealthy" });
+  assert.deepEqual(fixLoopAction({ after: "dev-check", healthy: true, then: "accept" }), { go: "accept" });
+  assert.deepEqual(fixLoopAction({ after: "dev-check", healthy: true, then: "reexecute" }), { go: "reexecute" });
 });
 test("a failed revalidation ends the loop", () => {
   assert.deepEqual(fixLoopAction({ after: "revalidation", ok: false }), { stop: "revalidation-failed" });

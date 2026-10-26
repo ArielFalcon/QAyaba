@@ -17,6 +17,7 @@ import type {
   ServiceLink,
 } from "../ports/index.ts";
 import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
+import type { FixLoopState } from "../../domain/fix-loop.aggregate.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { GraphPage } from "@kernel/change-pages.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
@@ -112,7 +113,19 @@ export interface ExecutionOutcome {
 }
 
 /* What the fix loop left for the coverage, review and decide phases; the defaults stand when the loop never engaged. */
+export interface FixLoopSession {
+  /** Where the loop is and what it has gathered: the loop itself advances it, one stage per step. */
+  loop: FixLoopState;
+  /** What the loop's regenerations still carry from before it: grounding corrections (one-shot) and the latest lead generation's specs. */
+  pending: { selectorContradictions: string[]; attributedSpecFiles: string[]; latestSpecs: string[] };
+  /** The failing count and spec-set digest before the loop, for the phase span. */
+  failingBefore: number;
+  specShaBefore: string | undefined;
+}
+
 export interface FixLoopOutcome {
+  /** The loop in progress; undefined before it engages and after it settles. */
+  session: FixLoopSession | undefined;
   /** The winning loop execute namespace (`${runId}-rN`); absent when the loop never ran. */
   coverageNamespace: string | undefined;
   /** The full adjudicator verdict for the Issue body; undefined when the loop never reached adjudication. */
@@ -252,7 +265,7 @@ export function initialRunState(): RunState {
       authVerifiedSha256: undefined,
       run: { verdict: "pass", cases: [], logs: "" },
     },
-    fixLoop: { coverageNamespace: undefined, lastAdjudicatorVerdict: undefined, fixLoopFinalSpecMetas: undefined, devNotRenderedConclusive: false },
+    fixLoop: { session: undefined, coverageNamespace: undefined, lastAdjudicatorVerdict: undefined, fixLoopFinalSpecMetas: undefined, devNotRenderedConclusive: false },
     coverage: {
       blocksPublish: false,
       coverageRatio: null,

@@ -10,7 +10,7 @@ import { cleanPriorRun, openAuthoringHandles, prepareLogin, restoreAcceptedSuite
 import { assembleEnrichment, groundRepository, readDiffShapes, resolveBlastRadius, resolveCrossRepoImpact, resolveServiceLinks, retrieveRules, selectExemplars } from "./phases/ground.steps.ts";
 import { generateFirstPass, groundBeforeExecution, preExecRegenerate, settleGenerationEnd } from "./phases/generate.steps.ts";
 import { announceExecution, checkHealth, executeSpecs, prepareExecuteAuth, staticFixRound, validateStatically } from "./phases/execute.steps.ts";
-import { fingerprintGreenSuite, runFixLoop } from "./phases/fix-loop.steps.ts";
+import { fingerprintGreenSuite, fixAccept, fixAdjudicate, fixReexecute, fixRegenerate, fixTriage, runFixLoop, settleFixLoop } from "./phases/fix-loop.steps.ts";
 import { announceCoverage, announcesCoverage, measureCoverage, measuresCoverage, regenerateForCoverage, regeneratesForCoverage } from "./phases/coverage.steps.ts";
 import { releaseCoordinatedPass, remeasureStaleCoverage, remeasuresStaleCoverage, reviewTests, reviewsRun } from "./phases/review.steps.ts";
 import { decideRun, guardFinalProof, guardsFinalProof } from "./phases/decide.steps.ts";
@@ -49,6 +49,12 @@ export const IN_WORKSPACE: ReadonlyArray<FlowStep<RunState, WorkspaceRunContext>
   { id: "announce-execution", phase: "execute", runs: (_state, ctx) => ctx.input.mode !== "context", run: announceExecution },
   { id: "execute-specs", run: executeSpecs },
   { id: "run-fix-loop", phase: "fix_loop", runs: (state) => state.execution.run.verdict === "fail", run: runFixLoop },
+  { id: "fix-triage", runs: (state) => state.fixLoop.session?.loop.stage === "triage", run: fixTriage },
+  { id: "fix-adjudicate", runs: (state) => state.fixLoop.session?.loop.stage === "adjudicate", run: fixAdjudicate },
+  { id: "fix-regenerate", runs: (state) => state.fixLoop.session?.loop.stage === "regenerate", run: fixRegenerate },
+  { id: "fix-accept", runs: (state) => state.fixLoop.session?.loop.stage === "accept", run: fixAccept },
+  { id: "fix-reexecute", runs: (state) => state.fixLoop.session?.loop.stage === "reexecute", run: fixReexecute },
+  { id: "settle-fix-loop", runs: (state) => state.fixLoop.session !== undefined, run: settleFixLoop },
   { id: "fingerprint-green-suite", run: fingerprintGreenSuite },
   { id: "announce-coverage", phase: "coverage", runs: announcesCoverage, run: announceCoverage },
   { id: "measure-coverage", runs: measuresCoverage, run: measureCoverage },

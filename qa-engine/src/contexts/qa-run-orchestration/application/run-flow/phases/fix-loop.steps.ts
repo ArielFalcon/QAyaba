@@ -4,13 +4,15 @@ import { CORRECTION_ORIGIN } from "../../coordination/lead-correction.ts";
 import { createHash } from "node:crypto";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { readConfinedSpecFile, listSpecFiles, readOwnedSpecFile, MAX_SPEC_SOURCE_BYTES, type SpecRoot } from "../../../../../shared-infrastructure/spec-path-confinement.ts";
-import { FixLoop, type FixLoopAcceptancePort, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../../../domain/fix-loop.aggregate.ts";
+import { FixLoop, type FixLoopInput, type FixLoopAcceptancePort, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../../../domain/fix-loop.aggregate.ts";
 import { checkSpecSelectors, contradictionOrigins } from "../../../domain/helpers/selector-check.ts";
 import { attributeContradictions } from "../../../domain/helpers/contradiction-attribution.ts";
 import type { SpecSnapshot } from "../../ports/spec-snapshot.port.ts";
-import type { StepOutcome } from "../run-flow.ts";
+import { goto, type StepOutcome } from "../run-flow.ts";
+import type { StepId } from "../step-ids.ts";
+import type { FixLoopStep } from "../../../domain/fix-loop-action.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
-import type { RunState } from "../run-state.ts";
+import type { FixLoopSession, RunState } from "../run-state.ts";
 import { checkDevHealth, executeAccepted, liveExecutionOptions, validateAccepted } from "./execute.steps.ts";
 import { loopClosedNow, regenerate } from "./generation-services.ts";
 import { carryOn } from "../failure-policy.ts";
@@ -58,15 +60,13 @@ export function resolveTested(state: Readonly<RunState>): { flow?: string; objec
   return fixLoopFinalSpecMetas?.length ? fixLoopFinalSpecMetas : state.execution.lastGenerated.specMetas;
 }
 
-/* FixLoop only when the initial verdict is "fail". Context mode's synthetic pass never enters. */
-export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, input, cfg, workspace, signal, services, trail, startedAt, wallClockBudget, cycleBudget } = ctx;
+/* The ports of the fix loop, over the working copy and the services of this run; the loop's own state lives in its session, so a step rebuilds them each time. */
+function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending: FixLoopSession["pending"]): FixLoop {
+  const { deps, workspace, signal, services, trail, startedAt, wallClockBudget } = ctx;
   const { closedLoop } = trail;
-  const { generating } = state.classification;
-  const { lastGenerated, run: initialRun } = state.execution;
-  const { snapshotSuite, acceptanceScope, suiteChangedFiles, acceptance, integrityCounters, runDeadlinePort, snapshotPort, proofLedger } = services;
+  const { lastGenerated } = state.execution;
+  const { snapshotSuite, acceptanceScope, suiteChangedFiles, acceptance, integrityCounters, runDeadlinePort, snapshotPort } = services;
   const liveExecutionOpts = liveExecutionOptions(ctx);
-  deps.observer?.onStep("retry", "fix-loop engaged after a failing execute()");
   const fixLoopExecution: FixLoopExecutionPort = {
     /*
      * Filtered retry scopes to failing spec files. Per-attempt namespace
@@ -83,16 +83,6 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
       return { verdict: r.verdict, cases: r.cases };
     },
   };
-  /* Pre-exec corrections, and the files they were attributed to, still feed later FixLoop regens until the first of them consumes them. */
-  /* mutation-scope:begin pending-contradictions */
-  let pendingSelectorContradictions: string[] = state.generation.groundingCorrections;
-  /* mutation-scope:end pending-contradictions */
-  let pendingAttributedSpecFiles: string[] = state.generation.groundingAttribution;
-  /*
-   * The specs of the latest lead generation: the FixLoop's next Lever-2 check reads their sources,
-   * by index, so the contradictions it finds were raised by these specs.
-   */
-  let latestSpecs: string[] = lastGenerated.specs;
   const fixLoopGeneration: FixLoopGenerationPort = {
     /* Forward FixLoopGenerateInput so a retry prompt sees what failed. */
     generate: async (fixLoopInput) => {
@@ -106,10 +96,10 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
        */
       /* mutation-scope:begin lever2-contradictions */
       const lever2Contradictions = fixLoopInput.selectorContradictions ?? [];
-      const mergedSelectorContradictions = [...pendingSelectorContradictions, ...lever2Contradictions];
+      const mergedSelectorContradictions = [...pending.selectorContradictions, ...lever2Contradictions];
       /* The pre-exec ones come with the files they were attributed to when found; Lever-2's are attributed now, to the specs the check says raised them. */
       const attributedSpecFiles = [
-        ...new Set([...pendingAttributedSpecFiles, ...attributeContradictions(lever2Contradictions, fixLoopInput.selectorContradictionOrigins, latestSpecs)]),
+        ...new Set([...pending.attributedSpecFiles, ...attributeContradictions(lever2Contradictions, fixLoopInput.selectorContradictionOrigins, pending.latestSpecs)]),
       /* mutation-scope:end lever2-contradictions */
       ];
       /* mutation-scope:begin regenerate-round */
@@ -126,11 +116,11 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
       /* mutation-scope:begin confinement-and-clear-corrections */
       await services.confinement.enforce();
       /* Pre-exec corrections are one-shot — clear after the first FixLoop regen. */
-      pendingSelectorContradictions = [];
+      pending.selectorContradictions = [];
       /* mutation-scope:end confinement-and-clear-corrections */
-      pendingAttributedSpecFiles = [];
+      pending.attributedSpecFiles = [];
       /* The next Lever-2 check reads this generation's sources: its contradictions will be raised by these specs. */
-      latestSpecs = r.specs;
+      pending.latestSpecs = r.specs;
       /* Forward just-generated specSources so the next Lever-2 check is not empty. */
       return {
         specs: r.specs,
@@ -208,12 +198,40 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
       await snapshotPort.restore(workspace.specDir, snapshot, created);
     },
   };
-  const fixLoop = new FixLoop({
+  return new FixLoop({
     execution: fixLoopExecution,
     generation: fixLoopGeneration,
     selectorCheck: fixLoopSelectorCheck,
     acceptance: fixLoopAcceptance,
   });
+}
+
+/* The step a stage of the loop is. */
+const STAGE_STEP = {
+  triage: "fix-triage",
+  adjudicate: "fix-adjudicate",
+  regenerate: "fix-regenerate",
+  accept: "fix-accept",
+  reexecute: "fix-reexecute",
+} as const satisfies Record<FixLoopStep, StepId>;
+
+/* Where the run goes after a stage: the step of the next stage, or the settle step once the loop stopped. */
+function routeTo(session: FixLoopSession, state: Readonly<RunState>): StepOutcome<RunState> {
+  const stage = session.loop.stage;
+  return goto(stage === "done" ? "settle-fix-loop" : STAGE_STEP[stage], {
+    fixLoop: { ...state.fixLoop, session },
+    loops: { ...state.loops, fixLoop: session.loop.retry },
+  });
+}
+
+/* FixLoop only when the initial verdict is "fail". Context mode's synthetic pass never enters. */
+export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
+  const { deps, input, cfg, workspace, trail } = ctx;
+  const { closedLoop } = trail;
+  const { generating } = state.classification;
+  const { lastGenerated, run: initialRun } = state.execution;
+  const { acceptance, runDeadlinePort, proofLedger } = ctx.services;
+  deps.observer?.onStep("retry", "fix-loop engaged after a failing execute()");
   /*
    * coverageLikelyMeasured omits the cross-repo conjunct on purpose: a false
    * positive only disables filtered-retry (widens the safety net). Threading true
@@ -241,7 +259,7 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
   const fixLoopSpecRoot: SpecRoot = { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir };
   const failingBefore = initialRun.cases.filter((c) => c.status === "fail").length;
   const specShaBefore = specSetDigest(fixLoopSpecRoot, initialRun.cases.map((c) => c.file).filter((f): f is string => !!f));
-  const fixLoopResult = await fixLoop.run({
+  const loopInput: FixLoopInput = {
     initialRun: { verdict: initialRun.verdict, cases: initialRun.cases },
     isCode: cfg.isCode,
     generating,
@@ -249,8 +267,8 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
     objectiveSource,
     maxRetries: cfg.maxRetries,
     ...(fixLoopRetired ? { regenerate: false } : {}),
-    cycleBudget,
-    wallClockBudget,
+    cycleBudget: ctx.cycleBudget,
+    wallClockBudget: ctx.wallClockBudget,
     devHealthy: async () => (await checkDevHealth(ctx)).healthy,
     namespace: input.runId,
     coverageWillMeasure,
@@ -276,7 +294,47 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
           },
         }
       : {}),
-  });
+  };
+  /* Pre-exec corrections, and the files they were attributed to, still feed later FixLoop regens until the first of them consumes them. */
+  /* mutation-scope:begin pending-contradictions */
+  const pending: FixLoopSession["pending"] = {
+    selectorContradictions: state.generation.groundingCorrections,
+    attributedSpecFiles: state.generation.groundingAttribution,
+    /* The specs of the latest lead generation: the next Lever-2 check reads their sources, by index, so the contradictions it finds were raised by these specs. */
+    latestSpecs: lastGenerated.specs,
+  };
+  /* mutation-scope:end pending-contradictions */
+  const loop = fixLoopFor(state, ctx, pending).begin(loopInput);
+  const session: FixLoopSession = { loop, pending, failingBefore, specShaBefore };
+  return routeTo(session, state);
+}
+
+function stageStep(): (state: Readonly<RunState>, ctx: WorkspaceRunContext) => Result {
+  return async (state, ctx) => {
+    const session = state.fixLoop.session;
+    if (!session) throw new Error("a fix-loop stage ran without a fix-loop session");
+    await fixLoopFor(state, ctx, session.pending).step(session.loop);
+    return routeTo(session, state);
+  };
+}
+
+export const fixTriage = stageStep();
+export const fixAdjudicate = stageStep();
+export const fixRegenerate = stageStep();
+export const fixAccept = stageStep();
+export const fixReexecute = stageStep();
+
+/* The fix loop has stopped: the best round's bytes go back, and the run takes what the loop came to. */
+export async function settleFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
+  const { deps, workspace, trail } = ctx;
+  const { run: initialRun } = state.execution;
+  const session = state.fixLoop.session;
+  if (!session) throw new Error("the fix loop was settled without a fix-loop session");
+  const loop = fixLoopFor(state, ctx, session.pending);
+  await loop.settle(session.loop);
+  const fixLoopResult = loop.result(session.loop);
+  const { failingBefore, specShaBefore } = session;
+  const fixLoopSpecRoot: SpecRoot = { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir };
   const run = { verdict: fixLoopResult.run.verdict, cases: fixLoopResult.run.cases, logs: initialRun.logs };
   /* The fix_loop phase span carries what the loop came to, so a false positive (a failed run the loop changed nothing in) is queryable. */
   const failingAfter = run.cases.filter((c) => c.status === "fail").length;
@@ -314,6 +372,7 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
       /* Accumulate onto the shared retries; a reassignment would drop static-fix rounds. */
       execution: { ...state.execution, run, retries: state.execution.retries + fixLoopResult.retries },
       fixLoop: {
+        session: undefined,
         coverageNamespace: fixLoopResult.coverageNamespace,
         /* Undefined when the loop never reached adjudicate() — never fabricated. */
         lastAdjudicatorVerdict: fixLoopResult.lastAdjudicatorVerdict,
