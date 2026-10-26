@@ -47,7 +47,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
     catalogGateInWindow: true, catalogGateAdvisory: true, catalogGateFailClosed: true,
     structuralSignalBytes: true, serviceLinksCount: true, contractDriftCount: true,
     crossRepoImpactedCount: true, sandbox: true, reviewerIndependence: true, closedLoop: true, agentBrowser: true, coordination: true,
-    coverage: true, integrity: true, intent: true, value: true, noop: true, causal: true, coverageByCandidate: true, valueByCandidate: true,
+    coverage: true, integrity: true, intent: true, value: true, noop: true, causal: true, coverageByCandidate: true, valueByCandidate: true, valueStats: true,
   } satisfies Record<keyof KernelRunOutcome["gateSignals"], true>;
 
   const ALLOWLIST: Record<string, string> = {
@@ -78,7 +78,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
       "preExecAmbiguityCatches", "deterministicSelectorBlocks", "catalogGateInWindow",
       "catalogGateAdvisory", "catalogGateFailClosed",
       "structuralSignalBytes", "serviceLinksCount", "contractDriftCount", "crossRepoImpactedCount", "sandbox", "reviewerIndependence", "closedLoop", "agentBrowser", "coordination",
-      "coverage", "integrity", "intent", "value", "noop", "causal", "coverageByCandidate", "valueByCandidate",
+      "coverage", "integrity", "intent", "value", "noop", "causal", "coverageByCandidate", "valueByCandidate", "valueStats",
     ];
     assert.deepEqual(mapped.sort(), Object.keys(ALL_GATE_SIGNAL_FIELDS).sort(), "every gateSignals field must be mapped — toStoredRunOutcome's own header claims 100% pass-through for this nested object");
   });
@@ -125,6 +125,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
         intent: { mode: "enforce", violations: 2, wouldReject: 0, clauses: 9, opaque: 1, opacityHigh: false },
         noop: { kind: "unobservable" },
         coverageByCandidate: [{ candidateId: "uc-0000aaaa", changedLines: 4, coveredChanged: 3, ratio: 0.75 }],
+        valueStats: { baseline: 5, exposed: 2, killed: 1, failed: 1, flowBreaks: 0 },
         valueByCandidate: [{ candidateId: "uc-0000aaaa", exposed: 2, killed: 1, ratio: 0.5 }],
         causal: { reach: "in-reach", basis: "request", via: ["GET /orders"], reason: "r", cases: [{ name: "c", reach: "in-reach", basis: "request" }] },
       },
@@ -164,6 +165,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
     assert.equal(gs.furthestPhase, "execute", `gateSignals.furthestPhase dropped at ${dyingLayer}`);
     assert.deepEqual(gs.noop, { kind: "unobservable" }, `gateSignals.noop dropped at ${dyingLayer}`);
     assert.equal(gs.causal?.reach, "in-reach", `gateSignals.causal dropped at ${dyingLayer}`);
+    assert.equal(gs.valueStats?.exposed, 2, `gateSignals.valueStats dropped at ${dyingLayer}`);
     assert.equal(gs.valueByCandidate?.[0]?.ratio, 0.5, `gateSignals.valueByCandidate dropped at ${dyingLayer}`);
     assert.equal(gs.coverageByCandidate?.[0]?.ratio, 0.75, `gateSignals.coverageByCandidate dropped at ${dyingLayer}`);
     assert.equal(gs.preExecAmbiguityCatches, 2, `gateSignals.preExecAmbiguityCatches dropped at ${dyingLayer}`);

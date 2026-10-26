@@ -73,6 +73,8 @@ export interface OutcomeExtras {
   coverageByCandidate?: RunOutcome["gateSignals"]["coverageByCandidate"];
   /* Per use case fault-injection score; absent when the oracle was not aimed at any. */
   valueByCandidate?: RunOutcome["gateSignals"]["valueByCandidate"];
+  /* What the corrupted re-run counted; absent when it measured nothing. */
+  valueStats?: RunOutcome["gateSignals"]["valueStats"];
   /* Whether the failure is in the change's reach; absent when no case failed. */
   causal?: RunOutcome["gateSignals"]["causal"];
 }
@@ -208,6 +210,7 @@ export function toRunOutcome(
       ...(extra?.causal !== undefined ? { causal: extra.causal } : {}),
       ...(extra?.coverageByCandidate !== undefined ? { coverageByCandidate: extra.coverageByCandidate } : {}),
       ...(extra?.valueByCandidate !== undefined ? { valueByCandidate: extra.valueByCandidate } : {}),
+      ...(extra?.valueStats !== undefined ? { valueStats: extra.valueStats } : {}),
       ...(coordination ? { coordination } : {}),
     },
     rulesRetrieved: extra?.rulesRetrieved ?? [],

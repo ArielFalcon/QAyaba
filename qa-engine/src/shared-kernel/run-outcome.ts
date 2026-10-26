@@ -106,6 +106,8 @@ export interface RunOutcome {
     coverageByCandidate?: Array<{ candidateId: string; changedLines: number; coveredChanged: number; ratio: number | null; unmeasured?: string }>;
     /* The fault-injection score per use case the change makes testable: the specs exposed to a corrupted response of its operations and how many noticed, or why it has no ratio (`unscored`). Absent when the oracle was not aimed at any. Persist-only, never a gate. */
     valueByCandidate?: Array<{ candidateId: string; exposed: number; killed: number; ratio: number | null; unscored?: string }>;
+    /* What the corrupted re-run counted: the baseline-passing specs it executed, those exposed to a corrupted response of an operation in reach, those that failed under it and the failures that were the flow breaking. Absent when it measured nothing. Persist-only: the input of the score's calibration. */
+    valueStats?: { baseline: number; exposed: number; killed: number; failed: number; flowBreaks: number };
     /* How the run's regeneration acceptance spent its proof ledger: how many regenerations were accepted (and how many of those reused a closed-loop proof instead of executing), how many were rejected, and whether the per-run execution cap was hit. Persist-only; never read by decide/verdict/gate/publish. */
     integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
   };

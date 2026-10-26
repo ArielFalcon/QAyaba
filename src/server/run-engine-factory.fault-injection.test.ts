@@ -10,7 +10,7 @@ import type { AppConfig } from "../orchestrator/config-loader";
 import type { AgentDeps } from "../integrations/opencode-client";
 import { Sha } from "@kernel/sha";
 import { BlastRadius } from "@kernel/blast-radius";
-import { operationKey, type FaultAim } from "@contexts/objective-signal/domain/fault-injection-score";
+import { operationKey, type FaultAim } from "@contexts/objective-signal/application/index";
 import { withoutWaitingOnNamedPipe } from "../../qa-engine/test/support/named-pipe-watch";
 
 const NAMESPACE = "qa-bot-abc1234-run1";

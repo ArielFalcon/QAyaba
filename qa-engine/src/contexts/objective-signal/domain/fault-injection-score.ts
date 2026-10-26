@@ -37,10 +37,20 @@ export interface CandidateValue {
   unscored?: CandidateValueUnscored;
 }
 
+/* What a corrupted re-run counted, for judging whether its score can be trusted: the baseline-passing specs it executed, those exposed to a corrupted response of an operation in reach, those that then failed (or went flaky) and, of those, the failures that were the flow breaking. */
+export interface ValueStats {
+  baseline: number;
+  exposed: number;
+  killed: number;
+  failed: number;
+  flowBreaks: number;
+}
+
 export interface FaultInjectionScore {
   valueScore: number | null;
   exposed: number;
   killed: number;
+  stats: ValueStats;
   perCandidate: CandidateValue[];
 }
 
@@ -67,8 +77,9 @@ export function scoreFaultInjection(input: { baselinePass: readonly string[]; co
       const records = input.counters.filter((r) => r.test !== undefined && sameTest(c, r.test));
       const operations = new Set(records.flatMap((r) => Object.entries(r.byOperation ?? {}).filter(([, n]) => n > 0).map(([key]) => key)));
       const exposed = records.some((r) => r.corrupted > 0);
-      const killed = exposed && (c.status === "fail" || c.status === "flaky") && !isFlowBreak(c);
-      return { c, operations, exposed, killed };
+      const failed = exposed && (c.status === "fail" || c.status === "flaky");
+      const flowBreak = failed && isFlowBreak(c);
+      return { c, operations, exposed, failed, flowBreak, killed: failed && !flowBreak };
     });
   const exposedRun = specs.filter((s) => s.exposed);
   const killedRun = exposedRun.filter((s) => s.killed).length;
@@ -84,5 +95,6 @@ export function scoreFaultInjection(input: { baselinePass: readonly string[]; co
     const killed = exposed.filter((s) => s.killed).length;
     return { candidateId: candidate.candidateId, exposed: exposed.length, killed, ratio: killed / exposed.length };
   });
-  return { valueScore: exposedRun.length > 0 ? killedRun / exposedRun.length : null, exposed: exposedRun.length, killed: killedRun, perCandidate };
+  const stats: ValueStats = { baseline: specs.length, exposed: exposedRun.length, killed: killedRun, failed: exposedRun.filter((s) => s.failed).length, flowBreaks: exposedRun.filter((s) => s.flowBreak).length };
+  return { valueScore: exposedRun.length > 0 ? killedRun / exposedRun.length : null, exposed: exposedRun.length, killed: killedRun, stats, perCandidate };
 }

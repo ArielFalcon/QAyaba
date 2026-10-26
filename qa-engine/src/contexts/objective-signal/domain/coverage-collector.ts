@@ -1,4 +1,4 @@
-import type { CandidateValue } from "./fault-injection-score.ts";
+import type { CandidateValue, ValueStats } from "./fault-injection-score.ts";
 
 export interface CoveredLines { file: string; lines: number[]; }
 
@@ -16,4 +16,6 @@ export interface ValueOracleResult {
   details: string;
   /** The score per use case the change makes testable, when the oracle was aimed at some; absent otherwise. */
   perCandidate?: CandidateValue[];
+  /** What the re-run counted, for the calibration of the score; absent when it measured nothing. */
+  stats?: ValueStats;
 }

@@ -21,4 +21,6 @@ export type { CausalLabel, CausalMatchers, CausalScope, CausalFlow } from "../do
 export { perCandidateCoverage } from "../domain/per-candidate-coverage.ts";
 export type { CandidateCoverage, CandidateUnmeasured } from "../domain/per-candidate-coverage.ts";
 export { operationKey } from "../domain/fault-injection-score.ts";
-export type { CandidateValue, FaultAim, FaultAimCandidate } from "../domain/fault-injection-score.ts";
+export type { CandidateValue, FaultAim, FaultAimCandidate, ValueStats } from "../domain/fault-injection-score.ts";
+export { calibrate, MAX_FLOW_BREAK_SHARE, MAX_REPLICATE_SPREAD, MIN_APPLICABLE_SHARE, MIN_REPLICATES } from "../domain/fault-calibration.ts";
+export type { Calibration, CalibrationReplicate, CalibrationVerdict, CandidateCalibration } from "../domain/fault-calibration.ts";

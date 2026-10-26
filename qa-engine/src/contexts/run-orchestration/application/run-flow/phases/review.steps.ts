@@ -569,6 +569,7 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
           /* The oracle measured again on the delivered bytes: its score describes what is on disk now. */
           valueScore: finalSignal.valueScore ?? valueScore,
           valueByCandidate: finalSignal.valueByCandidate ?? state.coverage.valueByCandidate,
+          valueStats: finalSignal.valueStats ?? state.coverage.valueStats,
           mutantCount: finalSignal.mutantCount ?? mutantCount,
           killedCount: finalSignal.killedCount ?? killedCount,
           valueStale: false,

@@ -66,6 +66,7 @@ export class FaultInjectionOracleAdapter implements ValueOraclePort {
         ? "no baseline-passing spec was exposed to a corrupted response of an operation in reach (no score)"
         : `${score.killed}/${score.exposed} baseline-passing specs exposed to a corrupted response of an operation in reach noticed it (response-oracle catch-rate)`,
       perCandidate: score.perCandidate,
+      stats: score.stats,
     };
   }
 }

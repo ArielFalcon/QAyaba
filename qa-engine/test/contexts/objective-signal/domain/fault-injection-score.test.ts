@@ -46,6 +46,20 @@ describe("scoreFaultInjection", () => {
     assert.equal(r.valueScore, 0);
   });
 
+  it("counts what the re-run did: the specs it executed, those exposed, those that failed and the failures that were the flow breaking", () => {
+    const r = scoreFaultInjection({
+      baselinePass: ["orders", "items", "about"],
+      corrupted: [
+        spec("orders", "flows/orders.spec.ts", "fail", { detail: "expected 3 received -3" }),
+        spec("items", "flows/items.spec.ts", "fail", { detail: "page.goto: net::ERR_CONNECTION_REFUSED" }),
+        spec("about", "flows/about.spec.ts", "pass"),
+      ],
+      counters: [counter("flows/orders.spec.ts::orders", { [ORDERS]: 1 }), counter("flows/items.spec.ts::items", { [ITEMS]: 1 })],
+      aim: AIM,
+    });
+    assert.deepEqual(r.stats, { baseline: 3, exposed: 2, killed: 1, failed: 2, flowBreaks: 1 });
+  });
+
   it("treats a spec that went flaky under corruption as having noticed it", () => {
     const r = scoreFaultInjection({ baselinePass: ["orders"], corrupted: [spec("orders", "flows/orders.spec.ts", "flaky")], counters: [counter("flows/orders.spec.ts::orders", { [ORDERS]: 1 })], aim: AIM });
     assert.equal(r.valueScore, 1);

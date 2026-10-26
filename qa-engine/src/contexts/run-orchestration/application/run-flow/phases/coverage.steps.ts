@@ -70,6 +70,7 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
         coverageMeasured: measuresPerCommit(ctx),
         valueScore: signal.valueScore ?? null,
         valueByCandidate: signal.valueByCandidate,
+        valueStats: signal.valueStats,
         mutantCount: signal.mutantCount ?? undefined,
         killedCount: signal.killedCount ?? undefined,
         uncovered: signal.uncovered ?? [],

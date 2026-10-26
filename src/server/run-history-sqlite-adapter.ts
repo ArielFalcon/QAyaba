@@ -70,6 +70,7 @@ export function toStoredRunOutcome(outcome: KernelRunOutcome): StoredRunOutcome 
       ...(outcome.gateSignals.causal !== undefined ? { causal: outcome.gateSignals.causal } : {}),
       ...(outcome.gateSignals.coverageByCandidate !== undefined ? { coverageByCandidate: outcome.gateSignals.coverageByCandidate } : {}),
       ...(outcome.gateSignals.valueByCandidate !== undefined ? { valueByCandidate: outcome.gateSignals.valueByCandidate } : {}),
+      ...(outcome.gateSignals.valueStats !== undefined ? { valueStats: outcome.gateSignals.valueStats } : {}),
     },
     rulesRetrieved: outcome.rulesRetrieved,
     ...(outcome.reflection !== undefined ? { reflection: outcome.reflection as StoredRunOutcome["reflection"] } : {}),
