@@ -357,7 +357,7 @@ test("e2e.specCredentials accepts none and account, and nothing else", () => {
   assert.equal(AppConfigSchema.parse(base).e2e?.specCredentials, undefined, "default: the specs never see the account");
 });
 
-test("qa.closedLoop is off unless an app turns it on, and every limit is bounded", () => {
+test("qa.closedLoop is absent unless an app sets it, and every limit is bounded", () => {
   const off = AppConfigSchema.parse(base);
   assert.equal(off.qa.closedLoop, undefined);
 
@@ -390,7 +390,7 @@ test("qa.coordination is absent unless an app sets it, accepts only the lead-sid
   }
 });
 
-test("qa.agentBrowser is off unless an app turns it on, and its lists hold only well-formed paths", () => {
+test("qa.agentBrowser is absent unless an app sets it, and its lists hold only well-formed paths", () => {
   const off = AppConfigSchema.parse(base);
   assert.equal(off.qa.agentBrowser, undefined);
 

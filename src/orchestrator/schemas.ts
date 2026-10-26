@@ -288,7 +288,7 @@ export const AppConfigSchema = z
       /*
        * The run_spec closed loop: lets the generator execute a spec it wrote against DEV while it is still authoring, within
        * these caps (calls per run, the longest one call, mutating requests to DEV per run), so that it delivers specs it has
-       * seen pass. Off unless `enabled` is true; an absent limit takes the default (8 calls, 120s, 20 writes). Needs the OpenCode
+       * seen pass. On unless `enabled` is false; an absent limit takes the default (8 calls, 120s, 20 writes). Needs the OpenCode
        * runtime and an app whose login the saved session covers; a run can be forced on or off for an A/B.
        */
       closedLoop: z
@@ -301,7 +301,7 @@ export const AppConfigSchema = z
         .optional(),
       /*
        * The authenticated agent browser: lets the authoring agents (qa-author) read DEV through the session the run
-       * signed in with, by tools the orchestrator serves (the session never leaves it). Off unless `enabled` is true. Needs the
+       * signed in with, by tools the orchestrator serves (the session never leaves it). On unless `enabled` is false. Needs the
        * OpenCode runtime and a login the saved session covers; a run can be forced on or off for an A/B. It never writes to DEV:
        * `denyRoutes` are paths (`*` within a segment, `**` across) it never reaches, and `allowMutating` (`[POST ]/path`) names the
        * only requests that write which it lets through (a search that is a POST, a GraphQL endpoint).

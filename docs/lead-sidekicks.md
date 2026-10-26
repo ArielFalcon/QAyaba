@@ -21,7 +21,7 @@ qa:
       opencode: 480000
 ```
 
-A run with a login needs `qa.closedLoop` and/or `qa.agentBrowser` enabled for its sidekicks to author against the
+A run with a login needs `qa.closedLoop` and/or `qa.agentBrowser` (both on unless an app turns them off) for its sidekicks to author against the
 signed-in app (see below); without either, no sidekick can author and the run ends `E-NO-AUTHOR` (`no-author-grant`).
 
 ## What a run does

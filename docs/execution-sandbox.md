@@ -187,7 +187,7 @@ network and the run records `gateSignals.sandbox.egress = "unenforced"`.
 
 ## The `run_spec` tool
 
-With `qa.closedLoop.enabled` (or a run's own choice) the OpenCode generator may execute a spec it wrote while it authors. The agent never runs code: the tool
+Unless `qa.closedLoop.enabled` is `false` (or a run chooses otherwise) the OpenCode generator may execute a spec it wrote while it authors. The agent never runs code: the tool
 (`agents/tool/run_spec.ts`) sends the session id and agent name the runtime reports, the spec's path and a title fragment to the orchestrator, which decides, runs and answers.
 
 | Boundary | How |
@@ -210,7 +210,7 @@ leave DEV data the fixtures' `cleanup()` should have undone is covered by the na
 
 ## The authenticated agent browser
 
-With `qa.agentBrowser.enabled` (or a run's own choice) the authoring roles (`qa-author`) and the exploring role (`qa-explore`) may read DEV signed in as the test account, without ever holding
+Unless `qa.agentBrowser.enabled` is `false` (or a run chooses otherwise), and when the run has a saved session, the authoring roles (`qa-author`) and the exploring role (`qa-explore`) may read DEV signed in as the test account, without ever holding
 the session. An exploring session is read-only whatever the app declares: the route guard ignores the app's `allowMutating` entries for the requests of its page, and a request no page can be named for gets the same narrower right while an exploring session holds a page. The agent never runs a browser: four tools (`agents/tool/authbrowser.ts`: `authbrowser_navigate`, `_snapshot`, `_click`, `_type`) send the action to the
 orchestrator, which owns the browser, decides and answers. It reuses the `run_spec` mechanism (endpoint, token, session binding, account lease); it is not an MCP server, because the
 Playwright MCP's own build tracks a different Playwright than the image's browsers and a general MCP would have to be pruned instead of being small by construction.

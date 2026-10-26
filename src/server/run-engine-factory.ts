@@ -164,7 +164,7 @@ import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastru
 import type { LearningStorePort } from "@contexts/cross-run-learning/application/index";
 import { recordIncident } from "./maintainer";
 import { resolveCampaignFreeze } from "./campaign-freeze";
-import { serviceTopologyWired, toolsApply } from "./run-config-gates";
+import { agentBrowserEnabled, closedLoopEnabled, serviceTopologyWired, toolsApply } from "./run-config-gates";
 import { resolveReflectorEnabled } from "./reflector-switch";
 import { ReflectorPortAdapter, REFLECT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter";
 import { ProcessAuditPortAdapter } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter";
@@ -1223,7 +1223,7 @@ export function buildEngineRootDeps(
           closedLoop: {
             registry: deps.closedLoopRegistry,
             setting: {
-              enabled: app.qa.closedLoop?.enabled === true,
+              enabled: closedLoopEnabled(app),
               limits: {
                 maxCalls: app.qa.closedLoop?.maxCalls ?? DEFAULT_CLOSED_LOOP_LIMITS.maxCalls,
                 perCallMs: app.qa.closedLoop?.perCallMs ?? DEFAULT_CLOSED_LOOP_LIMITS.perCallMs,
@@ -1264,7 +1264,7 @@ export function buildEngineRootDeps(
           agentBrowser: {
             registry: deps.agentBrowserRegistry,
             setting: {
-              enabled: app.qa.agentBrowser?.enabled === true,
+              enabled: agentBrowserEnabled(app),
               denyRoutes: app.qa.agentBrowser?.denyRoutes ?? [],
               allowMutating: app.qa.agentBrowser?.allowMutating ?? [],
             },

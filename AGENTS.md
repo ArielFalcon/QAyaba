@@ -202,7 +202,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   are counted (`preExecAmbiguityCatches`) and logged as a warning, never fold the verdict, request a
   regeneration or feed the FixLoop; execution decides. Only the catalog gate's fabricated test-ids
   (a captured, settled route) feed the one-shot corrective regeneration.
-- **Closed loop (`run_spec`)** — off unless `qa.closedLoop.enabled` (or a run asks: `--closed-loop on|off`, `closedLoop` on
+- **Closed loop (`run_spec`)** — on unless `qa.closedLoop.enabled: false` (or a run asks: `--closed-loop on|off`, `closedLoop` on
   `POST /api/v1/runs`). The author of each flow of a plan gets one custom tool, `agents/tool/run_spec.ts`, that POSTs its session id and
   agent name to the orchestrator's internal listener (`src/server/tools-endpoint.ts`, `QA_TOOLS_PORT`, not published, behind
   `QA_TOOLS_TOKEN`); the orchestrator runs the spec once (sandbox profile `suite`, retries 0, a fresh session copy, namespace
@@ -215,7 +215,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   whose last call passed) the regenerations that only repeat that work are skipped; the declared no-op, `E-NO-DECISION` /
   `E-STEP-BUDGET` / `E-TIME-BUDGET` and the single coverage or branch-case regeneration are unchanged. The `Run spec budget` prompt
   section (facts only) exists only when granted. `gateSignals.closedLoop { calls, devWrites, closed }`.
-- **Authenticated browser (`authbrowser_*`)** — off unless `qa.agentBrowser.enabled` (or a run asks: `--agent-browser on|off`,
+- **Authenticated browser (`authbrowser_*`)** — on unless `qa.agentBrowser.enabled: false`, and skipped for a run with no saved session (or a run asks: `--agent-browser on|off`,
   `agentBrowser` on `POST /api/v1/runs`). The author (`qa-author`) and the explorer (`qa-explore`, read-only) get four custom tools
   (`agents/tool/authbrowser.ts`: navigate, snapshot, click, type) that POST to the same internal listener as `run_spec`
   (`/internal/authbrowser`, `QA_TOOLS_TOKEN`). The orchestrator owns the browser: Chromium started through the execution launcher

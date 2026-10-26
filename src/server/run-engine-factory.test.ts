@@ -3699,10 +3699,13 @@ test("an e2e app composes the run_spec loop only when the host has a registry, d
   assert.equal(withLoop.closedLoop?.generatorRuntimeCanCall(), true);
 });
 
-test("the loop is off for an app that does not turn it on, and never composed for a code app", async () => {
+test("the loop is on for an app that says nothing, off for one that turns it off, and never composed for a code app", async () => {
   const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry");
   const registry = new ClosedLoopRegistry();
-  const off = buildEngineRootDeps(cfg("loop-off"), { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff" });
+  const silent = buildEngineRootDeps(cfg("loop-default"), { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff" });
+  assert.equal(silent.closedLoop?.setting.enabled, true);
+  const optedOut = { ...cfg("loop-off"), qa: { ...cfg("loop-off").qa, closedLoop: { enabled: false } } };
+  const off = buildEngineRootDeps(optedOut, { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff" });
   assert.equal(off.closedLoop?.setting.enabled, false);
 
   const code: AppConfig = { name: "loop-code", repo: "org/demo", code: true, qa: { needsReview: true, testDataPrefix: "qa-bot", closedLoop: { enabled: true } }, report: { onFailure: "github-issue" } };
@@ -3758,13 +3761,16 @@ test("an e2e app composes the agent browser only when the host has a registry, w
   assert.equal(typeof wired.agentBrowser?.launcher.launch, "function");
 });
 
-test("the agent browser is off for an app that does not turn it on, and never composed for a code app", async () => {
+test("the agent browser is on for an app that says nothing, off for one that turns it off, and never composed for a code app", async () => {
   const { AgentBrowserRegistry } = await import("@contexts/agent-tools/infrastructure/agent-browser-registry");
   const registry = new AgentBrowserRegistry();
   const host = { getAgentDeps: stubAgentDeps, agentBrowserRegistry: registry, getAgentFacade: agentFacadeFor("opencode") };
-  const off = buildEngineRootDeps({ ...cfg("browser-off"), dev: { baseUrl: "https://dev.example.com" } }, host, "ns", { mode: "diff" });
+  const silent = buildEngineRootDeps({ ...cfg("browser-default"), dev: { baseUrl: "https://dev.example.com" } }, host, "ns", { mode: "diff" });
+  assert.equal(silent.agentBrowser?.setting.enabled, true);
+  assert.deepEqual([silent.agentBrowser?.setting.denyRoutes, silent.agentBrowser?.setting.allowMutating], [[], []]);
+  const base = cfg("browser-off");
+  const off = buildEngineRootDeps({ ...base, dev: { baseUrl: "https://dev.example.com" }, qa: { ...base.qa, agentBrowser: { enabled: false } } }, host, "ns", { mode: "diff" });
   assert.equal(off.agentBrowser?.setting.enabled, false);
-  assert.deepEqual([off.agentBrowser?.setting.denyRoutes, off.agentBrowser?.setting.allowMutating], [[], []]);
 
   const code: AppConfig = { name: "browser-code", repo: "org/demo", code: true, qa: { needsReview: true, testDataPrefix: "qa-bot", agentBrowser: { enabled: true } }, report: { onFailure: "github-issue" } };
   assert.equal(buildEngineRootDeps(code, host, "ns", { mode: "diff", target: "code" }).agentBrowser, undefined);

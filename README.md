@@ -353,12 +353,11 @@ report:
   onFailure: "github-issue"
 ```
 
-**Optional: let the flow authors run their specs while they write them** (`run_spec`, OpenCode only; off by default):
+**The flow authors run their specs while they write them** (`run_spec`, OpenCode only; on by default, `enabled: false` turns it off; these are the limits):
 
 ```yaml
 qa:
   closedLoop:
-    enabled: true
     maxCalls: 8            # run_spec calls per run
     perCallMs: 120000      # the longest one call may run
     maxDevWrites: 20       # POST/PUT/PATCH/DELETE requests the executed specs may send to DEV in all
@@ -366,12 +365,11 @@ qa:
 
 The agents and orchestrator services need the same `QA_TOOLS_TOKEN` (and `QA_TOOLS_PORT`, default 459, which compose does not publish). A run can choose for itself with `npm run qa -- ... --closed-loop on|off`. How it works and what bounds it: [docs/execution-sandbox.md](docs/execution-sandbox.md#the-run_spec-tool).
 
-**Optional: let the authoring agents look at the signed-in app while they write** (the authenticated browser, OpenCode only; off by default):
+**The authoring agents look at the signed-in app while they write** (the authenticated browser, OpenCode only; on by default for an app with a login, `enabled: false` turns it off):
 
 ```yaml
 qa:
   agentBrowser:
-    enabled: true
     denyRoutes: ["/admin/**", "/settings/billing"]   # paths the browser never reaches
     allowMutating: ["POST /api/search"]              # the only requests that write which it lets through
 ```
