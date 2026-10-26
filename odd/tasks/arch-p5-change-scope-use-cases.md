@@ -248,7 +248,7 @@ Branch: `fix/failure-observation-conflict` (owner rule: one branch, no PR split)
 - [x] T3 — S2 — inline — Edge confidence, seed ranges and basis in the graph port — commit: b030577e (governance commit: engine-edge reader, ships alone; independent verifier passed, no blockers; advisories fixed in 3f8b5d29)
 - [x] T4 — S3a — inline — `ChangeScope`, reach proofs as strategies, `computeChangeScope` step — commit: 71ad9b9f (domain + three strategies), c6a358ef (step, port, adapter, wiring, span); the `openapi-operation-diff` strategy is S3b (T5)
 - [x] T5 — S3b — inline — Per-operation OpenAPI diff and call-site reach — commit: f8d5a684 (governance paths: git reader `fileAt`, cross-repo impact use case; ships alone), b76c69d1 (reach strategy and per-entry range start)
-- [~] T6 — S3c — inline — The lead's graph tool over every repo (governance commit; AGENTS.md text handed to the owner) — commit: pending hash; partial until the owner applies the AGENTS.md invariant text (see L16)
+- [~] T6 — S3c — inline — The lead's graph tool over every repo (governance commit; AGENTS.md text handed to the owner) — commit: f05771d5; partial until the owner applies the AGENTS.md invariant text (see L16)
 - [ ] T7 — S4 — inline — `UseCaseCandidate[]`, ranking and Context Pack migration, retire `joinChangePages` — commit: pending
 - [ ] T8 — S5 — inline — Plan admission on candidates — commit: pending
 - [ ] T9 — S6 — inline — Briefs, per-candidate results and graders — commit: pending
