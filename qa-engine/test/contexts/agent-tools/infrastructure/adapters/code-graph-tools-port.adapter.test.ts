@@ -28,7 +28,7 @@ function adapter(over: { answer?: Result<ExploreAnswer, CodeGraphUnavailable>; c
   const port = new CodeGraphToolsPortAdapter({
     registry,
     explore,
-    repoDir: "/mirrors/webapp",
+    repos: [{ repo: "org/webapp", repoDir: "/mirrors/webapp" }],
     generatorRuntimeCanCall: () => over.canCall ?? true,
     limits: { maxCalls: over.maxCalls ?? 40, maxFiles: over.maxFiles ?? 8, maxAnswerChars: over.maxAnswerChars ?? 12_000 },
     ...(over.redact ? { redact: over.redact } : {}),
@@ -211,7 +211,7 @@ test("an engine error or a throw is a failed call that leaves a log and the reas
       const port = new CodeGraphToolsPortAdapter({
         registry,
         explore: { explore: async () => (throwing ? Promise.reject(new Error("engine crashed")) : engine) } as CodeExplorePort,
-        repoDir: "/mirrors/webapp",
+        repos: [{ repo: "org/webapp", repoDir: "/mirrors/webapp" }],
         generatorRuntimeCanCall: () => true,
         trace: { telemetry, clock: { now: () => 1 } },
       });
@@ -266,4 +266,65 @@ test("an explore session with no share has no calls, and a role that is neither 
   assert.equal(wrong.ok === false && wrong.code, "wrong-agent");
   const swapped = await a.registry.find("lead")!.call({ sessionId: "lead", agent: "qa-explore", query: explore });
   assert.equal(swapped.ok === false && swapped.code, "wrong-agent", "an explore agent name on the lead's session (no delegation) is refused");
+});
+
+function multiRepo(answers: Record<string, Result<ExploreAnswer, CodeGraphUnavailable>>, limits: { maxFiles: number; maxAnswerChars: number } = { maxFiles: 8, maxAnswerChars: 12_000 }) {
+  const calls: Array<{ repoDir: string; terms: readonly string[]; maxFiles: number }> = [];
+  const registry = new CodeGraphToolRegistry();
+  const port = new CodeGraphToolsPortAdapter({
+    registry,
+    explore: { explore: async (repoDir, terms, maxFiles) => { calls.push({ repoDir, terms, maxFiles }); return answers[repoDir]!; } },
+    repos: [{ repo: "org/web", repoDir: "/m/web" }, { repo: "org/api", repoDir: "/m/api" }],
+    generatorRuntimeCanCall: () => true,
+    limits: { maxCalls: 40, ...limits },
+  });
+  return { port, registry, calls };
+}
+
+async function leadOf(m: ReturnType<typeof multiRepo>) {
+  const handle = (await m.port.open({ runId: "r1" }))!;
+  m.registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-lead" });
+  return { handle, live: m.registry.find("lead")! };
+}
+
+test("with several repos in the change one call asks each the same terms and labels its section by repo, within the shared budgets", async () => {
+  const m = multiRepo({ "/m/web": ok({ text: "**`web/a.ts`** — a\n```ts\nA\n```", indexedSha: "w1" }), "/m/api": ok({ text: "**`api/B.java`** — b\n```java\nB\n```", indexedSha: "a1" }) }, { maxFiles: 9, maxAnswerChars: 4_000 });
+  const { live, handle } = await leadOf(m);
+  const answer = await live.call(request());
+  assert.ok(answer.ok);
+  if (!answer.ok) return;
+  assert.deepEqual(m.calls, [{ repoDir: "/m/web", terms: ["formatMoney", "OrdersPage"], maxFiles: 4 }, { repoDir: "/m/api", terms: ["formatMoney", "OrdersPage"], maxFiles: 4 }]);
+  assert.match(answer.result, /^## Repository org\/web\n\*\*`web\/a\.ts`\*\*[\s\S]*\n\n## Repository org\/api\n\*\*`api\/B\.java`\*\*/);
+  assert.equal(answer.indexedSha, "w1");
+  assert.deepEqual(handle.signals(), { calls: 1, refused: 0, failed: 0 });
+});
+
+test("a repo whose index cannot answer is named as unavailable and the other still answers, with nothing of the engine's reason", async () => {
+  const original = console.error;
+  console.error = () => {};
+  try {
+    const m = multiRepo({ "/m/web": err({ reason: "secret path /data/x.db" }), "/m/api": ok({ text: "**`api/B.java`** — b\n```java\nB\n```", indexedSha: "a1" }) });
+    const { live, handle } = await leadOf(m);
+    const answer = await live.call(request());
+    assert.ok(answer.ok);
+    if (!answer.ok) return;
+    assert.match(answer.result, /## Repository org\/web\n\[unavailable: /);
+    assert.match(answer.result, /## Repository org\/api\n\*\*`api\/B\.java`\*\*/);
+    assert.ok(!answer.result.includes("/data/x.db"));
+    assert.equal(answer.indexedSha, "a1");
+    assert.equal(handle.signals().failed, 0);
+
+    const none = multiRepo({ "/m/web": err({ reason: "x" }), "/m/api": err({ reason: "y" }) });
+    const lead = await leadOf(none);
+    const failed = await lead.live.call(request());
+    assert.equal(failed.ok ? "" : failed.code, "failed");
+    assert.equal(lead.handle.signals().failed, 1);
+  } finally {
+    console.error = original;
+  }
+});
+
+test("a query carries nothing but its terms: a repo or path the lead names is dropped, an option-like term is refused", async () => {
+  assert.deepEqual(admitCodeGraphQuery({ action: "explore", terms: ["x"], repo: "org/other", path: "../other" }), { action: "explore", terms: ["x"] });
+  assert.equal(admitCodeGraphQuery({ action: "explore", terms: ["--repo"] }), undefined);
 });

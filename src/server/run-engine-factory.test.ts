@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appSuiteStoreDir, createRunEngineFactory, engineAgentDeps, buildEngineRootDeps, resolveCodeSandbox, publishWiring } from "./run-engine-factory";
 import { AppConfig } from "../orchestrator/config-loader";
+import { ChangeSet } from "@contexts/change-analysis/application/index";
 import { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry";
 import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
 import { JobQueue } from "./queue";
@@ -1120,6 +1121,20 @@ test("buildEngineRootDeps sets codeGraphRepoDir to the SERVICE mirror on a cross
   );
   assert.equal(config.codeGraphRepoDir, "/tmp/mirrors/org__orders-svc", "cross-repo indexing must pin the classify-source SERVICE mirror, never the primary suite dir");
   assert.equal(config.codeGraphPrimary?.repoDir, "/tmp/mirrors/org__demo", "the primary repo the frontend signals read is indexed too");
+});
+
+test("a run over several repos indexes each service at its head and lets the lead's code-graph tool answer over every repo of the change, in entry order", () => {
+  const app: AppConfig = { ...cfg("factory-codegraph-change"), services: [{ repo: "org/orders-svc" }] };
+  const changeSet = ChangeSet.of(app.name, [
+    { repo: "org/demo", role: "primary", headSha: Sha.of("f111111") },
+    { repo: "org/orders-svc", role: "service", headSha: Sha.of("b222222") },
+  ]);
+  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" }, "qa-bot-abc1234-run1", { mode: "diff", changeSet });
+  assert.deepEqual(config.codeGraphRepos, [{ repo: "org/demo", repoDir: "/tmp/mirrors/org__demo" }, { repo: "org/orders-svc", repoDir: "/tmp/mirrors/org__orders-svc" }]);
+  assert.deepEqual([...(config.codeGraphRepoDirs ?? [])], [["org/orders-svc", "/tmp/mirrors/org__orders-svc"]]);
+
+  const single = buildEngineRootDeps(cfg("factory-codegraph-single"), { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.equal(single.codeGraphRepos, undefined, "a single-repo run keeps the tool over the one index");
 });
 
 test("the lead's code-graph tool redacts real secrets and the run's own secret values, and leaves the source it shows as it is", () => {

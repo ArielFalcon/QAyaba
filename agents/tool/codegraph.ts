@@ -14,7 +14,8 @@ export const explore = tool({
     "Read the code that matters for a change in one call: name symbols, file paths or short code terms, and get the verbatim, line-numbered source of what matches, grouped by file, " +
     "with the calls among them and what depends on them (the blast radius of a changed symbol: its callers, the pages and stores that reach it). " +
     "Treat the shown source as already read; do not re-open those files with read or grep. Only a file or a name the answer lists as not shown needs another call: explore it by name. " +
-    "It answers from an index of the code at this commit, not from the live site: for what the page renders (text, labels, selectors) use the live DOM.",
+    "It answers from an index of the code at this commit, not from the live site: for what the page renders (text, labels, selectors) use the live DOM. " +
+    "When the change spans several repositories the answer covers every repository of this change; its sections are labelled by repository.",
   args: {
     terms: tool.schema
       .array(tool.schema.string())

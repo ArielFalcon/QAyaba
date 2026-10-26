@@ -1,7 +1,10 @@
 /*
  * The lead's read-only code-graph tool for one run. The graph is the orchestrator's (its engine and its stores live in the
  * orchestrator only, and a store holds a repo's code), so the lead never reaches it: it asks through the tools endpoint and the
- * orchestrator answers over the index the run built, for the run's own repo, inside the run's scope, under the run's limits. A run
+ * orchestrator answers over the index the run built, for each repo of the run's change (the orchestrator's own list, named by
+ * the configuration, never by the caller), inside the run's scope, under the run's limits. One call asks every repo the same
+ * terms, splits the file and character budgets among them and labels each section with its repo; a repo whose index cannot
+ * answer is named as unavailable and the others still answer. A run
  * whose lead runs on a runtime that cannot call a custom tool is granted nothing. The answer is the engine's text, redacted as text
  * (by value and by pattern, the run's own redaction) and cut at a line boundary with every code block closed; a query the index
  * cannot answer is a failed call, with nothing of the engine's own reason told to the lead (the reason is logged and put on the
@@ -23,8 +26,8 @@ export interface CodeGraphToolsPortAdapterDeps {
   registry: CodeGraphToolRegistry;
   /* The engine's answers over the index the run built. */
   explore: CodeExplorePort;
-  /* The repository the run's index was built from. */
-  repoDir: string;
+  /* The repositories of the run's change, each with the mirror its index was built from: primary and services as the configuration declares them. */
+  repos: ReadonlyArray<{ repo: string; repoDir: string }>;
   /* Whether the lead's role is assigned to a runtime that can call a custom tool (OpenCode). */
   generatorRuntimeCanCall: () => boolean;
   limits?: CodeGraphToolLimits;
@@ -56,18 +59,43 @@ export class CodeGraphToolsPortAdapter implements CodeGraphToolsPort {
       counts.refused += 1;
       return { ok: false, code, message };
     };
+    const { repos } = this.deps;
     const serve = async (request: CodeGraphToolRequest, observer: ToolObserver): Promise<CodeGraphToolResponse> => {
-      const answer = await this.deps.explore.explore(this.deps.repoDir, request.query.terms, limits.maxFiles).catch((cause: unknown) => err({ reason: cause instanceof Error ? cause.message : String(cause) }));
-      if (!answer.ok) {
-        counts.failed += 1;
+      /* The file and character budgets are the run's, shared by the repos; one repo keeps them whole. */
+      const maxFiles = Math.max(1, Math.floor(limits.maxFiles / repos.length));
+      const maxChars = Math.floor(limits.maxAnswerChars / repos.length);
+      const answers = await Promise.all(
+        repos.map(async ({ repo, repoDir }) => ({
+          repo,
+          answer: await this.deps.explore.explore(repoDir, request.query.terms, maxFiles).catch((cause: unknown) => err({ reason: cause instanceof Error ? cause.message : String(cause) })),
+        })),
+      );
+      const answered = answers.filter((a) => a.answer.ok);
+      for (const { repo, answer } of answers) {
+        if (answer.ok) continue;
         const reason = failureReason(answer.error.reason, this.deps.redact);
-        console.error(`[qa] code-graph explore failed for run ${input.runId}: ${reason}`);
+        console.error(`[qa] code-graph explore failed for run ${input.runId}${repos.length > 1 ? ` in ${repo}` : ""}: ${reason}`);
         observer.setAttrs({ "qayaba.code_graph.reason": reason });
+      }
+      if (answered.length === 0) {
+        counts.failed += 1;
         return { ok: false, code: "failed", message: "the code graph could not answer this query; try other names (a symbol, a file path or a short code term)" };
       }
-      observer.setAttrs({ "qayaba.code_graph.sha": answer.value.indexedSha });
-      const { result, truncated } = shapeExploreAnswer(answer.value.text, limits.maxAnswerChars, this.deps.redact);
-      return { ok: true, result, truncated, indexedSha: answer.value.indexedSha, callsLeft: limits.maxCalls - counts.calls };
+      const first = answered[0]!.answer;
+      if (!first.ok) throw new Error("unreachable: an answered repo holds an answer");
+      observer.setAttrs({ "qayaba.code_graph.sha": first.value.indexedSha });
+      if (repos.length === 1) {
+        const { result, truncated } = shapeExploreAnswer(first.value.text, limits.maxAnswerChars, this.deps.redact);
+        return { ok: true, result, truncated, indexedSha: first.value.indexedSha, callsLeft: limits.maxCalls - counts.calls };
+      }
+      let truncated = false;
+      const sections = answers.map(({ repo, answer }) => {
+        if (!answer.ok) return `## Repository ${repo}\n[unavailable: the code graph could not answer for this repository]`;
+        const shaped = shapeExploreAnswer(answer.value.text, maxChars, this.deps.redact);
+        truncated ||= shaped.truncated;
+        return `## Repository ${repo}\n${shaped.result}`;
+      });
+      return { ok: true, result: sections.join("\n\n"), truncated, indexedSha: first.value.indexedSha, callsLeft: limits.maxCalls - counts.calls };
     };
     this.deps.registry.register({
       runId: input.runId,

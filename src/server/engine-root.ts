@@ -185,6 +185,8 @@ export interface EngineRootDeps {
   codeGraphPrimary?: { repo: string; repoDir: string; headSha(): Promise<string | null> };
   /* The mirror of each other repo of a run over several repos, by repo: indexed at its head and walked for the change scope. */
   codeGraphRepoDirs?: ReadonlyMap<string, string>;
+  /* Every repo of the run's change with its mirror, in entry order: the repos the lead's code-graph tool answers over. */
+  codeGraphRepos?: ReadonlyArray<{ repo: string; repoDir: string }>;
   serviceTopology?: {
     appName: string;
     primaryRepo: string;
@@ -353,7 +355,7 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
 
   /* The tools run through the run's own execution and cleanup ports, so a spec they run is run exactly as the suite's are. */
   const agentTools = buildAgentTools({
-    run: { isCode: cfg.isCode, specRelDir: cfg.e2eRelDir, codeGraphRepoDir: cfg.codeGraphRepoDir ?? cfg.mirrorDir, ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}), ...(cfg.auth ? { auth: cfg.auth } : {}) },
+    run: { isCode: cfg.isCode, specRelDir: cfg.e2eRelDir, codeGraphRepoDir: cfg.codeGraphRepoDir ?? cfg.mirrorDir, ...(cfg.codeGraphRepos ? { codeGraphRepos: cfg.codeGraphRepos } : {}), ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}), ...(cfg.auth ? { auth: cfg.auth } : {}) },
     execution,
     ...(cleanup ? { cleanup } : {}),
     ...(authSession ? { authSession } : {}),

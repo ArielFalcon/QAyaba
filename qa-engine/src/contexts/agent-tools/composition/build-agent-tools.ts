@@ -18,7 +18,7 @@ export type ClosedLoopWiring = Omit<ClosedLoopPortAdapterDeps, "execution" | "cl
 export type AgentBrowserWiring = Omit<AgentBrowserPortAdapterDeps, "baseUrl" | "material" | "authSession" | "authContext" | "trace" | "now">;
 
 /* What the shell hands the builder to let a run grant the lead the code-graph tools. */
-export type CodeGraphToolsWiring = Omit<CodeGraphToolsPortAdapterDeps, "explore" | "repoDir" | "trace">;
+export type CodeGraphToolsWiring = Omit<CodeGraphToolsPortAdapterDeps, "explore" | "repos" | "trace">;
 
 /* What the shell hands the builder to let a run carry its authoring location. */
 export type GeolocationWiring = GeolocationPortAdapterDeps;
@@ -31,6 +31,8 @@ export interface AgentToolsDeps {
     specRelDir: string;
     /* The repository the run's code index was built from. */
     codeGraphRepoDir: string;
+    /* Every repository of the run's change with its mirror, in entry order; absent, the run's code index repo alone. */
+    codeGraphRepos?: ReadonlyArray<{ repo: string; repoDir: string }>;
     auth?: AuthDeclaration;
   };
   /* The run's own execution and cleanup ports: a spec the loop runs is run exactly as the suite's are. */
@@ -91,7 +93,7 @@ export function buildAgentTools(deps: AgentToolsDeps): AgentToolsApi {
   /* The lead explores the index the index phase built for the run's repo; it names terms, never the repo, the workspace or the engine's options. */
   const codeGraphTools =
     deps.codeGraphTools && deps.codeExplore && !run.isCode
-      ? new CodeGraphToolsPortAdapter({ ...deps.codeGraphTools, explore: deps.codeExplore, repoDir: run.codeGraphRepoDir, ...(trace ? { trace } : {}) })
+      ? new CodeGraphToolsPortAdapter({ ...deps.codeGraphTools, explore: deps.codeExplore, repos: run.codeGraphRepos?.length ? run.codeGraphRepos : [{ repo: "", repoDir: run.codeGraphRepoDir }], ...(trace ? { trace } : {}) })
       : undefined;
 
   /* The app's declared position, the lead's value and one per flow: authoring context, never an input to the delivered suite. */
