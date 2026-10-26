@@ -210,6 +210,25 @@ export const RUN_END_ROWS: readonly RunEndRow[] = [
   { id: "final-proof-bytes-still-differ", endReason: "final-proof-guard", setup: (rig) => withFingerprint(rig, (call, real) => (call === 2 || call === 3 ? otherBytes(real) : real)), expect: { verdict: "infra-error", errorClass: "E-INFRA", furthestPhase: "review", persisted: false, published: "none", publishCalled: false, folded: false, reflected: false, note: /still differ from the proven ones/ } },
   { id: "publication-failed-after-decision", endReason: "decided", setup: (rig) => { rig.publish = async () => { throw new Error("github 502"); }; }, expect: { verdict: "pass", errorClass: null, furthestPhase: "learn", persisted: true, published: "pr", publishCalled: true, folded: true, reflected: false, note: /publication failed after verdict was decided \(decided: pass, reviewerApproved: true\): github 502/ } },
   { id: "run-deadline", endReason: "run-deadline", setup: (rig) => { rig.generate = async () => { throw deadline("primary"); }; }, expect: { verdict: "infra-error", errorClass: "E-TIME-BUDGET", furthestPhase: "generate", persisted: true, published: "none", publishCalled: false, folded: false, reflected: false } },
+  { id: "run-deadline-during-fix-loop", endReason: "run-deadline", setup: (rig) => { let turn = 0; rig.generate = async () => { if (++turn > 1) throw deadline("primary"); return scriptedGeneration({ specs: [RIG_SPEC], approved: true }); }; rig.execute = async () => ({ verdict: "fail", cases: [{ name: "checkout", status: "fail" }], logs: "assertion failed" }); }, expect: { verdict: "infra-error", errorClass: "E-TIME-BUDGET", furthestPhase: "fix_loop", persisted: true, published: "none", publishCalled: false, folded: false, reflected: false } },
+  { id: "run-deadline-in-review-without-verdict", endReason: "run-deadline", setup: (rig) => { let turn = 0; rig.generate = async () => { if (++turn > 1) throw deadline("primary"); return scriptedGeneration({ specs: [RIG_SPEC], approved: true }); }; rig.review = async () => ({ approved: false, corrections: ["assert the total"], blockingCount: 1, parsed: true }); }, expect: { verdict: "infra-error", errorClass: "E-TIME-BUDGET", furthestPhase: "review", persisted: true, published: "none", publishCalled: false, folded: false, reflected: false } },
+  {
+    id: "run-deadline-after-review-verdict",
+    endReason: "decided",
+    setup: (rig) => {
+      let reviews = 0;
+      let executions = 0;
+      let turn = 0;
+      rig.config = { ...rig.config, coveragePolicyMode: "enforce" };
+      /* The correction changes the spec's bytes, so the second round is a real review and not the first verdict repeated. */
+      rig.generate = async () => { rig.ws.write(RIG_SPEC, `test("checkout", async () => {}); // turn ${++turn}\n`); return scriptedGeneration({ specs: [RIG_SPEC], approved: true }); };
+      rig.measure = async () => ({ status: "pass", ratio: 0.95 });
+      rig.review = async () => (++reviews === 1 ? { approved: false, corrections: ["cover the total"], blockingCount: 1, parsed: true } : { approved: true, corrections: [], blockingCount: 0, parsed: true });
+      /* The initial run and the accepted correction pass; the whole-suite measured run that follows finds the deadline spent. */
+      rig.execute = async () => { if (++executions > 2) throw deadline("primary"); return { verdict: "pass", cases: [{ name: "checkout", file: RIG_SPEC, status: "pass" }], logs: "" }; };
+    },
+    expect: { verdict: "pass", errorClass: null, furthestPhase: "learn", persisted: true, published: "pr", publishCalled: true, folded: true, reflected: false, note: /the run deadline was spent during remeasure-stale-coverage; the suite that ran green on its final bytes is kept/ },
+  },
   { id: "sandbox-unavailable-at-open", endReason: "sandbox-unavailable", setup: (rig) => { rig.extra = { ...rig.extra, execScope: { open: async () => { throw new SandboxUnavailableError("residue", "1 process of the sandbox uid survived SIGKILL"); } } }; }, expect: { verdict: "infra-error", errorClass: "E-SANDBOX", furthestPhase: null, persisted: true, published: "none", publishCalled: false, folded: false, reflected: false } },
   {
     id: "sandbox-unavailable-mid-run",

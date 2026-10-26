@@ -35,12 +35,14 @@ export async function finalizeDecided(state: Readonly<RunState>, ctx: WorkspaceR
   /* Once, after confinement and publish, so gc never races this run's git write. */
   await ctx.host.pruneMirror(ctx.workspace.mirrorDir);
 
-  const persisted = await persistOutcome(state, ctx, publishOutcome);
+  /* What the run went on past is said on its record beside what publication came to. */
+  const note = [...state.degraded.map((d) => d.note), ...(publishOutcome !== undefined ? [publishOutcome] : [])].join("; ") || undefined;
+  const persisted = await persistOutcome(state, ctx, note);
   if (persisted.mainlineOutcome) {
     ctx.trail.phases.enter("learn");
     await learnFromOutcome(state, ctx, persisted.mainlineOutcome);
   }
-  return resultOf(state, ctx, persisted, publishOutcome);
+  return resultOf(state, ctx, persisted, note);
 }
 
 /* A coordinated run says how it ended: the verdict with the quality sampled at the same instant, and how many flows were handed back. */

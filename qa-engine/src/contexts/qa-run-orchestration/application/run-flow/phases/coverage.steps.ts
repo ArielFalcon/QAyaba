@@ -8,7 +8,6 @@ import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { executeAccepted, validateAccepted } from "./execute.steps.ts";
 import { regenerate } from "./generation-services.ts";
-import { classifyFailure } from "../failure-policy.ts";
 import { coverageRegenAction } from "../../../domain/coverage-regen.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
@@ -79,7 +78,8 @@ export const regeneratesForCoverage = (state: Readonly<RunState>, ctx: Workspace
 
 /*
  * Enforce-mode one-shot coverage regen: this step runs at most once per run and is independent of the FixLoop budget. A regen
- * throw propagates. The regen's changed specs go through acceptance: they execute green (or reuse a proof) before they stand.
+ * throw propagates; a spent run deadline is the one the policy degrades (this step runs after a green suite), so the first
+ * measurement stands. The regen's changed specs go through acceptance: they execute green (or reuse a proof) before they stand.
  * A rejected or capped regen keeps the first measurement and restores the prior bytes. The whole-suite re-measure that decides
  * coverage is the single final re-measure before decide.
  */
@@ -88,57 +88,50 @@ export async function regenerateForCoverage(state: Readonly<RunState>, ctx: Work
   const { acceptance, integrityCounters, snapshotPort, runDeadlinePort, suiteChangedFiles, snapshotSuite, acceptanceScope } = services;
   let { acceptanceCalls, acceptedRegenAfterMeasure } = state.coverage;
   let { run } = state.execution;
-  let leadCorrections = 0;
-  try {
-    const gap = renderCoverageGap(state.coverage.uncovered);
-    const snapshot = await snapshotSuite();
-    /* mutation-scope:begin delivered-before-coverage-regen */
-    const deliveredBefore = generation.delivered;
-    /* mutation-scope:end delivered-before-coverage-regen */
-    const regenerated = await regenerate(state, ctx, undefined, { coverageGap: gap }, CORRECTION_ORIGIN.COVERAGE);
-    const regen = regenerated.output;
-    leadCorrections = regenerated.leadCorrections;
-    await services.confinement.enforce();
-    const changedFiles = await suiteChangedFiles(snapshot, regen.specs);
-    const changedSpecFiles = acceptanceScope(changedFiles);
-    if (regen.specs.length === 0) {
-      /* A coverage turn that delivers no specs is not a change to accept: whatever it wrote is put back. */
-      if (changedFiles.length > 0) {
-        await snapshotPort.restore(workspace.specDir, snapshot, changedFiles.filter((file) => !snapshot.files.has(file)));
-      }
-      generation.delivered = deliveredBefore;
-    } else if (changedSpecFiles.length > 0) {
-      const { closedLoop } = trail;
-      const outcome = await acceptance.accept({
-        specDir: workspace.specDir,
-        changedSpecFiles,
-        namespace: `${input.runId}-acc${acceptanceCalls++}`,
-        snapshot,
-        ...(closedLoop ? { closedLoop } : {}),
-        deadline: runDeadlinePort,
-        validate: validateAccepted(ctx),
-        execute: executeAccepted(ctx),
-      });
-      if (outcome.kind === "accepted") {
-        integrityCounters.acceptances += 1;
-        if (outcome.executedSpecs.length === 0) integrityCounters.proofReused += 1;
-        acceptedRegenAfterMeasure = true;
-        if (outcome.execution?.cases.length) {
-          const changedSet = new Set(changedSpecFiles);
-          run = { ...run, cases: [...run.cases.filter((c) => !changedSet.has(c.file ?? c.name)), ...outcome.execution.cases] };
-        }
-      } else {
-        /* Rejected or capped: the turn's specs are not the run's. */
-        generation.delivered = deliveredBefore;
-        if (outcome.kind === "rejected") integrityCounters.rejected += 1;
-        else integrityCounters.capHit = true;
-        /* The first measurement and the prior bytes stand. */
-      }
+  const gap = renderCoverageGap(state.coverage.uncovered);
+  const snapshot = await snapshotSuite();
+  /* mutation-scope:begin delivered-before-coverage-regen */
+  const deliveredBefore = generation.delivered;
+  /* mutation-scope:end delivered-before-coverage-regen */
+  const regenerated = await regenerate(state, ctx, undefined, { coverageGap: gap }, CORRECTION_ORIGIN.COVERAGE);
+  const regen = regenerated.output;
+  const { leadCorrections } = regenerated;
+  await services.confinement.enforce();
+  const changedFiles = await suiteChangedFiles(snapshot, regen.specs);
+  const changedSpecFiles = acceptanceScope(changedFiles);
+  if (regen.specs.length === 0) {
+    /* A coverage turn that delivers no specs is not a change to accept: whatever it wrote is put back. */
+    if (changedFiles.length > 0) {
+      await snapshotPort.restore(workspace.specDir, snapshot, changedFiles.filter((file) => !snapshot.files.has(file)));
     }
-  } catch (regenErr) {
-    /* The run's time is spent: the first measurement stands, as for any regeneration that cannot finish. Any other fault still propagates. */
-    if (classifyFailure(regenErr) !== "run-deadline") throw regenErr;
-    console.warn(`[qa] the run deadline was spent during the coverage regeneration; the first measurement stands (${regenErr instanceof Error ? regenErr.message : String(regenErr)})`);
+    generation.delivered = deliveredBefore;
+  } else if (changedSpecFiles.length > 0) {
+    const { closedLoop } = trail;
+    const outcome = await acceptance.accept({
+      specDir: workspace.specDir,
+      changedSpecFiles,
+      namespace: `${input.runId}-acc${acceptanceCalls++}`,
+      snapshot,
+      ...(closedLoop ? { closedLoop } : {}),
+      deadline: runDeadlinePort,
+      validate: validateAccepted(ctx),
+      execute: executeAccepted(ctx),
+    });
+    if (outcome.kind === "accepted") {
+      integrityCounters.acceptances += 1;
+      if (outcome.executedSpecs.length === 0) integrityCounters.proofReused += 1;
+      acceptedRegenAfterMeasure = true;
+      if (outcome.execution?.cases.length) {
+        const changedSet = new Set(changedSpecFiles);
+        run = { ...run, cases: [...run.cases.filter((c) => !changedSet.has(c.file ?? c.name)), ...outcome.execution.cases] };
+      }
+    } else {
+      /* Rejected or capped: the turn's specs are not the run's. */
+      generation.delivered = deliveredBefore;
+      if (outcome.kind === "rejected") integrityCounters.rejected += 1;
+      else integrityCounters.capHit = true;
+      /* The first measurement and the prior bytes stand. */
+    }
   }
   return { update: { execution: { ...state.execution, run }, coverage: { ...state.coverage, acceptanceCalls, acceptedRegenAfterMeasure }, loops: { ...state.loops, coverageRegen: state.loops.coverageRegen + 1, leadCorrections: state.loops.leadCorrections + leadCorrections } } };
 }

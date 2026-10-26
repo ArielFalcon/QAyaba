@@ -10,7 +10,7 @@
 
 import type { RunPhase } from "../../domain/run-phase-cursor.ts";
 import type { EndReason } from "./end-reason.ts";
-import { guarded, type StepClass } from "./failure-policy.ts";
+import { guarded, type DegradeReason, type StepClass } from "./failure-policy.ts";
 import { runEnd, supersededByAbort, type FactsArg, type RunEnd } from "./run-end.ts";
 import type { StepId } from "./step-ids.ts";
 
@@ -44,11 +44,13 @@ export type StepEvent<Id extends string = StepId> =
   | { id: Id; outcome: "ended"; reason: RunEnd["reason"] };
 
 /** What the runner needs from the run: the phase cursor, and somewhere to report the steps. */
-export interface FlowHooks<Id extends string = StepId> {
+export interface FlowHooks<Id extends string = StepId, S = object> {
   /** Whether the run was cancelled: asked before every step, and the run ends `aborted` as soon as it was. */
   aborted(): boolean;
   /** The end a failure that ends the run is turned into: the caller knows the run, the runner does not. */
   endOf(reason: EndReason, err: unknown): RunEnd;
+  /** Where the run goes on from a step whose fault the policy degrades; absent, such a fault is rethrown. */
+  degrade?(reason: DegradeReason, err: unknown, stepId: Id, state: Readonly<S>): StepOutcome<S, Id> | Promise<StepOutcome<S, Id>>;
   enter(phase: RunPhase): void;
   record(event: StepEvent<Id>): void;
 }
@@ -72,7 +74,7 @@ export async function runFlow<S extends object, C, Id extends string = StepId>(
   steps: ReadonlyArray<FlowStep<S, C, Id>>,
   state: S,
   ctx: C,
-  hooks: FlowHooks<Id>,
+  hooks: FlowHooks<Id, NoInfer<S>>,
 ): Promise<FlowOutcome<S>> {
   validateTable(steps);
   let index = 0;
@@ -89,7 +91,13 @@ export async function runFlow<S extends object, C, Id extends string = StepId>(
       continue;
     }
     if (step.phase) hooks.enter(step.phase);
-    const outcome: StepOutcome<S, Id> = await guarded({ id: step.id, class: step.class ?? "required" }, () => step.run(state, ctx), hooks.endOf);
+    const degrade = hooks.degrade;
+    const outcome: StepOutcome<S, Id> = await guarded(
+      { id: step.id, class: step.class ?? "required" },
+      () => step.run(state, ctx),
+      hooks.endOf,
+      degrade ? (reason, err) => degrade.call(hooks, reason, err, step.id, state) : undefined,
+    );
     if (outcome && "end" in outcome) {
       if (outcome.update) Object.assign(state, outcome.update);
       const ending = hooks.aborted() && supersededByAbort(outcome.end) ? runEnd("aborted") : outcome.end;

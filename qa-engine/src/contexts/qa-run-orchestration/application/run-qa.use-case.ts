@@ -19,6 +19,9 @@ import { PhaseSpans } from "./run-phase-spans.ts";
 import { runFlow, type FlowHooks } from "./run-flow/run-flow.ts";
 import { actionFor, carryOn } from "./run-flow/failure-policy.ts";
 import { failureEnd } from "./run-flow/failure-ends.ts";
+import { degradeFailedStep } from "./run-flow/degrade.ts";
+import { reviewsTests } from "./run-flow/phases/review.steps.ts";
+import type { StepId } from "./run-flow/step-ids.ts";
 import { type RunEnd } from "./run-flow/run-end.ts";
 import { finalizeRun, recordCrashEvidence } from "./run-flow/finalize-run.ts";
 import type { RunState } from "./run-flow/run-state.ts";
@@ -374,9 +377,14 @@ export class RunQaUseCase {
   /* Walks the step tables and finalizes the end they reach. */
   private async drive(baseCtx: RunContext): Promise<RunQaResult> {
     const { input, signal, trail } = baseCtx;
-    const hooks: FlowHooks = {
+    const hooks: FlowHooks<StepId, RunState> = {
       aborted: () => signal?.aborted === true,
       endOf: (reason, err) => failureEnd(reason, err, baseCtx),
+      degrade: async (reason, err, stepId, current) => {
+        /* Nothing can correct through the coordinated pass from here on, and the run publishes next. */
+        await baseCtx.host.closeCoordinatedPass();
+        return degradeFailedStep(reason, err, stepId, current, { reviewRequired: reviewsTests(baseCtx) && current.classification.generating, endOf: (endReason, cause) => failureEnd(endReason, cause, baseCtx) });
+      },
       enter: (phase: RunPhase) => trail.phases.enter(phase),
       record: (event) =>
         trail.spans.step({

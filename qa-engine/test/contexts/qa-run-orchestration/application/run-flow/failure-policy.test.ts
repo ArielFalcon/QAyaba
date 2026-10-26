@@ -48,11 +48,15 @@ test("every kind of failure has an action for every class of step", () => {
 test("a failure that ends the run names the same reason whatever step failed", () => {
   const ends: Array<[(typeof FAILURE_KINDS)[number], EndReason]> = [
     ["aborted", "aborted"],
-    ["run-deadline", "run-deadline"],
     ["sandbox-unavailable", "sandbox-unavailable"],
     ["probe-sweep", "probe-sweep-failed"],
   ];
   for (const [kind, reason] of ends) for (const stepClass of STEP_CLASSES) assert.deepEqual(POLICY[kind][stepClass], { do: "end", reason }, `${kind} in a ${stepClass} step`);
+});
+
+test("a spent deadline ends the run in every step but one that runs after a proven suite, which degrades and keeps what is proven", () => {
+  for (const stepClass of ["required", "off-path", "publish"] as const) assert.deepEqual(POLICY["run-deadline"][stepClass], { do: "end", reason: "run-deadline" }, stepClass);
+  assert.deepEqual(POLICY["run-deadline"].proven, { do: "degrade", reason: "deadline-after-proof" });
 });
 
 test("an untrusted git tree is rethrown from every class of step", () => {
@@ -109,4 +113,13 @@ test("a catch that carries on past a fault lets an ordinary fault go and throws 
 
 test("the policy and the action lookup agree", () => {
   assert.deepEqual(actionFor(new PublicationFailedError("x"), "publish"), POLICY.publication.publish);
+});
+
+test("a fault the policy degrades goes to the caller's degradation; with none named it is rethrown, identical", async () => {
+  const spent = new RunDeadlineExceededError(1000, "diff-tiny", "reviewer", "mid-turn");
+  const seen: unknown[] = [];
+  const outcome = await guarded({ id: "remeasure-stale-coverage", class: "proven" }, async () => { throw spent; }, endOf, (reason, err) => { seen.push(reason, err); return { goto: "guard-final-proof" }; });
+  assert.deepEqual(outcome, { goto: "guard-final-proof" });
+  assert.deepEqual(seen, ["deadline-after-proof", spent]);
+  await assert.rejects(guarded({ id: "remeasure-stale-coverage", class: "proven" }, async () => { throw spent; }, endOf), (thrown) => thrown === spent);
 });

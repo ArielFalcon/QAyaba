@@ -23,6 +23,7 @@ import type { ReviewPort } from "../ports/index.ts";
 import type { SpecSnapshot } from "../ports/spec-snapshot.port.ts";
 import type { RegenerationAcceptance } from "../regeneration-acceptance.ts";
 import type { ReviewedSpecs, ReviewTally } from "./phases/review-services.ts";
+import type { DegradeReason } from "./failure-policy.ts";
 import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
 import type { FixLoopState } from "../../domain/fix-loop.aggregate.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
@@ -251,6 +252,12 @@ export interface LoopCounters {
 
 export const initialLoopCounters = (): LoopCounters => ({ staticFix: 0, preExecRegen: 0, fixLoop: 0, coverageRegen: 0, reviewRound: 0, reviewAttempt: 0, leadCorrections: 0, leadReviewTurns: 0 });
 
+/* A fault the run went on past because what it had proven stands: the reason the policy named and what the outcome says about it. */
+export interface Degradation {
+  reason: DegradeReason;
+  note: string;
+}
+
 export interface RunState {
   classification: Classification;
   setup: SetupOutcome;
@@ -262,6 +269,8 @@ export interface RunState {
   review: ReviewOutcome;
   decided: DecidedOutcome | undefined;
   loops: LoopCounters;
+  /** The faults the run degraded past, in order; the decided outcome says each in its note. */
+  degraded: Degradation[];
 }
 
 export function initialRunState(): RunState {
@@ -328,5 +337,6 @@ export function initialRunState(): RunState {
     review: { session: undefined, reviewerApproved: true, reviewerApprovedForOutcome: undefined, finalReviewerCorrections: [], reviewerSignal: undefined },
     decided: undefined,
     loops: initialLoopCounters(),
+    degraded: [],
   };
 }

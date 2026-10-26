@@ -40,7 +40,7 @@ export const STEP_CLASSES = ["required", "proven", "off-path", "publish"] as con
 export type StepClass = (typeof STEP_CLASSES)[number];
 
 /** What a run keeps going with after a fault it cannot recover from, said on the outcome. */
-export type DegradeReason = "publication-failed";
+export type DegradeReason = "publication-failed" | "deadline-after-proof";
 
 export type FailureAction = { do: "rethrow" } | { do: "fail-open" } | { do: "end"; reason: EndReason } | { do: "degrade"; reason: DegradeReason };
 
@@ -54,7 +54,8 @@ const always = (action: FailureAction): Record<StepClass, FailureAction> => ({ r
 
 export const POLICY: Readonly<Record<FailureKind, Readonly<Record<StepClass, FailureAction>>>> = {
   aborted: endFor("aborted"),
-  "run-deadline": endFor("run-deadline"),
+  /* A spent deadline after a suite ran green on its final bytes keeps what is proven (the run goes on to the final proof guard and the decision); anywhere else nothing is proven and the run ends. */
+  "run-deadline": { ...endFor("run-deadline"), proven: { do: "degrade", reason: "deadline-after-proof" } },
   "sandbox-unavailable": endFor("sandbox-unavailable"),
   "probe-sweep": endFor("probe-sweep-failed"),
   "untrusted-tree": always(RETHROW),
@@ -90,6 +91,7 @@ export async function guarded<O, E>(
   site: { id: string; class: StepClass },
   run: () => Promise<O>,
   endOf: (reason: EndReason, err: unknown) => E,
+  degradeOf?: (reason: DegradeReason, err: unknown) => O | { end: E } | Promise<O | { end: E }>,
 ): Promise<O | { end: E } | undefined> {
   try {
     return await run();
@@ -104,8 +106,10 @@ export async function guarded<O, E>(
       case "end":
         return { end: endOf(action.reason, err) };
       case "degrade":
-        /* A step cannot go on past a fault in the middle of its work; only an effect that has somewhere to go on to degrades, and it asks the policy itself. */
-        throw err;
+        /* Only a caller that knows where the run goes on from a degraded step says so; an effect that degrades asks the policy itself. */
+        if (!degradeOf) throw err;
+        console.error(`[qa] ${site.id}: ${classifyFailure(err)} fault degraded the run (${action.reason}): ${messageOf(err)}`);
+        return await degradeOf(action.reason, err);
     }
   }
 }

@@ -23,7 +23,7 @@ import { addReviewStats, annotateReviewPhase, newReviewTally, readReviewedSpecs,
 type Result = Promise<StepOutcome<RunState>>;
 
 /* A context run's product is the architecture map, not tests: there is nothing for a test reviewer to judge, and a verdict it cannot give would turn a clean pass into an Issue. */
-export const reviewsTests = (ctx: WorkspaceRunContext): boolean => ctx.cfg.needsReview && ctx.input.mode !== "context";
+export const reviewsTests = (ctx: Pick<WorkspaceRunContext, "cfg" | "input">): boolean => ctx.cfg.needsReview && ctx.input.mode !== "context";
 
 /* Also gated on generating: a regression run never invokes the reviewer (nothing new to judge; decide()'s !generating branch already wins). */
 export const reviewsRun = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean =>
