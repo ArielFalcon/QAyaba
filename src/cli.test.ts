@@ -23,21 +23,6 @@ describe("parseArgs", () => {
     const a = parseArgs(["--app", "x", "--sha", "bbbb222", "--base-sha", "aaaa111"]);
     assert.equal(a.baseSha, "aaaa111");
   });
-
-  /*
-   * --allow-concurrent used to bypass the local-service refusal check in main() via an
-   * allowConcurrent field threaded through parseArgs. That escape hatch is removed: the flag is
-   * no longer special-cased, and the parsed result must carry no field that could gate — or
-   * bypass — the health-probe refusal. Pinning the exact key set (rather than just checking
-   * `allowConcurrent` is absent) guards against the bypass reappearing under a different name.
-   */
-  it("parseArgs no longer recognizes --allow-concurrent (no bypass field survives parsing)", () => {
-    const a = parseArgs(["--app", "x", "--sha", "bbbb222", "--allow-concurrent"]);
-    assert.deepEqual(
-      Object.keys(a).sort(),
-      ["app", "baseSha", "guidance", "learning", "mode", "sha", "target"].sort(),
-    );
-  });
 });
 
 describe("--closed-loop", () => {
@@ -85,27 +70,24 @@ describe("--dom-pack", () => {
   });
 });
 
-describe("--structural-signal and --dossier", () => {
-  it("are the run's own choices about the structural block and its change dossier and reach the service as grounding, absent unless given", () => {
-    const both = parseArgs(["--app", "x", "--sha", "bbbb222", "--structural-signal", "on", "--dossier", "on"]);
-    assert.equal(both.structuralSignal, true);
-    assert.equal(both.dossier, true);
-    assert.deepEqual(delegateRunInput(both, "e2e").grounding, { structuralSignal: true, dossier: true });
-    assert.deepEqual(delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222", "--structural-signal", "off", "--dom-pack", "on"]), "e2e").grounding, { structuralSignal: false, domPack: true });
-    const plain = parseArgs(["--app", "x", "--sha", "bbbb222"]);
-    assert.equal("structuralSignal" in plain || "dossier" in plain, false);
-  });
-
-  it("reject any value other than on or off", () => {
+describe("flags the CLI does not know", () => {
+  it("are refused with the usage and exit code 2, the removed grounding flags included", () => {
     const exit = mock.method(process, "exit", () => { throw new Error("process.exit called"); });
     const error = mock.method(console, "error", () => {});
     try {
-      assert.throws(() => parseArgs(["--app", "x", "--sha", "bbbb222", "--structural-signal", "bogus"]));
-      assert.throws(() => parseArgs(["--app", "x", "--sha", "bbbb222", "--dossier", "yes"]));
-      assert.equal(exit.mock.callCount(), 2);
+      assert.throws(() => parseArgs(["--app", "x", "--sha", "bbbb222", "--structural-signal", "off"]));
+      assert.throws(() => parseArgs(["--app", "x", "--sha", "bbbb222", "--dossier", "off"]));
+      assert.throws(() => parseArgs(["--app", "x", "--sha", "bbbb222", "--allow-concurrent"]));
+      assert.equal(exit.mock.callCount(), 3);
+      assert.deepEqual(exit.mock.calls.map((c) => c.arguments[0]), [2, 2, 2]);
     } finally {
       exit.mock.restore();
       error.mock.restore();
     }
+  });
+
+  it("leave the grounding choices that remain (--dom-pack) reaching the service as before", () => {
+    assert.deepEqual(delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222", "--dom-pack", "off"]), "e2e").grounding, { domPack: false });
+    assert.equal("grounding" in delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222"]), "e2e"), false);
   });
 });

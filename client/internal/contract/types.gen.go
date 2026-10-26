@@ -2090,11 +2090,9 @@ type CreateRunInput struct {
 	ClosedLoop  *bool                      `json:"closedLoop,omitempty"`
 	Commits     *int                       `json:"commits,omitempty"`
 	Grounding   *struct {
-		Curriculum       *bool `json:"curriculum,omitempty"`
-		DomPack          *bool `json:"domPack,omitempty"`
-		Dossier          *bool `json:"dossier,omitempty"`
-		Stitcher         *bool `json:"stitcher,omitempty"`
-		StructuralSignal *bool `json:"structuralSignal,omitempty"`
+		Curriculum *bool `json:"curriculum,omitempty"`
+		DomPack    *bool `json:"domPack,omitempty"`
+		Stitcher   *bool `json:"stitcher,omitempty"`
 	} `json:"grounding,omitempty"`
 	Guidance *string              `json:"guidance,omitempty"`
 	Mode     CreateRunInputMode   `json:"mode"`
@@ -2577,11 +2575,9 @@ type RunDetail struct {
 			Mode     *string  `json:"mode"`
 		} `json:"coverage"`
 		Grounding struct {
-			Curriculum       *string `json:"curriculum"`
-			DomPack          *bool   `json:"domPack"`
-			Dossier          *bool   `json:"dossier"`
-			Stitcher         *string `json:"stitcher"`
-			StructuralSignal *string `json:"structuralSignal"`
+			Curriculum *string `json:"curriculum"`
+			DomPack    *bool   `json:"domPack"`
+			Stitcher   *string `json:"stitcher"`
 		} `json:"grounding"`
 		Levers struct {
 			AgentBrowser *bool                                      `json:"agentBrowser"`

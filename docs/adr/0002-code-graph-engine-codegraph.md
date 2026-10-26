@@ -10,7 +10,7 @@
 
 qayaba has one code graph and three consumers. Only two of those consumers ever did anything.
 
-1. **The structural signal, on every run with the signal on.** It calls `impactedSymbols`, `callersOf` and `coChangeCoupling` (`structural-signal-port.adapter.ts:19,28,37`) and renders the result into the `static-signal` prompt section.
+1. **The structural signal, on every run.** It calls `impactedSymbols`, `callersOf` and `coChangeCoupling` (`structural-signal-port.adapter.ts:19,28,37`) and renders the result into the `static-signal` prompt section.
    - The deterministic extractors it once sat beside (lizard, difftastic, tree-sitter) were deleted in `9bef64c6`. The structural signal is now the graph alone.
 2. **The second tier of the cross-repo impact** (`resolve-cross-repo-impact.use-case.ts:63`), which marks the service links a backend change reaches.
 3. **The lead's tool.** The lead, outside a delegation, had three read-only actions (`search_graph`, `trace_path`, `get_code_snippet`), proxied by the orchestrator to the `codebase-memory-mcp` CLI. It was wired, granted and never called.
@@ -71,7 +71,7 @@ All measurements were taken against this repository and the live stack. The code
 | `serena_*` | 17 |
 | **`codegraph_*`** | **0** |
 
-The last e2e run (`run-75f5390`) recorded `structuralSignal: "signal"`. Inside the orchestrator, the store held `app-.mirrors-joomeco__name-webapp` with 9 433 nodes written during that run. The tools were composed, granted to `qa-generator`, and never called.
+The last e2e run (`run-75f5390`) had the structural signal on. Inside the orchestrator, the store held `app-.mirrors-joomeco__name-webapp` with 9 433 nodes written during that run. The tools were composed, granted to `qa-generator`, and never called.
 
 ### 2.2 The mechanism: the steering was never in the context
 
@@ -238,7 +238,7 @@ The adoption failure is an interface failure, and a tool description is a weak i
 
 - The orchestrator puts the engine's read-equivalent answer for the change's top symbols into `static-signal`, inside its existing budget. This works for any model.
 - `explore` remains for follow-up questions, with the steering as a linted prompt layer.
-- The dossier is on by default: the owner made the code graph part of the grounding (`odd/tasks/codegraph-migration.md`, L38); an app or a run can still turn it off.
+- The dossier is always on: the code graph is part of every run's grounding, and no app or run setting switches it off. A run whose graph could not be built is degraded (no structural block), not switched. An app declares only what the index leaves out (`qa.structuralSignals.exclude`).
 
 ### 3.6 The gate
 

@@ -10,17 +10,7 @@ export function toolsApply(target: TestTarget, app: Pick<AppConfig, "dev">): boo
   return target !== "code" && Boolean(app.dev?.baseUrl);
 }
 
-export type StructuralSignalsMode = "off" | "signal";
-
-export function structuralSignalsMode(app: Pick<AppConfig, "qa">): StructuralSignalsMode {
-  return app.qa.structuralSignals?.mode ?? "signal";
-}
-
-export function structuralSignalsOn(app: Pick<AppConfig, "qa">): boolean {
-  return structuralSignalsMode(app) !== "off";
-}
-
-/* The service-topology collaborator and cross-repo impact (the "stitcher") are wired only for an app with services and declared boundaries, under an advisory signal that is on. */
-export function serviceTopologyWired(app: Pick<AppConfig, "qa" | "services" | "boundaries">): boolean {
-  return structuralSignalsOn(app) && (app.services?.length ?? 0) > 0 && (app.boundaries?.length ?? 0) > 0;
+/* The service-topology collaborator and cross-repo impact (the "stitcher") are wired only for an app with services and declared boundaries. */
+export function serviceTopologyWired(app: Pick<AppConfig, "services" | "boundaries">): boolean {
+  return (app.services?.length ?? 0) > 0 && (app.boundaries?.length ?? 0) > 0;
 }

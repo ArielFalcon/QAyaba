@@ -107,43 +107,23 @@ test("rejects duplicate service repos", () => {
   );
 });
 
-test("qa.structuralSignals absent leaves the field undefined (factory defaults to 'signal')", () => {
+test("qa.structuralSignals absent leaves the field undefined (the code graph is wired for every app)", () => {
   const cfg = AppConfigSchema.parse(base);
   assert.equal(cfg.qa.structuralSignals, undefined);
 });
 
-test("qa.structuralSignals mode 'off' parses", () => {
-  const cfg = AppConfigSchema.parse({
-    ...base,
-    qa: { ...base.qa, structuralSignals: { mode: "off" } },
-  });
-  assert.equal(cfg.qa.structuralSignals?.mode, "off");
+test("qa.structuralSignals declares only what the index leaves out", () => {
+  const cfg = AppConfigSchema.parse({ ...base, qa: { ...base.qa, structuralSignals: { exclude: ["dist/**"] } } });
+  assert.deepEqual(cfg.qa.structuralSignals?.exclude, ["dist/**"]);
 });
 
-test("qa.structuralSignals mode 'signal' parses", () => {
-  const cfg = AppConfigSchema.parse({
-    ...base,
-    qa: { ...base.qa, structuralSignals: { mode: "signal" } },
-  });
-  assert.equal(cfg.qa.structuralSignals?.mode, "signal");
-});
-
-test("qa.structuralSignals mode 'enforce' fails loudly (advisory signals have no block semantics)", () => {
-  assert.throws(() =>
-    AppConfigSchema.parse({
-      ...base,
-      qa: { ...base.qa, structuralSignals: { mode: "enforce" } },
-    }),
-  );
-});
-
-test("qa.structuralSignals rejects any mode outside off|signal", () => {
-  assert.throws(() =>
-    AppConfigSchema.parse({
-      ...base,
-      qa: { ...base.qa, structuralSignals: { mode: "bogus" } },
-    }),
-  );
+test("qa.structuralSignals rejects the keys that used to switch the signal or the dossier, naming the key", () => {
+  for (const key of ["mode", "dossier"]) {
+    assert.throws(
+      () => AppConfigSchema.parse({ ...base, qa: { ...base.qa, structuralSignals: { exclude: [], [key]: key === "mode" ? "off" : false } } }),
+      (err: Error) => err.message.includes(key),
+    );
+  }
 });
 
 /*

@@ -861,6 +861,39 @@ test("buildEngine wires structuralSignal when the code graph and the co-change h
   assert.equal(outcome.verdict, "pass");
 });
 
+test("buildEngine wires the change dossier whenever the code graph's explore is supplied: its source of the changed symbols reaches OpencodeRunInput.staticSignal", async () => {
+  const asked: Array<readonly string[]> = [];
+  const seen: Array<string | undefined> = [];
+  const cfg = fakeConfig({
+    mode: "diff",
+    codeGraph: recordingCodeGraph().codeGraph,
+    codeExplore: { explore: async (_repo, terms) => { asked.push(terms); return ok({ text: ["**`src/x.ts`** — 1 symbol", "```ts", "3\tdossier-marker-line", "```"].join("\n"), indexedSha: "abc1234" }); } },
+    coChange: quietCoChange,
+    vcs: {
+      blastRadius: async (sha) => BlastRadius.of(sha, ["src/x.ts"]),
+      message: async () => "feat: add x",
+      diff: async () => "diff --git a/src/x.ts b/src/x.ts\n+ handleX();",
+    },
+    generationUseCase: {
+      author: async (input) => {
+        seen.push(input.staticSignal);
+        return { specs: ["a.spec.ts"], end: GENERATION_END.DELIVERED };
+      },
+    },
+  });
+  await buildEngine(cfg).run({
+    app: "app",
+    sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
+    source: "manual",
+    mode: "diff",
+    target: "e2e",
+    runId: "engine-root-structural-dossier",
+  });
+  assert.ok(asked.length > 0, "the explore was asked for the changed symbols");
+  assert.match(seen[0] ?? "", /dossier-marker-line/);
+});
+
 test("buildEngine: a graph that knows only co-change files for the diff gives a signal with no symbol flag on OpencodeRunInput", async () => {
   const seen: Array<{ signal: string | undefined; flag: boolean | undefined; hasFlagKey: boolean }> = [];
   const cfg = fakeConfig({

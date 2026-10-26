@@ -13,7 +13,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { TestTarget } from "@kernel/run-mode";
 import { isCaptureMode, type CaptureMode } from "@kernel/telemetry/capture-mode";
-import { serviceTopologyWired, structuralSignalsMode, toolsApply } from "./run-config-gates";
+import { serviceTopologyWired, toolsApply } from "./run-config-gates";
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { EffectiveConfig, GroundingInput } from "../contract/commands";
 import type { AgentRoleFacts } from "./persistence/repositories/telemetry.repository";
@@ -51,8 +51,6 @@ export function resolveRunConfig(app: AppConfig, target: TestTarget, request: Ru
   const tools = toolsApply(target, app);
   const closedLoopAsked = request.closedLoop ?? app.qa.closedLoop?.enabled === true;
   const agentBrowserAsked = request.agentBrowser ?? app.qa.agentBrowser?.enabled === true;
-  /* The run's own choice wins over the app's mode, either way. */
-  const structuralMode = request.grounding?.structuralSignal === true ? "signal" : structuralSignalsMode(app);
   const stitched = serviceTopologyWired(app);
   const requestedGrounding = request.grounding ?? {};
   return {
@@ -66,12 +64,9 @@ export function resolveRunConfig(app: AppConfig, target: TestTarget, request: Ru
     prompt: { staticHash: env.staticPromptHash() },
     grounding: {
       /* The service-topology collaborator is one of the two advisory structural signals: it exists only for an app with services and declared boundaries. */
-      stitcher: stitched ? (requestedGrounding.stitcher === false ? "off" : structuralMode) : null,
-      structuralSignal: requestedGrounding.structuralSignal === false ? "off" : structuralMode,
+      stitcher: stitched ? (requestedGrounding.stitcher === false ? "off" : "signal") : null,
       curriculum: env.campaignFrozen ? "frozen" : requestedGrounding.curriculum === false ? "off" : "learning",
       domPack: requestedGrounding.domPack ?? app.qa.domPack ?? true,
-      /* The dossier rides on the structural signal: with the signal off there is none to have. */
-      dossier: requestedGrounding.structuralSignal === false || structuralMode === "off" ? null : (requestedGrounding.dossier ?? app.qa.structuralSignals?.dossier ?? true),
     },
     coverage: { mode: app.qa.changeCoverage?.mode ?? DEFAULT_COVERAGE_MODE, minRatio: app.qa.changeCoverage?.minRatio ?? DEFAULT_COVERAGE_MIN_RATIO },
     reflector: env.reflectorEnabled && !env.campaignFrozen,
@@ -97,7 +92,7 @@ const NOT_RECORDED: StoredRunConfig = {
   campaignFreeze: null,
   runtime: null,
   prompt: { staticHash: null },
-  grounding: { stitcher: null, structuralSignal: null, curriculum: null, domPack: null, dossier: null },
+  grounding: { stitcher: null, curriculum: null, domPack: null },
   coverage: { mode: null, minRatio: null },
   reflector: null,
 };
@@ -114,10 +109,8 @@ export function parseStoredRunConfig(json: string | null | undefined): StoredRun
       /* Only the keys this version knows: a record written by an older one may carry others, which are left out. */
       grounding: {
         stitcher: parsed.grounding?.stitcher ?? null,
-        structuralSignal: parsed.grounding?.structuralSignal ?? null,
         curriculum: parsed.grounding?.curriculum ?? null,
         domPack: parsed.grounding?.domPack ?? null,
-        dossier: parsed.grounding?.dossier ?? null,
       },
       coverage: { ...NOT_RECORDED.coverage, ...(parsed.coverage ?? {}) },
       reflector: parsed.reflector ?? null,

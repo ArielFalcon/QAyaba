@@ -153,12 +153,9 @@ export const CampaignInputSchema = z.object({
 /* The run's own choice of grounding sources (an A/B arm); every key absent means the app's setting. */
 export const GroundingInputSchema = z.object({
   stitcher: z.boolean().optional(),
-  structuralSignal: z.boolean().optional(),
   curriculum: z.boolean().optional(),
   domPack: z.boolean().optional(),
-  /* The change dossier inside the structural block; meaningful only while the structural signal is on. */
-  dossier: z.boolean().optional(),
-});
+}).strict();
 export type GroundingInput = z.infer<typeof GroundingInputSchema>;
 
 export const CreateRunInputSchema = z.object({
@@ -650,10 +647,8 @@ export const EffectiveConfigSchema = z.object({
   prompt: z.object({ staticHash: z.string().nullable() }),
   grounding: z.object({
     stitcher: z.string().nullable(),
-    structuralSignal: z.string().nullable(),
     curriculum: z.string().nullable(),
     domPack: z.boolean().nullable(),
-    dossier: z.boolean().nullable(),
   }),
   coverage: z.object({ mode: z.string().nullable(), minRatio: z.number().nullable() }),
   reflector: z.boolean().nullable(),

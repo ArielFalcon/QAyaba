@@ -1030,7 +1030,7 @@ the contract above is unaffected:
   What makes an arm behave differently is **only** the explicit request levers (`closedLoop`,
   `agentBrowser`, `captureMode`) and the deployment's config.
   - Every run returns `effectiveConfig`: the levers actually applied, the agent models per role,
-    `prompt.static_hash`, the stitcher, structural-signal and curriculum settings, and
+    `prompt.static_hash`, the stitcher and curriculum settings, and
     `campaignFreeze`.
   - A consumer verifies that its arms really differed by comparing `effectiveConfig`, not labels.
   - Exact shape. Every key is always present; a setting that does not apply is `null`:
@@ -1044,7 +1044,7 @@ the contract above is unaffected:
         "qa-reviewer":  { "provider": "opencode-go", "model": "minimax-m3", "reasoningEffort": null, "stepLimit": 25 }
       },
       "prompt": { "staticHash": "sha256:…" },
-      "grounding": { "stitcher": "signal", "structuralSignal": "signal", "curriculum": "frozen" },
+      "grounding": { "stitcher": "signal", "curriculum": "frozen" },
       "coverage": { "mode": "signal", "minRatio": 0.7 },
       "reflector": false
     }
@@ -1057,11 +1057,11 @@ the contract above is unaffected:
     - `campaignFreeze`: `QA_CAMPAIGN_FREEZE`. `runtime`: the provider of the primary (authoring) role assignment at the start. `reflector`: the reflector switch and not frozen.
     - `agents`: from the run's own recorded agent turns. `provider` and `model` (the model that answered, else the one asked for) are what the runtime reported on the last turn that said; `stepLimit` is the largest step cap a prompt of that role stated (the live read). `reasoningEffort` is always `null`: OpenCode's live agent list (`GET /agent`) does not carry it, and the repo copy of the config is not a substitute.
     - `prompt.staticHash`: sha256 over `agents/AGENTS.md` and each `agents/agent/*.md`, in name order, read from the orchestrator's own copy of the repository. The agents container mounts the same folder read-only, so it is what it serves unless the two checkouts differ; `null` when the files cannot be read.
-    - `structuralSignal`: `qa.structuralSignals.mode` (default `signal`). `dossier`: the run's `grounding.dossier`, else `qa.structuralSignals.dossier`, default `true`; `null` while the structural signal is off (the change dossier, the engine's read-equivalent source of the change's top symbols inside the structural block, needs the code graph). `stitcher`: the same mode for an app with services and declared boundaries (the service-topology collaborator is one of the two advisory structural signals), else `null`. `curriculum`: `frozen` under a campaign freeze, else `learning`.
+    - `stitcher`: `signal` for an app with services and declared boundaries (the service-topology collaborator), `off` when the run's `grounding.stitcher` is `false`, else `null`. The code graph, and with it the structural block and the change dossier, is part of every run's grounding and has no key here. `curriculum`: `frozen` under a campaign freeze, else `learning`.
     - `coverage`: the policy the engine reported when the run ended (`runs.coverage_mode`, `coverage_min_ratio`), else the one the run started with (`qa.changeCoverage`).
   - A run that is enqueued and has not started yet has no recorded configuration: its `effectiveConfig` answers every leaf as `null` (and `agents` as `{}`). It fills in when the run starts.
   - `prompt.staticHash` is computed once per process, on the first run that needs it, and kept. After editing `agents/AGENTS.md` or a role file, restart the orchestrator to see the new hash on later runs.
-  - `gateSignals`-level reductions aside, a run's `effectiveConfig` reports the same predicates the engine factory wires with (`src/server/run-config-gates.ts`: tools apply, service topology wired, structural-signal mode), so the two cannot drift.
+  - `gateSignals`-level reductions aside, a run's `effectiveConfig` reports the same predicates the engine factory wires with (`src/server/run-config-gates.ts`: tools apply, service topology wired), so the two cannot drift.
   - On the trace root, `qayaba.campaign.variant.<key>` spells a dot in a label key as an underscore (a registry template key is one dot-free segment); the stored and echoed variant keeps the key as given. Two keys that differ only by `.` versus `_` (`a.b`, `a_b`) collapse onto the same attribute on the trace, so keep a campaign's variant keys free of that ambiguity; the API response is exact. Label values and keys are limited to `[A-Za-z0-9_.:-]`, up to 64 characters, 16 keys, and `__proto__` is refused.
 - **`captureMode`** is capped by the server's `QA_TELEMETRY_MAX_CAPTURE` (§9.2): `off`, `metadata` (the default) or `full`; a mistyped value stops the boot. The applied value
   is in `effectiveConfig`.

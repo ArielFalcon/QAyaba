@@ -164,7 +164,7 @@ import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastru
 import type { LearningStorePort } from "@contexts/cross-run-learning/application/index";
 import { recordIncident } from "./maintainer";
 import { resolveCampaignFreeze } from "./campaign-freeze";
-import { serviceTopologyWired, structuralSignalsOn as structuralSignalsOnFor, toolsApply } from "./run-config-gates";
+import { serviceTopologyWired, toolsApply } from "./run-config-gates";
 import { resolveReflectorEnabled } from "./reflector-switch";
 import { ReflectorPortAdapter, REFLECT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter";
 import { ProcessAuditPortAdapter } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter";
@@ -834,13 +834,8 @@ export function buildEngineRootDeps(
 
 
   const grounding = run.grounding;
-  /* The run's own choice wins over the app's mode, either way. */
-  const asked = grounding?.structuralSignal;
-  const structuralSignalsOn = asked === false || asked === "off" ? false : asked === true || asked === "signal" ? true : structuralSignalsOnFor(app);
   /* The run's code graph (one instance: the index phase builds it, the structural signal and the cross-repo impact read it). */
-  const codeGraph = structuralSignalsOn
-    ? codeGraphFor({ exec, git: runner, dataDir, sandbox: codeSandbox, processKill: new ProcessKillAdapter() })(app.name, app.qa.structuralSignals?.exclude ?? [])
-    : undefined;
+  const codeGraph = codeGraphFor({ exec, git: runner, dataDir, sandbox: codeSandbox, processKill: new ProcessKillAdapter() })(app.name, app.qa.structuralSignals?.exclude ?? []);
   const serviceTopologyOn = grounding?.stitcher === false || grounding?.stitcher === "off" ? false : serviceTopologyWired(app);
   const toolsApplyToRun = toolsApply(target, app);
 
@@ -1171,17 +1166,17 @@ export function buildEngineRootDeps(
      */
     codeGraphRepoDir: vcsDir,
 
-    ...(codeGraph ? { codeGraph, codeExplore: codeGraph, coChange: new GitCoChangeAdapter(runner) } : {}),
-    /* The change dossier rides on the structural signal; off unless the run or the app turns it on (its default is decided by measurement). */
-    ...(codeGraph && (grounding?.dossier ?? app.qa.structuralSignals?.dossier) !== false ? { structuralDossier: true } : {}),
+    codeGraph,
+    codeExplore: codeGraph,
+    coChange: new GitCoChangeAdapter(runner),
     /* A service-triggered run indexes the primary repo too, at the commit it is checked out at. */
     /* The repos the lead's code-graph tool answers over: the classify-source repo, then every other entry of the change. */
-    ...(codeGraph && companionServices.length > 0
+    ...(companionServices.length > 0
       ? { codeGraphRepos: [{ repo: triggerService?.repo ?? app.repo, repoDir: vcsDir }, ...companionServices.map((c) => ({ repo: c.service.repo, repoDir: join(mirrorRoot, c.service.repo.replaceAll("/", "__")) }))] }
       : {}),
     /* Each other service of a run over several repos is indexed at its head too. */
-    ...(codeGraph && companionServices.length > 0 ? { codeGraphRepoDirs: new Map(companionServices.map((c) => [c.service.repo, join(mirrorRoot, c.service.repo.replaceAll("/", "__"))])) } : {}),
-    ...(codeGraph && triggerService ? { codeGraphPrimary: { repo: app.repo, repoDir: mirrorDir, headSha: () => new GitMirrorReadAdapter(mirrorDir, runner).headSha() } } : {}),
+    ...(companionServices.length > 0 ? { codeGraphRepoDirs: new Map(companionServices.map((c) => [c.service.repo, join(mirrorRoot, c.service.repo.replaceAll("/", "__"))])) } : {}),
+    ...(triggerService ? { codeGraphPrimary: { repo: app.repo, repoDir: mirrorDir, headSha: () => new GitMirrorReadAdapter(mirrorDir, runner).headSha() } } : {}),
     /* The lead's code-graph tools' client. */
 
     ...(serviceTopologyOn && app.services
@@ -1255,7 +1250,7 @@ export function buildEngineRootDeps(
      * and store the agents container never holds. Only where the structural signal has the code graph, and only for a lead on
      * OpenCode.
      */
-    ...(deps.codeGraphRegistry && toolsApplyToRun && structuralSignalsOn
+    ...(deps.codeGraphRegistry && toolsApplyToRun
       ? {
           codeGraphTools: {
             registry: deps.codeGraphRegistry,

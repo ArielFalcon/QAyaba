@@ -4,7 +4,7 @@
  * exits with the run's verdict.
  * npm run qa -- --app <app> --sha <sha> [--mode diff|complete|exhaustive|manual|context]
  * [--target e2e|code] [--guidance "..."] [--closed-loop on|off]
- * [--agent-browser on|off] [--dom-pack on|off] [--structural-signal on|off] [--dossier on|off]
+ * [--agent-browser on|off] [--dom-pack on|off]
  * npm run qa -- --app <app> --learning   → show learning state (outcomes, rules, curriculum)
  * IMPORTANT: this CLI uses its OWN in-process queue. If the long-lived service is also
  * running on this host it has a SEPARATE queue, so a CLI run could execute QA against DEV
@@ -109,7 +109,7 @@ function cliApiToken(): string | undefined {
  */
 /** The run handed to the service. Carries --base-sha so the delegated run's diff spans the same range the standalone CLI and the webhook use. */
 export function delegateRunInput(
-  args: { app: string; sha: string; baseSha?: string; mode: RunMode; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; domPack?: boolean; structuralSignal?: boolean; dossier?: boolean },
+  args: { app: string; sha: string; baseSha?: string; mode: RunMode; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; domPack?: boolean },
   target: TestTarget,
 ): DelegateRunInput {
   return {
@@ -126,16 +126,14 @@ export function delegateRunInput(
 }
 
 /** The run's own grounding choices (A/B arms), present only when one was given so the app's settings decide the rest. */
-function groundingOf(args: { domPack?: boolean; structuralSignal?: boolean; dossier?: boolean }): { grounding?: GroundingInput } {
+function groundingOf(args: { domPack?: boolean }): { grounding?: GroundingInput } {
   const grounding: GroundingInput = {
-    ...(args.structuralSignal !== undefined ? { structuralSignal: args.structuralSignal } : {}),
-    ...(args.dossier !== undefined ? { dossier: args.dossier } : {}),
     ...(args.domPack !== undefined ? { domPack: args.domPack } : {}),
   };
   return Object.keys(grounding).length > 0 ? { grounding } : {};
 }
 
-async function runViaService(args: { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; domPack?: boolean; structuralSignal?: boolean; dossier?: boolean }): Promise<void> {
+async function runViaService(args: { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; domPack?: boolean }): Promise<void> {
   const port = cliSettings().server.port;
   const baseUrl = `http://localhost:${port}`;
   const appCfg = loadAppConfig(args.app);
@@ -284,27 +282,25 @@ function printRunReport(record: RunRecord, appCfg: ReturnType<typeof loadAppConf
 
 const TARGETS: TestTarget[] = ["e2e", "code"];
 
-/** An on|off flag: absent when not passed; any other value exits. */
-function onOff(out: Record<string, string>, flag: string): boolean | undefined {
-  const value = out[flag];
-  if (value === undefined) return undefined;
-  if (value === "on" || value === "off") return value === "on";
-  console.error(`--${flag} takes "on" or "off"`);
-  process.exit(2);
-}
+/** Every flag the CLI reads; any other is refused rather than silently ignored. */
+const KNOWN_FLAGS: ReadonlySet<string> = new Set(["app", "sha", "base-sha", "mode", "target", "guidance", "closed-loop", "agent-browser", "dom-pack", "learning"]);
 
-export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; domPack?: boolean; structuralSignal?: boolean; dossier?: boolean; learning: boolean } {
+export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; domPack?: boolean; learning: boolean } {
   const out: Record<string, string> = {};
   let learning = false;
   for (let i = 0; i < argv.length; i++) {
     const key = argv[i]?.replace(/^--/, "");
+    if (key && !KNOWN_FLAGS.has(key)) {
+      console.error(`Unknown argument --${key}`);
+      process.exit(2);
+    }
     if (key === "learning") { learning = true; continue; }
     if (key) out[key] = argv[i + 1] ?? "";
     if (key) i++;  /* skip value */
   }
   if (!learning && (!out.app || !out.sha)) {
     console.error(
-      `Usage: npm run qa -- --app <app> --sha <sha> [--base-sha <sha>] [--mode ${RUN_MODES.join("|")}] [--target e2e|code] [--guidance "..."] [--closed-loop on|off] [--agent-browser on|off] [--dom-pack on|off] [--structural-signal on|off] [--dossier on|off]`,
+      `Usage: npm run qa -- --app <app> --sha <sha> [--base-sha <sha>] [--mode ${RUN_MODES.join("|")}] [--target e2e|code] [--guidance "..."] [--closed-loop on|off] [--agent-browser on|off] [--dom-pack on|off]`,
     );
     console.error('       npm run qa -- --app <app> --learning');
     process.exit(2);
@@ -334,10 +330,7 @@ export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?:
     console.error('--dom-pack takes "on" or "off"');
     process.exit(2);
   }
-  /* The run's own choices about the structural block and its change dossier (the ablation's arms); absent unless given, so the app's settings decide. */
-  const structuralSignal = onOff(out, "structural-signal");
-  const dossier = onOff(out, "dossier");
-  return { app: out.app ?? "", sha: out.sha ?? "", baseSha: out["base-sha"] || undefined, mode, target, guidance: out.guidance, ...(closedLoop !== undefined ? { closedLoop } : {}), ...(agentBrowser !== undefined ? { agentBrowser } : {}), ...(domPack !== undefined ? { domPack } : {}), ...(structuralSignal !== undefined ? { structuralSignal } : {}), ...(dossier !== undefined ? { dossier } : {}), learning };
+  return { app: out.app ?? "", sha: out.sha ?? "", baseSha: out["base-sha"] || undefined, mode, target, guidance: out.guidance, ...(closedLoop !== undefined ? { closedLoop } : {}), ...(agentBrowser !== undefined ? { agentBrowser } : {}), ...(domPack !== undefined ? { domPack } : {}), learning };
 }
 
 function showLearning(app: string): void {

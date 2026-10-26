@@ -2732,16 +2732,10 @@
               "stitcher": {
                 "type": "boolean"
               },
-              "structuralSignal": {
-                "type": "boolean"
-              },
               "curriculum": {
                 "type": "boolean"
               },
               "domPack": {
-                "type": "boolean"
-              },
-              "dossier": {
                 "type": "boolean"
               }
             },
@@ -6283,10 +6277,6 @@
                     "nullable": true,
                     "type": "string"
                   },
-                  "structuralSignal": {
-                    "nullable": true,
-                    "type": "string"
-                  },
                   "curriculum": {
                     "nullable": true,
                     "type": "string"
@@ -6294,18 +6284,12 @@
                   "domPack": {
                     "nullable": true,
                     "type": "boolean"
-                  },
-                  "dossier": {
-                    "nullable": true,
-                    "type": "boolean"
                   }
                 },
                 "required": [
                   "stitcher",
-                  "structuralSignal",
                   "curriculum",
-                  "domPack",
-                  "dossier"
+                  "domPack"
                 ],
                 "additionalProperties": false
               },

@@ -835,10 +835,8 @@ export interface components {
             captureMode?: "off" | "metadata" | "full";
             grounding?: {
                 stitcher?: boolean;
-                structuralSignal?: boolean;
                 curriculum?: boolean;
                 domPack?: boolean;
-                dossier?: boolean;
             };
         };
         CreateRunResult: {
@@ -1638,10 +1636,8 @@ export interface components {
                 };
                 grounding: {
                     stitcher: string | null;
-                    structuralSignal: string | null;
                     curriculum: string | null;
                     domPack: boolean | null;
-                    dossier: boolean | null;
                 };
                 coverage: {
                     mode: string | null;

@@ -377,7 +377,7 @@ docker compose exec orchestrator npm run baseline-agent -- --app name-webapp \
 
 | Figure | Meaning |
 |---|---|
-| `serviceLinksCount`, `contractDriftCount`, `structuralSignalBytes`, `crossRepoImpactedCount` | the run's recorded gate signals; `n/a` when the resolver was not wired (it needs `services[]` and `boundaries[]` in the app and `qa.structuralSignals.mode` not `off`), and always `n/a` for arm A, which has no stitcher |
+| `serviceLinksCount`, `contractDriftCount`, `structuralSignalBytes`, `crossRepoImpactedCount` | the run's recorded gate signals; `n/a` when the resolver was not wired (it needs `services[]` and `boundaries[]` in the app), and always `n/a` for arm A, which has no stitcher |
 | prompt `service-links`, `blast-radius`, `co-change` bytes | whether the generator's first-pass prompt carried each advisory section (`absent` or its bytes, up to the next level-2 heading); for arm A it is its own prompt, so always `absent` |
 | ground truth, per source | **files read** (content reads of every agent turn; a path matches by its tail, so absolute paths and `:line` suffixes count) and **spec routes** (`page.goto` literals of the generated specs, origin, query and trailing slash removed; a route built at run time is counted in `dynamicGotos` and not scored) |
 | `hits`, `misses`, `false positives` | affected items reached, affected items not reached, and items the ground truth says are not affected that the source named |

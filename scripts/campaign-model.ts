@@ -187,8 +187,8 @@ export function parseArguments(argv: readonly string[]): ParsedArguments {
   if (values["--grounding"] !== undefined) {
     for (const pair of values["--grounding"].split(",")) {
       const [key, value] = pair.split("=");
-      if (!["stitcher", "structuralSignal", "curriculum"].includes(key ?? "") || (value !== "on" && value !== "off")) {
-        return { ok: false, problem: "error: --grounding takes comma-separated stitcher|structuralSignal|curriculum=on|off" };
+      if (!["stitcher", "curriculum"].includes(key ?? "") || (value !== "on" && value !== "off")) {
+        return { ok: false, problem: "error: --grounding takes comma-separated stitcher|curriculum=on|off" };
       }
       grounding[key as keyof GroundingInput] = value === "on";
     }

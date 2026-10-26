@@ -221,7 +221,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
     groundingCollaborators: "IS supplied ({} — resolves to the real production default per this factory's own header) — asserted below as a present case.",
     reviewDomGroundingCollaborators: "IS supplied ({}) — asserted below as a present case.",
     serviceTopology: "supplied ONLY when app.services?.length && app.boundaries?.length are both present (asserted below as a present-when-given case, ADR-6) — legitimately absent for single-repo apps or apps that never declared a cross-service boundary profile. Mirrors the 'observer' precedent immediately below: supplied only when the caller/config provides it.",
-    crossRepoImpact: "supplied ONLY under the SAME structuralSignalsOn && app.services?.length && app.boundaries?.length gate serviceTopology uses — legitimately absent for single-repo apps, apps with no declared boundary profile, or when structuralSignals.mode is 'off'.",
+    crossRepoImpact: "supplied ONLY under the SAME app.services?.length && app.boundaries?.length gate serviceTopology uses — legitimately absent for single-repo apps and apps with no declared boundary profile, or when the run's grounding.stitcher is false.",
     contextMap: "DELIBERATELY absent — see this fn's own header: no per-run mirrorDir/diff exists yet at composition-build time to read e2e/.qa/context.json from. Documented graceful degradation, not a drop.",
     prChangedFiles: "DELIBERATELY absent — same reason as contextMap (per-run intent.changedFiles doesn't exist yet at composition-build time).",
     domPack: "IS supplied (defaulted true: run.grounding.domPack ?? app.qa.domPack ?? true) — asserted below as a present case.",
@@ -266,7 +266,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
        immediately above. Asserted below as a present case.
      */
     curriculumPort: "IS supplied (CurriculumPortAdapter over the learning repository's loadCurriculum/saveCurriculum) — asserted below as a present case.",
-    codeGraph: "IS supplied when qa.structuralSignals.mode is not 'off' (factory default 'signal') — the run's one code-graph adapter, indexed by the index phase and read by the structural signal and the cross-repo impact. Asserted below as a present-when-default case.",
+    codeGraph: "IS supplied for every app — the run's one code-graph adapter, indexed by the index phase and read by the structural signal and the cross-repo impact. Asserted below as a present-when-default case.",
     codeExplore: "IS supplied with codeGraph (the same code-graph adapter instance, so it reads the index the run built) — the lead's code-graph tool and the change dossier read it. Asserted below as a present-when-default case.",
     coChange: "IS supplied with codeGraph (GitCoChangeAdapter over the trusted git runner). Asserted below as a present-when-default case.",
     codeGraphPrimary: "Supplied only on a service-triggered run (the primary repo, indexed too); this fixture is a same-repo run, so it is absent.",

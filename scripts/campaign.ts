@@ -211,7 +211,7 @@ const USAGE = [
   "  --wall-cap-min       wall cap per arm-run, equal for every arm (default 30)",
   "  --closed-loop        the pipeline arm's own choice about the run_spec loop, for an A/B of the loop (a diff case only: a cross-repo case enters through the webhook, which cannot carry it)",
   "  --agent-browser      the pipeline arm's own choice about the authenticated agent browser, for an A/B of the tools (a diff case only, like --closed-loop)",
-  "  --grounding          comma-separated stitcher|structuralSignal|curriculum=on|off, for an A/B of grounding sources (reuse the campaign label across invocations to compare variants)",
+  "  --grounding          comma-separated stitcher|curriculum=on|off, for an A/B of grounding sources (reuse the campaign label across invocations to compare variants)",
   "  --allow-non-shadow   run the pipeline on an app whose config is not shadow (a webhook cannot ask for shadow)",
   "  --skip-env-checks    do not require QA_CAMPAIGN_FREEZE in this process (the server was started with it another way)",
   "  --dry-run            check everything and print the plan; run nothing",
@@ -371,7 +371,7 @@ export function campaignOf(args: Pick<CampaignArguments, "label" | "closedLoop" 
   const lever = (value: boolean | undefined): string => (value === undefined ? "default" : value ? "on" : "off");
   const grounding = args.grounding === undefined
     ? "default"
-    : ["stitcher", "structuralSignal", "curriculum"].map((key) => {
+    : ["stitcher", "curriculum"].map((key) => {
         const value = args.grounding?.[key as keyof GroundingInput];
         return value === undefined ? "d" : value ? "1" : "0";
       }).join("");

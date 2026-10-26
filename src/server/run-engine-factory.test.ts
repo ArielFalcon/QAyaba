@@ -1165,18 +1165,6 @@ test("the lead's code-graph tool redacts real secrets and the run's own secret v
   }
 });
 
-test("qa.structuralSignals mode 'off' supplies no code graph, so nothing is indexed", () => {
-  const app: AppConfig = {
-    ...cfg("factory-code-graph-off"),
-    qa: { ...cfg("factory-code-graph-off").qa, structuralSignals: { mode: "off" } },
-  };
-  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.equal(config.codeGraph, undefined);
-  assert.equal(config.coChange, undefined);
-  assert.equal(config.codeExplore, undefined);
-  assert.equal("codebaseMemory" in config, false, "the lead's code-graph tool is served from the code-graph store, not a separate client");
-});
-
 test("buildEngineRootDeps sets mode from the passed run param, not a hardcoded 'diff'", () => {
   const app = cfg("factory-mode-manual");
   const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "manual" });
@@ -1275,59 +1263,7 @@ test("buildEngineRootDeps omits serviceTopology when neither services[] nor boun
   assert.equal(config.serviceTopology, undefined);
 });
 
-/* qa.structuralSignals calibration gate: mode "off" must omit BOTH advisory collaborators
-   (codeGraph + codeExplore + serviceTopology), never just one (the named half-gate hazard). Default
-   (absent/"signal") stays byte-identical to today's behavior.
- */
-
-test("qa.structuralSignals mode 'off' omits BOTH the code graph (with its explore) and serviceTopology (the half-gate hazard — asserting both, not just one)", () => {
-  const app: AppConfig = {
-    ...cfg("factory-structural-signals-off"),
-    qa: { ...cfg("factory-structural-signals-off").qa, structuralSignals: { mode: "off" } },
-    services: [{ repo: "org/ms-orders" }],
-    boundaries: [
-      {
-        transport: "http",
-        frontFiles: "*.api.ts",
-        frontCallSite: { kind: "receiver-verb-call" },
-        servicePrefixTemplate: "name-{service}-api",
-        serviceRepoTemplate: "ms-name-{service}",
-        openApiPath: "openapi.yaml",
-      },
-    ],
-  } as AppConfig;
-  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.equal(config.codeExplore, undefined, "mode:off must omit the code-graph explore the lead's tool reads");
-  assert.equal(config.codeGraph, undefined, "mode:off must omit the code graph");
-  assert.equal(config.serviceTopology, undefined, "mode:off must omit serviceTopology even though services[]+boundaries[] are both declared");
-  assert.equal(config.crossRepoImpact, undefined, "mode:off must omit crossRepoImpact too — all three structural collaborators share the one gate");
-});
-
-test("the change dossier is on by default wherever the code graph is wired, and off only when the run or the app turns it off", () => {
-  const plain = cfg("factory-dossier");
-  const withDossier = { ...plain, qa: { ...plain.qa, structuralSignals: { mode: "signal", dossier: true } } } as AppConfig;
-  const appOff = { ...plain, qa: { ...plain.qa, structuralSignals: { mode: "signal", dossier: false } } } as AppConfig;
-  const build = (app: AppConfig, grounding?: { dossier?: boolean; structuralSignal?: boolean }) =>
-    buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", ...(grounding ? { grounding } : {}) });
-  assert.equal(build(plain).structuralDossier, true, "on by default");
-  assert.equal(build(appOff).structuralDossier, undefined, "the app turns it off");
-  assert.equal(build(appOff, { dossier: true }).structuralDossier, true, "the run turns it back on");
-  assert.equal(build(withDossier).structuralDossier, true);
-  assert.equal(build(plain, { dossier: true }).structuralDossier, true);
-  assert.equal(build(withDossier, { dossier: false }).structuralDossier, undefined);
-  assert.equal(build(withDossier, { structuralSignal: false }).structuralDossier, undefined, "no code graph, no dossier");
-});
-
-test("a run that asks for the structural signal gets the code graph even where the app has it off", () => {
-  const plain = cfg("factory-structural-asked");
-  const off = { ...plain, qa: { ...plain.qa, structuralSignals: { mode: "off" } } } as AppConfig;
-  const build = (grounding?: { structuralSignal?: boolean }) =>
-    buildEngineRootDeps(off, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", ...(grounding ? { grounding } : {}) });
-  assert.equal(build().codeGraph, undefined);
-  assert.notEqual(build({ structuralSignal: true }).codeGraph, undefined);
-});
-
-test("buildEngineRootDeps supplies crossRepoImpact under the SAME gate as serviceTopology (signal + services[] + boundaries[])", () => {
+test("buildEngineRootDeps supplies crossRepoImpact under the SAME gate as serviceTopology (services[] + boundaries[])", () => {
   const app: AppConfig = {
     ...cfg("factory-cross-repo-impact-active"),
     services: [{ repo: "org/ms-orders" }],
@@ -1343,7 +1279,7 @@ test("buildEngineRootDeps supplies crossRepoImpact under the SAME gate as servic
     ],
   } as AppConfig;
   const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.ok(config.crossRepoImpact, "crossRepoImpact must be supplied when structuralSignals is not off and BOTH services[] and boundaries[] are declared");
+  assert.ok(config.crossRepoImpact, "crossRepoImpact must be supplied when BOTH services[] and boundaries[] are declared");
   assert.equal(typeof config.crossRepoImpact?.mirrorRoot, "string", "crossRepoImpact must carry the mirrorRoot the factory already computes");
   assert.ok(config.crossRepoImpact?.runner, "crossRepoImpact must reuse a real runner instance for the fetch step");
 
@@ -1356,42 +1292,32 @@ test("buildEngineRootDeps supplies crossRepoImpact under the SAME gate as servic
   assert.equal(noServices.crossRepoImpact, undefined, "no services[]/boundaries[] declared must leave crossRepoImpact undefined");
 });
 
-test("qa.structuralSignals absent supplies the code graph and its explore unconditionally (byte-identical to pre-change behavior)", () => {
-  const app = cfg("factory-structural-signals-absent");
-  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+test("a run's stitcher lever still takes the service topology and the cross-repo impact out, and leaves the code graph wired", () => {
+  const app: AppConfig = {
+    ...cfg("factory-stitcher-lever"),
+    services: [{ repo: "org/ms-orders" }],
+    boundaries: [{ transport: "http", frontFiles: "*.api.ts", frontCallSite: { kind: "receiver-verb-call" }, servicePrefixTemplate: "name-{service}-api", serviceRepoTemplate: "ms-name-{service}", openApiPath: "openapi.yaml" }],
+  } as AppConfig;
+  const build = (grounding?: { stitcher?: boolean }) =>
+    buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" }, "qa-bot-abc1234-run1", { mode: "diff", ...(grounding ? { grounding } : {}) });
+  assert.ok(build().serviceTopology && build().crossRepoImpact);
+  const off = build({ stitcher: false });
+  assert.equal(off.serviceTopology, undefined);
+  assert.equal(off.crossRepoImpact, undefined);
+  assert.ok(off.codeGraph);
+});
+
+test("every app is wired with the code graph, its explore (the change dossier) and the co-change history, whatever its structuralSignals declaration", () => {
+  const plain = cfg("factory-structural-signals-absent");
+  const declared = { ...plain, qa: { ...plain.qa, structuralSignals: { exclude: ["dist/**"] } } } as AppConfig;
+  for (const app of [plain, declared]) {
+    const wired = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+    assert.ok(wired.codeGraph && wired.codeExplore && wired.coChange);
+  }
+  const config = buildEngineRootDeps(plain, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(config.codeExplore, "absent config supplies the explore the lead's tool reads");
   assert.equal(config.codeExplore, config.codeGraph, "the explore reads the very index the run builds: one instance");
   assert.ok(config.codeGraph, "absent config supplies the code graph");
-});
-
-test("qa.structuralSignals mode 'signal' supplies the code graph and its explore unconditionally (explicit default, same as absent)", () => {
-  const app: AppConfig = {
-    ...cfg("factory-structural-signals-signal"),
-    qa: { ...cfg("factory-structural-signals-signal").qa, structuralSignals: { mode: "signal" } },
-  };
-  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.ok(config.codeExplore, "mode:signal supplies the explore — same as absent");
-  assert.ok(config.codeGraph, "mode:signal supplies the code graph");
-});
-
-test("qa.structuralSignals mode 'signal' still supplies serviceTopology when services[]+boundaries[] are both declared (AND-gate unaffected)", () => {
-  const app: AppConfig = {
-    ...cfg("factory-structural-signals-signal-topology"),
-    qa: { ...cfg("factory-structural-signals-signal-topology").qa, structuralSignals: { mode: "signal" } },
-    services: [{ repo: "org/ms-orders" }],
-    boundaries: [
-      {
-        transport: "http",
-        frontFiles: "*.api.ts",
-        frontCallSite: { kind: "receiver-verb-call" },
-        servicePrefixTemplate: "name-{service}-api",
-        serviceRepoTemplate: "ms-name-{service}",
-        openApiPath: "openapi.yaml",
-      },
-    ],
-  } as AppConfig;
-  const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.ok(config.serviceTopology, "mode:signal must not disturb the pre-existing services[]+boundaries[] AND-gate");
 });
 
 test("createRunEngineFactory forwards its 4th (observer) argument to buildEngineRootDeps on every call", () => {

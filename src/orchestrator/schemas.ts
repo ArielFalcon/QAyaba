@@ -256,18 +256,14 @@ export const AppConfigSchema = z
        */
       valueOracle: z.enum(["off", "signal"]).optional(),
       /*
-       * Advisory structural-signal calibration. off = disable BOTH advisory collaborators
-       * (the code graph + serviceTopology) at the factory; signal (default) = both on.
-       * NO `enforce`: advisory signals have no block semantics.
+       * The code graph is part of every run's grounding (ADR-0002); the app declares only its scope.
+       * `exclude`: repo-relative globs kept out of the index (generated or vendored source the app commits).
        */
       structuralSignals: z
         .object({
-          mode: z.enum(["off", "signal"]),
-          /* Repo-relative globs kept out of the code-graph index (generated or vendored source the app commits). */
           exclude: z.array(z.string().min(1)).optional(),
-          /* The change dossier: the engine's read-equivalent source of the change's top symbols inside the structural block. On unless set to false: the code graph is part of the grounding (ADR-0002). */
-          dossier: z.boolean().optional(),
         })
+        .strict()
         .optional(),
       /*
        * Run-intelligence report tuning. `weights` overrides the ranker's per-insight interestingness

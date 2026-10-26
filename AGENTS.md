@@ -232,7 +232,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   a boot sweep ends a browser a previous process left. A prompt of an authoring session the run did not grant hides the tools
   (a per-prompt `tools` map, `openCodePromptBody`). The `Authenticated browser budget` prompt section (facts only) exists only
   when granted.
-- **Code-graph tools (`codegraph_*`)** — on for an e2e run whose structural signal is on. The
+- **Code-graph tools (`codegraph_*`)** — on for every e2e run (the code graph is part of the grounding, no setting switches it off). The
   lead (`qa-lead`) and the explorer (`qa-explore`) get the read-only code-graph tool (`codegraph_explore`, `agents/tool/codegraph.ts`) that POSTs to the same internal listener (`/internal/codegraph`, `QA_TOOLS_TOKEN`). The orchestrator admits
   the query (`agent-tools/domain/code-graph-query.ts`: known keys, bounded values, no free graph query, nothing that
   indexes or deletes), binds it to the repositories of the run's change (the graph holds every app's code and is never mounted into the agents
