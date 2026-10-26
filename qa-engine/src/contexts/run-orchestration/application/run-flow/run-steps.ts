@@ -12,7 +12,7 @@ import type { FlowStep } from "./run-flow.ts";
 import type { RunContext, WorkspaceRunContext } from "./run-context.ts";
 import { runOf, type RunState } from "./run-state.ts";
 import { cleanPriorRun, openAuthoringHandles, prepareLogin, restoreAcceptedSuite, setUpProject } from "./phases/setup.steps.ts";
-import { assembleEnrichment, groundRepository, readDiffShapes, resolveBlastRadius, resolveCrossRepoImpact, resolveServiceLinks, retrieveRules, selectExemplars } from "./phases/ground.steps.ts";
+import { assembleEnrichment, computeChangeScope, groundRepository, readDiffShapes, resolveBlastRadius, resolveCrossRepoImpact, resolveServiceLinks, retrieveRules, selectExemplars } from "./phases/ground.steps.ts";
 import {
   generateFirstPass,
   groundBeforeExecution,
@@ -46,6 +46,7 @@ export const IN_WORKSPACE: ReadonlyArray<FlowStep<RunState, WorkspaceRunContext>
   { id: "resolve-blast-radius", writes: ["grounding"], run: resolveBlastRadius },
   { id: "resolve-service-links", writes: ["grounding"], run: resolveServiceLinks },
   { id: "resolve-cross-repo-impact", writes: ["grounding"], run: resolveCrossRepoImpact },
+  { id: "compute-change-scope", writes: ["grounding"], run: computeChangeScope },
   { id: "ground-repository", writes: ["grounding"], run: groundRepository },
   { id: "assemble-enrichment", writes: ["grounding"], run: assembleEnrichment },
   { id: "generate-first-pass", writes: ["generation", "loops"], phase: "generate", run: generateFirstPass },

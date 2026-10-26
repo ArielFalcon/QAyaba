@@ -7305,7 +7305,7 @@ test("code-graph index: a service-triggered run indexes the primary repo too, at
     ...ports,
     codeGraph,
     codeGraphRepoDir: "/mirrors/org__orders-svc",
-    codeGraphPrimary: { repoDir: "/mirrors/org__web", headSha: async () => primaryHead },
+    codeGraphPrimary: { repo: "org/web", repoDir: "/mirrors/org__web", headSha: async () => primaryHead },
     config: baseConfig,
   });
 
@@ -7321,13 +7321,13 @@ test("code-graph index: each repo fails open on its own — a failed service ind
   const { ports } = stubPorts();
   const { calls, codeGraph } = recordingCodeGraph((repoDir) => (repoDir.endsWith("svc") ? { outcome: "failed", reason: "x", nodeCount: null, edgeCount: null } : {}));
   const primaryHead = "e".repeat(40);
-  const withHead = new RunQaUseCase({ ...ports, codeGraph, codeGraphRepoDir: "/mirrors/org__svc", codeGraphPrimary: { repoDir: "/mirrors/org__web", headSha: async () => primaryHead }, config: baseConfig });
+  const withHead = new RunQaUseCase({ ...ports, codeGraph, codeGraphRepoDir: "/mirrors/org__svc", codeGraphPrimary: { repo: "org/web", repoDir: "/mirrors/org__web", headSha: async () => primaryHead }, config: baseConfig });
   const out = await withHead.run({ ...baseInput, runId: "graph-index-svc-fails", triggerRepo: "org/svc" });
   assert.equal(out.decision.verdict, "pass");
   assert.deepEqual(calls.map((c) => c.repoDir), ["/mirrors/org__svc", "/mirrors/org__web"]);
 
   calls.length = 0;
-  const noHead = new RunQaUseCase({ ...ports, codeGraph, codeGraphRepoDir: "/mirrors/org__svc", codeGraphPrimary: { repoDir: "/mirrors/org__web", headSha: async () => null }, config: baseConfig });
+  const noHead = new RunQaUseCase({ ...ports, codeGraph, codeGraphRepoDir: "/mirrors/org__svc", codeGraphPrimary: { repo: "org/web", repoDir: "/mirrors/org__web", headSha: async () => null }, config: baseConfig });
   await noHead.run({ ...baseInput, runId: "graph-index-no-head", triggerRepo: "org/svc" });
   assert.deepEqual(calls.map((c) => c.repoDir), ["/mirrors/org__svc"]);
 });
@@ -7335,7 +7335,7 @@ test("code-graph index: each repo fails open on its own — a failed service ind
 test("code-graph index: the primary is not indexed twice when it is the classify-source repo", async () => {
   const { ports, ws } = stubPorts();
   const { calls, codeGraph } = recordingCodeGraph();
-  const useCase = new RunQaUseCase({ ...ports, codeGraph, codeGraphPrimary: { repoDir: ws.mirrorDir, headSha: async () => "d".repeat(40) }, config: baseConfig });
+  const useCase = new RunQaUseCase({ ...ports, codeGraph, codeGraphPrimary: { repo: "org/web", repoDir: ws.mirrorDir, headSha: async () => "d".repeat(40) }, config: baseConfig });
 
   await useCase.run({ ...baseInput, runId: "graph-index-same-repo" });
 

@@ -1157,7 +1157,9 @@ export function buildEngineRootDeps(
     /* The change dossier rides on the structural signal; off unless the run or the app turns it on (its default is decided by measurement). */
     ...(codeGraph && (grounding?.dossier ?? app.qa.structuralSignals?.dossier) !== false ? { structuralDossier: true } : {}),
     /* A service-triggered run indexes the primary repo too, at the commit it is checked out at. */
-    ...(codeGraph && triggerService ? { codeGraphPrimary: { repoDir: mirrorDir, headSha: () => new GitMirrorReadAdapter(mirrorDir, runner).headSha() } } : {}),
+    /* Each other service of a run over several repos is indexed at its head too. */
+    ...(codeGraph && companionServices.length > 0 ? { codeGraphRepoDirs: new Map(companionServices.map((c) => [c.service.repo, join(mirrorRoot, c.service.repo.replaceAll("/", "__"))])) } : {}),
+    ...(codeGraph && triggerService ? { codeGraphPrimary: { repo: app.repo, repoDir: mirrorDir, headSha: () => new GitMirrorReadAdapter(mirrorDir, runner).headSha() } } : {}),
     /* The lead's code-graph tools' client. */
 
     ...(serviceTopologyOn && app.services

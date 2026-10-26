@@ -44,6 +44,7 @@ import { PatternRedactionAdapter } from "../../qa-engine/src/shared-infrastructu
 import { confinedSpecFiles } from "../../qa-engine/src/shared-infrastructure/spec-files.adapter";
 
 import { buildChangeAnalysis, codeGraphFor } from "../../qa-engine/src/contexts/change-analysis/composition/build-change-analysis";
+import { routeServesOperation } from "../../qa-engine/src/contexts/service-topology/domain/cross-repo-impact";
 import { buildServiceTopology } from "../../qa-engine/src/contexts/service-topology/composition/build-service-topology";
 import { buildObjectiveSignal } from "../../qa-engine/src/contexts/objective-signal/composition/build-objective-signal";
 import { buildPublishWorkspace, buildWorkspaceAndPublication, type PublishDeps } from "../../qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication";
@@ -181,7 +182,9 @@ export interface EngineRootDeps {
   /* Classify-source repo root for CodeGraphPort.syncTo and StructuralSignalPortAdapter. Factory sets this to the SERVICE mirror on a webhook, PRIMARY otherwise. Absent → cfg.mirrorDir. */
   codeGraphRepoDir?: string;
   /* On a service-triggered run, the primary repo, indexed too. */
-  codeGraphPrimary?: { repoDir: string; headSha(): Promise<string | null> };
+  codeGraphPrimary?: { repo: string; repoDir: string; headSha(): Promise<string | null> };
+  /* The mirror of each other repo of a run over several repos, by repo: indexed at its head and walked for the change scope. */
+  codeGraphRepoDirs?: ReadonlyMap<string, string>;
   serviceTopology?: {
     appName: string;
     primaryRepo: string;
@@ -305,6 +308,9 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
             ...(cfg.structuralDossier && cfg.codeExplore ? { explore: cfg.codeExplore } : {}),
           },
         }
+      : {}),
+    ...(codeGraphPort && !cfg.isCode
+      ? { scope: { codeGraph: codeGraphPort, serves: routeServesOperation, ...(cfg.groundingCollaborators?.loadContextMap ? { loadMap: cfg.groundingCollaborators.loadContextMap } : {}) } }
       : {}),
   });
   const changeAnalysis = changeAnalysisApi.changeAnalysis;
@@ -501,6 +507,8 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
     ...(codeGraphPort ? { codeGraph: codeGraphPort } : {}),
     ...(cfg.codeGraphRepoDir ? { codeGraphRepoDir: cfg.codeGraphRepoDir } : {}),
     ...(cfg.codeGraphPrimary ? { codeGraphPrimary: cfg.codeGraphPrimary } : {}),
+    ...(cfg.codeGraphRepoDirs ? { codeGraphRepoDirs: cfg.codeGraphRepoDirs } : {}),
+    ...(changeAnalysisApi.changeScope ? { changeScope: changeAnalysisApi.changeScope } : {}),
     ...(serviceLinks ? { serviceLinks } : {}),
     ...(crossRepoImpact ? { crossRepoImpact } : {}),
     ...(cfg.observer ? { observer: cfg.observer } : {}),

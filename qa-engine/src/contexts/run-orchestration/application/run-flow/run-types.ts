@@ -15,7 +15,7 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import type { ExecScopePort } from "../../../../shared-kernel/ports/exec-scope.port.ts";
 import type { AuthSessionContext, AuthSessionPort } from "@contexts/app-catalog/application/index.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
-import type { ChangeAnalysisPort } from "@contexts/change-analysis/application/index.ts";
+import type { ChangeAnalysisPort, ChangeScopePort } from "@contexts/change-analysis/application/index.ts";
 import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
 import type { AuthorPort, LeadPort, ReviewPort, PreExecGroundingPort, PreGenerationGroundingPort, ReviewDomGroundingPort, ContextMapCapturePort } from "@contexts/generation/application/index.ts";
 import type { ValidationPort, ExecutionPort } from "@contexts/test-execution/application/index.ts";
@@ -253,7 +253,11 @@ export interface RunQaUseCaseDeps {
    */
   codeGraphRepoDir?: string;
   /** On a service-triggered run, the primary repo, indexed too at the commit it is checked out at. */
-  codeGraphPrimary?: { repoDir: string; headSha(): Promise<string | null> };
+  codeGraphPrimary?: { repo: string; repoDir: string; headSha(): Promise<string | null> };
+  /** The mirror of each other repo of a run over several repos, by repo: indexed at its head too, and walked for the change scope. */
+  codeGraphRepoDirs?: ReadonlyMap<string, string>;
+  /** The reach of the run's change over the call graph. Absent: the run has no scope. */
+  changeScope?: ChangeScopePort;
   /** Absent: a coordinated run writes nothing to the ledger of decisions. */
   coordinationTelemetry?: CoordinationTelemetryPort;
   /**

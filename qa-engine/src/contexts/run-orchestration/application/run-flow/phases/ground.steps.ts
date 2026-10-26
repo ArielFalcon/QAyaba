@@ -7,6 +7,7 @@ import { BlastRadius } from "@kernel/blast-radius.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 import type { RelevanceBias } from "@contexts/cross-run-learning/application/index.ts";
+import type { ChangeScope, ChangeScopeRepo, ReachTier } from "@contexts/change-analysis/application/index.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import { throwIfAborted } from "../abort.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
@@ -219,6 +220,74 @@ function mergeImpacts(impacts: readonly CrossRepoImpact[]): CrossRepoImpact {
     impactedLinks: impacts.flatMap((i) => i.impactedLinks),
     ...(serviceImpacted.length > 0 ? { serviceImpacted } : {}),
   };
+}
+
+/*
+ * The reach of the change over every repo of the run: the entry points its changed symbols reach, by tier, each with its
+ * evidence. Asked of the index the run built; a repo whose index does not answer is a `degraded` entry of the scope and the
+ * step never ends a run (only an abort propagates).
+ */
+export async function computeChangeScope(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
+  const { deps, input, workspace } = ctx;
+  if (!deps.changeScope || input.mode !== "diff") return;
+  const { diff, intent, companions } = state.classification;
+  const parser = new DiffParserService();
+  const sourceDir = deps.codeGraphRepoDir ?? ctx.services.specRoot.mirrorDir;
+  const repos: ChangeScopeRepo[] = [];
+  const skipped: Array<{ repo: string; reason: string }> = [];
+  for (const entry of input.changeSet.entries) {
+    const isAnchor = entry === input.changeSet.anchor;
+    const repoDir = isAnchor ? sourceDir : deps.codeGraphRepoDirs?.get(entry.repo);
+    const read = isAnchor ? { diff, intent } : companions?.find((c) => c.repo === entry.repo);
+    if (!repoDir) {
+      skipped.push({ repo: entry.repo, reason: "the repo has no index in this run" });
+      continue;
+    }
+    repos.push({
+      repo: entry.repo,
+      role: entry.role,
+      repoDir,
+      headSha: entry.headSha.toString(),
+      changedFiles: read?.intent?.changedFiles ?? [],
+      ...(read?.diff ? { touchedLines: parser.touchedLines(read.diff) } : {}),
+    });
+  }
+  let scope: ChangeScope;
+  try {
+    scope = await deps.changeScope.resolve({
+      specDir: workspace.specDir,
+      repos,
+      ...(deps.codeGraphPrimary ? { pages: { repo: deps.codeGraphPrimary.repo, repoDir: deps.codeGraphPrimary.repoDir } } : {}),
+      crossRepoImpact: state.grounding.crossRepoImpact,
+    });
+  } catch (err) {
+    carryOn(err);
+    console.error("[qa] WARNING: the change scope could not be computed (non-fatal, the run goes on without it):", err);
+    scope = { repos: [], reach: [], hubs: [], disagreements: [], omitted: 0, degraded: [{ repo: input.changeSet.anchor.repo, reason: err instanceof Error ? err.message : String(err) }] };
+  }
+  const withSkipped: ChangeScope = skipped.length > 0 ? { ...scope, degraded: [...scope.degraded, ...skipped] } : scope;
+  recordScope(ctx, withSkipped);
+  return { update: { grounding: { ...state.grounding, changeScope: withSkipped } } };
+}
+
+function recordScope(ctx: WorkspaceRunContext, scope: ChangeScope): void {
+  const count = (tier: ReachTier): number => scope.reach.filter((r) => r.tier === tier).length;
+  try {
+    ctx.telemetry.startSpan("qayaba.change_scope", {
+      attrs: {
+        "qayaba.app": ctx.input.app,
+        "qayaba.change_scope.direct": count("direct"),
+        "qayaba.change_scope.indirect": count("indirect"),
+        "qayaba.change_scope.cross_repo": count("cross-repo"),
+        "qayaba.change_scope.omitted": scope.omitted,
+        "qayaba.change_scope.hubs": scope.hubs.length,
+        "qayaba.change_scope.degraded": scope.degraded.map((d) => `${d.repo}: ${d.reason}`),
+        "qayaba.change_scope.seed_basis": scope.repos.map((r) => `${r.repo}: ${r.seedBasis}`),
+      },
+    }).end();
+  } catch (err) {
+    console.error(`[telemetry] the change-scope span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /* The enrichment every generation of the run starts from, assembled from everything the phase gathered. */

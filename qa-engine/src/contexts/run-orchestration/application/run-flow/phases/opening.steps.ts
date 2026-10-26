@@ -106,6 +106,11 @@ export async function indexMirror(_state: Readonly<RunState>, ctx: WorkspaceRunC
         console.warn("[qa] the primary repo's commit could not be read; it is not indexed this run:", err);
       }
     }
+    /* Every other service entry of the change is indexed at its own head. */
+    for (const entry of input.changeSet.entries) {
+      const dir = deps.codeGraphRepoDirs?.get(entry.repo);
+      if (dir && dir !== sourceDir && entry !== input.changeSet.anchor) await indexOne(ctx, deps.codeGraph, dir, entry.headSha.toString());
+    }
   }
 }
 

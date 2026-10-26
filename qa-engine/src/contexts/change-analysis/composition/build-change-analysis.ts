@@ -13,7 +13,13 @@ import { CodegraphEngine } from "../../../shared-infrastructure/code-graph/codeg
 import { CodegraphStoreCache } from "../../../shared-infrastructure/code-graph/codegraph-store-cache.ts";
 import { LanguageRegistry } from "../../../shared-kernel/language-id.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
-import type { ChangeAnalysisPort, VcsReadPort } from "../application/index.ts";
+import type { ChangeAnalysisPort, ChangeScopePort, VcsReadPort } from "../application/index.ts";
+import type { PageMap } from "@kernel/page-files.ts";
+import type { ServesOperation } from "../domain/reach-proofs/handler-serves-operation.ts";
+import { crossRepoCallSite } from "../domain/reach-proofs/cross-repo-call-site.ts";
+import { fileImplementsPage } from "../domain/reach-proofs/file-implements-page.ts";
+import { handlerServesOperation } from "../domain/reach-proofs/handler-serves-operation.ts";
+import { ChangeScopePortAdapter } from "../infrastructure/adapters/change-scope-port.adapter.ts";
 import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
 import { ChangeAnalysisPortAdapter } from "../infrastructure/adapters/change-analysis-port.adapter.ts";
 import { ADVISORY_BUDGET, StructuralSignalPortAdapter } from "../infrastructure/adapters/structural-signal-port.adapter.ts";
@@ -63,9 +69,19 @@ export interface ChangeAnalysisDeps {
     /* The engine's read-equivalent answers feeding the change dossier. Absent: no dossier. */
     explore?: CodeExplorePort;
   };
+  /* The reach of the change over the run's call graph. Absent: no scope. */
+  scope?: {
+    codeGraph: CodeGraphPort;
+    /* How a handler's route serves a contract operation: the service topology's rule, handed in so this context imports none. */
+    serves: ServesOperation;
+    /* The app's context map when one fits the run: enrichment only. */
+    loadMap?: (specDir: string) => PageMap | undefined;
+  };
 }
 
 export interface ChangeAnalysisApi {
+  /* The reach of a change over the run's call graph; served only when the graph was supplied. */
+  changeScope?: ChangeScopePort;
   changeAnalysis: ChangeAnalysisPort;
   structuralSignal?: StructuralSignalPort;
   /* The impact budget the advisory signals share. */
@@ -84,6 +100,17 @@ export function buildChangeAnalysis(deps: ChangeAnalysisDeps): ChangeAnalysisApi
       ? { structuralSignal: new StructuralSignalPortAdapter(structural.codeGraph, structural.coChange, structural.repoDir, structural.explore ? { explore: structural.explore } : undefined) }
       : {}),
     advisoryBudget: ADVISORY_BUDGET,
+    ...(deps.scope
+      ? {
+          changeScope: new ChangeScopePortAdapter({
+            codeGraph: deps.scope.codeGraph,
+            budget: ADVISORY_BUDGET,
+            /* The proof kinds that fill a change scope: a new kind is a new entry here. */
+            proofs: [fileImplementsPage, handlerServesOperation(deps.scope.serves), crossRepoCallSite],
+            ...(deps.scope.loadMap ? { loadMap: deps.scope.loadMap } : {}),
+          }),
+        }
+      : {}),
     ...(deps.graph ? { codeGraphFor: codeGraphFor(deps.graph) } : {}),
     mirrorReader: (repoDir, runner) => new GitMirrorReadAdapter(repoDir, runner),
   };

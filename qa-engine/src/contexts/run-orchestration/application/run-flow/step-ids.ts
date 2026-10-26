@@ -20,6 +20,7 @@ export const STEP_IDS = [
   "resolve-blast-radius",
   "resolve-service-links",
   "resolve-cross-repo-impact",
+  "compute-change-scope",
   "ground-repository",
   "assemble-enrichment",
   "generate-first-pass",

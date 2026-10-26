@@ -3,6 +3,7 @@
 import type { ContractDrift, CrossRepoImpact, ServiceLink } from "@kernel/service-links.ts";
 import type { RetrievedRule, SelectedExemplar } from "@kernel/learned-rule.ts";
 import type { ArchitectureContext, GroundingOmission, HarnessFacts } from "@kernel/grounding.ts";
+import type { ChangeScope } from "@contexts/change-analysis/application/index.ts";
 import type { CommitIntent } from "@kernel/commit-intent.ts";
 import type { GenerationEnrichment, GenerationOutput } from "@contexts/generation/application/index.ts";
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
@@ -87,6 +88,8 @@ export interface Grounding {
   serviceLinks: readonly ServiceLink[];
   contractDrift: readonly ContractDrift[];
   crossRepoImpact: CrossRepoImpact | null;
+  /** The reach of the change over every repo of the run: the entry points its changed symbols reach, by tier. Absent when no scope was asked (no index, or outside diff mode). */
+  changeScope: ChangeScope | undefined;
   /** The enrichment every generation of the run starts from. */
   baseEnrichment: GenerationEnrichment;
 }
@@ -331,6 +334,7 @@ export function initialRunState(): RunState {
       serviceLinks: [],
       contractDrift: [],
       crossRepoImpact: null,
+      changeScope: undefined,
       baseEnrichment: {},
     },
     generation: {

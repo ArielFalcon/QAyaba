@@ -4,6 +4,7 @@ export { ChangeSet, anchorProjection } from "@kernel/change-set.ts";
 export type { ChangeEntry, ChangeRole } from "@kernel/change-set.ts";
 export type { ChangeAnalysisPort } from "./ports/change-analysis.port.ts";
 export type { VcsReadPort } from "./ports/vcs-read.port.ts";
+export type { ChangeScopePort, ChangeScopeRepo, ChangeScopeRequest } from "./ports/change-scope.port.ts";
 export { buildChangeScope, changedSymbolOf, tierOf, walkChains, CHANGE_SCOPE_LIMITS } from "../domain/reach-proof.ts";
 export type { ProofInput, ProofWalk, ReachHit, ReachProof, ScopeInput, WalkChain } from "../domain/reach-proof.ts";
 export { entryKey, MAX_KNOWN_ENTRY_POINTS } from "../domain/change-scope.ts";

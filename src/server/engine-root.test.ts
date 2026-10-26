@@ -1468,7 +1468,8 @@ test("buildEngine still indexes without the co-change history, but builds no str
 
   await port.run({ ...diffRun, runId: "engine-root-graph-no-cochange" });
 
-  assert.deepEqual(calls, [`syncTo ${MIRROR} abc1234`]);
+  /* The index is built; the one walk that follows is the change scope's, since the structural signal asks nothing of it. */
+  assert.deepEqual(calls, [`syncTo ${MIRROR} abc1234`, `impactedSymbols ${MIRROR}`]);
 });
 
 /* The run_spec loop is wired only when the shell hands the root its registry; the adapter it builds executes through the run's own execution and cleanup ports. */
