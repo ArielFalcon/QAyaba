@@ -22,6 +22,7 @@ const CLASS_LEARNS: Record<ErrorClass, boolean> = {
   "E-INFRA": false,
   "E-STEP-BUDGET": true,
   "E-NO-DECISION": false,
+  "E-NO-AUTHOR": false,
   "E-PRECONDITION": false,
   "E-TIME-BUDGET": false,
   "E-REVIEWER-UNAVAILABLE": false,

@@ -45,18 +45,37 @@ export const DEFAULT_COORDINATION_SETTINGS: CoordinationSettings = {
   flowBudgetMs: { opencode: 480_000 },
 };
 
+/*
+ * Why no author sidekick could run, as the code a refused run records. A plan the orchestrator does not admit carries the plan's own reason after
+ * the colon (`plan-rejected:<reason>`).
+ */
+export const AUTHORING_REFUSAL = {
+  /* No coordinator is wired for a run that generates e2e specs. */
+  NO_COORDINATOR: "no-coordinator",
+  /* The coordination threw. */
+  COORDINATION_FAILED: "coordination-failed",
+  /* The generation cannot ask the lead for a plan. */
+  CANNOT_PLAN: "cannot-plan",
+  /* The run was granted neither the authenticated browser nor run_spec for an app with a login, so a sidekick would author against the login wall. */
+  NO_AUTHOR_GRANT: "no-author-grant",
+  /* Too little of the run is left to plan and author in parallel. */
+  NO_TIME: "no-time",
+  /* The planning turn ran out of its time. */
+  PLAN_TIMED_OUT: "plan-timed-out",
+  /* The plan was not admitted: the code is followed by the reason. */
+  PLAN_REJECTED: "plan-rejected",
+} as const;
+
 /* What a run records about its coordination. Persist-only: no verdict, gate or retirement reads it back. */
 export interface CoordinationGateSignal {
   /* What the lead's plan came to once admitted ("noop" or "fanout"); absent when the run asked for no plan. */
   plan?: string;
-  /* Why a plan that asked for a fan-out went back to the lead as one piece of work. */
-  downgrade?: string;
+  /* Why no author sidekick could run (an `AUTHORING_REFUSAL` code); absent when authors ran. */
+  refusal?: string;
   /* Flows the plan named, flows that delivered a spec, and flows that did not finish. */
   flows: number;
   delivered: number;
   incomplete: number;
-  /* Whether the lead took over a flow its sidekick could not finish. */
-  takeover: boolean;
   /* What the sidekicks authored with ("authenticated-browser", "run-spec-only", "unauthenticated-browser", or why none ran). */
   authoring?: string;
   /* The lead's review of the flows: its turns, the decisions admitted, and those the orchestrator refused. Absent when the lead reviewed nothing. */

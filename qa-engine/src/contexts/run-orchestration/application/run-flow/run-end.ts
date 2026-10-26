@@ -59,6 +59,8 @@ export type RunEnd =
   | { reason: "login-precondition"; generating: boolean; note: string }
   /** The generation delivered no specs and decided nothing; `generationEnd` names how it ended. */
   | ({ reason: "generation-ended-without-specs"; generationEnd: GenerationEndKind; note: string } & EndEvidence)
+  /** No author sidekick could run: `refusal` is the code (`AUTHORING_REFUSAL`) the coordination recorded. */
+  | { reason: "no-author"; refusal: string; note: string; rulesRetrieved?: string[] }
   /** The static gate refused the specs. */
   | ({ reason: "static-gate-failed"; generating: boolean; note: string | undefined } & EndEvidence)
   /** The run could not execute the specs it validated: the static gate itself could not run, DEV is down, or the login before execute failed. */
@@ -131,6 +133,7 @@ export const END_EFFECTS: Readonly<Record<EndReason, EndEffects>> = {
   "generation-noop": { persist: "yes", publish: "none", learn: "none", prune: "after-persist", enforce: false },
   "generation-ended-without-specs": RECORDED_TERMINAL,
   "generation-empty-output": UNRECORDED,
+  "no-author": RECORDED_TERMINAL,
   /* The last confinement pass comes immediately before this exit's publish(). */
   "static-gate-failed": { ...RECORDED_TERMINAL, persist: "not-in-context-mode", enforce: true },
   /* The specs were generated, so their strays are reverted even though this exit does not publish. */

@@ -5,8 +5,8 @@ which wraps CoordinationTelemetryRecorder below and implements the SAME Coordina
 import type { SidekickKind, SidekickTier } from "./sidekick-kinds.ts";
 import type { CoordinationAction } from "./coordination-decision.ts";
 
-/* The actions an event of the lead names: a lead takeover, a sidekick's escalation, a stop for a human; ledger lines recorded earlier also hold accept, retry-sidekick and continue-fix-loop. */
-export type LeadDecisionAction = "accept" | "retry-sidekick" | "escalate-sidekick" | "lead-takeover" | "abort-human" | "continue-fix-loop";
+/* The actions an event of the lead names: a sidekick's escalation, a stop for a human; ledger lines recorded earlier also hold accept, retry-sidekick and continue-fix-loop. */
+export type LeadDecisionAction = "accept" | "retry-sidekick" | "escalate-sidekick" | "abort-human" | "continue-fix-loop";
 
 export type CoordinationTelemetryKind =
   | "proposal"

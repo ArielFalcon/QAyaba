@@ -8,7 +8,7 @@ import { GENERATION_END } from "@kernel/generation-end.ts";
 import { ERROR_CLASS } from "@kernel/error-class.ts";
 import { renderRunDeadlineNote } from "../../domain/run-time-budget.ts";
 import type { RunDeadlineExceededError } from "../../../../shared-kernel/run-deadline.ts";
-import { classifyFailure } from "./failure-policy.ts";
+import { NoAuthorError, classifyFailure } from "./failure-policy.ts";
 import type { EndReason } from "./end-reason.ts";
 import { runEnd, type RunEnd } from "./run-end.ts";
 import type { RunQaUseCaseDeps } from "./run-types.ts";
@@ -53,6 +53,16 @@ export function failureEnd(reason: EndReason, err: unknown, run: { deps: RunQaUs
       console.error(`[qa] ${note}`);
       deps.observer?.onEvent({ type: "agent.error", detail: note });
       return runEnd("sandbox-unavailable", { note, ...rules });
+    }
+    case "no-author": {
+      /* No author sidekick could run: the run ends as a persisted infra-error of its own class, E-NO-AUTHOR, and the lead authors nothing in its place. */
+      if (!(err instanceof NoAuthorError)) throw err;
+      const note = `${messageOf(err)}. Nothing was authored; the lead never writes tests in the author's place (${ERROR_CLASS.NO_AUTHOR}).`;
+      console.error(`[qa] ${note}`);
+      deps.observer?.onEvent({ type: "agent.error", detail: note });
+      deps.observer?.onEvent({ type: "log.line", level: "error", text: `[qa] the run ended with no author sidekick (${ERROR_CLASS.NO_AUTHOR}): an engine-side condition, not a fault of the app under test` });
+      recordRunFact(state, "generationEnd", GENERATION_END.NO_AUTHOR);
+      return runEnd("no-author", { refusal: err.refusal, note, ...rules });
     }
     case "probe-sweep-failed": {
       /* The throwaway specs of the closed loop could not be swept: nothing in the working copy can be trusted to be a deliverable, so the run ends as a persisted infra-error before it validates, executes or publishes anything. */

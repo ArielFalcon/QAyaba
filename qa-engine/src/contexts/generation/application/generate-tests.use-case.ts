@@ -117,7 +117,7 @@ export class GenerateTestsUseCase {
   /**
    * The one turn a coordinated run asks its lead for a plan instead of specs. One prompt in one generator session, bounded by the
    * planning time, in which the agent may read and look things up but not write; no reviewer, no repair, no manifest. A turn that
-   * runs out of its time is reported, not thrown (the run then goes on as one piece of work); any other fault is thrown. A turn that
+   * runs out of its time is reported, not thrown (the coordinator then refuses the run: `plan-timed-out`); any other fault is thrown. A turn that
    * came back with a plan keeps its session open (`lead`) for the lead's review of the flows; every other turn closes it.
    */
   async plan(input: OpencodeRunInput, opts?: GenerateOpts): Promise<PlanResult> {

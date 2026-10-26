@@ -521,8 +521,6 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
     coordinationTelemetry: coordination.coordinationTelemetry,
     ...(cfg.baseUrl ? { sidekickDevBaseUrl: cfg.baseUrl } : {}),
     ...(coordination.leadSidekicks ? { leadSidekicks: coordination.leadSidekicks } : {}),
-    ...(coordination.sidekickProvider ? { sidekickProvider: coordination.sidekickProvider } : {}),
-    ...(coordination.plannerProvider ? { plannerProvider: coordination.plannerProvider } : {}),
   };
 
   return buildRunOrchestration({

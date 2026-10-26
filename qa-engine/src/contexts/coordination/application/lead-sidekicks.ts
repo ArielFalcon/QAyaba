@@ -4,16 +4,15 @@
  * of the workspace. The lead then reviews the flows in its planning session: it accepts a flow, sends an instruction to the
  * sidekick that wrote it (whose session, workspace and loop are kept for it), starts a fresh sidekick on it, or drops one that
  * delivered nothing; its answer is admitted against the orchestrator's facts (lead-review.ts). The flows are added up the way a
- * generation ends. Whatever cannot be coordinated goes back to the lead as one piece of work, with the reason recorded: no plan,
- * no time, nobody to author with, a plan that cannot be admitted, flows that finished nothing.
+ * generation ends. Whatever cannot be coordinated is refused with the reason recorded (`AUTHORING_REFUSAL`): no plan,
+ * no time, nobody to author with, a plan that cannot be admitted. Flows that finished nothing end as a generation that decided nothing.
  * Nothing here decides a verdict: it returns what a generation would, and the run reads it as it reads any generation.
  */
 
-import type { AgentProvider } from "@kernel/agent-role.ts";
 import { posix } from "node:path";
 import { PROBE_REL_DIR } from "@contexts/test-execution/application/index.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
-import type { CoordinationGateSignal, CoordinationSettings, PlanningLimits } from "@kernel/coordination.ts";
+import { AUTHORING_REFUSAL, type CoordinationGateSignal, type CoordinationSettings, type PlanningLimits } from "@kernel/coordination.ts";
 import { formatGeoLocation, type GeoLocation } from "@kernel/geolocation.ts";
 import { isRunDeadlineError } from "../../../shared-kernel/run-deadline.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle, FlowFailureFact, FlowGeolocationHandle, FlowLedgerEntry, FlowLoopHandle, GeolocationHandle } from "@contexts/agent-tools/application/index.ts";
@@ -97,7 +96,7 @@ export interface CoordinateInput {
   specRelDir: string;
   settings: CoordinationSettings;
   /* What the sidekicks would author with: whether the app has a login, and the runtime the sidekick role is assigned to; and the runtime the lead plans on, since only some runtimes can hold a planning turn to read-only. */
-  facts: { hasLogin: boolean; provider: AgentProvider | undefined; plannerProvider: AgentProvider | undefined };
+  facts: { hasLogin: boolean };
   closedLoop?: ClosedLoopHandle;
   agentBrowser?: AgentBrowserHandle;
   /* The run's code-graph right: an explore sidekick is given a share of its calls. */
@@ -127,8 +126,8 @@ export interface FlowProposals {
 }
 
 export type CoordinateResult =
-  /* The change is authored by the lead as one piece of work. */
-  | { action: "lead"; signal: CoordinationGateSignal }
+  /* No author sidekick can run: `refusal` is the code the run records (`AUTHORING_REFUSAL`), `reason` says why in words. The lead never authors in its place. */
+  | { action: "refused"; refusal: string; reason: string; signal: CoordinationGateSignal }
   /* The lead declared that nothing is worth a test. */
   | { action: "noop"; reason: string; signal: CoordinationGateSignal }
   /* The flows were authored; `aggregated` says how it ended, as a generation would. */
@@ -229,31 +228,26 @@ export class LeadSidekicks {
   }
 
   async coordinate(input: CoordinateInput): Promise<CoordinateResult> {
-    const base = { flows: 0, delivered: 0, incomplete: 0, takeover: false } as const;
-    const leadAlone = (downgrade: string, extra: Partial<CoordinationGateSignal> = {}): CoordinateResult => {
-      this.deps.log?.(`coordination: the change is authored by the lead as one piece of work (${downgrade})`);
-      return { action: "lead", signal: { ...base, downgrade, ...extra } };
+    const base = { flows: 0, delivered: 0, incomplete: 0 } as const;
+    const refuse = (refusal: string, reason: string, extra: Partial<CoordinationGateSignal> = {}): CoordinateResult => {
+      this.deps.log?.(`coordination: no author sidekick can run (${refusal}): ${reason}`);
+      return { action: "refused", refusal, reason, signal: { ...base, refusal, ...extra } };
     };
 
-    if (!input.plan) return leadAlone("the generation cannot plan");
-    /* A plan is a read-only turn, and what keeps it so is a per-prompt tool denial that not every runtime has: on one that has none the lead would plan with its hands free in the run's working copy. */
-    if (input.facts.plannerProvider !== "opencode") {
-      return leadAlone(`the lead plans on ${input.facts.plannerProvider ?? "a runtime the host cannot name"}, which cannot hold the planning turn to read-only; only OpenCode denies the write tools per prompt`);
-    }
+    if (!input.plan) return refuse(AUTHORING_REFUSAL.CANNOT_PLAN, "the generation cannot plan");
     const authoring = sidekickAuthoring({
       hasLogin: input.facts.hasLogin,
-      provider: input.facts.provider,
       runSpecGranted: input.closedLoop !== undefined,
       browserGranted: input.agentBrowser !== undefined,
     });
-    if (authoring.mode === SIDEKICK_AUTHORING.EXCLUDED) return leadAlone(`no sidekick: ${authoring.reason}`, { authoring: SIDEKICK_AUTHORING.EXCLUDED });
+    if (authoring.mode === SIDEKICK_AUTHORING.EXCLUDED) return refuse(AUTHORING_REFUSAL.NO_AUTHOR_GRANT, authoring.reason ?? "no sidekick can author", { authoring: SIDEKICK_AUTHORING.EXCLUDED });
     const authoringName = authoring.mode;
 
     const { settings } = input;
     const parallel = Math.min(settings.maxParallel, authoring.maxParallel ?? settings.maxParallel);
     const before = this.remaining(input);
     if (before !== undefined && before < settings.planBudgetMs + MIN_RESERVE_MS + MIN_FLOW_MS * 2) {
-      return leadAlone("too little of the run is left to plan and author in parallel", { authoring: authoringName });
+      return refuse(AUTHORING_REFUSAL.NO_TIME, "too little of the run is left to plan and author in parallel", { authoring: authoringName });
     }
 
     await this.sweep().catch((err: unknown) => console.error(`[qa] sweeping the delegation workspaces failed (the run goes on): ${err instanceof Error ? err.message : String(err)}`));
@@ -271,12 +265,12 @@ export class LeadSidekicks {
       if (planned.explore !== undefined) {
         const explored = await this.explore(input, planned);
         if ("downgrade" in explored) {
-          this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.LEAD, [], explored.downgrade);
-          return leadAlone(explored.downgrade, { authoring: authoringName });
+          this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.REJECTED, [], explored.downgrade);
+          return refuse(`${AUTHORING_REFUSAL.PLAN_REJECTED}:${explored.downgrade}`, `the exploration request was not admitted (${explored.downgrade})`, { authoring: authoringName });
         }
         planned = explored.planned;
       }
-      if (planned.timedOut) return leadAlone("the planning turn ran out of its time", { authoring: authoringName });
+      if (planned.timedOut) return refuse(AUTHORING_REFUSAL.PLAN_TIMED_OUT, "the planning turn ran out of its time", { authoring: authoringName });
       if (planned.noopReason !== undefined) {
         this.record(input, { kind: "proposal", action: "direct", reason: `plan: noop (${planned.noopReason})` });
         this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.NOOP, [], planned.noopReason);
@@ -310,8 +304,8 @@ export class LeadSidekicks {
         return { action: "noop", reason: admitted.reason, signal: { ...base, plan: LEAD_PLAN_KIND.NOOP, authoring: authoringName } };
       }
       if (admitted.kind === PLAN_REJECTED) {
-        this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.LEAD, [], admitted.downgrade);
-        return leadAlone(admitted.downgrade, { authoring: authoringName });
+        this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.REJECTED, [], admitted.downgrade);
+        return refuse(`${AUTHORING_REFUSAL.PLAN_REJECTED}:${admitted.downgrade}`, `the plan was not admitted (${admitted.downgrade})`, { authoring: authoringName });
       }
       this.reportUnvisited(input, this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.FANOUT, admitted.flows));
       const result = await this.fanOut(input, admitted.flows, admitted.parallel, { mode: authoring.mode, ...(planned.lead ? { lead: planned.lead } : {}) }, { ...base, plan: LEAD_PLAN_KIND.FANOUT, authoring: authoringName });
@@ -398,13 +392,6 @@ export class LeadSidekicks {
       };
       for (const p of proposals) this.deps.log?.(`coordination: flow ${p.flowId} changed ${p.total} file(s) it was not given to write; they are proposals and were not applied`);
 
-      /* The last resort: flows that finished nothing and decided nothing hand the change back to the lead, while the run has time for it. */
-      const left = this.remaining(input);
-      if (aggregated.end === GENERATION_END.UNDECIDED_EMPTY && (left === undefined || left > MIN_RESERVE_MS + MIN_FLOW_MS)) {
-        this.record(input, { kind: "escalation", action: "lead-takeover", reason: `no flow finished or decided (${aggregated.note ?? "nothing to add up"})` });
-        this.deps.log?.("coordination: no flow finished or decided; the lead takes the change over");
-        return { action: "lead", signal: { ...signal, takeover: true, downgrade: "no flow finished or decided" } };
-      }
       /* With the lead's session the pass is kept open for the reviewer's corrections; its holder releases it. */
       if (how.lead && !input.signal?.aborted && aggregated.end === GENERATION_END.DELIVERED) {
         handed = true;
@@ -865,7 +852,7 @@ export class LeadSidekicks {
     if (unvisited.length > 0) this.record(input, { kind: "lead-decision", reason: `plan: ${unvisited.length} of ${input.changeRoutes!.length} change page(s) no flow visits: ${unvisited.join(", ")}` });
   }
 
-  private record(input: CoordinateInput, event: { kind: "proposal" | "delegation" | "escalation" | "lead-decision"; action?: "direct" | "delegate" | "lead-takeover" | "escalate-sidekick" | "abort-human"; sidekickKind?: SidekickKind; tier?: SidekickTier; reason: string; delegationId?: string; attempt?: number; durationMs?: number; failureClass?: string; progressFingerprint?: string; sidekickStatus?: string; lastRunSpec?: string }): void {
+  private record(input: CoordinateInput, event: { kind: "proposal" | "delegation" | "escalation" | "lead-decision"; action?: "direct" | "delegate" | "escalate-sidekick" | "abort-human"; sidekickKind?: SidekickKind; tier?: SidekickTier; reason: string; delegationId?: string; attempt?: number; durationMs?: number; failureClass?: string; progressFingerprint?: string; sidekickStatus?: string; lastRunSpec?: string }): void {
     this.deps.telemetry?.record({ runId: input.runId, app: input.app, at: this.now(), ...event });
   }
 }

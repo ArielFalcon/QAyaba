@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { AgentTimeoutError, InfraError, UntrustedGitTreeError } from "@kernel/domain-error.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { RunAbortedError } from "@contexts/run-orchestration/application/run-flow/abort.ts";
-import { FAILURE_KINDS, POLICY, PublicationFailedError, ProbeSweepError, STEP_CLASSES, actionFor, carryOn, classifyFailure, guarded } from "@contexts/run-orchestration/application/run-flow/failure-policy.ts";
+import { FAILURE_KINDS, POLICY, NoAuthorError, PublicationFailedError, ProbeSweepError, STEP_CLASSES, actionFor, carryOn, classifyFailure, guarded } from "@contexts/run-orchestration/application/run-flow/failure-policy.ts";
 import { runEnd, type RunEnd } from "@contexts/run-orchestration/application/run-flow/run-end.ts";
 import type { EndReason } from "@contexts/run-orchestration/application/run-flow/end-reason.ts";
 import { SandboxUnavailableError } from "../../../../../src/shared-infrastructure/process-sandbox/exec-sandbox.ts";
@@ -21,6 +21,7 @@ const CASES: ReadonlyArray<[string, unknown, (typeof FAILURE_KINDS)[number]]> = 
   ["a sandbox that cannot be trusted", new SandboxUnavailableError("egress", "the egress filter is down"), "sandbox-unavailable"],
   ["a sandbox scope the run could not open", new SandboxUnavailableError("scope", "a process of an earlier run holds the uid"), "unknown"],
   ["throwaway specs that could not be swept", new ProbeSweepError("EACCES"), "probe-sweep"],
+  ["a coordinator that refused every author", new NoAuthorError("no-time", "too little of the run is left"), "no-author"],
   ["an untrusted git tree", new UntrustedGitTreeError("the git dir is not ours"), "untrusted-tree"],
   ["a publication that failed", new PublicationFailedError("github 502"), "publication"],
   ["a collaborator the infrastructure lost", new InfraError("the agent runtime went away"), "integration"],
@@ -50,6 +51,7 @@ test("a failure that ends the run names the same reason whatever step failed", (
     ["aborted", "aborted"],
     ["sandbox-unavailable", "sandbox-unavailable"],
     ["probe-sweep", "probe-sweep-failed"],
+    ["no-author", "no-author"],
   ];
   for (const [kind, reason] of ends) for (const stepClass of STEP_CLASSES) assert.deepEqual(POLICY[kind][stepClass], { do: "end", reason }, `${kind} in a ${stepClass} step`);
 });

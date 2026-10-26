@@ -33,6 +33,10 @@ test("a generation end or a failed precondition that ended the run still names i
   assert.equal(resolveErrorClass({ ...BASE, verdict: "infra-error", reviewerUnavailable: true, preconditionFailed: true }), ERROR_CLASS.PRECONDITION);
 });
 
+test("a generation no author served resolves to the no-author class", () => {
+  assert.equal(resolveErrorClass({ ...BASE, verdict: "infra-error", generationEnd: GENERATION_END.NO_AUTHOR }), ERROR_CLASS.NO_AUTHOR);
+});
+
 test("an undecided generation resolves to the no-decision class, ahead of reviewer corrections", () => {
   assert.equal(resolveErrorClass({ ...BASE, verdict: "infra-error", generationEnd: GENERATION_END.UNDECIDED_EMPTY }), ERROR_CLASS.NO_DECISION);
   assert.equal(

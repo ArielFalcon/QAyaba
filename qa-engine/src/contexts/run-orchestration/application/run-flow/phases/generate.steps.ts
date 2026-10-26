@@ -2,7 +2,7 @@
 
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/index.ts";
 import { relative } from "node:path";
-import { DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
+import { AUTHORING_REFUSAL, DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { NOOP_KIND } from "@kernel/noop-kind.ts";
 import { attributeContradictions } from "../../../domain/helpers/contradiction-attribution.ts";
@@ -18,15 +18,16 @@ import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { mergeDelivered, recordRunFact } from "../reducers.ts";
 import { afterGeneration, closedLoopSignal, geolocationEnrichment, loopClosedNow, regenerate } from "./generation-services.ts";
-import { carryOn } from "../failure-policy.ts";
+import { NoAuthorError, carryOn } from "../failure-policy.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
 
 /*
  * Lead + sidekicks is how every e2e run generates: the lead is asked for a plan and its flows are authored by sidekicks, each in a
  * workspace of its own. What comes back is a generation like any other: the specs of the flows that delivered, a declared no-op, or
- * an end that names why nothing was finished. No generation: the lead authors the change in one turn, because no coordinator is wired,
- * the plan was not admitted as a fan-out, no sidekick can author, or coordination failed (the recorded signal says which).
+ * an end that names why nothing was finished. When no author sidekick can run (the plan was not admitted as a fan-out, the generation
+ * cannot plan, no sidekick can author, there is no time, or coordination failed) the run ends `E-NO-AUTHOR` with the reason the
+ * recorded signal carries; the lead never authors in the author's place.
  * A code run, a context run and a login still to be written never coordinate.
  */
 async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<{ generated?: GenerationOutput; leadReviewTurns?: number }> {
@@ -48,7 +49,7 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
       specDir: workspace.specDir,
       specRelDir: relative(ctx.services.specRoot.mirrorDir, workspace.specDir).replace(/\\/g, "/") || "e2e",
       settings: coordinationSettings,
-      facts: { hasLogin: Boolean(deps.authContext?.auth), provider: deps.sidekickProvider?.(), plannerProvider: deps.plannerProvider?.() },
+      facts: { hasLogin: Boolean(deps.authContext?.auth) },
       ...(closedLoop ? { closedLoop } : {}),
       ...(agentBrowser ? { agentBrowser } : {}),
       ...(codeGraphTools ? { codeGraph: codeGraphTools } : {}),
@@ -65,14 +66,15 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
     });
   } catch (err) {
     carryOn(err);
-    console.error(`[qa] coordination failed (the lead authors the change alone): ${err instanceof Error ? err.message : String(err)}`);
-    ctx.host.recordCoordination({ downgrade: "coordination failed", flows: 0, delivered: 0, incomplete: 0, takeover: false });
-    return {};
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error(`[qa] coordination failed (no author sidekick ran): ${reason}`);
+    ctx.host.recordCoordination({ refusal: AUTHORING_REFUSAL.COORDINATION_FAILED, flows: 0, delivered: 0, incomplete: 0 });
+    throw new NoAuthorError(AUTHORING_REFUSAL.COORDINATION_FAILED, reason, { cause: err });
   }
   ctx.host.recordCoordination(result.signal);
   /* The turns the lead spent reviewing the flows, counted from the signal the coordination records. */
   const leadReviewTurns = result.signal.review?.turns ?? 0;
-  if (result.action === "lead") return { leadReviewTurns };
+  if (result.action === "refused") throw new NoAuthorError(result.refusal, result.reason);
   if (result.action === "noop") {
     /* A plan names no kind of no-op. */
     return { leadReviewTurns, generated: { specs: [], end: GENERATION_END.DECLARED_NOOP, noopKind: NOOP_KIND.UNSPECIFIED, parsed: true, note: result.reason } };

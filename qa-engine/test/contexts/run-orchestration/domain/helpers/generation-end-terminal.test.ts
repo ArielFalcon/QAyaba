@@ -22,6 +22,11 @@ test("a generation that ran out of time ends the run as a persisted infra-error 
   });
 });
 
+test("a run no author sidekick could serve ends as a persisted infra-error with the no-author class", () => {
+  assert.deepEqual(terminalForGenerationEnd(GENERATION_END.NO_AUTHOR), { action: "end", verdict: "infra-error", errorClass: ERROR_CLASS.NO_AUTHOR, persisted: true });
+  assert.match(engineSideCauseOf(GENERATION_END.NO_AUTHOR), /author/);
+});
+
 test("an undecided generation ends the run as a persisted infra-error with the no-decision class", () => {
   assert.deepEqual(terminalForGenerationEnd(GENERATION_END.UNDECIDED_EMPTY), {
     action: "end",
@@ -49,7 +54,7 @@ test("a generation that delivered specs lets the run continue", () => {
 });
 
 test("the class each ending run names is the class the persisted outcome resolves to", () => {
-  for (const end of [GENERATION_END.EXHAUSTED, GENERATION_END.TIME_BUDGET, GENERATION_END.UNDECIDED_EMPTY, GENERATION_END.NO_VERDICT]) {
+  for (const end of [GENERATION_END.EXHAUSTED, GENERATION_END.TIME_BUDGET, GENERATION_END.UNDECIDED_EMPTY, GENERATION_END.NO_AUTHOR, GENERATION_END.NO_VERDICT]) {
     const terminal = terminalForGenerationEnd(end);
     assert.equal(terminal.action, "end", end);
     if (terminal.action !== "end") continue;

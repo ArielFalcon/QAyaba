@@ -854,7 +854,7 @@ export function renderCoordinationLines(reports: readonly ProbeReport[]): string
       const c = r.coordination!;
       const how = c.plan === undefined ? "no plan" : `plan ${c.plan}`;
       const flows = c.flows > 0 ? `, ${c.delivered}/${c.flows} flows delivered${c.incomplete > 0 ? `, ${c.incomplete} unfinished` : ""}` : "";
-      return `- ${r.id}: ${how}${flows}${c.takeover ? ", the lead took over" : ""}${c.downgrade ? ` (${c.downgrade})` : ""}${c.authoring ? `, authored with ${c.authoring}` : ""}`;
+      return `- ${r.id}: ${how}${flows}${c.refusal ? ` (no author: ${c.refusal})` : ""}${c.authoring ? `, authored with ${c.authoring}` : ""}`;
     }),
   ];
 }

@@ -3956,30 +3956,14 @@ test("the run_spec loop and the agent browser take DEV through the same lease, w
   assert.equal(wired.agentBrowser?.lock, wired.closedLoop?.lock);
 });
 
-test("an e2e app composes the lead/sidekick mode over a workspace root beside the mirrors, naming the runtime its sidekick role is on now", async () => {
+test("an e2e app composes the lead/sidekick mode over a workspace root beside the mirrors", async () => {
   const wired = buildEngineRootDeps(cfg("deleg-app"), { getAgentDeps: stubAgentDeps, getAgentFacade: agentFacadeFor("opencode"), mirrorRoot: "/mirrors" }, "ns", { mode: "diff" });
   assert.equal(wired.delegation?.workspaceRoot, "/mirrors/.qa-delegations");
-  assert.equal(typeof wired.delegation?.sidekickProvider, "function");
-  assert.equal(wired.delegation?.plannerProvider(), "opencode");
   assert.ok(wired.delegation?.deadline, "the run's deadline, as the agents' turns read it");
-
-  const noFacade = buildEngineRootDeps(cfg("deleg-nofacade"), { getAgentDeps: stubAgentDeps, mirrorRoot: "/mirrors" }, "ns", { mode: "diff" });
-  assert.equal(noFacade.delegation?.sidekickProvider(), undefined, "a host that cannot say which runtime the sidekick uses is not assumed to be OpenCode");
-  assert.equal(noFacade.delegation?.plannerProvider(), undefined, "nor the one the lead plans on");
 
   const code = buildEngineRootDeps({ ...cfg("deleg-code"), code: true }, { getAgentDeps: stubAgentDeps, mirrorRoot: "/mirrors" }, "ns", { mode: "diff", target: "code" });
   assert.equal(code.delegation, undefined);
 });
-
-test("the sidekick role's runtime is read from the facade as it is now, not as it was when the run was composed", async () => {
-  let provider: FacadeProvider = "opencode";
-  const wired = buildEngineRootDeps(cfg("deleg-switch"), { getAgentDeps: stubAgentDeps, getAgentFacade: () => agentFacadeFor(provider)(), mirrorRoot: "/mirrors" }, "ns", { mode: "diff" });
-  assert.equal(wired.delegation?.sidekickProvider(), "opencode");
-  provider = "fixture-runtime";
-  assert.equal(wired.delegation?.sidekickProvider(), "fixture-runtime");
-  assert.equal(wired.delegation?.plannerProvider(), "fixture-runtime");
-});
-
 
 test("the authoring location is composed from the app's declared position and places, and never for a code app", async () => {
   const { GeolocationRegistry } = await import("@contexts/agent-tools/infrastructure/geolocation-registry");

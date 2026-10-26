@@ -24,18 +24,22 @@ export function terminalForGenerationEnd(end: GenerationEndKind): GenerationTerm
       return { action: "end", verdict: "infra-error", errorClass: ERROR_CLASS.TIME_BUDGET, persisted: true };
     case GENERATION_END.UNDECIDED_EMPTY:
       return { action: "end", verdict: "infra-error", errorClass: ERROR_CLASS.NO_DECISION, persisted: true };
+    case GENERATION_END.NO_AUTHOR:
+      return { action: "end", verdict: "infra-error", errorClass: ERROR_CLASS.NO_AUTHOR, persisted: true };
     case GENERATION_END.NO_VERDICT:
       return { action: "end", verdict: "infra-error", errorClass: ERROR_CLASS.INFRA, persisted: false };
   }
 }
 
-/** What the log of a run that a generation ended without specs calls the cause: the budget it ran out of, or else the missing decision. */
+/** What the log of a run that a generation ended without specs calls the cause: the budget it ran out of, the author that could not run, or else the missing decision. */
 export function engineSideCauseOf(end: GenerationEndKind): string {
   switch (end) {
     case GENERATION_END.EXHAUSTED:
       return "step-budget exhaustion";
     case GENERATION_END.TIME_BUDGET:
       return "time-budget exhaustion";
+    case GENERATION_END.NO_AUTHOR:
+      return "missing author";
     default:
       return "missing decision";
   }

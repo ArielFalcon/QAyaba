@@ -11,6 +11,8 @@ export const GENERATION_END = {
   TIME_BUDGET: "time-budget",
   /** A verdict came back with no specs and no decision, even after the one repair. */
   UNDECIDED_EMPTY: "undecided-empty",
+  /** No author sidekick could run: the run ends with the reason, never with the lead authoring the change itself. */
+  NO_AUTHOR: "no-author",
   /** No verdict could be read from the output, even after the one repair. */
   NO_VERDICT: "no-verdict",
 } as const;

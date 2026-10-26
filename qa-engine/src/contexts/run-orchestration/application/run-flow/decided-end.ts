@@ -64,13 +64,13 @@ async function recordCoordinationOutcome(state: Readonly<RunState>, ctx: Workspa
     app: input.app,
     kind: "outcome",
     action: coordinationSignal.plan === "fanout" ? "delegate" : "direct",
-    reason: `pipeline verdict=${decision.verdict}; flows ${coordinationSignal.delivered}/${coordinationSignal.flows} delivered${coordinationSignal.takeover ? "; the lead took over" : ""}`,
+    reason: `pipeline verdict=${decision.verdict}; flows ${coordinationSignal.delivered}/${coordinationSignal.flows} delivered`,
     finalOutcome: decision.verdict,
     reviewOutcome,
     /* Quality sampled at the same instant the outcome is stamped. */
     ...(coverageRatio !== undefined ? { coverageRatio } : {}),
     ...(valueScore !== null ? { valueScore } : {}),
-    escalations: coordinationSignal.incomplete + (coordinationSignal.takeover ? 1 : 0),
+    escalations: coordinationSignal.incomplete,
     durationMs: Date.now() - startedAt,
     at: Date.now(),
   });

@@ -46,7 +46,7 @@ export interface PlanLimits {
   flowBudgetMs: number;
   /* What is left of the run's time; absent when the run has no deadline. */
   remainingMs?: number;
-  /* What the run keeps for what follows the flows (validation, execution, the reviewer, the takeover). */
+  /* What the run keeps for what follows the flows (validation, execution, the reviewer). */
   reserveMs: number;
   /* Less than this and a flow cannot read the brief, write a spec and try it once. */
   minFlowMs: number;
@@ -93,7 +93,7 @@ export type AdmittedPlan =
   | { kind: typeof PLAN_REJECTED; downgrade: PlanDowngrade }
   | { kind: typeof LEAD_PLAN_KIND.FANOUT; flows: AdmittedFlow[]; parallel: number };
 
-function leadAlone(downgrade: PlanDowngrade): AdmittedPlan {
+function reject(downgrade: PlanDowngrade): AdmittedPlan {
   return { kind: PLAN_REJECTED, downgrade };
 }
 
@@ -173,24 +173,24 @@ function shareOf(total: number | undefined, count: number): number | undefined {
 }
 
 export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps): AdmittedPlan {
-  if (raw === undefined) return leadAlone(PLAN_DOWNGRADE.NO_PLAN);
-  if (!isRecord(raw)) return leadAlone(PLAN_DOWNGRADE.MALFORMED);
+  if (raw === undefined) return reject(PLAN_DOWNGRADE.NO_PLAN);
+  if (!isRecord(raw)) return reject(PLAN_DOWNGRADE.MALFORMED);
 
   if (raw.kind === LEAD_PLAN_KIND.NOOP) {
     const reason = text(deps.redaction, raw.reason, MAX_NOOP_REASON_CHARS);
-    return reason === "" ? leadAlone(PLAN_DOWNGRADE.MALFORMED) : { kind: LEAD_PLAN_KIND.NOOP, reason };
+    return reason === "" ? reject(PLAN_DOWNGRADE.MALFORMED) : { kind: LEAD_PLAN_KIND.NOOP, reason };
   }
-  if (raw.kind !== LEAD_PLAN_KIND.FANOUT || !Array.isArray(raw.flows)) return leadAlone(PLAN_DOWNGRADE.MALFORMED);
+  if (raw.kind !== LEAD_PLAN_KIND.FANOUT || !Array.isArray(raw.flows)) return reject(PLAN_DOWNGRADE.MALFORMED);
 
-  if (raw.flows.length === 0) return leadAlone(PLAN_DOWNGRADE.EMPTY);
-  if (raw.flows.length > limits.maxFlows) return leadAlone(PLAN_DOWNGRADE.OVER_LIMIT);
+  if (raw.flows.length === 0) return reject(PLAN_DOWNGRADE.EMPTY);
+  if (raw.flows.length > limits.maxFlows) return reject(PLAN_DOWNGRADE.OVER_LIMIT);
   const flows: RawFlow[] = [];
   for (const entry of raw.flows) {
     const flow = rawFlowOf(entry, deps.places ?? {}, deps.redaction);
-    if (!flow) return leadAlone(PLAN_DOWNGRADE.MALFORMED);
+    if (!flow) return reject(PLAN_DOWNGRADE.MALFORMED);
     flows.push(flow);
   }
-  if (new Set(flows.map((flow) => flow.id)).size !== flows.length) return leadAlone(PLAN_DOWNGRADE.DUPLICATE);
+  if (new Set(flows.map((flow) => flow.id)).size !== flows.length) return reject(PLAN_DOWNGRADE.DUPLICATE);
 
   const count = flows.length;
   const parallel = Math.min(limits.maxParallel, count);
@@ -199,10 +199,10 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
     limits.remainingMs === undefined
       ? limits.flowBudgetMs
       : Math.min(limits.flowBudgetMs, Math.floor((limits.remainingMs - limits.reserveMs) / waves));
-  if (budgetMs < limits.minFlowMs) return leadAlone(PLAN_DOWNGRADE.NO_TIME);
+  if (budgetMs < limits.minFlowMs) return reject(PLAN_DOWNGRADE.NO_TIME);
 
   const runSpecCalls = shareOf(limits.runSpecCalls, count);
-  if (runSpecCalls !== undefined && runSpecCalls < 1) return leadAlone(PLAN_DOWNGRADE.NO_CALLS);
+  if (runSpecCalls !== undefined && runSpecCalls < 1) return reject(PLAN_DOWNGRADE.NO_CALLS);
   const runSpecDevWrites = shareOf(limits.runSpecDevWrites, count) ?? 0;
   const browserCalls = shareOf(limits.browserCalls, count) ?? 0;
 

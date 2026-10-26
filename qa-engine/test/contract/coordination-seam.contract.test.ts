@@ -49,7 +49,7 @@ function sampleContext(overrides: Partial<CoordinationContext> = {}): Coordinati
 test("CoordinationDecision.action is the assignment union — not OrchestrationDecision verbs", () => {
   assert.deepEqual(
     [...COORDINATION_ACTIONS],
-    ["direct", "delegate", "retry", "escalate", "takeover", "abort"],
+    ["direct", "delegate", "retry", "escalate", "abort"],
   );
   for (const action of COORDINATION_ACTIONS) {
     assert.equal(isCoordinationAction(action), true);
@@ -58,13 +58,7 @@ test("CoordinationDecision.action is the assignment union — not OrchestrationD
   assert.equal(isCoordinationAction("continue-fix-loop"), false);
   assert.equal(isCoordinationAction("retry-sidekick"), false);
   assert.equal(isCoordinationAction("escalate-sidekick"), false);
-  assert.equal(isCoordinationAction("lead-takeover"), false);
   assert.equal(isCoordinationAction("abort-human"), false);
-});
-
-test("takeover is a coordination action", () => {
-  const decision: CoordinationDecision = { action: "takeover", reason: "sidekick emitted needs-lead", evidence: [sampleEvidence()] };
-  assert.equal(isCoordinationAction(decision.action), true);
 });
 
 test("CoordinationDecision JSON round-trip keeps action, reason, evidence, evidence", () => {

@@ -106,7 +106,7 @@ The single engine is `RunQaUseCase` (`qa-engine/src/contexts/run-orchestration/a
    - regenerations (static-fix rounds, pre-exec corrective, fix loop, enforce-mode coverage regen);
    - in lead+sidekicks mode: the **plan** turn (read-only), then N sidekick turns under `FanOutDispatcher`, with an escalation ladder (retry, then the lead takes over).
 
-   The generation end is classified as one of `delivered`, `declared-noop`, `exhausted` (E-STEP-BUDGET), `time-budget` (E-TIME-BUDGET), `undecided-empty` (E-NO-DECISION) or `no-verdict`. See `generation/domain/generation-end.ts`.
+   The generation end is classified as one of `delivered`, `declared-noop`, `exhausted` (E-STEP-BUDGET), `time-budget` (E-TIME-BUDGET), `undecided-empty` (E-NO-DECISION), `no-author` (E-NO-AUTHOR) or `no-verdict`. See `generation/domain/generation-end.ts`.
 7. **`validate`**: `tsc`, ESLint (`eslint-plugin-playwright`), `playwright --list`, the manifest check. Failure → `invalid`. Also the pre-exec grounding: the catalog gate (fabricated test-ids) and the selector-ambiguity advisory.
 8. **`execute`**: Playwright against DEV (profile `suite`), per-test results, retries. Pass only on retry means flaky.
 9. **`coverage`**: change-coverage. Did the green run exercise the diff's changed lines? `qa.coveragePolicy` is `off|signal|enforce`; `unknown` never blocks.
@@ -120,6 +120,7 @@ The single engine is `RunQaUseCase` (`qa-engine/src/contexts/run-orchestration/a
 | Code | Meaning |
 |---|---|
 | `E-NO-DECISION` | Zero specs and no no-op declared |
+| `E-NO-AUTHOR` | No author sidekick could run; `gateSignals.coordination.refusal` names why |
 | `E-STEP-BUDGET` | The step cap was hit |
 | `E-TIME-BUDGET` | The tier budget or the run deadline was hit |
 | `E-PRECONDITION` | The login could not complete (kinds incl. egress-denied) |

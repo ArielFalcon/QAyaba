@@ -1,6 +1,5 @@
 /* Builds the coordination context: the decision ledger every run appends to and, for an e2e run whose shell gave it a place for the sidekicks' workspaces, the lead that plans a change into flows and the sidekicks that author them. A run with no coordinator is authored by its lead alone. */
 
-import type { AgentProvider } from "@kernel/agent-role.ts";
 import type { PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port.ts";
 import { sanitizedPlanSnapshots } from "@kernel/ports/plan-snapshot.port.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
@@ -21,17 +20,13 @@ import { TracedCoordinationTelemetry } from "../infrastructure/adapters/coordina
 export interface DelegationWiring {
   /* The absolute directory the sidekicks' workspaces are made under (on the mirrors volume, so the agents' runtime can open a session in it). */
   workspaceRoot: string;
-  /* The runtime the sidekick role is assigned to now (it is switchable): only OpenCode can call run_spec and the authenticated browser. */
-  sidekickProvider: () => AgentProvider | undefined;
-  /* The runtime the lead (the primary role) plans on now: only OpenCode can hold the planning turn to read-only. */
-  plannerProvider: () => AgentProvider | undefined;
   /* The run's deadline, as the agents' turns read it. */
   deadline?: RunDeadlineView;
 }
 
 export interface CoordinationDeps {
   isCode: boolean;
-  /* Present: the run is authored with sidekicks. Absent, or a code run: the lead authors alone. */
+  /* Present: the run is authored with sidekicks. Absent for a code run, which is not coordinated. */
   delegation?: DelegationWiring;
   /* The runtime the sidekicks open their sessions on (the reviewer's, each with a session of its own). */
   runtime: Pick<AgentRuntimePort, "openSession">;
@@ -55,8 +50,6 @@ export interface CoordinationDeps {
 export interface CoordinationApi {
   coordinationTelemetry: CoordinationTelemetryPort;
   leadSidekicks?: LeadSidekicks;
-  sidekickProvider?: () => AgentProvider | undefined;
-  plannerProvider?: () => AgentProvider | undefined;
 }
 
 export function buildCoordination(deps: CoordinationDeps): CoordinationApi {
@@ -67,8 +60,6 @@ export function buildCoordination(deps: CoordinationDeps): CoordinationApi {
   if (!delegation || deps.isCode) return { coordinationTelemetry };
   return {
     coordinationTelemetry,
-    sidekickProvider: delegation.sidekickProvider,
-    plannerProvider: delegation.plannerProvider,
     leadSidekicks: new LeadSidekicks({
       redaction: deps.redaction,
       sidekick: new SidekickExecutor({ runtime: deps.runtime, redaction: deps.redaction }),

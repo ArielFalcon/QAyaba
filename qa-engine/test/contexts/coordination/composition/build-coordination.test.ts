@@ -19,22 +19,19 @@ function deps(over: Partial<CoordinationDeps> = {}): CoordinationDeps {
   };
 }
 
-const delegation = { workspaceRoot: "/mirrors/.qa-delegations", sidekickProvider: () => undefined, plannerProvider: () => undefined };
+const delegation = { workspaceRoot: "/mirrors/.qa-delegations" };
 
 test("a run with no delegation is served the ledger and authored by its lead alone", () => {
   const api = buildCoordination(deps());
 
   assert.ok(api.coordinationTelemetry);
   assert.equal(api.leadSidekicks, undefined);
-  assert.equal(api.sidekickProvider, undefined);
 });
 
-test("an e2e run with a place for the workspaces gets the lead and the providers it reads", () => {
+test("an e2e run with a place for the workspaces gets the lead", () => {
   const api = buildCoordination(deps({ delegation }));
 
   assert.ok(api.leadSidekicks);
-  assert.equal(api.sidekickProvider, delegation.sidekickProvider);
-  assert.equal(api.plannerProvider, delegation.plannerProvider);
 });
 
 test("a code run never coordinates, whatever the shell offers", () => {

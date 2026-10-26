@@ -1509,12 +1509,9 @@ test("wireEngine wires the lead/sidekick mode only for an e2e run whose shell na
   const delegation = { workspaceRoot: "/mirrors/.qa-delegations", sidekickProvider: () => "opencode" as const, plannerProvider: () => "opencode" as const };
   const none = wireEngine(fakeConfig());
   assert.equal("leadSidekicks" in none, false);
-  assert.equal("sidekickProvider" in none, false);
 
   const wired = wireEngine(fakeConfig({ delegation }));
   assert.equal(typeof wired.leadSidekicks?.coordinate, "function");
-  assert.equal(wired.sidekickProvider?.(), "opencode");
-  assert.equal(wired.plannerProvider?.(), "opencode");
 
   const code = wireEngine(fakeConfig({ delegation, isCode: true }));
   assert.equal("leadSidekicks" in code, false);

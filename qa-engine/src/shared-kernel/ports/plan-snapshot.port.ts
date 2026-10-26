@@ -10,7 +10,7 @@
 
 export const PLAN_SNAPSHOT_KIND = {
   NOOP: "noop",
-  LEAD: "lead",
+  REJECTED: "rejected",
   FANOUT: "fanout",
 } as const;
 export type PlanSnapshotKind = (typeof PLAN_SNAPSHOT_KIND)[keyof typeof PLAN_SNAPSHOT_KIND];
@@ -32,7 +32,7 @@ export interface PlanSnapshotFlow {
 export interface PlanSnapshot {
   runId: string;
   kind: PlanSnapshotKind;
-  /* Why the plan is a no-op or one piece of work. */
+  /* Why the plan is a no-op or was not admitted. */
   reason?: string;
   /* The pages of the app's map the change is linked to, as the planning turn was told them. */
   changeRoutes: string[];

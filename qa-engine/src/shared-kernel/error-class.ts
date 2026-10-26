@@ -15,6 +15,7 @@ export const ERROR_CLASSES = [
   "E-INFRA",
   "E-STEP-BUDGET",
   "E-NO-DECISION",
+  "E-NO-AUTHOR",
   /* mutation-scope:begin error-classes-precondition */
   "E-PRECONDITION",
   /* mutation-scope:end error-classes-precondition */
@@ -37,6 +38,7 @@ export const ERROR_CLASS = {
   FLAKY: "E-FLAKY",
   STEP_BUDGET: "E-STEP-BUDGET",
   NO_DECISION: "E-NO-DECISION",
+  NO_AUTHOR: "E-NO-AUTHOR",
   PRECONDITION: "E-PRECONDITION",
   TIME_BUDGET: "E-TIME-BUDGET",
   REVIEWER_UNAVAILABLE: "E-REVIEWER-UNAVAILABLE",
@@ -136,6 +138,7 @@ export function resolveErrorClass(input: ResolveErrorClassInput): ErrorClass | n
   if (input.generationEnd === GENERATION_END.EXHAUSTED) return ERROR_CLASS.STEP_BUDGET;
   if (input.generationEnd === GENERATION_END.TIME_BUDGET) return ERROR_CLASS.TIME_BUDGET;
   if (input.generationEnd === GENERATION_END.UNDECIDED_EMPTY) return ERROR_CLASS.NO_DECISION;
+  if (input.generationEnd === GENERATION_END.NO_AUTHOR) return ERROR_CLASS.NO_AUTHOR;
   if (input.preconditionFailed) return ERROR_CLASS.PRECONDITION;
   if (input.reviewerUnavailable) return ERROR_CLASS.REVIEWER_UNAVAILABLE;
   if (input.reviewDisputed) return ERROR_CLASS.REVIEW_DISPUTED;

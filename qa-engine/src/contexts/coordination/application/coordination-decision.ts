@@ -6,7 +6,6 @@ export const COORDINATION_ACTIONS = [
   "delegate",
   "retry",
   "escalate",
-  "takeover",
   "abort",
 ] as const;
 export type CoordinationAction = (typeof COORDINATION_ACTIONS)[number];

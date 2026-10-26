@@ -289,7 +289,7 @@ export function matchesExpected(expected: ExpectedOutcome, outcome: Outcome): bo
 /* ── a replicate that cannot be compared ───────────────────────────────────────────── */
 
 /* An infra-error the arm brings on itself is its result; any other is the environment's, and the replicate says nothing about the arm. */
-const ARM_OWN_ERROR_CLASSES: ReadonlySet<string> = new Set(["E-NO-DECISION", "E-STEP-BUDGET", "E-TIME-BUDGET"]);
+const ARM_OWN_ERROR_CLASSES: ReadonlySet<string> = new Set(["E-NO-DECISION", "E-NO-AUTHOR", "E-STEP-BUDGET", "E-TIME-BUDGET"]);
 
 export interface InvalidReplicateInput {
   capped: boolean;

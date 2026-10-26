@@ -1,4 +1,5 @@
 import { PLAN_DOWNGRADE } from "@contexts/coordination/application/lead-plan.ts";
+import { AUTHORING_REFUSAL } from "@kernel/coordination.ts";
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/lead-correction.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -187,7 +188,7 @@ function input(r: Rig, over: Partial<CoordinateInput> = {}): CoordinateInput {
   return {
     runId: "run-1", app: "shop", objective: "the cart", mirrorDir: "/m", specDir: "/m/e2e", specRelDir: "e2e",
     settings: DEFAULT_COORDINATION_SETTINGS,
-    facts: { hasLogin: true, provider: "opencode", plannerProvider: "opencode" },
+    facts: { hasLogin: true },
     closedLoop: r.closedLoop,
     agentBrowser: r.agentBrowser,
     plan: async () => ({ plan: FANOUT_PLAN, parsed: true, timedOut: false }),
@@ -219,38 +220,24 @@ function leadWith(answers: unknown[][], plan: Record<string, unknown> = FANOUT_P
   };
 }
 
-test("a generation that cannot plan, a sidekick that cannot author and a run with too little time all leave the change to the lead, before any session is opened", async () => {
+test("a generation that cannot plan, a login with no grant to author with and a run with too little time are refused with their own reason, before any session is opened", async () => {
   const r = rig();
   let asked = 0;
   const plan = async (): Promise<PlanOutput> => { asked += 1; return { plan: FANOUT_PLAN, parsed: true, timedOut: false }; };
+  const refusalOf = (result: Awaited<ReturnType<typeof r.coordinator.coordinate>>): string | undefined => (result.action === "refused" ? result.refusal : undefined);
 
   const noPlan = await r.coordinator.coordinate(input(r, { plan: undefined }));
-  assert.equal(noPlan.action, "lead");
-
-  const unnamed = await r.coordinator.coordinate(input(r, { plan, facts: { hasLogin: true, provider: undefined, plannerProvider: "opencode" } }));
-  assert.equal(unnamed.action, "lead");
-  assert.equal(unnamed.signal.authoring, "excluded");
+  assert.equal(refusalOf(noPlan), AUTHORING_REFUSAL.CANNOT_PLAN);
+  assert.equal(noPlan.signal.refusal, AUTHORING_REFUSAL.CANNOT_PLAN);
 
   const bare = await r.coordinator.coordinate(input(r, { plan, closedLoop: undefined, agentBrowser: undefined }));
-  assert.equal(bare.action, "lead", "a login and neither run_spec nor the browser");
+  assert.equal(refusalOf(bare), AUTHORING_REFUSAL.NO_AUTHOR_GRANT, "a login and neither run_spec nor the browser");
+  assert.equal(bare.signal.authoring, "excluded");
 
   const hurried = await r.coordinator.coordinate(input(r, { plan, deadline: { remainingMs: () => 60_000 } }));
-  assert.equal(hurried.action, "lead");
+  assert.equal(refusalOf(hurried), AUTHORING_REFUSAL.NO_TIME);
   assert.equal(asked, 0, "none of them paid for a planning turn");
   assert.equal(r.executed.length, 0);
-  assert.equal(r.created.length, 0);
-});
-
-test("a lead on a runtime the host cannot name is not asked for a plan", async () => {
-  const r = rig();
-  let asked = 0;
-  const plan = async (): Promise<PlanOutput> => { asked += 1; return { plan: FANOUT_PLAN, parsed: true, timedOut: false }; };
-  for (const plannerProvider of [undefined] as const) {
-    const outcome = await r.coordinator.coordinate(input(r, { plan, facts: { hasLogin: true, provider: "opencode", plannerProvider } }));
-    assert.equal(outcome.action, "lead", String(plannerProvider));
-    assert.ok(outcome.signal.downgrade && /read-only/.test(outcome.signal.downgrade), "the downgrade says why");
-  }
-  assert.equal(asked, 0, "no planning turn was paid for");
   assert.equal(r.created.length, 0);
 });
 
@@ -300,7 +287,7 @@ test("a plan that is a no-op or is rejected is kept with why", async () => {
   assert.deepEqual(noop.plans.map((p) => [p.kind, p.reason, p.flows.length, p.unvisited]), [["noop", "only a comment changed", 0, ["/cart"]]]);
   const lead = rig();
   await lead.coordinator.coordinate(input(lead, { plan: async () => ({ plan: { kind: "lead" }, parsed: true, timedOut: false }) }));
-  assert.deepEqual(lead.plans.map((p) => [p.kind, p.reason]), [["lead", PLAN_DOWNGRADE.MALFORMED]]);
+  assert.deepEqual(lead.plans.map((p) => [p.kind, p.reason]), [["rejected", PLAN_DOWNGRADE.MALFORMED]]);
 });
 
 test("a plan of one flow opens exactly one sidekick session and the lead reviews it", async () => {
@@ -319,11 +306,10 @@ test("a plan of one flow opens exactly one sidekick session and the lead reviews
   assert.match(reported[0]!.reason, /1 of 2 change page\(s\) no flow visits: \/shops\/:province\/:slug\/menu$/);
 });
 
-test("a plan of kind lead is rejected as malformed and names no change page for the lead to author", async () => {
+test("a plan of kind lead is rejected as malformed and names no change page", async () => {
   const lead = rig();
   const outcome = await lead.coordinator.coordinate(input(lead, { changeRoutes: ["/cart"], plan: async () => ({ plan: { kind: "lead" }, parsed: true, timedOut: false }) }));
-  assert.equal(outcome.action, "lead");
-  assert.equal(outcome.action === "lead" ? outcome.signal.downgrade : undefined, PLAN_DOWNGRADE.MALFORMED);
+  assert.equal(outcome.action === "refused" ? outcome.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.MALFORMED}`);
   assert.equal(lead.events.filter((e) => /change page/.test(e.reason ?? "")).length, 0);
 });
 
@@ -356,15 +342,14 @@ test("a flow that names a change page by its template, whatever its parameters a
   assert.match(reported[0]!.reason, /1 of 3 change page\(s\) no flow visits: \/shops\/:province$/);
 });
 
-test("the planning turn is given the limits the plan is held to, and one that ran out of time or gave neither plan nor reason is one piece of work", async () => {
+test("the planning turn is given the limits the plan is held to, and one that ran out of time or gave neither plan nor reason is refused", async () => {
   const r = rig();
   const seen: PlanningLimits[] = [];
   const timedOut = await r.coordinator.coordinate(input(r, { plan: async (p) => (seen.push(p), { parsed: false, timedOut: true }) }));
-  assert.equal(timedOut.action, "lead");
+  assert.equal(timedOut.action === "refused" ? timedOut.refusal : undefined, AUTHORING_REFUSAL.PLAN_TIMED_OUT);
   assert.deepEqual(seen[0], { maxFlows: DEFAULT_COORDINATION_SETTINGS.maxFlows, maxParallel: DEFAULT_COORDINATION_SETTINGS.maxParallel, budgetMs: DEFAULT_COORDINATION_SETTINGS.planBudgetMs });
   const nothing = await r.coordinator.coordinate(input(r, { plan: async () => ({ parsed: true, timedOut: false }) }));
-  assert.equal(nothing.action, "lead");
-  assert.equal(nothing.signal.downgrade && /no-plan|plan/.test(nothing.signal.downgrade), true);
+  assert.equal(nothing.action === "refused" ? nothing.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.NO_PLAN}`);
   assert.equal(r.executed.length, 0);
 });
 
@@ -377,14 +362,13 @@ test("a lead that declares a no-op, in the plan or beside it, ends the coordinat
   assert.equal(r.created.length, 0);
 });
 
-test("a plan that cannot be admitted goes back to the lead with its reason on the signal", async () => {
+test("a plan that cannot be admitted is refused with its reason on the signal", async () => {
   const r = rig();
   const alone = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: { kind: "lead" }, parsed: true, timedOut: false }) }));
-  assert.equal(alone.action, "lead");
-  assert.equal(alone.signal.downgrade, PLAN_DOWNGRADE.MALFORMED);
+  assert.equal(alone.action === "refused" ? alone.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.MALFORMED}`);
+  assert.equal(alone.signal.refusal, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.MALFORMED}`);
   const over = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: { kind: "fanout", flows: [] }, parsed: true, timedOut: false }) }));
-  assert.equal(over.action, "lead");
-  assert.equal(over.signal.downgrade, "empty");
+  assert.equal(over.action === "refused" ? over.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.EMPTY}`);
 });
 
 test("each flow is authored in a workspace of its own by a sidekick that may write that flow's file and no other, and what is delivered is added up", async () => {
@@ -454,7 +438,7 @@ test("an app with no login is authored one flow at a time, with the plain browse
   const gate = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 1));
   const open = r.deps.sidekick.open;
   r.deps.sidekick.open = async (brief, opts) => { running += 1; peak = Math.max(peak, running); await gate(); try { return await open(brief, opts); } finally { running -= 1; } };
-  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { facts: { hasLogin: false, provider: "opencode", plannerProvider: "opencode" }, agentBrowser: undefined }));
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { facts: { hasLogin: false }, agentBrowser: undefined }));
   assert.equal(outcome.action, "fanout");
   assert.equal(peak, 1);
   assert.ok(r.executed.every(({ opts }) => !opts.denyTools?.includes("playwright*")));
@@ -651,7 +635,7 @@ test("the lead is never asked to review when the run has no room left for it", a
   assert.equal(lead.disposed(), 1);
 });
 
-test("the lead's session ends however the plan comes out: a no-op, one piece of work, or a plan that cannot be admitted", async () => {
+test("the lead's session ends however the plan comes out: a no-op or a plan that cannot be admitted", async () => {
   for (const planned of [{ kind: "noop", reason: "nothing" }, { kind: "lead" }, { kind: "fanout", flows: [] }]) {
     let disposed = 0;
     const r = rig();
@@ -661,16 +645,15 @@ test("the lead's session ends however the plan comes out: a no-op, one piece of 
   }
 });
 
-test("flows that all finished nothing hand the change back to the lead while the run has time, and end the run on no decision when it has not", async () => {
+test("flows that all finished nothing end the coordination on no decision, with time to spare or not, and the lead authors nothing", async () => {
   const failing = { answers: { cart: [{ status: "failed" as const, summary: "x", filesChanged: [] }], login: [{ status: "failed" as const, summary: "y", filesChanged: [] }] }, hasFile: new Set<string>() };
   const roomy = rig(failing);
   const back = await roomy.coordinator.coordinate(input(roomy));
-  assert.equal(back.action, "lead");
-  assert.equal(back.signal.takeover, true);
-  assert.ok(roomy.events.some((e) => e.kind === "escalation" && e.action === "lead-takeover" && e.delegationId === undefined));
+  assert.equal(back.action, "fanout");
+  assert.equal(back.action === "fanout" ? back.aggregated.end : "", GENERATION_END.UNDECIDED_EMPTY);
+  assert.equal(roomy.events.some((e) => e.kind === "escalation" && e.delegationId === undefined), false, "the lead does not take the change over");
 
   const tight = rig(failing);
-  /* Time enough to plan and to admit the flows; by the time they are added up there is none for the lead to take over. */
   let asked = 0;
   const ended = await tight.coordinator.coordinate(input(tight, { deadline: { remainingMs: () => (++asked <= 2 ? 3_600_000 : 100_000) } }));
   assert.equal(ended.action, "fanout");
@@ -1179,23 +1162,21 @@ test("an explore request runs read-only sidekicks, returns verified findings to 
   assert.equal(explores.length, 2, "each explore session is counted in the telemetry");
 });
 
-test("a second explore request is not admitted: the change is handed back with the reason and no author is started", async () => {
+test("a second explore request is not admitted: the plan is refused with the reason and no author is started", async () => {
   const r = rig();
   const x = exploring(r, [CART_QUESTION], { cart: { id: "cart", status: "answered", findings: [] } }, { explore: [CART_QUESTION] });
   const outcome = await new LeadSidekicks(r.deps).coordinate(x.input());
-  assert.equal(outcome.action, "lead");
-  assert.equal(outcome.signal.downgrade, PLAN_DOWNGRADE.MALFORMED);
+  assert.equal(outcome.action === "refused" ? outcome.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.MALFORMED}`);
   assert.equal(x.opened.length, 1, "one round only");
   assert.equal(r.sessionsOpened, 0);
   assert.equal(x.disposedLead(), 1, "the lead's session is closed");
 });
 
-test("a request that is not admitted runs no explorer and is handed back as malformed", async () => {
+test("a request that is not admitted runs no explorer and is refused as malformed", async () => {
   const r = rig();
   const x = exploring(r, Array.from({ length: 4 }, (_, i) => ({ id: `q${i}`, question: "what?" })), {});
   const outcome = await new LeadSidekicks(r.deps).coordinate(x.input());
-  assert.equal(outcome.action, "lead");
-  assert.equal(outcome.signal.downgrade, PLAN_DOWNGRADE.MALFORMED);
+  assert.equal(outcome.action === "refused" ? outcome.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.MALFORMED}`);
   assert.equal(x.opened.length, 0);
   assert.equal(x.askedForPlan.length, 0);
 });

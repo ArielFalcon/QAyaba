@@ -1174,8 +1174,6 @@ export function buildEngineRootDeps(
       ? {
           delegation: {
             workspaceRoot: join(mirrorRoot, DELEGATIONS_DIR),
-            sidekickProvider: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "sidekick").provider : undefined),
-            plannerProvider: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "lead").provider : undefined),
             deadline: runDeadline,
           },
         }

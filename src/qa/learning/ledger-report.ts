@@ -34,6 +34,7 @@ const ERROR_CLASS_LABEL: Record<string, string> = {
   "E-INFRA": "infrastructure",
   "E-STEP-BUDGET": "agent ran out of steps",
   "E-NO-DECISION": "agent made no decision",
+  "E-NO-AUTHOR": "no author sidekick could run",
   "E-PRECONDITION": "app login could not be completed",
   "E-TIME-BUDGET": "agent ran out of time",
   "E-REVIEWER-UNAVAILABLE": "reviewer unavailable",

@@ -5,7 +5,8 @@ import assert from "node:assert/strict";
 import { Sha } from "@kernel/sha.ts";
 import { ok } from "@kernel/result.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
-import { DEFAULT_COORDINATION_SETTINGS, type CoordinationGateSignal } from "@kernel/coordination.ts";
+import { AUTHORING_REFUSAL, DEFAULT_COORDINATION_SETTINGS, type CoordinationGateSignal } from "@kernel/coordination.ts";
+import { PLAN_DOWNGRADE } from "@contexts/coordination/application/lead-plan.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
@@ -23,7 +24,7 @@ import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-fi
 const INPUT: RunQaInput = { app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "coord-run" };
 const PASS: QaCase[] = [{ name: "a", status: "pass", file: "flows/a.spec.ts" }];
 
-const signalOf = (over: Partial<CoordinationGateSignal> = {}): CoordinationGateSignal => ({ flows: 0, delivered: 0, incomplete: 0, takeover: false, ...over });
+const signalOf = (over: Partial<CoordinationGateSignal> = {}): CoordinationGateSignal => ({ flows: 0, delivered: 0, incomplete: 0, ...over });
 
 interface Rig {
   calls: string[];
@@ -36,7 +37,10 @@ interface Rig {
   deps(over?: Partial<RunQaUseCaseDeps>): RunQaUseCaseDeps;
 }
 
-function rig(result: () => Promise<CoordinateResult> | CoordinateResult = () => ({ action: "lead", signal: signalOf({ downgrade: "x" }) })): Rig {
+const authored = (specs: string[] = ["flows/a.spec.ts"]): CoordinateResult => ({ action: "fanout", aggregated: { end: GENERATION_END.DELIVERED, specs, incompleteFlows: [] }, proposals: [], signal: signalOf({ plan: "fanout", flows: specs.length, delivered: specs.length }) });
+const refused = (refusal: string): CoordinateResult => ({ action: "refused", refusal, reason: "no sidekick can author", signal: signalOf({ refusal }) });
+
+function rig(result: () => Promise<CoordinateResult> | CoordinateResult = () => authored()): Rig {
   const ws = runWorkspace("qa-coord-");
   const calls: string[] = [];
   const r: Rig = { calls, enrichments: [], planned: [], coordinated: [], saved: [], validated: 0, ws, deps: undefined as never };
@@ -88,8 +92,6 @@ function rig(result: () => Promise<CoordinateResult> | CoordinateResult = () => 
       }
       return coordinated;
     } },
-    sidekickProvider: () => "opencode",
-    plannerProvider: () => "opencode",
     authContext: { baseUrl: "https://dev", auth: { kind: "form", usernameEnv: "U", passwordEnv: "P" } },
     config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false },
     ...rest,
@@ -100,7 +102,7 @@ function rig(result: () => Promise<CoordinateResult> | CoordinateResult = () => 
 
 test("a run with no coordinator wired generates in one lead turn, with no planning limits in the enrichment", async () => {
   const bare = rig();
-  await new RunQaUseCase(bare.deps({ leadSidekicks: undefined, sidekickProvider: undefined })).run(INPUT);
+  await new RunQaUseCase(bare.deps({ leadSidekicks: undefined })).run(INPUT);
   assert.equal(bare.coordinated.length, 0);
   assert.equal(bare.planned.length, 0);
   assert.deepEqual(bare.calls.filter((c) => c === "generate"), ["generate"]);
@@ -112,9 +114,9 @@ test("a run with no coordinator records no coordination, and a coordinated one r
   const plain = await new RunQaUseCase(bare.deps({ leadSidekicks: undefined })).run(INPUT);
   assert.equal(plain.outcome?.gateSignals.coordination, undefined);
 
-  const coordinated = rig(() => ({ action: "lead", signal: signalOf({ plan: "lead", authoring: "authenticated-browser" }) }));
+  const coordinated = rig(() => ({ ...authored(), signal: signalOf({ plan: "fanout", flows: 1, delivered: 1, authoring: "authenticated-browser" }) }));
   const out = await new RunQaUseCase(coordinated.deps()).run(INPUT);
-  assert.deepEqual(out.outcome?.gateSignals.coordination, signalOf({ plan: "lead", authoring: "authenticated-browser" }));
+  assert.deepEqual(out.outcome?.gateSignals.coordination, signalOf({ plan: "fanout", flows: 1, delivered: 1, authoring: "authenticated-browser" }));
 });
 
 test("a coordinated run hands the coordinator what the run knows: its identity, the grants, the login and the planning turn", async () => {
@@ -126,7 +128,7 @@ test("a coordinated run hands the coordinator what the run knows: its identity, 
   assert.equal(input!.mirrorDir, r.ws.mirrorDir);
   assert.equal(input!.specDir, r.ws.specDir);
   assert.equal(input!.specRelDir, "e2e");
-  assert.deepEqual(input!.facts, { hasLogin: true, provider: "opencode", plannerProvider: "opencode" });
+  assert.deepEqual(input!.facts, { hasLogin: true });
   assert.ok(input!.closedLoop && input!.agentBrowser, "both grants");
   assert.deepEqual(input!.settings, DEFAULT_COORDINATION_SETTINGS);
   /* The planning closure asks the generation port, with the run's enrichment and the limits. */
@@ -187,12 +189,18 @@ test("flows that were authored are the run's specs: the lead generates nothing, 
   assert.equal(out.decision.verdict, "pass");
 });
 
-test("the lead authors the change itself when the coordinator hands it back, with the reason recorded", async () => {
-  const r = rig(() => ({ action: "lead", signal: signalOf({ downgrade: "too little time", takeover: true }) }));
-  const out = await new RunQaUseCase(r.deps()).run(INPUT);
-  assert.equal(r.calls.filter((c) => c === "generate").length, 1);
-  assert.equal(out.outcome?.gateSignals.coordination?.takeover, true);
-  assert.equal(out.outcome?.gateSignals.coordination?.downgrade, "too little time");
+test("a coordinator that refuses ends the run infra-error E-NO-AUTHOR with the refusal recorded, and the generator is never asked", async () => {
+  for (const refusal of [AUTHORING_REFUSAL.CANNOT_PLAN, AUTHORING_REFUSAL.NO_AUTHOR_GRANT, AUTHORING_REFUSAL.NO_TIME, AUTHORING_REFUSAL.PLAN_TIMED_OUT, ...Object.values(PLAN_DOWNGRADE).map((reason) => `${AUTHORING_REFUSAL.PLAN_REJECTED}:${reason}`)]) {
+    const r = rig(() => refused(refusal));
+    const out = await new RunQaUseCase(r.deps()).run(INPUT);
+    assert.equal(out.decision.verdict, "infra-error", refusal);
+    assert.equal(out.errorClass, "E-NO-AUTHOR", refusal);
+    assert.equal(out.outcome?.gateSignals.coordination?.refusal, refusal);
+    assert.match(out.note ?? "", new RegExp(refusal));
+    assert.equal(r.calls.includes("generate"), false, `${refusal}: the generator is never asked`);
+    assert.equal(r.calls.includes("execute"), false, refusal);
+    assert.equal(out.outcome?.errorClass, "E-NO-AUTHOR", refusal);
+  }
 });
 
 test("a lead that declared a no-op in its plan ends the run as the declared no-op does: skipped, with its reason, and nothing is run", async () => {
@@ -237,12 +245,14 @@ test("without the coordinator wired, nothing is planned and the lead authors alo
   assert.equal(r.calls.filter((c) => c === "generate").length, 1);
 });
 
-test("a coordinator that fails costs the run only the coordination: the lead authors, and the failure is recorded", async () => {
+test("a coordinator that fails ends the run E-NO-AUTHOR (coordination-failed) and the failure is recorded", async () => {
   const r = rig(() => { throw new Error("workspace volume full"); });
   const out = await new RunQaUseCase(r.deps()).run(INPUT);
-  assert.equal(r.calls.filter((c) => c === "generate").length, 1);
-  assert.equal(out.decision.verdict, "pass");
-  assert.match(out.outcome?.gateSignals.coordination?.downgrade ?? "", /failed/);
+  assert.equal(r.calls.includes("generate"), false, "the lead authors nothing in its place");
+  assert.equal(out.decision.verdict, "infra-error");
+  assert.equal(out.errorClass, "E-NO-AUTHOR");
+  assert.equal(out.outcome?.gateSignals.coordination?.refusal, AUTHORING_REFUSAL.COORDINATION_FAILED);
+  assert.match(out.note ?? "", /workspace volume full/);
 });
 
 test("the end of the run's own time reaches the run as it does from any agent turn", async () => {

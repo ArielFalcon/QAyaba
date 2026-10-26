@@ -24,7 +24,7 @@ export function buildRunChatContext(): string {
     "· fail   → test failures detected → GitHub Issue opened for the team",
     "· flaky  → passes only after retries → quarantined (no action needed)",
     "· invalid → static checks failed (compilation, linting, or metadata)",
-    `· infra-error → the run could not reach a verdict, never a code bug: DEV was unhealthy or unreachable; or, when the run says so, the agent ran out of steps (${infraErrorGloss("E-STEP-BUDGET")}) or out of time (${infraErrorGloss("E-TIME-BUDGET")}) or decided nothing (${infraErrorGloss("E-NO-DECISION")}); or the app's login failed before any test was written (${infraErrorGloss("E-PRECONDITION")}); or the reviewer could not be reached (${infraErrorGloss("E-REVIEWER-UNAVAILABLE")}), or a reviewer finding the generator disputed stayed unresolved (${infraErrorGloss("E-REVIEW-DISPUTED")})`,
+    `· infra-error → the run could not reach a verdict, never a code bug: DEV was unhealthy or unreachable; or, when the run says so, the agent ran out of steps (${infraErrorGloss("E-STEP-BUDGET")}) or out of time (${infraErrorGloss("E-TIME-BUDGET")}) or decided nothing (${infraErrorGloss("E-NO-DECISION")}) or had no author sidekick to write the tests (${infraErrorGloss("E-NO-AUTHOR")}); or the app's login failed before any test was written (${infraErrorGloss("E-PRECONDITION")}); or the reviewer could not be reached (${infraErrorGloss("E-REVIEWER-UNAVAILABLE")}), or a reviewer finding the generator disputed stayed unresolved (${infraErrorGloss("E-REVIEW-DISPUTED")})`,
     "· skipped → the commit needed no testing (style-only, or the agent declared a no-op with a reason)",
     "",
     "## Boundaries of this chat",

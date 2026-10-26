@@ -3,8 +3,9 @@
 How every e2e run generates: the lead plans a change's independent flows and sidekicks author them in
 parallel, each closing its own `run_spec` loop. There is no other way a run generates and nothing to turn on. Everything after generation (validation, execution, change-coverage, review, decide) is unchanged. A code run,
 a context run and a login still to be written do not coordinate. When the plan is not admitted as a fan-out, no sidekick
-can author, or the coordination fails, the lead authors the whole change in one turn, and why is recorded in
-`gateSignals.coordination` (`downgrade`) and the probe report's "Coordination" section.
+can author, there is no time, or the coordination fails, the run ends `infra-error` `E-NO-AUTHOR`: the lead never writes the tests in the author's place. The reason code
+(`no-coordinator`, `coordination-failed`, `cannot-plan`, `no-author-grant`, `no-time`, `plan-timed-out`, `plan-rejected:<reason>`) is recorded in
+`gateSignals.coordination` (`refusal`) and in the probe report's "Coordination" section.
 
 ## Tuning it
 
@@ -21,11 +22,11 @@ qa:
 ```
 
 A run with a login needs `qa.closedLoop` and/or `qa.agentBrowser` enabled for its sidekicks to author against the
-signed-in app (see below); without either, they stay out and the lead authors alone.
+signed-in app (see below); without either, no sidekick can author and the run ends `E-NO-AUTHOR` (`no-author-grant`).
 
 ## What a run does
 
-1. **Plan.** The lead is asked for a plan (a read-only turn): `lead` (one piece of work it authors itself), `noop` with a reason, or `fanout` with
+1. **Plan.** The lead is asked for a plan (a read-only turn): `noop` with a reason, or `fanout` with
    flows. A flow is an id, an objective, acceptance items, the routes it touches and, when the app declares
    `dev.geolocation`, an optional place it authors at. A route segment that holds a stand-in for a value (`<run>`, `{city}`)
    is kept as a parameter, and a flow that names no route visits the site-relative paths its objective and acceptance name; a
@@ -39,8 +40,8 @@ signed-in app (see below); without either, they stay out and the lead authors al
    planning session, review included, is denied Playwright: DEV is read by the sidekicks.
 2. **Admit.** `admitLeadPlan` treats the plan as untrusted. It slugs the ids, assigns each flow the spec path
    `e2e/flows/<slug>.spec.ts` itself (any write list the lead names is ignored), caps the sizes, and refuses
-   duplicates and more than `maxFlows`. A plan that cannot be admitted, or that names one flow, hands the change
-   back to the lead as one piece of work with the reason recorded (`downgrade`). The change pages that plan left
+   duplicates and more than `maxFlows`. A plan that cannot be admitted ends the run `E-NO-AUTHOR` with the reason recorded
+   (`refusal: plan-rejected:<reason>`); a plan of one flow is a fan-out of one. The change pages that plan left
    unvisited (all of them when it named no flow, those its only flow does not name when it named one) are recorded as a
    `lead-decision` event and stated in the lead's authoring turn (`unvisitedChangePages`, section `change-pages`): it covers each
    one whose behaviour the change alters or says in its verdict why it needs no test.
@@ -56,7 +57,7 @@ signed-in app (see below); without either, they stay out and the lead authors al
 6. **Add up.** `aggregateFlowOutcomes` ends the coordinated pass as a generation ends: delivered specs, a declared
    no-op, or an end that says why nothing was finished. The rest of the run reads it like any generation.
 
-If nothing could be coordinated (no plan, no time, nobody to author with) the lead authors the change alone.
+If nothing could be coordinated (no plan, no time, nobody to author with) the run ends `E-NO-AUTHOR` with the refusal code; the lead authors nothing.
 
 ### What the lead plans from
 
@@ -78,7 +79,7 @@ sees a finding the orchestrator labels it: `verified` when the Context Pack read
 results, the orchestrator's browser showed that sidekick the page, or the code graph holds the symbol (`<file>#<symbol>`);
 `contradicted` when it claims an empty data state the pack read with results (the pack's read stands); `unverified` otherwise,
 shown to the lead as a claim. The lead is then asked in the same session and that answer must be a plan: a second request is
-refused as malformed, and the change goes back to the lead as one piece of work. A plan answered directly spends no exploration time.
+refused as a plan that was not admitted (`E-NO-AUTHOR`, `plan-rejected:malformed`). A plan answered directly spends no exploration time.
 
 ## What a sidekick may author with
 
@@ -89,7 +90,7 @@ refused as malformed, and the change goes back to the lead as one piece of work.
 | `authenticated-browser` | the app has a login and the run was granted the authenticated browser | `run_spec` for its own flow, `authbrowser_*` with a share of the run's caps |
 | `run-spec-only` | a login and only the closed loop | `run_spec` for its own flow |
 | `unauthenticated-browser` | no login | the plain browser; one flow at a time (the browser is one shared process) |
-| `excluded` | the sidekick role is not on OpenCode, or a login with neither grant | none: the lead authors alone |
+| `excluded` | a login with neither grant | none: the run ends `E-NO-AUTHOR` |
 
 A sidekick's prompts are denied `serena*` always (its symbol edits write wherever the server's project points),
 `playwright*` unless the mode is `unauthenticated-browser`, and `run_spec` unless its flow holds a loop. The denial
@@ -141,8 +142,7 @@ The answer is untrusted, and the orchestrator's facts decide over it:
 - a flow the answer does not name, or an answer that cannot be read or runs out of its time, leaves the flows as they are.
 
 Every revision carries the orchestrator's facts beside the lead's instruction. A sidekick that writes nothing and says
-why (the change needs no test of its own) is a declined flow, not a failure. When every flow comes back empty and time
-remains, the lead takes over the whole change as one piece of work (`takeover` in the signal). The review is counted in
+why (the change needs no test of its own) is a declined flow, not a failure. When every flow comes back empty, the run ends `E-NO-DECISION`; the lead does not take the change over. The review is counted in
 `gateSignals.coordination.review { turns, accepted, revised, replaced, dropped, refused }` and each decision is a
 `lead-decision` event of the coordination telemetry.
 

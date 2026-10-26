@@ -10,6 +10,7 @@ export const END_REASONS = [
   "generation-noop",
   "generation-ended-without-specs",
   "generation-empty-output",
+  "no-author",
   "static-gate-failed",
   "pre-execute-infra",
   "reviewer-unavailable",

@@ -29,7 +29,15 @@ export class PublicationFailedError extends Error {
   }
 }
 
-export const FAILURE_KINDS = ["aborted", "run-deadline", "sandbox-unavailable", "probe-sweep", "untrusted-tree", "publication", "integration", "unknown"] as const;
+/** No author sidekick could run: the coordinator refused the run or failed; `refusal` is the code the run records. */
+export class NoAuthorError extends Error {
+  constructor(readonly refusal: string, reason: string, options?: { cause?: unknown }) {
+    super(`no author sidekick could run (${refusal}): ${reason}`, options);
+    this.name = "NoAuthorError";
+  }
+}
+
+export const FAILURE_KINDS = ["aborted", "run-deadline", "no-author", "sandbox-unavailable", "probe-sweep", "untrusted-tree", "publication", "integration", "unknown"] as const;
 export type FailureKind = (typeof FAILURE_KINDS)[number];
 
 /*
@@ -58,6 +66,8 @@ export const POLICY: Readonly<Record<FailureKind, Readonly<Record<StepClass, Fai
   aborted: endFor("aborted"),
   /* A spent deadline after a suite ran green on its final bytes keeps what is proven (the run goes on to the final proof guard and the decision); anywhere else nothing is proven and the run ends. */
   "run-deadline": { ...endFor("run-deadline"), proven: { do: "degrade", reason: "deadline-after-proof" } },
+  /* Nothing was authored and nothing is proven: the run ends with the reason, whatever the step. */
+  "no-author": endFor("no-author"),
   "sandbox-unavailable": endFor("sandbox-unavailable"),
   "probe-sweep": endFor("probe-sweep-failed"),
   "untrusted-tree": always(RETHROW),
@@ -74,6 +84,7 @@ export function classifyFailure(err: unknown): FailureKind {
   if (isRunDeadlineError(err)) return "run-deadline";
   /* By name: the launcher lives outside the application layer. A refusal to open the run's scope is the caller's own business, not a step's. */
   if (err instanceof Error && err.name === "SandboxUnavailableError" && (err as { reason?: unknown }).reason !== "scope") return "sandbox-unavailable";
+  if (err instanceof NoAuthorError) return "no-author";
   if (err instanceof ProbeSweepError) return "probe-sweep";
   if (isUntrustedGitTreeError(err)) return "untrusted-tree";
   if (err instanceof PublicationFailedError) return "publication";

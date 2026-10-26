@@ -7,7 +7,7 @@
  * decided-end.ts and goes through the same body, and a crash goes through it with the evidence the run has (CRASH_EVIDENCE_EFFECTS).
  */
 
-import type { GenerationEndKind } from "@kernel/generation-end.ts";
+import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
 import type { NoopKind } from "@kernel/noop-kind.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { decide } from "../../domain/run-decision.service.ts";
@@ -158,6 +158,8 @@ function shapeOf(end: Exclude<RunEnd, { reason: "decided" | "context-pass" }>, c
       const { reason: _reason, disputed: _disputed, passedCases: _passedCases, static: staticOk, ...evidence } = end;
       return { kind: "terminal", terminal: { verdict: "infra-error", generating: true, static: staticOk, ...evidence, note, reviewDisputed: true } };
     }
+    case "no-author":
+      return { kind: "terminal", terminal: { verdict: "infra-error", generating: true, static: false, note: end.note, generationEnd: GENERATION_END.NO_AUTHOR, ...(end.rulesRetrieved ? { rulesRetrieved: end.rulesRetrieved } : {}) } };
     case "run-deadline":
       return { kind: "terminal", terminal: { verdict: "infra-error", generating: true, static: false, note: end.note, generationEnd: end.generationEnd, ...(end.rulesRetrieved ? { rulesRetrieved: end.rulesRetrieved } : {}) } };
     case "sandbox-unavailable":

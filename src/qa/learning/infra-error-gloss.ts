@@ -7,6 +7,7 @@
 const ENGINE_SIDE_GLOSS: Readonly<Record<string, string>> = {
   "E-STEP-BUDGET": "the agent ran out of steps without reporting any spec — an engine-side condition, not a fault of the app",
   "E-NO-DECISION": "the agent returned no specs and no decision to skip — an engine-side condition, not a fault of the app",
+  "E-NO-AUTHOR": "no author sidekick could run, so no spec was written — an engine-side condition, not a fault of the app",
   "E-TIME-BUDGET": "the agent ran out of time without reporting any spec — an engine-side condition, not a fault of the app",
 };
 /*

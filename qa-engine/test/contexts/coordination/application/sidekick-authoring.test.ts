@@ -10,7 +10,6 @@ import { MAX_SESSION_PAGES } from "@kernel/agent-browser.ts";
 
 const facts = (over: Partial<AuthoringFacts> = {}): AuthoringFacts => ({
   hasLogin: true,
-  provider: "opencode",
   runSpecGranted: true,
   browserGranted: true,
   ...over,
@@ -38,16 +37,6 @@ test("an app with no login is authored with the unauthenticated browser, one flo
     const decision = sidekickAuthoring(facts({ hasLogin: false, browserGranted: false, runSpecGranted }));
     assert.equal(decision.mode, SIDEKICK_AUTHORING.UNAUTHENTICATED_BROWSER);
     assert.equal(decision.maxParallel, 1);
-  }
-});
-
-test("a sidekick on a runtime the host cannot name is left out and says why, whatever the app has", () => {
-  for (const provider of [undefined] as const) {
-    for (const hasLogin of [true, false]) {
-      const decision = sidekickAuthoring(facts({ provider, hasLogin }));
-      assert.equal(decision.mode, SIDEKICK_AUTHORING.EXCLUDED, `${provider} ${hasLogin}`);
-      assert.ok((decision.reason ?? "").length > 0);
-    }
   }
 });
 

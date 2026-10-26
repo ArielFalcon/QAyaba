@@ -57,7 +57,7 @@ export interface ContextEvidence {
 
 /* The lead's plan as the run kept it, with each flow's result in the final execution. */
 export interface PlanEvidence {
-  /* "noop" | "lead" | "fanout". */
+  /* "noop" | "rejected" | "fanout". */
   kind: string;
   /* The pages of the app's map the change is linked to. */
   changeRoutes: readonly string[];

@@ -20,7 +20,7 @@ import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
 import type { RecordMeasurement, SpanHandle, StartSpanOptions } from "@kernel/telemetry/telemetry.port.ts";
 import { CoordinationTelemetryRecorder } from "@contexts/coordination/application/index.ts";
-import type { CoordinateInput } from "@contexts/coordination/application/lead-sidekicks.ts";
+import type { CoordinateInput, CoordinateResult } from "@contexts/coordination/application/lead-sidekicks.ts";
 import { Sha } from "@kernel/sha.ts";
 import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 import type { ChangeAnalysisPort } from "@contexts/change-analysis/application/index.ts";
@@ -8160,8 +8160,8 @@ async function coordinationReviewOutcome(opts: {
     ...(opts.review ? { review: opts.review } : {}),
   });
   const telemetry = new CoordinationTelemetryRecorder();
-  /* A coordinated run is the one that reports an outcome: the lead hands the change back to be authored in one piece. */
-  const leadSidekicks = { coordinate: async () => ({ action: "lead" as const, signal: { plan: "lead", flows: 1, delivered: 0, incomplete: 0, takeover: false } }) };
+  /* A coordinated run is the one that reports an outcome: its flows are authored by the coordinator. */
+  const leadSidekicks = { coordinate: (input: CoordinateInput) => authoredByCoordinator(ports.generation, input) };
   await new RunQaUseCase({
     ...ports,
     leadSidekicks,
@@ -8169,6 +8169,12 @@ async function coordinationReviewOutcome(opts: {
     config: { ...baseConfig, needsReview: opts.needsReview },
   }).run(baseInput);
   return telemetry.events.find((event) => event.kind === "outcome")?.reviewOutcome;
+}
+
+/* A coordinator whose flows deliver what the scripted generation delivers. */
+async function authoredByCoordinator(generation: GenerationPort, input: CoordinateInput): Promise<CoordinateResult> {
+  const generated = await generation.generate(input.specDir);
+  return { action: "fanout", aggregated: { end: GENERATION_END.DELIVERED, specs: generated.specs, incompleteFlows: [] }, proposals: [], signal: { plan: "fanout", flows: 1, delivered: 1, incomplete: 0 } };
 }
 
 const FLAKY_RUN: ExecutionPort["execute"] = async () => ({ verdict: "flaky", cases: [{ name: "checkout", status: "flaky" as const }], logs: "" });
@@ -9363,7 +9369,7 @@ test("a failure that reads empty, twice, a page the Context Pack read with resul
 test("the pages the Context Pack read with results reach the coordination for every sidekick", async () => {
   const { ports } = stubPorts({ ground: async () => ({ packConfirmedDataRoutes: [{ path: "/owners/list", resultCount: 3 }] }) });
   const seen: CoordinateInput[] = [];
-  const leadSidekicks = { coordinate: async (coordinateInput: CoordinateInput) => { seen.push(coordinateInput); return { action: "lead" as const, signal: { plan: "lead", flows: 1, delivered: 0, incomplete: 0, takeover: false } }; } };
+  const leadSidekicks = { coordinate: async (coordinateInput: CoordinateInput) => { seen.push(coordinateInput); return authoredByCoordinator(ports.generation, coordinateInput); } };
   await new RunQaUseCase({
     ...ports,
     leadSidekicks,

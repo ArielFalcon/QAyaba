@@ -3,7 +3,6 @@
  * use case so the run flow's modules can name them without importing the use case that drives them.
  */
 
-import type { AgentProvider } from "@kernel/agent-role.ts";
 import type { Sha } from "@kernel/sha.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { RunMode, RunPurpose, TestTarget, TriggerSource } from "@kernel/run-mode.ts";
@@ -262,14 +261,9 @@ export interface RunQaUseCaseDeps {
    */
   coordinationSettings?: CoordinationSettings;
   /**
-   * Plans a run in the lead/sidekick mode and authors its flows. Absent: the mode asks for nothing and the lead authors alone. A
-   * fault in it costs the run only the coordination, said aloud.
+   * Plans an e2e run and authors its flows with sidekicks. A refusal or a fault in it ends the run `E-NO-AUTHOR`.
    */
   leadSidekicks?: Pick<LeadSidekicks, "coordinate">;
-  /** The runtime the sidekick role is assigned to now (it is switchable); absent: the host cannot say, and no sidekick is used. */
-  sidekickProvider?: () => AgentProvider | undefined;
-  /** The runtime the lead plans on now: only one that can deny the write tools per prompt may hold the planning turn to read-only. Absent: the host cannot say, and the lead authors alone. */
-  plannerProvider?: () => AgentProvider | undefined;
   config?: Partial<RunQaConfig>;
 }
 

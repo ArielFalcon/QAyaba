@@ -118,7 +118,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
         sandbox: { egress: "enforced", denied: [S("denied host")] },
         closedLoop: { calls: 4, devWrites: 3, closed: true },
         agentBrowser: { calls: 9, blocks: 2, invalidations: 1, renewals: 1 },
-        coordination: { plan: "fanout", flows: 3, delivered: 2, incomplete: 1, takeover: false, authoring: "authenticated-browser" },
+        coordination: { plan: "fanout", flows: 3, delivered: 2, incomplete: 1, authoring: "authenticated-browser" },
         coverage: { stale: true },
         value: { stale: true },
         integrity: { acceptances: 2, rejected: 1, proofReused: 1, capHit: true },
