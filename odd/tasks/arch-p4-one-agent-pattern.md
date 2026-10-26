@@ -172,7 +172,7 @@ Branch: `fix/failure-observation-conflict` (owner rule: one branch, no PR split)
 - [x] T1 — S1a — inline — `qa-lead` role, prompt file and tool-grant move (governance commit, alone, independent verifier) — commit: `d72d08f3` (role, roster, constants, fixtures); `74f6907e` (the answer shapes move into `qa-lead.md`, matrix and baseline); independent verifier pending; live steps pending (L10)
 - [x] T2 — S1b — inline — Remove plan kind `lead` and `ONE_FLOW`; the lead protocols move into `qa-lead.md` — commit: `c5188571`
 - [x] T3 — S2 — inline — `SidekickKind` registry and the author entry; delete `AgentCapability` — commit: `8469b8d2`
-- [x] T4 — S3 — inline — Reviewer becomes the `review` kind; delete the inline reviewer and the `decide.steps.ts` fallback; P0.4 rows named (independent verifier) — commit: HASH_T4; independent verifier pending
+- [x] T4 — S3 — inline — Reviewer becomes the `review` kind; delete the inline reviewer and the `decide.steps.ts` fallback; P0.4 rows named (independent verifier) — commit: `14facd30`; independent verifier pending
 - [ ] T5 — S4a — inline — `qa-explore` role and widened browser and graph holders (governance commit, alone, independent verifier) — commit: pending
 - [ ] T6 — S4b — inline — `explore` kind: request, dispatch, evidence verification (independent verifier) — commit: pending
 - [ ] T7 — S5a — inline — Doors to recorded `E-NO-AUTHOR` outcomes; one author path for code, context and regenerations; contract regenerated (independent verifier; may need two work-unit commits: outcome and doors 1-8, then door 9-10) — commit: pending
