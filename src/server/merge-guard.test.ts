@@ -163,7 +163,7 @@ test("isProtectedPath flags the secret boundary (a fix must never weaken what sc
   /* the logs→Issue containsSecret fail-loud call site — an autonomous fix could remove the guard
      that refuses to ship a secret-carrying Issue body.
    */
-  assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/publication-port.adapter.ts"), true);
+  assert.equal(isProtectedPath("qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter.ts"), true);
 });
 
 /* The adapter that actually WRITES auth material (storageState/client.p12/cert.pass)
@@ -410,7 +410,7 @@ test("every file under the orchestration adapters directory is protected or expl
 test("the abort race that moved to the domain is not protected while the adapters prefix is", () => {
   assert.equal(isProtectedPath("qa-engine/src/shared-kernel/abort-race.ts"), false);
   assert.ok(existsSync(join(repoRoot, "qa-engine/src/shared-kernel/abort-race.ts")));
-  assert.equal(isProtectedPath(`${ORCHESTRATION_ADAPTERS}publication-port.adapter.ts`), true);
+  assert.equal(isProtectedPath("qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter.ts"), true);
 });
 
 test("every file under the security-sensitive surface is either protected or explicitly reviewed as not-sensitive", () => {

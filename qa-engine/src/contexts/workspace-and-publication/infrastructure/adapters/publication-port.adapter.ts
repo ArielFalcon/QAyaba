@@ -3,7 +3,7 @@
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { SecretLeakError } from "@kernel/ports/redaction.port.ts";
-import type { PublicationPort } from "../../application/ports/index.ts";
+import type { PublicationPort } from "@contexts/qa-run-orchestration/application/index.ts";
 
 /* Local structural mirror of workspace-and-publication's PublishContext/PublishDecision (domain/publish-decision.service.ts) — duck-typed, NOT imported, per the security-boundary note. */
 export interface PublishDecisionCollaborator {

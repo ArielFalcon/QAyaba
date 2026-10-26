@@ -1,5 +1,7 @@
 import type { RunMode, RunPurpose } from "@kernel/run-mode.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
+import type { QaCase } from "@kernel/qa-case.ts";
+import type { RunVerdict } from "@kernel/run-verdict.ts";
 
 /**
  * The run_spec loop of one run, as the use case sees it: the right to execute a spec while authoring, granted to the
@@ -81,4 +83,17 @@ export interface ClosedLoopHandle {
 export interface ClosedLoopPort {
   /** Resolves undefined when this run is not granted the loop (disabled, another runtime, nothing to run it with). */
   open(input: ClosedLoopOpenInput): Promise<ClosedLoopHandle | undefined>;
+}
+
+/** What the loop asks of the run's execution: one spec file of the suite, once, under the namespace the call owns. */
+export interface ClosedLoopExecutionPort {
+  execute(
+    specDir: string,
+    opts: { specFiles: string[]; namespace: string; timeoutMs: number; retries: number; countWrites: boolean; grep?: string; signal?: AbortSignal },
+  ): Promise<{ verdict: RunVerdict; cases: QaCase[]; logs: string; devWrites?: number }>;
+}
+
+/** What the loop asks of the run's cleanup: remove the data a namespace's calls created. */
+export interface ClosedLoopCleanupPort {
+  cleanup(specDir: string, opts: { namespace: string; signal?: AbortSignal }): Promise<void>;
 }

@@ -99,7 +99,7 @@ import { CONFINEMENT_DENYLIST, WriteConfinementService } from "@contexts/workspa
 import { WriteConfinementAdapter } from "@contexts/workspace-and-publication/infrastructure/write-confinement.adapter";
 import { MirrorGcAdapter } from "@contexts/workspace-and-publication/infrastructure/mirror-gc.adapter";
 import { SuiteStoreAdapter, gitListTracked } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
-import type { VcsPublishCollaborator } from "@contexts/qa-run-orchestration/infrastructure/adapters/publication-port.adapter";
+import type { VcsPublishCollaborator } from "@contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter";
 import { makeTargetCoverageCollector } from "@contexts/objective-signal/infrastructure/target-coverage-collector";
 import { assembleChangeCoverage } from "@contexts/objective-signal/domain/assemble-change-coverage";
 
@@ -122,7 +122,7 @@ import {
 import { parseVerdict } from "../integrations/verdict-parse";
 import { parseReviewerVerdict, checkGeneratorVerdict, repairInstruction } from "../integrations/verdict-validate";
 import type { StepLimitFor, StepLimitRole } from "@contexts/generation/application/ports/generation-ports";
-import { MultiRepoCheckoutAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/multi-repo-checkout.adapter";
+import { MultiRepoCheckoutAdapter } from "@contexts/workspace-and-publication/infrastructure/adapters/multi-repo-checkout.adapter";
 import { roleWindowBytes, setLiveModelWindows } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import type { RepairPort } from "@contexts/generation/application/generate-tests.use-case.ts";
 

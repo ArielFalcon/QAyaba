@@ -21,8 +21,7 @@ import { RunSpecUseCase, type RunSpecRequest, type RunSpecResponse } from "@cont
 import type { SpecCleanupPort, SpecExecutorPort } from "@contexts/test-execution/application/index.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import type { AuthSessionContext, AuthSessionPort } from "@contexts/app-catalog/application/index.ts";
-import type { ClosedLoopHandle, ClosedLoopOpenInput, ClosedLoopPort, FlowLoopHandle, FlowLoopOpenInput } from "../../application/ports/closed-loop.port.ts";
-import type { CleanupPort, ExecutionPort } from "@contexts/qa-run-orchestration/application/index.ts";
+import type { ClosedLoopCleanupPort, ClosedLoopExecutionPort, ClosedLoopHandle, ClosedLoopOpenInput, ClosedLoopPort, FlowLoopHandle, FlowLoopOpenInput } from "../../application/ports/closed-loop.port.ts";
 import type { ClosedLoopRegistry } from "../closed-loop-registry.ts";
 import { trustedSessionRenewal } from "./trusted-session-renewal.ts";
 import { traceToolCall, type ToolObserver, type ToolTraceWiring } from "./tool-call-trace.ts";
@@ -40,9 +39,9 @@ export interface ClosedLoopPortAdapterDeps {
   setting: { enabled: boolean; limits: ClosedLoopLimits };
   /* Whether the generator role runs on a runtime that can call the tool (OpenCode). Read at each open: the runtime is switchable. */
   generatorRuntimeCanCall: () => boolean;
-  execution: ExecutionPort;
+  execution: ClosedLoopExecutionPort;
   /* Absent: nothing removes the data a call created beyond what the spec's own fixtures undo. */
-  cleanup?: CleanupPort;
+  cleanup?: ClosedLoopCleanupPort;
   /* With the context: signs in again when a call left the session on the login page. Absent: a lost session is only reported. */
   authSession?: AuthSessionPort;
   authContext?: AuthSessionContext;

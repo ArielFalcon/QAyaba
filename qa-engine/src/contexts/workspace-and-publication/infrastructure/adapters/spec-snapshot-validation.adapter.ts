@@ -21,7 +21,7 @@ import { redactByValue } from "../../../../shared-infrastructure/run-secret-reda
 import { MAX_SPEC_SOURCE_BYTES, readOwnedSpecFile, scanSpecTree } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import { MAX_SPEC_SNAPSHOTS_PER_CAPTURE, MAX_SPEC_SNAPSHOT_BYTES_PER_RUN, MAX_SPEC_SNAPSHOT_TEXT_BYTES, type SpecSnapshot, type SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port.ts";
-import type { ValidationPort, ValidationRunInfo } from "../../application/ports/index.ts";
+import type { ValidationPort, ValidationRunInfo } from "@contexts/qa-run-orchestration/application/index.ts";
 
 /* How many runs' kept specs a port remembers. */
 export const MAX_REMEMBERED_RUNS = 4;

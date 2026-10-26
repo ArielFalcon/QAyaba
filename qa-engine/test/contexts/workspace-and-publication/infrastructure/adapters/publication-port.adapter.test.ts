@@ -4,7 +4,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PublicationPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/publication-port.adapter.ts";
+import { PublicationPortAdapter } from "@contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter.ts";
 import { PublishDecisionService } from "@contexts/workspace-and-publication/domain/publish-decision.service.ts";
 import { GitHubPrAdapter } from "@contexts/workspace-and-publication/infrastructure/github-pr.adapter.ts";
 import { GitHubIssueAdapter } from "@contexts/workspace-and-publication/infrastructure/github-issue.adapter.ts";

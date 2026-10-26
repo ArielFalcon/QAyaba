@@ -177,7 +177,7 @@ export const PROTECTED_PATHS: string[] = [
    */
   "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
   /* Also covered by the adapters/ prefix below; listed so narrowing that prefix cannot unprotect it. */
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/publication-port.adapter.ts",
+  "qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter.ts",
 
   "src/server/auth.ts",
   "src/server/github-auth.ts",
@@ -194,6 +194,8 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/",
 
   "qa-engine/src/contexts/change-analysis/infrastructure/adapters/",
+
+  "qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/",
 
   "qa-engine/src/contexts/coordination/infrastructure/",
 

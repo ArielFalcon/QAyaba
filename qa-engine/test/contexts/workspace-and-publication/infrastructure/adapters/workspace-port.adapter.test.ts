@@ -9,7 +9,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { WorkspacePortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/workspace-port.adapter.ts";
+import { WorkspacePortAdapter } from "@contexts/workspace-and-publication/infrastructure/adapters/workspace-port.adapter.ts";
 import { Sha } from "@kernel/sha.ts";
 
 test("prepare() delegates to the injected checkout collaborator and derives specDir from mirrorDir + specRelDir (e2e target)", async () => {

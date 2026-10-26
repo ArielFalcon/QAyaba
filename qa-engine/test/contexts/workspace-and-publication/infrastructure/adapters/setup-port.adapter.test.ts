@@ -4,7 +4,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SetupPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/setup-port.adapter.ts";
+import { SetupPortAdapter } from "@contexts/workspace-and-publication/infrastructure/adapters/setup-port.adapter.ts";
 
 test("setup() dispatches to the e2e collaborator for target 'e2e' and forwards specDir", async () => {
   let capturedDir: string | undefined;

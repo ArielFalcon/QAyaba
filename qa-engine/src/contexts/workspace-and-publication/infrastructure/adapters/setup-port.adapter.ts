@@ -1,5 +1,5 @@
 /* SetupPort → e2e/code setup dispatch. Thin: maps SetupPort.setup(specDir, signal?) onto the collaborator for the run's target. A throw from either collaborator propagates verbatim — a setup failure is infra-error, never a code verdict. */
-import type { SetupPort } from "../../application/ports/index.ts";
+import type { SetupPort } from "@contexts/qa-run-orchestration/application/index.ts";
 import type { TestTarget } from "@kernel/run-mode.ts";
 
 export type SetupFn = (dir: string, opts?: { signal?: AbortSignal }) => Promise<void>;

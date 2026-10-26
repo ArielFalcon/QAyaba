@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Sha } from "@kernel/sha.ts";
-import { MultiRepoCheckoutAdapter, type MultiRepoCheckoutDeps, type ServiceStageInput } from "@contexts/qa-run-orchestration/infrastructure/adapters/multi-repo-checkout.adapter.ts";
+import { MultiRepoCheckoutAdapter, type MultiRepoCheckoutDeps, type ServiceStageInput } from "@contexts/workspace-and-publication/infrastructure/adapters/multi-repo-checkout.adapter.ts";
 
 function spyDeps(): MultiRepoCheckoutDeps & {
   ensureMirrorCalls: Array<{ repo: string; sha: string }>;
