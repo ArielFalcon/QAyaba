@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -41,7 +43,11 @@ test("the review shows the lead, per flow, what it asked for, what came of it, t
   for (const expected of ["cart", "the cart total", "the total adds the line prices", "test('total'", "login", "sign in works", "the button never appeared", "locator('Sign in') not found on /login", "could not find the button", "the page may differ on DEV", "3 of 8"]) {
     assert.ok(text.includes(expected), expected);
   }
-  for (const action of Object.values(REVIEW_ACTION)) assert.ok(text.includes(`"${action}"`), action);
+});
+
+test("the lead's role prompt names every review action the orchestrator admits", () => {
+  const prompt = readFileSync(join(process.cwd(), "agents", "agent", "qa-lead.md"), "utf8");
+  for (const action of Object.values(REVIEW_ACTION)) assert.ok(prompt.includes(`\`${action}\``), action);
 });
 
 test("a spec longer than the review holds is cut, and says so", () => {

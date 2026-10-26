@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 /* The plan contract a lead's prompt carries on the one turn it is asked for a plan. The section states the shapes a plan may take and the limits it will be held to, on a first pass of an e2e run that writes tests; without a planning turn it does not render and the prompt is what it always was. Asserted on section ids, claims, the shapes and numbers taken from the input and the kernel, and lint findings, never on prompt wording. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -53,11 +55,12 @@ test("a planning turn carries the plan contract in a section of its own, in ever
   }
 });
 
-test("the contract names every shape a plan may take and the limits the orchestrator holds it to", () => {
+test("the section states the limits the orchestrator holds the plan to, and the lead's role prompt names every shape a plan may take", () => {
   const section = sectionOf(assemble({ planning: PLANNING }))!;
-  for (const kind of Object.values(LEAD_PLAN_KIND)) assert.ok(section.text.includes(`"${kind}"`), kind);
   for (const n of [PLANNING.maxFlows, PLANNING.maxParallel]) assert.ok(section.text.includes(String(n)), String(n));
-  for (const key of ["plan", "kind", "flows", "id", "objective", "acceptance", "routes"]) assert.ok(section.text.includes(`"${key}"`), key);
+  const prompt = readFileSync(join(process.cwd(), "agents", "agent", "qa-lead.md"), "utf8");
+  for (const kind of Object.values(LEAD_PLAN_KIND)) assert.ok(prompt.includes(`"${kind}"`), kind);
+  for (const key of ["plan", "kind", "flows", "id", "objective", "acceptance", "routes"]) assert.ok(prompt.includes(`"${key}"`), key);
 });
 
 test("the pages the change is linked to are named in the contract, and a contract without them names none", () => {

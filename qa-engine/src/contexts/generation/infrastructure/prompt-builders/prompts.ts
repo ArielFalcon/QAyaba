@@ -17,7 +17,7 @@ import { diffWithoutTestFiles } from "@contexts/generation/domain/diff-without-t
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import type { AgentBrowserLimits } from "@kernel/agent-browser.ts";
 import type { GeolocationFacts } from "@kernel/geolocation.ts";
-import { LEAD_PLAN_KIND, type PlanningLimits } from "@kernel/coordination.ts";
+import { type PlanningLimits } from "@kernel/coordination.ts";
 import { claim, AGENT_BROWSER_SECTION_ID, APP_LOGIN_SECTION_ID, CLOSED_LOOP_SECTION_ID, GEOLOCATION_SECTION_ID, HARNESS_FACTS_SECTION_ID, LEAD_PLAN_SECTION_ID, STEP_LIMIT_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { STEP_MILESTONE_SECTION_ID, isTestWritingTurn, stepMilestone, type MilestoneOutcome, type StepMilestone } from "@contexts/generation/domain/step-limit.ts";
 import { buildSuiteListing } from "@contexts/generation/domain/suite-listing.ts";
@@ -68,17 +68,12 @@ function renderClosedLoop(limits: ClosedLoopLimits): string {
   return [`## ${PROMPT_HEADINGS.closedLoop}`, `run_spec: at most ${limits.maxCalls} calls this run, ${seconds} seconds each, ${limits.maxDevWrites} requests that write to DEV (POST, PUT, PATCH, DELETE) in all.`, ``].join("\n");
 }
 
-/* The plan a lead is asked for on a coordinated run's planning turn: the shapes it may take and the limits the orchestrator holds it to. The orchestrator decides what each flow may write, how long it takes and what it may run, so the plan carries none of that. */
+/* The limits a lead's plan is held to on a coordinated run's planning turn, as facts. The shapes a plan may take are the role prompt's; the orchestrator decides what each flow may write, how long it takes and what it may run, so the plan carries none of that. */
 function renderLeadPlan(limits: PlanningLimits): string {
-  const locationField = limits.locations?.length ? `,"location":"<one of: ${limits.locations.join(", ")}>"` : "";
   return [
     `## ${PROMPT_HEADINGS.leadPlan}`,
-    `This turn asks for a plan, not for specs: write no file. Close with ONLY a JSON object {"plan": ...} of one of these shapes.`,
-    `- {"plan":{"kind":"${LEAD_PLAN_KIND.NOOP}","reason":"<why nothing here is worth a test, or the element and the evidence showing the change cannot be observed on DEV in its current state>"}}`,
-    `- {"plan":{"kind":"${LEAD_PLAN_KIND.LEAD}"}} when the change is one piece of work that you will author yourself.`,
-    `- {"plan":{"kind":"${LEAD_PLAN_KIND.FANOUT}","flows":[{"id":"<short-slug>","objective":"<what the flow proves>","acceptance":["<an observable outcome>"],"routes":["/<path the flow visits>"]${locationField}}]}} when the change is several independent flows, each of which can be written and run without the others.`,
-    `A fan-out names at most ${limits.maxFlows} flows, and ${limits.maxParallel} are written at once. A flow is one spec file named by its id; no two flows share a file or depend on each other's data.`,
-    ...(limits.locations?.length ? [`A flow may name one of the app's locations; a flow without one inherits the run's.`] : []),
+    `This turn asks for a plan, not for specs: write no file. A plan names at most ${limits.maxFlows} flows, and ${limits.maxParallel} are written at once.`,
+    ...(limits.locations?.length ? [`The app's locations a flow may name: ${limits.locations.join(", ")}.`] : []),
     ...(limits.changeRoutes?.length
       ? [`The change is linked to these pages of the app's map: ${limits.changeRoutes.join(", ")}. Give a flow to each page whose behaviour the change alters; a page no flow visits is reported with the plan.`]
       : []),

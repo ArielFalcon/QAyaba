@@ -125,22 +125,15 @@ function changePagesBlock(pages: ChangePages, last: boolean): string {
   ].filter(Boolean).join("\n");
 }
 
-/* The review turn's prompt: the flows as the orchestrator knows them, the change pages no passing flow covers, and the answer it reads. */
+/* The review turn's prompt, as data: the flows as the orchestrator knows them and the change pages no passing flow covers. How to judge them and the answer's shape are the lead's role prompt. */
 export function renderLeadReview(redaction: RedactionPort, flows: readonly FlowUnderReview[], turn: { turn: number; maxTurns: number }, changePages?: ChangePages): string {
   const last = turn.turn >= turn.maxTurns;
   return [
     `## Review of the flows (turn ${turn.turn} of ${turn.maxTurns})`,
-    "Your sidekicks authored the flows of your plan. Judge each one against the change you planned for: does its spec prove its objective and acceptance, on the right pages, with assertions that would fail if the behavior broke?",
-    "The run_spec facts are the orchestrator's own: a spec that has not passed on its current bytes is not accepted while it can still be run.",
-    last
-      ? "This is the last review: each flow can only be accepted or dropped."
-      : `"revise" sends your instruction to the same sidekick, which keeps what it learned; "replace" starts a fresh sidekick on the flow, for one that is stuck. Be specific: name the assertion, the page or the fact to fix.`,
+    last ? "This is the last review: each flow can only be accepted or dropped." : "",
     ...flows.map((flow) => flowBlock(redaction, flow)),
     ...(changePages ? [changePagesBlock(changePages, last)] : []),
-    "## Answer",
-    `Answer with this JSON object and nothing else; a flow you do not name stays as it is. Actions: "${REVIEW_ACTION.ACCEPT}", "${REVIEW_ACTION.REVISE}" (needs an instruction), "${REVIEW_ACTION.REPLACE}", "${REVIEW_ACTION.DROP}" (a flow that delivered nothing, with a reason).`,
-    '{"review":[{"flow":"<flow id>","action":"accept|revise|replace|drop","instruction":"<what to change>","reason":"<why>"}]}',
-  ].join("\n\n");
+  ].filter(Boolean).join("\n\n");
 }
 
 /* The first JSON object in the text, string- and escape-aware. */

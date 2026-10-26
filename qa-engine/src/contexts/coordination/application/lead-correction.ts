@@ -145,7 +145,7 @@ function cut(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}\n… (cut at ${max} characters)` : text;
 }
 
-/* The correction turn's prompt: the flows, the findings numbered, and the answer it reads. */
+/* The correction turn's prompt, as data: the flows and the findings numbered. How to route them and the answer's shape are the lead's role prompt. */
 export function renderLeadCorrection(redaction: RedactionPort, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): string {
   const scrub = (text: string): string => redaction.redact(text);
   const owner = findings.map((finding) => flowOfFinding(finding, flows));
@@ -162,21 +162,14 @@ export function renderLeadCorrection(redaction: RedactionPort, flows: readonly F
   });
   const loose = findings.flatMap((_, i) => (owner[i] === undefined ? [i] : []));
   const text = ORIGIN_TEXT[origin];
-  const route = `Route each finding to the sidekick of its flow: "${REVIEW_ACTION.REVISE}" sends your instruction and the flow's findings to the same sidekick, which keeps what it learned; "${REVIEW_ACTION.REPLACE}" starts a fresh sidekick on the flow.`;
-  const rebut = ' A finding you hold to be wrong can be rebutted instead, with the evidence the run can check: "execution" and a test of this run that passed on the current bytes, or "contract" and the clause that still holds.';
-  const corrections = `"corrections":[{"flow":"<flow id>","action":"${REVIEW_ACTION.REVISE}|${REVIEW_ACTION.REPLACE}","findings":[<number>],"instruction":"<what to change>"}]`;
-  const rebuttals = `"rebuttals":[{"finding":<number>,"basis":"execution|contract","ref":"<test or clause>","reason":"<why the finding is wrong>"}]`;
   return [
     `## ${text.heading}`,
     text.lead,
-    rebuttable(origin) ? route + rebut : `${route} These are facts the run observed: each one is corrected, none is rebutted.`,
+    rebuttable(origin) ? "" : "These are facts the run observed: each one is corrected, none is rebutted.",
     ...blocks,
     loose.length > 0
       ? ["### Findings that cite no flow", rebuttable(origin) ? "Name the flow each one belongs to, or rebut it." : "Name the flow each one belongs to; one no flow takes goes to a regeneration of its own.", ...loose.map(line)].join("\n")
       : "",
-    "## Answer",
-    "Answer with this JSON object and nothing else. A flow's own findings are always sent to it; `findings` adds the numbers of findings that cite no flow.",
-    rebuttable(origin) ? `{${corrections},${rebuttals}}` : `{${corrections}}`,
   ].filter(Boolean).join("\n\n");
 }
 

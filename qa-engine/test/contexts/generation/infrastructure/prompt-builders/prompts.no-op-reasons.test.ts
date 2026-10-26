@@ -1,4 +1,6 @@
 /* The no-op has two legitimate reasons, and every place the assembled prompt offers it names both: nothing in the change is worth a test, or DEV cannot show the change as it is. */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -37,15 +39,8 @@ test("the effort of every tier admits doing nothing for either reason of the no-
 });
 
 test("the no-op of a lead's plan names both reasons", () => {
-  const assembled = buildPromptAssembled({ ...input, planning: { maxFlows: 5, maxParallel: 2, budgetMs: 240_000 } }, { budgetBytes: 0 });
-  const bytes = Buffer.from(assembled.text, "utf8");
-  let offset = 0;
-  let plan = "";
-  for (const [id, size] of Object.entries(assembled.sectionSizes)) {
-    if (id === LEAD_PLAN_SECTION_ID) plan = bytes.subarray(offset, offset + size).toString("utf8");
-    offset += size + 1;
-  }
-  const noop = plan.split("\n").find((line) => line.includes(`"kind":"${LEAD_PLAN_KIND.NOOP}"`)) ?? "";
+  const prompt = readFileSync(join(process.cwd(), "agents", "agent", "qa-lead.md"), "utf8");
+  const noop = prompt.split("\n").find((line) => line.includes(`"kind":"${LEAD_PLAN_KIND.NOOP}"`)) ?? "";
   assert.match(noop, NOTHING_WORTH_A_TEST);
   assert.match(noop, DEV_CANNOT_SHOW);
   assert.match(noop, /the element and the evidence/i, "the unobservable reason is qualified: it names the element and the evidence");

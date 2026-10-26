@@ -450,11 +450,16 @@ function readText(path: string): string {
   return readFileSync(path, "utf8");
 }
 
-export function loadStaticLayer(layer: StaticLayerName, root: string = ROOT): LintSection[] {
+/* The agent whose role prompt a cell's static layer holds: the lead on a planning turn, the generator on every other. */
+export type StaticLayerRole = "generator" | "lead";
+
+const ROLE_PROMPT_FILE: Readonly<Record<StaticLayerRole, string>> = { generator: "qa-generator.md", lead: "qa-lead.md" };
+
+export function loadStaticLayer(layer: StaticLayerName, root: string = ROOT, role: StaticLayerRole = "generator"): LintSection[] {
   const section = (id: string, text: string): LintSection => ({ id, layer: "static", text, claims: [] });
   return [
     section("opencode/AGENTS.md", readText(join(root, "agents", "AGENTS.md"))),
-    section("opencode/qa-generator.md", readText(join(root, "agents", "agent", "qa-generator.md"))),
+    section(`opencode/${ROLE_PROMPT_FILE[role]}`, readText(join(root, "agents", "agent", ROLE_PROMPT_FILE[role]))),
   ];
 }
 
@@ -549,6 +554,7 @@ export function measureAssembled(sections: readonly LintSection[]): CellMeasure 
 export async function buildMatrix(root: string = ROOT, specs: readonly CellSpec[] = allValidSpecs()): Promise<MatrixCell[]> {
   const layers: StaticLayerName[] = ["opencode"];
   const staticByLayer = new Map(layers.map((l) => [l, loadStaticLayer(l, root)] as const));
+  const leadStaticByLayer = new Map(layers.map((l) => [l, loadStaticLayer(l, root, "lead")] as const));
   const cells: MatrixCell[] = [];
   for (const spec of specs) {
     for (const layer of layers) for (const stepLimit of STEP_LIMITS_BY_LAYER[layer]) {
@@ -557,6 +563,7 @@ export async function buildMatrix(root: string = ROOT, specs: readonly CellSpec[
       if (stepLimit === undefined && (spec.closedLoop || spec.agentBrowser || spec.planning)) continue;
       const input = await buildInput(spec, stepLimit);
       const cellKey = `${cellName(spec)}|${layer}${stepLimit === undefined ? "|no-limit" : ""}`;
+      const staticSections = (spec.planning ? leadStaticByLayer : staticByLayer).get(layer)!;
       /* Budget 0 disables shedding: the matrix measures the full prompt, independent of the model window catalog. */
       const assembled = buildPromptAssembled(input, { budgetBytes: 0 });
       const sections = assembledLintSections(assembled);
@@ -568,10 +575,10 @@ export async function buildMatrix(root: string = ROOT, specs: readonly CellSpec[
         spec,
         ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}),
         bucket: bucketOf(spec, input.stepLimit !== undefined),
-        lint: { name: cellKey, regen: spec.phase !== "first", sections: [...staticByLayer.get(layer)!, ...sections] },
+        lint: { name: cellKey, regen: spec.phase !== "first", sections: [...staticSections, ...sections] },
         assembledBytes: measure.bytes,
         directives: measure.directives,
-        staticBytes: measureStatic(staticByLayer.get(layer)!),
+        staticBytes: measureStatic(staticSections),
       });
     }
   }
@@ -660,7 +667,8 @@ export function recordBaseline(cells: readonly MatrixCell[], committed?: Baselin
       directives: Math.max(seen?.directives ?? 0, cell.directives),
     };
   }
-  const staticLayers = Object.fromEntries(cells.map((c) => [c.layer, c.staticBytes])) as Record<StaticLayerName, number>;
+  /* The recorded size of a runtime's static layer is the generator's; a planning cell carries the lead's role prompt and is held to the same bound. */
+  const staticLayers = Object.fromEntries(cells.filter((c) => !c.spec.planning).map((c) => [c.layer, c.staticBytes])) as Record<StaticLayerName, number>;
   const next: Baseline = {
     globalUserPromptBytes: GLOBAL_USER_PROMPT_BASELINE_BYTES,
     ceiling: {
