@@ -166,5 +166,23 @@
     "path": "AGENTS.md",
     "contains": "generation/infrastructure/sanitize-text.ts",
     "reason": "Pending edit of a file outside this phase's write authority; the pattern sanitizer moved to qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter.ts in arch-p3 T9 and the replacement text is recorded in the arch-p3 Log. Remove this entry with that edit."
+  },
+  {
+    "rule": "dead-path",
+    "path": "AGENTS.md",
+    "contains": "change-analysis/domain/language-id.ts",
+    "reason": "Pending edit of a file outside phase 3's write authority; the replacement text is recorded in the arch-p3 Log (L25). Remove this entry with that edit."
+  },
+  {
+    "rule": "dead-path",
+    "path": "AGENTS.md",
+    "contains": ".dependency-cruiser-known-violations.json",
+    "reason": "Pending edit of a file outside phase 3's write authority; the replacement text is recorded in the arch-p3 Log (L25). Remove this entry with that edit."
+  },
+  {
+    "rule": "dead-path",
+    "path": "AGENTS.md",
+    "contains": "test/arch/known-violations.test.ts",
+    "reason": "Pending edit of a file outside phase 3's write authority; the replacement text is recorded in the arch-p3 Log (L25). Remove this entry with that edit."
   }
 ]
