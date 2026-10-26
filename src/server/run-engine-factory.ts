@@ -92,7 +92,7 @@ import { CodeExecutionStrategy } from "@contexts/test-execution/infrastructure/c
 import { CodeValidationStrategy } from "@contexts/test-execution/infrastructure/code-validation.strategy";
 import { StrykerMutationOracleAdapter } from "@contexts/objective-signal/infrastructure/stryker-mutation-oracle.adapter";
 import { FaultInjectionOracleAdapter } from "@contexts/objective-signal/infrastructure/fault-injection-oracle.adapter";
-import { countInjectedResponses } from "@contexts/objective-signal/infrastructure/fault-injection-counter-reader";
+import { readFaultCounters } from "@contexts/objective-signal/infrastructure/fault-injection-counter-reader";
 import { NullValueOracleAdapter } from "@contexts/objective-signal/infrastructure/null-value-oracle.adapter";
 import { GitHubPrAdapter } from "@contexts/workspace-and-publication/infrastructure/github-pr.adapter";
 import { GitHubIssueAdapter } from "@contexts/workspace-and-publication/infrastructure/github-issue.adapter";
@@ -949,12 +949,13 @@ export function buildEngineRootDeps(
       }
     : rawCollector;
 
-  const runCorruptedFaultInjection = ({ dir, baseUrl, namespace }: { dir: string; baseUrl: string; namespace: string }) =>
+  const runCorruptedFaultInjection = ({ dir, baseUrl, namespace, operations }: { dir: string; baseUrl: string; namespace: string; operations: ReadonlyArray<{ verb: string; pattern: string }> }) =>
     /*
      * No --project, like a suite run: the repo owns its playwright.config.ts, and naming a project
-     * it does not define fails the whole re-run, leaving the value score inconclusive.
+     * it does not define fails the whole re-run, leaving the value score inconclusive. The re-run
+     * corrupts only the operations it is handed.
      */
-    runE2E(dir, { baseUrl, namespace, faultInject: true }, e2eExecuteDeps);
+    runE2E(dir, { baseUrl, namespace, faultInject: true, faultOperations: operations }, e2eExecuteDeps);
 
   const mutationOracleDeps = { spawn: (cmd: string, args: string[], o: { cwd: string }) => exec.spawn(cmd, args, { cwd: o.cwd, profile: "install" }), detectCodeProject, processKill: new ProcessKillAdapter() };
 
@@ -968,7 +969,7 @@ export function buildEngineRootDeps(
     ? new NullValueOracleAdapter()
     : isCode
       ? new StrykerMutationOracleAdapter(mutationOracleDeps)
-      : new FaultInjectionOracleAdapter(runCorruptedFaultInjection, countInjectedResponses, app.dev?.baseUrl ?? "");
+      : new FaultInjectionOracleAdapter(runCorruptedFaultInjection, readFaultCounters, app.dev?.baseUrl ?? "");
 
   /*
    * checkout(sha) resolves the real per-run mirrorDir and stages every declared sibling service's

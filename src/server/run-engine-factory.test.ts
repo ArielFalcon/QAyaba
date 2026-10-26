@@ -1467,7 +1467,7 @@ if (project && project !== "--project=chromium") {
 }
 const marks = path.join(process.cwd(), ".qa", "fault-injection", process.env.PW_NAMESPACE);
 fs.mkdirSync(marks, { recursive: true });
-fs.writeFileSync(path.join(marks, "worker-0.json"), JSON.stringify({ corrupted: 1 }));
+fs.writeFileSync(path.join(marks, "worker-0.json"), JSON.stringify({ corrupted: 1, byOperation: { "GET ^/api/dashboard/?$": 1 }, test: "login.spec.ts::shows the dashboard" }));
 fs.writeFileSync(process.env.PLAYWRIGHT_JSON_OUTPUT_NAME, JSON.stringify({
   suites: [{ title: "login.spec.ts", specs: [{ title: "shows the dashboard", tests: [{ status: "unexpected", results: [{ status: "failed", error: { message: "dashboard heading missing" } }] }] }] }],
   stats: { expected: 0, unexpected: 1 },
@@ -1490,6 +1490,7 @@ test("the value oracle scores a suite whose Playwright config has no desktop pro
       e2eDir,
       "qa-bot-abc1234-run1",
       ["login.spec.ts › shows the dashboard"],
+      { operations: [{ verb: "GET", pattern: "^/api/dashboard/?$" }], candidates: [], specToCandidates: [] },
     ));
 
     assert.notEqual(result.valueScore, null, `the corrupted re-run must be conclusive, got: ${result.details}`);

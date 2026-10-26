@@ -7,6 +7,7 @@
  */
 import type { EntryPoint } from "@kernel/change-reach.ts";
 import { entryKey } from "@kernel/change-reach.ts";
+import { sameSpecFile } from "./spec-match.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
 export type CausalReach = "in-reach" | "out-of-reach" | "unknown";
@@ -85,15 +86,6 @@ function absenceProves(scope: CausalScope): boolean {
   return scope.degraded.length === 0 && scope.omitted === 0 && !scope.hubs.some((hub) => hub.truncated === true) && !scope.repos.some((repo) => repo.entryPointsTruncated);
 }
 
-const normalizeSpec = (path: string): string => path.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
-
-/* Both are relative to a directory the other may or may not include: equal, or one ends with the other at a segment. */
-function sameSpec(a: string, b: string): boolean {
-  const x = normalizeSpec(a);
-  const y = normalizeSpec(b);
-  return x === y || x.endsWith(`/${y}`) || y.endsWith(`/${x}`);
-}
-
 function byRequest(c: CausalInput["cases"][number], input: CausalInput): Found {
   const { scope, matchers } = input;
   if (scope === undefined) return NONE;
@@ -122,7 +114,7 @@ function byPage(c: CausalInput["cases"][number], input: CausalInput): Found {
 
 function byFlow(c: CausalInput["cases"][number], input: CausalInput): Found {
   if (c.file === undefined) return NONE;
-  const flow = input.flows.find((f) => f.candidates.length > 0 && sameSpec(f.specFile, c.file!));
+  const flow = input.flows.find((f) => f.candidates.length > 0 && sameSpecFile(f.specFile, c.file!));
   return flow ? { reach: "in-reach", basis: "flow", via: [...flow.candidates] } : NONE;
 }
 

@@ -104,6 +104,8 @@ export interface RunOutcome {
     causal?: { reach: "in-reach" | "out-of-reach" | "unknown"; basis: "request" | "page" | "flow" | "none"; via: string[]; reason: string; cases: Array<{ name: string; reach: "in-reach" | "out-of-reach" | "unknown"; basis: "request" | "page" | "flow" | "none" }> };
     /* The share of each use case's changed lines the green run executed, or the reason it has none (`unmeasured`). Absent when the run asked for no use case or measured nothing. Persist-only: the aggregate ratio alone decides. */
     coverageByCandidate?: Array<{ candidateId: string; changedLines: number; coveredChanged: number; ratio: number | null; unmeasured?: string }>;
+    /* The fault-injection score per use case the change makes testable: the specs exposed to a corrupted response of its operations and how many noticed, or why it has no ratio (`unscored`). Absent when the oracle was not aimed at any. Persist-only, never a gate. */
+    valueByCandidate?: Array<{ candidateId: string; exposed: number; killed: number; ratio: number | null; unscored?: string }>;
     /* How the run's regeneration acceptance spent its proof ledger: how many regenerations were accepted (and how many of those reused a closed-loop proof instead of executing), how many were rejected, and whether the per-run execution cap was hit. Persist-only; never read by decide/verdict/gate/publish. */
     integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
   };

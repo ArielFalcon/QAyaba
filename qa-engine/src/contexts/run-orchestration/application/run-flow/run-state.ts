@@ -20,7 +20,7 @@ import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
 import type { FixLoopStage } from "../../domain/fix-loop.aggregate.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import type { CandidateCoverage, CausalLabel } from "@contexts/objective-signal/application/index.ts";
+import type { CandidateCoverage, CandidateValue, CausalLabel } from "@contexts/objective-signal/application/index.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunEvidence } from "../../domain/run-decision.service.ts";
 import type { EndReason } from "./end-reason.ts";
@@ -165,6 +165,8 @@ export interface CoverageOutcome {
   coverageMeasured: boolean;
   /** Null when the oracle is unwired, never a fabricated 0. */
   valueScore: number | null;
+  /** The score per use case the change makes testable, or why one has none; undefined when the oracle was not aimed at any. A signal, never a gate. */
+  valueByCandidate: CandidateValue[] | undefined;
   /** Undefined means the oracle never measured this run; never fabricated as 0. */
   mutantCount: number | undefined;
   killedCount: number | undefined;
@@ -366,6 +368,7 @@ export function initialRunState(): RunState {
       coverageStatus: undefined,
       coverageMeasured: false,
       valueScore: null,
+      valueByCandidate: undefined,
       mutantCount: undefined,
       killedCount: undefined,
       uncovered: [],

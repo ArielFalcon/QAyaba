@@ -7,6 +7,8 @@ import type { QaCase } from "@kernel/qa-case.ts";
 export interface ExecutionOpts {
   signal?: AbortSignal;
   faultInject?: boolean;
+  /* The operations a corrupting re-run may touch, as `{ verb, pattern }`; the pass corrupts nothing when it names none. */
+  faultOperations?: ReadonlyArray<{ verb: string; pattern: string }>;
   /** Scope re-execution to only the specs that failed. */
   specFiles?: string[];
   /** Attempts after a failure; 0 is a single attempt. Absent: the suite's own config decides. */

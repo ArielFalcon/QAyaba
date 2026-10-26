@@ -10,6 +10,7 @@ type RunE2eFn = (
     baseUrl: string;
     namespace: string;
     faultInject?: boolean;
+    faultOperations?: ReadonlyArray<{ verb: string; pattern: string }>;
     specFiles?: string[];
     retries?: number;
     grep?: string;
@@ -33,6 +34,7 @@ export class E2eExecutionStrategy implements ExecutionStrategyPort {
       baseUrl: req.baseUrl,
       namespace: req.namespace,
       ...(req.faultInject !== undefined ? { faultInject: req.faultInject } : {}),
+      ...(req.faultOperations !== undefined ? { faultOperations: req.faultOperations } : {}),
       ...(req.specFiles ? { specFiles: req.specFiles } : {}),
       ...(req.retries !== undefined ? { retries: req.retries } : {}),
       ...(req.grep !== undefined ? { grep: req.grep } : {}),

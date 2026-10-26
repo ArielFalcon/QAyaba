@@ -1,4 +1,5 @@
 import type { BlastRadius } from "@kernel/blast-radius.ts";
+import type { CandidateValue, FaultAim } from "../../domain/fault-injection-score.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import type { CoverageMeasurement } from "../../domain/objective-signal.ts";
 
@@ -16,10 +17,12 @@ export interface ObjectiveSignalPort {
    * never fabricated as [].
    * `opts.candidates` are the use cases the change makes testable: the measurement then carries `perCandidate`, a signal that
    * never gates. `opts.crossRepo` says the diff was withheld because the changed lines live in another repo.
+   * `opts.faultAim` is what the response oracle may corrupt and for which use cases; without it the oracle gives no score
+   * (`valueScore` null) and `valueByCandidate` is absent. It is a signal and never gates.
    * `opts.namespace` overrides the dump namespace for the regen's second
    * measure(); the first measurement is untouched.
    */
-  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[]; measurement?: CoverageMeasurement }>;
+  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; faultAim?: FaultAim }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; valueByCandidate?: CandidateValue[]; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[]; measurement?: CoverageMeasurement }>;
   /**
    * Single source of truth for whether a measured status blocks publish.
    * Only "enforce" + "fail" blocks; "unknown" never blocks regardless of mode.

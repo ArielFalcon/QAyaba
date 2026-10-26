@@ -14,6 +14,8 @@ export interface ExecutionRequest {
   baseUrl?: string;
   namespace: string;
   faultInject?: boolean;
+  /* The operations a corrupting re-run may touch, as `{ verb, pattern }`; the pass corrupts nothing when it names none. */
+  faultOperations?: ReadonlyArray<{ verb: string; pattern: string }>;
   specFiles?: string[];
   /** Attempts after a failure; 0 is a single attempt. Absent: the suite's own config decides. */
   retries?: number;

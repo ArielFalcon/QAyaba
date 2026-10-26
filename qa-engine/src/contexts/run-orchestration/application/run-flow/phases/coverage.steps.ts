@@ -1,6 +1,7 @@
 /* The coverage phase of a run: the change-coverage measurement of a green execution and, in enforce mode, the one regeneration at the uncovered lines. */
 
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/index.ts";
+import { faultAimOf } from "../fault-aim.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { renderCoverageGap } from "@contexts/objective-signal/application/index.ts";
 import type { StepOutcome } from "../run-flow.ts";
@@ -44,16 +45,19 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
   /* This pass's own passing case names — the green baseline the fault-injection oracle needs. */
   const baselineCases = run.cases.filter((c) => c.status === "pass").map((c) => c.name);
   const { coverageNamespace } = state.fixLoop;
+  /* The response oracle corrupts only the operations the change reaches; with no scope it has nothing to corrupt. */
+  const faultAim = faultAimOf({ scope: state.grounding.changeScope, candidates: state.grounding.candidates, flowCandidates: state.generation.flowCandidates });
   const signal = await deps.objectiveSignal.measure(
     runBlastRadius,
     workspace.specDir,
     input.triggerRepo ? undefined : diff,
     baselineCases,
-    ...(coverageNamespace || state.grounding.candidates.length > 0
+    ...(coverageNamespace || state.grounding.candidates.length > 0 || faultAim !== undefined
       ? [{
           ...(coverageNamespace ? { namespace: coverageNamespace } : {}),
           ...(state.grounding.candidates.length > 0 ? { candidates: state.grounding.candidates } : {}),
           ...(input.triggerRepo ? { crossRepo: true } : {}),
+          ...(faultAim ? { faultAim } : {}),
         }]
       : []),
   );
@@ -65,6 +69,7 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
         coverageStatus: signal.status,
         coverageMeasured: measuresPerCommit(ctx),
         valueScore: signal.valueScore ?? null,
+        valueByCandidate: signal.valueByCandidate,
         mutantCount: signal.mutantCount ?? undefined,
         killedCount: signal.killedCount ?? undefined,
         uncovered: signal.uncovered ?? [],

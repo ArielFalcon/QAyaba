@@ -20,3 +20,5 @@ export { labelFailure } from "../domain/causal-label.ts";
 export type { CausalLabel, CausalMatchers, CausalScope, CausalFlow } from "../domain/causal-label.ts";
 export { perCandidateCoverage } from "../domain/per-candidate-coverage.ts";
 export type { CandidateCoverage, CandidateUnmeasured } from "../domain/per-candidate-coverage.ts";
+export { operationKey } from "../domain/fault-injection-score.ts";
+export type { CandidateValue, FaultAim, FaultAimCandidate } from "../domain/fault-injection-score.ts";

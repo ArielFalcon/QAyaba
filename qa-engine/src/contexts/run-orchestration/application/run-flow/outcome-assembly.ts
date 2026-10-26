@@ -71,6 +71,8 @@ export interface OutcomeExtras {
   noop?: { kind: NoopKind };
   /* Per use case change-coverage; absent when no use case was asked for. */
   coverageByCandidate?: RunOutcome["gateSignals"]["coverageByCandidate"];
+  /* Per use case fault-injection score; absent when the oracle was not aimed at any. */
+  valueByCandidate?: RunOutcome["gateSignals"]["valueByCandidate"];
   /* Whether the failure is in the change's reach; absent when no case failed. */
   causal?: RunOutcome["gateSignals"]["causal"];
 }
@@ -205,6 +207,7 @@ export function toRunOutcome(
       ...(extra?.noop !== undefined ? { noop: extra.noop } : {}),
       ...(extra?.causal !== undefined ? { causal: extra.causal } : {}),
       ...(extra?.coverageByCandidate !== undefined ? { coverageByCandidate: extra.coverageByCandidate } : {}),
+      ...(extra?.valueByCandidate !== undefined ? { valueByCandidate: extra.valueByCandidate } : {}),
       ...(coordination ? { coordination } : {}),
     },
     rulesRetrieved: extra?.rulesRetrieved ?? [],

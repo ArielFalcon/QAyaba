@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildEngineRootDeps } from "./run-engine-factory";
@@ -10,10 +10,16 @@ import type { AppConfig } from "../orchestrator/config-loader";
 import type { AgentDeps } from "../integrations/opencode-client";
 import { Sha } from "@kernel/sha";
 import { BlastRadius } from "@kernel/blast-radius";
+import { operationKey, type FaultAim } from "@contexts/objective-signal/domain/fault-injection-score";
 import { withoutWaitingOnNamedPipe } from "../../qa-engine/test/support/named-pipe-watch";
 
 const NAMESPACE = "qa-bot-abc1234-run1";
 const BASELINE_CASE = "login.spec.ts › shows the dashboard";
+const OPERATION = { verb: "GET", pattern: "^/api/dashboard/?$" };
+const KEY = operationKey(OPERATION);
+const AIM: FaultAim = { operations: [OPERATION], candidates: [], specToCandidates: [] };
+/* The counter a worker leaves for the one case, naming the operation it corrupted. */
+const COUNTER = `JSON.stringify({ corrupted: 1, byOperation: { ${JSON.stringify(KEY)}: 1 }, test: "login.spec.ts::shows the dashboard" })`;
 
 const app = (): AppConfig => ({
   name: "factory-fault-injection",
@@ -63,7 +69,7 @@ process.exit(1);
 }
 
 /* <tmp>/e2e is the project the oracle re-runs; <tmp>/outside is what no read may reach. */
-async function withOracleRun(plant: string, run: (measure: () => Promise<{ valueScore: number | null; killedCount: number | null; details?: string }>, counterDir: string, outside: string) => Promise<void>): Promise<void> {
+async function withOracleRun(plant: string, run: (measure: () => Promise<{ valueScore: number | null; killedCount: number | null; details?: string }>, counterDir: string, outside: string) => Promise<void>, aim: FaultAim | "no-scope" = AIM): Promise<void> {
   const tmp = mkdtempSync(join(tmpdir(), "qayaba-fault-injection-"));
   const e2eDir = join(tmp, "e2e");
   const outside = join(tmp, "outside");
@@ -78,7 +84,7 @@ async function withOracleRun(plant: string, run: (measure: () => Promise<{ value
     const session = await config.execScope!.open({ runId: "fault-injection-test" });
     try {
       await run(
-        () => session.run(() => config.objectiveSignal.oracle.measure(BlastRadius.of(Sha.of("abc1234"), ["src/login.ts"]), e2eDir, NAMESPACE, [BASELINE_CASE])),
+        () => session.run(() => config.objectiveSignal.oracle.measure(BlastRadius.of(Sha.of("abc1234"), ["src/login.ts"]), e2eDir, NAMESPACE, [BASELINE_CASE], aim === "no-scope" ? undefined : aim)),
         join(e2eDir, ".qa", "fault-injection", `${NAMESPACE}-fi`),
         outside,
       );
@@ -91,7 +97,7 @@ async function withOracleRun(plant: string, run: (measure: () => Promise<{ value
 }
 
 test("a counter the corrupted re-run left is counted, and a suite that corrupted a response is scored", async () => {
-  await withOracleRun(`fs.writeFileSync(path.join(marks, "injected-1.json"), JSON.stringify({ corrupted: 1 }));`, async (measure) => {
+  await withOracleRun(`fs.writeFileSync(path.join(marks, "injected-1.json"), ${COUNTER});`, async (measure) => {
     const result = await measure();
 
     assert.notEqual(result.valueScore, null, `the corrupted re-run is conclusive, got: ${result.details}`);
@@ -106,7 +112,7 @@ test("a counter that is a named pipe is not waited on, and the oracle is inconcl
   });
 
   await withOracleRun(
-    `fs.writeFileSync(path.join(marks, "injected-1.json"), JSON.stringify({ corrupted: 1 }));\nexecFileSync("mkfifo", [path.join(marks, "injected-2.json")]);`,
+    `fs.writeFileSync(path.join(marks, "injected-1.json"), ${COUNTER});\nexecFileSync("mkfifo", [path.join(marks, "injected-2.json")]);`,
     async (measure, counterDir) => {
       const result = await withoutWaitingOnNamedPipe(join(counterDir, "injected-2.json"), measure);
 
@@ -127,4 +133,25 @@ test("a counter that is a link to a file outside the project leaves the count un
       assert.equal(result.valueScore, null, "the count is unknown, so there is no score");
     },
   );
+});
+
+test("the operations the oracle is aimed at reach the suite as the only operations it may corrupt", async () => {
+  await withOracleRun(`fs.writeFileSync(path.join(marks, "injected-1.json"), ${COUNTER});\nfs.writeFileSync(path.join(OUTSIDE, "operations.json"), process.env.QA_FAULT_INJECT_OPERATIONS ?? "unset");\nfs.writeFileSync(path.join(OUTSIDE, "switch.txt"), process.env.QA_FAULT_INJECT ?? "unset");`, async (measure, _counterDir, outside) => {
+    await measure();
+
+    assert.deepEqual(JSON.parse(readFileSync(join(outside, "operations.json"), "utf8")), [OPERATION]);
+    assert.equal(readFileSync(join(outside, "switch.txt"), "utf8"), "1");
+  });
+});
+
+test("with no operation in reach, or no change scope, the corrupted re-run is not launched and no score is given", async () => {
+  for (const aim of ["no-scope" as const, { ...AIM, operations: [] }]) {
+    await withOracleRun(`fs.writeFileSync(path.join(OUTSIDE, "launched.txt"), "yes");`, async (measure, _counterDir, outside) => {
+      const result = await measure();
+
+      assert.equal(result.valueScore, null);
+      assert.match(result.details ?? "", /no operation of the change is in reach/);
+      assert.equal(existsSync(join(outside, "launched.txt")), false, "nothing is run that would corrupt a response the change does not reach");
+    }, aim);
+  }
 });

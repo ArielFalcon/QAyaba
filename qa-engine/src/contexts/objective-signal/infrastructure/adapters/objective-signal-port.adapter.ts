@@ -7,6 +7,7 @@ import { DecideCoverageService, type ChangeCoverage, type CoveragePolicy } from 
 import type { CoverageCollectorPort, CoverageReport, ValueOraclePort } from "@contexts/objective-signal/application/index.ts";
 import { parseDiffHunks } from "@contexts/objective-signal/application/index.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import type { CandidateValue, FaultAim } from "../../domain/fault-injection-score.ts";
 import { diffChangedFiles, perCandidateCoverage } from "../../domain/per-candidate-coverage.ts";
 
 export interface ObjectiveSignalPortCollaborators {
@@ -48,7 +49,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     private readonly ctx: ObjectiveSignalPortStaticContext,
   ) {}
 
-  async measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[]; measurement?: CoverageMeasurement }> {
+  async measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; faultAim?: FaultAim }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; valueByCandidate?: CandidateValue[]; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[]; measurement?: CoverageMeasurement }> {
     const namespace = opts?.namespace ?? this.ctx.namespace ?? br.sha.toString();
     /* coverage.mode "off" skips collector IO and the value oracle. decide() sees null → "unknown" (never blocks). */
     if (this.ctx.policy.mode === "off") {
@@ -69,12 +70,13 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
       ? { ...aggregate, perCandidate: perCandidateCoverage({ candidates, diff, coverage: cc, aggregate: aggregate.unmeasured, crossRepo: opts?.crossRepo === true }) }
       : aggregate;
 
-    const oracleResult = await this.deps.oracle.measure(br, this.ctx.repoDir, namespace, baselineCases ?? this.ctx.baselineCases);
+    const oracleResult = await this.deps.oracle.measure(br, this.ctx.repoDir, namespace, baselineCases ?? this.ctx.baselineCases, opts?.faultAim);
 
     return {
       status,
       ratio,
       valueScore: oracleResult.valueScore,
+      ...(oracleResult.perCandidate !== undefined ? { valueByCandidate: oracleResult.perCandidate } : {}),
       mutantCount: oracleResult.mutantCount,
       killedCount: oracleResult.killedCount,
       ...(willAssemble && cc?.uncovered ? { uncovered: cc.uncovered } : {}),

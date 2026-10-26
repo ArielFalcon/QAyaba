@@ -1,5 +1,6 @@
 /* The review phase of a run: the independent reviewer's rounds over a green run, and the re-measure of a coverage that an accepted regeneration made stale. */
 
+import { faultAimOf } from "../fault-aim.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { correctionClassOf } from "@contexts/generation/application/index.ts";
@@ -543,12 +544,17 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
     const finalRun = { verdict: measuredRun.verdict, cases: measuredRun.cases, logs: run.logs };
     if (measuredRun.verdict !== "pass") return { update: { execution: withRun(state.execution, finalRun) } };
     const baselineCases = measuredRun.cases.filter((c) => c.status === "pass").map((c) => c.name);
+    const faultAim = faultAimOf({ scope: state.grounding.changeScope, candidates: state.grounding.candidates, flowCandidates: state.generation.flowCandidates });
     const finalSignal = await deps.objectiveSignal.measure(
       BlastRadius.of(input.sha, state.classification.intent?.changedFiles ?? []),
       workspace.specDir,
       state.classification.diff,
       baselineCases,
-      { namespace: finalNamespace, ...(state.grounding.candidates.length > 0 ? { candidates: state.grounding.candidates } : {}) },
+      {
+        namespace: finalNamespace,
+        ...(state.grounding.candidates.length > 0 ? { candidates: state.grounding.candidates } : {}),
+        ...(faultAim ? { faultAim } : {}),
+      },
     );
     const { valueScore, mutantCount, killedCount } = state.coverage;
     return {
@@ -562,6 +568,7 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
           blocksPublish: deps.objectiveSignal.blocks(finalSignal.status),
           /* The oracle measured again on the delivered bytes: its score describes what is on disk now. */
           valueScore: finalSignal.valueScore ?? valueScore,
+          valueByCandidate: finalSignal.valueByCandidate ?? state.coverage.valueByCandidate,
           mutantCount: finalSignal.mutantCount ?? mutantCount,
           killedCount: finalSignal.killedCount ?? killedCount,
           valueStale: false,

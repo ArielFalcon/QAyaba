@@ -1,3 +1,5 @@
+import type { CandidateValue } from "./fault-injection-score.ts";
+
 export interface CoveredLines { file: string; lines: number[]; }
 
 /* What a browser coverage collection saw of the scripts a page ran: how many, and how many carried a source map that translates them back to the repository's files. Absent for a collector that reads native reports. */
@@ -12,4 +14,6 @@ export interface ValueOracleResult {
   mutantCount: number | null;
   killedCount: number | null;
   details: string;
+  /** The score per use case the change makes testable, when the oracle was aimed at some; absent otherwise. */
+  perCandidate?: CandidateValue[];
 }
