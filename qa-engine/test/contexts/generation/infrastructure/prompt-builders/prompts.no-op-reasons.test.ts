@@ -4,11 +4,13 @@ import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  EFFORT_BY_TIER,
-  EFFORT_NO_OP_CLAUSE,
   LEAD_PLAN_SECTION_ID,
   buildPromptAssembled,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
+import {
+  EFFORT_BY_TIER,
+  EFFORT_NO_OP_CLAUSE,
+} from "@contexts/generation/infrastructure/prompt-builders/task-builders.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { LEAD_PLAN_KIND } from "@kernel/coordination.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";

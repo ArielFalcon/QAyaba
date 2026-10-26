@@ -11,7 +11,7 @@ import type { ReviewInput, StepLimitFor } from "@contexts/generation/application
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import { renderLearnedRulesForReviewer } from "@contexts/cross-run-learning/application/index.ts";
 import { promptFactsOpts } from "@contexts/generation/application/index.ts";
-import { renderExecutionResult, type ExecutionResultCase } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
+import { renderExecutionResult, type ExecutionResultCase } from "@contexts/generation/infrastructure/prompt-builders/review-render.ts";
 import { rethrowIfRunDeadline } from "@kernel/run-deadline.ts";
 import { openSidekickSession, REVIEW_SIDEKICK } from "@kernel/sidekick-session.ts";
 

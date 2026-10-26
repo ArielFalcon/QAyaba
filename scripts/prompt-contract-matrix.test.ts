@@ -16,8 +16,11 @@ import {
   buildMatrix,
   cellName,
   collectFindings,
+  currentDigests,
+  digestHeader,
   isValidSpec,
   loadBaseline,
+  loadDigests,
   loadStaticLayer,
   lintMatrixCell,
   recordBaseline,
@@ -31,6 +34,7 @@ import {
   buildPromptAssembled,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
+import { GENERATOR_SECTIONS } from "@contexts/generation/infrastructure/prompt-builders/generator-sections.ts";
 import { AGENT_BROWSER_SECTION_ID, HARNESS_FACTS_SECTION_ID, LEAD_PLAN_SECTION_ID, STEP_LIMIT_SECTION_ID, hasTrustLanguage, lintCell } from "@contexts/generation/application/index.ts";
 import { STEP_MILESTONE_SECTION_ID, isTestWritingTurn } from "@contexts/generation/application/index.ts";
 import { PACK_HEADINGS, SUITE_LISTING_LABELS } from "@contexts/generation/application/index.ts";
@@ -672,3 +676,30 @@ test("a combination that is a planning turn carries the plan contract on the fir
   assert.ok(cells.filter((c) => !c.spec.planning).every((c) => !c.lint.sections.some((s) => s.id === LEAD_PLAN_SECTION_ID)), "no other cell carries it");
 });
 
+/* ── the prompt builders are section registries ── */
+
+const TIER_ORDER = ["stable-prefix", "semi-stable", "volatile", "task", "critical-recap"] as const;
+
+/* The order the assembler gives a registry: by tier, then priority, registry order breaking a tie. */
+const assemblyOrder = GENERATOR_SECTIONS.map((def, index) => ({ def, index }))
+  .sort((a, b) => TIER_ORDER.indexOf(a.def.tier) - TIER_ORDER.indexOf(b.def.tier) || a.def.priority - b.def.priority || a.index - b.index)
+  .map(({ def }) => def.id);
+
+test("every prompt of the matrix and of the reviewer options keeps the digest the builders gave before they were registries", async () => {
+  const recorded = loadDigests();
+  const current = await currentDigests();
+  assert.equal(digestHeader(current.keys), recorded.header, "the matrix and the reviewer options are the ones the digests were recorded for");
+  const changed = current.digests.flatMap((digest, i) => (digest === recorded.digests[i] ? [] : [current.keys[i]]));
+  assert.deepEqual(changed, []);
+});
+
+test("every section a matrix prompt carries is a registered generator section, in the order the registry gives", async () => {
+  const registered = new Set(GENERATOR_SECTIONS.map((def) => def.id));
+  const seen = new Set<string>();
+  for (const spec of allValidSpecs()) {
+    const ids = Object.keys(buildPromptAssembled(await buildInput(spec, MATRIX_STEP_LIMIT), { budgetBytes: 0 }).sectionSizes);
+    for (const id of ids) seen.add(id);
+    assert.deepEqual(ids, assemblyOrder.filter((id) => ids.includes(id)), JSON.stringify(spec));
+  }
+  assert.deepEqual([...seen].filter((id) => !registered.has(id)), []);
+});

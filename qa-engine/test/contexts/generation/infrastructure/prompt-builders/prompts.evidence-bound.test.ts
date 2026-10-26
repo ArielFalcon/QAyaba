@@ -12,8 +12,8 @@ import { join } from "node:path";
 import {
   buildPromptAssembled,
   buildReviewerPromptAssembled,
-  renderExecutionResult,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
+import { renderExecutionResult } from "@contexts/generation/infrastructure/prompt-builders/review-render.ts";
 import {
   lintCell,
   BLIND_COMPLIANCE_PHRASES,

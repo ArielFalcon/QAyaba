@@ -8,11 +8,11 @@ import {
   buildPromptAssembled,
   buildReviewerPrompt,
   buildReviewerPromptAssembled,
-  buildContextTask,
-  renderReviewSpecs,
-  renderArchitectureContextParts,
   PROMPT_HEADINGS,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
+import { buildContextTask } from "@contexts/generation/infrastructure/prompt-builders/task-builders.ts";
+import { renderReviewSpecs } from "@contexts/generation/infrastructure/prompt-builders/review-render.ts";
+import { renderArchitectureContextParts } from "@contexts/generation/infrastructure/prompt-builders/architecture-context.ts";
 import { assemble as caAssemble, section as caSection } from "@contexts/generation/infrastructure/prompt-builders/context-assembler.ts";
 import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";

@@ -845,7 +845,7 @@ test("author() with no ctx.service (same-repo run) OMITS the service key entirel
 
 /* carries EVERY declared microservice repo (read-only working copies) for a context-mode run, so the
    agent can extract each service's OpenAPI operations into the unified FE<->BE context map
-   (buildContextTask's "## Microservice repos" section, prompts.ts:1181). App-static (known once per
+   (buildContextTask's "## Microservice repos" section, task-builders.ts). App-static (known once per
    run, fixed for the whole run), the SAME shape as ctx.service above — NOT per-call/dynamic. Maps 1:1
    onto OpencodeRunInput.services. Absent -> OMITTED entirely, the SAME absence-vs-present discipline
    ctx.service/serviceLinks/contractDrift above already established.

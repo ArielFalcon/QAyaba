@@ -3,12 +3,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { RUN_MODES, type RunMode, type TestTarget } from "@kernel/run-mode.ts";
 import {
-  MILESTONE_OUTCOME_PHRASES,
-  REVIEWER_STEP_LIMIT_SECTION_ID,
   buildPromptAssembled,
   buildReviewerPromptAssembled,
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
+import { MILESTONE_OUTCOME_PHRASES } from "@contexts/generation/infrastructure/prompt-builders/generator-renderers.ts";
+import { REVIEWER_STEP_LIMIT_SECTION_ID } from "@contexts/generation/infrastructure/prompt-builders/reviewer-sections.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import {

@@ -16,13 +16,17 @@
  *   tsx scripts/prompt-contract-matrix.ts                                    print the unique findings of the current tree
  *   tsx scripts/prompt-contract-matrix.ts --record                           rewrite scripts/prompt-contract-baseline.json
  *   tsx scripts/prompt-contract-matrix.ts --record --allow-increase "<why>"  the same, raising budgets for the stated reason
+ *   tsx scripts/prompt-contract-matrix.ts --record-digests                   rewrite scripts/prompt-section-digests.txt (see the digest pin below)
  */
 import type { ServiceLink } from "@kernel/service-links";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   buildPromptAssembled,
+  buildReviewerPromptAssembled,
   ASSEMBLED_ARTIFACT_NAMES,
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
@@ -42,7 +46,7 @@ import {
   type LintFinding,
   type LintSection,
 } from "@contexts/generation/application/index.ts";
-import type { ArchitectureContext, OpencodeRunInput } from "@contexts/generation/application/index.ts";
+import type { ArchitectureContext, OpencodeRunInput, ReviewInput } from "@contexts/generation/application/index.ts";
 import { DEFAULT_CLOSED_LOOP_LIMITS } from "@kernel/closed-loop.ts";
 import { DEFAULT_AGENT_BROWSER_LIMITS } from "@kernel/agent-browser.ts";
 import { DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
@@ -721,7 +725,119 @@ export function collectFindings(
   return out;
 }
 
+/* ── digest pin ──
+ * One sha256 per prompt of the matrix (every combination that can reach the agent, with and without a step limit, with no byte budget) and per reviewer
+ * prompt of a fixed set of options. A digest covers everything an assembly returns: the text, the size of each section, its claims, its items, the files
+ * the prompt provides and the hash of each section. The committed file holds the digests of the prompt builders as they stood before they became section
+ * registries, so a change to how a prompt is declared that alters one byte of any of them fails prompt-contract-matrix.test.ts.
+ * Record only when a prompt is meant to change, in the commit that changes it: tsx scripts/prompt-contract-matrix.ts --record-digests */
+
+export const DIGESTS_PATH = join(ROOT, "scripts", "prompt-section-digests.txt");
+
+const sha256 = (value: string): string => createHash("sha256").update(value).digest("hex");
+
+export interface DigestSet {
+  keys: string[];
+  digests: string[];
+}
+
+/* Everything an assembly returns, in a fixed shape. */
+export function assemblyDigest(assembled: AssembledPrompt): string {
+  return sha256(
+    JSON.stringify({
+      text: assembled.text,
+      sectionOrder: Object.keys(assembled.sectionSizes),
+      sectionSizes: assembled.sectionSizes,
+      claims: assembled.claims,
+      sectionItems: assembled.sectionItems,
+      providedPaths: assembled.providedPaths,
+      sectionHashes: assembled.sectionHashes,
+      droppedSections: assembled.droppedSections,
+      budgetBytes: assembled.budgetBytes,
+    }),
+  );
+}
+
+/* A prompt that states a tool budget or carries the plan contract is built for a role the runtime caps, so it exists only with a step limit. */
+export async function matrixDigests(): Promise<DigestSet> {
+  const set: DigestSet = { keys: [], digests: [] };
+  for (const spec of allValidSpecs()) {
+    for (const stepLimit of [MATRIX_STEP_LIMIT, undefined]) {
+      if (stepLimit === undefined && (spec.closedLoop || spec.agentBrowser || spec.planning)) continue;
+      const input = await buildInput(spec, stepLimit);
+      set.keys.push(`generator|${cellName(spec)}|${stepLimit === undefined ? "no-limit" : "limit"}`);
+      set.digests.push(assemblyDigest(buildPromptAssembled(input, { budgetBytes: 0 })));
+    }
+  }
+  return set;
+}
+
+const REVIEW_MODES = ["diff", "complete", "exhaustive", "manual"] as const;
+const REVIEW_TARGETS = ["e2e", "code"] as const;
+
+/* The reviewer prompts over every mode, target and combination of its six optional inputs; the step limit alternates. */
+export function reviewerDigests(): DigestSet {
+  const mirror = mkdtempSync(join(tmpdir(), "prompt-digests-"));
+  try {
+    mkdirSync(join(mirror, "e2e", "flows"), { recursive: true });
+    writeFileSync(join(mirror, "e2e", "flows", "cart.spec.ts"), "import { test } from './fixtures';\ntest('applies a coupon', async () => {});\n");
+    const set: DigestSet = { keys: [], digests: [] };
+    let index = 0;
+    for (const mode of REVIEW_MODES) for (const target of REVIEW_TARGETS) {
+      for (let flags = 0; flags < 64; flags++, index++) {
+        const has = (bit: number): boolean => (flags & (1 << bit)) !== 0;
+        const input: ReviewInput = {
+          diff: "diff --git a/src/cart.ts b/src/cart.ts\n--- a/src/cart.ts\n+++ b/src/cart.ts\n@@ -1 +1 @@\n+export const total = 1;\n",
+          specs: ["flows/cart.spec.ts"],
+          mirrorDir: mirror,
+          e2eRelDir: "e2e",
+          appName: "shop",
+          mode,
+          target,
+          baseUrl: "http://localhost:3000",
+          intent: { type: "feat", breaking: false, message: "feat(cart): show the total", changedFiles: ["src/cart.ts"] },
+          ...(mode === "manual" ? { guidance: "cover the coupon form" } : {}),
+          ...(has(0) ? { domSnapshot: "heading: Cart\nbutton: Apply coupon" } : {}),
+          ...(has(1) ? { learnedRules: "## Learned rules\n- prefer getByRole" } : {}),
+          ...(has(2) ? { priorCorrections: ["[fragile-selector] cart.spec.ts: scope the button"] } : {}),
+          ...(has(3) ? { specChanges: "+ await expect(total).toBeVisible();" } : {}),
+          ...(has(4) ? { executionResult: "## RUNTIME EXECUTION RESULT\n- applies a coupon" } : {}),
+          ...(has(5) ? { existingSpecFiles: ["flows/other.spec.ts"] } : {}),
+          ...(index % 2 === 0 ? { stepLimit: 30 } : {}),
+        };
+        set.keys.push(`reviewer|${mode}|${target}|${flags}|${index % 2 === 0 ? "limit" : "no-limit"}`);
+        set.digests.push(assemblyDigest(buildReviewerPromptAssembled(input)));
+      }
+    }
+    return set;
+  } finally {
+    rmSync(mirror, { recursive: true, force: true });
+  }
+}
+
+export async function currentDigests(): Promise<DigestSet> {
+  const generator = await matrixDigests();
+  const reviewer = reviewerDigests();
+  return { keys: [...generator.keys, ...reviewer.keys], digests: [...generator.digests, ...reviewer.digests] };
+}
+
+/* The file is a header (how many prompts, and the hash of their ordered keys) and one digest per line. */
+export function digestHeader(keys: readonly string[]): string {
+  return `prompts=${keys.length} keys=${sha256(keys.join("\n"))}`;
+}
+
+export function loadDigests(path: string = DIGESTS_PATH): { header: string; digests: string[] } {
+  const [header = "", ...digests] = readFileSync(path, "utf8").split("\n").filter((line) => line !== "");
+  return { header, digests };
+}
+
 async function main(): Promise<void> {
+  if (process.argv.includes("--record-digests")) {
+    const set = await currentDigests();
+    writeFileSync(DIGESTS_PATH, [digestHeader(set.keys), ...set.digests, ""].join("\n"));
+    console.log(`recorded ${set.digests.length} digests to ${DIGESTS_PATH}`);
+    return;
+  }
   const cells = await buildMatrix();
   if (process.argv.includes("--record")) {
     const flag = process.argv.indexOf("--allow-increase");

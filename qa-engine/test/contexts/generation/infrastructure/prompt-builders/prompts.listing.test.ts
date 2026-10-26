@@ -5,13 +5,15 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  ANTI_WEAKENING_RULE,
-  FIX_STEPS,
-  OBJECTIVE_HEADING,
-  OBJECTIVE_QUESTION,
   buildPromptAssembled,
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
+import {
+  ANTI_WEAKENING_RULE,
+  OBJECTIVE_HEADING,
+  OBJECTIVE_QUESTION,
+} from "@contexts/generation/infrastructure/prompt-builders/task-builders.ts";
+import { FIX_STEPS } from "@contexts/generation/infrastructure/prompt-builders/generator-renderers.ts";
 import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES, SUITE_LISTING_LABELS } from "@contexts/generation/domain/prompt-headings.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import { everyDeliveredLine, leftOutLine, PLAIN_LISTING_NOTE } from "@contexts/generation/domain/suite-listing-render.ts";

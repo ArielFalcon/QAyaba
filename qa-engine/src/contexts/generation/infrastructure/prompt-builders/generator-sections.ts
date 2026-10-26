@@ -1,0 +1,610 @@
+/* The sections of a generator prompt, in prompt order. Each declares when it applies and how it renders from the turn's PromptContext; buildPromptAssembled filters and renders them. Never import src/. */
+
+import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
+import { renderExemplarsForPrompt } from "@kernel/scenario-catalog.ts";
+import { advisoryLineIds, itemId } from "@kernel/context-item-ids.ts";
+import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
+import {
+  claim,
+  AGENT_BROWSER_SECTION_ID,
+  APP_LOGIN_SECTION_ID,
+  CLOSED_LOOP_SECTION_ID,
+  GEOLOCATION_SECTION_ID,
+  HARNESS_FACTS_SECTION_ID,
+  LEAD_PLAN_SECTION_ID,
+  STEP_LIMIT_SECTION_ID,
+  type PromptClaim,
+} from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { STEP_MILESTONE_SECTION_ID } from "@contexts/generation/domain/step-limit.ts";
+import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
+import type { PromptContext } from "./generator-context.ts";
+import {
+  CONTRACT_FEEDBACK_SECTION_ID,
+  FIX_STEPS,
+  RUNTIME_SIGNALS_LINES,
+  buildDiffSection,
+  numbered,
+  renderAgentBrowser,
+  renderClosedLoop,
+  renderContractViolations,
+  renderFixCase,
+  renderGeolocation,
+  renderHarnessFacts,
+  renderLeadPlan,
+  renderServiceLinkLine,
+  renderStepMilestone,
+} from "./generator-renderers.ts";
+import { CODE_TOOLS, renderStepLimit } from "./prompt-text.ts";
+import { buildTask } from "./task-builders.ts";
+import type { PromptSectionDef, SectionRender } from "./prompt-sections.ts";
+
+/* The id of the section that lists the suite; it titles the section as well. */
+export const SUITE_LISTING_SECTION_ID = PROMPT_HEADINGS.existingSuiteManifest;
+
+function renderWorkingRules(ctx: PromptContext): SectionRender {
+  const { input, isCode, isReGen, planningTurn, packProvides, treeInPrompt, browser, openapiHint } = ctx;
+  const workingRulesLines: string[] = [
+    `## ${PROMPT_HEADINGS.workingRules}`,
+    ...(input.mode === "context"
+      ? [
+          `- This is a CONTEXT mode run: you are building the FE↔BE architecture map, not writing tests.`,
+          `- Your ONLY output is ${input.e2eRelDir}/.qa/context.json — do not create or modify any .spec.ts files.`,
+          `- Use ONLY serena to read code (activate_project, find_symbol, get_symbols_overview) — no Playwright MCP.`,
+          `- Extract from STRUCTURED sources: every route from a routing file, every operation from an OpenAPI spec.`,
+          `- Consult the architecture-mapping skill for detailed extraction patterns per source type.`,
+          `- The task block in this prompt has the complete procedure. Follow it precisely.`,
+        ]
+      : isCode
+      ? [
+          `- This is a CODE mode run: you are testing source-code logic, not a deployed web app.`,
+          /* The conventions of the repo's tests are read once, on the first pass: a regeneration works from the failing tests and the code under test. */
+          `- Detect the test framework from the repo's dependencies.${isReGen ? "" : " Read 2-3 existing test files for conventions. Match them exactly."}`,
+          `- Place generated tests alongside existing ones. Do not install new dependencies. Run no command: the orchestrator compiles and runs the tests after you finish and returns any compile or test failure to you.`,
+          `- In your closing verdict JSON, include specMetas with {file, flow, objective, targets} for each spec so the orchestrator can write the manifest deterministically.`,
+          `- Classify each affected symbol:`,
+          `  * Pure function → unit test: call with inputs, assert outputs`,
+          `  * Module with deps → integration test: real module + test doubles`,
+          `  * Handler/endpoint → integration test: test client, real request, assert status + body`,
+          `  * Trivial delegation/getter/setter → skip`,
+          `- Assert on BEHAVIOR, not implementation. Include edge cases.`,
+          `- One objective per test. Use realistic test data.`,
+          `- Never write a test whose only assertion is "does not throw".`,
+        ]
+      : [
+          `- Work in the repo's tests folder: ${input.e2eRelDir}/ (source of truth in git). Reuse and improve existing fixtures/specs; do not duplicate.`,
+          `- In your closing verdict JSON, include specMetas with {file, flow, objective, targets} for each spec. The orchestrator writes the manifest deterministically from these.`,
+          `- Test-data prefix: ${input.namespace}`,
+          `- LIVE DEV URL: ${input.baseUrl ?? "(not provided — ABORT and report infra-error: no base URL)"}`,
+          `  In the SPEC files, reach the app via the PW_BASE_URL env var (the orchestrator sets it at run time).`,
+          ...(planningTurn
+            ? [
+                `- This turn plans and opens no browser.${packProvides("dom-live") ? ` The "Live DOM" section is what DEV rendered for the pages it lists; a flow that visits another page names it, and its author reads it.` : " The authors of the flows read the pages they visit."}`,
+                `  Find what the change reaches (its callers and the pages that use it) with ${CODE_TOOLS}.`,
+              ]
+            : packProvides("dom-live")
+            ? [
+                `- A Context Pack (live DOM${packProvides("api-operations") ? " + contracts" : ""}) was pushed into this prompt by the`,
+                `  orchestrator before this session started. Where the pack supplies the DOM for a route,`,
+                `  TRANSCRIBE selectors directly from the "Live DOM" section — do NOT use ${browser.navigate} or`,
+                `  ${browser.snapshot} on routes already covered in the pack.`,
+                `  For routes NOT covered in the pack (not listed in the DOM section), use ${browser.name}`,
+                `  to explore the live page before writing selectors.`,
+              ]
+            : treeInPrompt
+            ? [
+                `- An injected a11y tree is provided below for the affected routes —`,
+                `  transcribe selectors from it; do NOT ${browser.navigate} a route it covers. Use ${browser.name}`,
+                `  only for a route NOT present in that tree.`,
+              ]
+            : [
+                `- You MUST read the live page with ${browser.name} BEFORE writing any test: ${browser.navigate} to`,
+                `  the LIVE DEV URL above, then ${browser.snapshot} to read the ACTUAL DOM. Selectors MUST be verified`,
+                `  against the real DOM, NEVER invented from code analysis alone.`,
+                ...(browser.runtimeSignals ? RUNTIME_SIGNALS_LINES : []),
+              ]),
+          /* Where the contract is, as a fact; the static layers own the rule for reading it. */
+          ...(openapiHint ? [`- OpenAPI contract(s) for this repo: ${openapiHint}.`] : []),
+        ]),
+  ];
+  const workingRulesContent = workingRulesLines.join("\n");
+  const workingRulesClaims: PromptClaim[] = input.mode !== "context" && !isCode && !treeInPrompt ? [claim.directs("use-runtime-signals")] : [];
+  return { content: workingRulesContent, claims: workingRulesClaims, cacheable: true };
+}
+
+function renderRegenDiscipline(ctx: PromptContext): SectionRender {
+  const { isReGen, blastRadiusGrounded } = ctx;
+  const regenDisciplineContent = isReGen
+    ? [
+        `## Re-generation turn — do NOT re-orient`,
+        ``,
+        blastRadiusGrounded
+          ? `Re-generation turn: the blast radius was already explored and distilled above. Do NOT trace the`
+          : `Re-generation turn: do NOT trace the`,
+        `change's callers again, do NOT re-skim the repository or re-read unchanged`,
+        blastRadiusGrounded
+          ? `code. Work from the grounding already in this prompt and change only what the correction requires.`
+          : `code. Change only what the correction requires.`,
+        `(One exception: if a correction names a specific symbol you have not seen, read ONLY that symbol.)`,
+        ``,
+      ].join("\n")
+    : "";
+  return { content: regenDisciplineContent };
+}
+
+function renderArchMap(ctx: PromptContext): SectionRender {
+  const { archMap } = ctx;
+  return {
+    content: [archMap?.text ?? "", ``].join("\n"),
+    claims: archMap?.claims ?? [],
+    cacheable: true,
+    ...(archMap ? { itemIds: archMap.itemIds, omissions: archMap.omissions } : {}),
+  };
+}
+
+function renderStaticSignal(ctx: PromptContext): SectionRender {
+  const content = ctx.input.staticSignal ?? "";
+  const signalFact = ctx.blastRadiusGrounded ? "structural-signal" : "co-change";
+  return { content, claims: [claim.provides(signalFact), claim.frames(signalFact, "unverified")], itemIds: advisoryLineIds(content) };
+}
+
+function renderServiceLinks(ctx: PromptContext): SectionRender {
+  const { input, isGenerationMode } = ctx;
+  /* Local sanitize wrapper (this function's own scope — NOT the DIFFERENT s() declared inside renderArchitectureContext further down this file) so untrusted cross-repo strings (data leaving/entering the model boundary) are redacted before reaching the prompt. */
+  const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
+  const MAX_LINKS = 40;
+  const MAX_DRIFT = 20;
+  const hasServiceLinks = Boolean(input.serviceLinks?.length);
+  const hasContractDrift = Boolean(input.contractDrift?.length);
+  const linkKey = (l: { from: { repo: string; file: string; symbol: string }; to: { repo: string } }): string =>
+    `${l.from.repo}/${l.from.file}#${l.from.symbol}->${l.to.repo}`;
+  const impactedTierByKey = new Map(
+    (input.crossRepoImpact?.impactedLinks ?? []).map(({ link, tier }) => [linkKey(link), tier] as const),
+  );
+  const tierFor = (l: { from: { repo: string; file: string; symbol: string }; to: { repo: string } }): string | undefined =>
+    impactedTierByKey.get(linkKey(l));
+  const orderedLinks =
+    impactedTierByKey.size > 0 && hasServiceLinks
+      ? [
+          ...input.serviceLinks!.filter((l) => tierFor(l) !== undefined),
+          ...input.serviceLinks!.filter((l) => tierFor(l) === undefined),
+        ]
+      : input.serviceLinks ?? [];
+  const omittedLinkCount = hasServiceLinks ? Math.max(0, orderedLinks.length - MAX_LINKS) : 0;
+  const serviceLinksContent =
+    (hasServiceLinks || hasContractDrift) && isGenerationMode
+      ? [
+          `## ${PROMPT_HEADINGS.crossServiceLinks} (deterministic — from the stitcher, advisory)`,
+          "Structural cross-service contract links resolved from the code, advisory and NOT a gate; absent links do NOT imply no dependency. Transport/source name how each hop was derived (FE→BE HTTP, BE→BE HTTP, event).",
+          "",
+          ...(hasServiceLinks
+            ? orderedLinks.slice(0, MAX_LINKS).map((l) => {
+                const tier = tierFor(l);
+                return renderServiceLinkLine(l, s, tier);
+              })
+            : []),
+          ...(omittedLinkCount > 0 ? [`...and ${omittedLinkCount} more link${omittedLinkCount === 1 ? "" : "s"} (truncated at MAX_LINKS=${MAX_LINKS})`] : []),
+          ...(hasContractDrift
+            ? ["", "### Contract drift (WARNINGS — front calls an endpoint the backend contract does not declare):",
+               ...input.contractDrift!.slice(0, MAX_DRIFT).map((d) =>
+                 `- WARNING: \`${s(d.from.repo)}/${s(d.from.file)}#${s(d.from.symbol)}\` calls ${s(d.verb)} ${s(d.path)} — not in the contract`)]
+            : []),
+        ].join("\n")
+      : "";
+
+  const serviceLinksClaims: PromptClaim[] = serviceLinksContent
+    ? [claim.provides("service-links"), claim.frames("service-links", "unverified")]
+    : [];
+  return {
+    content: serviceLinksContent,
+    claims: serviceLinksClaims,
+    ...(hasServiceLinks
+      ? {
+          itemIds: orderedLinks.slice(0, MAX_LINKS).map((l) => itemId.svcLink(l)),
+          ...(omittedLinkCount > 0 ? { omissions: [{ class: "selection" as const, reason: "link-selection", count: omittedLinkCount }] } : {}),
+        }
+      : {}),
+  };
+}
+
+function renderSkillExemplars(ctx: PromptContext): SectionRender {
+  const { input, isGenerationMode } = ctx;
+  const skillExemplarsContent = (() => {
+    if (!isGenerationMode || !input.skillExemplars?.length) return "";
+    const proven: Record<string, number> = {};
+    for (const e of input.skillExemplars) if (e.proven && e.promotionCount > 0) proven[e.archetype] = e.promotionCount;
+    return renderExemplarsForPrompt(input.skillExemplars, { proven });
+  })();
+  return { content: skillExemplarsContent, maxBytes: 1536, claims: [claim.provides("exemplars")] };
+}
+
+function renderAppLogin(ctx: PromptContext): SectionRender {
+  const { input, isGenerationMode, isCode } = ctx;
+  const authSetupPath = `${input.e2eRelDir}/auth.setup.ts`;
+  const appLoginContent =
+    input.authSeedUnauthored && isGenerationMode && !isCode
+      ? [
+          `## ${PROMPT_HEADINGS.appLogin}`,
+          `${PROMPT_HEADINGS.appLogin} is configured, but ${authSetupPath} is still the stock seed and did not sign in.`,
+          `Rewrite ${authSetupPath}: open the login page with the Playwright MCP and read its real fields before writing selectors.`,
+          `Import test from @playwright/test, not from ./fixtures.`,
+          `Keep reading DEV_TEST_USER and DEV_TEST_PASS. Delete the seed marker on the first line.`,
+          `Wait until the password field is hidden (cookies are set on the redirect) before storageState.`,
+          `Then write the specs for this change. Each spec that needs the app calls authenticate().`,
+          `The orchestrator signs in with your setup file before execute.`,
+        ].join("\n")
+      : "";
+  return { content: appLoginContent, shedAs: "critical-recap" };
+}
+
+function renderContextPack(ctx: PromptContext): SectionRender {
+  const { input, contextPackContent, contextPackClaims } = ctx;
+  return {
+    content: contextPackContent,
+    shedAs: "critical-recap",
+    claims: contextPackClaims,
+    ...(input.contextPackItemIds ? { itemIds: input.contextPackItemIds } : {}),
+    ...(input.contextPackOmissions ? { omissions: input.contextPackOmissions } : {}),
+  };
+}
+
+function renderDomSnapshot(ctx: PromptContext): SectionRender {
+  const { isGenerationMode, sanitizedDomSnapshot, hasFailureTree, hasLiveTree } = ctx;
+  const domContent = sanitizedDomSnapshot && isGenerationMode
+    ? hasFailureTree
+      ? [
+          `## ${PROMPT_HEADINGS.groundTruthAtFailure}`,
+          ``,
+          `The tree below is the page AT THE FAILURE POINT — the ONLY source of truth for this fix.`,
+          `Do NOT use general knowledge of what tables, forms, or components usually contain.`,
+          `The ACTUAL rendered tree is what matters, and it is captured below.`,
+          ``,
+          `⚠ Counterfactual warning: even if element types commonly expose a given role`,
+          `(e.g. tables commonly expose \`columnheader\`, forms commonly expose \`textbox\`),`,
+          `if THIS tree does NOT show it — trust the tree, not the convention. The live page`,
+          `may use CSS \`role="presentation"\` or a custom component that drops standard roles.`,
+          ``,
+          `📌 Quote-then-assert contract: before writing any locator, cite the EXACT \`role: name\``,
+          `line from the tree below that the locator relies on. An unquotable locator`,
+          `(i.e. no matching line exists in this tree) MUST be rejected and replaced with a`,
+          `\`getByText\` locator quoted from the SAME tree — text visible in the tree below. NEVER`,
+          `invent a CSS selector or data-testid value that is not present in this grounding.`,
+          ``,
+          sanitizedDomSnapshot,
+          ``,
+        ].join("\n")
+      : [
+          `## ${PROMPT_HEADINGS.liveDevTree} (GROUND TRUTH for selectors — trust this over HTML intuition)`,
+          ``,
+          `These are the roles + accessible names the browser ACTUALLY exposes for the target routes.`,
+          `Lines may carry a trailing \`-> [attr=…]\` hint showing id=, name=, href, or type= as well as the test-id attribute.`,
+          `Author selectors ONLY from what appears below:`,
+          `- If a role you expected (e.g. \`columnheader\`) is NOT listed, it is NOT in the a11y tree —`,
+          `  do NOT use \`getByRole\` for it. Fall back to \`getByText\` or a scoped locator.`,
+          `- If a name appears MORE THAN ONCE, a bare \`getByRole\`/\`getByText\` matches multiple elements`,
+          `  (strict-mode violation) — scope it to a unique parent/section, or use a unique attribute.`,
+          ``,
+          `Lines tagged [CHANGED: …] are what THIS change introduced — your objective targets these.`,
+          ``,
+          sanitizedDomSnapshot,
+          ``,
+        ].join("\n")
+    : "";
+
+  const domClaims: PromptClaim[] =
+    domContent === ""
+      ? []
+      : hasFailureTree
+      ? [claim.provides("dom-failure"), claim.frames("dom-failure", "established")]
+      : [claim.provides("dom-live"), claim.frames("dom-live", "established")];
+  return { content: domContent, claims: domClaims };
+}
+
+function renderSelectorContradictions(ctx: PromptContext): SectionRender {
+  const { input, isGenerationMode, hasFailureTree, hasLiveTree, treeInPrompt } = ctx;
+  const selectorContradictionsContent =
+    input.selectorContradictions?.length && isGenerationMode
+      ? [
+          `## ⚠ Lever-2 selector contradictions (DETERMINISTIC — resolve EVERY one)`,
+          ``,
+          `These selectors were checked against ${hasFailureTree ? "the captured failure-point tree above" : hasLiveTree ? "the captured tree above" : "the page's captured a11y tree"} and FAILED.`,
+          `Each is a verified fact, not a hint: a contradicted \`role:name\` is NOT ${treeInPrompt ? "in the captured tree" : "on the page"}`,
+          `(the listed present roles are what IS there) — do NOT re-use it. Replace it with a role/name`,
+          `${treeInPrompt ? "that appears in the tree" : "from the present roles listed"}, or a \`getByText\`/scoped locator; for a "matches MULTIPLE" finding,`,
+          `scope the locator to a unique parent. You MUST resolve every item before finishing:`,
+          ``,
+          "```",
+          ...input.selectorContradictions.map((c) => `- ${sanitizeText(c).text}`),
+          "```",
+          ``,
+        ].join("\n")
+      : "";
+
+  const selectorContradictionsClaims: PromptClaim[] = !selectorContradictionsContent
+    ? []
+    : hasFailureTree
+    ? [claim.directs("consult", "dom-failure")]
+    : hasLiveTree
+    ? [claim.directs("consult", "dom-live")]
+    : [];
+  return { content: selectorContradictionsContent, claims: selectorContradictionsClaims };
+}
+
+function renderFixCases(ctx: PromptContext): SectionRender {
+  const { input, isGenerationMode, isCode, hasFailureTree, treeInPrompt, editableListed, browser, groundingUncoveredEscape: GROUNDING_UNCOVERED_ESCAPE } = ctx;
+  const hasStaticGateCase = Boolean(input.fixCases?.some((c) => c.name === "static-gate"));
+  /* The listing tells the agent to read the specs it changes; where it does not, the fix reads the test file itself. */
+  const readTestStep = editableListed ? [] : [FIX_STEPS.readTestFile];
+
+  const fixContent = input.fixCases?.length && isGenerationMode
+    ? [
+        `## Fix failing tests`,
+        ``,
+        ...(hasStaticGateCase
+          ? [
+              `The following is a failing gate (static analysis — compile/lint), not an executed test`,
+              `failure. Fix the underlying error; do NOT rewrite or touch tests that passed the gate.`,
+            ]
+          : [
+              `The following tests FAILED during execution${isCode ? "" : " against DEV"}. Fix ONLY these`,
+              `tests; do NOT rewrite or touch tests that passed.`,
+            ]),
+        ``,
+        `Failed cases:`,
+        ...input.fixCases.flatMap(renderFixCase),
+        ``,
+        ...(hasFailureTree
+          ? [
+              `The captured a11y tree at the failure point is injected ABOVE as "${PROMPT_HEADINGS.groundTruthAtFailure}".`,
+              ...numbered([
+                ...readTestStep,
+                [
+                  `Consult ONLY that tree — do NOT navigate or snapshot the live page.`,
+                  `   The tree above is the page AT THE FAILURE POINT, not the current live state.`,
+                  `   ${GROUNDING_UNCOVERED_ESCAPE}`,
+                ].join("\n"),
+                [
+                  `Fix the ROOT CAUSE, guided by the error type:`,
+                  `   - "strict mode violation" → scope the selector to a section first`,
+                  `   - "locator.click: … not found" → the element doesn't exist; check role/label in that tree`,
+                  `   - "expect(…).toBeVisible() timed out" → the element exists but isn't visible; check loading states`,
+                  `   - "locator resolved to N elements" → use .filter({hasText:…}) or scope to a unique parent`,
+                ].join("\n"),
+                FIX_STEPS.changeOnlyWhatIsBroken,
+              ]),
+            ]
+          : treeInPrompt
+          ? [
+              `Fix from the injected grounding above (the DOM tree) — do NOT navigate to re-derive`,
+              `a route it already covers; navigate ONLY a route absent from the injected grounding.`,
+              GROUNDING_UNCOVERED_ESCAPE,
+              ...numbered([
+                ...readTestStep,
+                `Resolve the failing selector/assertion against the injected grounding above`,
+                [
+                  `Fix the ROOT CAUSE, guided by the error type:`,
+                  `   - "strict mode violation" → scope the selector to a section first`,
+                  `   - "locator.click: … not found" → the element doesn't exist; check role/label in the injected grounding`,
+                  `   - "expect(…).toBeVisible() timed out" → the element exists but isn't visible; check loading states`,
+                  `   - "locator resolved to N elements" → use .filter({hasText:…}) or scope to a unique parent`,
+                ].join("\n"),
+                FIX_STEPS.changeOnlyWhatIsBroken,
+              ]),
+            ]
+          : isCode
+          ? [
+              `For each failure:`,
+              ...numbered([
+                ...readTestStep,
+                FIX_STEPS.readCodeUnderTest,
+                `Fix the ROOT CAUSE: a wrong expectation, a wrong test double or setup, or a compile error`,
+                FIX_STEPS.changeOnlyWhatIsBroken,
+              ]),
+            ]
+          : [
+              `For each failure, use ${browser.name} to explore the page and verify`,
+              `your fix BEFORE writing it:`,
+              ...numbered([
+                ...readTestStep,
+                `Use ${browser.navigate} + ${browser.snapshot} to see the ACTUAL page structure`,
+                [
+                  `Fix the ROOT CAUSE, guided by the error type:`,
+                  `   - "strict mode violation" → scope the selector to a section first`,
+                  `   - "locator.click: … not found" → the element doesn't exist; check role/label`,
+                  `   - "expect(…).toBeVisible() timed out" → the element exists but isn't visible; check loading states`,
+                  `   - "NS_ERROR_…" / network error → the URL or route is wrong; verify with ${browser.navigate}`,
+                  `   - "locator resolved to N elements" → use .first() ONLY as last resort; prefer scoping`,
+                ].join("\n"),
+                FIX_STEPS.changeOnlyWhatIsBroken,
+              ]),
+            ]),
+        ``,
+      ].join("\n")
+    : "";
+
+  const fixContentClaims: PromptClaim[] = fixContent && hasFailureTree ? [claim.directs("consult", "dom-failure")] : [];
+  return { content: fixContent, claims: fixContentClaims };
+}
+
+function renderReviewerCorrections(ctx: PromptContext): SectionRender {
+  const { input, isGenerationMode, isCode, treeInPrompt, browser, groundingUncoveredEscape: GROUNDING_UNCOVERED_ESCAPE } = ctx;
+  const reviewContent = input.reviewCorrections?.length && isGenerationMode
+    ? [
+        `## Apply reviewer corrections (HIGHEST priority)`,
+        ``,
+        `An independent reviewer REJECTED the previous specs. Address each finding below: fix the spec`,
+        `when the finding holds, or rebut it with the evidence the correction turn accepts when you can show`,
+        `it is wrong. Do NOT rewrite specs that were not flagged.`,
+        treeInPrompt
+          ? `Re-verify against the injected grounding above (the DOM tree) before editing — do NOT re-navigate a route it already covers. ${GROUNDING_UNCOVERED_ESCAPE}`
+          : isCode
+          ? `Where a fix concerns an assertion, re-verify it against the code under test before editing.`
+          : `Where a fix concerns a selector or an assertion, re-verify it against the live page with ${browser.name} before editing.`,
+        ``,
+
+        ...input.reviewCorrections.map((c) => `- ${sanitizeText(c).text}`),
+        ``,
+      ].join("\n")
+    : "";
+  return { content: reviewContent, maxBytes: 20_000, overflow: "drop" };
+}
+
+function renderCoverageGap(ctx: PromptContext): SectionRender {
+  const { input, isGenerationMode, treeInPrompt, groundingUncoveredEscape: GROUNDING_UNCOVERED_ESCAPE } = ctx;
+  const coverageContent = input.coverageGap && isGenerationMode
+    ? [
+        `## Cover the change (HIGH priority)`,
+        ``,
+        `The tests ran green but did NOT exercise all the lines this commit changed. Extend or add`,
+        `tests so those lines are actually executed and asserted (covering ≠ asserting — assert the`,
+        `behavior of the changed code, do not just touch the line):`,
+        ``,
+        ...(treeInPrompt
+          ? [
+              `Resolve any new selectors from the injected grounding above — do NOT re-navigate routes it already covers.`,
+              GROUNDING_UNCOVERED_ESCAPE,
+              ``,
+            ]
+          : []),
+        input.coverageGap,
+        ``,
+      ].join("\n")
+    : "";
+  return { content: coverageContent, shedAs: "critical-recap" };
+}
+
+/* A-2b: the deltas the intent lock found in the previous turn, as facts of this one. Capped, sanitized, and never an order: the generator decides how to restore what its bytes weakened. */
+function renderContractFeedback(ctx: PromptContext): SectionRender {
+  return { content: renderContractViolations(ctx.input.contractFeedback ?? []), maxBytes: 6_000, overflow: "drop" };
+}
+
+function renderTask(ctx: PromptContext): SectionRender {
+  const { input, mapInjected, blastRadiusGrounded, assembly } = ctx;
+  const task = buildTask(input, { mapInjected, blastRadiusGrounded, suiteListed: assembly.suiteListed, reaskObjective: assembly.reaskObjective });
+  return { content: task.text, claims: task.claims };
+}
+
+/* Every definition appears in the order the prompt lists its sections. A definition whose `applies` is false leaves nothing in the assembled prompt. */
+export const GENERATOR_SECTIONS: readonly PromptSectionDef<PromptContext>[] = [
+  { id: "working-rules", tier: "stable-prefix", priority: 1, applies: () => true, render: renderWorkingRules },
+  { id: "regen-discipline", tier: "stable-prefix", priority: 2, applies: (ctx) => ctx.isReGen, render: renderRegenDiscipline },
+  { id: "arch-map", tier: "semi-stable", priority: 1, applies: (ctx) => Boolean(ctx.input.contextMap), render: renderArchMap },
+  {
+    id: HARNESS_FACTS_SECTION_ID,
+    tier: "semi-stable",
+    priority: 0,
+    applies: (ctx) => ctx.isGenerationMode && Boolean(ctx.input.harnessFacts),
+    render: (ctx) => ({ content: renderHarnessFacts(ctx.input.harnessFacts!, ctx.input.e2eRelDir), claims: [claim.provides("harness-facts")] }),
+  },
+  {
+    id: CLOSED_LOOP_SECTION_ID,
+    tier: "semi-stable",
+    priority: 0,
+    applies: (ctx) => ctx.isGenerationMode && ctx.input.target === "e2e" && Boolean(ctx.input.closedLoop),
+    render: (ctx) => ({ content: renderClosedLoop(ctx.input.closedLoop!), claims: [claim.provides("closed-loop")] }),
+  },
+  {
+    id: AGENT_BROWSER_SECTION_ID,
+    tier: "semi-stable",
+    priority: 0,
+    applies: (ctx) => ctx.isGenerationMode && ctx.input.target === "e2e" && Boolean(ctx.input.agentBrowser),
+    render: (ctx) => ({ content: renderAgentBrowser(ctx.input.agentBrowser!), claims: [claim.provides("agent-browser")] }),
+  },
+  {
+    id: GEOLOCATION_SECTION_ID,
+    tier: "semi-stable",
+    priority: 0,
+    applies: (ctx) => ctx.isGenerationMode && ctx.input.target === "e2e" && Boolean(ctx.input.geolocation),
+    render: (ctx) => ({ content: renderGeolocation(ctx.input.geolocation!), claims: [claim.provides("geolocation")] }),
+  },
+  {
+    id: SUITE_LISTING_SECTION_ID,
+    tier: "semi-stable",
+    priority: 2,
+    applies: (ctx) => ctx.suiteIsListed,
+    render: (ctx) => ({
+      content: ctx.listingContent,
+      claims: [claim.provides("existing-suite")],
+      ...(ctx.editableListed ? { overflow: "summarize" as const } : {}),
+    }),
+  },
+  { id: "static-signal", tier: "semi-stable", priority: 3, applies: (ctx) => Boolean(ctx.input.staticSignal && ctx.isGenerationMode), render: renderStaticSignal },
+  {
+    id: "service-links",
+    tier: "semi-stable",
+    priority: 3,
+    applies: (ctx) => (Boolean(ctx.input.serviceLinks?.length) || Boolean(ctx.input.contractDrift?.length)) && ctx.isGenerationMode,
+    render: renderServiceLinks,
+  },
+  { id: "skill-exemplars", tier: "semi-stable", priority: 3, applies: (ctx) => ctx.isGenerationMode && Boolean(ctx.input.skillExemplars?.length), render: renderSkillExemplars },
+  {
+    id: APP_LOGIN_SECTION_ID,
+    tier: "volatile",
+    priority: 0,
+    applies: (ctx) => Boolean(ctx.input.authSeedUnauthored) && ctx.isGenerationMode && !ctx.isCode,
+    render: renderAppLogin,
+  },
+  { id: "context-pack", tier: "volatile", priority: 0, applies: (ctx) => ctx.contextPackContent !== "", render: renderContextPack },
+  /* VOLATILE: grounding (DOM snapshot — priority 1 within VOLATILE so it's first and the selectorContradictions section can reference "the tree above" correctly). */
+  { id: "dom-snapshot", tier: "volatile", priority: 1, applies: (ctx) => Boolean(ctx.sanitizedDomSnapshot) && ctx.isGenerationMode, render: renderDomSnapshot },
+  {
+    id: "selector-contradictions",
+    tier: "volatile",
+    priority: 2,
+    applies: (ctx) => Boolean(ctx.input.selectorContradictions?.length) && ctx.isGenerationMode,
+    render: renderSelectorContradictions,
+  },
+  { id: "fix-cases", tier: "volatile", priority: 3, applies: (ctx) => Boolean(ctx.input.fixCases?.length) && ctx.isGenerationMode, render: renderFixCases },
+  /* VOLATILE: reviewer corrections (priority 4 — after grounding context is established). */
+  {
+    id: "reviewer-corrections",
+    tier: "volatile",
+    priority: 4,
+    applies: (ctx) => Boolean(ctx.input.reviewCorrections?.length) && ctx.isGenerationMode,
+    render: renderReviewerCorrections,
+  },
+  {
+    id: CONTRACT_FEEDBACK_SECTION_ID,
+    tier: "volatile",
+    priority: 4,
+    applies: (ctx) => Boolean(ctx.input.contractFeedback?.length) && ctx.isGenerationMode,
+    render: renderContractFeedback,
+  },
+  { id: "coverage-gap", tier: "volatile", priority: 5, applies: (ctx) => Boolean(ctx.input.coverageGap) && ctx.isGenerationMode, render: renderCoverageGap },
+  {
+    id: "learned-rules",
+    tier: "volatile",
+    priority: 2,
+    applies: (ctx) => Boolean(ctx.input.learnedRules) && ctx.isGenerationMode,
+    render: (ctx) => ({ content: [ctx.input.learnedRules, ``].join("\n"), claims: [claim.provides("learned-rules")] }),
+  },
+  { id: "task", tier: "task", priority: 1, applies: () => true, render: renderTask },
+  {
+    id: "diff",
+    tier: "task",
+    priority: 2,
+    applies: (ctx) => ctx.isGenerationMode && ctx.input.target !== "code" && ctx.input.mode === "diff" && !ctx.isReGen,
+    render: (ctx) => ({ content: buildDiffSection(ctx.input), shedAs: "semi-stable", claims: [claim.provides("diff")] }),
+  },
+  /* The cap the runtime enforces for this turn, when the host resolved one: a fact of its own, then, on a turn that writes tests, the step by which it should have written something. Both close the prompt. */
+  {
+    id: LEAD_PLAN_SECTION_ID,
+    tier: "critical-recap",
+    priority: 0,
+    applies: (ctx) => ctx.planningTurn,
+    render: (ctx) => ({ content: renderLeadPlan(ctx.input.planning!), claims: [claim.provides("lead-plan")] }),
+  },
+  {
+    id: STEP_LIMIT_SECTION_ID,
+    tier: "critical-recap",
+    priority: 1,
+    applies: (ctx) => ctx.input.stepLimit !== undefined,
+    render: (ctx) => ({ content: renderStepLimit(ctx.input.stepLimit!), claims: [claim.provides("step-limit")] }),
+  },
+  {
+    id: STEP_MILESTONE_SECTION_ID,
+    tier: "critical-recap",
+    priority: 2,
+    applies: (ctx) => ctx.milestone !== undefined,
+    render: (ctx) => ({ content: renderStepMilestone(ctx.milestone!) }),
+  },
+];

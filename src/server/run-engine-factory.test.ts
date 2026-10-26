@@ -3319,7 +3319,7 @@ test("createRunEngineFactory's returned closure propagates the undeclared-trigge
 /* this fix): a context-mode run mirrors EVERY declared app.services[] entry (read-only, each at its
    OWN svc.baseBranch ?? "main") and threads them onto EngineRootDeps.services so
    GenerationTurnsAdapter's ctx.services -> OpencodeRunInput.services carries the full set for the FE<->BE
-   architecture-map builder (buildContextTask's "## Microservice repos" section, prompts.ts:1181).
+   architecture-map builder (buildContextTask's "## Microservice repos" section, task-builders.ts).
    Mirrors triggerService's OWN conditional-spread precedent above hop-for-hop — the ONE difference is
    cardinality (every declared service, not just the triggering one) and applicability (context mode
    ONLY; triggerService and services are mutually exclusive by the sibling guard at line 342/954).

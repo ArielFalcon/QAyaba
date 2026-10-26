@@ -7,7 +7,7 @@
 
 import type { JudgeEvidencePort } from "@contexts/evaluation/application/index.ts";
 import type { JudgeEvidence } from "@contexts/evaluation/application/index";
-import { COMMIT_DIFF_HEADING } from "@contexts/generation/infrastructure/prompt-builders/prompts";
+import { COMMIT_DIFF_HEADING } from "@contexts/generation/infrastructure/prompt-builders/prompt-text";
 import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
 import type { SpecSnapshotRow } from "./persistence/repositories/run.repository";
 import type { AgentTurnRecord } from "./persistence/repositories/telemetry.repository";

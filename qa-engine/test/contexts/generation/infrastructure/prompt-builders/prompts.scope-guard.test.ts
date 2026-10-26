@@ -2,11 +2,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  EFFORT_BY_TIER,
-  EFFORT_NO_OP_CLAUSE,
   buildPromptAssembled,
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
+import {
+  EFFORT_BY_TIER,
+  EFFORT_NO_OP_CLAUSE,
+} from "@contexts/generation/infrastructure/prompt-builders/task-builders.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import { DIFF_TIER_NAMES, DIFF_TIERS, type DiffTier } from "@kernel/diff-stat.ts";

@@ -34,7 +34,7 @@ import type { StreamLifecycleSink, StreamToken } from "@contexts/generation/infr
 import type { ArchitectureContext, OpencodeRunInput, ReviewInput } from "@contexts/generation/application/index.ts";
 import { SERENA_WRITE_TOOL_NAMES } from "@contexts/generation/application/index";
 import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
-import { ANTI_WEAKENING_RULE, OBJECTIVE_QUESTION } from "@contexts/generation/infrastructure/prompt-builders/prompts";
+import { ANTI_WEAKENING_RULE, OBJECTIVE_QUESTION } from "@contexts/generation/infrastructure/prompt-builders/task-builders";
 import { setAgentsConfigPath as setCatalogAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { rosterFixturePath } from "./fixtures/opencode-roster";
 

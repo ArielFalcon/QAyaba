@@ -12,11 +12,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CATALOGED_MODELS } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog.ts";
 import {
-  buildContextTask,
   buildPromptAssembled,
   buildReviewerPromptAssembled,
-  renderExecutionResult,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
+import { buildContextTask } from "@contexts/generation/infrastructure/prompt-builders/task-builders.ts";
+import { renderExecutionResult } from "@contexts/generation/infrastructure/prompt-builders/review-render.ts";
 import type { ReviewInput } from "@contexts/generation/application/index.ts";
 import { createDelegationBrief } from "@contexts/coordination/application/index.ts";
 import { SidekickExecutor } from "@contexts/coordination/application/index.ts";

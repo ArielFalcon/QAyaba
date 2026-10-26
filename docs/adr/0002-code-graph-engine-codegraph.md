@@ -287,7 +287,7 @@ A throwaway spike under the real constraints answers six questions before any pr
 
 - **Unit-test selection with `affected`.** Whether `--target code` should use it is deferred to its own change, with its own evidence.
 - **The unused boundary profiles.** Whether `event` and `http-backend` should be enabled for any app, or the stitcher's call-site catalog widened, is a product decision. Today they are code without a caller.
-- **The context map builder's Angular-specific instructions** (`prompts.ts:972,990`, the architecture-mapping skill). This is an agnosticism defect with its own change; §3.4 reduces its effect on change pages but does not fix it.
+- **The context map builder's Angular-specific instructions** (`buildContextTask` in `task-builders.ts`, the architecture-mapping skill). This is an agnosticism defect with its own change; §3.4 reduces its effect on change pages but does not fix it.
 - **Deriving the context map from the graph.** It cannot be done for OpenAPI-codegen backends (0 route nodes). For frontends it is open until the gate's route measurement.
 - **The dead extractor installs** in the image (`Dockerfile:72-85`). A separate cleanup.
 - **The reviewer, publication, and change-coverage itself.** Nothing here changes any of them.
