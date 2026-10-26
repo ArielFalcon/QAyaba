@@ -6,6 +6,17 @@ import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
 import type { SpanHandle, StartSpanOptions } from "@kernel/telemetry/telemetry.port.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import { ChangeSet, deriveCandidates, type ChangeScope, type ChangeScopePort, type ChangeScopeRequest } from "@contexts/change-analysis/application/index.ts";
+import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import type { PlanSnapshot } from "@kernel/ports/plan-snapshot.port.ts";
+import { LeadSidekicks } from "@contexts/coordination/application/lead-sidekicks.ts";
+import { systemTimers } from "@contexts/coordination/application/fan-out-dispatcher.ts";
+import type { DelegationBrief } from "@contexts/coordination/application/delegation-brief.ts";
+import type { DelegationResult } from "@contexts/coordination/application/delegation-result.ts";
+import { gradeEvidence } from "@contexts/evaluation/domain/graders.ts";
+import { evidence as baseEvidence } from "../../evaluation/evidence-fixtures.ts";
+import type { PlanEvidence } from "@contexts/evaluation/domain/run-evaluation-evidence.ts";
+import type { QaCase } from "@kernel/qa-case.ts";
+import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { dispose, newRig, observe } from "./run-flow/run-end-rig.ts";
 
 const FRONT = "org/front";
@@ -142,3 +153,81 @@ test("candidates that cannot be derived never end the run and leave the run with
     dispose(rig);
   }
 });
+
+/* The change set -> scope -> candidates -> plan snapshot -> evaluation chain, with the real coordinator and the real grading; only the ports at the process boundary are fakes. */
+test("a two-entry change set reaches the evaluation: the coordinator is handed its candidates, the plan snapshot lists their states and the evaluation scores each use case", async () => {
+  const rig = newRig();
+  try {
+    const snapshots: PlanSnapshot[] = [];
+    const received: Array<readonly UseCaseCandidate[] | undefined> = [];
+    const flowSpec = (id: string): string => `flows/${id}.spec.ts`;
+    const coordinator = new LeadSidekicks({
+      redaction: new PatternRedactionAdapter(),
+      sidekick: { open: async (brief) => ({ first: delegated(brief), ask: async () => delegated(brief), dispose: async () => {} }) },
+      workspaces: {
+        create: async (request) => ({ dir: `/w/${request.delegationId}`, specDir: `/w/${request.delegationId}/e2e`, specRelDir: "e2e", files: 1, cut: false }),
+        stage: async () => true,
+        collect: async (_ws, request) => ({ copied: request.delegationId.endsWith("-flow-a") ? [...request.writablePaths] : [], refused: [], proposals: [], proposalsTotal: 0 }),
+        refresh: async (_ws, request) => [...request.writablePaths],
+        dispose: async () => {},
+        sweepAll: async () => 0,
+      },
+      timers: systemTimers,
+      planSnapshots: { record: (snapshot) => void snapshots.push(snapshot) },
+      specFileFor: flowSpec,
+    });
+    const twoDirect: ChangeScope = { ...SCOPE, reach: SCOPE.reach.map((r) => ({ ...r, tier: "direct" as const })), degraded: [] };
+    const changeScope: ChangeScopePort = { resolve: async () => twoDirect, candidates: async ({ scope }) => deriveCandidates(scope) };
+    rig.input = { changeSet: ChangeSet.of("demo", [{ repo: FRONT, role: "primary", headSha: FRONT_SHA }]), sha: FRONT_SHA };
+    rig.classify = async () => ({ action: "generate", reason: "x", diff: DIFF, intent: { type: "feat", breaking: false, message: "m", changedFiles: ["web/a.ts"] } });
+    rig.execute = async () => ({ verdict: "pass", cases: [{ name: "a", status: "pass", file: flowSpec("a") }], logs: "" });
+    rig.extra = {
+      changeScope,
+      codeGraphRepoDir: "/m/front",
+      leadSidekicks: {
+        coordinate: async (input) => {
+          received.push(input.candidates);
+          const [first, second] = input.candidates ?? [];
+          const plan = { kind: "fanout", flows: [{ id: "a", objective: "page a", routes: ["/a"], candidates: [first!.id] }, { id: "b", objective: "page b", routes: ["/b"], candidates: [second!.id] }] };
+          const result = await coordinator.coordinate({ ...input, plan: async () => ({ plan, parsed: true, timedOut: false }) });
+          if (result.action === "fanout") for (const spec of result.aggregated.specs) if (!rig.ws.has(spec)) rig.ws.write(spec);
+          return result;
+        },
+      },
+    };
+    const observed = await observe(rig, "scope-to-evaluation");
+    assert.equal(observed.result?.decision.verdict, "pass");
+
+    const handed = received[0] ?? [];
+    assert.deepEqual(handed.map((c) => (c.entry.kind === "page" ? c.entry.route : "")).sort(), ["/a", "/b"], "the coordinator is handed the candidate of each entry of the change");
+
+    const last = snapshots.at(-1)!;
+    assert.equal(last.kind, "fanout");
+    assert.deepEqual(last.candidates.map((c) => [c.id, c.state]).sort(), handed.map((c) => [c.id, "planned"]).sort(), "the snapshot lists both candidates, each answered by a flow");
+
+    const evidence = planEvidenceOf(last, observed.result!.cases);
+    const scores = new Map(gradeEvidence({ ...baseEvidence(), plan: evidence }, ["plan_candidate_coverage", "delivered_candidate_coverage"]).map((s) => [s.name, s]));
+    assert.equal(scores.get("plan_candidate_coverage")?.value, 1, "both use cases were planned");
+    assert.equal(scores.get("delivered_candidate_coverage")?.value, 0.5, "only the flow that delivered a passing spec counts");
+    for (const c of handed) assert.match(String(scores.get("delivered_candidate_coverage")?.comment), new RegExp(`${c.id}: (delivered|planned)`));
+  } finally {
+    dispose(rig);
+  }
+});
+
+/* The plan a run kept, read as the evaluation reads it: a flow passed when it delivered its spec and every case tied to that spec passed. */
+function planEvidenceOf(snapshot: PlanSnapshot, cases: readonly QaCase[]): PlanEvidence {
+  return {
+    kind: snapshot.kind,
+    changeRoutes: snapshot.changeRoutes,
+    candidates: snapshot.candidates.map((c) => ({ id: c.id, state: c.state, ...(c.reason !== undefined ? { reason: c.reason } : {}), ...(c.pages !== undefined ? { pages: c.pages } : {}) })),
+    flows: snapshot.flows.map((f) => {
+      const statuses = cases.filter((c) => c.file === f.specFile).map((c) => c.status);
+      return { id: f.id, visits: f.visits, candidates: f.candidates, passed: f.outcome?.kind === "delivered" && statuses.length > 0 && statuses.every((s) => s === "pass") };
+    }),
+  };
+}
+
+function delegated(brief: DelegationBrief): DelegationResult {
+  return { delegationId: brief.delegationId, runId: brief.runId, status: "completed", summary: "wrote the spec", filesChanged: brief.scope.writablePaths.map((path) => ({ path })), evidence: [], validation: [], assumptions: [], concerns: [], unresolvedQuestions: [], recommendation: "accept", acceptance: [] };
+}
