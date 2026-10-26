@@ -45,7 +45,13 @@
     "rule": "dual-mode",
     "path": "src/agent-runtime/config.test.ts",
     "contains": "AGENT_RUNTIME_MODE",
-    "reason": "Pins that the retired mode variable is ignored."
+    "reason": "Pins that the retired mode variable is reported, not read."
+  },
+  {
+    "rule": "dual-mode",
+    "path": "src/agent-runtime/config.ts",
+    "contains": "AGENT_RUNTIME_MODE",
+    "reason": "Names the retired selector so a set one is reported at startup instead of being ignored."
   },
   {
     "rule": "dual-mode",
