@@ -160,6 +160,10 @@ test("isProtectedPath flags the secret boundary (a fix must never weaken what sc
      for the whole system from this single shared-kernel seam.
    */
   assert.equal(isProtectedPath("qa-engine/src/shared-kernel/ports/redaction.port.ts"), true);
+  /* the confined reader, its kernel port and the adapter between them: the untrusted-input seam of every agent-named path */
+  assert.equal(isProtectedPath("qa-engine/src/shared-infrastructure/spec-path-confinement.ts"), true);
+  assert.equal(isProtectedPath("qa-engine/src/shared-infrastructure/spec-files.adapter.ts"), true);
+  assert.equal(isProtectedPath("qa-engine/src/shared-kernel/ports/spec-files.port.ts"), true);
   /* the logs→Issue containsSecret fail-loud call site — an autonomous fix could remove the guard
      that refuses to ship a secret-carrying Issue body.
    */

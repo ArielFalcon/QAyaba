@@ -11,6 +11,7 @@ import type { ObjectiveSignalPort } from "@contexts/objective-signal/application
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
 import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
+import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 
 /** A spec the lead delivered and declared. */
 const declared = (file: string, objective: string): DeliveredSpec => ({ file, flow: `${file} flow`, objective });
@@ -105,6 +106,7 @@ async function run(scenario: Scenario): Promise<GenerationEnrichment[]> {
       publication: { publish: async () => ({ outcome: "pr" }) },
       learning: { fold: async () => {}, retrieve: async () => [] },
       workspace: fakeWorkspace(ws),
+      specFiles: confinedSpecFiles,
       suiteStore: ws.suiteStore,
       deployGate: { waitUntilServing: async () => ok(true) },
       runHistory: { save: async () => {} },

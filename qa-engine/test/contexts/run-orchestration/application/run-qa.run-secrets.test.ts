@@ -10,6 +10,7 @@ import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
 import { activeRunSecretScope, redactByValue, type RunSecretScope } from "../../../../src/shared-infrastructure/redaction/run-secret-redaction.ts";
 import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
+import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 
 const SECRET = "account-secret-7731";
 
@@ -45,6 +46,7 @@ async function runOnce(runId: string, observe: { atGenerate?: RunSecretScope | u
       publication: { publish: async () => ({ outcome: "pr" }) },
       learning: { fold: async () => {}, retrieve: async () => [] },
       workspace: fakeWorkspace(ws),
+      specFiles: confinedSpecFiles,
       suiteStore: ws.suiteStore,
       deployGate: { waitUntilServing: async () => ok(true) },
       runHistory: { save: async () => {} },

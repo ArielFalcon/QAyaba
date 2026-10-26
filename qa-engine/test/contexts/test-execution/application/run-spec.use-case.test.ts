@@ -9,6 +9,7 @@ import { CLOSED_LOOP_REFUSAL, RUN_SPEC_AGENT, RunSpecCapability } from "@context
 import { MAX_REPORTED_TESTS, MAX_TITLE_CHARS, RunSpecUseCase, escapeGrep, type RunSpecDeps } from "@contexts/test-execution/application/run-spec.use-case.ts";
 import type { SpecExecutionRequest, SpecExecutionResult } from "@contexts/test-execution/domain/spec-executor.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 
 const SPEC = 'import { test, expect } from "../fixtures";\ntest("loads", async ({ page }) => { await page.goto("/"); await expect(page).toHaveTitle(/x/); });\n';
 const LIMITS = { maxCalls: 3, perCallMs: 60_000, maxDevWrites: 5 };
@@ -41,6 +42,7 @@ function harness(t: TestContext, overrides: Partial<RunSpecDeps> = {}): Harness 
   h.deps = {
     capability,
     specRoot: { mirrorDir, specDir },
+    specFiles: confinedSpecFiles,
     specRelDir: "e2e",
     account: "app/user",
     lock: new AccountLock(),

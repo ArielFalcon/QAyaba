@@ -12,6 +12,7 @@ import type { CodeGraphToolsHandle } from "@contexts/agent-tools/application/ind
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
 import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
+import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 
 const INPUT: RunQaInput = { app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "graph-run" };
 const PASS: QaCase[] = [{ name: "a", status: "pass", file: "flows/a.spec.ts" }];
@@ -42,6 +43,7 @@ function rig(opts: { openThrows?: boolean; generateThrows?: boolean; closeThrows
       publication: { publish: async () => ({ outcome: "pr" }) },
       learning: { fold: async () => {}, retrieve: async () => [] },
       workspace: fakeWorkspace(ws),
+      specFiles: confinedSpecFiles,
       suiteStore: ws.suiteStore,
       deployGate: { waitUntilServing: async () => ok(true) },
       runHistory: { save: async () => {} },

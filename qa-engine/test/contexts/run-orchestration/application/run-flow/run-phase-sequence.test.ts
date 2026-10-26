@@ -10,6 +10,7 @@ import { RunQaUseCase, type RunQaInput, type RunQaUseCaseDeps } from "@contexts/
 import { scriptedGeneration } from "../../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../../support/run-workspace.ts";
 import { fakeWorkspace } from "./fake-workspace.ts";
+import { confinedSpecFiles } from "../../../../../src/shared-infrastructure/spec-files.adapter.ts";
 
 const PHASE_SPAN_PREFIX = "qayaba.phase.";
 
@@ -53,6 +54,7 @@ async function runOf(input: RunQaInput, execute?: RunQaUseCaseDeps["execution"][
     publication: { publish: async () => ({ outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
     workspace: fakeWorkspace(ws),
+    specFiles: confinedSpecFiles,
     suiteStore: ws.suiteStore,
     deployGate: { waitUntilServing: async () => ok(true) },
     runHistory: { save: async () => {} },

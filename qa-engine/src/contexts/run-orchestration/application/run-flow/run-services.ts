@@ -4,7 +4,7 @@
  * use them, and a checkpoint of the run's state never holds them.
  */
 
-import { listSpecFiles, listSuiteFiles, readConfinedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
+import type { SpecRoot } from "@kernel/ports/spec-files.port.ts";
 import { sha256Hex } from "../../../../shared-infrastructure/content-hash.ts";
 import { specSetDigest } from "./spec-set-digest.ts";
 import { specSnapshotPort } from "../../infrastructure/adapters/spec-snapshot.adapter.ts";
@@ -68,7 +68,7 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
   const primeIntentBaseline = async (): Promise<void> => {
     const extractor = deps.intentContract;
     if (!extractor || intentLock.mode === "off") return;
-    const current = await snapshotPort.snapshot(workspace.specDir, listSpecFiles(workspace.specDir));
+    const current = await snapshotPort.snapshot(workspace.specDir, deps.specFiles.list(workspace.specDir));
     const decoder = new TextDecoder();
     for (const [file, bytes] of current.files) {
       if (intentState.baselines.has(file)) continue;
@@ -128,7 +128,7 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
    */
   const sameBytes = (a: Uint8Array, b: Uint8Array): boolean => a.length === b.length && a.every((v, i) => v === b[i]);
   const suiteChangedFiles = async (before: SpecSnapshot, regenSpecs: readonly string[]): Promise<string[]> => {
-    const listing = listSuiteFiles(workspace.specDir);
+    const listing = deps.specFiles.listSuite(workspace.specDir);
     /* A listing the walk could not finish cannot say what changed: the caller then judges the whole suite. */
     if (listing.cut) return [...new Set([...before.files.keys(), ...regenSpecs.map((file) => file.replaceAll("\\", "/"))])];
     const current = listing.files;
@@ -154,11 +154,11 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
    * specs import (a fixture, a helper, the login setup), or the suite could not be listed — every spec, since
    * a spec whose own bytes did not change can still read differently now (B-4, and the proof it rests on).
    */
-  const snapshotSuite = (): Promise<SpecSnapshot> => snapshotPort.snapshot(workspace.specDir, listSuiteFiles(workspace.specDir).files);
+  const snapshotSuite = (): Promise<SpecSnapshot> => snapshotPort.snapshot(workspace.specDir, deps.specFiles.listSuite(workspace.specDir).files);
   const acceptanceScope = (changed: readonly string[]): string[] => {
     const specs = changed.filter((file) => file.endsWith(".spec.ts"));
     const supportChanged = specs.length !== changed.length;
-    return supportChanged ? listSpecFiles(workspace.specDir) : specs;
+    return supportChanged ? deps.specFiles.list(workspace.specDir) : specs;
   };
 
   let confinementAcc: ConfinementTotals | undefined;
@@ -192,8 +192,9 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
 
   return {
     specRoot,
+    specFiles: deps.specFiles,
     /** The digest of these spec files as the working copy holds them now (see `specSetDigest`). */
-    specDigest: (files: readonly string[]) => specSetDigest((file) => readConfinedSpecFile(specRoot, file), files),
+    specDigest: (files: readonly string[]) => specSetDigest((file) => deps.specFiles.read(specRoot, file), files),
     proofBytes,
     keepProof,
     fixLoopHandle,

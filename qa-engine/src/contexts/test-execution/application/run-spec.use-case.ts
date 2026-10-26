@@ -6,7 +6,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { MAX_SPEC_SOURCE_BYTES, readOwnedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
+import { MAX_SPEC_SOURCE_BYTES, type SpecFilesPort, type SpecRoot } from "@kernel/ports/spec-files.port.ts";
 import { dropOpaqueTokens } from "../../../shared-infrastructure/output-token-filter.ts";
 import { importsTestFromFixtures } from "../../../shared-infrastructure/spec-fixtures-import.ts";
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
@@ -95,6 +95,7 @@ export type RunSpecResponse =
 export interface RunSpecDeps {
   capability: RunSpecCapability;
   specRoot: SpecRoot;
+  specFiles: SpecFilesPort;
   /* The spec directory as the agent sees it from the mirror's root (`e2e`): a path may carry it as a prefix. */
   specRelDir: string;
   /* The key two users of one test account contend on. */
@@ -170,7 +171,7 @@ export class RunSpecUseCase {
     const grep = this.grepOf(request.grep);
     if (typeof grep === "object") return this.refusal(RUN_SPEC_INVALID.INVALID_REQUEST, grep.message);
 
-    const read = readOwnedSpecFile(this.deps.specRoot, rel, MAX_SPEC_SOURCE_BYTES);
+    const read = this.deps.specFiles.readOwned(this.deps.specRoot, rel, MAX_SPEC_SOURCE_BYTES);
     if ("absent" in read) return this.refusal(RUN_SPEC_INVALID.NOT_FOUND, `spec not found: ${rel}. Write it under the e2e directory first.`);
     if ("reason" in read) return this.refusal(RUN_SPEC_INVALID.INVALID_REQUEST, `${rel} cannot be used: ${read.reason}`);
     const source = read.bytes.toString("utf8");
@@ -279,7 +280,7 @@ export class RunSpecUseCase {
   /* The sha256 of the spec as it stands now, read strictly, or undefined when it is gone or cannot be read. */
   private sha256Now(rel: string): string | undefined {
     try {
-      const read = readOwnedSpecFile(this.deps.specRoot, rel, MAX_SPEC_SOURCE_BYTES);
+      const read = this.deps.specFiles.readOwned(this.deps.specRoot, rel, MAX_SPEC_SOURCE_BYTES);
       return "bytes" in read ? createHash("sha256").update(read.bytes).digest("hex") : undefined;
     } catch {
       return undefined;

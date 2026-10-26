@@ -2,7 +2,7 @@
 
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/index.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
-import { readConfinedSpecFile, listSpecFiles, readOwnedSpecFile, MAX_SPEC_SOURCE_BYTES, type SpecRoot } from "../../../../../shared-infrastructure/spec-path-confinement.ts";
+import { MAX_SPEC_SOURCE_BYTES, type SpecRoot } from "@kernel/ports/spec-files.port.ts";
 import { FixLoop, type FixLoopState, type FixLoopInput, type FixLoopAcceptancePort, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../../../domain/fix-loop.aggregate.ts";
 import { checkSpecSelectors, contradictionOrigins } from "@contexts/generation/application/index.ts";
 import { attributeContradictions } from "../../../domain/helpers/contradiction-attribution.ts";
@@ -186,7 +186,7 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
     restore: async (token) => {
       const snapshot = token as SpecSnapshot;
       /* Every file created after the best round goes, and its own bytes go back: the suite is exactly the best round's. */
-      const created = listSpecFiles(workspace.specDir).filter((file) => !snapshot.files.has(file));
+      const created = services.specFiles.list(workspace.specDir).filter((file) => !snapshot.files.has(file));
       await snapshotPort.restore(workspace.specDir, snapshot, created);
     },
   };
@@ -259,7 +259,7 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
   /* The failing set and the spec-set digest before the loop, so the phase span can carry what the loop changed. */
   const fixLoopSpecRoot: SpecRoot = ctx.services.specRoot;
   const failingBefore = initialRun.cases.filter((c) => c.status === "fail").length;
-  const specShaBefore = specSetDigest((file) => readConfinedSpecFile(fixLoopSpecRoot, file), initialRun.cases.map((c) => c.file).filter((f): f is string => !!f));
+  const specShaBefore = specSetDigest((file) => ctx.services.specFiles.read(fixLoopSpecRoot, file), initialRun.cases.map((c) => c.file).filter((f): f is string => !!f));
   const loopInput: FixLoopInput = {
     initialRun: { verdict: initialRun.verdict, cases: initialRun.cases },
     isCode: cfg.isCode,
@@ -343,7 +343,7 @@ export async function settleFixLoop(state: Readonly<RunState>, ctx: WorkspaceRun
   const run = { verdict: fixLoopResult.run.verdict, cases: fixLoopResult.run.cases, logs: initialRun.logs };
   /* The fix_loop phase span carries what the loop came to, so a false positive (a failed run the loop changed nothing in) is queryable. */
   const failingAfter = run.cases.filter((c) => c.status === "fail").length;
-  const specShaAfter = specSetDigest((file) => readConfinedSpecFile(fixLoopSpecRoot, file), run.cases.map((c) => c.file).filter((f): f is string => !!f));
+  const specShaAfter = specSetDigest((file) => ctx.services.specFiles.read(fixLoopSpecRoot, file), run.cases.map((c) => c.file).filter((f): f is string => !!f));
   try {
     trail.spans.annotate({
       "qayaba.phase.outcome": run.verdict,
@@ -405,7 +405,7 @@ export async function fingerprintGreenSuite(state: Readonly<RunState>, ctx: Work
     );
     /* The ledger holds the green bytes themselves when they can be read, so a later restore has them. */
     for (const [file, sha256] of fingerprints) {
-      const read = readOwnedSpecFile(services.specRoot, file, MAX_SPEC_SOURCE_BYTES);
+      const read = services.specFiles.readOwned(services.specRoot, file, MAX_SPEC_SOURCE_BYTES);
       services.keepProof(file, sha256, "bytes" in read ? read.bytes : undefined);
     }
   } catch (fingerprintErr) {

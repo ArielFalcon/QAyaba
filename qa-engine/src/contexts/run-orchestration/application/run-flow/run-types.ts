@@ -22,6 +22,7 @@ import type { ObjectiveSignalPort } from "@contexts/objective-signal/application
 import type { PublicationPort } from "../ports/publication.port.ts";
 import type { LearningPort, CurriculumPort } from "@contexts/cross-run-learning/application/index.ts";
 import type { WorkspacePort } from "../ports/workspace.port.ts";
+import type { SpecFilesPort } from "@kernel/ports/spec-files.port.ts";
 import type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";
 import type { RunHistoryPort } from "../ports/run-history.port.ts";
 import type { SetupPort } from "../ports/setup.port.ts";
@@ -107,6 +108,8 @@ export interface RunQaUseCaseDeps {
   publication: PublicationPort;
   learning: LearningPort;
   workspace: WorkspacePort;
+  /** The only way the flow reads or lists files below the spec directory. */
+  specFiles: SpecFilesPort;
   /** Absent for static sites and the code target. */
   deployGate?: DeployGatePort;
   runHistory: RunHistoryPort;

@@ -22,6 +22,7 @@ import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
 import { fakeHandle, rootsOf } from "../application/run-flow/fake-workspace.ts";
+import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 /* so the adapter's own scenario tests are apples-to-apples with the use-case's own 10-scenario
    parity: same green-pr fixture semantics (scenarioApp needsReview:true, makeDeps({}) — generate()
    approved:true with 1 spec, execute() a clean pass, no coverage config, not shadow, onFailure
@@ -86,7 +87,7 @@ function stubPorts(overrides: Partial<{
   };
 
   return {
-    ports: { changeAnalysis, generation, review, validation, execution, objectiveSignal, publication, learning, workspace, deployGate, runHistory, suiteStore: ws.suiteStore },
+    ports: { changeAnalysis, generation, review, validation, execution, objectiveSignal, publication, learning, workspace, specFiles: confinedSpecFiles, deployGate, runHistory, suiteStore: ws.suiteStore },
     savedOutcomes,
     foldedOutcomes,
   };

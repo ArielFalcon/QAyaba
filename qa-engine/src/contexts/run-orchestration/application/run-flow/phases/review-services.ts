@@ -7,7 +7,7 @@
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { ReviewStats } from "@contexts/generation/application/index.ts";
 import { diffContracts } from "@contexts/objective-signal/application/index.ts";
-import { readConfinedSpecFile, type SpecRoot } from "../../../../../shared-infrastructure/spec-path-confinement.ts";
+import type { SpecFilesPort, SpecRoot } from "@kernel/ports/spec-files.port.ts";
 import type { ReviewSpecText } from "@contexts/generation/application/index.ts";
 import { refKey, type RebuttalEvidence, type ReviewRebuttal } from "../../../domain/review-rebuttals.service.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
@@ -16,7 +16,7 @@ import type { WorkspaceRunContext } from "../run-context.ts";
  * The specs a round judges, read through the confined reader: a name that leaves the directory, or a file that is gone,
  * contributes nothing and the round fails open to the model.
  */
-export function readReviewedSpecs(specRoot: SpecRoot, cases: readonly QaCase[]): ReviewSpecText[] {
+export function readReviewedSpecs(specFiles: SpecFilesPort, specRoot: SpecRoot, cases: readonly QaCase[]): ReviewSpecText[] {
   const seen = new Set<string>();
   const specs: ReviewSpecText[] = [];
   for (const c of cases) {
@@ -24,7 +24,7 @@ export function readReviewedSpecs(specRoot: SpecRoot, cases: readonly QaCase[]):
     if (seen.has(file)) continue;
     seen.add(file);
     try {
-      specs.push({ file, text: readConfinedSpecFile(specRoot, file) });
+      specs.push({ file, text: specFiles.read(specRoot, file) });
     } catch {
       /* Unreadable spec: no pre-check and no duplicate round for it; the model reviewer still sees it from the prompt. */
     }
@@ -61,7 +61,7 @@ export function rebuttalEvidence(ctx: WorkspaceRunContext, cases: readonly QaCas
       const clause = hash > 0 ? key.slice(hash + 1) : "";
       if (!file || !clause) continue;
       try {
-        const extraction = extractor.extract(file, readConfinedSpecFile(specRoot, file));
+        const extraction = extractor.extract(file, ctx.services.specFiles.read(specRoot, file));
         const baseline = intentState.baselines.get(file) ?? [];
         const violated = diffContracts(baseline, extraction.specs, intentState.tokens).some((delta) => delta.clauseId === clause);
         if (!violated && extraction.specs.some((spec) => spec.clauses.some((c) => c.id === clause))) intactClauses.add(key);

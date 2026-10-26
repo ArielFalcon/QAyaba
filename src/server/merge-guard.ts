@@ -182,6 +182,14 @@ export const PROTECTED_PATHS: string[] = [
    * secrets: a weakened pattern or a dropped by-value pass leaks a secret to a provider or a tracker.
    */
   "qa-engine/src/shared-infrastructure/redaction/",
+  /*
+   * The confined reader of every path the agent names or writes below the spec directory, the kernel port use
+   * cases reach it through and the adapter that binds the two: a weakened check lets a link, a named pipe or
+   * a path outside the directory be read, written or removed by the orchestrator on the agent's behalf.
+   */
+  "qa-engine/src/shared-infrastructure/spec-path-confinement.ts",
+  "qa-engine/src/shared-infrastructure/spec-files.adapter.ts",
+  "qa-engine/src/shared-kernel/ports/spec-files.port.ts",
   /* Also covered by the adapters/ prefix below; listed so narrowing that prefix cannot unprotect it. */
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter.ts",
   /* The only map from a workspace handle to the mirror, the commit and the target; also covered by the adapters/ prefix below, listed so narrowing that prefix cannot unprotect it. */

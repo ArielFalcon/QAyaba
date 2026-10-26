@@ -78,6 +78,7 @@ import type { ExecScopePort } from "../../../shared-infrastructure/process-sandb
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import { PatternRedactionAdapter } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { readConfinedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
+import { confinedSpecFiles } from "../../../shared-infrastructure/spec-files.adapter.ts";
 
 import { GenerateTestsUseCase, type GenerationResult, type GenerateOpts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { OpencodeRunInput, ArchitectureContext, StepLimitFor } from "@contexts/generation/application/index.ts";
@@ -663,6 +664,7 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
     publication,
     learning,
     workspace,
+    specFiles: confinedSpecFiles,
     deployGate,
     runHistory,
     /* The intent lock's parser: pure, no I/O, so one instance serves every run. */

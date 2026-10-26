@@ -10,6 +10,7 @@ import { initialRunState } from "@contexts/run-orchestration/application/run-flo
 import { scriptedGeneration } from "../../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../../support/run-workspace.ts";
 import { fakeWorkspace } from "./fake-workspace.ts";
+import { confinedSpecFiles } from "../../../../../src/shared-infrastructure/spec-files.adapter.ts";
 
 /* What a JSON round trip keeps: the walk throws at the first value it would change or lose, and otherwise returns the value without its undefined fields. */
 function plainData(value: unknown, path: string): unknown {
@@ -59,6 +60,7 @@ async function runChecked(input: RunQaInput, execute: RunQaUseCaseDeps["executio
     publication: { publish: async () => ({ outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
     workspace: fakeWorkspace(ws),
+    specFiles: confinedSpecFiles,
     suiteStore: ws.suiteStore,
     deployGate: { waitUntilServing: async () => ok(true) },
     runHistory: { save: async () => {} },

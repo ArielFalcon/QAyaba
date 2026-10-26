@@ -7,6 +7,7 @@ import { traceFactsOf } from "@kernel/run-trace-facts.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
 import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
+import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 
 function build(config: Partial<RunQaConfig>, measure: RunQaUseCaseDeps["objectiveSignal"]["measure"], verdict: "pass" | "fail" = "pass") {
   const ws = runWorkspace("qa-facts-");
@@ -20,6 +21,7 @@ function build(config: Partial<RunQaConfig>, measure: RunQaUseCaseDeps["objectiv
     publication: { publish: async () => ({ outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
     workspace: fakeWorkspace(ws),
+    specFiles: confinedSpecFiles,
     suiteStore: ws.suiteStore,
     deployGate: { waitUntilServing: async () => ok(true) },
     runHistory: { save: async () => {} },

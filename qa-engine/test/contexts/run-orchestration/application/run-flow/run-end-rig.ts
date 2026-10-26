@@ -21,6 +21,7 @@ import type { WorkspacePort } from "@contexts/run-orchestration/application/port
 import { scriptedGeneration } from "../../../../support/generation-output.ts";
 import { reassignableGeneration, runWorkspace, type RunWorkspace } from "../../../../support/run-workspace.ts";
 import { fakeHandle, rootsOf } from "./fake-workspace.ts";
+import { confinedSpecFiles } from "../../../../../src/shared-infrastructure/spec-files.adapter.ts";
 
 /** Where a run stood and what it did to the outside when it ended. */
 export interface Observed {
@@ -122,6 +123,7 @@ export async function observe(rig: Rig, runId: string): Promise<Observed> {
     publication: { publish: async (input) => { publishCalls += 1; return await rig.publish(input); } },
     learning: { fold: async (outcome) => { folded.push(outcome); }, retrieve: async () => [] },
     workspace: { prepare: rig.prepare, readRoots: rootsOf },
+    specFiles: confinedSpecFiles,
     deployGate: { waitUntilServing: async () => await rig.waitUntilServing() },
     runHistory: { save: async (outcome) => { saved.push(outcome); } },
     reflector: { reflect: async () => { reflections += 1; } },

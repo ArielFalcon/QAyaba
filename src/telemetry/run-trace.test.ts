@@ -24,6 +24,7 @@ import type { ChildProcess } from "node:child_process";
 import { scriptedGeneration } from "../../qa-engine/test/support/generation-output";
 import { generationOnDisk, runWorkspace } from "../../qa-engine/test/support/run-workspace";
 import { traceHarness } from "./trace-harness";
+import { confinedSpecFiles } from "../../qa-engine/src/shared-infrastructure/spec-files.adapter";
 
 type Overrides = Partial<{
   classify: RunQaUseCaseDeps["changeAnalysis"]["classify"];
@@ -45,6 +46,7 @@ function baseDeps(clock: { now(): number }, overrides: Overrides = {}): RunQaUse
     publication: { publish: async () => ({ outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
     workspace: fakeWorkspace(ws),
+    specFiles: confinedSpecFiles,
     suiteStore: ws.suiteStore,
     deployGate: { waitUntilServing: async () => ok(true) },
     runHistory: { save: async () => {} },

@@ -10,6 +10,7 @@ import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { scriptedGeneration } from "../../qa-engine/test/support/generation-output";
 import { generationOnDisk, runWorkspace } from "../../qa-engine/test/support/run-workspace";
 import { traceHarness } from "./trace-harness";
+import { confinedSpecFiles } from "../../qa-engine/src/shared-infrastructure/spec-files.adapter";
 
 const SPEC_SOURCE = "await page.goto('/orders');\nawait page.getByTestId('invented-id').click();\nawait page.getByTestId('real-id').click();\n";
 
@@ -25,6 +26,7 @@ function useCase(telemetry: TelemetryPort | undefined, withGrounding = true, val
     publication: { publish: async () => ({ outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
     workspace: fakeWorkspace(ws),
+    specFiles: confinedSpecFiles,
     suiteStore: ws.suiteStore,
     deployGate: { waitUntilServing: async () => ok(true) },
     runHistory: { save: async () => {} },

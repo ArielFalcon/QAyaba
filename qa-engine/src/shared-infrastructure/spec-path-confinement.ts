@@ -9,14 +9,10 @@ import { randomBytes } from "node:crypto";
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, opendirSync, openSync, readSync, readlinkSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync, type Dir, type Dirent } from "node:fs";
 import { basename, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 
-/* A spec, a fixtures file, a login script or a config file is source a person would read; one larger than this is not read. */
-export const MAX_SPEC_SOURCE_BYTES = 256 * 1024;
+import { MAX_SPEC_SOURCE_BYTES, type OwnedSpecRead, type PurgeResult, type SpecRoot, type SuiteFiles } from "../shared-kernel/ports/spec-files.port.ts";
 
-/* Where the specs of a run live and the checkout that holds them. For a code run the two are the same directory. */
-export interface SpecRoot {
-  mirrorDir: string;
-  specDir: string;
-}
+export { MAX_SPEC_SOURCE_BYTES };
+export type { OwnedSpecRead, PurgeResult, SpecRoot, SuiteFiles };
 
 /* What the read asks of an opened descriptor. The inode number is exact: a number would lose its low bits on a filesystem with 64-bit inode numbers, and two files could then look alike. */
 export interface OpenedFileStats {
@@ -236,13 +232,6 @@ export function listSpecFiles(dir: string): string[] {
  * link to a file is not offered as a regular file), and no more entries are looked at than the budget
  * allows. A directory that cannot be listed contributes nothing.
  */
-export interface SuiteFiles {
-  /** The regular files the walk took, relative to the directory and "/"-separated as the platform joins them. */
-  files: string[];
-  /** The walk looked at fewer entries than the directory holds, so the list is not the whole suite. */
-  cut: boolean;
-}
-
 export function listSuiteFiles(dir: string, maxEntries: number = MAX_SPEC_WALK_ENTRIES): SuiteFiles {
   const walk = { files: [] as string[], cut: false };
   walkSuiteFiles(dir, "", walk, { left: maxEntries, cap: maxEntries });
@@ -476,8 +465,6 @@ export function listOwnedSpecDir(root: SpecRoot, rel: string, maxEntries: number
   }
 }
 
-export type OwnedSpecRead = { bytes: Buffer } | { absent: true } | { reason: string };
-
 /* The bytes of a file the orchestrator keeps at `rel` below the spec directory, read strictly (see the header) and through the confined reader, so that a swap after the check is refused too. Absent when the file or a directory above it is not there; a refusal is a reason, never the bytes of what a link points at. A failure to read a file that is there is thrown as it is. */
 export function readOwnedSpecFile(root: SpecRoot, rel: string, maxBytes: number, deps: SpecReadDeps = defaultSpecReadDeps): OwnedSpecRead {
   const owned = walkOwned(root, rel, false);
@@ -589,8 +576,6 @@ export const defaultSpecPurgeDeps: SpecPurgeDeps = {
 };
 
 /* What a purge did: the entry it removed, as a path below the spec directory, and how, or that there was nothing to remove. */
-export type PurgeResult = { removed: string; how: "unlinked" | "set aside" } | { nothing: true };
-
 /* Whatever ends the call, a name that is gone is a name that is free. */
 function ignoreGone(run: () => void): void {
   try {

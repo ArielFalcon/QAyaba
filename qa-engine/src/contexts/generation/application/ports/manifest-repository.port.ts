@@ -1,5 +1,5 @@
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
-import type { SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
+import type { SpecRoot } from "@kernel/ports/spec-files.port.ts";
 
 export interface ManifestRepositoryPort {
   read(specDir: string): Promise<ManifestEntry[]>;

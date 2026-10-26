@@ -5,7 +5,7 @@ import { BlastRadius } from "@kernel/blast-radius.ts";
 import { correctionClassOf } from "@contexts/generation/application/index.ts";
 import { renderSpecChanges, sameReviewedSpecs, type ReviewSpecText } from "@contexts/generation/application/index.ts";
 import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
-import type { SpecRoot } from "../../../../../shared-infrastructure/spec-path-confinement.ts";
+import type { SpecRoot } from "@kernel/ports/spec-files.port.ts";
 import { precheckSpecsAgainstDom } from "@contexts/generation/application/index.ts";
 import { citedSpec, filterReviewFindings } from "../../../domain/review-finding-filter.service.ts";
 import { verifyRebuttals, findingKey } from "../../../domain/review-rebuttals.service.ts";
@@ -140,7 +140,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
   }
   const reviewDomSnapshot = session.reviewDomSnapshot;
 
-  const reviewedSpecs = readReviewedSpecs(specRoot, reviewCases);
+  const reviewedSpecs = readReviewedSpecs(services.specFiles, specRoot, reviewCases);
   const specsReadable = reviewedSpecs.length === reviewCases.length && reviewedSpecs.length > 0;
   /*
    * The previous rejection stands when the new specs are materially the same: a round that

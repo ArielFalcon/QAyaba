@@ -58,6 +58,7 @@ import { reassignableGeneration, runWorkspace } from "../../../support/run-works
 import { scriptedLoginEvidence } from "../../../support/login-evidence.ts";
 import type { WorkspaceHandle } from "@contexts/run-orchestration/application/index.ts";
 import { fakeHandle, rootsOf } from "./run-flow/fake-workspace.ts";
+import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 /* Ports through the full lifecycle. NO inline IO, NO prompt strings, NO learning side-effects on
    the verdict path (LearningPort.fold is off-path). Drives the SAME stub shapes scenarios.ts
    provides for the equivalent runPipeline scenario.
@@ -161,7 +162,7 @@ function stubPorts(overrides: Partial<{
 
   return {
     ports: {
-      changeAnalysis, generation, review, validation, execution, objectiveSignal, publication, learning, workspace, deployGate, runHistory, setup, cleanup, suiteStore,
+      changeAnalysis, generation, review, validation, execution, objectiveSignal, publication, learning, workspace, specFiles: confinedSpecFiles, deployGate, runHistory, setup, cleanup, suiteStore,
       ...(preExecGrounding ? { preExecGrounding } : {}),
       ...(preGenerationGrounding ? { preGenerationGrounding } : {}),
       ...(reviewDomGrounding ? { reviewDomGrounding } : {}),
