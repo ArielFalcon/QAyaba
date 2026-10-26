@@ -103,3 +103,40 @@ test("a field named like prose is still a field of the contract", () => {
   const head = edit((d) => { d.components.schemas.Order.properties.description = { type: "string" }; });
   assert.deepEqual(changes(head), [{ verb: "GET", path: "/orders", change: "changed" }]);
 });
+
+test("a contract part that references another file cannot be compared, so the caller falls back to the whole file", () => {
+  const withRemote = (description: string): unknown => spec(`
+openapi: 3.0.0
+info: { title: t, version: "1", description: ${description} }
+paths:
+  /pets:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "schemas.yaml#/Pet"
+`);
+  assert.equal(diffOperations(withRemote("before"), withRemote("after")), undefined);
+});
+
+test("a remote reference only on one side also falls back to the whole file", () => {
+  const local = spec(`
+openapi: 3.0.0
+paths:
+  /pets:
+    get:
+      responses: { "200": { description: ok } }
+`);
+  const remote = spec(`
+openapi: 3.0.0
+paths:
+  /pets:
+    get:
+      parameters:
+        - $ref: "https://example.test/params.yaml#/Limit"
+      responses: { "200": { description: ok } }
+`);
+  assert.equal(diffOperations(local, remote), undefined);
+});

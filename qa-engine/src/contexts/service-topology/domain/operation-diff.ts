@@ -1,7 +1,8 @@
 /*
  * Which operations of an OpenAPI document differ between two versions of it: added, removed, or changed in what a caller
- * depends on (parameters, request body, responses, with local references resolved). Descriptive text never counts. Pure: it
- * takes the parsed documents; reading them is the caller's.
+ * depends on (parameters, request body, responses, with local references resolved). Descriptive text never counts. A contract
+ * part that references another file cannot be compared from this document alone, so such a document has no operation diff.
+ * Pure: it takes the parsed documents; reading them is the caller's.
  */
 
 export type OperationChangeKind = "added" | "removed" | "changed";
@@ -25,12 +26,19 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 /* Keywords whose value maps names (a field, a header) to definitions: a name that reads like prose is still a name. */
 const NAME_MAPS = new Set(["properties", "patternProperties", "headers", "encoding"]);
 
-/* A local `#/a/b` reference resolved against the document; a cycle is cut where it closes. `names` says the node's keys are names, not keywords. */
+/* Thrown when a contract part references another file: what it points at is not in this document. */
+class RemoteReference extends Error {}
+
+/*
+ * A local `#/a/b` reference resolved against the document; a cycle is cut where it closes. `names` says the node's keys are
+ * names, not keywords. Throws RemoteReference on a reference to another file.
+ */
 function resolve(doc: Record<string, unknown>, node: unknown, active: readonly string[], names = false): unknown {
   if (Array.isArray(node)) return node.map((n) => resolve(doc, n, active));
   if (!isRecord(node)) return node;
   const ref = node["$ref"];
-  if (typeof ref === "string" && ref.startsWith("#/")) {
+  if (typeof ref === "string" && !names) {
+    if (!ref.startsWith("#/")) throw new RemoteReference(ref);
     if (active.includes(ref)) return { $ref: ref };
     let target: unknown = doc;
     for (const part of ref.slice(2).split("/")) target = isRecord(target) ? target[part.replaceAll("~1", "/").replaceAll("~0", "~")] : undefined;
@@ -44,8 +52,17 @@ function resolve(doc: Record<string, unknown>, node: unknown, active: readonly s
   return out;
 }
 
-/* verb path -> the canonical form of the contract parts, path-level parameters included. */
+/* verb path -> the canonical form of the contract parts, path-level parameters included; undefined when a part references another file. */
 function operationsOf(doc: Record<string, unknown>): Map<string, string> | undefined {
+  try {
+    return canonicalOperations(doc);
+  } catch (err) {
+    if (err instanceof RemoteReference) return undefined;
+    throw err;
+  }
+}
+
+function canonicalOperations(doc: Record<string, unknown>): Map<string, string> | undefined {
   const paths = doc["paths"];
   if (!isRecord(paths)) return undefined;
   const out = new Map<string, string>();
