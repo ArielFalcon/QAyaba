@@ -87,7 +87,7 @@ export const PROTECTED_PATHS: string[] = [
    */
   "qa-engine/src/shared-infrastructure/e2e-seed/auth-setup-seed.ts",
   /*
-   * Decides the orchestrator root and the data directory (the qa-data volume the agents container
+   * Decides the orchestrator root and the data directory (the qayaba-data volume the agents container
    * never mounts) that holds the web token file, per-app auth material, the history DB, the logs
    * and the coordination ledger — repointing it moves all of them into an agent-visible tree
    * without touching any file that uses them.

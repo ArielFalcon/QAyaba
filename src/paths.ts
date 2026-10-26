@@ -6,7 +6,7 @@ export function qayabaRoot(): string {
 }
 
 /*
- * The data directory under the root (the qa-data volume): run history, logs, auth material and
+ * The data directory under the root (the qayaba-data volume): run history, logs, auth material and
  * telemetry. The agents container never mounts it.
  */
 export function qayabaDataDir(): string {

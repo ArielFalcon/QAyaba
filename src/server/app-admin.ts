@@ -22,7 +22,7 @@ export interface AppAdminDeps {
   deleteHistory(app: string): number;
   /** Removes the app's stored login session / client certificate (orchestrator-only auth directory). */
   deleteAuthMaterial(app: string): void;
-  /** Removes the app's suite store (its accepted e2e suite and proven login, in the qa-data volume). */
+  /** Removes the app's suite store (its accepted e2e suite and proven login, in the qayaba-data volume). */
   deleteSuiteStore(app: string): void;
   /** Removes the app's code-graph store cache (regenerable: the next run indexes from nothing). */
   deleteCodeGraphCache(app: string): void;

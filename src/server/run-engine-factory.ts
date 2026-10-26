@@ -532,7 +532,7 @@ async function installModelWindows(getAgentFacade: () => AgentFacade, directory:
 
 /*
  * An app's orchestrator-only auth material directory (storageState / client certificate) under
- * QAYABA_ROOT/data — the qa-data volume, never mounted into the agents container. Removed with the
+ * QAYABA_ROOT/data — the qayaba-data volume, never mounted into the agents container. Removed with the
  * app on a purge.
  */
 export function appAuthDir(root: string, appName: string): string {
@@ -540,7 +540,7 @@ export function appAuthDir(root: string, appName: string): string {
 }
 
 /*
- * An app's suite store under QAYABA_ROOT/data — the qa-data volume, never mounted into the agents container: the accepted e2e
+ * An app's suite store under QAYABA_ROOT/data — the qayaba-data volume, never mounted into the agents container: the accepted e2e
  * suite and the login that was proven to work. Removed with the app on a purge.
  */
 export function appSuiteStoreDir(root: string, appName: string): string {
@@ -693,7 +693,7 @@ export function buildEngineRootDeps(
   const stepLimitFor = deps.getAgentFacade ? stepLimitResolver(deps.getAgentFacade, mirrorDir) : undefined;
 
   /*
-   * QAYABA_ROOT/data (the qa-data volume — NOT mounted into the agents container, only mirrors
+   * QAYABA_ROOT/data (the qayaba-data volume — NOT mounted into the agents container, only mirrors
    * is). authDir is where AuthSessionAdapter writes storageState/client.p12/cert.pass and where
    * every execute/DOM-capture spawn reads them back from: an orchestrator-only directory, never
    * the watched-repo mirror.
@@ -1478,7 +1478,7 @@ export function buildEngineRootDeps(
      */
     contextMapCapture: new ContextMapCapturePortAdapter(storeFreshContextMap, contextMapWrittenThisRun),
     /*
-     * The accepted e2e suite of this app, in the qa-data volume (never mounted into the agents container). A checkout wipes every
+     * The accepted e2e suite of this app, in the qayaba-data volume (never mounted into the agents container). A checkout wipes every
      * untracked file of the mirror, and shadow mode never publishes: without the store every run would start cold, re-seed the
      * stock login and ask the agent to author it again. E2e only; the code target keeps its tests in the repo's own framework.
      * Under QA_CAMPAIGN_FREEZE the store is read-only: the suite is cross-run state like the learning the freeze already withholds,

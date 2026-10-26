@@ -258,7 +258,7 @@ export interface EngineRootDeps {
      constructs ContextMapCapturePortAdapter backed by ContextRepository.saveContextMap. */
   contextMapCapture?: ContextMapCapturePort;
 
-  /* The durable copy of the app's accepted e2e suite (the qa-data volume). Optional, no stub: absent omits RunQaUseCaseDeps.suiteStore and every run starts from what the checkout holds. The shell factory constructs SuiteStoreAdapter (it owns the data directory and the git runner). */
+  /* The durable copy of the app's accepted e2e suite (the qayaba-data volume). Optional, no stub: absent omits RunQaUseCaseDeps.suiteStore and every run starts from what the checkout holds. The shell factory constructs SuiteStoreAdapter (it owns the data directory and the git runner). */
   suiteStore?: SuiteStorePort;
 
   /* Resolves a Sha to its working-copy mirrorDir. Cross-repo routing stays opaque inside this fn. */

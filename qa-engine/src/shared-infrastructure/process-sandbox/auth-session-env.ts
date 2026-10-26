@@ -1,7 +1,7 @@
 /*
  * Child-env overlay for a prepared e2e auth session. Reads files AuthSessionAdapter.prepare() wrote
  * under `authDir` — an orchestrator-only directory OUTSIDE the watched-repo mirror (the agents
- * container mounts the mirrors volume but not qa-data, so this directory is never agent-visible).
+ * container mounts the mirrors volume but not qayaba-data, so this directory is never agent-visible).
  * Does not read secrets from process.env, and never falls back to a mirror-relative path.
  */
 

@@ -4,7 +4,7 @@
    adapters implement the same interface:
    • mock — returns window.QayabaMockData; runs the live-run + chat
    simulations locally. Zero backend. Default.
-   • live — talks to the ai-pipeline orchestrator over /api/v1/* (same
+   • live — talks to the qayaba orchestrator over /api/v1/* (same
    origin, Bearer/credentials) and the SSE live feed. Mirrors
    @qayaba/sdk's createClient() method-for-method, so a future
    swap to the real SDK is mechanical.

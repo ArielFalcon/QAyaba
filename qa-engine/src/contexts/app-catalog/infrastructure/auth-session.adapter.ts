@@ -2,7 +2,7 @@
  * The one auth implementation. form spawns the Playwright setup project; mtls decodes a PKCS#12.
  * Both leave files under `authDir` — an orchestrator-only directory supplied by the composition
  * root (e.g. <dataDir>/auth/<app>/), NEVER under the watched-repo mirror (specDir/req.specDir).
- * The agents container mounts the mirrors volume (read+bash) but not qa-data, so anything written
+ * The agents container mounts the mirrors volume (read+bash) but not qayaba-data, so anything written
  * under the mirror would be agent-visible; authDir lives outside it. authSessionEnv (the sibling
  * env-overlay reader) and every execute/DOM-capture caller must be given this SAME authDir.
  */
