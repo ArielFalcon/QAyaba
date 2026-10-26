@@ -1,7 +1,7 @@
 /* The hunks of a diff that overlap the lines of the symbols a change touched, bounded for a brief. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { hunksFor, MAX_HUNKS, MAX_HUNK_LINES } from "@kernel/diff-parser/hunks-for.ts";
+import { hunksFor, MAX_HUNKS, MAX_HUNK_LINES } from "@contexts/coordination/domain/hunks-for.ts";
 
 const body = (from: number, count: number, mark = "+"): string => Array.from({ length: count }, (_, i) => `${mark}line ${from + i}`).join("\n");
 const diff = [

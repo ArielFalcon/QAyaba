@@ -2,8 +2,8 @@
  * The hunks of a diff that overlap the lines of the symbols a change touched, bounded for a brief: the part of the change a flow
  * must exercise, without the rest of the diff. Pure.
  */
-import { DiffParserService } from "./diff-parser.service.ts";
-import type { ChangedSymbol } from "../change-reach.ts";
+import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
+import type { ChangedSymbol } from "@kernel/change-reach.ts";
 
 /* The most hunks returned for one candidate, and the most lines kept of one. */
 export const MAX_HUNKS = 3;

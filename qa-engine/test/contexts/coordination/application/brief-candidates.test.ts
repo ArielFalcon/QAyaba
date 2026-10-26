@@ -5,7 +5,7 @@ import { briefCandidatesFor, MAX_BRIEF_CANDIDATES } from "@contexts/coordination
 import { createDelegationBrief } from "@contexts/coordination/application/delegation-brief.ts";
 import { renderSidekickBrief } from "@contexts/coordination/application/sidekick-prompt.ts";
 import { readDelegationResult } from "@contexts/coordination/application/delegation-reading.ts";
-import { MAX_HUNK_LINES } from "@kernel/diff-parser/hunks-for.ts";
+import { MAX_HUNK_LINES } from "@contexts/coordination/domain/hunks-for.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { pageCandidate } from "../../../support/use-case-candidate.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";

@@ -3,7 +3,7 @@
  * change that reach it and where the expected behavior comes from. Bounded; the brief's constructor redacts every text. Pure.
  */
 import { entryKey } from "@kernel/change-reach.ts";
-import { hunksFor } from "@kernel/diff-parser/hunks-for.ts";
+import { hunksFor } from "../domain/hunks-for.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import type { BriefCandidate, ExpectedSource } from "./delegation-brief.ts";
 import { boundedSteps } from "./change-proofs.ts";
