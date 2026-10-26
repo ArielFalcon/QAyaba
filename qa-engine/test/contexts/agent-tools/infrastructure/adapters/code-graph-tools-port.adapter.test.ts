@@ -38,12 +38,12 @@ function adapter(over: { answer?: Result<ExploreAnswer, CodeGraphUnavailable>; c
 }
 
 const explore = admitCodeGraphQuery({ action: "explore", terms: ["formatMoney", "OrdersPage"] })!;
-const request = (agent = "qa-generator") => ({ sessionId: "lead", agent, query: explore });
+const request = (agent = "qa-lead") => ({ sessionId: "lead", agent, query: explore });
 
 async function granted(over: Parameters<typeof adapter>[0] = {}) {
   const a = adapter(over);
   const handle = (await a.port.open({ runId: "r1" }))!;
-  a.registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-generator" });
+  a.registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-lead" });
   return { ...a, handle, live: a.registry.find("lead")! };
 }
 
@@ -216,7 +216,7 @@ test("an engine error or a throw is a failed call that leaves a log and the reas
         trace: { telemetry, clock: { now: () => 1 } },
       });
       await port.open({ runId: "r1" });
-      registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-generator" });
+      registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-lead" });
       const failed = await registry.find("lead")!.call(request());
       assert.equal(failed.ok ? "" : failed.code, "failed");
       assert.ok(!JSON.stringify(failed).includes("codegraph.db") && !JSON.stringify(failed).includes("crashed"));

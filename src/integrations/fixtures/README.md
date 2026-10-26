@@ -17,6 +17,12 @@ has in `agents/opencode.json`, and the config carries that file's top-level `per
 recorded rules are the ones the real roles resolve to (`GET /agent` on the real container shows the same
 rules). Re-record it whenever either block, or a role, changes.
 
+On 2026-10-26 the `qa-lead` entry was added and `qa-generator`'s `codegraph_explore` rule flipped from allow to deny when the
+code-graph tool moved to the lead. Both are derived from `agents/opencode.json`, not captured: the merge order (the global tools map,
+the global permission, then the agent's `tools` and `permission` merged by key, then the runtime's tool-output rule) was proven
+first by reproducing every other `qa-` entry of this body rule for rule. A live capture on the pinned build has not been taken since;
+the next one replaces the derived entries.
+
 Edits to the recorded body, and nothing else:
 
 - every agent's `prompt` is removed;
@@ -30,7 +36,7 @@ Edits to the recorded body, and nothing else:
 
 The recording is a fresh capture, not a hand edit: the global `tools` map's `run_spec` and `authbrowser_*` switches resolve into
 deny rules on every agent (and an allow rule on the two authoring roles), and its `codegraph_*` switches into a deny
-rule on every agent and an allow rule on `qa-generator`, which the earlier hand-edited body lacked.
+rule on every agent and an allow rule on `qa-lead`, which the earlier hand-edited body lacked.
 
 What the capture shows, and what the parser tests pin (the first two points are as the 1.17.7 recording shows
 them; the two about the directory were observed on the 1.16.2 capture of 2026-10-07 and were not repeated):

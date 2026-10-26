@@ -1,6 +1,7 @@
 {
   "agent": {
     "qa-generator": { "model": "opencode/glm-5.3-flash", "maxSteps": 40 },
+    "qa-lead": { "model": "opencode/fixture-lead-model", "maxSteps": 40 },
     "qa-reviewer": { "model": "opencode/minimax-m3", "maxSteps": 20 },
     "qa-maintainer": { "model": "opencode/fixture-maintainer-model", "maxSteps": 30 },
     "qa-assistant": { "model": "opencode/minimax-m3.1-flash-free", "maxSteps": 10 },

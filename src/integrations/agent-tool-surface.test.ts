@@ -930,6 +930,26 @@ test("the code-graph tools are off for every agent by the global tools map and o
   }
 });
 
+test("the lead resolves to read-only: no write, shell, fetch, run_spec, authenticated browser, location or Playwright tool", () => {
+  const lead = recordedAgents().find((agent) => agent.name === AGENT_NAME_FOR_ROLE.lead);
+  assert.ok(lead, "the recording holds the lead");
+  const decision = (permission: string): string | undefined => lead.permission.filter((rule) => rule.permission === permission && rule.pattern === "*").pop()?.action;
+  for (const permission of ["edit", "bash", "webfetch", "run_spec", ...AGENT_BROWSER_TOOLS, "set_geolocation", "playwright*", "serena*"]) {
+    assert.equal(decision(permission), "deny", `the lead resolves ${permission} to deny`);
+  }
+  assert.equal(decision("read"), "allow", "the lead reads");
+  assert.equal(decision("codegraph_explore"), "allow", "the lead explores the code graph");
+  assert.equal(capabilitiesForRole("lead").canWrite, false, "the capability policy agrees");
+});
+
+test("the lead carries the credential-deny read block", () => {
+  const { agents } = loadAgentConfig();
+  const lead = agents[AGENT_NAME_FOR_ROLE.lead] as { permission?: { read?: Record<string, unknown> } };
+  const reviewer = agents["qa-reviewer"] as { permission?: { read?: Record<string, unknown> } };
+  assert.ok(lead.permission?.read, "the lead declares a permission.read block");
+  assert.deepEqual(lead.permission.read, reviewer.permission?.read, "the same credential denials every reading role carries");
+});
+
 test("a prompt that asks for no tool at all denies the code-graph tools, and their tool file and client exist", () => {
   for (const tool of CODE_GRAPH_TOOLS) assert.equal(NO_TOOLS[tool] === false || NO_TOOLS["codegraph*"] === false, true, tool);
   assert.ok(existsSync(join(process.cwd(), "agents", "tool", "codegraph.ts")));

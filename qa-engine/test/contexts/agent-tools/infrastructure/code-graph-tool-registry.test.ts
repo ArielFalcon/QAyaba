@@ -8,8 +8,8 @@ test("only the lead's own sessions of a run find its code graph: not a sidekick,
   const registry = new CodeGraphToolRegistry();
   const graph = live("r1");
   registry.register(graph);
-  registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-generator" });
-  registry.bindSession({ sessionId: "lead-flow", runId: "r1", agent: "qa-generator", delegationId: "r1-flow-cart" });
+  registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-lead" });
+  registry.bindSession({ sessionId: "lead-flow", runId: "r1", agent: "qa-lead", delegationId: "r1-flow-cart" });
   for (const agent of ["qa-sidekick", "qa-reviewer", "qa-worker", "qa-assistant", "qa-reflector", "qa-maintainer"]) {
     registry.bindSession({ sessionId: `x-${agent}`, runId: "r1", agent });
     assert.equal(registry.find(`x-${agent}`), undefined, agent);
@@ -21,15 +21,15 @@ test("only the lead's own sessions of a run find its code graph: not a sidekick,
 test("a session of a run without a code graph, or of another run, finds nothing", () => {
   const registry = new CodeGraphToolRegistry();
   registry.register(live("r1"));
-  registry.bindSession({ sessionId: "a", runId: "r2", agent: "qa-generator" });
+  registry.bindSession({ sessionId: "a", runId: "r2", agent: "qa-lead" });
   assert.equal(registry.find("a"), undefined);
 });
 
 test("an ended session, or a run that ended, loses the right", () => {
   const registry = new CodeGraphToolRegistry();
   registry.register(live("r1"));
-  registry.bindSession({ sessionId: "a", runId: "r1", agent: "qa-generator" });
-  registry.bindSession({ sessionId: "b", runId: "r1", agent: "qa-generator" });
+  registry.bindSession({ sessionId: "a", runId: "r1", agent: "qa-lead" });
+  registry.bindSession({ sessionId: "b", runId: "r1", agent: "qa-lead" });
   registry.unbindSession("a");
   assert.equal(registry.find("a"), undefined);
   assert.ok(registry.find("b"));

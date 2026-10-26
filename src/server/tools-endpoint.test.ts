@@ -402,7 +402,7 @@ async function codeGraphs(answer: (req: import("@contexts/agent-tools/applicatio
   const registry = new CodeGraphToolRegistry();
   const seen: unknown[] = [];
   registry.register({ runId: "run-graph", call: async (req) => { seen.push(req); return answer(req); } });
-  registry.bindSession({ sessionId: "ses-lead", runId: "run-graph", agent: "qa-generator" });
+  registry.bindSession({ sessionId: "ses-lead", runId: "run-graph", agent: "qa-lead" });
   return { registry, seen };
 }
 
@@ -410,9 +410,9 @@ const graphRequest = (body: unknown): ToolsRequest => request({ path: CODEGRAPH_
 
 test("an explore from the lead's session reaches the run's graph with its admitted terms alone, and never a project, a file cap or an option of the caller's", async () => {
   const { registry, seen } = await codeGraphs();
-  const res = await handleToolsRequest(graphRequest({ sessionID: "ses-lead", agent: "qa-generator", action: "explore", terms: ["formatMoney", "OrdersPage"], project: "another-app", max_files: 500, extra: 1 }), { token: TOKEN, registry: liveRegistry(), codeGraphs: registry });
+  const res = await handleToolsRequest(graphRequest({ sessionID: "ses-lead", agent: "qa-lead", action: "explore", terms: ["formatMoney", "OrdersPage"], project: "another-app", max_files: 500, extra: 1 }), { token: TOKEN, registry: liveRegistry(), codeGraphs: registry });
   assert.equal(res.status, 200);
-  assert.deepEqual(seen, [{ sessionId: "ses-lead", agent: "qa-generator", query: { action: "explore", terms: ["formatMoney", "OrdersPage"] } }]);
+  assert.deepEqual(seen, [{ sessionId: "ses-lead", agent: "qa-lead", query: { action: "explore", terms: ["formatMoney", "OrdersPage"] } }]);
   assert.equal((res.body as { indexedSha?: string }).indexedSha, "abc1234", "the answer says which index it read");
 });
 
@@ -426,7 +426,7 @@ test("a free graph query, the old reads, a term that reads as an option or any o
     { action: "explore", terms: ["x".repeat(201)] },
   ];
   for (const body of bodies) {
-    const res = await handleToolsRequest(graphRequest({ sessionID: "ses-lead", agent: "qa-generator", ...body }), { token: TOKEN, registry: liveRegistry(), codeGraphs: registry });
+    const res = await handleToolsRequest(graphRequest({ sessionID: "ses-lead", agent: "qa-lead", ...body }), { token: TOKEN, registry: liveRegistry(), codeGraphs: registry });
     assert.equal(res.status, 400, JSON.stringify(body));
   }
   assert.equal(seen.length, 0);
@@ -434,11 +434,11 @@ test("a free graph query, the old reads, a term that reads as an option or any o
 
 test("the code-graph endpoint wants the service token, and a session no run granted the graph is forbidden", async () => {
   const { registry } = await codeGraphs();
-  const unauthorized = await handleToolsRequest({ ...graphRequest({ sessionID: "ses-lead", agent: "qa-generator", action: "explore", terms: ["x"] }), authorization: "Bearer nope" }, { token: TOKEN, registry: liveRegistry(), codeGraphs: registry });
+  const unauthorized = await handleToolsRequest({ ...graphRequest({ sessionID: "ses-lead", agent: "qa-lead", action: "explore", terms: ["x"] }), authorization: "Bearer nope" }, { token: TOKEN, registry: liveRegistry(), codeGraphs: registry });
   assert.equal(unauthorized.status, 401);
   const stranger = await handleToolsRequest(graphRequest({ sessionID: "ses-sidekick", agent: "qa-sidekick", action: "explore", terms: ["x"] }), { token: TOKEN, registry: liveRegistry(), codeGraphs: registry });
   assert.equal(stranger.status, 403);
-  const none = await handleToolsRequest(graphRequest({ sessionID: "ses-lead", agent: "qa-generator", action: "explore", terms: ["x"] }), { token: TOKEN, registry: liveRegistry() });
+  const none = await handleToolsRequest(graphRequest({ sessionID: "ses-lead", agent: "qa-lead", action: "explore", terms: ["x"] }), { token: TOKEN, registry: liveRegistry() });
   assert.equal(none.status, 403);
 });
 
@@ -446,11 +446,11 @@ test("each code-graph refusal has its own status, and a fault inside a call says
   const cases: Array<[string, number]> = [["wrong-agent", 403], ["revoked", 403], ["no-calls", 429], ["failed", 422]];
   for (const [code, status] of cases) {
     const { registry } = await codeGraphs(async () => ({ ok: false, code: code as "failed", message: code }));
-    const res = await handleToolsRequest(graphRequest({ sessionID: "ses-lead", agent: "qa-generator", action: "explore", terms: ["f"] }), { token: TOKEN, registry: liveRegistry(), codeGraphs: registry });
+    const res = await handleToolsRequest(graphRequest({ sessionID: "ses-lead", agent: "qa-lead", action: "explore", terms: ["f"] }), { token: TOKEN, registry: liveRegistry(), codeGraphs: registry });
     assert.equal(res.status, status, code);
   }
   const { registry } = await codeGraphs(async () => { throw new Error("/app/data/code-graph/app/codegraph.db is locked"); });
-  const res = await handleToolsRequest(graphRequest({ sessionID: "ses-lead", agent: "qa-generator", action: "explore", terms: ["a.b"] }), { token: TOKEN, registry: liveRegistry(), codeGraphs: registry });
+  const res = await handleToolsRequest(graphRequest({ sessionID: "ses-lead", agent: "qa-lead", action: "explore", terms: ["a.b"] }), { token: TOKEN, registry: liveRegistry(), codeGraphs: registry });
   assert.equal(res.status, 500);
   assert.ok(!JSON.stringify(res.body).includes("codegraph.db"));
 });

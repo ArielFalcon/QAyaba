@@ -1,5 +1,4 @@
 import { test } from "node:test";
-import { LEAD_PLAN_DENIED_TOOLS } from "@kernel/coordination.ts";
 import assert from "node:assert/strict";
 import { GenerateTestsUseCase, type GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { GeneratorDeliverable } from "@contexts/generation/domain/manifest-repository.ts";
@@ -65,7 +64,7 @@ test("a planning turn is one prompt in one generator session bounded by the plan
   const { ports, seen } = build({ output: '{"plan":{}}' }, { specs: [], parsed: true, plan: FANOUT });
   await new GenerateTestsUseCase(ports).plan(planInput());
   assert.equal(seen.opened.length, 1);
-  assert.equal(seen.opened[0]!.role, "primary");
+  assert.equal(seen.opened[0]!.role, "lead");
   assert.equal(seen.opened[0]!.cwd, "/m");
   assert.equal(seen.opened[0]!.opts?.timeoutMs, PLANNING.budgetMs);
   assert.equal(seen.opened[0]!.opts?.descriptor?.runId, "run-1");
@@ -124,7 +123,7 @@ test("the plan the verdict carried comes back as it was read, for the orchestrat
   assert.deepEqual(result.plan, FANOUT);
   assert.equal(result.parsed, true);
   assert.equal(result.timedOut, false);
-  assert.deepEqual(seen.opened.map((o) => o.role), ["primary"]);
+  assert.deepEqual(seen.opened.map((o) => o.role), ["lead"]);
   assert.deepEqual(seen.parsedWith[0], { text: "the plan", specDir: "/m/e2e" });
 });
 
@@ -171,9 +170,10 @@ test("the cancellation of the run reaches the planning session", async () => {
   assert.equal(seen.opened[0]!.opts?.signal, controller.signal);
 });
 
-test("the lead's planning session is denied the scripted browser: it plans from the Context Pack and the code graph, and the sidekicks read DEV", async () => {
+test("the planning session is opened for the lead role, which the roster makes read-only, with no per-prompt tool denial", async () => {
   const { ports, seen } = build({ output: '{"plan":{}}' }, { specs: [], parsed: true, plan: FANOUT });
   await new GenerateTestsUseCase(ports).plan(planInput());
-  for (const tool of LEAD_PLAN_DENIED_TOOLS) assert.ok(seen.opened[0]!.opts?.descriptor?.denyTools?.includes(tool), tool);
-  assert.ok(LEAD_PLAN_DENIED_TOOLS.includes("playwright*"));
+  assert.equal(seen.opened[0]!.role, "lead");
+  assert.equal(seen.opened[0]!.opts?.descriptor?.role, "qa-lead");
+  assert.equal("denyTools" in (seen.opened[0]!.opts?.descriptor ?? {}), false);
 });

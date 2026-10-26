@@ -21,7 +21,6 @@ import { isReGenTurn } from "../domain/regen-turn.ts";
 import { promptFactsOpts } from "../domain/prompt-facts.ts";
 import { REPAIR_TURN_TIMEOUT_MS, renderRepairTimeoutNote, repairTurnLimit } from "../domain/repair-turn.ts";
 import type { NoopKind } from "@kernel/noop-kind.ts";
-import { LEAD_PLAN_DENIED_TOOLS } from "@kernel/coordination.ts";
 
 export interface RepairPort {
   checkGenerator(text: string): { valid: boolean; issues: string[] };
@@ -125,11 +124,11 @@ export class GenerateTestsUseCase {
     const planning = input.planning;
     if (!planning) throw new Error("GenerateTestsUseCase.plan needs input.planning: the limits the plan will be held to");
     const assembled = this.ports.rendering.renderMain(input);
-    const session = await this.ports.runtime.openSession("primary", input.mirrorDir, {
+    const session = await this.ports.runtime.openSession("lead", input.mirrorDir, {
       ...(opts?.signal ? { signal: opts.signal } : {}),
       timeoutMs: planning.budgetMs,
       timeLimit: "prompt-budget",
-      descriptor: { runId: input.runId, role: "qa-generator", denyTools: LEAD_PLAN_DENIED_TOOLS },
+      descriptor: { runId: input.runId, role: "qa-lead" },
     });
     let output = "";
     let turn: AgentTurnStats | undefined;

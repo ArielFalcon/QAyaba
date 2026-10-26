@@ -4,7 +4,7 @@
 export const CODE_GRAPH_TOOLS = ["codegraph_explore"] as const;
 
 /* The one role that holds them: the lead, which plans and reviews the change. A sidekick authors one flow from its brief and is not given them. */
-export const CODE_GRAPH_AGENT = "qa-generator";
+export const CODE_GRAPH_AGENT = "qa-lead";
 
 export interface CodeGraphToolLimits {
   /* Tool calls in one run, across every session of the lead. */

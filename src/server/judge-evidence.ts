@@ -51,8 +51,8 @@ export function extractCommitDiff(promptText: string): string | undefined {
   return diff === "" ? undefined : diff;
 }
 
-/* The prompts that carry a commit's diff to a model: the generator's first pass, then the reviewer's. A repair re-prompt does not repeat it. */
-const DIFF_PROMPT_ROLES: readonly string[] = [AGENT_NAME_FOR_ROLE.primary, AGENT_NAME_FOR_ROLE.reviewer];
+/* The prompts that carry a commit's diff to a model: the lead's planning turn, the generator's first pass, then the reviewer's. A repair re-prompt does not repeat it. */
+const DIFF_PROMPT_ROLES: readonly string[] = [AGENT_NAME_FOR_ROLE.lead, AGENT_NAME_FOR_ROLE.primary, AGENT_NAME_FOR_ROLE.reviewer];
 
 function diffOf(turns: readonly AgentTurnRecord[]): string | undefined {
   const candidates = turns.filter((t) => DIFF_PROMPT_ROLES.includes(t.role) && !t.isRepair).sort((a, b) => a.ts.localeCompare(b.ts) || a.round - b.round);

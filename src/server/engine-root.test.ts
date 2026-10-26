@@ -1528,8 +1528,8 @@ test("wireEngine builds the lead's code-graph tool over cfg.codeExplore and omit
   const wired = wireEngine(fakeConfig({ codeExplore: explore, codeGraphTools: wiring }));
   const handle = await wired.codeGraphTools!.open({ runId: "r1" });
   assert.ok(handle, "the port is there and, with a lead that can call a custom tool, grants the right");
-  wiring.registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-generator" });
-  const answer = await wiring.registry.find("lead")!.call({ sessionId: "lead", agent: "qa-generator", query: { action: "explore", terms: ["x"] } });
+  wiring.registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-lead" });
+  const answer = await wiring.registry.find("lead")!.call({ sessionId: "lead", agent: "qa-lead", query: { action: "explore", terms: ["x"] } });
   assert.deepEqual(answer.ok && answer.indexedSha, "abc1234", "the call is answered by the run's explore");
   handle.close();
 });

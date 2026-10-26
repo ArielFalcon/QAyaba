@@ -1,9 +1,6 @@
 /* How a run is coordinated, as the layers around it share it: the limits of the lead/sidekick coordination and what a run records about it. */
 
 /* The shapes of the plan a lead emits when it is asked for one. */
-/* The tools a lead's planning session is denied, plan and review alike: it plans from the Context Pack and the code graph, and DEV is read by the sidekicks that author the flows. */
-export const LEAD_PLAN_DENIED_TOOLS: readonly string[] = ["playwright*", "authbrowser*"];
-
 export const LEAD_PLAN_KIND = {
   /* Nothing is worth a test; the lead says why. */
   NOOP: "noop",

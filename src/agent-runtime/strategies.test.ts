@@ -32,6 +32,12 @@ test("roleForAgentName rejects an agent name no role maps to instead of falling 
   assert.throws(() => roleForAgentName("qa-unmapped"), /qa-unmapped/);
 });
 
+test("the lead role is the read-only qa-lead agent and the agent name resolves back to it", () => {
+  assert.equal(AGENT_NAME_FOR_ROLE.lead, "qa-lead");
+  assert.equal(roleForAgentName("qa-lead"), "lead");
+  assert.equal(capabilitiesForRole("lead").canWrite, false);
+});
+
 /* Proposer is read-only: it hypothesizes candidates, never writes. */
 
 test("capabilitiesForRole: the proposer is read-only (it hypothesizes candidates, never writes)", () => {

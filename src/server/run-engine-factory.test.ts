@@ -4033,7 +4033,7 @@ test("the lead's sessions of a run are told to the code-graph registry and lose 
   let n = 0;
   const deps: AgentDeps = { open: async () => ({ id: `ses-${++n}`, prompt: async () => "", dispose: async () => {} }) as never };
   const opened = engineAgentDeps({ getAgentDeps: () => deps, codeGraphRegistry: registry });
-  const lead = await opened.open("qa-generator", "/m", { descriptor: { runId: "run-graph", role: "qa-generator" } });
+  const lead = await opened.open("qa-lead", "/m", { descriptor: { runId: "run-graph", role: "qa-lead" } });
   const sidekick = await opened.open("qa-sidekick", "/m", { descriptor: { runId: "run-graph", role: "qa-sidekick", delegationId: "run-graph-flow-cart" } });
   assert.ok(registry.find("ses-1"));
   assert.equal(registry.find("ses-2"), undefined);
