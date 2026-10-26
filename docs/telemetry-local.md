@@ -167,7 +167,7 @@ trusted port to the agents. Each receiver is therefore its own service with its 
 
 ## Footprint and log filtering
 
-Measured on a stack after several days of probing (`docker exec ai-pipeline-lgtm-1 du -sh ...`, `docker system df -v`):
+Measured on a stack after several days of probing (`docker exec qayaba-lgtm-1 du -sh ...`, `docker system df -v`):
 Loki `/data/loki` 1.7 MB on disk (9 MB of raw bytes over 7 days, 30.6k entries), Tempo 21 MB, Prometheus 113 MB, the
 `otel-debug` volume 14.6 MB (rotating traces dumps), `lgtm-data` 238 MB in total. The telemetry stack is not what fills a
 disk: the large consumers on a dev machine are Docker's build cache and images.

@@ -51,7 +51,7 @@
   }
   const apiOf = () => (window.QayabaConsole && window.QayabaConsole.api) || null;
   /* Asset URLs resolved relative to THIS script, so the dashboard works whether it
-     is served from the site root (standalone) or mounted at /app (ai-pipeline).
+     is served from the site root (standalone) or mounted at /app (qayaba).
    */
   const ASSET_BASE = (function () {
     try { return new URL('../assets/', (document.currentScript && document.currentScript.src) || location.href).href; }

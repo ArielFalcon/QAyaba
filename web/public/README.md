@@ -1,6 +1,6 @@
 # Qayaba Console — standalone dashboard
 
-The QA control panel for the Qayaba / **ai-pipeline** engine: a Fleet mission-control
+The QA control panel for the **qayaba** engine: a Fleet mission-control
 overview, the runs feed, run detail + the **live run**, per-app **App Value**, integrity,
 the learning ledger, and reports.
 
@@ -80,6 +80,6 @@ python3 -m http.server 4330 --directory /tmp/qayaba-console
 ## Relationship to qayaba-web
 
 This dashboard currently also lives inside `qayaba-web` (`/dashboard`) so the marketing site can
-demo it today. That copy is **superseded by this package**. Once ai-pipeline serves the console at
+demo it today. That copy is **superseded by this package**. Once qayaba serves the console at
 `/app`, point the landing's "console" links there and remove `qayaba-web`'s
 `src/pages/dashboard.astro`, `src/styles/dashboard.css`, and `public/dashboard/`.

@@ -16,7 +16,7 @@
  * WHY NOT IN `npm test`: it needs the `opencode` binary of the agents image and the package installed in /root/node_modules.
  *
  * HOW TO RUN (from the repo root; the image tag is whatever `docker compose build agents` produced):
- *   docker run --rm -v "$PWD/agents:/root/.config/opencode:ro" --entrypoint node ai-pipeline-agents \
+ *   docker run --rm -v "$PWD/agents:/root/.config/opencode:ro" --entrypoint node qayaba-agents \
  *     /root/.config/opencode/smoke/codegraph-tool.smoke.mjs
  * To prove the image alone suffices (the repo ships no agents/node_modules), shadow the host's folder with an empty one:
  *   mkdir -p /tmp/empty && docker run ... -v /tmp/empty:/root/.config/opencode/node_modules:ro ...

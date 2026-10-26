@@ -275,7 +275,7 @@ not counted as the agent's. A cold or missing snapshot, or a warm login that can
 throwaway copy is removed, so the specs outlive the copy; a copy that cannot be kept stops the case and leaves the copy where it is.
 
 A pipeline run no longer starts cold in shadow mode: an accepted run keeps its suite in the **suite store**
-(`data/suites/<app>/` in the qa-data volume, not mounted into the agents container) and the next run restores it
+(`data/suites/<app>/` in the qayaba-data volume, not mounted into the agents container) and the next run restores it
 after its checkout, before the project setup (AGENTS.md, "Persistence & onboarding"). So a restored mirror does
 nothing for a pipeline case: the checkout's `git clean -fd` removes the untracked suite, and the store brings
 back whatever it holds. `seed-store` is how the experiment gives the pipeline arm the same warm start as the

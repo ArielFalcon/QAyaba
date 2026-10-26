@@ -38,7 +38,7 @@ harden 0600 "$APP/data/.api_token"
 harden 0700 "$APP/.host"
 harden 0750 "$APP/.host/config"
 harden 0750 "$APP/config"
-# Every volume the orchestrator mounts: qa-data (/app/data, above, which also holds the code-graph stores), the mirrors (below), and the bind-mounted
+# Every volume the orchestrator mounts: qayaba-data (/app/data, above, which also holds the code-graph stores), the mirrors (below), and the bind-mounted
 # config (above). The dev override's bind mounts (src, qa-engine, scripts, web, the package files) hold the orchestrator's own code,
 # which is no secret, and are read-only: a read-only mount is refused by the kernel whatever the filesystem below it enforces.
 

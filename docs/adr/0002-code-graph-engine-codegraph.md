@@ -108,7 +108,7 @@ The engine port itself never reads `qualified_name`. It already returns repo-rel
 
 | repo | files | nodes / edges | time | store |
 |---|---|---|---|---|
-| ai-pipeline (TS) | 1 426 | 29 190 / 104 930 | 7.1 s | 127 MB |
+| qayaba (TS) | 1 426 | 29 190 / 104 930 | 7.1 s | 127 MB |
 | ms-name-restaurants (Java) | 328 | 4 779 / 7 369 | 963 ms | 14 MB |
 
 These are full first-index times. The cached re-sync cost, the workspace-export cost and the per-spawn cost are measured by the spike (§3.6). Java and TypeScript/JavaScript are the declared scope, and both have full support.

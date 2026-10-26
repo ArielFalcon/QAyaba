@@ -1,6 +1,6 @@
 # Qayaba Console — endpoint requirements
 
-What the dashboard needs from the **ai-pipeline** orchestrator to show real data in
+What the dashboard needs from the **qayaba** orchestrator to show real data in
 every section, mapped against the **existing `/api/v1/*` contract**
 (`contract/openapi.json` → `@qayaba/sdk`). Each row is either:
 
