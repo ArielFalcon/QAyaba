@@ -166,6 +166,31 @@ export interface DecidedOutcome {
   isContextCleanPass: boolean;
 }
 
+/*
+ * How many times each loop of the run has gone round: the one place the counters live. A loop is a set of steps that send the run
+ * back with `goto` while a pure `nextAction` of the domain says to go on, and the step that goes round adds one through its update.
+ */
+export interface LoopCounters {
+  /** Static-fix regenerations after a failed static gate. */
+  staticFix: number;
+  /** The one corrective regeneration the pre-execution grounding may ask for. */
+  preExecRegen: number;
+  /** Fix-loop rounds after a failed execution. */
+  fixLoop: number;
+  /** The one regeneration an enforced coverage failure triggers. */
+  coverageRegen: number;
+  /** Review rounds. */
+  reviewRound: number;
+  /** Attempts within a review round's correction (a refusal of the contract is retried once). */
+  reviewAttempt: number;
+  /** Corrections that went through the lead, across every origin. */
+  leadCorrections: number;
+  /** Review turns the lead used in a coordinated pass. */
+  leadReviewTurns: number;
+}
+
+export const initialLoopCounters = (): LoopCounters => ({ staticFix: 0, preExecRegen: 0, fixLoop: 0, coverageRegen: 0, reviewRound: 0, reviewAttempt: 0, leadCorrections: 0, leadReviewTurns: 0 });
+
 export interface RunState {
   classification: Classification;
   setup: SetupOutcome;
@@ -176,6 +201,7 @@ export interface RunState {
   coverage: CoverageOutcome;
   review: ReviewOutcome;
   decided: DecidedOutcome | undefined;
+  loops: LoopCounters;
 }
 
 export function initialRunState(): RunState {
@@ -240,5 +266,6 @@ export function initialRunState(): RunState {
     },
     review: { reviewerApproved: true, reviewerApprovedForOutcome: undefined, finalReviewerCorrections: [], reviewerSignal: undefined },
     decided: undefined,
+    loops: initialLoopCounters(),
   };
 }
