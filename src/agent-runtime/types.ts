@@ -3,32 +3,13 @@ import type { LiveActivity } from "../integrations/opencode-client";
 import type { UsageSnapshot } from "../qa/usage";
 import type { RunEventBody } from "../contract/events";
 
-/* The runtimes an agent can run on. Add a member here and a strategy to add a runtime. */
-export type AgentProvider = "opencode";
+import { AGENT_ROLES, capabilitiesForRole, type AgentProvider, type AgentRole, type RoleAssignment, type RoleCapabilities } from "@kernel/agent-role";
+
+export { AGENT_ROLES, capabilitiesForRole };
+export type { AgentProvider, AgentRole, RoleAssignment, RoleCapabilities };
 
 /* Every runtime the host knows, in the order its status is reported. */
 export const AGENT_PROVIDERS: readonly AgentProvider[] = ["opencode"];
-export type AgentRole = "primary" | "reviewer" | "chat" | "sidekick" | "maintainer" | "reflector" | "proposer";
-
-/*
- * What a role is allowed to do, independent of provider. Trust capability, not prompt behavior.
- * Reviewer, chat, reflector, and proposer never mutate the workspace.
- */
-export interface RoleCapabilities {
-  canWrite: boolean;
-}
-
-const READ_ONLY_ROLES: ReadonlySet<AgentRole> = new Set<AgentRole>(["reviewer", "chat", "reflector", "proposer"]);
-
-export function capabilitiesForRole(role: AgentRole): RoleCapabilities {
-  return { canWrite: !READ_ONLY_ROLES.has(role) };
-}
-
-export interface RoleAssignment {
-  provider: AgentProvider;
-  model: string;
-}
-
 export interface AgentRuntimeConfig {
   assignments: {
     primary: RoleAssignment;
@@ -127,9 +108,6 @@ export const AGENT_NAME_FOR_ROLE: Readonly<Record<AgentRole, string>> = {
   reflector: "qa-reflector",
   proposer: "qa-proposer",
 };
-
-/* Every role, in the order of the one table above: a role cannot exist without an agent name, and cannot be left out of this list. */
-export const AGENT_ROLES: readonly AgentRole[] = Object.keys(AGENT_NAME_FOR_ROLE) as AgentRole[];
 
 const ROLE_FOR_AGENT_NAME: ReadonlyMap<string, AgentRole> = new Map(
   (Object.entries(AGENT_NAME_FOR_ROLE) as Array<[AgentRole, string]>).map(([role, name]) => [name, role]),

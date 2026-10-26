@@ -1,7 +1,13 @@
 
 
-export type TriggerSource = "webhook" | "manual";
-export type TestTarget = "e2e" | "code";
+import type { ActivityKindSchema } from "./contract/commands";
+import type { z } from "zod";
+import { RUN_MODES, type RunMode, type TestTarget, type TriggerSource } from "@kernel/run-mode";
+import { RUN_ENGINE_STATUSES, engineStatus, type RunEngineStatus, type RunVerdict } from "@kernel/run-verdict";
+import type { CaseStatus, QaCase } from "@kernel/qa-case";
+
+export { RUN_MODES, RUN_ENGINE_STATUSES, engineStatus };
+export type { RunMode, TestTarget, TriggerSource, RunEngineStatus, RunVerdict, CaseStatus, QaCase };
 
 /*
  * Structured metadata the agent emits per spec — the day-one fields (objective, flow,
@@ -16,23 +22,6 @@ export interface SpecMeta {
   sha256?: string;  /* content checksum for integrity verification */
 }
 
-/*
- * Execution mode for a run (taken from the POST body; defaults to "diff").
- * diff       → test the change of the given commit (its blast radius). The
- * commit is classified (Conventional Commits) to decide whether to
- * generate, run regression only, or skip.
- * complete   → analyze the WHOLE repo + existing suite, estimate coverage and
- * importance, persist that analysis, and generate tests for the
- * important UNCOVERED flows (the delta over the existing suite).
- * exhaustive → like complete, but re-evaluate the WHOLE suite from scratch
- * (audit every existing test for correctness/value/necessity and
- * regenerate), not just the delta.
- * manual     → generation focused by user-provided `guidance`.
- * context    → build or refresh the FE↔BE architecture map (e2e/.qa/context.json)
- * from structured sources (routing, OpenAPI, generated clients).
- */
-export type RunMode = "diff" | "complete" | "exhaustive" | "manual" | "context";
-export const RUN_MODES: readonly RunMode[] = ["diff", "complete", "exhaustive", "manual", "context"] as const;
 
 export interface RunOptions {
   target?: TestTarget;  /* defaults to "e2e" when omitted */
@@ -79,95 +68,6 @@ export interface AgentResult {
   objectiveCount?: number;
 }
 
-/*
- * Outcome of RUNNING the E2E tests against DEV.
- * pass        → everything green and stable
- * fail        → at least one case fails consistently (real Issue)
- * flaky       → unstable cases (pass sometimes, fail others) → quarantine
- * invalid     → generated specs did not pass the static gate (do not compile,
- * lint, or load): they were never executed
- * infra-error → the run is inconclusive due to infrastructure (DEV down, etc.):
- * NOT reported as a code bug
- * skipped     → the commit carries no tests (style/docs/chore without logic):
- * nothing is run
- */
-export type RunVerdict = "pass" | "fail" | "flaky" | "invalid" | "infra-error" | "skipped";
-export type CaseStatus = "pass" | "fail" | "flaky";
-
-/*
- * The user-facing run STATUS, derived purely from the verdict — distinct from the test verdict.
- * It answers "did the engine do its job and produce a TRUSTWORTHY result?", not "did every test
- * pass?". A real bug found (verdict `fail` → Issue) is a SUCCESS: the engine ran and took the right
- * action. Only a run where the engine could not run, or could not produce runnable tests (`invalid`
- * — the generated specs never passed the static gate), is an `error`. Surfaced as the CLI exit code
- * (success → 0) and a contract field; the PR-vs-Issue distinction stays one level down, in the verdict.
- */
-export const RUN_ENGINE_STATUSES = { SUCCESS: "success", ERROR: "error" } as const;
-export type RunEngineStatus = (typeof RUN_ENGINE_STATUSES)[keyof typeof RUN_ENGINE_STATUSES];
-
-/*
- * Pure derivation. null/undefined (never recorded, or a wire value that never arrived) is treated
- * as error — fail-safe: the engine did not produce a verdict, so it did not succeed.
- */
-export function engineStatus(verdict: RunVerdict | null | undefined): RunEngineStatus {
-  return verdict == null || verdict === "infra-error" || verdict === "invalid"
-    ? RUN_ENGINE_STATUSES.ERROR
-    : RUN_ENGINE_STATUSES.SUCCESS;
-}
-
-export interface QaCase {
-  name: string;
-  status: CaseStatus;
-  detail?: string;
-  flow?: string;
-  objective?: string;
-  reason?: string;
-  durationMs?: number;  /* wall-clock of the test, from the Playwright stream (live cases) */
-  /*
-   * Populated for failed cases: the accessible-role tree captured at the failure point (ariaSnapshot
-   * YAML parsed + formatted). Used by the fix-loop to ground the regeneration prompt in the REAL
-   * post-failure DOM instead of the pre-write grounding snapshot. Absent when capture missed
-   * (page closed on nav-crash, env var unset, or parse failure) — grounding gap is warned loudly.
-   */
-  failureDom?: string;
-  /*
-   * The spec file basename that contains this test (e.g. "login.spec.ts", "flows/checkout.spec.ts").
-   * Populated by the Playwright report parser from the enclosing top-level suite title.
-   * Used by the filtered-retry optimization to scope re-runs to only the files with failing cases.
-   */
-  file?: string;
-  /*
-   * Structured runtime evidence captured at the execution boundary. Both fields are optional and
-   * follow the same absent-warned best-effort contract as failureDom: absent when capture missed
-   * (page closed, env unset, no correlated 5xx observed) — the run degrades to string-only behaviour.
-   * httpStatus: the HTTP status of the most-recent correlated 5xx server error observed during the
-   * failing case (5xx range only; 4xx is never attributed). Integer or absent (never a guessed value).
-   */
-  httpStatus?: number;
-  /*
-   * finalUrl: the page URL at the failure point (page.url() synchronously in afterEach). Absent when
-   * capture missed. Never written to Issue bodies — only threaded into the reviewer prompt.
-   */
-  finalUrl?: string;
-  /*
-   * Deduped, capped (~15) browser-console `error` entries and uncaught `pageerror` exceptions
-   * from the failing test (`text` truncated ~200 chars). Optional/best-effort, same absent-warned
-   * contract as httpStatus/finalUrl. Diagnostic only — never blocks, auto-passes, or masks a
-   * generated-test defect.
-   */
-  runtimeErrors?: { type: string; text: string }[];
-  /*
-   * Browser network failures observed during the case: a 4xx/5xx response or a requestfailed event.
-   * The URL is reduced to origin+pathname (a query string or fragment never reaches the record) and
-   * the list is deduped and capped. Diagnostic only, same best-effort contract as runtimeErrors.
-   */
-  networkErrors?: { url: string; status?: number; errorText?: string; resourceType?: string }[];
-  /*
-   * How the case's network failures read, derived from the URLs and the run's egress report:
-   * egress (a host the filter refused), backend (a 5xx), dns (name resolution) or other.
-   */
-  networkClass?: "egress" | "backend" | "dns" | "other";
-}
 
 export interface QaRunResult {
   sha: string;
@@ -190,7 +90,7 @@ export interface SpecRecord {
  * A structured, real-time activity event for the TUI. `kind` (and `status` for todos) lets the
  * dashboard categorize a live panel. Raw model-stream prose is never an activity.
  */
-export type ActivityKind = "file" | "command" | "todo" | "phase" | "error";
+export type ActivityKind = z.infer<typeof ActivityKindSchema>;
 
 export interface AgentActivity {
   kind: ActivityKind;
