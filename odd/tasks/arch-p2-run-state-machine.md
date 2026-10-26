@@ -296,7 +296,7 @@ Do not confuse this document with `odd/tasks/run-state-machine.md`: that is the 
 - [x] T7b — S7b — inline — One time authority (independent verifier pending: parent) — commit: 1b126b9b
 - [x] T7c — S7c — inline — `RunCheckpoint` — commit: c56a7b8b
 - [x] T8 — S8 — inline — Module headers and the hand-over notes for AGENTS.md and agent-reference.md — commit: 564f8604
-- [x] T9 — S9 — inline — Phase gate — commit: cb88bb32
+- [x] T9 — S9 — inline — Phase gate — commit: d5fbe918 (the gate's Log entry L17)
 
 Order of execution: T0, T1, T2a, T2b, T2c, T3, T4a-T4f, T5a, T5b, T6a-T6g, T5c, T7a-T7c, T8, T9 (T5c waits for the sub-loops it names; everything else follows the plan's order). All tasks are inline: the units depend on each other and share `run-flow/`, so no writer trigger holds (parallel independent units with disjoint edit surfaces do not exist in this phase).
 
