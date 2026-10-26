@@ -71,7 +71,7 @@ limit, which the benchmark would then report as an efficiency change.
 
 `name`, `app` and `sha` are required; `baseSha`, `mode`, `target`, `guidance` and `tier` are optional.
 `tier` is one of `tiny`, `focused`, `broad`: the size class **you declare** for the case's diff, using
-the boundaries in `DIFF_TIERS` (`qa-engine/src/contexts/generation/domain/diff-stat.ts`: tiny is at
+the boundaries in `DIFF_TIERS` (`qa-engine/src/shared-kernel/diff-stat.ts`: tiny is at
 most 2 files and 40 changed lines, focused at most 8 files and 400, broad above). The benchmark does
 not measure the diff and never sends the tier to the service; it only groups the report. A value that
 is not a size class fails the load, naming the case. A case with no tier reads `undeclared`.
