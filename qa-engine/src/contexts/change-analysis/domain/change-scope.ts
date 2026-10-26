@@ -3,22 +3,10 @@
  * directly, and the evidence path for each. Values only; the proofs that fill it are strategies (reach-proof.ts). Pure.
  */
 import type { ChangeRole } from "@kernel/change-set.ts";
+import type { ChangedSymbol, EntryPoint, ReachBasis, ReachTier } from "@kernel/change-reach.ts";
 
-export type ReachTier = "direct" | "indirect" | "cross-repo";
-
-/* How an entry was reached: a map link of a changed file (`implementation`, `source`, `spec`), the call graph (`graph`), a handler that serves an operation (`handler`), a frontend call site of a contract link (`call-site`) or a contract operation (`contract`). */
-export type ReachBasis = "implementation" | "source" | "spec" | "graph" | "handler" | "call-site" | "contract";
-
-export type EntryPoint =
-  | { kind: "page"; repo: string; route: string }
-  | { kind: "operation"; repo: string; verb: string; path: string; operationId?: string };
-
-/* A changed symbol; the range is the store's, absent only when the index gave none. */
-export interface ChangedSymbol {
-  file: string;
-  symbol: string;
-  range?: { start: number; end: number };
-}
+export type { ChangedSymbol, EntryPoint, ReachBasis, ReachTier } from "@kernel/change-reach.ts";
+export { entryKey } from "@kernel/change-reach.ts";
 
 export interface ReachEntry {
   entry: EntryPoint;
@@ -68,7 +56,3 @@ export interface ChangeScope {
 }
 
 export const MAX_KNOWN_ENTRY_POINTS = 2000;
-
-export function entryKey(entry: EntryPoint): string {
-  return entry.kind === "page" ? `page ${entry.route}` : `${entry.verb.toUpperCase()} ${entry.path}`;
-}

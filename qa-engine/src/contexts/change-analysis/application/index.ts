@@ -9,6 +9,8 @@ export { buildChangeScope, changedSymbolOf, tierOf, walkChains, CHANGE_SCOPE_LIM
 export type { ProofInput, ProofWalk, ReachHit, ReachLink, ReachProof, ScopeInput, WalkChain } from "../domain/reach-proof.ts";
 export { entryKey, MAX_KNOWN_ENTRY_POINTS } from "../domain/change-scope.ts";
 export type { ChangedSymbol, ChangeScope, EntryPoint, ReachBasis, ReachEntry, ReachTier, RepoScope, ScopeDisagreement, ScopeHub } from "../domain/change-scope.ts";
+export { candidateId, deriveCandidates } from "../domain/use-case-candidate.ts";
+export type { CandidateEnrichment, MapLink, Reachability, UseCaseCandidate } from "../domain/use-case-candidate.ts";
 export type { PageMap } from "@kernel/page-files.ts";
 export { fileImplementsPage } from "../domain/reach-proofs/file-implements-page.ts";
 export { crossRepoCallSite } from "../domain/reach-proofs/cross-repo-call-site.ts";

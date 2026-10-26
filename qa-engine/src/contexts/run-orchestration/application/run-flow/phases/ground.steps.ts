@@ -7,7 +7,7 @@ import { BlastRadius } from "@kernel/blast-radius.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 import type { RelevanceBias } from "@contexts/cross-run-learning/application/index.ts";
-import type { ChangeScope, ChangeScopeRepo, ReachTier } from "@contexts/change-analysis/application/index.ts";
+import type { ChangeScope, ChangeScopeRepo, ReachTier, UseCaseCandidate } from "@contexts/change-analysis/application/index.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import { throwIfAborted } from "../abort.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
@@ -271,7 +271,15 @@ export async function computeChangeScope(state: Readonly<RunState>, ctx: Workspa
   }
   const withSkipped: ChangeScope = skipped.length > 0 ? { ...scope, degraded: [...scope.degraded, ...skipped] } : scope;
   recordScope(ctx, withSkipped);
-  return { update: { grounding: { ...state.grounding, changeScope: withSkipped } } };
+  let candidates: UseCaseCandidate[] = [];
+  try {
+    candidates = await deps.changeScope.candidates({ specDir: workspace.specDir, scope: withSkipped });
+  } catch (err) {
+    carryOn(err);
+    console.error("[qa] WARNING: the use-case candidates could not be derived (non-fatal, the run goes on without them):", err);
+  }
+  recordCandidates(ctx, candidates);
+  return { update: { grounding: { ...state.grounding, changeScope: withSkipped, candidates } } };
 }
 
 function recordScope(ctx: WorkspaceRunContext, scope: ChangeScope): void {
@@ -287,10 +295,28 @@ function recordScope(ctx: WorkspaceRunContext, scope: ChangeScope): void {
         "qayaba.change_scope.hubs": scope.hubs.length,
         "qayaba.change_scope.degraded": scope.degraded.map((d) => `${d.repo}: ${d.reason}`),
         "qayaba.change_scope.seed_basis": scope.repos.map((r) => `${r.repo}: ${r.seedBasis}`),
+        "qayaba.change_scope.hub_symbols": scope.hubs.map((h) => `${h.symbol}: ${h.entries}`),
+        "qayaba.change_scope.disagreements": scope.disagreements.map((d) => `${d.route}: ${d.engineFile}`),
       },
     }).end();
   } catch (err) {
     console.error(`[telemetry] the change-scope span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+function recordCandidates(ctx: WorkspaceRunContext, candidates: readonly UseCaseCandidate[]): void {
+  try {
+    ctx.telemetry.startSpan("qayaba.change.candidates", {
+      attrs: {
+        "qayaba.app": ctx.input.app,
+        "qayaba.candidates.count": candidates.length,
+        "qayaba.candidates.entries": candidates.map((c) => `${c.id}: ${c.entry.kind === "page" ? `page ${c.entry.route}` : `${c.entry.verb} ${c.entry.path}`} [${c.tier}, ${c.reachability}, ${c.basis}]`),
+        "qayaba.candidates.proofs": candidates.map((c) => `${c.id}: ${c.evidence.join(" > ")}`),
+        "qayaba.candidates.with_specs": candidates.filter((c) => c.existingSpecs.length > 0).length,
+      },
+    }).end();
+  } catch (err) {
+    console.error(`[telemetry] the candidates span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

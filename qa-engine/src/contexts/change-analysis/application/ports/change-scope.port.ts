@@ -1,6 +1,7 @@
 import type { ChangeRole } from "@kernel/change-set.ts";
 import type { CrossRepoImpact } from "@kernel/service-links.ts";
 import type { ChangeScope } from "../../domain/change-scope.ts";
+import type { UseCaseCandidate } from "../../domain/use-case-candidate.ts";
 
 /* One repo of the run's change, as the run read it: where its mirror is and what the change touched there. */
 export interface ChangeScopeRepo {
@@ -29,4 +30,9 @@ export interface ChangeScopeRequest {
  */
 export interface ChangeScopePort {
   resolve(request: ChangeScopeRequest): Promise<ChangeScope>;
+  /**
+   * The use-case candidates of a scope: its reach made testable, in the order they are offered. The context map, the suite's
+   * manifest and the suite's files enrich them; none is required and a read that fails leaves the candidates without it.
+   */
+  candidates(request: { specDir: string; scope: ChangeScope }): Promise<UseCaseCandidate[]>;
 }

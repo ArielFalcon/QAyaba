@@ -5,7 +5,7 @@ import { Sha } from "@kernel/sha.ts";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
 import type { SpanHandle, StartSpanOptions } from "@kernel/telemetry/telemetry.port.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
-import { ChangeSet, type ChangeScope, type ChangeScopePort, type ChangeScopeRequest } from "@contexts/change-analysis/application/index.ts";
+import { ChangeSet, deriveCandidates, type ChangeScope, type ChangeScopePort, type ChangeScopeRequest } from "@contexts/change-analysis/application/index.ts";
 import { dispose, newRig, observe } from "./run-flow/run-end-rig.ts";
 
 const FRONT = "org/front";
@@ -28,8 +28,10 @@ const SCOPE: ChangeScope = {
 
 class SpanRecorder extends NoopTelemetry {
   readonly spans: Array<{ name: string; attrs: Record<string, unknown> }> = [];
+  readonly candidateSpans: Array<Record<string, unknown>> = [];
   override startSpan(name?: string, opts?: StartSpanOptions): SpanHandle {
     if (name === "qayaba.change_scope") this.spans.push({ name, attrs: { ...(opts?.attrs ?? {}) } });
+    if (name === "qayaba.change.candidates") this.candidateSpans.push({ ...(opts?.attrs ?? {}) });
     return super.startSpan(name, opts);
   }
 }
@@ -50,7 +52,7 @@ test("a diff run asks for the scope of every repo of its change, each at its own
     const asked: ChangeScopeRequest[] = [];
     const telemetry = new SpanRecorder();
     const indexed: string[] = [];
-    const changeScope: ChangeScopePort = { resolve: async (request) => { asked.push(request); return SCOPE; } };
+    const changeScope: ChangeScopePort = { resolve: async (request) => { asked.push(request); return SCOPE; }, candidates: async ({ scope }) => deriveCandidates(scope) };
     rig.input = { changeSet: ChangeSet.of("demo", [{ repo: BACK, role: "service", headSha: BACK_SHA }, { repo: FRONT, role: "primary", headSha: FRONT_SHA }]), sha: FRONT_SHA };
     rig.classify = async () => ({ action: "generate", reason: "x", diff: DIFF, intent: { type: "feat", breaking: false, message: "m", changedFiles: ["web/a.ts"] } });
     rig.extra = {
@@ -74,6 +76,9 @@ test("a diff run asks for the scope of every repo of its change, each at its own
     assert.equal(attrs["qayaba.change_scope.cross_repo"], 0);
     assert.deepEqual(attrs["qayaba.change_scope.degraded"], [`${BACK}: walk: not indexed`]);
     assert.deepEqual(attrs["qayaba.change_scope.seed_basis"], [`${FRONT}: lines`]);
+    assert.equal(telemetry.candidateSpans.length, 1);
+    assert.equal(telemetry.candidateSpans[0]!["qayaba.candidates.count"], 2);
+    assert.match(String((telemetry.candidateSpans[0]!["qayaba.candidates.entries"] as string[])[0]), /^uc-[0-9a-f]{8}: page \/a \[direct, page, implementation\]$/);
   } finally {
     dispose(rig);
   }
@@ -85,7 +90,7 @@ test("a repo of the change with no index in the run is a degraded entry of the s
     let asked: ChangeScopeRequest | undefined;
     const telemetry = new SpanRecorder();
     rig.input = { changeSet: ChangeSet.of("demo", [{ repo: BACK, role: "service", headSha: BACK_SHA }, { repo: FRONT, role: "primary", headSha: FRONT_SHA }]), sha: FRONT_SHA };
-    rig.extra = { changeScope: { resolve: async (request) => { asked = request; return { ...SCOPE, degraded: [] }; } }, telemetry, codeGraphRepoDir: "/m/front" };
+    rig.extra = { changeScope: { resolve: async (request) => { asked = request; return { ...SCOPE, degraded: [] }; }, candidates: async () => [] }, telemetry, codeGraphRepoDir: "/m/front" };
     await observe(rig, "scope-unindexed");
     assert.deepEqual(asked?.repos.map((r) => r.repo), [FRONT]);
     assert.deepEqual(telemetry.spans[0]!.attrs["qayaba.change_scope.degraded"], [`${BACK}: the repo has no index in this run`]);
@@ -98,7 +103,7 @@ test("a scope that cannot be computed never ends the run", async () => {
   const rig = newRig();
   try {
     const telemetry = new SpanRecorder();
-    rig.extra = { changeScope: { resolve: async () => { throw new Error("index exploded"); } }, telemetry };
+    rig.extra = { changeScope: { resolve: async () => { throw new Error("index exploded"); }, candidates: async () => [] }, telemetry };
     const observed = await observe(rig, "scope-throws");
     assert.equal(observed.result?.decision.verdict, "pass");
     assert.match(String(telemetry.spans[0]!.attrs["qayaba.change_scope.degraded"]), /index exploded/);
@@ -115,10 +120,24 @@ test("a run without a scope port, and a run outside diff mode, ask for no scope"
     rig.extra = { telemetry };
     assert.equal((await observe(rig, "scope-unwired")).result?.decision.verdict, "pass");
     rig.input = { mode: "manual", guidance: "check the form" };
-    rig.extra = { telemetry, changeScope: { resolve: async () => { calls += 1; return SCOPE; } } };
+    rig.extra = { telemetry, changeScope: { resolve: async () => { calls += 1; return SCOPE; }, candidates: async () => [] } };
     await observe(rig, "scope-manual");
     assert.equal(calls, 0);
     assert.equal(telemetry.spans.length, 0);
+  } finally {
+    dispose(rig);
+  }
+});
+
+test("candidates that cannot be derived never end the run and leave the run without them", async () => {
+  const rig = newRig();
+  try {
+    const telemetry = new SpanRecorder();
+    rig.input = { changeSet: ChangeSet.of("demo", [{ repo: FRONT, role: "primary", headSha: FRONT_SHA }]), sha: FRONT_SHA };
+    rig.extra = { changeScope: { resolve: async () => SCOPE, candidates: async () => { throw new Error("suite unreadable"); } }, telemetry, codeGraphRepoDir: "/m/front" };
+    const observed = await observe(rig, "candidates-throw");
+    assert.equal(observed.result?.decision.verdict, "pass");
+    assert.equal(telemetry.candidateSpans[0]!["qayaba.candidates.count"], 0);
   } finally {
     dispose(rig);
   }

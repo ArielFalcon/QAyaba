@@ -5,8 +5,12 @@ import { ChangeScopePortAdapter, entryPointsOf } from "@contexts/change-analysis
 import { MAX_KNOWN_ENTRY_POINTS, crossRepoCallSite, fileImplementsPage, handlerServesOperation, openapiOperationDiff } from "@contexts/change-analysis/application/index.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { GraphRoute, ImpactedSymbol, LocalSymbolRef } from "@kernel/code/index.ts";
+import type { PageMap } from "@kernel/page-files.ts";
 import type { ServiceLink } from "@kernel/service-links.ts";
 import { err, ok } from "@kernel/result.ts";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const SHA = "abc1234";
 const BUDGET = { depth: 3, maxSymbols: 300 };
@@ -28,7 +32,7 @@ function graph(over: Partial<CodeGraphPort> = {}): CodeGraphPort {
 }
 
 const front = { repo: "org/web", role: "primary" as const, repoDir: "/m/web", headSha: SHA, changedFiles: [FORMAT] };
-const adapter = (g: CodeGraphPort, loadMap?: () => typeof MAP | undefined) => new ChangeScopePortAdapter({ codeGraph: g, budget: BUDGET, proofs: PROOFS, ...(loadMap ? { loadMap } : {}) });
+const adapter = (g: CodeGraphPort, loadMap?: () => PageMap | undefined) => new ChangeScopePortAdapter({ codeGraph: g, budget: BUDGET, proofs: PROOFS, ...(loadMap ? { loadMap } : {}) });
 
 const link = (from: Partial<LocalSymbolRef>): ServiceLink => ({
   from: { repo: "org/web", file: from.file ?? "", symbol: from.symbol ?? "" },
@@ -162,4 +166,36 @@ test("an operation the change removed reaches its callers with evidence saying s
   const added = await withProofs(spy).resolve({ specDir: "/s", repos: [apiRepo], pages: { repo: "org/web", repoDir: "/m/web" }, crossRepoImpact: impacted("added") });
   assert.equal(asked, false, "an added operation has no caller to walk from");
   assert.deepEqual(added.reach.map((r) => r.entry.kind), ["operation"]);
+});
+
+test("candidates carry the map's page links of the changed files, the suite's manifest targets and the specs that open the route", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "candidates-"));
+  try {
+    mkdirSync(join(dir, ".qa"), { recursive: true });
+    writeFileSync(join(dir, ".qa", "manifest.json"), JSON.stringify([{ id: "a", objective: "o", flow: "f", file: "orders.spec.ts", targets: ["/orders"], changeRef: { sha: "x", type: "feat" } }]));
+    writeFileSync(join(dir, "opens-profile.spec.ts"), "await page.goto('/profile');");
+    const map = { routes: [{ path: "/orders", name: "Orders", implementationFiles: [ORDERS] }, { path: "/profile", source: "web/src/app/profile/routes.ts" }], api: [], feBe: [] };
+    const g = graph({ impactedSymbols: async () => report([sym(FORMAT, "formatMoney", 0)]) });
+    const subject = adapter(g, () => map);
+    const scope = await subject.resolve({ specDir: dir, repos: [{ ...front, changedFiles: [ORDERS, "web/src/app/profile/routes.ts"] }] });
+
+    const candidates = await subject.candidates({ specDir: dir, scope });
+
+    assert.deepEqual(candidates.map((c) => [c.entry.kind === "page" ? c.entry.route : "", c.basis, c.label ?? null, c.existingSpecs]), [
+      ["/orders", "implementation", "Orders", ["orders.spec.ts"]],
+      ["/profile", "source", null, ["opens-profile.spec.ts"]],
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("candidates exist from the graph's routes alone when no map and no suite can be read", async () => {
+  const g = graph({ impactedSymbols: async () => report([sym(ORDERS, "total", 0)]), routes: async () => ok([{ file: ORDERS, line: 1, path: "/orders", target: { file: ORDERS, symbol: "total", kind: "function" } }]) });
+  const subject = adapter(g);
+  const scope = await subject.resolve({ specDir: "/does/not/exist", repos: [front] });
+
+  const candidates = await subject.candidates({ specDir: "/does/not/exist", scope });
+
+  assert.deepEqual(candidates.map((c) => [c.entry.kind, c.reachability, c.existingSpecs]), [["page", "page", []]]);
 });

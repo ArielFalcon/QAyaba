@@ -12,6 +12,9 @@ import { Sha } from "@kernel/sha.ts";
 import type { PageMap } from "@kernel/page-files.ts";
 import { buildChangeScope, changedSymbolOf, type ProofWalk, type ReachLink, type ReachProof } from "../../domain/reach-proof.ts";
 import { entryKey, MAX_KNOWN_ENTRY_POINTS, type ChangeScope, type EntryPoint, type RepoScope } from "../../domain/change-scope.ts";
+import { rankRoutesWithRelevance } from "@contexts/generation/application/index.ts";
+import { deriveCandidates, type MapLink, type UseCaseCandidate } from "../../domain/use-case-candidate.ts";
+import { readManifestTargets, readSuiteTexts } from "./suite-enrichment.ts";
 import type { ChangeScopePort, ChangeScopeRepo, ChangeScopeRequest } from "../../application/ports/change-scope.port.ts";
 
 export interface ChangeScopePortAdapterDeps {
@@ -76,7 +79,17 @@ export class ChangeScopePortAdapter implements ChangeScopePort {
     return buildChangeScope({ proofs: { map, walks, pageRoutes, handlerRoutes, links: linksOf(request) }, repos, degraded, linked: new Set() }, this.deps.proofs);
   }
 
-  private mapOf(request: ChangeScopeRequest): PageMap {
+  async candidates(request: { specDir: string; scope: ChangeScope }): Promise<UseCaseCandidate[]> {
+    const map = this.mapOf(request);
+    return deriveCandidates(request.scope, {
+      map,
+      mapLinks: mapLinksOf(request.scope, map),
+      manifest: readManifestTargets(request.specDir),
+      suiteFiles: readSuiteTexts(request.specDir),
+    });
+  }
+
+  private mapOf(request: { specDir: string }): PageMap {
     try {
       return this.deps.loadMap?.(request.specDir) ?? {};
     } catch (err) {
@@ -141,6 +154,16 @@ export class ChangeScopePortAdapter implements ChangeScopePort {
     }
     return { repo: pages.repo, reached: walk.value.symbols, prefixOf, handlers: false, truncated: walk.value.truncated };
   }
+}
+
+/* The pages the map links to the files the app's own repo changed: its implementation files, its source, the spec of an operation it joins. */
+function mapLinksOf(scope: ChangeScope, map: PageMap): MapLink[] {
+  const primary = scope.repos.find((r) => r.role === "primary");
+  const routes = (map.routes ?? []).flatMap((r) => (typeof r.path === "string" && r.path !== "" ? [r.path] : []));
+  if (!primary || routes.length === 0 || primary.changedFiles.length === 0) return [];
+  return rankRoutesWithRelevance(routes, map, { changedFiles: primary.changedFiles }).flatMap((ranked) =>
+    ranked.relevant && (ranked.basis === "implementation" || ranked.basis === "source" || ranked.basis === "spec") ? [{ repo: primary.repo, route: ranked.route, basis: ranked.basis }] : [],
+  );
 }
 
 /* The operations of the impacted links, one per operation. */

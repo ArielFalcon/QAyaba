@@ -12,7 +12,7 @@ export interface PageFilesDisagreement {
 
 /* The map sections the join reads; every field is checked where it is read (the map is data from a file). */
 export interface PageMap {
-  routes?: ReadonlyArray<{ path?: unknown; source?: unknown; implementationFiles?: unknown }>;
+  routes?: ReadonlyArray<{ path?: unknown; name?: unknown; source?: unknown; implementationFiles?: unknown }>;
   api?: ReadonlyArray<{ operationId?: unknown; method?: unknown; path?: unknown }>;
   feBe?: ReadonlyArray<{ route?: unknown; operationId?: unknown }>;
 }
@@ -47,7 +47,7 @@ function scopeToSource(nodes: ReadonlyArray<{ declaredIn: string; file: string }
   return [...new Set(nodes.filter((n) => sharedDirs(n.declaredIn, source) === near).map((n) => n.file))];
 }
 
-/* The files that implement each page: the map's own, else the engine's route node for the same path. */
+/* The files that implement each page: the map's own, else the engine's route node for the same path. A page the engine recognises that the map does not list (or no map at all) is implemented by the file its route node points at, when one frontend declares it. */
 export function pageFiles(map: PageMap, pageRoutes: readonly GraphRoute[]): { files: Map<string, string[]>; disagreements: PageFilesDisagreement[] } {
   const engineFilesOf = new Map<string, Array<{ declaredIn: string; file: string }>>();
   for (const r of pageRoutes) {
@@ -72,6 +72,12 @@ export function pageFiles(map: PageMap, pageRoutes: readonly GraphRoute[]): { fi
     } else if (engine.length > 0 && !files.has(entry.path)) {
       files.set(entry.path, engine);
     }
+  }
+  const listed = new Set((map.routes ?? []).flatMap((entry) => (entry && isText(entry.path) ? [normalizeRoute(entry.path)] : [])));
+  for (const [route, nodes] of engineFilesOf) {
+    if (listed.has(route)) continue;
+    const engine = scopeToSource(nodes, undefined);
+    if (engine.length > 0) files.set(`/${route}`, engine);
   }
   return { files, disagreements };
 }
