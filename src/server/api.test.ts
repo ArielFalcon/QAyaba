@@ -1577,6 +1577,19 @@ test("phase-0b: GET /api/runs/:id/turns sanitizes prompt_text and output_text be
   assert.match(body[0].promptText, /button: Submit/);
 });
 
+test("GET /api/v1/runs/:id/turns serves what a turn that did not answer had streamed, sanitized, and null for a turn with none", async () => {
+  const secret = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  const timedOut: AgentTurnRecord = { ...measuredTurn, outputText: "", partialText: `[reasoning] the token is ${secret}\n[text] Writing the spec` };
+  const answered: AgentTurnRecord = { ...measuredTurn, sessionId: "sess-2", ended: "completed" };
+  const res = mkRes();
+  await routeApi(mkReq("GET", "/api/v1/runs/p1/turns"), res, deps({ getRecord: () => parentRec, getAgentTurns: () => [timedOut, answered] }));
+  assert.equal(res.status, 200);
+  const [first, second] = JSON.parse(res.body);
+  assert.match(first.partialText, /^\[reasoning\] the token is .*REDACTED.*\n\[text\] Writing the spec$/);
+  assert.doesNotMatch(first.partialText, /ghp_/);
+  assert.equal(second.partialText, null);
+});
+
 test("phase-0b: GET /api/runs/:id/turns returns an empty array when no turns exist for the run", async () => {
   const record: RunRecord = { id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status: "done", cases: [], logs: [], at: "t" };
   const res = mkRes();

@@ -30,6 +30,7 @@ function turnEvent(runId: string, overrides: Partial<AgentTurnEvent> = {}): Agen
     stepBudget: null,
     callMetrics: null,
     durationMs: null,
+    partialText: null,
     ...overrides,
   };
 }

@@ -49,3 +49,54 @@ test("a prompt sent outside a run is sent as it is", async () => {
   await session.dispose();
   assert.deepEqual(seen, [`the DOM said ${PASSWORD}`]);
 });
+
+/* ── what a turn that did not answer had streamed ── */
+
+const STREAMED = { totalCalls: 3, stepsUsed: 2, observationComplete: true, callsBeforeFirstWrite: 3, writeCount: 0, commandCount: 0, redundantReadCount: 0, sameFileReadCount: 0, duplicateCallCount: 0, promptProvidedReadCount: 0, pathProvidedReadCount: 0, graphProvidedReadCount: 0, buckets: { code_read: 3, code_graph: 0, browser: 0, write: 0, validate_run: 0, script_run: 0, memory: 0, subagent: 0, other: 0 }, timeToFirstCallMs: null, timeToFirstWriteMs: null, deniedCallCount: 0, toolSequence: [], usage: null };
+
+test("a turn that timed out records what it had streamed so far, without the run's secrets", async () => {
+  resetCircuit();
+  const turns: AgentTurnEvent[] = [];
+  const scope = createRunSecretScope();
+  scope.addAccountSecrets([PASSWORD]);
+  const hung: RawAgentTransport = { ...transport([]), promptSession: () => new Promise(() => {}) };
+  const deps = createAgentDeps(hung, {
+    defaultPromptTimeoutMs: 15,
+    getFallbackModel: () => undefined,
+    takeTurnCalls: () => ({ ...STREAMED, streamedText: `[reasoning] the login takes ${PASSWORD}\n[text] Writing the spec` }),
+  });
+
+  await withRunSecretScope(scope, async () => {
+    const session = await deps.open("qa-author", "/tmp", { onTurn: (turn: AgentTurnEvent) => void turns.push(turn) });
+    await assert.rejects(() => session.prompt("write the specs"), /timed out/);
+  });
+
+  assert.equal(turns.length, 1);
+  assert.equal(turns[0]!.ended, "timeout");
+  assert.equal(turns[0]!.outputText, "");
+  assert.equal(turns[0]!.partialText, `[reasoning] the login takes ${REDACTED}\n[text] Writing the spec`);
+});
+
+test("a turn that timed out having streamed nothing records no partial text", async () => {
+  resetCircuit();
+  const turns: AgentTurnEvent[] = [];
+  const hung: RawAgentTransport = { ...transport([]), promptSession: () => new Promise(() => {}) };
+  const deps = createAgentDeps(hung, { defaultPromptTimeoutMs: 15, getFallbackModel: () => undefined, takeTurnCalls: () => STREAMED });
+  const session = await deps.open("qa-author", "/tmp", { onTurn: (turn: AgentTurnEvent) => void turns.push(turn) });
+  await assert.rejects(() => session.prompt("write the specs"), /timed out/);
+  assert.equal(turns[0]!.partialText, null);
+});
+
+test("an answered turn records no partial text: its answer is the output", async () => {
+  resetCircuit();
+  const turns: AgentTurnEvent[] = [];
+  const deps = createAgentDeps(transport([]), {
+    defaultPromptTimeoutMs: 5000,
+    getFallbackModel: () => undefined,
+    takeTurnCalls: () => ({ ...STREAMED, streamedText: "[text] ok" }),
+  });
+  const session = await deps.open("qa-author", "/tmp", { onTurn: (turn: AgentTurnEvent) => void turns.push(turn) });
+  await session.prompt("write the specs");
+  assert.equal(turns[0]!.ended, "completed");
+  assert.equal(turns[0]!.partialText, null);
+});

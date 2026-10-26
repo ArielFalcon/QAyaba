@@ -663,6 +663,12 @@ Every instrument is declared in one table with its allowed attribute keys. A tes
 
 The full text is **already** stored redacted in `agent_turns`. In `metadata` mode, the span carries
 `qayaba.content.ref=agent_turn:<id>`. This is the spec's "store externally and reference" option.
+A turn that ended without an answer (timeout or abort) has an empty `output_text`; its `partial_text` keeps what the
+session had streamed until then, whatever the `captureMode` (it is the run's own local history, like `output_text`):
+the turn's `text` and `reasoning` parts as the SSE tracker last saw them, in first-seen order, each prefixed by
+`[text] ` or `[reasoning] `, bounded to its last `STREAMED_TEXT_MAX_CHARS` (16 000) characters, and redacted by value
+and by pattern like the output. It is null for an answered turn, for one that streamed nothing and for a row written
+before the column (schema 2). `GET /api/v1/runs/:id/turns` serves it as `partialText`.
 Q3 and Q4 need no content at all; F3's "62k reasoning" replay needs `full`, or the reference.
 
 ---

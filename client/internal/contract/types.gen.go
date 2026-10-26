@@ -1779,6 +1779,7 @@ type AgentTurnView struct {
 	MaxSteps                *int                `json:"maxSteps"`
 	Objective               *string             `json:"objective"`
 	OutputText              string              `json:"outputText"`
+	PartialText             *string             `json:"partialText"`
 	PathProvidedReadCount   *int                `json:"pathProvidedReadCount"`
 	PromptBytes             int                 `json:"promptBytes"`
 	PromptProvidedReadCount *int                `json:"promptProvidedReadCount"`

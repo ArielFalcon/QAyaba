@@ -1326,6 +1326,7 @@ export interface components {
             objective: string | null;
             promptText: string;
             outputText: string;
+            partialText: string | null;
             promptBytes: number;
             tokensInput: number | null;
             tokensOutput: number | null;

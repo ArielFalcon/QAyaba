@@ -6,6 +6,7 @@ import {
   CallEfficiencyTracker,
   NAV_OUTPUT_MAX_KEPT,
   OBSERVATION_READY_TIMEOUT_MS,
+  STREAMED_TEXT_MAX_CHARS,
   type StreamToken,
   type TrackerTimer,
 } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
@@ -1363,4 +1364,71 @@ test("a turn that reads one file from its top, again from line 1, and then a lat
   assert.equal(metrics?.redundantReadCount, 1, "line 1 is the top of the file: c2 reads what c1 read");
   assert.equal(metrics?.sameFileReadCount, 2, "c2 and c3 both read the file again");
   assert.deepEqual(metrics?.toolSequence.map((e) => e.window), [undefined, undefined, "offset=200,limit=100"]);
+});
+
+/* ── the text the turn streamed ── */
+
+function textPart(sessionID: string, id: string, type: "text" | "reasoning", text: string): RawOpencodeEvent {
+  return { type: "message.part.updated", properties: { part: { id, sessionID, messageID: "msg_1", type, text } } };
+}
+
+test("a turn's streamed text and reasoning parts are kept in the order first seen, each by its latest sighting and labelled by its type", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "step-1"));
+  tracker.record(textPart("s1", "p-reason", "reasoning", "I should read"));
+  tracker.record(textPart("s1", "p-text", "text", "Reading the"));
+  tracker.record(textPart("s1", "p-reason", "reasoning", "I should read the checkout page"));
+  tracker.record(textPart("s1", "p-text", "text", "Reading the checkout spec"));
+
+  assert.equal(tracker.take("s1", "")?.streamedText, "[reasoning] I should read the checkout page\n[text] Reading the checkout spec");
+});
+
+test("the streamed text holds only the turn in flight: a previous turn's parts are not carried over", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "step-1"));
+  tracker.record(textPart("s1", "p-1", "text", "first turn"));
+  tracker.take("s1", "");
+
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "step-2"));
+  tracker.record(textPart("s1", "p-2", "text", "second turn"));
+  assert.equal(tracker.take("s1", "")?.streamedText, "[text] second turn");
+});
+
+test("a turn that streamed no text carries no streamed text", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  runCall(tracker, "s1", "c1", "read", { filePath: "/mirrors/org__app/a.ts" });
+  tracker.record(textPart("s1", "p-empty", "text", ""));
+  assert.equal(tracker.take("s1", "")?.streamedText, undefined);
+});
+
+test("streamed text longer than its bound keeps its tail", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "step-1"));
+  tracker.record(textPart("s1", "p-old", "reasoning", "x".repeat(STREAMED_TEXT_MAX_CHARS)));
+  tracker.record(textPart("s1", "p-new", "text", "the last words"));
+
+  const kept = tracker.take("s1", "")?.streamedText ?? "";
+  assert.equal(kept.length, STREAMED_TEXT_MAX_CHARS);
+  assert.ok(kept.endsWith("[text] the last words"));
+});
+
+test("a fault while keeping streamed text drops only the text: the turn's call metrics stay", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  runCall(tracker, "s1", "c1", "read", { filePath: "/mirrors/org__app/a.ts" });
+  const hostile = textPart("s1", "p-bad", "text", "");
+  Object.defineProperty(hostile.properties!.part as object, "text", { get() { throw new Error("unreadable text"); } });
+  tracker.record(hostile);
+  tracker.record(textPart("s1", "p-after", "text", "later words"));
+  runCall(tracker, "s1", "c2", "read", { filePath: "/mirrors/org__app/b.ts" });
+
+  const metrics = tracker.take("s1", "");
+  assert.equal(metrics?.totalCalls, 2);
+  assert.equal(metrics?.streamedText, undefined);
 });

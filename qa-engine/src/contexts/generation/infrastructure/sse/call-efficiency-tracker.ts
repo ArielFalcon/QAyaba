@@ -10,6 +10,10 @@
  * recording poisons that ONE session (its metrics become null) instead of throwing into the SSE
  * loop or the prompt path.
  *
+ * It also keeps the text and reasoning the turn in flight streamed, so a turn that ends without an
+ * answer still leaves what it had said; a fault while keeping that text drops only the turn's text,
+ * never its metrics.
+ *
  * `stepsUsed` feeds the exhaustion decision: an incomplete observation yields `null`, never an
  * undercount. A turn's steps are complete only when the event stream for its directory was live
  * for the whole attempt. Each stream reports its lifecycle with a token (the directory's current
@@ -59,6 +63,8 @@ interface PartLike {
   state?: { status?: string; input?: unknown; output?: unknown; error?: unknown; time?: { start?: unknown; end?: unknown } };
   /** step-finish parts only. */
   reason?: unknown;
+  /** text and reasoning parts only: everything the part has streamed so far. */
+  text?: unknown;
   tokens?: { input?: unknown; output?: unknown; reasoning?: unknown; cache?: { read?: unknown; write?: unknown } };
   cost?: unknown;
 }
@@ -174,7 +180,21 @@ interface SessionState {
   stepsTruncated: boolean;
   /* Navigation answers kept in the turn in flight. */
   navKept: number;
+  /* The text and reasoning parts of the turn in flight, by part id in the order first seen, each holding the tail of its latest sighting. */
+  streamed: Map<string, StreamedPart>;
+  /* Parts let go to keep `streamed` bounded; a later sighting of one is not taken back. */
+  droppedStreamed: Set<string>;
+  /* A fault while keeping the turn's streamed text: the turn carries none. */
+  streamedFaulted: boolean;
 }
+
+interface StreamedPart {
+  type: "text" | "reasoning";
+  text: string;
+}
+
+/** The most characters of streamed text a turn carries; a longer text keeps its tail, where the turn stopped. */
+export const STREAMED_TEXT_MAX_CHARS = 16_000;
 
 /* The most navigation answers one turn keeps for the outcome classifier. */
 export const NAV_OUTPUT_MAX_KEPT = 100;
@@ -207,6 +227,9 @@ function newSession(cwd: string, stepsComplete: boolean): SessionState {
     turnFirstStepSeq: 0,
     stepsTruncated: false,
     navKept: 0,
+    streamed: new Map(),
+    droppedStreamed: new Set(),
+    streamedFaulted: false,
   };
 }
 
@@ -409,12 +432,34 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
     if (!part || !sessionId) return;
     const session = this.sessions.get(sessionId);
     if (!session || session.poisoned) return;
+    if (part.type === "text" || part.type === "reasoning") {
+      this.keepStreamed(session, sessionId, part, part.type);
+      return;
+    }
     try {
       this.apply(session, part);
     } catch (err) {
       session.poisoned = true;
       engineLog.error(
         `[qa] call-efficiency tracking failed for session ${sessionId}; its efficiency metrics are dropped: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /* A fault here drops the turn's streamed text only; the session's metrics are untouched. */
+  private keepStreamed(session: SessionState, sessionId: string, part: PartLike, type: StreamedPart["type"]): void {
+    if (session.streamedFaulted) return;
+    try {
+      const id = part.id;
+      const text = part.text;
+      if (typeof id !== "string" || typeof text !== "string" || session.droppedStreamed.has(id)) return;
+      session.streamed.set(id, { type, text: text.slice(-STREAMED_TEXT_MAX_CHARS) });
+      boundStreamed(session);
+    } catch (err) {
+      session.streamedFaulted = true;
+      session.streamed = new Map();
+      engineLog.error(
+        `[qa] streamed-text tracking failed for session ${sessionId}; the turn's streamed text is dropped: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }
@@ -529,6 +574,9 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
     session.turnFirstStepSeq = session.nextStepSeq;
     session.stepsTruncated = false;
     session.navKept = 0;
+    session.streamed = new Map();
+    session.droppedStreamed = new Set();
+    session.streamedFaulted = false;
   }
 
   /* The turn's steps and calls since the previous flush, with step numbers counted from the turn's first. */
@@ -609,6 +657,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
       toolSequence: turnCalls.slice(0, TOOL_SEQUENCE_MAX_ENTRIES).map(toSequenceEntry),
       usage: session.stepsComplete && finishedSteps.length > 0 ? sumUsage(finishedSteps.map(([, usage]) => usage)) : null,
       trace: this.traceOf(session, turnCalls, session.turnStartedAt),
+      streamedText: streamedTextOf(session),
     });
     this.startTurnRecords(session);
     for (const [id] of finishedSteps) session.flushedUsageIds.add(id);
@@ -620,6 +669,29 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
     session.sawEventSinceFlush = false;
     return metrics;
   }
+}
+
+/* Lets go of the oldest parts while the ones after them already hold the bound, so a long turn's memory stays bounded. */
+function boundStreamed(session: SessionState): void {
+  let total = 0;
+  for (const part of session.streamed.values()) total += part.text.length;
+  for (const [id, part] of session.streamed) {
+    if (total - part.text.length < STREAMED_TEXT_MAX_CHARS) return;
+    total -= part.text.length;
+    session.streamed.delete(id);
+    session.droppedStreamed.add(id);
+  }
+}
+
+/* The turn's streamed parts as one text, each prefixed by its type, bounded to its tail; undefined when the turn streamed none. */
+function streamedTextOf(session: SessionState): string | undefined {
+  if (session.streamedFaulted) return undefined;
+  const joined = [...session.streamed.values()]
+    .filter((part) => part.text !== "")
+    .map((part) => `[${part.type}] ${part.text}`)
+    .join("\n");
+  if (joined === "") return undefined;
+  return joined.length > STREAMED_TEXT_MAX_CHARS ? joined.slice(-STREAMED_TEXT_MAX_CHARS) : joined;
 }
 
 /* The content reads at or after `from` whose lines a code-graph answer made earlier in the session had already shown. A read is compared only with the answers before it, so a read the agent made first and the graph repeated later is not counted. */

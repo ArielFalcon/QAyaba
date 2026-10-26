@@ -52,6 +52,8 @@ export interface AgentTurnEvent {
   callMetrics: TurnCallMetrics | null;
   /** How the turn ended; absent when the transport does not say. A turn that did not answer carries empty output, no usage and the calls measured up to its end. */
   ended?: TurnEnd;
+  /** What a turn that did not answer (timeout, abort) had streamed before it ended: its text and reasoning parts, each prefixed by its type, bounded to the tail and redacted like the output. Null for an answered turn and for one that streamed nothing. */
+  partialText: string | null;
   /** Wall time from when the prompt was sent to when the turn ended (answered, timed out or aborted); null when the runtime did not measure it. */
   durationMs: number | null;
   /*
@@ -444,6 +446,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
             stepBudget: TurnStepBudget | null;
             callMetrics: TurnCallMetrics | null;
             ended: TurnEnd;
+            partialRaw?: string;
           }): void => {
             if (!effectiveOnTurn && !collab.onAttempt) return;
             const limitFired: TurnLimit | null =
@@ -458,6 +461,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
               promptText: text,
               promptBytes: Buffer.byteLength(text, "utf8"),
               outputText: sanitizeText(turn.outputRaw).text,
+              partialText: turn.partialRaw ? sanitizeText(redactByValue(turn.partialRaw)).text : null,
               tokensInput: turn.tokens?.input ?? null,
               tokensOutput: turn.tokens?.output ?? null,
               tokensReasoning: turn.tokens?.reasoning ?? null,
@@ -467,7 +471,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
               ts: new Date().toISOString(),
               sectionSizes: promptOpts?.sectionSizes ?? null,
               stepBudget: turn.stepBudget,
-              callMetrics: turn.callMetrics,
+              callMetrics: withoutStreamedText(turn.callMetrics),
               ended: turn.ended,
               durationMs: Math.max(0, clock() - startedAt),
               modelRequested: liveAttempt?.requested ?? null,
@@ -490,7 +494,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
             /* The attempt may never settle (the transport can hang): it ends with the turn, and is told apart as abandoned. */
             liveAttempt?.end({ abandoned: true, errorType: errorType ?? (ended === "timeout" ? "timeout" : "aborted") });
             const callMetrics = flushCalls();
-            emitTurn({ outputRaw: "", stepBudget: budgetOf(callMetrics, ""), callMetrics, ended });
+            emitTurn({ outputRaw: "", stepBudget: budgetOf(callMetrics, ""), callMetrics, ended, partialRaw: callMetrics?.streamedText });
           };
 
           const runPrompt = (attempt: number, modelOverride?: string) => {
@@ -625,6 +629,12 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
   };
 }
 
+/* The streamed text leaves the transport only as the turn's redacted `partialText`; the metrics a turn carries never hold it raw. */
+function withoutStreamedText(metrics: TurnCallMetrics | null): TurnCallMetrics | null {
+  if (!metrics || metrics.streamedText === undefined) return metrics;
+  const { streamedText: _streamed, ...rest } = metrics;
+  return rest;
+}
 
 const sessionRetryListeners = new Map<string, (message: string) => void>();
 

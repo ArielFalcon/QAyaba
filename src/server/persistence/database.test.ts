@@ -7,7 +7,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { openHistoryDatabase } from "./database";
 import { LATEST_SCHEMA_VERSION, type Migration } from "./migrations/index";
-import { SCHEMA_1_SQL } from "./migrations/0001-initial";
+import { SCHEMA_1_SQL, migration0001 } from "./migrations/0001-initial";
 
 const SCHEMA_1_TABLES = [...SCHEMA_1_SQL.matchAll(/CREATE TABLE IF NOT EXISTS (\w+)/g)].map((m) => m[1]!).sort();
 
@@ -65,9 +65,28 @@ test("a database that holds schema 1's tables and columns but no version is stam
   const history = openHistoryDatabase(path);
   t.after(() => history.close());
 
-  assert.equal(history.read(userVersion), 1);
+  assert.equal(history.read(userVersion), LATEST_SCHEMA_VERSION);
   assert.equal(history.read((db) => (db.prepare("SELECT COUNT(*) AS n FROM runs").get() as { n: number }).n), 2);
   assert.equal(history.read(hash), rowsBefore);
+});
+
+test("a schema 1 database is brought to the latest schema with every row intact and a turn's partial text unknown", (t) => {
+  const path = join(scratch(t), "history.db");
+  const before = new Database(path);
+  migration0001.up(before);
+  before.pragma("user_version = 1");
+  before.prepare("INSERT INTO runs (id, app, sha, at) VALUES ('r1', 'app', 'abcdef1', '2026-10-01T00:00:00.000Z')").run();
+  before.prepare("INSERT INTO agent_turns (run_id, session_id, role, round, is_repair, ts, prompt_text, output_text, prompt_bytes) VALUES ('r1', 's1', 'qa-author', 0, 0, '2026-10-01T00:00:00.000Z', 'p', '', 1)").run();
+  const rows = (db: Database.Database): string => JSON.stringify([db.prepare("SELECT * FROM runs ORDER BY id").all(), db.prepare("SELECT id, run_id, session_id, role, output_text FROM agent_turns ORDER BY id").all()]);
+  const rowsBefore = rows(before);
+  before.close();
+
+  const history = openHistoryDatabase(path);
+  t.after(() => history.close());
+
+  assert.equal(history.read(userVersion), LATEST_SCHEMA_VERSION);
+  assert.equal(history.read(rows), rowsBefore);
+  assert.deepEqual(history.read((db) => db.prepare("SELECT partial_text FROM agent_turns").all()), [{ partial_text: null }]);
 });
 
 test("a database missing a schema 1 column is refused with the operator's next step, and the file is not modified", (t) => {

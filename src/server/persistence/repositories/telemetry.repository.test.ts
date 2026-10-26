@@ -190,6 +190,15 @@ test("saveAgentTurnEvent keeps how a turn ended, and a turn that never answered 
   assert.equal(timedOut!.callBuckets?.script_run, 4);
 });
 
+test("saveAgentTurnEvent keeps what a turn that never answered had streamed, and an answered turn reads back with none", () => {
+  const runId = "run-event-streamed-text-" + Date.now();
+  getHistory().telemetry.saveAgentTurnEvent(makeTurnEvent({ runId, round: 0, ended: "completed" }));
+  getHistory().telemetry.saveAgentTurnEvent(makeTurnEvent({ runId, round: 1, outputText: "", ended: "timeout", partialText: "[reasoning] check the form\n[text] Writing" }));
+  const [answered, timedOut] = getHistory().telemetry.getAgentTurns(runId);
+  assert.equal(answered!.partialText, null);
+  assert.equal(timedOut!.partialText, "[reasoning] check the form\n[text] Writing");
+});
+
 test("saveAgentTurnEvent leaves the end null, never a guess, when the transport does not say how the turn ended", () => {
   const runId = "run-event-ended-null-" + Date.now();
   getHistory().telemetry.saveAgentTurnEvent(makeTurnEvent({ runId }));

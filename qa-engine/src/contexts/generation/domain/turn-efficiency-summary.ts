@@ -63,6 +63,8 @@ export interface TurnCallMetrics {
   usage: TurnUsage | null;
   /** The turn step by step and call by call, for its trace. Held in memory for the turn; never persisted. Absent from a turn that was not observed. */
   trace?: TurnTrace;
+  /** The text and reasoning the turn streamed, each part prefixed by its type and the whole bounded to its tail; raw, not yet redacted. Held in memory for the turn; never part of the persisted metrics. Absent when the turn streamed none. */
+  streamedText?: string;
 }
 
 const ZERO_BUCKETS: Record<CallBucket, number> = {
@@ -101,6 +103,7 @@ export interface BuildTurnCallMetricsInput {
   toolSequence: ToolSequenceEntry[];
   usage: TurnUsage | null;
   trace?: TurnTrace;
+  streamedText?: string;
 }
 
 /** Assembles the pinned `TurnCallMetrics` shape from a `CallSequenceSummary`
@@ -127,6 +130,7 @@ export function buildTurnCallMetrics(input: BuildTurnCallMetricsInput): TurnCall
     toolSequence: input.toolSequence,
     usage: input.usage,
     ...(input.trace ? { trace: input.trace } : {}),
+    ...(input.streamedText !== undefined ? { streamedText: input.streamedText } : {}),
   };
 }
 

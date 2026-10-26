@@ -44,6 +44,8 @@ export interface AgentTurnRecord {
   callBuckets?: Record<string, number> | null;
   /* How the turn ended; null when the row predates the column or the runtime does not say. A turn that ended by timeout or abort has empty output_text and only the calls measured up to its end. */
   ended?: TurnEnd | null;
+  /* What a turn that ended by timeout or abort had streamed (its text and reasoning, bounded and redacted by the transport); null for an answered turn, one that streamed nothing, or a row that predates the column. */
+  partialText?: string | null;
   /* Wall time of the turn, from the prompt being sent to its end; null when the row predates the column or the runtime did not measure it. */
   durationMs?: number | null;
   /* Milliseconds from the turn's start to its first call / first write; null when none was made, the start was not observed, or the row predates the column. */
@@ -97,6 +99,8 @@ export interface AgentTurnEventInput {
   stepBudget: { maxSteps: number | null; exhausted: boolean | null } | null;
   callMetrics: TurnCallMetrics | null;
   ended?: TurnEnd | null;
+  /* Already redacted by the transport that emitted the event. */
+  partialText?: string | null;
   durationMs: number | null;
   modelRequested?: string | null;
   modelAnswered?: string | null;
@@ -183,7 +187,7 @@ export class TelemetryRepository {
        path_provided_read_count, ended,
        duration_ms, time_to_first_call_ms, time_to_first_write_ms, denied_call_count, tool_sequence, usage_total,
        model_requested, model_answered, provider, attempt, fallback_used, error_type,
-       section_sizes, section_hashes, prompt_hash, limit_applied, limit_fired, same_file_read_count, graph_provided_read_count)
+       section_sizes, section_hashes, prompt_hash, limit_applied, limit_fired, same_file_read_count, graph_provided_read_count, partial_text)
     VALUES
       (@runId, @sessionId, @role, @round, @isRepair, @ts, @objective,
        @promptText, @outputText, @promptBytes,
@@ -193,7 +197,7 @@ export class TelemetryRepository {
        @pathProvidedReadCount, @ended,
        @durationMs, @timeToFirstCallMs, @timeToFirstWriteMs, @deniedCallCount, @toolSequence, @usageTotal,
        @modelRequested, @modelAnswered, @provider, @attempt, @fallbackUsed, @errorType,
-       @sectionSizes, @sectionHashes, @promptHash, @limitApplied, @limitFired, @sameFileReadCount, @graphProvidedReadCount)
+       @sectionSizes, @sectionHashes, @promptHash, @limitApplied, @limitFired, @sameFileReadCount, @graphProvidedReadCount, @partialText)
   `);
     this.turnsOfRun = raw.prepare("SELECT * FROM agent_turns WHERE run_id = ? ORDER BY id ASC");
     this.roleFacts = raw.prepare("SELECT role, provider, model_requested, model_answered, max_steps FROM agent_turns WHERE run_id = ? ORDER BY id ASC");
@@ -229,7 +233,7 @@ export class TelemetryRepository {
   }
 
   /*
-   * Persist one agent turn. `output_text` MUST already be sanitized by the caller
+   * Persist one agent turn. `output_text` and `partial_text` MUST already be sanitized by the caller
    * (the redaction port, or `sanitizeText` of the pattern redaction adapter) — this function stores whatever it receives.
    */
   saveAgentTurn(turn: AgentTurnRecord): void {
@@ -283,6 +287,7 @@ export class TelemetryRepository {
       promptHash: turn.promptHash ?? null,
       limitApplied: turn.limitApplied ?? null,
       limitFired: turn.limitFired ?? null,
+      partialText: turn.partialText ?? null,
     }));
   }
 
@@ -340,6 +345,7 @@ export class TelemetryRepository {
       promptHash: t.promptHash ?? null,
       limitApplied: t.limitApplied ?? null,
       limitFired: t.limitFired ?? null,
+      partialText: t.partialText ?? null,
     });
   }
 
@@ -387,6 +393,7 @@ export class TelemetryRepository {
       deniedCallCount: (r.denied_call_count as number | null) ?? null,
       toolSequence: typeof r.tool_sequence === "string" ? toolSequenceOrNull(parseJsonColumn<unknown>(r.tool_sequence, null, site("tool_sequence"))) : null,
       usageTotal: typeof r.usage_total === "string" ? parseJsonColumn<TurnUsage | null>(r.usage_total, null, site("usage_total")) : null,
+      partialText: (r.partial_text as string | null) ?? null,
     };
     });
   }

@@ -77,13 +77,14 @@ export function runTurns(ctx: ApiContext): ApiResult {
   if (!deps.getRecord(id)) throw new ApiError(404, `run not found: ${id}`);
   /*
    * Defensive egress sanitization, matching sanitizeRecord on the sibling run-read endpoints.
-   * prompt_text embeds the live-DEV domSnapshot and is persisted RAW (output_text is sanitized at
-   * capture, but re-sanitizing is idempotent and keeps the egress pass uniform across both fields).
+   * prompt_text embeds the live-DEV domSnapshot and is persisted RAW (output_text and partial_text are
+   * sanitized at capture, but re-sanitizing is idempotent and keeps the egress pass uniform across the fields).
    */
   const turns = deps.getAgentTurns(id).map((t) => ({
     ...t,
     promptText: sanitizeText(t.promptText).text,
     outputText: sanitizeText(t.outputText).text,
+    partialText: t.partialText ? sanitizeText(t.partialText).text : null,
   }));
   return reply.contract(200, z.array(AgentTurnViewSchema), turns);
 }
