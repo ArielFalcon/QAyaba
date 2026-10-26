@@ -195,7 +195,9 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   the run's sha is requested, recorded as `recapture` requested/skipped, see `docs/observability-design.md`),
   context pack (live DOM per route, redirect advisory, relevant API contracts, routes not
   capturable — `generation/infrastructure/context-pack.ts`), harness facts
-  (`generation/domain/harness-facts.ts`), existing-suite manifest.
+  (`generation/domain/harness-facts.ts`: the test-id attribute, the fixtures module's exports with their declared
+  signatures and the fixtures a test receives, the Playwright config's testDir/testMatch/storageState/projects, all read
+  through the confined reader; a flow sidekick's brief carries them with the suite listing), existing-suite manifest.
 - **Pre-exec / review grounding** — `pre-exec-grounding-port.adapter.ts`,
   `review-dom-grounding-port.adapter.ts` (same folder).
   The pre-exec selector-ambiguity check is a regex over the spec text and **advisory**: its findings
@@ -236,7 +238,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   lead (`qa-lead`) and the explorer (`qa-explore`) get the read-only code-graph tool (`codegraph_explore`, `agents/tool/codegraph.ts`) that POSTs to the same internal listener (`/internal/codegraph`, `QA_TOOLS_TOKEN`). The orchestrator admits
   the query (`agent-tools/domain/code-graph-query.ts`: known keys, bounded values, no free graph query, nothing that
   indexes or deletes), binds it to the repositories of the run's change (the graph holds every app's code and is never mounted into the agents
-  container) and runs the code-graph engine (`codegraph`, ADR-0002); the answer is redacted string by string (a secret JSON escapes is still found) and cut by its structure, so it stays JSON. On a run over several repositories one call answers over each repository of the change, sections labelled by repository. `CodeGraphToolRegistry` binds the lead's sessions
+  container) and runs the code-graph engine (`codegraph`); the answer is redacted string by string (a secret JSON escapes is still found) and cut by its structure, so it stays JSON. On a run over several repositories one call answers over each repository of the change, sections labelled by repository. `CodeGraphToolRegistry` binds the lead's sessions
   of the run (an explorer's only with its delegation id and a share of the run's calls), calls are capped per run (`DEFAULT_CODE_GRAPH_TOOL_LIMITS`), and the capability is revoked when the run ends. A prompt
   of a `qa-lead` or `qa-explore` session the run did not grant hides the tools. Calls are spans (`qayaba.tool.codegraph`) and the run log
   counts them.
@@ -269,14 +271,17 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   execute, coverage, review, decide) goes on as for any generation, with the pass kept open (`CoordinatedPass`: the lead's session and
   every flow's session, workspace, loop and location) until the review ends. The reviewer's verified corrections go to the lead
   (`lead-correction.ts`), which routes each to the flow whose spec it cites (revise in the same sidekick session, replace with a fresh
-  one) or rebuts it; the orchestrator's facts decide over its answer (a finding that cites a flow goes to it and to no other), the
-  workspace is refreshed from the working copy first, a finding no flow took goes to a regeneration, and the result goes through the
-  round's acceptance and rebuttal check like any regeneration. The run's own checks before the review take the same route: the
+  one) or rebuts it; the orchestrator's facts decide over its answer (a finding that cites a flow goes to it and to no other), an
+  order the admission refuses is sent back to the lead once with the reason, the workspace is refreshed from the working copy first,
+  and the result goes through the round's acceptance and rebuttal check like any regeneration. A finding no flow took that names a
+  spec of the suite no flow of the plan authored gets one maintenance flow (a fresh flow sidekick on that spec alone, within
+  `maxFlows` and the time reserve; `corrections.maintained`); any other is recorded unrouted and never handed to a cold author. The run's own checks before the review take the same route: the
   static gate's errors (one finding per error block), a failing execution's cases in the fix loop (and the contract deltas of a
   round the intent lock refused), the pre-execution selector contradictions and the change-coverage gap (the changed lines no test ran and the
   arms of their decisions that never ran) each go to the lead as
-  facts it routes to their flows and never rebuts; what no flow takes goes to the lead's own regeneration with only that evidence,
-  and the run's acceptance of the round is unchanged. The run releases the pass after the review and in its `finally`. DEV access: every action holds its account's lease (`DevLease`, an `AccountLock`
+  facts it routes to their flows and never rebuts (the coverage gap as one finding per file and per arm); what no flow takes follows
+  the same rule, and once the run's budget of corrections through the lead is spent the findings are recorded unrouted ("lead
+  correction budget spent") and nothing regenerates. The run's acceptance of the round is unchanged. The run releases the pass after the review and in its `finally`. DEV access: every action holds its account's lease (`DevLease`, an `AccountLock`
   whose read-only concurrency is gated by the proxy; the proxy has no read-only mode yet, so today every action is exclusive).
   Workspaces are removed in a `finally` and swept at boot. `gateSignals.coordination { plan, refusal, flows, delivered,
   incomplete, authoring, review, corrections }`. `docs/lead-sidekicks.md`.

@@ -20,7 +20,8 @@ import { runOf, type ReviewSession, type RunState } from "../run-state.ts";
 import { acceptedRegeneration, addRetries, remeasured, rollbackDelivered, withAcceptanceCalls, withRun } from "../reducers.ts";
 import { liveExecutionOptions, executeAccepted, validateAccepted } from "./execute.steps.ts";
 import { reviewRequired } from "../../../domain/review-required.ts";
-import { closedLoopSignal, contractFindingText, correctThroughLead, mayCorrectThroughLead, regenerateByAuthor } from "./generation-services.ts";
+import { closedLoopSignal, contractFindingText, correctionBudgetSpent, correctThroughLead, mayCorrectThroughLead, regenerateByAuthor } from "./generation-services.ts";
+import { CORRECTION_ORIGIN, type CorrectionFinding } from "@contexts/coordination/application/index.ts";
 import { resolveTested } from "./fix-loop.steps.ts";
 import { branchCoverageOf } from "./coverage.steps.ts";
 import { addReviewStats, annotateReviewPhase, newReviewTally, readReviewedSpecs, rebuttalEvidence, recordReviewDecision } from "./review-services.ts";
@@ -381,18 +382,21 @@ export async function reviewCorrect(state: Readonly<RunState>, ctx: WorkspaceRun
   rollbackDelivered(state, cur.deliveredBefore);
   const pass = trail.coordinatedPass;
   const { reviewResult, blockingSpecs, contractFeedback } = cur;
-  const { output: regen, leadCorrections } = pass && mayCorrectThroughLead(state, ctx)
-    ? await correctThroughLead(state, ctx, pass, [
-        ...reviewResult.corrections.map((text) => ({ text, ...(blockingSpecs.has(text) ? { spec: blockingSpecs.get(text)! } : {}) })),
-        ...(contractFeedback ?? []).map((v) => ({ text: contractFindingText(v), spec: v.file })),
-      ], signal)
-    : {
+  const findings: CorrectionFinding[] = [
+    ...reviewResult.corrections.map((text) => ({ text, ...(blockingSpecs.has(text) ? { spec: blockingSpecs.get(text)! } : {}) })),
+    ...(contractFeedback ?? []).map((v) => ({ text: contractFindingText(v), spec: v.file })),
+  ];
+  const { output: regen, leadCorrections } = !pass
+    ? {
         output: await regenerateByAuthor(state, ctx, signal, {
           reviewCorrections: reviewResult.corrections,
           ...(contractFeedback ? { contractFeedback } : {}),
         }),
         leadCorrections: 0,
-      };
+      }
+    : mayCorrectThroughLead(state, ctx)
+      ? await correctThroughLead(state, ctx, pass, findings)
+      : correctionBudgetSpent(ctx, pass, findings, CORRECTION_ORIGIN.REVIEW);
   await services.confinement.enforce();
   const changed = await suiteChangedFiles(cur.snapshot, regen.specs);
   cur.regen = regen;

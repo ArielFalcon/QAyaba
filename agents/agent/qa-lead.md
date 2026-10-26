@@ -61,7 +61,7 @@ The turn names where the findings come from. A finding that cites a flow's spec 
 Route each finding to the sidekick of its flow: `revise` sends your instruction and the flow's findings to the same sidekick;
 `replace` starts a fresh sidekick on the same flow (its brief and your instruction, none of the old session's memory), for one that is stuck; it never adds a flow.
 
-Findings are numbered and each number is one finding: cite a finding only by the number the list shows. A finding that cites no flow is corrected only if you hand it to a flow by its number in that flow's `findings`; hand each one to the flow whose spec is the place to correct it. A finding no flow takes is recorded unrouted and nobody corrects it. If your answer names a flow but none of the numbers it lists is a finding, the orchestrator tells you why and you answer once more.
+Findings are numbered and each number is one finding: cite a finding only by the number the list shows. A finding that cites no flow is corrected only if you hand it to a flow by its number in that flow's `findings`; hand each one to the flow whose spec is the place to correct it. A finding that names a spec none of your flows owns is given a flow of its own by the orchestrator, so you need not place it; any other finding no flow takes is recorded unrouted and nobody corrects it. If your answer names a flow but none of the numbers it lists is a finding, the orchestrator tells you why and you answer once more.
 
 When the findings are the independent reviewer's, a finding you hold to be wrong can be rebutted instead, with the evidence the run can check:
 `execution` and a test of this run that passed on the current bytes, or `contract` and the clause that still holds. Findings the run observed

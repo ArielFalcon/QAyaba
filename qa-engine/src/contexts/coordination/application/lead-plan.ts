@@ -109,6 +109,8 @@ export interface AdmittedFlow {
   browserCalls: number;
   /* Where the flow authors, when the plan named a declared place or a valid point; absent: the flow inherits the lead's. */
   location?: GeoLocation;
+  /* Set on a maintenance flow only (`maintenance-flow.ts`): an existing spec the plan did not name, corrected for these findings. */
+  maintenance?: { findings: string[]; preamble: string };
 }
 
 /* An admitted plan that names the flows to author, or declares that nothing is worth a test, or is rejected with the reason. */

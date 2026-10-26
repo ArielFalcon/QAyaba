@@ -1475,3 +1475,131 @@ test("a plan that cannot be admitted goes back to the lead once with the reason;
   assert.equal(refused.action === "refused" ? refused.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.EMPTY}`);
   assert.equal(again.asked.length, 1, "once, never twice");
 });
+
+const NO_ORDERS = JSON.stringify({ corrections: [] });
+const OLD_SPEC_ID = "maint-flows-old";
+const oldSpecRig = (extra: Partial<Script> = {}): Rig => rig({ hasFile: new Set(["cart", "login", OLD_SPEC_ID]), ...extra });
+const opened = (r: Rig, id: string) => r.executed.filter((e) => !e.asked && e.brief.delegationId === `run-1-flow-${id}`);
+
+test("findings that name a spec no flow of the plan authored open one maintenance flow for it, whose sidekick may write that spec and no other", async () => {
+  const lead = leadAnswering([ACCEPT_ALL, NO_ORDERS]);
+  const r = oldSpecRig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  const findings = [
+    { text: "the static gate refused the spec: e2e/flows/old.spec.ts(3,1): error TS2304: Cannot find name 'row'." },
+    { text: "test \"old total\" in flows/old.spec.ts failed: expected 3 received 0", spec: "flows/old.spec.ts" },
+    { text: "a loose finding that names no spec" },
+  ];
+  const corrected = await outcome.pass!.correct(findings, CORRECTION_ORIGIN.STATIC_GATE);
+  const sessions = opened(r, OLD_SPEC_ID);
+  assert.equal(sessions.length, 1, "one maintenance flow for both findings");
+  const brief = sessions[0]!.brief;
+  assert.deepEqual(brief.scope.writablePaths, ["e2e/flows/old.spec.ts"]);
+  assert.match(brief.task, /Cannot find name 'row'/);
+  assert.match(brief.task, /expected 3 received 0/);
+  assert.doesNotMatch(brief.task, /a loose finding/);
+  assert.deepEqual(corrected.specs, ["flows/old.spec.ts"], "what it delivers joins the round");
+  assert.deepEqual(corrected.unrouted, [2], "a finding that names no spec stays unrouted");
+  assert.equal(outcome.pass!.tally().maintained, 1);
+  assert.equal(outcome.pass!.tally().unrouted, 1);
+  assert.ok(r.events.some((e) => /maintenance flow/.test(e.reason ?? "")), "it is on the record");
+  await outcome.pass!.release();
+  assert.ok(r.disposed.includes(`/w/run-1-flow-${OLD_SPEC_ID}`), "its workspace is removed with the pass");
+  assert.equal(r.sessionsDisposed.length, 3);
+});
+
+test("a maintenance flow gets its own run_spec loop on the spec, and a later finding on that spec goes to it through the lead", async () => {
+  const lead = leadAnswering([ACCEPT_ALL, NO_ORDERS, JSON.stringify({ corrections: [{ flow: OLD_SPEC_ID, action: "revise", instruction: "wait for the table" }] })]);
+  const r = oldSpecRig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  await outcome.pass!.correct([{ text: "flows/old.spec.ts never asserts the total", spec: "e2e/flows/old.spec.ts" }]);
+  const loop = r.flowLoops.at(-1)!;
+  assert.equal(loop.input.specFile, "flows/old.spec.ts");
+  assert.equal(loop.input.limits.maxCalls, 4, "the share of a plan flow");
+  await outcome.pass!.correct([{ text: "flows/old.spec.ts still fails", spec: "e2e/flows/old.spec.ts" }]);
+  assert.equal(opened(r, OLD_SPEC_ID).length, 1, "never a second maintenance flow for the same spec");
+  assert.ok(r.executed.some((e) => e.asked && e.brief.delegationId === `run-1-flow-${OLD_SPEC_ID}`), "the same sidekick is asked");
+  await outcome.pass!.release();
+  assert.equal(r.flowLoops.at(-1)!.closed, 1);
+});
+
+test("a maintenance flow's brief carries the Live DOM of the pages the candidates that list the spec visit", async () => {
+  const lead = leadAnswering([ACCEPT_ALL, NO_ORDERS]);
+  const r = oldSpecRig();
+  const contextPack = [`### ${PACK_HEADINGS.liveDom}`, "route /old:", "  button \"Export\"", "route /login:", "  textbox \"Email\""].join("\n");
+  const candidates = [pageCandidate("/old", undefined, { existingSpecs: ["e2e/flows/old.spec.ts"] })];
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, candidates, contextPack, closedLoop: undefined }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  await outcome.pass!.correct([{ text: "flows/old.spec.ts fails", spec: "flows/old.spec.ts" }]);
+  const brief = opened(r, OLD_SPEC_ID)[0]!.brief;
+  assert.ok(brief.pages?.includes("button \"Export\""));
+  assert.ok(!brief.pages?.includes("Email"));
+  await outcome.pass!.release();
+});
+
+test("a finding whose spec is outside the spec directory or is not a spec is never given a maintenance flow", async () => {
+  const lead = leadAnswering([ACCEPT_ALL, NO_ORDERS]);
+  const r = oldSpecRig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  const corrected = await outcome.pass!.correct([
+    { text: "climbs", spec: "../outside.spec.ts" },
+    { text: "absolute", spec: "/etc/x.spec.ts" },
+    { text: "auth", spec: "auth.setup.ts" },
+    { text: "probe", spec: "e2e/.qa-probe/p.spec.ts" },
+  ]);
+  assert.deepEqual(corrected.unrouted, [0, 1, 2, 3]);
+  assert.equal(r.executed.filter((e) => !e.asked).length, 2, "only the plan's two sessions");
+  await outcome.pass!.release();
+});
+
+test("with no room under the run's flow cap, or too little time, unowned spec findings stay unrouted with the reason on the record", async () => {
+  const capped = oldSpecRig();
+  const lead = leadAnswering([ACCEPT_ALL, NO_ORDERS]);
+  const settings = { ...DEFAULT_COORDINATION_SETTINGS, maxFlows: 2 };
+  const outcome = await new LeadSidekicks(capped.deps).coordinate(input(capped, { plan: lead.plan, closedLoop: undefined, settings }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  const corrected = await outcome.pass!.correct([{ text: "flows/old.spec.ts fails", spec: "flows/old.spec.ts" }]);
+  assert.deepEqual(corrected.unrouted, [0]);
+  assert.equal(opened(capped, OLD_SPEC_ID).length, 0);
+  assert.ok(capped.events.some((e) => /maxFlows/.test(e.reason ?? "")), "the reason is recorded");
+  assert.equal(outcome.pass!.tally().maintained, undefined);
+  await outcome.pass!.release();
+});
+
+test("a maintenance flow that delivers nothing leaves its findings unrouted", async () => {
+  const lead = leadAnswering([ACCEPT_ALL, NO_ORDERS]);
+  const r = rig({ answers: { [OLD_SPEC_ID]: [{ status: "failed", summary: "x", filesChanged: [] }] } });
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  const corrected = await outcome.pass!.correct([{ text: "flows/old.spec.ts fails", spec: "flows/old.spec.ts" }]);
+  assert.deepEqual(corrected.specs, []);
+  assert.deepEqual(corrected.unrouted, [0]);
+  await outcome.pass!.release();
+});
+
+test("every origin still routes a finding that names a plan flow's spec to that flow, with no maintenance flow", async () => {
+  for (const origin of Object.values(CORRECTION_ORIGIN)) {
+    const lead = leadAnswering([ACCEPT_ALL, NO_ORDERS]);
+    const r = oldSpecRig();
+    const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+    if (outcome.action !== "fanout") return assert.fail("fanout expected");
+    const corrected = await outcome.pass!.correct([{ text: "flows/cart.spec.ts fails" }], origin);
+    assert.deepEqual([corrected.specs, corrected.unrouted], [["flows/cart.spec.ts"], []], origin);
+    assert.equal(r.executed.filter((e) => !e.asked).length, 2, `${origin}: no maintenance flow`);
+    await outcome.pass!.release();
+  }
+});
+
+test("leaving findings unrouted by the run's request is recorded and counted", async () => {
+  const lead = leadAnswering([ACCEPT_ALL]);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  outcome.pass!.leaveUnrouted([{ text: "a" }, { text: "b" }], CORRECTION_ORIGIN.EXECUTION, "lead correction budget spent");
+  assert.equal(outcome.pass!.tally().unrouted, 2);
+  assert.ok(r.events.some((e) => /lead correction budget spent/.test(e.reason ?? "") && /left unrouted/.test(e.reason ?? "")));
+  await outcome.pass!.release();
+});

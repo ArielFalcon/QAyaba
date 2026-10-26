@@ -204,7 +204,18 @@ findings, the run asks the lead, in the same planning session, instead of regene
    first answer's result when it is no better. Never a third asking.
 4. Each flow's workspace is refreshed from the working copy (the run may have changed the spec since), then its sidekick gets the
    findings verbatim, the lead's instruction and the orchestrator's facts. Only a change made after the refresh comes back.
-5. Findings no flow took are recorded as unrouted (a `lead-decision` event naming their numbers, an error line in the log and
+5. A finding no flow took that names a spec of the suite no flow of the plan authored (a static-gate error or a failing case in a
+   spec the suite already held) gets a **maintenance flow** (`maintenance-flow.ts`), opened by the orchestrator in the lead's
+   place: an ordinary flow, so a fresh sidekick in a delegation workspace, a brief built like a plan flow's (the findings as its
+   task, the Live DOM of the pages the candidates that list the spec visit), that one spec as its only `writablePaths` entry
+   (confined to a `*.spec.ts` inside the spec directory, never a hidden directory such as the probe one), its own `run_spec` loop
+   with the share of a plan flow, and the same release as every flow. All unrouted findings that name the same spec go to that one
+   flow, and a later finding on it is routed to it through the lead like any other. It is bounded: at most one per spec, within
+   `maxFlows` (counting the plan's flows and the maintenance flows already opened) and the run's time reserve, and only for a
+   spec the working copy can read; without room the findings stay unrouted and the reason is a `lead-decision` event. What it delivers
+   joins the round like the flows' deliveries. It is counted in `corrections.maintained`.
+6. Findings that remain (they name no spec, or one outside the spec directory, or no maintenance flow could take them or it
+   delivered nothing) are recorded as unrouted (a `lead-decision` event naming their numbers, an error line in the log and
    `corrections.unrouted`) and nobody corrects them: a fresh run-level author, with no flow spec, no `run_spec` history and no
    instruction of the lead's, would repeat the whole first pass cold. Everything the flows delivered goes through the round's
    acceptance, and the lead's rebuttals through the same check as a generator's.
@@ -223,16 +234,16 @@ the sidekick's instruction (`CORRECTION_ORIGIN`, `lead-correction.ts`):
 | `coverage` | one per file with uncovered change lines and one per decision arm no test ran (up to the caps the gap text lists), citing no flow |
 
 These are facts the run observed: the lead is not offered a rebuttal, and one it gives anyway is not taken. What no flow takes
-stays unrouted, as above, and is not regenerated; the turn's findings are told apart by their position, never by their text, and
+gets a maintenance flow or stays unrouted, as above, and is not regenerated; the turn's findings are told apart by their position, never by their text, and
 the lead can hand a finding that cites no flow to any flow by its number. A finding that cites no spec belongs to the one flow whose
 spec its text names as a whole path; one that names several is the lead's to place. A correction hands back the source of every
 spec it took, for the fix loop's next post-failure selector check. On a failing execution a sidekick may answer, changing
 nothing, that its test is right and the app or the environment is not (`testCorrect`); the claim reaches the fix loop as a
 generator's does, only when no flow changed a spec, and is checked against the run's evidence there. The
-round's acceptance, contract check and budgets are the caller's, unchanged. A run without a pass regenerates as it always did (and so does a run whose budget of corrections through the lead is spent).
+round's acceptance, contract check and budgets are the caller's, unchanged. A run without a pass regenerates as it always did. A run with a pass whose budget of corrections through the lead is spent does not: the findings are recorded unrouted with the reason `lead correction budget spent` (`CoordinatedPass.leaveUnrouted`: a `lead-decision` event, an error line in the log, `corrections.unrouted`), the round's delivery is left as it is and its acceptance goes on.
 
 The pass is released as soon as the review ends, and in the run's `finally` however it ends. The corrections of every origin are
-recorded as `gateSignals.coordination.corrections { turns, routed, unrouted, revised, replaced, rebutted }`.
+recorded as `gateSignals.coordination.corrections { turns, routed, unrouted, revised, replaced, rebutted, maintained? }`.
 
 ## Cleanup
 

@@ -150,8 +150,9 @@ export function mayCorrectThroughLead(state: Readonly<RunState>, ctx: WorkspaceR
  * sidekicks and whose pass is still open, the evidence goes to the lead first, which routes each finding to a flow (the one whose
  * spec it names, or any it names for a finding that cites none), as the reviewer's corrections are; what no flow takes stays
  * unrouted and is recorded, never handed to a cold author. The findings are read from the enrichment unless the caller names them
- * (the static gate's errors, which the lead alone reads as one case). A run the lead authored alone, or evidence that names nothing
- * to correct, regenerates as it always did.
+ * (the static gate's errors, which the lead alone reads as one case). When the run's budget of corrections through the lead is spent
+ * the findings are recorded unrouted and nothing regenerates. A run the lead authored alone, or evidence that names nothing to
+ * correct, regenerates as it always did.
  */
 export async function regenerate(
   state: Readonly<RunState>,
@@ -163,23 +164,37 @@ export async function regenerate(
 ): Promise<Regenerated> {
   const pass = ctx.trail.coordinatedPass;
   const findings = pass ? (evidence ?? findingsOf(enrichment)) : [];
-  if (!pass || findings.length === 0 || !mayCorrectThroughLead(state, ctx)) return { output: await regenerateByAuthor(state, ctx, regenerationSignal, enrichment), leadCorrections: 0 };
-  return correctThroughLead(state, ctx, pass, findings.map((f) => f.finding), regenerationSignal, origin);
+  if (!pass || findings.length === 0) return { output: await regenerateByAuthor(state, ctx, regenerationSignal, enrichment), leadCorrections: 0 };
+  if (!mayCorrectThroughLead(state, ctx)) return correctionBudgetSpent(ctx, pass, findings.map((f) => f.finding), origin);
+  return correctThroughLead(state, ctx, pass, findings.map((f) => f.finding), origin);
+}
+
+/* The reason recorded for findings a coordinated run no longer sends through the lead. */
+export const LEAD_CORRECTION_BUDGET_SPENT = "lead correction budget spent";
+
+/*
+ * The run's budget of corrections through the lead is spent: the findings are recorded unrouted and nothing is regenerated, because
+ * the only other author is a cold one with no flow, no run_spec history and no instruction of the lead's. What the flows delivered
+ * stays as it is and the caller's acceptance goes on with it.
+ */
+export function correctionBudgetSpent(ctx: WorkspaceRunContext, pass: CoordinatedPass, findings: readonly CorrectionFinding[], origin: CorrectionOrigin): Regenerated {
+  pass.leaveUnrouted(findings, origin, LEAD_CORRECTION_BUDGET_SPENT);
+  ctx.host.recordCorrections();
+  return { leadCorrections: 0, output: { specs: [], end: GENERATION_END.UNDECIDED_EMPTY, parsed: true } };
 }
 
 /*
  * Findings of one origin in a coordinated run: the lead routes them to the sidekicks of its flows, which correct their specs in
- * their own sessions. What no flow was sent is recorded unrouted by the pass and is not regenerated: a fresh author with no flow
- * spec, no run_spec history and no instruction of the lead's is the cold start this route replaces. What the flows deliver joins
- * the run's delivery and goes through the caller's acceptance like any regeneration. The signal is unused: no turn of this route
- * is the run's own author.
+ * their own sessions. A finding that names a spec no flow owns gets one maintenance flow of the pass; what is left is recorded unrouted
+ * by the pass and is not regenerated: a fresh author with no flow spec, no run_spec history and no instruction of the lead's is the
+ * cold start this route replaces. What the flows deliver joins the run's delivery and goes through the caller's acceptance like any
+ * regeneration.
  */
 export async function correctThroughLead(
   state: Readonly<RunState>,
   ctx: WorkspaceRunContext,
   pass: CoordinatedPass,
   findings: readonly CorrectionFinding[],
-  _regenerationSignal: AbortSignal | undefined,
   origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW,
 ): Promise<Regenerated> {
   const corrected = await pass.correct(findings, origin);

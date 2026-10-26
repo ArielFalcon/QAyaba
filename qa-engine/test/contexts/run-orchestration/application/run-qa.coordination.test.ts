@@ -280,7 +280,7 @@ test("a run cancelled while its plan was being refused is a cancelled run, not a
 
 /* A coordinated pass kept open: it records what it was asked to correct and how many times it was released, and corrects as told. */
 function keptPass(r: Rig, answer: (findings: readonly CorrectionFinding[]) => PassCorrection) {
-  const seen = { corrected: [] as CorrectionFinding[][], origins: [] as CorrectionOrigin[], released: 0 };
+  const seen = { corrected: [] as CorrectionFinding[][], origins: [] as CorrectionOrigin[], released: 0, left: [] as Array<{ count: number; origin: CorrectionOrigin; reason: string }> };
   const pass: CoordinatedPass = {
     correct: async (findings, origin = CORRECTION_ORIGIN.REVIEW) => {
       seen.corrected.push([...findings]);
@@ -289,6 +289,7 @@ function keptPass(r: Rig, answer: (findings: readonly CorrectionFinding[]) => Pa
       for (const spec of out.specs) r.ws.write(spec, `// corrected ${spec}\n`);
       return out;
     },
+    leaveUnrouted: (findings, origin, reason) => void seen.left.push({ count: findings.length, origin, reason }),
     tally: () => ({ turns: seen.corrected.length, routed: seen.corrected.flat().length, unrouted: 0, revised: seen.corrected.length, replaced: 0, rebutted: 0 }),
     release: async () => void (seen.released += 1),
   };
@@ -549,4 +550,35 @@ test("a static-gate error that spans paragraphs stays one finding", async () => 
   await new RunQaUseCase(r.deps({ validation })).run(INPUT);
   assert.equal(kept.seen.corrected[0]?.length, 1);
   assert.match(kept.seen.corrected[0]![0]!.text, /Expected number, received string/);
+});
+
+/* A config whose budget of corrections through the lead is spent before the first one. */
+const SPENT = { needsReview: true, shadow: false, onFailure: "github-issue" as const, maxRetries: -leadCorrectionBudget({ maxRetries: 0 }), isCode: false };
+
+test("when the lead's correction budget is spent the static gate's errors stay unrouted and no cold author regenerates them", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
+  let checks = 0;
+  const validation = { validate: async () => (checks++ === 0 ? { ok: false, errors: ["flows/a.spec.ts(3,1): error TS2304: Cannot find name 'row'."] } : { ok: true, errors: [] }) };
+  const result = await new RunQaUseCase(r.deps({ validation, config: SPENT })).run(INPUT);
+  assert.deepEqual(kept.seen.corrected, [], "the lead is not asked");
+  assert.deepEqual(kept.seen.left, [{ count: 1, origin: CORRECTION_ORIGIN.STATIC_GATE, reason: "lead correction budget spent" }]);
+  assert.equal(r.calls.filter((c) => c === "generate").length, 0, "no cold regeneration");
+  assert.ok(result.outcome, "the run ends with an outcome");
+});
+
+test("when the lead's correction budget is spent the reviewer's findings stay unrouted, and a run with no pass still regenerates by an author", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
+  await new RunQaUseCase(r.deps({ review: rejectingOnce(["flows/a.spec.ts never asserts the total"]), config: SPENT })).run(INPUT);
+  assert.deepEqual(kept.seen.corrected, []);
+  assert.deepEqual(kept.seen.left.map((l) => [l.origin, l.reason]), [[CORRECTION_ORIGIN.REVIEW, "lead correction budget spent"]]);
+  assert.equal(r.enrichments.filter((e) => e.reviewCorrections !== undefined).length, 0, "no author was sent the finding");
+  const alone = rig();
+  await new RunQaUseCase(alone.deps({ review: rejectingOnce(["flows/a.spec.ts never asserts the total"]), config: SPENT })).run(INPUT);
+  assert.equal(alone.enrichments.filter((e) => e.reviewCorrections !== undefined).length, 1, "without a pass the author regenerates as before");
 });
