@@ -7,8 +7,8 @@ import {
   renderLeadReview,
   REVIEW_ACTION,
   type FlowUnderReview,
-} from "@contexts/qa-run-orchestration/application/coordination/lead-review.ts";
-import { FLOW_OUTCOME } from "@contexts/qa-run-orchestration/application/coordination/flow-outcomes.ts";
+} from "@contexts/coordination/application/lead-review.ts";
+import { FLOW_OUTCOME } from "@contexts/coordination/application/flow-outcomes.ts";
 
 function flow(over: Partial<FlowUnderReview> = {}): FlowUnderReview {
   return {

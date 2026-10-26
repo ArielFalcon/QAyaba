@@ -15,7 +15,7 @@
 import { createHash } from "node:crypto";
 import { lstatSync, mkdirSync, readdirSync, rmdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { removeTreeBounded } from "../../../shared-infrastructure/bounded-tree-removal.ts";
+import { removeTreeBounded } from "../../../../shared-infrastructure/bounded-tree-removal.ts";
 import { PROBE_REL_DIR } from "@contexts/test-execution/application/index.ts";
 import {
   MAX_SPEC_SOURCE_BYTES,
@@ -24,7 +24,7 @@ import {
   walkRepoFiles,
   writeOwnedSpecFile,
   type SpecRoot,
-} from "../../../shared-infrastructure/spec-path-confinement.ts";
+} from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import {
   WORKSPACE_CHANGE,
   type DelegationCollection,
@@ -33,7 +33,7 @@ import {
   type DelegationWorkspaceRequest,
   type RefusedCopy,
   type WorkspaceChange,
-} from "../application/ports/delegation-workspace.port.ts";
+} from "../../application/ports/delegation-workspace.port.ts";
 
 export interface WorkspaceLimits {
   /* The most files the read view holds. */

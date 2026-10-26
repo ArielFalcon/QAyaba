@@ -13,8 +13,8 @@ import {
   MAX_LEDGER_EVENTS,
   ROTATE_TO_EVENTS,
   type CoordinationTelemetryFsDeps,
-} from "@contexts/qa-run-orchestration/infrastructure/adapters/coordination-telemetry-port.adapter.ts";
-import type { CoordinationTelemetryEvent } from "@contexts/qa-run-orchestration/application/coordination/coordination-telemetry.ts";
+} from "@contexts/coordination/infrastructure/adapters/coordination-telemetry-port.adapter.ts";
+import type { CoordinationTelemetryEvent } from "@contexts/coordination/application/coordination-telemetry.ts";
 
 function event(overrides: Partial<CoordinationTelemetryEvent>): CoordinationTelemetryEvent {
   return {

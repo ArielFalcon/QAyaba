@@ -2,9 +2,9 @@
    account. Pure and deterministic: the same rules as the fix loop's adjudicator (an attributed 5xx or a framework/uncaught
    runtime error is the app's; the failure detail's class otherwise), with the page's settle state, which tells a page still
    loading from one that settled without the element. First match wins. */
-import { classifyFailure } from "../../domain/helpers/progress-gate.ts";
-import { classifyRuntimeErrors } from "../../domain/adjudicate.service.ts";
-import type { FlowFailureFact } from "../ports/index.ts";
+import { classifyFailure } from "@kernel/failure-detail-class.ts";
+import { classifyRuntimeErrors } from "@kernel/runtime-error-class.ts";
+import type { FlowFailureFact } from "@contexts/agent-tools/application/index.ts";
 
 export const AUTHORING_FAILURE = {
   /* The app is at fault: the spec is right to fail, and is never sent back to be made green. */

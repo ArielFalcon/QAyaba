@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { FixLoop, type FixLoopExecutionPort, type FixLoopGenerationPort } from "@contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts";
-import { CycleBudget } from "@contexts/qa-run-orchestration/domain/cycle-budget.ts";
-import { WallClockBudget } from "@contexts/qa-run-orchestration/domain/wall-clock-budget.ts";
+import { CycleBudget } from "@kernel/cycle-budget.ts";
+import { WallClockBudget } from "@kernel/wall-clock-budget.ts";
 
 /* The retry loop of the FixLoop aggregate: a run that fails the same way on every execution is retried once and ends
    as a fail, and the aggregate's own retries counter reaches 2 under maxRetries=2 while progress is preserved. The

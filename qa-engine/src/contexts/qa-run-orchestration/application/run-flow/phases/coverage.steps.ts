@@ -1,6 +1,6 @@
 /* The coverage phase of a run: the change-coverage measurement of a green execution and, in enforce mode, the one regeneration at the uncovered lines. */
 
-import { CORRECTION_ORIGIN } from "../../coordination/lead-correction.ts";
+import { CORRECTION_ORIGIN } from "@contexts/coordination/application/index.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { renderCoverageGap } from "@contexts/objective-signal/application/index.ts";
 import type { StepOutcome } from "../run-flow.ts";

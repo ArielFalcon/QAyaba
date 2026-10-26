@@ -24,6 +24,14 @@ const SECURITY_RELEVANT_MODULES = [
   `${CONTEXTS}/agent-tools/infrastructure/adapters/code-graph-tools-port.adapter.ts`,
   `${CONTEXTS}/agent-tools/domain/code-graph-query.ts`,
   `${CONTEXTS}/agent-tools/domain/explore-answer.ts`,
+  `${CONTEXTS}/coordination/application/lead-plan.ts`,
+  `${CONTEXTS}/coordination/application/lead-sidekicks.ts`,
+  `${CONTEXTS}/coordination/application/sidekick-authoring.ts`,
+  `${CONTEXTS}/coordination/application/lead-review.ts`,
+  `${CONTEXTS}/coordination/application/lead-correction.ts`,
+  `${CONTEXTS}/coordination/application/ports/delegation-workspace.port.ts`,
+  `${CONTEXTS}/coordination/infrastructure/adapters/delegation-workspace.adapter.ts`,
+  `${CONTEXTS}/coordination/infrastructure/adapters/coordination-telemetry-port.adapter.ts`,
 ];
 
 test("every security-relevant module exists at its path and is protected there", () => {

@@ -4,7 +4,7 @@ import {
   FanOutDispatcher,
   FLOW_RESULT,
   type TimerPort,
-} from "@contexts/qa-run-orchestration/application/coordination/fan-out-dispatcher.ts";
+} from "@contexts/coordination/application/fan-out-dispatcher.ts";
 
 /* A clock the test moves by hand: a timer fires when the clock reaches it, never before. */
 class FakeTimers implements TimerPort {

@@ -18,8 +18,8 @@ import {
   renderExecutionResult,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import type { ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
-import { createDelegationBrief } from "@contexts/qa-run-orchestration/application/coordination/delegation-brief.ts";
-import { SidekickExecutor } from "@contexts/qa-run-orchestration/application/coordination/sidekick-executor.ts";
+import { createDelegationBrief } from "@contexts/coordination/application/delegation-brief.ts";
+import { SidekickExecutor } from "@contexts/coordination/application/sidekick-executor.ts";
 import { ReflectorPortAdapter } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter.ts";
 import type { ReflectionInput } from "@contexts/cross-run-learning/application/ports/index.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";

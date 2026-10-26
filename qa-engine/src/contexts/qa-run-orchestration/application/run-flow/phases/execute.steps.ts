@@ -1,11 +1,11 @@
 /* The validate, health and execute phases of a run: the static gate with its bounded repair, the DEV pre-flight, the login that signs in just before the specs run, and the primary execution. */
 
-import { CORRECTION_ORIGIN } from "../../coordination/lead-correction.ts";
+import { CORRECTION_ORIGIN } from "@contexts/coordination/application/index.ts";
 import { stripAnsi } from "@kernel/ansi.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { isOk } from "@kernel/result.ts";
 import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
-import { MAX_STATIC_FIX_ROUNDS } from "../../../domain/helpers/derive-cycle-backstop.ts";
+import { MAX_STATIC_FIX_ROUNDS } from "../../../../../shared-kernel/derive-cycle-backstop.ts";
 import { staticFixAction } from "../../../domain/static-fix.ts";
 import { reviewerApprovalOf } from "../../ports/index.ts";
 import type { ExecutionPort, ValidationPort } from "../../ports/index.ts";

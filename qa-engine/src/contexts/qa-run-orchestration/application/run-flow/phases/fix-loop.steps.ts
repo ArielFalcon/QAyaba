@@ -1,6 +1,6 @@
 /* The fix_loop phase of a run: the bounded repair of a failing primary execution, and the fingerprint the suite store takes of a green one. */
 
-import { CORRECTION_ORIGIN } from "../../coordination/lead-correction.ts";
+import { CORRECTION_ORIGIN } from "@contexts/coordination/application/index.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { readConfinedSpecFile, listSpecFiles, readOwnedSpecFile, MAX_SPEC_SOURCE_BYTES, type SpecRoot } from "../../../../../shared-infrastructure/spec-path-confinement.ts";
 import { FixLoop, type FixLoopState, type FixLoopInput, type FixLoopAcceptancePort, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../../../domain/fix-loop.aggregate.ts";

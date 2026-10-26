@@ -6,7 +6,7 @@ import {
   createDelegationBrief,
   evidenceFromValidation,
   CoordinationTelemetryRecorder,
-} from "@contexts/qa-run-orchestration/application/coordination/index.ts";
+} from "@contexts/coordination/application/index.ts";
 
 const scope = {
   readablePaths: ["e2e/"],

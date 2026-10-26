@@ -8,7 +8,7 @@ import {
   type AdmittedPlan,
   type PlanDeps,
   type PlanLimits,
-} from "@contexts/qa-run-orchestration/application/coordination/lead-plan.ts";
+} from "@contexts/coordination/application/lead-plan.ts";
 
 const deps: PlanDeps = {
   specRelDir: "e2e",

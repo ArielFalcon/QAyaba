@@ -6,8 +6,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CycleBudget } from "@contexts/qa-run-orchestration/domain/cycle-budget.ts";
-import { WallClockBudget } from "@contexts/qa-run-orchestration/domain/wall-clock-budget.ts";
+import { CycleBudget } from "@kernel/cycle-budget.ts";
+import { WallClockBudget } from "@kernel/wall-clock-budget.ts";
 import {
   AGENT_CAPABILITIES,
   COORDINATION_ACTIONS,
@@ -16,7 +16,7 @@ import {
   type CoordinationContext,
   type CoordinationDecision,
   type EvidenceRef,
-} from "@contexts/qa-run-orchestration/application/coordination/index.ts";
+} from "@contexts/coordination/application/index.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const qaEngineRoot = join(here, "..", "..");

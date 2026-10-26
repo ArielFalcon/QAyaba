@@ -5,7 +5,7 @@ import {
   sidekickAuthoring,
   sidekickDeniedTools,
   type AuthoringFacts,
-} from "@contexts/qa-run-orchestration/application/coordination/sidekick-authoring.ts";
+} from "@contexts/coordination/application/sidekick-authoring.ts";
 import { MAX_SESSION_PAGES } from "@kernel/agent-browser.ts";
 
 const facts = (over: Partial<AuthoringFacts> = {}): AuthoringFacts => ({

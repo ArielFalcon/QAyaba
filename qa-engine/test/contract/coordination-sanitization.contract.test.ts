@@ -5,10 +5,10 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createDelegationBrief } from "@contexts/qa-run-orchestration/application/coordination/delegation-brief.ts";
-import { evidenceFromChangeAnalysis } from "@contexts/qa-run-orchestration/application/coordination/evidence-from.ts";
-import { FileCoordinationTelemetryAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/coordination-telemetry-port.adapter.ts";
-import { SidekickExecutor } from "@contexts/qa-run-orchestration/application/coordination/sidekick-executor.ts";
+import { createDelegationBrief } from "@contexts/coordination/application/delegation-brief.ts";
+import { evidenceFromChangeAnalysis } from "@contexts/coordination/application/evidence-from.ts";
+import { FileCoordinationTelemetryAdapter } from "@contexts/coordination/infrastructure/adapters/coordination-telemetry-port.adapter.ts";
+import { SidekickExecutor } from "@contexts/coordination/application/sidekick-executor.ts";
 import type { AgentRuntimePort, AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 
 const SECRET = "token: ghs_supersecretvalue";

@@ -384,13 +384,13 @@ test("isProtectedPath flags what a sidekick may do against DEV and in the workin
     "qa-engine/src/contexts/test-execution/application/run-spec.use-case.ts",
     "qa-engine/src/contexts/agent-tools/infrastructure/closed-loop-registry.ts",
     "qa-engine/src/contexts/agent-tools/infrastructure/adapters/closed-loop-port.adapter.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/application/ports/delegation-workspace.port.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/delegation-workspace.adapter.ts",
+    "qa-engine/src/contexts/coordination/application/ports/delegation-workspace.port.ts",
+    "qa-engine/src/contexts/coordination/infrastructure/adapters/delegation-workspace.adapter.ts",
     "agents/tool/run_spec.ts",
     "agents/lib/run-spec-client.mjs",
-    "qa-engine/src/contexts/qa-run-orchestration/application/coordination/lead-plan.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/application/coordination/lead-sidekicks.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/application/coordination/sidekick-authoring.ts",
+    "qa-engine/src/contexts/coordination/application/lead-plan.ts",
+    "qa-engine/src/contexts/coordination/application/lead-sidekicks.ts",
+    "qa-engine/src/contexts/coordination/application/sidekick-authoring.ts",
   ];
   for (const file of files) {
     assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);

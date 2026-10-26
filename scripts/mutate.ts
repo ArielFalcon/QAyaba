@@ -62,6 +62,8 @@ const LEARN = "qa-engine/src/contexts/cross-run-learning/domain";
 const LEARN_TEST = "qa-engine/test/contexts/cross-run-learning/domain";
 const ORCH = "qa-engine/src/contexts/qa-run-orchestration";
 const ORCH_TEST = "qa-engine/test/contexts/qa-run-orchestration";
+const COORDINATION_CTX = "qa-engine/src/contexts/coordination";
+const COORDINATION_CTX_TEST = "qa-engine/test/contexts/coordination";
 const AGENT_TOOLS_CTX = "qa-engine/src/contexts/agent-tools";
 const AGENT_TOOLS_CTX_TEST = "qa-engine/test/contexts/agent-tools";
 const APP_CATALOG_CTX = "qa-engine/src/contexts/app-catalog";
@@ -122,9 +124,9 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
   coordination: {
     description: "coordination routing: acceptance report, pushback authority checks, delegation-failure class",
     mutate: [
-      `${ORCH}/application/coordination/acceptance-report.ts`,
-      `${ORCH}/application/coordination/pushback.ts`,
-      `${ORCH}/application/coordination/delegation-failure-class.ts`,
+      `${COORDINATION_CTX}/application/acceptance-report.ts`,
+      `${COORDINATION_CTX}/application/pushback.ts`,
+      `${COORDINATION_CTX}/application/delegation-failure-class.ts`,
     ],
     tests: [
       `${ORCH_TEST}/application/coordination-pushback.test.ts`,

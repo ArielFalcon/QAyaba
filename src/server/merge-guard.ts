@@ -193,6 +193,8 @@ export const PROTECTED_PATHS: string[] = [
 
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/",
 
+  "qa-engine/src/contexts/coordination/infrastructure/",
+
   /*
    * The ShadowPublicationPort implementation — log-only, no-ops every PR/Issue/commit/push side
    * effect when qa.shadow: true. This IS the shadow-mode safety boundary that lets a newly
@@ -331,16 +333,16 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/contexts/test-execution/application/run-spec.use-case.ts",
   "qa-engine/src/contexts/agent-tools/infrastructure/closed-loop-registry.ts",
   "qa-engine/src/contexts/agent-tools/infrastructure/adapters/closed-loop-port.adapter.ts",
-  "qa-engine/src/contexts/qa-run-orchestration/application/ports/delegation-workspace.port.ts",
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/delegation-workspace.adapter.ts",
+  "qa-engine/src/contexts/coordination/application/ports/delegation-workspace.port.ts",
+  "qa-engine/src/contexts/coordination/infrastructure/adapters/delegation-workspace.adapter.ts",
   "agents/tool/run_spec.ts",
   /* What decides which flows a plan admits, where each may write, what each sidekick may author with and when the lead takes a change back: the plan's admission, the coordinator and the choice of tools. */
-  "qa-engine/src/contexts/qa-run-orchestration/application/coordination/lead-plan.ts",
-  "qa-engine/src/contexts/qa-run-orchestration/application/coordination/lead-sidekicks.ts",
-  "qa-engine/src/contexts/qa-run-orchestration/application/coordination/sidekick-authoring.ts",
+  "qa-engine/src/contexts/coordination/application/lead-plan.ts",
+  "qa-engine/src/contexts/coordination/application/lead-sidekicks.ts",
+  "qa-engine/src/contexts/coordination/application/sidekick-authoring.ts",
   /* What the lead's review and its routing of the reviewer's corrections may decide, and the orchestrator's facts that decide over them. */
-  "qa-engine/src/contexts/qa-run-orchestration/application/coordination/lead-review.ts",
-  "qa-engine/src/contexts/qa-run-orchestration/application/coordination/lead-correction.ts",
+  "qa-engine/src/contexts/coordination/application/lead-review.ts",
+  "qa-engine/src/contexts/coordination/application/lead-correction.ts",
   "agents/lib/run-spec-client.mjs",
   /* What the lead may ask of the code graph and on which project: the admitted queries, the registry that binds a session, the adapter that runs the CLI on the run's project, the tool and its client. A fix that loosened them could let an agent query another app's code or run a free graph query. */
   "qa-engine/src/shared-kernel/code-graph-tools.ts",
@@ -407,6 +409,7 @@ export const SECURITY_SENSITIVE_SURFACE_ROOTS: string[] = [
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/",
   "qa-engine/src/contexts/app-catalog/infrastructure/",
   "qa-engine/src/contexts/agent-tools/infrastructure/",
+  "qa-engine/src/contexts/coordination/infrastructure/",
 ];
 
 /*

@@ -10,7 +10,7 @@ import type { RunMode, RunPurpose, TestTarget, TriggerSource } from "@kernel/run
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { AgentBrowserGateSignal } from "@kernel/agent-browser.ts";
 import type { CoordinationSettings } from "@kernel/coordination.ts";
-import type { CoordinatedPass, LeadSidekicks } from "../coordination/lead-sidekicks.ts";
+import type { CoordinatedPass, LeadSidekicks } from "@contexts/coordination/application/index.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { ExecScopePort } from "../../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { AuthSessionContext, AuthSessionPort } from "@contexts/app-catalog/application/index.ts";
@@ -22,7 +22,7 @@ import type { RunPhaseCursor, PhaseClock } from "../../domain/run-phase-cursor.t
 import type { PhaseSpans } from "../run-phase-spans.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { PreconditionKind } from "@contexts/app-catalog/application/index.ts";
-import type { CoordinationTelemetryPort } from "../coordination/coordination-telemetry.ts";
+import type { CoordinationTelemetryPort } from "@contexts/coordination/application/index.ts";
 import type { IntentContractPort } from "../ports/intent-contract.port.ts";
 import type { ReflectorPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/index.ts";
 

@@ -7,7 +7,7 @@
 import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import { startRunChildSpan } from "../../../../shared-infrastructure/telemetry/run-spans.ts";
 import type { TelemetryPort } from "../../../../shared-kernel/telemetry/telemetry.port.ts";
-import type { CoordinationTelemetryEvent, CoordinationTelemetryPort } from "../../application/coordination/coordination-telemetry.ts";
+import type { CoordinationTelemetryEvent, CoordinationTelemetryPort } from "../../application/coordination-telemetry.ts";
 
 export class TracedCoordinationTelemetry implements CoordinationTelemetryPort {
   constructor(

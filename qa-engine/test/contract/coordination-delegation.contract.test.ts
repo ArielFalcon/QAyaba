@@ -1,14 +1,14 @@
 /* DelegationBrief / DelegationResult contracts and frozen sidekick authority. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createDelegationBrief } from "@contexts/qa-run-orchestration/application/coordination/delegation-brief.ts";
+import { createDelegationBrief } from "@contexts/coordination/application/delegation-brief.ts";
 import {
   belongsToBrief,
   DELEGATION_RECOMMENDATIONS,
   DELEGATION_STATUSES,
   type DelegationResult,
-} from "@contexts/qa-run-orchestration/application/coordination/delegation-result.ts";
-import { SIDEKICK_AUTHORITY } from "@contexts/qa-run-orchestration/application/coordination/authority.ts";
+} from "@contexts/coordination/application/delegation-result.ts";
+import { SIDEKICK_AUTHORITY } from "@contexts/coordination/application/authority.ts";
 
 const scope = {
   readablePaths: ["e2e/"],

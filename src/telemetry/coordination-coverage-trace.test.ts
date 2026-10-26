@@ -1,9 +1,9 @@
 /* The coordination ledger and the change-coverage measurement as spans of the phase that is open, over the real telemetry adapter. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { TracedCoordinationTelemetry } from "../../qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/coordination-telemetry-trace";
+import { TracedCoordinationTelemetry } from "../../qa-engine/src/contexts/coordination/infrastructure/adapters/coordination-telemetry-trace";
 import { TracedObjectiveSignalPort } from "../../qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/objective-signal-trace";
-import type { CoordinationTelemetryEvent } from "../../qa-engine/src/contexts/qa-run-orchestration/application/coordination/coordination-telemetry";
+import type { CoordinationTelemetryEvent } from "../../qa-engine/src/contexts/coordination/application/coordination-telemetry";
 import type { ObjectiveSignalPort } from "../../qa-engine/src/contexts/qa-run-orchestration/application/ports/index";
 import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import { Sha } from "@kernel/sha";

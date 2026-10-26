@@ -11,13 +11,13 @@ import {
   evidenceFromReview,
   evidenceFromSelectors,
   evidenceFromValidation,
-} from "@contexts/qa-run-orchestration/application/coordination/evidence-from.ts";
+} from "@contexts/coordination/application/evidence-from.ts";
 import {
   agentClaimInvalidatedBy,
   confidenceRank,
   preferredEvidence,
-} from "@contexts/qa-run-orchestration/application/coordination/evidence-precedence.ts";
-import type { EvidenceRef } from "@contexts/qa-run-orchestration/application/coordination/evidence-ref.ts";
+} from "@contexts/coordination/application/evidence-precedence.ts";
+import type { EvidenceRef } from "@contexts/coordination/application/evidence-ref.ts";
 
 test("evidence adapters produce refs with stable kinds and no OpencodeRunInput fields", () => {
   const refs = [

@@ -1,7 +1,7 @@
 /* What every step of a run may use and never returns: the run's input, its dependencies and configuration, the trail of its phase cursor and live handles, and (once the working copy is prepared) the run's live services. Separate from the run's state, which holds only data. */
 
-import type { CycleBudget } from "../../domain/cycle-budget.ts";
-import type { WallClockBudget } from "../../domain/wall-clock-budget.ts";
+import type { CycleBudget } from "../../../../shared-kernel/cycle-budget.ts";
+import type { WallClockBudget } from "../../../../shared-kernel/wall-clock-budget.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { PreconditionFailure, RunQaConfig, RunQaInput, RunQaUseCaseDeps, RunTrail } from "./run-types.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";

@@ -1,12 +1,14 @@
 [
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/generation/application/ports/index.ts",
-    "to": "qa-engine/src/shared-infrastructure/spec-path-confinement.ts",
-    "unresolvedTo": "../../../../shared-infrastructure/spec-path-confinement.ts",
+    "from": "qa-engine/src/contexts/coordination/application/scrub.ts",
+    "to": "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
+    "unresolvedTo": "@contexts/generation/infrastructure/sanitize-text.ts",
     "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
       "local",
-      "type-only",
       "import"
     ],
     "rule": {
@@ -16,14 +18,12 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/application/coordination/scrub.ts",
-    "to": "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
-    "unresolvedTo": "@contexts/generation/infrastructure/sanitize-text.ts",
+    "from": "qa-engine/src/contexts/generation/application/ports/index.ts",
+    "to": "qa-engine/src/shared-infrastructure/spec-path-confinement.ts",
+    "unresolvedTo": "../../../../shared-infrastructure/spec-path-confinement.ts",
     "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
       "local",
+      "type-only",
       "import"
     ],
     "rule": {
@@ -327,6 +327,57 @@
   },
   {
     "type": "dependency",
+    "from": "qa-engine/src/contexts/coordination/application/scrub.ts",
+    "to": "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
+    "unresolvedTo": "@contexts/generation/infrastructure/sanitize-text.ts",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "cross-context-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "qa-engine/src/contexts/coordination/infrastructure/adapters/coordination-telemetry-port.adapter.ts",
+    "to": "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
+    "unresolvedTo": "@contexts/generation/infrastructure/sanitize-text.ts",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "cross-context-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "qa-engine/src/contexts/coordination/infrastructure/adapters/coordination-telemetry-trace.ts",
+    "to": "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
+    "unresolvedTo": "@contexts/generation/infrastructure/sanitize-text.ts",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "cross-context-internals"
+    }
+  },
+  {
+    "type": "dependency",
     "from": "qa-engine/src/contexts/cross-run-learning/infrastructure/reflector-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
     "unresolvedTo": "@contexts/generation/infrastructure/sanitize-text.ts",
@@ -429,23 +480,6 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/application/coordination/scrub.ts",
-    "to": "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
-    "unresolvedTo": "@contexts/generation/infrastructure/sanitize-text.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "qa-engine/src/contexts/qa-run-orchestration/domain/adjudicate.service.ts",
     "to": "qa-engine/src/contexts/test-execution/domain/playwright-infra.ts",
     "unresolvedTo": "@contexts/test-execution/domain/playwright-infra.ts",
@@ -534,40 +568,6 @@
     "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/context-trace.ts",
     "to": "qa-engine/src/contexts/generation/infrastructure/context-pack.ts",
     "unresolvedTo": "@contexts/generation/infrastructure/context-pack.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/coordination-telemetry-port.adapter.ts",
-    "to": "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
-    "unresolvedTo": "@contexts/generation/infrastructure/sanitize-text.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/coordination-telemetry-trace.ts",
-    "to": "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
-    "unresolvedTo": "@contexts/generation/infrastructure/sanitize-text.ts",
     "dependencyTypes": [
       "aliased",
       "aliased-tsconfig",

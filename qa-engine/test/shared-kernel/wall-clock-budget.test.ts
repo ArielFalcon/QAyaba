@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { WallClockBudget } from "@contexts/qa-run-orchestration/domain/wall-clock-budget.ts";
-import { CycleBudget } from "@contexts/qa-run-orchestration/domain/cycle-budget.ts";
+import { WallClockBudget } from "@kernel/wall-clock-budget.ts";
+import { CycleBudget } from "@kernel/cycle-budget.ts";
 
 test("WallClockBudget.derive: no override — budget = cycleBudget.ceiling * agentTimeoutMs", () => {
   const cycleBudget = CycleBudget.derive({ maxRetries: 0 });

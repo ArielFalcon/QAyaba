@@ -3,16 +3,16 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { createDelegationBrief } from "@contexts/qa-run-orchestration/application/coordination/delegation-brief.ts";
+import { createDelegationBrief } from "@contexts/coordination/application/delegation-brief.ts";
 import {
   resolveCapabilityRole,
   SidekickExecutor,
-} from "@contexts/qa-run-orchestration/application/coordination/sidekick-executor.ts";
-import { renderSidekickBrief } from "@contexts/qa-run-orchestration/application/coordination/sidekick-prompt.ts";
+} from "@contexts/coordination/application/sidekick-executor.ts";
+import { renderSidekickBrief } from "@contexts/coordination/application/sidekick-prompt.ts";
 import {
   ACCEPTANCE_STATUSES,
   readAcceptanceReport,
-} from "@contexts/qa-run-orchestration/application/coordination/acceptance-report.ts";
+} from "@contexts/coordination/application/acceptance-report.ts";
 import type { AgentRuntimePort, AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 

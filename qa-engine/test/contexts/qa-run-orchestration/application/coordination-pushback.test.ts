@@ -7,7 +7,7 @@ import {
   type AcceptanceStatus,
   type DelegationBrief,
   type DelegationResult,
-} from "@contexts/qa-run-orchestration/application/coordination/index.ts";
+} from "@contexts/coordination/application/index.ts";
 
 /* Pushback is the external authority check on a sidekick's DelegationResult: what it reports as
    findings, and whether it blocks the delegation. */

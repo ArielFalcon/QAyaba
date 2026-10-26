@@ -1,6 +1,6 @@
 /* The generate phase of a run: the agent writes the specs (or the lead/sidekick mode authors them as flows), the way the generation ended decides whether the run goes on, and the pre-exec grounding may ask for one corrective regeneration before the static gate. */
 
-import { CORRECTION_ORIGIN } from "../../coordination/lead-correction.ts";
+import { CORRECTION_ORIGIN } from "@contexts/coordination/application/index.ts";
 import { relative } from "node:path";
 import { DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
@@ -11,8 +11,8 @@ import { checkPreExecGrounding } from "../../../domain/pre-exec-grounding.servic
 import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
 import { reviewerApprovalOf } from "../../ports/index.ts";
 import type { GenerationOutput } from "../../ports/index.ts";
-import type { CoordinateResult } from "../../coordination/lead-sidekicks.ts";
-import { evidenceFromPackDataRoutes } from "../../coordination/evidence-from.ts";
+import type { CoordinateResult } from "@contexts/coordination/application/index.ts";
+import { evidenceFromPackDataRoutes } from "@contexts/coordination/application/index.ts";
 import { end, type StepOutcome } from "../run-flow.ts";
 import { throwIfAborted } from "../abort.ts";
 import { preExecAction } from "../../../domain/pre-exec-regen.ts";

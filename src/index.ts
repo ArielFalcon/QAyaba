@@ -75,7 +75,7 @@ import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-
 import { AgentBrowserRegistry } from "@contexts/agent-tools/infrastructure/agent-browser-registry";
 import { GeolocationRegistry } from "@contexts/agent-tools/infrastructure/geolocation-registry";
 import { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry";
-import { FsDelegationWorkspaceAdapter } from "@contexts/qa-run-orchestration/infrastructure/delegation-workspace.adapter";
+import { FsDelegationWorkspaceAdapter } from "@contexts/coordination/infrastructure/adapters/delegation-workspace.adapter";
 import { DELEGATIONS_DIR } from "./paths";
 import { workdirRoot } from "./integrations/repo-mirror";
 import { sweepOrphanAgentBrowsers } from "../qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep";

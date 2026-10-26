@@ -1,6 +1,7 @@
 /* GenerationPort → GenerateTestsUseCase. Static per-run context is constructor config; specDir/objectives/signal/diff vary per call. Per-call `diff` is the live commit diff and takes precedence over ctx.diff. specSources come from optional readSpecSource — absent collaborator omits them (Lever-2 finds nothing). stepLimit (and reviewerStepLimit, when the generation runs its reviewer) come from optional stepLimitFor — absent collaborator, or a role with no limit, omits the key. reexploreNavigations is omitted; FixLoop treats absent as 0. A regeneration turn carries the specs the run delivered so far (deliveredSpecs), the ones a selector contradiction points at (attributedSpecFiles) and the suite's own entries (existingSpecFiles), minus every file the confined reader no longer finds; a first pass carries no delivered or attributed spec, and the suite's entries exactly as the grounding folded them. AbortSignal is forwarded into openSession. */
 
-import type { GenerationPort, GenerationEnrichment, GenerationOutput, PlanOutput, RetrievedRule } from "../../application/ports/index.ts";
+import type { GenerationPort, GenerationEnrichment, GenerationOutput, RetrievedRule } from "../../application/ports/index.ts";
+import type { PlanOutput } from "@contexts/coordination/application/index.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/index.ts";
 import type { OpencodeRunInput, StepLimitFor, CommitIntent as GenerationCommitIntent } from "@contexts/generation/application/index.ts";
 import { generationRunsReviewer } from "@contexts/generation/application/index.ts";

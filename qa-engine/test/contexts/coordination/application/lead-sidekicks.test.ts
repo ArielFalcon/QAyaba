@@ -1,4 +1,4 @@
-import { CORRECTION_ORIGIN } from "@contexts/qa-run-orchestration/application/coordination/lead-correction.ts";
+import { CORRECTION_ORIGIN } from "@contexts/coordination/application/lead-correction.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GENERATION_END } from "@kernel/generation-end.ts";
@@ -10,18 +10,19 @@ import {
   MIN_FLOW_MS,
   type CoordinateInput,
   type LeadSidekicksDeps,
-} from "@contexts/qa-run-orchestration/application/coordination/lead-sidekicks.ts";
-import type { TimerPort } from "@contexts/qa-run-orchestration/application/coordination/fan-out-dispatcher.ts";
-import type { CoordinationTelemetryEvent } from "@contexts/qa-run-orchestration/application/coordination/coordination-telemetry.ts";
+} from "@contexts/coordination/application/lead-sidekicks.ts";
+import type { TimerPort } from "@contexts/coordination/application/fan-out-dispatcher.ts";
+import type { CoordinationTelemetryEvent } from "@contexts/coordination/application/coordination-telemetry.ts";
 import type { PlanSnapshot } from "@kernel/ports/plan-snapshot.port.ts";
-import type { DelegationResult } from "@contexts/qa-run-orchestration/application/coordination/delegation-result.ts";
-import type { SidekickExecuteOpts } from "@contexts/qa-run-orchestration/application/coordination/sidekick-executor.ts";
-import type { DelegationBrief } from "@contexts/qa-run-orchestration/application/coordination/delegation-brief.ts";
+import type { DelegationResult } from "@contexts/coordination/application/delegation-result.ts";
+import type { SidekickExecuteOpts } from "@contexts/coordination/application/sidekick-executor.ts";
+import type { DelegationBrief } from "@contexts/coordination/application/delegation-brief.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
-import type { DelegationCollection, DelegationWorkspace, DelegationWorkspacePort, DelegationWorkspaceRequest } from "@contexts/qa-run-orchestration/application/ports/delegation-workspace.port.ts";
-import type { AgentBrowserHandle, ClosedLoopHandle, FlowLedgerEntry, FlowLoopHandle, FlowLoopOpenInput, GeolocationHandle, PlanOutput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import type { DelegationCollection, DelegationWorkspace, DelegationWorkspacePort, DelegationWorkspaceRequest } from "@contexts/coordination/application/ports/delegation-workspace.port.ts";
+import type { AgentBrowserHandle, ClosedLoopHandle, FlowLedgerEntry, FlowLoopHandle, FlowLoopOpenInput, GeolocationHandle } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import type { PlanOutput } from "@contexts/coordination/application/index.ts";
 import type { GeoLocation } from "@kernel/geolocation.ts";
-import { evidenceFromPackDataRoutes } from "@contexts/qa-run-orchestration/application/coordination/evidence-from.ts";
+import { evidenceFromPackDataRoutes } from "@contexts/coordination/application/evidence-from.ts";
 
 class FakeTimers implements TimerPort {
   now = 0;

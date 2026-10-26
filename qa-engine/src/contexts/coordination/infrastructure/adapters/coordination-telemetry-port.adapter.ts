@@ -20,7 +20,7 @@ import {
   CoordinationTelemetryRecorder,
   type CoordinationTelemetryEvent,
   type CoordinationTelemetryPort,
-} from "../../application/coordination/coordination-telemetry.ts";
+} from "../../application/coordination-telemetry.ts";
 
 /** Retention cap: max events kept in memory AND on disk. See this file's header. */
 export const MAX_LEDGER_EVENTS = 5000;

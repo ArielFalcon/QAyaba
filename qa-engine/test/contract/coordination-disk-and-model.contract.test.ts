@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyDelegationFailure } from "@contexts/qa-run-orchestration/application/coordination/delegation-failure-class.ts";
-import { resolveSidekickModel } from "@contexts/qa-run-orchestration/application/coordination/resolve-sidekick-model.ts";
+import { classifyDelegationFailure } from "@contexts/coordination/application/delegation-failure-class.ts";
+import { resolveSidekickModel } from "@contexts/coordination/application/resolve-sidekick-model.ts";
 import {
   applyPushback,
   createDelegationBrief,
-} from "@contexts/qa-run-orchestration/application/coordination/index.ts";
+} from "@contexts/coordination/application/index.ts";
 
 test("classifyDelegationFailure: failed and blocked statuses are always a contract failure", () => {
   assert.equal(classifyDelegationFailure("failed", 0, 0), "failed");

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CycleBudget } from "@contexts/qa-run-orchestration/domain/cycle-budget.ts";
+import { CycleBudget } from "@kernel/cycle-budget.ts";
 
 test("CycleBudget.derive: no override — ceiling comes from deriveCycleBackstop(maxRetries)", () => {
   const budget = CycleBudget.derive({ maxRetries: 2 });

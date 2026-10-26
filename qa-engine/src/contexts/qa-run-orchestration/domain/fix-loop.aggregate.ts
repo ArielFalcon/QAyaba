@@ -3,10 +3,12 @@
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { RunMode } from "@kernel/run-mode.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
-import type { CycleBudget } from "./cycle-budget.ts";
-import type { WallClockBudget } from "./wall-clock-budget.ts";
-import { adjudicate, classifyRuntimeErrors, type AdjFailureClass, type AdjudicatorEvidence, type AdjudicatorVerdict, ADJ_CLASS, ADJ_ACTION, ADJ_CONFIDENCE } from "./adjudicate.service.ts";
-import { decideProgress, classifyFailure, bestRound, isLikelyRealBug, type RoundResult } from "./helpers/progress-gate.ts";
+import type { CycleBudget } from "../../../shared-kernel/cycle-budget.ts";
+import type { WallClockBudget } from "../../../shared-kernel/wall-clock-budget.ts";
+import { classifyRuntimeErrors } from "@kernel/runtime-error-class.ts";
+import { adjudicate, type AdjFailureClass, type AdjudicatorEvidence, type AdjudicatorVerdict, ADJ_CLASS, ADJ_ACTION, ADJ_CONFIDENCE } from "./adjudicate.service.ts";
+import { classifyFailure } from "@kernel/failure-detail-class.ts";
+import { decideProgress, bestRound, isLikelyRealBug, type RoundResult } from "./helpers/progress-gate.ts";
 import type { ContradictionOrigin, SpecSelectorFindings } from "./helpers/selector-check.ts";
 import type { ContractFeedback } from "./contract-feedback.ts";
 import { fixLoopAction, type FixLoopNext, type FixLoopStep, type FixLoopStop } from "./fix-loop-action.ts";

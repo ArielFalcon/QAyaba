@@ -14,8 +14,8 @@ import {
   type FixLoopRun,
 } from "@contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts";
 import type { ContradictionOrigin, SpecSelectorFindings } from "@contexts/qa-run-orchestration/domain/helpers/selector-check.ts";
-import { CycleBudget } from "@contexts/qa-run-orchestration/domain/cycle-budget.ts";
-import { WallClockBudget } from "@contexts/qa-run-orchestration/domain/wall-clock-budget.ts";
+import { CycleBudget } from "@kernel/cycle-budget.ts";
+import { WallClockBudget } from "@kernel/wall-clock-budget.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
 /* ExecutionPort/GenerationPort/SelectorCheck (this file); each loop decision tested in isolation.

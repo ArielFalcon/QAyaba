@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CORRECTION_ORIGIN, DEFAULT_CORRECTION_INSTRUCTION, admitLeadCorrection, flowOfFinding, renderLeadCorrection, type FlowUnderCorrection, type CorrectionFinding } from "@contexts/qa-run-orchestration/application/coordination/lead-correction.ts";
-import { REVIEW_ACTION } from "@contexts/qa-run-orchestration/application/coordination/lead-review.ts";
+import { CORRECTION_ORIGIN, DEFAULT_CORRECTION_INSTRUCTION, admitLeadCorrection, flowOfFinding, renderLeadCorrection, type FlowUnderCorrection, type CorrectionFinding } from "@contexts/coordination/application/lead-correction.ts";
+import { REVIEW_ACTION } from "@contexts/coordination/application/lead-review.ts";
 
 const flows: FlowUnderCorrection[] = [
   { id: "cart", objective: "the cart total", specFile: "flows/cart.spec.ts", sessionOpen: true, spec: "test('total', ...)" },

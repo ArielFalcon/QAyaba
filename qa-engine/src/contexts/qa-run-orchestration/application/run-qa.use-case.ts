@@ -38,8 +38,8 @@ import type { RedactionScope } from "@kernel/telemetry/telemetry.port.ts";
 import { attachTraceFacts, type RunTraceFacts } from "@kernel/run-trace-facts.ts";
 import { generationRunsReviewer } from "@contexts/generation/application/index.ts";
 import { AuthPreconditionError } from "@contexts/app-catalog/application/index.ts";
-import { CycleBudget } from "../domain/cycle-budget.ts";
-import { WallClockBudget } from "../domain/wall-clock-budget.ts";
+import { CycleBudget } from "../../../shared-kernel/cycle-budget.ts";
+import { WallClockBudget } from "../../../shared-kernel/wall-clock-budget.ts";
 import type { PreconditionFailure, RunQaConfig, RunQaUseCaseDeps, RunQaInput, RunQaResult, RunTrail } from "./run-flow/run-types.ts";
 
 export type { PreconditionFailure, RunQaConfig, RunQaUseCaseDeps, RunQaInput, RunQaResult, RunTrail } from "./run-flow/run-types.ts";

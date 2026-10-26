@@ -6,7 +6,7 @@ import {
   aggregateFlowOutcomes,
   FLOW_OUTCOME,
   type FlowOutcome,
-} from "@contexts/qa-run-orchestration/application/coordination/flow-outcomes.ts";
+} from "@contexts/coordination/application/flow-outcomes.ts";
 
 const delivered = (id: string, ...specs: string[]): FlowOutcome => ({ id, kind: FLOW_OUTCOME.DELIVERED, specs });
 const declined = (id: string, reason = "already covered by flows/x.spec.ts"): FlowOutcome => ({ id, kind: FLOW_OUTCOME.DECLINED, reason });

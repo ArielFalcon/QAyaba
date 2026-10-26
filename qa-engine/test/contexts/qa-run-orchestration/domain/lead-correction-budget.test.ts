@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { leadCorrectionAction, leadCorrectionBudget } from "@contexts/qa-run-orchestration/domain/lead-correction-budget.ts";
-import { MAX_STATIC_FIX_ROUNDS } from "@contexts/qa-run-orchestration/domain/helpers/derive-cycle-backstop.ts";
+import { MAX_STATIC_FIX_ROUNDS } from "@kernel/derive-cycle-backstop.ts";
 import { MAX_REVIEW_ROUNDS } from "@contexts/qa-run-orchestration/domain/review-action.ts";
 import { MAX_PRE_EXEC_REGENERATIONS } from "@contexts/qa-run-orchestration/domain/pre-exec-regen.ts";
 import { MAX_COVERAGE_REGENERATIONS } from "@contexts/qa-run-orchestration/domain/coverage-regen.ts";

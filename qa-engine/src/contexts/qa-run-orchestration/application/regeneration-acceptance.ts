@@ -12,7 +12,7 @@
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
-import { MAX_ACCEPTANCE_EXECUTIONS } from "../domain/helpers/derive-cycle-backstop.ts";
+import { MAX_ACCEPTANCE_EXECUTIONS } from "../../../shared-kernel/derive-cycle-backstop.ts";
 import type { ContractFeedback } from "../domain/contract-feedback.ts";
 import type { ClosedLoopHandle, ExecutionPort, RunDeadlinePort, ValidationPort } from "./ports/index.ts";
 import type { SpecSnapshot, SpecSnapshotPort } from "./ports/spec-snapshot.port.ts";

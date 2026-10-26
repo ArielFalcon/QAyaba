@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { deriveCycleBackstop } from "@contexts/qa-run-orchestration/domain/helpers/derive-cycle-backstop.ts";
+import { deriveCycleBackstop } from "@kernel/derive-cycle-backstop.ts";
 
 /* CYCLES_PER_GENERATE=2, MAX_STATIC_FIX_ROUNDS=2, REPAIR_HEADROOM_PER_GENERATE=2.
  */

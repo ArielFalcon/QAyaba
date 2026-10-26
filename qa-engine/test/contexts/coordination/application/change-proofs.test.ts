@@ -1,7 +1,7 @@
 /* A flow's brief carries the proofs of the change pages its routes name, bounded per brief and per proof. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_BRIEF_PROOFS, MAX_PROOF_STEPS, proofsFor } from "@contexts/qa-run-orchestration/application/coordination/change-proofs.ts";
+import { MAX_BRIEF_PROOFS, MAX_PROOF_STEPS, proofsFor } from "@contexts/coordination/application/change-proofs.ts";
 
 const page = (route: string, steps: number) => ({ route, proof: [...Array.from({ length: steps - 1 }, (_, i) => `f${i}.ts::s${i}`), `page ${route}`] });
 

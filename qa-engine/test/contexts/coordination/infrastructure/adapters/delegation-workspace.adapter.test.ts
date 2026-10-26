@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { FsDelegationWorkspaceAdapter } from "@contexts/qa-run-orchestration/infrastructure/delegation-workspace.adapter.ts";
-import { WORKSPACE_CHANGE, type DelegationWorkspaceRequest } from "@contexts/qa-run-orchestration/application/ports/delegation-workspace.port.ts";
-import { MAX_SPEC_SOURCE_BYTES } from "../../../../src/shared-infrastructure/spec-path-confinement.ts";
+import { FsDelegationWorkspaceAdapter } from "@contexts/coordination/infrastructure/adapters/delegation-workspace.adapter.ts";
+import { WORKSPACE_CHANGE, type DelegationWorkspaceRequest } from "@contexts/coordination/application/ports/delegation-workspace.port.ts";
+import { MAX_SPEC_SOURCE_BYTES } from "../../../../../src/shared-infrastructure/spec-path-confinement.ts";
 
 interface Fixture {
   base: string;

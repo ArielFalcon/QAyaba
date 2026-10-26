@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { RegenerationAcceptance } from "@contexts/qa-run-orchestration/application/regeneration-acceptance.ts";
-import { MAX_ACCEPTANCE_EXECUTIONS } from "@contexts/qa-run-orchestration/domain/helpers/derive-cycle-backstop.ts";
+import { MAX_ACCEPTANCE_EXECUTIONS } from "@kernel/derive-cycle-backstop.ts";
 import { isRunDeadlineError } from "@kernel/run-deadline.ts";
 import type { SpecSnapshot, SpecSnapshotPort } from "@contexts/qa-run-orchestration/application/ports/spec-snapshot.port.ts";
 import type { ClosedLoopHandle, ExecutionPort, RunDeadlinePort, ValidationPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";

@@ -6,7 +6,7 @@
  * regeneration (run-flow/regeneration-allowed.ts, wall-clock-budget.ts). iterationBudget config override wins over the derived backstop.
  */
 
-import { deriveCycleBackstop } from "./helpers/derive-cycle-backstop.ts";
+import { deriveCycleBackstop } from "./derive-cycle-backstop.ts";
 
 export interface CycleBudgetInput {
   maxRetries: number;

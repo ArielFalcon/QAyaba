@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 /* expected values are fixed snapshots — do not rebase them to silence a failure */
+import { classifyFailure } from "@kernel/failure-detail-class.ts";
 import {
-  classifyFailure,
   bestRound,
   decideProgress,
   isLikelyRealBug,

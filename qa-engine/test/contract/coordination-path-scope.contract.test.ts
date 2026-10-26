@@ -1,7 +1,7 @@
 /* Contract: writable path scope for sidekick (code-mode "." and escape rejection). */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isPathWithinWritableRoots } from "@contexts/qa-run-orchestration/application/coordination/path-scope.ts";
+import { isPathWithinWritableRoots } from "@contexts/coordination/application/path-scope.ts";
 
 test("code-mode root '.' allows relative project paths", () => {
   assert.equal(isPathWithinWritableRoots("src/foo.test.ts", ["."]), true);

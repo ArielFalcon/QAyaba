@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { admitLeadPlan, LEAD_PLAN_KIND, type AdmittedFlow, type AdmittedPlan } from "@contexts/qa-run-orchestration/application/coordination/lead-plan.ts";
+import { admitLeadPlan, LEAD_PLAN_KIND, type AdmittedFlow, type AdmittedPlan } from "@contexts/coordination/application/lead-plan.ts";
 
 const BARCELONA = { latitude: 41.3874, longitude: 2.1686 };
 const MADRID = { latitude: 40.4168, longitude: -3.7038 };

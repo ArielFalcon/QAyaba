@@ -4,7 +4,7 @@
  * the review's rounds with their one retry), so it equals the most a run can reach and tightens none of them. Pure: no I/O, no clock.
  */
 
-import { MAX_STATIC_FIX_ROUNDS } from "./helpers/derive-cycle-backstop.ts";
+import { MAX_STATIC_FIX_ROUNDS } from "../../../shared-kernel/derive-cycle-backstop.ts";
 import { MAX_COVERAGE_REGENERATIONS } from "./coverage-regen.ts";
 import { MAX_PRE_EXEC_REGENERATIONS } from "./pre-exec-regen.ts";
 import { MAX_REVIEW_ROUNDS } from "./review-action.ts";
