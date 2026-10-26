@@ -1953,7 +1953,7 @@ export function loadRunEvents(runId: string, afterSeq = -1): Array<{ runId: stri
 
 /*
  * Persist one agent turn. `output_text` MUST already be sanitized by the caller
- * (sanitizer.ts `sanitizeText`) — this function stores whatever it receives.
+ * (the redaction port, or `sanitizeText` of the pattern redaction adapter) — this function stores whatever it receives.
  */
 export function saveAgentTurn(turn: AgentTurnRecord): void {
   ensureDb();

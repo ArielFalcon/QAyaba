@@ -7,11 +7,11 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildCompositionConfig, STEP_LIMIT_READ_TIMEOUT_MS, type RunEngineFactoryDeps } from "./run-engine-factory";
+import { buildEngineRootDeps, STEP_LIMIT_READ_TIMEOUT_MS, type RunEngineFactoryDeps } from "./run-engine-factory";
 import { maxStepsFromConfig, type AgentDeps } from "../integrations/opencode-client";
 import { AGENT_NAME_FOR_ROLE, type AgentFacade, type StepLimits } from "../agent-runtime/types";
 import type { AppConfig } from "../orchestrator/config-loader";
-import type { CompositionConfig } from "./engine-root";
+import type { EngineRootDeps } from "./engine-root";
 import type { StepLimitRole } from "@contexts/generation/application/index.ts";
 import { BYTES_PER_TOKEN, INPUT_PROMPT_SAFETY_MARGIN, modelWindowBytes, roleWindowBytes, setLiveModelWindows, setRuntimeRoleModels } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { setAgentsConfigPath as setCatalogAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
@@ -60,8 +60,8 @@ function facadeAnswering(answer: (directory: string) => Promise<StepLimits>): { 
 const reporting = (limits: StepLimits) => facadeAnswering(async () => limits);
 
 /* One composition = one run: the config a run's engine is built from. */
-function compose(getAgentFacade?: RunEngineFactoryDeps["getAgentFacade"]): CompositionConfig {
-  return buildCompositionConfig(
+function compose(getAgentFacade?: RunEngineFactoryDeps["getAgentFacade"]): EngineRootDeps {
+  return buildEngineRootDeps(
     APP,
     { getAgentDeps: unusableAgentDeps, ...(getAgentFacade ? { getAgentFacade } : {}) },
     "qa-bot-abc1234-run1",
@@ -69,13 +69,13 @@ function compose(getAgentFacade?: RunEngineFactoryDeps["getAgentFacade"]): Compo
   );
 }
 
-function limitOf(config: CompositionConfig, role: StepLimitRole): Promise<number | undefined> {
+function limitOf(config: EngineRootDeps, role: StepLimitRole): Promise<number | undefined> {
   assert.ok(config.stepLimitFor, "a host that wires a facade composes a step-limit resolver");
   return config.stepLimitFor(role);
 }
 
 const ROLES: readonly StepLimitRole[] = ["generator", "reviewer"];
-const limitsOf = (config: CompositionConfig): Promise<Array<number | undefined>> => Promise.all(ROLES.map((role) => limitOf(config, role)));
+const limitsOf = (config: EngineRootDeps): Promise<Array<number | undefined>> => Promise.all(ROLES.map((role) => limitOf(config, role)));
 
 /* Lets every promise callback already queued run, with timers (mocked or not) left alone. */
 const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));

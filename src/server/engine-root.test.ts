@@ -1,4 +1,4 @@
-/* buildProduction wires the run pipeline from the composition config alone.
+/* buildEngine wires the run pipeline from the composition config alone.
    A shadow composition (cfg.shadow) wires the SHADOW publication path (no PR/Issue side
    effect). This suite supplies
    fake collaborators (repo/mirror/coverage/etc.) rather than booting real git/Playwright/Stryker —
@@ -8,9 +8,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  buildProduction,
-  wireAdapters,
-  type CompositionConfig,
+  buildEngine,
+  wireEngine,
+  type EngineRootDeps,
 } from "./engine-root";
 import { RunPipelineAdapter } from "@contexts/run-orchestration/infrastructure/run-pipeline.adapter";
 import { Sha } from "@kernel/sha";
@@ -31,7 +31,7 @@ import { TracedCurriculumPort, TracedLearningPort } from "@contexts/generation/i
 import { SpecSnapshotValidationPort } from "@contexts/workspace-and-publication/infrastructure/adapters/spec-snapshot-validation.adapter";
 import { TracedSuiteStore } from "@contexts/workspace-and-publication/infrastructure/adapters/suite-store-trace";
 import { SuiteStoreAdapter } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
-/* ── A minimal fake CompositionConfig — every collaborator is a lightweight stub, matching the
+/* ── A minimal fake EngineRootDeps — every collaborator is a lightweight stub, matching the
    SAME stub shapes run-pipeline.adapter.test.ts already uses for the 10-scenario parity
    (this test does not re-run that parity; it proves the composition root wires the RIGHT classes).
  */
@@ -53,8 +53,8 @@ const SUITE_STORE = new SuiteStoreAdapter({
 });
 process.once("exit", () => rmSync(COMPOSITION_BASE, { recursive: true, force: true }));
 
-function fakeConfig(overrides: Partial<CompositionConfig> = {}): CompositionConfig {
-  const base: CompositionConfig = {
+function fakeConfig(overrides: Partial<EngineRootDeps> = {}): EngineRootDeps {
+  const base: EngineRootDeps = {
     repo: "org/app",
     appName: "app",
     mirrorDir: MIRROR,
@@ -116,7 +116,7 @@ function fakeConfig(overrides: Partial<CompositionConfig> = {}): CompositionConf
     historyFilePath: "/tmp/qa-run-history.jsonl",
     /* PublicationPortAdapter's sanitize collaborator is now REQUIRED
        (constructor throws if absent — fail-closed publication default). This fake config's ONE base
-       object feeds every buildProduction call in this file, so wiring an identity
+       object feeds every buildEngine call in this file, so wiring an identity
        sanitizer here once satisfies the constructor guard everywhere without touching the 68 call
        sites individually — this suite's own job (composition wiring) does not exercise sanitization
        content, so identity is the correct fake here.
@@ -137,7 +137,7 @@ test("the review DOM grounding reads the delivered specs through the confined re
     writeFileSync(join(dir, "elsewhere", "e2e", "planted.spec.ts"), `await page.goto("/planted");`);
     symlinkSync(join(dir, "elsewhere"), join(mirror, "hop"));
     const captured: string[][] = [];
-    const adapters = wireAdapters(fakeConfig({
+    const adapters = wireEngine(fakeConfig({
       mirrorDir: mirror,
       baseUrl: "https://dev.example.com",
       reviewDomGroundingCollaborators: { captureDom: async (input) => { captured.push([...input.specContents]); return undefined; } },
@@ -165,7 +165,7 @@ test("the pre-exec grounding reads the suite through the confined reader, anchor
     writeFileSync(join(dir, "elsewhere", "e2e", "planted.spec.ts"), "// planted");
     symlinkSync(join(dir, "elsewhere"), join(mirror, "hop"));
     const fed: string[][] = [];
-    const adapters = wireAdapters(fakeConfig({
+    const adapters = wireEngine(fakeConfig({
       mirrorDir: mirror,
       baseUrl: "https://dev.example.com",
       preExecGroundingCollaborators: { captureRouteTrees: async (input) => { fed.push([...input.specContents]); return []; } },
@@ -185,15 +185,15 @@ test("the pre-exec grounding reads the suite through the confined reader, anchor
   }
 });
 
-/* ── buildProduction: wires the run pipeline ───────────────────────────────────────── */
+/* ── buildEngine: wires the run pipeline ───────────────────────────────────────── */
 
-test("buildProduction wires a pipeline from the composition config alone", () => {
-  const port = buildProduction(fakeConfig());
+test("buildEngine wires a pipeline from the composition config alone", () => {
+  const port = buildEngine(fakeConfig());
   assert.ok(port instanceof RunPipelineAdapter);
 });
 
-test("buildProduction drives a full run end-to-end through the 11 wired ports (green-pr shape)", async () => {
-  const port = buildProduction(fakeConfig());
+test("buildEngine drives a full run end-to-end through the 11 wired ports (green-pr shape)", async () => {
+  const port = buildEngine(fakeConfig());
 
   const outcome = await port.run({
     app: "app",
@@ -201,19 +201,19 @@ test("buildProduction drives a full run end-to-end through the 11 wired ports (g
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-smoke",
+    runId: "engine-root-smoke",
   });
 
   assert.equal(outcome.verdict, "pass");
 });
 
 /* threads cfg.reflectorPort through to RunQaUseCaseDeps.reflector — not just that the config TYPE
-   accepts the field. wireAdapters() is not exported, so this drives a real run through the public
-   buildProduction() entry point and observes the fake reflector's own call count, exactly the same
+   accepts the field. wireEngine() is not exported, so this drives a real run through the public
+   buildEngine() entry point and observes the fake reflector's own call count, exactly the same
    black-box style the "shadow-log publication" test above uses for githubPr/githubIssue. ───────
  */
 
-test("buildProduction wires cfg.reflectorPort through to RunQaUseCase — a static-gate invalid run reaches reflector.reflect()", async () => {
+test("buildEngine wires cfg.reflectorPort through to RunQaUseCase — a static-gate invalid run reaches reflector.reflect()", async () => {
   let reflectCallCount = 0;
   const cfg = fakeConfig({
     validationStrategies: {
@@ -225,22 +225,22 @@ test("buildProduction wires cfg.reflectorPort through to RunQaUseCase — a stat
     },
   });
 
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-reflector-smoke",
+    runId: "engine-root-reflector-smoke",
   });
 
   assert.equal(outcome.verdict, "invalid");
   assert.equal(reflectCallCount, 1, "cfg.reflectorPort must be wired through to RunQaUseCaseDeps.reflector — a static-gate invalid is gate-true (errorClass E-STATIC is not in the suppressed {E-INFRA, E-FLAKY} set)");
 });
 
-test("buildProduction omits reflector entirely when cfg.reflectorPort is absent — no behavior change on a green pass", async () => {
-  const port = buildProduction(fakeConfig());
+test("buildEngine omits reflector entirely when cfg.reflectorPort is absent — no behavior change on a green pass", async () => {
+  const port = buildEngine(fakeConfig());
 
   const outcome = await port.run({
     app: "app",
@@ -248,18 +248,18 @@ test("buildProduction omits reflector entirely when cfg.reflectorPort is absent 
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-reflector-absent-smoke",
+    runId: "engine-root-reflector-absent-smoke",
   });
 
   assert.equal(outcome.verdict, "pass");
 });
 
 /* root threads cfg.processAudit through to RunQaUseCaseDeps.processAudit — mirrors the reflectorPort
-   smoke test immediately above, same black-box style through the public buildProduction() entry
+   smoke test immediately above, same black-box style through the public buildEngine() entry
    point. ──────────────────────────────────────────────────────────────────────────────────────────
  */
 
-test("buildProduction wires cfg.processAudit through to RunQaUseCase — a static-gate invalid run reaches processAudit.audit()", async () => {
+test("buildEngine wires cfg.processAudit through to RunQaUseCase — a static-gate invalid run reaches processAudit.audit()", async () => {
   let auditCallCount = 0;
   const cfg = fakeConfig({
     validationStrategies: {
@@ -271,22 +271,22 @@ test("buildProduction wires cfg.processAudit through to RunQaUseCase — a stati
     },
   });
 
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-process-audit-smoke",
+    runId: "engine-root-process-audit-smoke",
   });
 
   assert.equal(outcome.verdict, "invalid");
   assert.equal(auditCallCount, 1, "cfg.processAudit must be wired through to RunQaUseCaseDeps.processAudit — a static-gate invalid is gate-true");
 });
 
-test("buildProduction omits processAudit entirely when cfg.processAudit is absent — no behavior change on a green pass", async () => {
-  const port = buildProduction(fakeConfig());
+test("buildEngine omits processAudit entirely when cfg.processAudit is absent — no behavior change on a green pass", async () => {
+  const port = buildEngine(fakeConfig());
 
   const outcome = await port.run({
     app: "app",
@@ -294,7 +294,7 @@ test("buildProduction omits processAudit entirely when cfg.processAudit is absen
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-process-audit-absent-smoke",
+    runId: "engine-root-process-audit-absent-smoke",
   });
 
   assert.equal(outcome.verdict, "pass");
@@ -305,7 +305,7 @@ test("buildProduction omits processAudit entirely when cfg.processAudit is absen
    verdict "pass") is the ONLY case that reaches RunQaUseCase's isContextCleanPass capture call. ──
  */
 
-test("buildProduction wires cfg.contextMapCapture through to RunQaUseCase — a clean context-mode pass reaches contextMapCapture.capture()", async () => {
+test("buildEngine wires cfg.contextMapCapture through to RunQaUseCase — a clean context-mode pass reaches contextMapCapture.capture()", async () => {
   let captureCallCount = 0;
   const cfg = fakeConfig({
     mode: "context",
@@ -314,23 +314,23 @@ test("buildProduction wires cfg.contextMapCapture through to RunQaUseCase — a 
     },
   });
 
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
     source: "manual",
     mode: "context",
     target: "e2e",
-    runId: "composition-root-contextmap-capture-smoke",
+    runId: "engine-root-contextmap-capture-smoke",
   });
 
   assert.equal(outcome.verdict, "pass");
   assert.equal(captureCallCount, 1, "cfg.contextMapCapture must be wired through to RunQaUseCaseDeps.contextMapCapture — a clean context-mode pass must invoke capture() exactly once");
 });
 
-test("buildProduction omits contextMapCapture entirely when cfg.contextMapCapture is absent — no behavior change on a clean context-mode pass", async () => {
+test("buildEngine omits contextMapCapture entirely when cfg.contextMapCapture is absent — no behavior change on a clean context-mode pass", async () => {
   const cfg = fakeConfig({ mode: "context" });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -338,7 +338,7 @@ test("buildProduction omits contextMapCapture entirely when cfg.contextMapCaptur
     source: "manual",
     mode: "context",
     target: "e2e",
-    runId: "composition-root-contextmap-capture-absent-smoke",
+    runId: "engine-root-contextmap-capture-absent-smoke",
   });
 
   assert.equal(outcome.verdict, "pass");
@@ -364,14 +364,14 @@ test("a shadow composition publishes to the shadow log — no PR/Issue collabora
     },
   });
 
-  const port = buildProduction({ ...cfg, shadow: true });
+  const port = buildEngine({ ...cfg, shadow: true });
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-shadow-smoke",
+    runId: "engine-root-shadow-smoke",
   });
 
   assert.equal(outcome.verdict, "pass");
@@ -379,9 +379,9 @@ test("a shadow composition publishes to the shadow log — no PR/Issue collabora
   assert.equal(issueCalled, false);
 });
 
-test("buildProduction selects NullDeployGateAdapter when versionUrl is absent (static/code target)", async () => {
+test("buildEngine selects NullDeployGateAdapter when versionUrl is absent (static/code target)", async () => {
   const cfg = fakeConfig({ versionUrl: undefined });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   /* No versionUrl -> NullDeployGateAdapter (always ok(true)) -> the entry gate never blocks. */
   const outcome = await port.run({
@@ -390,18 +390,18 @@ test("buildProduction selects NullDeployGateAdapter when versionUrl is absent (s
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-null-gate",
+    runId: "engine-root-null-gate",
   });
 
   assert.notEqual(outcome.verdict, "infra-error");
 });
 
-test("buildProduction selects the real DeployGatePortAdapter when versionUrl is present", async () => {
+test("buildEngine selects the real DeployGatePortAdapter when versionUrl is present", async () => {
   const cfg = fakeConfig({
     versionUrl: "https://dev.example.com/version",
     versionPoll: async () => ({ serving: true }),
   });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -409,17 +409,17 @@ test("buildProduction selects the real DeployGatePortAdapter when versionUrl is 
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-real-gate",
+    runId: "engine-root-real-gate",
   });
 
   assert.equal(outcome.verdict, "pass");
 });
 
-/* testIdAttribute must flow from CompositionConfig into the ExecutionPortAdapter's static
+/* testIdAttribute must flow from EngineRootDeps into the ExecutionPortAdapter's static
    context so PW_TEST_ID_ATTRIBUTE reaches the verdictual Playwright run. NO defaulting logic here —
    undefined flows through; the seed playwright.config.ts already defaults to data-testid.
  */
-test("buildProduction threads testIdAttribute into the ExecutionPortAdapter", async () => {
+test("buildEngine threads testIdAttribute into the ExecutionPortAdapter", async () => {
   let capturedTestIdAttribute: string | undefined;
   const cfg = fakeConfig({
     testIdAttribute: "data-cy",
@@ -433,7 +433,7 @@ test("buildProduction threads testIdAttribute into the ExecutionPortAdapter", as
       code: { run: async () => ({ verdict: "pass", cases: [], logs: "" }) },
     },
   });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   await port.run({
     app: "app",
@@ -441,19 +441,19 @@ test("buildProduction threads testIdAttribute into the ExecutionPortAdapter", as
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-test-id-attribute",
+    runId: "engine-root-test-id-attribute",
   });
 
   assert.equal(capturedTestIdAttribute, "data-cy");
 });
 
 /* SetupPort (AGENTS.md run-flow step 3) — genuine-wiring proof: setupCollaborators (OPTIONAL on
-   CompositionConfig) must reach the run() call when supplied, and stay a silent no-op when absent
+   EngineRootDeps) must reach the run() call when supplied, and stay a silent no-op when absent
    (every fakeConfig() base case above never supplies it — that already proves the absent-collaborator
    backward-compat path across all the OTHER tests in this file).
  */
 
-test("buildProduction wires setupCollaborators.e2e into the run when target is 'e2e'", async () => {
+test("buildEngine wires setupCollaborators.e2e into the run when target is 'e2e'", async () => {
   let setupCalled = false;
   const cfg = fakeConfig({
     target: "e2e",
@@ -462,7 +462,7 @@ test("buildProduction wires setupCollaborators.e2e into the run when target is '
       code: async () => { throw new Error("must not be called for target 'e2e'"); },
     },
   });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -470,14 +470,14 @@ test("buildProduction wires setupCollaborators.e2e into the run when target is '
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-setup-e2e",
+    runId: "engine-root-setup-e2e",
   });
 
   assert.equal(setupCalled, true, "the e2e setup collaborator must run before generation when setupCollaborators is wired");
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction wires setupCollaborators.code into the run when target is 'code'", async () => {
+test("buildEngine wires setupCollaborators.code into the run when target is 'code'", async () => {
   let setupCalled = false;
   const cfg = fakeConfig({
     target: "code",
@@ -487,7 +487,7 @@ test("buildProduction wires setupCollaborators.code into the run when target is 
       code: async () => { setupCalled = true; },
     },
   });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -495,14 +495,14 @@ test("buildProduction wires setupCollaborators.code into the run when target is 
     source: "manual",
     mode: "diff",
     target: "code",
-    runId: "composition-root-setup-code",
+    runId: "engine-root-setup-code",
   });
 
   assert.equal(setupCalled, true, "the code setup collaborator must run before generation when setupCollaborators is wired");
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction composes specDir as the bare mirrorDir for a code:true app (WorkspacePortAdapter target-awareness)", async () => {
+test("buildEngine composes specDir as the bare mirrorDir for a code:true app (WorkspacePortAdapter target-awareness)", async () => {
   let capturedSpecDir: string | undefined;
   const cfg = fakeConfig({
     target: "code",
@@ -514,7 +514,7 @@ test("buildProduction composes specDir as the bare mirrorDir for a code:true app
       code: async (specDir) => { capturedSpecDir = specDir; },
     },
   });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -522,14 +522,14 @@ test("buildProduction composes specDir as the bare mirrorDir for a code:true app
     source: "manual",
     mode: "diff",
     target: "code",
-    runId: "composition-root-specdir-code",
+    runId: "engine-root-specdir-code",
   });
 
   assert.equal(capturedSpecDir, "/mirrors/org/code-app", "code target: specDir must be the bare mirrorDir, never mirrorDir/e2e");
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction dispatches ValidationPort to the code strategy for a code:true app — a toolchain failure resolves to infra-error, never reaches execute()", async () => {
+test("buildEngine dispatches ValidationPort to the code strategy for a code:true app — a toolchain failure resolves to infra-error, never reaches execute()", async () => {
   let executeCalled = false;
   const cfg = fakeConfig({
     target: "code",
@@ -543,7 +543,7 @@ test("buildProduction dispatches ValidationPort to the code strategy for a code:
       code: { run: async () => { executeCalled = true; return { verdict: "pass", cases: [], logs: "" }; } },
     },
   });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -551,7 +551,7 @@ test("buildProduction dispatches ValidationPort to the code strategy for a code:
     source: "manual",
     mode: "diff",
     target: "code",
-    runId: "composition-root-code-validate-infra",
+    runId: "engine-root-code-validate-infra",
   });
 
   assert.equal(outcome.verdict, "infra-error", "a code-target compile-gate toolchain failure must resolve to infra-error, not invalid");
@@ -562,7 +562,7 @@ test("buildProduction dispatches ValidationPort to the code strategy for a code:
    "tests" framing (buildReviewerPromptAssembled's own `input.target === "code" ? "tests" : "E2E
    tests"`), not "E2E tests" — closes the ReviewPortAdapter wiring gap (target was never threaded).
  */
-test("buildProduction threads cfg.target:'code' onto ReviewInput.target — the code-mode review no longer renders 'E2E tests' framing", async () => {
+test("buildEngine threads cfg.target:'code' onto ReviewInput.target — the code-mode review no longer renders 'E2E tests' framing", async () => {
   let seenTarget: string | undefined;
   const cfg = fakeConfig({
     target: "code",
@@ -576,7 +576,7 @@ test("buildProduction threads cfg.target:'code' onto ReviewInput.target — the 
       verdicts: { parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }) },
     },
   });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   await port.run({
     app: "app",
@@ -584,17 +584,17 @@ test("buildProduction threads cfg.target:'code' onto ReviewInput.target — the 
     source: "manual",
     mode: "diff",
     target: "code",
-    runId: "composition-root-review-target-code",
+    runId: "engine-root-review-target-code",
   });
 
   assert.equal(seenTarget, "code", "ReviewInput.target must be 'code' for a code-target run");
 });
 
-/* buildProduction must thread cfg.reviewTimeoutMs into the ReviewPortAdapter it constructs.
+/* buildEngine must thread cfg.reviewTimeoutMs into the ReviewPortAdapter it constructs.
    A fake reviewRuntime.runtime.openSession captures the opts it receives so this test observes the
    SAME seam ReviewPortAdapter's own unit test observes, through the real composition wiring.
  */
-test("buildProduction threads cfg.reviewTimeoutMs onto ReviewPortAdapter's openSession opts.timeoutMs", async () => {
+test("buildEngine threads cfg.reviewTimeoutMs onto ReviewPortAdapter's openSession opts.timeoutMs", async () => {
   let seenTimeoutMs: number | undefined;
   const cfg = fakeConfig({
     needsReview: true,
@@ -610,7 +610,7 @@ test("buildProduction threads cfg.reviewTimeoutMs onto ReviewPortAdapter's openS
       verdicts: { parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }) },
     },
   });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   await port.run({
     app: "app",
@@ -618,13 +618,13 @@ test("buildProduction threads cfg.reviewTimeoutMs onto ReviewPortAdapter's openS
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-review-timeout-ms",
+    runId: "engine-root-review-timeout-ms",
   });
 
   assert.equal(seenTimeoutMs, 360_000, "cfg.reviewTimeoutMs must reach ReviewPortAdapter's openSession opts.timeoutMs — the reviewer needs its OWN budget, not a silently-dropped composition-time value");
 });
 
-test("buildProduction with absent cfg.reviewTimeoutMs omits timeoutMs from ReviewPortAdapter's openSession opts (backward compatible)", async () => {
+test("buildEngine with absent cfg.reviewTimeoutMs omits timeoutMs from ReviewPortAdapter's openSession opts (backward compatible)", async () => {
   let sawTimeoutKey = false;
   const cfg = fakeConfig({
     needsReview: true,
@@ -639,7 +639,7 @@ test("buildProduction with absent cfg.reviewTimeoutMs omits timeoutMs from Revie
       verdicts: { parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }) },
     },
   });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   await port.run({
     app: "app",
@@ -647,13 +647,13 @@ test("buildProduction with absent cfg.reviewTimeoutMs omits timeoutMs from Revie
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-review-timeout-ms-absent",
+    runId: "engine-root-review-timeout-ms-absent",
   });
 
   assert.equal(sawTimeoutKey, false, "absent cfg.reviewTimeoutMs must not fabricate a timeout the composition layer never configured");
 });
 
-test("buildProduction surfaces infra-error when a wired setup collaborator throws", async () => {
+test("buildEngine surfaces infra-error when a wired setup collaborator throws", async () => {
   const cfg = fakeConfig({
     target: "e2e",
     setupCollaborators: {
@@ -661,7 +661,7 @@ test("buildProduction surfaces infra-error when a wired setup collaborator throw
       code: async () => {},
     },
   });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -669,15 +669,15 @@ test("buildProduction surfaces infra-error when a wired setup collaborator throw
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-setup-throw",
+    runId: "engine-root-setup-throw",
   });
 
   assert.equal(outcome.verdict, "infra-error", "a setup failure must surface as infra-error, matching src/qa/setup.ts's own contract");
 });
 
-test("buildProduction runs without setupCollaborators (absent -> no-op, backward compatible)", async () => {
+test("buildEngine runs without setupCollaborators (absent -> no-op, backward compatible)", async () => {
   const cfg = fakeConfig(); /* fakeConfig()'s base never supplies setupCollaborators */
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -685,24 +685,24 @@ test("buildProduction runs without setupCollaborators (absent -> no-op, backward
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-setup-absent",
+    runId: "engine-root-setup-absent",
   });
 
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction surfaces infra-error when the real deploy gate never serves", async () => {
+test("buildEngine surfaces infra-error when the real deploy gate never serves", async () => {
   const cfg = fakeConfig({
     versionUrl: "https://dev.example.com/version",
     versionPoll: async () => ({ serving: false }),
     /* Bounded low so this test proves the timeout PATH without waiting out a real poll window —
-       deployGateTimeoutMs/deployGateIntervalMs are CompositionConfig's own knobs (default 60s/2s in
+       deployGateTimeoutMs/deployGateIntervalMs are EngineRootDeps's own knobs (default 60s/2s in
        production), not hardcoded inside DeployGatePortAdapter.
      */
     deployGateTimeoutMs: 20,
     deployGateIntervalMs: 5,
   });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -710,20 +710,20 @@ test("buildProduction surfaces infra-error when the real deploy gate never serve
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-gate-timeout",
+    runId: "engine-root-gate-timeout",
   });
 
   assert.equal(outcome.verdict, "infra-error");
 });
 
-/* composition-root MUST pass needsReview:false into GenerationPortAdapter's static ctx REGARDLESS
+/* engine-root MUST pass needsReview:false into GenerationPortAdapter's static ctx REGARDLESS
    of cfg.needsReview — RunQaUseCase's ReviewPort is the single reviewer; GenerateTestsUseCase's
    internal degraded reviewer must never fire on the orchestrated path. The prior judge round found
    this wiring correct but UNTESTED (a one-line revert to `needsReview: cfg.needsReview` would have
    passed the whole gate). This test is the executable proof: a recording generationUseCase fake
    observes the actual input the adapter builds from its ctx.
  */
-test("wireAdapters hardcodes needsReview:false into the generation ctx even when cfg.needsReview is true (single-reviewer architecture)", async () => {
+test("wireEngine hardcodes needsReview:false into the generation ctx even when cfg.needsReview is true (single-reviewer architecture)", async () => {
   const seenNeedsReview: boolean[] = [];
   const cfg = fakeConfig({
     needsReview: true, /* the RunQaConfig knob — must NOT leak into the generation ctx */
@@ -734,14 +734,14 @@ test("wireAdapters hardcodes needsReview:false into the generation ctx even when
       },
     },
   });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
   await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-single-reviewer",
+    runId: "engine-root-single-reviewer",
   });
 
   assert.ok(seenNeedsReview.length > 0, "the generation use-case must have been invoked");
@@ -752,12 +752,12 @@ test("wireAdapters hardcodes needsReview:false into the generation ctx even when
 });
 
 /* wiring proof. groundingCollaborators/reviewDomGroundingCollaborators (OPTIONAL on
-   CompositionConfig) must reach the run() call when supplied, and stay a silent no-op (isCode OR
+   EngineRootDeps) must reach the run() call when supplied, and stay a silent no-op (isCode OR
    absent collaborators) otherwise — every fakeConfig() base case above never supplies them, which
    already proves the absent-collaborator backward-compat path across the OTHER tests in this file.
  */
 
-test("buildProduction wires groundingCollaborators.buildContextPack into the run when target is 'e2e' — contextPack reaches OpencodeRunInput", async () => {
+test("buildEngine wires groundingCollaborators.buildContextPack into the run when target is 'e2e' — contextPack reaches OpencodeRunInput", async () => {
   let buildCalled = false;
   const seenContextPacks: Array<string | undefined> = [];
   const cfg = fakeConfig({
@@ -777,7 +777,7 @@ test("buildProduction wires groundingCollaborators.buildContextPack into the run
       },
     },
   });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -785,7 +785,7 @@ test("buildProduction wires groundingCollaborators.buildContextPack into the run
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-grounding-contextpack",
+    runId: "engine-root-grounding-contextpack",
   });
 
   assert.equal(buildCalled, true, "the injected buildContextPack collaborator must have run before the initial generate() call");
@@ -794,7 +794,7 @@ test("buildProduction wires groundingCollaborators.buildContextPack into the run
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction does NOT wire grounding on the code target, even when groundingCollaborators is supplied (isCode has no DOM/routes to ground)", async () => {
+test("buildEngine does NOT wire grounding on the code target, even when groundingCollaborators is supplied (isCode has no DOM/routes to ground)", async () => {
   let buildCalled = false;
   const cfg = fakeConfig({
     target: "code",
@@ -804,7 +804,7 @@ test("buildProduction does NOT wire grounding on the code target, even when grou
     },
     setupCollaborators: { e2e: async () => {}, code: async () => {} },
   });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -812,18 +812,18 @@ test("buildProduction does NOT wire grounding on the code target, even when grou
     source: "manual",
     mode: "diff",
     target: "code",
-    runId: "composition-root-grounding-code-skip",
+    runId: "engine-root-grounding-code-skip",
   });
 
   assert.equal(buildCalled, false, "groundingCollaborators must never be invoked on the code target");
   assert.equal(outcome.verdict, "pass");
 });
 
-/* Present -> wireAdapters constructs a StructuralSignalPortAdapter over the supplied code graph and co-change history.
+/* Present -> wireEngine constructs a StructuralSignalPortAdapter over the supplied code graph and co-change history.
    Absent -> the use-case's own structuralSignal dep stays undefined — NEVER a stub ok([])-shaped fake.
  */
 
-test("buildProduction wires structuralSignal when the code graph and the co-change history are supplied — the rendered advisory block reaches OpencodeRunInput.staticSignal", async () => {
+test("buildEngine wires structuralSignal when the code graph and the co-change history are supplied — the rendered advisory block reaches OpencodeRunInput.staticSignal", async () => {
   const seenStaticSignals: Array<string | undefined> = [];
   const seenSymbolFlags: Array<boolean | undefined> = [];
   const cfg = fakeConfig({
@@ -843,7 +843,7 @@ test("buildProduction wires structuralSignal when the code graph and the co-chan
       },
     },
   });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -851,7 +851,7 @@ test("buildProduction wires structuralSignal when the code graph and the co-chan
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-structural-signal-present",
+    runId: "engine-root-structural-signal-present",
   });
 
   assert.ok(seenStaticSignals.length > 0, "generationUseCase.generate must have been invoked");
@@ -860,7 +860,7 @@ test("buildProduction wires structuralSignal when the code graph and the co-chan
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction: a graph that knows only co-change files for the diff gives a signal with no symbol flag on OpencodeRunInput", async () => {
+test("buildEngine: a graph that knows only co-change files for the diff gives a signal with no symbol flag on OpencodeRunInput", async () => {
   const seen: Array<{ signal: string | undefined; flag: boolean | undefined; hasFlagKey: boolean }> = [];
   const cfg = fakeConfig({
     mode: "diff",
@@ -878,7 +878,7 @@ test("buildProduction: a graph that knows only co-change files for the diff give
       },
     },
   });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   await port.run({
     app: "app",
@@ -886,7 +886,7 @@ test("buildProduction: a graph that knows only co-change files for the diff give
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-structural-signal-co-change-only",
+    runId: "engine-root-structural-signal-co-change-only",
   });
 
   assert.ok(seen.length > 0, "generationUseCase.generate must have been invoked");
@@ -895,7 +895,7 @@ test("buildProduction: a graph that knows only co-change files for the diff give
   assert.doesNotMatch(seen[0]?.signal ?? "", /blast radius|call graph/i, "and the block does not present itself as an exploration of what the change reaches");
 });
 
-test("buildProduction leaves structuralSignal undefined when the code graph is absent (no section)", async () => {
+test("buildEngine leaves structuralSignal undefined when the code graph is absent (no section)", async () => {
   const seenStaticSignals: Array<string | undefined> = [];
   const cfg = fakeConfig({
     mode: "diff",
@@ -906,7 +906,7 @@ test("buildProduction leaves structuralSignal undefined when the code graph is a
       },
     },
   }); /* fakeConfig()'s base never supplies a code graph */
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -914,7 +914,7 @@ test("buildProduction leaves structuralSignal undefined when the code graph is a
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-structural-signal-absent",
+    runId: "engine-root-structural-signal-absent",
   });
 
   assert.ok(seenStaticSignals.length > 0, "generationUseCase.generate must have been invoked");
@@ -922,7 +922,7 @@ test("buildProduction leaves structuralSignal undefined when the code graph is a
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction degrades structuralSignal to no section when the repo is not indexed (unindexed-repo degrade)", async () => {
+test("buildEngine degrades structuralSignal to no section when the repo is not indexed (unindexed-repo degrade)", async () => {
   const seenStaticSignals: Array<string | undefined> = [];
   const cfg = fakeConfig({
     mode: "diff",
@@ -940,7 +940,7 @@ test("buildProduction degrades structuralSignal to no section when the repo is n
       },
     },
   });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -948,7 +948,7 @@ test("buildProduction degrades structuralSignal to no section when the repo is n
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-structural-signal-unindexed",
+    runId: "engine-root-structural-signal-unindexed",
   });
 
   assert.ok(seenStaticSignals.length > 0, "generationUseCase.generate must have been invoked");
@@ -956,16 +956,16 @@ test("buildProduction degrades structuralSignal to no section when the repo is n
   assert.equal(outcome.verdict, "pass");
 });
 
-/* The OPTIONAL serviceTopology collaborator: present -> wireAdapters constructs a
+/* The OPTIONAL serviceTopology collaborator: present -> wireEngine constructs a
    ServiceLinksPortAdapter over a REAL MirrorRegistryAdapter (DI, not a static call) and a real
    BoundaryProfileProviderPort. Absent -> serviceLinks stays undefined, NEVER a stub.
  */
 
-test("buildProduction wires serviceLinks when a serviceTopology collaborator is supplied — the REAL MirrorRegistryAdapter(mirrorRoot) encoding is exercised end-to-end (existsSync sees the SAME '__'-joined dir wireAdapters constructs)", async () => {
+test("buildEngine wires serviceLinks when a serviceTopology collaborator is supplied — the REAL MirrorRegistryAdapter(mirrorRoot) encoding is exercised end-to-end (existsSync sees the SAME '__'-joined dir wireEngine constructs)", async () => {
   const root = mkdtempSync(join(tmpdir(), "composition-service-links-"));
   try {
     /* MirrorRegistryAdapter's own formula: join(mirrorRoot, repo.replaceAll("/", "__")) — creating
-       dirs under exactly that encoding proves wireAdapters constructed a REAL MirrorRegistryAdapter
+       dirs under exactly that encoding proves wireEngine constructed a REAL MirrorRegistryAdapter
        (not a stub/bypass): if it were a static/wrong formula, the adapter's existsSync checks below
        would find nothing and short-circuit to {links:[],drift:[]} BEFORE ever calling forApp().
      */
@@ -1002,7 +1002,7 @@ test("buildProduction wires serviceLinks when a serviceTopology collaborator is 
         },
       },
     });
-    const port = buildProduction(cfg);
+    const port = buildEngine(cfg);
 
     const outcome = await port.run({
       app: "app",
@@ -1010,19 +1010,19 @@ test("buildProduction wires serviceLinks when a serviceTopology collaborator is 
       source: "manual",
       mode: "diff",
       target: "e2e",
-      runId: "composition-root-service-links-present",
+      runId: "engine-root-service-links-present",
     });
 
     assert.ok(seenServiceLinks.length > 0, "generationUseCase.generate must have been invoked");
     assert.equal(forAppCallCount, 1, "boundaryProfiles.forApp() must have been called exactly once — this only happens PAST the existsSync gate, proving the REAL MirrorRegistryAdapter('__'-join) resolved to the SAME dirs this test created on disk");
-    assert.equal(forAppCalledWith, "app", "forApp must be called with the serviceTopology.appName supplied via CompositionConfig");
+    assert.equal(forAppCalledWith, "app", "forApp must be called with the serviceTopology.appName supplied via EngineRootDeps");
     assert.equal(outcome.verdict, "pass");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("buildProduction leaves serviceLinks undefined when serviceTopology is absent (no key, backward compatible)", async () => {
+test("buildEngine leaves serviceLinks undefined when serviceTopology is absent (no key, backward compatible)", async () => {
   const seenEnrichments: Array<Record<string, unknown>> = [];
   const cfg = fakeConfig({
     mode: "diff",
@@ -1033,7 +1033,7 @@ test("buildProduction leaves serviceLinks undefined when serviceTopology is abse
       },
     },
   }); /* fakeConfig()'s base never supplies serviceTopology */
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -1041,7 +1041,7 @@ test("buildProduction leaves serviceLinks undefined when serviceTopology is abse
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-service-links-absent",
+    runId: "engine-root-service-links-absent",
   });
 
   assert.ok(seenEnrichments.length > 0, "generationUseCase.generate must have been invoked");
@@ -1049,14 +1049,14 @@ test("buildProduction leaves serviceLinks undefined when serviceTopology is abse
   assert.equal(outcome.verdict, "pass");
 });
 
-/* CompositionConfig.triggerService is advisory, prompt-context only (reaches
+/* EngineRootDeps.triggerService is advisory, prompt-context only (reaches
    GenerationPortAdapter's ctx.service -> OpencodeRunInput.service and NOTHING else: no
    verdict/gate/coverage/publish path reads it). Present -> the generation input carries
    {repo, mirrorDir(, openapi)} for the TRIGGERING service. Absent (the common same-repo case) ->
    the key is omitted entirely.
  */
 
-test("buildProduction threads cfg.triggerService into OpencodeRunInput.service when the run is cross-repo", async () => {
+test("buildEngine threads cfg.triggerService into OpencodeRunInput.service when the run is cross-repo", async () => {
   const seenServices: Array<unknown> = [];
   const cfg = fakeConfig({
     mode: "diff",
@@ -1069,7 +1069,7 @@ test("buildProduction threads cfg.triggerService into OpencodeRunInput.service w
       },
     },
   });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -1077,7 +1077,7 @@ test("buildProduction threads cfg.triggerService into OpencodeRunInput.service w
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-trigger-service-present",
+    runId: "engine-root-trigger-service-present",
   });
 
   assert.ok(seenServices.length > 0, "generationUseCase.generate must have been invoked");
@@ -1085,7 +1085,7 @@ test("buildProduction threads cfg.triggerService into OpencodeRunInput.service w
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction leaves OpencodeRunInput.service entirely absent when cfg.triggerService is not supplied (same-repo run)", async () => {
+test("buildEngine leaves OpencodeRunInput.service entirely absent when cfg.triggerService is not supplied (same-repo run)", async () => {
   const seenInputs: Array<Record<string, unknown>> = [];
   const cfg = fakeConfig({
     mode: "diff",
@@ -1096,7 +1096,7 @@ test("buildProduction leaves OpencodeRunInput.service entirely absent when cfg.t
       },
     },
   }); /* fakeConfig()'s base never supplies triggerService */
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -1104,7 +1104,7 @@ test("buildProduction leaves OpencodeRunInput.service entirely absent when cfg.t
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-trigger-service-absent",
+    runId: "engine-root-trigger-service-absent",
   });
 
   assert.ok(seenInputs.length > 0, "generationUseCase.generate must have been invoked");
@@ -1115,7 +1115,7 @@ test("buildProduction leaves OpencodeRunInput.service entirely absent when cfg.t
 /* The context pack ranks the map's routes by the run's changed files. On a cross-repo run those are the triggering service's files, so a declared path counts only where that service's snapshot was staged: inside the working copy, under the e2e dir. A map may name that root from the working copy or from the e2e dir, so the composition derives both from the directories it already holds. A same-repo run has no such root. */
 
 /** The staged roots the pack received on a run of `overrides`, or "absent" when the pack's input carried no such key. */
-async function stagedRootsSeenByThePack(overrides: Partial<CompositionConfig>): Promise<unknown> {
+async function stagedRootsSeenByThePack(overrides: Partial<EngineRootDeps>): Promise<unknown> {
   const seen: Array<Record<string, unknown>> = [];
   const cfg = fakeConfig({
     mode: "diff",
@@ -1127,13 +1127,13 @@ async function stagedRootsSeenByThePack(overrides: Partial<CompositionConfig>): 
     },
     ...overrides,
   });
-  const port = buildProduction(cfg);
-  await port.run({ app: "app", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "composition-root-staged-roots" });
+  const port = buildEngine(cfg);
+  await port.run({ app: "app", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "engine-root-staged-roots" });
   assert.ok(seen.length > 0, "the pre-generation grounding must have built a context pack");
   return "stagedRoots" in seen[0]! ? seen[0]!.stagedRoots : "absent";
 }
 
-test("buildProduction gives the context pack the staged roots of the triggering service, as the working copy and as the e2e dir name them", async () => {
+test("buildEngine gives the context pack the staged roots of the triggering service, as the working copy and as the e2e dir name them", async () => {
   const roots = await stagedRootsSeenByThePack({
     mirrorDir: "/mirrors/org__front",
     e2eRelDir: "e2e",
@@ -1142,7 +1142,7 @@ test("buildProduction gives the context pack the staged roots of the triggering 
   assert.deepEqual(roots, ["e2e/.qa/service-context/org__orders-svc", ".qa/service-context/org__orders-svc"]);
 });
 
-test("buildProduction names the e2e dir's own root from where the e2e dir really is, not from a fixed name", async () => {
+test("buildEngine names the e2e dir's own root from where the e2e dir really is, not from a fixed name", async () => {
   const roots = await stagedRootsSeenByThePack({
     mirrorDir: "/mirrors/org__front",
     e2eRelDir: "tests/e2e",
@@ -1151,7 +1151,7 @@ test("buildProduction names the e2e dir's own root from where the e2e dir really
   assert.deepEqual(roots, ["tests/e2e/.qa/service-context/org__orders-svc", ".qa/service-context/org__orders-svc"]);
 });
 
-test("buildProduction names no root a staged snapshot does not lie inside, and the run stays a cross-repo run", async () => {
+test("buildEngine names no root a staged snapshot does not lie inside, and the run stays a cross-repo run", async () => {
   const insideTheCopyOnly = await stagedRootsSeenByThePack({
     mirrorDir: "/mirrors/org__front",
     e2eRelDir: "e2e",
@@ -1166,17 +1166,17 @@ test("buildProduction names no root a staged snapshot does not lie inside, and t
   assert.deepEqual(outsideTheCopy, [], "no directory holds it: nothing to name, but the key is still there");
 });
 
-test("buildProduction gives the context pack no staged roots on a same-repo run", async () => {
+test("buildEngine gives the context pack no staged roots on a same-repo run", async () => {
   assert.equal(await stagedRootsSeenByThePack({}), "absent");
 });
 
-/* CompositionConfig.services is advisory, prompt-context ONLY (reaches GenerationPortAdapter's
+/* EngineRootDeps.services is advisory, prompt-context ONLY (reaches GenerationPortAdapter's
    ctx.services -> OpencodeRunInput.services and NOTHING else: no verdict/gate/coverage/publish path
    reads it). Present -> every declared service ref reaches the generation input. Absent/empty ->
    the key is omitted entirely.
  */
 
-test("buildProduction threads cfg.services into OpencodeRunInput.services for a context-mode run", async () => {
+test("buildEngine threads cfg.services into OpencodeRunInput.services for a context-mode run", async () => {
   const seenServicesList: Array<unknown> = [];
   const cfg = fakeConfig({
     mode: "context",
@@ -1192,7 +1192,7 @@ test("buildProduction threads cfg.services into OpencodeRunInput.services for a 
       },
     },
   });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -1200,7 +1200,7 @@ test("buildProduction threads cfg.services into OpencodeRunInput.services for a 
     source: "manual",
     mode: "context",
     target: "e2e",
-    runId: "composition-root-services-present",
+    runId: "engine-root-services-present",
   });
 
   assert.ok(seenServicesList.length > 0, "generationUseCase.generate must have been invoked");
@@ -1211,7 +1211,7 @@ test("buildProduction threads cfg.services into OpencodeRunInput.services for a 
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction leaves OpencodeRunInput.services entirely absent when cfg.services is not supplied", async () => {
+test("buildEngine leaves OpencodeRunInput.services entirely absent when cfg.services is not supplied", async () => {
   const seenInputs: Array<Record<string, unknown>> = [];
   const cfg = fakeConfig({
     mode: "diff",
@@ -1222,7 +1222,7 @@ test("buildProduction leaves OpencodeRunInput.services entirely absent when cfg.
       },
     },
   }); /* fakeConfig()'s base never supplies services */
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -1230,7 +1230,7 @@ test("buildProduction leaves OpencodeRunInput.services entirely absent when cfg.
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-services-absent",
+    runId: "engine-root-services-absent",
   });
 
   assert.ok(seenInputs.length > 0, "generationUseCase.generate must have been invoked");
@@ -1238,9 +1238,9 @@ test("buildProduction leaves OpencodeRunInput.services entirely absent when cfg.
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction runs without groundingCollaborators/reviewDomGroundingCollaborators (absent -> no-op, backward compatible)", async () => {
+test("buildEngine runs without groundingCollaborators/reviewDomGroundingCollaborators (absent -> no-op, backward compatible)", async () => {
   const cfg = fakeConfig({ target: "e2e", isCode: false }); /* fakeConfig()'s base never supplies either */
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -1248,17 +1248,17 @@ test("buildProduction runs without groundingCollaborators/reviewDomGroundingColl
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-grounding-absent",
+    runId: "engine-root-grounding-absent",
   });
 
   assert.equal(outcome.verdict, "pass", "the run must complete normally with no grounding collaborators wired");
 });
 
-/* OPTIONAL on CompositionConfig, absent -> the use-case's pre-exec grounding phase stays a no-op
+/* OPTIONAL on EngineRootDeps, absent -> the use-case's pre-exec grounding phase stays a no-op
    (preExecAmbiguityCatches stays 0), and gated `!cfg.isCode` (isCode has no DOM/routes to ground).
  */
 
-test("buildProduction wires preExecGrounding into the run when target is 'e2e' and a captureRouteTrees-shaped collaborator is supplied", async () => {
+test("buildEngine wires preExecGrounding into the run when target is 'e2e' and a captureRouteTrees-shaped collaborator is supplied", async () => {
   /* A REAL specDir with at least one on-disk *.spec.ts — the adapter enumerates + reads specs off
      disk itself (the "adapter resolves its own paths" precedent), so an unpopulated fakeConfig()
      mirrorDir (never a real directory) would short-circuit BEFORE ever calling captureRouteTrees.
@@ -1283,7 +1283,7 @@ test("buildProduction wires preExecGrounding into the run when target is 'e2e' a
         },
       },
     });
-    const port = buildProduction(cfg);
+    const port = buildEngine(cfg);
 
     const outcome = await port.run({
       app: "app",
@@ -1291,7 +1291,7 @@ test("buildProduction wires preExecGrounding into the run when target is 'e2e' a
       source: "manual",
       mode: "diff",
       target: "e2e",
-      runId: "composition-root-preexec-grounding-wired",
+      runId: "engine-root-preexec-grounding-wired",
     });
 
     assert.equal(captureCalled, true, "the injected captureRouteTrees collaborator must have run (the pre-exec grounding check)");
@@ -1301,7 +1301,7 @@ test("buildProduction wires preExecGrounding into the run when target is 'e2e' a
   }
 });
 
-test("buildProduction does NOT wire preExecGrounding on the code target, even when preExecGroundingCollaborators is supplied (isCode has no DOM/routes to ground)", async () => {
+test("buildEngine does NOT wire preExecGrounding on the code target, even when preExecGroundingCollaborators is supplied (isCode has no DOM/routes to ground)", async () => {
   let captureCalled = false;
   const cfg = fakeConfig({
     target: "code",
@@ -1311,7 +1311,7 @@ test("buildProduction does NOT wire preExecGrounding on the code target, even wh
     },
     setupCollaborators: { e2e: async () => {}, code: async () => {} },
   });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -1319,16 +1319,16 @@ test("buildProduction does NOT wire preExecGrounding on the code target, even wh
     source: "manual",
     mode: "diff",
     target: "code",
-    runId: "composition-root-preexec-grounding-code-skip",
+    runId: "engine-root-preexec-grounding-code-skip",
   });
 
   assert.equal(captureCalled, false, "preExecGroundingCollaborators must never be invoked on the code target");
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction runs without preExecGroundingCollaborators (absent -> no-op, backward compatible)", async () => {
+test("buildEngine runs without preExecGroundingCollaborators (absent -> no-op, backward compatible)", async () => {
   const cfg = fakeConfig({ target: "e2e", isCode: false }); /* fakeConfig()'s base never supplies it */
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -1336,7 +1336,7 @@ test("buildProduction runs without preExecGroundingCollaborators (absent -> no-o
     source: "manual",
     mode: "diff",
     target: "e2e",
-    runId: "composition-root-preexec-grounding-absent",
+    runId: "engine-root-preexec-grounding-absent",
   });
 
   assert.equal(outcome.verdict, "pass", "the run must complete normally with no preExecGrounding collaborators wired");
@@ -1344,7 +1344,7 @@ test("buildProduction runs without preExecGroundingCollaborators (absent -> no-o
 
 /* The gate must actually fire through composition, not just receive a call: a duplicate
    page-rooted selector must produce preExecAmbiguityCatches > 0. */
-test("buildProduction end-to-end: a duplicate page-rooted selector in the captured route trips the pre-exec ambiguity gate (preExecAmbiguityCatches > 0)", async () => {
+test("buildEngine end-to-end: a duplicate page-rooted selector in the captured route trips the pre-exec ambiguity gate (preExecAmbiguityCatches > 0)", async () => {
   /* A REAL specDir (mirrorDir/e2eRelDir) — the adapter under test resolves its own paths off disk
      (the "adapter resolves its own paths" precedent SetupPort/ExecutionPort/ReviewDomGroundingPort
      already use), so this is exercised against real fs, not a readSpecSource passthrough.
@@ -1386,7 +1386,7 @@ test("buildProduction end-to-end: a duplicate page-rooted selector in the captur
         ],
       },
     });
-    const port = buildProduction(cfg);
+    const port = buildEngine(cfg);
 
     const outcome = await port.run({
       app: "app",
@@ -1394,7 +1394,7 @@ test("buildProduction end-to-end: a duplicate page-rooted selector in the captur
       source: "manual",
       mode: "diff",
       target: "e2e",
-      runId: "composition-root-preexec-grounding-fires",
+      runId: "engine-root-preexec-grounding-fires",
     });
 
     const preExecAmbiguityCatches = outcome.gateSignals.preExecAmbiguityCatches ?? 0;
@@ -1436,36 +1436,36 @@ const diffVcs = {
   diff: async () => "diff --git a/src/x.ts b/src/x.ts\n+ handleX();",
 };
 
-test("buildProduction indexes the repo through cfg.codeGraph and the structural signal reads that same instance", async () => {
+test("buildEngine indexes the repo through cfg.codeGraph and the structural signal reads that same instance", async () => {
   const { calls, codeGraph } = recordingCodeGraph();
   const cfg = fakeConfig({ mode: "diff", codeGraph, coChange: quietCoChange, vcs: diffVcs });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
-  const outcome = await port.run({ ...diffRun, runId: "composition-root-graph-shared" });
+  const outcome = await port.run({ ...diffRun, runId: "engine-root-graph-shared" });
 
   assert.deepEqual(calls.slice(0, 2), [`syncTo ${MIRROR} abc1234`, `impactedSymbols ${MIRROR}`], "the run indexes first, then the signal asks the index it built");
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction still indexes without the co-change history, but builds no structural signal", async () => {
+test("buildEngine still indexes without the co-change history, but builds no structural signal", async () => {
   const { calls, codeGraph } = recordingCodeGraph();
   const cfg = fakeConfig({ mode: "diff", codeGraph, vcs: diffVcs });
-  const port = buildProduction(cfg);
+  const port = buildEngine(cfg);
 
-  await port.run({ ...diffRun, runId: "composition-root-graph-no-cochange" });
+  await port.run({ ...diffRun, runId: "engine-root-graph-no-cochange" });
 
   assert.deepEqual(calls, [`syncTo ${MIRROR} abc1234`]);
 });
 
 /* The run_spec loop is wired only when the shell hands the root its registry; the adapter it builds executes through the run's own execution and cleanup ports. */
-test("wireAdapters builds the run_spec loop port from cfg.closedLoop and omits it when the config has none", async () => {
+test("wireEngine builds the run_spec loop port from cfg.closedLoop and omits it when the config has none", async () => {
   const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry");
   const { AccountLock } = await import("@contexts/test-execution/domain/account-lock");
-  const without = wireAdapters(fakeConfig());
+  const without = wireEngine(fakeConfig());
   assert.equal("closedLoop" in without, false);
 
   const registry = new ClosedLoopRegistry();
-  const wired = wireAdapters(fakeConfig({
+  const wired = wireEngine(fakeConfig({
     closedLoop: {
       registry,
       setting: { enabled: true, limits: { maxCalls: 3, perCallMs: 30_000, maxDevWrites: 5 } },
@@ -1484,7 +1484,7 @@ test("wireAdapters builds the run_spec loop port from cfg.closedLoop and omits i
 test("a code-target composition never gets the run_spec loop, whatever the config says", async () => {
   const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry");
   const { AccountLock } = await import("@contexts/test-execution/domain/account-lock");
-  const wired = wireAdapters(fakeConfig({
+  const wired = wireEngine(fakeConfig({
     isCode: true,
     target: "code",
     closedLoop: { registry: new ClosedLoopRegistry(), setting: { enabled: true, limits: { maxCalls: 3, perCallMs: 30_000, maxDevWrites: 5 } }, generatorRuntimeCanCall: () => true, account: "a", lock: new AccountLock(), redact: (t) => t },
@@ -1493,10 +1493,10 @@ test("a code-target composition never gets the run_spec loop, whatever the confi
 });
 
 /* The authenticated agent browser is wired only when the shell hands the root its registry, and only for an e2e app with a DEV url. */
-test("wireAdapters builds the agent browser port from cfg.agentBrowser and omits it when the config has none", async () => {
+test("wireEngine builds the agent browser port from cfg.agentBrowser and omits it when the config has none", async () => {
   const { AgentBrowserRegistry } = await import("@contexts/agent-tools/infrastructure/agent-browser-registry");
   const { AccountLock } = await import("@contexts/test-execution/domain/account-lock");
-  const without = wireAdapters(fakeConfig({ baseUrl: "https://dev.example.com" }));
+  const without = wireEngine(fakeConfig({ baseUrl: "https://dev.example.com" }));
   assert.equal("agentBrowser" in without, false);
 
   const wiring = {
@@ -1508,23 +1508,23 @@ test("wireAdapters builds the agent browser port from cfg.agentBrowser and omits
     lock: new AccountLock(),
     redact: (text: string) => text,
   };
-  const wired = wireAdapters(fakeConfig({ baseUrl: "https://dev.example.com", agentBrowser: wiring }));
+  const wired = wireEngine(fakeConfig({ baseUrl: "https://dev.example.com", agentBrowser: wiring }));
   assert.equal(await wired.agentBrowser!.open({ runId: "r1", app: "app", mode: "diff", specDir: "/m/e2e" }), undefined, "the port is there and applies its own conditions");
 
-  assert.equal("agentBrowser" in wireAdapters(fakeConfig({ agentBrowser: wiring })), false, "an app with no DEV url has nothing to browse");
-  assert.equal("agentBrowser" in wireAdapters(fakeConfig({ isCode: true, target: "code", baseUrl: "https://dev.example.com", agentBrowser: wiring })), false, "a code target never gets it");
+  assert.equal("agentBrowser" in wireEngine(fakeConfig({ agentBrowser: wiring })), false, "an app with no DEV url has nothing to browse");
+  assert.equal("agentBrowser" in wireEngine(fakeConfig({ isCode: true, target: "code", baseUrl: "https://dev.example.com", agentBrowser: wiring })), false, "a code target never gets it");
 });
 
 /* The lead's code-graph tool is wired from the run's explore port and the shell's registry, for an e2e app only. */
-test("wireAdapters builds the lead's code-graph tool over cfg.codeExplore and omits it without the explore, the wiring or for a code target", async () => {
+test("wireEngine builds the lead's code-graph tool over cfg.codeExplore and omits it without the explore, the wiring or for a code target", async () => {
   const { CodeGraphToolRegistry } = await import("@contexts/agent-tools/infrastructure/code-graph-tool-registry");
   const explore = { explore: async () => ok({ text: "**Exploration: x**", indexedSha: "abc1234" }) };
   const wiring = { registry: new CodeGraphToolRegistry(), generatorRuntimeCanCall: () => true, redact: (text: string) => text };
-  assert.equal("codeGraphTools" in wireAdapters(fakeConfig({ codeGraphTools: wiring })), false, "no explore, no tool");
-  assert.equal("codeGraphTools" in wireAdapters(fakeConfig({ codeExplore: explore })), false, "no wiring, no tool");
-  assert.equal("codeGraphTools" in wireAdapters(fakeConfig({ isCode: true, target: "code", codeExplore: explore, codeGraphTools: wiring })), false, "a code target never gets it");
+  assert.equal("codeGraphTools" in wireEngine(fakeConfig({ codeGraphTools: wiring })), false, "no explore, no tool");
+  assert.equal("codeGraphTools" in wireEngine(fakeConfig({ codeExplore: explore })), false, "no wiring, no tool");
+  assert.equal("codeGraphTools" in wireEngine(fakeConfig({ isCode: true, target: "code", codeExplore: explore, codeGraphTools: wiring })), false, "a code target never gets it");
 
-  const wired = wireAdapters(fakeConfig({ codeExplore: explore, codeGraphTools: wiring }));
+  const wired = wireEngine(fakeConfig({ codeExplore: explore, codeGraphTools: wiring }));
   const handle = await wired.codeGraphTools!.open({ runId: "r1" });
   assert.ok(handle, "the port is there and, with a lead that can call a custom tool, grants the right");
   wiring.registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-generator" });
@@ -1533,26 +1533,26 @@ test("wireAdapters builds the lead's code-graph tool over cfg.codeExplore and om
   handle.close();
 });
 
-test("wireAdapters hands the use case the app's coordination settings, and omits them when the config has none", () => {
-  const without = wireAdapters(fakeConfig());
+test("wireEngine hands the use case the app's coordination settings, and omits them when the config has none", () => {
+  const without = wireEngine(fakeConfig());
   assert.equal("coordinationSettings" in without, false);
   const settings = resolveCoordinationSettings({ maxFlows: 3 });
-  const wired = wireAdapters(fakeConfig({ coordinationSettings: settings }));
+  const wired = wireEngine(fakeConfig({ coordinationSettings: settings }));
   assert.deepEqual(wired.coordinationSettings, settings);
 });
 
-test("wireAdapters wires the lead/sidekick mode only for an e2e run whose shell named a place for the workspaces, and never the file-count proposer", () => {
+test("wireEngine wires the lead/sidekick mode only for an e2e run whose shell named a place for the workspaces, and never the file-count proposer", () => {
   const delegation = { workspaceRoot: "/mirrors/.qa-delegations", sidekickProvider: () => "opencode" as const, plannerProvider: () => "opencode" as const };
-  const none = wireAdapters(fakeConfig());
+  const none = wireEngine(fakeConfig());
   assert.equal("leadSidekicks" in none, false);
   assert.equal("sidekickProvider" in none, false);
 
-  const wired = wireAdapters(fakeConfig({ delegation }));
+  const wired = wireEngine(fakeConfig({ delegation }));
   assert.equal(typeof wired.leadSidekicks?.coordinate, "function");
   assert.equal(wired.sidekickProvider?.(), "opencode");
   assert.equal(wired.plannerProvider?.(), "opencode");
 
-  const code = wireAdapters(fakeConfig({ delegation, isCode: true }));
+  const code = wireEngine(fakeConfig({ delegation, isCode: true }));
   assert.equal("leadSidekicks" in code, false);
 
   for (const deps of [none, wired, code]) {
@@ -1569,11 +1569,11 @@ test("wireAdapters wires the lead/sidekick mode only for an e2e run whose shell 
 test("with a telemetry port the learning, curriculum and suite store ports are traced, and without one they are the plain adapters", () => {
   const curriculumPort = { select: async () => [], fold: async () => {} };
   const suiteStore = { restore: async () => ({ restored: 0, trackedWins: 0, overlaid: 0, authRestored: false }), fingerprint: async () => new Map(), capture: async () => ({ entries: 0, admitted: 0, dropped: 0, skipped: [] }), demoteAuth: async () => {} };
-  const traced = wireAdapters(fakeConfig({ telemetry: new NoopTelemetry(), curriculumPort, suiteStore }));
+  const traced = wireEngine(fakeConfig({ telemetry: new NoopTelemetry(), curriculumPort, suiteStore }));
   assert.ok(traced.learning instanceof TracedLearningPort);
   assert.ok(traced.curriculum instanceof TracedCurriculumPort);
   assert.ok(traced.suiteStore instanceof TracedSuiteStore);
-  const plain = wireAdapters(fakeConfig({ curriculumPort, suiteStore }));
+  const plain = wireEngine(fakeConfig({ curriculumPort, suiteStore }));
   assert.equal(plain.learning instanceof TracedLearningPort, false);
   assert.equal(plain.curriculum, curriculumPort);
   assert.equal(plain.suiteStore, suiteStore);
@@ -1582,7 +1582,7 @@ test("with a telemetry port the learning, curriculum and suite store ports are t
 const noSpecSnapshots: SpecSnapshotPort = { record: () => {} };
 
 test("spec snapshots wrap the validation of an e2e run only, and only when a snapshot port is supplied", () => {
-  assert.ok(wireAdapters(fakeConfig({ specSnapshots: noSpecSnapshots })).validation instanceof SpecSnapshotValidationPort);
-  assert.equal(wireAdapters(fakeConfig()).validation instanceof SpecSnapshotValidationPort, false);
-  assert.equal(wireAdapters(fakeConfig({ specSnapshots: noSpecSnapshots, isCode: true, target: "code" })).validation instanceof SpecSnapshotValidationPort, false);
+  assert.ok(wireEngine(fakeConfig({ specSnapshots: noSpecSnapshots })).validation instanceof SpecSnapshotValidationPort);
+  assert.equal(wireEngine(fakeConfig()).validation instanceof SpecSnapshotValidationPort, false);
+  assert.equal(wireEngine(fakeConfig({ specSnapshots: noSpecSnapshots, isCode: true, target: "code" })).validation instanceof SpecSnapshotValidationPort, false);
 });

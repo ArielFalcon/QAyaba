@@ -44,7 +44,7 @@ export interface OtelTelemetryDeps {
   /* Absent: instruments record nothing. */
   readonly meter?: Meter;
   readonly instruments?: InstrumentTable;
-  /* The outbound sanitizer. Default: the "issue" mode of src/orchestrator/sanitizer.ts. */
+  /* The outbound sanitizer. Default: `sanitizeText` of the pattern redaction adapter, in its "issue" mode. */
   readonly sanitize?: (text: string) => string;
   /* Commits buffered local records (the span ledger). */
   readonly flush?: () => void;

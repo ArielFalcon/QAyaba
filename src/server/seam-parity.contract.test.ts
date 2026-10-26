@@ -1,4 +1,4 @@
-/* Permanent seam: kernel RunOutcome ↔ toStoredRunOutcome, and AppConfig ↔ CompositionConfig.
+/* Permanent seam: kernel RunOutcome ↔ toStoredRunOutcome, and AppConfig ↔ EngineRootDeps.
    qa-engine cannot import src/, so this shell test is the drift gate. A field added
    to the type without an allowlist entry fails typecheck; a field dropped by the adapter fails
    this test. */
@@ -10,11 +10,11 @@ import { join } from "node:path";
 
 import type { RunOutcome as KernelRunOutcome } from "@kernel/run-outcome";
 import { GENERATION_END } from "@kernel/generation-end";
-import { wireAdapters, type CompositionConfig } from "./engine-root";
+import { wireEngine, type EngineRootDeps } from "./engine-root";
 import { ConfinedPathError } from "../../qa-engine/src/shared-infrastructure/spec-path-confinement";
 
 import { toStoredRunOutcome, type RunHistorySqliteAdapterDeps, SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
-import { buildCompositionConfig, type RunEngineFactoryDeps } from "./run-engine-factory";
+import { buildEngineRootDeps, type RunEngineFactoryDeps } from "./run-engine-factory";
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { AgentDeps } from "../integrations/opencode-client";
 import { AgentRuntimeFacade } from "../agent-runtime/facades";
@@ -191,24 +191,24 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════
-   (e) COMPOSITION surface — CompositionConfig vs buildCompositionConfig
+   (e) COMPOSITION surface — EngineRootDeps vs buildEngineRootDeps
    ════════════════════════════════════════════════════════════════════════════════════════════════
  */
-describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)", () => {
-  /* Fields buildCompositionConfig deliberately does NOT populate, each with a reason.
+describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () => {
+  /* Fields buildEngineRootDeps deliberately does NOT populate, each with a reason.
      This is the SAME class of audit that caught the original 5 gaps (baseUrl/branch/mode/guidance/
-     testIdAttribute), mechanized: every optional CompositionConfig field must appear here OR be
-     asserted present by buildCompositionConfigTest below.
+     testIdAttribute), mechanized: every optional EngineRootDeps field must appear here OR be
+     asserted present by buildEngineRootDepsTest below.
    */
   const OPTIONAL_ALLOWLIST: Record<string, string> = {
-    guidance: "supplied by buildCompositionConfig ONLY when run.guidance is present (asserted below as a present-when-given case) — legitimately absent for diff-mode runs with no manual guidance.",
+    guidance: "supplied by buildEngineRootDeps ONLY when run.guidance is present (asserted below as a present-when-given case) — legitimately absent for diff-mode runs with no manual guidance.",
     diff: "DELIBERATELY static '' — see this fn's own header 'difference #2': GenerationPortAdapter/ReviewPortAdapter both resolve the REAL per-run diff dynamically from ChangeAnalysisPort.classify() instead, since no per-run diff exists yet at composition-build time.",
     baseUrl: "supplied ONLY when app.dev?.baseUrl is present (asserted below as a present-when-given case) — legitimately absent for code-mode apps (no dev: block).",
     testIdAttribute: "supplied ONLY when app.e2e?.testIdAttribute is present (asserted below as a present-when-given case) — deliberately NO 'data-testid' default applied here (the seed playwright.config.ts already defaults it); legitimately absent when the app declares none.",
     readSpecSource: "DELIBERATELY absent — the shell passes no spec reader. The composition root defaults to the confined reader (asserted below by reading real specs through the wired GenerationPort), so FixLoop's Lever-2 selector-contradiction check still receives specSources on the real production path, and a path the agent reported is never read by a bare fs call that follows a symlink out of the spec directory.",
     stepLimitFor: "supplied ONLY when the host wires getAgentFacade: the per-run memo over the live runtime's step limits (asserted below as a present-when-given case that reaches the generation and review inputs). Legitimately absent when the host wires none: absent means no prompt of the run states a step limit, never a stand-in number.",
     setupCollaborators: "IS supplied (e2e + code) — asserted below as a present case; listed here only because this describe-block enumerates the type's full optional-field set before splitting into present/allowlisted.",
-    cleanupCollaborators: "IS supplied (e2e only, matching composition-root.ts's own `!cfg.isCode` gate) — asserted below as a present case.",
+    cleanupCollaborators: "IS supplied (e2e only, matching engine-root.ts's own `!cfg.isCode` gate) — asserted below as a present case.",
     groundingCollaborators: "IS supplied ({} — resolves to the real production default per this factory's own header) — asserted below as a present case.",
     reviewDomGroundingCollaborators: "IS supplied ({}) — asserted below as a present case.",
     serviceTopology: "supplied ONLY when app.services?.length && app.boundaries?.length are both present (asserted below as a present-when-given case, ADR-6) — legitimately absent for single-repo apps or apps that never declared a cross-service boundary profile. Mirrors the 'observer' precedent immediately below: supplied only when the caller/config provides it.",
@@ -281,15 +281,15 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)
     return { getAgentDeps: () => ({}) as unknown as AgentDeps };
   }
 
-  test("buildCompositionConfig supplies every non-optional CompositionConfig field, and every optional field is either present-when-expected or documented in OPTIONAL_ALLOWLIST", () => {
-    const cfg = buildCompositionConfig(
+  test("buildEngineRootDeps supplies every non-optional EngineRootDeps field, and every optional field is either present-when-expected or documented in OPTIONAL_ALLOWLIST", () => {
+    const cfg = buildEngineRootDeps(
       fakeAppConfig(),
       fakeFactoryDeps(),
       S("namespace"),
       { mode: "diff", guidance: S("run.guidance") },
     );
 
-    const dyingLayer = "buildCompositionConfig() -> CompositionConfig (src/server/run-engine-factory.ts)";
+    const dyingLayer = "buildEngineRootDeps() -> EngineRootDeps (src/server/run-engine-factory.ts)";
 
     /* Non-optional fields — every one MUST be present (undefined fails these asserts loudly). */
     const nonOptional: Array<keyof typeof cfg> = [
@@ -299,7 +299,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)
       "githubPr", "githubIssue", "checkout",
     ];
     for (const field of nonOptional) {
-      assert.notEqual(cfg[field], undefined, `${String(field)} (non-optional CompositionConfig field) dropped at ${dyingLayer}`);
+      assert.notEqual(cfg[field], undefined, `${String(field)} (non-optional EngineRootDeps field) dropped at ${dyingLayer}`);
     }
 
     /* Optional fields this factory IS expected to populate given a fully-populated AppConfig. */
@@ -367,17 +367,17 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)
     assert.equal(cfg.observer, undefined, "observer is absent because this call omitted the 5th argument — see OPTIONAL_ALLOWLIST.observer");
   });
 
-  test("qa.reviewLoopIntegrity reaches CompositionConfig.integrity.reviewLoop, and is on unless the app opts out", () => {
-    const byDefault = buildCompositionConfig(fakeAppConfig(), fakeFactoryDeps(), S("namespace"), { mode: "diff" });
+  test("qa.reviewLoopIntegrity reaches EngineRootDeps.integrity.reviewLoop, and is on unless the app opts out", () => {
+    const byDefault = buildEngineRootDeps(fakeAppConfig(), fakeFactoryDeps(), S("namespace"), { mode: "diff" });
     assert.deepEqual(byDefault.integrity, { reviewLoop: true }, "the master switch is on unless the app turns it off");
 
-    const off = buildCompositionConfig(
+    const off = buildEngineRootDeps(
       fakeAppConfig({ qa: { needsReview: true, shadow: false, testDataPrefix: "qa-bot", reviewLoopIntegrity: false } }),
       fakeFactoryDeps(),
       S("namespace"),
       { mode: "diff" },
     );
-    assert.deepEqual(off.integrity, { reviewLoop: false }, "qa.reviewLoopIntegrity: false reaches buildCompositionConfig()");
+    assert.deepEqual(off.integrity, { reviewLoop: false }, "qa.reviewLoopIntegrity: false reaches buildEngineRootDeps()");
   });
 
   /* The spec reader is the composition root's own: the shell hands it none (asserted above), so what Lever-2 reads
@@ -385,23 +385,23 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)
   test("the composition root reads the delivered specs through the confined reader: a spec inside the spec directory is a source, and a symlink that leaves it is refused", async () => {
     const mirrorRoot = mkdtempSync(join(tmpdir(), "qa-seam-confined-reader-"));
     try {
-      const cfg = buildCompositionConfig(fakeAppConfig(), { ...fakeFactoryDeps(), mirrorRoot }, S("namespace"), { mode: "diff" });
+      const cfg = buildEngineRootDeps(fakeAppConfig(), { ...fakeFactoryDeps(), mirrorRoot }, S("namespace"), { mode: "diff" });
       const specDir = join(cfg.mirrorDir, cfg.e2eRelDir);
       mkdirSync(join(specDir, "flows"), { recursive: true });
       writeFileSync(join(specDir, "flows", "inside.spec.ts"), "// inside the spec directory\n");
       writeFileSync(join(mirrorRoot, "secret.txt"), "TOP SECRET");
       symlinkSync(join(mirrorRoot, "secret.txt"), join(specDir, "flows", "leak.spec.ts"));
 
-      const delivering = (specs: string[]): CompositionConfig => ({
+      const delivering = (specs: string[]): EngineRootDeps => ({
         ...cfg,
         generationUseCase: { generate: async () => ({ specs, approved: true, reviewed: false, end: GENERATION_END.DELIVERED }) },
       });
 
-      const inside = await wireAdapters(delivering(["flows/inside.spec.ts"])).generation.generate(specDir);
+      const inside = await wireEngine(delivering(["flows/inside.spec.ts"])).generation.generate(specDir);
       assert.deepEqual(inside.specSources, ["// inside the spec directory\n"]);
 
       await assert.rejects(
-        wireAdapters(delivering(["flows/leak.spec.ts"])).generation.generate(specDir),
+        wireEngine(delivering(["flows/leak.spec.ts"])).generation.generate(specDir),
         (err: unknown) => err instanceof ConfinedPathError && err.path === "flows/leak.spec.ts",
       );
     } finally {
@@ -423,11 +423,11 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)
     };
   }
 
-  async function inputsBuiltThrough(deps: RunEngineFactoryDeps): Promise<{ cfg: CompositionConfig; generation: OpencodeRunInput; review: ReviewInput }> {
-    const cfg = buildCompositionConfig(fakeAppConfig(), deps, S("namespace"), { mode: "diff" });
+  async function inputsBuiltThrough(deps: RunEngineFactoryDeps): Promise<{ cfg: EngineRootDeps; generation: OpencodeRunInput; review: ReviewInput }> {
+    const cfg = buildEngineRootDeps(fakeAppConfig(), deps, S("namespace"), { mode: "diff" });
     const generated: OpencodeRunInput[] = [];
     const reviewed: ReviewInput[] = [];
-    const adapters = wireAdapters({
+    const adapters = wireEngine({
       ...cfg,
       generationUseCase: {
         generate: async (input) => {
@@ -456,7 +456,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)
   test("the step limit of each role crosses the composition root: the generator's reaches the generation input and the reviewer's the review input", async () => {
     const { cfg, generation, review } = await inputsBuiltThrough({ ...fakeFactoryDeps(), getAgentFacade: () => facadeReporting({ primary: 41, reviewer: 17 }) });
 
-    const dyingLayer = "buildCompositionConfig() -> wireAdapters() (src/server/run-engine-factory.ts -> composition-root.ts)";
+    const dyingLayer = "buildEngineRootDeps() -> wireEngine() (src/server/run-engine-factory.ts -> engine-root.ts)";
     assert.notEqual(cfg.stepLimitFor, undefined, `stepLimitFor dropped at ${dyingLayer}`);
     assert.equal(generation.stepLimit, 41, `the generator's limit dropped at ${dyingLayer}`);
     assert.equal(review.stepLimit, 17, `the reviewer's limit dropped at ${dyingLayer}`);
@@ -506,18 +506,18 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)
   });
 
   test("every documented OPTIONAL_ALLOWLIST field is a REAL optional field on the type (guards against a stale allowlist entry after a refactor)", () => {
-    const cfg = buildCompositionConfig(fakeAppConfig(), fakeFactoryDeps(), S("namespace"), { mode: "diff" });
+    const cfg = buildEngineRootDeps(fakeAppConfig(), fakeFactoryDeps(), S("namespace"), { mode: "diff" });
     for (const field of Object.keys(OPTIONAL_ALLOWLIST)) {
-      assert.ok(field in cfg || cfg[field as keyof typeof cfg] === undefined, `OPTIONAL_ALLOWLIST references '${field}', which is not a real field on the returned CompositionConfig object shape — stale allowlist entry`);
+      assert.ok(field in cfg || cfg[field as keyof typeof cfg] === undefined, `OPTIONAL_ALLOWLIST references '${field}', which is not a real field on the returned EngineRootDeps object shape — stale allowlist entry`);
     }
   });
 
-  test("buildCompositionConfig leaves guidance/baseUrl/testIdAttribute/versionUrl/observer absent when the AppConfig/caller omits them (never fabricated)", () => {
+  test("buildEngineRootDeps leaves guidance/baseUrl/testIdAttribute/versionUrl/observer absent when the AppConfig/caller omits them (never fabricated)", () => {
     /* CODE-target run: dev.baseUrl is conceptually absent for code mode (no live DEV URL), so this
        app config is legal and the factory must NOT throw the new composition-time baseUrl guard.
        Any e2e-target build must still declare dev.baseUrl — see the guard's own test.
      */
-    const cfg = buildCompositionConfig(
+    const cfg = buildEngineRootDeps(
       fakeAppConfig({ dev: undefined, e2e: undefined, code: true } as Partial<AppConfig>),
       fakeFactoryDeps(),
       S("namespace"),
@@ -544,8 +544,8 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)
     const warn = mock.method(console, "warn", () => undefined);
     try {
       const factsFor = async (app: AppConfig): Promise<unknown> => {
-        const cfg = buildCompositionConfig(app, fakeFactoryDeps(), S("namespace"), { mode: "diff" });
-        const grounding = wireAdapters(cfg).preGenerationGrounding;
+        const cfg = buildEngineRootDeps(app, fakeFactoryDeps(), S("namespace"), { mode: "diff" });
+        const grounding = wireEngine(cfg).preGenerationGrounding;
         assert.ok(grounding, "an e2e app is composed with a pre-generation grounding port");
         return (await grounding.ground(specDir)).harnessFacts;
       };
@@ -564,9 +564,9 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)
     }
   });
 
-  test("buildCompositionConfig throws when an e2e-target app omits dev.baseUrl (composition-time guard)", () => {
+  test("buildEngineRootDeps throws when an e2e-target app omits dev.baseUrl (composition-time guard)", () => {
     assert.throws(
-      () => buildCompositionConfig(
+      () => buildEngineRootDeps(
         fakeAppConfig({ dev: undefined } as Partial<AppConfig>),
         fakeFactoryDeps(),
         S("namespace"),

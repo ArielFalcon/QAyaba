@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildCompositionConfig } from "./run-engine-factory";
+import { buildEngineRootDeps } from "./run-engine-factory";
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { AgentDeps } from "../integrations/opencode-client";
 import { Sha } from "@kernel/sha";
@@ -73,7 +73,7 @@ async function withOracleRun(plant: string, run: (measure: () => Promise<{ value
     const bin = join(e2eDir, "node_modules", ".bin", "playwright");
     writeFileSync(bin, fakePlaywright(plant.replaceAll("OUTSIDE", JSON.stringify(outside))));
     chmodSync(bin, 0o755);
-    const config = buildCompositionConfig(app(), { getAgentDeps: stubAgentDeps }, NAMESPACE, { mode: "diff" });
+    const config = buildEngineRootDeps(app(), { getAgentDeps: stubAgentDeps }, NAMESPACE, { mode: "diff" });
     /* The oracle's re-run is a child of the run's sandbox: it needs the scope a run opens. */
     const session = await config.execScope!.open({ runId: "fault-injection-test" });
     try {

@@ -569,7 +569,7 @@ export function coverageCommand(project: CodeProject, repoDir: string, c8Bin: st
   };
 }
 
-/** runCodeCoverage produces coverage/lcov.info for the repo's suite, best-effort. Returns without throwing on any failure (missing c8, non-node ecosystem, timeout, crash) so the caller falls back to "unmeasured". It never reports pass/fail — only a side-effect report. `exec` is INJECTED (see this file's header, difference #2) — the composition-root shell builds it once and passes it to every code-mode entry point (setup/execute/coverage) alike. */
+/** runCodeCoverage produces coverage/lcov.info for the repo's suite, best-effort. Returns without throwing on any failure (missing c8, non-node ecosystem, timeout, crash) so the caller falls back to "unmeasured". It never reports pass/fail — only a side-effect report. `exec` is INJECTED (see this file's header, difference #2) — the engine-root shell builds it once and passes it to every code-mode entry point (setup/execute/coverage) alike. */
 export async function runCodeCoverage(
   repoDir: string,
   exec: ExecSandboxPort,

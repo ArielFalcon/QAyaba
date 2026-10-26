@@ -1,6 +1,6 @@
 /*
- * Composition root: maps AppConfig into a qa-engine CompositionConfig and returns
- * buildProduction(...). Wires host collaborators (agent runtime, GitHub, runners).
+ * Composition root: maps AppConfig into a qa-engine EngineRootDeps and returns
+ * buildEngine(...). Wires host collaborators (agent runtime, GitHub, runners).
  * Env reads for execution timeouts stay here. Agent remains read-only on watched repos.
  */
 
@@ -25,7 +25,7 @@ import {
   stallMs,
 } from "../integrations/opencode-client";
 import type { RunPipelinePort, ObserverPort } from "@contexts/run-orchestration/application/index.ts";
-import { buildProduction, type CompositionConfig } from "./engine-root";
+import { buildEngine, type EngineRootDeps } from "./engine-root";
 import { createDiscoverLogin } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner";
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { domCaptureObserver } from "@contexts/generation/infrastructure/dom-capture-trace";
@@ -804,14 +804,14 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
   return { validation, execution, objectiveSignal, ...(review ? { review } : {}) };
 }
 
-export function buildCompositionConfig(
+export function buildEngineRootDeps(
   app: AppConfig,
   deps: RunEngineFactoryDeps,
   namespace: string,
   run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] },
 
   observer?: ObserverPort,
-): CompositionConfig {
+): EngineRootDeps {
   const target: TestTarget = run.target ?? (app.code === true ? "code" : "e2e");
   const isCode = target === "code";
   /* The pre-generation context pack's live-DOM arm (an A/B lever): the resolved effective config already carries it, so this is always a boolean here. */
@@ -843,7 +843,7 @@ export function buildCompositionConfig(
   const mirrorRoot = deps.mirrorRoot ?? workdirRoot();
   /*
    * Placeholder static mirrorDir — the real per-run dir is whatever checkout(sha) returns.
-   * This field satisfies CompositionConfig's static shape and seeds the coverage collector.
+   * This field satisfies EngineRootDeps's static shape and seeds the coverage collector.
    * An unmeasured/mismatched repoDir reads as "unknown", which never blocks publish.
    */
   const mirrorDir = join(mirrorRoot, app.repo.replaceAll("/", "__"));
@@ -1187,7 +1187,7 @@ export function buildCompositionConfig(
       : {}),
     /*
      * Per-delegation wall-clock cap — env-tunable here (the shell), never read by qa-engine's
-     * composition-root itself. Absent → composition-root's own hardcoded default (420_000).
+     * engine-root itself. Absent → engine-root's own hardcoded default (420_000).
      */
     /*
      * The same coveragePolicy that configures the objective signal (computed once, above), so
@@ -1679,7 +1679,7 @@ export function createRunEngineFactory(
     getAgentDeps: (turn) => engineAgentDeps(deps, turn),
   };
   return (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] }, observer?: ObserverPort): RunPipelinePort => {
-    const cfg = buildCompositionConfig(appConfig, wrappedDeps, namespace, run, observer);
-    return buildProduction(cfg);
+    const cfg = buildEngineRootDeps(appConfig, wrappedDeps, namespace, run, observer);
+    return buildEngine(cfg);
   };
 }

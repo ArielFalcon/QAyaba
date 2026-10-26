@@ -332,8 +332,8 @@ test("generate() with no signal at all behaves exactly as before (no third-arg r
 /* Production constructs this adapter BEFORE the run/checkout, so the STATIC ctx.diff supplied at
    composition time is always "". This adapter must accept the run's ACTUAL diff as a fourth
    generate() argument and PREFER it over the static ctx.diff — falling back to ctx.diff only when
-   the caller omits the argument (callers that pre-compute ctx.diff before building
-   CompositionConfig keep working unchanged).
+   the caller omits the argument (callers that pre-compute ctx.diff before the adapter is built
+   keep working unchanged).
  */
 
 test("generate() PREFERS a dynamic diff argument over the static ctx.diff supplied at construction time", async () => {

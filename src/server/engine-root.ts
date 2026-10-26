@@ -1,4 +1,4 @@
-/* The engine root: the one module that imports concrete adapters from every context and wires the run's ports to them. It lives in the shell, so no engine module reaches the VCS write seam. A shadow composition (cfg.shadow) publishes to the shadow log: no PR or Issue is opened on the watched repo. */
+/* The engine root: the one module that calls every context's builder, in dependency order, and hands the ports they serve to the run-orchestration builder. It lives in the shell, so no engine module reaches the VCS write seam. A shadow composition (deps.shadow) publishes to the shadow log: no PR or Issue is opened on the watched repo. EngineRootDeps is the union of the builders' inputs: the shell fills it per run, each builder takes its own part. */
 
 import type { RunMode, TestTarget } from "@kernel/run-mode";
 import type { RunPipelinePort } from "../../qa-engine/src/contexts/run-orchestration/application/ports/run-pipeline.port";
@@ -15,7 +15,8 @@ import type { CoordinationSettings } from "@kernel/coordination";
 import type { ToolAttemptDirectory } from "@contexts/generation/domain/tool-link";
 import type { AuthDeclaration } from "@contexts/app-catalog/application/index";
 import { buildAppCatalog, type AppCatalogDeps } from "../../qa-engine/src/contexts/app-catalog/composition/build-app-catalog";
-import { RunPipelineAdapter, type RunPipelineAdapterDeps } from "../../qa-engine/src/contexts/run-orchestration/infrastructure/run-pipeline.adapter";
+import type { RunPipelineAdapterDeps } from "../../qa-engine/src/contexts/run-orchestration/infrastructure/run-pipeline.adapter";
+import { buildRunOrchestration, type RunOrchestrationApi, type RunOrchestrationDeps } from "../../qa-engine/src/contexts/run-orchestration/composition/build-run-orchestration";
 import { specFileForFlow } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { TracedObjectiveSignalPort } from "../../qa-engine/src/contexts/objective-signal/infrastructure/adapters/objective-signal-trace";
 import type { SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port";
@@ -29,8 +30,7 @@ import type { PathMirrorGcCollaborator } from "../../qa-engine/src/contexts/work
 import type { SetupPortCollaborators } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/setup-port.adapter";
 import type { CleanupPortCollaborators } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/cleanup-port.adapter";
 import type { CheckoutFn } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/workspace-port.adapter";
-import { DeployGatePortAdapter, NullDeployGateAdapter, type VersionPollFn } from "../../qa-engine/src/contexts/run-orchestration/infrastructure/adapters/deploy-gate-port.adapter";
-import { InMemoryRunHistoryAdapter, FileRunHistoryAdapter } from "../../qa-engine/src/contexts/run-orchestration/infrastructure/adapters/run-history-port.adapter";
+import type { VersionPollFn } from "../../qa-engine/src/contexts/run-orchestration/infrastructure/adapters/deploy-gate-port.adapter";
 import { type PreGenerationGroundingCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter";
 import { type ReviewDomGroundingCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/review-dom-grounding-port.adapter";
 import { type PreExecGroundingCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/pre-exec-grounding-port.adapter";
@@ -66,7 +66,7 @@ import type { CoverageCollectorPort, ValueOraclePort } from "@contexts/objective
 import type { VcsReadPort } from "@contexts/change-analysis/application/index";
 import type { LearningRepositoryPort, ReflectorPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/index";
 
-export interface CompositionConfig {
+export interface EngineRootDeps {
   /* Static per-run context (shared across GenerationPort/ReviewPort/ExecutionPort/PublicationPort). */
   repo: string;
   appName: string;
@@ -220,7 +220,7 @@ export interface CompositionConfig {
   reviewerApprovedForPublish?: boolean;
   coverageBlocksForPublish?: boolean;
   e2eChangedForPublish?: boolean;
-  /* Issue/PR-body sanitizer. Injected, never imported (qa-engine stays src/-free). Required: wireAdapters throws if absent — no identity default. Shell composition supplies sanitizeText from src/orchestrator/sanitizer.ts. */
+  /* Issue/PR-body sanitizer. Injected, never imported (qa-engine stays src/-free). Required: the workspace-and-publication builder throws if absent — no identity default. Shell composition supplies sanitizeText from src/orchestrator/sanitizer.ts. */
   sanitize?: (text: string) => string;
   /* Post-redaction fail-loud check on the "issue" route. Optional at the type; production composition always supplies RedactionPort.containsSecret alongside sanitize. */
   containsSecret?: (text: string) => boolean;
@@ -258,7 +258,7 @@ export interface CompositionConfig {
   deployGateIntervalMs?: number;
   deployGateTimeoutMs?: number;
 
-  /* RunHistoryPort collaborator — buildProduction prefers a durable FileRunHistoryAdapter when a path is given (falls back to in-memory otherwise). */
+  /* RunHistoryPort collaborator — a durable FileRunHistoryAdapter is used when a path is given (in-memory otherwise). */
   historyFilePath?: string;
 
   runHistory?: RunHistoryPort;
@@ -266,7 +266,7 @@ export interface CompositionConfig {
   /* Per-run observer (RunRecord + event store live in the shell). Optional: absent → onStep() is a no-op. */
   observer?: ObserverPort;
 
-  /* Multi-agent coordination is ALWAYS wired (see wireAdapters below). Infra-only model id for sidekick-escalated sessions (env/YAML). Domain never reads this. */
+  /* Multi-agent coordination is ALWAYS wired (see assemble below). Infra-only model id for sidekick-escalated sessions (env/YAML). Domain never reads this. */
   sidekickEscalatedModel?: string;
   /* Durable JSONL sink for coordination telemetry: events appended here survive process restarts so routing/cost signals can be analyzed offline. Absent -> memory-only. */
   coordinationTelemetryPath?: string;
@@ -279,15 +279,8 @@ export interface CompositionConfig {
 /* The pattern redaction every coordinated free-form string passes through. */
 const patternRedaction = new PatternRedactionAdapter();
 
-const DEFAULT_DEPLOY_GATE_INTERVAL_MS = 2000;
-const DEFAULT_DEPLOY_GATE_TIMEOUT_MS = 60000;
-
-/* The adapters wired from a CompositionConfig. */
-
-export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDeps, "publication" | "runHistory"> & {
-  publication: RunPipelineAdapterDeps["publication"];
-  runHistory: RunPipelineAdapterDeps["runHistory"];
-} {
+/* Calls the context builders in dependency order and hands their ports to the run-orchestration builder. */
+function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
   const authSession = buildAppCatalog({ ...(cfg.authSession ? { authSession: cfg.authSession } : {}) }).authSession;
   const codeGraphPort = cfg.codeGraph;
   const changeAnalysisApi = buildChangeAnalysis({
@@ -451,17 +444,6 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
   const plainLearning = learningApi.learning;
   const learning: LearningPort = generationApi.traced.learning(plainLearning);
 
-  const deployGate = cfg.versionUrl
-    ? new DeployGatePortAdapter(
-        cfg.versionPoll ?? (async () => ({ serving: true })),
-        {
-          versionUrl: cfg.versionUrl,
-          intervalMs: cfg.deployGateIntervalMs ?? DEFAULT_DEPLOY_GATE_INTERVAL_MS,
-          timeoutMs: cfg.deployGateTimeoutMs ?? DEFAULT_DEPLOY_GATE_TIMEOUT_MS,
-        },
-      )
-    : new NullDeployGateAdapter();
-
   const coordination = buildCoordination({
     isCode: cfg.isCode,
     ...(cfg.delegation ? { delegation: cfg.delegation } : {}),
@@ -475,10 +457,7 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
     ...(cfg.telemetry ? { telemetry: cfg.telemetry } : {}),
   });
 
-  /* Explicit runHistory wins over historyFilePath; file/in-memory adapters are the fallback when neither is a durable store supplied by the factory. */
-  const runHistory = cfg.runHistory ?? (cfg.historyFilePath ? new FileRunHistoryAdapter(cfg.historyFilePath) : new InMemoryRunHistoryAdapter());
-
-  return {
+  const ports: RunOrchestrationDeps["ports"] = {
     changeAnalysis,
     generation,
     review,
@@ -489,8 +468,6 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
     learning,
     workspace,
     specFiles: confinedSpecFiles,
-    deployGate,
-    runHistory,
     /* The intent lock's parser: pure, no I/O, so one instance serves every run. */
     intentContract: objectiveSignalApi.intentContract,
     ...(cfg.execScope ? { execScope: cfg.execScope } : {}),
@@ -540,6 +517,10 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
     ...(coordination.leadSidekicks ? { leadSidekicks: coordination.leadSidekicks } : {}),
     ...(coordination.sidekickProvider ? { sidekickProvider: coordination.sidekickProvider } : {}),
     ...(coordination.plannerProvider ? { plannerProvider: coordination.plannerProvider } : {}),
+  };
+
+  return buildRunOrchestration({
+    ports,
     config: {
       needsReview: cfg.needsReview,
       shadow: cfg.shadow,
@@ -553,23 +534,27 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
       ...(cfg.agentTimeoutMs !== undefined ? { agentTimeoutMs: cfg.agentTimeoutMs } : {}),
       ...(cfg.wallClockBudgetMs !== undefined ? { wallClockBudgetMs: cfg.wallClockBudgetMs } : {}),
       ...(cfg.iterationBudget !== undefined ? { iterationBudget: cfg.iterationBudget } : {}),
-      ...recordedReviewerIndependence(cfg),
+      ...(cfg.reviewerIndependence ? { reviewerIndependence: cfg.reviewerIndependence } : {}),
     },
-  };
+    deployGate: {
+      ...(cfg.versionUrl ? { versionUrl: cfg.versionUrl } : {}),
+      ...(cfg.versionPoll ? { poll: cfg.versionPoll } : {}),
+      ...(cfg.deployGateIntervalMs !== undefined ? { intervalMs: cfg.deployGateIntervalMs } : {}),
+      ...(cfg.deployGateTimeoutMs !== undefined ? { timeoutMs: cfg.deployGateTimeoutMs } : {}),
+    },
+    history: {
+      ...(cfg.runHistory ? { store: cfg.runHistory } : {}),
+      ...(cfg.historyFilePath ? { filePath: cfg.historyFilePath } : {}),
+    },
+  });
 }
 
-/* The reviewer-independence fact of the run being wired; a runtime that cannot answer leaves the run without it, loudly. */
-function recordedReviewerIndependence(cfg: CompositionConfig): { reviewerIndependence?: "shared-model" | "distinct-model" } {
-  if (!cfg.reviewerIndependence) return {};
-  try {
-    const value = cfg.reviewerIndependence();
-    return value !== undefined ? { reviewerIndependence: value } : {};
-  } catch (err) {
-    console.warn(`[qa] the reviewer's model assignment could not be read, so the run records no reviewer independence: ${err instanceof Error ? err.message : String(err)}`);
-    return {};
-  }
+/* The engine of one run: the pipeline the flow runs on. */
+export function buildEngine(deps: EngineRootDeps): RunPipelinePort {
+  return assemble(deps).pipeline;
 }
 
-export function buildProduction(cfg: CompositionConfig): RunPipelinePort {
-  return new RunPipelineAdapter(wireAdapters(cfg));
+/* The complete dependencies of the run's flow, for the tests that inspect what is wired. */
+export function wireEngine(deps: EngineRootDeps): RunPipelineAdapterDeps {
+  return assemble(deps).deps;
 }

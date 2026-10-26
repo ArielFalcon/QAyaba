@@ -1,7 +1,7 @@
 /* The run's composition records whether the reviewer runs the generator's own model, read from the live runtime assignment of THAT run. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildCompositionConfig, type RunEngineFactoryDeps } from "./run-engine-factory";
+import { buildEngineRootDeps, type RunEngineFactoryDeps } from "./run-engine-factory";
 import type { AgentDeps } from "../integrations/opencode-client";
 import type { AgentFacade, RoleAssignment } from "../agent-runtime/types";
 import type { AppConfig } from "../orchestrator/config-loader";
@@ -27,7 +27,7 @@ function facadeWith(primary: RoleAssignment, reviewer: RoleAssignment): AgentFac
 }
 
 function compose(getAgentFacade?: RunEngineFactoryDeps["getAgentFacade"]) {
-  return buildCompositionConfig(APP, { getAgentDeps: unusableAgentDeps, ...(getAgentFacade ? { getAgentFacade } : {}) }, "qa-bot-abc1234-run1", { mode: "diff" });
+  return buildEngineRootDeps(APP, { getAgentDeps: unusableAgentDeps, ...(getAgentFacade ? { getAgentFacade } : {}) }, "qa-bot-abc1234-run1", { mode: "diff" });
 }
 
 const A: RoleAssignment = { provider: "opencode", model: "provider/model-a" };

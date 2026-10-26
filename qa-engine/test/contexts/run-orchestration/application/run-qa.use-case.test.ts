@@ -42,7 +42,7 @@ import type { SuiteStorePort } from "@kernel/ports/suite-store.port.ts";
 /* reflector-rewire (design ADR-1/ADR-4/ADR-5): ReflectorPort/ReflectionInput are declared in
    cross-run-learning (co-located with StructuredReflection/LearningRepositoryPort), NOT in this
    context's own ports — same cross-context import precedent as LearningRepositoryPort
-   (composition-root.ts / learning-port.adapter.ts).
+   (engine-root.ts / learning-port.adapter.ts).
  */
 import type { LearningRule, ReflectorPort, ReflectionInput, ProcessAuditPort } from "@contexts/cross-run-learning/application/index.ts";
 import { ok, err } from "@kernel/result.ts";
@@ -1172,7 +1172,7 @@ test("static-gate 'invalid' terminal surfaces the validation errors as the note"
   assert.ok(out.note?.includes("no-wait-for-timeout"), `a static-gate 'invalid' terminal must surface validation.errors in the note — got: ${out.note}`);
 });
 
-/* only ever saw the STATIC CompositionConfig.diff (set at composition-BUILD time), which is empty
+/* only ever saw the STATIC diff of the run context (set at composition-BUILD time), which is empty
    for the real production engineFactory (constructed BEFORE the run/checkout) — generation always
    got an empty diff -> zero specs -> a false skip. classify() already computes the commit's diff
    internally (ChangeAnalysisPortAdapter sources it from the SAME VcsReadPort it uses for
@@ -4507,8 +4507,8 @@ test("a regeneration that produces zero specs mid-loop is a lost cause — termi
 /* On the orchestrated path, exactly ONE reviewer session
    fires per generation round (RunQaUseCase's own ReviewPort) — GenerateTestsUseCase's internal
    reviewer branch must never fire (this use-case's own stub ReviewPort/GenerationPort cannot
-   directly observe GenerateTestsUseCase's internals; the call-count proof that composition-root.ts
-   wires needsReview:false into GenerationPortAdapter's ctx lives in composition-root.test.ts — this
+   directly observe GenerateTestsUseCase's internals; the call-count proof that engine-root.ts
+   wires needsReview:false into GenerationPortAdapter's ctx lives in engine-root.test.ts — this
    test's scope is the use-case's OWN single-reviewer contract: review() is called AT MOST once per
    round, never twice for the same round). ──────────────────────────────────────────────────────────
  */

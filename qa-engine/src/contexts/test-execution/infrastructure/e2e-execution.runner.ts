@@ -31,7 +31,7 @@ export const E2E_STDERR_KEEP_CHARS = 500_000;
 /* A stream event is one small JSON object on one line; a longer line is not an event and is skipped instead of buffered. */
 export const MAX_STREAM_EVENT_LINE_CHARS = 65_536;
 
-/** Resolves the effective e2e timeout: env.QA_E2E_TIMEOUT_MS when set to a positive number of milliseconds, the default otherwise. `env` is REQUIRED (no default) — the caller (the composition-root shell) must read process.env and pass it in once per composition; see this file's header for why (mirrors sandbox.ts's resolveSandbox(env, ...) precedent exactly). */
+/** Resolves the effective e2e timeout: env.QA_E2E_TIMEOUT_MS when set to a positive number of milliseconds, the default otherwise. `env` is REQUIRED (no default) — the caller (the engine-root shell) must read process.env and pass it in once per composition; see this file's header for why (mirrors sandbox.ts's resolveSandbox(env, ...) precedent exactly). */
 export function e2eTimeoutMs(env: NodeJS.ProcessEnv): number {
   const raw = Number(env.QA_E2E_TIMEOUT_MS);
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_E2E_TIMEOUT_MS;
@@ -160,7 +160,7 @@ export interface E2eExecuteDeps {
   defaultTimeoutMs?: number;
   /* A directory for the failure dumps of one run, inside the run's work dir, and the root the strict reader walks from. Absent (a fake runner): runE2E makes a temp dir of its own. */
   allocateFailureDir?(): { dir: string; root: string; dispose(): void };
-  /* OPTIONAL diagnostic sink for a secret-redaction audit trail (src/orchestrator/sanitizer.ts's recordAudit/SECRET_AUDIT — a security-boundary concern this module does not import directly, to stay src/-free). Absent ⇒ no audit recorded (safe for every unit test that doesn't care about it). The composition-root shell (run-engine-factory.ts) binds the REAL recordAudit into createDefaultE2eExecuteDeps's returned object, so production behavior is unchanged. */
+  /* OPTIONAL diagnostic sink for a secret-redaction audit trail (src/orchestrator/sanitizer.ts's recordAudit/SECRET_AUDIT — a security-boundary concern this module does not import directly, to stay src/-free). Absent ⇒ no audit recorded (safe for every unit test that doesn't care about it). The engine-root shell (run-engine-factory.ts) binds the REAL recordAudit into createDefaultE2eExecuteDeps's returned object, so production behavior is unchanged. */
   recordAudit?(runId: string, detection: SecretDetection): void;
   /* OPTIONAL read-only observer of a report-shaped Playwright JSON report, told once per run before the verdict is derived (the shell turns it into spans), with the harvested (and redacted) cases as its evidence. It never alters the report or the verdict; a fault in it is logged and ignored. */
   /* mutation-scope:begin report-callback */

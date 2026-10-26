@@ -26,7 +26,7 @@ import { SecretLeakError } from "@kernel/ports/redaction.port.ts";
    exercise ROUTING (which side effect fires, in what order, with what repo/branch) use this trivial
    fake — body CONTENT is irrelevant to those assertions (they only check result.outcome, never
    bodySeen). Tests that DO assert on body content wire the REAL renderIssue/renderPrBody via
-   realRender() below instead — the SAME collaborator composition-root.ts wires in production.
+   realRender() below instead — the SAME collaborator the workspace-and-publication builder wires in production.
  */
 function fakeRender(): { issue: () => string; prBody: () => string } {
   return { issue: () => "issue-body", prBody: () => "pr-body" };

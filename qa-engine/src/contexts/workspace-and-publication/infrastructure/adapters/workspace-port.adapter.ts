@@ -8,7 +8,7 @@ import type { WorkspaceRegistry } from "./workspace-registry.ts";
 export type CheckoutFn = (sha: Sha) => Promise<string>;
 
 export interface WorkspacePortStaticContext {
-  /* Tests folder relative to mirrorDir. Empty composes specDir to the bare mirrorDir (code target). Distinct from CompositionConfig.e2eRelDir (prompt-side e2e folder name). */
+  /* Tests folder relative to mirrorDir. Empty composes specDir to the bare mirrorDir (code target). Distinct from the run's prompt-side e2e folder name. */
   specRelDir: string;
   /* The run's target: code runs commit the bare mirror, e2e runs the tests folder. */
   isCode: boolean;
