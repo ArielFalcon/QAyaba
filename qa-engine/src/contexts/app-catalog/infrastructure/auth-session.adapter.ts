@@ -95,6 +95,16 @@ export const AUTH_SETUP_ENV = {
 /* The env names of the DEV gate's HTTP Basic credentials and of the client certificate's passphrase: the contract of the DOM capture and the login (dom-snapshot.ts, auth-session-env.ts), not an app's. */
 const DEV_GATE_ENV_NAMES = ["DEV_ENV_USER", "DEV_ENV_PASS", "DEV_CLIENT_CERT_PASS"] as const;
 
+/* The most of a login's own failure an egress note carries. */
+const MAX_CAUSE_IN_NOTE = 400;
+/* What a login that threw failed on, one line and bounded; nothing when it did not throw. */
+function causeOf(cause: unknown, accountValues: readonly string[]): string {
+  if (cause === undefined) return "";
+  let raw = cause instanceof Error ? cause.message : String(cause);
+  for (const value of accountValues) if (value !== "") raw = raw.split(value).join("[REDACTED]");
+  const text = raw.replace(/\s+/g, " ").trim().slice(0, MAX_CAUSE_IN_NOTE);
+  return text === "" ? "" : `. The login itself failed with: ${text}`;
+}
 const MAX_HOSTS_IN_NOTE = 10;
 const HOST_SHAPE = /^[A-Za-z0-9._:\[\]-]{1,253}$/;
 
@@ -227,18 +237,23 @@ export class AuthSessionAdapter implements AuthSessionPort {
       const hosts = refused();
       if (hosts.length === 0 || err instanceof AuthPreconditionError && err.kind === PRECONDITION_KIND.EGRESS_DENIED) throw err;
       if (err instanceof AuthPreconditionError) throw new AuthPreconditionError(err.kind, `${err.note} ${this.deniedNote(hosts)}`, err.ms);
-      throw new AuthPreconditionError(PRECONDITION_KIND.EGRESS_DENIED, this.deniedNote(hosts), Date.now() - started);
+      throw new AuthPreconditionError(PRECONDITION_KIND.EGRESS_DENIED, this.deniedNote(hosts, err, this.accountValues(req)), Date.now() - started);
     } finally {
       window.close();
     }
   }
 
-  /* What the note says of the refused hosts: names only, shown when they look like hosts, and scrubbed like every note that leaves. */
-  private deniedNote(hosts: readonly string[]): string {
+  /* What the note says of the refused hosts (names only, shown when they look like hosts) and, when the login threw, what it failed on, so the refusal is never the only cause anyone can read; scrubbed like every note that leaves. */
+  private deniedNote(hosts: readonly string[], cause?: unknown, accountValues: readonly string[] = []): string {
     const shown = hosts.slice(0, MAX_HOSTS_IN_NOTE).map((host) => (HOST_SHAPE.test(host) ? host : "(unprintable name)"));
     const more = hosts.length > shown.length ? ` and ${hosts.length - shown.length} more` : "";
-    const text = `the egress filter refused the login's browser ${hosts.length} host(s): ${shown.join(", ")}${more}. If the login needs them (an identity provider on another origin, a stylesheet or script its pages load, for example), declare their origins in dev.allowedOrigins; a host that should stay blocked (telemetry, analytics) goes in dev.blockedOrigins`;
+    const text = `the egress filter refused the login's browser ${hosts.length} host(s): ${shown.join(", ")}${more}. If the login needs them (an identity provider on another origin, a stylesheet or script its pages load, for example), declare their origins in dev.allowedOrigins; a host that should stay blocked (telemetry, analytics) goes in dev.blockedOrigins${causeOf(cause, accountValues)}`;
     return redactByValue(this.deps.discovery ? this.deps.discovery.redact(text) : text);
+  }
+
+  /* The test account's own values, taken out of any login text before it leaves, whether or not a run's secret scope is active. */
+  private accountValues(req: AuthSessionRequest): string[] {
+    return [req.auth?.usernameEnv, req.auth?.passwordEnv].flatMap((name) => (name ? [this.deps.env[name] ?? ""] : []));
   }
 
   private async attemptFormLogin(req: AuthSessionRequest, signal?: AbortSignal): Promise<AuthSession> {

@@ -47,6 +47,17 @@ test("an app's own login that fails while its child was refused a host ends as a
   assert.ok(!failure.note.includes("s3cret-pass"));
 });
 
+test("an egress precondition keeps what the login itself failed on beside the refused hosts, with the account's secrets taken out", async () => {
+  const report = newSandboxReport();
+  const { adapter, specDir } = adapterWith(async (...args) => refusedChild(report, ["img.example.test"], { exitCode: 1, logs: "TimeoutError: waiting for the home heading after sign-in (password s3cret-pass)" })(), true);
+  const failure = await prepareIn(report, () => adapter.prepare({ specDir, baseUrl: "https://dev.example", phase: "pre-generate", auth: AUTH })).catch((err: unknown) => err);
+  assert.ok(failure instanceof AuthPreconditionError);
+  assert.equal(failure.kind, PRECONDITION_KIND.EGRESS_DENIED);
+  assert.match(failure.note, /img\.example\.test/);
+  assert.match(failure.note, /waiting for the home heading after sign-in/);
+  assert.ok(!failure.note.includes("s3cret-pass"));
+});
+
 test("a stock login that cannot sign in while its child was refused a host does not fall back to the agent rewriting it", async () => {
   const report = newSandboxReport();
   const specDir = mkdtempSync(join(tmpdir(), "auth-egress-"));
