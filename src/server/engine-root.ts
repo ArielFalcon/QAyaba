@@ -1,7 +1,5 @@
 /* The engine root: the one module that imports concrete adapters from every context and wires the run's ports to them. It lives in the shell, so no engine module reaches the VCS write seam. A shadow composition (cfg.shadow) publishes to the shadow log: no PR or Issue is opened on the watched repo. */
 
-import type { AgentProvider } from "@kernel/agent-role";
-import { join, relative, sep } from "node:path";
 import type { RunMode, TestTarget } from "@kernel/run-mode";
 import type { RunPipelinePort } from "../../qa-engine/src/contexts/run-orchestration/application/ports/run-pipeline.port";
 import type { ObserverPort } from "../../qa-engine/src/contexts/run-orchestration/application/ports/observer.port";
@@ -12,26 +10,18 @@ import type { RunDeadlinePort } from "../../qa-engine/src/contexts/run-orchestra
 import type { SuiteStorePort } from "@kernel/ports/suite-store.port";
 import type { ValidationPort } from "@contexts/test-execution/application/index";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index";
-import type { RunDeadlineView } from "@kernel/run-deadline";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import type { CoordinationSettings } from "@kernel/coordination";
 import type { ToolAttemptDirectory } from "@contexts/generation/domain/tool-link";
 import type { AuthDeclaration, AuthSessionPort } from "@contexts/app-catalog/application/index";
 import { RunPipelineAdapter, type RunPipelineAdapterDeps } from "../../qa-engine/src/contexts/run-orchestration/infrastructure/run-pipeline.adapter";
-import { SidekickExecutor } from "../../qa-engine/src/contexts/coordination/application/sidekick-executor";
-import { LeadSidekicks } from "../../qa-engine/src/contexts/coordination/application/lead-sidekicks";
-import { systemTimers } from "../../qa-engine/src/contexts/coordination/application/fan-out-dispatcher";
-import { FsDelegationWorkspaceAdapter } from "../../qa-engine/src/contexts/coordination/infrastructure/adapters/delegation-workspace.adapter";
 import { specFileForFlow } from "@contexts/generation/infrastructure/prompt-builders/prompts";
-import { getSharedCoordinationTelemetry } from "../../qa-engine/src/contexts/coordination/infrastructure/adapters/coordination-telemetry-port.adapter";
-import { TracedCrossRepoImpactPort, TracedCurriculumPort, TracedLearningPort, TracedServiceLinksPort, TracedStructuralSignalPort, telemetryGroundingTrace } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/context-trace";
-import { TracedCoordinationTelemetry } from "../../qa-engine/src/contexts/coordination/infrastructure/adapters/coordination-telemetry-trace";
 import { TracedObjectiveSignalPort } from "../../qa-engine/src/contexts/objective-signal/infrastructure/adapters/objective-signal-trace";
 import type { SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port";
-import { sanitizedPlanSnapshots, type PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port";
+import { type PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port";
 
 import { GenerationPortAdapter, type GenerationPortCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/generation-port.adapter";
-import { ReviewPortAdapter, type ReviewPortRuntime } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/review-port.adapter";
+import { type ReviewPortRuntime } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/review-port.adapter";
 import type { GitHubPrCollaborator, GitHubIssueCollaborator, VcsPublishCollaborator } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter";
 import type { PathConfinementCollaborator } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/confinement-port.adapter";
 import type { PathMirrorGcCollaborator } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/mirror-gc-port.adapter";
@@ -40,9 +30,9 @@ import type { CleanupPortCollaborators } from "../../qa-engine/src/contexts/work
 import type { CheckoutFn } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/workspace-port.adapter";
 import { DeployGatePortAdapter, NullDeployGateAdapter, type VersionPollFn } from "../../qa-engine/src/contexts/run-orchestration/infrastructure/adapters/deploy-gate-port.adapter";
 import { InMemoryRunHistoryAdapter, FileRunHistoryAdapter } from "../../qa-engine/src/contexts/run-orchestration/infrastructure/adapters/run-history-port.adapter";
-import { PreGenerationGroundingPortAdapter, type PreGenerationGroundingCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter";
-import { ReviewDomGroundingPortAdapter, type ReviewDomGroundingCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/review-dom-grounding-port.adapter";
-import { PreExecGroundingPortAdapter, type PreExecGroundingCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/pre-exec-grounding-port.adapter";
+import { type PreGenerationGroundingCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter";
+import { type ReviewDomGroundingCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/review-dom-grounding-port.adapter";
+import { type PreExecGroundingCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/pre-exec-grounding-port.adapter";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port";
 import type { CoChangePort } from "@kernel/ports/co-change.port";
 import type { CodeExplorePort } from "@kernel/ports/code-explore.port";
@@ -50,17 +40,18 @@ import type { BoundaryProfileProviderPort } from "@contexts/service-topology/app
 import type { ExecScopePort } from "../../qa-engine/src/shared-kernel/ports/exec-scope.port";
 import type { SandboxedBinaryRunner } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner";
 import { PatternRedactionAdapter } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
-import { readConfinedSpecFile } from "../../qa-engine/src/shared-infrastructure/spec-path-confinement";
 import { confinedSpecFiles } from "../../qa-engine/src/shared-infrastructure/spec-files.adapter";
 
 import { buildChangeAnalysis } from "../../qa-engine/src/contexts/change-analysis/composition/build-change-analysis";
 import { buildServiceTopology } from "../../qa-engine/src/contexts/service-topology/composition/build-service-topology";
 import { buildObjectiveSignal } from "../../qa-engine/src/contexts/objective-signal/composition/build-objective-signal";
 import { buildWorkspaceAndPublication } from "../../qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication";
+import { buildGeneration } from "../../qa-engine/src/contexts/generation/composition/build-generation";
+import { buildCoordination, type DelegationWiring } from "../../qa-engine/src/contexts/coordination/composition/build-coordination";
 import { buildAgentTools, type AgentBrowserWiring, type ClosedLoopWiring, type CodeGraphToolsWiring, type GeolocationWiring } from "../../qa-engine/src/contexts/agent-tools/composition/build-agent-tools";
 import { buildTestExecution } from "../../qa-engine/src/contexts/test-execution/composition/build-test-execution";
 import { buildCrossRunLearning } from "../../qa-engine/src/contexts/cross-run-learning/composition/build-cross-run-learning";
-import { GenerateTestsUseCase, type GenerationResult, type GenerateOpts } from "@contexts/generation/application/generate-tests.use-case";
+import { type GenerationResult, type GenerateOpts } from "@contexts/generation/application/generate-tests.use-case";
 import type { OpencodeRunInput, ArchitectureContext, StepLimitFor } from "@contexts/generation/application/index";
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port";
@@ -73,18 +64,6 @@ import type { CoveragePolicy, ChangeCoverage } from "@contexts/objective-signal/
 import type { CoverageCollectorPort, ValueOraclePort } from "@contexts/objective-signal/application/index";
 import type { VcsReadPort } from "@contexts/change-analysis/application/index";
 import type { LearningRepositoryPort, ReflectorPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/index";
-
-/* What the shell hands the root to let a run author its flows with sidekicks. */
-export interface DelegationWiring {
-  /* The absolute directory the sidekicks' workspaces are made under (on the mirrors volume, so the agents' runtime can open a session in it). */
-  workspaceRoot: string;
-  /* The runtime the sidekick role is assigned to now (it is switchable): only OpenCode can call run_spec and the authenticated browser. */
-  sidekickProvider: () => AgentProvider | undefined;
-  /* The runtime the lead (the primary role) plans on now: only OpenCode can hold the planning turn to read-only. */
-  plannerProvider: () => AgentProvider | undefined;
-  /* The run's deadline, as the agents' turns read it. */
-  deadline?: RunDeadlineView;
-}
 
 export interface CompositionConfig {
   /* Static per-run context (shared across GenerationPort/ReviewPort/ExecutionPort/PublicationPort). */
@@ -302,13 +281,6 @@ const patternRedaction = new PatternRedactionAdapter();
 const DEFAULT_DEPLOY_GATE_INTERVAL_MS = 2000;
 const DEFAULT_DEPLOY_GATE_TIMEOUT_MS = 60000;
 
-/* Where a map may name the staged snapshot of the triggering service: from the working copy and from the e2e dir, each only when the snapshot lies inside it. The shell stages it under the e2e dir; which of the two a context run records is not settled, so both are offered. An empty list says no directory holds the snapshot, and the run is still a cross-repo run. */
-function stagedRootsOf(workingCopyDir: string, e2eDir: string, stagedDir: string): string[] {
-  const inside = (root: string): boolean => root !== "" && root !== ".." && !root.startsWith("../");
-  const roots = [relative(workingCopyDir, stagedDir), relative(e2eDir, stagedDir)].map((root) => root.split(sep).join("/")).filter(inside);
-  return [...new Set(roots)];
-}
-
 /* The adapters wired from a CompositionConfig. */
 
 export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDeps, "publication" | "runHistory"> & {
@@ -331,40 +303,6 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
       : {}),
   });
   const changeAnalysis = changeAnalysisApi.changeAnalysis;
-
-  const generation = new GenerationPortAdapter(
-    cfg.generationUseCase as GenerateTestsUseCase,
-    {
-      repo: cfg.repo,
-      appName: cfg.appName,
-      mirrorDir: cfg.mirrorDir,
-      e2eRelDir: cfg.e2eRelDir,
-      namespace: cfg.branch,
-      needsReview: false,
-      target: cfg.target,
-      mode: cfg.mode,
-      diff: cfg.diff ?? "",
-      ...(cfg.guidance ? { guidance: cfg.guidance } : {}),
-      /* Live DEV URL for the generator (Playwright MCP). Absent → the agent has no URL to ground selectors against. */
-      ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}),
-      ...(cfg.openapi ? { openapi: cfg.openapi } : {}),
-      ...(cfg.triggerService ? { service: cfg.triggerService } : {}),
-      ...(cfg.services?.length ? { services: cfg.services } : {}),
-    },
-    { readSpecSource: cfg.readSpecSource ?? readConfinedSpecFile, stepLimitFor: cfg.stepLimitFor, ...(cfg.runDeadline ? { deadline: cfg.runDeadline } : {}) },
-  );
-
-  const review = new ReviewPortAdapter(cfg.reviewRuntime as ReviewPortRuntime, {
-    diff: cfg.diff ?? "",
-    mirrorDir: cfg.mirrorDir,
-    e2eRelDir: cfg.e2eRelDir,
-    appName: cfg.appName,
-    mode: cfg.mode,
-    target: cfg.target,
-    ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}),
-    ...(cfg.guidance ? { guidance: cfg.guidance } : {}),
-    ...(cfg.reviewTimeoutMs !== undefined ? { timeoutMs: cfg.reviewTimeoutMs } : {}),
-  }, { stepLimitFor: cfg.stepLimitFor });
 
   const testExecution = buildTestExecution({
     target: cfg.target,
@@ -443,54 +381,50 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
       : {}),
   });
   const changePages = topology.changePages;
-  const groundingCollaborators: PreGenerationGroundingCollaborators = { ...(changePages ? { changePages } : {}), ...cfg.groundingCollaborators };
-  const preGenerationGrounding = !cfg.isCode
-    ? new PreGenerationGroundingPortAdapter(
-        {
-          e2eDir: join(cfg.mirrorDir, cfg.e2eRelDir),
-          mirrorDir: cfg.mirrorDir,
-          baseUrl: cfg.baseUrl,
-          testIdAttribute: cfg.testIdAttribute,
-          contextMap: cfg.contextMap,
-          ...(cfg.contextMapProvenance ? { contextMapProvenance: cfg.contextMapProvenance } : {}),
-          prChangedFiles: cfg.prChangedFiles,
-          domPack: cfg.domPack,
-          contextPack: cfg.contextPack,
-          ...(cfg.triggerService ? { stagedRoots: stagedRootsOf(cfg.mirrorDir, join(cfg.mirrorDir, cfg.e2eRelDir), cfg.triggerService.mirrorDir) } : {}),
-        },
-        cfg.telemetry ? { ...groundingCollaborators, trace: telemetryGroundingTrace(cfg.telemetry, cfg.contextMapProvenance) } : groundingCollaborators,
-      )
-    : undefined;
-  const reviewDomGrounding = !cfg.isCode
-    ? new ReviewDomGroundingPortAdapter(
-        {
-          e2eDir: join(cfg.mirrorDir, cfg.e2eRelDir),
-          mirrorDir: cfg.mirrorDir,
-          baseUrl: cfg.baseUrl,
-          testIdAttribute: cfg.testIdAttribute,
-        },
-        cfg.reviewDomGroundingCollaborators ?? {},
-      )
-    : undefined;
-
-  const preExecGrounding = !cfg.isCode
-    ? new PreExecGroundingPortAdapter(
-        {
-          e2eDir: join(cfg.mirrorDir, cfg.e2eRelDir),
-          mirrorDir: cfg.mirrorDir,
-          baseUrl: cfg.baseUrl,
-          testIdAttribute: cfg.testIdAttribute,
-        },
-        cfg.preExecGroundingCollaborators ?? {},
-      )
-    : undefined;
+  const generationApi = buildGeneration({
+    run: {
+      repo: cfg.repo,
+      appName: cfg.appName,
+      mirrorDir: cfg.mirrorDir,
+      e2eRelDir: cfg.e2eRelDir,
+      branch: cfg.branch,
+      target: cfg.target,
+      mode: cfg.mode,
+      isCode: cfg.isCode,
+      ...(cfg.diff !== undefined ? { diff: cfg.diff } : {}),
+      ...(cfg.guidance ? { guidance: cfg.guidance } : {}),
+      ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}),
+      ...(cfg.testIdAttribute !== undefined ? { testIdAttribute: cfg.testIdAttribute } : {}),
+      ...(cfg.openapi ? { openapi: cfg.openapi } : {}),
+      ...(cfg.triggerService ? { triggerService: cfg.triggerService } : {}),
+      ...(cfg.services?.length ? { services: cfg.services } : {}),
+    },
+    generationUseCase: cfg.generationUseCase,
+    ...(cfg.readSpecSource ? { readSpecSource: cfg.readSpecSource } : {}),
+    ...(cfg.stepLimitFor ? { stepLimitFor: cfg.stepLimitFor } : {}),
+    ...(cfg.runDeadline ? { deadline: cfg.runDeadline } : {}),
+    review: { runtime: cfg.reviewRuntime as ReviewPortRuntime, ...(cfg.reviewTimeoutMs !== undefined ? { timeoutMs: cfg.reviewTimeoutMs } : {}) },
+    grounding: {
+      ...(cfg.contextMap ? { contextMap: cfg.contextMap } : {}),
+      ...(cfg.contextMapProvenance ? { contextMapProvenance: cfg.contextMapProvenance } : {}),
+      ...(cfg.prChangedFiles ? { prChangedFiles: cfg.prChangedFiles } : {}),
+      ...(cfg.domPack !== undefined ? { domPack: cfg.domPack } : {}),
+      ...(cfg.contextPack !== undefined ? { contextPack: cfg.contextPack } : {}),
+      ...(cfg.groundingCollaborators ? { collaborators: cfg.groundingCollaborators } : {}),
+      ...(cfg.reviewDomGroundingCollaborators ? { reviewDomCollaborators: cfg.reviewDomGroundingCollaborators } : {}),
+      ...(cfg.preExecGroundingCollaborators ? { preExecCollaborators: cfg.preExecGroundingCollaborators } : {}),
+      ...(changePages ? { changePages } : {}),
+    },
+    ...(cfg.telemetry ? { telemetry: cfg.telemetry } : {}),
+  });
+  const { generation, review, preGenerationGrounding, reviewDomGrounding, preExecGrounding } = generationApi;
 
   /* StructuralSignalPort: optional, never a stub. It reads the same CodeGraphPort RunQaUseCaseDeps.codeGraph indexes — do not double-construct. Unindexed repo → empty advisory. */
   const plainStructuralSignal = changeAnalysisApi.structuralSignal;
-  const structuralSignal = plainStructuralSignal && cfg.telemetry ? new TracedStructuralSignalPort(plainStructuralSignal, cfg.telemetry) : plainStructuralSignal;
+  const structuralSignal = plainStructuralSignal ? generationApi.traced.structuralSignal(plainStructuralSignal) : undefined;
 
-  const serviceLinks = topology.serviceLinks && cfg.telemetry ? new TracedServiceLinksPort(topology.serviceLinks, cfg.telemetry) : topology.serviceLinks;
-  const crossRepoImpact = topology.crossRepoImpact && cfg.telemetry ? new TracedCrossRepoImpactPort(topology.crossRepoImpact, cfg.telemetry) : topology.crossRepoImpact;
+  const serviceLinks = topology.serviceLinks ? generationApi.traced.serviceLinks(topology.serviceLinks) : undefined;
+  const crossRepoImpact = topology.crossRepoImpact ? generationApi.traced.crossRepoImpact(topology.crossRepoImpact) : undefined;
 
   const objectiveSignalApi = buildObjectiveSignal({
     collector: cfg.objectiveSignal.collector,
@@ -513,7 +447,7 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
     ...(cfg.processAudit ? { processAudit: cfg.processAudit } : {}),
   });
   const plainLearning = learningApi.learning;
-  const learning: LearningPort = cfg.telemetry ? new TracedLearningPort(plainLearning, cfg.telemetry) : plainLearning;
+  const learning: LearningPort = generationApi.traced.learning(plainLearning);
 
   const deployGate = cfg.versionUrl
     ? new DeployGatePortAdapter(
@@ -525,6 +459,19 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
         },
       )
     : new NullDeployGateAdapter();
+
+  const coordination = buildCoordination({
+    isCode: cfg.isCode,
+    ...(cfg.delegation ? { delegation: cfg.delegation } : {}),
+    runtime: cfg.reviewRuntime.runtime,
+    redaction: patternRedaction,
+    specFileFor: specFileForFlow,
+    ...(cfg.sanitize ? { sanitize: cfg.sanitize } : {}),
+    ...(cfg.planSnapshots ? { planSnapshots: cfg.planSnapshots } : {}),
+    ...(cfg.sidekickEscalatedModel ? { escalatedModel: cfg.sidekickEscalatedModel } : {}),
+    ...(cfg.coordinationTelemetryPath ? { telemetryPath: cfg.coordinationTelemetryPath } : {}),
+    ...(cfg.telemetry ? { telemetry: cfg.telemetry } : {}),
+  });
 
   /* Explicit runHistory wins over historyFilePath; file/in-memory adapters are the fallback when neither is a durable store supplied by the factory. */
   const runHistory = cfg.runHistory ?? (cfg.historyFilePath ? new FileRunHistoryAdapter(cfg.historyFilePath) : new InMemoryRunHistoryAdapter());
@@ -578,50 +525,19 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
     ...(cfg.telemetry ? { telemetry: cfg.telemetry } : {}),
     ...(cfg.clock ? { phaseClock: cfg.clock } : {}),
     /* Absent curriculumPort is omitted entirely — never a fabricated no-op stub (select() returns nothing; the fold never fires). */
-    ...(learningApi.curriculum ? { curriculum: cfg.telemetry ? new TracedCurriculumPort(learningApi.curriculum, cfg.telemetry) : learningApi.curriculum } : {}),
+    ...(learningApi.curriculum ? { curriculum: generationApi.traced.curriculum(learningApi.curriculum) } : {}),
     /* Absent contextMapCapture is omitted entirely — never a fabricated no-op stub. */
     ...(cfg.contextMapCapture ? { contextMapCapture: cfg.contextMapCapture } : {}),
     /* Absent suiteStore is omitted entirely — never a fabricated no-op stub (a stub that restores nothing would hide that no suite persists). */
     ...(workspaceAndPublication.suiteStore ? { suiteStore: workspaceAndPublication.suiteStore } : {}),
     /* Absent coordination settings are omitted entirely: the coordinator uses its defaults. */
     ...(cfg.coordinationSettings ? { coordinationSettings: cfg.coordinationSettings } : {}),
-    /* Lead and sidekicks: wired for an e2e run whose shell gave it a place for the sidekicks' workspaces. The sidekicks share the reviewer's runtime, each with a session of its own. A run with no coordinator wired is authored by its lead alone. */
-    ...(() => {
-      /* Process-lifetime store so the ledger of decisions outlives a run (not a fresh empty bag per composition). */
-      const ledger = cfg.coordinationTelemetryPath
-        ? getSharedCoordinationTelemetry(cfg.coordinationTelemetryPath)
-        : getSharedCoordinationTelemetry();
-      const coordinationTelemetry = cfg.telemetry ? new TracedCoordinationTelemetry(ledger, cfg.telemetry) : ledger;
-      return {
-        coordinationTelemetry,
-        ...(cfg.baseUrl ? { sidekickDevBaseUrl: cfg.baseUrl } : {}),
-        ...(cfg.delegation && !cfg.isCode
-          ? {
-              sidekickProvider: cfg.delegation.sidekickProvider,
-              plannerProvider: cfg.delegation.plannerProvider,
-              leadSidekicks: new LeadSidekicks({
-                redaction: patternRedaction,
-                sidekick: new SidekickExecutor({ runtime: cfg.reviewRuntime.runtime, redaction: patternRedaction }),
-                workspaces: new FsDelegationWorkspaceAdapter({ root: cfg.delegation.workspaceRoot }),
-                timers: systemTimers,
-                telemetry: coordinationTelemetry,
-                ...(cfg.planSnapshots && cfg.sanitize ? { planSnapshots: sanitizedPlanSnapshots(cfg.planSnapshots, cfg.sanitize) } : {}),
-                specFileFor: specFileForFlow,
-                /* What a sidekick wrote is untrusted: the lead's review reads it through the confined reader, and an unreadable spec is shown as none. */
-                readSpec: async (root, specFile) => {
-                  try {
-                    return readConfinedSpecFile(root, specFile);
-                  } catch {
-                    return undefined;
-                  }
-                },
-                ...(cfg.sidekickEscalatedModel ? { escalatedModel: cfg.sidekickEscalatedModel } : {}),
-                ...(cfg.delegation.deadline ? { deadline: cfg.delegation.deadline } : {}),
-              }),
-            }
-          : {}),
-      };
-    })(),
+    /* Lead and sidekicks: wired for an e2e run whose shell gave it a place for the sidekicks' workspaces. A run with no coordinator wired is authored by its lead alone. */
+    coordinationTelemetry: coordination.coordinationTelemetry,
+    ...(cfg.baseUrl ? { sidekickDevBaseUrl: cfg.baseUrl } : {}),
+    ...(coordination.leadSidekicks ? { leadSidekicks: coordination.leadSidekicks } : {}),
+    ...(coordination.sidekickProvider ? { sidekickProvider: coordination.sidekickProvider } : {}),
+    ...(coordination.plannerProvider ? { plannerProvider: coordination.plannerProvider } : {}),
     config: {
       needsReview: cfg.needsReview,
       shadow: cfg.shadow,
