@@ -1,7 +1,7 @@
 /* The pre-execution gates as events on the phase they ran in, and the run's verdict unchanged by tracing them. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { RunQaUseCase, type RunQaUseCaseDeps } from "@contexts/run-orchestration/application/run-qa.use-case";
+import { RunQaUseCase, type RunQaUseCaseDeps } from "@contexts/run-orchestration/application/index";
 import { ok } from "@kernel/result";
 import { fakeWorkspace } from "../../qa-engine/test/contexts/run-orchestration/application/run-flow/fake-workspace";
 import { Sha } from "@kernel/sha";

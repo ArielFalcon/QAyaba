@@ -14,13 +14,13 @@ import { CallEfficiencyTracker, type StreamToken } from "@contexts/generation/in
 import type { RawOpencodeEvent } from "@contexts/generation/infrastructure/sse/activity-mapper";
 import { withTurnTelemetry } from "@contexts/generation/infrastructure/telemetry/with-turn-telemetry";
 import { AgentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
-import type { StepIntentContext } from "@contexts/generation/domain/step-intent";
+import type { StepIntentContext } from "@contexts/generation/application/index";
 import { ClosedLoopPortAdapter } from "@contexts/agent-tools/infrastructure/adapters/closed-loop-port.adapter";
 import { AgentBrowserPortAdapter } from "@contexts/agent-tools/infrastructure/adapters/agent-browser-port.adapter";
 import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-loop-registry";
 import { AgentBrowserRegistry } from "@contexts/agent-tools/infrastructure/agent-browser-registry";
 import type { ToolTraceWiring } from "@contexts/agent-tools/infrastructure/adapters/tool-call-trace";
-import { AccountLock } from "@contexts/test-execution/domain/account-lock";
+import { AccountLock } from "@contexts/test-execution/application/index";
 import type { AgentBrowserHostPort, PageState } from "@contexts/test-execution/application/index.ts";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";

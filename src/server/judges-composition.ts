@@ -7,8 +7,8 @@
 
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { RunJudgesUseCase } from "@contexts/evaluation/application/run-judges.use-case";
-import { judgeCatalog, type JudgeCatalogEntry } from "@contexts/evaluation/domain/judges";
+import { RunJudgesUseCase } from "@contexts/evaluation/application/index";
+import { judgeCatalog, type JudgeCatalogEntry } from "@contexts/evaluation/application/index";
 import { assertNoSecretLeak, sanitizeText } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
 import { defaultAgentDeps, listAgentCaps } from "../integrations/opencode-client";
 import { JUDGE_WORKDIR } from "../paths";

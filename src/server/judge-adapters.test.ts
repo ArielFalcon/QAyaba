@@ -2,8 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { SqliteCalibrationPairs, SqliteCalibrationStore, SqliteJudgeLedger } from "./judge-adapters";
 import { SqliteScoreStore } from "./evaluation-service";
-import { calibrate } from "@contexts/evaluation/domain/judge-calibration";
-import { judgeDefinition, judgeGraderVersion, judgeScore } from "@contexts/evaluation/domain/judges";
+import { calibrate } from "@contexts/evaluation/application/index";
+import { judgeDefinition, judgeGraderVersion, judgeScore } from "@contexts/evaluation/application/index";
 import { replaceRunScores } from "./history";
 
 const AT = "2026-10-18T10:00:00.000Z";

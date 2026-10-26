@@ -1,9 +1,9 @@
 /* The evidence of a run that failed after validation: what it delivered is read from the run's delivered snapshots, since the run record's own spec list is written only by the normal exit. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { GradeRunUseCase } from "@contexts/evaluation/application/grade-run.use-case";
+import { GradeRunUseCase } from "@contexts/evaluation/application/index";
 import type { ScoreStorePort } from "@contexts/evaluation/application/index.ts";
-import { gradeEvidence } from "@contexts/evaluation/domain/graders";
+import { gradeEvidence } from "@contexts/evaluation/application/index";
 import type { RunRecord } from "../types";
 import type { SpecSnapshotRow } from "./history";
 import { HistoryEvidenceAdapter, type EvidenceDeps } from "./evaluation-evidence";

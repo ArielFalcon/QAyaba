@@ -11,7 +11,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { CoordinationTelemetryEvent } from "@contexts/coordination/application/coordination-telemetry.ts";
+import type { CoordinationTelemetryEvent } from "@contexts/coordination/application/index.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 

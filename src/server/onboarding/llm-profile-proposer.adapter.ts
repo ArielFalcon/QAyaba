@@ -4,7 +4,7 @@ import type { AgentDeps } from "../../integrations/opencode-client";
 import { defaultAgentDeps } from "../../integrations/opencode-client";
 import { RedactionPortAdapter } from "../../orchestrator/sanitizer";
 import { logJson } from "../../integrations/logger";
-import type { BoundaryProfile, RepoRef } from "@contexts/service-topology/domain/index.ts";
+import type { BoundaryProfile, RepoRef } from "@contexts/service-topology/application/index.ts";
 import type { ProfileProposerPort, ProposerFeedback } from "@contexts/service-topology/application/index.ts";
 import { ProposerVerdictSchema, UNPARSEABLE_SENTINEL, type SchemaCandidate } from "./proposer-verdict.schema";
 

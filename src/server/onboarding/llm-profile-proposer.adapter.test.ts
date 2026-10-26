@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AgentDeps, AgentSession } from "../../integrations/opencode-client";
-import type { RepoRef } from "@contexts/service-topology/domain/index.ts";
+import type { RepoRef } from "@contexts/service-topology/application/index.ts";
 import type { ProposerFeedback } from "@contexts/service-topology/application/index.ts";
 import { LlmProfileProposerAdapter, PROPOSER_MODEL, commonSessionRoot } from "./llm-profile-proposer.adapter";
 

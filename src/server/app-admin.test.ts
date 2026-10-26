@@ -6,7 +6,7 @@ import { AppConfigInvalidError, AppNotFoundError, expandEnv, type AppConfig } fr
 import { AppConfigSchema } from "../orchestrator/schemas";
 import { buildYaml, type OnboardInput } from "./onboard";
 import { serializeBoundary, spliceBoundariesBlock } from "./onboarding/write-boundaries";
-import type { HttpBoundaryProfile, EventBoundaryProfile } from "@contexts/service-topology/domain/index.ts";
+import type { HttpBoundaryProfile, EventBoundaryProfile } from "@contexts/service-topology/application/index.ts";
 
 const HTTP_BOUNDARY: HttpBoundaryProfile = {
   transport: "http",

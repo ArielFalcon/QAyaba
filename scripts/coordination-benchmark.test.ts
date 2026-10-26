@@ -11,7 +11,7 @@ import {
   loadCoordinationBenchmarkCases,
   sampleFromTelemetry,
 } from "./coordination-benchmark.ts";
-import type { CoordinationTelemetryEvent } from "@contexts/coordination/application/coordination-telemetry.ts";
+import type { CoordinationTelemetryEvent } from "@contexts/coordination/application/index.ts";
 
 const EXAMPLE_CASES_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", "config", "benchmarks", "coordination-cases.example.json");
 

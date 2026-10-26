@@ -11,7 +11,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseJudgePromptVersion } from "@contexts/evaluation/domain/judges";
+import { parseJudgePromptVersion } from "@contexts/evaluation/application/index";
 
 /* Judge calls are 5k to 15k tokens each: this is a few dozen calls a day, enough to calibrate on and small next to a run's own spend. */
 export const DEFAULT_JUDGE_DAILY_TOKENS = 200_000;

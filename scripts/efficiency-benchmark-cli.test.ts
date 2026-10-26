@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DIFF_TIER_NAMES } from "@contexts/generation/domain/diff-stat.ts";
+import { DIFF_TIER_NAMES } from "@contexts/generation/application/index.ts";
 import { main, readRegistry, readSnapshot, registerRun, writeSnapshot, takeSnapshot, type RunDataSource } from "./efficiency-benchmark.ts";
 import type { RunOutcome, RunRecord } from "../src/types.ts";
 

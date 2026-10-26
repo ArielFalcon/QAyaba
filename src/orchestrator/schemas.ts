@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { LoginPathSchema } from "../contract/login-path";
 import { MAX_PLACES, MAX_PLACE_NAME_CHARS, PLACE_NAME_PATTERN } from "../../qa-engine/src/shared-kernel/geolocation";
-import { mutatingEntryError, routePatternError } from "../../qa-engine/src/contexts/test-execution/domain/agent-browser-route-guard";
-import { isPageOfTemplate } from "../../qa-engine/src/contexts/generation/domain/route-instantiation";
+import { mutatingEntryError, routePatternError } from "../../qa-engine/src/contexts/test-execution/application/index";
+import { isPageOfTemplate } from "../../qa-engine/src/contexts/generation/application/index";
 import { compileEgressPolicy, EgressPolicyError, originOf } from "../../qa-engine/src/shared-kernel/egress-policy";
 
 /*

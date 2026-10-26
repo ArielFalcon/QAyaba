@@ -41,7 +41,7 @@ import { ContextMapCapturePortAdapter, type ContextMapSave, type ContextMapWritt
 import { Sha, shaMatches } from "@kernel/sha";
 import { DEFAULT_CLOSED_LOOP_LIMITS } from "@kernel/closed-loop";
 import { resolveCoordinationSettings } from "@kernel/coordination";
-import { DevLease } from "@contexts/test-execution/domain/dev-lease";
+import { DevLease } from "@contexts/test-execution/application/index";
 import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-loop-registry";
 import type { AgentBrowserRegistry } from "@contexts/agent-tools/infrastructure/agent-browser-registry";
 import type { GeolocationRegistry } from "@contexts/agent-tools/infrastructure/geolocation-registry";
@@ -53,7 +53,7 @@ import { ValidationPortAdapter } from "@contexts/test-execution/infrastructure/a
 import { ExecutionPortAdapter } from "@contexts/test-execution/infrastructure/adapters/execution-port.adapter";
 import { ObjectiveSignalPortAdapter } from "@contexts/objective-signal/infrastructure/adapters/objective-signal-port.adapter";
 import { ReviewPortAdapter } from "@contexts/generation/infrastructure/adapters/review-port.adapter";
-import { DecideCoverageService } from "@contexts/objective-signal/domain/decide-coverage.service";
+import { DecideCoverageService } from "@contexts/objective-signal/application/index";
 import type { ReviewPort } from "@contexts/generation/application/index.ts";
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
@@ -61,21 +61,21 @@ import type { AgentRole } from "@kernel/agent-role";
 import type { RunMode, TestTarget } from "@kernel/run-mode";
 
 import { GitMirrorReadAdapter } from "@contexts/change-analysis/infrastructure/git-mirror-read.adapter";
-import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case";
-import { resolveDiffTimeBudgets } from "@contexts/generation/domain/generator-time-budget";
+import { GenerateTestsUseCase } from "@contexts/generation/application/index";
+import { resolveDiffTimeBudgets } from "@contexts/generation/application/index";
 import { AgentRuntimeAdapter } from "@contexts/generation/infrastructure/agent-runtime.adapter";
-import { RunDeadline } from "@contexts/run-orchestration/domain/run-deadline";
+import { RunDeadline } from "@contexts/run-orchestration/application/index";
 import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
-import { contextMapValidity, parseNameStatusZ, type ChangedFile } from "@contexts/run-orchestration/domain/context-map-validity";
+import { contextMapValidity, parseNameStatusZ, type ChangedFile } from "@contexts/run-orchestration/application/index";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { CONTEXT_MAP_MAX_AGE_MS, contextMapResultCount, type ContextProvenance } from "@kernel/telemetry/context-provenance";
 import { withTurnTelemetry } from "@contexts/generation/infrastructure/telemetry/with-turn-telemetry";
 import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
-import type { StepIntentContext } from "@contexts/generation/domain/step-intent";
+import type { StepIntentContext } from "@contexts/generation/application/index";
 import { watchSpanForHost } from "../telemetry/host-listeners";
 import { SYSTEM_CLOCK } from "./run-trace";
 import { stepIntentContextFor } from "./turn-telemetry-config";
-import { resolveRunTimeBudgets } from "@contexts/run-orchestration/domain/run-time-budget";
+import { resolveRunTimeBudgets } from "@contexts/run-orchestration/application/index";
 import { RunDeadlineRuntime } from "@contexts/run-orchestration/infrastructure/run-deadline-runtime.adapter";
 import { RunRoundRuntime } from "@contexts/run-orchestration/infrastructure/run-round-runtime.adapter";
 import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter";
@@ -100,7 +100,7 @@ import { WriteConfinementAdapter } from "@contexts/workspace-and-publication/inf
 import { MirrorGcAdapter } from "@contexts/workspace-and-publication/infrastructure/mirror-gc.adapter";
 import { SuiteStoreAdapter, gitListTracked } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
 import { makeTargetCoverageCollector } from "@contexts/objective-signal/infrastructure/target-coverage-collector";
-import { assembleChangeCoverage } from "@contexts/objective-signal/domain/assemble-change-coverage";
+import { assembleChangeCoverage } from "@contexts/objective-signal/application/index";
 
 
 import { SandboxedBinaryRunnerAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter";
@@ -119,7 +119,7 @@ import { parseReviewerVerdict, checkGeneratorVerdict, repairInstruction } from "
 import type { StepLimitFor, StepLimitRole } from "@contexts/generation/application/index.ts";
 import { MultiRepoCheckoutAdapter } from "@contexts/workspace-and-publication/infrastructure/adapters/multi-repo-checkout.adapter";
 import { roleWindowBytes, setLiveModelWindows } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
-import type { RepairPort } from "@contexts/generation/application/generate-tests.use-case.ts";
+import type { RepairPort } from "@contexts/generation/application/index.ts";
 
 import {
   runE2E,
@@ -980,7 +980,7 @@ export function buildEngineRootDeps(
 
 
   /* Built even when frozen (cheap, no I/O): the frozen config simply does not hand it to the engine. */
-  const learningRepo = new SqliteLearningRepository(historyLearningStore(app.name), { reflectorUnproven: reflectorEnabled });
+  const learningRepo = new SqliteLearningRepository(historyLearningStore(app.name), { reflectorUnproven: reflectorEnabled }, redactionPort);
 
 
   const setupAdapter = buildSetupAdapter(exec, codeSandbox);

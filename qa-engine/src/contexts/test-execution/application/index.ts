@@ -19,3 +19,8 @@ export type { BlockedRequest, BrowserAction, BrowserCallOptions, PageState } fro
 export type { CheckResult } from "../domain/execution-strategy.ts";
 export type { ExecutionOpts } from "../domain/execution.ts";
 export type { ValidationRunInfo } from "../domain/validation.ts";
+export type { RunSpecRefusalCode } from "./run-spec.use-case.ts";
+export type { AgentBrowserRefusalCode } from "../domain/agent-browser-capability.ts";
+export { mutatingEntryError, routePatternError } from "../domain/agent-browser-route-guard.ts";
+export { DevLease } from "../domain/dev-lease.ts";
+export { MAX_PLANNED_CASES, planReport } from "../domain/playwright-report-plan.ts";

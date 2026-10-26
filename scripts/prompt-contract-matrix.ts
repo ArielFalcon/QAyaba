@@ -40,16 +40,16 @@ import {
   type LintCell,
   type LintFinding,
   type LintSection,
-} from "@contexts/generation/domain/prompt-contract-lint.ts";
+} from "@contexts/generation/application/index.ts";
 import type { ArchitectureContext, OpencodeRunInput } from "@contexts/generation/application/index.ts";
 import { DEFAULT_CLOSED_LOOP_LIMITS } from "@kernel/closed-loop.ts";
 import { DEFAULT_AGENT_BROWSER_LIMITS } from "@kernel/agent-browser.ts";
 import { DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
-import { LISTING_MAX_DO_NOT_REWRITE, LISTING_MAX_UNNAMED_EDITABLE } from "@contexts/generation/domain/suite-listing.ts";
-import { formatSuiteEntry } from "@contexts/generation/domain/suite-entry.ts";
+import { LISTING_MAX_DO_NOT_REWRITE, LISTING_MAX_UNNAMED_EDITABLE } from "@contexts/generation/application/index.ts";
+import { formatSuiteEntry } from "@contexts/generation/application/index.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
-import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
-import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
+import { ARTIFACT_REFERENCES } from "@contexts/generation/application/index.ts";
+import type { HarnessFacts } from "@contexts/generation/application/index.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 

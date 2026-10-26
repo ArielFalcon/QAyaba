@@ -8,7 +8,7 @@
 import { openSync, fstatSync, readSync, closeSync } from "node:fs";
 import { resolveCoordinationTelemetryPath } from "./run-engine-factory";
 import type { CoordinationEvent, CoordinationEventsView, CoordinationSignals } from "../contract/commands";
-import { DELEGATION_FAILURE_CLASSES } from "../../qa-engine/src/contexts/coordination/application/delegation-failure-class";
+import { DELEGATION_FAILURE_CLASSES } from "../../qa-engine/src/contexts/coordination/application/index";
 
 const CONTRACT_FAILURE_CLASSES: ReadonlySet<string> = new Set(DELEGATION_FAILURE_CLASSES);
 

@@ -21,7 +21,7 @@ import type { StructuralSignalPort } from "@contexts/change-analysis/application
 import { buildContextPack, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack";
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { domCaptureObserver, recordDomCapture } from "@contexts/generation/infrastructure/dom-capture-trace";
-import { MAX_ITEM_IDS } from "@contexts/generation/domain/context-item-ids";
+import { MAX_ITEM_IDS } from "@contexts/generation/application/index";
 import { recordContextSpan } from "../../qa-engine/src/shared-infrastructure/telemetry/run-spans";import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-infrastructure/redaction/run-secret-redaction";
 import { testExecSandbox } from "../../qa-engine/test/support/exec-sandbox-harness";

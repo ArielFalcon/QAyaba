@@ -16,7 +16,7 @@ import {
 } from "./efficiency-benchmark.ts";
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import type { RunEventBody } from "@kernel/contract/events.ts";
-import { DIFF_TIER_NAMES } from "@contexts/generation/domain/diff-stat.ts";
+import { DIFF_TIER_NAMES } from "@contexts/generation/application/index.ts";
 import { type RunOutcome, type RunRecord } from "../src/types.ts";
 import type { AgentTurnRecord } from "../src/server/history.ts";
 

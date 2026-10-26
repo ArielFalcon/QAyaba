@@ -14,7 +14,7 @@
  * Nothing in the service calls it.
  */
 import { pathToFileURL } from "node:url";
-import { QuarantineLearnedRulesUseCase, type QuarantineReport } from "../qa-engine/src/contexts/cross-run-learning/application/quarantine-learned-rules.use-case.ts";
+import { QuarantineLearnedRulesUseCase, type QuarantineReport } from "../qa-engine/src/contexts/cross-run-learning/application/index.ts";
 import type { LearningQuarantinePort } from "@contexts/cross-run-learning/application/index.ts";
 
 export type Parsed = { ok: true; app: string; since: string; dryRun: boolean } | { ok: false; problem: string };

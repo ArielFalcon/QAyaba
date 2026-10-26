@@ -12,7 +12,7 @@ import { loadAppConfig, AppConfig } from "../orchestrator/config-loader";
 import { assertUniformCapture } from "./campaign-capture";
 import { createRecord, updateRecord, recordEffectiveConfig, getCampaignCaptureMode, addCase, getRecord, appendActivity, listRecords, interruptedRecords, serializablePhases, listSpecSnapshots, saveCrashedRunOutcome } from "./history";
 import { traceFactsOf } from "@kernel/run-trace-facts";
-import { phaseSnapshotOf } from "@contexts/run-orchestration/domain/run-phase-cursor";
+import { phaseSnapshotOf } from "@contexts/run-orchestration/application/index";
 import { specCountsOf } from "./evaluation-evidence";
 import { recordIncident } from "./maintainer";
 import { testDataNamespace } from "../qa/test-data";

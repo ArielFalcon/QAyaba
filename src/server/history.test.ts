@@ -10,7 +10,7 @@ import type { RunOutcome, StructuredReflection, } from "../types";
 import type { AgentTurnRecord } from "./history";
 import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
 import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
-import { initCurriculum } from "@contexts/cross-run-learning/domain/curriculum";
+import { initCurriculum } from "@contexts/cross-run-learning/application/index";
 import type { RuleStatus } from "../qa/learning/learning-rule";
 import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
 

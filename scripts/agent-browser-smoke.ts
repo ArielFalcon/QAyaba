@@ -27,7 +27,7 @@ import { buildScriptExec } from "../src/server/exec-sandbox-factory.ts";
 import { egressGateFor } from "../src/server/egress-wiring.ts";
 import { ProcessKillAdapter } from "../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { resolveSandbox } from "../qa-engine/src/shared-infrastructure/process-sandbox/sandbox.ts";
-import { createRouteGuard } from "../qa-engine/src/contexts/test-execution/domain/agent-browser-route-guard.ts";
+import { createRouteGuard } from "../qa-engine/src/contexts/test-execution/application/index.ts";
 import { PlaywrightAgentBrowserHost } from "../qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts";
 import { SandboxedChromiumLauncher } from "../qa-engine/src/contexts/test-execution/infrastructure/agent-browser/chromium-sandbox.launcher.ts";
 import { loadPlaywrightChromium } from "../qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-core.loader.ts";

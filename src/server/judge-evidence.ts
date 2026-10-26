@@ -6,7 +6,7 @@
  */
 
 import type { JudgeEvidencePort } from "@contexts/evaluation/application/index.ts";
-import type { JudgeEvidence } from "@contexts/evaluation/domain/judges";
+import type { JudgeEvidence } from "@contexts/evaluation/application/index";
 import { COMMIT_DIFF_HEADING } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
 import { getAgentTurns, getRecord, getRunFacts, getRunOutcome, getRunPhases, getRunPlan, listSpecSnapshots, type AgentTurnRecord, type SpecSnapshotRow } from "./history";

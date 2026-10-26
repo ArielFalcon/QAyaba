@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BoundaryProfile } from "@contexts/service-topology/domain/index.ts";
+import type { BoundaryProfile } from "@contexts/service-topology/application/index.ts";
 
 /*
  * LLM-text Zod parser for the proposer flow. Lives in the control plane (src/server/onboarding/).

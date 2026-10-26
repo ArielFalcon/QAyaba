@@ -80,7 +80,7 @@ import { reportToCsv, trendsToCsv } from "./report-view";
 import type { RunEventStore } from "./run-events";
 import type { AgentTurnRecord, TelemetryAnalysis } from "./history";
 import { CampaignCaptureMismatchError } from "./campaign-capture";
-import { RegradeRequestError } from "@contexts/evaluation/application/regrade.use-case";
+import { RegradeRequestError } from "@contexts/evaluation/application/index";
 import type { EvaluationService } from "./evaluation-service";
 import type { RunViewExtras } from "./run-view";
 

@@ -13,9 +13,9 @@
  * Exit 0 for a report (calibrated or not), 1 when the judge has no scores yet, 2 for a bad command line.
  */
 import { pathToFileURL } from "node:url";
-import type { CalibrateJudgeUseCase } from "../qa-engine/src/contexts/evaluation/application/calibrate-judge.use-case.ts";
-import type { CalibrationReport } from "../qa-engine/src/contexts/evaluation/domain/judge-calibration.ts";
-import { JUDGE_NAMES, isJudgeName, type JudgeName } from "../qa-engine/src/contexts/evaluation/domain/judges.ts";
+import type { CalibrateJudgeUseCase } from "../qa-engine/src/contexts/evaluation/application/index.ts";
+import type { CalibrationReport } from "../qa-engine/src/contexts/evaluation/application/index.ts";
+import { JUDGE_NAMES, isJudgeName, type JudgeName } from "../qa-engine/src/contexts/evaluation/application/index.ts";
 
 export type Parsed = { ok: true; judge: JudgeName; minN?: number } | { ok: false; problem: string };
 
@@ -86,7 +86,7 @@ export async function main(argv: readonly string[], deps: CalibrateDeps): Promis
 
 /** The run history of the orchestrator container, imported lazily so a test that injects its own never opens it. */
 export async function defaultDeps(): Promise<CalibrateDeps> {
-  const { CalibrateJudgeUseCase } = await import("../qa-engine/src/contexts/evaluation/application/calibrate-judge.use-case.ts");
+  const { CalibrateJudgeUseCase } = await import("../qa-engine/src/contexts/evaluation/application/index.ts");
   const { SqliteCalibrationPairs, SqliteCalibrationStore } = await import("../src/server/judge-adapters.ts");
   return {
     useCase: new CalibrateJudgeUseCase({ pairs: new SqliteCalibrationPairs(), store: new SqliteCalibrationStore(), now: () => new Date().toISOString() }),

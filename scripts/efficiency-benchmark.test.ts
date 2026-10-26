@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DIFF_TIER_NAMES } from "@contexts/generation/domain/diff-stat.ts";
+import { DIFF_TIER_NAMES } from "@contexts/generation/application/index.ts";
 import { loadEfficiencyBenchmarkCases } from "./efficiency-benchmark.ts";
 
 test("loadEfficiencyBenchmarkCases: the tracked example set is a well-formed benchmark covering a plain, a ranged and a guided case", () => {

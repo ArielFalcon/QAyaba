@@ -13,7 +13,7 @@ import type {
   EventBoundaryProfile,
   HttpBackendBoundaryProfile,
   BoundaryProfile,
-} from "@contexts/service-topology/domain/index.ts";
+} from "@contexts/service-topology/application/index.ts";
 import { serializeBoundary, spliceBoundariesBlock } from "./write-boundaries";
 
 const HTTP_PROFILE: HttpBoundaryProfile = {

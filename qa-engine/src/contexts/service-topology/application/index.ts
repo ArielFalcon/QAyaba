@@ -10,3 +10,6 @@ export type { ProfileProposerPort } from "./ports/profile-proposer.port.ts";
 export type { ProposerFeedback } from "../domain/profile-score.ts";
 export type { ChangePagesRequest } from "../domain/change-pages-model.ts";
 export type { ResolveLinksResult } from "../domain/service-boundary-resolver.ts";
+export { OnboardingService } from "./onboarding-service.ts";
+export type { OnboardingResult, OnboardingRoundProgress } from "./onboarding-service.ts";
+export type { EventBoundaryProfile, HttpBackendBoundaryProfile, HttpBoundaryProfile } from "../domain/index.ts";

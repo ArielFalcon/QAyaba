@@ -17,7 +17,7 @@ import {
 import {
   ComparisonError, compareCampaign, renderComparisonMarkdown, DEFAULT_BOOTSTRAP_ITERATIONS, DEFAULT_SEED,
   type CampaignComparison, type CampaignRun, type RunScore,
-} from "@contexts/evaluation/domain/campaign-comparison.ts";
+} from "@contexts/evaluation/application/index.ts";
 import { CAMPAIGN_ID_PATTERN } from "../src/contract/campaign.ts";
 
 export interface CompareArguments {

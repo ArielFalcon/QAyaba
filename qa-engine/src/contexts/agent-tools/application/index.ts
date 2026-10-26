@@ -11,3 +11,8 @@ export type { AgentBrowserHandle, AgentBrowserOpenInput } from "../domain/agent-
 export type { ClosedLoopHandle, ClosedLoopOpenInput, ClosedLoopSignals, FlowFailureFact, FlowLedgerEntry, FlowLoopHandle, FlowLoopOpenInput } from "../domain/closed-loop.ts";
 export type { CodeGraphToolsHandle, CodeGraphToolsOpenInput } from "../domain/code-graph-tools.ts";
 export type { FlowGeolocationHandle, GeolocationHandle, GeolocationOpenInput } from "../domain/geolocation.ts";
+export { admitCodeGraphQuery } from "../domain/code-graph-query.ts";
+export type { CodeGraphRefusalCode, CodeGraphToolRequest } from "../domain/code-graph-query.ts";
+export { RunGeolocation } from "../domain/run-geolocation.ts";
+export type { GeolocationRefusalCode } from "../domain/run-geolocation.ts";
+export type { CodeGraphToolResponse } from "../domain/code-graph-query.ts";

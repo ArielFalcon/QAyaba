@@ -10,7 +10,7 @@ import { CallEfficiencyTracker, type StreamToken } from "@contexts/generation/in
 import type { RawOpencodeEvent } from "@contexts/generation/infrastructure/sse/activity-mapper";
 import { withTurnTelemetry, type TurnTelemetryDeps } from "@contexts/generation/infrastructure/telemetry/with-turn-telemetry";
 import { AgentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
-import type { StepIntentContext } from "@contexts/generation/domain/step-intent";
+import type { StepIntentContext } from "@contexts/generation/application/index";
 import { INSTRUMENTS, checkInstrumentTable } from "./instrument-table";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";

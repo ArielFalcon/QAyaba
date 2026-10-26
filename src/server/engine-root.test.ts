@@ -18,7 +18,7 @@ import { BlastRadius } from "@kernel/blast-radius";
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { BoundaryProfile } from "@contexts/service-topology/domain/index";
+import type { BoundaryProfile } from "@contexts/service-topology/application/index";
 import { ok, err } from "@kernel/result";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port";
 import type { CoChangePort } from "@kernel/ports/co-change.port";
@@ -1460,7 +1460,7 @@ test("buildEngine still indexes without the co-change history, but builds no str
 /* The run_spec loop is wired only when the shell hands the root its registry; the adapter it builds executes through the run's own execution and cleanup ports. */
 test("wireEngine builds the run_spec loop port from cfg.closedLoop and omits it when the config has none", async () => {
   const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry");
-  const { AccountLock } = await import("@contexts/test-execution/domain/account-lock");
+  const { AccountLock } = await import("@contexts/test-execution/application/index");
   const without = wireEngine(fakeConfig());
   assert.equal("closedLoop" in without, false);
 
@@ -1483,7 +1483,7 @@ test("wireEngine builds the run_spec loop port from cfg.closedLoop and omits it 
 
 test("a code-target composition never gets the run_spec loop, whatever the config says", async () => {
   const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry");
-  const { AccountLock } = await import("@contexts/test-execution/domain/account-lock");
+  const { AccountLock } = await import("@contexts/test-execution/application/index");
   const wired = wireEngine(fakeConfig({
     isCode: true,
     target: "code",
@@ -1495,7 +1495,7 @@ test("a code-target composition never gets the run_spec loop, whatever the confi
 /* The authenticated agent browser is wired only when the shell hands the root its registry, and only for an e2e app with a DEV url. */
 test("wireEngine builds the agent browser port from cfg.agentBrowser and omits it when the config has none", async () => {
   const { AgentBrowserRegistry } = await import("@contexts/agent-tools/infrastructure/agent-browser-registry");
-  const { AccountLock } = await import("@contexts/test-execution/domain/account-lock");
+  const { AccountLock } = await import("@contexts/test-execution/application/index");
   const without = wireEngine(fakeConfig({ baseUrl: "https://dev.example.com" }));
   assert.equal("agentBrowser" in without, false);
 

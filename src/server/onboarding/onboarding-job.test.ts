@@ -15,8 +15,8 @@ import {
   type RepoIndexOutcome,
 } from "./onboarding-job";
 import type { ProfileProposerPort, ResolveLinksResult } from "@contexts/service-topology/application/index.ts";
-import type { BoundaryProfile, HttpBoundaryProfile } from "@contexts/service-topology/domain/index.ts";
-import type { OnboardingResult, OnboardingRoundProgress } from "@contexts/service-topology/application/onboarding-service.ts";
+import type { BoundaryProfile, HttpBoundaryProfile } from "@contexts/service-topology/application/index.ts";
+import type { OnboardingResult, OnboardingRoundProgress } from "@contexts/service-topology/application/index.ts";
 
 const CORRECT_PROFILE: HttpBoundaryProfile = {
   transport: "http",

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ScoreMetricsSink, composeScoreSinks } from "./score-metrics-sink";
 import { traceHarness } from "./trace-harness";
-import type { Score } from "@contexts/evaluation/domain/score";
+import type { Score } from "@contexts/evaluation/application/index";
 import type { RecordMeasurement } from "@kernel/telemetry/telemetry.port";
 
 const RUN = "run-0f1e2d3c";

@@ -1,18 +1,18 @@
 /* The engine root: the one module that calls every context's builder, in dependency order, and hands the ports they serve to the run-orchestration builder. It lives in the shell, so no engine module reaches the VCS write seam. A shadow composition (deps.shadow) publishes to the shadow log: no PR or Issue is opened on the watched repo. EngineRootDeps is the union of the builders' inputs: the shell fills it per run, each builder takes its own part. */
 
 import type { RunMode, TestTarget } from "@kernel/run-mode";
-import type { RunPipelinePort } from "../../qa-engine/src/contexts/run-orchestration/application/ports/run-pipeline.port";
-import type { ObserverPort } from "../../qa-engine/src/contexts/run-orchestration/application/ports/observer.port";
-import type { RunHistoryPort } from "../../qa-engine/src/contexts/run-orchestration/application/ports/run-history.port";
+import type { RunPipelinePort } from "../../qa-engine/src/contexts/run-orchestration/application/index";
+import type { ObserverPort } from "../../qa-engine/src/contexts/run-orchestration/application/index";
+import type { RunHistoryPort } from "../../qa-engine/src/contexts/run-orchestration/application/index";
 import type { CurriculumPort, LearningPort } from "@contexts/cross-run-learning/application/index";
 import type { ContextMapCapturePort } from "@contexts/generation/application/index";
-import type { RunDeadlinePort } from "../../qa-engine/src/contexts/run-orchestration/application/ports/run-deadline.port";
+import type { RunDeadlinePort } from "../../qa-engine/src/contexts/run-orchestration/application/index";
 import type { SuiteStorePort } from "@kernel/ports/suite-store.port";
 import type { ValidationPort } from "@contexts/test-execution/application/index";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import type { CoordinationSettings } from "@kernel/coordination";
-import type { ToolAttemptDirectory } from "@contexts/generation/domain/tool-link";
+import type { ToolAttemptDirectory } from "@contexts/generation/application/index";
 import type { AuthDeclaration } from "@contexts/app-catalog/application/index";
 import { buildAppCatalog, type AppCatalogDeps } from "../../qa-engine/src/contexts/app-catalog/composition/build-app-catalog";
 import type { RunPipelineAdapterDeps } from "../../qa-engine/src/contexts/run-orchestration/infrastructure/run-pipeline.adapter";
@@ -52,7 +52,7 @@ import { buildCoordination, type DelegationWiring } from "../../qa-engine/src/co
 import { buildAgentTools, type AgentBrowserWiring, type ClosedLoopWiring, type CodeGraphToolsWiring, type GeolocationWiring } from "../../qa-engine/src/contexts/agent-tools/composition/build-agent-tools";
 import { buildTestExecution } from "../../qa-engine/src/contexts/test-execution/composition/build-test-execution";
 import { buildCrossRunLearning } from "../../qa-engine/src/contexts/cross-run-learning/composition/build-cross-run-learning";
-import { type GenerationResult, type GenerateOpts } from "@contexts/generation/application/generate-tests.use-case";
+import { type GenerationResult, type GenerateOpts } from "@contexts/generation/application/index";
 import type { OpencodeRunInput, ArchitectureContext, StepLimitFor } from "@contexts/generation/application/index";
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port";
@@ -61,7 +61,7 @@ import type { StaticGateAdapter } from "@contexts/test-execution/infrastructure/
 import type { E2eExecutionStrategy } from "@contexts/test-execution/infrastructure/e2e-execution.strategy";
 import type { CodeExecutionStrategy } from "@contexts/test-execution/infrastructure/code-execution.strategy";
 import type { CodeValidationStrategy } from "@contexts/test-execution/infrastructure/code-validation.strategy";
-import type { CoveragePolicy, ChangeCoverage } from "@contexts/objective-signal/domain/decide-coverage.service";
+import type { CoveragePolicy, ChangeCoverage } from "@contexts/objective-signal/application/index";
 import type { CoverageCollectorPort, ValueOraclePort } from "@contexts/objective-signal/application/index";
 import type { VcsReadPort } from "@contexts/change-analysis/application/index";
 import type { LearningRepositoryPort, ReflectorPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/index";

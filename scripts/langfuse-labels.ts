@@ -13,9 +13,9 @@
  * Nothing in the service calls it. The project keys come from LANGFUSE_BASE_URL, LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY.
  */
 import { pathToFileURL } from "node:url";
-import { MAX_SCORE_COMMENT_CHARS, specOfScore, type ScoreSpec } from "../qa-engine/src/contexts/evaluation/domain/grader-catalog.ts";
-import { judgeLabelSpec } from "../qa-engine/src/contexts/evaluation/domain/judges.ts";
-import type { ScoreDataType, ScorePolarity } from "../qa-engine/src/contexts/evaluation/domain/score.ts";
+import { MAX_SCORE_COMMENT_CHARS, specOfScore, type ScoreSpec } from "../qa-engine/src/contexts/evaluation/application/index.ts";
+import { judgeLabelSpec } from "../qa-engine/src/contexts/evaluation/application/index.ts";
+import type { ScoreDataType, ScorePolarity } from "../qa-engine/src/contexts/evaluation/application/index.ts";
 
 export type Parsed = { ok: true; session?: string; since?: string; name?: string; dryRun: boolean } | { ok: false; problem: string };
 

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseJudgePromptVersion } from "@contexts/evaluation/domain/judges";
+import { parseJudgePromptVersion } from "@contexts/evaluation/application/index";
 import { resolveJudgeSetup } from "./judge-settings";
 
 const root = process.cwd();

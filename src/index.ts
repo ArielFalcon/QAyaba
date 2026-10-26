@@ -63,7 +63,7 @@ import { applyEnvVars, defaultEnvStoreFs } from "./server/env-store";
 import { logJson } from "./integrations/logger";
 import { createOnboardingJob, type RepoIndexOutcome } from "./server/onboarding/onboarding-job";
 import { LlmProfileProposerAdapter, PROPOSER_MODEL } from "./server/onboarding/llm-profile-proposer.adapter";
-import { OnboardingService } from "@contexts/service-topology/application/onboarding-service";
+import { OnboardingService } from "@contexts/service-topology/application/index";
 import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrastructure/resolver-factory";
 
 import { RedactionPortAdapter } from "./orchestrator/sanitizer";

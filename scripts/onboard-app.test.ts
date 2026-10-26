@@ -3,8 +3,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { BoundaryProfile, RepoRef } from "../qa-engine/src/contexts/service-topology/domain/index.ts";
-import type { OnboardingResult } from "../qa-engine/src/contexts/service-topology/application/onboarding-service.ts";
+import type { BoundaryProfile, RepoRef } from "../qa-engine/src/contexts/service-topology/application/index.ts";
+import type { OnboardingResult } from "../qa-engine/src/contexts/service-topology/application/index.ts";
 import { runOnboarding, type OnboardingCliDeps } from "./onboard-app.ts";
 
 const HTTP_PROFILE: BoundaryProfile = {

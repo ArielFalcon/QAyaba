@@ -4,7 +4,7 @@
  * a model. The engine's classifiers (qa-engine/.../domain/step-intent.ts, nav-outcome.ts) are pure functions of this context.
  */
 import type { TestTarget } from "@kernel/run-mode";
-import type { StepIntentContext } from "@contexts/generation/domain/step-intent";
+import type { StepIntentContext } from "@contexts/generation/application/index";
 import { AUTH_SETUP_PATH } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
 
 export interface StepIntentConfigInput {

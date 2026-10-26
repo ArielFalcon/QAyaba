@@ -1,13 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-loop-registry";
-import { RunSpecCapability } from "@contexts/test-execution/domain/run-spec-capability";
-import type { RunSpecRequest, RunSpecResponse } from "@contexts/test-execution/application/run-spec.use-case";
+import { RunSpecCapability } from "@contexts/test-execution/application/index";
+import type { RunSpecRequest, RunSpecResponse } from "@contexts/test-execution/application/index";
 import { AgentBrowserRegistry } from "@contexts/agent-tools/infrastructure/agent-browser-registry";
-import { AgentBrowserCapability, type AgentBrowserRefusalCode } from "@contexts/test-execution/domain/agent-browser-capability";
-import type { AgentBrowserRequest, AgentBrowserResponse } from "@contexts/test-execution/application/agent-browser.use-case";
+import { AgentBrowserCapability, type AgentBrowserRefusalCode } from "@contexts/test-execution/application/index";
+import type { AgentBrowserRequest, AgentBrowserResponse } from "@contexts/test-execution/application/index";
 import { GeolocationRegistry } from "@contexts/agent-tools/infrastructure/geolocation-registry";
-import { RunGeolocation } from "@contexts/agent-tools/domain/run-geolocation";
+import { RunGeolocation } from "@contexts/agent-tools/application/index";
 import net from "node:net";
 import { AUTHBROWSER_PATH, CODEGRAPH_PATH, DEFAULT_TOOLS_PORT, GEOLOCATION_PATH, MIN_TOOLS_TOKEN_CHARS, createToolsServer, createToolsRateLimiter, handleToolsRequest, resolveToolsListenHost, resolveToolsPort, resolveToolsToken, type ToolsRequest } from "./tools-endpoint";
 
@@ -397,7 +397,7 @@ test("the location endpoint takes the service token and POST only", async () => 
 
 /* ── the lead's code graph ─────────────────────────────────────────────────────────────────────── */
 
-async function codeGraphs(answer: (req: import("@contexts/agent-tools/domain/code-graph-query").CodeGraphToolRequest) => Promise<import("@contexts/agent-tools/domain/code-graph-query").CodeGraphToolResponse> = async () => ({ ok: true, result: "**Exploration: x**", truncated: false, indexedSha: "abc1234", callsLeft: 39 })) {
+async function codeGraphs(answer: (req: import("@contexts/agent-tools/application/index").CodeGraphToolRequest) => Promise<import("@contexts/agent-tools/application/index").CodeGraphToolResponse> = async () => ({ ok: true, result: "**Exploration: x**", truncated: false, indexedSha: "abc1234", callsLeft: 39 })) {
   const { CodeGraphToolRegistry } = await import("@contexts/agent-tools/infrastructure/code-graph-tool-registry");
   const registry = new CodeGraphToolRegistry();
   const seen: unknown[] = [];

@@ -11,11 +11,11 @@
  */
 
 import type { CalibrationStorePort, JudgeRegradePort } from "@contexts/evaluation/application/index.ts";
-import type { JudgeBatchResult, JudgeWorkItem, RunJudgesUseCase } from "@contexts/evaluation/application/run-judges.use-case";
-import { JUDGE_NAMES, type JudgeName, type JudgeStatus } from "@contexts/evaluation/domain/judges";
+import type { JudgeBatchResult, JudgeWorkItem, RunJudgesUseCase } from "@contexts/evaluation/application/index";
+import { JUDGE_NAMES, type JudgeName, type JudgeStatus } from "@contexts/evaluation/application/index";
 import type { JudgeSetup, JudgeSwitch } from "./judge-settings";
 import { JUDGE_AGENT_NAME } from "./judge-agent";
-import { DEFAULT_CALIBRATION } from "@contexts/evaluation/domain/judge-calibration";
+import { DEFAULT_CALIBRATION } from "@contexts/evaluation/application/index";
 
 export interface JudgeServiceDeps {
   queue: { enqueueIdle(job: (signal: AbortSignal, shouldYield: () => boolean) => Promise<void>): void };

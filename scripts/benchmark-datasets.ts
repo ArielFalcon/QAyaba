@@ -6,7 +6,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DatasetError, datasetFileName, parseDataset, parseDatasetFileName, type BenchmarkDataset } from "@contexts/evaluation/domain/benchmark-dataset.ts";
+import { DatasetError, datasetFileName, parseDataset, parseDatasetFileName, type BenchmarkDataset } from "@contexts/evaluation/application/index.ts";
 
 export const DATASETS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "config", "benchmarks", "datasets");
 

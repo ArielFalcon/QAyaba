@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { synthesizeReportSpans } from "../../qa-engine/src/contexts/test-execution/infrastructure/report-spans";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
-import { planReport, MAX_PLANNED_CASES } from "../../qa-engine/src/contexts/test-execution/domain/playwright-report-plan";
+import { planReport, MAX_PLANNED_CASES } from "../../qa-engine/src/contexts/test-execution/application/index";
 import { newSandboxReport, withExecScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-infrastructure/redaction/run-secret-redaction";
 import type { QaCase } from "@kernel/qa-case";

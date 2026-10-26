@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createJudgeService, type JudgeServiceDeps } from "./judge-service";
-import { JUDGE_NAMES } from "@contexts/evaluation/domain/judges";
-import type { JudgeBatchResult, JudgeWorkItem } from "@contexts/evaluation/application/run-judges.use-case";
-import type { CalibrationReport } from "@contexts/evaluation/domain/judge-calibration";
+import { JUDGE_NAMES } from "@contexts/evaluation/application/index";
+import type { JudgeBatchResult, JudgeWorkItem } from "@contexts/evaluation/application/index";
+import type { CalibrationReport } from "@contexts/evaluation/application/index";
 
 type IdleJob = (signal: AbortSignal, shouldYield: () => boolean) => Promise<void>;
 

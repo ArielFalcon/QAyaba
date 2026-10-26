@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import type { Score } from "@contexts/evaluation/domain/score";
-import { MAX_SCORE_COMMENT_CHARS } from "@contexts/evaluation/domain/grader-catalog";
+import type { Score } from "@contexts/evaluation/application/index";
+import { MAX_SCORE_COMMENT_CHARS } from "@contexts/evaluation/application/index";
 import { LangfuseScoreSink, langfuseScoreId, resolveLangfuseConfig, scoreConfigsOfCatalog, scoreSinkHealthOf, type LangfuseConfig } from "./langfuse-score-sink";
 
 const CONFIG: LangfuseConfig = { baseUrl: "http://langfuse-web:3000", publicKey: "pk-lf-public", secretKey: "sk-lf-secret" };

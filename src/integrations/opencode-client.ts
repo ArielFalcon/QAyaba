@@ -10,7 +10,7 @@ import type { Agent as OpenCodeAgent } from "@opencode-ai/sdk/v2";
 
 import { RunMode } from "../types";
 import { saveAgentTurnEvent } from "../server/history";
-import { SERENA_WRITE_TOOL_NAMES } from "@contexts/generation/domain/tool-call-taxonomy";
+import { SERENA_WRITE_TOOL_NAMES } from "@contexts/generation/application/index";
 import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
 import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
 
@@ -19,7 +19,7 @@ import { setRuntimeRoleModels } from "@contexts/generation/infrastructure/prompt
 import { installHttpDispatcher } from "../util/net";
 import { enforcedStepLimit } from "../agent-runtime/step-limit";
 import { openCodeServerAuth } from "./opencode-server-auth";
-import { AGENT_BROWSER_AGENTS } from "@contexts/test-execution/domain/agent-browser-capability";
+import { AGENT_BROWSER_AGENTS } from "@contexts/test-execution/application/index";
 import { CODE_GRAPH_AGENT } from "@kernel/code-graph-tools";
 
 

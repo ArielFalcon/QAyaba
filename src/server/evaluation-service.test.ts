@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createEvaluationService } from "./evaluation-service";
-import { judgeCatalog } from "@contexts/evaluation/domain/judges";
+import { judgeCatalog } from "@contexts/evaluation/application/index";
 import { HistoryEvidenceAdapter, countPassedSpecs, defaultEvidenceDeps } from "./evaluation-evidence";
 import { buildRunViewExtras, type RunViewDeps } from "./run-view";
 import Database from "better-sqlite3";
-import { RegradeRequestError } from "@contexts/evaluation/application/regrade.use-case";
+import { RegradeRequestError } from "@contexts/evaluation/application/index";
 import { createRecord, updateRecord, addCase, saveRunOutcome, replaceRunScores, getRunFacts, saveAgentTurn, getRunIdByTraceId, listRunScoreRows, getRegradeJob, saveRegradeJob, failInterruptedRegradeJobs, getRecord, getRunOutcome } from "./history";
 import { traceHarness } from "../telemetry/trace-harness";
 import { ScoreMetricsSink, composeScoreSinks } from "../telemetry/score-metrics-sink";

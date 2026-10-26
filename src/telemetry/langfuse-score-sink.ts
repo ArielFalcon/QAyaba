@@ -13,8 +13,8 @@
 
 import { createHash } from "node:crypto";
 import type { ScoreSinkPort } from "@contexts/evaluation/application/index.ts";
-import { GRADER_CATALOG, MAX_SCORE_COMMENT_CHARS } from "@contexts/evaluation/domain/grader-catalog";
-import type { Score } from "@contexts/evaluation/domain/score";
+import { GRADER_CATALOG, MAX_SCORE_COMMENT_CHARS } from "@contexts/evaluation/application/index";
+import type { Score } from "@contexts/evaluation/application/index";
 
 export interface LangfuseConfig {
   baseUrl: string;

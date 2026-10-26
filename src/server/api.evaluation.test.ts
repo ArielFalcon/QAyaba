@@ -3,13 +3,13 @@ import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { handleApi, type ApiDeps } from "./api";
 import { AppNotFoundError } from "../orchestrator/config-loader";
-import { RegradeRequestError } from "@contexts/evaluation/application/regrade.use-case";
-import { GRADER_CATALOG } from "@contexts/evaluation/domain/grader-catalog";
+import { RegradeRequestError } from "@contexts/evaluation/application/index";
+import { GRADER_CATALOG } from "@contexts/evaluation/application/index";
 import { RUN_PHASES } from "@kernel/run-step";
 import { CampaignRunsSchema, CreateRunResultSchema, EvaluationCatalogSchema, RegradeJobSchema, RunDetailSchema, RunEvaluationSchema } from "../contract/commands";
 import type { RunRecord } from "../types";
 import { catalogView, type EvaluationService } from "./evaluation-service";
-import { judgeCatalog } from "@contexts/evaluation/domain/judges";
+import { judgeCatalog } from "@contexts/evaluation/application/index";
 import type { RunViewExtras } from "./run-view";
 
 function mkReq(method: string, url: string, body?: string): any {

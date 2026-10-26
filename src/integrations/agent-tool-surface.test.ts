@@ -47,7 +47,7 @@ import type { AgentConfig } from "@opencode-ai/sdk";
 import { AGENT_NAME_FOR_ROLE, capabilitiesForRole } from "../agent-runtime/types";
 import { AGENT_BROWSER_TOOLS } from "../../qa-engine/src/shared-kernel/agent-browser";
 import { CODE_GRAPH_AGENT, CODE_GRAPH_TOOLS } from "../../qa-engine/src/shared-kernel/code-graph-tools";
-import { AGENT_BROWSER_AGENTS } from "../../qa-engine/src/contexts/test-execution/domain/agent-browser-capability";
+import { AGENT_BROWSER_AGENTS } from "../../qa-engine/src/contexts/test-execution/application/index";
 import { NO_TOOLS } from "./opencode-client";
 import type { AgentRole } from "../agent-runtime/types";
 

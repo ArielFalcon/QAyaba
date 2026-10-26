@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter";
-import { GENERATION_NOTE_MAX_CHARS } from "@contexts/generation/domain/generation-end";
+import { GENERATION_NOTE_MAX_CHARS } from "@contexts/generation/application/index";
 import { parseVerdict } from "./verdict-parse";
 import { parseReviewerVerdict } from "./verdict-validate";
 

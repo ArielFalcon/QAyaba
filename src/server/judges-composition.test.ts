@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { composeJudges } from "./judges-composition";
-import { JUDGE_NAMES } from "@contexts/evaluation/domain/judges";
+import { JUDGE_NAMES } from "@contexts/evaluation/application/index";
 import { JobQueue } from "./queue";
 
 function repo(opts: { judgeModel?: string | null; withPrompt?: boolean } = {}): string {

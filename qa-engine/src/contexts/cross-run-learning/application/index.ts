@@ -23,3 +23,4 @@ export { foldCurriculum, initCurriculum } from "../domain/curriculum.ts";
 export type { Curriculum } from "../domain/curriculum.ts";
 export { applyOutcome } from "../domain/rule-fold.ts";
 export { EXPLORATION_SLOTS } from "../domain/rule-governance.service.ts";
+export { capRuleFields, decideDistill } from "../domain/distill-rule.ts";

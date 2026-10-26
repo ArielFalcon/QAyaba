@@ -46,8 +46,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { sanitizeText } from "../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { CallEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
-import { buildTurnStepBudget, type TurnCallMetrics } from "@contexts/generation/domain/turn-efficiency-summary.ts";
-import { finalStepText } from "@contexts/generation/domain/step-exhaustion.ts";
+import { buildTurnStepBudget, type TurnCallMetrics } from "@contexts/generation/application/index.ts";
+import { finalStepText } from "@contexts/generation/application/index.ts";
 import { AUTH_MATERIAL_FILES } from "../qa-engine/src/shared-infrastructure/process-sandbox/auth-session-env.ts";
 import { EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../src/paths.ts";
 import {
@@ -58,7 +58,7 @@ import { saveSuiteFiles, specsOf, suiteDelta } from "./campaign-suite.ts";
 import { prepareHarnessAuth } from "./harness-auth.ts";
 import { loadSnapshot, restoreSuite, specsTouchedSinceSnapshot, warmSnapshotDir, warmStatus, type LoadedSnapshot } from "./warm-suite.ts";
 import { MAX_FILE_BYTES } from "../qa-engine/src/shared-infrastructure/suite-tree.ts";
-import type { AcceptanceReport } from "@contexts/run-orchestration/application/accept-delivered-specs.use-case.ts";
+import type { AcceptanceReport } from "@contexts/run-orchestration/application/index.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -1153,7 +1153,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
     },
     acceptSpecs: async ({ copyDir, authDir, app, namespace, specs, material, sha, review }) => {
       const { buildAcceptanceHarness } = await import("../src/server/run-engine-factory.ts");
-      const { AcceptDeliveredSpecsUseCase } = await import("@contexts/run-orchestration/application/accept-delivered-specs.use-case.ts");
+      const { AcceptDeliveredSpecsUseCase } = await import("@contexts/run-orchestration/application/index.ts");
       const { Sha } = await import("@kernel/sha.ts");
       const { defaultAgentDeps } = await import("../src/integrations/opencode-client.ts");
       const full = loadAppConfig(app.name);

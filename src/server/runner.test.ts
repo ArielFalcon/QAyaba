@@ -13,7 +13,7 @@ import {
   ONBOARDING_WAIT_MARGIN_MS,
 } from "./runner";
 import { getRecord, createRecord, updateRecord, getRunPhases } from "./history";
-import { recordPhaseSnapshot } from "@contexts/run-orchestration/domain/run-phase-cursor";
+import { recordPhaseSnapshot } from "@contexts/run-orchestration/application/index";
 import { AppConfig } from "../orchestrator/config-loader";
 import { createRunEventStore } from "./run-events";
 import type { RunPipelinePort, RunInput } from "@contexts/run-orchestration/application/index.ts";

@@ -13,11 +13,11 @@ import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { AgentBrowserGateSignal } from "@kernel/agent-browser.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
 import type { NoopKind } from "@kernel/noop-kind.ts";
-import { DecideCoverageService, type CoverageStatus } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
-import { isContentReadTool } from "@contexts/generation/domain/call-sequence.ts";
-import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
-import type { ToolSequenceEntry } from "@contexts/generation/domain/tool-sequence.ts";
-import type { TurnCallMetrics } from "@contexts/generation/domain/turn-efficiency-summary.ts";
+import { DecideCoverageService, type CoverageStatus } from "@contexts/objective-signal/application/index.ts";
+import { isContentReadTool } from "@contexts/generation/application/index.ts";
+import { PROMPT_HEADINGS } from "@contexts/generation/application/index.ts";
+import type { ToolSequenceEntry } from "@contexts/generation/application/index.ts";
+import type { TurnCallMetrics } from "@contexts/generation/application/index.ts";
 import type { AgentTurnRecord } from "../src/server/history.ts";
 import type { RunOutcome, RunRecord } from "../src/types.ts";
 

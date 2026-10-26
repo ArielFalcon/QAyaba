@@ -15,8 +15,8 @@ import {
   type MatrixCell,
 } from "./prompt-contract-matrix.ts";
 import { ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
-import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
-import { hasTrustLanguage, lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { ARTIFACT_REFERENCES } from "@contexts/generation/application/index.ts";
+import { hasTrustLanguage, lintCell } from "@contexts/generation/application/index.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 

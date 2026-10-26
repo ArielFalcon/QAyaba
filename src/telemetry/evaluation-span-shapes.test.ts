@@ -8,8 +8,8 @@ import { CallEfficiencyTracker, type StreamToken } from "@contexts/generation/in
 import type { RawOpencodeEvent } from "@contexts/generation/infrastructure/sse/activity-mapper";
 import { withTurnTelemetry } from "@contexts/generation/infrastructure/telemetry/with-turn-telemetry";
 import { AgentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
-import type { StepIntentContext } from "@contexts/generation/domain/step-intent";
-import { gradeEvidence } from "@contexts/evaluation/domain/graders";
+import type { StepIntentContext } from "@contexts/generation/application/index";
+import { gradeEvidence } from "@contexts/evaluation/application/index";
 import { HistoryEvidenceAdapter, defaultEvidenceDeps, type LedgerSpan } from "../server/evaluation-evidence";
 import { createRecord, updateRecord } from "../server/history";
 import { traceHarness } from "./trace-harness";

@@ -16,9 +16,9 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { MAX_SCORE_COMMENT_CHARS, specOfScore } from "../qa-engine/src/contexts/evaluation/domain/grader-catalog.ts";
-import { judgeLabelSpec } from "../qa-engine/src/contexts/evaluation/domain/judges.ts";
-import { parseUseCaseReference, referenceFor, type UseCaseReference } from "../qa-engine/src/contexts/evaluation/domain/use-case-reference.ts";
+import { MAX_SCORE_COMMENT_CHARS, specOfScore } from "../qa-engine/src/contexts/evaluation/application/index.ts";
+import { judgeLabelSpec } from "../qa-engine/src/contexts/evaluation/application/index.ts";
+import { parseUseCaseReference, referenceFor, type UseCaseReference } from "../qa-engine/src/contexts/evaluation/application/index.ts";
 import type { LabelRow } from "./langfuse-labels.ts";
 
 export const USE_CASES_DIR = "config/benchmarks/use-cases";

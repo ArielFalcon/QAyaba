@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { main, parseArguments, type CalibrateDeps } from "./judge-calibrate.ts";
-import { CalibrateJudgeUseCase } from "../qa-engine/src/contexts/evaluation/application/calibrate-judge.use-case.ts";
-import { splitOfRun } from "../qa-engine/src/contexts/evaluation/domain/judge-calibration.ts";
-import type { CalibrationReport } from "../qa-engine/src/contexts/evaluation/domain/judge-calibration.ts";
+import { CalibrateJudgeUseCase } from "../qa-engine/src/contexts/evaluation/application/index.ts";
+import { splitOfRun } from "../qa-engine/src/contexts/evaluation/application/index.ts";
+import type { CalibrationReport } from "../qa-engine/src/contexts/evaluation/application/index.ts";
 
 function testRuns(n: number): string[] {
   const out: string[] = [];

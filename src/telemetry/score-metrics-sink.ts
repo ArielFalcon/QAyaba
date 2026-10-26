@@ -9,9 +9,9 @@
  */
 
 import type { ScoreSinkPort } from "@contexts/evaluation/application/index.ts";
-import { COVERAGE_CLASSES } from "@contexts/evaluation/domain/grader-catalog";
-import type { Score } from "@contexts/evaluation/domain/score";
-import { ERROR_CLASSES } from "@contexts/cross-run-learning/domain/error-class";
+import { COVERAGE_CLASSES } from "@contexts/evaluation/application/index";
+import type { Score } from "@contexts/evaluation/application/index";
+import { ERROR_CLASSES } from "@contexts/cross-run-learning/application/index";
 import { RUN_PHASES } from "@kernel/run-step";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 

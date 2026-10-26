@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DatasetError } from "@contexts/evaluation/domain/benchmark-dataset.ts";
+import { DatasetError } from "@contexts/evaluation/application/index.ts";
 import { DATASETS_DIR, listDatasets, loadDataset, parseDatasetRef, type DatasetFiles } from "./benchmark-datasets.ts";
 
 const doc = (over: Record<string, unknown> = {}) => JSON.stringify({ name: "real", version: "1", items: [{ app: "shop", sha: "abcdef1", description: "d" }], ...over });

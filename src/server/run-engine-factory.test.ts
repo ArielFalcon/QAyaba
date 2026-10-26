@@ -25,18 +25,18 @@ import { closeGitDir, GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedComma
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { defaultCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { AUTH_SETUP_ENV } from "@contexts/app-catalog/infrastructure/auth-session.adapter";
-import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/app-catalog/domain/auth-precondition";
+import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/app-catalog/application/index";
 import { SUBMITTED_MARKER } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.script";
 import { activeExecScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import { scriptedLoginEvidence } from "../../qa-engine/test/support/login-evidence";
 import { createAgentDeps } from "@contexts/generation/infrastructure/agent-transport-policy";
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
-import { EXPLORATION_SLOTS } from "@contexts/cross-run-learning/domain/rule-governance.service";
-import { DIFF_TIME_BUDGET_MS } from "@contexts/generation/domain/diff-stat";
-import { DIFF_TIME_BUDGET_ENV } from "@contexts/generation/domain/generator-time-budget";
-import { RUN_TIME_BUDGET_ENV } from "@contexts/run-orchestration/domain/run-time-budget";
+import { EXPLORATION_SLOTS } from "@contexts/cross-run-learning/application/index";
+import { DIFF_TIME_BUDGET_MS } from "@contexts/generation/application/index";
+import { DIFF_TIME_BUDGET_ENV } from "@contexts/generation/application/index";
+import { RUN_TIME_BUDGET_ENV } from "@contexts/run-orchestration/application/index";
 import { isRunDeadlineError } from "@kernel/run-deadline";
-import { renderGenerationNote } from "@contexts/generation/domain/generation-end";
+import { renderGenerationNote } from "@contexts/generation/application/index";
 import { GENERATION_END } from "@kernel/generation-end";
 import { DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination";
 import { Sha } from "@kernel/sha";
@@ -1946,7 +1946,7 @@ test("createRunEngineFactory wraps deps.getAgentDeps() so a session opened with 
  */
 async function generateThroughTransport(
   parts: Array<{ type: string; text?: string }>,
-  tracker: { take: () => import("@contexts/generation/domain/turn-efficiency-summary").TurnCallMetrics | null },
+  tracker: { take: () => import("@contexts/generation/application/index").TurnCallMetrics | null },
   maxSteps: number,
 ): Promise<{ result: Awaited<ReturnType<ReturnType<typeof buildEngineRootDeps>["generationUseCase"]["generate"]>>; persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] }> {
   const persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] = [];
@@ -2820,7 +2820,7 @@ test("historyLearningStore(appName).selectAllRules wiring — SqliteLearningRepo
   const { SqliteLearningRepository } = await import(
     "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter"
   );
-  const { decideDistill, capRuleFields } = await import("@contexts/cross-run-learning/domain/distill-rule");
+  const { decideDistill, capRuleFields } = await import("@contexts/cross-run-learning/application/index");
   const app = `factory-learning-selectall-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const deprecatedRuleId = `rule-deprecated-${app}`;
 
@@ -3778,7 +3778,7 @@ test("only an OpenCode generator, as the facade assigns it now, can call the too
 
 test("the factory tells the registry about the generator's sessions through the transport", async () => {
   const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry");
-  const { RunSpecCapability } = await import("@contexts/test-execution/domain/run-spec-capability");
+  const { RunSpecCapability } = await import("@contexts/test-execution/application/index");
   const registry = new ClosedLoopRegistry();
   const capability = new RunSpecCapability({ runId: "run-loop", limits: { maxCalls: 1, perCallMs: 60_000, maxDevWrites: 1 }, expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0 });
   registry.register({ runId: "run-loop", capability, call: async () => { throw new Error("not called"); } });
@@ -3838,7 +3838,7 @@ test("only an OpenCode generator, as the facade assigns it now, is granted the b
 
 test("the factory tells the browser registry about the authoring sessions through the transport", async () => {
   const { AgentBrowserRegistry } = await import("@contexts/agent-tools/infrastructure/agent-browser-registry");
-  const { AgentBrowserCapability } = await import("@contexts/test-execution/domain/agent-browser-capability");
+  const { AgentBrowserCapability } = await import("@contexts/test-execution/application/index");
   const registry = new AgentBrowserRegistry();
   const capability = new AgentBrowserCapability({ runId: "run-browser", expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0 });
   const ended: string[] = [];
@@ -3858,7 +3858,7 @@ test("the factory tells the browser registry about the authoring sessions throug
 
 test("a sidekick session opened for a flow is told to the run_spec registry with its flow, and the tools its run denied it are denied its prompts until it ends", async () => {
   const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry");
-  const { RunSpecCapability } = await import("@contexts/test-execution/domain/run-spec-capability");
+  const { RunSpecCapability } = await import("@contexts/test-execution/application/index");
   const { sessionToolDeny } = await import("../integrations/opencode-client");
   const registry = new ClosedLoopRegistry();
   const capability = new RunSpecCapability({ runId: "run-flow", limits: { maxCalls: 1, perCallMs: 60_000, maxDevWrites: 1 }, expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0, agents: new Set(["qa-sidekick"]) });
@@ -3947,7 +3947,7 @@ test("the composition carries the app's qa.coordination with every limit it left
 test("the run_spec loop and the agent browser take DEV through the same lease, which holds it alone for an action that may write", async () => {
   const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry");
   const { AgentBrowserRegistry } = await import("@contexts/agent-tools/infrastructure/agent-browser-registry");
-  const { DevLease } = await import("@contexts/test-execution/domain/dev-lease");
+  const { DevLease } = await import("@contexts/test-execution/application/index");
   const app: AppConfig = {
     ...cfg("lease-app"),
     qa: { needsReview: true, testDataPrefix: "qa-bot", closedLoop: { enabled: true }, agentBrowser: { enabled: true } },
@@ -4005,7 +4005,7 @@ test("the authoring location is composed from the app's declared position and pl
 
 test("the factory tells the geolocation registry about the authoring sessions through the transport", async () => {
   const { GeolocationRegistry } = await import("@contexts/agent-tools/infrastructure/geolocation-registry");
-  const { RunGeolocation } = await import("@contexts/agent-tools/domain/run-geolocation");
+  const { RunGeolocation } = await import("@contexts/agent-tools/application/index");
   const registry = new GeolocationRegistry();
   const state = new RunGeolocation({ default: { latitude: 40.4168, longitude: -3.7038 } });
   registry.register({ runId: "run-geo", state, set: (delegationId, change) => state.set(delegationId, change) });

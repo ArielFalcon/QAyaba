@@ -28,7 +28,7 @@ import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { GroundingInput } from "../src/contract/commands.ts";
 import { CAMPAIGN_ID_PATTERN, type CampaignIdentity } from "../src/contract/campaign.ts";
 import { EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../src/paths.ts";
-import { DecideCoverageService } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
+import { DecideCoverageService } from "@contexts/objective-signal/application/index.ts";
 import { detectFakeSpec } from "./fake-pass-detector.ts";
 import {
   ARM, CASE_KIND, armOrder, armToken, assessSpecs, isPlainAgentArm, classifyOutcome, invalidReplicateReasons, matchesExpected, parseArguments, parseCases,

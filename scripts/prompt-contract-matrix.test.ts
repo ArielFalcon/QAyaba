@@ -31,13 +31,13 @@ import {
   buildPromptAssembled,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
-import { AGENT_BROWSER_SECTION_ID, HARNESS_FACTS_SECTION_ID, LEAD_PLAN_SECTION_ID, STEP_LIMIT_SECTION_ID, hasTrustLanguage, lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
-import { STEP_MILESTONE_SECTION_ID, isTestWritingTurn } from "@contexts/generation/domain/step-limit.ts";
-import { PACK_HEADINGS, SUITE_LISTING_LABELS } from "@contexts/generation/domain/prompt-headings.ts";
-import { LISTING_MAX_DO_NOT_REWRITE, LISTING_MAX_UNNAMED_EDITABLE } from "@contexts/generation/domain/suite-listing.ts";
-import { everyDeliveredLine, leftOutLine } from "@contexts/generation/domain/suite-listing-render.ts";
-import { suiteEntryFile } from "@contexts/generation/domain/suite-entry.ts";
-import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
+import { AGENT_BROWSER_SECTION_ID, HARNESS_FACTS_SECTION_ID, LEAD_PLAN_SECTION_ID, STEP_LIMIT_SECTION_ID, hasTrustLanguage, lintCell } from "@contexts/generation/application/index.ts";
+import { STEP_MILESTONE_SECTION_ID, isTestWritingTurn } from "@contexts/generation/application/index.ts";
+import { PACK_HEADINGS, SUITE_LISTING_LABELS } from "@contexts/generation/application/index.ts";
+import { LISTING_MAX_DO_NOT_REWRITE, LISTING_MAX_UNNAMED_EDITABLE } from "@contexts/generation/application/index.ts";
+import { everyDeliveredLine, leftOutLine } from "@contexts/generation/application/index.ts";
+import { suiteEntryFile } from "@contexts/generation/application/index.ts";
+import { ARTIFACT_REFERENCES } from "@contexts/generation/application/index.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dimensionNames = Object.keys(DIMENSIONS) as Array<keyof typeof DIMENSIONS>;

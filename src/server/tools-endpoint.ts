@@ -18,12 +18,12 @@ import type { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/cl
 import type { AgentBrowserRegistry } from "@contexts/agent-tools/infrastructure/agent-browser-registry";
 import type { GeolocationRegistry } from "@contexts/agent-tools/infrastructure/geolocation-registry";
 import type { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry";
-import { admitCodeGraphQuery, type CodeGraphRefusalCode, type CodeGraphToolRequest } from "@contexts/agent-tools/domain/code-graph-query";
-import type { GeolocationRefusalCode } from "@contexts/agent-tools/domain/run-geolocation";
+import { admitCodeGraphQuery, type CodeGraphRefusalCode, type CodeGraphToolRequest } from "@contexts/agent-tools/application/index";
+import type { GeolocationRefusalCode } from "@contexts/agent-tools/application/index";
 import { MAX_PLACE_NAME_CHARS, type GeolocationInput } from "@kernel/geolocation";
-import type { AgentBrowserRefusalCode } from "@contexts/test-execution/domain/agent-browser-capability";
-import type { AgentBrowserRequest } from "@contexts/test-execution/application/agent-browser.use-case";
-import type { RunSpecRefusalCode } from "@contexts/test-execution/application/run-spec.use-case";
+import type { AgentBrowserRefusalCode } from "@contexts/test-execution/application/index";
+import type { AgentBrowserRequest } from "@contexts/test-execution/application/index";
+import type { RunSpecRefusalCode } from "@contexts/test-execution/application/index";
 
 export const QA_TOOLS_TOKEN_ENV = "QA_TOOLS_TOKEN";
 export const QA_TOOLS_PORT_ENV = "QA_TOOLS_PORT";

@@ -14,7 +14,7 @@ import { qayabaDataDir } from "../paths";
 import { mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { RunRecord, RunMode, TestTarget, QaCase, RunVerdict, SpecRecord, RunOutcome, AgentActivity } from "../types";
-import { applyOutcome as foldApplyOutcome } from "@contexts/cross-run-learning/domain/rule-fold";
+import { applyOutcome as foldApplyOutcome } from "@contexts/cross-run-learning/application/index";
 import { type LearningRule, type RuleUpsert, type Confidence, type RuleStatus } from "../qa/learning/learning-rule";
 import type { ErrorClass } from "@contexts/cross-run-learning/application/index";
 import type { Curriculum } from "../qa/learning/curriculum";
@@ -29,8 +29,8 @@ import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import { RUN_PHASES } from "@kernel/run-step";
 import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
 import type { TurnEnd } from "@kernel/turn-end";
-import type { ToolSequenceEntry } from "@contexts/generation/domain/tool-sequence";
-import type { TurnUsage } from "@contexts/generation/domain/turn-efficiency-summary";
+import type { ToolSequenceEntry } from "@contexts/generation/application/index";
+import type { TurnUsage } from "@contexts/generation/application/index";
 
 const redactionPort = new RedactionPortAdapter();
 
