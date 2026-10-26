@@ -828,9 +828,9 @@ test("complete/exhaustive buildReviewerPrompt works unchanged (no priorCorrectio
    These tests prove the wiring is active and can never silently regress to inert again.
  */
 
-test("buildPromptAssembled applies qa-generator budget — normal prompt fits, no sections shed", () => {
-  /* A minimal diff-mode prompt is well within the qa-generator budget
-     (roleWindowBytes("qa-generator") = floor(window × 0.75 × 4) — with the GLM 1M
+test("buildPromptAssembled applies qa-author budget — normal prompt fits, no sections shed", () => {
+  /* A minimal diff-mode prompt is well within the qa-author budget
+     (roleWindowBytes("qa-author") = floor(window × 0.75 × 4) — with the GLM 1M
      catalog entry this is 3,000,000 bytes).
      All sections must survive when the prompt is normal-sized.
    */
@@ -848,13 +848,13 @@ test("buildPromptAssembled applies qa-generator budget — normal prompt fits, n
   assert.ok("working-rules" in sectionSizes, "working-rules in sectionSizes");
   assert.ok("task" in sectionSizes, "task in sectionSizes");
 
-  /* The total byte size must be well under the qa-generator catalog budget. */
+  /* The total byte size must be well under the qa-author catalog budget. */
   const totalBytes = Buffer.byteLength(text, "utf8");
-  const budget = roleWindowBytes("qa-generator");
+  const budget = roleWindowBytes("qa-author");
   assert.ok(budget > 0, "roleWindowBytes must return a positive budget");
   assert.ok(
     totalBytes < budget,
-    `normal prompt (${totalBytes} bytes) must fit within qa-generator budget (${budget} bytes)`,
+    `normal prompt (${totalBytes} bytes) must fit within qa-author budget (${budget} bytes)`,
   );
 });
 
@@ -1066,9 +1066,9 @@ test("answeredFrom keeps the model, provider, finish reason and times the runtim
 });
 
 test("maxStepsFromConfig reads the configured step limit of the acting agent", (t) => {
-  const { path, cleanup } = writeAgentsConfig({ agent: { "qa-generator": { maxSteps: 50 }, "qa-reviewer": { maxSteps: 10 } } });
+  const { path, cleanup } = writeAgentsConfig({ agent: { "qa-author": { maxSteps: 50 }, "qa-reviewer": { maxSteps: 10 } } });
   t.after(cleanup);
-  assert.equal(maxStepsFromConfig("qa-generator", path), 50);
+  assert.equal(maxStepsFromConfig("qa-author", path), 50);
   assert.equal(maxStepsFromConfig("qa-reviewer", path), 10);
 });
 
@@ -1093,7 +1093,7 @@ test("maxStepsFromConfig reports a steps that is not a number, naming the agent,
 });
 
 test("maxStepsFromConfig is undefined for an unknown agent, an agent with no limit, or a non-numeric limit", (t) => {
-  const { path, cleanup } = writeAgentsConfig({ agent: { "qa-generator": { maxSteps: 50 }, "qa-x": {}, "qa-y": { maxSteps: "many" } } });
+  const { path, cleanup } = writeAgentsConfig({ agent: { "qa-author": { maxSteps: 50 }, "qa-x": {}, "qa-y": { maxSteps: "many" } } });
   t.after(cleanup);
   assert.equal(maxStepsFromConfig("qa-unknown", path), undefined);
   assert.equal(maxStepsFromConfig("qa-x", path), undefined);
@@ -1104,43 +1104,43 @@ test("maxStepsFromConfig is undefined when the config file is missing or malform
   t.mock.method(console, "error", () => {});
   const { path, cleanup } = writeAgentsConfig("{ not json");
   t.after(cleanup);
-  assert.equal(maxStepsFromConfig("qa-generator", path), undefined);
-  assert.equal(maxStepsFromConfig("qa-generator", join(tmpdir(), "definitely-not-here", "opencode.json")), undefined);
+  assert.equal(maxStepsFromConfig("qa-author", path), undefined);
+  assert.equal(maxStepsFromConfig("qa-author", join(tmpdir(), "definitely-not-here", "opencode.json")), undefined);
 });
 
 test("maxStepsFromConfig says so loudly, once per version of the file, when the config is malformed", (t) => {
   const errors = t.mock.method(console, "error", () => {});
   const { path, cleanup } = writeAgentsConfig("{ not json");
   t.after(cleanup);
-  for (let turn = 0; turn < 3; turn++) assert.equal(maxStepsFromConfig("qa-generator", path), undefined);
+  for (let turn = 0; turn < 3; turn++) assert.equal(maxStepsFromConfig("qa-author", path), undefined);
   assert.equal(errors.mock.callCount(), 1, "one report, not one per turn");
   assert.match(String(errors.mock.calls[0]!.arguments[0]), new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "the report names the file");
 });
 
 test("maxStepsFromConfig does not report a config file that is simply absent", (t) => {
   const errors = t.mock.method(console, "error", () => {});
-  assert.equal(maxStepsFromConfig("qa-generator", join(tmpdir(), "definitely-not-here", "opencode.json")), undefined);
+  assert.equal(maxStepsFromConfig("qa-author", join(tmpdir(), "definitely-not-here", "opencode.json")), undefined);
   assert.equal(errors.mock.callCount(), 0);
 });
 
 test("maxStepsFromConfig follows the file when it changes", (t) => {
-  const { path, cleanup } = writeAgentsConfig({ agent: { "qa-generator": { maxSteps: 50 } } });
+  const { path, cleanup } = writeAgentsConfig({ agent: { "qa-author": { maxSteps: 50 } } });
   t.after(cleanup);
-  assert.equal(maxStepsFromConfig("qa-generator", path), 50);
-  assert.equal(maxStepsFromConfig("qa-generator", path), 50, "an unchanged file keeps answering");
+  assert.equal(maxStepsFromConfig("qa-author", path), 50);
+  assert.equal(maxStepsFromConfig("qa-author", path), 50, "an unchanged file keeps answering");
 
-  writeFileSync(path, JSON.stringify({ agent: { "qa-generator": { maxSteps: 20 } } }));
+  writeFileSync(path, JSON.stringify({ agent: { "qa-author": { maxSteps: 20 } } }));
   const later = new Date(Date.now() + 60_000);
   utimesSync(path, later, later);
-  assert.equal(maxStepsFromConfig("qa-generator", path), 20);
+  assert.equal(maxStepsFromConfig("qa-author", path), 20);
 });
 
 test("maxStepsFromConfig reports a non-numeric limit loudly, once per version of the file, naming the agent and the file", (t) => {
   const errors = t.mock.method(console, "error", () => {});
-  const { path, cleanup } = writeAgentsConfig({ agent: { "qa-generator": { maxSteps: 50 }, "qa-y": { maxSteps: "many" } } });
+  const { path, cleanup } = writeAgentsConfig({ agent: { "qa-author": { maxSteps: 50 }, "qa-y": { maxSteps: "many" } } });
   t.after(cleanup);
   for (let turn = 0; turn < 3; turn++) assert.equal(maxStepsFromConfig("qa-y", path), undefined);
-  assert.equal(maxStepsFromConfig("qa-generator", path), 50, "an agent with a valid limit is unaffected");
+  assert.equal(maxStepsFromConfig("qa-author", path), 50, "an agent with a valid limit is unaffected");
   assert.equal(errors.mock.callCount(), 1, "one report, not one per turn");
   const report = String(errors.mock.calls[0]!.arguments[0]);
   assert.match(report, /qa-y/);
@@ -1161,35 +1161,35 @@ test("a config file that cannot be inspected for a reason other than being absen
   const { path: aFile, cleanup } = writeAgentsConfig({});
   t.after(cleanup);
   const unreadable = join(aFile, "opencode.json"); /* a file where a directory is expected: stat fails with ENOTDIR, not ENOENT */
-  for (let turn = 0; turn < 3; turn++) assert.equal(maxStepsFromConfig("qa-generator", unreadable), undefined);
+  for (let turn = 0; turn < 3; turn++) assert.equal(maxStepsFromConfig("qa-author", unreadable), undefined);
   assert.equal(errors.mock.callCount(), 1, "one report, not one per turn");
 });
 
 test("fallbackModelFromConfig reads the fallback model of the agent from the same config file", (t) => {
-  const { path, cleanup } = writeAgentsConfig({ model_fallback: { "qa-generator": "opencode-go/other-model" }, agent: { "qa-generator": { maxSteps: 50 } } });
+  const { path, cleanup } = writeAgentsConfig({ model_fallback: { "qa-author": "opencode-go/other-model" }, agent: { "qa-author": { maxSteps: 50 } } });
   t.after(cleanup);
-  assert.equal(fallbackModelFromConfig("qa-generator", path), "opencode-go/other-model");
+  assert.equal(fallbackModelFromConfig("qa-author", path), "opencode-go/other-model");
   assert.equal(fallbackModelFromConfig("qa-reviewer", path), undefined, "no fallback is opt-in per agent");
-  assert.equal(fallbackModelFromConfig("qa-generator", join(tmpdir(), "definitely-not-here", "opencode.json")), undefined);
+  assert.equal(fallbackModelFromConfig("qa-author", join(tmpdir(), "definitely-not-here", "opencode.json")), undefined);
 });
 
 test("fallbackModelFromConfig says so loudly, once per version of the file, when the config is malformed", (t) => {
   const errors = t.mock.method(console, "error", () => {});
   const { path, cleanup } = writeAgentsConfig("{ not json");
   t.after(cleanup);
-  for (let turn = 0; turn < 3; turn++) assert.equal(fallbackModelFromConfig("qa-generator", path), undefined);
+  for (let turn = 0; turn < 3; turn++) assert.equal(fallbackModelFromConfig("qa-author", path), undefined);
   assert.equal(errors.mock.callCount(), 1, "one report, not one per turn");
-  assert.equal(maxStepsFromConfig("qa-generator", path), undefined, "the step limit read shares the same cached parse");
+  assert.equal(maxStepsFromConfig("qa-author", path), undefined, "the step limit read shares the same cached parse");
   assert.equal(errors.mock.callCount(), 1, "one report for the file, whichever setting asked");
 });
 
 test("fallbackModelFromConfig reports a fallback that is not a model name, once, instead of using it", (t) => {
   const errors = t.mock.method(console, "error", () => {});
-  const { path, cleanup } = writeAgentsConfig({ model_fallback: { "qa-generator": 7 } });
+  const { path, cleanup } = writeAgentsConfig({ model_fallback: { "qa-author": 7 } });
   t.after(cleanup);
-  for (let turn = 0; turn < 3; turn++) assert.equal(fallbackModelFromConfig("qa-generator", path), undefined);
+  for (let turn = 0; turn < 3; turn++) assert.equal(fallbackModelFromConfig("qa-author", path), undefined);
   assert.equal(errors.mock.callCount(), 1);
-  assert.match(String(errors.mock.calls[0]!.arguments[0]), /qa-generator/);
+  assert.match(String(errors.mock.calls[0]!.arguments[0]), /qa-author/);
 });
 
 /*
@@ -1254,8 +1254,8 @@ test("a connection reset on the real stream client reaches the stream lifecycle 
 });
 
 test("openCodePromptBody: a prompt that asks for no tools carries a deny map covering the built-in tools and the MCP wildcards", () => {
-  const body = openCodePromptBody({ agent: "qa-generator", text: "restate", withoutTools: true });
-  assert.equal(body.agent, "qa-generator");
+  const body = openCodePromptBody({ agent: "qa-author", text: "restate", withoutTools: true });
+  assert.equal(body.agent, "qa-author");
   assert.deepEqual(body.parts, [{ type: "text", text: "restate" }]);
   const tools = (body as { tools?: Record<string, boolean> }).tools;
   assert.ok(tools, "the deny map is sent");
@@ -1271,14 +1271,14 @@ test("openCodePromptBody: any other prompt leaves the tools to its agent's confi
 });
 
 test("openCodePromptBody: a prompt that may not write is denied the file tools and the symbol edits, and keeps every other tool", () => {
-  const body = openCodePromptBody({ agent: "qa-generator", text: "plan", withoutWrites: true }) as { tools?: Record<string, boolean> };
+  const body = openCodePromptBody({ agent: "qa-author", text: "plan", withoutWrites: true }) as { tools?: Record<string, boolean> };
   for (const tool of ["write", "edit", "patch", "replace_symbol_body", "insert_after_symbol", "insert_before_symbol"]) assert.equal(body.tools?.[tool], false, tool);
   for (const tool of ["read", "grep", "glob", "serena*", "playwright*", "*"]) assert.equal(tool in (body.tools ?? {}), false, `${tool} stays as configured`);
-  assert.equal("tools" in openCodePromptBody({ agent: "qa-generator", text: "plan", withoutWrites: false }), false);
+  assert.equal("tools" in openCodePromptBody({ agent: "qa-author", text: "plan", withoutWrites: false }), false);
 });
 
 test("openCodePromptBody: a prompt that may not write is denied every editing tool of the code-navigation server, bare and prefixed", () => {
-  const tools = (openCodePromptBody({ agent: "qa-generator", text: "plan", withoutWrites: true }) as { tools?: Record<string, boolean> }).tools ?? {};
+  const tools = (openCodePromptBody({ agent: "qa-author", text: "plan", withoutWrites: true }) as { tools?: Record<string, boolean> }).tools ?? {};
   for (const name of SERENA_WRITE_TOOL_NAMES) {
     assert.equal(tools[name], false, name);
     assert.equal(tools[`serena_${name}`], false, `serena_${name}`);
@@ -1286,20 +1286,20 @@ test("openCodePromptBody: a prompt that may not write is denied every editing to
 });
 
 test("openCodePromptBody: a prompt may be denied its writes and the browser at once, and a prompt without tools stays without all of them", () => {
-  const both = (openCodePromptBody({ agent: "qa-generator", text: "x", withoutWrites: true, hideBrowserTools: true }) as { tools?: Record<string, boolean> }).tools ?? {};
+  const both = (openCodePromptBody({ agent: "qa-author", text: "x", withoutWrites: true, hideBrowserTools: true }) as { tools?: Record<string, boolean> }).tools ?? {};
   assert.equal(both["authbrowser*"], false);
   assert.equal(both.write, false);
-  const none = (openCodePromptBody({ agent: "qa-generator", text: "x", withoutTools: true, withoutWrites: true }) as { tools?: Record<string, boolean> }).tools ?? {};
+  const none = (openCodePromptBody({ agent: "qa-author", text: "x", withoutTools: true, withoutWrites: true }) as { tools?: Record<string, boolean> }).tools ?? {};
   assert.equal(none["*"], false);
 });
 
 test("openCodePromptBody: the tools a session was denied are denied its prompts, beside the other denials, and a prompt without tools stays without all of them", () => {
-  const denied = (openCodePromptBody({ agent: "qa-sidekick", text: "x", denyTools: ["serena*", "run_spec"], withoutWrites: true }) as { tools?: Record<string, boolean> }).tools ?? {};
+  const denied = (openCodePromptBody({ agent: "qa-author", text: "x", denyTools: ["serena*", "run_spec"], withoutWrites: true }) as { tools?: Record<string, boolean> }).tools ?? {};
   assert.equal(denied["serena*"], false);
   assert.equal(denied.run_spec, false);
   assert.equal(denied.write, false);
-  assert.equal("tools" in openCodePromptBody({ agent: "qa-sidekick", text: "x", denyTools: [] }), false);
-  const none = (openCodePromptBody({ agent: "qa-sidekick", text: "x", withoutTools: true, denyTools: ["serena*"] }) as { tools?: Record<string, boolean> }).tools ?? {};
+  assert.equal("tools" in openCodePromptBody({ agent: "qa-author", text: "x", denyTools: [] }), false);
+  const none = (openCodePromptBody({ agent: "qa-author", text: "x", withoutTools: true, denyTools: ["serena*"] }) as { tools?: Record<string, boolean> }).tools ?? {};
   assert.equal(none["*"], false);
 });
 
@@ -1315,23 +1315,23 @@ test("a session's denied tools are kept per session, replaced by a later set, an
 
 test("openCodePromptBody: a prompt of a session the run did not grant the browser hides its tools and changes nothing else", () => {
   const model = { providerID: "p", modelID: "m" };
-  const hidden = openCodePromptBody({ agent: "qa-generator", text: "write", model, hideBrowserTools: true });
+  const hidden = openCodePromptBody({ agent: "qa-author", text: "write", model, hideBrowserTools: true });
   assert.deepEqual((hidden as { tools?: Record<string, boolean> }).tools, { "authbrowser*": false });
-  assert.equal(hidden.agent, "qa-generator");
+  assert.equal(hidden.agent, "qa-author");
   assert.deepEqual(hidden.model, model);
-  assert.equal("tools" in openCodePromptBody({ agent: "qa-generator", text: "write", hideBrowserTools: false }), false);
-  const none = (openCodePromptBody({ agent: "qa-generator", text: "x", withoutTools: true, hideBrowserTools: true }) as { tools?: Record<string, boolean> }).tools;
+  assert.equal("tools" in openCodePromptBody({ agent: "qa-author", text: "write", hideBrowserTools: false }), false);
+  const none = (openCodePromptBody({ agent: "qa-author", text: "x", withoutTools: true, hideBrowserTools: true }) as { tools?: Record<string, boolean> }).tools;
   assert.equal(none?.["authbrowser*"], false, "a prompt that asks for no tools still denies them, once");
 });
 
 test("a session is shown the browser's tools only when the orchestrator granted it, and only an authoring role is ever asked about", () => {
   try {
-    assert.equal(hidesBrowserTools("qa-generator", "ses-1"), true, "until a host installs the lookup nothing is granted");
+    assert.equal(hidesBrowserTools("qa-author", "ses-1"), true, "until a host installs the lookup nothing is granted");
     const granted = new Set(["ses-1"]);
     setAgentBrowserGrantLookup((id) => granted.has(id));
-    assert.equal(hidesBrowserTools("qa-generator", "ses-1"), false);
-    assert.equal(hidesBrowserTools("qa-generator", "ses-2"), true);
-    assert.equal(hidesBrowserTools("qa-sidekick", "ses-2"), true);
+    assert.equal(hidesBrowserTools("qa-author", "ses-1"), false);
+    assert.equal(hidesBrowserTools("qa-author", "ses-2"), true);
+    assert.equal(hidesBrowserTools("qa-author", "ses-2"), true);
     assert.equal(hidesBrowserTools("qa-reviewer", "ses-2"), false, "a role that does not author has the tools off by its config and is left alone");
   } finally {
     setAgentBrowserGrantLookup(undefined);
@@ -1340,21 +1340,21 @@ test("a session is shown the browser's tools only when the orchestrator granted 
 
 test("openCodePromptBody: a prompt of a session the run gave no authoring location hides the location tool and changes nothing else", () => {
   const model = { providerID: "p", modelID: "m" };
-  const hidden = openCodePromptBody({ agent: "qa-generator", text: "write", model, hideGeolocationTool: true });
+  const hidden = openCodePromptBody({ agent: "qa-author", text: "write", model, hideGeolocationTool: true });
   assert.deepEqual((hidden as { tools?: Record<string, boolean> }).tools, { set_geolocation: false });
-  assert.equal(hidden.agent, "qa-generator");
+  assert.equal(hidden.agent, "qa-author");
   assert.deepEqual(hidden.model, model);
-  assert.equal("tools" in openCodePromptBody({ agent: "qa-generator", text: "write", hideGeolocationTool: false }), false);
+  assert.equal("tools" in openCodePromptBody({ agent: "qa-author", text: "write", hideGeolocationTool: false }), false);
 });
 
 test("a session is shown the location tool only when its run carries an authoring location, and only an authoring role is ever asked about", () => {
   try {
-    assert.equal(hidesGeolocationTool("qa-generator", "ses-1"), true, "until a host installs the lookup nothing is granted");
+    assert.equal(hidesGeolocationTool("qa-author", "ses-1"), true, "until a host installs the lookup nothing is granted");
     const granted = new Set(["ses-1"]);
     setGeolocationGrantLookup((id) => granted.has(id));
-    assert.equal(hidesGeolocationTool("qa-generator", "ses-1"), false);
-    assert.equal(hidesGeolocationTool("qa-generator", "ses-2"), true);
-    assert.equal(hidesGeolocationTool("qa-sidekick", "ses-2"), true);
+    assert.equal(hidesGeolocationTool("qa-author", "ses-1"), false);
+    assert.equal(hidesGeolocationTool("qa-author", "ses-2"), true);
+    assert.equal(hidesGeolocationTool("qa-author", "ses-2"), true);
     assert.equal(hidesGeolocationTool("qa-reviewer", "ses-2"), false, "a role that does not author has the tool off by its config and is left alone");
   } finally {
     setGeolocationGrantLookup(undefined);
@@ -1370,7 +1370,7 @@ test("the lead's code-graph tools are in the deny-all map and are hidden from a 
   try {
     assert.equal(hidesCodeGraphTools("qa-lead", "granted"), false);
     assert.equal(hidesCodeGraphTools("qa-lead", "other"), true);
-    assert.equal(hidesCodeGraphTools("qa-sidekick", "other"), false, "a role whose configuration never holds the tools needs no hiding");
+    assert.equal(hidesCodeGraphTools("qa-author", "other"), false, "a role whose configuration never holds the tools needs no hiding");
   } finally {
     setCodeGraphGrantLookup(undefined);
   }

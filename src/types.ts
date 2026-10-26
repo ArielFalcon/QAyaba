@@ -128,7 +128,7 @@ export interface RunRecord {
 }
 
 export type IncidentSeverity = "warn" | "error" | "critical";
-export type IncidentSource = "health-check" | "log-scraper" | "qa-generator" | "qa-reviewer" | "cli" | "process-audit";
+export type IncidentSource = "health-check" | "log-scraper" | "qa-author" | "qa-reviewer" | "cli" | "process-audit";
 
 export interface Incident {
   id: string;

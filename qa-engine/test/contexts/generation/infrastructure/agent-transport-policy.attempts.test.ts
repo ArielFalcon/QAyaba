@@ -39,7 +39,7 @@ function observed(raw: RawAgentTransport, collab: Partial<Parameters<typeof crea
 
 test("a prompt that is answered reports one attempt, from start to end, with the model that answered and the usage", async () => {
   const { deps, events } = observed(transport(async () => answered()));
-  const session = await deps.open("qa-generator", "/w", { model: "prov/asked-model", descriptor: { runId: "r1", role: "qa-generator" } });
+  const session = await deps.open("qa-author", "/w", { model: "prov/asked-model", descriptor: { runId: "r1", role: "qa-author" } });
   assert.equal(await session.prompt("hello"), "done");
 
   const kinds = events.map((e) => e.kind);
@@ -57,7 +57,7 @@ test("a prompt that is answered reports one attempt, from start to end, with the
 
 test("the persisted turn names the model asked for and the one that answered, the attempt, and the hash of the bytes sent", async () => {
   const { deps, turns } = observed(transport(async () => answered()));
-  const session = await deps.open("qa-generator", "/w", { model: "prov/asked-model", descriptor: { runId: "r1", role: "qa-generator" } });
+  const session = await deps.open("qa-author", "/w", { model: "prov/asked-model", descriptor: { runId: "r1", role: "qa-author" } });
   await session.prompt("hello world", { sectionHashes: { task: "abc" }, sectionSizes: { task: 11 } });
 
   const turn = turns[0]!;
@@ -78,7 +78,7 @@ test("the hash is of the bytes actually sent: the run's secrets are already out 
   const secrets = createRunSecretScope();
   secrets.addAccountSecrets(["s3cr3t-passw0rd"]);
   await withRunSecretScope(secrets, async () => {
-    const session = await deps.open("qa-generator", "/w", { descriptor: { runId: "r1", role: "qa-generator" } });
+    const session = await deps.open("qa-author", "/w", { descriptor: { runId: "r1", role: "qa-author" } });
     await session.prompt("use s3cr3t-passw0rd to log in");
   });
   const turn = turns[0]!;
@@ -96,7 +96,7 @@ test("a primary-model fault that the fallback recovers is two attempts, the seco
     }),
     { getFallbackModel: () => "prov/fallback-model" },
   );
-  const session = await deps.open("qa-generator", "/w", { model: "prov/primary", descriptor: { runId: "r1", role: "qa-generator" } });
+  const session = await deps.open("qa-author", "/w", { model: "prov/primary", descriptor: { runId: "r1", role: "qa-author" } });
   assert.equal(await session.prompt("hello"), "done");
 
   assert.deepEqual(events.map((e) => (e.kind === "start" || e.kind === "end" ? `${e.kind}${e.attempt}` : e.kind)), ["start1", "end1", "fallback", "start2", "end2", "turn"]);
@@ -114,7 +114,7 @@ test("a primary-model fault that the fallback recovers is two attempts, the seco
 
 test("a provider error embedded in the answer is classified, reaches the attempt, and rides the thrown error", async () => {
   const { deps, events } = observed(transport(async () => ({ parts: [], agentError: { name: "APIError", data: { statusCode: 429, message: "You exceeded your current quota" } } })));
-  const session = await deps.open("qa-generator", "/w", { descriptor: { runId: "r1", role: "qa-generator" } });
+  const session = await deps.open("qa-author", "/w", { descriptor: { runId: "r1", role: "qa-author" } });
   await assert.rejects(session.prompt("hello"), (err: unknown) => carriedAgentErrorType(err) === "quota_exceeded" && !("agentErrorType" in (err as object)));
   const end = events.find((e) => e.kind === "end");
   assert.ok(end && end.kind === "end");
@@ -124,7 +124,7 @@ test("a provider error embedded in the answer is classified, reaches the attempt
 
 test("a prompt cut by its own time limit reports which limit it was, and the turn is recorded as timed out", async () => {
   const { deps, events, turns } = observed(transport(() => new Promise(() => {})));
-  const session = await deps.open("qa-generator", "/w", { descriptor: { runId: "r1", role: "qa-generator" } });
+  const session = await deps.open("qa-author", "/w", { descriptor: { runId: "r1", role: "qa-author" } });
   await assert.rejects(session.prompt("hello", { timeoutMs: 5, timeLimit: "repair-cap" }), AgentTimeoutError);
 
   const start = events[0]!;
@@ -143,18 +143,18 @@ test("a prompt cut by its own time limit reports which limit it was, and the tur
 
 test("the limit that applies is named by its source: the prompt's, else the session's, else the host's", async () => {
   const { deps, turns } = observed(transport(async () => answered()));
-  const session = await deps.open("qa-generator", "/w", { timeoutMs: 4_000, timeLimit: "session-timeout", descriptor: { runId: "r1", role: "qa-judge" } });
+  const session = await deps.open("qa-author", "/w", { timeoutMs: 4_000, timeLimit: "session-timeout", descriptor: { runId: "r1", role: "qa-judge" } });
   await session.prompt("a");
   await session.prompt("b", { timeoutMs: 3_000 });
   assert.deepEqual(turns.map((t) => t.limitApplied), ["session-timeout", "prompt-budget"]);
-  const plain = await deps.open("qa-generator", "/w", { timeoutMs: 4_000, descriptor: { runId: "r1", role: "qa-judge" } });
+  const plain = await deps.open("qa-author", "/w", { timeoutMs: 4_000, descriptor: { runId: "r1", role: "qa-judge" } });
   await plain.prompt("c");
   assert.equal(turns[2]!.limitApplied, "session-timeout");
 });
 
 test("a turn that used every step it had is recorded as cut by the step cap", async () => {
   const { deps, turns } = observed(transport(async () => answered({ parts: [{ type: "text", text: "CRITICAL - MAXIMUM STEPS REACHED" }] })), { takeTurnCalls: () => ({ stepsUsed: 25 }) as never, maxStepsFor: () => 25 });
-  const session = await deps.open("qa-generator", "/w", { descriptor: { runId: "r1", role: "qa-generator" } });
+  const session = await deps.open("qa-author", "/w", { descriptor: { runId: "r1", role: "qa-author" } });
   await session.prompt("hello", { stepLimit: 25 });
   assert.equal(turns[0]!.ended, "exhausted");
   assert.equal(turns[0]!.limitFired, "step-cap");
@@ -168,7 +168,7 @@ test("an abort from the caller is recorded as a cancel", async () => {
     abortSession: async () => failPrompt(new Error("the session was aborted")),
   };
   const { deps, turns } = observed(raw);
-  const session = await deps.open("qa-generator", "/w", { signal: controller.signal, descriptor: { runId: "r1", role: "qa-generator" } });
+  const session = await deps.open("qa-author", "/w", { signal: controller.signal, descriptor: { runId: "r1", role: "qa-author" } });
   const pending = session.prompt("hello");
   await new Promise((resolve) => setImmediate(resolve));
   controller.abort();
@@ -180,7 +180,7 @@ test("an abort from the caller is recorded as a cancel", async () => {
 
 test("a limit an outer layer fired (the stall watchdog) is recorded on the turn the inner layer closes", async () => {
   const { deps, turns } = observed(transport(() => new Promise(() => {})), { outerLimit: () => "stall" });
-  const session = await deps.open("qa-generator", "/w", { descriptor: { runId: "r1", role: "qa-generator" } });
+  const session = await deps.open("qa-author", "/w", { descriptor: { runId: "r1", role: "qa-author" } });
   await assert.rejects(session.prompt("hello", { timeoutMs: 5 }));
   assert.equal(turns[0]!.limitFired, "stall");
 });
@@ -197,7 +197,7 @@ test("observing changes nothing: the same prompts end the same way with the hook
       return answered();
     });
     const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5_000, getFallbackModel: () => "prov/fb", persistTurn: ({ ts: _ts, durationMs: _d, ...rest }) => rows.push(rest), ...collab });
-    const session = await deps.open("qa-generator", "/w", { descriptor: { runId: "r1", role: "qa-generator" } });
+    const session = await deps.open("qa-author", "/w", { descriptor: { runId: "r1", role: "qa-author" } });
     const outcomes: string[] = [];
     for (const text of ["one", "two"]) {
       try {
@@ -223,7 +223,7 @@ test("an error whose cause chain loops reaches the caller as it is, and the brea
   (a as { cause?: unknown }).cause = b;
   (b as { cause?: unknown }).cause = a;
   const { deps, events } = observed(transport(async () => { throw a; }));
-  const session = await deps.open("qa-generator", "/w", { descriptor: { runId: "r1", role: "qa-generator" } });
+  const session = await deps.open("qa-author", "/w", { descriptor: { runId: "r1", role: "qa-author" } });
   let reachedCaller = 0;
   for (let i = 0; i < CIRCUIT_THRESHOLD; i++) {
     try {

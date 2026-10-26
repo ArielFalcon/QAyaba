@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { ClosedLoopPortAdapter, type ClosedLoopPortAdapterDeps } from "@contexts/agent-tools/infrastructure/adapters/closed-loop-port.adapter.ts";
 import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-loop-registry.ts";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
-import { RUN_SPEC_AGENT, RUN_SPEC_FLOW_AGENT } from "@contexts/test-execution/domain/run-spec-capability.ts";
+import { RUN_SPEC_FLOW_AGENT } from "@contexts/test-execution/domain/run-spec-capability.ts";
 import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../../../src/shared-kernel/run-secret-redaction.ts";
 import type { ExecutionOpts } from "@contexts/test-execution/application/index.ts";
 import type { ClosedLoopOpenInput, FlowLoopOpenInput } from "@contexts/agent-tools/application/index.ts";
@@ -101,9 +101,8 @@ test("only a sidekick's session of a flow gets the right, and a call runs the sp
   bindFlow(r);
   r.registry.bindSession({ sessionId: "ses-2", runId: "run-9", agent: "qa-reviewer", delegationId: FLOW });
   r.registry.bindSession({ sessionId: "ses-3", runId: "other-run", agent: RUN_SPEC_FLOW_AGENT, delegationId: FLOW });
-  r.registry.bindSession({ sessionId: "ses-4", runId: "run-9", agent: RUN_SPEC_AGENT });
   r.registry.bindSession({ sessionId: "ses-5", runId: "run-9", agent: RUN_SPEC_FLOW_AGENT });
-  for (const id of ["ses-2", "ses-3", "ses-4", "ses-5"]) assert.equal(r.registry.find(id), undefined, id);
+  for (const id of ["ses-2", "ses-3", "ses-5"]) assert.equal(r.registry.find(id), undefined, id);
 
   const response = await callOf(r);
   assert.ok(response.ok);

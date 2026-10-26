@@ -15,17 +15,17 @@ function capability(over: { now?: () => number; expiresAtMs?: number; maxCalls?:
 }
 
 test("only the authoring roles and the explore role are named as holders, and nothing else is", () => {
-  assert.deepEqual([...AGENT_BROWSER_AGENTS].sort(), ["qa-explore", "qa-generator", "qa-sidekick"]);
+  assert.deepEqual([...AGENT_BROWSER_AGENTS].sort(), ["qa-author", "qa-explore"]);
 });
 
 test("a bound session of an authoring role is authorized, and each reason to refuse has its own code", () => {
   const c = capability();
-  assert.equal(c.authorize("s1", "qa-generator"), undefined);
-  assert.equal(c.authorize("s1", "qa-sidekick"), undefined);
-  assert.equal(c.authorize("other", "qa-generator")?.code, AGENT_BROWSER_REFUSAL.UNKNOWN_SESSION);
+  assert.equal(c.authorize("s1", "qa-author"), undefined);
+  assert.equal(c.authorize("s1", "qa-author"), undefined);
+  assert.equal(c.authorize("other", "qa-author")?.code, AGENT_BROWSER_REFUSAL.UNKNOWN_SESSION);
   assert.equal(c.authorize("s1", "qa-reviewer")?.code, AGENT_BROWSER_REFUSAL.WRONG_AGENT);
   c.unbindSession("s1");
-  assert.equal(c.authorize("s1", "qa-generator")?.code, AGENT_BROWSER_REFUSAL.UNKNOWN_SESSION);
+  assert.equal(c.authorize("s1", "qa-author")?.code, AGENT_BROWSER_REFUSAL.UNKNOWN_SESSION);
 });
 
 test("a revoked capability refuses before it looks at the session, and an expired one does at its expiry instant", () => {
@@ -35,9 +35,9 @@ test("a revoked capability refuses before it looks at the session, and an expire
   assert.equal(revoked.reserve().ok, false);
   let clock = 999;
   const expiring = capability({ now: () => clock, expiresAtMs: 1_000 });
-  assert.equal(expiring.authorize("s1", "qa-generator"), undefined, "one tick before");
+  assert.equal(expiring.authorize("s1", "qa-author"), undefined, "one tick before");
   clock = 1_000;
-  assert.equal(expiring.authorize("s1", "qa-generator")?.code, AGENT_BROWSER_REFUSAL.EXPIRED);
+  assert.equal(expiring.authorize("s1", "qa-author")?.code, AGENT_BROWSER_REFUSAL.EXPIRED);
 });
 
 test("calls are counted as they are reserved and the last one is the cap", () => {
@@ -78,7 +78,7 @@ test("a flow's share caps the calls of the sessions opened for that flow, and a 
   const c = capability({ maxCalls: 10 });
   c.setShare("flow-a", 2);
   c.bindSession("side-a", "flow-a");
-  assert.equal(c.authorize("side-a", "qa-sidekick"), undefined);
+  assert.equal(c.authorize("side-a", "qa-author"), undefined);
   assert.equal(c.reserve("side-a").ok, true);
   assert.equal(c.reserve("side-a").ok, true);
   const spent = c.reserve("side-a");
@@ -130,7 +130,7 @@ test("a session bound for a flow that was given no share is refused, not left un
 test("an explore session is read-only and an authoring session is not", () => {
   const c = capability();
   c.bindSession("explore", "r1-explore-0", "qa-explore");
-  c.bindSession("author", "r1-flow-a", "qa-sidekick");
+  c.bindSession("author", "r1-flow-a", "qa-author");
   assert.equal(c.authorize("explore", "qa-explore"), undefined);
   assert.equal(c.isReadOnly("explore"), true);
   assert.equal(c.isReadOnly("author"), false);

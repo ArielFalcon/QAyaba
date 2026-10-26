@@ -6,8 +6,7 @@
  * not author, finds nothing.
  */
 
-import { AGENT_BROWSER_AGENTS } from "@contexts/test-execution/application/index.ts";
-import { RUN_SPEC_FLOW_AGENT } from "@contexts/test-execution/application/index.ts";
+import { GEOLOCATION_AGENTS } from "@contexts/test-execution/application/index.ts";
 import type { GeolocationInput } from "@kernel/geolocation.ts";
 import type { GeolocationResult, RunGeolocation } from "../domain/run-geolocation.ts";
 import type { OpenedSession } from "./closed-loop-registry.ts";
@@ -43,8 +42,7 @@ export class GeolocationRegistry {
 
   /* Gives a sidekick's session opened for a flow the right to change the location of that flow. Any other role's session, a session with no flow (the run's own author included), and a session of a run without a location get nothing. */
   bindSession(session: OpenedSession): void {
-    if (!AGENT_BROWSER_AGENTS.has(session.agent)) return;
-    if (session.delegationId === undefined || session.agent !== RUN_SPEC_FLOW_AGENT) return;
+    if (!GEOLOCATION_AGENTS.has(session.agent) || session.delegationId === undefined) return;
     const live = this.runs.get(session.runId);
     if (!live) return;
     this.sessions.set(session.sessionId, { live, agent: session.agent, ...(session.delegationId !== undefined ? { delegationId: session.delegationId } : {}) });

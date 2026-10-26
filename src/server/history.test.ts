@@ -561,7 +561,7 @@ function makeTurn(overrides: Partial<AgentTurnRecord> = {}): AgentTurnRecord {
   return {
     runId: "run-test-001",
     sessionId: "sess-abc",
-    role: "qa-generator",
+    role: "qa-author",
     round: 0,
     isRepair: false,
     ts: new Date().toISOString(),
@@ -586,7 +586,7 @@ test("saveAgentTurn round-trips to getAgentTurns with all fields", () => {
   assert.ok(rows.length >= 1, "at least one row must be returned");
   const saved = rows.find((r) => r.sessionId === turn.sessionId && r.role === turn.role);
   assert.ok(saved, "the saved turn must be retrievable by runId");
-  assert.equal(saved!.role, "qa-generator");
+  assert.equal(saved!.role, "qa-author");
   assert.equal(saved!.round, 0);
   assert.equal(saved!.isRepair, false);
   assert.equal(saved!.promptText, turn.promptText);
@@ -605,7 +605,7 @@ function makeTurnEvent(overrides: Partial<AgentTurnEvent> = {}): AgentTurnEvent 
   return {
     runId: "run-event-001",
     sessionId: "sess-event",
-    role: "qa-generator",
+    role: "qa-author",
     objective: undefined,
     round: 0,
     isRepair: false,
@@ -813,8 +813,8 @@ test("saveAgentTurn stores null-runId turns (sessions with no parent run)", () =
 
 test("getAgentTurns returns multiple turns in chronological order", () => {
   const runId = "run-order-test-" + Date.now();
-  saveAgentTurn(makeTurn({ runId, sessionId: "s1", round: 0, role: "qa-generator", promptText: "first" }));
-  saveAgentTurn(makeTurn({ runId, sessionId: "s1", round: 1, role: "qa-generator", promptText: "second" }));
+  saveAgentTurn(makeTurn({ runId, sessionId: "s1", round: 0, role: "qa-author", promptText: "first" }));
+  saveAgentTurn(makeTurn({ runId, sessionId: "s1", round: 1, role: "qa-author", promptText: "second" }));
   saveAgentTurn(makeTurn({ runId, sessionId: "s2", round: 0, role: "qa-reviewer", promptText: "review" }));
   const rows = getAgentTurns(runId);
   assert.equal(rows.length, 3);
@@ -939,7 +939,7 @@ test("opening a pre-existing agent_turns table twice adds each efficiency column
   const recentTs = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   older
     .prepare("INSERT INTO agent_turns (run_id, session_id, role, ts, prompt_text, output_text) VALUES (?, ?, ?, ?, ?, ?)")
-    .run("run-older", "sess-older", "qa-generator", recentTs, "old prompt", "old output");
+    .run("run-older", "sess-older", "qa-author", recentTs, "old prompt", "old output");
   older.close();
 
   const previousPath = process.env.HISTORY_DB_PATH;

@@ -4,7 +4,6 @@ import {
   CLOSED_LOOP_REFUSAL,
   DEFAULT_CLOSED_LOOP_LIMITS,
   MIN_CALL_MS,
-  RUN_SPEC_AGENT,
   RUN_SPEC_FLOW_AGENT,
   RunSpecCapability,
   loopClosed,
@@ -30,18 +29,17 @@ test("the shipped defaults keep the loop off its limits until an operator turns 
 
 test("only the generator's own session may call, in a run whose capability is live", () => {
   const capability = grant();
-  assert.equal(capability.authorize("ses-1", RUN_SPEC_AGENT), undefined);
-  assert.equal(capability.authorize("ses-2", RUN_SPEC_AGENT)?.code, CLOSED_LOOP_REFUSAL.UNKNOWN_SESSION);
+  assert.equal(capability.authorize("ses-1", RUN_SPEC_FLOW_AGENT), undefined);
+  assert.equal(capability.authorize("ses-2", RUN_SPEC_FLOW_AGENT)?.code, CLOSED_LOOP_REFUSAL.UNKNOWN_SESSION);
   assert.equal(capability.authorize("ses-1", "qa-reviewer")?.code, CLOSED_LOOP_REFUSAL.WRONG_AGENT);
   capability.unbindSession("ses-1");
-  assert.equal(capability.authorize("ses-1", RUN_SPEC_AGENT)?.code, CLOSED_LOOP_REFUSAL.UNKNOWN_SESSION);
+  assert.equal(capability.authorize("ses-1", RUN_SPEC_FLOW_AGENT)?.code, CLOSED_LOOP_REFUSAL.UNKNOWN_SESSION);
 });
 
-test("a capability made for a flow's sidekick is held by that agent's sessions and never by the generator's", () => {
+test("a capability made for a flow is held by the author's sessions and never by another agent's", () => {
   const capability = new RunSpecCapability({ runId: "run-1-cart", limits: LIMITS, expiresAtMs: 10_000_000, now: () => 1_000, agents: new Set([RUN_SPEC_FLOW_AGENT]) });
   capability.bindSession("side-1");
   assert.equal(capability.authorize("side-1", RUN_SPEC_FLOW_AGENT), undefined);
-  assert.equal(capability.authorize("side-1", RUN_SPEC_AGENT)?.code, CLOSED_LOOP_REFUSAL.WRONG_AGENT);
   assert.equal(capability.authorize("side-1", "qa-reviewer")?.code, CLOSED_LOOP_REFUSAL.WRONG_AGENT);
 });
 
@@ -49,16 +47,16 @@ test("a revoked capability refuses everything, and revoking twice changes nothin
   const capability = grant();
   capability.revoke();
   capability.revoke();
-  assert.equal(capability.authorize("ses-1", RUN_SPEC_AGENT)?.code, CLOSED_LOOP_REFUSAL.REVOKED);
+  assert.equal(capability.authorize("ses-1", RUN_SPEC_FLOW_AGENT)?.code, CLOSED_LOOP_REFUSAL.REVOKED);
   assert.equal(capability.reserve(undefined).ok, false);
 });
 
 test("a capability expires at its time, whatever its counters say", () => {
   let clock = 1_000;
   const capability = grant({ expiresAtMs: 5_000, now: () => clock });
-  assert.equal(capability.authorize("ses-1", RUN_SPEC_AGENT), undefined);
+  assert.equal(capability.authorize("ses-1", RUN_SPEC_FLOW_AGENT), undefined);
   clock = 5_000;
-  assert.equal(capability.authorize("ses-1", RUN_SPEC_AGENT)?.code, CLOSED_LOOP_REFUSAL.EXPIRED);
+  assert.equal(capability.authorize("ses-1", RUN_SPEC_FLOW_AGENT)?.code, CLOSED_LOOP_REFUSAL.EXPIRED);
 });
 
 test("each call gets its own namespace and the number of calls is capped", () => {

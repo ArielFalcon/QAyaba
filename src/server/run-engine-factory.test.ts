@@ -840,14 +840,14 @@ test("engineAgentDeps traces a prompt as an invoke_agent turn when the host has 
   const h = traceHarness();
   const host: AgentDeps = { open: async () => ({ id: "ses-traced", prompt: async () => "answer", dispose: async () => {} }) as never };
   const traced = engineAgentDeps({ getAgentDeps: () => host, telemetry: h.telemetry, clock: h.clock });
-  const session = await traced.open("qa-generator", "/m", { descriptor: { runId: "run-traced", role: "qa-generator" } });
+  const session = await traced.open("qa-author", "/m", { descriptor: { runId: "run-traced", role: "qa-author" } });
   assert.equal(await session.prompt("hello"), "answer");
   await session.dispose();
-  assert.equal(h.only("invoke_agent qa-generator").attributes["gen_ai.conversation.id"], "ses-traced");
+  assert.equal(h.only("invoke_agent qa-author").attributes["gen_ai.conversation.id"], "ses-traced");
 
   const quiet = traceHarness();
   const plain = engineAgentDeps({ getAgentDeps: () => host });
-  const plainSession = await plain.open("qa-generator", "/m", { descriptor: { runId: "run-plain", role: "qa-generator" } });
+  const plainSession = await plain.open("qa-author", "/m", { descriptor: { runId: "run-plain", role: "qa-author" } });
   assert.equal(await plainSession.prompt("hello"), "answer");
   assert.equal(quiet.spans().length, 0);
 });
@@ -3777,15 +3777,15 @@ test("the factory tells the registry about a sidekick's session of a flow throug
   const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry");
   const { RunSpecCapability } = await import("@contexts/test-execution/application/index");
   const registry = new ClosedLoopRegistry();
-  const capability = new RunSpecCapability({ runId: "run-loop", agents: new Set(["qa-sidekick"]), limits: { maxCalls: 1, perCallMs: 60_000, maxDevWrites: 1 }, expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0 });
+  const capability = new RunSpecCapability({ runId: "run-loop", agents: new Set(["qa-author"]), limits: { maxCalls: 1, perCallMs: 60_000, maxDevWrites: 1 }, expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0 });
   registry.register({ runId: "run-loop", delegationId: "run-loop-flow-a", capability, call: async () => { throw new Error("not called"); } });
   const deps: AgentDeps = { open: async () => ({ id: "ses-77", prompt: async () => "", dispose: async () => {} }) as never };
   /* The factory's own wrapping is what the engine opens sessions through. */
   const opened = engineAgentDeps({ getAgentDeps: () => deps, closedLoopRegistry: registry });
-  const session = await opened.open("qa-sidekick", "/m", { descriptor: { runId: "run-loop", role: "qa-sidekick", delegationId: "run-loop-flow-a" } });
-  assert.equal(capability.authorize("ses-77", "qa-sidekick"), undefined);
+  const session = await opened.open("qa-author", "/m", { descriptor: { runId: "run-loop", role: "qa-author", delegationId: "run-loop-flow-a" } });
+  assert.equal(capability.authorize("ses-77", "qa-author"), undefined);
   await session.dispose();
-  assert.equal(capability.authorize("ses-77", "qa-sidekick")?.code, "unknown-session");
+  assert.equal(capability.authorize("ses-77", "qa-author")?.code, "unknown-session");
 });
 
 /* ── The authenticated agent browser ───────────────────────────────────────────────────────────── */
@@ -3843,13 +3843,13 @@ test("the factory tells the browser registry about the authoring sessions throug
   let n = 0;
   const deps: AgentDeps = { open: async () => ({ id: `ses-${++n}`, prompt: async () => "", dispose: async () => {} }) as never };
   const opened = engineAgentDeps({ getAgentDeps: () => deps, agentBrowserRegistry: registry });
-  const generator = await opened.open("qa-generator", "/m", { descriptor: { runId: "run-browser", role: "qa-generator" } });
+  const generator = await opened.open("qa-author", "/m", { descriptor: { runId: "run-browser", role: "qa-author" } });
   const reviewer = await opened.open("qa-reviewer", "/m", { descriptor: { runId: "run-browser", role: "qa-reviewer" } });
-  assert.equal(capability.authorize("ses-1", "qa-generator"), undefined);
+  assert.equal(capability.authorize("ses-1", "qa-author"), undefined);
   assert.equal(capability.authorize("ses-2", "qa-reviewer")?.code, "unknown-session", "a reviewer's session is never bound");
   await generator.dispose();
   await reviewer.dispose();
-  assert.equal(capability.authorize("ses-1", "qa-generator")?.code, "unknown-session");
+  assert.equal(capability.authorize("ses-1", "qa-author")?.code, "unknown-session");
   assert.deepEqual(ended, ["ses-1"]);
 });
 
@@ -3858,15 +3858,15 @@ test("a sidekick session opened for a flow is told to the run_spec registry with
   const { RunSpecCapability } = await import("@contexts/test-execution/application/index");
   const { sessionToolDeny } = await import("../integrations/opencode-client");
   const registry = new ClosedLoopRegistry();
-  const capability = new RunSpecCapability({ runId: "run-flow", limits: { maxCalls: 1, perCallMs: 60_000, maxDevWrites: 1 }, expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0, agents: new Set(["qa-sidekick"]) });
+  const capability = new RunSpecCapability({ runId: "run-flow", limits: { maxCalls: 1, perCallMs: 60_000, maxDevWrites: 1 }, expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0, agents: new Set(["qa-author"]) });
   registry.register({ runId: "run-flow", delegationId: "run-flow-cart", capability, call: async () => { throw new Error("not called"); } });
   const deps: AgentDeps = { open: async () => ({ id: "ses-flow-1", prompt: async () => "", dispose: async () => {} }) as never };
   const opened = engineAgentDeps({ getAgentDeps: () => deps, closedLoopRegistry: registry });
-  const session = await opened.open("qa-sidekick", "/w", { descriptor: { runId: "run-flow", role: "qa-sidekick", delegationId: "run-flow-cart", denyTools: ["serena*", "playwright*"] } });
-  assert.equal(capability.authorize("ses-flow-1", "qa-sidekick"), undefined, "the session holds its flow's capability");
+  const session = await opened.open("qa-author", "/w", { descriptor: { runId: "run-flow", role: "qa-author", delegationId: "run-flow-cart", denyTools: ["serena*", "playwright*"] } });
+  assert.equal(capability.authorize("ses-flow-1", "qa-author"), undefined, "the session holds its flow's capability");
   assert.deepEqual(sessionToolDeny("ses-flow-1"), ["serena*", "playwright*"]);
   await session.dispose();
-  assert.equal(capability.authorize("ses-flow-1", "qa-sidekick")?.code, "unknown-session");
+  assert.equal(capability.authorize("ses-flow-1", "qa-author")?.code, "unknown-session");
   assert.equal(sessionToolDeny("ses-flow-1"), undefined, "nothing is denied a session that has ended");
 });
 
@@ -3874,7 +3874,7 @@ test("a session opened with no denied tools installs none", async () => {
   const { sessionToolDeny } = await import("../integrations/opencode-client");
   const deps: AgentDeps = { open: async () => ({ id: "ses-plain-1", prompt: async () => "", dispose: async () => {} }) as never };
   const opened = engineAgentDeps({ getAgentDeps: () => deps });
-  await opened.open("qa-generator", "/m", { descriptor: { runId: "run-plain", role: "qa-generator" } });
+  await opened.open("qa-author", "/m", { descriptor: { runId: "run-plain", role: "qa-author" } });
   assert.equal(sessionToolDeny("ses-plain-1"), undefined);
 });
 
@@ -3992,7 +3992,7 @@ test("the factory tells the geolocation registry about a sidekick's session of a
   registry.register({ runId: "run-geo", state, set: (delegationId, change) => state.set(delegationId, change) });
   const deps: AgentDeps = { open: async () => ({ id: "ses-geo", prompt: async () => "", dispose: async () => {} }) as never };
   const opened = engineAgentDeps({ getAgentDeps: () => deps, geolocationRegistry: registry });
-  const generator = await opened.open("qa-sidekick", "/m", { descriptor: { runId: "run-geo", role: "qa-sidekick", delegationId: "run-geo-flow-a" } });
+  const generator = await opened.open("qa-author", "/m", { descriptor: { runId: "run-geo", role: "qa-author", delegationId: "run-geo-flow-a" } });
   assert.equal(registry.find("ses-geo")?.live.runId, "run-geo");
   await generator.dispose();
   assert.equal(registry.find("ses-geo"), undefined);
@@ -4016,7 +4016,7 @@ test("the lead's sessions of a run are told to the code-graph registry and lose 
   const deps: AgentDeps = { open: async () => ({ id: `ses-${++n}`, prompt: async () => "", dispose: async () => {} }) as never };
   const opened = engineAgentDeps({ getAgentDeps: () => deps, codeGraphRegistry: registry });
   const lead = await opened.open("qa-lead", "/m", { descriptor: { runId: "run-graph", role: "qa-lead" } });
-  const sidekick = await opened.open("qa-sidekick", "/m", { descriptor: { runId: "run-graph", role: "qa-sidekick", delegationId: "run-graph-flow-cart" } });
+  const sidekick = await opened.open("qa-author", "/m", { descriptor: { runId: "run-graph", role: "qa-author", delegationId: "run-graph-flow-cart" } });
   assert.ok(registry.find("ses-1"));
   assert.equal(registry.find("ses-2"), undefined);
   await lead.dispose();

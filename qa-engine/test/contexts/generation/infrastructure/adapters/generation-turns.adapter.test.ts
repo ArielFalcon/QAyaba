@@ -969,7 +969,7 @@ async function generatorPromptFor(
     runtime: {
       openSession: async (role) => ({
         prompt: async (text: string) => {
-          if (role === "sidekick") generatorPrompt = text;
+          if (role === "author") generatorPrompt = text;
           return { output: '{"specs":[]}' };
         },
         dispose: async () => {},

@@ -624,7 +624,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
        * internal error DOES record an incident so the failure is visible and not swallowed.
        */
       if (!infra && !refusal) {
-        recordIncident({ source: "qa-generator", severity: "error", summary: `pipeline crash for ${req.app}: ${msg}` });
+        recordIncident({ source: "qa-author", severity: "error", summary: `pipeline crash for ${req.app}: ${msg}` });
       }
     }
   };

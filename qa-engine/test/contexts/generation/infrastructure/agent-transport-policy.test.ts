@@ -47,7 +47,7 @@ test("withStallWatchdog wraps AgentDeps and returns a valid AgentDeps", async ()
 
   assert.equal(typeof wrapped.open, "function");
 
-  const session = await wrapped.open("qa-generator", "/tmp");
+  const session = await wrapped.open("qa-author", "/tmp");
   assert.equal(typeof session.prompt, "function");
   assert.equal(typeof session.dispose, "function");
   await session.dispose();
@@ -57,7 +57,7 @@ test("withStallWatchdog: prompt() succeeds normally when no stall occurs", async
   const { deps: base } = makeDelayDeps({});
   const wrapped = withStallWatchdog(base, { stallMs: 5000 });
 
-  const session = await wrapped.open("qa-generator", "/tmp");
+  const session = await wrapped.open("qa-author", "/tmp");
   const result = await session.prompt("hello");
   assert.equal(result, '{"approved":true,"specs":[]}');
   await session.dispose();
@@ -89,7 +89,7 @@ test("withStallWatchdog: stall triggers StalledAgentError rejection via injected
     watchdogFactory: fakeWatchdogFactory,
   });
 
-  const session = await wrapped.open("qa-generator", "/tmp");
+  const session = await wrapped.open("qa-author", "/tmp");
   const promptPromise = session.prompt("hello");
 
   assert.ok(stallCb !== undefined, "stall callback must be registered during open()");
@@ -126,7 +126,7 @@ test("withStallWatchdog: stall path unregisters the session notifier (no registr
     watchdogFactory: (onStall) => { stallCb = onStall; return fakeWatchdog; },
   });
 
-  const session = await wrapped.open("qa-generator", "/tmp");
+  const session = await wrapped.open("qa-author", "/tmp");
   const promptPromise = session.prompt("hello").catch(() => {}); /* swallow the stall rejection */
 
   notifySessionActivity("leak-test-session");
@@ -165,7 +165,7 @@ test("withStallWatchdog: dispose() stops the watchdog (no leak after session end
     watchdogFactory: (_onStall) => fakeWatchdog,
   });
 
-  const session = await wrapped.open("qa-generator", "/tmp");
+  const session = await wrapped.open("qa-author", "/tmp");
   await session.dispose();
 
   assert.equal(stopCalled, true, "dispose() must stop the watchdog to prevent leaks");
@@ -186,7 +186,7 @@ test("withStallWatchdog: a self-timed session (one that bounds its own turn) ski
     watchdogFactory: () => { watchdogCreated = true; return { notify: () => {}, stop: () => {} }; },
   });
 
-  const session = await wrapped.open("qa-generator", "/tmp");
+  const session = await wrapped.open("qa-author", "/tmp");
   assert.equal(watchdogCreated, false, "the watchdog must NOT be created for a self-timed session");
   assert.equal(session.selfTimed, true, "the self-timed marker is preserved on the returned session");
   assert.equal(await session.prompt("hello"), "self-timed result");
@@ -202,7 +202,7 @@ test("withStallWatchdog: a normal (non-self-timed) session IS still wrapped", as
     stallMs: 99999,
     watchdogFactory: () => { watchdogCreated = true; return { notify: () => {}, stop: () => {} }; },
   });
-  await wrapped.open("qa-generator", "/tmp");
+  await wrapped.open("qa-author", "/tmp");
   assert.equal(watchdogCreated, true, "a normal session must still be wrapped by the watchdog");
 });
 
@@ -325,11 +325,11 @@ test("withSessionRegistration tells the bind hook the flow a session was opened 
   const { deps: base } = fakeBaseDeps("sess-flow");
   const bound: Array<Record<string, unknown>> = [];
   const wrapped = withSessionRegistration(base, { register: () => {}, unregister: () => {}, bind: (session) => bound.push({ ...session }) });
-  await wrapped.open("qa-sidekick", "/work", { descriptor: { runId: "run-7", role: "qa-sidekick", delegationId: "run-7-cart", denyTools: ["serena*"] } });
-  await wrapped.open("qa-generator", "/m", { descriptor: { runId: "run-7", role: "qa-generator" } });
+  await wrapped.open("qa-author", "/work", { descriptor: { runId: "run-7", role: "qa-author", delegationId: "run-7-cart", denyTools: ["serena*"] } });
+  await wrapped.open("qa-author", "/m", { descriptor: { runId: "run-7", role: "qa-author" } });
   assert.deepEqual(bound, [
-    { sessionId: "sess-flow", runId: "run-7", agent: "qa-sidekick", delegationId: "run-7-cart", denyTools: ["serena*"] },
-    { sessionId: "sess-flow", runId: "run-7", agent: "qa-generator" },
+    { sessionId: "sess-flow", runId: "run-7", agent: "qa-author", delegationId: "run-7-cart", denyTools: ["serena*"] },
+    { sessionId: "sess-flow", runId: "run-7", agent: "qa-author" },
   ]);
 });
 
@@ -341,8 +341,8 @@ test("withSessionRegistration does NOT register when descriptor.runId is absent 
     unregister: () => {},
   });
 
-  await wrapped.open("qa-generator", "/mirrors/org/app");
-  await wrapped.open("qa-generator", "/mirrors/org/app", { descriptor: { role: "qa-generator" } });
+  await wrapped.open("qa-author", "/mirrors/org/app");
+  await wrapped.open("qa-author", "/mirrors/org/app", { descriptor: { role: "qa-author" } });
 
   assert.equal(registerCalls, 0, "no descriptor.runId means no run context — must not register a session under a fabricated identity");
 });
@@ -373,8 +373,8 @@ test("withSessionRegistration still registers when liveObservation is explicitly
     unregister: () => {},
   });
 
-  await wrapped.open("qa-generator", "/mirrors/org/app", {
-    descriptor: { runId: "run-42", role: "qa-generator", liveObservation: true },
+  await wrapped.open("qa-author", "/mirrors/org/app", {
+    descriptor: { runId: "run-42", role: "qa-author", liveObservation: true },
   });
 
   assert.deepEqual(registered, ["sess-live"]);
@@ -404,7 +404,7 @@ test("withSessionRegistration does NOT unregister on dispose when the session wa
     unregister: () => { unregisterCalls++; },
   });
 
-  const session = await wrapped.open("qa-generator", "/mirrors/org/app");
+  const session = await wrapped.open("qa-author", "/mirrors/org/app");
   await session.dispose();
 
   assert.equal(unregisterCalls, 0);
@@ -414,7 +414,7 @@ test("withSessionRegistration forwards prompt()/session identity unchanged (thin
   const { deps: base } = fakeBaseDeps("sess-passthrough");
   const wrapped = withSessionRegistration(base, { register: () => {}, unregister: () => {} });
 
-  const session = await wrapped.open("qa-generator", "/mirrors/org/app");
+  const session = await wrapped.open("qa-author", "/mirrors/org/app");
   assert.equal(session.id, "sess-passthrough");
   const out = await session.prompt("hello");
   assert.equal(out, "output");
@@ -484,13 +484,13 @@ test("createAgentDeps: open()/prompt()/dispose() delegate to the raw transport a
   const raw = makeRawTransport({
     createSession: async () => ({ id: "sess-1" }),
     promptSession: async (args) => {
-      assert.equal(args.agent, "qa-generator");
+      assert.equal(args.agent, "qa-author");
       assert.equal(args.text, "do the thing");
       return { parts: [{ type: "text", text: "hello world" }] };
     },
   });
   const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
-  const session = await deps.open("qa-generator", "/tmp");
+  const session = await deps.open("qa-author", "/tmp");
   const out = await session.prompt("do the thing");
   assert.equal(out, "hello world");
   await session.dispose();
@@ -503,7 +503,7 @@ test("createAgentDeps: a prompt's own time limit bounds that prompt, under the s
     promptSession: () => new Promise(() => {}),
   });
   const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
-  const session = await deps.open("qa-generator", "/tmp", { timeoutMs: 5000 });
+  const session = await deps.open("qa-author", "/tmp", { timeoutMs: 5000 });
   await assert.rejects(() => session.prompt("do the thing", { timeoutMs: 5 }), /timed out after 5ms/);
   await session.dispose();
 });
@@ -520,7 +520,7 @@ test("createAgentDeps: a prompt that asks for no tools reaches the transport as 
     },
   });
   const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => "opencode-go/fallback-model" });
-  const session = await deps.open("qa-generator", "/tmp");
+  const session = await deps.open("qa-author", "/tmp");
   await session.prompt("restate your verdict", { withoutTools: true });
   assert.deepEqual(seen, [true, true]);
 });
@@ -533,7 +533,7 @@ test("createAgentDeps: a prompt that does not ask for it never carries the no-to
     promptSession: async (args) => { flag = "withoutTools" in args ? args.withoutTools : "absent"; return { parts: [{ type: "text", text: "x" }] }; },
   });
   const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
-  const session = await deps.open("qa-generator", "/tmp");
+  const session = await deps.open("qa-author", "/tmp");
   await session.prompt("write the spec");
   assert.equal(flag, "absent");
 });
@@ -550,7 +550,7 @@ test("createAgentDeps: a prompt that may not write reaches the transport as such
     },
   });
   const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => "opencode-go/fallback-model" });
-  const session = await deps.open("qa-generator", "/tmp");
+  const session = await deps.open("qa-author", "/tmp");
   await session.prompt("plan the change", { withoutWrites: true });
   await session.prompt("write the specs");
   assert.deepEqual(seen, [true, true, "absent"]);
@@ -573,9 +573,9 @@ test("createAgentDeps: retries on the fallback model after a transient (non-infr
   });
   const deps = createAgentDeps(raw, {
     defaultPromptTimeoutMs: 5000,
-    getFallbackModel: (agent) => (agent === "qa-generator" ? "opencode-go/fallback-model" : undefined),
+    getFallbackModel: (agent) => (agent === "qa-author" ? "opencode-go/fallback-model" : undefined),
   });
-  const session = await deps.open("qa-generator", "/tmp");
+  const session = await deps.open("qa-author", "/tmp");
   const out = await session.prompt("do the thing");
   assert.equal(out, "fallback succeeded");
   assert.equal(attempt, 2, "exactly one retry (primary + fallback) must have happened");
@@ -597,7 +597,7 @@ test("createAgentDeps: an aborted signal skips the fallback retry even when one 
     defaultPromptTimeoutMs: 5000,
     getFallbackModel: () => "opencode-go/should-never-be-used",
   });
-  const session = await deps.open("qa-generator", "/tmp", { signal: controller.signal });
+  const session = await deps.open("qa-author", "/tmp", { signal: controller.signal });
   await assert.rejects(() => session.prompt("do the thing"));
   assert.equal(attempts, 1, "an aborted signal must skip the fallback retry — a cancel must not be defeated by a retry");
 });
@@ -619,7 +619,7 @@ test("createAgentDeps: an infra-class provider fault skips the fallback retry (s
     defaultPromptTimeoutMs: 5000,
     getFallbackModel: () => "opencode-go/should-never-be-used",
   });
-  const session = await deps.open("qa-generator", "/tmp");
+  const session = await deps.open("qa-author", "/tmp");
   await assert.rejects(
     () => session.prompt("do the thing"),
     (err: unknown) => isInfraError(err),
@@ -643,10 +643,10 @@ test("createAgentDeps: circuit-breaker gating — an OPEN circuit rejects prompt
 
     /* Force the circuit OPEN via the module's own threshold (5 consecutive recorded failures),
        keyed to the SAME role createAgentDeps derives internally (descriptor.role ?? agent — here
-       just the bare "qa-generator" agent id, since no descriptor is passed below). */
-    for (let i = 0; i < 5; i++) recordCircuitFailure("qa-generator");
+       just the bare "qa-author" agent id, since no descriptor is passed below). */
+    for (let i = 0; i < 5; i++) recordCircuitFailure("qa-author");
 
-    const openSession = await deps.open("qa-generator", "/tmp");
+    const openSession = await deps.open("qa-author", "/tmp");
     /* NOTE: checkCircuit() rejects SYNCHRONOUSLY (it throws before any Promise is constructed), unlike
        every other failure path in createAgentDeps (which fails through an async raw.promptSession call
        and so settles as a genuine Promise rejection). node:assert's assert.rejects does NOT convert a
@@ -666,7 +666,7 @@ test("createAgentDeps: circuit-breaker gating — an OPEN circuit rejects prompt
     assert.equal(promptCalls, 0, "checkCircuit() must reject BEFORE the raw transport's promptSession is ever invoked");
 
     resetCircuit();
-    const closedSession = await deps.open("qa-generator", "/tmp");
+    const closedSession = await deps.open("qa-author", "/tmp");
     const out = await closedSession.prompt("do the thing");
     assert.equal(out, "ok", "after resetCircuit() a normal prompt succeeds again");
     assert.equal(promptCalls, 1, "the raw transport is only reached once the circuit is closed");
@@ -676,7 +676,7 @@ test("createAgentDeps: circuit-breaker gating — an OPEN circuit rejects prompt
 });
 
 /* createAgentDeps derives its circuit-breaker key from descriptor.role ?? agent — a run-away
-   qa-reviewer (or any other role) must never trip the breaker for a healthy, unrelated qa-generator
+   qa-reviewer (or any other role) must never trip the breaker for a healthy, unrelated qa-author
    session, since both funnel through the SAME createAgentDeps/circuit-breaker module.
  */
 test("createAgentDeps: an OPEN circuit for one agent role does not block a different role", async () => {
@@ -685,7 +685,7 @@ test("createAgentDeps: an OPEN circuit for one agent role does not block a diffe
     let generatorPromptCalls = 0;
     const raw = makeRawTransport({
       promptSession: async (args) => {
-        if (args.agent === "qa-generator") generatorPromptCalls++;
+        if (args.agent === "qa-author") generatorPromptCalls++;
         return { parts: [{ type: "text", text: "ok" }] };
       },
     });
@@ -703,7 +703,7 @@ test("createAgentDeps: an OPEN circuit for one agent role does not block a diffe
     }
     assert.match((reviewerError as Error).message, /circuit breaker is OPEN/, "qa-reviewer's own circuit is open");
 
-    const generatorSession = await deps.open("qa-generator", "/tmp");
+    const generatorSession = await deps.open("qa-author", "/tmp");
     const out = await generatorSession.prompt("do the thing");
     assert.equal(out, "ok", "a DIFFERENT role's circuit must stay closed and reach the raw transport");
     assert.equal(generatorPromptCalls, 1);
@@ -742,7 +742,7 @@ test("createAgentDeps: session-creation failures spread across roles open the pr
       assert.match(err?.message ?? "", /ECONNREFUSED/);
     }
     const callsBeforeFastFail = createCalls;
-    const fastFail = await rejectionOf(() => deps.open("qa-generator", "/tmp"));
+    const fastFail = await rejectionOf(() => deps.open("qa-author", "/tmp"));
     assert.match(fastFail?.message ?? "", /circuit breaker is OPEN/);
     assert.equal(createCalls, callsBeforeFastFail, "an open provider breaker must not reach the transport");
   } finally {
@@ -819,12 +819,12 @@ test("createAgentDeps: an answered prompt resets the provider failure streak", a
 
     for (let i = 0; i < CIRCUIT_THRESHOLD - 1; i++) await rejectionOf(() => deps.open(`role-${i}`, "/tmp"));
     serverDown = false;
-    await (await deps.open("qa-generator", "/tmp")).prompt("do the thing");
+    await (await deps.open("qa-author", "/tmp")).prompt("do the thing");
     serverDown = true;
     for (let i = 0; i < CIRCUIT_THRESHOLD - 1; i++) await rejectionOf(() => deps.open(`role-${i}`, "/tmp"));
     serverDown = false;
 
-    const session = await deps.open("qa-generator", "/tmp");
+    const session = await deps.open("qa-author", "/tmp");
     assert.equal(session.id, "sess-ok", "the streak restarted after the answered prompt, so the breaker is still closed");
   } finally {
     resetCircuit();
@@ -849,7 +849,7 @@ test("createAgentDeps: model faults embedded in a response trip only that role, 
     const reviewer = await deps.open("qa-reviewer", "/tmp");
     assert.match((await rejectionOf(() => reviewer.prompt("review this")))?.message ?? "", /circuit breaker is OPEN/);
 
-    const generator = await deps.open("qa-generator", "/tmp");
+    const generator = await deps.open("qa-author", "/tmp");
     assert.equal(await generator.prompt("do the thing"), "ok");
   } finally {
     resetCircuit();
@@ -868,8 +868,8 @@ test("createAgentDeps: telemetry assembly — onTurn receives a fully-populated 
   });
   const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
   const turns: AgentTurnEvent[] = [];
-  const session = await deps.open("qa-generator", "/tmp", {
-    descriptor: { runId: "run-77", role: "qa-generator", objective: "write specs" },
+  const session = await deps.open("qa-author", "/tmp", {
+    descriptor: { runId: "run-77", role: "qa-author", objective: "write specs" },
     onTurn: (t) => turns.push(t),
   });
   const out = await session.prompt("do the thing", { round: 3, isRepair: true, sectionSizes: { diff: 1200 } });
@@ -877,7 +877,7 @@ test("createAgentDeps: telemetry assembly — onTurn receives a fully-populated 
   assert.equal(turns.length, 1);
   const t = turns[0]!;
   assert.equal(t.runId, "run-77");
-  assert.equal(t.role, "qa-generator");
+  assert.equal(t.role, "qa-author");
   assert.equal(t.objective, "write specs");
   assert.equal(t.round, 3);
   assert.equal(t.isRepair, true);
@@ -900,7 +900,7 @@ test("createAgentDeps: sanitize-before-emit — a leaked secret is redacted in t
   });
   const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
   const turns: AgentTurnEvent[] = [];
-  const session = await deps.open("qa-generator", "/tmp", {
+  const session = await deps.open("qa-author", "/tmp", {
     descriptor: { runId: "run-88" },
     onTurn: (t) => turns.push(t),
   });
@@ -923,7 +923,7 @@ test("createAgentDeps: the default turn sink calls collab.persistTurn when a run
     getFallbackModel: () => undefined,
     persistTurn: (t) => persisted.push(t),
   });
-  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-99" } });
+  const session = await deps.open("qa-author", "/tmp", { descriptor: { runId: "run-99" } });
   await session.prompt("do the thing");
   assert.equal(persisted.length, 1);
   assert.equal(persisted[0]!.runId, "run-99");
@@ -995,7 +995,7 @@ async function promptWithCollaborators(
     persistTurn: (t) => persisted.push(t),
     ...collaborators,
   });
-  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-eff" } });
+  const session = await deps.open("qa-author", "/tmp", { descriptor: { runId: "run-eff" } });
   const returned = await session.prompt("the turn prompt");
   const expectedOutput = parts.map((p) => p.text ?? "").join("");
   assert.equal(returned, expectedOutput, "efficiency measurement must never alter the agent's output");
@@ -1025,7 +1025,7 @@ test("createAgentDeps: the step budget resolves maxSteps from the acting agent a
       return 50;
     },
   });
-  assert.deepEqual(asked, ["qa-generator"]);
+  assert.deepEqual(asked, ["qa-author"]);
   assert.equal(exhausted.stepBudget?.maxSteps, 50);
   assert.equal(exhausted.stepBudget?.exhausted, true);
 });
@@ -1095,7 +1095,7 @@ test("createAgentDeps: the tracker is flushed once per resolved prompt even when
     },
     maxStepsFor: () => 50,
   });
-  const session = await deps.open("qa-generator", "/tmp");
+  const session = await deps.open("qa-author", "/tmp");
   await session.prompt("the turn prompt");
   assert.deepEqual(flushes, [{ sessionId: "sess-silent", promptText: "the turn prompt" }]);
 });
@@ -1115,7 +1115,7 @@ test("createAgentDeps: the tracker is told which files the turn's prompt already
       return SAMPLE_CALL_METRICS;
     },
   });
-  const session = await deps.open("qa-generator", "/tmp");
+  const session = await deps.open("qa-author", "/tmp");
   await session.prompt("the turn prompt", { providedPaths: ["e2e/.qa/context.json", "e2e/fixtures.ts"] });
   await session.prompt("a prompt with no listed files");
   assert.deepEqual(seen, [["e2e/.qa/context.json", "e2e/fixtures.ts"], undefined]);
@@ -1151,7 +1151,7 @@ test("createAgentDeps: no turn sink fires when the caller supplies neither a run
     getFallbackModel: () => undefined,
     persistTurn: () => { persistCalls++; },
   });
-  const session = await deps.open("qa-generator", "/tmp");
+  const session = await deps.open("qa-author", "/tmp");
   const out = await session.prompt("do the thing");
   assert.equal(out, "no telemetry");
   assert.equal(persistCalls, 0, "no runId and no onTurn override means no telemetry sink fires at all");
@@ -1186,7 +1186,7 @@ test("createAgentDeps: each attempt is prepared before its prompt is sent, and a
     getFallbackModel: () => "opencode-go/fallback-model",
     prepareAttempt: async (sessionId, attempt) => { log.events.push(`prepare:${sessionId}:${attempt}`); },
   });
-  const session = await deps.open("qa-generator", "/tmp");
+  const session = await deps.open("qa-author", "/tmp");
   await session.prompt("the turn prompt");
   assert.deepEqual(log.events, ["prepare:sess-attempts:0", "prompt", "prepare:sess-attempts:1", "prompt:fallback-model"]);
 });
@@ -1202,7 +1202,7 @@ test("createAgentDeps: the prompt waits for the attempt to be prepared", async (
     getFallbackModel: () => undefined,
     prepareAttempt: async () => { log.events.push("prepare-started"); await gate; log.events.push("prepare-done"); },
   });
-  const session = await deps.open("qa-generator", "/tmp");
+  const session = await deps.open("qa-author", "/tmp");
   const prompting = session.prompt("the turn prompt");
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.deepEqual(log.events, ["prepare-started"], "nothing is sent while the attempt is still being prepared");
@@ -1250,7 +1250,7 @@ async function promptWithStats(
   const raw = makeRawTransport({ createSession: async () => ({ id: "sess-stats" }), promptSession: async () => ({ parts }) });
   const persisted: AgentTurnEvent[] = [];
   const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined, persistTurn: (t) => persisted.push(t), ...collaborators });
-  const session = await deps.open("qa-generator", "/tmp", open);
+  const session = await deps.open("qa-author", "/tmp", open);
   const returned = await session.prompt("the turn prompt", promptOpts);
   return { returned, persisted };
 }
@@ -1433,7 +1433,7 @@ test("createAgentDeps: the stated limit belongs to the prompt that stated it: a 
     maxStepsFor: () => 50,
     takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 12 }),
   });
-  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-two" } });
+  const session = await deps.open("qa-author", "/tmp", { descriptor: { runId: "run-two" } });
   await session.prompt("states its limit", { stepLimit: 40 });
   await session.prompt("states none");
   assert.deepEqual(persisted.map((turn) => turn.stepBudget?.maxSteps), [40, 50]);
@@ -1450,7 +1450,7 @@ test("createAgentDeps: a verdict repair sent with the limit of the prompt it rep
     maxStepsFor: () => 50,
     takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 40 }),
   });
-  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-three" } });
+  const session = await deps.open("qa-author", "/tmp", { descriptor: { runId: "run-three" } });
   await session.prompt("the prompt", { stepLimit: 40 });
   await session.prompt("its repair", { isRepair: true, stepLimit: 40 });
   await session.prompt("a repair that was sent with none", { isRepair: true });
@@ -1477,7 +1477,7 @@ test("createAgentDeps: the turn event carries the wall time the prompt took, fro
   });
   const persisted: AgentTurnEvent[] = [];
   const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined, persistTurn: (t) => persisted.push(t), now: clock.now });
-  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-timed" } });
+  const session = await deps.open("qa-author", "/tmp", { descriptor: { runId: "run-timed" } });
   await session.prompt("first");
   clock.tick(900_000);
   await session.prompt("second");
@@ -1490,7 +1490,7 @@ test("createAgentDeps: a turn that hit the prompt timeout still reports how long
   const { raw } = hangingTransport();
   const persisted: AgentTurnEvent[] = [];
   const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: SHORT_TIMEOUT_MS, getFallbackModel: () => undefined, persistTurn: (t) => persisted.push(t), now: clock.now });
-  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-timeout-timed" } });
+  const session = await deps.open("qa-author", "/tmp", { descriptor: { runId: "run-timeout-timed" } });
   const prompted = session.prompt("write the specs");
   clock.tick(360_000);
   await assert.rejects(() => prompted, /timed out/);
@@ -1527,7 +1527,7 @@ test("createAgentDeps: a turn that hits the prompt timeout is persisted once, wi
       return { ...SAMPLE_CALL_METRICS, totalCalls: 31, stepsUsed: 12 };
     },
   });
-  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-timeout", role: "qa-generator", objective: "cover checkout" } });
+  const session = await deps.open("qa-author", "/tmp", { descriptor: { runId: "run-timeout", role: "qa-author", objective: "cover checkout" } });
 
   await assert.rejects(() => session.prompt("write the specs", { round: 2, sectionSizes: { diff: 900 } }), /timed out/);
 
@@ -1536,7 +1536,7 @@ test("createAgentDeps: a turn that hits the prompt timeout is persisted once, wi
   assert.equal(turn.ended, "timeout");
   assert.equal(turn.runId, "run-timeout");
   assert.equal(turn.sessionId, "sess-hung");
-  assert.equal(turn.role, "qa-generator");
+  assert.equal(turn.role, "qa-author");
   assert.equal(turn.objective, "cover checkout");
   assert.equal(turn.round, 2);
   assert.equal(turn.promptText, "write the specs");
@@ -1565,7 +1565,7 @@ test("createAgentDeps: an answer that arrives after the timeout neither persists
     maxStepsFor: () => 50,
     takeTurnCalls: () => { flushes++; return SAMPLE_CALL_METRICS; },
   });
-  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-late" }, onUsage: () => usages.push(1) });
+  const session = await deps.open("qa-author", "/tmp", { descriptor: { runId: "run-late" }, onUsage: () => usages.push(1) });
   await assert.rejects(() => session.prompt("write the specs", { onTurnStats: (s) => stats.push(s) }), /timed out/);
 
   release();
@@ -1593,7 +1593,7 @@ test("createAgentDeps: the turn after a timeout is measured from the timed out t
     persistTurn: (t) => persisted.push(t),
     takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, totalCalls: flushed++ === 0 ? 30 : 4 }),
   });
-  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-next" }, timeoutMs: 200 });
+  const session = await deps.open("qa-author", "/tmp", { descriptor: { runId: "run-next" }, timeoutMs: 200 });
   await assert.rejects(() => session.prompt("first", { }), /timed out/);
 
   await session.prompt("second");
@@ -1614,7 +1614,7 @@ test("createAgentDeps: a timed out turn whose steps were not observed completely
   const quiet = console.error;
   console.error = () => {};
   try {
-    const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-unobserved" } });
+    const session = await deps.open("qa-author", "/tmp", { descriptor: { runId: "run-unobserved" } });
     await assert.rejects(() => session.prompt("p"), /timed out/);
   } finally {
     console.error = quiet;
@@ -1629,12 +1629,12 @@ test("createAgentDeps: a timed out turn reaches the caller's turn sink as well a
   let flushes = 0;
   const collaborators = { defaultPromptTimeoutMs: SHORT_TIMEOUT_MS, getFallbackModel: () => undefined, takeTurnCalls: () => { flushes++; return SAMPLE_CALL_METRICS; } };
 
-  const withSink = await createAgentDeps(hangingTransport().raw, collaborators).open("qa-generator", "/tmp", { onTurn: (t) => sink.push(t) });
+  const withSink = await createAgentDeps(hangingTransport().raw, collaborators).open("qa-author", "/tmp", { onTurn: (t) => sink.push(t) });
   await assert.rejects(() => withSink.prompt("p"), /timed out/);
   assert.deepEqual(sink.map((t) => t.ended), ["timeout"]);
 
   const persisted: AgentTurnEvent[] = [];
-  const bare = await createAgentDeps(hangingTransport().raw, { ...collaborators, persistTurn: (t) => persisted.push(t) }).open("qa-generator", "/tmp");
+  const bare = await createAgentDeps(hangingTransport().raw, { ...collaborators, persistTurn: (t) => persisted.push(t) }).open("qa-author", "/tmp");
   await assert.rejects(() => bare.prompt("p"), /timed out/);
   assert.deepEqual(persisted, [], "no run context, no sink: nothing to record");
   assert.equal(flushes, 2, "the tracker is flushed either way, so the next turn does not inherit these calls");
@@ -1651,7 +1651,7 @@ test("createAgentDeps: a turn cut short by the caller's abort is persisted with 
     persistTurn: (t) => persisted.push(t),
     takeTurnCalls: () => SAMPLE_CALL_METRICS,
   });
-  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-abort" }, signal: controller.signal });
+  const session = await deps.open("qa-author", "/tmp", { descriptor: { runId: "run-abort" }, signal: controller.signal });
   const pending = session.prompt("p");
   const outcome = assert.rejects(() => pending, /aborted/);
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1669,7 +1669,7 @@ test("createAgentDeps: a prompt that fails without timing out or being aborted s
   const raw = makeRawTransport({ promptSession: async () => { throw new Error("boom"); } });
   const persisted: AgentTurnEvent[] = [];
   const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined, persistTurn: (t) => persisted.push(t) });
-  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-boom" } });
+  const session = await deps.open("qa-author", "/tmp", { descriptor: { runId: "run-boom" } });
   await assert.rejects(() => session.prompt("p"), /boom/);
   assert.deepEqual(persisted, []);
 });
@@ -1681,7 +1681,7 @@ test("createAgentDeps: the primary model failing after the timeout does not star
   const original = raw.promptSession;
   raw.promptSession = (args) => { prompted.push(args.model?.modelID); return original(args); };
   const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: SHORT_TIMEOUT_MS, getFallbackModel: () => "p/fallback-model" });
-  const session = await deps.open("qa-generator", "/tmp");
+  const session = await deps.open("qa-author", "/tmp");
   await assert.rejects(() => session.prompt("p"), /timed out/);
   fail(new Error("late transient fault"));
   await new Promise((resolve) => setTimeout(resolve, 10));
@@ -1708,8 +1708,8 @@ test("withSessionRegistration tells the binder which agent opened which session 
     unbind: (sessionId) => unbound.push(sessionId),
   });
 
-  const session = await wrapped.open("qa-generator", "/mirrors/org/app", { descriptor: { runId: "run-7", role: "qa-generator" } });
-  assert.deepEqual(bound, [{ sessionId: "sess-gen", runId: "run-7", agent: "qa-generator" }]);
+  const session = await wrapped.open("qa-author", "/mirrors/org/app", { descriptor: { runId: "run-7", role: "qa-author" } });
+  assert.deepEqual(bound, [{ sessionId: "sess-gen", runId: "run-7", agent: "qa-author" }]);
   assert.deepEqual(unbound, []);
   await session.dispose();
   assert.deepEqual(unbound, ["sess-gen"]);
@@ -1720,6 +1720,6 @@ test("withSessionRegistration binds a session even when it opts out of live obse
   const bound: string[] = [];
   const wrapped = withSessionRegistration(base, { register: () => {}, unregister: () => {}, bind: (s) => bound.push(s.sessionId), unbind: () => {} });
   await wrapped.open("qa-judge", "/m", { descriptor: { runId: "run-7", role: "qa-judge", liveObservation: false } });
-  await wrapped.open("qa-generator", "/m");
+  await wrapped.open("qa-author", "/m");
   assert.deepEqual(bound, ["sess-x"]);
 });

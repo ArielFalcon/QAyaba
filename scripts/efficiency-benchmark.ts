@@ -350,7 +350,7 @@ function executePass(record: RunRecord | undefined): boolean | null {
 
 /* The generator's own turns, main and repair: not another role's. */
 function generatorTurnsOf(turns: AgentTurnRecord[]): AgentTurnRecord[] {
-  return turns.filter((t) => t.role.includes("generator"));
+  return turns.filter((t) => t.role.includes("author"));
 }
 
 function turnMeasurement(t: AgentTurnRecord): TurnMeasurement {

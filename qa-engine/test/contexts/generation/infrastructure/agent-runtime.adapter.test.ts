@@ -11,7 +11,7 @@ test("openSession delegates to AgentDeps.open and adapts prompt → { output }, 
       dispose: async () => {},
     }) as never,
   }, (role) => role);
-  const session = await adapter.openSession("primary", "/m", { descriptor: { runId: "r1" } });
+  const session = await adapter.openSession("author", "/m", { descriptor: { runId: "r1" } });
   const out = await session.prompt("go", { round: 3, isRepair: true, sectionSizes: { task: 9 } });
   assert.equal(out.output, "RESULT");
   assert.deepEqual(promptOpts, { round: 3, isRepair: true, sectionSizes: { task: 9 } }); /* opts NOT dropped */

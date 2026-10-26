@@ -207,7 +207,7 @@ test("an infra-error verdict marks the root as an error and counts as an infra e
   const h = traceHarness();
   const queue = new JobQueue();
   const app = uniqueApp();
-  enqueueTrackedRun(queue, request(app), deps(h, portReturning({ verdict: "infra-error", errorClass: "E-STEP-BUDGET" }, { decision: "none", generationEnd: "exhausted", limitFired: "step-cap", limitRole: "qa-generator" })));
+  enqueueTrackedRun(queue, request(app), deps(h, portReturning({ verdict: "infra-error", errorClass: "E-STEP-BUDGET" }, { decision: "none", generationEnd: "exhausted", limitFired: "step-cap", limitRole: "qa-author" })));
   await queue.drain();
 
   const root = h.only("qayaba.run");
@@ -218,7 +218,7 @@ test("an infra-error verdict marks the root as an error and counts as an infra e
   assert.equal(infra?.attrs["qayaba.app"], app);
   const budget = h.measurements.find((m) => m.name === "qayaba.budget.exhausted");
   assert.equal(budget?.attrs["qayaba.limit.fired"], "step-cap");
-  assert.equal(budget?.attrs["qayaba.agent.role"], "qa-generator");
+  assert.equal(budget?.attrs["qayaba.agent.role"], "qa-author");
   assert.equal(attr(root, "qayaba.limit.fired"), "step-cap");
 });
 

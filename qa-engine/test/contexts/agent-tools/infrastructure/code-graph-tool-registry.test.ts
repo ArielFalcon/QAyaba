@@ -10,7 +10,7 @@ test("only the lead's own sessions of a run find its code graph: not a sidekick,
   registry.register(graph);
   registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-lead" });
   registry.bindSession({ sessionId: "lead-flow", runId: "r1", agent: "qa-lead", delegationId: "r1-flow-cart" });
-  for (const agent of ["qa-sidekick", "qa-reviewer", "qa-worker", "qa-assistant", "qa-reflector", "qa-maintainer"]) {
+  for (const agent of ["qa-author", "qa-reviewer", "qa-worker", "qa-assistant", "qa-reflector", "qa-maintainer"]) {
     registry.bindSession({ sessionId: `x-${agent}`, runId: "r1", agent });
     assert.equal(registry.find(`x-${agent}`), undefined, agent);
   }

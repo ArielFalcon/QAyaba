@@ -93,7 +93,7 @@ function build(
   return { ports, seen };
 }
 
-const generatorOpen = (seen: Harness) => seen.opened.find((o) => o.role === "sidekick");
+const generatorOpen = (seen: Harness) => seen.opened.find((o) => o.role === "author");
 
 for (const [label, diff, expected] of [
   ["tiny", TINY_DIFF, TINY_MS],
@@ -167,7 +167,7 @@ test("a generator turn cut off by its time budget ends the generation as time-bu
   assert.equal(result.end, GENERATION_END.TIME_BUDGET);
   assert.deepEqual(result.specs, []);
   assert.equal(result.note, renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs: TINY_MS }));
-  assert.deepEqual(seen.disposed, ["sidekick"], "the cut-off session is still disposed");
+  assert.deepEqual(seen.disposed, ["author"], "the cut-off session is still disposed");
 });
 
 test("a generation that ran out of time does not open the reviewer on specs it never produced", async () => {
@@ -212,7 +212,7 @@ test("a timeout in a mode that has no budget surfaces unchanged", async () => {
 test("a provider failure under a budget is not the time budget: it surfaces unchanged", async () => {
   const { ports, seen } = build([{ throws: new AgentUnavailableError("provider rejected: out of credits") }]);
   await assert.rejects(new GenerateTestsUseCase(ports).author(baseInput()), AgentUnavailableError);
-  assert.deepEqual(seen.disposed, ["sidekick"]);
+  assert.deepEqual(seen.disposed, ["author"]);
 });
 
 test("a plain error under a budget that merely mentions a timeout is not the time budget", async () => {

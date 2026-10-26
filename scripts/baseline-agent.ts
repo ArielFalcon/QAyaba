@@ -65,7 +65,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 /** The experiment agent's name, as it is defined in the copy's own opencode.json. */
 export const BASELINE_AGENT = "qa-baseline";
 /** The agent whose model, step cap and temperature the baseline borrows. */
-export const GENERATOR_AGENT = "qa-generator";
+export const GENERATOR_AGENT = "qa-author";
 /** The Playwright commands the agent may run, and nothing else in the shell. */
 export const BASELINE_BASH_ALLOW = ["npx playwright test*", "npx playwright test --list*"] as const;
 /** The tools of the Playwright browser server the agent keeps: the same denials as the generator for code, file and drop tools. */

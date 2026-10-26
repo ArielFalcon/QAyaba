@@ -17,11 +17,13 @@ has in `agents/opencode.json`, and the config carries that file's top-level `per
 recorded rules are the ones the real roles resolve to (`GET /agent` on the real container shows the same
 rules). Re-record it whenever either block, or a role, changes.
 
-On 2026-10-26 the `qa-lead` entry was added and `qa-generator`'s `codegraph_explore` rule flipped from allow to deny when the
+On 2026-10-26 the `qa-lead` entry was added and `qa-author`'s `codegraph_explore` rule flipped from allow to deny when the
 code-graph tool moved to the lead. Both are derived from `agents/opencode.json`, not captured: the merge order (the global tools map,
 the global permission, then the agent's `tools` and `permission` merged by key, then the runtime's tool-output rule) was proven
 first by reproducing every other `qa-` entry of this body rule for rule. A live capture on the pinned build has not been taken since;
 the next one replaces the derived entries.
+
+On 2026-10-26 the author roster landed: the generator's entry is deleted and the sidekick's is renamed `qa-author`, which also carries the generator's `permission.bash: deny`. The `qa-author` entry is derived from `agents/opencode.json` the same way as the `qa-lead` and `qa-explore` entries, and the other `qa-` entries were checked rule for rule against the same derivation; it is replaced by the next live capture.
 
 Edits to the recorded body, and nothing else:
 
@@ -31,7 +33,7 @@ Edits to the recorded body, and nothing else:
 - every `qa-` agent's `description` is `null`, its `temperature` is `null`, its `options` is `{}` and its `model` is
   removed (a recording names no model and no model tuning);
 - the unused native agents (`plan`, `explore`, `compaction`, `summary`, `title`) are dropped;
-- the `qa-explorer` entry is removed: the role left `agents/opencode.json` after this recording, and this body was edited to match, not re-recorded (the next recording simply will not contain it);
+- the entry of the retired explorer role is removed: the role left `agents/opencode.json` after this recording, and this body was edited to match, not re-recorded (the next recording simply will not contain it);
 - each permission rule is laid out on one line, and the agents and their fields keep the order of the previous recording.
 
 The recording is a fresh capture, not a hand edit: the global `tools` map's `run_spec` and `authbrowser_*` switches resolve into
@@ -46,7 +48,7 @@ them; the two about the directory were observed on the 1.16.2 capture of 2026-10
 - A configured agent with no cap carries `"steps": null`, not an absent key. A native agent has no
   `steps` key at all. The SDK type says `steps?: number`, so a `null` is the wire's, not the type's.
 - The directory is honoured. With a project-level `opencode.json` in the requested directory setting
-  `qa-generator` to `maxSteps: 12`, `GET /agent?directory=<that directory>` returned `steps: 12` for it,
+  `qa-author` to `maxSteps: 12`, `GET /agent?directory=<that directory>` returned `steps: 12` for it,
   while another directory returned 50. That second response is not part of this fixture. The production server no longer reads a directory's own
   configuration (`OPENCODE_DISABLE_PROJECT_CONFIG`, set by the supervisor), so there the directory only selects
   which instance answers; the observation holds for a server started without it, as this recording's was.
@@ -61,7 +63,7 @@ exactly the roles the deployable file declares. `opencode-roster.ts` exports `ro
 the path of an agents config) and `loadRoster()`.
 
 - The models are placeholders and differ per role, so logic that depends on distinct models is testable. The three roles whose
-  prompt budget the window catalog resolves (`qa-generator`, `qa-reviewer`, `qa-assistant`) name cataloged ids, chosen once here, so
+  prompt budget the window catalog resolves (`qa-author`, `qa-reviewer`, `qa-assistant`) name cataloged ids, chosen once here, so
   a window assertion has a known answer; the others name uncataloged placeholders. The ids are not the deployable's.
 - `opencode-roster-fixture.test.ts` keeps it in step: same role names, and a model and a step cap on a role exactly when the
   deployable role has them. It never compares model ids or caps, so changing a model in `agents/opencode.json` breaks no test.

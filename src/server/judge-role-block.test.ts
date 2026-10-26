@@ -23,7 +23,7 @@ test("the pending judge block names one numeric step cap, the pinned prompt file
   assert.equal(block.steps, undefined, "a step cap is named once");
   assert.equal(block.prompt, "{file:./agent/qa-judge.md}");
   assert.equal(typeof block.model, "string");
-  assert.notEqual(block.model, live.agent["qa-generator"].model);
+  assert.notEqual(block.model, live.agent["qa-author"].model);
 });
 
 test("the judge prompt declares its version, and the setup resolves once the block is in the live configuration", () => {

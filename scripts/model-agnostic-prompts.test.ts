@@ -267,8 +267,8 @@ test("a model configured later is caught with no edit here: its id in the agent 
     writeFileSync(
       join(root, "agents", "opencode.json"),
       JSON.stringify({
-        agent: { "qa-generator": { model: "acme-cloud/orion-nova-7.1-turbo" } },
-        model_fallback: { "qa-generator": "acme-cloud/zephyr-quill-2-lite" },
+        agent: { "qa-author": { model: "acme-cloud/orion-nova-7.1-turbo" } },
+        model_fallback: { "qa-author": "acme-cloud/zephyr-quill-2-lite" },
       }),
     );
     const before = await repoTerms();
@@ -370,7 +370,7 @@ test("the role and shared prompts name no model", async () => {
   const terms = await repoTerms();
   const prompts = readAll(rolePromptFiles());
   const scanned = prompts.map((p) => p.source);
-  for (const path of ["agents/AGENTS.md", "agents/agent/qa-generator.md"]) {
+  for (const path of ["agents/AGENTS.md", "agents/agent/qa-author.md"]) {
     assert.ok(scanned.includes(path), `${path} is scanned`);
   }
   const findings = prompts.flatMap((p) => [...scanText(p.source, p.text, terms), ...titleFindings(p.source, p.text, terms)]);
@@ -668,12 +668,12 @@ async function proposerPrompts(subject: string): Promise<PromptText[]> {
 }
 
 const PROMPT_KINDS: readonly PromptKind[] = [
-  { kind: "generator", roles: ["primary"], prompts: generatorPrompts },
-  { kind: "context task", roles: ["primary"], prompts: contextPrompts },
+  { kind: "generator", roles: ["author"], prompts: generatorPrompts },
+  { kind: "context task", roles: ["author"], prompts: contextPrompts },
   { kind: "reviewer", roles: ["reviewer"], prompts: reviewerPrompts },
-  { kind: "verdict repair", roles: ["primary", "reviewer"], prompts: repairPrompts },
+  { kind: "verdict repair", roles: ["author", "reviewer"], prompts: repairPrompts },
   { kind: "lead", roles: ["lead"], prompts: leadPrompts },
-  { kind: "sidekick", roles: ["sidekick"], prompts: sidekickPrompts },
+  { kind: "author", roles: ["author"], prompts: sidekickPrompts },
   { kind: "explore", roles: ["explore"], prompts: explorePrompts },
   { kind: "maintainer", roles: ["maintainer"], prompts: maintainerPrompts },
   { kind: "assistant", roles: ["chat"], prompts: assistantPrompts },

@@ -30,7 +30,7 @@ test("a prompt sent inside a run reaches the model, and is recorded, without the
   const deps = createAgentDeps(transport(seen), { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
 
   await withRunSecretScope(scope, async () => {
-    const session = await deps.open("qa-generator", "/tmp", { onTurn: (turn: AgentTurnEvent) => void turns.push(turn) });
+    const session = await deps.open("qa-author", "/tmp", { onTurn: (turn: AgentTurnEvent) => void turns.push(turn) });
     await session.prompt(`the DOM said ${PASSWORD}`);
     await session.dispose();
   });
@@ -44,7 +44,7 @@ test("a prompt sent outside a run is sent as it is", async () => {
   resetCircuit();
   const seen: string[] = [];
   const deps = createAgentDeps(transport(seen), { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
-  const session = await deps.open("qa-generator", "/tmp");
+  const session = await deps.open("qa-author", "/tmp");
   await session.prompt(`the DOM said ${PASSWORD}`);
   await session.dispose();
   assert.deepEqual(seen, [`the DOM said ${PASSWORD}`]);

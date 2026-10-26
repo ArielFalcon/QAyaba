@@ -58,7 +58,7 @@ function finishedRun(app: string, over: { verdict?: RunOutcome["verdict"]; decis
   };
   saveRunOutcome(outcome);
   saveAgentTurn({
-    runId: r.id, sessionId: "s", role: over.reviewerTurn === false ? "qa-generator" : "qa-reviewer", round: 0, isRepair: false, ts: "2026-10-17T10:00:00.000Z", objective: null, promptText: "p", outputText: "o", promptBytes: 1,
+    runId: r.id, sessionId: "s", role: over.reviewerTurn === false ? "qa-author" : "qa-reviewer", round: 0, isRepair: false, ts: "2026-10-17T10:00:00.000Z", objective: null, promptText: "p", outputText: "o", promptBytes: 1,
     tokensInput: 10, tokensOutput: 5, tokensReasoning: null, tokensCacheRead: null, tokensCacheWrite: null, cost: 0.5,
   });
   return r.id;
@@ -236,9 +236,9 @@ test("a cancelled run is graded as cancelled and for nothing else", async () => 
 });
 
 test("the budget_exhaustion intent is the last step of the limiting turn", async () => {
-  const id = finishedRun("eval-lim", { verdict: "infra-error", furthest: "generate", decision: "none", facts: { limitFired: "step-cap", limitRole: "qa-generator" } });
+  const id = finishedRun("eval-lim", { verdict: "infra-error", furthest: "generate", decision: "none", facts: { limitFired: "step-cap", limitRole: "qa-author" } });
   const spans = [
-    { name: "invoke_agent qa-generator", spanId: "t1", parentSpanId: null, attrs: JSON.stringify({ "gen_ai.agent.name": "qa-generator", "qayaba.limit.fired": "step-cap" }) },
+    { name: "invoke_agent qa-author", spanId: "t1", parentSpanId: null, attrs: JSON.stringify({ "gen_ai.agent.name": "qa-author", "qayaba.limit.fired": "step-cap" }) },
     { name: "qayaba.agent.attempt", spanId: "a1", parentSpanId: "t1", attrs: "{}" },
     { name: "chat m", spanId: "c1", parentSpanId: "a1", attrs: JSON.stringify({ "qayaba.step.intent": "explore" }) },
     { name: "chat m", spanId: "c2", parentSpanId: "a1", attrs: JSON.stringify({ "qayaba.step.intent": "write_spec" }) },
@@ -247,7 +247,7 @@ test("the budget_exhaustion intent is the last step of the limiting turn", async
     { name: "chat m", spanId: "c3", parentSpanId: "a2", attrs: JSON.stringify({ "qayaba.step.intent": "review" }) },
   ];
   const e = await new HistoryEvidenceAdapter({ ...defaultEvidenceDeps, runSpans: () => spans }).load(id);
-  assert.deepEqual(e?.limit, { fired: "step-cap", role: "qa-generator", intent: "write_spec" });
+  assert.deepEqual(e?.limit, { fired: "step-cap", role: "qa-author", intent: "write_spec" });
   assert.equal((await evidenceOf(id))?.limit?.intent, undefined);
 });
 
@@ -344,10 +344,10 @@ test("the run view links the trace through the template and is null when telemet
 
 test("a run that a limit ended reports which", () => {
   const r = createRecord({ target: "e2e", app: "eval-l", sha: "abcdef1234", mode: "diff" });
-  updateRecord(r.id, { status: "done", verdict: "infra-error", facts: { traceId: null, decision: "none", limitFired: "run-deadline", limitRole: "qa-generator" } });
+  updateRecord(r.id, { status: "done", verdict: "infra-error", facts: { traceId: null, decision: "none", limitFired: "run-deadline", limitRole: "qa-author" } });
   const { limitFired, limitRole, decision } = getRunFacts(r.id)!;
-  assert.deepEqual({ limitFired, limitRole, decision }, { limitFired: "run-deadline", limitRole: "qa-generator", decision: "none" });
-  assert.deepEqual(buildRunViewExtras(r.id, viewDeps(true))?.budgets, { exhausted: true, limit: "run-deadline", role: "qa-generator" });
+  assert.deepEqual({ limitFired, limitRole, decision }, { limitFired: "run-deadline", limitRole: "qa-author", decision: "none" });
+  assert.deepEqual(buildRunViewExtras(r.id, viewDeps(true))?.budgets, { exhausted: true, limit: "run-deadline", role: "qa-author" });
 });
 
 function viewDeps(on: boolean, template?: string): RunViewDeps {

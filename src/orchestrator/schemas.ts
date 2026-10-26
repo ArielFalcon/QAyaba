@@ -302,7 +302,7 @@ export const AppConfigSchema = z
         })
         .optional(),
       /*
-       * The authenticated agent browser: lets the authoring agents (qa-generator, qa-sidekick) read DEV through the session the run
+       * The authenticated agent browser: lets the authoring agents (qa-author) read DEV through the session the run
        * signed in with, by tools the orchestrator serves (the session never leaves it). Off unless `enabled` is true. Needs the
        * OpenCode runtime and a login the saved session covers; a run can be forced on or off for an A/B. It never writes to DEV:
        * `denyRoutes` are paths (`*` within a segment, `**` across) it never reaches, and `allowMutating` (`[POST ]/path`) names the

@@ -10,8 +10,8 @@ test("budgetForRole delegates to roleWindowBytes with the role (NO hardcoded byt
     (diff) => diff.slice(0, 10),
     (text) => text.slice(0, 10),
   );
-  const bytes = adapter.budgetForRole("qa-generator");
-  assert.equal(seenRole, "qa-generator");   /* DELEGATION: the role was forwarded */
+  const bytes = adapter.budgetForRole("qa-author");
+  assert.equal(seenRole, "qa-author");   /* DELEGATION: the role was forwarded */
   assert.equal(bytes, SENTINEL);             /* the result was forwarded verbatim — no 192k/96k literal */
 });
 

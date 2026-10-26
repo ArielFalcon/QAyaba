@@ -19,7 +19,7 @@ import { setRuntimeRoleModels } from "@contexts/generation/infrastructure/prompt
 import { installHttpDispatcher } from "../util/net";
 import { enforcedStepLimit } from "../agent-runtime/step-limit";
 import { openCodeServerAuth } from "./opencode-server-auth";
-import { AGENT_BROWSER_AGENTS } from "@contexts/test-execution/application/index";
+import { AGENT_BROWSER_AGENTS, GEOLOCATION_AGENTS } from "@contexts/test-execution/application/index";
 import { CODE_GRAPH_AGENTS } from "@kernel/code-graph-tools";
 
 
@@ -539,7 +539,7 @@ export function setGeolocationGrantLookup(lookup: ((sessionId: string) => boolea
 }
 
 export function hidesGeolocationTool(agent: string, sessionId: string): boolean {
-  return AGENT_BROWSER_AGENTS.has(agent) && !(geolocationGrant?.(sessionId) ?? false);
+  return GEOLOCATION_AGENTS.has(agent) && !(geolocationGrant?.(sessionId) ?? false);
 }
 
 /*

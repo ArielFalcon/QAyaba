@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
-import { CLOSED_LOOP_REFUSAL, RUN_SPEC_AGENT, RunSpecCapability } from "@contexts/test-execution/domain/run-spec-capability.ts";
+import { CLOSED_LOOP_REFUSAL, RUN_SPEC_FLOW_AGENT, RunSpecCapability } from "@contexts/test-execution/domain/run-spec-capability.ts";
 import { MAX_REPORTED_TESTS, MAX_TITLE_CHARS, RunSpecUseCase, escapeGrep, type RunSpecDeps } from "@contexts/test-execution/application/run-spec.use-case.ts";
 import type { SpecExecutionRequest, SpecExecutionResult } from "@contexts/test-execution/domain/spec-executor.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -60,7 +60,7 @@ function harness(t: TestContext, overrides: Partial<RunSpecDeps> = {}): Harness 
 }
 
 const call = (h: Harness, path: string, extra: { grep?: string; sessionId?: string; agent?: string } = {}) =>
-  new RunSpecUseCase(h.deps).run({ sessionId: extra.sessionId ?? "ses-1", agent: extra.agent ?? RUN_SPEC_AGENT, path, ...(extra.grep !== undefined ? { grep: extra.grep } : {}) });
+  new RunSpecUseCase(h.deps).run({ sessionId: extra.sessionId ?? "ses-1", agent: extra.agent ?? RUN_SPEC_FLOW_AGENT, path, ...(extra.grep !== undefined ? { grep: extra.grep } : {}) });
 
 test("a spec that passes is run once in its own namespace and reported without raw output", async (t) => {
   const h = harness(t);
@@ -419,7 +419,7 @@ test("a call whose session ends is stopped: the executor is aborted, the call is
     await new Promise<void>((resolve) => request.signal!.addEventListener("abort", () => resolve(), { once: true }));
     return { verdict: "infra-error", cases: [], logs: "playwright runner aborted by operator cancel — killed" };
   };
-  const pending = new RunSpecUseCase(h.deps).run({ sessionId: "ses-1", agent: RUN_SPEC_AGENT, path: "flows/a.spec.ts" }, controller.signal);
+  const pending = new RunSpecUseCase(h.deps).run({ sessionId: "ses-1", agent: RUN_SPEC_FLOW_AGENT, path: "flows/a.spec.ts" }, controller.signal);
   await new Promise((r) => setImmediate(r));
   controller.abort();
   const response = await pending;
@@ -434,7 +434,7 @@ test("a call that waits for the account when its session ends leaves the queue w
   let release!: () => void;
   const held = h.deps.lock.withLock("app/user", () => new Promise<void>((r) => { release = r; }));
   const controller = new AbortController();
-  const pending = new RunSpecUseCase(h.deps).run({ sessionId: "ses-1", agent: RUN_SPEC_AGENT, path: "flows/a.spec.ts" }, controller.signal);
+  const pending = new RunSpecUseCase(h.deps).run({ sessionId: "ses-1", agent: RUN_SPEC_FLOW_AGENT, path: "flows/a.spec.ts" }, controller.signal);
   await new Promise((r) => setImmediate(r));
   controller.abort();
   const response = await pending;
@@ -449,7 +449,7 @@ test("a call that gave up waiting for the account is not spent", async (t) => {
   let release!: () => void;
   const held = h.deps.lock.withLock("app/user", () => new Promise<void>((r) => { release = r; }));
   const controller = new AbortController();
-  const pending = new RunSpecUseCase(h.deps).run({ sessionId: "ses-1", agent: RUN_SPEC_AGENT, path: "flows/a.spec.ts" }, controller.signal);
+  const pending = new RunSpecUseCase(h.deps).run({ sessionId: "ses-1", agent: RUN_SPEC_FLOW_AGENT, path: "flows/a.spec.ts" }, controller.signal);
   await new Promise((r) => setImmediate(r));
   controller.abort();
   await pending;

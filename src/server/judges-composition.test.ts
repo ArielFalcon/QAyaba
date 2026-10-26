@@ -11,7 +11,7 @@ function repo(opts: { judgeModel?: string | null; withPrompt?: boolean } = {}): 
   const root = mkdtempSync(join(tmpdir(), "judges-comp-"));
   mkdirSync(join(root, "agents", "agent"), { recursive: true });
   if (opts.withPrompt !== false) writeFileSync(join(root, "agents", "agent", "qa-judge.md"), "<!-- judge-prompt-version: 4 -->\n# Judge\n");
-  const agent: Record<string, unknown> = { "qa-generator": { model: "prov/generator" } };
+  const agent: Record<string, unknown> = { "qa-author": { model: "prov/generator" }, "qa-lead": { model: "prov/lead" } };
   if (opts.judgeModel !== null) agent["qa-judge"] = { model: opts.judgeModel ?? "prov/judge" };
   writeFileSync(join(root, "agents", "opencode.json"), JSON.stringify({ agent }));
   return root;

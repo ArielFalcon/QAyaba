@@ -1608,7 +1608,7 @@ test("a run deadline during the correction re-admit ends the run E-TIME-BUDGET (
     execute: async () => {
       executions++;
       if (executions === 1) return { verdict: "pass" as const, cases: [{ name: "a", status: "pass" as const, file: "a.spec.ts" }], logs: "" };
-      throw new RunDeadlineExceededError(600_000, "diff", "qa-generator", "before-turn");
+      throw new RunDeadlineExceededError(600_000, "diff", "qa-author", "before-turn");
     },
   });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });

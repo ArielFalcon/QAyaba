@@ -5,9 +5,9 @@
  * PURPOSE: proves, on the pinned OpenCode build inside the built `agents` image, that the custom tools in agents/tool/authbrowser.ts
  *   1. are loaded from the GLOBAL config directory with project configuration disabled (OPENCODE_DISABLE_PROJECT_CONFIG=true), under
  *      the names authbrowser_navigate / authbrowser_snapshot / authbrowser_click / authbrowser_type,
- *   2. are switched on for the authoring roles (qa-generator, qa-sidekick) alone and off for every other agent (agents/opencode.json),
+ *   2. are switched on for the authoring roles (qa-author, qa-explore) alone and off for every other agent (agents/opencode.json),
  *      and a role that is not an authoring one is not even OFFERED them in the model's tool list,
- *   3. are called by real OpenCode sessions of qa-generator and qa-sidekick, and each call reaches the orchestrator's endpoint with the
+ *   3. are called by real OpenCode sessions of qa-author and qa-explore, and each call reaches the orchestrator's endpoint with the
  *      service token, the session id the runtime opened and the agent name it reports (ToolContext), and its answer goes back to the model.
  * It uses a stub model and a stub orchestrator that live in this process, so it needs no API key and touches no DEV.
  *
@@ -47,8 +47,8 @@ const modelRequests = [];
 const TOOLS = ["authbrowser_navigate", "authbrowser_snapshot", "authbrowser_click", "authbrowser_type"];
 // What each stubbed agent asks for on its first turn; an agent with no entry answers in text and calls nothing.
 const FIRST_CALL = {
-  "qa-generator": { name: "authbrowser_navigate", arguments: { url: "/orders?page=2" } },
-  "qa-sidekick": { name: "authbrowser_type", arguments: { ref: "e7", text: "hello", submit: true } },
+  "qa-author": { name: "authbrowser_navigate", arguments: { url: "/orders?page=2" } },
+  "qa-explore": { name: "authbrowser_type", arguments: { ref: "e7", text: "hello", submit: true } },
 };
 const agentOf = (messages) => /AGENT:([a-z-]+)/.exec(JSON.stringify(messages ?? []))?.[1];
 
@@ -88,7 +88,7 @@ function startStubs() {
   return () => { model.close(); orchestrator.close(); };
 }
 
-const STUBBED = ["qa-generator", "qa-sidekick", "qa-reviewer"];
+const STUBBED = ["qa-author", "qa-explore", "qa-reviewer"];
 
 function prepareConfig() {
   rmSync(HOME, { recursive: true, force: true });
@@ -137,7 +137,7 @@ try {
   const agents = await api("/agent");
   const allowedBy = (tool) => agents.filter((a) => a.permission.filter((r) => r.permission === tool).at(-1)?.action === "allow").map((a) => a.name).sort();
   for (const tool of TOOLS) {
-    check(JSON.stringify(allowedBy(tool)) === JSON.stringify(["qa-generator", "qa-sidekick"]), `only qa-generator and qa-sidekick may call ${tool} (allowed: ${JSON.stringify(allowedBy(tool))})`);
+    check(JSON.stringify(allowedBy(tool)) === JSON.stringify(["qa-author", "qa-explore"]), `only qa-author and qa-explore may call ${tool} (allowed: ${JSON.stringify(allowedBy(tool))})`);
   }
 
   mkdirSync("/tmp/authbrowser-smoke-repo", { recursive: true });
@@ -147,32 +147,32 @@ try {
     return { session, answer };
   };
 
-  const generator = await turn("qa-generator");
-  const sidekick = await turn("qa-sidekick");
+  const generator = await turn("qa-author");
+  const sidekick = await turn("qa-explore");
   const reviewer = await turn("qa-reviewer");
 
   check(orchestratorCalls.length === 2, `the two authoring sessions made one call each to the orchestrator and no other session made any (saw ${orchestratorCalls.length})`);
   const fromGenerator = orchestratorCalls.find((c) => c.body.sessionID === generator.session.id);
   check(fromGenerator?.method === "POST" && fromGenerator.url === "/internal/authbrowser", "the generator's call is POST /internal/authbrowser");
   check(fromGenerator?.authorization === `Bearer ${TOKEN}`, "the call carries the service token");
-  check(fromGenerator?.body.agent === "qa-generator", "the call names the agent the runtime reports (ToolContext.agent)");
+  check(fromGenerator?.body.agent === "qa-author", "the call names the agent the runtime reports (ToolContext.agent)");
   check(typeof fromGenerator?.body.messageID === "string" && fromGenerator.body.messageID.startsWith("msg_"), "the call names the assistant message the runtime reports (ToolContext.messageID), which joins it to the trace");
   check(fromGenerator?.body.action === "navigate" && fromGenerator?.body.url === "/orders?page=2", "the call carries the action and the model's arguments");
   const fromSidekick = orchestratorCalls.find((c) => c.body.sessionID === sidekick.session.id);
-  check(fromSidekick?.body.agent === "qa-sidekick" && fromSidekick?.body.action === "type" && fromSidekick?.body.ref === "e7" && fromSidekick?.body.text === "hello" && fromSidekick?.body.submit === true, "the sidekick's call names its own agent and carries ref, text and submit");
+  check(fromSidekick?.body.agent === "qa-explore" && fromSidekick?.body.action === "type" && fromSidekick?.body.ref === "e7" && fromSidekick?.body.text === "hello" && fromSidekick?.body.submit === true, "the explorer's call names its own agent and carries ref, text and submit");
 
   const offered = (agent) => modelRequests.filter((r) => r.agent === agent).flatMap((r) => r.tools);
-  check(TOOLS.every((t) => offered("qa-generator").includes(t)) && TOOLS.every((t) => offered("qa-sidekick").includes(t)), "all four tools were offered to the generator and to the sidekick");
+  check(TOOLS.every((t) => offered("qa-author").includes(t)) && TOOLS.every((t) => offered("qa-explore").includes(t)), "all four tools were offered to the author and to the explorer");
   check(!offered("qa-reviewer").some((t) => t.startsWith("authbrowser")), "no authbrowser tool was offered to a reviewer");
-  check(modelRequests.filter((r) => r.agent === "qa-generator").at(-1)?.roles.includes("tool"), "the orchestrator's answer went back to the model as a tool result");
+  check(modelRequests.filter((r) => r.agent === "qa-author").at(-1)?.roles.includes("tool"), "the orchestrator's answer went back to the model as a tool result");
   check(generator.answer.parts?.some((p) => p.type === "text" && p.text === "done"), "the turn ended on the model's final text");
   check(reviewer.answer.parts?.some((p) => p.type === "text" && p.text === "done"), "the roles that are not offered the tools still answer normally");
 
   // A per-prompt tools map can hide the tools from a session that is allowed them (what the transport does for a prompt that asks for no tool at all).
   const before = modelRequests.length;
   const hidden = await api("/session?directory=/tmp/authbrowser-smoke-repo", { method: "POST", body: "{}" });
-  await api(`/session/${hidden.id}/message?directory=/tmp/authbrowser-smoke-repo`, { method: "POST", body: JSON.stringify({ agent: "qa-generator", tools: { "authbrowser*": false }, parts: [{ type: "text", text: "go" }] }) });
-  const hiddenTurn = modelRequests.slice(before).filter((r) => r.agent === "qa-generator");
+  await api(`/session/${hidden.id}/message?directory=/tmp/authbrowser-smoke-repo`, { method: "POST", body: JSON.stringify({ agent: "qa-author", tools: { "authbrowser*": false }, parts: [{ type: "text", text: "go" }] }) });
+  const hiddenTurn = modelRequests.slice(before).filter((r) => r.agent === "qa-author");
   check(hiddenTurn.length > 0 && hiddenTurn.every((r) => !r.tools.some((t) => t.startsWith("authbrowser"))), "a per-prompt tools map with \"authbrowser*\": false hides the tools from an allowed role");
   check(hiddenTurn.length > 0 && hiddenTurn.every((r) => r.tools.includes("read") && r.tools.includes("write") && r.tools.includes("run_spec")), "and leaves every other tool of the role as its configuration has it");
 } catch (err) {

@@ -12,7 +12,7 @@ test("capabilitiesForRole: the judge / chat / reflector are read-only; authoring
   for (const role of ["reviewer", "chat", "reflector"] as const) {
     assert.equal(capabilitiesForRole(role).canWrite, false, `${role} must be read-only`);
   }
-  for (const role of ["primary", "sidekick", "maintainer"] as const) {
+  for (const role of ["author", "maintainer"] as const) {
     assert.equal(capabilitiesForRole(role).canWrite, true, `${role} must be able to write`);
   }
 });

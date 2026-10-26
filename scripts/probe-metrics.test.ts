@@ -104,7 +104,7 @@ test("the pages the agent opened are listed once each, in order, and a denied na
 
 function turnRecord(over: Partial<AgentTurnRecord> = {}): AgentTurnRecord {
   return {
-    runId: "run-1", sessionId: "s1", role: "qa-generator", round: 0, isRepair: false, ts: "2026-10-11T10:00:00.000Z", objective: null,
+    runId: "run-1", sessionId: "s1", role: "qa-author", round: 0, isRepair: false, ts: "2026-10-11T10:00:00.000Z", objective: null,
     promptText: "p", outputText: "o", promptBytes: 1234, tokensInput: null, tokensOutput: null, tokensReasoning: null, tokensCacheRead: null, tokensCacheWrite: null, cost: null,
     ...over,
   };
@@ -201,7 +201,7 @@ test("a pipeline run's report carries its verdict, phases, specs, coverage, revi
     runId: RUN_ID, record: runRecord({ specs: [{ name: "flows/checkout.spec.ts" }] }), outcome: outcome({ reviewerApproved: true }, "E-TIME-BUDGET"),
     events: baseEvents(),
     turns: [
-      turnRecord({ role: "qa-generator", durationMs: 299_000, timeToFirstWriteMs: 150_000, totalCalls: 29, deniedCallCount: 2, toolSequence: [read("src/orders/checkout.ts"), read("src/shared/x.ts")] }),
+      turnRecord({ role: "qa-author", durationMs: 299_000, timeToFirstWriteMs: 150_000, totalCalls: 29, deniedCallCount: 2, toolSequence: [read("src/orders/checkout.ts"), read("src/shared/x.ts")] }),
       turnRecord({ role: "qa-reviewer", durationMs: 8_000 }),
     ],
     changedFiles: ["src/orders/checkout.ts"], specLines: new Map([["flows/checkout.spec.ts", 84]]), minRatio: 0.7,
@@ -220,7 +220,7 @@ test("a pipeline run's report carries its verdict, phases, specs, coverage, revi
   assert.deepEqual(report.reviewer?.reasons, ["asserts nothing about the total"]);
   assert.equal(report.execution?.passed, 2);
   assert.equal(report.execution?.flaky, 1);
-  const generator = report.turns.find((t) => t.role === "qa-generator");
+  const generator = report.turns.find((t) => t.role === "qa-author");
   assert.equal(generator?.tools?.filesReadOutsideDiffDirs, 1);
   assert.equal(report.totals.calls, 29, "turns that did not count their calls are left out of the sum");
 });
@@ -302,7 +302,7 @@ test("the markdown names how a coordinated run's plan and flows came out, and a 
 test("the markdown row names the run and shows every unknown figure as n/a, never 0, and flags partial usage", () => {
   const report = buildPipelineReport({
     runId: RUN_ID, record: runRecord({ status: "running" }), outcome: undefined, events: baseEvents().slice(0, 3), changedFiles: null, specLines: new Map(), minRatio: 0.7,
-    turns: [turnRecord({ role: "qa-generator", tokensInput: 4_000, tokensOutput: 60, cost: 0.003 })],
+    turns: [turnRecord({ role: "qa-author", tokensInput: 4_000, tokensOutput: 60, cost: 0.003 })],
   });
   const row = renderRunRow(report);
   assert.ok(row.includes(RUN_ID));
@@ -416,8 +416,8 @@ test("a pipeline report carries the stitcher's signals, the sections of the gene
     events: baseEvents(), changedFiles: ["svc/Handler.java"], specLines: new Map(), minRatio: 0.7, groundTruth: TRUTH,
     specSources: new Map([["flows/cart.spec.ts", "await page.goto('/cart/new');"]]),
     turns: [
-      turnRecord({ role: "qa-generator", promptText: prompt, toolSequence: [read("src/app/features/cart/api/cart.api.ts"), read("src/app/features/cart/pages/cart-form/cart-form.page.ts")] }),
-      turnRecord({ role: "qa-generator", round: 1, isRepair: true, promptText: "## Task\nfix" }),
+      turnRecord({ role: "qa-author", promptText: prompt, toolSequence: [read("src/app/features/cart/api/cart.api.ts"), read("src/app/features/cart/pages/cart-form/cart-form.page.ts")] }),
+      turnRecord({ role: "qa-author", round: 1, isRepair: true, promptText: "## Task\nfix" }),
     ],
   });
   assert.equal(report.stitcher?.serviceLinksCount, 4);
@@ -429,7 +429,7 @@ test("a pipeline report carries the stitcher's signals, the sections of the gene
 });
 
 test("a pipeline report without a ground truth carries none, and one with no recorded stitcher signals reads them unknown", () => {
-  const report = buildPipelineReport({ runId: RUN_ID, record: runRecord(), outcome: outcome(), events: baseEvents(), turns: [turnRecord({ role: "qa-generator" })], changedFiles: null, specLines: new Map(), minRatio: 0.7 });
+  const report = buildPipelineReport({ runId: RUN_ID, record: runRecord(), outcome: outcome(), events: baseEvents(), turns: [turnRecord({ role: "qa-author" })], changedFiles: null, specLines: new Map(), minRatio: 0.7 });
   assert.equal(report.groundTruth, undefined);
   assert.equal(report.stitcher?.serviceLinksCount, null);
   assert.equal(report.stitcher?.generatorPrompt?.serviceLinks.present, false);
@@ -438,7 +438,7 @@ test("a pipeline report without a ground truth carries none, and one with no rec
 test("the markdown shows the stitcher table and the ground-truth table, an unavailable source as n/a", () => {
   const report = buildPipelineReport({
     runId: RUN_ID, record: runRecord(), outcome: outcome({ serviceLinksCount: 4 }), events: baseEvents(), changedFiles: null, specLines: new Map(), minRatio: 0.7, groundTruth: TRUTH,
-    turns: [turnRecord({ role: "qa-generator", promptText: "## Cross-service links (x)\nl" })],
+    turns: [turnRecord({ role: "qa-author", promptText: "## Cross-service links (x)\nl" })],
   });
   const markdown = renderMarkdown([report]);
   assert.ok(markdown.includes("### Stitcher signals"));

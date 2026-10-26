@@ -1,6 +1,6 @@
 /* Who the agent is (role) and which provider+model serves it. Kernel-resident so AgentRuntimePort does not forward-depend on the agent-runtime context. */
 
-export const AGENT_ROLES = ["primary", "lead", "explore", "reviewer", "chat", "sidekick", "maintainer", "reflector", "proposer"] as const;
+export const AGENT_ROLES = ["lead", "explore", "reviewer", "chat", "author", "maintainer", "reflector", "proposer"] as const;
 export type AgentRole = (typeof AGENT_ROLES)[number];
 
 /* The runtimes an agent can run on. Add a member here and a strategy in src/agent-runtime to add a runtime. */

@@ -321,7 +321,7 @@ test("GET /api/apps/:name/context-map keeps the files that implement each route"
 });
 
 const measuredTurn: AgentTurnRecord = {
-  runId: "p1", sessionId: "sess-1", role: "qa-generator", round: 0, isRepair: false,
+  runId: "p1", sessionId: "sess-1", role: "qa-author", round: 0, isRepair: false,
   ts: "2026-09-28T10:00:00.000Z", objective: null, promptText: "the prompt", outputText: "the output", promptBytes: 10,
   tokensInput: 100, tokensOutput: 50, tokensReasoning: null, tokensCacheRead: null, tokensCacheWrite: null, cost: 0.01,
   totalCalls: 31, stepsUsed: 50, maxSteps: 50, callsBeforeFirstWrite: 27, writeCount: 2, redundantReadCount: 6, sameFileReadCount: 6,
@@ -371,7 +371,7 @@ test("GET /api/v1/runs/:id/turns returns each turn with its efficiency fields, n
 test("GET /api/v1/apps/:name/telemetry returns the efficiency aggregates alongside the existing analysis", async () => {
   const analysis: TelemetryAnalysis = {
     app: "demo", generatedAt: "2026-09-28T10:00:00.000Z", windowDays: null, runCount: 2,
-    byRole: [{ role: "qa-generator", medianPromptBytes: 200, p95PromptBytes: 300, medianCacheHitRate: null, turnCount: 4 }],
+    byRole: [{ role: "qa-author", medianPromptBytes: 200, p95PromptBytes: 300, medianCacheHitRate: null, turnCount: 4 }],
     reviewerConvergence: { avgCorrectionsRound0: null, avgCorrectionsRound1: null, approveRate: 0.5 },
     groundingPresence: 1, repairFraction: 0, medianTurnsPerRun: 2, medianWallClockSec: 30, p95WallClockSec: 40,
     efficiency: { turnsMeasured: 3, medianCallsBeforeFirstWrite: 8, exhaustedRate: 1 / 3, redundantReadRatio: 0.15, duplicateRatio: 0.1 },
@@ -1453,7 +1453,7 @@ test("phase-0b: GET /api/runs/:id/turns returns the saved turns for the run as a
   const record: RunRecord = { id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status: "done", cases: [], logs: [], at: "t" };
   const stubTurns = [
     {
-      runId: "r1", sessionId: "s1", role: "qa-generator", round: 0, isRepair: false,
+      runId: "r1", sessionId: "s1", role: "qa-author", round: 0, isRepair: false,
       ts: "2026-06-16T00:00:00.000Z", objective: "feat: add login",
       promptText: "generate tests", outputText: "tests done",
       promptBytes: 14, tokensInput: 100, tokensOutput: 50,
@@ -1479,7 +1479,7 @@ test("phase-0b: GET /api/runs/:id/turns returns the saved turns for the run as a
   const body = JSON.parse(res.body);
   assert.ok(Array.isArray(body), "response must be a JSON array");
   assert.equal(body.length, 2, "both turns must be returned");
-  assert.equal(body[0].role, "qa-generator");
+  assert.equal(body[0].role, "qa-author");
   assert.equal(body[1].role, "qa-reviewer");
   /* The reviewer turn must carry a non-null run_id */
   assert.equal(body[1].runId, "r1", "reviewer turn must have the parent run's runId");
@@ -1494,7 +1494,7 @@ test("phase-0b: GET /api/runs/:id/turns sanitizes prompt_text and output_text be
   const secret = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   const stubTurns = [
     {
-      runId: "r1", sessionId: "s1", role: "qa-generator", round: 0, isRepair: false,
+      runId: "r1", sessionId: "s1", role: "qa-author", round: 0, isRepair: false,
       ts: "2026-06-16T00:00:00.000Z", objective: "feat: add login",
       /* prompt_text carries the (raw-persisted) domSnapshot; output_text carries the agent reply. */
       promptText: `## Live DEV DOM\ntoken=${secret}\nbutton: Submit`,

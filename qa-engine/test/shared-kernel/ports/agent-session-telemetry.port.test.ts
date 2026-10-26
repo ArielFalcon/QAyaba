@@ -42,7 +42,7 @@ test("AgentTurnEvent carries round/isRepair/sectionSizes and a TurnTelemetrySink
    */
   const assembled: AgentTurnEvent = {
     runId: "run-1",
-    role: "primary",
+    role: "author",
     objective: "test the contact form",
     round: 1,
     isRepair: false,
@@ -50,7 +50,7 @@ test("AgentTurnEvent carries round/isRepair/sectionSizes and a TurnTelemetrySink
   };
   const repair: AgentTurnEvent = {
     runId: null,
-    role: "primary",
+    role: "author",
     round: 2,
     isRepair: true,
     sectionSizes: null,

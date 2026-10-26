@@ -43,9 +43,9 @@ test("the default config validates ok, and carries the shared-model warning exac
   assert.equal(result.warnings.length, reviewerIndependence(cfg) === "shared-model" ? 1 : 0);
 });
 
-test("opencode.json declares a model for qa-generator and for qa-reviewer", () => {
+test("opencode.json declares a model for qa-author and for qa-reviewer", () => {
   const models = opencodeAgentModels();
-  assert.ok(models["qa-generator"], "qa-generator must declare a model");
+  assert.ok(models["qa-author"], "qa-author must declare a model");
   assert.ok(models["qa-reviewer"], "qa-reviewer must declare a model");
 });
 
@@ -59,17 +59,17 @@ test("config.ts default reviewer matches opencode.json's qa-reviewer (single sou
   );
 });
 
-/* config.ts's DEFAULT_MODELS.opencode.primary must match opencode.json's qa-generator model —
+/* config.ts's DEFAULT_MODELS.opencode.primary must match opencode.json's qa-author model —
    not drift to qa-maintainer's model. The primary role that GENERATES tests on the e2e path must
    not be silently misdocumented. This guard makes that drift fail loudly.
  */
-test("config.ts default primary matches opencode.json's qa-generator (single source of truth)", () => {
+test("config.ts default primary matches opencode.json's qa-author (single source of truth)", () => {
   const models = opencodeAgentModels();
   const cfg = providerConfig("opencode", {});
   assert.equal(
     cfg.assignments.primary.model,
-    models["qa-generator"],
-    "config.ts DEFAULT_MODELS.opencode.primary must equal the model opencode.json actually runs for qa-generator.",
+    models["qa-author"],
+    "config.ts DEFAULT_MODELS.opencode.primary must equal the model opencode.json actually runs for qa-author.",
   );
 });
 

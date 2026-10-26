@@ -105,7 +105,7 @@ const answered = (extra: Partial<RawPromptResult> = {}): RawPromptResult => ({
 
 /* A two-step turn: step 1 reads a source file, step 2 writes a spec. */
 async function twoStepTurn(r: Rig, prompt = "write the spec") {
-  const session = await r.deps.open("qa-generator", CWD, { model: "prov/asked-model", descriptor: { runId: "run-1", role: "qa-generator" } });
+  const session = await r.deps.open("qa-author", CWD, { model: "prov/asked-model", descriptor: { runId: "run-1", role: "qa-author" } });
   const out = await session.prompt(prompt, {
     stepLimit: 25,
     round: 0,
@@ -140,7 +140,7 @@ test("a turn is invoke_agent -> attempt -> chat and execute_tool, with the calls
   const r = rig({ promptSession: twoSteps });
   await twoStepTurn(r);
 
-  const turn = r.h.only("invoke_agent qa-generator");
+  const turn = r.h.only("invoke_agent qa-author");
   const attempt = r.h.only("qayaba.agent.attempt");
   assert.equal(attempt.parentSpanContext?.spanId, turn.spanContext().spanId);
   const chats = r.h.named("chat m-answer");
@@ -171,9 +171,9 @@ test("a turn is invoke_agent -> attempt -> chat and execute_tool, with the calls
 test("the turn names its agent, session, role, prompt and the models, and sums its steps' usage under qayaba.usage.*", async () => {
   const r = rig({ promptSession: twoSteps });
   await twoStepTurn(r);
-  const turn = r.h.only("invoke_agent qa-generator");
+  const turn = r.h.only("invoke_agent qa-author");
   const a = (k: string) => attr(turn, k);
-  assert.deepEqual([a("gen_ai.operation.name"), a("gen_ai.agent.name"), a("gen_ai.conversation.id"), a("qayaba.agent.role"), a("qayaba.agent.round"), a("qayaba.agent.repair")], ["invoke_agent", "qa-generator", SESSION, "qa-generator", 0, false]);
+  assert.deepEqual([a("gen_ai.operation.name"), a("gen_ai.agent.name"), a("gen_ai.conversation.id"), a("qayaba.agent.role"), a("qayaba.agent.round"), a("qayaba.agent.repair")], ["invoke_agent", "qa-author", SESSION, "qa-author", 0, false]);
   assert.deepEqual([a("gen_ai.request.model"), a("gen_ai.provider.name"), a("gen_ai.response.model")], ["asked-model", "p-answer", "m-answer"]);
   assert.equal(a("langfuse.observation.type"), "agent");
   assert.equal(a("qayaba.agent.steps.limit"), 25);
@@ -202,7 +202,7 @@ test("a fallback is two attempts and an event, and the answering one is marked",
       return answered({ answered: { modelId: "fb-answer", providerId: "p-fb" } });
     },
   });
-  const session = await r.deps.open("qa-generator", CWD, { model: "prov/primary", descriptor: { runId: "run-1", role: "qa-generator" } });
+  const session = await r.deps.open("qa-author", CWD, { model: "prov/primary", descriptor: { runId: "run-1", role: "qa-author" } });
   await session.prompt("hello");
   await session.dispose();
 
@@ -213,7 +213,7 @@ test("a fallback is two attempts and an event, and the answering one is marked",
   assert.equal(attr(attempts[1]!, "gen_ai.request.model"), "fallback-model");
   assert.equal(attr(attempts[1]!, "gen_ai.response.model"), "fb-answer");
   assert.equal(attr(attempts[1]!, "gen_ai.provider.name"), "p-fb");
-  const turn = r.h.only("invoke_agent qa-generator");
+  const turn = r.h.only("invoke_agent qa-author");
   assert.deepEqual(turn.events.map((e) => e.name), ["fallback_model_used"]);
   assert.equal(attr(turn, "qayaba.agent.fallback_used"), true);
   assert.deepEqual(r.h.unended(), []);
@@ -223,10 +223,10 @@ test("a fallback is two attempts and an event, and the answering one is marked",
 
 test("a prompt cut by its time limit records which limit, ends as a timeout, and every span ends", async () => {
   const r = rig({ promptSession: () => new Promise(() => {}) });
-  const session = await r.deps.open("qa-generator", CWD, { descriptor: { runId: "run-1", role: "qa-generator" } });
+  const session = await r.deps.open("qa-author", CWD, { descriptor: { runId: "run-1", role: "qa-author" } });
   await assert.rejects(session.prompt("hello", { timeoutMs: 5, timeLimit: "tier-budget" }), /timed out/);
   await session.dispose();
-  const turn = r.h.only("invoke_agent qa-generator");
+  const turn = r.h.only("invoke_agent qa-author");
   assert.deepEqual([attr(turn, "qayaba.limit.fired"), attr(turn, "qayaba.limit.applied"), attr(turn, "qayaba.agent.end"), attr(turn, "error.type")], ["tier-budget", "tier-budget", "timeout", "timeout"]);
   assert.equal(turn.status.code, SpanStatusCode.ERROR);
   const attempt = r.h.only("qayaba.agent.attempt");
@@ -242,16 +242,16 @@ test("the run's deadline, the repair cap, the session's timeout and the host cap
     [{}, { timeoutMs: 5, timeLimit: "session-timeout" as const }, "session-timeout"],
   ] as const) {
     const r = rig({ promptSession: () => new Promise(() => {}) });
-    const session = await r.deps.open("qa-generator", CWD, { ...openOpts, descriptor: { runId: "run-1", role: "qa-generator" } });
+    const session = await r.deps.open("qa-author", CWD, { ...openOpts, descriptor: { runId: "run-1", role: "qa-author" } });
     await assert.rejects(session.prompt("hello", promptOpts));
     await session.dispose();
-    assert.equal(attr(r.h.only("invoke_agent qa-generator"), "qayaba.limit.fired"), expected);
+    assert.equal(attr(r.h.only("invoke_agent qa-author"), "qayaba.limit.fired"), expected);
     assert.deepEqual(r.h.unended(), []);
   }
   const hostCap = rig({ promptSession: () => new Promise(() => {}) });
-  const session = await hostCap.deps.open("qa-generator", CWD, { timeoutMs: 5, descriptor: { runId: "run-1", role: "qa-generator" } });
+  const session = await hostCap.deps.open("qa-author", CWD, { timeoutMs: 5, descriptor: { runId: "run-1", role: "qa-author" } });
   await assert.rejects(session.prompt("hello"));
-  assert.equal(attr(hostCap.h.only("invoke_agent qa-generator"), "qayaba.limit.fired"), "session-timeout");
+  assert.equal(attr(hostCap.h.only("invoke_agent qa-author"), "qayaba.limit.fired"), "session-timeout");
 });
 
 test("a stall abort rejects the outer promise only: the turn ends stalled, the attempt keeps going until its own timeout and ends abandoned", async () => {
@@ -268,13 +268,13 @@ test("a stall abort rejects the outer promise only: the turn ends stalled, the a
       return createStallWatchdog({ stallMs: 10 ** 9, onStall });
     },
   });
-  const session = await r.deps.open("qa-generator", CWD, { descriptor: { runId: "run-1", role: "qa-generator" } });
+  const session = await r.deps.open("qa-author", CWD, { descriptor: { runId: "run-1", role: "qa-author" } });
   const pending = session.prompt("hello", { timeoutMs: 40 });
   await new Promise((resolve) => setImmediate(resolve));
   fireStall();
   await assert.rejects(pending, /stalled/);
 
-  const turn = r.h.only("invoke_agent qa-generator");
+  const turn = r.h.only("invoke_agent qa-author");
   assert.deepEqual([attr(turn, "qayaba.limit.fired"), attr(turn, "qayaba.agent.end")], ["stall", "aborted"]);
   assert.equal(r.h.named("qayaba.agent.attempt").length, 0, "the attempt below has not ended yet");
   assert.ok(r.h.unended().includes("qayaba.agent.attempt"));
@@ -300,9 +300,9 @@ test("a turn that used every step it had is cut by the step cap, with an event",
       return answered({ parts: [{ type: "text", text: "CRITICAL - MAXIMUM STEPS REACHED" }] });
     },
   });
-  const session = await r.deps.open("qa-generator", CWD, { descriptor: { runId: "run-1", role: "qa-generator" } });
+  const session = await r.deps.open("qa-author", CWD, { descriptor: { runId: "run-1", role: "qa-author" } });
   await session.prompt("hello", { stepLimit: 1 });
-  const turn = r.h.only("invoke_agent qa-generator");
+  const turn = r.h.only("invoke_agent qa-author");
   assert.deepEqual([attr(turn, "qayaba.agent.end"), attr(turn, "qayaba.limit.fired")], ["exhausted", "step-cap"]);
   assert.deepEqual(turn.events.map((e) => e.name), ["step_budget_exhausted"]);
 });
@@ -313,7 +313,7 @@ test("the turn hangs under the phase the run has open, and a turn outside a run 
   const scope: RunScope = { runId: "run-1", workDir: "", egress: { dev: [], install: [] }, report: newSandboxReport(), telemetry: { parent: () => phase.context() } };
   await withExecScope(scope, () => twoStepTurn(r));
   phase.end();
-  assert.equal(r.h.only("invoke_agent qa-generator").parentSpanContext?.spanId, phase.context().spanId);
+  assert.equal(r.h.only("invoke_agent qa-author").parentSpanContext?.spanId, phase.context().spanId);
   assert.deepEqual(r.h.orphans(), []);
 });
 
@@ -321,7 +321,7 @@ test("a suspend or a blocked loop while the turn is open lands on the turn too",
   const listeners = new HostListeners();
   let release: (value: RawPromptResult) => void = () => {};
   const r = rig({ promptSession: () => new Promise((resolve) => { release = resolve; }), turn: { watchHost: (span) => watchSpanForHost(span, listeners) } });
-  const session = await r.deps.open("qa-generator", CWD, { descriptor: { runId: "run-1", role: "qa-generator" } });
+  const session = await r.deps.open("qa-author", CWD, { descriptor: { runId: "run-1", role: "qa-author" } });
   const pending = session.prompt("hello");
   await new Promise((resolve) => setImmediate(resolve));
   listeners.notify((l) => l.hostSuspended(61_000, r.clock.now()));
@@ -329,7 +329,7 @@ test("a suspend or a blocked loop while the turn is open lands on the turn too",
   release(answered());
   await pending;
   await session.dispose();
-  assert.deepEqual(r.h.only("invoke_agent qa-generator").events.map((e) => e.name), ["host_suspended", "event_loop_blocked"]);
+  assert.deepEqual(r.h.only("invoke_agent qa-author").events.map((e) => e.name), ["host_suspended", "event_loop_blocked"]);
   assert.equal(listeners.size(), 0, "the turn stops listening when it ends");
 });
 
@@ -344,7 +344,7 @@ test("a navigation's outcome is recorded from its answer, and a login page reads
       return answered();
     },
   });
-  const session = await r.deps.open("qa-generator", CWD, { descriptor: { runId: "run-1", role: "qa-generator" } });
+  const session = await r.deps.open("qa-author", CWD, { descriptor: { runId: "run-1", role: "qa-author" } });
   await session.prompt("hello");
   const outcomes = Object.fromEntries(r.h.named("execute_tool playwright_browser_navigate").map((s) => [attr(s, "gen_ai.tool.call.id"), attr(s, "qayaba.nav.outcome")]));
   assert.deepEqual(outcomes, { n1: "ok", n2: "auth_challenge", n3: "http_error" });
@@ -364,25 +364,25 @@ test("a seeded secret in the prompt, a target or an error never reaches a span, 
     },
   });
   await withRunSecretScope(secrets, async () => {
-    const session = await r.deps.open("qa-generator", CWD, { descriptor: { runId: "run-1", role: "qa-generator" } });
+    const session = await r.deps.open("qa-author", CWD, { descriptor: { runId: "run-1", role: "qa-author" } });
     await assert.rejects(session.prompt("log in as hunter2-pass and write the cart spec"));
     await session.dispose();
   });
   const everything = JSON.stringify(r.h.spans().map((s) => ({ name: s.name, attributes: s.attributes, events: s.events, status: s.status })));
   assert.ok(!everything.includes("hunter2"), "no secret in any span");
   assert.ok(!everything.includes("write the cart spec"), "no prompt text in any span");
-  assert.ok(Number(attr(r.h.only("invoke_agent qa-generator"), "qayaba.prompt.bytes")) > 0);
+  assert.ok(Number(attr(r.h.only("invoke_agent qa-author"), "qayaba.prompt.bytes")) > 0);
 });
 
 test("in off capture mode no hash or size of the prompt leaves; structure still does", async () => {
   const off = (await import("./trace-harness")).traceHarness({ captureMode: "off" });
   const r = rig({ promptSession: twoSteps, telemetry: off.telemetry });
   await twoStepTurn(r);
-  const turn = off.only("invoke_agent qa-generator");
+  const turn = off.only("invoke_agent qa-author");
   assert.equal(attr(turn, "qayaba.prompt.hash"), undefined);
   assert.equal(attr(turn, "qayaba.prompt.section.task.hash"), undefined);
   assert.equal(attr(turn, "qayaba.prompt.bytes"), undefined);
-  assert.equal(attr(turn, "gen_ai.agent.name"), "qa-generator");
+  assert.equal(attr(turn, "gen_ai.agent.name"), "qa-author");
   assert.equal(attr(off.named("execute_tool read")[0]!, "qayaba.tool.target"), undefined, "a tool's target is text, not structure");
 });
 
@@ -402,7 +402,7 @@ test("every metric the turn records is a declared instrument with declared, low-
   const input = r.h.measurements.filter((m) => m.name === "gen_ai.client.inference.usage.input_tokens");
   assert.deepEqual(input.map((m) => m.value), [100 + 5_000 + 10, 50 + 4_000 + 20]);
   assert.deepEqual(r.h.measurements.find((m) => m.name === "gen_ai.invoke_agent.inference_calls")!.value, 2);
-  assert.deepEqual(r.h.measurements.find((m) => m.name === "qayaba.agent.steps")!.attrs, { "qayaba.agent.role": "qa-generator" });
+  assert.deepEqual(r.h.measurements.find((m) => m.name === "qayaba.agent.steps")!.attrs, { "qayaba.agent.role": "qa-author" });
 });
 
 /* A scripted day of three prompts: an answer, a provider fault the fallback recovers, and a hang the time limit cuts. */
@@ -420,7 +420,7 @@ async function scriptedDay(telemetry: TelemetryPort | undefined) {
     },
   });
   const outcomes: string[] = [];
-  const session = await r.deps.open("qa-generator", CWD, { descriptor: { runId: "run-1", role: "qa-generator" } });
+  const session = await r.deps.open("qa-author", CWD, { descriptor: { runId: "run-1", role: "qa-author" } });
   for (const [text, opts] of [["answer", {}], ["fault", {}], ["hang", { timeoutMs: 5 }]] as const) {
     try {
       outcomes.push(await session.prompt(text, { ...opts }));
@@ -449,9 +449,9 @@ test("a prompt that names no model records no requested model, and the configure
     promptSession: async () => answered(),
     turn: { agentConfig: () => ({ model: "cfg/configured-model", reasoningEffort: "low" }), stepLimitFor: () => 40 },
   });
-  const session = await r.deps.open("qa-generator", CWD, { descriptor: { runId: "run-1", role: "qa-generator" } });
+  const session = await r.deps.open("qa-author", CWD, { descriptor: { runId: "run-1", role: "qa-author" } });
   await session.prompt("hello");
-  const turn = r.h.only("invoke_agent qa-generator");
+  const turn = r.h.only("invoke_agent qa-author");
   assert.equal(attr(turn, "gen_ai.request.model"), undefined);
   assert.equal(attr(r.h.only("qayaba.agent.attempt"), "gen_ai.request.model"), undefined);
   assert.equal(r.rows[0]!.modelRequested, null, "the row says the same");
@@ -481,7 +481,7 @@ test("a step still open when the turn ends is clamped to the attempt's end", asy
       return answered();
     },
   });
-  const session = await r.deps.open("qa-generator", CWD, { descriptor: { runId: "run-1", role: "qa-generator" } });
+  const session = await r.deps.open("qa-author", CWD, { descriptor: { runId: "run-1", role: "qa-author" } });
   await session.prompt("hello");
   const attempt = r.h.only("qayaba.agent.attempt");
   const chat = r.h.spans().find((s) => s.name.startsWith("chat "))!;
@@ -499,7 +499,7 @@ test("a chat span carries Langfuse's exclusive usage buckets and the provider's 
   assert.deepEqual(JSON.parse(String(attr(second!, "langfuse.observation.cost_details"))), { total: 0.03 });
   for (const tool of r.h.spans().filter((s) => s.name.startsWith("execute_tool "))) assert.equal(attr(tool, "langfuse.observation.type"), "tool", tool.name);
   /* Usage and cost sit on generations only: the turn's span keeps its sums under qayaba.usage.*, so Langfuse cannot count a step twice. */
-  const turn = r.h.only("invoke_agent qa-generator");
+  const turn = r.h.only("invoke_agent qa-author");
   assert.equal(attr(turn, "langfuse.observation.usage_details"), undefined);
   assert.equal(attr(turn, "langfuse.observation.cost_details"), undefined);
 });

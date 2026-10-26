@@ -229,7 +229,7 @@ leaves nothing behind).
 
 - Rebuild the `orchestrator` and `agents` images (the sidekick config, the tools map and the new tool binding ship
   in them) and keep `QA_TOOLS_TOKEN` set: `run_spec` and `authbrowser_*` are served from the internal listener.
-- `src/integrations/fixtures/opencode-agent-list.json` was edited by hand to carry `run_spec` on `qa-sidekick`;
+- `src/integrations/fixtures/opencode-agent-list.json` was edited by hand to carry `run_spec` on `qa-author`;
   re-record it from the pinned OpenCode build when convenient (its README says how).
 
 ## Known limits

@@ -50,7 +50,7 @@ async function capsOf(wire: unknown): Promise<Map<string, unknown>> {
 test("every agent of a recorded server response is listed with the cap the server enforces for it", async () => {
   const caps = await capsOf(recordedAgents());
   assert.equal(caps.size, recordedAgents().length, "no agent is dropped");
-  assert.equal(caps.get("qa-generator"), 250);
+  assert.equal(caps.get("qa-author"), 300);
   assert.equal(caps.get("qa-reviewer"), 25);
   assert.equal(caps.get("probe-steps"), 40);
   assert.equal(caps.get("probe-both"), 33, "steps wins when an agent declares both names");
@@ -78,9 +78,9 @@ test("the deprecated maxSteps is the cap of an agent that carries no steps", asy
 });
 
 test("an agent typed by the SDK's v2 Agent reports its steps as its cap", async () => {
-  const agent: OpenCodeAgent = { name: "qa-generator", mode: "primary", permission: [], options: {}, steps: 40 };
+  const agent: OpenCodeAgent = { name: "qa-author", mode: "primary", permission: [], options: {}, steps: 40 };
   const caps = await capsOf([agent]);
-  assert.equal(caps.get("qa-generator"), 40);
+  assert.equal(caps.get("qa-author"), 40);
 });
 
 test("a cap that is not a number is carried as the server sent it, for the caller to judge", async () => {
@@ -158,9 +158,9 @@ test("a turn's step limit is the one the server last reported for its agent, and
   const dir = mkdtempSync(join(tmpdir(), "qa-turn-step-limit-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const stale = join(dir, "opencode.json");
-  writeFileSync(stale, JSON.stringify({ agent: { "qa-sidekick": { steps: 60 }, "qa-unlisted": { steps: 7 } } }));
-  await listAgentCaps("/work", await depsServing(() => json([{ name: "qa-sidekick", steps: 300 }, { name: "qa-uncapped", steps: null }])));
-  assert.equal(turnStepLimit("qa-sidekick", stale), 300);
+  writeFileSync(stale, JSON.stringify({ agent: { "qa-author": { steps: 60 }, "qa-unlisted": { steps: 7 } } }));
+  await listAgentCaps("/work", await depsServing(() => json([{ name: "qa-author", steps: 300 }, { name: "qa-uncapped", steps: null }])));
+  assert.equal(turnStepLimit("qa-author", stale), 300);
   assert.equal(turnStepLimit("qa-uncapped", stale), undefined, "an agent the server enforces no cap for has none, whatever the file says");
   assert.equal(turnStepLimit("qa-unlisted", stale), 7);
 });

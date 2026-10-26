@@ -52,7 +52,7 @@ const extras: RunViewExtras = {
     levers: { closedLoop: true, agentBrowser: false, captureMode: "metadata" },
     campaignFreeze: true,
     runtime: "opencode",
-    agents: { "qa-generator": { provider: "opencode-go", model: "m1", reasoningEffort: null, stepLimit: 50 } },
+    agents: { "qa-author": { provider: "opencode-go", model: "m1", reasoningEffort: null, stepLimit: 50 } },
     prompt: { staticHash: "sha256:abc" },
     grounding: { stitcher: "signal", structuralSignal: "signal", curriculum: "frozen", domPack: true, dossier: true },
     coverage: { mode: "signal", minRatio: 0.7 },

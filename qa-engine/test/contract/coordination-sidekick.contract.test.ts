@@ -126,7 +126,7 @@ test("SidekickExecutor opens sidekick session, prompts, disposes, and parses Del
     cwd: "/tmp/mirror",
     kind: "author",
   });
-  assert.deepEqual(roles, ["sidekick"]);
+  assert.deepEqual(roles, ["author"]);
   assert.equal(prompts.length, 1);
   assert.equal(disposed, true);
   assert.equal(result.status, "completed");

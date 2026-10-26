@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { callCodeGraph } from "./codegraph-client.mjs";
 
-const context = { sessionID: "ses-1", agent: "qa-generator", abort: new AbortController().signal };
+const context = { sessionID: "ses-1", agent: "qa-author", abort: new AbortController().signal };
 const env = { QA_TOOLS_TOKEN: "service-token" };
 const jsonResponse = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
@@ -20,7 +20,7 @@ test("an explore carries the session and agent the runtime reports, the action a
   const out = await callCodeGraph({ action: "explore", args: { terms: ["formatMoney", "OrdersPage"], project: "another-app", max_files: 500, maxFiles: 500, depth: 3 }, context, env, fetchFn: fn });
   assert.equal(calls[0].url, "http://orchestrator:459/internal/codegraph");
   assert.equal(calls[0].init.headers.authorization, "Bearer service-token");
-  assert.deepEqual(JSON.parse(calls[0].init.body), { sessionID: "ses-1", agent: "qa-generator", action: "explore", terms: ["formatMoney", "OrdersPage"] });
+  assert.deepEqual(JSON.parse(calls[0].init.body), { sessionID: "ses-1", agent: "qa-author", action: "explore", terms: ["formatMoney", "OrdersPage"] });
   assert.deepEqual(JSON.parse(out), { ok: true, result: "**Exploration: x**", truncated: false, indexedSha: "abc1234", callsLeft: 39 });
 });
 

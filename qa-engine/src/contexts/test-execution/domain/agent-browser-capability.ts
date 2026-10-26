@@ -9,7 +9,7 @@ import { CODE_GRAPH_EXPLORE_AGENT } from "@kernel/code-graph-tools.ts";
 import { DEFAULT_AGENT_BROWSER_LIMITS, type AgentBrowserGateSignal, type AgentBrowserLimits } from "@kernel/agent-browser.ts";
 
 /* The only agents whose sessions may hold the capability: the roles that author tests and the explore role. Every other role is denied the tools in agents/opencode.json, and refused here. */
-export const AGENT_BROWSER_AGENTS: ReadonlySet<string> = new Set(["qa-generator", "qa-sidekick", CODE_GRAPH_EXPLORE_AGENT]);
+export const AGENT_BROWSER_AGENTS: ReadonlySet<string> = new Set(["qa-author", CODE_GRAPH_EXPLORE_AGENT]);
 
 /* The holders whose sessions never write to DEV, whatever the app allows: the route guard ignores the app's allowMutating entries for them. */
 export const AGENT_BROWSER_READ_ONLY_AGENTS: ReadonlySet<string> = new Set([CODE_GRAPH_EXPLORE_AGENT]);

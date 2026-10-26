@@ -261,9 +261,9 @@ qayaba.run
 │  │                               structural-signal, cross-repo-impact
 │  └─ qayaba.exec offline|suite   (DOM capture child)
 ├─ qayaba.phase.generate
-│  ├─ invoke_agent qa-generator   round=first|repair|static-fix|pre-exec|fix-loop|coverage-regen|review-correction
-│  ├─ plan qa-generator           (lead+sidekicks: read-only plan turn)
-│  ├─ qayaba.fanout               children: invoke_agent qa-sidekick (overlapping)
+│  ├─ invoke_agent qa-author   round=first|repair|static-fix|pre-exec|fix-loop|coverage-regen|review-correction
+│  ├─ plan qa-lead             (lead+sidekicks: read-only plan turn)
+│  ├─ qayaba.fanout               children: invoke_agent qa-author (overlapping)
 │  ├─ qayaba.merge                links → each delivering sidekick span
 │  └─ qayaba.coordination.event   one per plan/delegation/review decision: kind, action, reason, delegation, attempt, failure class
 ├─ qayaba.phase.validate          per check: typecheck | lint | list | manifest (first error: file:line:col rule); catalog gate; ambiguity advisory
@@ -362,7 +362,7 @@ So:
 ### 5.2 Shape
 
 ```
-invoke_agent qa-generator               INTERNAL  one per prompt (turn)
+invoke_agent qa-author               INTERNAL  one per prompt (turn)
 ├─ qayaba.agent.attempt                 one per attempt: primary, then fallback model
 │  ├─ chat <model>                      CLIENT, synthesized, one per step (step-start → step-finish)
 │  │  └─ (step tokens, reasoning, cache, cost, finish reason)
@@ -391,7 +391,7 @@ invoke_agent qa-generator               INTERNAL  one per prompt (turn)
 
 | Group | Attributes |
 |---|---|
-| Identity | `gen_ai.operation.name`=`invoke_agent`, `gen_ai.agent.name` (qa-generator…), `gen_ai.conversation.id`, `qayaba.agent.role`, `qayaba.agent.round`, `qayaba.agent.repair`, `qayaba.delegation.id` |
+| Identity | `gen_ai.operation.name`=`invoke_agent`, `gen_ai.agent.name` (qa-author…), `gen_ai.conversation.id`, `qayaba.agent.role`, `qayaba.agent.round`, `qayaba.agent.repair`, `qayaba.delegation.id` |
 | Model | `gen_ai.provider.name`, `gen_ai.request.model` (what we asked, or the agent's configured model), `gen_ai.response.model` (**from `AssistantMessage.modelID/providerID`**, which today is discarded at `opencode-client.ts:573`), `gen_ai.request.reasoning.level` (the role's `reasoningEffort`), `qayaba.agent.fallback_used` |
 | Tokens | `gen_ai.usage.input_tokens`, `.output_tokens`, `.cache_read.input_tokens`, `.cache_write.input_tokens`, `.reasoning.output_tokens`, summed over steps. `qayaba.usage.source`=`steps\|final-message\|none` says how complete the sum is |
 | Time | `qayaba.agent.ms_to_first_step`, `qayaba.agent.ms_to_first_call` (existing `timeToFirstCallMs`), `.ms_to_first_write`, `qayaba.agent.reasoning_tokens_before_first_call` (F3) |
@@ -854,7 +854,7 @@ These follow Hamel Husain's evals practice.
   `timeout`, `assertion`, `infra`, `egress`, `app_defect`). An answer outside the set is unparseable, never a guess, and the set is
   calibrated one-vs-rest. Changing the set changes the judge's meaning: bump the prompt version.
 - **The judge runs on a different model** than the generator. The model is the `qa-judge` role's assignment in `agents/opencode.json`;
-  nothing in code names one. A calibration made with a lowered bar (a `--min-n` below 20, rates below 0.8) is a diagnostic: the catalog never says `calibrated` for it. Evidence inside the prompt cannot forge the data fences (`<<<`/`>>>` are neutralized). A judge whose configured model equals `qa-generator`'s is refused (logged). The model that answered is
+  nothing in code names one. A calibration made with a lowered bar (a `--min-n` below 20, rates below 0.8) is a diagnostic: the catalog never says `calibrated` for it. Evidence inside the prompt cannot forge the data fences (`<<<`/`>>>` are neutralized). A judge whose configured model equals `qa-author`'s is refused (logged). The model that answered is
   recorded on every score (`judgeModel`) and the prompt version in its grader version.
 - **Judges share the provider quota** (F7). So they run **on the sequential queue**, as a low-priority job
   (`JobQueue.enqueueIdle`): started only when no run is pending, one at a time, handed a `shouldYield` that turns true as soon as a run
@@ -1038,7 +1038,7 @@ the contract above is unaffected:
       "campaignFreeze": true,
       "runtime": "opencode",
       "agents": {
-        "qa-generator": { "provider": "opencode-go", "model": "glm-5.3-flash", "reasoningEffort": "low", "stepLimit": 50 },
+        "qa-author": { "provider": "opencode-go", "model": "glm-5.3-flash", "reasoningEffort": "low", "stepLimit": 50 },
         "qa-reviewer":  { "provider": "opencode-go", "model": "minimax-m3", "reasoningEffort": null, "stepLimit": 25 }
       },
       "prompt": { "staticHash": "sha256:…" },
@@ -1252,7 +1252,7 @@ both.
   RE-RECORDED from a live OpenCode server (`agent-tool-surface.test.ts` fails on a configured role that is absent from the recording; the
   fixture is a capture, never hand-edited). In this order:
   1. Add the block of `agents/pending/qa-judge.opencode-block.json` under `agent` in `agents/opencode.json` (its model is a config
-     assignment: change it if you prefer, but it must differ from `qa-generator`'s, or the judges refuse). The prompt it points at,
+     assignment: change it if you prefer, but it must differ from `qa-author`'s and `qa-lead`'s, or the judges refuse). The prompt it points at,
      `agents/agent/qa-judge.md`, is already in place and versioned.
   2. Re-record `opencode-agent-list.json` on the pinned build as `src/integrations/fixtures/README.md` describes, and run
      `npx tsx --test src/integrations/agent-tool-surface.test.ts` (the new role must resolve with no `ask` standing and no readable secret).

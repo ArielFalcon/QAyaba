@@ -100,12 +100,11 @@ export interface AgentFacade {
  * a role cannot compile without a name and a name always resolves back to its own role.
  */
 export const AGENT_NAME_FOR_ROLE: Readonly<Record<AgentRole, string>> = {
-  primary: "qa-generator",
   lead: "qa-lead",
   explore: "qa-explore",
   reviewer: "qa-reviewer",
   chat: "qa-assistant",
-  sidekick: "qa-sidekick",
+  author: "qa-author",
   maintainer: "qa-maintainer",
   reflector: "qa-reflector",
   proposer: "qa-proposer",
@@ -129,6 +128,6 @@ export function assignmentForRole(config: AgentRuntimeConfig, role: AgentRole): 
   if (role === "chat") return config.assignments.chat;
   /* Reflector is a cheap read-only transform: it rides the chat tier, not the primary author. */
   if (role === "reflector") return config.assignments.chat;
-  /* Workers and maintainer inherit the primary provider/model. */
+  /* The roles that plan, explore, author and maintain run on the `primary` assignment: the tier the operator configures for the agents that do the run's work. */
   return config.assignments.primary;
 }

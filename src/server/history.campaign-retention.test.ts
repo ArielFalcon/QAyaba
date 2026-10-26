@@ -25,7 +25,7 @@ const id = (name: string): string => `${name}-${RUN}`;
     );
   `);
   const run = seeded.prepare("INSERT INTO runs (id, app, sha, at, campaign_id) VALUES (?, 'retention', 'abcdef1', ?, ?)");
-  const turn = seeded.prepare("INSERT INTO agent_turns (run_id, session_id, role, ts, prompt_text, output_text) VALUES (?, 's', 'qa-generator', ?, 'p', 'o')");
+  const turn = seeded.prepare("INSERT INTO agent_turns (run_id, session_id, role, ts, prompt_text, output_text) VALUES (?, 's', 'qa-author', ?, 'p', 'o')");
   for (const [name, age, campaign] of [["ordinary-old", 60, null], ["ordinary-new", 5, null], ["campaign-mid", 60, "camp"], ["campaign-old", 200, "camp"]] as const) {
     run.run(id(name), iso(age), campaign);
     turn.run(id(name), iso(age));

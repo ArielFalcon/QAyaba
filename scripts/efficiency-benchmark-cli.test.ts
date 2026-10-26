@@ -140,7 +140,7 @@ test("report exits 0 and reads every figure it could not observe as unknown: the
   const unobserved: RunDataSource = {
     ...source(),
     turns: () => [{
-      runId: "r", sessionId: "s1", role: "qa-generator", round: 0, isRepair: false, ts: "t", objective: null, promptText: "p", outputText: "o", promptBytes: 1,
+      runId: "r", sessionId: "s1", role: "qa-author", round: 0, isRepair: false, ts: "t", objective: null, promptText: "p", outputText: "o", promptBytes: 1,
       tokensInput: null, tokensOutput: null, tokensReasoning: null, tokensCacheRead: null, tokensCacheWrite: null, cost: null,
     }],
   };

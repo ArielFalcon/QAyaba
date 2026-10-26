@@ -199,7 +199,7 @@ export function specFileForFlow(flow: string): string {
   return `flows/${safe}.spec.ts`;
 }
 
-/* Assembles the dynamic message for the agent. The "how" lives in agents/agent/qa-generator.md and the skills; only the task + context go here. The diff/guidance are sanitized (cheap defense in depth). Return type is unchanged (string). Use buildPromptAssembled() to get the sectionSizes map for telemetry. `hasInjectedGrounding` is a coarse boolean — the injected grounding (Context Pack ≤6 routes / failure DOM ≤4 routes) may NOT cover the route a regen must touch. To avoid suppressing navigation into a blind/wrong fix, every grounded regen branch carries this explicit anti-blinding escape. */
+/* Assembles the dynamic message for the agent. The "how" lives in agents/agent/qa-author.md and the skills; only the task + context go here. The diff/guidance are sanitized (cheap defense in depth). Return type is unchanged (string). Use buildPromptAssembled() to get the sectionSizes map for telemetry. `hasInjectedGrounding` is a coarse boolean — the injected grounding (Context Pack ≤6 routes / failure DOM ≤4 routes) may NOT cover the route a regen must touch. To avoid suppressing navigation into a blind/wrong fix, every grounded regen branch carries this explicit anti-blinding escape. */
 const groundingUncoveredEscape = (browser: LiveBrowser): string =>
   `If a route you must touch is NOT represented in the injected grounding above, you MUST still ` +
   `${browser.navigate} that specific route before writing its selectors — never guess them.`;
@@ -776,7 +776,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ...(stepLimitContent ? [section(STEP_LIMIT_SECTION_ID, "critical-recap", stepLimitContent, { priority: 1, claims: [claim.provides("step-limit")] })] : []),
       ...(stepMilestoneContent ? [section(STEP_MILESTONE_SECTION_ID, "critical-recap", stepMilestoneContent, { priority: 2 })] : []),
     ];
-    return assemble(sections, { budgetBytes: opts.budgetBytes ?? roleWindowBytes("qa-sidekick") });
+    return assemble(sections, { budgetBytes: opts.budgetBytes ?? roleWindowBytes("qa-author") });
   };
 
   /* The listing is a section the byte budget may cut or shed. What the task says about reading the suite depends on whether the listing is there, and the decision not to ask for the outcome again rests on the objectives the listing shows. So when the budget sheds the listing the prompt is assembled again with the task worded for a prompt that has none, so that the agent is sent to read the suite and no claim reads a fact the prompt provides; when it cuts the listing, the prompt is assembled again with what is left of it. Either way the task asks for the outcome. The second assembly is kept only if the question costs the prompt no section and no part of the head of the listing: a wording must not take what the listing is for. */

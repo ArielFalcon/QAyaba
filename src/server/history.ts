@@ -38,7 +38,7 @@ const redactionPort = new RedactionPortAdapter();
 export interface AgentTurnRecord {
   runId: string | null;        /* maps to RunRecord.id; null for turns with no parent run */
   sessionId: string;           /* OpenCode session id */
-  role: string;                /* agent name (qa-generator, qa-reviewer, …) */
+  role: string;                /* agent name (qa-author, qa-reviewer, …) */
   round: number;               /* 0-based generation round within the session */
   isRepair: boolean;           /* true for in-session contract-repair re-prompts */
   ts: string;                  /* ISO-8601 timestamp when the turn completed */
@@ -2387,7 +2387,7 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
 
   const generatorFirstRounds = turnRows.filter(
     (r) =>
-      (r.role as string).includes("generator") &&
+      (r.role as string).includes("author") &&
       (r.round as number) === 0 &&
       !r.is_repair,
   );

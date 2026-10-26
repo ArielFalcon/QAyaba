@@ -100,17 +100,17 @@ function writeTempConfig(content: object): string {
 test("catalog: roleWindowBytes resolves budget from agents/opencode.json for a known role", () => {
   const cfg = {
     agent: {
-      "qa-generator": { model: "opencode-go/kimi-k2.7-code" },
+      "qa-author": { model: "opencode-go/kimi-k2.7-code" },
     },
   };
   const cfgPath = writeTempConfig(cfg);
-  const bytes = roleWindowBytes("qa-generator", cfgPath);
+  const bytes = roleWindowBytes("qa-author", cfgPath);
   const expected = modelWindowBytes("kimi-k2.7-code");
-  assert.equal(bytes, expected, "qa-generator budget must match kimi-k2.7-code catalog entry");
+  assert.equal(bytes, expected, "qa-author budget must match kimi-k2.7-code catalog entry");
 });
 
 test("catalog: roleWindowBytes returns fallback for a role absent from config", () => {
-  const cfg = { agent: { "qa-generator": { model: "opencode-go/kimi-k2.7-code" } } };
+  const cfg = { agent: { "qa-author": { model: "opencode-go/kimi-k2.7-code" } } };
   const cfgPath = writeTempConfig(cfg);
   const bytes = roleWindowBytes("qa-nonexistent-role", cfgPath);
   const fallbackBytes = Math.floor(DEFAULT_WINDOW_TOKENS * INPUT_PROMPT_SAFETY_MARGIN * BYTES_PER_TOKEN);
@@ -118,15 +118,15 @@ test("catalog: roleWindowBytes returns fallback for a role absent from config", 
 });
 
 test("catalog: roleWindowBytes returns fallback when config file does not exist", () => {
-  const bytes = roleWindowBytes("qa-generator", "/nonexistent/path/opencode.json");
+  const bytes = roleWindowBytes("qa-author", "/nonexistent/path/opencode.json");
   const fallbackBytes = Math.floor(DEFAULT_WINDOW_TOKENS * INPUT_PROMPT_SAFETY_MARGIN * BYTES_PER_TOKEN);
   assert.equal(bytes, fallbackBytes, "missing config file must return the DEFAULT_WINDOW_TOKENS fallback");
 });
 
 test("catalog: roleWindowBytes returns fallback for role with no model field", () => {
-  const cfg = { agent: { "qa-generator": { description: "no model field here" } } };
+  const cfg = { agent: { "qa-author": { description: "no model field here" } } };
   const cfgPath = writeTempConfig(cfg);
-  const bytes = roleWindowBytes("qa-generator", cfgPath);
+  const bytes = roleWindowBytes("qa-author", cfgPath);
   const fallbackBytes = Math.floor(DEFAULT_WINDOW_TOKENS * INPUT_PROMPT_SAFETY_MARGIN * BYTES_PER_TOKEN);
   assert.equal(bytes, fallbackBytes, "role with no model field must return the DEFAULT_WINDOW_TOKENS fallback");
 });
@@ -136,7 +136,7 @@ test("catalog: roleWindowBytes returns fallback for unparseable config", () => {
   mkdirSync(dir, { recursive: true });
   const p = join(dir, "opencode.json");
   writeFileSync(p, "{ NOT VALID JSON }", "utf8");
-  const bytes = roleWindowBytes("qa-generator", p);
+  const bytes = roleWindowBytes("qa-author", p);
   const fallbackBytes = Math.floor(DEFAULT_WINDOW_TOKENS * INPUT_PROMPT_SAFETY_MARGIN * BYTES_PER_TOKEN);
   assert.equal(bytes, fallbackBytes, "unparseable config must return the DEFAULT_WINDOW_TOKENS fallback");
 });
@@ -187,7 +187,7 @@ test("catalog: unknown model id still falls back to DEFAULT_WINDOW_TOKENS", () =
 test("catalog: roleWindowBytes resolves correctly for all roster roles via a full config mock", () => {
   const cfg = {
     agent: {
-      "qa-generator":   { model: "opencode-go/kimi-k2.7-code" },
+      "qa-author":   { model: "opencode-go/kimi-k2.7-code" },
       "qa-maintainer":  { model: "opencode-go/kimi-k2.7-code" },
       "qa-reviewer":    { model: "opencode-go/minimax-m3" },
       "qa-worker":      { model: "opencode-go/deepseek-v4-flash" },
@@ -198,7 +198,7 @@ test("catalog: roleWindowBytes resolves correctly for all roster roles via a ful
   };
   const cfgPath = writeTempConfig(cfg);
 
-  assert.equal(roleWindowBytes("qa-generator", cfgPath), modelWindowBytes("kimi-k2.7-code"));
+  assert.equal(roleWindowBytes("qa-author", cfgPath), modelWindowBytes("kimi-k2.7-code"));
   assert.equal(roleWindowBytes("qa-reviewer", cfgPath), modelWindowBytes("minimax-m3"));
   assert.equal(roleWindowBytes("qa-worker", cfgPath), modelWindowBytes("deepseek-v4-flash"));
 });
@@ -211,7 +211,7 @@ test("catalog: roleWindowBytes resolves correctly for all roster roles via a ful
    WRONG model's context window whenever an env override was active. Two independent
    sources of truth for "what model does this role run" = a split-brain.
    AFTER this fix: for the three VISIBLE roles with their own AgentRuntimeConfig assignment
-   (qa-generator→primary, qa-reviewer→reviewer, qa-assistant→chat), roleWindowBytes resolves the
+   (qa-author→primary, qa-reviewer→reviewer, qa-assistant→chat), roleWindowBytes resolves the
    model from the INJECTED runtime assignment FIRST (via setRuntimeRoleModels, wired by the shell from
    configFromEnv() at composition time) — opencode.json is consulted only as a disagreement check
    (warn, not override). Non-visible roles (qa-worker, qa-worker-code, qa-maintainer,
@@ -244,11 +244,11 @@ test("AFTER (env-assigned reviewer): qa-reviewer resolves via the injected Agent
   }
 });
 
-test("AFTER (env-override): a different injected primary model changes qa-generator's budget accordingly", () => {
-  const cfgPath = writeTempConfig({ agent: { "qa-generator": { model: "opencode-go/deepseek-v4-pro" } } });
+test("AFTER (env-override): a different injected primary model changes qa-author's budget accordingly", () => {
+  const cfgPath = writeTempConfig({ agent: { "qa-author": { model: "opencode-go/deepseek-v4-pro" } } });
   setRuntimeRoleModels({ primary: "gpt-5.4", reviewer: "gpt-5.5", chat: "gpt-5.4-mini" });
   try {
-    assert.equal(roleWindowBytes("qa-generator", cfgPath), modelWindowBytes("gpt-5.4"));
+    assert.equal(roleWindowBytes("qa-author", cfgPath), modelWindowBytes("gpt-5.4"));
   } finally {
     setRuntimeRoleModels(undefined);
   }
@@ -311,12 +311,12 @@ test("catalog: CATALOGED_MODELS lists the ids the catalog holds a window for: a 
     assert.ok(CATALOGED_MODELS.length > 0);
     for (const id of CATALOGED_MODELS) {
       setRuntimeRoleModels({ primary: id, reviewer: id, chat: id });
-      roleWindowBytes("qa-generator", absentConfig);
+      roleWindowBytes("qa-author", absentConfig);
     }
     assert.deepEqual(notInCatalog(), [], "every listed id is a cataloged one");
 
     setRuntimeRoleModels({ primary: "__not_cataloged__", reviewer: "__not_cataloged__", chat: "__not_cataloged__" });
-    roleWindowBytes("qa-generator", absentConfig);
+    roleWindowBytes("qa-author", absentConfig);
     assert.equal(notInCatalog().length, 1, "an id outside the list is not cataloged");
   } finally {
     console.warn = originalWarn;
@@ -341,7 +341,7 @@ test("a role's budget is the window the runtime reports for its model, also for 
   setRuntimeRoleModels({ primary: "some-provider/uncataloged-model", reviewer: "opencode-go/minimax-m3", chat: "gpt-5.4" });
   setLiveModelWindows({ "some-provider/uncataloged-model": 500_000 });
   try {
-    assert.equal(roleWindowBytes("qa-generator", "/nonexistent/path/opencode.json"), liveBytes(500_000));
+    assert.equal(roleWindowBytes("qa-author", "/nonexistent/path/opencode.json"), liveBytes(500_000));
   } finally {
     setLiveModelWindows(undefined);
     setRuntimeRoleModels(undefined);
@@ -364,7 +364,7 @@ test("a reported window that is not a positive whole number is ignored: the cata
   try {
     for (const bad of [0, -1, 1.5, Number.NaN]) {
       setLiveModelWindows({ "opencode-go/minimax-m3": bad });
-      assert.equal(roleWindowBytes("qa-generator", "/nonexistent/path/opencode.json"), modelWindowBytes("minimax-m3"), String(bad));
+      assert.equal(roleWindowBytes("qa-author", "/nonexistent/path/opencode.json"), modelWindowBytes("minimax-m3"), String(bad));
     }
   } finally {
     setLiveModelWindows(undefined);

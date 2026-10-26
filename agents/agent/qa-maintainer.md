@@ -75,6 +75,6 @@ what you investigated — it is better to escalate than to deploy an unsafe chan
 |---|---|
 | `health-check` | Orchestrator `/api/health` failing, queue stuck, process dead |
 | `log-scraper` | Error patterns from orchestrator logs (OpenCode/git/npm failures) |
-| `qa-generator` | Tool misconfiguration, Serena index failures, prompt issues |
+| `qa-author` | Tool misconfiguration, Serena index failures, prompt issues |
 | `qa-reviewer` | Recurring false-positive patterns, model output degradation |
 | `cli` | User-reported incident via `qa maintainer report` |

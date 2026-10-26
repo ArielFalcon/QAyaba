@@ -79,13 +79,13 @@ test("a crashed run is handed to the post-run hook too", async () => {
 test("the run's trace id, decision and the limit that ended it are stored with its final status", async () => {
   const h = traceHarness();
   const queue = new JobQueue();
-  const id = enqueueTrackedRun(queue, req(uniqueApp()), base(port({ verdict: "infra-error", errorClass: "E-TIME-BUDGET" }, { decision: "none", limitFired: "run-deadline", limitRole: "qa-generator" }), { telemetry: h.telemetry, clock: h.clock }));
+  const id = enqueueTrackedRun(queue, req(uniqueApp()), base(port({ verdict: "infra-error", errorClass: "E-TIME-BUDGET" }, { decision: "none", limitFired: "run-deadline", limitRole: "qa-author" }), { telemetry: h.telemetry, clock: h.clock }));
   await queue.drain();
   const facts = getRunFacts(id)!;
   assert.match(facts.traceId ?? "", /^[0-9a-f]{32}$/);
   assert.equal(facts.decision, "none");
   assert.equal(facts.limitFired, "run-deadline");
-  assert.equal(facts.limitRole, "qa-generator");
+  assert.equal(facts.limitRole, "qa-author");
 });
 
 test("a run with telemetry off stores no trace id", async () => {

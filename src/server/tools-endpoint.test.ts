@@ -15,9 +15,9 @@ const TOKEN = "service-token-for-tests-0123456789abcdef";
 
 function liveRegistry(call: (request: RunSpecRequest) => Promise<RunSpecResponse> = async () => ({ ok: true, report: { status: "passed", tests: [], passedTests: 0, budget: { callsLeft: 1, msLeft: undefined, devWritesLeft: 1 } } })) {
   const registry = new ClosedLoopRegistry();
-  const capability = new RunSpecCapability({ runId: "run-1", agents: new Set(["qa-sidekick"]), limits: { maxCalls: 2, perCallMs: 60_000, maxDevWrites: 5 }, expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0 });
+  const capability = new RunSpecCapability({ runId: "run-1", agents: new Set(["qa-author"]), limits: { maxCalls: 2, perCallMs: 60_000, maxDevWrites: 5 }, expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0 });
   registry.register({ runId: "run-1", delegationId: "run-1-flow", capability, call });
-  registry.bindSession({ sessionId: "ses-1", runId: "run-1", agent: "qa-sidekick", delegationId: "run-1-flow" });
+  registry.bindSession({ sessionId: "ses-1", runId: "run-1", agent: "qa-author", delegationId: "run-1-flow" });
   return registry;
 }
 
@@ -25,7 +25,7 @@ const request = (over: Partial<ToolsRequest> = {}): ToolsRequest => ({
   method: "POST",
   path: "/internal/run-spec",
   authorization: `Bearer ${TOKEN}`,
-  body: JSON.stringify({ sessionID: "ses-1", agent: "qa-sidekick", path: "flows/a.spec.ts" }),
+  body: JSON.stringify({ sessionID: "ses-1", agent: "qa-author", path: "flows/a.spec.ts" }),
   ...over,
 });
 
@@ -51,11 +51,11 @@ test("a body that is not a bounded JSON call is a bad request", async () => {
 });
 
 test("a session no loop owns is forbidden, and so is any other agent's", async () => {
-  const stranger = await handle(request({ body: JSON.stringify({ sessionID: "ses-other", agent: "qa-sidekick", path: "a.spec.ts" }) }));
+  const stranger = await handle(request({ body: JSON.stringify({ sessionID: "ses-other", agent: "qa-author", path: "a.spec.ts" }) }));
   assert.equal(stranger.status, 403);
   assert.equal((stranger.body as { code: string }).code, "unknown-session");
 
-  const registry = liveRegistry(async (call) => (call.agent === "qa-sidekick" ? { ok: true, report: { status: "passed", tests: [], passedTests: 0, budget: { callsLeft: 0, msLeft: undefined, devWritesLeft: 0 } } } : { ok: false, code: "wrong-agent", message: "run_spec is available to the generator only", budget: { callsLeft: 0, msLeft: undefined, devWritesLeft: 0 } }));
+  const registry = liveRegistry(async (call) => (call.agent === "qa-author" ? { ok: true, report: { status: "passed", tests: [], passedTests: 0, budget: { callsLeft: 0, msLeft: undefined, devWritesLeft: 0 } } } : { ok: false, code: "wrong-agent", message: "run_spec is available to the generator only", budget: { callsLeft: 0, msLeft: undefined, devWritesLeft: 0 } }));
   const reviewer = await handle(request({ body: JSON.stringify({ sessionID: "ses-1", agent: "qa-reviewer", path: "a.spec.ts" }) }), registry);
   assert.equal(reviewer.status, 403);
 });
@@ -63,28 +63,28 @@ test("a session no loop owns is forbidden, and so is any other agent's", async (
 test("a call from the generator's session runs and returns the report", async () => {
   const seen: RunSpecRequest[] = [];
   const registry = liveRegistry(async (call) => (seen.push(call), { ok: true, report: { status: "failed", tests: [{ title: "t", status: "failed" }], passedTests: 0, budget: { callsLeft: 1, msLeft: undefined, devWritesLeft: 2 } } }));
-  const response = await handle(request({ body: JSON.stringify({ sessionID: "ses-1", agent: "qa-sidekick", path: "flows/a.spec.ts", grep: "adds" }) }), registry);
+  const response = await handle(request({ body: JSON.stringify({ sessionID: "ses-1", agent: "qa-author", path: "flows/a.spec.ts", grep: "adds" }) }), registry);
   assert.equal(response.status, 200);
   assert.equal((response.body as { ok: boolean }).ok, true);
-  assert.deepEqual(seen, [{ sessionId: "ses-1", agent: "qa-sidekick", path: "flows/a.spec.ts", grep: "adds" }]);
+  assert.deepEqual(seen, [{ sessionId: "ses-1", agent: "qa-author", path: "flows/a.spec.ts", grep: "adds" }]);
 });
 
 test("a call from the sidekick's session of a flow reaches that flow's loop alone, and the run's own loop is not reachable from any session", async () => {
   const registry = new ClosedLoopRegistry();
   const reached: string[] = [];
   const loop = (delegationId: string | undefined): void => {
-    const capability = new RunSpecCapability({ runId: "run-1", limits: { maxCalls: 2, perCallMs: 60_000, maxDevWrites: 5 }, expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0, ...(delegationId ? { agents: new Set(["qa-sidekick"]) } : {}) });
+    const capability = new RunSpecCapability({ runId: "run-1", limits: { maxCalls: 2, perCallMs: 60_000, maxDevWrites: 5 }, expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0, ...(delegationId ? { agents: new Set(["qa-author"]) } : {}) });
     registry.register({ runId: "run-1", ...(delegationId ? { delegationId } : {}), capability, call: async () => (reached.push(delegationId ?? "run"), { ok: true, report: { status: "passed", tests: [], passedTests: 1, budget: { callsLeft: 1, msLeft: undefined, devWritesLeft: 1 } } }) });
   };
   loop(undefined);
   loop("run-1-cart");
-  registry.bindSession({ sessionId: "gen", runId: "run-1", agent: "qa-generator" });
-  registry.bindSession({ sessionId: "author", runId: "run-1", agent: "qa-sidekick" });
-  registry.bindSession({ sessionId: "side", runId: "run-1", agent: "qa-sidekick", delegationId: "run-1-cart" });
+  registry.bindSession({ sessionId: "gen", runId: "run-1", agent: "qa-author" });
+  registry.bindSession({ sessionId: "author", runId: "run-1", agent: "qa-author" });
+  registry.bindSession({ sessionId: "side", runId: "run-1", agent: "qa-author", delegationId: "run-1-cart" });
   const body = (sessionID: string, agent: string) => JSON.stringify({ sessionID, agent, path: "flows/cart.spec.ts" });
-  assert.equal((await handle(request({ body: body("side", "qa-sidekick") }), registry)).status, 200);
-  assert.equal((await handle(request({ body: body("gen", "qa-generator") }), registry)).status, 403);
-  assert.equal((await handle(request({ body: body("author", "qa-sidekick") }), registry)).status, 403);
+  assert.equal((await handle(request({ body: body("side", "qa-author") }), registry)).status, 200);
+  assert.equal((await handle(request({ body: body("gen", "qa-author") }), registry)).status, 403);
+  assert.equal((await handle(request({ body: body("author", "qa-author") }), registry)).status, 403);
   assert.deepEqual(reached, ["run-1-cart"]);
 });
 
@@ -136,7 +136,7 @@ function liveBrowsers(call: (request: AgentBrowserRequest) => Promise<AgentBrows
     endSession: () => undefined,
     close: async () => undefined,
   });
-  browsers.bindSession({ sessionId: "ses-1", runId: "run-1", agent: "qa-generator" });
+  browsers.bindSession({ sessionId: "ses-1", runId: "run-1", agent: "qa-author" });
   return browsers;
 }
 
@@ -153,13 +153,13 @@ const handleBrowser = (req: ToolsRequest, browsers: AgentBrowserRegistry | null 
 
 test("the browser endpoint wants the service token like run_spec's", async () => {
   for (const authorization of [undefined, "Bearer wrong"]) {
-    const response = await handleBrowser(browserRequest({ sessionID: "ses-1", agent: "qa-generator", action: "snapshot" }, { authorization }));
+    const response = await handleBrowser(browserRequest({ sessionID: "ses-1", agent: "qa-author", action: "snapshot" }, { authorization }));
     assert.equal(response.status, 401);
   }
 });
 
 test("without a browser registry the endpoint answers that the tool is not available, and run_spec still works", async () => {
-  const none = await handleBrowser(browserRequest({ sessionID: "ses-1", agent: "qa-generator", action: "snapshot" }), null);
+  const none = await handleBrowser(browserRequest({ sessionID: "ses-1", agent: "qa-author", action: "snapshot" }), null);
   assert.equal(none.status, 403);
   assert.equal((none.body as { code: string }).code, "unknown-session");
   assert.equal((await handle(request())).status, 200);
@@ -168,21 +168,21 @@ test("without a browser registry the endpoint answers that the tool is not avail
 test("a navigation from an authoring session reaches the run's browser with the caller's words and nothing else", async () => {
   const seen: AgentBrowserRequest[] = [];
   const response = await handleBrowser(
-    browserRequest({ sessionID: "ses-1", agent: "qa-generator", action: "navigate", url: "/orders", extra: "ignored", ref: "e1" }),
+    browserRequest({ sessionID: "ses-1", agent: "qa-author", action: "navigate", url: "/orders", extra: "ignored", ref: "e1" }),
     liveBrowsers(async (call) => (seen.push(call), PAGE_OK)),
   );
   assert.equal(response.status, 200);
-  assert.deepEqual(seen, [{ sessionId: "ses-1", agent: "qa-generator", action: "navigate", url: "/orders" }]);
+  assert.deepEqual(seen, [{ sessionId: "ses-1", agent: "qa-author", action: "navigate", url: "/orders" }]);
 });
 
 test("click and type carry their ref, text and submit", async () => {
   const seen: AgentBrowserRequest[] = [];
   const browsers = liveBrowsers(async (call) => (seen.push(call), PAGE_OK));
-  await handleBrowser(browserRequest({ sessionID: "ses-1", agent: "qa-generator", action: "click", ref: "e7" }), browsers);
-  await handleBrowser(browserRequest({ sessionID: "ses-1", agent: "qa-generator", action: "type", ref: "e2", text: "hello", submit: true }), browsers);
+  await handleBrowser(browserRequest({ sessionID: "ses-1", agent: "qa-author", action: "click", ref: "e7" }), browsers);
+  await handleBrowser(browserRequest({ sessionID: "ses-1", agent: "qa-author", action: "type", ref: "e2", text: "hello", submit: true }), browsers);
   assert.deepEqual(seen, [
-    { sessionId: "ses-1", agent: "qa-generator", action: "click", ref: "e7" },
-    { sessionId: "ses-1", agent: "qa-generator", action: "type", ref: "e2", text: "hello", submit: true },
+    { sessionId: "ses-1", agent: "qa-author", action: "click", ref: "e7" },
+    { sessionId: "ses-1", agent: "qa-author", action: "type", ref: "e2", text: "hello", submit: true },
   ]);
 });
 
@@ -190,11 +190,11 @@ test("a body that is not a bounded browser call is a bad request, and an action 
   const seen: AgentBrowserRequest[] = [];
   const browsers = liveBrowsers(async (call) => (seen.push(call), PAGE_OK));
   for (const body of [
-    { sessionID: "ses-1", agent: "qa-generator" },
-    { sessionID: "ses-1", agent: "qa-generator", action: "evaluate", expression: "1" },
-    { sessionID: "ses-1", agent: "qa-generator", action: "navigate", url: 4 },
-    { sessionID: 1, agent: "qa-generator", action: "snapshot" },
-    { sessionID: "ses-1", agent: "qa-generator", action: "type", ref: "e1", text: "x".repeat(20_000) },
+    { sessionID: "ses-1", agent: "qa-author" },
+    { sessionID: "ses-1", agent: "qa-author", action: "evaluate", expression: "1" },
+    { sessionID: "ses-1", agent: "qa-author", action: "navigate", url: 4 },
+    { sessionID: 1, agent: "qa-author", action: "snapshot" },
+    { sessionID: "ses-1", agent: "qa-author", action: "type", ref: "e1", text: "x".repeat(20_000) },
   ]) {
     assert.equal((await handleBrowser(browserRequest(body), browsers)).status, 400, JSON.stringify(body).slice(0, 50));
   }
@@ -202,7 +202,7 @@ test("a body that is not a bounded browser call is a bad request, and an action 
 });
 
 test("a session no browser owns is forbidden", async () => {
-  const response = await handleBrowser(browserRequest({ sessionID: "ses-other", agent: "qa-generator", action: "snapshot" }));
+  const response = await handleBrowser(browserRequest({ sessionID: "ses-other", agent: "qa-author", action: "snapshot" }));
   assert.equal(response.status, 403);
 });
 
@@ -210,14 +210,14 @@ test("each browser refusal has its own status and carries the message", async ()
   const cases: Array<[AgentBrowserRefusalCode, number]> = [["invalid-request", 400], ["revoked", 403], ["expired", 403], ["unknown-session", 403], ["wrong-agent", 403], ["blocked", 403], ["no-calls", 429], ["busy", 409], ["session-invalidated", 409], ["failed", 422]];
   for (const [code, status] of cases) {
     const browsers = liveBrowsers(async () => ({ ok: false, code, message: `refused: ${code}`, budget: { callsLeft: 0 } }));
-    const response = await handleBrowser(browserRequest({ sessionID: "ses-1", agent: "qa-generator", action: "snapshot" }), browsers);
+    const response = await handleBrowser(browserRequest({ sessionID: "ses-1", agent: "qa-author", action: "snapshot" }), browsers);
     assert.equal(response.status, status, code);
     assert.equal((response.body as { message: string }).message, `refused: ${code}`);
   }
 });
 
 test("a fault inside a browser call is a 500 that says nothing about its cause", async () => {
-  const response = await handleBrowser(browserRequest({ sessionID: "ses-1", agent: "qa-generator", action: "snapshot" }), liveBrowsers(async () => { throw new Error("secret path /app/data/x leaked"); }));
+  const response = await handleBrowser(browserRequest({ sessionID: "ses-1", agent: "qa-author", action: "snapshot" }), liveBrowsers(async () => { throw new Error("secret path /app/data/x leaked"); }));
   assert.equal(response.status, 500);
   assert.doesNotMatch(JSON.stringify(response.body), /secret path/);
 });
@@ -244,7 +244,7 @@ test("a session that calls too often is told to slow down, and other sessions ar
   let clock = 0;
   const limiter = createToolsRateLimiter({ maxCallsPerWindow: 3, windowMs: 1000, now: () => clock });
   const deps = { token: TOKEN, registry: liveRegistry(), limiter };
-  const call = (sessionID: string) => handleToolsRequest(request({ body: JSON.stringify({ sessionID, agent: "qa-sidekick", path: "flows/a.spec.ts" }) }), deps);
+  const call = (sessionID: string) => handleToolsRequest(request({ body: JSON.stringify({ sessionID, agent: "qa-author", path: "flows/a.spec.ts" }) }), deps);
   assert.deepEqual([await call("ses-1"), await call("ses-1"), await call("ses-1")].map((r) => r.status), [200, 200, 200]);
   const limited = await call("ses-1");
   assert.equal(limited.status, 429);
@@ -304,7 +304,7 @@ test("the tools listener binds to the container's one network interface when LIS
 test("a run_spec call carries the message id the tool reported, and a call without one is served as before", async () => {
   const seen: RunSpecRequest[] = [];
   const registry = liveRegistry(async (call) => (seen.push(call), { ok: true, report: { status: "passed", tests: [], passedTests: 0, budget: { callsLeft: 1, msLeft: undefined, devWritesLeft: 1 } } }));
-  await handle(request({ body: JSON.stringify({ sessionID: "ses-1", agent: "qa-sidekick", path: "flows/a.spec.ts", messageID: "msg_0e8f672fd0016ECRQbc2r1kiBB" }) }), registry);
+  await handle(request({ body: JSON.stringify({ sessionID: "ses-1", agent: "qa-author", path: "flows/a.spec.ts", messageID: "msg_0e8f672fd0016ECRQbc2r1kiBB" }) }), registry);
   await handle(request(), registry);
   assert.equal(seen[0]!.messageId, "msg_0e8f672fd0016ECRQbc2r1kiBB");
   assert.equal(seen[1]!.messageId, undefined);
@@ -312,7 +312,7 @@ test("a run_spec call carries the message id the tool reported, and a call witho
 
 test("a browser call carries the message id the tool reported", async () => {
   const seen: AgentBrowserRequest[] = [];
-  await handleBrowser(browserRequest({ sessionID: "ses-1", agent: "qa-generator", action: "snapshot", messageID: "msg_abc123" }), liveBrowsers(async (call) => (seen.push(call), PAGE_OK)));
+  await handleBrowser(browserRequest({ sessionID: "ses-1", agent: "qa-author", action: "snapshot", messageID: "msg_abc123" }), liveBrowsers(async (call) => (seen.push(call), PAGE_OK)));
   assert.equal(seen[0]!.messageId, "msg_abc123");
 });
 
@@ -322,8 +322,8 @@ test("a message id that is not a short plain identifier is dropped and the call 
   const registry = liveRegistry(async (call) => (seenSpec.push(call), { ok: true, report: { status: "passed", tests: [], passedTests: 0, budget: { callsLeft: 1, msLeft: undefined, devWritesLeft: 1 } } }));
   const browsers = liveBrowsers(async (call) => (seenBrowser.push(call), PAGE_OK));
   for (const messageID of [7, "", "x".repeat(201), "msg 1", "msg\n1", "msg/../1", { id: "m" }, ["m"]]) {
-    const spec = await handle(request({ body: JSON.stringify({ sessionID: "ses-1", agent: "qa-sidekick", path: "flows/a.spec.ts", messageID }) }), registry);
-    const browser = await handleBrowser(browserRequest({ sessionID: "ses-1", agent: "qa-generator", action: "snapshot", messageID }), browsers);
+    const spec = await handle(request({ body: JSON.stringify({ sessionID: "ses-1", agent: "qa-author", path: "flows/a.spec.ts", messageID }) }), registry);
+    const browser = await handleBrowser(browserRequest({ sessionID: "ses-1", agent: "qa-author", action: "snapshot", messageID }), browsers);
     assert.equal(spec.status, 200, JSON.stringify(messageID));
     assert.equal(browser.status, 200, JSON.stringify(messageID));
   }
@@ -337,8 +337,8 @@ function geoRun() {
   state.openFlow("run-1-flow-a");
   const registry = new GeolocationRegistry();
   registry.register({ runId: "run-1", state, set: (delegationId, change) => state.set(delegationId, change) });
-  registry.bindSession({ sessionId: "ses-lead", runId: "run-1", agent: "qa-generator" });
-  registry.bindSession({ sessionId: "ses-flow", runId: "run-1", agent: "qa-sidekick", delegationId: "run-1-flow-a" });
+  registry.bindSession({ sessionId: "ses-lead", runId: "run-1", agent: "qa-author" });
+  registry.bindSession({ sessionId: "ses-flow", runId: "run-1", agent: "qa-author", delegationId: "run-1-flow-a" });
   return { registry, state, deps: { token: TOKEN, registry: liveRegistry(), geolocations: registry } };
 }
 
@@ -346,7 +346,7 @@ const geoRequest = (body: unknown, path = GEOLOCATION_PATH): ToolsRequest => req
 
 test("a session of the run itself, with no flow, cannot move the run's location", async () => {
   const { deps, state } = geoRun();
-  const response = await handleToolsRequest(geoRequest({ sessionID: "ses-lead", agent: "qa-generator", place: "barcelona" }), deps);
+  const response = await handleToolsRequest(geoRequest({ sessionID: "ses-lead", agent: "qa-author", place: "barcelona" }), deps);
   assert.equal(response.status, 403);
   assert.equal((response.body as { code: string }).code, "unknown-session");
   assert.deepEqual(state.facts().current, { latitude: 40.4168, longitude: -3.7038 });
@@ -354,7 +354,7 @@ test("a session of the run itself, with no flow, cannot move the run's location"
 
 test("a sidekick's session moves only its flow, and a point is carried as two numbers", async () => {
   const { deps, state } = geoRun();
-  const response = await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-sidekick", latitude: 0, longitude: 0 }), deps);
+  const response = await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-author", latitude: 0, longitude: 0 }), deps);
   assert.equal(response.status, 200);
   assert.deepEqual(response.body, { ok: true, location: { latitude: 0, longitude: 0 }, scope: "flow" });
   assert.deepEqual(state.currentFor("run-1-flow-a"), { latitude: 0, longitude: 0 });
@@ -363,37 +363,37 @@ test("a sidekick's session moves only its flow, and a point is carried as two nu
 
 test("a session no run owns is forbidden, and a body with no place and no point is a bad request", async () => {
   const { deps } = geoRun();
-  const stranger = await handleToolsRequest(geoRequest({ sessionID: "ses-other", agent: "qa-generator", place: "barcelona" }), deps);
+  const stranger = await handleToolsRequest(geoRequest({ sessionID: "ses-other", agent: "qa-author", place: "barcelona" }), deps);
   assert.equal(stranger.status, 403);
   assert.equal((stranger.body as { code: string }).code, "unknown-session");
-  assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-sidekick" }), deps)).status, 400);
-  assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-sidekick", latitude: "10", longitude: 20 }), deps)).status, 400);
+  assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-author" }), deps)).status, 400);
+  assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-author", latitude: "10", longitude: 20 }), deps)).status, 400);
 });
 
 test("a session is served only under the role it was bound for, and a place name is bounded", async () => {
   const { deps } = geoRun();
-  const wrong = await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-generator", place: "barcelona" }), deps);
+  const wrong = await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-reviewer", place: "barcelona" }), deps);
   assert.equal(wrong.status, 403);
   assert.equal((wrong.body as { code: string }).code, "wrong-agent");
-  assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-sidekick", place: "a".repeat(41) }), deps)).status, 400);
+  assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-author", place: "a".repeat(41) }), deps)).status, 400);
 });
 
 test("an unknown place, an out-of-range point and a closed flow each have their own status", async () => {
   const { deps, state } = geoRun();
-  const place = await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-sidekick", place: "atlantis" }), deps);
+  const place = await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-author", place: "atlantis" }), deps);
   assert.equal(place.status, 400);
   assert.match((place.body as { message: string }).message, /barcelona/);
-  assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-sidekick", latitude: 91, longitude: 0 }), deps)).status, 400);
+  assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-author", latitude: 91, longitude: 0 }), deps)).status, 400);
   state.closeFlow("run-1-flow-a");
-  assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-sidekick", place: "barcelona" }), deps)).status, 409);
+  assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-author", place: "barcelona" }), deps)).status, 409);
 });
 
 test("the location endpoint takes the service token and POST only", async () => {
   const { deps } = geoRun();
-  assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-sidekick", place: "barcelona" }, "/api/health"), deps)).status, 404);
-  assert.equal((await handleToolsRequest(request({ path: GEOLOCATION_PATH, method: "GET", body: JSON.stringify({ sessionID: "ses-flow", agent: "qa-sidekick", place: "barcelona" }) }), deps)).status, 405);
-  assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-sidekick", place: "barcelona" }), { ...deps, token: TOKEN })).status, 200);
-  const unauthorized = await handleToolsRequest({ ...geoRequest({ sessionID: "ses-flow", agent: "qa-sidekick", place: "barcelona" }), authorization: "Bearer wrong" }, deps);
+  assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-author", place: "barcelona" }, "/api/health"), deps)).status, 404);
+  assert.equal((await handleToolsRequest(request({ path: GEOLOCATION_PATH, method: "GET", body: JSON.stringify({ sessionID: "ses-flow", agent: "qa-author", place: "barcelona" }) }), deps)).status, 405);
+  assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-author", place: "barcelona" }), { ...deps, token: TOKEN })).status, 200);
+  const unauthorized = await handleToolsRequest({ ...geoRequest({ sessionID: "ses-flow", agent: "qa-author", place: "barcelona" }), authorization: "Bearer wrong" }, deps);
   assert.equal(unauthorized.status, 401);
 });
 
@@ -438,7 +438,7 @@ test("the code-graph endpoint wants the service token, and a session no run gran
   const { registry } = await codeGraphs();
   const unauthorized = await handleToolsRequest({ ...graphRequest({ sessionID: "ses-lead", agent: "qa-lead", action: "explore", terms: ["x"] }), authorization: "Bearer nope" }, { token: TOKEN, registry: liveRegistry(), codeGraphs: registry });
   assert.equal(unauthorized.status, 401);
-  const stranger = await handleToolsRequest(graphRequest({ sessionID: "ses-sidekick", agent: "qa-sidekick", action: "explore", terms: ["x"] }), { token: TOKEN, registry: liveRegistry(), codeGraphs: registry });
+  const stranger = await handleToolsRequest(graphRequest({ sessionID: "ses-sidekick", agent: "qa-author", action: "explore", terms: ["x"] }), { token: TOKEN, registry: liveRegistry(), codeGraphs: registry });
   assert.equal(stranger.status, 403);
   const none = await handleToolsRequest(graphRequest({ sessionID: "ses-lead", agent: "qa-lead", action: "explore", terms: ["x"] }), { token: TOKEN, registry: liveRegistry() });
   assert.equal(none.status, 403);

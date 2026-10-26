@@ -8,11 +8,11 @@
 import { DEFAULT_CLOSED_LOOP_LIMITS, type ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 
-/* The agent whose sessions hold the run's own capability. */
-export const RUN_SPEC_AGENT = "qa-generator";
+/* The agent whose sessions hold the capability of one flow of a plan: the author of that flow. */
+export const RUN_SPEC_FLOW_AGENT = "qa-author";
 
-/* The agent whose sessions hold the capability of one flow of a plan: the sidekick that authors it. */
-export const RUN_SPEC_FLOW_AGENT = "qa-sidekick";
+/* The agents that hold the location tool: the author of a flow moves that flow's location. */
+export const GEOLOCATION_AGENTS: ReadonlySet<string> = new Set([RUN_SPEC_FLOW_AGENT]);
 
 /* Where the generator's throwaway specs live, relative to the spec directory. Nothing under it is ever delivered, stored or validated. */
 export const PROBE_REL_DIR = ".qa-probe";
@@ -93,7 +93,7 @@ export interface RunSpecCapabilityInit {
   limits: ClosedLoopLimits;
   expiresAtMs: number;
   now: () => number;
-  /* The agents whose sessions may hold it. Absent: the generator alone. */
+  /* The agents whose sessions may hold it. Absent: the author alone. */
   agents?: ReadonlySet<string>;
 }
 
@@ -101,7 +101,7 @@ function refuse(code: ClosedLoopRefusalCode, message: string): ClosedLoopRefusal
   return { ok: false, code, message };
 }
 
-const DEFAULT_AGENTS: ReadonlySet<string> = new Set([RUN_SPEC_AGENT]);
+const DEFAULT_AGENTS: ReadonlySet<string> = new Set([RUN_SPEC_FLOW_AGENT]);
 
 export class RunSpecCapability {
   private readonly sessions = new Set<string>();

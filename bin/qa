@@ -53,7 +53,7 @@ Commands:
     report          Report an incident
       --summary ".."  What happened
       --severity s    warn | error | critical (default: warn)
-      --source s      health-check | log-scraper | qa-generator | qa-reviewer | cli (default: cli)
+      --source s      health-check | log-scraper | qa-author | qa-reviewer | cli (default: cli)
     status          Maintainer status
     incidents       List recorded incidents
   help            Show this help

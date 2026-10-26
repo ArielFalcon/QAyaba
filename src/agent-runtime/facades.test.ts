@@ -60,10 +60,10 @@ test("the facade routes every agent role through the one runtime", async () => {
   assert.deepEqual(calls, ["reviewer"]);
 });
 
-test("the facade opens the qa-sidekick agent as the sidekick role, not the primary author", async () => {
+test("the facade opens the qa-author agent as the author role", async () => {
   const calls: AgentRole[] = [];
-  await (await single(calls).deps().open("qa-sidekick", "/tmp/repo")).dispose();
-  assert.deepEqual(calls, ["sidekick"]);
+  await (await single(calls).deps().open("qa-author", "/tmp/repo")).dispose();
+  assert.deepEqual(calls, ["author"]);
 });
 
 test("the facade rejects an unknown agent name without opening any session", async () => {
@@ -74,13 +74,13 @@ test("the facade rejects an unknown agent name without opening any session", asy
 
 test("the facade opens a session on the role assignment's model when the caller names none", async () => {
   const models: Array<string | undefined> = [];
-  await (await single([], models).deps().open("qa-sidekick", "/tmp/repo")).dispose();
+  await (await single([], models).deps().open("qa-author", "/tmp/repo")).dispose();
   assert.deepEqual(models, [CONFIG.assignments.primary.model]);
 });
 
 test("the facade opens a session on the model the caller asked for, not the role assignment's", async () => {
   const models: Array<string | undefined> = [];
-  await (await single([], models).deps().open("qa-sidekick", "/tmp/repo", { model: "opencode-go/escalated" })).dispose();
+  await (await single([], models).deps().open("qa-author", "/tmp/repo", { model: "opencode-go/escalated" })).dispose();
   assert.deepEqual(models, ["opencode-go/escalated"]);
 });
 
@@ -89,10 +89,10 @@ test("the facade opens each role on the strategy its assignment names", async ()
   const otherCalls: AgentRole[] = [];
   const facade = new AgentRuntimeFacade({ opencode: strategy("opencode", openCalls), [OTHER_NAME]: strategy(OTHER, otherCalls) } as Record<AgentProvider, AgentRuntimeStrategy>, SPLIT_CONFIG);
   const deps = facade.deps();
-  await (await deps.open("qa-generator", "/tmp/repo")).dispose();
+  await (await deps.open("qa-author", "/tmp/repo")).dispose();
   await (await deps.open("qa-reviewer", "/tmp/repo")).dispose();
   await (await deps.open("qa-assistant", "/tmp/repo")).dispose();
-  assert.deepEqual(openCalls, ["primary"]);
+  assert.deepEqual(openCalls, ["author"]);
   assert.deepEqual(otherCalls, ["reviewer", "chat"]);
 });
 
@@ -124,9 +124,9 @@ function strategyEnforcing(provider: AgentProvider, limits: StepLimits, reads: s
 
 test("the facade answers with the limits its strategy enforces for the directory", async () => {
   const reads: string[] = [];
-  const facade = new AgentRuntimeFacade({ opencode: strategyEnforcing("opencode", { primary: 40, reviewer: 25 }, reads) }, CONFIG);
+  const facade = new AgentRuntimeFacade({ opencode: strategyEnforcing("opencode", { author: 40, reviewer: 25 }, reads) }, CONFIG);
   const limits = await facade.stepLimits("/m/app");
-  assert.equal(limits.primary, 40);
+  assert.equal(limits.author, 40);
   assert.equal(limits.reviewer, 25);
   assert.equal(limits.chat, undefined, "a role the strategy reports no limit for has none");
   assert.deepEqual(reads, ["/m/app"]);
@@ -152,13 +152,13 @@ test("the facade reads every provider that runs a role once, and a role takes it
   const otherReads: string[] = [];
   const facade = new AgentRuntimeFacade(
     {
-      opencode: strategyEnforcing("opencode", { primary: 40, reviewer: 25 }, opencodeReads),
-      [OTHER_NAME]: strategyEnforcing(OTHER, { reviewer: 7, primary: 99 }, otherReads),
+      opencode: strategyEnforcing("opencode", { author: 40, reviewer: 25 }, opencodeReads),
+      [OTHER_NAME]: strategyEnforcing(OTHER, { reviewer: 7, author: 99 }, otherReads),
     } as Record<AgentProvider, AgentRuntimeStrategy>,
     SPLIT_CONFIG,
   );
   const limits = await facade.stepLimits("/m/app");
-  assert.equal(limits.primary, 40, "the generator runs on opencode, not on the other runtime");
+  assert.equal(limits.author, 40, "the generator runs on opencode, not on the other runtime");
   assert.equal(limits.reviewer, 7, "the reviewer runs on the other runtime, not on opencode");
   assert.deepEqual(opencodeReads, ["/m/app"]);
   assert.deepEqual(otherReads, ["/m/app"]);
@@ -167,7 +167,7 @@ test("the facade reads every provider that runs a role once, and a role takes it
 test("the facade does not read a provider that runs no role", async () => {
   const otherReads: string[] = [];
   const facade = new AgentRuntimeFacade(
-    { opencode: strategyEnforcing("opencode", { primary: 40, reviewer: 25 }, []), [OTHER_NAME]: strategyEnforcing(OTHER, { reviewer: 7 }, otherReads) } as Record<AgentProvider, AgentRuntimeStrategy>,
+    { opencode: strategyEnforcing("opencode", { author: 40, reviewer: 25 }, []), [OTHER_NAME]: strategyEnforcing(OTHER, { reviewer: 7 }, otherReads) } as Record<AgentProvider, AgentRuntimeStrategy>,
     CONFIG,
   );
   const limits = await facade.stepLimits("/m/app");

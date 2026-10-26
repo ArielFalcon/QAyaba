@@ -454,7 +454,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
   }
 
   test("the step limit of each role crosses the composition root: the generator's reaches the generation input and the reviewer's the review input", async () => {
-    const { cfg, generation, review } = await inputsBuiltThrough({ ...fakeFactoryDeps(), getAgentFacade: () => facadeReporting({ sidekick: 41, reviewer: 17 }) });
+    const { cfg, generation, review } = await inputsBuiltThrough({ ...fakeFactoryDeps(), getAgentFacade: () => facadeReporting({ author: 41, reviewer: 17 }) });
 
     const dyingLayer = "buildEngineRootDeps() -> wireEngine() (src/server/run-engine-factory.ts -> engine-root.ts)";
     assert.notEqual(cfg.stepLimitFor, undefined, `stepLimitFor dropped at ${dyingLayer}`);
@@ -492,7 +492,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
       assignments: { primary: assignedTo(NO_LIMIT_RUNTIME), reviewer: assignedTo(NO_LIMIT_RUNTIME), chat: assignedTo(NO_LIMIT_RUNTIME) },
     });
     const split = new AgentRuntimeFacade(
-      { opencode: providerReporting("opencode", { sidekick: 41, reviewer: 17 }), [NO_LIMIT_NAME]: providerReporting(NO_LIMIT_RUNTIME) } as Record<AgentProvider, AgentRuntimeStrategy>,
+      { opencode: providerReporting("opencode", { author: 41, reviewer: 17 }), [NO_LIMIT_NAME]: providerReporting(NO_LIMIT_RUNTIME) } as Record<AgentProvider, AgentRuntimeStrategy>,
       { assignments: { primary: assignedTo("opencode"), reviewer: assignedTo(NO_LIMIT_RUNTIME), chat: assignedTo(NO_LIMIT_RUNTIME) } },
     );
 

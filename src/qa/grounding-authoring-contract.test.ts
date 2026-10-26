@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
  */
 
 const AUTHORING_PROMPTS = [
-  "agents/agent/qa-generator.md",
+  "agents/agent/qa-author.md",
 ];
 
 const REVIEWER_PROMPTS = [

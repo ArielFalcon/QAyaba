@@ -52,7 +52,7 @@ function rig(over: { enabled?: boolean; canCall?: boolean; material?: SessionMat
   return { deps, registry, host, seen, prepared };
 }
 
-const call = (registry: AgentBrowserRegistry, sessionId: string, url = "/orders") => registry.find(sessionId)!.call({ sessionId, agent: "qa-generator", action: "navigate", url });
+const call = (registry: AgentBrowserRegistry, sessionId: string, url = "/orders") => registry.find(sessionId)!.call({ sessionId, agent: "qa-author", action: "navigate", url });
 
 test("a disabled app is not granted the browser, and the run's own choice overrides the app's", async () => {
   const off = rig({ enabled: false });
@@ -90,7 +90,7 @@ test("an open browser states its limits and waits for an authoring session", asy
 test("only an authoring session of the run is served, through the run's guard", async () => {
   const r = rig();
   await new AgentBrowserPortAdapter(r.deps).open(OPEN);
-  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: "qa-generator" });
+  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: "qa-author" });
   r.registry.bindSession({ sessionId: "ses-2", runId: "run-9", agent: "qa-reviewer" });
   assert.equal(r.registry.find("ses-2"), undefined);
   const ok = await call(r.registry, "ses-1");
@@ -106,7 +106,7 @@ test("the guard is built from the origins of the run's scope", async () => {
   await withExecScope({ runId: "run-9", workDir: "/tmp/x", egress: { dev: [BASE, "https://api.example.com"], install: [] }, report: newSandboxReport() }, async () => {
     await new AgentBrowserPortAdapter(r.deps).open(OPEN);
   });
-  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: "qa-generator" });
+  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: "qa-author" });
   const other = await call(r.registry, "ses-1", "https://api.example.com/health");
   assert.equal(other.ok, true);
   const undeclared = await call(r.registry, "ses-1", "https://evil.example.org/");
@@ -121,7 +121,7 @@ test("a call made from outside the run still runs in the run's scope, with its s
   await withRunSecretScope(scope, async () => {
     await new AgentBrowserPortAdapter(r.deps).open(OPEN);
   });
-  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: "qa-generator" });
+  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: "qa-author" });
   const res = await call(r.registry, "ses-1");
   assert.doesNotMatch(JSON.stringify(res), /hunter2-secret/);
 });
@@ -129,7 +129,7 @@ test("a call made from outside the run still runs in the run's scope, with its s
 test("an ended session closes its page and stops its call; the browser stays for the others", async () => {
   const r = rig();
   await new AgentBrowserPortAdapter(r.deps).open(OPEN);
-  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: "qa-generator" });
+  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: "qa-author" });
   let observed: AbortSignal | undefined;
   r.host.page = async () => { observed = r.host.performed.at(-1)!.options.signal; await new Promise((resolve) => setTimeout(resolve, 20)); throw new BrowserActionError("cancelled"); };
   const pending = call(r.registry, "ses-1");
@@ -149,7 +149,7 @@ test("a lost session is renewed through the auth port and the browser starts ove
   const r = rig({ renew: async () => { renewals += 1; return true; } });
   r.host.page = () => ({ ...PAGE, url: `${BASE}/login` });
   const handle = await new AgentBrowserPortAdapter(r.deps).open({ ...OPEN, specDir });
-  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: "qa-generator" });
+  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: "qa-author" });
   const res = await call(r.registry, "ses-1");
   assert.equal(res.ok, false);
   assert.equal(renewals, 1);
@@ -165,7 +165,7 @@ test("a lost session is not renewed with a login the agent rewrote while it auth
   const r = rig({ renew: async () => true });
   r.host.page = () => ({ ...PAGE, url: `${BASE}/login` });
   await new AgentBrowserPortAdapter(r.deps).open({ ...OPEN, specDir });
-  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: "qa-generator" });
+  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: "qa-author" });
   writeFileSync(join(specDir, "auth.setup.ts"), "// rewritten by the agent\n");
   await call(r.registry, "ses-1");
   assert.deepEqual(r.prepared, []);
@@ -174,14 +174,14 @@ test("a lost session is not renewed with a login the agent rewrote while it auth
 test("closing revokes the right, forgets the sessions and stops the browser, once", async () => {
   const r = rig();
   const handle = await new AgentBrowserPortAdapter(r.deps).open(OPEN);
-  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: "qa-generator" });
+  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: "qa-author" });
   const live = r.registry.find("ses-1")!;
   await handle!.close();
   await handle!.close();
   assert.equal(r.registry.size, 0);
   assert.equal(r.registry.find("ses-1"), undefined);
   assert.equal(r.host.closed, 1);
-  const refused = await live.call({ sessionId: "ses-1", agent: "qa-generator", action: "snapshot" });
+  const refused = await live.call({ sessionId: "ses-1", agent: "qa-author", action: "snapshot" });
   assert.equal(refused.ok === false && refused.code, "revoked");
 });
 
@@ -189,9 +189,9 @@ test("a flow's share of the browser's calls is granted through the handle, and i
   const r = rig();
   const handle = (await new AgentBrowserPortAdapter(r.deps).open(OPEN))!;
   handle.grantShare("flow-a", 1);
-  r.registry.bindSession({ sessionId: "side", runId: "run-9", agent: "qa-sidekick", delegationId: "flow-a" });
-  r.registry.bindSession({ sessionId: "gen", runId: "run-9", agent: "qa-generator" });
-  const sidekickCall = () => r.registry.find("side")!.call({ sessionId: "side", agent: "qa-sidekick", action: "navigate", url: "/orders" });
+  r.registry.bindSession({ sessionId: "side", runId: "run-9", agent: "qa-author", delegationId: "flow-a" });
+  r.registry.bindSession({ sessionId: "gen", runId: "run-9", agent: "qa-author" });
+  const sidekickCall = () => r.registry.find("side")!.call({ sessionId: "side", agent: "qa-author", action: "navigate", url: "/orders" });
   assert.equal((await sidekickCall()).ok, true);
   const second = await sidekickCall();
   assert.equal(second.ok, false);

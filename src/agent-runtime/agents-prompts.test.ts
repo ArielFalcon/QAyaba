@@ -44,7 +44,7 @@ function readFile(rel: string): string {
 }
 
 /* The generator role prompt. */
-const GENERATOR_PROMPTS = ["agents/agent/qa-generator.md"];
+const GENERATOR_PROMPTS = ["agents/agent/qa-author.md"];
 
 /* Parse H2 sections out of a markdown document. Returns a map: header text → body. */
 function parseSections(md: string): Map<string, string> {
@@ -118,14 +118,14 @@ describe("agent prompt guard", () => {
   });
 
 
-  it("agents/agent/qa-generator.md contains the anti-hang/no-op section", () => {
-    const generator = readFile("agents/agent/qa-generator.md");
+  it("agents/agent/qa-author.md contains the anti-hang/no-op section", () => {
+    const generator = readFile("agents/agent/qa-author.md");
     /* The anti-hang section prevents the generator from over-working past the verdict, which causes run timeouts. */
     assert.ok(
       generator.includes("DONE generating") ||
         generator.includes("Stop when the spec is written") ||
         generator.includes("verdict is your LAST action"),
-      "agents/agent/qa-generator.md is missing the anti-hang/no-op section: " +
+      "agents/agent/qa-author.md is missing the anti-hang/no-op section: " +
         'the "Stop when the spec is written — then emit the verdict" section prevents the generator from ' +
         "over-working past the closing verdict.",
     );
@@ -164,7 +164,7 @@ describe("agent prompt guard", () => {
   /* The directory every watched repo keeps its suite in; the runner reports spec paths relative to it. */
   const SUITE_DIR = "e2e";
 
-  it("qa-generator.md asks for specs as suite-relative paths, the same ones specMetas names", () => {
+  it("qa-author.md asks for specs as suite-relative paths, the same ones specMetas names", () => {
     for (const rel of GENERATOR_PROMPTS) {
       const finalOutput = parseSections(readFile(rel)).get("Final output") ?? "";
       const example = /```json\n([\s\S]*?)\n```/.exec(finalOutput)?.[1];
@@ -195,7 +195,7 @@ describe("agent prompt guard", () => {
     });
   };
 
-  it("in qa-generator.md the first Final output example delivers specs and every other one declares a no-op, as the real parser and validator read them", () => {
+  it("in qa-author.md the first Final output example delivers specs and every other one declares a no-op, as the real parser and validator read them", () => {
     for (const rel of GENERATOR_PROMPTS) {
       const examples = finalOutputExamples(rel);
       assert.ok(examples.length >= 2, `${rel}: the Final output section carries a delivery example and a no-op example`);
@@ -210,7 +210,7 @@ describe("agent prompt guard", () => {
     }
   });
 
-  it("no example in qa-generator.md reports an approval", () => {
+  it("no example in qa-author.md reports an approval", () => {
     for (const rel of GENERATOR_PROMPTS) {
       for (const example of finalOutputExamples(rel)) {
         assert.equal("approved" in (JSON.parse(example) as object), false, `${rel}: ${example}`);
@@ -278,7 +278,7 @@ describe("agent prompt guard", () => {
     for (const rel of [
       ...GENERATOR_PROMPTS,
       "agents/skill/playwright-authoring/SKILL.md",
-      "agents/agent/qa-sidekick.md",
+      "agents/agent/qa-author.md",
     ]) {
       assert.equal(restatementsIn(readFile(rel)), 0, rel);
     }
@@ -532,7 +532,7 @@ describe("agent prompt guard", () => {
 
   it("each craft rule is stated in the layer that owns it and nowhere else", () => {
     const staticLayers: Array<[string, string]> = [
-      ["OpenCode", ["agents/AGENTS.md", "agents/agent/qa-generator.md"].map(readFile).join("\n")],
+      ["OpenCode", ["agents/AGENTS.md", "agents/agent/qa-author.md"].map(readFile).join("\n")],
     ];
     for (const { rule, pattern, shape, inStatic, inAssembled, withLimit } of OWNED_RULES) {
       for (const [runtime, text] of staticLayers) {
@@ -638,7 +638,7 @@ describe("agent prompt guard", () => {
 
   /* The shared layer, the generator role, and the roles that point at the shared layer for how to orient. */
   const STATIC_LAYERS = [
-    { shared: "agents/AGENTS.md", generator: "agents/agent/qa-generator.md", pointers: ["agents/agent/qa-proposer.md"] },
+    { shared: "agents/AGENTS.md", generator: "agents/agent/qa-author.md", pointers: ["agents/agent/qa-proposer.md"] },
   ] as const;
   const STOP_RULE_SECTION = "Stop when the spec is written or the no-op is declared — then emit the verdict";
   const PROTOCOLS_SECTION = "Protocols (to keep quality from degrading over time)";

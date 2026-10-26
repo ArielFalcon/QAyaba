@@ -477,7 +477,7 @@ export const STEP_LIMIT_READ_TIMEOUT_MS = 30_000;
 
 /* The runtime role each step-limit role runs as. */
 const RUNTIME_ROLE_OF_STEP_LIMIT_ROLE: Readonly<Record<StepLimitRole, AgentRole>> = {
-  author: "sidekick",
+  author: "author",
   lead: "lead",
   reviewer: "reviewer",
 };
@@ -1195,7 +1195,7 @@ export function buildEngineRootDeps(
                 maxDevWrites: app.qa.closedLoop?.maxDevWrites ?? DEFAULT_CLOSED_LOOP_LIMITS.maxDevWrites,
               },
             },
-            generatorRuntimeCanCall: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "primary").provider === "opencode" : false),
+            generatorRuntimeCanCall: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "author").provider === "opencode" : false),
             account: `${app.name}/${app.auth?.usernameEnv ?? "public"}`,
             lock: PROCESS_ACCOUNT_LOCK,
             deadline: runDeadline,
@@ -1219,7 +1219,7 @@ export function buildEngineRootDeps(
       ? {
           codeGraphTools: {
             registry: deps.codeGraphRegistry,
-            generatorRuntimeCanCall: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "primary").provider === "opencode" : false),
+            generatorRuntimeCanCall: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "author").provider === "opencode" : false),
             redact: redactSourceForModel,
           },
         }
@@ -1233,7 +1233,7 @@ export function buildEngineRootDeps(
               denyRoutes: app.qa.agentBrowser?.denyRoutes ?? [],
               allowMutating: app.qa.agentBrowser?.allowMutating ?? [],
             },
-            generatorRuntimeCanCall: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "primary").provider === "opencode" : false),
+            generatorRuntimeCanCall: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "author").provider === "opencode" : false),
             createHost: (parts) => new PlaywrightAgentBrowserHost(parts),
             launcher: new SandboxedChromiumLauncher({
               exec: execWiring.exec,

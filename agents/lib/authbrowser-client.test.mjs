@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { callAuthBrowser } from "./authbrowser-client.mjs";
 
-const context = { sessionID: "ses-1", agent: "qa-generator", abort: new AbortController().signal };
+const context = { sessionID: "ses-1", agent: "qa-author", abort: new AbortController().signal };
 const env = { QA_TOOLS_TOKEN: "service-token" };
 const jsonResponse = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
@@ -22,7 +22,7 @@ test("a call carries the session and agent the runtime reports, the action and i
   assert.equal(calls[0].url, "http://orchestrator:459/internal/authbrowser");
   assert.equal(calls[0].init.method, "POST");
   assert.equal(calls[0].init.headers.authorization, "Bearer service-token");
-  assert.deepEqual(JSON.parse(calls[0].init.body), { sessionID: "ses-1", agent: "qa-generator", action: "navigate", url: "/orders" });
+  assert.deepEqual(JSON.parse(calls[0].init.body), { sessionID: "ses-1", agent: "qa-author", action: "navigate", url: "/orders" });
   assert.deepEqual(JSON.parse(out), { ok: true, page: { url: "https://dev/x", snapshot: "- heading" } });
 });
 

@@ -4,8 +4,8 @@
  *
  * PURPOSE: proves, on the pinned OpenCode build inside the built `agents` image, that the custom tool agents/tool/run_spec.ts
  *   1. is loaded from the GLOBAL config directory with project configuration disabled (OPENCODE_DISABLE_PROJECT_CONFIG=true),
- *   2. is switched off for every agent but the authoring roles, qa-generator and qa-sidekick (agents/opencode.json),
- *   3. is called by a real OpenCode session of qa-generator, and the call reaches the orchestrator's endpoint with the service
+ *   2. is switched off for every agent but the authoring role, qa-author (agents/opencode.json),
+ *   3. is called by a real OpenCode session of qa-author, and the call reaches the orchestrator's endpoint with the service
  *      token, the session id the runtime opened and the agent name it reports (ToolContext), and its answer goes back to the model.
  * It uses a stub model and a stub orchestrator that live in this process, so it needs no API key and touches no DEV.
  *
@@ -85,8 +85,8 @@ function prepareConfig() {
   cpSync(SOURCE, dir, { recursive: true, filter: (src) => !src.includes("/node_modules") && !src.includes("/smoke") });
   const config = JSON.parse(readFileSync(join(dir, "opencode.json"), "utf8"));
   config.provider = { stub: { npm: "@ai-sdk/openai-compatible", name: "stub", options: { baseURL: `http://127.0.0.1:${MODEL_PORT}/v1`, apiKey: "x" }, models: { "stub-model": { name: "stub-model", tool_call: true, limit: { context: 100000, output: 4000 } } } } };
-  config.agent["qa-generator"].model = "stub/stub-model";
-  config.agent["qa-generator"].prompt = "You are a smoke test.";
+  config.agent["qa-author"].model = "stub/stub-model";
+  config.agent["qa-author"].prompt = "You are a smoke test.";
   config.mcp = {};
   writeFileSync(join(dir, "opencode.json"), JSON.stringify(config, null, 2));
 }
@@ -122,17 +122,17 @@ try {
 
   const agents = await api("/agent");
   const allowed = agents.filter((a) => a.permission.filter((r) => r.permission === "run_spec").at(-1)?.action === "allow").map((a) => a.name);
-  check(JSON.stringify([...allowed].sort()) === JSON.stringify(["qa-generator", "qa-sidekick"]), `only the authoring roles (qa-generator, qa-sidekick) may call run_spec (allowed: ${JSON.stringify(allowed)})`);
+  check(JSON.stringify([...allowed].sort()) === JSON.stringify(["qa-author"]), `only the authoring role (qa-author) may call run_spec (allowed: ${JSON.stringify(allowed)})`);
 
   mkdirSync("/tmp/run-spec-smoke-repo", { recursive: true });
   const session = await api("/session?directory=/tmp/run-spec-smoke-repo", { method: "POST", body: "{}" });
-  const answer = await api(`/session/${session.id}/message?directory=/tmp/run-spec-smoke-repo`, { method: "POST", body: JSON.stringify({ agent: "qa-generator", parts: [{ type: "text", text: "go" }] }) });
+  const answer = await api(`/session/${session.id}/message?directory=/tmp/run-spec-smoke-repo`, { method: "POST", body: JSON.stringify({ agent: "qa-author", parts: [{ type: "text", text: "go" }] }) });
   const call = orchestratorCalls[0];
   check(orchestratorCalls.length === 1, "the generator's session made exactly one call to the orchestrator");
   check(call?.method === "POST" && call.url === "/internal/run-spec", "the call is POST /internal/run-spec");
   check(call?.authorization === `Bearer ${TOKEN}`, "the call carries the service token");
   check(call?.body.sessionID === session.id, "the call names the session the runtime opened (ToolContext.sessionID)");
-  check(call?.body.agent === "qa-generator", "the call names the agent the runtime reports (ToolContext.agent)");
+  check(call?.body.agent === "qa-author", "the call names the agent the runtime reports (ToolContext.agent)");
   check(typeof call?.body.messageID === "string" && call.body.messageID.startsWith("msg_"), "the call names the assistant message the runtime reports (ToolContext.messageID), which joins it to the trace");
   check(call?.body.path === "e2e/flows/a.spec.ts" && call?.body.grep === "adds (one)", "the call carries the model's path and grep");
   check(modelRequests.at(-1)?.roles.includes("tool"), "the orchestrator's answer went back to the model as a tool result");

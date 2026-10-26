@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { callGeolocation } from "./geolocation-client.mjs";
 
-const context = { sessionID: "ses-1", agent: "qa-generator", abort: new AbortController().signal };
+const context = { sessionID: "ses-1", agent: "qa-author", abort: new AbortController().signal };
 const env = { QA_TOOLS_TOKEN: "service-token" };
 const jsonResponse = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
@@ -22,7 +22,7 @@ test("a call carries the session and agent the runtime reports, the place and th
   assert.equal(calls[0].url, "http://orchestrator:459/internal/geolocation");
   assert.equal(calls[0].init.method, "POST");
   assert.equal(calls[0].init.headers.authorization, "Bearer service-token");
-  assert.deepEqual(JSON.parse(calls[0].init.body), { sessionID: "ses-1", agent: "qa-generator", place: "barcelona" });
+  assert.deepEqual(JSON.parse(calls[0].init.body), { sessionID: "ses-1", agent: "qa-author", place: "barcelona" });
   assert.deepEqual(JSON.parse(out), { ok: true, location: { latitude: 41.3874, longitude: 2.1686 }, scope: "run", place: "barcelona" });
 });
 

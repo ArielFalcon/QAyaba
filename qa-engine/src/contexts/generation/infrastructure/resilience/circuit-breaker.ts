@@ -1,6 +1,6 @@
 /* Circuit breaker state is keyed: one key per agent role (the `agent`/descriptor.role identity every
    caller already threads through AgentDeps.open) so a run-away role (e.g. a stalled qa-reviewer)
-   cannot trip the breaker for an unrelated, healthy role (e.g. qa-generator), and a success on one
+   cannot trip the breaker for an unrelated, healthy role (e.g. qa-author), and a success on one
    role can never reset another role's genuinely-accumulating failure streak — plus the provider
    transport key agent-transport-policy.ts feeds from every transport failure.
  */

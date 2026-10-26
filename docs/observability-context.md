@@ -59,8 +59,7 @@ Two Docker services share a `mirrors` volume, which holds the working copies of 
 
 | Role | When | What it produces | Notes for telemetry |
 |---|---|---|---|
-| `qa-generator` | Generation | Spec files plus a verdict JSON (`specs`, `specMetas`, `note`, `noop{reason,kind}`, `plan`) | Has per-call telemetry today (`agent_turns.tool_sequence`) |
-| `qa-sidekick` | Lead+sidekicks mode only (off by default; never run live) | One flow per sidekick, run in parallel through `FanOutDispatcher` | Each sidekick is its own session and pays the full tool-schema cost again |
+| `qa-author` | Generation: the run's own task and every flow of a plan (one flow per sidekick, run in parallel through `FanOutDispatcher`, each its own session that pays the full tool-schema cost again) | Spec files plus a verdict JSON (`specs`, `specMetas`, `note`, `noop{reason,kind}`, `plan`) | Has per-call telemetry today (`agent_turns.tool_sequence`) |
 | `qa-reviewer` | After execute | Approve/reject plus correction classes | A different model from the generator, on purpose. No per-call data |
 | `qa-reflector`, `qa-proposer`, `qa-assistant`, `qa-maintainer` | Learning (off by default) / onboarding / chat / self-repair | — | Lower priority |
 | (OpenCode) `title` | **Every session**, automatically | A session title (`small=true`) | **A hidden extra LLM call per session.** It shows up in OpenCode's log as `agent=title`. It also fails and retries when the quota is exhausted |

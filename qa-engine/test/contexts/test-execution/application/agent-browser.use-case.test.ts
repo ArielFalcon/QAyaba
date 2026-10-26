@@ -55,7 +55,7 @@ function setup(over: { host?: FakeHost; lock?: AccountLock; renew?: (() => Promi
   return { host, capability, lock, useCase };
 }
 
-const nav = (url: string, over: Partial<AgentBrowserRequest> = {}): AgentBrowserRequest => ({ sessionId: "s1", agent: "qa-generator", action: "navigate", url, ...over }) as AgentBrowserRequest;
+const nav = (url: string, over: Partial<AgentBrowserRequest> = {}): AgentBrowserRequest => ({ sessionId: "s1", agent: "qa-author", action: "navigate", url, ...over }) as AgentBrowserRequest;
 
 test("a session the orchestrator did not bind, or a role that does not author, gets nothing and the browser is not touched", async () => {
   const { host, useCase } = setup();
@@ -123,11 +123,11 @@ test("a navigation to a denied route, another origin or a non-http address is re
 test("a call carrying a malformed argument is refused without reaching the browser", async () => {
   const { host, useCase } = setup();
   const bad: AgentBrowserRequest[] = [
-    { sessionId: "s1", agent: "qa-generator", action: "click", ref: "" },
-    { sessionId: "s1", agent: "qa-generator", action: "click", ref: "e1; drop" },
-    { sessionId: "s1", agent: "qa-generator", action: "type", ref: "e1", text: "x".repeat(5000), submit: false },
-    { sessionId: "s1", agent: "qa-generator", action: "navigate", url: "" },
-    { sessionId: "s1", agent: "qa-generator", action: "evaluate" } as unknown as AgentBrowserRequest,
+    { sessionId: "s1", agent: "qa-author", action: "click", ref: "" },
+    { sessionId: "s1", agent: "qa-author", action: "click", ref: "e1; drop" },
+    { sessionId: "s1", agent: "qa-author", action: "type", ref: "e1", text: "x".repeat(5000), submit: false },
+    { sessionId: "s1", agent: "qa-author", action: "navigate", url: "" },
+    { sessionId: "s1", agent: "qa-author", action: "evaluate" } as unknown as AgentBrowserRequest,
   ];
   for (const request of bad) {
     const res = await useCase.call(request);
@@ -186,7 +186,7 @@ test("a call that gave up waiting for the account does not use a call of its flo
   const { useCase, capability } = setup({ lock });
   capability.bindSession("flow-session", "flow-a");
   capability.setShare("flow-a", 1);
-  const flowCall = { ...nav("/orders"), sessionId: "flow-session", agent: "qa-sidekick" };
+  const flowCall = { ...nav("/orders"), sessionId: "flow-session", agent: "qa-author" };
   let release!: () => void;
   const held = lock.withLock("app/user", () => new Promise<void>((r) => { release = r; }));
   const ended = new AbortController();
@@ -263,7 +263,7 @@ test("an error the agent can act on is shown to it, redacted", async () => {
   const host = new FakeHost();
   host.next = () => { throw new BrowserActionError("ref e9 is not on the page hunter2"); };
   const { useCase } = setup({ host });
-  const res = await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "click", ref: "e9" });
+  const res = await useCase.call({ sessionId: "s1", agent: "qa-author", action: "click", ref: "e9" });
   assert.equal(res.ok === false && res.code, AGENT_BROWSER_REFUSAL.FAILED);
   if (!res.ok) {
     assert.match(res.message, /ref e9/);
@@ -284,7 +284,7 @@ test("what the guard stopped during a call is reported to the agent and counted"
   const host = new FakeHost();
   host.next = () => page({ blocked: [{ reason: "method", detail: "POST https://dev.example.com/api/orders would write to DEV" }] });
   const { useCase, capability } = setup({ host });
-  const res = await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "click", ref: "e1" });
+  const res = await useCase.call({ sessionId: "s1", agent: "qa-author", action: "click", ref: "e1" });
   assert.equal(res.ok, true);
   if (res.ok) assert.match(res.blocked[0]!.detail, /POST/);
   assert.equal(capability.signal.blocks, 1);
@@ -311,7 +311,7 @@ test("pages that merely look like a login, or ask for a password after a click, 
   host.next = () => page({ url: `${BASE}/auth/callback`, requestedPath: "/auth/callback" });
   assert.equal((await useCase.call(nav("/auth/callback"))).ok, true, "a page the agent asked for");
   host.next = () => page({ url: `${BASE}/settings/security`, requestedPath: "/settings", passwordFieldVisible: true });
-  assert.equal((await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "click", ref: "e3" })).ok, true, "a page a click led to");
+  assert.equal((await useCase.call({ sessionId: "s1", agent: "qa-author", action: "click", ref: "e3" })).ok, true, "a page a click led to");
   assert.equal(renewals, 0);
   assert.equal(host.resets, 0);
   assert.equal(capability.signal.invalidations, 0);
@@ -356,7 +356,7 @@ test("everything that leaves is redacted and a long tree is cut with a note", as
 
 test("a snapshot asks the browser for the page as it is, with no argument", async () => {
   const { host, useCase } = setup();
-  const res = await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "snapshot" });
+  const res = await useCase.call({ sessionId: "s1", agent: "qa-author", action: "snapshot" });
   assert.equal(res.ok, true);
   assert.deepEqual(host.calls[0]?.action, { kind: "snapshot" });
 });
@@ -364,37 +364,37 @@ test("a snapshot asks the browser for the page as it is, with no argument", asyn
 test("a refs of any length the snapshot gives is accepted, and one that is not an identifier is not", async () => {
   const { host, useCase } = setup();
   for (const ref of ["e5", "e123", "f1e12", "E7", `e${"1".repeat(15)}`]) {
-    const res = await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "click", ref });
+    const res = await useCase.call({ sessionId: "s1", agent: "qa-author", action: "click", ref });
     assert.equal(res.ok, true, ref);
   }
   assert.equal(host.calls.length, 5);
   for (const ref of [`e${"1".repeat(16)}`, "1e", "e-1", "e 1"]) {
-    const res = await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "click", ref });
+    const res = await useCase.call({ sessionId: "s1", agent: "qa-author", action: "click", ref });
     assert.equal(res.ok === false && res.code, AGENT_BROWSER_REFUSAL.INVALID_REQUEST, ref);
   }
 });
 
 test("typing forwards its text, and submit only when it is true; a submit that is not a boolean is refused", async () => {
   const { host, useCase } = setup();
-  await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "type", ref: "e1", text: "hi" });
-  await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "type", ref: "e1", text: "hi", submit: false });
-  await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "type", ref: "e1", text: "hi", submit: true });
+  await useCase.call({ sessionId: "s1", agent: "qa-author", action: "type", ref: "e1", text: "hi" });
+  await useCase.call({ sessionId: "s1", agent: "qa-author", action: "type", ref: "e1", text: "hi", submit: false });
+  await useCase.call({ sessionId: "s1", agent: "qa-author", action: "type", ref: "e1", text: "hi", submit: true });
   assert.deepEqual(host.calls.map((c) => c.action), [
     { kind: "type", ref: "e1", text: "hi", submit: false },
     { kind: "type", ref: "e1", text: "hi", submit: false },
     { kind: "type", ref: "e1", text: "hi", submit: true },
   ]);
-  const bad = await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "type", ref: "e1", text: "hi", submit: "yes" } as unknown as AgentBrowserRequest);
+  const bad = await useCase.call({ sessionId: "s1", agent: "qa-author", action: "type", ref: "e1", text: "hi", submit: "yes" } as unknown as AgentBrowserRequest);
   assert.equal(bad.ok === false && bad.code, AGENT_BROWSER_REFUSAL.INVALID_REQUEST);
-  const missingText = await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "type", ref: "e1" } as unknown as AgentBrowserRequest);
+  const missingText = await useCase.call({ sessionId: "s1", agent: "qa-author", action: "type", ref: "e1" } as unknown as AgentBrowserRequest);
   assert.equal(missingText.ok === false && missingText.code, AGENT_BROWSER_REFUSAL.INVALID_REQUEST);
 });
 
 test("the text and the address are held to their lengths, exactly", async () => {
   const { host, useCase } = setup();
-  const atText = await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "type", ref: "e1", text: "x".repeat(MAX_TYPED_CHARS) });
+  const atText = await useCase.call({ sessionId: "s1", agent: "qa-author", action: "type", ref: "e1", text: "x".repeat(MAX_TYPED_CHARS) });
   assert.equal(atText.ok, true);
-  const overText = await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "type", ref: "e1", text: "x".repeat(MAX_TYPED_CHARS + 1) });
+  const overText = await useCase.call({ sessionId: "s1", agent: "qa-author", action: "type", ref: "e1", text: "x".repeat(MAX_TYPED_CHARS + 1) });
   assert.equal(overText.ok === false && overText.code, AGENT_BROWSER_REFUSAL.INVALID_REQUEST);
   const atUrl = await useCase.call(nav(`/${"a".repeat(MAX_URL_CHARS - 1)}`));
   assert.equal(atUrl.ok, true);

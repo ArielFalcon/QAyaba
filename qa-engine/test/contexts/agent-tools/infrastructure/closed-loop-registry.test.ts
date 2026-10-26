@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ClosedLoopRegistry, type LiveLoop } from "@contexts/agent-tools/infrastructure/closed-loop-registry.ts";
-import { RUN_SPEC_AGENT, RUN_SPEC_FLOW_AGENT, RunSpecCapability } from "@contexts/test-execution/domain/run-spec-capability.ts";
+import { RUN_SPEC_FLOW_AGENT, RunSpecCapability } from "@contexts/test-execution/domain/run-spec-capability.ts";
 
 const LIMITS = { maxCalls: 4, perCallMs: 60_000, maxDevWrites: 4 };
 
@@ -23,9 +23,7 @@ function loop(runId: string, delegationId?: string): { loop: LiveLoop; cancelled
 test("no session of the run itself is given the run's loop: an author with no flow has no run_spec", () => {
   const registry = new ClosedLoopRegistry();
   registry.register(loop("r1").loop);
-  registry.bindSession({ sessionId: "gen", runId: "r1", agent: RUN_SPEC_AGENT });
   registry.bindSession({ sessionId: "author", runId: "r1", agent: RUN_SPEC_FLOW_AGENT });
-  assert.equal(registry.find("gen"), undefined);
   assert.equal(registry.find("author"), undefined);
 });
 
@@ -53,14 +51,6 @@ test("a sidekick's session with no flow, a flow that has no loop, and a role tha
   registry.bindSession({ sessionId: "reviewer", runId: "r1", agent: "qa-reviewer", delegationId: "flow-a" });
   registry.bindSession({ sessionId: "other-run", runId: "r2", agent: RUN_SPEC_FLOW_AGENT, delegationId: "flow-a" });
   for (const id of ["no-flow", "other-flow", "reviewer", "other-run"]) assert.equal(registry.find(id), undefined, id);
-});
-
-test("the generator is never given a flow's loop, and a generator session that names a flow is given nothing", () => {
-  const registry = new ClosedLoopRegistry();
-  registry.register(loop("r1", "flow-a").loop);
-  registry.register(loop("r1").loop);
-  registry.bindSession({ sessionId: "gen-flow", runId: "r1", agent: RUN_SPEC_AGENT, delegationId: "flow-a" });
-  assert.equal(registry.find("gen-flow"), undefined);
 });
 
 test("a run keeps its loop and its flows' loops side by side, and a flow cannot be opened twice", () => {

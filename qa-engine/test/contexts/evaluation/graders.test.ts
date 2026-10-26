@@ -74,8 +74,8 @@ test("a pass rate needs a run that executed its specs and a passed count it can 
 
 test("budget_exhaustion names the limit, the phase and the role, or none", () => {
   assert.equal(find(evidence(), "budget_exhaustion")?.value, "none");
-  const e = evidence({ furthestPhase: "generate", limit: { fired: "step-cap", role: "qa-generator", intent: "explore" } });
-  assert.equal(find(e, "budget_exhaustion")?.value, "step-cap@generate/qa-generator/explore");
+  const e = evidence({ furthestPhase: "generate", limit: { fired: "step-cap", role: "qa-author", intent: "explore" } });
+  assert.equal(find(e, "budget_exhaustion")?.value, "step-cap@generate/qa-author/explore");
   const unknown = evidence({ furthestPhase: null, limit: { fired: "run-deadline", role: undefined, intent: undefined } });
   assert.equal(find(unknown, "budget_exhaustion")?.value, "run-deadline@unknown/unknown/unknown");
 });

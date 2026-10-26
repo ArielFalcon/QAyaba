@@ -62,8 +62,10 @@ export function resolveJudgeSetup(deps: { root: string; readFile?: (path: string
   if (!judge) return { ok: false, promptVersion, reason: "agents/opencode.json declares no qa-judge role (the owner's live step adds it, see docs/observability-design.md section 19)" };
   const judgeModel = typeof judge.model === "string" && judge.model.trim() !== "" ? judge.model : undefined;
   if (judgeModel === undefined) return { ok: false, promptVersion, reason: "the qa-judge role of agents/opencode.json declares no model" };
-  const generatorModel = typeof agents["qa-generator"]?.model === "string" ? (agents["qa-generator"]!.model as string) : undefined;
-  if (generatorModel === undefined) return { ok: false, promptVersion, reason: "the qa-generator role declares no model, so the judge's independence cannot be checked" };
-  if (judgeModel === generatorModel) return { ok: false, promptVersion, reason: `the qa-judge model (${judgeModel}) is the generator's own: a judge must run a different model` };
+  for (const [role, label] of [["qa-author", "author's"], ["qa-lead", "lead's"]] as const) {
+    const model = typeof agents[role]?.model === "string" ? (agents[role]!.model as string) : undefined;
+    if (model === undefined) return { ok: false, promptVersion, reason: `the ${role} role declares no model, so the judge's independence cannot be checked` };
+    if (judgeModel === model) return { ok: false, promptVersion, reason: `the qa-judge model (${judgeModel}) is the ${label} own: a judge must run a different model` };
+  }
   return { ok: true, promptVersion, configuredModel: judgeModel };
 }

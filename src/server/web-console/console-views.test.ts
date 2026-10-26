@@ -44,7 +44,7 @@ function runExtrasRoutes(runId: string) {
       return { status: 200, json: { current: report, evolution: null } };
     }
     if (req.path === `/api/v1/runs/${runId}/turns`) {
-      return { status: 200, json: [{ runId, sessionId: "s", role: "qa-generator", round: 0, isRepair: false, ts: new Date().toISOString(), objective: null, promptText: "p", outputText: "wrote the login spec", promptBytes: 1, tokensInput: 10, tokensOutput: 5 }] };
+      return { status: 200, json: [{ runId, sessionId: "s", role: "qa-author", round: 0, isRepair: false, ts: new Date().toISOString(), objective: null, promptText: "p", outputText: "wrote the login spec", promptBytes: 1, tokensInput: 10, tokensOutput: 5 }] };
     }
     return undefined;
   };
@@ -74,7 +74,7 @@ function turnsRoute(runId: string, turns: unknown[]) {
   return (req: { path: string }) => (req.path === `/api/v1/runs/${runId}/turns` ? { status: 200, json: turns } : undefined);
 }
 
-const baseTurn = { runId: "run-done", sessionId: "s", role: "qa-generator", round: 0, isRepair: false, ts: new Date().toISOString(), objective: null, promptText: "p", outputText: "wrote the login spec", promptBytes: 1, tokensInput: 10, tokensOutput: 5 };
+const baseTurn = { runId: "run-done", sessionId: "s", role: "qa-author", round: 0, isRepair: false, ts: new Date().toISOString(), objective: null, promptText: "p", outputText: "wrote the login spec", promptBytes: 1, tokensInput: 10, tokensOutput: 5 };
 
 test("an agent turn shows its efficiency measurements, including when it hit the step limit", async () => {
   const h = await loadConsole({

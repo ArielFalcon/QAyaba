@@ -155,7 +155,7 @@ export class RunQaUseCase {
   /* How the run ended, for its trace: the decision, the end of generation, and the limit that fired (the deadline's own, else the one the generation end names). A run that threw before a result was built has no decision. */
   private traceFactsOf(result: RunQaResult | undefined, state: Readonly<RunState>): RunTraceFacts {
     const end = state.run.generationEnd;
-    const fromEnd = end === GENERATION_END.EXHAUSTED ? { fired: "step-cap", role: "qa-sidekick" } : end === GENERATION_END.TIME_BUDGET ? { fired: "tier-budget", role: "qa-sidekick" } : undefined;
+    const fromEnd = end === GENERATION_END.EXHAUSTED ? { fired: "step-cap", role: "qa-author" } : end === GENERATION_END.TIME_BUDGET ? { fired: "tier-budget", role: "qa-author" } : undefined;
     const limit = state.run.limit ?? fromEnd;
     const cfg: RunQaConfig = { ...DEFAULT_CONFIG, ...this.deps.config };
     return {

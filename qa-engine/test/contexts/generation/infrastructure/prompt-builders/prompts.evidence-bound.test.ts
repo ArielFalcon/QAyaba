@@ -66,7 +66,7 @@ function correctionTurn(over: Partial<OpencodeRunInput> = {}): OpencodeRunInput 
 }
 
 test("D6: the reviewer and generator role files neither hand judgment to a model nor order compliance with every item", () => {
-  for (const path of ["agents/agent/qa-generator.md", "agents/agent/qa-reviewer.md"]) {
+  for (const path of ["agents/agent/qa-author.md", "agents/agent/qa-reviewer.md"]) {
     const findings = lintCell({ name: "static", regen: false, sections: [staticSection("role", path)] });
     assert.deepEqual(findings.filter((finding) => finding.rule === "R15"), [], path);
   }

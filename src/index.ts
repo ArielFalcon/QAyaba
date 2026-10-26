@@ -388,7 +388,7 @@ process.on("SIGINT", () => {
 process.on("unhandledRejection", (reason) => {
   const msg = reason instanceof Error ? reason.message : String(reason);
   console.error("[qa] unhandled rejection:", reason instanceof Error ? reason.stack ?? msg : msg);
-  recordIncident({ source: "qa-generator", severity: "error", summary: `unhandled rejection: ${msg}` });
+  recordIncident({ source: "qa-author", severity: "error", summary: `unhandled rejection: ${msg}` });
 });
 
 /* One path for the control API and the webhook; the trigger is what tells their runs apart in the trace. */

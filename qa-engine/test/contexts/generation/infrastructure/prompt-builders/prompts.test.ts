@@ -1310,7 +1310,7 @@ test("reviewer defense-in-depth actually FIRES: an oversized DOM snapshot alone 
    shedAs:"critical-recap" so it survives everything else in the volatile band.
  */
 test("coverage-gap survives when other volatile content is large enough to force shedding", () => {
-  /* qa-generator's real budget is deepseek-v4-pro's window (64,000 tokens x 0.75 safety margin x 4
+  /* qa-author's real budget is deepseek-v4-pro's window (64,000 tokens x 0.75 safety margin x 4
      bytes/token = 192,000 bytes) — the payload below must genuinely exceed that so the assembler's
      global-budget pass actually sheds something, not merely construct a payload that already fits.
      learnedRules (volatile priority 2, sheds AFTER coverage-gap under the OLD priority-5 ordering)

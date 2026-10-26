@@ -66,7 +66,7 @@ test("nothing is granted when the lead's runtime cannot call a custom tool", asy
 
 test("calls stop at the run's cap, another role is refused, and a closed grant answers nothing", async () => {
   const { handle, live, registry } = await granted({ maxCalls: 1 });
-  assert.equal((await live.call(request("qa-sidekick"))).ok, false);
+  assert.equal((await live.call(request("qa-author"))).ok, false);
   assert.equal((await live.call(request())).ok, true);
   const spent = await live.call(request());
   assert.equal(spent.ok ? "" : spent.code, "no-calls");
@@ -262,7 +262,7 @@ test("an explore session with no share has no calls, and a role that is neither 
   a.registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-lead" });
   const none = await a.registry.find("e1")!.call({ sessionId: "e1", agent: "qa-explore", query: explore });
   assert.equal(none.ok === false && none.code, "no-calls");
-  const wrong = await a.registry.find("lead")!.call({ sessionId: "lead", agent: "qa-sidekick", query: explore });
+  const wrong = await a.registry.find("lead")!.call({ sessionId: "lead", agent: "qa-author", query: explore });
   assert.equal(wrong.ok === false && wrong.code, "wrong-agent");
   const swapped = await a.registry.find("lead")!.call({ sessionId: "lead", agent: "qa-explore", query: explore });
   assert.equal(swapped.ok === false && swapped.code, "wrong-agent", "an explore agent name on the lead's session (no delegation) is refused");

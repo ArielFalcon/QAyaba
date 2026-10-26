@@ -186,8 +186,8 @@ test("the roles a run invoked come from its recorded turns; a role the run never
     run: async (i) => {
       runId = i.runId;
       const base = { runId, sessionId: "s", round: 0, isRepair: false, ts: "2026-10-17T10:00:00.000Z", objective: null, promptText: "p", outputText: "o", promptBytes: 1, tokensInput: 1, tokensOutput: 1, tokensReasoning: null, tokensCacheRead: null, tokensCacheWrite: null, cost: 0 };
-      saveAgentTurn({ ...base, role: "qa-generator", provider: "opencode-go", modelRequested: "req", modelAnswered: "glm", maxSteps: 40 });
-      saveAgentTurn({ ...base, role: "qa-generator", provider: "opencode-go", modelRequested: null, modelAnswered: "glm", maxSteps: 50, round: 1 });
+      saveAgentTurn({ ...base, role: "qa-author", provider: "opencode-go", modelRequested: "req", modelAnswered: "glm", maxSteps: 40 });
+      saveAgentTurn({ ...base, role: "qa-author", provider: "opencode-go", modelRequested: null, modelAnswered: "glm", maxSteps: 50, round: 1 });
       saveAgentTurn({ ...base, role: "qa-reviewer", provider: null, modelRequested: "mm", modelAnswered: null, maxSteps: null });
       return outcomeOf(i);
     },
@@ -196,7 +196,7 @@ test("the roles a run invoked come from its recorded turns; a role the run never
   assert.equal(runId, id);
   const { agents } = buildRunViewExtras(id, defaultRunViewDeps(() => true, {}))!.effectiveConfig;
   assert.deepEqual(agents, {
-    "qa-generator": { provider: "opencode-go", model: "glm", reasoningEffort: null, stepLimit: 50 },
+    "qa-author": { provider: "opencode-go", model: "glm", reasoningEffort: null, stepLimit: 50 },
     "qa-reviewer": { provider: null, model: "mm", reasoningEffort: null, stepLimit: null },
   });
 });

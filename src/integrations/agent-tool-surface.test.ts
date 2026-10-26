@@ -41,7 +41,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentConfig } from "@opencode-ai/sdk";
 import { AGENT_NAME_FOR_ROLE, capabilitiesForRole } from "../agent-runtime/types";
@@ -92,7 +92,7 @@ const PLAYWRIGHT_TOOL_NAMES = [
 /* Grounding honesty for this list: Serena could NOT be probed offline (not installed on this host;
    it lives only in the agents Docker image). Only the first four names — activate_project,
    find_symbol, find_referencing_symbols, get_symbols_overview — are grounded in this repo's own
-   prompt files (agents/AGENTS.md, agents/agent/qa-proposer.md, qa-generator.md).
+   prompt files (agents/AGENTS.md, agents/agent/qa-proposer.md, qa-author.md).
    The remaining names are best-effort from upstream Serena documentation and were NOT verified
    against the pinned server. The wildcard "serena*" key (empirically verified to compile into a
    permission-deny rule — see the header comment) is the actual load-bearing denial; this
@@ -161,8 +161,7 @@ const AUTHORING_EXECUTION_DENIALS: Readonly<Record<string, string>> = {
    allowed-server checks.
  */
 const DELIBERATE_MCP_TOOL_DENIALS: ToolDenials = {
-  "qa-generator": AUTHORING_EXECUTION_DENIALS,
-  "qa-sidekick": AUTHORING_EXECUTION_DENIALS,
+  "qa-author": AUTHORING_EXECUTION_DENIALS,
 };
 
 const BUILTIN_TOOL_KEYS = new Set([
@@ -269,6 +268,26 @@ test("no dead top-level compaction/tool_output keys remain in opencode.json", ()
   const raw = loadRawConfig();
   assert.equal("compaction" in raw, false, "top-level 'compaction' is not part of AgentConfig/opencode.json's real schema and was inert");
   assert.equal("tool_output" in raw, false, "top-level 'tool_output' is not part of AgentConfig/opencode.json's real schema and was inert");
+});
+
+/* Prompts kept for a role the roster does not declare yet: the judge waits for a second model (agents/pending/qa-judge.opencode-block.json). */
+const STAGED_PROMPTS: ReadonlySet<string> = new Set(["qa-judge"]);
+
+test("no roster entry names a prompt file that does not exist and no prompt file lacks a roster entry", () => {
+  const { agents } = loadAgentConfig();
+  const promptDir = join(process.cwd(), "agents", "agent");
+  const named = new Set<string>();
+  for (const [name, agent] of Object.entries(agents)) {
+    const prompt = (agent as { prompt?: unknown }).prompt;
+    assert.equal(typeof prompt, "string", `${name} declares a prompt`);
+    const file = /^\{file:\.\/agent\/([a-z-]+)\.md\}$/.exec(prompt as string)?.[1];
+    assert.ok(file, `${name}'s prompt is a file under agents/agent/`);
+    assert.ok(existsSync(join(promptDir, `${file}.md`)), `${name} names agents/agent/${file}.md, which does not exist`);
+    assert.equal(file, name, `${name} reads its own prompt`);
+    named.add(file);
+  }
+  const onDisk = readdirSync(promptDir).filter((f) => f.endsWith(".md")).map((f) => f.slice(0, -3));
+  for (const file of onDisk) assert.ok(named.has(file) || STAGED_PROMPTS.has(file), `agents/agent/${file}.md belongs to no roster entry`);
 });
 
 test("every agent in opencode.json declares one numeric step cap", () => {
@@ -523,14 +542,14 @@ test("qa-proposer keeps serena but denies playwright", () => {
   assertMcpServerDenied("qa-proposer", proposerTools, "playwright");
 });
 
-test("qa-generator keeps serena+playwright as the test author", () => {
+test("qa-author keeps serena+playwright as the test author", () => {
   const { agents } = loadAgentConfig();
-  const generator = agents["qa-generator"];
-  assert.ok(generator, "expected a qa-generator agent");
+  const generator = agents["qa-author"];
+  assert.ok(generator, "expected a qa-author agent");
   const tools = agentTools(generator);
-  assert.equal(tools.write, true, "qa-generator must have write");
-  assert.equal(tools.edit, true, "qa-generator must have edit");
-  for (const server of MCP_ALLOWLIST) assertMcpServerAllowed("qa-generator", tools, server);
+  assert.equal(tools.write, true, "qa-author must have write");
+  assert.equal(tools.edit, true, "qa-author must have edit");
+  for (const server of MCP_ALLOWLIST) assertMcpServerAllowed("qa-author", tools, server);
 });
 
 /* The generator has no shell at all. A command allow-list is not an execution boundary: even the suite listing
@@ -539,7 +558,7 @@ test("qa-generator keeps serena+playwright as the test author", () => {
    Execute phases run tsc, ESLint, the listing and the suite, so the author has nothing left to run. */
 test("the generator has no shell: bash is denied outright, for every target", () => {
   const { agents } = loadAgentConfig();
-  const generator = agents["qa-generator"] as { permission?: Record<string, unknown> };
+  const generator = agents["qa-author"] as { permission?: Record<string, unknown> };
   assert.equal(generator.permission?.bash, "deny", "permission.bash must be a plain deny, not a pattern map");
   assert.notEqual(
     agentTools(generator).bash,
@@ -687,8 +706,8 @@ test("a role still reads an app's own auth source code: only the suite's session
 });
 
 test("a role still reads the example env file and an ordinary source file when its tools allow reading", () => {
-  const generator = recordedAgents().find((agent) => agent.name === "qa-generator");
-  assert.ok(generator, "expected the recorded qa-generator");
+  const generator = recordedAgents().find((agent) => agent.name === "qa-author");
+  assert.ok(generator, "expected the recorded qa-author");
   assert.equal(readDecision(generator.permission, "/mirrors/shop/e2e/tests/login.spec.ts"), "allow");
   assert.equal(readDecision(generator.permission, "/mirrors/shop/.env.example"), "allow", "an example file carries no secret and the runtime allows it");
 });
@@ -719,8 +738,8 @@ test("every role that reads declares the same read denial in its own permission 
 });
 
 test("the resolved generator has no allowed shell command and keeps the runtime's tool-output directory", () => {
-  const generator = recordedAgents().find((agent) => agent.name === "qa-generator");
-  assert.ok(generator, "expected the recorded qa-generator");
+  const generator = recordedAgents().find((agent) => agent.name === "qa-author");
+  assert.ok(generator, "expected the recorded qa-author");
   const bash = generator.permission.filter((rule) => rule.permission === "bash");
   assert.ok(bash.length > 0, "the generator carries a bash rule");
   assert.deepEqual(
@@ -746,7 +765,7 @@ test("the Playwright tools that run code or push a file are denied to every role
       assert.equal(tools[tool], false, `SECURITY: ${name} must deny "${tool}"`);
     }
   }
-  assert.ok(checked >= 2, `expected the generator and the sidekick, got ${checked} role(s)`);
+  assert.ok(checked >= 1, `expected the author, got ${checked} role(s)`);
 });
 
 test("every agent that holds an MCP server denies exactly the tools its exemption list names", () => {
@@ -761,9 +780,8 @@ test("every agent that holds an MCP server denies exactly the tools its exemptio
     }
   }
   /* Meaningfulness guard: agents do hold servers, and the exemption lists are exercised. */
-  assert.ok(checked >= 5, `expected >=5 (agent, held server) pairs checked, got ${checked}`);
-  assert.ok(Object.keys(DELIBERATE_MCP_TOOL_DENIALS["qa-generator"] ?? {}).length > 0);
-  assert.ok(Object.keys(DELIBERATE_MCP_TOOL_DENIALS["qa-sidekick"] ?? {}).length > 0);
+  assert.ok(checked >= 4, `expected >=4 (agent, held server) pairs checked, got ${checked}`);
+  assert.ok(Object.keys(DELIBERATE_MCP_TOOL_DENIALS["qa-author"] ?? {}).length > 0);
 });
 
 test("the exemption list of a held server is enforced both ways", () => {
@@ -778,9 +796,9 @@ test("the exemption list of a held server is enforced both ways", () => {
     browser_drop: false,
   };
   const allowed = (tools: Record<string, unknown>, denials?: ToolDenials) =>
-    assertMcpServerAllowed("qa-generator", tools, "playwright", denials);
+    assertMcpServerAllowed("qa-author", tools, "playwright", denials);
   const exact = (tools: Record<string, unknown>, denials?: ToolDenials) =>
-    assertDeniedToolsAreTheExemptionList("qa-generator", tools, "playwright", denials);
+    assertDeniedToolsAreTheExemptionList("qa-author", tools, "playwright", denials);
 
   allowed(denied);
   exact(denied);
@@ -848,14 +866,14 @@ test("known built-in tool keys are recognized (sanity check for the BUILTIN_TOOL
   }
 });
 
-test("run_spec is off for every agent by the global tools map and on for the two authoring roles alone", () => {
+test("run_spec is off for every agent by the global tools map and on for the author alone", () => {
   const raw = loadRawConfig();
   assert.deepEqual((raw.tools as Record<string, unknown> | undefined)?.run_spec, false, "the global default switches the tool off");
   const { agents } = loadAgentConfig();
   const on = Object.entries(agents).filter(([, agent]) => agentTools(agent).run_spec === true).map(([name]) => name);
-  assert.deepEqual(on.sort(), ["qa-generator", "qa-sidekick"]);
+  assert.deepEqual(on.sort(), ["qa-author"]);
   for (const [name, agent] of Object.entries(agents)) {
-    if (name !== "qa-generator" && name !== "qa-sidekick") assert.notEqual(agentTools(agent).run_spec, true, `${name} must not call run_spec`);
+    if (name !== "qa-author") assert.notEqual(agentTools(agent).run_spec, true, `${name} must not call run_spec`);
   }
 });
 
@@ -986,14 +1004,14 @@ test("the code-graph tool file exports exactly one tool, explore, and takes no a
   assert.deepEqual([...args.matchAll(/^\s{4}(\w+):/gm)].map((m) => m[1]), ["terms"], "the only argument is the list of terms: no project, repo, file cap or engine option");
 });
 
-test("the location tool is off for every agent by the global tools map and on for the two authoring roles alone", () => {
+test("the location tool is off for every agent by the global tools map and on for the author alone", () => {
   const raw = loadRawConfig();
   assert.deepEqual((raw.tools as Record<string, unknown> | undefined)?.set_geolocation, false, "the global default switches the tool off");
   const { agents } = loadAgentConfig();
   const on = Object.entries(agents).filter(([, agent]) => agentTools(agent).set_geolocation === true).map(([name]) => name);
-  assert.deepEqual(on.sort(), ["qa-generator", "qa-sidekick"]);
+  assert.deepEqual(on.sort(), ["qa-author"]);
   for (const [name, agent] of Object.entries(agents)) {
-    if (name !== "qa-generator" && name !== "qa-sidekick") assert.notEqual(agentTools(agent).set_geolocation, true, `${name} must not move the authoring location`);
+    if (name !== "qa-author") assert.notEqual(agentTools(agent).set_geolocation, true, `${name} must not move the authoring location`);
   }
   assert.ok(existsSync(join(process.cwd(), "agents", "tool", "set_geolocation.ts")), "the tool file the config enables exists");
 });

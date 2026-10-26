@@ -33,7 +33,7 @@ test("the session opens in the directory it is given, as the sidekick role, and 
   const opened: Array<{ role: AgentRole; cwd: string; opts: OpenSessionOpts | undefined }> = [];
   await executor(opened).execute(brief, { cwd: "/work/run-1/cart", kind: "author", delegationId: "run-1-flow-cart", denyTools: ["serena*", "playwright*"], timeoutMs: 90_000 });
   assert.equal(opened.length, 1);
-  assert.equal(opened[0]!.role, "sidekick");
+  assert.equal(opened[0]!.role, "author");
   assert.equal(opened[0]!.cwd, "/work/run-1/cart");
   assert.equal(opened[0]!.opts?.timeoutMs, 90_000);
   assert.equal(opened[0]!.opts?.descriptor?.runId, "run-1");

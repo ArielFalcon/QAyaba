@@ -130,52 +130,6 @@
       "maxSteps": 250,
       "temperature": 0.2
     },
-    "qa-generator": {
-      "description": "Generates Playwright E2E tests for a commit's blast radius and writes them in e2e/. Has serena+playwright MCP access by design (test author), except the tools that run code, push a file or open a shell (browser_run_code_unsafe, browser_evaluate, browser_file_upload, browser_drop, execute_shell_command). It has no shell at all (permission.bash is denied outright, for every target): the orchestrator's Validate and Execute phases compile, lint, list and run what it writes. Enforced here: no shell, no code-running or file-pushing browser tool. Not enforced: browser_click, browser_type and browser_fill_form can still submit a form on DEV through the UI, which only the prompt forbids (live DEV is observed while authoring; a generated spec is what writes to it). It also holds the authbrowser_* tools, served by the orchestrator: a read-only browser signed in as the test account, whose session the agent never holds; the orchestrator refuses them unless the run granted them.",
-      "mode": "primary",
-      "model": "deepseek-api/deepseek-v4.1-flash",
-      "options": { "reasoningEffort": "high" },
-      "prompt": "{file:./agent/qa-generator.md}",
-      "tools": {
-        "write": true,
-        "edit": true,
-        "read": true,
-        "run_spec": true,
-        "authbrowser_navigate": true,
-        "authbrowser_snapshot": true,
-        "authbrowser_click": true,
-        "authbrowser_type": true,
-        "set_geolocation": true,
-        "codegraph_explore": false,
-        "webfetch": false,
-        "playwright_browser_run_code_unsafe": false,
-        "playwright_browser_evaluate": false,
-        "playwright_browser_file_upload": false,
-        "playwright_browser_drop": false,
-        "serena_execute_shell_command": false,
-        "browser_run_code_unsafe": false,
-        "browser_evaluate": false,
-        "browser_file_upload": false,
-        "browser_drop": false,
-        "execute_shell_command": false
-      },
-      "permission": {
-        "bash": "deny",
-        "read": {
-          "*": "allow",
-          "*.env": "deny",
-          "*.env.*": "deny",
-          "**/.env*": "deny",
-          "**/e2e/.auth/**": "deny",
-          "**/storageState*.json": "deny",
-          "**/client.p12": "deny",
-          "**/cert.pass": "deny",
-          "*.env.example": "allow"
-        }
-      },
-      "maxSteps": 250,
-      "temperature": 0.2
-    },
     "qa-reviewer": {
       "description": "Independent E2E quality judge, invoked directly by the orchestrator's ReviewPortAdapter (not delegated to by another agent) — mode is \"all\" because OpenCode's \"subagent\" mode is for agents other primary agents delegate to, which does not describe this invocation path. Does not write: emits a JSON verdict. Holds NO MCP access (serena/playwright both denied) so its independence is enforced by the runtime, not prompt etiquette.",
       "mode": "all",
@@ -482,12 +436,12 @@
         }
       }
     },
-    "qa-sidekick": {
-      "description": "Coordination sidekick — a bounded delegation executor, invoked by the deterministic router for larger blast radii instead of the lead. Receives a self-contained delegation brief (objective, acceptance criteria, writable/readable scope, known facts, validation plan) and, unlike the single-spec-per-session parallel worker, may edit multiple EXISTING specs within its writable scope across follow-up feedback turns in the SAME session. Frozen authority: cannot change acceptance criteria/architecture, cannot write outside writablePaths, never performs git writes; a claimed result is externally validated against what actually exists on disk. Has serena + playwright MCP access by design, minus the tools that run code, push a file or open a shell (its built-in shell is off too). Enforced: those tools are denied. Not enforced: browser_click, browser_type and browser_fill_form can still submit a form on DEV through the UI, which only the prompt forbids. It also holds run_spec and the authbrowser_* tools, served by the orchestrator when the run granted them for the flow it is authoring (run_spec runs the one spec the flow was given, once, against DEV; the browser is a read-only one signed in as the test account); a session the run did not grant them hides them. It works in a workspace of its own, a copy of what the run may read, and the orchestrator takes back only the files its brief names.",
+    "qa-author": {
+      "description": "Test author — the one agent that writes tests. For a flow of a plan it receives a self-contained delegation brief (objective, acceptance criteria, writable/readable scope, known facts, validation plan) and may edit multiple EXISTING specs within its writable scope across follow-up feedback turns in the SAME session; for the run's own task (a login still to be written, the repo's own tests, the architecture map, corrections to what was delivered) it works in the run's working copy. Frozen authority: cannot change acceptance criteria/architecture, cannot write outside writablePaths, never performs git writes; a claimed result is externally validated against what actually exists on disk. Has serena + playwright MCP access by design, minus the tools that run code, push a file or open a shell (its built-in shell is off too). Enforced: those tools are denied. Not enforced: browser_click, browser_type and browser_fill_form can still submit a form on DEV through the UI, which only the prompt forbids. It also holds run_spec and the authbrowser_* tools, served by the orchestrator when the run granted them (run_spec only for the flow it is authoring: it runs the one spec the flow was given, once, against DEV; the browser is a read-only one signed in as the test account); a session the run did not grant them hides them. A flow's author works in a workspace of its own, a copy of what the run may read, and the orchestrator takes back only the files its brief names.",
       "mode": "primary",
       "model": "deepseek-api/deepseek-v4.1-flash",
       "options": { "reasoningEffort": "high" },
-      "prompt": "{file:./agent/qa-sidekick.md}",
+      "prompt": "{file:./agent/qa-author.md}",
       "tools": {
         "write": true,
         "edit": true,
@@ -515,6 +469,7 @@
       "maxSteps": 300,
       "temperature": 0.3,
       "permission": {
+        "bash": "deny",
         "read": {
           "*": "allow",
           "*.env": "deny",

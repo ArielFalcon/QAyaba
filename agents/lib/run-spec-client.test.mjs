@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { callRunSpec, endpointOf } from "./run-spec-client.mjs";
 
-const context = { sessionID: "ses-1", agent: "qa-generator", abort: new AbortController().signal };
+const context = { sessionID: "ses-1", agent: "qa-author", abort: new AbortController().signal };
 const env = { QA_TOOLS_TOKEN: "service-token" };
 
 function fakeFetch(answer) {
@@ -23,7 +23,7 @@ test("the call carries the session and agent the runtime reports, the model's pa
   assert.equal(calls[0].url, "http://orchestrator:459/internal/run-spec");
   assert.equal(calls[0].init.method, "POST");
   assert.equal(calls[0].init.headers.authorization, "Bearer service-token");
-  assert.deepEqual(JSON.parse(calls[0].init.body), { sessionID: "ses-1", agent: "qa-generator", path: "flows/a.spec.ts", grep: "adds" });
+  assert.deepEqual(JSON.parse(calls[0].init.body), { sessionID: "ses-1", agent: "qa-author", path: "flows/a.spec.ts", grep: "adds" });
   assert.deepEqual(JSON.parse(out), { ok: true, report: { status: "passed", tests: [] } });
 });
 

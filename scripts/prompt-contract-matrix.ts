@@ -449,12 +449,12 @@ function readText(path: string): string {
   return readFileSync(path, "utf8");
 }
 
-/* The agent whose role prompt a cell's static layer holds: the lead on a planning turn, the generator on every other. */
-export type StaticLayerRole = "generator" | "lead";
+/* The agent whose role prompt a cell's static layer holds: the lead on a planning turn, the author on every other. */
+export type StaticLayerRole = "author" | "lead";
 
-const ROLE_PROMPT_FILE: Readonly<Record<StaticLayerRole, string>> = { generator: "qa-generator.md", lead: "qa-lead.md" };
+const ROLE_PROMPT_FILE: Readonly<Record<StaticLayerRole, string>> = { author: "qa-author.md", lead: "qa-lead.md" };
 
-export function loadStaticLayer(layer: StaticLayerName, root: string = ROOT, role: StaticLayerRole = "generator"): LintSection[] {
+export function loadStaticLayer(layer: StaticLayerName, root: string = ROOT, role: StaticLayerRole = "author"): LintSection[] {
   const section = (id: string, text: string): LintSection => ({ id, layer: "static", text, claims: [] });
   return [
     section("opencode/AGENTS.md", readText(join(root, "agents", "AGENTS.md"))),

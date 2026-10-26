@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { ClosedLoopPortAdapter, type ClosedLoopPortAdapterDeps } from "@contexts/agent-tools/infrastructure/adapters/closed-loop-port.adapter.ts";
 import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-loop-registry.ts";
 import { DevLease } from "@contexts/test-execution/domain/dev-lease.ts";
-import { RUN_SPEC_AGENT, RUN_SPEC_FLOW_AGENT } from "@contexts/test-execution/domain/run-spec-capability.ts";
+import { RUN_SPEC_FLOW_AGENT } from "@contexts/test-execution/domain/run-spec-capability.ts";
 import type { ExecutionOpts } from "@contexts/test-execution/application/index.ts";
 import type { ClosedLoopHandle, ClosedLoopOpenInput, FlowLoopOpenInput } from "@contexts/agent-tools/application/index.ts";
 
@@ -87,7 +87,7 @@ test("a flow's loop is the sidekick's alone: the sidekick of that flow calls it,
   assert.ok(r.run.openFlow(r.flowInput()));
   bind(r);
   bind(r, "side-2", "run-9-flow-other");
-  r.registry.bindSession({ sessionId: "gen", runId: "run-9", agent: RUN_SPEC_AGENT });
+  r.registry.bindSession({ sessionId: "gen", runId: "run-9", agent: RUN_SPEC_FLOW_AGENT });
   assert.ok(r.registry.find("side-1"));
   assert.equal(r.registry.find("side-2"), undefined, "a flow that has no loop");
   assert.equal(r.registry.find("gen"), undefined, "no session of the run itself holds the run's loop");

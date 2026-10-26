@@ -42,7 +42,7 @@ function turn(runId: string, overrides: Partial<AgentTurnRecord> = {}): AgentTur
   return {
     runId,
     sessionId: `sess-${Math.random().toString(36).slice(2, 8)}`,
-    role: "qa-generator",
+    role: "qa-author",
     round: 0,
     isRepair: false,
     ts: new Date().toISOString(),
@@ -80,15 +80,15 @@ describe("computeTelemetryAnalysis — per-role prompt size aggregates", () => {
     const app = uniqueApp("tel-role");
     const runId = `run-tel-role-${Date.now()}`;
     saveRunOutcome(outcome(runId, app));
-    saveAgentTurn(turn(runId, { role: "qa-generator", promptBytes: 200 }));
-    saveAgentTurn(turn(runId, { role: "qa-generator", promptBytes: 400 }));
+    saveAgentTurn(turn(runId, { role: "qa-author", promptBytes: 200 }));
+    saveAgentTurn(turn(runId, { role: "qa-author", promptBytes: 400 }));
     saveAgentTurn(turn(runId, { role: "qa-reviewer", promptBytes: 150 }));
 
     const analysis = computeTelemetryAnalysis(app);
-    const gen = analysis.byRole.find((r) => r.role === "qa-generator");
+    const gen = analysis.byRole.find((r) => r.role === "qa-author");
     const rev = analysis.byRole.find((r) => r.role === "qa-reviewer");
 
-    assert.ok(gen, "qa-generator role must appear in byRole");
+    assert.ok(gen, "qa-author role must appear in byRole");
     assert.equal(gen.turnCount, 2, "two generator turns");
     assert.equal(gen.medianPromptBytes, 300, "median of 200 and 400 = 300");
 
@@ -103,12 +103,12 @@ describe("computeTelemetryAnalysis — cache hit rate", () => {
     const app = uniqueApp("tel-cache");
     const runId = `run-tel-cache-${Date.now()}`;
     saveRunOutcome(outcome(runId, app));
-    saveAgentTurn(turn(runId, { role: "qa-generator", tokensInput: 100, tokensCacheRead: 20 }));
-    saveAgentTurn(turn(runId, { role: "qa-generator", tokensInput: 100, tokensCacheRead: 50 }));
+    saveAgentTurn(turn(runId, { role: "qa-author", tokensInput: 100, tokensCacheRead: 20 }));
+    saveAgentTurn(turn(runId, { role: "qa-author", tokensInput: 100, tokensCacheRead: 50 }));
 
     const analysis = computeTelemetryAnalysis(app);
-    const gen = analysis.byRole.find((r) => r.role === "qa-generator");
-    assert.ok(gen, "qa-generator must appear");
+    const gen = analysis.byRole.find((r) => r.role === "qa-author");
+    assert.ok(gen, "qa-author must appear");
     assert.ok(gen.medianCacheHitRate !== null, "cache hit rate should be populated");
     assert.ok(Math.abs(gen.medianCacheHitRate! - 0.35) < 1e-9, `expected 0.35, got ${gen.medianCacheHitRate}`);
   });
@@ -117,11 +117,11 @@ describe("computeTelemetryAnalysis — cache hit rate", () => {
     const app = uniqueApp("tel-no-tokens");
     const runId = `run-tel-no-tokens-${Date.now()}`;
     saveRunOutcome(outcome(runId, app));
-    saveAgentTurn(turn(runId, { role: "qa-generator", tokensInput: null, tokensCacheRead: null }));
+    saveAgentTurn(turn(runId, { role: "qa-author", tokensInput: null, tokensCacheRead: null }));
 
     const analysis = computeTelemetryAnalysis(app);
-    const gen = analysis.byRole.find((r) => r.role === "qa-generator");
-    assert.ok(gen, "qa-generator must appear");
+    const gen = analysis.byRole.find((r) => r.role === "qa-author");
+    assert.ok(gen, "qa-author must appear");
     assert.equal(gen.medianCacheHitRate, null, "null when no token data");
   });
 });
@@ -132,11 +132,11 @@ describe("computeTelemetryAnalysis — grounding presence", () => {
     const runId = `run-tel-grnd-${Date.now()}`;
     saveRunOutcome(outcome(runId, app));
     saveAgentTurn(turn(runId, {
-      role: "qa-generator", round: 0, isRepair: false,
+      role: "qa-author", round: 0, isRepair: false,
       promptText: "## System\n...## Context Pack\n<routes>...</routes>",
     }));
     saveAgentTurn(turn(runId, {
-      role: "qa-generator", round: 0, isRepair: false,
+      role: "qa-author", round: 0, isRepair: false,
       promptText: "## System\n... no context pack here",
     }));
 
@@ -219,7 +219,7 @@ describe("computeTelemetryAnalysis — turns of every role", () => {
     assert.equal(analysis.runCount, 1);
     assert.equal(analysis.medianTurnsPerRun, 3, "the run's three turns, whatever their role");
     assert.equal(analysis.repairFraction, 1 / 3, "one repair among the three turns");
-    assert.deepEqual(analysis.byRole.map((r) => r.role).sort(), ["qa-generator", "qa-reviewer"]);
+    assert.deepEqual(analysis.byRole.map((r) => r.role).sort(), ["qa-author", "qa-reviewer"]);
   });
 
   it("a run whose turns are all of a role no prompt names still counts as a run", () => {

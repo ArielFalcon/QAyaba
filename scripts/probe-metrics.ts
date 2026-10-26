@@ -412,7 +412,7 @@ export function buildPipelineReport(input: PipelineReportInput): ProbeReport {
   const hasCoverage = computed !== undefined || (outcome?.gateSignals.coverageRatio ?? null) !== null;
   const reviewerApproved = verdictEvent?.approved ?? outcome?.gateSignals.reviewerApproved ?? null;
 
-  const generatorTurn = input.turns.find((t) => roleIs(t, "generator") && !t.isRepair && t.round === 0) ?? input.turns.find((t) => roleIs(t, "generator"));
+  const generatorTurn = input.turns.find((t) => roleIs(t, "author") && !t.isRepair && t.round === 0) ?? input.turns.find((t) => roleIs(t, "author"));
   const specs = reportedSpecs(input);
   const stitcher = stitcherMetrics(outcome?.gateSignals, generatorTurn ? generatorTurn.promptText : null);
 

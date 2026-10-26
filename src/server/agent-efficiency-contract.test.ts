@@ -12,7 +12,7 @@ function turnEvent(runId: string, overrides: Partial<AgentTurnEvent> = {}): Agen
   return {
     runId,
     sessionId: `sess-${Math.random().toString(36).slice(2, 8)}`,
-    role: "qa-generator",
+    role: "qa-author",
     objective: undefined,
     round: 0,
     isRepair: false,

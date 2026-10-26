@@ -50,7 +50,7 @@ const record = (overrides: Partial<RunRecord> = {}): RunRecord => ({
 });
 
 const generatorTurn = (outputText: string, overrides: Partial<AgentTurnRecord> = {}): AgentTurnRecord => ({
-  runId: "run-1", sessionId: "s", role: "qa-generator", round: 0, isRepair: false, ts: "2026-09-28T10:00:00.000Z", objective: null,
+  runId: "run-1", sessionId: "s", role: "qa-author", round: 0, isRepair: false, ts: "2026-09-28T10:00:00.000Z", objective: null,
   promptText: "p", outputText, promptBytes: 1, tokensInput: null, tokensOutput: null, tokensReasoning: null, tokensCacheRead: null, tokensCacheWrite: null, cost: null,
   ...overrides,
 });
@@ -157,7 +157,7 @@ test("exhaustion is read from what was persisted, never re-derived from the turn
 });
 
 test("other roles' turns do not count towards the generator's exhaustion", () => {
-  assert.equal(exhaustedOf(withExhausted(true, { role: "qa-sidekick" }), withExhausted(false)), false);
+  assert.equal(exhaustedOf(withExhausted(true, { role: "qa-explore" }), withExhausted(false)), false);
 });
 
 test("exhaustion is null when the run has no generator turn", () => {

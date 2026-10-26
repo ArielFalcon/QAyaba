@@ -64,7 +64,7 @@ async function tracedTurn(steps: Array<{ tools: RawOpencodeEvent[] }>, stepLimit
     outerLimit: (sessionId, prompt) => traces.firedBy(sessionId, prompt),
   });
   const deps = withTurnTelemetry(withStallWatchdog(base, { stallMs: 60_000, onStall: (sessionId) => traces.fired(sessionId, "stall") }), { telemetry: h.telemetry, clock: h.clock, intent: INTENT, traces });
-  const session = await deps.open("qa-generator", CWD, { descriptor: { runId: "run-1", role: "qa-generator" } });
+  const session = await deps.open("qa-author", CWD, { descriptor: { runId: "run-1", role: "qa-author" } });
   await session.prompt("write the spec", { stepLimit });
   await session.dispose();
   return h.spans().map((s: ReadableSpan) => ({
@@ -93,22 +93,22 @@ test("step intents are counted from the chat steps of a real traced turn, and th
 
 test("the limit's intent is the last step of the limiting turn, found under its attempt span", async () => {
   const spans = await tracedTurn([{ tools: tool("c1", "read", { filePath: `${CWD}/src/cart.ts` }) }, { tools: tool("c2", "write", { filePath: `${CWD}/e2e/cart.spec.ts` }) }], 25);
-  const e = evidenceFor(spans, { limitFired: "step-cap", limitRole: "qa-generator" });
-  assert.deepEqual(e.limit, { fired: "step-cap", role: "qa-generator", intent: "write_spec" });
+  const e = evidenceFor(spans, { limitFired: "step-cap", limitRole: "qa-author" });
+  assert.deepEqual(e.limit, { fired: "step-cap", role: "qa-author", intent: "write_spec" });
   const budget = gradeEvidence(e).find((s) => s.name === "budget_exhaustion");
-  assert.equal(budget?.value, "step-cap@generate/qa-generator/write_spec");
+  assert.equal(budget?.value, "step-cap@generate/qa-author/write_spec");
 });
 
 test("a turn that was cut by the step cap names its last step's intent", async () => {
   const spans = await tracedTurn([{ tools: tool("c1", "read", { filePath: `${CWD}/src/cart.ts` }) }], 1, "CRITICAL - MAXIMUM STEPS REACHED");
-  const turn = spans.find((s) => s.name === "invoke_agent qa-generator")!;
+  const turn = spans.find((s) => s.name === "invoke_agent qa-author")!;
   assert.equal(JSON.parse(turn.attrs)["qayaba.limit.fired"], "step-cap");
-  assert.equal(evidenceFor(spans, { limitFired: "step-cap", limitRole: "qa-generator" }).limit?.intent, "explore");
+  assert.equal(evidenceFor(spans, { limitFired: "step-cap", limitRole: "qa-author" }).limit?.intent, "explore");
 });
 
 test("the limit's role is matched by the turn's qayaba.agent.role too, and a role with no turn leaves the intent unknown", async () => {
   const spans = await tracedTurn([{ tools: tool("c1", "read", { filePath: `${CWD}/src/cart.ts` }) }], 25);
-  const role = JSON.parse(spans.find((s) => s.name === "invoke_agent qa-generator")!.attrs)["qayaba.agent.role"] as string;
+  const role = JSON.parse(spans.find((s) => s.name === "invoke_agent qa-author")!.attrs)["qayaba.agent.role"] as string;
   assert.equal(evidenceFor(spans, { limitFired: "step-cap", limitRole: role }).limit?.intent, "explore");
   assert.equal(evidenceFor(spans, { limitFired: "step-cap", limitRole: "qa-reviewer" }).limit?.intent, undefined);
 });

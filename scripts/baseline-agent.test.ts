@@ -95,7 +95,7 @@ test("the prompt is a few lines of generic instructions followed by the commit m
 
 test("the prompt names no app, no model and none of the pipeline's stages", () => {
   const instructions = baselineInstructions(material).join("\n").toLowerCase();
-  for (const word of ["reviewer", "serena", "engram", "manifest", "context map", "qa-generator"]) assert.equal(instructions.includes(word), false, word);
+  for (const word of ["reviewer", "serena", "engram", "manifest", "context map", "qa-author"]) assert.equal(instructions.includes(word), false, word);
 });
 
 test("a diff past the cap is cut and the prompt says how much was left out", () => {

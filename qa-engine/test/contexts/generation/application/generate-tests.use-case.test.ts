@@ -806,7 +806,7 @@ async function optionsSentFor(input: Partial<OpencodeRunInput>, repairing?: "gen
     target: "e2e", mode: "diff", appName: "a",
     ...input,
   });
-  return { generator: sent["sidekick"] ?? [] };
+  return { generator: sent["author"] ?? [] };
 }
 
 test("the generator's prompt is sent with the limit its input states, beside the options it already carried", async () => {

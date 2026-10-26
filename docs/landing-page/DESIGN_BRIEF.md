@@ -216,7 +216,7 @@ Keep each component dumb and driven by events. One engine, many faces.
 
 **Metaphor:** recursion / a mirror. The product's own agents emit small **error tickets** that flow toward a central **maintainer agent**; it resolves them and **commits to its own repo**; a compact **status/monitoring panel** pulses (uptime, runs today, self-fixes). Subtle recursive motif (e.g., a small qayaba testing a smaller qayaba, or a loop edge).
 
-**Sequence:** `qa-generator` and `qa-reviewer` emit "issue reported" → arrows converge on `qa-maintainer` → it opens **its own PR** ("fix: stabilize flaky selector in own suite, auto-merge ✓") → monitoring panel ticks up "self-fixes: 7 this week". `PipelineRail` runs against qayaba itself.
+**Sequence:** `qa-author` and `qa-reviewer` emit "issue reported" → arrows converge on `qa-maintainer` → it opens **its own PR** ("fix: stabilize flaky selector in own suite, auto-merge ✓") → monitoring panel ticks up "self-fixes: 7 this week". `PipelineRail` runs against qayaba itself.
 
 **Copy**
 - EN H2: **"The first thing qayaba tests is qayaba."**

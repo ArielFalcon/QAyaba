@@ -16,7 +16,7 @@ test("the diff is read back from the section a prompt holds it in, and only from
 });
 
 function turn(over: Partial<AgentTurnRecord>): AgentTurnRecord {
-  return { runId: "r", sessionId: "s", role: "qa-generator", round: 0, isRepair: false, ts: "2026-10-18T10:00:00.000Z", objective: null, promptText: "", outputText: "", promptBytes: 0, tokensInput: null, tokensOutput: null, tokensReasoning: null, tokensCacheRead: null, tokensCacheWrite: null, cost: null, ...over };
+  return { runId: "r", sessionId: "s", role: "qa-author", round: 0, isRepair: false, ts: "2026-10-18T10:00:00.000Z", objective: null, promptText: "", outputText: "", promptBytes: 0, tokensInput: null, tokensOutput: null, tokensReasoning: null, tokensCacheRead: null, tokensCacheWrite: null, cost: null, ...over };
 }
 
 function snap(path: string, text: string, capturedAt: number, delivered = 1): SpecSnapshotRow {
