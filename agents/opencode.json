@@ -110,7 +110,8 @@
     "qa-reviewer": {
       "description": "Independent E2E quality judge, invoked directly by the orchestrator's ReviewPortAdapter (not delegated to by another agent) — mode is \"all\" because OpenCode's \"subagent\" mode is for agents other primary agents delegate to, which does not describe this invocation path. Does not write: emits a JSON verdict. Holds NO MCP access (serena/playwright both denied) so its independence is enforced by the runtime, not prompt etiquette.",
       "mode": "all",
-      "model": "opencode-go/glm-5.3-flash",
+      "model": "opencode-go/minimax-m3.1-flash",
+      "options": { "thinking": { "type": "adaptive" } },
       "prompt": "{file:./agent/qa-reviewer.md}",
       "tools": {
         "write": false,

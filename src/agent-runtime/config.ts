@@ -24,7 +24,7 @@ const DEFAULT_MODELS: Record<AgentProvider, Record<keyof AgentRuntimeConfig["ass
     primary: "opencode-go/deepseek-v4.1-flash",
     /* Must match qa-reviewer. It may equal primary: whether the review is an independent judgment is
        recorded on every run (reviewerIndependence) and warned about at boot, not enforced. */
-    reviewer: "opencode-go/glm-5.3-flash",
+    reviewer: "opencode-go/minimax-m3.1-flash",
     chat: "opencode-go/glm-5.3-flash",
   },
 };

@@ -49,6 +49,7 @@ interface OpenCodeRuntimeStrategyOptions {
 const FALLBACK_MODELS: AgentModelInfo[] = [
   { id: "opencode-go/deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash" },
   { id: "opencode-go/glm-5.3-flash", label: "GLM 5.3 Flash" },
+  { id: "opencode-go/minimax-m3.1-flash", label: "MiniMax M3.1 Flash" },
 ];
 
 export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
