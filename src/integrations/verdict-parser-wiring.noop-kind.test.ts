@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter.ts";
-import { parseVerdict } from "../../../../../src/integrations/verdict-parse.ts";
-import { parseReviewerVerdict } from "../../../../../src/integrations/verdict-validate.ts";
-import { NOOP_KIND } from "@kernel/noop-kind.ts";
+import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter";
+import { parseVerdict } from "./verdict-parse";
+import { parseReviewerVerdict } from "./verdict-validate";
+import { NOOP_KIND } from "@kernel/noop-kind";
 
 const adapter = new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict });
 

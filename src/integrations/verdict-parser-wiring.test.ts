@@ -1,13 +1,13 @@
-/* these two copies must stay byte-compatible; engine cannot import src/ */
+/* The engine adapter over this shell's verdict parsers: what the run flow receives is what the parsers read, bounded and redacted. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter.ts";
-import { GENERATION_NOTE_MAX_CHARS } from "@contexts/generation/domain/generation-end.ts";
-import { parseVerdict } from "../../../../../src/integrations/verdict-parse.ts";
-import { parseReviewerVerdict } from "../../../../../src/integrations/verdict-validate.ts";
+import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter";
+import { GENERATION_NOTE_MAX_CHARS } from "@contexts/generation/domain/generation-end";
+import { parseVerdict } from "./verdict-parse";
+import { parseReviewerVerdict } from "./verdict-validate";
 
 function makeRealAdapter(): VerdictParserAdapter {
   return new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict });
