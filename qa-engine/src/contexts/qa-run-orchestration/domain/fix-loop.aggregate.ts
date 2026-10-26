@@ -9,7 +9,7 @@ import { classifyRuntimeErrors } from "@kernel/runtime-error-class.ts";
 import { adjudicate, type AdjFailureClass, type AdjudicatorEvidence, type AdjudicatorVerdict, ADJ_CLASS, ADJ_ACTION, ADJ_CONFIDENCE } from "./adjudicate.service.ts";
 import { classifyFailure } from "@kernel/failure-detail-class.ts";
 import { decideProgress, bestRound, isLikelyRealBug, type RoundResult } from "./helpers/progress-gate.ts";
-import type { ContradictionOrigin, SpecSelectorFindings } from "./helpers/selector-check.ts";
+import type { ContradictionOrigin, SpecSelectorFindings } from "../../generation/domain/selector-check.ts";
 import type { ContractFeedback } from "./contract-feedback.ts";
 import { fixLoopAction, type FixLoopNext, type FixLoopStep, type FixLoopStop } from "./fix-loop-action.ts";
 

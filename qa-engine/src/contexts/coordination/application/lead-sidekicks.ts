@@ -17,7 +17,7 @@ import type { CoordinationGateSignal, CoordinationSettings, PlanningLimits } fro
 import { formatGeoLocation, type GeoLocation } from "@kernel/geolocation.ts";
 import { isRunDeadlineError } from "../../../shared-kernel/run-deadline.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle, FlowFailureFact, FlowGeolocationHandle, FlowLedgerEntry, FlowLoopHandle, GeolocationHandle } from "@contexts/agent-tools/application/index.ts";
-import type { LeadSessionHandle, PlanOutput } from "../domain/plan-output.ts";
+import type { LeadSessionHandle, PlanOutput } from "@kernel/plan-output.ts";
 import type { DelegationWorkspace, DelegationWorkspacePort, DelegationWorkspaceRequest, WorkspaceChange } from "./ports/delegation-workspace.port.ts";
 import { createDelegationBrief } from "./delegation-brief.ts";
 import { proofsFor } from "./change-proofs.ts";

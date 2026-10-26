@@ -4,7 +4,7 @@ import type { Sha } from "@kernel/sha.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { LearningPort, RetrievedRule, RelevanceBias } from "../../application/ports/index.ts";
 import type { LearningRepositoryPort, RuleStatus } from "@contexts/cross-run-learning/application/index.ts";
-import { renderLearnedRules } from "./generation-port.adapter.ts";
+import { renderLearnedRules } from "@contexts/cross-run-learning/application/index.ts";
 
 const DEFAULT_RETRIEVE_LIMIT = 20;
 

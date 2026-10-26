@@ -13,7 +13,7 @@ import { RunQaUseCase, type RunQaInput, type RunQaUseCaseDeps } from "@contexts/
 import type { CoordinateInput, CoordinateResult, CoordinatedPass, PassCorrection } from "@contexts/coordination/application/lead-sidekicks.ts";
 import { CORRECTION_ORIGIN, type CorrectionOrigin, type CorrectionFinding } from "@contexts/coordination/application/lead-correction.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle, GenerationEnrichment } from "@contexts/qa-run-orchestration/application/ports/index.ts";
-import type { PlanOutput } from "@contexts/coordination/application/index.ts";
+import type { PlanOutput } from "@kernel/plan-output.ts";
 import { leadCorrectionBudget } from "@contexts/qa-run-orchestration/domain/lead-correction-budget.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../support/run-workspace.ts";

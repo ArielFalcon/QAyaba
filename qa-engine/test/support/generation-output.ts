@@ -1,5 +1,5 @@
 import { GENERATION_END } from "@kernel/generation-end.ts";
-import type { GenerationOutput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import type { GenerationOutput } from "@contexts/generation/application/index.ts";
 
 type Scripted = Omit<GenerationOutput, "end" | "reviewed"> & Partial<Pick<GenerationOutput, "end" | "reviewed">>;
 

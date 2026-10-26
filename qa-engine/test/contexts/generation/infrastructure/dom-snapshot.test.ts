@@ -1284,7 +1284,7 @@ test("REGRESSION: mergeAttrs does NOT collide two siblings differing only in a r
  */
 test("4.8 [RED→GREEN] selectorPresent: correctly matches node line with state suffix", async () => {
   /* If parseLine strips "[disabled]", role=button name=Submit matches "button: Submit [disabled]" */
-  const { selectorPresent: sp } = await import("@contexts/qa-run-orchestration/domain/helpers/selector-check.ts");
+  const { selectorPresent: sp } = await import("@contexts/generation/domain/selector-check.ts");
   const tree = ["button: Submit [disabled]"];
   const sel = { kind: "role" as const, role: "button", name: "Submit" };
   const result = sp(sel, tree);

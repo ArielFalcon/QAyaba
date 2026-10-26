@@ -6,7 +6,7 @@ import { correctionClassOf } from "@contexts/generation/application/index.ts";
 import { renderSpecChanges, sameReviewedSpecs, type ReviewSpecText } from "@contexts/generation/application/index.ts";
 import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
 import type { SpecRoot } from "../../../../../shared-infrastructure/spec-path-confinement.ts";
-import { precheckSpecsAgainstDom } from "../../../domain/deterministic-review-precheck.ts";
+import { precheckSpecsAgainstDom } from "@contexts/generation/application/index.ts";
 import { citedSpec, filterReviewFindings } from "../../../domain/review-finding-filter.service.ts";
 import { verifyRebuttals, findingKey } from "../../../domain/review-rebuttals.service.ts";
 import { MAX_REVIEW_ROUNDS, reviewAction } from "../../../domain/review-action.ts";

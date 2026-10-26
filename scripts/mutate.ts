@@ -62,6 +62,8 @@ const LEARN = "qa-engine/src/contexts/cross-run-learning/domain";
 const LEARN_TEST = "qa-engine/test/contexts/cross-run-learning/domain";
 const ORCH = "qa-engine/src/contexts/qa-run-orchestration";
 const ORCH_TEST = "qa-engine/test/contexts/qa-run-orchestration";
+const GENERATION_CTX = "qa-engine/src/contexts/generation";
+const GENERATION_CTX_TEST = "qa-engine/test/contexts/generation";
 const COORDINATION_CTX = "qa-engine/src/contexts/coordination";
 const COORDINATION_CTX_TEST = "qa-engine/test/contexts/coordination";
 const AGENT_TOOLS_CTX = "qa-engine/src/contexts/agent-tools";
@@ -116,7 +118,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${ORCH_TEST}/domain/fix-loop.aggregate.test.ts`,
       `${ORCH_TEST}/domain/fix-loop-retry.test.ts`,
       `${ORCH_TEST}/application/run-qa.use-case.test.ts`,
-      `${ORCH_TEST}/infrastructure/adapters/generation-port.adapter.test.ts`,
+      `${GENERATION_CTX_TEST}/infrastructure/adapters/generation-port.adapter.test.ts`,
       "qa-engine/test/contract/coordination-seam.contract.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,
@@ -263,21 +265,21 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/domain/suite-listing-render.ts`,
       /* Only the lines that declare a generation's specs, hand them on and probe them: the rest of these modules is other code. */
       `${GEN}/application/generate-tests.use-case.ts@intent-change-type`,
-      `${ORCH}/infrastructure/adapters/generation-port.adapter.ts@generate-return-tail`,
-      `${ORCH}/infrastructure/adapters/generation-port.adapter.ts@services-and-step-limit`,
-      `${ORCH}/infrastructure/adapters/generation-port.adapter.ts@attribution-and-dom-snapshot`,
-      `${ORCH}/infrastructure/adapters/generation-port.adapter.ts@note-and-parsed-passthrough`,
+      `${GENERATION_CTX}/infrastructure/adapters/generation-port.adapter.ts@generate-return-tail`,
+      `${GENERATION_CTX}/infrastructure/adapters/generation-port.adapter.ts@services-and-step-limit`,
+      `${GENERATION_CTX}/infrastructure/adapters/generation-port.adapter.ts@attribution-and-dom-snapshot`,
+      `${GENERATION_CTX}/infrastructure/adapters/generation-port.adapter.ts@note-and-parsed-passthrough`,
       /* The grounding's one line that folds the manifest into the suite's entries. */
-      `${ORCH}/infrastructure/adapters/pre-generation-grounding-port.adapter.ts@existing-spec-listing`,
+      `${GENERATION_CTX}/infrastructure/adapters/pre-generation-grounding-port.adapter.ts@existing-spec-listing`,
       /* The checks' own lines that say which spec raised a contradiction, and the FixLoop's hand-over of them. */
-      `${ORCH}/domain/helpers/selector-check.ts#contradictionOrigins`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts@no-catalog-result`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts@origins-accumulators`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts@per-spec-first-route`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts@contradiction-origin-push`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts@catalog-result`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts@corrections-and-origins`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts@fail-closed-count`,
+      `${GENERATION_CTX}/domain/selector-check.ts#contradictionOrigins`,
+      `${GENERATION_CTX}/domain/pre-exec-grounding.service.ts@no-catalog-result`,
+      `${GENERATION_CTX}/domain/pre-exec-grounding.service.ts@origins-accumulators`,
+      `${GENERATION_CTX}/domain/pre-exec-grounding.service.ts@per-spec-first-route`,
+      `${GENERATION_CTX}/domain/pre-exec-grounding.service.ts@contradiction-origin-push`,
+      `${GENERATION_CTX}/domain/pre-exec-grounding.service.ts@catalog-result`,
+      `${GENERATION_CTX}/domain/pre-exec-grounding.service.ts@corrections-and-origins`,
+      `${GENERATION_CTX}/domain/pre-exec-grounding.service.ts@fail-closed-count`,
       `${ORCH}/domain/fix-loop.aggregate.ts@accepted-round-changed-set`,
       /* The run's own lines, now in the phases that moved them out of the use case: the regeneration that is handed what the run delivered and merges what it delivers, the first pass's merge, the pre-exec grounding's attribution and corrective regeneration, and the FixLoop's hand-over and attribution of each contradiction. */
       `${ORCH}/application/run-flow/phases/generation-services.ts@lead-regeneration-routing`,
@@ -301,16 +303,16 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN_TEST}/application/generate-tests.declared-specs.test.ts`,
       `${ORCH_TEST}/domain/helpers/delivered-specs.test.ts`,
       `${ORCH_TEST}/domain/helpers/contradiction-attribution.test.ts`,
-      `${ORCH_TEST}/domain/helpers/selector-check.origins.test.ts`,
-      `${ORCH_TEST}/domain/pre-exec-grounding.service.test.ts`,
+      `${GENERATION_CTX_TEST}/domain/selector-check.origins.test.ts`,
+      `${GENERATION_CTX_TEST}/domain/pre-exec-grounding.service.test.ts`,
       `${ORCH_TEST}/domain/fix-loop.aggregate.test.ts`,
       `${GEN_TEST}/domain/suite-entry.test.ts`,
       `${GEN_TEST}/domain/suite-listing.test.ts`,
       `${GEN_TEST}/domain/suite-listing-render.test.ts`,
-      `${ORCH_TEST}/infrastructure/adapters/pre-generation-grounding-port.adapter.test.ts`,
+      `${GENERATION_CTX_TEST}/infrastructure/adapters/pre-generation-grounding-port.adapter.test.ts`,
       /* Apart from run-qa.use-case.test.ts, whose many tests would all run once per mutant. */
       `${ORCH_TEST}/application/run-qa.carry-forward.test.ts`,
-      `${ORCH_TEST}/infrastructure/adapters/generation-port.adapter.test.ts`,
+      `${GENERATION_CTX_TEST}/infrastructure/adapters/generation-port.adapter.test.ts`,
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
@@ -348,7 +350,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/domain/harness-facts.ts`,
       `${GEN}/domain/step-limit.ts`,
       `${GEN}/domain/suite-listing-render.ts`,
-      `${ORCH}/infrastructure/adapters/pre-generation-grounding-port.adapter.ts@context-map-json-read`,
+      `${GENERATION_CTX}/infrastructure/adapters/pre-generation-grounding-port.adapter.ts@context-map-json-read`,
     ],
     tests: [
       `${GEN_TEST}/domain/prompt-contract-lint.test.ts`,
@@ -357,7 +359,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN_TEST}/domain/harness-facts.test.ts`,
       `${GEN_TEST}/domain/step-limit.test.ts`,
       `${GEN_TEST}/domain/suite-listing-render.test.ts`,
-      `${ORCH_TEST}/infrastructure/adapters/pre-generation-grounding-port.harness-facts.test.ts`,
+      `${GENERATION_CTX_TEST}/infrastructure/adapters/pre-generation-grounding-port.harness-facts.test.ts`,
       `${GEN_TEST}/infrastructure/prompt-builders/prompts.regen.test.ts`,
       `${GEN_TEST}/infrastructure/prompt-builders/prompts.scaffold.test.ts`,
       `${GEN_TEST}/infrastructure/prompt-builders/prompts.harness-facts.test.ts`,
@@ -459,7 +461,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts@spec-scan",
       "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts@eslint-fix-source",
       /* The context map: a strict read, and warnings that say nothing of what the file holds. */
-      `${ORCH}/infrastructure/adapters/pre-generation-grounding-port.adapter.ts@operation-id-filter`,
+      `${GENERATION_CTX}/infrastructure/adapters/pre-generation-grounding-port.adapter.ts@operation-id-filter`,
       /* Setup: the caps, the strict copy of the seed (the mark of a project last) and the wiring of the real strict calls, the entries of .qa that are removed when they are not ordinary, the strict read and replacement of each file of the project (a refusal fails the setup), the removal of what refuses the install marker, and the lock vetted before an install is started. */
       `${PUB_INFRA}/setup.adapter.ts@install-marker-limits`,
       `${PUB_INFRA}/setup.adapter.ts@setup-options-and-project-reads`,
@@ -478,17 +480,17 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "qa-engine/test/shared-infrastructure/spec-path-confinement.purge.test.ts",
       "qa-engine/test/shared-infrastructure/spec-path-confinement.repo-walk.test.ts",
       /* Lever-2's spec sources, the reviewer's inlining and the review DOM grounding. */
-      `${ORCH_TEST}/infrastructure/adapters/generation-port.adapter.test.ts`,
-      `${ORCH_TEST}/infrastructure/adapters/review-dom-grounding-port.adapter.test.ts`,
+      `${GENERATION_CTX_TEST}/infrastructure/adapters/generation-port.adapter.test.ts`,
+      `${GENERATION_CTX_TEST}/infrastructure/adapters/review-dom-grounding-port.adapter.test.ts`,
       `${GEN_TEST}/infrastructure/prompt-builders/prompts.test.ts`,
       /* The manifest's file hashes and write, the sidekick's claimed files and the pre-exec capture. */
       `${GEN_TEST}/infrastructure/manifest-fs.test.ts`,
       "qa-engine/test/contract/coordination-disk-and-model.contract.test.ts",
-      `${ORCH_TEST}/infrastructure/adapters/pre-exec-grounding-port.adapter.test.ts`,
+      `${GENERATION_CTX_TEST}/infrastructure/adapters/pre-exec-grounding-port.adapter.test.ts`,
       /* The read gate's manifest check and zero-assertion scan, the listing of the specs and the context map. */
       "qa-engine/test/contexts/test-execution/infrastructure/static-gate.checks.test.ts",
-      `${ORCH_TEST}/infrastructure/adapters/pre-generation-grounding-port.adapter.test.ts`,
-      `${ORCH_TEST}/infrastructure/adapters/pre-generation-grounding-port.context-map.test.ts`,
+      `${GENERATION_CTX_TEST}/infrastructure/adapters/pre-generation-grounding-port.adapter.test.ts`,
+      `${GENERATION_CTX_TEST}/infrastructure/adapters/pre-generation-grounding-port.context-map.test.ts`,
       /* What setup reads and replaces, and the login's stock check. */
       "qa-engine/test/contexts/workspace-and-publication/infrastructure/setup.adapter.confinement.test.ts",
       "qa-engine/test/contexts/workspace-and-publication/infrastructure/setup.adapter.test.ts",

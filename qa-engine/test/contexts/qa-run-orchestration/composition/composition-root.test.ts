@@ -27,7 +27,7 @@ import { GENERATION_END } from "@kernel/generation-end.ts";
 import { resolveCoordinationSettings } from "@kernel/coordination.ts";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
 import type { SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port.ts";
-import { TracedCurriculumPort, TracedLearningPort } from "@contexts/qa-run-orchestration/infrastructure/adapters/context-trace.ts";
+import { TracedCurriculumPort, TracedLearningPort } from "@contexts/generation/infrastructure/adapters/context-trace.ts";
 import { SpecSnapshotValidationPort } from "@contexts/qa-run-orchestration/infrastructure/adapters/spec-snapshot-validation.adapter.ts";
 import { TracedSuiteStore } from "@contexts/qa-run-orchestration/infrastructure/adapters/suite-store-trace.ts";
 import { SuiteStoreAdapter } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts";

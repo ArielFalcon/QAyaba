@@ -30,7 +30,7 @@ import { FsDelegationWorkspaceAdapter } from "../../coordination/infrastructure/
 import { specFileForFlow } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { getSharedCoordinationTelemetry } from "../../coordination/infrastructure/adapters/coordination-telemetry-port.adapter.ts";
 import { SpecSnapshotValidationPort } from "../infrastructure/adapters/spec-snapshot-validation.adapter.ts";
-import { TracedCrossRepoImpactPort, TracedCurriculumPort, TracedLearningPort, TracedServiceLinksPort, TracedStructuralSignalPort, telemetryGroundingTrace } from "../infrastructure/adapters/context-trace.ts";
+import { TracedCrossRepoImpactPort, TracedCurriculumPort, TracedLearningPort, TracedServiceLinksPort, TracedStructuralSignalPort, telemetryGroundingTrace } from "../../generation/infrastructure/adapters/context-trace.ts";
 import { TracedSuiteStore } from "../infrastructure/adapters/suite-store-trace.ts";
 import { TracedCoordinationTelemetry } from "../../coordination/infrastructure/adapters/coordination-telemetry-trace.ts";
 import { TracedObjectiveSignalPort } from "../infrastructure/adapters/objective-signal-trace.ts";
@@ -38,8 +38,8 @@ import type { SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port.ts";
 import { sanitizedPlanSnapshots, type PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port.ts";
 
 import { ChangeAnalysisPortAdapter } from "../infrastructure/adapters/change-analysis-port.adapter.ts";
-import { GenerationPortAdapter, type GenerationPortCollaborators } from "../infrastructure/adapters/generation-port.adapter.ts";
-import { ReviewPortAdapter, type ReviewPortRuntime } from "../infrastructure/adapters/review-port.adapter.ts";
+import { GenerationPortAdapter, type GenerationPortCollaborators } from "../../generation/infrastructure/adapters/generation-port.adapter.ts";
+import { ReviewPortAdapter, type ReviewPortRuntime } from "../../generation/infrastructure/adapters/review-port.adapter.ts";
 import { ValidationPortAdapter } from "../infrastructure/adapters/validation-port.adapter.ts";
 import { ExecutionPortAdapter } from "../infrastructure/adapters/execution-port.adapter.ts";
 import { ObjectiveSignalPortAdapter } from "../infrastructure/adapters/objective-signal-port.adapter.ts";
@@ -50,9 +50,9 @@ import { DeployGatePortAdapter, NullDeployGateAdapter, type VersionPollFn } from
 import { InMemoryRunHistoryAdapter, FileRunHistoryAdapter } from "../infrastructure/adapters/run-history-port.adapter.ts";
 import { SetupPortAdapter, type SetupPortCollaborators } from "../infrastructure/adapters/setup-port.adapter.ts";
 import { CleanupPortAdapter, type CleanupPortCollaborators } from "../infrastructure/adapters/cleanup-port.adapter.ts";
-import { PreGenerationGroundingPortAdapter, type PreGenerationGroundingCollaborators } from "../infrastructure/adapters/pre-generation-grounding-port.adapter.ts";
-import { ReviewDomGroundingPortAdapter, type ReviewDomGroundingCollaborators } from "../infrastructure/adapters/review-dom-grounding-port.adapter.ts";
-import { PreExecGroundingPortAdapter, type PreExecGroundingCollaborators } from "../infrastructure/adapters/pre-exec-grounding-port.adapter.ts";
+import { PreGenerationGroundingPortAdapter, type PreGenerationGroundingCollaborators } from "../../generation/infrastructure/adapters/pre-generation-grounding-port.adapter.ts";
+import { ReviewDomGroundingPortAdapter, type ReviewDomGroundingCollaborators } from "../../generation/infrastructure/adapters/review-dom-grounding-port.adapter.ts";
+import { PreExecGroundingPortAdapter, type PreExecGroundingCollaborators } from "../../generation/infrastructure/adapters/pre-exec-grounding-port.adapter.ts";
 import { ADVISORY_BUDGET, StructuralSignalPortAdapter } from "../infrastructure/adapters/structural-signal-port.adapter.ts";
 import { ChangePagesPortAdapter } from "../infrastructure/adapters/change-pages-port.adapter.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";

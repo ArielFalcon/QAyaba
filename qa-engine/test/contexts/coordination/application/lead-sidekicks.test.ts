@@ -20,7 +20,7 @@ import type { DelegationBrief } from "@contexts/coordination/application/delegat
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import type { DelegationCollection, DelegationWorkspace, DelegationWorkspacePort, DelegationWorkspaceRequest } from "@contexts/coordination/application/ports/delegation-workspace.port.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle, FlowLedgerEntry, FlowLoopHandle, FlowLoopOpenInput, GeolocationHandle } from "@contexts/qa-run-orchestration/application/ports/index.ts";
-import type { PlanOutput } from "@contexts/coordination/application/index.ts";
+import type { PlanOutput } from "@kernel/plan-output.ts";
 import type { GeoLocation } from "@kernel/geolocation.ts";
 import { evidenceFromPackDataRoutes } from "@contexts/coordination/application/evidence-from.ts";
 

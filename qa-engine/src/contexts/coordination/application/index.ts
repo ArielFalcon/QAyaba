@@ -87,7 +87,6 @@ export {
   type LeadDecisionAction,
   type CoordinationTelemetryPort,
 } from "./coordination-telemetry.ts";
-export type { LeadSessionHandle, PlanOutput } from "../domain/plan-output.ts";
 export { CORRECTION_ORIGIN } from "./lead-correction.ts";
 export type { CorrectionFinding, CorrectionOrigin } from "./lead-correction.ts";
 export { LeadSidekicks } from "./lead-sidekicks.ts";

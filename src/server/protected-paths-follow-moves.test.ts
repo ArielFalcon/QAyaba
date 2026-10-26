@@ -32,6 +32,9 @@ const SECURITY_RELEVANT_MODULES = [
   `${CONTEXTS}/coordination/application/ports/delegation-workspace.port.ts`,
   `${CONTEXTS}/coordination/infrastructure/adapters/delegation-workspace.adapter.ts`,
   `${CONTEXTS}/coordination/infrastructure/adapters/coordination-telemetry-port.adapter.ts`,
+  `${CONTEXTS}/generation/infrastructure/adapters/pre-generation-grounding-port.adapter.ts`,
+  `${CONTEXTS}/generation/infrastructure/adapters/generation-port.adapter.ts`,
+  `${CONTEXTS}/change-analysis/infrastructure/adapters/blast-radius-signal.ts`,
 ];
 
 test("every security-relevant module exists at its path and is protected there", () => {

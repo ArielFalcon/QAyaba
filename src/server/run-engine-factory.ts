@@ -35,8 +35,8 @@ import { synthesizeReportSpans } from "@contexts/test-execution/infrastructure/r
 import { SqliteSpecSnapshotAdapter } from "./spec-snapshot-sqlite.adapter";
 import { SqlitePlanSnapshotAdapter } from "./plan-snapshot-sqlite.adapter";
 import { defaultContextPackDeps } from "@contexts/generation/infrastructure/context-pack";
-import { loadContextMapFromDisk } from "@contexts/qa-run-orchestration/infrastructure/adapters/pre-generation-grounding-port.adapter";
-import { ContextMapCapturePortAdapter, type ContextMapSave, type ContextMapWrittenThisRun } from "@contexts/qa-run-orchestration/infrastructure/adapters/context-map-capture-port.adapter";
+import { loadContextMapFromDisk } from "@contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter";
+import { ContextMapCapturePortAdapter, type ContextMapSave, type ContextMapWrittenThisRun } from "@contexts/generation/infrastructure/adapters/context-map-capture-port.adapter";
 import { Sha, shaMatches } from "@kernel/sha";
 import { DEFAULT_CLOSED_LOOP_LIMITS } from "@kernel/closed-loop";
 import { resolveCoordinationSettings } from "@kernel/coordination";
@@ -51,9 +51,10 @@ import { redactByValue } from "../../qa-engine/src/shared-infrastructure/run-sec
 import { ValidationPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/validation-port.adapter";
 import { ExecutionPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/execution-port.adapter";
 import { ObjectiveSignalPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/objective-signal-port.adapter";
-import { ReviewPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/review-port.adapter";
+import { ReviewPortAdapter } from "@contexts/generation/infrastructure/adapters/review-port.adapter";
 import { DecideCoverageService } from "@contexts/objective-signal/domain/decide-coverage.service";
-import type { ExecutionPort, ObjectiveSignalPort, ReviewPort, ValidationPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import type { ReviewPort } from "@contexts/generation/application/index.ts";
+import type { ExecutionPort, ObjectiveSignalPort, ValidationPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import type { AgentRole } from "@kernel/agent-role";
 import type { RunMode, TestTarget } from "@kernel/run-mode";
 

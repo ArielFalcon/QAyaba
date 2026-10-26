@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ADVISORY_BUDGET, StructuralSignalPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/structural-signal-port.adapter.ts";
-import { DOSSIER_HEADING, renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/adapters/blast-radius-signal.ts";
+import { DOSSIER_HEADING, renderBlastRadiusSignal } from "@contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts";
 import type { CodeExplorePort } from "@kernel/ports/code-explore.port.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { Sha } from "@kernel/sha.ts";

@@ -7,7 +7,7 @@ import { GENERATION_END } from "@kernel/generation-end.ts";
 import { NOOP_KIND } from "@kernel/noop-kind.ts";
 import { attributeContradictions } from "../../../domain/helpers/contradiction-attribution.ts";
 import { engineSideCauseOf, terminalForGenerationEnd } from "../../../domain/helpers/generation-end-terminal.ts";
-import { checkPreExecGrounding } from "../../../domain/pre-exec-grounding.service.ts";
+import { checkPreExecGrounding } from "@contexts/generation/application/index.ts";
 import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
 import { reviewerApprovalOf } from "../../ports/index.ts";
 import type { GenerationOutput } from "../../ports/index.ts";

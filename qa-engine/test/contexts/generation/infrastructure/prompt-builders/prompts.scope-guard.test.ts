@@ -20,7 +20,7 @@ import {
   type LintSection,
   type PromptClaim,
 } from "@contexts/generation/domain/prompt-contract-lint.ts";
-import { hasSymbolBlocks, renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/adapters/blast-radius-signal.ts";
+import { hasSymbolBlocks, renderBlastRadiusSignal } from "@contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts";
 import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 import { setAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { rosterFixturePath } from "../../../../support/roster-fixture.ts";

@@ -327,6 +327,23 @@
   },
   {
     "type": "dependency",
+    "from": "qa-engine/src/contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts",
+    "to": "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
+    "unresolvedTo": "@contexts/generation/infrastructure/sanitize-text.ts",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "cross-context-internals"
+    }
+  },
+  {
+    "type": "dependency",
     "from": "qa-engine/src/contexts/coordination/application/scrub.ts",
     "to": "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
     "unresolvedTo": "@contexts/generation/infrastructure/sanitize-text.ts",
@@ -514,14 +531,27 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/domain/deterministic-review-precheck.ts",
-    "to": "qa-engine/src/contexts/generation/domain/review-output.ts",
-    "unresolvedTo": "@contexts/generation/domain/review-output.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts",
+    "to": "qa-engine/src/contexts/generation/domain/selector-check.ts",
+    "unresolvedTo": "../../generation/domain/selector-check.ts",
     "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
       "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "cross-context-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/contradiction-attribution.ts",
+    "to": "qa-engine/src/contexts/generation/domain/selector-check.ts",
+    "unresolvedTo": "../../../generation/domain/selector-check.ts",
+    "dependencyTypes": [
+      "local",
+      "type-only",
       "import"
     ],
     "rule": {
@@ -534,40 +564,6 @@
     "from": "qa-engine/src/contexts/qa-run-orchestration/domain/run-time-budget.ts",
     "to": "qa-engine/src/contexts/generation/domain/diff-stat.ts",
     "unresolvedTo": "@contexts/generation/domain/diff-stat.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/blast-radius-signal.ts",
-    "to": "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
-    "unresolvedTo": "@contexts/generation/infrastructure/sanitize-text.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/context-trace.ts",
-    "to": "qa-engine/src/contexts/generation/infrastructure/context-pack.ts",
-    "unresolvedTo": "@contexts/generation/infrastructure/context-pack.ts",
     "dependencyTypes": [
       "aliased",
       "aliased-tsconfig",
@@ -618,125 +614,6 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/pre-exec-grounding-port.adapter.ts",
-    "to": "qa-engine/src/contexts/generation/infrastructure/dom-snapshot.ts",
-    "unresolvedTo": "@contexts/generation/infrastructure/dom-snapshot.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/pre-exec-grounding-port.adapter.ts",
-    "to": "qa-engine/src/contexts/generation/infrastructure/route-catalog.ts",
-    "unresolvedTo": "@contexts/generation/infrastructure/route-catalog.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/pre-generation-grounding-port.adapter.ts",
-    "to": "qa-engine/src/contexts/generation/infrastructure/context-pack.ts",
-    "unresolvedTo": "@contexts/generation/infrastructure/context-pack.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/pre-generation-grounding-port.adapter.ts",
-    "to": "qa-engine/src/contexts/generation/infrastructure/manifest-fs.ts",
-    "unresolvedTo": "@contexts/generation/infrastructure/manifest-fs.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/pre-generation-grounding-port.adapter.ts",
-    "to": "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
-    "unresolvedTo": "@contexts/generation/infrastructure/sanitize-text.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/review-dom-grounding-port.adapter.ts",
-    "to": "qa-engine/src/contexts/generation/infrastructure/dom-snapshot.ts",
-    "unresolvedTo": "@contexts/generation/infrastructure/dom-snapshot.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/review-port.adapter.ts",
-    "to": "qa-engine/src/contexts/generation/infrastructure/prompt-builders/prompts.ts",
-    "unresolvedTo": "@contexts/generation/infrastructure/prompt-builders/prompts.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/service-links-port.adapter.ts",
     "to": "qa-engine/src/contexts/service-topology/infrastructure/resolver-factory.ts",
     "unresolvedTo": "@contexts/service-topology/infrastructure/resolver-factory.ts",
@@ -744,6 +621,20 @@
       "aliased",
       "aliased-tsconfig",
       "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "cross-context-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/structural-signal-port.adapter.ts",
+    "to": "qa-engine/src/contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts",
+    "unresolvedTo": "../../../change-analysis/infrastructure/adapters/blast-radius-signal.ts",
+    "dependencyTypes": [
       "local",
       "import"
     ],

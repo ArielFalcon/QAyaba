@@ -408,8 +408,8 @@ test("every file under the orchestration adapters directory is protected or expl
 });
 
 test("the abort race that moved to the domain is not protected while the adapters prefix is", () => {
-  assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/domain/abort-race.ts"), false);
-  assert.ok(existsSync(join(repoRoot, "qa-engine/src/contexts/qa-run-orchestration/domain/abort-race.ts")));
+  assert.equal(isProtectedPath("qa-engine/src/shared-kernel/abort-race.ts"), false);
+  assert.ok(existsSync(join(repoRoot, "qa-engine/src/shared-kernel/abort-race.ts")));
   assert.equal(isProtectedPath(`${ORCHESTRATION_ADAPTERS}publication-port.adapter.ts`), true);
 });
 

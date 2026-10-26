@@ -6,7 +6,7 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { GenerationPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import type { GenerationPort } from "@contexts/generation/application/index.ts";
 import { SuiteStoreAdapter } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts";
 import type { SuiteStorePort } from "@kernel/ports/suite-store.port.ts";
 

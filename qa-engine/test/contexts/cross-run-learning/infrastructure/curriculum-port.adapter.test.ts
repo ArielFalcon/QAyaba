@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { CurriculumPortAdapter, CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter.ts";
 import { initCurriculum, foldCurriculum, type Curriculum } from "@contexts/cross-run-learning/domain/curriculum.ts";
-import { MAX_SELECTED_EXEMPLARS } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import { MAX_SELECTED_EXEMPLARS } from "@contexts/cross-run-learning/application/index.ts";
 
 /* A diff that matches four exemplars across form, api-call and data-list, exceeding the cap of three. */
 const RICH_DIFF = `
