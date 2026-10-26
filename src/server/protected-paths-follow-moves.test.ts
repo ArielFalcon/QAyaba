@@ -37,6 +37,10 @@ const SECURITY_RELEVANT_MODULES = [
   `${CONTEXTS}/change-analysis/infrastructure/adapters/blast-radius-signal.ts`,
   `${CONTEXTS}/workspace-and-publication/infrastructure/adapters/publication-port.adapter.ts`,
   `${CONTEXTS}/workspace-and-publication/infrastructure/adapters/workspace-port.adapter.ts`,
+  `${CONTEXTS}/test-execution/infrastructure/adapters/execution-port.adapter.ts`,
+  `${CONTEXTS}/cross-run-learning/infrastructure/adapters/learning-port.adapter.ts`,
+  `${CONTEXTS}/service-topology/infrastructure/adapters/cross-repo-impact-port.adapter.ts`,
+  `${CONTEXTS}/objective-signal/infrastructure/adapters/objective-signal-port.adapter.ts`,
 ];
 
 test("every security-relevant module exists at its path and is protected there", () => {

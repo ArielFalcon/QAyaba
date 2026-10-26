@@ -9,3 +9,5 @@ export { AccountLock } from "../domain/account-lock.ts";
 export { AGENT_BROWSER_AGENTS, AgentBrowserCapability } from "../domain/agent-browser-capability.ts";
 export { createRouteGuard } from "../domain/agent-browser-route-guard.ts";
 export { PROBE_REL_DIR, RUN_SPEC_AGENT, RUN_SPEC_FLOW_AGENT, RunSpecCapability, loopClosed } from "../domain/run-spec-capability.ts";
+export type { ValidationPort, ValidationRunInfo } from "./ports/validation.port.ts";
+export type { ExecutionOpts, ExecutionPort } from "./ports/execution.port.ts";

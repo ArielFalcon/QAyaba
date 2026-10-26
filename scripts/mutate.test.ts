@@ -198,7 +198,7 @@ test("the generation-end preset mutates exactly the classifier, the terminal map
   assert.deepEqual(sources, [
     "qa-engine/src/contexts/generation/domain/generation-end.ts",
     "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/generation-end-terminal.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/learning-gates.ts",
+    "qa-engine/src/contexts/cross-run-learning/domain/learning-gates.ts",
   ]);
   for (const module of ["generation-end", "generation-end-terminal", "learning-gates"]) {
     assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s own tests run against every mutant`);
@@ -212,7 +212,7 @@ test("the precondition-verdict preset mutates the typed precondition error, its 
   assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], [
     "qa-engine/src/contexts/app-catalog/domain/auth-precondition.ts",
     "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/precondition-terminal.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/error-class.ts",
+    "qa-engine/src/contexts/cross-run-learning/domain/error-class.ts",
     "qa-engine/src/contexts/cross-run-learning/domain/process-audit.ts",
   ]);
   for (const module of ["auth-precondition", "precondition-terminal", "error-class", "error-class-taxonomy", "learning-gates", "process-audit"]) {

@@ -8,12 +8,12 @@ import {
   errorClassFromVerdict,
   errorClassFromCorrections,
   resolveErrorClass,
-} from "@contexts/qa-run-orchestration/domain/helpers/error-class.ts";
+} from "@contexts/cross-run-learning/domain/error-class.ts";
 import {
   ERROR_CLASSES as REFERENCE_ERROR_CLASSES,
   errorClassFromVerdict as referenceErrorClassFromVerdict,
   errorClassFromCorrections as referenceErrorClassFromCorrections,
-} from "../../../../../../src/qa/learning/taxonomy.ts";
+} from "../../../../../src/qa/learning/taxonomy.ts";
 
 test("both copies list the same error classes in the same order", () => {
   assert.deepEqual([...ERROR_CLASSES], [...REFERENCE_ERROR_CLASSES]);

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ValidationPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/validation-port.adapter.ts";
+import { ValidationPortAdapter } from "@contexts/test-execution/infrastructure/adapters/validation-port.adapter.ts";
 import { StaticGateAdapter, type StaticGateChecks } from "@contexts/test-execution/infrastructure/static-gate.adapter.ts";
 import { CodeValidationStrategy } from "@contexts/test-execution/infrastructure/code-validation.strategy.ts";
 import type { CheckResult, ValidationResult } from "@contexts/test-execution/application/ports/index.ts";

@@ -2397,7 +2397,7 @@ test("integration: upsert -> retrieve (real LearningPortAdapter) -> derive rules
     "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter"
   );
   const { LearningPortAdapter } = await import(
-    "@contexts/qa-run-orchestration/infrastructure/adapters/learning-port.adapter"
+    "@contexts/cross-run-learning/infrastructure/adapters/learning-port.adapter"
   );
   const app = `factory-learning-ws1-1-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   /* Deliberately DIFFERENT from the rule's trigger text — if the chain regresses to persisting

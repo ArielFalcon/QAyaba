@@ -9,7 +9,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ExecutionPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/execution-port.adapter.ts";
+import { ExecutionPortAdapter } from "@contexts/test-execution/infrastructure/adapters/execution-port.adapter.ts";
 import { E2eExecutionStrategy } from "@contexts/test-execution/infrastructure/e2e-execution.strategy.ts";
 import { CodeExecutionStrategy } from "@contexts/test-execution/infrastructure/code-execution.strategy.ts";
 

@@ -1,5 +1,5 @@
 /* ValidationPort → target-dispatched gates. e2e uses StaticGateAdapter.validateAll (full gate including the zero-assertion guard) — never the granular methods, which would skip that guard. Code uses CodeValidationStrategy (compile-feedback before execution). */
-import type { ValidationPort, ValidationRunInfo } from "../../application/ports/index.ts";
+import type { ValidationPort, ValidationRunInfo } from "../../application/ports/validation.port.ts";
 import type { StaticGateAdapter } from "@contexts/test-execution/infrastructure/static-gate.adapter.ts";
 import type { CodeValidationStrategy } from "@contexts/test-execution/infrastructure/code-validation.strategy.ts";
 import type { TestTarget } from "@kernel/run-mode.ts";

@@ -12,7 +12,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ObjectiveSignalPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/objective-signal-port.adapter.ts";
+import { ObjectiveSignalPortAdapter } from "@contexts/objective-signal/infrastructure/adapters/objective-signal-port.adapter.ts";
 import { DecideCoverageService, type ChangeCoverage } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
 import { assembleChangeCoverage } from "@contexts/objective-signal/domain/assemble-change-coverage.ts";
 import type { CoverageCollectorPort, ValueOraclePort, CoverageReport, ValueOracleResult } from "@contexts/objective-signal/application/ports/index.ts";

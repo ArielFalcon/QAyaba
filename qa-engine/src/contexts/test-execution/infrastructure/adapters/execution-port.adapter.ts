@@ -1,6 +1,6 @@
 /* ExecutionPort → e2e/code strategy dispatch. Strategies own run/adjudicate. AbortSignal is forwarded. opts.namespace overrides ctx.namespace so enforce-mode coverage regen can use `${runId}-coverage-regen` without colliding with the first run's dumps. A bare AbortSignal second arg is normalized to `{ signal }`. */
 
-import type { ExecutionPort, ExecutionOpts } from "../../application/ports/index.ts";
+import type { ExecutionPort, ExecutionOpts } from "../../application/ports/execution.port.ts";
 import type { E2eExecutionStrategy } from "@contexts/test-execution/infrastructure/e2e-execution.strategy.ts";
 import type { CodeExecutionStrategy } from "@contexts/test-execution/infrastructure/code-execution.strategy.ts";
 import type { TestTarget } from "@kernel/run-mode.ts";

@@ -85,91 +85,6 @@ export interface RunDeadlinePort {
   /** Milliseconds a purpose may still spend (never more than `remainingMs()`); null while no deadline is armed. The one reading the run's time decisions share. */
   allowance?(purpose: "first-pass" | "regeneration"): number | null;
 }
-/** What the run knows that a validation may report on. */
-export interface ValidationRunInfo {
-  /** The specs (relative to the suite directory) this run has delivered so far: written by its generator or a sidekick, as reported by them. */
-  deliveredSpecs?: readonly string[];
-}
-export interface ValidationPort {
-  /**
-   * `changedFiles` scopes the code-target compile gate. Ignored by the e2e
-   * static gate. Present so the same call site can pass it for either target.
-   * `infra` is optional: a validation failure may be infrastructure, not a code defect.
-   */
-  validate(specDir: string, changedFiles?: string[], run?: ValidationRunInfo): Promise<{ ok: boolean; errors: string[]; infra?: boolean }>;
-  /**
-   * Applies the linter's own fixes to the delivered specs (`run.deliveredSpecs`) and returns
-   * the specs it rewrote. Absent, or a target with no linter fixes: nothing is rewritten.
-   */
-  autofix?(specDir: string, run: ValidationRunInfo): Promise<string[]>;
-}
-/**
- * Optional execute bag. Also accepts a bare AbortSignal (normalized to
- * `{ signal }`): AbortSignal is a class instance; the bag is a plain object.
- */
-export interface ExecutionOpts {
-  signal?: AbortSignal;
-  faultInject?: boolean;
-  /** Scope re-execution to only the specs that failed. */
-  specFiles?: string[];
-  /** Attempts after a failure; 0 is a single attempt. Absent: the suite's own config decides. */
-  retries?: number;
-  /** A title filter, already escaped as a literal. */
-  grep?: string;
-  /** Have the fixtures count the writes the specs send to DEV; the total comes back as `devWrites`. */
-  countWrites?: boolean;
-  project?: string;
-  timeoutMs?: number;
-  /**
-   * Live per-case progress so ObserverPort can emit test events during execution
-   * instead of reconstructing them after the fact.
-   */
-  onCase?: (c: QaCase) => void;
-  onRunning?: (title: string) => void;
-  onDiscovered?: (title: string, file?: string) => void;
-  /**
-   * Dedicated coverage-dump namespace. Enforce-mode one-shot regen must execute
-   * and re-measure under `${runId}-coverage-regen` so dumps never collide with
-   * the first run. Absent falls back to the composition-time namespace.
-   */
-  namespace?: string;
-}
-export interface ExecutionPort {
-  /** Bare AbortSignal or richer opts bag; absent is specDir only. */
-  execute(specDir: string, opts?: AbortSignal | ExecutionOpts): Promise<{ verdict: RunVerdict; cases: QaCase[]; logs: string; devWrites?: number }>;
-}
-/** What a change-coverage measurement counted, and why a measurement that decides nothing did not. */
-export interface CoverageMeasurement {
-  changedLines: number;
-  coveredChanged: number;
-  changedFiles: number;
-  /** Changed files the executed code was mapped to. */
-  mappedFiles: number;
-  /** Why the measurement decides nothing: no diff, no assembler, no changed line, or no executed source mapped to a changed file, or the scripts the page ran carried no source map at all (the app serves bundles that cannot be translated back to the repository's files). Absent when it measured. */
-  unmeasured?: "no-diff" | "not-assembled" | "no-changed-lines" | "no-changed-file-mapped" | "no-source-maps";
-}
-export interface ObjectiveSignalPort {
-  /**
-   * `valueScore` absent means not measured — never a fabricated 0.
-   * `mutantCount`/`killedCount` mirror the value-oracle's own ValueOracleResult: absent means the
-   * oracle never ran this measure() call (e.g. coverage.mode "off"); `null` means it ran but has no
-   * count to report. Neither is ever fabricated as 0 — that would read as a genuine measured zero.
-   * `diff` absent (non-diff modes) → assembler never invoked → decide() gets
-   * null → "unknown" → never blocks.
-   * `baselineCases` are this run's passing case names; absent falls back to the
-   * static composition-time list.
-   * `uncovered` is populated only when a ChangeCoverage was actually assembled;
-   * never fabricated as [].
-   * `opts.namespace` overrides the dump namespace for the regen's second
-   * measure(); the first measurement is untouched.
-   */
-  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[]; measurement?: CoverageMeasurement }>;
-  /**
-   * Single source of truth for whether a measured status blocks publish.
-   * Only "enforce" + "fail" blocks; "unknown" never blocks regardless of mode.
-   */
-  blocks(status: "pass" | "fail" | "unknown"): boolean;
-}
 export interface PublicationPort {
   /**
    * Per-run values override composition-time ctx. Absent falls back to static
@@ -322,3 +237,6 @@ export type { ContractDrift, ServiceLink, ServiceSymbolRef } from "@contexts/ser
 export type { CrossRepoImpact, ImpactedLink, MatchTier } from "@contexts/service-topology/application/index.ts";
 export type { ChangeAnalysisPort } from "@contexts/change-analysis/application/index.ts";
 export type { StructuralSignalPort, StructuralSignalResult } from "@contexts/change-analysis/application/index.ts";
+export type { ValidationPort, ValidationRunInfo } from "@contexts/test-execution/application/index.ts";
+export type { ExecutionOpts, ExecutionPort } from "@contexts/test-execution/application/index.ts";
+export type { CoverageMeasurement, ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";

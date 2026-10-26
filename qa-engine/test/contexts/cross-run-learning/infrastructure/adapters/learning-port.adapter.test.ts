@@ -6,12 +6,12 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LearningPortAdapter, DEFAULT_RULES_CHAR_BUDGET } from "@contexts/qa-run-orchestration/infrastructure/adapters/learning-port.adapter.ts";
+import { LearningPortAdapter, DEFAULT_RULES_CHAR_BUDGET } from "@contexts/cross-run-learning/infrastructure/adapters/learning-port.adapter.ts";
 import { SqliteLearningRepository, type LearningRow, type LearningStore } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter.ts";
 import { renderLearnedRules } from "@contexts/cross-run-learning/application/index.ts";
 import { StubLearningRepository } from "@contexts/cross-run-learning/infrastructure/stub-learning-repository.adapter.ts";
 import type { LearningRepositoryPort, LearningRule } from "@contexts/cross-run-learning/application/ports/index.ts";
-import type { RelevanceBias } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import type { RelevanceBias } from "@contexts/cross-run-learning/application/index.ts";
 import { Sha } from "@kernel/sha.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 

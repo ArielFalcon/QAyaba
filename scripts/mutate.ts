@@ -62,6 +62,10 @@ const LEARN = "qa-engine/src/contexts/cross-run-learning/domain";
 const LEARN_TEST = "qa-engine/test/contexts/cross-run-learning/domain";
 const ORCH = "qa-engine/src/contexts/qa-run-orchestration";
 const ORCH_TEST = "qa-engine/test/contexts/qa-run-orchestration";
+const OBJECTIVE_SIGNAL_CTX = "qa-engine/src/contexts/objective-signal";
+const OBJECTIVE_SIGNAL_CTX_TEST = "qa-engine/test/contexts/objective-signal";
+const CROSS_RUN_LEARNING_CTX = "qa-engine/src/contexts/cross-run-learning";
+const CROSS_RUN_LEARNING_CTX_TEST = "qa-engine/test/contexts/cross-run-learning";
 const GENERATION_CTX = "qa-engine/src/contexts/generation";
 const GENERATION_CTX_TEST = "qa-engine/test/contexts/generation";
 const COORDINATION_CTX = "qa-engine/src/contexts/coordination";
@@ -94,7 +98,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${OS_TEST}/decide-coverage.service.test.ts`,
       `${OS_TEST}/assemble-change-coverage.test.ts`,
       `${OS_TEST}/render-coverage-gap.test.ts`,
-      `${ORCH_TEST}/infrastructure/adapters/objective-signal-port.adapter.test.ts`,
+      `${OBJECTIVE_SIGNAL_CTX_TEST}/infrastructure/adapters/objective-signal-port.adapter.test.ts`,
     ],
     /* The keystone was already an enforced gate; every other preset starts in signal mode. */
     thresholds: { high: 90, low: 80, break: 80 },
@@ -106,7 +110,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${LEARN_TEST}/rule-governance.service.test.ts`,
       `${LEARN_TEST}/rule-fold.test.ts`,
       "qa-engine/test/contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter.test.ts",
-      `${ORCH_TEST}/infrastructure/adapters/learning-port.adapter.test.ts`,
+      `${CROSS_RUN_LEARNING_CTX_TEST}/infrastructure/adapters/learning-port.adapter.test.ts`,
       "src/server/history.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,
@@ -177,14 +181,14 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     mutate: [
       `${GEN}/domain/generation-end.ts`,
       `${ORCH}/domain/helpers/generation-end-terminal.ts`,
-      `${ORCH}/domain/helpers/learning-gates.ts`,
+      `${CROSS_RUN_LEARNING_CTX}/domain/learning-gates.ts`,
     ],
     tests: [
       `${GEN_TEST}/domain/generation-end.test.ts`,
       `${ORCH_TEST}/domain/helpers/generation-end-terminal.test.ts`,
-      `${ORCH_TEST}/domain/helpers/learning-gates.test.ts`,
-      `${ORCH_TEST}/domain/helpers/error-class.test.ts`,
-      `${ORCH_TEST}/domain/helpers/should-distill-learning.test.ts`,
+      `${CROSS_RUN_LEARNING_CTX_TEST}/domain/learning-gates.test.ts`,
+      `${CROSS_RUN_LEARNING_CTX_TEST}/domain/error-class.test.ts`,
+      `${CROSS_RUN_LEARNING_CTX_TEST}/domain/should-distill-learning.test.ts`,
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
@@ -200,18 +204,18 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${APP_CATALOG_CTX}/domain/auth-precondition.ts`,
       `${ORCH}/domain/helpers/precondition-terminal.ts`,
       /* Only the lines that name and resolve the class: the rest of these modules belongs to other classes. */
-      `${ORCH}/domain/helpers/error-class.ts@error-classes-precondition`,
-      `${ORCH}/domain/helpers/error-class.ts@error-class-table`,
-      `${ORCH}/domain/helpers/error-class.ts@resolve-input-sandbox-flag`,
+      `${CROSS_RUN_LEARNING_CTX}/domain/error-class.ts@error-classes-precondition`,
+      `${CROSS_RUN_LEARNING_CTX}/domain/error-class.ts@error-class-table`,
+      `${CROSS_RUN_LEARNING_CTX}/domain/error-class.ts@resolve-input-sandbox-flag`,
       `${LEARN}/process-audit.ts#PRECONDITION_CLASS`,
       `${LEARN}/process-audit.ts@recurring-class-summary`,
     ],
     tests: [
       `${APP_CATALOG_CTX_TEST}/domain/auth-precondition.test.ts`,
       `${ORCH_TEST}/domain/helpers/precondition-terminal.test.ts`,
-      `${ORCH_TEST}/domain/helpers/error-class.test.ts`,
-      `${ORCH_TEST}/domain/helpers/error-class-taxonomy.test.ts`,
-      `${ORCH_TEST}/domain/helpers/learning-gates.test.ts`,
+      `${CROSS_RUN_LEARNING_CTX_TEST}/domain/error-class.test.ts`,
+      `${CROSS_RUN_LEARNING_CTX_TEST}/domain/error-class-taxonomy.test.ts`,
+      `${CROSS_RUN_LEARNING_CTX_TEST}/domain/learning-gates.test.ts`,
       `${LEARN_TEST}/process-audit.test.ts`,
     ],
     thresholds: DEFAULT_THRESHOLDS,

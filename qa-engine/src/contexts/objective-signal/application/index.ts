@@ -8,3 +8,4 @@ export type { ChangeCoverage, CoveragePolicy } from "../domain/decide-coverage.s
 export { renderCoverageGap } from "../domain/render-coverage-gap.ts";
 export { diffContracts } from "../domain/test-intent-contract.ts";
 export type { IntentViolation } from "../domain/test-intent-contract.ts";
+export type { CoverageMeasurement, ObjectiveSignalPort } from "./ports/objective-signal.port.ts";

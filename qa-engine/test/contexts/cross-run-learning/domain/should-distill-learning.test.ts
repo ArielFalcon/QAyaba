@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { shouldDistillLearning } from "@contexts/qa-run-orchestration/domain/helpers/should-distill-learning.ts";
+import { shouldDistillLearning } from "@contexts/cross-run-learning/domain/should-distill-learning.ts";
 
 /* The gating predicate across its input space (isCode × every RunVerdict). Suppress distillation
    ONLY for isCode + fail (the agent's generated test correctly caught a real bug — distilling a

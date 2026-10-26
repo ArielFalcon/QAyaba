@@ -1,7 +1,7 @@
 /* The pages the call graph proves a change reaches: always pages the map names, each with its shortest proof; a hub adds none, the cap bounds what the graph adds, the map's own pages are never displaced, and a map/engine disagreement is reported. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { GRAPH_PAGE_LIMITS, joinChangePages, type ChangePagesInput, type PageWalk } from "@contexts/qa-run-orchestration/domain/change-pages.ts";
+import { GRAPH_PAGE_LIMITS, joinChangePages, type ChangePagesInput, type PageWalk } from "@contexts/service-topology/domain/change-pages.ts";
 import type { GraphRoute, ImpactedSymbol } from "@kernel/code/index.ts";
 
 const FORMAT = "web/src/app/shared/format.ts";

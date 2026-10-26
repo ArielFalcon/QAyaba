@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { ProcessAuditPortAdapter, PROCESS_AUDIT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter.ts";
 import type { ProcessFinding, RuleView } from "@contexts/cross-run-learning/domain/process-audit.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import { NON_LEARNING, OBSERVED_OPERATING } from "@contexts/qa-run-orchestration/domain/helpers/learning-gates.ts";
+import { NON_LEARNING, OBSERVED_OPERATING } from "@contexts/cross-run-learning/domain/learning-gates.ts";
 
 function outcome(over: Partial<RunOutcome> = {}): RunOutcome {
   return {

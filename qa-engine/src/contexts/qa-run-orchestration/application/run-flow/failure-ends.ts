@@ -5,7 +5,7 @@
  */
 
 import { GENERATION_END } from "@kernel/generation-end.ts";
-import { ERROR_CLASS } from "../../domain/helpers/error-class.ts";
+import { ERROR_CLASS } from "@contexts/cross-run-learning/application/index.ts";
 import { renderRunDeadlineNote } from "../../domain/run-time-budget.ts";
 import type { RunDeadlineExceededError } from "../../../../shared-kernel/run-deadline.ts";
 import { classifyFailure } from "./failure-policy.ts";

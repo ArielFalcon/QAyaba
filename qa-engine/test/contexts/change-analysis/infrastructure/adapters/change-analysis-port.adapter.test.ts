@@ -10,7 +10,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ChangeAnalysisPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/change-analysis-port.adapter.ts";
+import { ChangeAnalysisPortAdapter } from "@contexts/change-analysis/infrastructure/adapters/change-analysis-port.adapter.ts";
 import { Sha } from "@kernel/sha.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import type { VcsReadPort } from "@contexts/change-analysis/application/ports/index.ts";

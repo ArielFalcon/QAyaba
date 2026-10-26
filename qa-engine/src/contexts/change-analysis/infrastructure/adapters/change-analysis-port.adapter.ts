@@ -1,7 +1,8 @@
 /* ChangeAnalysisPort → VcsReadPort + classifyRange. Returns the fetched diff (not a composition-time snapshot). Absent baseSha is single-commit; baseSha set is a range (max-severity action, head's own intent). */
 
 import type { Sha } from "@kernel/sha.ts";
-import type { ChangeAnalysisPort, CommitIntent } from "../../application/ports/index.ts";
+import type { ChangeAnalysisPort } from "../../application/ports/change-analysis.port.ts";
+import type { CommitIntent } from "@kernel/commit-intent.ts";
 import type { VcsReadPort } from "@contexts/change-analysis/application/index.ts";
 import { classifyRange } from "@contexts/change-analysis/application/index.ts";
 

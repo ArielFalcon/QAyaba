@@ -9,7 +9,8 @@ import { ClosedLoopPortAdapter, type ClosedLoopPortAdapterDeps } from "@contexts
 import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-loop-registry.ts";
 import { DevLease } from "@contexts/test-execution/domain/dev-lease.ts";
 import { RUN_SPEC_AGENT, RUN_SPEC_FLOW_AGENT } from "@contexts/test-execution/domain/run-spec-capability.ts";
-import type { ClosedLoopHandle, ClosedLoopOpenInput, ExecutionOpts, FlowLoopOpenInput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import type { ExecutionOpts } from "@contexts/test-execution/application/index.ts";
+import type { ClosedLoopHandle, ClosedLoopOpenInput, FlowLoopOpenInput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 
 const SPEC = 'import { test } from "../fixtures";\ntest("loads", async () => {});\n';
 const sha = (text: string): string => createHash("sha256").update(text).digest("hex");

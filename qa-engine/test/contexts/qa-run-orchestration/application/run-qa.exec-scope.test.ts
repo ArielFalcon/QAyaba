@@ -10,7 +10,7 @@ import { ok } from "@kernel/result.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RunQaUseCase } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
 import type { ObserverPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
-import { ERROR_CLASS } from "@contexts/qa-run-orchestration/domain/helpers/error-class.ts";
+import { ERROR_CLASS } from "@contexts/cross-run-learning/domain/error-class.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
 import { createExecSandbox, SandboxUnavailableError } from "../../../../src/shared-infrastructure/process-sandbox/exec-sandbox.ts";

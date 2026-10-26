@@ -5,7 +5,7 @@
 
 import { startRunChildSpan } from "../../../../shared-infrastructure/telemetry/run-spans.ts";
 import type { TelemetryPort } from "../../../../shared-kernel/telemetry/telemetry.port.ts";
-import type { ObjectiveSignalPort } from "../../application/ports/index.ts";
+import type { ObjectiveSignalPort } from "../../application/ports/objective-signal.port.ts";
 
 export class TracedObjectiveSignalPort implements ObjectiveSignalPort {
   constructor(

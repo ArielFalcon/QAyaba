@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { NON_LEARNING, OBSERVED_OPERATING, learningGates, observesOperatingSignal } from "@contexts/qa-run-orchestration/domain/helpers/learning-gates.ts";
-import { ERROR_CLASS, ERROR_CLASSES, type ErrorClass } from "@contexts/qa-run-orchestration/domain/helpers/error-class.ts";
+import { NON_LEARNING, OBSERVED_OPERATING, learningGates, observesOperatingSignal } from "@contexts/cross-run-learning/domain/learning-gates.ts";
+import { ERROR_CLASS, ERROR_CLASSES, type ErrorClass } from "@contexts/cross-run-learning/domain/error-class.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 
 /*

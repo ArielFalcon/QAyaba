@@ -1,5 +1,5 @@
 import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
-import { ERROR_CLASS, type ErrorClass } from "./error-class.ts";
+import { ERROR_CLASS, type ErrorClass } from "../../../cross-run-learning/domain/error-class.ts";
 
 /**
  * What a generation end does to the run. `end` closes it with the infra-error verdict (never an

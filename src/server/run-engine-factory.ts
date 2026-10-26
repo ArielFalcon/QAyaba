@@ -48,13 +48,14 @@ import type { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure
 import { SandboxedChromiumLauncher } from "@contexts/test-execution/infrastructure/agent-browser/chromium-sandbox.launcher";
 import { loadPlaywrightChromium } from "@contexts/test-execution/infrastructure/agent-browser/playwright-core.loader";
 import { redactByValue } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
-import { ValidationPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/validation-port.adapter";
-import { ExecutionPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/execution-port.adapter";
-import { ObjectiveSignalPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/objective-signal-port.adapter";
+import { ValidationPortAdapter } from "@contexts/test-execution/infrastructure/adapters/validation-port.adapter";
+import { ExecutionPortAdapter } from "@contexts/test-execution/infrastructure/adapters/execution-port.adapter";
+import { ObjectiveSignalPortAdapter } from "@contexts/objective-signal/infrastructure/adapters/objective-signal-port.adapter";
 import { ReviewPortAdapter } from "@contexts/generation/infrastructure/adapters/review-port.adapter";
 import { DecideCoverageService } from "@contexts/objective-signal/domain/decide-coverage.service";
 import type { ReviewPort } from "@contexts/generation/application/index.ts";
-import type { ExecutionPort, ObjectiveSignalPort, ValidationPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
+import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
 import type { AgentRole } from "@kernel/agent-role";
 import type { RunMode, TestTarget } from "@kernel/run-mode";
 

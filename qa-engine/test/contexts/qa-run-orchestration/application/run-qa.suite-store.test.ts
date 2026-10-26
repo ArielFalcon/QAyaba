@@ -13,7 +13,7 @@ import type { AuthSession, AuthSessionRequest } from "@contexts/app-catalog/appl
 import type { SuiteCaptureInput, SuiteStorePort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/app-catalog/domain/auth-precondition.ts";
-import { ERROR_CLASS } from "@contexts/qa-run-orchestration/domain/helpers/error-class.ts";
+import { ERROR_CLASS } from "@contexts/cross-run-learning/domain/error-class.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../support/run-workspace.ts";
 const INPUT = { app: "demo", sha: Sha.of("abc1234"), source: "manual" as const, mode: "diff" as const, target: "e2e" as const, runId: "suite-run" };

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { engineSideCauseOf, terminalForGenerationEnd } from "@contexts/qa-run-orchestration/domain/helpers/generation-end-terminal.ts";
-import { ERROR_CLASS, resolveErrorClass } from "@contexts/qa-run-orchestration/domain/helpers/error-class.ts";
+import { ERROR_CLASS, resolveErrorClass } from "@contexts/cross-run-learning/domain/error-class.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 
 test("an exhausted generation ends the run as a persisted infra-error with the step-budget class", () => {

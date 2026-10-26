@@ -197,6 +197,14 @@ export const PROTECTED_PATHS: string[] = [
 
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/",
 
+  "qa-engine/src/contexts/service-topology/infrastructure/adapters/",
+
+  "qa-engine/src/contexts/cross-run-learning/infrastructure/adapters/",
+
+  "qa-engine/src/contexts/test-execution/infrastructure/adapters/",
+
+  "qa-engine/src/contexts/objective-signal/infrastructure/adapters/",
+
   "qa-engine/src/contexts/coordination/infrastructure/",
 
   /*
@@ -412,6 +420,10 @@ export const SECURITY_SENSITIVE_SURFACE_ROOTS: string[] = [
   "qa-engine/src/contexts/generation/infrastructure/",
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/",
   "qa-engine/src/contexts/change-analysis/infrastructure/adapters/",
+  "qa-engine/src/contexts/service-topology/infrastructure/adapters/",
+  "qa-engine/src/contexts/cross-run-learning/infrastructure/adapters/",
+  "qa-engine/src/contexts/test-execution/infrastructure/adapters/",
+  "qa-engine/src/contexts/objective-signal/infrastructure/adapters/",
   "qa-engine/src/contexts/app-catalog/infrastructure/",
   "qa-engine/src/contexts/agent-tools/infrastructure/",
   "qa-engine/src/contexts/coordination/infrastructure/",

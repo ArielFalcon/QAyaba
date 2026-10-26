@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { TracedCoordinationTelemetry } from "../../qa-engine/src/contexts/coordination/infrastructure/adapters/coordination-telemetry-trace";
-import { TracedObjectiveSignalPort } from "../../qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/objective-signal-trace";
+import { TracedObjectiveSignalPort } from "../../qa-engine/src/contexts/objective-signal/infrastructure/adapters/objective-signal-trace";
 import type { CoordinationTelemetryEvent } from "../../qa-engine/src/contexts/coordination/application/coordination-telemetry";
 import type { ObjectiveSignalPort } from "../../qa-engine/src/contexts/qa-run-orchestration/application/ports/index";
 import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";

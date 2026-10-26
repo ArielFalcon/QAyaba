@@ -5,3 +5,5 @@ export type { LearningPort, RelevanceBias, RetrievedRule } from "./ports/learnin
 export { MAX_SELECTED_EXEMPLARS } from "./ports/curriculum.port.ts";
 export type { CurriculumFoldInput, CurriculumPort, SelectedExemplar } from "./ports/curriculum.port.ts";
 export { renderLearnedRules, renderLearnedRulesForReviewer } from "./render-learned-rules.ts";
+export { ERROR_CLASS, resolveErrorClass } from "./../domain/error-class.ts";
+export { NON_LEARNING, OBSERVED_OPERATING, learningGates, observesOperatingSignal } from "./../domain/learning-gates.ts";

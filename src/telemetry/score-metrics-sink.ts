@@ -11,7 +11,7 @@
 import type { ScoreSinkPort } from "@contexts/evaluation/application/ports/index";
 import { COVERAGE_CLASSES } from "@contexts/evaluation/domain/grader-catalog";
 import type { Score } from "@contexts/evaluation/domain/score";
-import { ERROR_CLASSES } from "@contexts/qa-run-orchestration/domain/helpers/error-class";
+import { ERROR_CLASSES } from "@contexts/cross-run-learning/domain/error-class";
 import { RUN_PHASES } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 

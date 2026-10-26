@@ -9,7 +9,8 @@ import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-
 import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
 import { RUN_SPEC_AGENT } from "@contexts/test-execution/domain/run-spec-capability.ts";
 import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../../../src/shared-infrastructure/run-secret-redaction.ts";
-import type { ClosedLoopOpenInput, ExecutionOpts } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import type { ExecutionOpts } from "@contexts/test-execution/application/index.ts";
+import type { ClosedLoopOpenInput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 
 const SPEC = 'import { test } from "../fixtures";\ntest("loads", async () => {});\n';
 const sha = (text: string): string => createHash("sha256").update(text).digest("hex");

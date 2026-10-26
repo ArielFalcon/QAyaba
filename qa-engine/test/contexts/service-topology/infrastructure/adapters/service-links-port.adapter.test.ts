@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ServiceLinksPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/service-links-port.adapter.ts";
+import { ServiceLinksPortAdapter } from "@contexts/service-topology/infrastructure/adapters/service-links-port.adapter.ts";
 import type { BoundaryProfileProviderPort } from "@contexts/service-topology/application/ports/index.ts";
 import type { BoundaryProfile } from "@contexts/service-topology/domain/index.ts";
 import type { MirrorRegistryPort } from "@kernel/ports/mirror-registry.port.ts";

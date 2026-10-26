@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ERROR_CLASS, ERROR_CLASSES, resolveErrorClass } from "@contexts/qa-run-orchestration/domain/helpers/error-class.ts";
+import { ERROR_CLASS, ERROR_CLASSES, resolveErrorClass } from "@contexts/cross-run-learning/domain/error-class.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 
 const BASE = { coverageRatio: null, minCoverageRatio: 0.7, reviewerCorrections: [] as string[] };

@@ -3,7 +3,7 @@
    them. Never throws: an unavailable answer degrades to an empty list for that field. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ADVISORY_BUDGET, StructuralSignalPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/structural-signal-port.adapter.ts";
+import { ADVISORY_BUDGET, StructuralSignalPortAdapter } from "@contexts/change-analysis/infrastructure/adapters/structural-signal-port.adapter.ts";
 import { DOSSIER_HEADING, renderBlastRadiusSignal } from "@contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts";
 import type { CodeExplorePort } from "@kernel/ports/code-explore.port.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";

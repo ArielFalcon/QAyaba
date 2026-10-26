@@ -8,7 +8,7 @@
 
 import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
 import { isAccepted } from "../../domain/run-decision.service.ts";
-import { learningGates } from "../../domain/helpers/learning-gates.ts";
+import { learningGates } from "@contexts/cross-run-learning/application/index.ts";
 import { reviewsTests } from "./phases/review.steps.ts";
 import { reviewerApprovedForOutcomeOf, decidedOf } from "./phases/decide.steps.ts";
 import { DETERMINISTIC_SELECTOR_BLOCKS } from "./phases/execute.steps.ts";

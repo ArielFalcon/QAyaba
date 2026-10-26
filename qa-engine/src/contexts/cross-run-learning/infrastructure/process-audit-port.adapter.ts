@@ -1,7 +1,7 @@
 /* ProcessAuditPort adapter. This context never imports src/ directly. This adapter trusts that gate and does not re-check the current outcome's own verdict/class. (2) INTERNAL streak-input gate — THIS adapter filters the recent-outcomes read (layer 2, below) to exclude flaky and non-learning-class entries (outages, undecided generations) BEFORE they ever reach auditProcess's streak calculation, so a recurring-engine-defect streak can never be polluted/broken by infra noise. Fault isolation (mirrors ReflectorPortAdapter's own documented contract on the sibling port): a throwing read, a throwing sink, or a hang past the configured timeout budget is caught/bounded INLINE and never re-thrown — the run's already-made verdict/ledger writes are made BEFORE this call and are structurally unaffected by anything that happens inside audit(). */
 import { auditProcess, applyAudit, type ProcessFinding, type RuleView } from "../domain/process-audit.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import { NON_LEARNING, OBSERVED_OPERATING } from "@contexts/qa-run-orchestration/application/index.ts";
+import { NON_LEARNING, OBSERVED_OPERATING } from "../domain/learning-gates.ts";
 
 const RECENT_LIMIT = 10;
 const RULES_LIMIT = 50;
