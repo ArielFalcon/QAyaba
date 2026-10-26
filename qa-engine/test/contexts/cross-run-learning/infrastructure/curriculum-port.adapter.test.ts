@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { CurriculumPortAdapter, CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter.ts";
+import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/application/index.ts";
+import { CurriculumPortAdapter } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter.ts";
 import { initCurriculum, foldCurriculum, type Curriculum } from "@contexts/cross-run-learning/domain/curriculum.ts";
 import { MAX_SELECTED_EXEMPLARS } from "@contexts/cross-run-learning/application/index.ts";
 

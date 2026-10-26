@@ -1,8 +1,8 @@
 
-import { saveRunOutcome } from "./history";
 import type { RunHistoryPort } from "@contexts/run-orchestration/application/index.ts";
 import type { RunOutcome as KernelRunOutcome } from "@kernel/run-outcome.ts";
 import type { RunOutcome as StoredRunOutcome } from "../types";
+import { getHistory } from "./persistence/index";
 
 /*
  * Dependency injection is the testing strategy (AGENTS.md): a test supplies a fake saveOutcome so
@@ -14,7 +14,7 @@ export interface RunHistorySqliteAdapterDeps {
 }
 
 export const defaultRunHistorySqliteAdapterDeps: RunHistorySqliteAdapterDeps = {
-  saveOutcome: saveRunOutcome,
+  saveOutcome: (outcome) => getHistory().learning.saveRunOutcome(outcome),
 };
 
 /*

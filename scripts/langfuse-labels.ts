@@ -259,13 +259,14 @@ export async function defaultDeps(): Promise<LabelDeps> {
   const { resolveLangfuseConfig } = await import("../src/telemetry/langfuse-score-sink.ts");
   const config = resolveLangfuseConfig(process.env);
   if (!config) throw new Error("LANGFUSE_BASE_URL, LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY must all be set");
-  const { getRunIdByTraceId, replaceRunScores } = await import("../src/server/history.ts");
+  const { getRunIdByTraceId } = await import("../src/server/history.ts");
+  const { getHistory } = await import("../src/server/persistence/index.ts");
   const { RedactionPortAdapter } = await import("../src/orchestrator/sanitizer.ts");
   const redaction = new RedactionPortAdapter();
   return {
     config,
     runIdOfTrace: getRunIdByTraceId,
-    save: (rows, at) => replaceRunScores(rows, at),
+    save: (rows, at) => getHistory().evaluations.replaceRunScores(rows, at),
     sanitize: (text) => redaction.redact(text),
     now: () => new Date().toISOString(),
     out: (line) => console.log(line),

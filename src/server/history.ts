@@ -17,7 +17,7 @@ import { applyOutcome as foldApplyOutcome } from "@contexts/cross-run-learning/a
 import { type LearningRule, type RuleUpsert, type Confidence, type RuleStatus } from "../qa/learning/learning-rule";
 import type { ErrorClass } from "@kernel/error-class";
 import type { Curriculum } from "../qa/learning/curriculum";
-import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
+import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/application/index";
 import { updateScorecard, type Scorecard, type ScorecardEntry } from "../qa/learning/oracle-types";
 import { logJson } from "../integrations/logger";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
@@ -117,20 +117,6 @@ let appendLogStmt!: Database.Statement;
 let insertActivityStmt!: Database.Statement;
 let getActivityStmt!: Database.Statement;
 let capActivityStmt!: Database.Statement;
-let insertOutcome!: Database.Statement;
-let listOutcomesStmt!: Database.Statement;
-let getOutcomeStmt!: Database.Statement;
-let upsertRuleStmt!: Database.Statement;
-let listRulesStmt!: Database.Statement;
-let listRetrievableRulesStmt!: Database.Statement;
-let getRuleStmt!: Database.Statement;
-let getAppRuleStmt!: Database.Statement;
-let listAllRulesStmt!: Database.Statement;
-let incrementRuleUsageStmt!: Database.Statement;
-let loadCurriculumStmt!: Database.Statement;
-let saveCurriculumStmt!: Database.Statement;
-let loadScorecardStmt!: Database.Statement;
-let saveScorecardStmt!: Database.Statement;
 let insertAgentTurnStmt!: Database.Statement;
 let getAgentTurnsStmt!: Database.Statement;
 let initialized = false;
@@ -160,47 +146,6 @@ function ensureDb(): void {
     "DELETE FROM run_activity WHERE run_id = @id AND id NOT IN (SELECT id FROM run_activity WHERE run_id = @id ORDER BY id DESC LIMIT @keep)",
   );
 
-  /* run_outcomes (learning layer — append-only, never purged) */
-  insertOutcome = db.prepare(`
-    INSERT INTO run_outcomes (id, app, sha, mode, target, verdict, error_class, gate_signals, rules_retrieved, reflection, at)
-    VALUES (@id, @app, @sha, @mode, @target, @verdict, @errorClass, @gateSignals, @rulesRetrieved, @reflection, @at)
-  `);
-  listOutcomesStmt = db.prepare("SELECT * FROM run_outcomes WHERE app = ? ORDER BY at DESC, rowid DESC LIMIT ?");
-  getOutcomeStmt = db.prepare("SELECT * FROM run_outcomes WHERE id = ?");
-
-
-  upsertRuleStmt = db.prepare(`
-    INSERT INTO learning_rules (id, app, trigger_text, action_text, error_class, archetype, confidence, usage_count, outcome_count, oracle_outcome_count, success_rate, last_verified, source, status, at)
-    VALUES (@id, @app, @trigger, @action, @errorClass, @archetype, @confidence, @usageCount, @outcomeCount, @oracleOutcomeCount, @successRate, @lastVerified, @source, @status, @at)
-    ON CONFLICT(id) DO UPDATE SET
-      confidence = excluded.confidence,
-      usage_count = excluded.usage_count,
-      outcome_count = excluded.outcome_count,
-      oracle_outcome_count = excluded.oracle_outcome_count,
-      success_rate = excluded.success_rate,
-      last_verified = excluded.last_verified,
-      status = excluded.status
-      -- archetype, trigger, action, error_class are intentionally NOT updated: they are set-once at
-      -- insert (a rule's identity/shape never changes). Distilled IDs are random so this branch only
-      -- fires on an explicit stable-ID re-upsert (tests), where preserving the original is correct.
-  `);
-  listRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND status IN ('active', 'candidate') AND quarantined_at IS NULL ORDER BY (status = 'active') DESC, COALESCE(success_rate, 0) DESC, at DESC LIMIT ?");
-  /*
-   * Governance-path fetch (backs listLearningRulesForGovernance, below): every retrievable row, no
-   * ORDER BY and no LIMIT — ranking is RuleGovernanceService's job alone (see that service's own
-   * header). Any SQL-side cap would have to pre-rank to decide what to keep, and no SQL order can
-   * match governance's ranking (success rate plus the per-run relevance bias, plus the newest-
-   * candidate exploration slots), so a cap always hides rules governance would pick.
-   */
-  listRetrievableRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND status IN ('active', 'candidate') AND quarantined_at IS NULL");
-  getRuleStmt = db.prepare("SELECT * FROM learning_rules WHERE id = ?");
-  getAppRuleStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND id = ?");
-  listAllRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? ORDER BY at DESC LIMIT ?");
-  incrementRuleUsageStmt = db.prepare("UPDATE learning_rules SET usage_count = usage_count + 1 WHERE id = ?");
-  loadCurriculumStmt = db.prepare("SELECT data, updated_at FROM curriculum WHERE app = ?");
-  saveCurriculumStmt = db.prepare("INSERT INTO curriculum (app, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(app) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at");
-  loadScorecardStmt = db.prepare("SELECT data FROM scorecard WHERE app = ?");
-  saveScorecardStmt = db.prepare("INSERT INTO scorecard (app, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(app) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at");
   /* agent_turns: insert a turn record; retrieve all turns for a run ordered by id. */
   insertAgentTurnStmt = db.prepare(`
     INSERT INTO agent_turns
@@ -691,279 +636,12 @@ export function continuationDepth(record: RunRecord): number {
   return depth;
 }
 
-export function saveRunOutcome(outcome: RunOutcome): void {
-  ensureDb();
-  insertOutcome.run({
-    id: outcome.runId,
-    app: outcome.app,
-    sha: outcome.sha,
-    mode: outcome.mode,
-    target: outcome.target,
-    verdict: outcome.verdict,
-    errorClass: outcome.errorClass ?? null,
-    gateSignals: JSON.stringify(outcome.gateSignals),
-    rulesRetrieved: JSON.stringify(outcome.rulesRetrieved),
-    reflection: outcome.reflection ? JSON.stringify(outcome.reflection) : null,
-    at: outcome.at,
-  });
-}
-
-/*
- * A run that ended on an unhandled error keeps the class the shell reports. The engine may already have persisted an outcome
- * carrying the evidence the sandbox saw, with a placeholder class: that row is reclassified, never replaced, and a run that has
- * no outcome row gets the minimal one. The run's record, its outcome, the trace root, the run metric and the infra_error grader
- * then name one class, and the outcome says the verdict the record does.
- */
-export function saveCrashedRunOutcome(record: RunRecord, errorClass: ErrorClass): void {
-  ensureDb();
-  const reclassified = db.prepare("UPDATE run_outcomes SET verdict = 'infra-error', error_class = ? WHERE id = ?").run(errorClass, record.id).changes;
-  if (reclassified > 0) return;
-  saveRunOutcome({
-    runId: record.id,
-    app: record.app,
-    sha: record.sha,
-    mode: record.mode,
-    target: record.target,
-    verdict: "infra-error",
-    errorClass,
-    gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
-    rulesRetrieved: [],
-    at: new Date().toISOString(),
-  });
-}
-
-function rowToOutcome(row: Record<string, unknown>): RunOutcome {
-  return {
-    runId: row.id as string,
-    app: row.app as string,
-    sha: row.sha as string,
-    mode: row.mode as RunMode,
-    target: row.target as TestTarget,
-    verdict: row.verdict as RunVerdict,
-    errorClass: (row.error_class as RunOutcome["errorClass"]) ?? null,
-    gateSignals: safeJsonParse(row.gate_signals as string, { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 }),
-    rulesRetrieved: safeJsonParse(row.rules_retrieved as string, []),
-    reflection: row.reflection ? safeJsonParse(row.reflection as string, undefined) : undefined,
-    at: row.at as string,
-  };
-}
-
-export function listRunOutcomes(app: string, limit = 50): RunOutcome[] {
-  ensureDb();
-  const rows = listOutcomesStmt.all(app, limit) as Array<Record<string, unknown>>;
-  return rows.map(rowToOutcome);
-}
-
-/*
- * The persisted RunOutcome for a single run — the structured value signals (change-coverage,
- * oracle score, reviewer rationale, errorClass) the CLI prints in its end-of-run value report.
- * Returns undefined for a run that produced no outcome row (no runId, or saveOutcome disabled).
- */
-export function getRunOutcome(runId: string): RunOutcome | undefined {
-  ensureDb();
-  const row = getOutcomeStmt.get(runId) as Record<string, unknown> | undefined;
-  return row ? rowToOutcome(row) : undefined;
-}
-
 function safeJsonParse<T>(raw: string, fallback: T): T {
   try {
     return JSON.parse(raw) as T;
   } catch {
     return fallback;
   }
-}
-
-
-export function upsertLearningRule(rule: RuleUpsert & { app: string; id: string; initialStatus?: RuleStatus }): void {
-  ensureDb();
-  upsertRuleStmt.run({
-    id: rule.id,
-    app: rule.app,
-    trigger: rule.trigger,
-    action: rule.action,
-    errorClass: rule.errorClass,
-    archetype: rule.archetype ?? null,
-    confidence: "low" as Confidence,
-    usageCount: 0,
-    outcomeCount: 0,
-    oracleOutcomeCount: 0,
-    successRate: null,
-    lastVerified: null,
-    source: rule.source,
-    status: (rule.initialStatus ?? "candidate") as RuleStatus,
-    at: new Date().toISOString(),
-  });
-}
-
-function rowToRule(row: Record<string, unknown>): LearningRule {
-  return {
-    id: row.id as string,
-    trigger: row.trigger_text as string,
-    action: row.action_text as string,
-    errorClass: row.error_class as ErrorClass,
-    archetype: (row.archetype as string | null) ?? null,
-    confidence: row.confidence as Confidence,
-    usageCount: row.usage_count as number,
-    outcomeCount: (row.outcome_count as number) ?? 0,
-    oracleOutcomeCount: (row.oracle_outcome_count as number) ?? 0,
-    successRate: row.success_rate as number | null,
-    lastVerified: row.last_verified as string | null,
-    source: row.source as string,
-    status: row.status as RuleStatus,
-    at: row.at as string,
-    quarantinedAt: (row.quarantined_at as string | null | undefined) ?? null,
-  };
-}
-
-/*
- * The shared "give me the live ledger, not a truncated preview" cap for operator-facing ledger
- * views (TUI/API intelligence view, CLI `qayaba intel`): listLearningRules(app,
- * LEARNING_RULE_LEDGER_LIMIT) below — a single shared-limit, status-ranked read. Neither
- * generation's retrieve path (listLearningRulesForGovernance, which feeds governance the whole
- * retrievable ledger) nor the fold (getLearningRule, a direct by-id lookup) reads through this cap,
- * so ledger size can never hide a rule from ranking or drop a fold. Not used by chat.ts's learning
- * context, which is a deliberately small bounded prompt preview, not a ledger view.
- */
-export const LEARNING_RULE_LEDGER_LIMIT = 200;
-
-export function listLearningRules(app: string, limit = 20): LearningRule[] {
-  ensureDb();
-  const rows = listRulesStmt.all(app, limit) as Array<Record<string, unknown>>;
-  return rows.map(rowToRule);
-}
-
-/*
- * Direct by-id read of one app's rule, uncapped and unordered — the correct lookup for a fold that
- * already knows the exact rule id (e.g. recordOutcome folding rulesRetrieved). Unlike
- * listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT), a rule ranked outside that shared window
- * still resolves here. Undefined when the row does not exist (deleted, never upserted) or belongs
- * to another app.
- */
-export function getLearningRule(app: string, id: string): LearningRule | undefined {
-  ensureDb();
-  const row = getAppRuleStmt.get(app, id) as Record<string, unknown> | undefined;
-  return row ? rowToRule(row) : undefined;
-}
-
-/*
- * Governance-only read: backs historyLearningStore(appName).selectRules, the ONLY caller
- * SqliteLearningRepository.topRules() feeds into RuleGovernanceService.topRules (the single
- * ranking truth — see that service's own header, and rule-governance.service.ts's EXPLORATION_SLOTS
- * doc). Returns EVERY active and candidate row for the app, unordered and uncapped: pre-ranking or
- * truncating here would be a less-informed copy of governance's own ranking (it cannot see the
- * per-run relevance bias), and an unordered cap silently keeps the OLDEST rows — so the newest
- * candidates and the best-proven actives of a large ledger would never be ranked at all.
- * listLearningRules() above stays the read for operator ledger views and chat's bounded preview.
- */
-export function listLearningRulesForGovernance(app: string): LearningRule[] {
-  ensureDb();
-  const rows = listRetrievableRulesStmt.all(app) as Array<Record<string, unknown>>;
-  return rows.map(rowToRule);
-}
-
-/*
- * ALL rules regardless of status — used ONLY by the distiller for de-duplication, so a recurring
- * failure pattern cannot spawn a duplicate candidate for a rule that was demoted (`deprecated`) or
- * `superseded`. Retrieval must NOT use this (it injects only active/candidate).
- */
-export function listAllLearningRules(app: string, limit = 200): LearningRule[] {
-  ensureDb();
-  const rows = listAllRulesStmt.all(app, limit) as Array<Record<string, unknown>>;
-  return rows.map(rowToRule);
-}
-
-export function incrementRuleUsage(ruleIds: string[]): void {
-  if (ruleIds.length === 0) return;
-  ensureDb();
-  for (const id of ruleIds) {
-    incrementRuleUsageStmt.run(id);
-  }
-}
-
-
-/*
- * Folds one run outcome onto a rule. Only a retrievable rule (active/candidate) folds: a
- * deprecated or superseded rule is never retrieved, so an outcome can reach one only when a
- * governance decision retired it after the run retrieved it — a human veto or the process audit.
- * Folding that outcome would let the outcome loop undo the decision (a clean run's prevention
- * credit alone re-promotes a deprecated rule), so a retired rule accrues nothing and keeps its
- * status until a human restores it.
- */
-export function recordRuleOutcome(ruleId: string, score: number, coverageCreditConfirmed: boolean | null = null, isOracleScore = false): void {
-  ensureDb();
-  const row = getRuleStmt.get(ruleId) as Record<string, unknown> | undefined;
-  if (!row) return;
-  const current = rowToRule(row);
-  if (current.status !== "active" && current.status !== "candidate") return;
-  /* A rule an operator set aside accrues nothing, even for a run that retrieved it before the quarantine. */
-  if (current.quarantinedAt) return;
-  /*
-   * The shell LearningRule is structurally assignable to the fold's own
-   * LearningRule with no cast on the way in. The cast on the way OUT is real, not incidental: the
-   * fold's errorClass is the wider `string` (@contexts/cross-run-learning stays kernel-decoupled),
-   * narrower than this shell's own ErrorClass literal union.
-   */
-  const updated = foldApplyOutcome(
-    current,
-    score,
-    coverageCreditConfirmed,
-    isOracleScore,
-  ) as LearningRule;
-  db.prepare(
-    "UPDATE learning_rules SET success_rate = ?, outcome_count = ?, oracle_outcome_count = ?, confidence = ?, status = ?, last_verified = ? WHERE id = ?",
-  ).run(updated.successRate, updated.outcomeCount, updated.oracleOutcomeCount, updated.confidence, updated.status, new Date().toISOString(), ruleId);
-}
-
-/*
- * Human-initiated governance override: veto a rule (force it to 'deprecated') or restore a
- * previously-vetoed one ('active'). This is the highest-authority signal in the ledger — stronger
- * than the oracle — and the ONLY write to learning_rules that originates outside the deterministic
- * distiller. It is reached by an operator via the ledger CLI, never by the agent (the read-only
- * boundary holds). A veto STICKS: 'deprecated' rules are excluded from retrieval, so a vetoed rule
- * is never injected, and recordRuleOutcome refuses to fold onto it even for a run that retrieved
- * it before the veto, so it never accrues outcomes and never auto-resurrects through the outcome
- * loop. Returns false when the rule id is unknown (no silent success).
- */
-export function setRuleStatusByHuman(ruleId: string, status: "deprecated" | "active"): boolean {
-  ensureDb();
-  const info = db
-    .prepare("UPDATE learning_rules SET status = ?, last_verified = ? WHERE id = ?")
-    .run(status, new Date().toISOString(), ruleId);
-  return info.changes > 0;
-}
-
-/*
- * Operator quarantine (npm run learning:quarantine): sets the named rules of ONE app aside without deleting them. A
- * quarantined rule is excluded from every retrieval and live-ledger read above and refused by recordRuleOutcome, so it
- * is never injected into a prompt and never credited. Only rules not yet quarantined are marked, so the first mark is
- * kept and a second run of the command changes nothing. Returns how many rules this call newly marked.
- */
-export function quarantineLearningRules(app: string, ruleIds: readonly string[], at: string): number {
-  ensureDb();
-  const mark = db.prepare("UPDATE learning_rules SET quarantined_at = ? WHERE app = ? AND id = ? AND quarantined_at IS NULL");
-  const markAll = db.transaction((ids: readonly string[]) => {
-    let marked = 0;
-    for (const id of ids) marked += mark.run(at, app, id).changes;
-    return marked;
-  });
-  return markAll(ruleIds);
-}
-
-/* Lifts a quarantine: the rule is in force again. False when the rule is unknown or was not quarantined. */
-export function releaseLearningRuleQuarantine(ruleId: string): boolean {
-  ensureDb();
-  return db.prepare("UPDATE learning_rules SET quarantined_at = NULL WHERE id = ? AND quarantined_at IS NOT NULL").run(ruleId).changes > 0;
-}
-
-/*
- * Back-fill the structured reflection onto an already-saved run outcome. The outcome row is
- * written at verdict time, BEFORE the async best-effort reflection exists; without this the
- * `reflection` column is permanently null and the (expensive, LLM-produced) reflection is
- * computed once to distill a rule and then discarded — unqueryable forever.
- */
-export function updateRunOutcomeReflection(runId: string, reflection: import("../types").StructuredReflection): void {
-  ensureDb();
-  db.prepare("UPDATE run_outcomes SET reflection = ? WHERE id = ?").run(JSON.stringify(reflection), runId);
 }
 
 /*
@@ -1055,89 +733,6 @@ export function listRunSpans(runId: string): RunSpanRow[] {
 }
 
 /* A stored score as the evaluation store reads and writes it; `value` is the typed value, serialized as JSON in the table. */
-export interface ScoreRow {
-  runId: string;
-  name: string;
-  graderVersion: string;
-  dataType: string;
-  polarity: string;
-  source: string;
-  value: number | boolean | string;
-  comment: string | null;
-  observationId: string | null;
-  /* LLM-judge scores only. */
-  judgeModel?: string | null;
-}
-
-/*
- * Stores scores in one transaction. First it deletes what the regrade supersedes (a name the graders no longer emit must not
- * outlive it): every row of the run at `graderVersion`, or only the given base names and their `.<suffix>` expansions. Then it
- * inserts. The key is (run, name, grader version).
- */
-export function replaceRunScores(rows: readonly ScoreRow[], gradedAt: string, scope?: { runId: string; graderVersion: string; baseNames?: readonly string[] }): void {
-  ensureDb();
-  const upsert = db.prepare(`
-    INSERT INTO run_scores (run_id, name, grader_version, data_type, polarity, source, value, comment, observation_id, graded_at, judge_model)
-    VALUES (@runId, @name, @graderVersion, @dataType, @polarity, @source, @value, @comment, @observationId, @gradedAt, @judgeModel)
-    ON CONFLICT(run_id, name, grader_version) DO UPDATE SET
-      data_type = excluded.data_type, polarity = excluded.polarity, source = excluded.source, value = excluded.value,
-      comment = excluded.comment, observation_id = excluded.observation_id, graded_at = excluded.graded_at, judge_model = excluded.judge_model`);
-  const deleteAll = db.prepare("DELETE FROM run_scores WHERE run_id = ? AND grader_version = ?");
-  /* substr, not LIKE: the underscore in a score name is a LIKE wildcard. */
-  const deleteNamed = db.prepare("DELETE FROM run_scores WHERE run_id = ? AND grader_version = ? AND (name = ? OR substr(name, 1, ?) = ?)");
-  db.transaction((batch: readonly ScoreRow[]) => {
-    if (scope) {
-      if (scope.baseNames) {
-        for (const base of scope.baseNames) deleteNamed.run(scope.runId, scope.graderVersion, base, base.length + 1, `${base}.`);
-      } else {
-        deleteAll.run(scope.runId, scope.graderVersion);
-      }
-    }
-    for (const r of batch) upsert.run({ ...r, judgeModel: r.judgeModel ?? null, value: JSON.stringify(r.value), gradedAt });
-  })(rows);
-}
-
-/* A stored value must be of the type its row declares; a row that is not is skipped and said, never shipped as an empty or wrong value. */
-export function listRunScoreRows(runId: string): ScoreRow[] {
-  ensureDb();
-  const rows = db.prepare("SELECT * FROM run_scores WHERE run_id = ? ORDER BY name, grader_version").all(runId) as Array<Record<string, unknown>>;
-  const out: ScoreRow[] = [];
-  for (const r of rows) {
-    const value = scoreValueOf(r.value as string, r.data_type as string);
-    if (value === undefined) {
-      console.error(`[evaluation] skipping a corrupt score row: run ${runId}, ${String(r.name)}@${String(r.grader_version)} (${String(r.data_type)})`);
-      continue;
-    }
-    out.push({
-      runId: r.run_id as string,
-      name: r.name as string,
-      graderVersion: r.grader_version as string,
-      dataType: r.data_type as string,
-      polarity: r.polarity as string,
-      source: r.source as string,
-      value,
-      comment: (r.comment as string | null) ?? null,
-      observationId: (r.observation_id as string | null) ?? null,
-      judgeModel: (r.judge_model as string | null) ?? null,
-    });
-  }
-  return out;
-}
-
-export function setRunEvaluationStatus(runId: string, status: string, at: string): void {
-  ensureDb();
-  db.prepare(
-    "INSERT INTO run_evaluations (run_id, status, updated_at) VALUES (?, ?, ?) ON CONFLICT(run_id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at",
-  ).run(runId, status, at);
-}
-
-/* Null: the run was never graded. */
-export function getRunEvaluationStatus(runId: string): string | null {
-  ensureDb();
-  const row = db.prepare("SELECT status FROM run_evaluations WHERE run_id = ?").get(runId) as { status: string } | undefined;
-  return row?.status ?? null;
-}
-
 export function runExists(runId: string): boolean {
   ensureDb();
   return db.prepare("SELECT 1 FROM runs WHERE id = ?").get(runId) !== undefined;
@@ -1149,53 +744,6 @@ export function listFinishedRunIdsSince(sinceIso: string): string[] {
   const rows = db.prepare("SELECT id FROM runs WHERE status = 'done' AND datetime(at) >= datetime(?) ORDER BY at, rowid").all(sinceIso) as Array<{ id: string }>;
   return rows.map((r) => r.id);
 }
-
-export interface RegradeJobRow {
-  jobId: string;
-  status: string;
-  runIds: string[];
-  graders: string[] | null;
-  runs: number;
-  graded: number;
-  failed: Array<{ runId: string; error: string }>;
-  startedAt: string;
-  finishedAt: string | null;
-}
-
-export function saveRegradeJob(job: RegradeJobRow): void {
-  ensureDb();
-  db.prepare(`
-    INSERT INTO regrade_jobs (job_id, status, run_ids, graders, runs, graded, failed, started_at, finished_at)
-    VALUES (@jobId, @status, @runIds, @graders, @runs, @graded, @failed, @startedAt, @finishedAt)
-    ON CONFLICT(job_id) DO UPDATE SET status = excluded.status, graded = excluded.graded, failed = excluded.failed, finished_at = excluded.finished_at`)
-    .run({ ...job, runIds: JSON.stringify(job.runIds), graders: job.graders ? JSON.stringify(job.graders) : null, failed: JSON.stringify(job.failed) });
-}
-
-export function getRegradeJob(jobId: string): RegradeJobRow | undefined {
-  ensureDb();
-  const r = db.prepare("SELECT * FROM regrade_jobs WHERE job_id = ?").get(jobId) as Record<string, unknown> | undefined;
-  if (!r) return undefined;
-  return {
-    jobId: r.job_id as string,
-    status: r.status as string,
-    runIds: safeJsonParse<string[]>(r.run_ids as string, []),
-    graders: typeof r.graders === "string" ? safeJsonParse<string[] | null>(r.graders, null) : null,
-    runs: r.runs as number,
-    graded: r.graded as number,
-    failed: safeJsonParse<Array<{ runId: string; error: string }>>(r.failed as string, []),
-    startedAt: r.started_at as string,
-    finishedAt: (r.finished_at as string | null) ?? null,
-  };
-}
-
-/* A job a previous process left pending or running will never finish: it ends failed, with the reason. Returns how many. */
-export function failInterruptedRegradeJobs(at: string): number {
-  ensureDb();
-  return db
-    .prepare("UPDATE regrade_jobs SET status = 'failed', finished_at = ?, failed = json_insert(failed, '$[#]', json_object('runId', '', 'error', 'process restarted while the job was open')) WHERE status IN ('pending', 'running')")
-    .run(at).changes;
-}
-
 
 export interface SpecSnapshotRow {
   runId: string;
@@ -1486,47 +1034,6 @@ function toolSequenceOrNull(value: unknown): ToolSequenceEntry[] | null {
  * CURRICULUM_CORRUPT routes the adapter's read() to throw instead, which its existing
  * try/catch (onError, no save) already fault-isolates — see curriculum-port.adapter.ts.
  */
-export function loadCurriculum(app: string): Curriculum | null | typeof CURRICULUM_CORRUPT {
-  ensureDb();
-  const row = loadCurriculumStmt.get(app) as { data: string; updated_at: string } | undefined;
-  if (!row) return null;
-  try {
-    return JSON.parse(row.data) as Curriculum;
-  } catch (err) {
-    logJson("warn", `corrupt curriculum row for app '${app}' — refusing to silently reset it with a fresh curriculum`, {
-      app,
-      error: redactionPort.redactError(err),
-    });
-    return CURRICULUM_CORRUPT;
-  }
-}
-
-export function saveCurriculum(curriculum: Curriculum): void {
-  ensureDb();
-  saveCurriculumStmt.run(curriculum.app, JSON.stringify(curriculum), curriculum.updatedAt);
-}
-
-export function loadScorecard(app: string): Scorecard | null {
-  ensureDb();
-  const row = loadScorecardStmt.get(app) as { data: string } | undefined;
-  if (!row) return null;
-  try {
-    return JSON.parse(row.data) as Scorecard;
-  } catch {
-    return null;
-  }
-}
-
-/*
- * Append one oracle outcome to the app's versioned scorecard (the proof-of-improvement record:
- * avg/last valueScore over runs). Aggregation is the pure updateScorecard; this is the DB sink.
- */
-export function saveScorecardEntry(entry: ScorecardEntry): void {
-  ensureDb();
-  const sc = updateScorecard(loadScorecard(entry.app), entry);
-  saveScorecardStmt.run(sc.app, JSON.stringify(sc), sc.updatedAt);
-}
-
 export interface TelemetryRoleStat {
   role: string;
   medianPromptBytes: number | null;

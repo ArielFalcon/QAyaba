@@ -2,23 +2,13 @@
 import type { SelectedExemplar } from "@kernel/learned-rule.ts";
 import type { CurriculumPort } from "../application/ports/curriculum.port.ts";
 import type { CurriculumFoldInput } from "../domain/curriculum-model.ts";
-import { MAX_SELECTED_EXEMPLARS } from "../domain/curriculum-model.ts";
+import { CURRICULUM_CORRUPT, MAX_SELECTED_EXEMPLARS } from "../domain/curriculum-model.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 import { matchExemplars, type SkillExemplar } from "@kernel/scenario-catalog.ts";
 import {
   initCurriculum, normalizeCurriculum, classifyEvidence, foldCurriculum, rankExemplars,
   type Curriculum,
 } from "../domain/curriculum.ts";
-
-/*
- * Distinct from `null` ("no curriculum yet — start fresh"): a load result of CURRICULUM_CORRUPT
- * means a row EXISTS but could not be parsed. Only fold() writes, and it refuses a corrupt row
- * (reported through onError, never saved over), so the corrupt row survives for an operator to
- * inspect instead of being silently replaced by a fresh curriculum. select() only reads: it
- * reports the corrupt row the same way but still ranks against a fresh curriculum, so exemplar
- * selection keeps working while the row awaits repair.
- */
-export const CURRICULUM_CORRUPT = Symbol("curriculum-corrupt");
 
 export type CurriculumLoad = (app: string) => Curriculum | null | typeof CURRICULUM_CORRUPT;
 export type CurriculumSave = (curriculum: Curriculum) => void;

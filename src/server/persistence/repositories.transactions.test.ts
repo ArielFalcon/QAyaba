@@ -43,3 +43,33 @@ test("the judge repository writes only inside transactions", (t) => {
   assert.equal(writes.length, 2);
   assert.deepEqual(writes.filter((w) => !w.inTransaction), []);
 });
+
+test("the evaluation repository writes only inside transactions", (t) => {
+  const { history, writes } = instrumented(t);
+  const score = { runId: "r", name: "n", graderVersion: "g1", dataType: "NUMERIC", polarity: "higher", source: "code", value: 1, comment: null, observationId: null };
+  history.evaluations.replaceRunScores([score], "2026-10-01T00:00:00.000Z", { runId: "r", graderVersion: "g1" });
+  history.evaluations.setRunEvaluationStatus("r", "complete", "2026-10-01T00:00:00.000Z");
+  history.evaluations.saveRegradeJob({ jobId: "j", status: "pending", runIds: ["r"], graders: null, runs: 1, graded: 0, failed: [], startedAt: "2026-10-01T00:00:00.000Z", finishedAt: null });
+  history.evaluations.failInterruptedRegradeJobs("2026-10-01T00:00:01.000Z");
+
+  assert.ok(writes.length >= 4);
+  assert.deepEqual(writes.filter((w) => !w.inTransaction), []);
+});
+
+test("the learning repository writes only inside transactions", (t) => {
+  const { history, writes } = instrumented(t);
+  const learning = history.learning;
+  learning.upsertLearningRule({ id: "rule-1", app: "app", trigger: "t", action: "a", errorClass: "E-INFRA", source: "test" } as never);
+  learning.incrementRuleUsage(["rule-1"]);
+  learning.recordRuleOutcome("rule-1", 1);
+  learning.setRuleStatusByHuman("rule-1", "active");
+  learning.quarantineLearningRules("app", ["rule-1"], "2026-10-01T00:00:00.000Z");
+  learning.releaseLearningRuleQuarantine("rule-1");
+  learning.saveCurriculum({ app: "app", updatedAt: "2026-10-01T00:00:00.000Z" } as never);
+  learning.saveScorecardEntry({ app: "app", runId: "r", at: "2026-10-01T00:00:00.000Z", valueScore: 1 } as never);
+  learning.saveRunOutcome({ runId: "r", app: "app", sha: "abcdef1", mode: "diff", target: "e2e", verdict: "pass", errorClass: null, gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 }, rulesRetrieved: [], at: "2026-10-01T00:00:00.000Z" });
+  learning.updateRunOutcomeReflection("r", {} as never);
+
+  assert.ok(writes.length >= 9);
+  assert.deepEqual(writes.filter((w) => !w.inTransaction), []);
+});

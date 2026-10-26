@@ -1,8 +1,9 @@
 import type { LearningRule } from "../qa/learning/learning-rule";
 import type { Scorecard } from "../qa/learning/oracle-types";
 import type { Curriculum } from "../qa/learning/curriculum";
-import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
-import { listLearningRules, LEARNING_RULE_LEDGER_LIMIT, loadScorecard, loadCurriculum } from "./history";
+import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/application/index";
+import { LEARNING_RULE_LEDGER_LIMIT } from "./persistence/repositories/learning.repository";
+import { getHistory } from "./persistence/index";
 
 /*
  * An app's intelligence view as the local history stores it: the intelligence API's read path.
@@ -11,7 +12,7 @@ import { listLearningRules, LEARNING_RULE_LEDGER_LIMIT, loadScorecard, loadCurri
  * view as curriculumCorrupt, never as "no curriculum yet".
  */
 export function loadIntelligenceView(app: string): ReturnType<typeof toIntelligenceView> {
-  return toIntelligenceView(app, listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT), loadScorecard(app), loadCurriculum(app));
+  return toIntelligenceView(app, getHistory().learning.listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT), getHistory().learning.loadScorecard(app), getHistory().learning.loadCurriculum(app));
 }
 
 /* Projects persisted learning artifacts into the read-only IntelligenceViewSchema shape. */

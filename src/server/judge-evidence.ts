@@ -9,8 +9,9 @@ import type { JudgeEvidencePort } from "@contexts/evaluation/application/index.t
 import type { JudgeEvidence } from "@contexts/evaluation/application/index";
 import { COMMIT_DIFF_HEADING } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
-import { getAgentTurns, getRecord, getRunFacts, getRunOutcome, getRunPhases, getRunPlan, listSpecSnapshots, type AgentTurnRecord, type SpecSnapshotRow } from "./history";
+import { getAgentTurns, getRecord, getRunFacts, getRunPhases, getRunPlan, listSpecSnapshots, type AgentTurnRecord, type SpecSnapshotRow } from "./history";
 import type { RunRecord } from "../types";
+import { getHistory } from "./persistence/index";
 
 export interface JudgeEvidenceDeps {
   getRecord(id: string): RunRecord | undefined;
@@ -30,7 +31,7 @@ export const defaultJudgeEvidenceDeps: JudgeEvidenceDeps = {
     return facts ? { cancelled: facts.cancelled === true } : undefined;
   },
   getRunPhases,
-  getRunOutcome,
+  getRunOutcome: (id) => getHistory().learning.getRunOutcome(id),
   getAgentTurns,
   listSpecSnapshots,
   getRunPlan,

@@ -160,7 +160,6 @@ import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
 import type { LearningStorePort } from "@contexts/cross-run-learning/application/index";
-import { listLearningRules, listLearningRulesForGovernance, getLearningRule, listAllLearningRules, quarantineLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, saveScorecardEntry, loadCurriculum, saveCurriculum } from "./history";
 import { recordIncident } from "./maintainer";
 import { resolveCampaignFreeze } from "./campaign-freeze";
 import { serviceTopologyWired, structuralSignalsOn as structuralSignalsOnFor, toolsApply } from "./run-config-gates";
@@ -304,7 +303,7 @@ export function historyLearningStore(appName: string): LearningStorePort {
      * single ranking truth) to rank. See listLearningRulesForGovernance's own header in history.ts.
      */
     selectRules: (app) =>
-      listLearningRulesForGovernance(app).map((r) => ({
+      getHistory().learning.listLearningRulesForGovernance(app).map((r) => ({
         id: r.id,
         trigger_text: r.trigger,
         action_text: r.action,
@@ -322,7 +321,7 @@ export function historyLearningStore(appName: string): LearningStorePort {
       })),
     /* Unfiltered list (all statuses, including deprecated) so distill dedup can see existing rules. */
     selectAllRules: (app, limit) =>
-      listAllLearningRules(app, limit).map((r) => ({
+      getHistory().learning.listAllLearningRules(app, limit).map((r) => ({
         id: r.id,
         trigger_text: r.trigger,
         action_text: r.action,
@@ -339,9 +338,9 @@ export function historyLearningStore(appName: string): LearningStorePort {
         at: r.at,
         quarantined_at: r.quarantinedAt ?? null,
       })),
-    quarantine: (app, ids, at) => quarantineLearningRules(app, ids, at),
+    quarantine: (app, ids, at) => getHistory().learning.quarantineLearningRules(app, ids, at),
     upsert: (rule) =>
-      upsertLearningRule({
+      getHistory().learning.upsertLearningRule({
         id: rule.id,
         app: appName,
         trigger: rule.trigger,
@@ -351,12 +350,12 @@ export function historyLearningStore(appName: string): LearningStorePort {
         archetype: rule.archetype ?? null,
         source: rule.source,
       }),
-    saveScorecardEntry: (entry) => saveScorecardEntry(entry),
+    saveScorecardEntry: (entry) => getHistory().learning.saveScorecardEntry(entry),
     /* By id within this app, uncapped (getLearningRule), never via a bulk list. */
-    findRule: (id) => getLearningRule(appName, id),
-    recordRuleOutcome: (ruleId, score, coverageCreditConfirmed, isOracleScore) => recordRuleOutcome(ruleId, score, coverageCreditConfirmed, isOracleScore),
+    findRule: (id) => getHistory().learning.getLearningRule(appName, id),
+    recordRuleOutcome: (ruleId, score, coverageCreditConfirmed, isOracleScore) => getHistory().learning.recordRuleOutcome(ruleId, score, coverageCreditConfirmed, isOracleScore),
 
-    incrementUsage: (ids) => incrementRuleUsage([...ids]),
+    incrementUsage: (ids) => getHistory().learning.incrementRuleUsage([...ids]),
   };
 }
 
@@ -1429,7 +1428,7 @@ export function buildEngineRootDeps(
       runtime: runtimeAdapter,
       repo: learningRepo,
 
-      backfill: (runId, refl) => updateRunOutcomeReflection(runId, refl as import("../types").StructuredReflection),
+      backfill: (runId, refl) => getHistory().learning.updateRunOutcomeReflection(runId, refl as import("../types").StructuredReflection),
       cwd: mirrorDir,
       app: app.name,
       timeoutMs: Number((deps.env ?? process.env).REFLECTOR_TIMEOUT_MS) || REFLECT_TIMEOUT_MS,
@@ -1437,9 +1436,9 @@ export function buildEngineRootDeps(
 
     ...(campaignFrozen ? {} : { processAudit: new ProcessAuditPortAdapter({
       app: app.name,
-      readRecentOutcomes: (a, limit) => listRunOutcomes(a, limit),
-      readRules: (a, limit) => listLearningRules(a, limit),
-      deprecateRule: (ruleId) => { setRuleStatusByHuman(ruleId, "deprecated"); },
+      readRecentOutcomes: (a, limit) => getHistory().learning.listRunOutcomes(a, limit),
+      readRules: (a, limit) => getHistory().learning.listLearningRules(a, limit),
+      deprecateRule: (ruleId) => { getHistory().learning.setRuleStatusByHuman(ruleId, "deprecated"); },
       recordEngineIncident: (finding) =>
         recordIncident({
           source: "process-audit",
@@ -1467,7 +1466,7 @@ export function buildEngineRootDeps(
      * history.ts (src-only; qa-engine may never import it). Wired unconditionally: measure-and-rank
      * only, never gates a verdict, publish, or coverage decision. Left out under QA_CAMPAIGN_FREEZE.
      */
-    ...(campaignFrozen || grounding?.curriculum === false || grounding?.curriculum === "off" ? {} : { curriculumPort: new CurriculumPortAdapter(app.name, loadCurriculum, saveCurriculum) }),
+    ...(campaignFrozen || grounding?.curriculum === false || grounding?.curriculum === "off" ? {} : { curriculumPort: new CurriculumPortAdapter(app.name, (name) => getHistory().learning.loadCurriculum(name), (curriculum) => getHistory().learning.saveCurriculum(curriculum)) }),
     /*
      * ContextMapCapturePort — write side of the FE<->BE architecture map. Constructed here for the
      * same reason curriculumPort is: its store is history.ts (src-only; qa-engine may never import

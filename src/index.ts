@@ -27,7 +27,7 @@ import { toRunReportView } from "./server/run-report-view";
 import { createDurableRunEventStore } from "./server/durable-run-events";
 import { serveDashboard, resolveDashboardDir } from "./server/static";
 import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents } from "./server/maintainer";
-import { getRecord, listRecords, currentRun, continuationDepth, MAX_CONTINUATION_DEPTH, loadScorecard, listRunOutcomes, getRunOutcome, getRunFacts, getAgentTurns, computeTelemetryAnalysis } from "./server/history";
+import { getRecord, listRecords, currentRun, continuationDepth, MAX_CONTINUATION_DEPTH, getRunFacts, getAgentTurns, computeTelemetryAnalysis } from "./server/history";
 import { createEvaluationService } from "./server/evaluation-service";
 import { composeJudges } from "./server/judges-composition";
 import { LangfuseScoreSink, resolveLangfuseConfig, scoreSinkHealthOf } from "./telemetry/langfuse-score-sink";
@@ -129,7 +129,7 @@ const judges = composeJudges({ env: process.env, root: ROOT, queue, mirrorsRoot:
 const scoreMetricsSink = new ScoreMetricsSink({
   telemetry: telemetry.telemetry,
   appOf: (runId) => getRecord(runId)?.app,
-  verdictOf: (runId) => getRunOutcome(runId)?.verdict ?? getRecord(runId)?.verdict,
+  verdictOf: (runId) => getHistory().learning.getRunOutcome(runId)?.verdict ?? getRecord(runId)?.verdict,
 });
 const evaluation = createEvaluationService({
   judges: judges.service,
@@ -589,7 +589,7 @@ const appAdminDeps: AppAdminDeps = {
  * separate HTTP requests, so there is no cross-request reuse).
  */
 const buildTrends = (app: string, window?: number) =>
-  toTrendsView({ app, outcomes: listRunOutcomes(app, 100), records: listRecords(app, 100), now: new Date().toISOString(), window });
+  toTrendsView({ app, outcomes: getHistory().learning.listRunOutcomes(app, 100), records: listRecords(app, 100), now: new Date().toISOString(), window });
 
 
 function opencodeConfigPath(): string {
@@ -741,7 +741,7 @@ const apiDeps: ApiDeps = {
     return { app, map: stored.data, builtAtSha: stored.builtAtSha, updatedAt: stored.updatedAt };
   },
   signals: () => toSignalsView(
-    listAppConfigs().map((a) => ({ scorecard: loadScorecard(a.name), runs: listRecords(a.name, 50), outcomes: listRunOutcomes(a.name, 50) })),
+    listAppConfigs().map((a) => ({ scorecard: getHistory().learning.loadScorecard(a.name), runs: listRecords(a.name, 50), outcomes: getHistory().learning.listRunOutcomes(a.name, 50) })),
     toCoordinationSignals(readRecentCoordinationEvents({ limit: 1000 }).events),
   ),
   /*
@@ -776,8 +776,8 @@ const apiDeps: ApiDeps = {
     } catch {
       /* app config gone but the run survives — still produce its report from defaults */
     }
-    const current = toRunReportView({ record: rec, outcome: getRunOutcome(runId) ?? null, minRatio, weights });
-    const outcomes = listRunOutcomes(rec.app, 200).filter((o) => o.at <= rec.at);
+    const current = toRunReportView({ record: rec, outcome: getHistory().learning.getRunOutcome(runId) ?? null, minRatio, weights });
+    const outcomes = getHistory().learning.listRunOutcomes(rec.app, 200).filter((o) => o.at <= rec.at);
     const records = listRecords(rec.app, 200).filter((r) => r.at <= rec.at);
     const evolution =
       outcomes.length >= 2

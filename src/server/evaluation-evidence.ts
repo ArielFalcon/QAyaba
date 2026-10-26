@@ -10,11 +10,12 @@ import { RUN_PHASES } from "@kernel/run-step";
 import type { EvidencePort } from "@contexts/evaluation/application/index.ts";
 import type { ContextEvidence, ContextFreshness, DeliveredContextSource, DeliveredOmission, DeliveredSpecEvidence, PlanEvidence, ReferenceEvidence, RunEvaluationEvidence, RunSpecCallEvidence, SidekickReportEvidence } from "@contexts/evaluation/application/index";
 import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
-import { getRecord, getRunFacts, getRunOutcome, getRunPhases, getAgentTurns, getRunPlan, listRunSpans, listSpecSnapshots, type AgentTurnRecord, type RunFactsPatch, type RunPhases, type SpecSnapshotRow } from "./history";
+import { getRecord, getRunFacts, getRunPhases, getAgentTurns, getRunPlan, listRunSpans, listSpecSnapshots, type AgentTurnRecord, type RunFactsPatch, type RunPhases, type SpecSnapshotRow } from "./history";
 import type { RunOutcome, RunRecord } from "../types";
 import { namesTemplatePage } from "@contexts/generation/application/index";
 import { referenceFor, type UseCaseReference } from "@contexts/evaluation/application/index";
 import { loadReferencesLeniently } from "./use-case-reference-loader";
+import { getHistory } from "./persistence/index";
 
 /* The slice of a ledger span the evidence reads. */
 export interface LedgerSpan {
@@ -41,7 +42,7 @@ export const defaultEvidenceDeps: EvidenceDeps = {
   getRecord,
   getRunPhases,
   getRunFacts,
-  getRunOutcome,
+  getRunOutcome: (id) => getHistory().learning.getRunOutcome(id),
   getAgentTurns,
   runSpans: (id) => listRunSpans(id).map((s) => ({ name: s.name, spanId: s.spanId, parentSpanId: s.parentSpanId, attrs: s.attrs })),
   listSpecSnapshots,

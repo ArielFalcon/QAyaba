@@ -10,7 +10,7 @@
 import { JobQueue } from "./queue";
 import { loadAppConfig, AppConfig } from "../orchestrator/config-loader";
 import { assertUniformCapture } from "./campaign-capture";
-import { createRecord, updateRecord, recordEffectiveConfig, getCampaignCaptureMode, addCase, getRecord, appendActivity, listRecords, interruptedRecords, serializablePhases, listSpecSnapshots, saveCrashedRunOutcome } from "./history";
+import { createRecord, updateRecord, recordEffectiveConfig, getCampaignCaptureMode, addCase, getRecord, appendActivity, listRecords, interruptedRecords, serializablePhases, listSpecSnapshots } from "./history";
 import { traceFactsOf } from "@kernel/run-trace-facts";
 import { phaseSnapshotOf } from "@contexts/run-orchestration/application/index";
 import { specCountsOf } from "./evaluation-evidence";
@@ -36,6 +36,7 @@ import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import type { RunPipelinePort, RunInput, ObserverPort } from "@contexts/run-orchestration/application/index.ts";
+import { getHistory } from "./persistence/index";
 
 type RunStepEvent = Extract<RunEventBody, { type: "step.changed" }>;
 type RunStep = RunStepEvent["step"];
@@ -677,7 +678,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
       deps.runEvents?.publish(record.id, { type: "run.verdict", verdict: "infra-error", engineStatus: engineStatus("infra-error") });
       console.error(`[qa] run ${refusal ? "REFUSED (security refusal: untrusted git tree)" : infra ? "infra-error" : "CRASHED (internal error)"} ${req.app}@${req.sha}: ${msg}`);
       /* The outcome row is what the graders and the value report read: it carries the same class the trace root and the metric just did. */
-      saveCrashedRunOutcome(record, errorClass);
+      getHistory().learning.saveCrashedRunOutcome(record, errorClass);
 
       /*
        * Only a genuine infrastructure condition or a security refusal is exempt from a maintainer-eligible incident

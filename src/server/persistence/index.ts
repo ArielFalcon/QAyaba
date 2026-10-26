@@ -2,7 +2,9 @@ import { join } from "node:path";
 import { qayabaDataDir } from "../../paths";
 import { openHistoryDatabase, type HistoryDatabase } from "./database";
 import { ContextRepository } from "./repositories/context.repository";
+import { EvaluationRepository } from "./repositories/evaluation.repository";
 import { JudgeRepository } from "./repositories/judge.repository";
+import { LearningRepository } from "./repositories/learning.repository";
 
 let shared: HistoryDatabase | undefined;
 let history: History | undefined;
@@ -11,11 +13,13 @@ let history: History | undefined;
 export interface History {
   readonly contexts: ContextRepository;
   readonly judges: JudgeRepository;
+  readonly evaluations: EvaluationRepository;
+  readonly learning: LearningRepository;
 }
 
 /* The repositories over `db`, their statements prepared once. */
 export function createHistory(db: HistoryDatabase): History {
-  return { contexts: new ContextRepository(db), judges: new JudgeRepository(db) };
+  return { contexts: new ContextRepository(db), judges: new JudgeRepository(db), evaluations: new EvaluationRepository(db), learning: new LearningRepository(db) };
 }
 
 /*

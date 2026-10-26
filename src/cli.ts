@@ -25,8 +25,9 @@ import { delegateRun, type DelegateRunInput, type DelegateRunResult } from "./se
 import { discoverApiToken } from "./server/api-token";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getRecord, getRunOutcome, listRunOutcomes, listLearningRules, LEARNING_RULE_LEDGER_LIMIT, loadCurriculum } from "./server/history";
-import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
+import { getRecord } from "./server/history";
+import { LEARNING_RULE_LEDGER_LIMIT } from "./server/persistence/repositories/learning.repository";
+import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/application/index";
 import { loadAppConfig } from "./orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "./orchestrator/schemas";
 import { RUN_MODES, RunMode, TestTarget } from "./types";
@@ -39,6 +40,7 @@ import { OpenCodeRuntimeStrategy } from "./agent-runtime";
 import { getOpenSessionCount } from "./integrations/opencode-client";
 import { createRunEngineFactory } from "./server/run-engine-factory";
 import { resolvePort } from "./server/port";
+import { getHistory } from "./server/persistence/index";
 
 
 const cliAgentRuntime = createAgentRuntimeManager({
@@ -229,7 +231,7 @@ async function main(): Promise<void> {
  * signals). Kept in the CLI (not the pure renderer) because it stitches two persistence reads.
  */
 function printRunReport(record: ReturnType<typeof getRecord> & {}, appCfg: ReturnType<typeof loadAppConfig>): void {
-  const outcome = getRunOutcome(record.id);
+  const outcome = getHistory().learning.getRunOutcome(record.id);
   const gs = outcome?.gateSignals;
   const report = renderRunReport({
     app: record.app,
@@ -326,7 +328,7 @@ export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?:
 function showLearning(app: string): void {
   console.log(`\n📊 Learning state for "${app}"\n`);
 
-  const outcomes = listRunOutcomes(app, 20);
+  const outcomes = getHistory().learning.listRunOutcomes(app, 20);
   console.log(`── RunOutcomes (${outcomes.length} most recent) ──`);
   if (outcomes.length === 0) {
     console.log("  (none — run the pipeline first)\n");
@@ -342,7 +344,7 @@ function showLearning(app: string): void {
 
   /* Same LEARNING_RULE_LEDGER_LIMIT the TUI/API intelligence view reads — the live ledger, not a
    * truncated preview that silently drops rules beyond a smaller cap. */
-  const rules = listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT);
+  const rules = getHistory().learning.listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT);
   console.log(`── Learning Rules (${rules.length} active/candidate) ──`);
   if (rules.length === 0) {
     console.log("  (none — failures will create rules via reflection)\n");
@@ -356,7 +358,7 @@ function showLearning(app: string): void {
     console.log("");
   }
 
-  const curriculumRaw = loadCurriculum(app);
+  const curriculumRaw = getHistory().learning.loadCurriculum(app);
   const curriculumCorrupt = curriculumRaw === CURRICULUM_CORRUPT;
   const curriculum = curriculumCorrupt ? null : curriculumRaw;
   console.log(`── Curriculum ──`);

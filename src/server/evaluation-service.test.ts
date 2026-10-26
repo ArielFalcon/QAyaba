@@ -6,7 +6,7 @@ import { HistoryEvidenceAdapter, countPassedSpecs, defaultEvidenceDeps } from ".
 import { buildRunViewExtras, type RunViewDeps } from "./run-view";
 import Database from "better-sqlite3";
 import { RegradeRequestError } from "@contexts/evaluation/application/index";
-import { createRecord, updateRecord, addCase, saveRunOutcome, replaceRunScores, getRunFacts, saveAgentTurn, getRunIdByTraceId, listRunScoreRows, getRegradeJob, saveRegradeJob, failInterruptedRegradeJobs, getRecord, getRunOutcome } from "./history";
+import { createRecord, updateRecord, addCase, getRunFacts, saveAgentTurn, getRunIdByTraceId, getRecord } from "./history";
 import { traceHarness } from "../telemetry/trace-harness";
 import { ScoreMetricsSink, composeScoreSinks } from "../telemetry/score-metrics-sink";
 import type { RunOutcome } from "../types";
@@ -56,7 +56,7 @@ function finishedRun(app: string, over: { verdict?: RunOutcome["verdict"]; decis
     gateSignals: { static: true, coverageRatio: 0.9, valueScore: null, reviewerCorrections: [], reviewerApproved: true, flaky: false, retries: 0 },
     rulesRetrieved: [], at: "2026-10-17T10:00:00.000Z",
   };
-  saveRunOutcome(outcome);
+  getHistory().learning.saveRunOutcome(outcome);
   saveAgentTurn({
     runId: r.id, sessionId: "s", role: over.reviewerTurn === false ? "qa-author" : "qa-reviewer", round: 0, isRepair: false, ts: "2026-10-17T10:00:00.000Z", objective: null, promptText: "p", outputText: "o", promptBytes: 1,
     tokensInput: 10, tokensOutput: 5, tokensReasoning: null, tokensCacheRead: null, tokensCacheWrite: null, cost: 0.5,
@@ -88,8 +88,8 @@ test("the default is the latest grader version per name and ?versions=all lists 
   const service = createEvaluationService({ schedule: sched.schedule, log: quiet });
   service.scheduleGrading(id);
   await sched.flush();
-  replaceRunScores([{ runId: id, name: "spec_pass_rate", graderVersion: "0", dataType: "NUMERIC", polarity: "higher_better", source: "deterministic", value: 0.1, comment: null, observationId: null }], "t");
-  replaceRunScores([{ runId: id, name: "spec_pass_rate", graderVersion: "10", dataType: "NUMERIC", polarity: "higher_better", source: "deterministic", value: 0.9, comment: null, observationId: null }], "t");
+  getHistory().evaluations.replaceRunScores([{ runId: id, name: "spec_pass_rate", graderVersion: "0", dataType: "NUMERIC", polarity: "higher_better", source: "deterministic", value: 0.1, comment: null, observationId: null }], "t");
+  getHistory().evaluations.replaceRunScores([{ runId: id, name: "spec_pass_rate", graderVersion: "10", dataType: "NUMERIC", polarity: "higher_better", source: "deterministic", value: 0.9, comment: null, observationId: null }], "t");
   const latest = service.evaluation(id, false)!.scores.filter((s) => s.name === "spec_pass_rate");
   assert.deepEqual(latest.map((s) => s.graderVersion), ["10"], "10 is newer than 1 even though it sorts before it as text");
   const all = service.evaluation(id, true)!.scores.filter((s) => s.name === "spec_pass_rate");
@@ -102,10 +102,10 @@ test("grading the same run twice leaves one stored score per name and version", 
   const service = createEvaluationService({ schedule: sched.schedule, log: quiet });
   service.scheduleGrading(id);
   await sched.flush();
-  const first = listRunScoreRows(id).length;
+  const first = getHistory().evaluations.listRunScoreRows(id).length;
   service.scheduleGrading(id);
   await sched.flush();
-  assert.equal(listRunScoreRows(id).length, first);
+  assert.equal(getHistory().evaluations.listRunScoreRows(id).length, first);
 });
 
 test("an unknown run has no evaluation", () => {
@@ -156,9 +156,9 @@ test("a regrade by date covers finished runs only", () => {
 });
 
 test("a regrade job a previous process left open ends failed at boot", () => {
-  saveRegradeJob({ jobId: "job-open", status: "running", runIds: ["r"], graders: null, runs: 1, graded: 0, failed: [], startedAt: "t", finishedAt: null });
-  assert.ok(failInterruptedRegradeJobs("later") >= 1);
-  const job = getRegradeJob("job-open")!;
+  getHistory().evaluations.saveRegradeJob({ jobId: "job-open", status: "running", runIds: ["r"], graders: null, runs: 1, graded: 0, failed: [], startedAt: "t", finishedAt: null });
+  assert.ok(getHistory().evaluations.failInterruptedRegradeJobs("later") >= 1);
+  const job = getHistory().evaluations.getRegradeJob("job-open")!;
   assert.equal(job.status, "failed");
   assert.equal(job.finishedAt, "later");
   assert.match(job.failed[0]!.error, /restarted/);
@@ -274,16 +274,16 @@ test("a coverage decision recorded as unknown is graded unknown", async () => {
 test("a full regrade removes a stored score the graders no longer emit, and a subset regrade leaves the others", () => {
   const id = finishedRun("eval-del");
   const row = (name: string) => ({ runId: id, name, graderVersion: "1", dataType: "NUMERIC", polarity: "none", source: "deterministic", value: 0.5, comment: null, observationId: null });
-  replaceRunScores([row("retired"), row("step_intent_mix.auth"), row("step_intent_mix"), row("stepXintent_mix.auth"), row("kept")], "t");
-  replaceRunScores([], "t2", { runId: id, graderVersion: "1", baseNames: ["step_intent_mix"] });
-  assert.deepEqual(listRunScoreRows(id).map((r) => r.name).sort(), ["kept", "retired", "stepXintent_mix.auth"]);
-  replaceRunScores([row("fresh")], "t3", { runId: id, graderVersion: "1" });
-  assert.deepEqual(listRunScoreRows(id).map((r) => r.name), ["fresh"]);
+  getHistory().evaluations.replaceRunScores([row("retired"), row("step_intent_mix.auth"), row("step_intent_mix"), row("stepXintent_mix.auth"), row("kept")], "t");
+  getHistory().evaluations.replaceRunScores([], "t2", { runId: id, graderVersion: "1", baseNames: ["step_intent_mix"] });
+  assert.deepEqual(getHistory().evaluations.listRunScoreRows(id).map((r) => r.name).sort(), ["kept", "retired", "stepXintent_mix.auth"]);
+  getHistory().evaluations.replaceRunScores([row("fresh")], "t3", { runId: id, graderVersion: "1" });
+  assert.deepEqual(getHistory().evaluations.listRunScoreRows(id).map((r) => r.name), ["fresh"]);
 });
 
 test("a corrupt score row is skipped and said, never shipped as an empty value", () => {
   const id = finishedRun("eval-corrupt");
-  replaceRunScores([{ runId: id, name: "good", graderVersion: "1", dataType: "NUMERIC", polarity: "none", source: "deterministic", value: 1, comment: null, observationId: null }], "t");
+  getHistory().evaluations.replaceRunScores([{ runId: id, name: "good", graderVersion: "1", dataType: "NUMERIC", polarity: "none", source: "deterministic", value: 1, comment: null, observationId: null }], "t");
   const raw = new Database(process.env.HISTORY_DB_PATH!);
   try {
     raw.prepare("INSERT INTO run_scores (run_id, name, grader_version, data_type, polarity, source, value, graded_at) VALUES (?, 'bad_json', '1', 'NUMERIC', 'none', 'deterministic', 'not json', 't')").run(id);
@@ -291,7 +291,7 @@ test("a corrupt score row is skipped and said, never shipped as an empty value",
   } finally {
     raw.close();
   }
-  assert.deepEqual(listRunScoreRows(id).map((r) => r.name), ["good"]);
+  assert.deepEqual(getHistory().evaluations.listRunScoreRows(id).map((r) => r.name), ["good"]);
 });
 
 test("a regrade with an invalid since or a pending grader is refused", () => {
@@ -365,13 +365,14 @@ function viewDeps(on: boolean, template?: string): RunViewDeps {
 }
 
 import { defaultRunViewDeps } from "./run-view";
+import { getHistory } from "./persistence/index";
 const defaultViewDeps = defaultRunViewDeps(() => true, {});
 
 test("by default only grader rows are returned, one per name; human labels appear with versions=all", () => {
   const id = finishedRun("labels-shadow");
   const service = createEvaluationService({ log: quiet });
   const row = (source: string, graderVersion: string, value: number) => ({ runId: id, name: "spec_pass_rate", graderVersion, dataType: "NUMERIC", polarity: "higher_better", source, value, comment: null, observationId: null });
-  replaceRunScores([row("deterministic", "1", 0.5), row("human", "human", 1)], "t");
+  getHistory().evaluations.replaceRunScores([row("deterministic", "1", 0.5), row("human", "human", 1)], "t");
   const byDefault = service.evaluation(id, false)!.scores.filter((s) => s.name === "spec_pass_rate");
   assert.deepEqual(byDefault.map((s) => [s.source, s.graderVersion, s.value]), [["deterministic", "1", 0.5]]);
   const all = service.evaluation(id, true)!.scores.filter((s) => s.name === "spec_pass_rate");
@@ -381,7 +382,7 @@ test("by default only grader rows are returned, one per name; human labels appea
 test("a name only a human labelled is not in the default view", () => {
   const id = finishedRun("labels-only");
   const service = createEvaluationService({ log: quiet });
-  replaceRunScores([{ runId: id, name: "furthest_phase", graderVersion: "human", dataType: "CATEGORICAL", polarity: "none", source: "human", value: "learn", comment: null, observationId: null }], "t");
+  getHistory().evaluations.replaceRunScores([{ runId: id, name: "furthest_phase", graderVersion: "human", dataType: "CATEGORICAL", polarity: "none", source: "human", value: "learn", comment: null, observationId: null }], "t");
   assert.equal(service.evaluation(id, false)!.scores.some((s) => s.name === "furthest_phase" && s.source === "human"), false);
 });
 
@@ -471,7 +472,7 @@ test("grading and regrading a run mirror its scores as bounded metrics", async (
     const sink = new ScoreMetricsSink({
       telemetry: h.telemetry,
       appOf: (runId) => getRecord(runId)?.app,
-      verdictOf: (runId) => getRunOutcome(runId)?.verdict,
+      verdictOf: (runId) => getHistory().learning.getRunOutcome(runId)?.verdict,
     });
     const sched = manualScheduler();
     const service = createEvaluationService({ schedule: sched.schedule, log: quiet, sink: composeScoreSinks([sink]), newId: () => "job-metrics" });

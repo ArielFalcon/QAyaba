@@ -4,7 +4,7 @@ import { SqliteCalibrationPairs, SqliteCalibrationStore, SqliteJudgeLedger } fro
 import { SqliteScoreStore } from "./evaluation-service";
 import { calibrate } from "@contexts/evaluation/application/index";
 import { judgeDefinition, judgeGraderVersion, judgeScore } from "@contexts/evaluation/application/index";
-import { replaceRunScores } from "./history";
+import { getHistory } from "./persistence/index";
 
 const AT = "2026-10-18T10:00:00.000Z";
 const attempt = (over: Partial<Parameters<SqliteJudgeLedger["record"]>[0]> = {}) => ({
@@ -67,7 +67,7 @@ test("calibration pairs join the newest judge scores with the human labels of th
   for (const [run, judge, human] of [["run-p1", true, true], ["run-p2", false, true], ["run-p3", true, undefined]] as const) {
     store.replace(run, [judgeScore(def, { ok: true, value: judge, critique: "c" }, { promptVersion: "2", model: "p/m" })], AT, { graderVersion: judgeGraderVersion("spec_relevance", "2"), baseNames: ["spec_relevance"] });
     if (human !== undefined) {
-      replaceRunScores([{ runId: run, name: "spec_relevance", graderVersion: "human", dataType: "BOOLEAN", polarity: "higher_better", source: "human", value: human, comment: null, observationId: null }], AT);
+      getHistory().evaluations.replaceRunScores([{ runId: run, name: "spec_relevance", graderVersion: "human", dataType: "BOOLEAN", polarity: "higher_better", source: "human", value: human, comment: null, observationId: null }], AT);
     }
   }
   const found = new SqliteCalibrationPairs().pairsFor("spec_relevance");

@@ -7,11 +7,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
 import { buildLearningContext } from "./chat";
-import { saveCurriculum } from "./history";
 import { initCurriculum } from "../qa/learning/curriculum";
+import { getHistory } from "./persistence/index";
 
 function storeCorruptCurriculum(app: string): void {
-  saveCurriculum(initCurriculum(app));
+  getHistory().learning.saveCurriculum(initCurriculum(app));
   const raw = new Database(process.env.HISTORY_DB_PATH!);
   try {
     raw.prepare("UPDATE curriculum SET data = ? WHERE app = ?").run('{"app":', app);

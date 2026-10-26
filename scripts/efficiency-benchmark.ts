@@ -665,9 +665,10 @@ export async function defaultService(env: Record<string, string | undefined>): P
 /* The orchestrator's own history store, imported lazily so the commands that never read it do not open it. */
 async function historySource(): Promise<(runId: string) => RunDataSource> {
   const history = await import("../src/server/history.ts");
+  const { getHistory } = await import("../src/server/persistence/index.ts");
   const source: RunDataSource = {
     events: (runId) => history.loadRunEvents(runId).map((e) => e.body as RunEventBody),
-    outcome: (runId) => history.getRunOutcome(runId),
+    outcome: (runId) => getHistory().learning.getRunOutcome(runId),
     record: (runId) => history.getRecord(runId),
     turns: (runId) => history.getAgentTurns(runId),
   };

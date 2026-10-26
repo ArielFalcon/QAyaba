@@ -16,7 +16,7 @@ import { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code
 import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun } from "./runner";
-import { getRecord, upsertLearningRule, recordRuleOutcome, quarantineLearningRules } from "./history";
+import { getRecord } from "./history";
 import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
 import type { AgentDeps } from "../integrations/opencode-client";
 import { CAMPAIGN_FREEZE_ENV } from "./campaign-freeze";
@@ -58,6 +58,8 @@ import { rosterFixturePath } from "../integrations/fixtures/opencode-roster";
 import { setAgentsConfigPath } from "../integrations/opencode-client";
 import type { RunMode } from "@kernel/run-mode";
 import { getHistory } from "./persistence/index";
+import type { LearningRepository } from "./persistence/repositories/learning.repository";
+import { LEARNING_RULE_LEDGER_LIMIT } from "./persistence/repositories/learning.repository";
 
 /* The publish step of a run as the engine wires it: the context's policy over the shell's git wiring. */
 function publishStep(isCode: boolean, mode: RunMode, git?: (args: string[], cwd?: string) => Promise<string>, writeExcludesFn?: (dir: string, patterns: readonly string[]) => void) {
@@ -2285,7 +2287,6 @@ test("buildEngineRootDeps wires a REAL SqliteLearningRepository by default (was:
  */
 test("historyLearningStore(appName).upsert() persists the REAL app name, not the rule's archetype", async () => {
   const { historyLearningStore } = await import("./run-engine-factory");
-  const { listLearningRules } = await import("./history");
   const app = `factory-learning-appname-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   const store = historyLearningStore(app);
@@ -2306,13 +2307,13 @@ test("historyLearningStore(appName).upsert() persists the REAL app name, not the
     at: new Date().toISOString(),
   });
 
-  const rows = listLearningRules(app, 10);
+  const rows = getHistory().learning.listLearningRules(app, 10);
   assert.equal(rows.length, 1, "the rule must be retrievable under the REAL app name");
   assert.equal(rows[0]?.trigger, "selector absent");
   /* If the bug regressed (app: rule.archetype ?? ""), this row would be filed under "form",
-     not `app` — listLearningRules(app, ...) would find nothing.
+     not `app` — getHistory().learning.listLearningRules(app, ...) would find nothing.
    */
-  const underArchetype = listLearningRules("form", 10);
+  const underArchetype = getHistory().learning.listLearningRules("form", 10);
   assert.ok(!underArchetype.some((r) => r.trigger === "selector absent"), "the rule must NOT be filed under the archetype as if it were the app name");
 });
 
@@ -2322,7 +2323,6 @@ test("historyLearningStore(appName).upsert() persists the REAL app name, not the
  */
 test("historyLearningStore(appName).incrementUsage() bridges onto history.ts's incrementRuleUsage", async () => {
   const { historyLearningStore } = await import("./run-engine-factory");
-  const { listLearningRules } = await import("./history");
   const app = `factory-learning-usage-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const ruleId = `rule-usage-${app}`;
 
@@ -2335,7 +2335,7 @@ test("historyLearningStore(appName).incrementUsage() bridges onto history.ts's i
 
   store.incrementUsage?.([ruleId]);
 
-  const rows = listLearningRules(app, 10);
+  const rows = getHistory().learning.listLearningRules(app, 10);
   assert.equal(rows[0]?.usageCount, 1, "usageCount must advance from 0 to 1 after incrementUsage");
 });
 
@@ -2346,7 +2346,6 @@ test("historyLearningStore(appName).incrementUsage() bridges onto history.ts's i
  */
 test("the learning fold over historyLearningStore(appName) — oracle path folds valueScore into every retrieved rule", async () => {
   const { historyLearningStore } = await import("./run-engine-factory");
-  const { listLearningRules } = await import("./history");
   const app = `factory-learning-oracle-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const ruleId1 = `rule-oracle-1-${app}`;
   const ruleId2 = `rule-oracle-2-${app}`;
@@ -2368,7 +2367,7 @@ test("the learning fold over historyLearningStore(appName) — oracle path folds
     at: new Date().toISOString(),
   } as never);
 
-  const rows = listLearningRules(app, 10);
+  const rows = getHistory().learning.listLearningRules(app, 10);
   const r1 = rows.find((r) => r.id === ruleId1);
   const r2 = rows.find((r) => r.id === ruleId2);
   assert.equal(r1?.outcomeCount, 1, "rule 1 must fold exactly once");
@@ -2384,7 +2383,6 @@ test("the learning fold over historyLearningStore(appName) — oracle path folds
    a candidate nor disturb a proven rule. */
 test("the learning fold over historyLearningStore(appName) — folding a step-budget outcome mints no active rule and leaves other classes' rules untouched", async () => {
   const { historyLearningStore } = await import("./run-engine-factory");
-  const { listLearningRules, setRuleStatusByHuman } = await import("./history");
   const app = `factory-learning-step-budget-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const own = `rule-step-own-${app}`;
   const other = `rule-step-other-${app}`;
@@ -2395,8 +2393,8 @@ test("the learning fold over historyLearningStore(appName) — folding a step-bu
   store.upsert({ ...base, id: own, errorClass: "E-STEP-BUDGET", status: "candidate" });
   store.upsert({ ...base, id: other, errorClass: "E-EXEC-FAIL", status: "candidate" });
   store.upsert({ ...base, id: proven, errorClass: "E-EXEC-FAIL", status: "candidate" });
-  assert.equal(setRuleStatusByHuman(proven, "active"), true, "the proven rule is active before the fold");
-  const before = new Map(listLearningRules(app, 10).map((r) => [r.id, r]));
+  assert.equal(getHistory().learning.setRuleStatusByHuman(proven, "active"), true, "the proven rule is active before the fold");
+  const before = new Map(getHistory().learning.listLearningRules(app, 10).map((r) => [r.id, r]));
 
   assert.doesNotThrow(() =>
     foldRunOutcome(store, {
@@ -2408,7 +2406,7 @@ test("the learning fold over historyLearningStore(appName) — folding a step-bu
     } as never),
   );
 
-  const after = new Map(listLearningRules(app, 10).map((r) => [r.id, r]));
+  const after = new Map(getHistory().learning.listLearningRules(app, 10).map((r) => [r.id, r]));
   assert.deepEqual([...after.values()].filter((r) => r.status === "active").map((r) => r.id), [proven], "no rule became active");
   assert.equal(after.get(other)?.outcomeCount, before.get(other)?.outcomeCount, "a rule of another class carries no signal from this run");
   assert.equal(after.get(proven)?.outcomeCount, before.get(proven)?.outcomeCount);
@@ -2424,13 +2422,12 @@ test("the learning fold over historyLearningStore(appName) — folding a step-bu
    historyLearningStore this file already wires, then the caller deriving the persisted
    rulesRetrieved from THAT result exactly the way run-qa.use-case.ts does (`r.id`, post-fix — was
    rulesRetrieved -> fold) silently produced trigger TEXT instead of ids, so recordOutcome's by-id
-   lookup (`byId.get(id)` / recordRuleOutcome(id, ...)) missed every row and outcome_count stayed
+   lookup (`byId.get(id)` / getHistory().learning.recordRuleOutcome(id, ...)) missed every row and outcome_count stayed
    frozen at 0 forever — no promotion/demotion ever engaged, with zero errors anywhere. This test
    pins the full chain green.
  */
 test("integration: upsert -> retrieve (real LearningPortAdapter) -> derive rulesRetrieved by id -> fold (real recordOutcome) advances outcome_count (was frozen at 0 pre-fix)", async () => {
   const { historyLearningStore } = await import("./run-engine-factory");
-  const { listLearningRules } = await import("./history");
   const { SqliteLearningRepository } = await import(
     "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter"
   );
@@ -2479,12 +2476,12 @@ test("integration: upsert -> retrieve (real LearningPortAdapter) -> derive rules
   } as never;
 
   /* Fold via the REAL LearningPort.fold() -> LearningRepositoryPort.applyOutcome() ->
-     foldRunOutcome(historyLearningStore(app), ) -> history.ts's recordRuleOutcome(id, ...) chain —
+     foldRunOutcome(historyLearningStore(app), ) -> history.ts's getHistory().learning.recordRuleOutcome(id, ...) chain —
      the exact production path, not a hand-rolled call to recordOutcome/recordRuleOutcome directly.
    */
   await adapter.fold(outcome);
 
-  const rows = listLearningRules(app, 10);
+  const rows = getHistory().learning.listLearningRules(app, 10);
   const folded = rows.find((r) => r.id === ruleId);
   assert.equal(folded?.outcomeCount, 1, "outcome_count must ADVANCE from 0 to 1 — this is the governance-fold edge that would otherwise stay frozen at 0 with no error");
   assert.equal(folded?.successRate, 0.75, "successRate must equal the folded valueScore (first outcome)");
@@ -2493,7 +2490,6 @@ test("integration: upsert -> retrieve (real LearningPortAdapter) -> derive rules
 
 test("the learning fold over historyLearningStore(appName) — empty rulesRetrieved is a safe no-op", async () => {
   const { historyLearningStore } = await import("./run-engine-factory");
-  const { listLearningRules } = await import("./history");
   const app = `factory-learning-empty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const ruleId = `rule-empty-${app}`;
 
@@ -2512,14 +2508,13 @@ test("the learning fold over historyLearningStore(appName) — empty rulesRetrie
     at: new Date().toISOString(),
   } as never);
 
-  const rows = listLearningRules(app, 10);
+  const rows = getHistory().learning.listLearningRules(app, 10);
   const r = rows.find((row) => row.id === ruleId);
   assert.equal(r?.outcomeCount, 0, "no rulesRetrieved means no recordRuleOutcome call at all — ledger untouched");
 });
 
 test("recordOutcome persists a scorecard entry even when rulesRetrieved is empty", async () => {
   const { historyLearningStore } = await import("./run-engine-factory");
-  const { loadScorecard } = await import("./history");
   const app = `factory-scorecard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const store = historyLearningStore(app);
 
@@ -2531,7 +2526,7 @@ test("recordOutcome persists a scorecard entry even when rulesRetrieved is empty
     at: "2026-09-04T12:00:00.000Z",
   } as never);
 
-  const sc = loadScorecard(app);
+  const sc = getHistory().learning.loadScorecard(app);
   assert.ok(sc, "scorecard must be written so the TUI/CLI flywheel is not an empty reader of a dead writer");
   assert.equal(sc?.summary.measuredRuns, 1);
   assert.equal(sc?.summary.lastValueScore, 0.75);
@@ -2540,7 +2535,6 @@ test("recordOutcome persists a scorecard entry even when rulesRetrieved is empty
 
 test("recordOutcome persists the REAL mutantCount/killedCount from gateSignals, not a hardcoded 0", async () => {
   const { historyLearningStore } = await import("./run-engine-factory");
-  const { loadScorecard } = await import("./history");
   const app = `factory-scorecard-mutant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const store = historyLearningStore(app);
 
@@ -2552,14 +2546,13 @@ test("recordOutcome persists the REAL mutantCount/killedCount from gateSignals, 
     at: "2026-09-04T12:00:00.000Z",
   } as never);
 
-  const sc = loadScorecard(app);
+  const sc = getHistory().learning.loadScorecard(app);
   assert.equal(sc?.entries[0]?.mutantCount, 20, "a real measured mutantCount must be persisted, not hardcoded to 0");
   assert.equal(sc?.entries[0]?.killedCount, 17, "a real measured killedCount must be persisted, not hardcoded to 0");
 });
 
 test("recordOutcome persists mutantCount/killedCount as null ('not measured') when gateSignals omits them, never a fabricated 0", async () => {
   const { historyLearningStore } = await import("./run-engine-factory");
-  const { loadScorecard } = await import("./history");
   const app = `factory-scorecard-unmeasured-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const store = historyLearningStore(app);
 
@@ -2571,14 +2564,13 @@ test("recordOutcome persists mutantCount/killedCount as null ('not measured') wh
     at: "2026-09-04T12:00:00.000Z",
   } as never);
 
-  const sc = loadScorecard(app);
+  const sc = getHistory().learning.loadScorecard(app);
   assert.equal(sc?.entries[0]?.mutantCount, null, "an unmeasured mutantCount must persist as null, never a fabricated 0");
   assert.equal(sc?.entries[0]?.killedCount, null, "an unmeasured killedCount must persist as null, never a fabricated 0");
 });
 
 test("the learning fold over historyLearningStore(appName) — prevention path scores via preventionOutcome(rule.errorClass, outcome.errorClass) when valueScore is null", async () => {
   const { historyLearningStore } = await import("./run-engine-factory");
-  const { listLearningRules } = await import("./history");
   const app = `factory-learning-prevention-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const heldRuleId = `rule-prevention-held-${app}`;
   const failedRuleId = `rule-prevention-failed-${app}`;
@@ -2613,7 +2605,7 @@ test("the learning fold over historyLearningStore(appName) — prevention path s
     at: new Date().toISOString(),
   } as never);
 
-  const rows = listLearningRules(app, 10);
+  const rows = getHistory().learning.listLearningRules(app, 10);
   const held = rows.find((r) => r.id === heldRuleId);
   const failed = rows.find((r) => r.id === failedRuleId);
   const noisy = rows.find((r) => r.id === noisyRuleId);
@@ -2639,21 +2631,20 @@ test("the learning fold over historyLearningStore(appName) — prevention path s
  */
 test("recordOutcome prevention path folds a retrieved rule even when the bulk LEARNING_RULE_LEDGER_LIMIT read would exclude it", async () => {
   const { historyLearningStore } = await import("./run-engine-factory");
-  const { upsertLearningRule, listLearningRules, LEARNING_RULE_LEDGER_LIMIT } = await import("./history");
   const app = `factory-learning-r6-window-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const targetId = `rule-r6-target-${app}`;
 
   /* The target is a CANDIDATE; every filler row is ACTIVE, so "(status = 'active') DESC" alone
      (listRulesStmt's primary ORDER BY key) guarantees all LEARNING_RULE_LEDGER_LIMIT filler rows
-     outrank it — deterministically excluding it from a bulk listLearningRules(app,
+     outrank it — deterministically excluding it from a bulk getHistory().learning.listLearningRules(app,
      LEARNING_RULE_LEDGER_LIMIT) read regardless of success_rate/at ties.
    */
-  upsertLearningRule({ id: targetId, app, trigger: "selector absent", action: "use role+name", errorClass: "E-FRAGILE-SELECTOR", source: "test" });
+  getHistory().learning.upsertLearningRule({ id: targetId, app, trigger: "selector absent", action: "use role+name", errorClass: "E-FRAGILE-SELECTOR", source: "test" });
   for (let i = 0; i < LEARNING_RULE_LEDGER_LIMIT; i++) {
-    upsertLearningRule({ id: `rule-r6-filler-${i}-${app}`, app, trigger: `t${i}`, action: `a${i}`, errorClass: "E-EXEC-FAIL", source: "test", initialStatus: "active" });
+    getHistory().learning.upsertLearningRule({ id: `rule-r6-filler-${i}-${app}`, app, trigger: `t${i}`, action: `a${i}`, errorClass: "E-EXEC-FAIL", source: "test", initialStatus: "active" });
   }
 
-  const bulk = listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT);
+  const bulk = getHistory().learning.listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT);
   assert.ok(!bulk.some((r) => r.id === targetId), "setup check: the target rule must genuinely sit outside the bulk LEDGER_LIMIT window");
 
   const store = historyLearningStore(app);
@@ -2665,7 +2656,7 @@ test("recordOutcome prevention path folds a retrieved rule even when the bulk LE
     at: new Date().toISOString(),
   } as never);
 
-  const row = listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT + 5).find((r) => r.id === targetId);
+  const row = getHistory().learning.listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT + 5).find((r) => r.id === targetId);
   assert.equal(row?.outcomeCount, 1, "a rule outside the bulk-list window must still fold via a direct by-id lookup — never silently skipped as if deprecated/missing");
 });
 
@@ -2675,7 +2666,6 @@ test("recordOutcome prevention path folds a retrieved rule even when the bulk LE
    (historyLearningStore -> FoldRunOutcome) against the real SQLite ledger. */
 async function vetoedRuleAfterFold(gateSignals: { valueScore: number | null }) {
   const { historyLearningStore } = await import("./run-engine-factory");
-  const { upsertLearningRule, setRuleStatusByHuman, getLearningRule } = await import("./history");
   const app = `factory-learning-veto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const ruleId = `rule-veto-${app}`;
   const store = historyLearningStore(app);
@@ -2688,14 +2678,14 @@ async function vetoedRuleAfterFold(gateSignals: { valueScore: number | null }) {
       at: new Date().toISOString(),
     } as never);
 
-  upsertLearningRule({ id: ruleId, app, trigger: "selector absent", action: "use role+name", errorClass: "E-FRAGILE-SELECTOR", source: "test" });
+  getHistory().learning.upsertLearningRule({ id: ruleId, app, trigger: "selector absent", action: "use role+name", errorClass: "E-FRAGILE-SELECTOR", source: "test" });
   for (let i = 0; i < 3; i++) fold(`run-earn-${i}`, 0.9);
-  assert.equal(getLearningRule(app, ruleId)?.status, "active", "setup check: the rule earned active through oracle outcomes");
+  assert.equal(getHistory().learning.getLearningRule(app, ruleId)?.status, "active", "setup check: the rule earned active through oracle outcomes");
 
-  setRuleStatusByHuman(ruleId, "deprecated");
-  const before = getLearningRule(app, ruleId)!;
+  getHistory().learning.setRuleStatusByHuman(ruleId, "deprecated");
+  const before = getHistory().learning.getLearningRule(app, ruleId)!;
   fold("run-in-flight", gateSignals.valueScore);
-  return { before, after: getLearningRule(app, ruleId)!, app, ruleId, fold, setRuleStatusByHuman, getLearningRule };
+  return { before, after: getHistory().learning.getLearningRule(app, ruleId)!, app, ruleId, fold, setRuleStatusByHuman: (...args: Parameters<LearningRepository["setRuleStatusByHuman"]>) => getHistory().learning.setRuleStatusByHuman(...args), getLearningRule: (...args: Parameters<LearningRepository["getLearningRule"]>) => getHistory().learning.getLearningRule(...args) };
 }
 
 test("a human veto survives the prevention-path fold of a run that retrieved the rule before the veto", async () => {
@@ -2715,11 +2705,11 @@ test("a human veto survives the oracle-path fold of a run that retrieved the rul
 test("a rule a human restores after a veto folds outcomes again", async () => {
   const { app, ruleId, fold, setRuleStatusByHuman, getLearningRule } = await vetoedRuleAfterFold({ valueScore: 0.9 });
 
-  setRuleStatusByHuman(ruleId, "active");
-  const restored = getLearningRule(app, ruleId)!;
+  getHistory().learning.setRuleStatusByHuman(ruleId, "active");
+  const restored = getHistory().learning.getLearningRule(app, ruleId)!;
   fold("run-after-restore", 0.9);
 
-  assert.equal(getLearningRule(app, ruleId)?.outcomeCount, restored.outcomeCount + 1);
+  assert.equal(getHistory().learning.getLearningRule(app, ruleId)?.outcomeCount, restored.outcomeCount + 1);
 });
 
 /* A superseded rule is retired like a vetoed one: a run that retrieved it before it was replaced
@@ -2727,11 +2717,10 @@ test("a rule a human restores after a veto folds outcomes again", async () => {
 for (const [path, valueScore] of [["prevention", null], ["oracle", 0.9]] as const) {
   test(`a superseded rule keeps its status and accrues nothing on the ${path}-path fold of a run that retrieved it`, async () => {
     const { historyLearningStore } = await import("./run-engine-factory");
-    const { upsertLearningRule, getLearningRule } = await import("./history");
     const app = `factory-learning-superseded-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const ruleId = `rule-superseded-${app}`;
-    upsertLearningRule({ id: ruleId, app, trigger: "selector absent", action: "use role+name", errorClass: "E-FRAGILE-SELECTOR", source: "test", initialStatus: "superseded" });
-    const before = getLearningRule(app, ruleId)!;
+    getHistory().learning.upsertLearningRule({ id: ruleId, app, trigger: "selector absent", action: "use role+name", errorClass: "E-FRAGILE-SELECTOR", source: "test", initialStatus: "superseded" });
+    const before = getHistory().learning.getLearningRule(app, ruleId)!;
 
     foldRunOutcome(historyLearningStore(app), {
       runId: `run-in-flight-${path}`, app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
@@ -2741,7 +2730,7 @@ for (const [path, valueScore] of [["prevention", null], ["oracle", 0.9]] as cons
       at: new Date().toISOString(),
     } as never);
 
-    const after = getLearningRule(app, ruleId)!;
+    const after = getHistory().learning.getLearningRule(app, ruleId)!;
     assert.equal(after.status, "superseded");
     assert.equal(after.outcomeCount, before.outcomeCount);
   });
@@ -2751,12 +2740,11 @@ for (const [path, valueScore] of [["prevention", null], ["oracle", 0.9]] as cons
 for (const [path, valueScore] of [["prevention", null], ["oracle", 0.9]] as const) {
   test(`an outcome never folds onto another app's rule on the ${path} path`, async () => {
     const { historyLearningStore } = await import("./run-engine-factory");
-    const { upsertLearningRule, listLearningRules } = await import("./history");
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const owner = `factory-learning-owner-${suffix}`;
     const other = `factory-learning-other-${suffix}`;
     const ruleId = `rule-owned-${suffix}`;
-    upsertLearningRule({ id: ruleId, app: owner, trigger: "selector absent", action: "use role+name", errorClass: "E-FRAGILE-SELECTOR", source: "test" });
+    getHistory().learning.upsertLearningRule({ id: ruleId, app: owner, trigger: "selector absent", action: "use role+name", errorClass: "E-FRAGILE-SELECTOR", source: "test" });
 
     foldRunOutcome(historyLearningStore(other), {
       runId: `run-other-${path}`, app: other, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
@@ -2766,7 +2754,7 @@ for (const [path, valueScore] of [["prevention", null], ["oracle", 0.9]] as cons
       at: new Date().toISOString(),
     } as never);
 
-    const owned = listLearningRules(owner, 10).find((r) => r.id === ruleId);
+    const owned = getHistory().learning.listLearningRules(owner, 10).find((r) => r.id === ruleId);
     assert.equal(owned?.outcomeCount, 0, "another app's run says nothing about this app's rule");
   });
 }
@@ -2777,12 +2765,11 @@ for (const [path, valueScore] of [["prevention", null], ["oracle", 0.9]] as cons
    rule. Walks the real production store against the real SQLite ledger. */
 async function creditedAfterFold(valueScore: number | null, diffArchetypes: string[] | undefined) {
   const { historyLearningStore } = await import("./run-engine-factory");
-  const { upsertLearningRule, getLearningRule } = await import("./history");
   const app = `factory-learning-attribution-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const ids = { matching: `rule-form-${app}`, unrelated: `rule-list-${app}`, untagged: `rule-untagged-${app}` };
-  upsertLearningRule({ id: ids.matching, app, trigger: "form submit", action: "assert the saved row", errorClass: "E-FRAGILE-SELECTOR", archetype: "form", source: "test" });
-  upsertLearningRule({ id: ids.unrelated, app, trigger: "list paging", action: "assert the next page", errorClass: "E-FRAGILE-SELECTOR", archetype: "data-list", source: "test" });
-  upsertLearningRule({ id: ids.untagged, app, trigger: "any change", action: "scope to a test id", errorClass: "E-FRAGILE-SELECTOR", archetype: null, source: "test" });
+  getHistory().learning.upsertLearningRule({ id: ids.matching, app, trigger: "form submit", action: "assert the saved row", errorClass: "E-FRAGILE-SELECTOR", archetype: "form", source: "test" });
+  getHistory().learning.upsertLearningRule({ id: ids.unrelated, app, trigger: "list paging", action: "assert the next page", errorClass: "E-FRAGILE-SELECTOR", archetype: "data-list", source: "test" });
+  getHistory().learning.upsertLearningRule({ id: ids.untagged, app, trigger: "any change", action: "scope to a test id", errorClass: "E-FRAGILE-SELECTOR", archetype: null, source: "test" });
 
   foldRunOutcome(historyLearningStore(app), {
     runId: "run-attribution", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
@@ -2793,7 +2780,7 @@ async function creditedAfterFold(valueScore: number | null, diffArchetypes: stri
     at: new Date().toISOString(),
   } as never);
 
-  const credited = (id: string) => (getLearningRule(app, id)?.outcomeCount ?? 0) > 0;
+  const credited = (id: string) => (getHistory().learning.getLearningRule(app, id)?.outcomeCount ?? 0) > 0;
   return { matching: credited(ids.matching), unrelated: credited(ids.unrelated), untagged: credited(ids.untagged) };
 }
 
@@ -2862,8 +2849,7 @@ test("historyLearningStore(appName).selectAllRules wiring — SqliteLearningRepo
   /* Force it to deprecated the SAME way a real demotion would (via the human-override path in
      history.ts) — proving the dedup guard sees it EVEN THOUGH it is excluded from normal retrieval.
    */
-  const { setRuleStatusByHuman } = await import("./history");
-  setRuleStatusByHuman(deprecatedRuleId, "deprecated");
+  getHistory().learning.setRuleStatusByHuman(deprecatedRuleId, "deprecated");
 
   /* Real production wiring: the SAME SqliteLearningRepository this factory composes
      (`new SqliteLearningRepository(historyLearningStore(app.name))`, ~line 524).
@@ -2901,18 +2887,17 @@ test("historyLearningStore(appName).selectAllRules wiring — SqliteLearningRepo
  */
 test("historyLearningStore(app).selectRules feeds fresh candidates through even with MORE than LEARNING_RULE_LEDGER_LIMIT active rows — topRules' exploration slots are never SQL-starved", async () => {
   const { historyLearningStore } = await import("./run-engine-factory");
-  const { upsertLearningRule, LEARNING_RULE_LEDGER_LIMIT } = await import("./history");
   const app = `factory-learning-no-starve-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   for (let i = 0; i < LEARNING_RULE_LEDGER_LIMIT + 5; i++) {
-    upsertLearningRule({
+    getHistory().learning.upsertLearningRule({
       id: `active-${app}-${i}`, app, trigger: `trigger ${i}`, action: `action ${i}`,
       errorClass: "E-EXEC-FAIL", source: "test", initialStatus: "active",
     });
   }
   const freshCandidateIds = [`fresh-${app}-1`, `fresh-${app}-2`];
   for (const id of freshCandidateIds) {
-    upsertLearningRule({ id, app, trigger: id, action: "do the fresh thing", errorClass: "E-EXEC-FAIL", source: "test" });
+    getHistory().learning.upsertLearningRule({ id, app, trigger: id, action: "do the fresh thing", errorClass: "E-EXEC-FAIL", source: "test" });
   }
 
   const store = historyLearningStore(app);
@@ -2933,20 +2918,19 @@ test("historyLearningStore(app).selectRules feeds fresh candidates through even 
    actives still reach the top. The clock is mocked so every row gets a distinct, ordered `at`. */
 test("retrieval: the newest candidates reach the exploration slots when the ledger holds more candidates than the ledger window", async (t) => {
   const { historyLearningStore } = await import("./run-engine-factory");
-  const { upsertLearningRule, LEARNING_RULE_LEDGER_LIMIT } = await import("./history");
   const app = `factory-learning-newest-candidates-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const limit = 10;
   t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-01-01T00:00:00.000Z") });
 
   for (let i = 0; i < limit; i++) {
-    upsertLearningRule({ id: `active-${app}-${i}`, app, trigger: `t${i}`, action: `a${i}`, errorClass: "E-EXEC-FAIL", source: "test", initialStatus: "active" });
+    getHistory().learning.upsertLearningRule({ id: `active-${app}-${i}`, app, trigger: `t${i}`, action: `a${i}`, errorClass: "E-EXEC-FAIL", source: "test", initialStatus: "active" });
   }
   const candidateIds: string[] = [];
   for (let i = 0; i < LEARNING_RULE_LEDGER_LIMIT + 5; i++) {
     t.mock.timers.tick(1000);
     const id = `candidate-${app}-${String(i).padStart(4, "0")}`;
     candidateIds.push(id);
-    upsertLearningRule({ id, app, trigger: `c${i}`, action: "a", errorClass: "E-EXEC-FAIL", source: "test" });
+    getHistory().learning.upsertLearningRule({ id, app, trigger: `c${i}`, action: "a", errorClass: "E-EXEC-FAIL", source: "test" });
   }
   const newestCandidates = candidateIds.slice(-EXPLORATION_SLOTS);
 
@@ -2958,16 +2942,15 @@ test("retrieval: the newest candidates reach the exploration slots when the ledg
 
 test("retrieval: the best-proven active rules are retrieved when the ledger holds more actives than the ledger window", async () => {
   const { historyLearningStore } = await import("./run-engine-factory");
-  const { upsertLearningRule, LEARNING_RULE_LEDGER_LIMIT } = await import("./history");
   const app = `factory-learning-best-actives-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const store = historyLearningStore(app);
 
   for (let i = 0; i < LEARNING_RULE_LEDGER_LIMIT; i++) {
-    upsertLearningRule({ id: `unproven-${app}-${i}`, app, trigger: `t${i}`, action: `a${i}`, errorClass: "E-EXEC-FAIL", source: "test", initialStatus: "active" });
+    getHistory().learning.upsertLearningRule({ id: `unproven-${app}-${i}`, app, trigger: `t${i}`, action: `a${i}`, errorClass: "E-EXEC-FAIL", source: "test", initialStatus: "active" });
   }
   const provenIds = Array.from({ length: 5 }, (_, i) => `proven-${app}-${i}`);
   for (const id of provenIds) {
-    upsertLearningRule({ id, app, trigger: id, action: "a", errorClass: "E-EXEC-FAIL", source: "test", initialStatus: "active" });
+    getHistory().learning.upsertLearningRule({ id, app, trigger: id, action: "a", errorClass: "E-EXEC-FAIL", source: "test", initialStatus: "active" });
   }
   foldRunOutcome(store, {
     runId: "run-proof", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
@@ -3568,11 +3551,11 @@ test("the reflector is wired when its switch is on, and a mistyped switch stops 
 
 test("by default only a proven rule is retrieved for a prompt: a candidate, a low-confidence active rule and a quarantined one are not", async () => {
   const app = `factory-injection-${Math.random().toString(36).slice(2)}`;
-  upsertLearningRule({ id: "proven", app, trigger: "t-proven", action: "a", errorClass: "E-STATIC", source: "r", initialStatus: "active" });
-  upsertLearningRule({ id: "cand", app, trigger: "t-cand", action: "a", errorClass: "E-STATIC", source: "r" });
-  upsertLearningRule({ id: "quarantined", app, trigger: "t-q", action: "a", errorClass: "E-STATIC", source: "r", initialStatus: "active" });
-  for (let i = 0; i < 4; i++) { recordRuleOutcome("proven", 1, null, true); recordRuleOutcome("quarantined", 1, null, true); }
-  quarantineLearningRules(app, ["quarantined"], "2026-10-12T00:00:00.000Z");
+  getHistory().learning.upsertLearningRule({ id: "proven", app, trigger: "t-proven", action: "a", errorClass: "E-STATIC", source: "r", initialStatus: "active" });
+  getHistory().learning.upsertLearningRule({ id: "cand", app, trigger: "t-cand", action: "a", errorClass: "E-STATIC", source: "r" });
+  getHistory().learning.upsertLearningRule({ id: "quarantined", app, trigger: "t-q", action: "a", errorClass: "E-STATIC", source: "r", initialStatus: "active" });
+  for (let i = 0; i < 4; i++) { getHistory().learning.recordRuleOutcome("proven", 1, null, true); getHistory().learning.recordRuleOutcome("quarantined", 1, null, true); }
+  getHistory().learning.quarantineLearningRules(app, ["quarantined"], "2026-10-12T00:00:00.000Z");
   const retrieve = async (env: Record<string, string>) =>
     (await buildEngineRootDeps(cfg(app), { getAgentDeps: stubAgentDeps, env }, "qa-bot-abc1234-run1", { mode: "diff" }).learningRepo!.topRules(app, Sha.of("abc1234"), 10)).map((r) => r.id);
   assert.deepEqual(await retrieve({}), ["proven"]);

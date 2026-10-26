@@ -13,22 +13,10 @@ import type { JudgeCatalogEntry } from "@contexts/evaluation/application/index";
 import type { JudgeRegradePort } from "@contexts/evaluation/application/index.ts";
 import type { Score, ScoreDataType, ScorePolarity, ScoreSource } from "@contexts/evaluation/application/index";
 import { RUN_PHASES } from "@kernel/run-step";
-import {
-  failInterruptedRegradeJobs,
-  getRegradeJob,
-  getRunEvaluationStatus,
-  getRunFacts,
-  listCampaignRuns,
-  listFinishedCampaignRunIds,
-  listFinishedRunIdsSince,
-  listRunScoreRows,
-  replaceRunScores,
-  runExists,
-  saveRegradeJob,
-  setRunEvaluationStatus,
-} from "./history";
+import { getRunFacts, listCampaignRuns, listFinishedCampaignRunIds, listFinishedRunIdsSince, runExists } from "./history";
 import { HistoryEvidenceAdapter } from "./evaluation-evidence";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
+import { getHistory } from "./persistence/index";
 
 const redaction = new RedactionPortAdapter();
 
@@ -41,7 +29,7 @@ function newer(a: string, b: string): boolean {
 
 export class SqliteScoreStore implements ScoreStorePort {
   replace(runId: string, scores: readonly Score[], gradedAt: string, scope: { graderVersion: string; baseNames?: readonly string[] }): void {
-    replaceRunScores(
+    getHistory().evaluations.replaceRunScores(
       scores.map((s) => ({
         runId,
         name: s.name,
@@ -60,7 +48,7 @@ export class SqliteScoreStore implements ScoreStorePort {
   }
 
   list(runId: string, opts: { allVersions: boolean }): Score[] {
-    const scores: Score[] = listRunScoreRows(runId).map((r) => ({
+    const scores: Score[] = getHistory().evaluations.listRunScoreRows(runId).map((r) => ({
       name: r.name,
       value: r.value,
       dataType: r.dataType as ScoreDataType,
@@ -83,11 +71,11 @@ export class SqliteScoreStore implements ScoreStorePort {
   }
 
   setStatus(runId: string, status: EvaluationStatus, at: string): void {
-    setRunEvaluationStatus(runId, status, at);
+    getHistory().evaluations.setRunEvaluationStatus(runId, status, at);
   }
 
   status(runId: string): EvaluationStatus {
-    const s = getRunEvaluationStatus(runId);
+    const s = getHistory().evaluations.getRunEvaluationStatus(runId);
     return s === "complete" || s === "failed" ? s : "pending";
   }
 }
@@ -98,11 +86,11 @@ export class SqliteRegradeJobStore implements RegradeJobStorePort {
   }
 
   update(job: RegradeJob): void {
-    saveRegradeJob({ ...job, graders: job.graders ?? null, finishedAt: job.finishedAt ?? null });
+    getHistory().evaluations.saveRegradeJob({ ...job, graders: job.graders ?? null, finishedAt: job.finishedAt ?? null });
   }
 
   get(jobId: string): RegradeJob | undefined {
-    const r = getRegradeJob(jobId);
+    const r = getHistory().evaluations.getRegradeJob(jobId);
     if (!r) return undefined;
     return { ...r, status: r.status as RegradeJob["status"], graders: r.graders ?? undefined, finishedAt: r.finishedAt ?? undefined };
   }
@@ -283,7 +271,7 @@ export function createEvaluationService(deps: EvaluationServiceDeps = {}): Evalu
       return { campaignId, ...campaignRunsView((deps.campaignRows ?? listCampaignRuns)(campaignId), variant) };
     },
     recoverInterrupted() {
-      return failInterruptedRegradeJobs(now());
+      return getHistory().evaluations.failInterruptedRegradeJobs(now());
     },
     catalog() {
       return catalogView(deps.judges?.catalog() ?? []);

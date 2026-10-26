@@ -16,3 +16,13 @@ export interface CurriculumFoldInput {
   /** Absent is unmeasured, which classifyEvidence reads as inconclusive. */
   coverageStatus?: "pass" | "fail" | "unknown";
 }
+
+/*
+ * Distinct from `null` ("no curriculum yet — start fresh"): a load result of CURRICULUM_CORRUPT
+ * means a row EXISTS but could not be parsed. Only fold() writes, and it refuses a corrupt row
+ * (reported through onError, never saved over), so the corrupt row survives for an operator to
+ * inspect instead of being silently replaced by a fresh curriculum. select() only reads: it
+ * reports the corrupt row the same way but still ranks against a fresh curriculum, so exemplar
+ * selection keeps working while the row awaits repair.
+ */
+export const CURRICULUM_CORRUPT = Symbol("curriculum-corrupt");

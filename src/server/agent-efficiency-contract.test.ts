@@ -4,9 +4,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AgentTurnViewSchema, AppTelemetryViewSchema } from "../contract/commands";
-import { computeTelemetryAnalysis, getAgentTurns, saveAgentTurnEvent, saveRunOutcome } from "./history";
+import { computeTelemetryAnalysis, getAgentTurns, saveAgentTurnEvent } from "./history";
 import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
 import type { RunOutcome } from "../types";
+import { getHistory } from "./persistence/index";
 
 function turnEvent(runId: string, overrides: Partial<AgentTurnEvent> = {}): AgentTurnEvent {
   return {
@@ -74,7 +75,7 @@ test("every stored turn, measured or not, validates against the documented turn 
 test("the app telemetry, with measured and unmeasured turns, validates against the documented telemetry schema with no undocumented aggregate", () => {
   const app = `contract-app-${Date.now()}`;
   const runId = `run-contract-telemetry-${Date.now()}`;
-  saveRunOutcome(outcome(runId, app));
+  getHistory().learning.saveRunOutcome(outcome(runId, app));
   saveAgentTurnEvent(turnEvent(runId, { stepBudget: { maxSteps: 50, exhausted: true }, callMetrics: measuredMetrics }));
   saveAgentTurnEvent(turnEvent(runId));
 

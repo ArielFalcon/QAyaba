@@ -7,8 +7,8 @@
 import { RunRecord } from "../types";
 import { sanitizeText } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
 import { infraErrorGloss } from "../qa/learning/infra-error-gloss";
-import { listRunOutcomes, listLearningRules, loadCurriculum } from "./history";
-import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
+import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/application/index";
+import { getHistory } from "./persistence/index";
 
 export function buildRunChatContext(): string {
   return sanitizeText([
@@ -37,14 +37,14 @@ export function buildRunChatContext(): string {
 
 export function buildLearningContext(app: string): string | null {
   try {
-    const outcomes = listRunOutcomes(app, 10);
-    const rules = listLearningRules(app, 20);
+    const outcomes = getHistory().learning.listRunOutcomes(app, 10);
+    const rules = getHistory().learning.listLearningRules(app, 20);
     /*
      * A corrupt row (logged by loadCurriculum() itself) is stated as corrupt, never folded into
      * "no curriculum yet": the operator asking why archetype guidance is missing needs the real
      * reason, and an app that simply has none must not read as broken.
      */
-    const curriculumRaw = loadCurriculum(app);
+    const curriculumRaw = getHistory().learning.loadCurriculum(app);
     const curriculumCorrupt = curriculumRaw === CURRICULUM_CORRUPT;
     const curriculum = curriculumCorrupt ? null : curriculumRaw;
 

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, type RunnerDeps, type RunRequest } from "./runner";
-import { commitSpecSnapshots, getRecord, getRunOutcome, listRunSpans } from "./history";
+import { commitSpecSnapshots, getRecord, listRunSpans } from "./history";
 import { HistoryEvidenceAdapter, defaultEvidenceDeps } from "./evaluation-evidence";
 import { gradeEvidence } from "@contexts/evaluation/application/index";
 import { recordPhaseSnapshot } from "@contexts/run-orchestration/application/index";
@@ -17,6 +17,7 @@ import { INSTRUMENTS } from "../telemetry/instrument-table";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { SpanStatusCode, traceHarness } from "../telemetry/trace-harness";
 import { createTelemetry } from "../telemetry/bootstrap";
+import { getHistory } from "./persistence/index";
 
 const cfg = (name: string): AppConfig => ({
   name,
@@ -270,7 +271,7 @@ test("a crash carries on its root the facts the run reached, and one error class
   assert.equal(attr(root, "qayaba.specs.valid"), 1);
   assert.equal(attr(root, "qayaba.specs.passed"), undefined, "the run never executed its specs");
 
-  assert.equal(getRunOutcome(id)?.errorClass, "internal-error");
+  assert.equal(getHistory().learning.getRunOutcome(id)?.errorClass, "internal-error");
   const infra = h.measurements.find((m) => m.name === "qayaba.infra_errors");
   assert.equal(infra?.attrs["qayaba.error_class"], "internal-error");
   const evidence = (await new HistoryEvidenceAdapter(defaultEvidenceDeps).load(id))!;
