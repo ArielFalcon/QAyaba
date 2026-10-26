@@ -4,7 +4,7 @@
  * promise; the attempt below keeps running until its own timeout). It adds no await to the prompt path: the prompt's promise is
  * returned untouched and only observed.
  */
-import { activeRunSecretScope, redactByValue } from "../../../../shared-infrastructure/redaction/run-secret-redaction.ts";
+import { activeRunSecretScope, redactByValue } from "../../../../shared-kernel/run-secret-redaction.ts";
 import { activeExecScope } from "../../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry.ts";
 import type { RedactionScope, SpanHandle, TelemetryClock, TelemetryContext, TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";

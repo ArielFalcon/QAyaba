@@ -8,7 +8,7 @@ import { AgentBrowserRegistry } from "@contexts/agent-tools/infrastructure/agent
 import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
 import { BrowserActionError, type AgentBrowserHostPort, type BrowserAction, type BrowserCallOptions, type PageState } from "@contexts/test-execution/application/index.ts";
 import { newSandboxReport, withExecScope } from "../../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
-import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../../../src/shared-infrastructure/redaction/run-secret-redaction.ts";
+import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../../../src/shared-kernel/run-secret-redaction.ts";
 import type { AgentBrowserOpenInput } from "@contexts/agent-tools/application/index.ts";
 import type { SessionMaterial } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
 

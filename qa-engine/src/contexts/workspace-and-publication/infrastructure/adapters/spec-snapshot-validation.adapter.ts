@@ -17,7 +17,7 @@
 
 import { createHash } from "node:crypto";
 import { activeExecScope } from "../../../../shared-infrastructure/process-sandbox/exec-scope.ts";
-import { redactByValue } from "../../../../shared-infrastructure/redaction/run-secret-redaction.ts";
+import { redactByValue } from "../../../../shared-kernel/run-secret-redaction.ts";
 import { MAX_SPEC_SOURCE_BYTES, readOwnedSpecFile, scanSpecTree } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import { MAX_SPEC_SNAPSHOTS_PER_CAPTURE, MAX_SPEC_SNAPSHOT_BYTES_PER_RUN, MAX_SPEC_SNAPSHOT_TEXT_BYTES, type SpecSnapshot, type SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port.ts";

@@ -58,6 +58,8 @@ export interface MutationPreset {
 
 const OS = "qa-engine/src/contexts/objective-signal/domain";
 const OS_TEST = "qa-engine/test/contexts/objective-signal/domain";
+const KERNEL = "qa-engine/src/shared-kernel";
+const KERNEL_TEST = "qa-engine/test/shared-kernel";
 const LEARN = "qa-engine/src/contexts/cross-run-learning/domain";
 const LEARN_TEST = "qa-engine/test/contexts/cross-run-learning/domain";
 const ORCH = "qa-engine/src/contexts/run-orchestration";
@@ -187,7 +189,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN_TEST}/domain/generation-end.test.ts`,
       `${ORCH_TEST}/domain/helpers/generation-end-terminal.test.ts`,
       `${CROSS_RUN_LEARNING_CTX_TEST}/domain/learning-gates.test.ts`,
-      `${CROSS_RUN_LEARNING_CTX_TEST}/domain/error-class.test.ts`,
+      `${KERNEL_TEST}/error-class.test.ts`,
       `${CROSS_RUN_LEARNING_CTX_TEST}/domain/should-distill-learning.test.ts`,
     ],
     thresholds: DEFAULT_THRESHOLDS,
@@ -204,17 +206,17 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${APP_CATALOG_CTX}/domain/auth-precondition.ts`,
       `${ORCH}/domain/helpers/precondition-terminal.ts`,
       /* Only the lines that name and resolve the class: the rest of these modules belongs to other classes. */
-      `${CROSS_RUN_LEARNING_CTX}/domain/error-class.ts@error-classes-precondition`,
-      `${CROSS_RUN_LEARNING_CTX}/domain/error-class.ts@error-class-table`,
-      `${CROSS_RUN_LEARNING_CTX}/domain/error-class.ts@resolve-input-sandbox-flag`,
+      `${KERNEL}/error-class.ts@error-classes-precondition`,
+      `${KERNEL}/error-class.ts@error-class-table`,
+      `${KERNEL}/error-class.ts@resolve-input-sandbox-flag`,
       `${LEARN}/process-audit.ts#PRECONDITION_CLASS`,
       `${LEARN}/process-audit.ts@recurring-class-summary`,
     ],
     tests: [
       `${APP_CATALOG_CTX_TEST}/domain/auth-precondition.test.ts`,
       `${ORCH_TEST}/domain/helpers/precondition-terminal.test.ts`,
-      `${CROSS_RUN_LEARNING_CTX_TEST}/domain/error-class.test.ts`,
-      `${CROSS_RUN_LEARNING_CTX_TEST}/domain/error-class.classification.test.ts`,
+      `${KERNEL_TEST}/error-class.test.ts`,
+      `${KERNEL_TEST}/error-class.classification.test.ts`,
       `${CROSS_RUN_LEARNING_CTX_TEST}/domain/learning-gates.test.ts`,
       `${LEARN_TEST}/process-audit.test.ts`,
     ],
@@ -350,7 +352,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     mutate: [
       `${GEN}/domain/prompt-contract-lint.ts`,
       `${GEN}/domain/regen-turn.ts`,
-      `${GEN}/domain/diff-stat.ts`,
+      `${KERNEL}/diff-stat.ts`,
       `${GEN}/domain/harness-facts.ts`,
       `${GEN}/domain/step-limit.ts`,
       `${GEN}/domain/suite-listing-render.ts`,
@@ -359,7 +361,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     tests: [
       `${GEN_TEST}/domain/prompt-contract-lint.test.ts`,
       `${GEN_TEST}/domain/regen-turn.test.ts`,
-      `${GEN_TEST}/domain/diff-stat.test.ts`,
+      `${KERNEL_TEST}/diff-stat.test.ts`,
       `${GEN_TEST}/domain/harness-facts.test.ts`,
       `${GEN_TEST}/domain/step-limit.test.ts`,
       `${GEN_TEST}/domain/suite-listing-render.test.ts`,

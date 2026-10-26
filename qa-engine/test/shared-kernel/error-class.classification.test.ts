@@ -6,7 +6,7 @@ import {
   errorClassFromVerdict,
   errorClassFromCorrections,
   resolveErrorClass,
-} from "@contexts/cross-run-learning/domain/error-class.ts";
+} from "@kernel/error-class.ts";
 
 describe("errorClassFromVerdict", () => {
   it("invalid → E-STATIC", () => {

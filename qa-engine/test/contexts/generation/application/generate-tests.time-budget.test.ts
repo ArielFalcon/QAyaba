@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { GenerateTestsUseCase, type GenerationPorts, type GenerationResult } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
-import { DIFF_TIERS, DIFF_TIME_BUDGET_MS } from "@contexts/generation/domain/diff-stat.ts";
+import { DIFF_TIERS, DIFF_TIME_BUDGET_MS } from "@kernel/diff-stat.ts";
 import type { DiffTimeBudgets } from "@contexts/generation/domain/generator-time-budget.ts";
 import { AgentTimeoutError, AgentUnavailableError } from "@kernel/domain-error.ts";
 import { renderGenerationNote } from "@contexts/generation/domain/generation-end.ts";

@@ -15,7 +15,7 @@ import { CodegraphStoreCache } from "../../../src/shared-infrastructure/code-gra
 import type { SandboxedBinaryRunner, SandboxedRunRequest, SandboxedRunResult } from "../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import { SandboxedBinaryRunnerAdapter } from "../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter.ts";
 import { ProcessKillAdapter } from "../../../src/shared-infrastructure/process-sandbox/process-kill.adapter.ts";
-import { LanguageRegistry } from "../../../src/contexts/change-analysis/domain/language-id.ts";
+import { LanguageRegistry } from "../../../src/shared-kernel/language-id.ts";
 import { BlastRadius } from "../../../src/shared-kernel/blast-radius.ts";
 import { Sha } from "../../../src/shared-kernel/sha.ts";
 import { closeGitDir, git } from "../process-sandbox/git-fixtures.ts";

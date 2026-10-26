@@ -13,7 +13,7 @@ import {
   domItemIdsBudgeted,
   hash8,
   itemId,
-} from "@contexts/generation/domain/context-item-ids.ts";
+} from "@kernel/context-item-ids.ts";
 
 const MAP = {
   routes: [{ path: "/orders" }, { path: "/orders/:id" }],

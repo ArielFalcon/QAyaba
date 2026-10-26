@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { assemble, section, Section } from "@contexts/generation/infrastructure/prompt-builders/context-assembler.ts";
-import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../../../src/shared-infrastructure/redaction/run-secret-redaction.ts";
+import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../../../src/shared-kernel/run-secret-redaction.ts";
 
 test("assemble: sections are emitted in canonical role order regardless of input order", () => {
   const sections: Section[] = [

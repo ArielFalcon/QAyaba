@@ -10,7 +10,7 @@ import { RunQaUseCase } from "@contexts/run-orchestration/application/run-qa.use
 import { renderBlastRadiusSignal } from "@contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts";
 import { FixLoop } from "@contexts/run-orchestration/domain/fix-loop.aggregate.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "@kernel/derive-cycle-backstop.ts";
-import { ERROR_CLASS } from "@contexts/cross-run-learning/domain/error-class.ts";
+import { ERROR_CLASS } from "@kernel/error-class.ts";
 import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/app-catalog/domain/auth-precondition.ts";
 import { AuthSessionAdapter } from "@contexts/app-catalog/infrastructure/auth-session.adapter.ts";
 import type { LoginDiscoveryInput, LoginDiscoveryResult } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner.ts";

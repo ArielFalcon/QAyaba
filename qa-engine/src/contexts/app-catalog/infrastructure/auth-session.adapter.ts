@@ -14,7 +14,8 @@ import { isStockAuthSetup } from "../../../shared-infrastructure/e2e-seed/auth-s
 import { AUTH_MATERIAL_FILES } from "../../../shared-infrastructure/process-sandbox/auth-session-env.ts";
 import { openDeniedWindow } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import { ConfinedPathError, MAX_SPEC_SOURCE_BYTES, readOwnedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
-import { MAX_STORAGE_STATE_BYTES, activeRunSecretScope, redactByValue, registerSessionSecretsFromStorageState } from "../../../shared-infrastructure/redaction/run-secret-redaction.ts";
+import { MAX_STORAGE_STATE_BYTES, activeRunSecretScope, redactByValue } from "../../../shared-kernel/run-secret-redaction.ts";
+import { registerSessionSecretsFromStorageState } from "../../../shared-infrastructure/redaction/session-secrets.ts";
 import { partitionRoutes } from "../../../shared-kernel/route-capturability.ts";
 import { AUTH_RESOLUTION_METHOD, type AuthDeclaration, type AuthSession, type AuthSessionRequest } from "../domain/auth-session.ts";
 import { type AuthSessionPort } from "../application/ports/auth-session.port.ts";

@@ -2,7 +2,7 @@
 
 import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
 import { declaredRelativeFiles } from "@contexts/generation/application/index.ts";
-import { LanguageRegistry } from "@contexts/change-analysis/application/index.ts";
+import { LanguageRegistry } from "@kernel/language-id.ts";
 import { MAX_SPEC_SOURCE_BYTES, probeOwnedSpecFile, readOwnedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 
 /* An implementation file larger than this is not read: a page is a few hundred lines. */

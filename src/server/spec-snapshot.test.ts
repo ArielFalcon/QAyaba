@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { scanSpecTree } from "../../qa-engine/src/shared-infrastructure/spec-path-confinement";
 import { SpecSnapshotValidationPort } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/spec-snapshot-validation.adapter";
 import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
-import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-infrastructure/redaction/run-secret-redaction";
+import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
 import { MAX_SPEC_SNAPSHOT_BYTES_PER_RUN, MAX_SPEC_SNAPSHOT_TEXT_BYTES, type SpecSnapshot, type SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port";
 import type { ValidationPort } from "@contexts/test-execution/application/index.ts";
 import { SqliteSpecSnapshotAdapter } from "./spec-snapshot-sqlite.adapter";

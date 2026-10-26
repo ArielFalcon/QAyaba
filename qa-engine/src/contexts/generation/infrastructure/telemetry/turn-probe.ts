@@ -25,7 +25,7 @@ import type { ServerToolCall } from "../../domain/tool-link.ts";
 import { emitTurnChildren, type ChildModel } from "./turn-children.ts";
 import { recordContextSpan } from "../../../../shared-infrastructure/telemetry/run-spans.ts";
 import { SECTION_SOURCE, type SectionMeta } from "@kernel/telemetry/section-meta.ts";
-import type { ContextSource } from "../../domain/context-item-ids.ts";
+import type { ContextSource } from "../../../../shared-kernel/context-item-ids.ts";
 
 export interface TurnIdentity {
   agent: string;

@@ -1,5 +1,5 @@
 import type { Sha } from "@kernel/sha.ts";
-import type { LanguageId } from "./language-id.ts";
+import type { LanguageId } from "../../../shared-kernel/language-id.ts";
 
 export interface ChangedSymbol { file: string; name: string; kind: string; signature: string; line: number; }
 export interface RelationEdge { from: string; to: string; via: string; }

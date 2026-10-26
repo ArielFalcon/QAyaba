@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { appSuiteStoreDir, createRunEngineFactory, engineAgentDeps, buildEngineRootDeps, resolveCodeSandbox, publishWiring } from "./run-engine-factory";
 import { AppConfig } from "../orchestrator/config-loader";
 import { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry";
-import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-infrastructure/redaction/run-secret-redaction";
+import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun } from "./runner";
 import { getRecord, saveContextMap, markContextStale, isContextStale, loadContextMap as loadStoredContextMap, upsertLearningRule, recordRuleOutcome, quarantineLearningRules } from "./history";
@@ -32,7 +32,7 @@ import { scriptedLoginEvidence } from "../../qa-engine/test/support/login-eviden
 import { createAgentDeps } from "@contexts/generation/infrastructure/agent-transport-policy";
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
 import { EXPLORATION_SLOTS } from "@contexts/cross-run-learning/application/index";
-import { DIFF_TIME_BUDGET_MS } from "@contexts/generation/application/index";
+import { DIFF_TIME_BUDGET_MS } from "@kernel/diff-stat";
 import { DIFF_TIME_BUDGET_ENV } from "@contexts/generation/application/index";
 import { RUN_TIME_BUDGET_ENV } from "@contexts/run-orchestration/application/index";
 import { isRunDeadlineError } from "@kernel/run-deadline";

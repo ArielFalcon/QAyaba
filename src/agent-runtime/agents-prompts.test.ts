@@ -9,7 +9,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { DIFF_TIERS } from "@contexts/generation/application/index";
+import { DIFF_TIERS } from "@kernel/diff-stat";
 import { classifyGenerationEnd } from "@contexts/generation/application/index";
 import { PACK_HEADINGS, PROMPT_HEADINGS } from "@contexts/generation/application/index";
 import { ROUTE_LINK_FIELDS } from "@contexts/generation/application/index";

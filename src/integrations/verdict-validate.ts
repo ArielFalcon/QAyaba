@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { GeneratorVerdictSchema, ReviewerVerdictSchema, correctionText, correctionSeverity, correctionCitation } from "../orchestrator/schemas";
 import { lastJsonMatching, isClosingVerdict } from "./verdict-parse";
-import { GRAVE_TAGS } from "@contexts/cross-run-learning/application/index";
+import { GRAVE_TAGS } from "@kernel/error-class";
 import { NOOP_KIND } from "@kernel/noop-kind";
 
 

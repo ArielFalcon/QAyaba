@@ -22,7 +22,7 @@ import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import type { RunEventBody } from "@kernel/contract/events.ts";
 import { QueueStatusSchema } from "../src/contract/commands.ts";
 import { classifyRunEfficiency, type CoarseRunEfficiency } from "@contexts/generation/application/index.ts";
-import { DIFF_TIER_NAMES, type DiffTier } from "@contexts/generation/application/index.ts";
+import { DIFF_TIER_NAMES, type DiffTier } from "@kernel/diff-stat.ts";
 import { CALL_BUCKETS } from "@contexts/generation/application/index.ts";
 import { delegateRun } from "../src/server/run-delegate.ts";
 import { discoverApiToken } from "../src/server/api-token.ts";

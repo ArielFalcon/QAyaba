@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { REDACTED } from "@kernel/ports/redaction.port.ts";
 import { sanitizeText } from "../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
-import { createRunSecretScope, withRunSecretScope } from "../../../src/shared-infrastructure/redaction/run-secret-redaction.ts";
+import { createRunSecretScope, withRunSecretScope } from "../../../src/shared-kernel/run-secret-redaction.ts";
 
 const PASSWORD = "plain-pass-9981";
 const COOKIE = "c00kie-value-abcdef";

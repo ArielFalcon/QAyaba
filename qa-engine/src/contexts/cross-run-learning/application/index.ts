@@ -1,8 +1,6 @@
 /* Public surface of this context: other contexts import only from this file. It declares nothing. */
 export { detectArchetype } from "../domain/distill-rule.ts";
 export { renderLearnedRules, renderLearnedRulesForReviewer } from "./render-learned-rules.ts";
-export { ERROR_CLASS, ERROR_CLASSES, GRAVE_TAGS, errorClassFromCorrections, errorClassFromVerdict, resolveErrorClass } from "../domain/error-class.ts";
-export type { ErrorClass } from "../domain/error-class.ts";
 export { NON_LEARNING, OBSERVED_OPERATING, learningGates, observesOperatingSignal } from "../domain/learning-gates.ts";
 export type { CurriculumPort } from "./ports/curriculum.port.ts";
 export type { LearningQuarantinePort } from "./ports/learning-quarantine.port.ts";

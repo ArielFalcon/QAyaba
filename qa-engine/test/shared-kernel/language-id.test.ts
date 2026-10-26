@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LanguageRegistry, type LanguageId } from "@contexts/change-analysis/domain/language-id.ts";
+import { LanguageRegistry, type LanguageId } from "@kernel/language-id.ts";
 
 test("the supported set is the single source of truth", () => {
   assert.deepEqual([...LanguageRegistry.supported].sort(), ["java", "javascript", "typescript"]);

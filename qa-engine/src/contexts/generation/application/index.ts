@@ -1,6 +1,5 @@
 /* Public surface of this context: other contexts import only from this file. It declares nothing. */
 export { GenerateTestsUseCase } from "./generate-tests.use-case.ts";
-export { advisoryLineIds, contextMapItemIds, itemId } from "../domain/context-item-ids.ts";
 export { declaredRelativeFiles } from "../domain/declared-resources.ts";
 export { GENERATION_NOTE_MAX_CHARS } from "../domain/generation-end.ts";
 export { generationRunsReviewer } from "../domain/generation-review.ts";
@@ -41,9 +40,6 @@ export type { GenerateOpts, GenerationResult, RepairPort } from "./generate-test
 export { isContentReadTool } from "../domain/call-sequence.ts";
 export { classifyRunEfficiency } from "../domain/coarse-run-efficiency.ts";
 export type { CoarseRunEfficiency } from "../domain/coarse-run-efficiency.ts";
-export { MAX_ITEM_IDS } from "../domain/context-item-ids.ts";
-export { DIFF_TIERS, DIFF_TIER_NAMES, DIFF_TIME_BUDGET_MS } from "../domain/diff-stat.ts";
-export type { DiffTier } from "../domain/diff-stat.ts";
 export { classifyGenerationEnd, renderGenerationNote } from "../domain/generation-end.ts";
 export { DIFF_TIME_BUDGET_ENV, resolveDiffTimeBudgets } from "../domain/generator-time-budget.ts";
 export type { HarnessFacts } from "../domain/harness-facts.ts";

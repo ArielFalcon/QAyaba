@@ -7,7 +7,7 @@
 import { RUN_PHASES } from "@kernel/run-step";
 import { STEP_INTENTS, scoreOf } from "./grader-catalog.ts";
 import { extractReferences } from "./context-refs.ts";
-import { itemId } from "@contexts/generation/domain/context-item-ids.ts";
+import { itemId } from "@kernel/context-item-ids.ts";
 import type { ContextEvidence, RunEvaluationEvidence as Evidence } from "./run-evaluation-evidence.ts";
 import type { RawScore, Score } from "./score.ts";
 

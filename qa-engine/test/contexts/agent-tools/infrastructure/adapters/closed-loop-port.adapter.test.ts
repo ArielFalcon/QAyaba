@@ -8,7 +8,7 @@ import { ClosedLoopPortAdapter, type ClosedLoopPortAdapterDeps } from "@contexts
 import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-loop-registry.ts";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
 import { RUN_SPEC_AGENT } from "@contexts/test-execution/domain/run-spec-capability.ts";
-import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../../../src/shared-infrastructure/redaction/run-secret-redaction.ts";
+import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../../../src/shared-kernel/run-secret-redaction.ts";
 import type { ExecutionOpts } from "@contexts/test-execution/application/index.ts";
 import type { ClosedLoopOpenInput } from "@contexts/agent-tools/application/index.ts";
 

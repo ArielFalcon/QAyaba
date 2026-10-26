@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SandboxedBinaryRunner } from "../../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
-import { redactByValue } from "../../../../shared-infrastructure/redaction/run-secret-redaction.ts";
+import { redactByValue } from "../../../../shared-kernel/run-secret-redaction.ts";
 import { FORM_STATE, scrubSecrets, type LoginEvidence } from "../../domain/helpers/login-evidence.ts";
 import { CHILD_DEADLINE_MS, SUBMITTED_MARKER, buildLoginDiscoveryScript } from "./login-discovery.script.ts";
 

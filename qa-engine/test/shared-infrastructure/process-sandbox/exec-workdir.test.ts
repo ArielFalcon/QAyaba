@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openRunWorkDir, removeRunWorkDir, stageAuthMaterial } from "../../../src/shared-infrastructure/process-sandbox/exec-workdir.ts";
 import { AUTH_MATERIAL_FILES } from "../../../src/shared-infrastructure/process-sandbox/auth-session-env.ts";
-import { createRunSecretScope, withRunSecretScope } from "../../../src/shared-infrastructure/redaction/run-secret-redaction.ts";
+import { createRunSecretScope, withRunSecretScope } from "../../../src/shared-kernel/run-secret-redaction.ts";
 
 const SELF = { uid: process.getuid?.() ?? 0, gid: process.getgid?.() ?? 0, home: "/home/sandbox" };
 

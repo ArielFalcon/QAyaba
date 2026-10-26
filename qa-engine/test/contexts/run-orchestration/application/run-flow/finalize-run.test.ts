@@ -8,7 +8,7 @@ import { Sha } from "@kernel/sha.ts";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
-import { ERROR_CLASS } from "@contexts/cross-run-learning/domain/error-class.ts";
+import { ERROR_CLASS } from "@kernel/error-class.ts";
 import { CycleBudget } from "@kernel/cycle-budget.ts";
 import { WallClockBudget } from "@kernel/wall-clock-budget.ts";
 import { RunPhaseCursor } from "@contexts/run-orchestration/domain/run-phase-cursor.ts";

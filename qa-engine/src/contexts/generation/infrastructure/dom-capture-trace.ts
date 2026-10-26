@@ -8,7 +8,7 @@
 import { recordContextSpan } from "../../../shared-infrastructure/telemetry/run-spans.ts";
 import type { Attrs } from "../../../shared-kernel/telemetry/attribute-registry.ts";
 import type { TelemetryPort } from "../../../shared-kernel/telemetry/telemetry.port.ts";
-import { domItemIdsBudgeted, type DomPageLike } from "../domain/context-item-ids.ts";
+import { domItemIdsBudgeted, type DomPageLike } from "../../../shared-kernel/context-item-ids.ts";
 import { buildRouteCatalog, ROUTE_STATUS } from "./route-catalog.ts";
 import { dataStateUnconfirmed, pageDeliveryOf, type DomCaptureObserver, type DomCaptureReport, type RouteSnapshot } from "./dom-snapshot.ts";
 

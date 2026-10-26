@@ -11,7 +11,7 @@
 import type { ScoreSinkPort } from "@contexts/evaluation/application/index.ts";
 import { COVERAGE_CLASSES } from "@contexts/evaluation/application/index";
 import type { Score } from "@contexts/evaluation/application/index";
-import { ERROR_CLASSES } from "@contexts/cross-run-learning/application/index";
+import { ERROR_CLASSES } from "@kernel/error-class";
 import { RUN_PHASES } from "@kernel/run-step";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 

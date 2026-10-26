@@ -13,7 +13,7 @@ import type { AuthSession, AuthSessionRequest } from "@contexts/app-catalog/appl
 import type { SuiteCaptureInput, SuiteStorePort } from "@kernel/ports/suite-store.port.ts";
 import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/app-catalog/domain/auth-precondition.ts";
-import { ERROR_CLASS } from "@contexts/cross-run-learning/domain/error-class.ts";
+import { ERROR_CLASS } from "@kernel/error-class.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../support/run-workspace.ts";
 import { fakeHandle, rootsOf } from "./run-flow/fake-workspace.ts";

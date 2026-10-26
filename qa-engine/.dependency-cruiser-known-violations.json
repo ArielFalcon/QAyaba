@@ -1,20 +1,6 @@
 [
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/run-orchestration/application/run-qa.use-case.ts",
-    "to": "qa-engine/src/shared-infrastructure/redaction/run-secret-redaction.ts",
-    "unresolvedTo": "../../../shared-infrastructure/redaction/run-secret-redaction.ts",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "application-not-infrastructure"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "qa-engine/src/contexts/agent-tools/infrastructure/adapters/agent-browser-port.adapter.ts",
     "to": "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts",
     "unresolvedTo": "@contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts",
@@ -68,74 +54,6 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/evaluation/domain/context-refs.ts",
-    "to": "qa-engine/src/contexts/generation/domain/context-item-ids.ts",
-    "unresolvedTo": "@contexts/generation/domain/context-item-ids.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/evaluation/domain/graders.ts",
-    "to": "qa-engine/src/contexts/generation/domain/context-item-ids.ts",
-    "unresolvedTo": "@contexts/generation/domain/context-item-ids.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/generation/domain/diff-without-test-files.ts",
-    "to": "qa-engine/src/contexts/change-analysis/domain/language-id.ts",
-    "unresolvedTo": "@contexts/change-analysis/domain/language-id.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/run-orchestration/domain/adjudicate.service.ts",
-    "to": "qa-engine/src/contexts/test-execution/domain/playwright-infra.ts",
-    "unresolvedTo": "@contexts/test-execution/domain/playwright-infra.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "qa-engine/src/contexts/run-orchestration/domain/fix-loop.aggregate.ts",
     "to": "qa-engine/src/contexts/generation/domain/selector-check.ts",
     "unresolvedTo": "../../generation/domain/selector-check.ts",
@@ -157,37 +75,6 @@
     "dependencyTypes": [
       "local",
       "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/run-orchestration/domain/helpers/generation-end-terminal.ts",
-    "to": "qa-engine/src/contexts/cross-run-learning/domain/error-class.ts",
-    "unresolvedTo": "../../../cross-run-learning/domain/error-class.ts",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/run-orchestration/domain/run-time-budget.ts",
-    "to": "qa-engine/src/contexts/generation/domain/diff-stat.ts",
-    "unresolvedTo": "@contexts/generation/domain/diff-stat.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
       "import"
     ],
     "rule": {

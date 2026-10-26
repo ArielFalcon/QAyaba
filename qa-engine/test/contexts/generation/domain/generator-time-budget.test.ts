@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DIFF_TIER_NAMES, DIFF_TIERS, DIFF_TIME_BUDGET_MS, diffTier, type DiffStat, type DiffTier } from "@contexts/generation/domain/diff-stat.ts";
+import { DIFF_TIER_NAMES, DIFF_TIERS, DIFF_TIME_BUDGET_MS, diffTier, type DiffStat, type DiffTier } from "@kernel/diff-stat.ts";
 import { DIFF_TIME_BUDGET_ENV, generatorTimeBudgetMs, resolveDiffTimeBudgets } from "@contexts/generation/domain/generator-time-budget.ts";
 import { RUN_MODES } from "@kernel/run-mode.ts";
 

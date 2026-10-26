@@ -1,4 +1,4 @@
-import type { ErrorClass } from "@contexts/cross-run-learning/application/index";
+import type { ErrorClass } from "@kernel/error-class";
 
 export type RuleStatus = "candidate" | "active" | "deprecated" | "superseded";
 export type Confidence = "low" | "medium" | "high";

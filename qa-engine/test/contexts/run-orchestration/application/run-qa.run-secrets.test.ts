@@ -8,7 +8,7 @@ import { REDACTED } from "@kernel/ports/redaction.port.ts";
 import { RunQaUseCase } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
-import { activeRunSecretScope, redactByValue, type RunSecretScope } from "../../../../src/shared-infrastructure/redaction/run-secret-redaction.ts";
+import { activeRunSecretScope, redactByValue, type RunSecretScope } from "../../../../src/shared-kernel/run-secret-redaction.ts";
 import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 

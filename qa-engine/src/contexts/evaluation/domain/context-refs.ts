@@ -8,7 +8,7 @@
  * dynamic selector is simply not seen.
  */
 
-import { hash8, itemId } from "@contexts/generation/domain/context-item-ids.ts";
+import { hash8, itemId } from "@kernel/context-item-ids.ts";
 
 /* One path, no query, no fragment, one leading slash. */
 export function normalizeRoutePath(path: string): string {

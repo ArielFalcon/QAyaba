@@ -11,7 +11,7 @@ import { createExecBinaryRunner } from "../../../shared-infrastructure/process-s
 import { CodegraphCodeGraphAdapter } from "../../../shared-infrastructure/code-graph/codegraph-code-graph.adapter.ts";
 import { CodegraphEngine } from "../../../shared-infrastructure/code-graph/codegraph-engine.ts";
 import { CodegraphStoreCache } from "../../../shared-infrastructure/code-graph/codegraph-store-cache.ts";
-import { LanguageRegistry } from "../domain/language-id.ts";
+import { LanguageRegistry } from "../../../shared-kernel/language-id.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import type { ChangeAnalysisPort, StructuralSignalPort, VcsReadPort } from "../application/index.ts";
 import { ChangeAnalysisPortAdapter } from "../infrastructure/adapters/change-analysis-port.adapter.ts";

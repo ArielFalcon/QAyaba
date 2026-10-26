@@ -7,8 +7,8 @@
  */
 
 import { activeExecScope } from "../process-sandbox/exec-scope.ts";
-import { activeRunSecretScope } from "../redaction/run-secret-redaction.ts";
-import { capItemIds, type ContextSource } from "../../contexts/generation/domain/context-item-ids.ts";
+import { activeRunSecretScope } from "../../shared-kernel/run-secret-redaction.ts";
+import { capItemIds, type ContextSource } from "../../shared-kernel/context-item-ids.ts";
 import { guardTelemetry } from "../../shared-kernel/telemetry/guarded-telemetry.ts";
 import type { Attrs } from "../../shared-kernel/telemetry/attribute-registry.ts";
 import type { SpanHandle, StartSpanOptions, TelemetryPort } from "../../shared-kernel/telemetry/telemetry.port.ts";

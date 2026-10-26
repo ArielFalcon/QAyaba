@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { REDACTED, SecretLeakError, type RedactionPort } from "@kernel/ports/redaction.port.ts";
 import { PatternRedactionAdapter, assertNoSecretLeak } from "../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
-import { createRunSecretScope, withRunSecretScope } from "../../../src/shared-infrastructure/redaction/run-secret-redaction.ts";
+import { createRunSecretScope, withRunSecretScope } from "../../../src/shared-kernel/run-secret-redaction.ts";
 
 const port: RedactionPort = new PatternRedactionAdapter();
 

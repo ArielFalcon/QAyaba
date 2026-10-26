@@ -48,7 +48,7 @@ import type { GeolocationRegistry } from "@contexts/agent-tools/infrastructure/g
 import type { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry";
 import { SandboxedChromiumLauncher } from "@contexts/test-execution/infrastructure/agent-browser/chromium-sandbox.launcher";
 import { loadPlaywrightChromium } from "@contexts/test-execution/infrastructure/agent-browser/playwright-core.loader";
-import { redactByValue } from "../../qa-engine/src/shared-infrastructure/redaction/run-secret-redaction";
+import { redactByValue } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
 import { ValidationPortAdapter } from "@contexts/test-execution/infrastructure/adapters/validation-port.adapter";
 import { ExecutionPortAdapter } from "@contexts/test-execution/infrastructure/adapters/execution-port.adapter";
 import { ObjectiveSignalPortAdapter } from "@contexts/objective-signal/infrastructure/adapters/objective-signal-port.adapter";
@@ -344,7 +344,7 @@ export function historyLearningStore(appName: string): LearningStorePort {
         trigger: rule.trigger,
         action: rule.action,
         /* history.ts stores ErrorClass; the port types it as string. Taxonomy is the producer. */
-        errorClass: rule.errorClass as import("@contexts/cross-run-learning/application/index").ErrorClass,
+        errorClass: rule.errorClass as import("@kernel/error-class").ErrorClass,
         archetype: rule.archetype ?? null,
         source: rule.source,
       }),

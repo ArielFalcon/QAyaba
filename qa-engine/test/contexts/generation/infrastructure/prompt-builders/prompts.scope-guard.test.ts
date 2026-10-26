@@ -9,7 +9,7 @@ import {
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
-import { DIFF_TIER_NAMES, DIFF_TIERS, type DiffTier } from "@contexts/generation/domain/diff-stat.ts";
+import { DIFF_TIER_NAMES, DIFF_TIERS, type DiffTier } from "@kernel/diff-stat.ts";
 import { PACK_HEADINGS } from "@contexts/generation/infrastructure/context-pack.ts";
 import {
   countDirectives,

@@ -2,7 +2,7 @@
 
 import type { RunVerdict } from "../types";
 import { infraErrorGloss } from "./learning/infra-error-gloss";
-import type { ErrorClass } from "@contexts/cross-run-learning/application/index";
+import type { ErrorClass } from "@kernel/error-class";
 
 /*
  * The deterministic gate signals a run produced — the raw material for both the compact

@@ -12,7 +12,7 @@ import { PACK_HEADINGS } from "../domain/prompt-headings.ts";
 import { rankRoutesWithRelevance, type RankedRoute } from "../domain/route-ranking.ts";
 import type { ChangePageBasis } from "@kernel/change-pages.ts";
 import { instantiableTemplate, instantiateRoute, isPageOfTemplate, missingSibling } from "../domain/route-instantiation.ts";
-import { changedValueFactIds, domItemIds, itemId } from "../domain/context-item-ids.ts";
+import { changedValueFactIds, domItemIds, itemId } from "../../../shared-kernel/context-item-ids.ts";
 import type { Omission } from "@kernel/telemetry/section-meta.ts";
 import { renderChangedValues, valuesWithMoreNodesThanLines, type ObservedPage } from "../domain/changed-values.ts";
 import type { ChangedLiteral } from "../../../shared-kernel/diff-parser/changed-literal.ts";

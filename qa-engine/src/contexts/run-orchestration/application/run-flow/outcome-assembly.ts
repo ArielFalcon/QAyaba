@@ -10,7 +10,7 @@ import type { GenerationEndKind } from "@kernel/generation-end.ts";
 import type { NoopKind } from "@kernel/noop-kind.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { ReflectionInput } from "@contexts/cross-run-learning/application/index.ts";
-import { resolveErrorClass } from "@contexts/cross-run-learning/application/index.ts";
+import { resolveErrorClass } from "@kernel/error-class.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunContext } from "./run-context.ts";
 

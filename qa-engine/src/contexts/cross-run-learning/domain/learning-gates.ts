@@ -1,6 +1,6 @@
 import type { RunMode } from "@kernel/run-mode.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
-import { ERROR_CLASS } from "./error-class.ts";
+import { ERROR_CLASS } from "../../../shared-kernel/error-class.ts";
 import { shouldDistillLearning } from "./should-distill-learning.ts";
 
 /** Classes that teach the engine nothing: an outage, a flaky test, a generation that decided nothing, a login the run could not complete, or a generation stopped by the clock, which DEV latency confounds, or a run whose reviewer was unavailable, so its tests were never judged, or a run that could not run agent code safely (no sandbox uid, egress filter down under enforce). */

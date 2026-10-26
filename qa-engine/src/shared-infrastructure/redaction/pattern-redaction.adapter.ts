@@ -1,7 +1,7 @@
 /* Pattern-based secret redaction for text leaving the system (prompts, Issues, telemetry, delegation briefs). The pure functions below are the policy; PatternRedactionAdapter serves them through the kernel RedactionPort. Before the patterns, the secrets of the run this call is part of (its test account, its session) are replaced by value (run-secret-redaction.ts): that pass does nothing outside a run. Post-redaction fail-loud: if a secret is still detectable, throw SecretLeakError rather than sending it. qa-engine must not import src/. */
 
 import { REDACTED, SecretLeakError, type RedactionMode, type RedactionPort, type SecretDetection } from "@kernel/ports/redaction.port.ts";
-import { redactByValueCounted } from "./run-secret-redaction.ts";
+import { redactByValueCounted } from "../../shared-kernel/run-secret-redaction.ts";
 
 export type { RedactionMode, SecretDetection };
 

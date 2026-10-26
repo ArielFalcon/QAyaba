@@ -2,7 +2,7 @@
 
 import { AsyncResource } from "node:async_hooks";
 import { join } from "node:path";
-import { redactByValue } from "../../../shared-infrastructure/redaction/run-secret-redaction.ts";
+import { redactByValue } from "../../../shared-kernel/run-secret-redaction.ts";
 import type { ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { BoundedWholeOutput } from "../../../shared-kernel/process-sandbox/bounded-whole-output.ts";

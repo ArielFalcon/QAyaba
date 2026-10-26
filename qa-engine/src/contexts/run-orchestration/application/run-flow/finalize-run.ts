@@ -12,7 +12,7 @@ import type { NoopKind } from "@kernel/noop-kind.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { decide } from "../../domain/run-decision.service.ts";
 import { RunDecision } from "../../domain/run-decision.ts";
-import { ERROR_CLASS } from "@contexts/cross-run-learning/application/index.ts";
+import { ERROR_CLASS } from "@kernel/error-class.ts";
 import { learningGates, observesOperatingSignal } from "@contexts/cross-run-learning/application/index.ts";
 import type { PublicationPort } from "../ports/publication.port.ts";
 import type { RunQaResult } from "./run-types.ts";

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DIFF_TIER_NAMES, DIFF_TIERS, diffStat, diffTier, type DiffStat } from "@contexts/generation/domain/diff-stat.ts";
+import { DIFF_TIER_NAMES, DIFF_TIERS, diffStat, diffTier, type DiffStat } from "@kernel/diff-stat.ts";
 
 const HEADERS = (path: string): string[] => [
   `diff --git a/${path} b/${path}`,

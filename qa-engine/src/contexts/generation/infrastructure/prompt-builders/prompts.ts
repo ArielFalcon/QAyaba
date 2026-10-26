@@ -9,7 +9,7 @@ import { stripAnsi } from "@kernel/ansi.ts";
 import type { ArchitectureContext, CommitIntent, ReviewInput } from "../../domain/generation-input.ts";
 import type { OpencodeRunInput } from "../../domain/opencode-run-input.ts";
 import { deriveClaimsFromPackText, withoutPackSection } from "../context-pack.ts";
-import { diffStat, diffTier, type DiffStat, type DiffTier } from "@contexts/generation/domain/diff-stat.ts";
+import { diffStat, diffTier, type DiffStat, type DiffTier } from "@kernel/diff-stat.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/domain/prompt-headings.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
@@ -24,7 +24,7 @@ import { buildSuiteListing } from "@contexts/generation/domain/suite-listing.ts"
 import { renderSuiteListing, suiteListingHead } from "@contexts/generation/domain/suite-listing-render.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 import { renderExemplarsForPrompt } from "@kernel/scenario-catalog.ts";
-import { advisoryLineIds, itemId } from "@contexts/generation/domain/context-item-ids.ts";
+import { advisoryLineIds, itemId } from "@kernel/context-item-ids.ts";
 import type { Omission } from "@kernel/telemetry/section-meta.ts";
 import { assemble, section, type AssembledPrompt } from "./context-assembler.ts";
 import { roleWindowBytes } from "./model-window-catalog.ts";

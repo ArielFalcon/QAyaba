@@ -5,7 +5,7 @@ import {
   classifyGenerationEnd,
   renderGenerationNote,
 } from "@contexts/generation/domain/generation-end.ts";
-import { DIFF_TIME_BUDGET_MS } from "@contexts/generation/domain/diff-stat.ts";
+import { DIFF_TIME_BUDGET_MS } from "@kernel/diff-stat.ts";
 import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
 
 interface ClassifyRow {

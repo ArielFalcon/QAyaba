@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import type { QaCase, CaseStatus, FailureSettle, FailureAttemptEvidence } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
-import { redactByValue } from "../../../shared-infrastructure/redaction/run-secret-redaction.ts";
+import { redactByValue } from "../../../shared-kernel/run-secret-redaction.ts";
 import { sanitizeText, type SecretDetection } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { parseAriaSnapshot } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import { BoundedLineReader } from "@contexts/test-execution/infrastructure/bounded-line-reader.ts";
@@ -17,7 +17,7 @@ import type { ExecSandboxPort } from "../../../shared-infrastructure/process-san
 import { describeReasons, readRunOutputDir, scanRunOutputDir, type RunOutputLimits } from "../../../shared-infrastructure/run-output-reader.ts";
 import { readFailureReason, readOwnedSpecFile, type OwnedSpecRead } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import { parsePlaywrightReport } from "./playwright-report.ts";
-import { PLAYWRIGHT_INFRA_RE } from "../domain/playwright-infra.ts";
+import { PLAYWRIGHT_INFRA_RE } from "../../../shared-kernel/playwright-infra.ts";
 import { openDumpBridge } from "./run-dump-bridge.ts";
 import { activeExecScope } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 

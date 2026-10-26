@@ -212,7 +212,7 @@ test("the precondition-verdict preset mutates the typed precondition error, its 
   assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], [
     "qa-engine/src/contexts/app-catalog/domain/auth-precondition.ts",
     "qa-engine/src/contexts/run-orchestration/domain/helpers/precondition-terminal.ts",
-    "qa-engine/src/contexts/cross-run-learning/domain/error-class.ts",
+    "qa-engine/src/shared-kernel/error-class.ts",
     "qa-engine/src/contexts/cross-run-learning/domain/process-audit.ts",
   ]);
   for (const module of ["auth-precondition", "precondition-terminal", "error-class", "error-class.classification", "learning-gates", "process-audit"]) {
@@ -381,7 +381,7 @@ test("the prompt-contract preset mutates the lint, the regeneration predicate, t
   assert.deepEqual(preset.mutate.map(sourcePathOf), [
     "qa-engine/src/contexts/generation/domain/prompt-contract-lint.ts",
     "qa-engine/src/contexts/generation/domain/regen-turn.ts",
-    "qa-engine/src/contexts/generation/domain/diff-stat.ts",
+    "qa-engine/src/shared-kernel/diff-stat.ts",
     "qa-engine/src/contexts/generation/domain/harness-facts.ts",
     "qa-engine/src/contexts/generation/domain/step-limit.ts",
     "qa-engine/src/contexts/generation/domain/suite-listing-render.ts",

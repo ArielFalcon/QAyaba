@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildContextPack, deriveClaimsFromPackText, withoutPackSection, MAX_LISTED_UNCAPTURABLE, PACK_HEADINGS, TEMPLATE_LEFT_OUT, packDeliveredItemIds, packProducedItemIds, type ContextPackAssembly, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
-import { itemId } from "@contexts/generation/domain/context-item-ids.ts";
+import { itemId } from "@kernel/context-item-ids.ts";
 import { countDirectives, hasTrustLanguage, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { MAX_ROUTES, MAX_ROUTES_PER_CHANGE, REDIRECT_ADVISORY_INTRO, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import { ROUTE_REASON } from "@kernel/route-capturability.ts";

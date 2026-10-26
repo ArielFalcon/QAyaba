@@ -12,7 +12,7 @@ import { Sha } from "@kernel/sha";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import { INSTRUMENTS, checkInstrumentTable } from "./instrument-table";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
-import { activeRunSecretScope } from "../../qa-engine/src/shared-infrastructure/redaction/run-secret-redaction";
+import { activeRunSecretScope } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
 import { ambientExecScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/ambient-exec-scope";
 import { createExecSandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
 import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";

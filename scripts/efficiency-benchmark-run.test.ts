@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DIFF_TIER_NAMES } from "@contexts/generation/application/index.ts";
+import { DIFF_TIER_NAMES } from "@kernel/diff-stat.ts";
 import { readRegistry, runBenchmark } from "./efficiency-benchmark.ts";
 
 interface FakeService {

@@ -1,7 +1,7 @@
 /* The extractor over delivered specs and tool targets: route template matching, shared hash8, DOM attribution to the preceding goto. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { hash8, itemId } from "@contexts/generation/domain/context-item-ids.ts";
+import { hash8, itemId } from "@kernel/context-item-ids.ts";
 import { extractReferences, matchRouteTemplate, normalizeRoutePath } from "@contexts/evaluation/domain/context-refs.ts";
 
 test("a concrete path matches the template whose literal segments line up and whose :params each fill one segment", () => {

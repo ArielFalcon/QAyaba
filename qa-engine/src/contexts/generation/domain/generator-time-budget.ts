@@ -1,6 +1,6 @@
 /* How long the generator's first pass may run. Pure: the change's size and the run mode in, a bound in milliseconds out, or none. */
 import type { RunMode } from "@kernel/run-mode.ts";
-import { DIFF_TIER_NAMES, DIFF_TIME_BUDGET_MS, diffTier, type DiffStat, type DiffTier } from "./diff-stat.ts";
+import { DIFF_TIER_NAMES, DIFF_TIME_BUDGET_MS, diffTier, type DiffStat, type DiffTier } from "../../../shared-kernel/diff-stat.ts";
 
 /** The wall time the first pass may take for each tier, in milliseconds; null = no bound beyond the host's own default. */
 export type DiffTimeBudgets = Readonly<Record<DiffTier, number | null>>;

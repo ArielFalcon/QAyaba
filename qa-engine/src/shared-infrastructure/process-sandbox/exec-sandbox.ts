@@ -7,7 +7,7 @@ import { buildExecEnv, type GeoPoint, type SandboxProfile } from "./exec-env.ts"
 import { activeExecScope, openDeniedWindow, type RunScope, type SandboxReport } from "./exec-scope.ts";
 import { guardTelemetry } from "../../shared-kernel/telemetry/guarded-telemetry.ts";
 import type { SpanHandle, TelemetryPort } from "../../shared-kernel/telemetry/telemetry.port.ts";
-import { activeRunSecretScope } from "../redaction/run-secret-redaction.ts";
+import { activeRunSecretScope } from "../../shared-kernel/run-secret-redaction.ts";
 import { mirrorTopDir, openMirrorForSandbox, type MirrorFsOps } from "./mirror-access.ts";
 import { allocWorkSubdir, stageAuthMaterial, writeWorkScript } from "./exec-workdir.ts";
 import { sandboxSpawnOptions, type Sandbox } from "./sandbox.ts";

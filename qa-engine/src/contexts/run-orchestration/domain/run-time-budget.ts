@@ -4,7 +4,7 @@
  * mode and the change's size in, a bound in milliseconds out; the caller hands in the environment.
  */
 import type { RunMode } from "@kernel/run-mode.ts";
-import { diffStat, diffTier, type DiffTier } from "@contexts/generation/domain/diff-stat.ts";
+import { diffStat, diffTier, type DiffTier } from "@kernel/diff-stat.ts";
 
 /** The kinds of run that are bounded apart: a diff run by the size of its change, every other mode as itself. */
 export const RUN_TIME_BUDGET_KEYS = ["diff-tiny", "diff-focused", "diff-broad", "manual", "complete", "exhaustive", "context"] as const;

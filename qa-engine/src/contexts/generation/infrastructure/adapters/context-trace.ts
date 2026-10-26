@@ -9,7 +9,7 @@
 import type { CrossRepoImpact, ServiceLink } from "@kernel/service-links.ts";
 import type { RetrievedRule, SelectedExemplar } from "@kernel/learned-rule.ts";
 import { recordContextSpan } from "../../../../shared-infrastructure/telemetry/run-spans.ts";
-import { advisoryLineIds, contextMapItemIds, itemId } from "@contexts/generation/application/index.ts";
+import { advisoryLineIds, contextMapItemIds, itemId } from "@kernel/context-item-ids.ts";
 import { packProducedItemIds } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance.ts";

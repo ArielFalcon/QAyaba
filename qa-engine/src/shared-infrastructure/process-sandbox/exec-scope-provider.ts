@@ -1,7 +1,7 @@
 /* Opens a run's sandbox scope: its work directory (made for the sandbox uid, removed when the run ends) and the policy its children run under. One provider per composition; one session per run. */
 
 import { join } from "node:path";
-import { activeRunSecretScope } from "../redaction/run-secret-redaction.ts";
+import { activeRunSecretScope } from "../../shared-kernel/run-secret-redaction.ts";
 import { ambientExecScope } from "./ambient-exec-scope.ts";
 import { newSandboxReport, withExecScope, type ExecScopePort, type RunScope } from "./exec-scope.ts";
 import { SandboxUnavailableError, type EgressGate } from "./exec-sandbox.ts";

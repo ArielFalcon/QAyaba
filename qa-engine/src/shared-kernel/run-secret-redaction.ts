@@ -4,7 +4,6 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { REDACTED } from "@kernel/ports/redaction.port.ts";
-import { readFailureReason, readOwnedSpecFile } from "../spec-path-confinement.ts";
 
 /* A password shorter than this is not redacted: it would take the same letters out of every word around it and protect nothing, and no real account has one. */
 export const MIN_ACCOUNT_SECRET_CHARS = 4;
@@ -127,36 +126,4 @@ export function redactByValue(text: string): string {
 /* The same, with the number of replacements, for the text seam that reports what it redacted. */
 export function redactByValueCounted(text: string): { text: string; count: number } {
   return store.getStore()?.redactCounted(text) ?? { text, count: 0 };
-}
-
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
-const valuesOf = (entries: unknown): string[] =>
-  (Array.isArray(entries) ? entries : []).flatMap((entry) => (isRecord(entry) && typeof entry.value === "string" ? [entry.value] : []));
-
-/* Adds the cookie and localStorage values of the Playwright session at `file`, below `authDir`, to the run's scope. The file is orchestrator-owned but written by a login the agent may have authored, so it is read strictly and nothing it holds is ever logged: a file that cannot be read that way, or is not JSON, adds nothing and says so once. No file means no session, and says nothing. */
-export function registerSessionSecretsFromStorageState(authDir: string, file: string): void {
-  const scope = store.getStore();
-  if (scope === undefined) return;
-  let read;
-  try {
-    read = readOwnedSpecFile({ mirrorDir: authDir, specDir: authDir }, file, MAX_STORAGE_STATE_BYTES);
-  } catch (err) {
-    console.warn(`[qa] WARNING: the session file could not be read (${readFailureReason(err)}); its cookies and storage are not redacted by value this run (non-blocking).`);
-    return;
-  }
-  if ("absent" in read) return;
-  if ("reason" in read) {
-    console.warn(`[qa] WARNING: the session file was not read (${read.reason}); its cookies and storage are not redacted by value this run (non-blocking).`);
-    return;
-  }
-  let state: unknown;
-  try {
-    state = JSON.parse(read.bytes.toString("utf8"));
-  } catch {
-    console.warn("[qa] WARNING: the session file is not valid JSON; its cookies and storage are not redacted by value this run (non-blocking).");
-    return;
-  }
-  if (!isRecord(state)) return;
-  const origins = Array.isArray(state.origins) ? state.origins : [];
-  scope.addSessionValues([...valuesOf(state.cookies), ...origins.flatMap((origin) => (isRecord(origin) ? valuesOf(origin.localStorage) : []))]);
 }

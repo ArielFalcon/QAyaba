@@ -14,7 +14,7 @@ import type { ReviewInput } from "../domain/generation-input.ts";
 import { isAgentTimeoutError } from "@kernel/domain-error.ts";
 import { classifyGenerationEnd, renderGenerationNote } from "../domain/generation-end.ts";
 import { declareSpecs } from "../domain/declared-specs.ts";
-import { diffStat } from "../domain/diff-stat.ts";
+import { diffStat } from "../../../shared-kernel/diff-stat.ts";
 import { generationRunsReviewer } from "../domain/generation-review.ts";
 import { generatorTimeBudgetMs, type DiffTimeBudgets } from "../domain/generator-time-budget.ts";
 import { isReGenTurn } from "../domain/regen-turn.ts";

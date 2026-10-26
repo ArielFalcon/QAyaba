@@ -6,7 +6,7 @@ import { Sha } from "@kernel/sha.ts";
 import { ok } from "@kernel/result.ts";
 import { REDACTED } from "@kernel/ports/redaction.port.ts";
 import { readConfinedSpecFile } from "../../../../../src/shared-infrastructure/spec-path-confinement.ts";
-import { activeRunSecretScope } from "../../../../../src/shared-infrastructure/redaction/run-secret-redaction.ts";
+import { activeRunSecretScope } from "../../../../../src/shared-kernel/run-secret-redaction.ts";
 import { RunQaUseCase, type RunQaInput, type RunQaUseCaseDeps } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
 import { checkpointOf, type RunCheckpoint } from "@contexts/run-orchestration/application/run-flow/checkpoint.ts";
 import { initialRunState } from "@contexts/run-orchestration/application/run-flow/run-state.ts";

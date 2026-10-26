@@ -3,7 +3,7 @@
  * unit tests the change carries are the app's, and their bodies would only crowd the diff it plans from. What counts as a test file
  * is the language registry's. Pure.
  */
-import { LanguageRegistry } from "@contexts/change-analysis/domain/language-id.ts";
+import { LanguageRegistry } from "@kernel/language-id.ts";
 import { diffGitHeaderPath } from "@kernel/diff-parser/diff-parser.service.ts";
 
 export function diffWithoutTestFiles(diff: string): { diff: string; testFiles: string[] } {

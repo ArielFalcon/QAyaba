@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { AgentTimeoutError } from "@kernel/domain-error.ts";
 import { createAgentDeps, type AgentTurnEvent, type RawAgentTransport, type RawPromptResult, type AttemptEvent } from "@contexts/generation/infrastructure/agent-transport-policy.ts";
 import { CIRCUIT_THRESHOLD, resetCircuit } from "@contexts/generation/infrastructure/resilience/circuit-breaker.ts";
-import { createRunSecretScope, withRunSecretScope } from "../../../../src/shared-infrastructure/redaction/run-secret-redaction.ts";
+import { createRunSecretScope, withRunSecretScope } from "../../../../src/shared-kernel/run-secret-redaction.ts";
 import { carriedAgentErrorType } from "@contexts/generation/domain/agent-error-class.ts";
 
 const answered = (extra: Partial<RawPromptResult> = {}): RawPromptResult => ({

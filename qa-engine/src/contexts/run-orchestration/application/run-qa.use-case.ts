@@ -8,7 +8,7 @@
  * Pre-exec gateSignals use the number 0, not undefined, when unwired.
  */
 
-import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../shared-infrastructure/redaction/run-secret-redaction.ts";
+import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../shared-kernel/run-secret-redaction.ts";
 import type { ExecScopePort } from "../../../shared-kernel/ports/exec-scope.port.ts";
 import type { AuthSession } from "@contexts/app-catalog/application/index.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";

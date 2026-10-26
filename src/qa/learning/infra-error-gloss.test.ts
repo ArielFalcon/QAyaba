@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { ERROR_CLASSES } from "@contexts/cross-run-learning/application/index";
+import { ERROR_CLASSES } from "@kernel/error-class";
 import { infraErrorGloss } from "./infra-error-gloss";
 
 describe("infraErrorGloss", () => {
