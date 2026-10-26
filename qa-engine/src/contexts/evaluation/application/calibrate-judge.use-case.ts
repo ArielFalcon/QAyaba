@@ -5,7 +5,8 @@
 
 import { calibrate, DEFAULT_CALIBRATION, type CalibrationReport } from "../domain/judge-calibration.ts";
 import { judgeDefinition, type JudgeName } from "../domain/judges.ts";
-import type { CalibrationPairsPort, CalibrationStorePort } from "./ports/judge-ports.ts";
+import type { CalibrationPairsPort } from "./ports/calibration-pairs.port.ts";
+import type { CalibrationStorePort } from "./ports/calibration-store.port.ts";
 
 export interface CalibrateJudgeDeps {
   pairs: CalibrationPairsPort;

@@ -4,7 +4,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { FsDelegationWorkspaceAdapter } from "@contexts/coordination/infrastructure/adapters/delegation-workspace.adapter.ts";
-import { WORKSPACE_CHANGE, type DelegationWorkspaceRequest } from "@contexts/coordination/application/ports/delegation-workspace.port.ts";
+import { WORKSPACE_CHANGE, type DelegationWorkspaceRequest } from "@contexts/coordination/domain/delegation-workspace.ts";
 import { MAX_SPEC_SOURCE_BYTES } from "../../../../../src/shared-infrastructure/spec-path-confinement.ts";
 
 interface Fixture {

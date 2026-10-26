@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GradeRunUseCase } from "@contexts/evaluation/application/grade-run.use-case.ts";
-import type { EvidencePort } from "@contexts/evaluation/application/ports/index.ts";
+import type { EvidencePort } from "@contexts/evaluation/application/ports/evidence.port.ts";
 import { GRADER_VERSION } from "@contexts/evaluation/domain/grader-catalog.ts";
 import type { Score } from "@contexts/evaluation/domain/score.ts";
 import { evidence } from "./evidence-fixtures.ts";

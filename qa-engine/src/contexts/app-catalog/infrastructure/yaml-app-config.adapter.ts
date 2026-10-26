@@ -1,4 +1,5 @@
-import type { AppRepositoryPort, AppConfigSnapshot, RepoRole } from "../application/ports/index.ts";
+import type { AppRepositoryPort } from "../application/ports/app-repository.port.ts";
+import type { AppConfigSnapshot, RepoRole } from "../domain/app-repository.ts";
 import { App } from "../domain/app.aggregate.ts";
 import { RepoResolutionService } from "../domain/repo-resolution.service.ts";
 

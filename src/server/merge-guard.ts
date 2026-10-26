@@ -55,6 +55,7 @@ export const PROTECTED_PATHS: string[] = [
    * to require, without touching the adapter file itself.
    */
   "qa-engine/src/contexts/app-catalog/application/ports/auth-session.port.ts",
+  "qa-engine/src/contexts/app-catalog/domain/auth-session.ts",
   /*
    * Scrubs the account's credentials out of the note and log line a failed login leaves behind
    * (exact value, every spelling, before the cut). Weakening it leaks the account into the run
@@ -111,7 +112,12 @@ export const PROTECTED_PATHS: string[] = [
    * revertedDenylisted return) silently disables the guards those types exist to require, without
    * touching the adapter files themselves.
    */
-  "qa-engine/src/contexts/workspace-and-publication/application/ports/index.ts",
+  "qa-engine/src/contexts/workspace-and-publication/application/ports/vcs-write.port.ts",
+  "qa-engine/src/contexts/workspace-and-publication/application/ports/github-pr.port.ts",
+  "qa-engine/src/contexts/workspace-and-publication/application/ports/github-issue.port.ts",
+  "qa-engine/src/contexts/workspace-and-publication/application/ports/shadow-publication.port.ts",
+  "qa-engine/src/contexts/workspace-and-publication/application/ports/mirror-gc.port.ts",
+  "qa-engine/src/contexts/workspace-and-publication/domain/vcs-write.ts",
 
   /*
    * Composes the reviewer-facing Issue/PR body from the run's own artifacts. Deliberately NOT a
@@ -324,7 +330,8 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/contexts/test-execution/domain/agent-browser-session-invalidation.ts",
   "qa-engine/src/contexts/test-execution/domain/agent-browser-capability.ts",
   "qa-engine/src/contexts/test-execution/application/agent-browser.use-case.ts",
-  "qa-engine/src/contexts/test-execution/application/ports/agent-browser.ports.ts",
+  "qa-engine/src/contexts/test-execution/application/ports/agent-browser-host.port.ts",
+  "qa-engine/src/contexts/test-execution/domain/agent-browser-host.ts",
   "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/",
   "qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep.ts",
   "qa-engine/src/shared-kernel/agent-browser.ts",
@@ -346,6 +353,7 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/contexts/agent-tools/infrastructure/closed-loop-registry.ts",
   "qa-engine/src/contexts/agent-tools/infrastructure/adapters/closed-loop-port.adapter.ts",
   "qa-engine/src/contexts/coordination/application/ports/delegation-workspace.port.ts",
+  "qa-engine/src/contexts/coordination/domain/delegation-workspace.ts",
   "qa-engine/src/contexts/coordination/infrastructure/adapters/delegation-workspace.adapter.ts",
   "agents/tool/run_spec.ts",
   /* What decides which flows a plan admits, where each may write, what each sidekick may author with and when the lead takes a change back: the plan's admission, the coordinator and the choice of tools. */

@@ -40,10 +40,7 @@ import {
   type LintFinding,
   type LintSection,
 } from "@contexts/generation/domain/prompt-contract-lint.ts";
-import type {
-  ArchitectureContext,
-  OpencodeRunInput,
-} from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ArchitectureContext, OpencodeRunInput } from "@contexts/generation/application/index.ts";
 import { DEFAULT_CLOSED_LOOP_LIMITS } from "@kernel/closed-loop.ts";
 import { DEFAULT_AGENT_BROWSER_LIMITS } from "@kernel/agent-browser.ts";
 import { DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";

@@ -12,7 +12,7 @@ import { maxStepsFromConfig, type AgentDeps } from "../integrations/opencode-cli
 import { AGENT_NAME_FOR_ROLE, type AgentFacade, type StepLimits } from "../agent-runtime/types";
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { CompositionConfig } from "@contexts/run-orchestration/composition/composition-root";
-import type { StepLimitRole } from "@contexts/generation/application/ports/generation-ports";
+import type { StepLimitRole } from "@contexts/generation/application/index.ts";
 import { BYTES_PER_TOKEN, INPUT_PROMPT_SAFETY_MARGIN, modelWindowBytes, roleWindowBytes, setLiveModelWindows, setRuntimeRoleModels } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { setAgentsConfigPath as setCatalogAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { rosterFixturePath } from "../integrations/fixtures/opencode-roster";

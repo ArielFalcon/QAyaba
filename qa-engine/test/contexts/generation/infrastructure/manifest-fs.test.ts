@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync, readFileSync, readdirSync, lstatSync, mkdirSync, w
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { readManifest, reconcileManifest } from "@contexts/generation/infrastructure/manifest-fs.ts";
-import type { ManifestEntry } from "@contexts/generation/application/ports/index.ts";
+import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 import { MAX_MANIFEST_BYTES } from "@kernel/manifest/manifest-entry.ts";
 import { ConfinedPathError, type SpecRoot } from "../../../../src/shared-infrastructure/spec-path-confinement.ts";
 import { withoutWaitingOnNamedPipe } from "../../../support/named-pipe-watch.ts";

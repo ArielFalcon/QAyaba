@@ -22,7 +22,7 @@ import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/
 import { updateScorecard, type Scorecard, type ScorecardEntry } from "../qa/learning/oracle-types";
 import { logJson } from "../integrations/logger";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
-import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
+import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
 import { parseRetentionDays, parseCampaignRetentionDays, DEFAULT_SPAN_RETENTION_DAYS, DEFAULT_CAMPAIGN_RETENTION_DAYS } from "../telemetry/config";
 import type { CampaignIdentity } from "@kernel/campaign";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";

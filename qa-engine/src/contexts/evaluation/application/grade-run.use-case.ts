@@ -7,7 +7,9 @@
 import { GRADER_VERSION } from "../domain/grader-catalog.ts";
 import { gradeEvidence } from "../domain/graders.ts";
 import type { Score } from "../domain/score.ts";
-import { NO_SINK, type EvidencePort, type ScoreSinkPort, type ScoreStorePort } from "./ports/index.ts";
+import { NO_SINK, type ScoreSinkPort } from "./ports/score-sink.port.ts";
+import { type EvidencePort } from "./ports/evidence.port.ts";
+import { type ScoreStorePort } from "./ports/score-store.port.ts";
 
 export interface GradeRunDeps {
   evidence: EvidencePort;

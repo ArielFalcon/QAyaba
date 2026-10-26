@@ -4,11 +4,11 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/index.ts";
 import type { ServiceLink } from "@contexts/service-topology/domain/index.ts";
 import type { GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
-import type { ManifestEntry } from "@contexts/generation/application/ports/index.ts";
+import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 
 /* ---- OpencodeRunInput.serviceLinks field ----
    The field must be optional (no existing tests break) and accept ServiceLink[].
@@ -61,7 +61,7 @@ test("OpencodeRunInput without serviceLinks is still valid (optional field)", ()
 /* ---- GenerateTestsUseCase propagates serviceLinks to renderMain intact ----
    NOTE: no production renderMain implementation renders a "CROSS-REPO LINKS" prompt section
    from serviceLinks yet (that rendering is deferred to the runtime-wiring step — see the
-   comment on OpencodeRunInput.serviceLinks in generation-ports.ts). What IS real today is that
+   comment on OpencodeRunInput.serviceLinks in generation-input.ts). What IS real today is that
    GenerateTestsUseCase.generate() passes the full OpencodeRunInput through to
    rendering.renderMain(input) unchanged — so serviceLinks (or its absence) reaches renderMain
    intact. These tests assert only that real propagation, via a stub renderMain that captures

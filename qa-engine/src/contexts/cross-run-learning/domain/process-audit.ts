@@ -1,7 +1,7 @@
 /* Deterministic process audit: detect that the ENGINE (not the watched app's tests) misbehaved. Only engine-fix becomes a human-gated PR (self-modifying code is never auto-applied). ledger-heal and context-heal are reversible data hygiene; observe is visibility only. */
 
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import type { ErrorClass } from "@contexts/cross-run-learning/application/ports/index.ts";
+import type { ErrorClass } from "./learning-repository.ts";
 
 export type Disposition = "engine-fix" | "ledger-heal" | "context-heal" | "observe";
 

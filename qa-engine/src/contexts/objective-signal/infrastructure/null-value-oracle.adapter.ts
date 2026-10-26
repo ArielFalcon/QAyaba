@@ -1,5 +1,6 @@
 /* Signal-only by contract: a null valueScore never gates publish. */
-import type { ValueOraclePort, ValueOracleResult } from "../application/ports/index.ts";
+import type { ValueOraclePort } from "../application/ports/value-oracle.port.ts";
+import type { ValueOracleResult } from "../domain/coverage-collector.ts";
 import type { BlastRadius } from "@kernel/blast-radius.ts";
 
 export class NullValueOracleAdapter implements ValueOraclePort {

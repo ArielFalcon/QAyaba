@@ -1,6 +1,7 @@
 /* RunPipelinePort over RunQaUseCase. No decision logic — maps RunInput into the use-case, then maps RunQaResult into a RunOutcome. RunHistoryPort is save-only, so this adapter cannot read back the persisted row. When the use-case persisted an outcome, return that exact object (identity, not a re-derivation whose `new Date()` would diverge). toOutcome() is the fallback for never-persisted terminals. */
 
-import type { RunPipelinePort, RunInput } from "../application/ports/index.ts";
+import type { RunPipelinePort } from "../application/ports/run-pipeline.port.ts";
+import type { RunInput } from "../domain/run-input.ts";
 import { RunQaUseCase, type RunQaUseCaseDeps, type RunQaConfig, type RunQaResult } from "../application/run-qa.use-case.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { attachTraceFacts, traceFactsOf } from "@kernel/run-trace-facts.ts";

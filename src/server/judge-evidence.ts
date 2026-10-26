@@ -5,7 +5,7 @@
  * and the error class. No file is read from a mirror, no request goes to DEV, no repository is cloned. Every read is injected.
  */
 
-import type { JudgeEvidencePort } from "@contexts/evaluation/application/ports/judge-ports";
+import type { JudgeEvidencePort } from "@contexts/evaluation/application/index.ts";
 import type { JudgeEvidence } from "@contexts/evaluation/domain/judges";
 import { COMMIT_DIFF_HEADING } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";

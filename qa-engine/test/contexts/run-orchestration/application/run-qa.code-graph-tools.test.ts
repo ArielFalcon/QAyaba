@@ -8,7 +8,7 @@ import { RUN_PURPOSE } from "@kernel/run-mode.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { DEFAULT_CODE_GRAPH_TOOL_LIMITS } from "@kernel/code-graph-tools.ts";
 import { RunQaUseCase, type RunQaInput, type RunQaUseCaseDeps } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
-import type { CodeGraphToolsHandle } from "@contexts/run-orchestration/application/ports/index.ts";
+import type { CodeGraphToolsHandle } from "@contexts/agent-tools/application/index.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
 

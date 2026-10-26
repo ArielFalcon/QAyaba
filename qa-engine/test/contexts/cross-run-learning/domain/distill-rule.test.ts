@@ -13,7 +13,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { ruleKey, decideDistill, detectArchetype } from "@contexts/cross-run-learning/domain/distill-rule.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
-import type { LearningRule } from "@contexts/cross-run-learning/application/ports/index.ts";
+import type { LearningRule } from "@contexts/cross-run-learning/domain/learning-repository.ts";
 
 function existingRule(overrides: Partial<LearningRule> = {}): LearningRule {
   return {

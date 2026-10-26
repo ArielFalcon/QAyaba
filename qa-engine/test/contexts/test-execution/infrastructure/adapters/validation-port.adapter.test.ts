@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { ValidationPortAdapter } from "@contexts/test-execution/infrastructure/adapters/validation-port.adapter.ts";
 import { StaticGateAdapter, type StaticGateChecks } from "@contexts/test-execution/infrastructure/static-gate.adapter.ts";
 import { CodeValidationStrategy } from "@contexts/test-execution/infrastructure/code-validation.strategy.ts";
-import type { CheckResult, ValidationResult } from "@contexts/test-execution/application/ports/index.ts";
+import type { CheckResult, ValidationResult } from "@contexts/test-execution/domain/execution-strategy.ts";
 
 function fakeChecks(validateAllResult: ValidationResult): StaticGateChecks {
   const ok: CheckResult = { ok: true, output: "" };

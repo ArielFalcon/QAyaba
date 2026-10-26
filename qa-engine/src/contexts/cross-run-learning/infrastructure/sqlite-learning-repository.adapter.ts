@@ -1,5 +1,7 @@
 /* The store is injected (no SQLite binary in tests); ranking is delegated to RuleGovernanceService (the SELECT is UNORDERED — the duplicate SQL ORDER BY is gone). */
-import type { LearningRepositoryPort, LearningRule, RuleStatus, ErrorClass, RelevanceBias } from "../application/ports/index.ts";
+import type { LearningRepositoryPort } from "../application/ports/learning-repository.port.ts";
+import type { LearningRule, RuleStatus, ErrorClass } from "../domain/learning-repository.ts";
+import type { RelevanceBias } from "../domain/rule-governance.service.ts";
 import type { Sha } from "@kernel/sha.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RuleGovernanceService, type InjectionPolicy } from "../domain/rule-governance.service.ts";

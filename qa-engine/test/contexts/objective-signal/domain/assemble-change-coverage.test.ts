@@ -9,7 +9,7 @@ import {
   assembleChangeCoverage,
 } from "@contexts/objective-signal/domain/assemble-change-coverage.ts";
 import { DecideCoverageService } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
-import type { CoverageReport } from "@contexts/objective-signal/application/ports/index.ts";
+import type { CoverageReport } from "@contexts/objective-signal/domain/coverage-collector.ts";
 
 function lines(m: Map<string, Set<number>>): Record<string, number[]> {
   const o: Record<string, number[]> = {};

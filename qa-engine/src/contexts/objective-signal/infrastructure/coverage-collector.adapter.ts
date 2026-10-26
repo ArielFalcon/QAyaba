@@ -1,5 +1,6 @@
 /* src/contexts/objective-signal/infrastructure/coverage-collector.adapter.ts Composite CoverageCollectorPort: dispatches to the per-ecosystem collector and merges. An ecosystem with no collector yields an empty report → DecideCoverageService returns "unknown" → NEVER blocks (the keystone invariant lives in the decide service; this stays fail-open). */
-import type { CoverageCollectorPort, CoverageReport } from "../application/ports/index.ts";
+import type { CoverageCollectorPort } from "../application/ports/coverage-collector.port.ts";
+import type { CoverageReport } from "../domain/coverage-collector.ts";
 
 /* Default per-collector timeout (ms). A slow ecosystem collector must not hang the sequential queue — the pipeline is single-run-at-a-time and a stuck collector would block indefinitely. A timed-out collector degrades to an empty CoverageReport (→ "unknown" → NEVER blocks), consistent with the keystone invariant: coverage unknown never blocks publish. */
 const COLLECTOR_TIMEOUT_MS = 30_000;

@@ -8,7 +8,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ReflectorPortAdapter, REFLECT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter.ts";
-import type { LearningRepositoryPort, LearningRule, ReflectionInput, StructuredReflection } from "@contexts/cross-run-learning/application/ports/index.ts";
+import type { LearningRepositoryPort } from "@contexts/cross-run-learning/application/ports/learning-repository.port.ts";
+import type { LearningRule, ReflectionInput, StructuredReflection } from "@contexts/cross-run-learning/domain/learning-repository.ts";
 import type { AgentRuntimePort, AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 
 const baseInput: ReflectionInput = {

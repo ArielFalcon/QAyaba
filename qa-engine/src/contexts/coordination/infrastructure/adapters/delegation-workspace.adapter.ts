@@ -25,15 +25,8 @@ import {
   writeOwnedSpecFile,
   type SpecRoot,
 } from "../../../../shared-infrastructure/spec-path-confinement.ts";
-import {
-  WORKSPACE_CHANGE,
-  type DelegationCollection,
-  type DelegationWorkspace,
-  type DelegationWorkspacePort,
-  type DelegationWorkspaceRequest,
-  type RefusedCopy,
-  type WorkspaceChange,
-} from "../../application/ports/delegation-workspace.port.ts";
+import { WORKSPACE_CHANGE, type DelegationCollection, type DelegationWorkspace, type DelegationWorkspaceRequest, type RefusedCopy, type WorkspaceChange } from "../../domain/delegation-workspace.ts";
+import { type DelegationWorkspacePort } from "../../application/ports/delegation-workspace.port.ts";
 
 export interface WorkspaceLimits {
   /* The most files the read view holds. */

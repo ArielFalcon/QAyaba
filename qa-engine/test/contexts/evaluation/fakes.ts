@@ -1,4 +1,7 @@
-import type { EvaluationStatus, RegradeJob, RegradeJobStorePort, RunSelectorPort, ScoreStorePort } from "@contexts/evaluation/application/ports/index.ts";
+import type { EvaluationStatus, RegradeJob } from "@contexts/evaluation/domain/evidence.ts";
+import type { RegradeJobStorePort } from "@contexts/evaluation/application/ports/regrade-job-store.port.ts";
+import type { RunSelectorPort } from "@contexts/evaluation/application/ports/run-selector.port.ts";
+import type { ScoreStorePort } from "@contexts/evaluation/application/ports/score-store.port.ts";
 import type { Score } from "@contexts/evaluation/domain/score.ts";
 
 /* An in-memory store with the contract of the SQLite one: key (runId, name, graderVersion). */

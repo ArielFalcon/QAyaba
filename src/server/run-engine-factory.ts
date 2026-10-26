@@ -24,7 +24,7 @@ import {
   unregisterRunSession,
   stallMs,
 } from "../integrations/opencode-client";
-import type { RunPipelinePort, ObserverPort } from "@contexts/run-orchestration/application/ports/index.ts";
+import type { RunPipelinePort, ObserverPort } from "@contexts/run-orchestration/application/index.ts";
 import { buildProduction, type CompositionConfig } from "@contexts/run-orchestration/composition/composition-root";
 import { AuthSessionAdapter } from "@contexts/app-catalog/infrastructure/auth-session.adapter";
 import { createDiscoverLogin } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner";
@@ -64,7 +64,7 @@ import { GenerateTestsUseCase } from "@contexts/generation/application/generate-
 import { resolveDiffTimeBudgets } from "@contexts/generation/domain/generator-time-budget";
 import { AgentRuntimeAdapter } from "@contexts/generation/infrastructure/agent-runtime.adapter";
 import { RunDeadline } from "@contexts/run-orchestration/domain/run-deadline";
-import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
+import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
 import { contextMapValidity, parseNameStatusZ, type ChangedFile } from "@contexts/run-orchestration/domain/context-map-validity";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { CONTEXT_MAP_MAX_AGE_MS, contextMapResultCount, type ContextProvenance } from "@kernel/telemetry/context-provenance";
@@ -122,7 +122,7 @@ import {
 } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { parseVerdict } from "../integrations/verdict-parse";
 import { parseReviewerVerdict, checkGeneratorVerdict, repairInstruction } from "../integrations/verdict-validate";
-import type { StepLimitFor, StepLimitRole } from "@contexts/generation/application/ports/generation-ports";
+import type { StepLimitFor, StepLimitRole } from "@contexts/generation/application/index.ts";
 import { MultiRepoCheckoutAdapter } from "@contexts/workspace-and-publication/infrastructure/adapters/multi-repo-checkout.adapter";
 import { roleWindowBytes, setLiveModelWindows } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import type { RepairPort } from "@contexts/generation/application/generate-tests.use-case.ts";

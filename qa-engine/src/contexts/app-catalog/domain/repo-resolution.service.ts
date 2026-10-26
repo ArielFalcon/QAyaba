@@ -1,5 +1,5 @@
 import type { App } from "./app.aggregate.ts";
-import type { RepoRole } from "../application/ports/index.ts";
+import type { RepoRole } from "./app-repository.ts";
 
 export interface RepoResolution { app: App; role: RepoRole; }
 

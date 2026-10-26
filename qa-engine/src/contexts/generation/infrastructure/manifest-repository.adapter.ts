@@ -1,5 +1,6 @@
 /* Manifest I/O via injected fns (no disk in test). Reconcile: ids unique, every entry maps to an on-disk spec. */
-import type { ManifestRepositoryPort, ManifestEntry } from "../application/ports/index.ts";
+import type { ManifestRepositoryPort } from "../application/ports/manifest-repository.port.ts";
+import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 import type { SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
 
 export interface ManifestFns {

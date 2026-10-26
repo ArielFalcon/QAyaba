@@ -6,7 +6,7 @@ import { readConfinedSpecFile, listSpecFiles, readOwnedSpecFile, MAX_SPEC_SOURCE
 import { FixLoop, type FixLoopState, type FixLoopInput, type FixLoopAcceptancePort, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../../../domain/fix-loop.aggregate.ts";
 import { checkSpecSelectors, contradictionOrigins } from "@contexts/generation/application/index.ts";
 import { attributeContradictions } from "../../../domain/helpers/contradiction-attribution.ts";
-import type { SpecSnapshot } from "../../ports/spec-snapshot.port.ts";
+import type { SpecSnapshot } from "../../../domain/spec-snapshot.ts";
 import { goto, type StepOutcome } from "../run-flow.ts";
 import type { StepId } from "../step-ids.ts";
 import type { FixLoopStep } from "../../../domain/fix-loop-action.ts";

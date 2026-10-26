@@ -3,7 +3,7 @@
  * Quarantine is for rules whose origin is suspect (learned from a signal later found false), so it is chosen
  * by when a rule was learned, not by how it has fared since: a suspect rule's own outcomes are suspect too.
  */
-import type { LearningRule } from "../application/ports/index.ts";
+import type { LearningRule } from "./learning-repository.ts";
 
 /** The statuses a rule still reaches a prompt in. A retired rule (deprecated, superseded) is already out of retrieval, so quarantining it would change nothing. */
 const IN_FORCE: ReadonlySet<LearningRule["status"]> = new Set(["active", "candidate"]);

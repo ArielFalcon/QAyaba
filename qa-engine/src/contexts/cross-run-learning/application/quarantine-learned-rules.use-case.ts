@@ -3,7 +3,8 @@
  * quarantined rule stays in the ledger (an operator can read it) but is never retrieved into a prompt and never
  * credited with an outcome. A dry run reports what would be marked and writes nothing.
  */
-import type { LearningQuarantinePort, LearningRule } from "./ports/index.ts";
+import type { LearningQuarantinePort } from "./ports/learning-quarantine.port.ts";
+import type { LearningRule } from "../domain/learning-repository.ts";
 import { parseQuarantineSince, selectForQuarantine } from "../domain/quarantine.ts";
 
 /** The most rules one command scans. A ledger holds hundreds; a result that fills this is truncated, and the command stops rather than quarantine part of a ledger. */

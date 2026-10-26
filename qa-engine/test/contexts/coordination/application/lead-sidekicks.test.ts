@@ -18,8 +18,9 @@ import type { DelegationResult } from "@contexts/coordination/application/delega
 import type { SidekickExecuteOpts } from "@contexts/coordination/application/sidekick-executor.ts";
 import type { DelegationBrief } from "@contexts/coordination/application/delegation-brief.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
-import type { DelegationCollection, DelegationWorkspace, DelegationWorkspacePort, DelegationWorkspaceRequest } from "@contexts/coordination/application/ports/delegation-workspace.port.ts";
-import type { AgentBrowserHandle, ClosedLoopHandle, FlowLedgerEntry, FlowLoopHandle, FlowLoopOpenInput, GeolocationHandle } from "@contexts/run-orchestration/application/ports/index.ts";
+import type { DelegationCollection, DelegationWorkspace, DelegationWorkspaceRequest } from "@contexts/coordination/domain/delegation-workspace.ts";
+import type { DelegationWorkspacePort } from "@contexts/coordination/application/ports/delegation-workspace.port.ts";
+import type { AgentBrowserHandle, ClosedLoopHandle, FlowLedgerEntry, FlowLoopHandle, FlowLoopOpenInput, GeolocationHandle } from "@contexts/agent-tools/application/index.ts";
 import type { PlanOutput } from "@kernel/plan-output.ts";
 import type { GeoLocation } from "@kernel/geolocation.ts";
 import { evidenceFromPackDataRoutes } from "@contexts/coordination/application/evidence-from.ts";

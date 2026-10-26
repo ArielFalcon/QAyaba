@@ -22,7 +22,8 @@ import { formatSuiteEntry } from "@contexts/generation/domain/suite-entry.ts";
 import { withoutWaitingOnNamedPipe } from "../../../../support/named-pipe-watch.ts";
 import type { GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
-import type { OpencodeRunInput, StepLimitRole } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/generation-input.ts";
+import type { StepLimitRole } from "@contexts/generation/domain/generation-input.ts";
 import type { GenerationEnrichment } from "@contexts/generation/application/index.ts";
 import type { RetrievedRule } from "@contexts/cross-run-learning/application/index.ts";
 import type { TestTarget } from "@kernel/run-mode.ts";
@@ -422,7 +423,7 @@ test("generate() maps enrichment.reviewCorrections/fixCases/selectorContradictio
 
 /* run-qa.use-case.ts) must map 1:1 onto OpencodeRunInput — the SAME fields buildPromptAssembled
    already renders sections for (contextPack's "VOLATILE context-pack section" / existingSpecFiles'
-   "existing-suite-manifest" section, generation-ports.ts).
+   "existing-suite-manifest" section, generation-input.ts).
  */
 
 test("generate() maps enrichment.contextPack/existingSpecFiles onto OpencodeRunInput", async () => {

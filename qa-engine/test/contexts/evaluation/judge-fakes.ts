@@ -1,4 +1,9 @@
-import type { CalibrationPairsPort, CalibrationStorePort, JudgeAgentPort, JudgeAnswer, JudgeAttempt, JudgeEvidencePort, JudgeLedgerPort, JudgeOutcome, JudgePairs } from "@contexts/evaluation/application/ports/judge-ports.ts";
+import type { CalibrationPairsPort } from "@contexts/evaluation/application/ports/calibration-pairs.port.ts";
+import type { CalibrationStorePort } from "@contexts/evaluation/application/ports/calibration-store.port.ts";
+import type { JudgeAgentPort } from "@contexts/evaluation/application/ports/judge-agent.port.ts";
+import type { JudgeAnswer, JudgeAttempt, JudgeOutcome, JudgePairs } from "@contexts/evaluation/domain/judge-evidence.ts";
+import type { JudgeEvidencePort } from "@contexts/evaluation/application/ports/judge-evidence.port.ts";
+import type { JudgeLedgerPort } from "@contexts/evaluation/application/ports/judge-ledger.port.ts";
 import type { CalibrationReport } from "@contexts/evaluation/domain/judge-calibration.ts";
 import type { JudgeEvidence, JudgeName } from "@contexts/evaluation/domain/judges.ts";
 

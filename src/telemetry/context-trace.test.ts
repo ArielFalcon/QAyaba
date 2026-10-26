@@ -13,7 +13,9 @@ import {
   telemetryGroundingTrace,
 } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/context-trace";
 import { PreGenerationGroundingPortAdapter } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter";
-import type { ChangePagesPort, CrossRepoImpact, CurriculumPort, LearningPort, RetrievedRule, SelectedExemplar, ServiceLink, ServiceLinksPort, StructuralSignalPort } from "../../qa-engine/src/contexts/run-orchestration/application/ports/index";
+import type { ChangePagesPort, CrossRepoImpact, ServiceLink, ServiceLinksPort } from "@contexts/service-topology/application/index.ts";
+import type { CurriculumPort, LearningPort, RetrievedRule, SelectedExemplar } from "@contexts/cross-run-learning/application/index.ts";
+import type { StructuralSignalPort } from "@contexts/change-analysis/application/index.ts";
 import { buildContextPack, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack";
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { domCaptureObserver, recordDomCapture } from "@contexts/generation/infrastructure/dom-capture-trace";
@@ -28,7 +30,7 @@ import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { traceHarness } from "./trace-harness";
 import { buildPromptAssembled } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { recordDeliveredContextSpans } from "@contexts/generation/infrastructure/telemetry/turn-probe";
-import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports";
+import type { OpencodeRunInput } from "@contexts/generation/application/index.ts";
 import { setAgentsConfigPath as setCatalogAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { rosterFixturePath } from "../integrations/fixtures/opencode-roster";
 

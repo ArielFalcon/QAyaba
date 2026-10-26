@@ -1,4 +1,5 @@
-import type { GitHubPrPort, PullRequest } from "../application/ports/index.ts";
+import type { GitHubPrPort } from "../application/ports/github-pr.port.ts";
+import type { PullRequest } from "../domain/vcs-write.ts";
 import { clampTitle, clampBody, type GitHubHttpDeps } from "./github-http.ts";
 
 interface RawPullRequest {

@@ -9,7 +9,7 @@ import { EventResolver } from "@contexts/service-topology/infrastructure/event-r
 import { HttpBackendResolver } from "@contexts/service-topology/infrastructure/http-backend-resolver.adapter.ts";
 import { OpenApiHttpResolver } from "@contexts/service-topology/infrastructure/openapi-http-resolver.adapter.ts";
 import { MAX_TOPOLOGY_OPENAPI_BYTES, MAX_TOPOLOGY_SOURCE_BYTES } from "@contexts/service-topology/infrastructure/repo-walk.ts";
-import type { ServiceBoundaryResolverPort } from "@contexts/service-topology/application/ports/index.ts";
+import type { ServiceBoundaryResolverPort } from "@contexts/service-topology/application/ports/service-boundary-resolver.port.ts";
 import type { RepoRef } from "@contexts/service-topology/domain/index.ts";
 import { withoutWaitingOnNamedPipe } from "../../../support/named-pipe-watch.ts";
 

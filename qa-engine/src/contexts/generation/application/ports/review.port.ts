@@ -1,63 +1,6 @@
 import type { QaCase } from "@kernel/qa-case.ts";
-import type { RetrievedRule } from "@contexts/cross-run-learning/application/index.ts";
-
-/**
- * `priorCorrections` lets the next review judge convergence on previously
- * raised blocking issues instead of inventing new nits.
- */
-export interface ReviewEnrichment {
-  priorCorrections?: readonly string[];
-  /* The spec lines that changed since the prior rejection, already bounded and rendered. */
-  specChanges?: string;
-  /* Paths of the suite's existing specs: context only, never a target and never a reason to reject. */
-  existingSpecFiles?: readonly string[];
-  /**
-   * Same retrieved rules the generator saw. The adapter renders only active
-   * rules; candidates are for the generator to explore, never for the judge to
-   * gate on.
-   */
-  learnedRules?: readonly RetrievedRule[];
-  /**
-   * Live DEV a11y snapshot of routes under review. Absent: the reviewer defers
-   * on unverifiable UI facts.
-   */
-  domSnapshot?: string;
-  /**
-   * The run's own execution of the specs under review (verdict and cases). The adapter renders it as
-   * the reviewer's execution evidence, so an app defect (a 5xx, a redirect, a runtime error) is
-   * distinguishable from a test defect without asking the generator. Absent: the prompt carries none.
-   */
-  executionEvidence?: { verdict: string; cases: readonly QaCase[] };
-  /** Per-run id for the reviewer SSE session (separate from the generator's). */
-  runId?: string;
-}
-
-/**
- * Adapter catch produces `${REVIEWER_UNAVAILABLE_MARKER}: <reason>`; the
- * use-case matches on it. One constant so producer and matcher cannot drift.
- */
-export const REVIEWER_UNAVAILABLE_MARKER = "reviewer unavailable";
-
-/**
- * Authoritative publish-gate seam. `blockingCount` distinguishes blocking
- * corrections from advisory ones. `parsed` is false only on a parse miss — not
- * a real rejection — so FixLoop re-prompts once instead of burning a fix round.
- * Fail-closed: a missing parse is never treated as approval.
- */
-/**
- * What one reviewer turn cost, as its own runtime reported it. Every figure is optional and absent
- * when the runtime did not report it: never a fabricated zero. `durationMs` is always measured by the
- * adapter. Persisted on the run's reviewer signal, never read back into the verdict.
- */
-export interface ReviewStats {
-  durationMs: number;
-  promptBytes: number;
-  outputChars: number;
-  inputTokens?: number;
-  outputTokens?: number;
-  costUsd?: number;
-  steps?: number;
-}
+import type { ReviewEnrichment } from "../review.ts";
+import type { ReviewStats } from "../../domain/review.ts";
 
 export interface ReviewPort {
   /**

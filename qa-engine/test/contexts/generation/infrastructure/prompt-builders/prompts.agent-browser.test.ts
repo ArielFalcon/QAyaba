@@ -9,7 +9,7 @@ import {
 import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/domain/prompt-headings.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import { countDirectives, hasTrustLanguage, lintCell, type LintSection } from "@contexts/generation/domain/prompt-contract-lint.ts";
-import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/generation-input.ts";
 
 
 const LIMITS = { maxCalls: 60, perCallMs: 25_000, leaseWaitMs: 10_000 };

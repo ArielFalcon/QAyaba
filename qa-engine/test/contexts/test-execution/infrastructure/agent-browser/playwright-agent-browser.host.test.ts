@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRouteGuard } from "@contexts/test-execution/domain/agent-browser-route-guard.ts";
-import { BrowserActionError, type BrowserAction } from "@contexts/test-execution/application/ports/agent-browser.ports.ts";
+import { BrowserActionError, type BrowserAction } from "@contexts/test-execution/domain/agent-browser-host.ts";
 import { PlaywrightAgentBrowserHost } from "@contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts";
 import type { LaunchedBrowser, PwBrowser, PwContext, PwContextOptions, PwDialog, PwFrame, PwGeolocation, PwLocator, PwPage, PwRequest, PwResponse, PwRoute, PwWebSocketRoute, SessionMaterial } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
 

@@ -1,6 +1,7 @@
 /* src/contexts/objective-signal/infrastructure/lcov-coverage.adapter.ts CoverageCollectorPort over lcov. The missing DI seam: the file read is injected (no hard-coded readFileSync), so this is unit-testable without disk and fail-open by contract (no files → empty report, never a throw). */
 import { isAbsolute, relative } from "node:path";
-import type { CoverageCollectorPort, CoverageReport } from "../application/ports/index.ts";
+import type { CoverageCollectorPort } from "../application/ports/coverage-collector.port.ts";
+import type { CoverageReport } from "../domain/coverage-collector.ts";
 
 export interface CoverageFile { path: string; text: string; }
 type ReadLcovFiles = (specDir: string, namespace: string) => Promise<CoverageFile[]>;

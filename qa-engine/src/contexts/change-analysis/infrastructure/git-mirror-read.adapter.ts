@@ -4,7 +4,7 @@ import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import { hardenGitArgs } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
-import type { VcsReadPort } from "../application/ports/index.ts";
+import type { VcsReadPort } from "../application/ports/vcs-read.port.ts";
 
 /** Typed read side over a git mirror. Argv lives here; callers pass Sha and receive typed results. Read-only: this adapter never runs a git write (writes live only in workspace-and-publication). */
 export class GitMirrorReadAdapter implements VcsReadPort {

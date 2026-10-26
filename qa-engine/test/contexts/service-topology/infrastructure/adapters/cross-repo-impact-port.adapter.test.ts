@@ -15,7 +15,7 @@ import { CrossRepoImpactPortAdapter } from "@contexts/service-topology/infrastru
 import type { ServiceLink } from "@contexts/service-topology/application/index.ts";
 import type { MirrorRegistryPort } from "@kernel/ports/mirror-registry.port.ts";
 import type { SandboxedBinaryRunner, SandboxedRunRequest, SandboxedRunResult } from "../../../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
-import type { VcsReadPort } from "@contexts/change-analysis/application/ports/index.ts";
+import type { VcsReadPort } from "@contexts/change-analysis/application/index.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { Sha } from "@kernel/sha.ts";

@@ -1,7 +1,9 @@
 /* PreGenerationGroundingPort: fail-open context.json + context pack + harness facts. Never throws. */
 
 import type { ChangePagesPort } from "@contexts/service-topology/application/index.ts";
-import type { GroundingChange, PreGenerationGroundingPort, GroundingResult } from "../../application/ports/pre-generation-grounding.port.ts";
+import type { GroundingChange } from "../../application/pre-generation-grounding.ts";
+import type { PreGenerationGroundingPort } from "../../application/ports/pre-generation-grounding.port.ts";
+import type { GroundingResult } from "../../domain/pre-generation-grounding.ts";
 import type { HarnessFacts } from "@kernel/grounding.ts";
 import type { ChangePagesJoin } from "@kernel/change-pages.ts";
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "node:fs";

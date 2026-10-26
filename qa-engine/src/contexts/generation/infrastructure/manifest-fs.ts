@@ -1,6 +1,6 @@
 /* Manifest file IO. `targets`/`changeRef` are required; `file` stays optional so a hand-edited entry lacking it is not rejected. The manifest sits in a directory the agent writes into, so it is read and written strictly (readOwnedSpecFile, writeOwnedSpecFile): a link or a pipe at the file or at `.qa` is refused, never followed, and a write goes through a temporary file renamed over the target. */
 import { createHash } from "node:crypto";
-import type { ManifestEntry } from "../application/ports/index.ts";
+import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 import { MANIFEST_FILE, MAX_MANIFEST_BYTES, manifestEntryViolation } from "@kernel/manifest/manifest-entry.ts";
 import { ConfinedPathError, readConfinedSpecBytes, readOwnedSpecFile, writeOwnedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
 

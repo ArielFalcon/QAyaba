@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { QUARANTINE_SCAN_LIMIT, QuarantineLearnedRulesUseCase } from "@contexts/cross-run-learning/application/quarantine-learned-rules.use-case.ts";
 import { parseQuarantineSince, selectForQuarantine } from "@contexts/cross-run-learning/domain/quarantine.ts";
-import type { LearningQuarantinePort, LearningRule } from "@contexts/cross-run-learning/application/ports/index.ts";
+import type { LearningQuarantinePort } from "@contexts/cross-run-learning/application/ports/learning-quarantine.port.ts";
+import type { LearningRule } from "@contexts/cross-run-learning/domain/learning-repository.ts";
 
 const SINCE = "2026-09-01T00:00:00.000Z";
 const NOW = new Date("2026-10-12T10:00:00.000Z");

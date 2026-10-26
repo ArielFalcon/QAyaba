@@ -7,7 +7,8 @@
  */
 
 import { MAX_SPEC_SOURCE_BYTES, readOwnedSpecFile, removeOwnedSpecFile, writeOwnedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
-import type { SpecSnapshot, SpecSnapshotPort } from "../../application/ports/spec-snapshot.port.ts";
+import type { SpecSnapshot } from "../../domain/spec-snapshot.ts";
+import type { SpecSnapshotPort } from "../../application/ports/spec-snapshot.port.ts";
 
 /** The port bound to one run's working copy. `specDir` arguments are ignored: the root already names the directory. */
 export function specSnapshotPort(root: SpecRoot): SpecSnapshotPort {

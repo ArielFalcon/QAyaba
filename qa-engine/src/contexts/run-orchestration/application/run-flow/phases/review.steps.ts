@@ -10,7 +10,7 @@ import { precheckSpecsAgainstDom } from "@contexts/generation/application/index.
 import { citedSpec, filterReviewFindings } from "../../../domain/review-finding-filter.service.ts";
 import { verifyRebuttals, findingKey } from "../../../domain/review-rebuttals.service.ts";
 import { MAX_REVIEW_ROUNDS, reviewAction } from "../../../domain/review-action.ts";
-import type { ReviewPort } from "../../ports/index.ts";
+import type { ReviewPort } from "@contexts/generation/application/index.ts";
 import { end, goto, type StepOutcome } from "../run-flow.ts";
 import { throwIfAborted } from "../abort.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";

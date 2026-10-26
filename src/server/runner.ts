@@ -33,7 +33,7 @@ import { RunTrace, SYSTEM_CLOCK, markEnqueued, type RunFacts, type RunIdentity, 
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
-import type { RunPipelinePort, RunInput, ObserverPort } from "@contexts/run-orchestration/application/ports/index.ts";
+import type { RunPipelinePort, RunInput, ObserverPort } from "@contexts/run-orchestration/application/index.ts";
 
 type RunStepEvent = Extract<RunEventBody, { type: "step.changed" }>;
 type RunStep = RunStepEvent["step"];

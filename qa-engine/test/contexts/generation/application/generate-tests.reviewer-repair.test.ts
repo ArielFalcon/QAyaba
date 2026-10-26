@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GenerateTestsUseCase, type GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
-import type { ManifestEntry } from "@contexts/generation/application/ports/index.ts";
-import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/generation-input.ts";
 import { REPAIR_TURN_TIMEOUT_MS } from "@contexts/generation/domain/repair-turn.ts";
 import { AgentTimeoutError, AgentUnavailableError } from "@kernel/domain-error.ts";
 import type { AgentPromptOpts } from "@kernel/ports/agent-runtime.port.ts";

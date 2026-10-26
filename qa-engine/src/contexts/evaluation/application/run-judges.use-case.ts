@@ -7,8 +7,11 @@
  */
 
 import { judgeDefinition, judgeScore, buildJudgeInput, parseJudgeOutput, judgeGraderVersion, type JudgeName } from "../domain/judges.ts";
-import type { JudgeAgentPort, JudgeAttempt, JudgeEvidencePort, JudgeLedgerPort, JudgeOutcome } from "./ports/judge-ports.ts";
-import type { ScoreStorePort } from "./ports/index.ts";
+import type { JudgeAgentPort } from "./ports/judge-agent.port.ts";
+import type { JudgeAttempt, JudgeOutcome } from "../domain/judge-evidence.ts";
+import type { JudgeEvidencePort } from "./ports/judge-evidence.port.ts";
+import type { JudgeLedgerPort } from "./ports/judge-ledger.port.ts";
+import type { ScoreStorePort } from "./ports/score-store.port.ts";
 
 export interface RunJudgesDeps {
   evidence: JudgeEvidencePort;

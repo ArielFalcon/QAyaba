@@ -1,7 +1,8 @@
 /* OpenAPI-anchored FE↔BE HTTP link resolver. App-specific patterns come from the injected HttpBoundaryProfile. Per-repo errors degrade to an empty result for that repo — never throws. from.symbol walks the AST to the enclosing method; falls back to a backward-scan heuristic if tree-sitter fails to load. The OpenAPI documents and the front's sources are read through one RepoReader for each repository (see repo-walk.ts): a mirror is a directory the agent writes into, so no link is followed, no named pipe is opened and neither the entries looked at nor the size of a file is unbounded; what could not be used is skipped, and said once for the repository. */
 import { resolve, dirname } from "node:path";
 import { createRequire } from "node:module";
-import type { ServiceBoundaryResolverPort, ResolveLinksResult } from "../application/ports/index.ts";
+import type { ServiceBoundaryResolverPort } from "../application/ports/service-boundary-resolver.port.ts";
+import type { ResolveLinksResult } from "../domain/service-boundary-resolver.ts";
 import type {
   RepoRef, ServiceLink, ServiceSymbolRef, ContractDrift, ExternalCall, UnresolvedCall,
   HttpBoundaryProfile,

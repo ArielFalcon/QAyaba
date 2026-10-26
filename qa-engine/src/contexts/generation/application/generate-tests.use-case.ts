@@ -3,15 +3,14 @@ import type { AgentRuntimePort, AgentSession, AgentTurnStats } from "@kernel/por
 import type { AgentRole } from "@kernel/agent-role.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
-import type {
-  PromptRenderingPort,
-  VerdictParserPort,
-  ManifestRepositoryPort,
-  PromptBudgetPort,
-  ManifestEntry,
-  GeneratorDeliverable,
-} from "./ports/index.ts";
-import type { OpencodeRunInput, ReviewInput } from "./ports/generation-ports.ts";
+import type { PromptRenderingPort } from "./ports/prompt-rendering.port.ts";
+import type { VerdictParserPort } from "./ports/verdict-parser.port.ts";
+import type { ManifestRepositoryPort } from "./ports/manifest-repository.port.ts";
+import type { PromptBudgetPort } from "./ports/prompt-budget.port.ts";
+import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
+import type { GeneratorDeliverable } from "../domain/manifest-repository.ts";
+import type { OpencodeRunInput } from "./generation-input.ts";
+import type { ReviewInput } from "../domain/generation-input.ts";
 import { isAgentTimeoutError } from "@kernel/domain-error.ts";
 import { classifyGenerationEnd, renderGenerationNote } from "../domain/generation-end.ts";
 import { declareSpecs } from "../domain/declared-specs.ts";

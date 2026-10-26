@@ -7,8 +7,10 @@
 import { isCatalogName, isGradedName } from "../domain/grader-catalog.ts";
 import { isJudgeName, type JudgeName } from "../domain/judges.ts";
 import type { GradeRunUseCase } from "./grade-run.use-case.ts";
-import type { RegradeJob, RegradeJobStorePort, RunSelectorPort } from "./ports/index.ts";
-import type { JudgeRegradePort } from "./ports/judge-ports.ts";
+import type { RegradeJob } from "../domain/evidence.ts";
+import type { RegradeJobStorePort } from "./ports/regrade-job-store.port.ts";
+import type { RunSelectorPort } from "./ports/run-selector.port.ts";
+import type { JudgeRegradePort } from "./ports/judge-regrade.port.ts";
 
 export type RegradeRequest =
   | { runIds: readonly string[]; graders?: readonly string[] }

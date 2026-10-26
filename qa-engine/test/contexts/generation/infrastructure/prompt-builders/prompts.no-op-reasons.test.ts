@@ -9,7 +9,7 @@ import {
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { LEAD_PLAN_KIND } from "@kernel/coordination.ts";
-import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/generation-input.ts";
 
 
 const NOTHING_WORTH_A_TEST = /nothing (?:here )?is worth a test/i;

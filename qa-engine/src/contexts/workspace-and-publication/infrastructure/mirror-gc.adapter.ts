@@ -1,4 +1,4 @@
-import type { MirrorGcPort } from "../application/ports/index.ts";
+import type { MirrorGcPort } from "../application/ports/mirror-gc.port.ts";
 
 type GcFn = (mirrorDir: string) => Promise<void>;
 

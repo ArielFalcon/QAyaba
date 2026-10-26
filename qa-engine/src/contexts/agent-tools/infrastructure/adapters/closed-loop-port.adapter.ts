@@ -21,7 +21,10 @@ import { RunSpecUseCase, type RunSpecRequest, type RunSpecResponse } from "@cont
 import type { SpecCleanupPort, SpecExecutorPort } from "@contexts/test-execution/application/index.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import type { AuthSessionContext, AuthSessionPort } from "@contexts/app-catalog/application/index.ts";
-import type { ClosedLoopCleanupPort, ClosedLoopExecutionPort, ClosedLoopHandle, ClosedLoopOpenInput, ClosedLoopPort, FlowLoopHandle, FlowLoopOpenInput } from "../../application/ports/closed-loop.port.ts";
+import type { ClosedLoopCleanupPort } from "../../application/ports/closed-loop-cleanup.port.ts";
+import type { ClosedLoopExecutionPort } from "../../application/ports/closed-loop-execution.port.ts";
+import type { ClosedLoopHandle, ClosedLoopOpenInput, FlowLoopHandle, FlowLoopOpenInput } from "../../domain/closed-loop.ts";
+import type { ClosedLoopPort } from "../../application/ports/closed-loop.port.ts";
 import type { ClosedLoopRegistry } from "../closed-loop-registry.ts";
 import { trustedSessionRenewal } from "./trusted-session-renewal.ts";
 import { traceToolCall, type ToolObserver, type ToolTraceWiring } from "./tool-call-trace.ts";

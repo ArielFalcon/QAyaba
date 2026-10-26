@@ -21,7 +21,7 @@ import {
   DEMOTE_RATE,
   MIN_OUTCOMES,
 } from "@contexts/cross-run-learning/domain/rule-fold.ts";
-import type { LearningRule } from "@contexts/cross-run-learning/application/ports/index.ts";
+import type { LearningRule } from "@contexts/cross-run-learning/domain/learning-repository.ts";
 
 function makeRule(overrides: Partial<LearningRule> = {}): LearningRule {
   return {

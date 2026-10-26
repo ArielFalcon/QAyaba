@@ -2,7 +2,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CompositeServiceBoundaryResolver } from "@contexts/service-topology/infrastructure/composite-resolver.adapter.ts";
-import type { ServiceBoundaryResolverPort, ResolveLinksResult } from "@contexts/service-topology/application/ports/index.ts";
+import type { ServiceBoundaryResolverPort } from "@contexts/service-topology/application/ports/service-boundary-resolver.port.ts";
+import type { ResolveLinksResult } from "@contexts/service-topology/domain/service-boundary-resolver.ts";
 import type { RepoRef, ServiceLink, ServiceSymbolRef, ContractDrift } from "@contexts/service-topology/domain/index.ts";
 
 const FRONT: RepoRef = { repo: "front/webapp", mirrorDir: "/front" };

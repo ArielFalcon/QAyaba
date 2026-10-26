@@ -1,5 +1,6 @@
 /* src/contexts/objective-signal/infrastructure/fault-injection-oracle.adapter.ts ValueOraclePort for the E2E target. The pure scoring half (computeFaultInjectionScore/isFlowBreak) lives in ../domain/fault-injection-score.ts. Signal-only by contract: a null valueScore never gates publish. */
-import type { ValueOraclePort, ValueOracleResult } from "../application/ports/index.ts";
+import type { ValueOraclePort } from "../application/ports/value-oracle.port.ts";
+import type { ValueOracleResult } from "../domain/coverage-collector.ts";
 import type { BlastRadius } from "@kernel/blast-radius.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { computeFaultInjectionScore } from "../domain/fault-injection-score.ts";

@@ -1,26 +1,16 @@
 /* The data a run carries from one phase to the next. Each section is written by the phase that owns it and read by the later ones; it holds no live object, so it can be recorded as it stands. */
 
-import type {
-  ArchitectureContext,
-  CommitIntent,
-  ContractDrift,
-  GenerationEnrichment,
-  GenerationOutput,
-  ExecutionPort,
-  ValidationPort,
-  CrossRepoImpact,
-  GroundingOmission,
-  HarnessFacts,
-  RelevanceBias,
-  RetrievedRule,
-  SelectedExemplar,
-  ServiceLink,
-} from "../ports/index.ts";
+import type { ArchitectureContext, GroundingOmission, HarnessFacts } from "@kernel/grounding.ts";
+import type { CommitIntent } from "@kernel/commit-intent.ts";
+import type { ContractDrift, CrossRepoImpact, ServiceLink } from "@contexts/service-topology/application/index.ts";
+import type { GenerationEnrichment, GenerationOutput } from "@contexts/generation/application/index.ts";
+import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
+import type { RelevanceBias, RetrievedRule, SelectedExemplar } from "@contexts/cross-run-learning/application/index.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { ContractFeedback } from "../../domain/contract-feedback.ts";
-import type { ReviewPort } from "../ports/index.ts";
-import type { SpecSnapshot } from "../ports/spec-snapshot.port.ts";
+import type { ReviewPort } from "@contexts/generation/application/index.ts";
+import type { SpecSnapshot } from "../../domain/spec-snapshot.ts";
 import type { RegenerationAcceptance } from "../regeneration-acceptance.ts";
 import type { ReviewedSpecs, ReviewTally } from "./phases/review-services.ts";
 import type { DegradeReason } from "./failure-policy.ts";

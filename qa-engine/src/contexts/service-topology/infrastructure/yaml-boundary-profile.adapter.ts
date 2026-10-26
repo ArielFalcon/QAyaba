@@ -1,6 +1,6 @@
 /* Reads `boundaries[]` from app YAML into BoundaryProfile[]. App-specific patterns are config strings, never literals in engine core. The reader is injected — this module never touches the filesystem. Per-entry validation is fail-closed (warn + skip). Malformed YAML, a non-array `boundaries`, or a throwing reader degrade to [] (fail-open). */
 import { parse as parseYaml } from "yaml";
-import type { BoundaryProfileProviderPort } from "../application/ports/index.ts";
+import type { BoundaryProfileProviderPort } from "../application/ports/boundary-profile-provider.port.ts";
 import type {
   BoundaryProfile, HttpBoundaryProfile, EventBoundaryProfile, HttpBackendBoundaryProfile,
   CallSiteRef, EventPatternRef, CallPatternRef,

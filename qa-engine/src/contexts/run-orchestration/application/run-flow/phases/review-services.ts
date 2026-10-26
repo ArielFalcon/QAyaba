@@ -5,7 +5,7 @@
  */
 
 import type { QaCase } from "@kernel/qa-case.ts";
-import type { ReviewStats } from "../../ports/index.ts";
+import type { ReviewStats } from "@contexts/generation/application/index.ts";
 import { diffContracts } from "@contexts/objective-signal/application/index.ts";
 import { readConfinedSpecFile, type SpecRoot } from "../../../../../shared-infrastructure/spec-path-confinement.ts";
 import type { ReviewSpecText } from "@contexts/generation/application/index.ts";

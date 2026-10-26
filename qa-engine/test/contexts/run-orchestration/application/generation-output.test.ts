@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { reviewerApprovalOf } from "@contexts/run-orchestration/application/ports/index.ts";
+import { reviewerApprovalOf } from "@contexts/generation/application/index.ts";
 
 test("a generation that was reviewed reports the reviewer's approval, whichever way it went", () => {
   assert.equal(reviewerApprovalOf({ reviewed: true, approved: true }), true);

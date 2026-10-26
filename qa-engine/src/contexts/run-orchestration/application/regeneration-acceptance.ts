@@ -14,8 +14,11 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { MAX_ACCEPTANCE_EXECUTIONS } from "../../../shared-kernel/derive-cycle-backstop.ts";
 import type { ContractFeedback } from "../domain/contract-feedback.ts";
-import type { ClosedLoopHandle, ExecutionPort, RunDeadlinePort, ValidationPort } from "./ports/index.ts";
-import type { SpecSnapshot, SpecSnapshotPort } from "./ports/spec-snapshot.port.ts";
+import type { ClosedLoopHandle } from "@contexts/agent-tools/application/index.ts";
+import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
+import type { RunDeadlinePort } from "./ports/run-deadline.port.ts";
+import type { SpecSnapshot } from "../domain/spec-snapshot.ts";
+import type { SpecSnapshotPort } from "./ports/spec-snapshot.port.ts";
 
 /** One accepted file's proof: its suite-relative path, the sha256 of its green bytes, and those bytes when they could be read, so a later restore has them. */
 export interface AcceptanceProofEntry {

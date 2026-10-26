@@ -13,9 +13,10 @@ import type { AccountLock } from "../domain/account-lock.ts";
 import { AGENT_BROWSER_REFUSAL, type AgentBrowserCapability, type AgentBrowserRefusalCode } from "../domain/agent-browser-capability.ts";
 import type { RouteGuard } from "../domain/agent-browser-route-guard.ts";
 import { detectInvalidation } from "../domain/agent-browser-session-invalidation.ts";
-import type { AgentBrowserHostPort, BlockedRequest, BrowserAction, PageState } from "./ports/agent-browser.ports.ts";
-import { BrowserActionError } from "./ports/agent-browser.ports.ts";
-import type { SessionRenewalPort } from "./ports/run-spec.ports.ts";
+import type { AgentBrowserHostPort } from "./ports/agent-browser-host.port.ts";
+import type { BlockedRequest, BrowserAction, PageState } from "../domain/agent-browser-host.ts";
+import { BrowserActionError } from "../domain/agent-browser-host.ts";
+import type { SessionRenewalPort } from "./ports/session-renewal.port.ts";
 import type { CallObserver } from "./run-spec.use-case.ts";
 
 export const MAX_SNAPSHOT_CHARS = 12_000;

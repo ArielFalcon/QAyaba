@@ -6,10 +6,10 @@ import { join } from "node:path";
 import { AgentBrowserPortAdapter, type AgentBrowserPortAdapterDeps } from "@contexts/agent-tools/infrastructure/adapters/agent-browser-port.adapter.ts";
 import { AgentBrowserRegistry } from "@contexts/agent-tools/infrastructure/agent-browser-registry.ts";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
-import { BrowserActionError, type AgentBrowserHostPort, type BrowserAction, type BrowserCallOptions, type PageState } from "@contexts/test-execution/application/ports/agent-browser.ports.ts";
+import { BrowserActionError, type AgentBrowserHostPort, type BrowserAction, type BrowserCallOptions, type PageState } from "@contexts/test-execution/application/index.ts";
 import { newSandboxReport, withExecScope } from "../../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../../../src/shared-infrastructure/run-secret-redaction.ts";
-import type { AgentBrowserOpenInput } from "@contexts/run-orchestration/application/ports/index.ts";
+import type { AgentBrowserOpenInput } from "@contexts/agent-tools/application/index.ts";
 import type { SessionMaterial } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
 
 const BASE = "https://dev.example.com";

@@ -12,7 +12,7 @@
  */
 
 import { createHash } from "node:crypto";
-import type { ScoreSinkPort } from "@contexts/evaluation/application/ports/index";
+import type { ScoreSinkPort } from "@contexts/evaluation/application/index.ts";
 import { GRADER_CATALOG, MAX_SCORE_COMMENT_CHARS } from "@contexts/evaluation/domain/grader-catalog";
 import type { Score } from "@contexts/evaluation/domain/score";
 

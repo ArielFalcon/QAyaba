@@ -10,7 +10,7 @@ import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-
 import { DevLease } from "@contexts/test-execution/domain/dev-lease.ts";
 import { RUN_SPEC_AGENT, RUN_SPEC_FLOW_AGENT } from "@contexts/test-execution/domain/run-spec-capability.ts";
 import type { ExecutionOpts } from "@contexts/test-execution/application/index.ts";
-import type { ClosedLoopHandle, ClosedLoopOpenInput, FlowLoopOpenInput } from "@contexts/run-orchestration/application/ports/index.ts";
+import type { ClosedLoopHandle, ClosedLoopOpenInput, FlowLoopOpenInput } from "@contexts/agent-tools/application/index.ts";
 
 const SPEC = 'import { test } from "../fixtures";\ntest("loads", async () => {});\n';
 const sha = (text: string): string => createHash("sha256").update(text).digest("hex");

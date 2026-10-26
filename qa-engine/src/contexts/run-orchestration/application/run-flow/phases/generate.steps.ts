@@ -9,8 +9,8 @@ import { attributeContradictions } from "../../../domain/helpers/contradiction-a
 import { engineSideCauseOf, terminalForGenerationEnd } from "../../../domain/helpers/generation-end-terminal.ts";
 import { checkPreExecGrounding } from "@contexts/generation/application/index.ts";
 import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
-import { reviewerApprovalOf } from "../../ports/index.ts";
-import type { GenerationOutput } from "../../ports/index.ts";
+import { reviewerApprovalOf } from "@contexts/generation/application/index.ts";
+import type { GenerationOutput } from "@contexts/generation/application/index.ts";
 import type { CoordinateResult } from "@contexts/coordination/application/index.ts";
 import { evidenceFromPackDataRoutes } from "@contexts/coordination/application/index.ts";
 import { end, type StepOutcome } from "../run-flow.ts";

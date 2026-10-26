@@ -20,7 +20,8 @@ import {
   DELEGATED_AUTHORITY_PHRASES,
   type LintSection,
 } from "@contexts/generation/domain/prompt-contract-lint.ts";
-import type { OpencodeRunInput, ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/generation-input.ts";
+import type { ReviewInput } from "@contexts/generation/domain/generation-input.ts";
 import { setAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { rosterFixturePath } from "../../../../support/roster-fixture.ts";
 

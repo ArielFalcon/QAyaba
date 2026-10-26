@@ -1,7 +1,7 @@
 /* The decide phase of a run: the final proof guard over the delivered specs, the verdict's decision and the coordinated run's closing telemetry. */
 
 import { decide, type RunEvidence } from "../../../domain/run-decision.service.ts";
-import { reviewerApprovalOf } from "../../ports/index.ts";
+import { reviewerApprovalOf } from "@contexts/generation/application/index.ts";
 import { end, type StepOutcome } from "../run-flow.ts";
 import { runEnd } from "../run-end.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";

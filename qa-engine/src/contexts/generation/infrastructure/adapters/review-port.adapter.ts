@@ -1,8 +1,10 @@
 /* ReviewPort: standalone reviewer session. Fail-closed on parse miss or session fault (approved:false, parsed:false). A session fault, or a reviewer that returned nothing, is also marked `unavailable`: no judgment was made, which the run must not mistake for a rejection. */
 
 import type { QaCase } from "@kernel/qa-case.ts";
-import type { ReviewPort, ReviewEnrichment, ReviewStats } from "../../application/ports/review.port.ts";
-import { REVIEWER_UNAVAILABLE_MARKER } from "../../application/ports/review.port.ts";
+import type { ReviewPort } from "../../application/ports/review.port.ts";
+import type { ReviewEnrichment } from "../../application/review.ts";
+import type { ReviewStats } from "../../domain/review.ts";
+import { REVIEWER_UNAVAILABLE_MARKER } from "../../domain/review.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import type { PromptRenderingPort, VerdictParserPort } from "@contexts/generation/application/index.ts";
 import type { ReviewInput, StepLimitFor } from "@contexts/generation/application/index.ts";

@@ -2,7 +2,7 @@
 
 import { appendFileSync } from "node:fs";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import type { RunHistoryPort } from "../../application/ports/index.ts";
+import type { RunHistoryPort } from "../../application/ports/run-history.port.ts";
 
 /* Process-lifetime store — no persistence across restarts. Prefer FileRunHistoryAdapter when outcomes must survive a restart. */
 export class InMemoryRunHistoryAdapter implements RunHistoryPort {

@@ -1,5 +1,6 @@
 /* app scopes repo.listAll for the existing-rule set the dedup decision runs against. archetype comes from the use-case (never fabricated here; coalesced to null only when the use-case has none). */
-import type { LearningRepositoryPort, LearningRule, ReflectionInput, StructuredReflection } from "../application/ports/index.ts";
+import type { LearningRepositoryPort } from "../application/ports/learning-repository.port.ts";
+import type { LearningRule, ReflectionInput, StructuredReflection } from "../domain/learning-repository.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import { capRuleFields, correctionToErrorClass, decideDistill } from "../domain/distill-rule.ts";
 /* Default sanitize mode is "issue" — the same as every sibling reviewer/selector-authored field. */

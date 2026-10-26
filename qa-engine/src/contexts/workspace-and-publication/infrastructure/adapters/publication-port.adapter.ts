@@ -15,7 +15,7 @@ export interface PublishDecisionCollaborator {
     e2eChanged: boolean;
   }): { outcome: "pr" | "issue" | "shadow" | "quarantine" | "noop"; reason: string };
 }
-/* Local structural mirrors of GitHubPrPort / GitHubIssuePort / ShadowPublicationPort's own publish surface (workspace-and-publication/application/ports/index.ts) — duck-typed, NOT imported. */
+/* Local structural mirrors of GitHubPrPort / GitHubIssuePort / ShadowPublicationPort's own publish surface (workspace-and-publication/application/ports/) — duck-typed, NOT imported. */
 export interface GitHubPrCollaborator {
   openWithAutoMerge(repo: string, branch: string, title: string, body: string): Promise<{ url: string; number: number }>;
 }

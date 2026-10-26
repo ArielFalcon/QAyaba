@@ -16,7 +16,7 @@ import { getRecord, createRecord, updateRecord, getRunPhases } from "./history";
 import { recordPhaseSnapshot } from "@contexts/run-orchestration/domain/run-phase-cursor";
 import { AppConfig } from "../orchestrator/config-loader";
 import { createRunEventStore } from "./run-events";
-import type { RunPipelinePort, RunInput } from "@contexts/run-orchestration/application/ports/index.ts";
+import type { RunPipelinePort, RunInput } from "@contexts/run-orchestration/application/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { AgentTimeoutError, UntrustedGitTreeError } from "@kernel/domain-error";
 import { getIncidents } from "./maintainer";

@@ -6,7 +6,7 @@
 
 import { startRunChildSpan } from "../../../shared-infrastructure/telemetry/run-spans.ts";
 import type { TelemetryPort } from "../../../shared-kernel/telemetry/telemetry.port.ts";
-import type { CheckResult } from "../application/ports/index.ts";
+import type { CheckResult } from "../domain/execution-strategy.ts";
 import type { ValidateDeps } from "./static-gate.checks.ts";
 
 export type ValidateCheckName = "typecheck" | "lint" | "list" | "manifest";

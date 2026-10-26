@@ -2,7 +2,7 @@
 
 import { RUN_PURPOSE } from "@kernel/run-mode.ts";
 import { terminalForPrecondition } from "../../../domain/helpers/precondition-terminal.ts";
-import type { AgentBrowserHandle, ClosedLoopHandle, GeolocationHandle } from "../../ports/index.ts";
+import type { AgentBrowserHandle, ClosedLoopHandle, GeolocationHandle } from "@contexts/agent-tools/application/index.ts";
 import { end, type StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";

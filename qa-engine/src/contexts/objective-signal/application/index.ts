@@ -1,5 +1,4 @@
 /* Public surface of this context: other contexts import only from this file. It declares nothing. */
-export type { CoverageCollectorPort, CoverageReport, ValueOraclePort } from "./ports/index.ts";
 export { parseDiffHunks } from "../domain/assemble-change-coverage.ts";
 export { EMPTY_TOKEN_SET, changeTokens } from "../domain/change-tokens.ts";
 export type { ChangeTokenSet } from "../domain/change-tokens.ts";
@@ -8,4 +7,8 @@ export type { ChangeCoverage, CoveragePolicy } from "../domain/decide-coverage.s
 export { renderCoverageGap } from "../domain/render-coverage-gap.ts";
 export { diffContracts } from "../domain/test-intent-contract.ts";
 export type { IntentViolation } from "../domain/test-intent-contract.ts";
-export type { CoverageMeasurement, ObjectiveSignalPort } from "./ports/objective-signal.port.ts";
+export type { CoverageCollectorPort } from "./ports/coverage-collector.port.ts";
+export type { ObjectiveSignalPort } from "./ports/objective-signal.port.ts";
+export type { ValueOraclePort } from "./ports/value-oracle.port.ts";
+export type { CoverageReport } from "../domain/coverage-collector.ts";
+export type { CoverageMeasurement } from "../domain/objective-signal.ts";

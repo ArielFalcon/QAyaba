@@ -1,6 +1,8 @@
 /* GenerationPort → GenerateTestsUseCase. Static per-run context is constructor config; specDir/objectives/signal/diff vary per call. Per-call `diff` is the live commit diff and takes precedence over ctx.diff. specSources come from optional readSpecSource — absent collaborator omits them (Lever-2 finds nothing). stepLimit (and reviewerStepLimit, when the generation runs its reviewer) come from optional stepLimitFor — absent collaborator, or a role with no limit, omits the key. reexploreNavigations is omitted; FixLoop treats absent as 0. A regeneration turn carries the specs the run delivered so far (deliveredSpecs), the ones a selector contradiction points at (attributedSpecFiles) and the suite's own entries (existingSpecFiles), minus every file the confined reader no longer finds; a first pass carries no delivered or attributed spec, and the suite's entries exactly as the grounding folded them. AbortSignal is forwarded into openSession. */
 
-import type { GenerationPort, GenerationEnrichment, GenerationOutput } from "../../application/ports/generation.port.ts";
+import type { GenerationPort } from "../../application/ports/generation.port.ts";
+import type { GenerationEnrichment } from "../../application/generation.ts";
+import type { GenerationOutput } from "../../domain/generation.ts";
 import { renderLearnedRules, renderLearnedRulesForReviewer } from "@contexts/cross-run-learning/application/index.ts";
 import type { PlanOutput } from "@kernel/plan-output.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/index.ts";
@@ -11,7 +13,7 @@ import { suiteEntryFile } from "@contexts/generation/application/index.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import { resolveConfinedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 
-/* The barrel's CommitIntent (ports/index.ts) is kernel-resident/structural — `type` is a plain `string` there (this adapter, not the barrel, is where cross-context types are allowed). Generation's OWN CommitIntent narrows `type` to its CommitType union. The value ALWAYS originates from ChangeAnalysisPortAdapter's classifyCommit() call (commit-classification.ts's own CommitType union is structurally identical to generation's), so this is a same-shape re-assertion at the adapter boundary, never a fabricated narrowing. */
+/* The kernel's CommitIntent (shared-kernel/commit-intent.ts) is kernel-resident/structural — `type` is a plain `string` there (this adapter, not the port, is where cross-context types are allowed). Generation's OWN CommitIntent narrows `type` to its CommitType union. The value ALWAYS originates from ChangeAnalysisPortAdapter's classifyCommit() call (commit-classification.ts's own CommitType union is structurally identical to generation's), so this is a same-shape re-assertion at the adapter boundary, never a fabricated narrowing. */
 function toGenerationIntent(intent: GenerationEnrichment["intent"]): GenerationCommitIntent | undefined {
   return intent as GenerationCommitIntent | undefined;
 }

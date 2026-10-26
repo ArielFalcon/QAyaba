@@ -1,4 +1,4 @@
-import type { CoverageReport } from "../application/ports/index.ts";
+import type { CoverageReport } from "./coverage-collector.ts";
 import type { ChangeCoverage } from "./decide-coverage.service.ts";
 
 type CoveredLines = Map<string, Set<number>>;

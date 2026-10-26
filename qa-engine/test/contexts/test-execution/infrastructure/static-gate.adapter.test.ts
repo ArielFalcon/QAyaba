@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { StaticGateAdapter } from "@contexts/test-execution/infrastructure/static-gate.adapter.ts";
-import type { ValidationResult } from "@contexts/test-execution/application/ports/index.ts";
+import type { ValidationResult } from "@contexts/test-execution/domain/execution-strategy.ts";
 
 const ok = { ok: true, output: "" };
 

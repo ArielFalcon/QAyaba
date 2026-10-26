@@ -14,7 +14,8 @@ import { err } from "@kernel/result.ts";
 import type { CodeExplorePort } from "@kernel/ports/code-explore.port.ts";
 import type { CodeGraphToolRequest, CodeGraphToolResponse } from "../../domain/code-graph-query.ts";
 import { shapeExploreAnswer } from "../../domain/explore-answer.ts";
-import type { CodeGraphToolsHandle, CodeGraphToolsOpenInput, CodeGraphToolsPort } from "../../application/ports/code-graph-tools.port.ts";
+import type { CodeGraphToolsHandle, CodeGraphToolsOpenInput } from "../../domain/code-graph-tools.ts";
+import type { CodeGraphToolsPort } from "../../application/ports/code-graph-tools.port.ts";
 import type { CodeGraphToolRegistry } from "../code-graph-tool-registry.ts";
 import { traceToolCall, type ToolObserver, type ToolTraceWiring } from "./tool-call-trace.ts";
 

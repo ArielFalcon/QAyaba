@@ -4,7 +4,7 @@
    "reviewer flow" export under generation/ (grep-confirmed: renderReviewer is called from exactly
    ONE place, inside generate()'s conditional review branch). This adapter is THIN: it does not
    reimplement the fail-closed formula, it reads the SAME ReviewJudgment fields the port interface
-   (ports/index.ts's own comment) already documents verbatim — parsed:false is a parse MISS
+   (its own comment) already documents verbatim — parsed:false is a parse MISS
    (not a rejection), distinct from a genuine approved:false. blockingCount gates blocking-vs-advisory.
    The #1 fail-closed invariant is asserted here directly.
  */
@@ -12,8 +12,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ReviewPortAdapter } from "@contexts/generation/infrastructure/adapters/review-port.adapter.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
-import type { PromptRenderingPort, VerdictParserPort, ReviewJudgment } from "@contexts/generation/application/ports/index.ts";
-import type { ReviewInput, StepLimitRole } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { PromptRenderingPort } from "@contexts/generation/application/ports/prompt-rendering.port.ts";
+import type { VerdictParserPort } from "@contexts/generation/application/ports/verdict-parser.port.ts";
+import type { ReviewJudgment } from "@contexts/generation/domain/manifest-repository.ts";
+import type { ReviewInput, StepLimitRole } from "@contexts/generation/domain/generation-input.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 

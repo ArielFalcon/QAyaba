@@ -7,7 +7,7 @@ import { countDirectives, hasTrustLanguage, type FactId, type PromptClaim } from
 import { MAX_ROUTES, MAX_ROUTES_PER_CHANGE, REDIRECT_ADVISORY_INTRO, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import { ROUTE_REASON } from "@kernel/route-capturability.ts";
 import { ROUTE_LINK_FIELDS } from "@contexts/generation/domain/route-ranking.ts";
-import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ArchitectureContext } from "@contexts/generation/domain/generation-input.ts";
 import type { ChangedElement } from "@kernel/diff-parser/changed-element.ts";
 
 function stubDomDeps(result: string | undefined): CaptureDomDeps {

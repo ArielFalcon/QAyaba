@@ -1,4 +1,4 @@
-import type { ServiceBoundaryResolverPort } from "../application/ports/index.ts";
+import type { ServiceBoundaryResolverPort } from "../application/ports/service-boundary-resolver.port.ts";
 import type { BoundaryProfile, HttpBoundaryProfile, EventBoundaryProfile, HttpBackendBoundaryProfile } from "../domain/index.ts";
 import { CompositeServiceBoundaryResolver } from "./composite-resolver.adapter.ts";
 import { OpenApiHttpResolver } from "./openapi-http-resolver.adapter.ts";

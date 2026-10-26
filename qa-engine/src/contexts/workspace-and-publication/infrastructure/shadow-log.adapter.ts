@@ -1,4 +1,4 @@
-import type { ShadowPublicationPort } from "../application/ports/index.ts";
+import type { ShadowPublicationPort } from "../application/ports/shadow-publication.port.ts";
 
 export class ShadowLogAdapter implements ShadowPublicationPort {
   constructor(private readonly log: (msg: string) => void = console.log) {}

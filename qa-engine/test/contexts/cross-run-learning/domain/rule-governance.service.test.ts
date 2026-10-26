@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DETERMINISTIC_RULE_SOURCE_PREFIX, RuleGovernanceService } from "@contexts/cross-run-learning/domain/rule-governance.service.ts";
-import type { LearningRule } from "@contexts/cross-run-learning/application/ports/index.ts";
+import type { LearningRule } from "@contexts/cross-run-learning/domain/learning-repository.ts";
 
 /* `at` is required: LearningRule includes it (history.ts ORDER BY ... at DESC). */
 const rule = (status: LearningRule["status"], successRate: number | null, trigger: string, at = "2026-01-01T00:00:00.000Z"): LearningRule =>

@@ -2,7 +2,8 @@
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { ChildProcess } from "node:child_process";
-import type { ValueOraclePort, ValueOracleResult } from "../application/ports/index.ts";
+import type { ValueOraclePort } from "../application/ports/value-oracle.port.ts";
+import type { ValueOracleResult } from "../domain/coverage-collector.ts";
 import type { BlastRadius } from "@kernel/blast-radius.ts";
 import type { ProcessKillPort } from "@kernel/process-sandbox/process-kill.port.ts";
 import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";

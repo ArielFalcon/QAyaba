@@ -1,6 +1,6 @@
 /* Coverage dump readers. Fail-open: an absent, unusable or corrupt dump or report degrades to an empty result — never throws, never waits, never leaves the mirror. An empty report is unmeasured → unknown → never blocks publish. What a run of the tests leaves is the agent's to shape, so every read goes through run-output-reader (the strict read under a cap; what cannot be used is said aloud, quoting nothing of it). The dumps of a run, and the reports of a run, are each used whole or not at all: the coverage of some of them is a ratio of a part of what the run did, lower than the real one, and under enforce it would block a valid change, so when any of them cannot be used none of them is used and the result is empty. */
 import { join } from "node:path";
-import type { CoverageScripts } from "../application/ports/index.ts";
+import type { CoverageScripts } from "../domain/coverage-collector.ts";
 import { defaultParseV8Coverage, type CoveredLines, type TimeSpent, type V8Entry } from "./v8-browser-coverage.adapter.ts";
 import type { CoverageFile } from "./lcov-coverage.adapter.ts";
 import type { IstanbulFile } from "./c8-coverage.adapter.ts";

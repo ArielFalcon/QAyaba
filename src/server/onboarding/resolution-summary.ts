@@ -1,5 +1,5 @@
 /* Aggregates a resolver result into a per-edge summary for the wizard result screen. */
-import type { ResolveLinksResult } from "@contexts/service-topology/application/ports/index.ts";
+import type { ResolveLinksResult } from "@contexts/service-topology/application/index.ts";
 
 export interface BoundaryEdgeSummary {
   fromRepo: string;

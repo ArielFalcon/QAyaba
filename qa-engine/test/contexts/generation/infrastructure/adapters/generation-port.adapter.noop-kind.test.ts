@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GenerationPortAdapter } from "@contexts/generation/infrastructure/adapters/generation-port.adapter.ts";
 import { GenerateTestsUseCase, type GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
-import type { GeneratorDeliverable } from "@contexts/generation/application/ports/index.ts";
+import type { GeneratorDeliverable } from "@contexts/generation/domain/manifest-repository.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { NOOP_KIND } from "@kernel/noop-kind.ts";
 

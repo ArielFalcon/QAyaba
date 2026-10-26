@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { aggregateResolution } from "./resolution-summary";
-import type { ResolveLinksResult } from "@contexts/service-topology/application/ports/index.ts";
+import type { ResolveLinksResult } from "@contexts/service-topology/application/index.ts";
 
 function ref(repo: string, file: string, symbol: string) {
   return { repo, file, symbol };

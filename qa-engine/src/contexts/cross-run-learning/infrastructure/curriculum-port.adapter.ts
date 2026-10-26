@@ -1,6 +1,7 @@
 
-import type { CurriculumPort, CurriculumFoldInput, SelectedExemplar } from "../application/ports/curriculum.port.ts";
-import { MAX_SELECTED_EXEMPLARS } from "../application/ports/curriculum.port.ts";
+import type { CurriculumPort } from "../application/ports/curriculum.port.ts";
+import type { CurriculumFoldInput, SelectedExemplar } from "../domain/curriculum-model.ts";
+import { MAX_SELECTED_EXEMPLARS } from "../domain/curriculum-model.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 import { matchExemplars, type SkillExemplar } from "@kernel/scenario-catalog.ts";
 import {

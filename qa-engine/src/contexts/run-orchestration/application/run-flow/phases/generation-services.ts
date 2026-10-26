@@ -10,7 +10,7 @@ import { GENERATION_END } from "@kernel/generation-end.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { GeolocationFacts } from "@kernel/geolocation.ts";
 import { PROBE_REL_DIR } from "@contexts/test-execution/application/index.ts";
-import type { GenerationEnrichment, GenerationOutput } from "../../ports/index.ts";
+import type { GenerationEnrichment, GenerationOutput } from "@contexts/generation/application/index.ts";
 import type { CoordinatedPass } from "@contexts/coordination/application/index.ts";
 import { CORRECTION_ORIGIN, type CorrectionOrigin, type CorrectionFinding } from "@contexts/coordination/application/index.ts";
 import { leadCorrectionAction, leadCorrectionBudget } from "../../../domain/lead-correction-budget.ts";

@@ -19,7 +19,7 @@ import {
   type CodeValidateDeps,
 } from "@contexts/test-execution/infrastructure/static-gate.checks.ts";
 import { sharedTestExec } from "../../../support/exec-sandbox-harness.ts";
-import type { CheckResult } from "@contexts/test-execution/application/ports/index.ts";
+import type { CheckResult } from "@contexts/test-execution/domain/execution-strategy.ts";
 import type { CodeProject } from "@contexts/test-execution/infrastructure/code-execution.runner.ts";
 
 /* ══════════════════════════════════════════════════════════════════════════════════════════════

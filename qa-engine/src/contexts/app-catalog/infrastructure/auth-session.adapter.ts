@@ -16,7 +16,8 @@ import { openDeniedWindow } from "../../../shared-infrastructure/process-sandbox
 import { ConfinedPathError, MAX_SPEC_SOURCE_BYTES, readOwnedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import { MAX_STORAGE_STATE_BYTES, activeRunSecretScope, redactByValue, registerSessionSecretsFromStorageState } from "../../../shared-infrastructure/run-secret-redaction.ts";
 import { partitionRoutes } from "../../../shared-kernel/route-capturability.ts";
-import { AUTH_RESOLUTION_METHOD, type AuthDeclaration, type AuthSession, type AuthSessionPort, type AuthSessionRequest } from "../application/ports/auth-session.port.ts";
+import { AUTH_RESOLUTION_METHOD, type AuthDeclaration, type AuthSession, type AuthSessionRequest } from "../domain/auth-session.ts";
+import { type AuthSessionPort } from "../application/ports/auth-session.port.ts";
 import { AuthPreconditionError, PRECONDITION_KIND } from "../domain/auth-precondition.ts";
 import { startRunChildSpan } from "../../../shared-infrastructure/telemetry/run-spans.ts";
 import type { TelemetryPort } from "../../../shared-kernel/telemetry/telemetry.port.ts";

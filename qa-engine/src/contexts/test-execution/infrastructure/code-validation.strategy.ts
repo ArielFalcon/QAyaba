@@ -1,4 +1,4 @@
-import type { ValidationResult } from "../application/ports/index.ts";
+import type { ValidationResult } from "../domain/execution-strategy.ts";
 
 type ValidateCodeFn = (repoDir: string, opts: { changedFiles?: string[] }) => Promise<ValidationResult>;
 

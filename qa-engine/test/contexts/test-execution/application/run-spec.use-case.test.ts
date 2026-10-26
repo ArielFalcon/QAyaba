@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
 import { CLOSED_LOOP_REFUSAL, RUN_SPEC_AGENT, RunSpecCapability } from "@contexts/test-execution/domain/run-spec-capability.ts";
 import { MAX_REPORTED_TESTS, MAX_TITLE_CHARS, RunSpecUseCase, escapeGrep, type RunSpecDeps } from "@contexts/test-execution/application/run-spec.use-case.ts";
-import type { SpecExecutionRequest, SpecExecutionResult } from "@contexts/test-execution/application/ports/run-spec.ports.ts";
+import type { SpecExecutionRequest, SpecExecutionResult } from "@contexts/test-execution/domain/spec-executor.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
 const SPEC = 'import { test, expect } from "../fixtures";\ntest("loads", async ({ page }) => { await page.goto("/"); await expect(page).toHaveTitle(/x/); });\n';

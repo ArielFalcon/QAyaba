@@ -1,16 +1,5 @@
 import type { ChangePagesJoin } from "@kernel/change-pages.ts";
-import type { ArchitectureContext } from "@kernel/grounding.ts";
-import type { CrossRepoImpact } from "../../domain/cross-repo-impact.ts";
-
-export interface ChangePagesRequest {
-  map: ArchitectureContext;
-  sha: string;
-  changedFiles: readonly string[];
-  touchedLines?: ReadonlyMap<string, ReadonlySet<number>>;
-  /** The pages the map already links to the change: they keep the map's basis. */
-  linked: ReadonlySet<string>;
-  crossRepoImpact?: CrossRepoImpact | null;
-}
+import type { ChangePagesRequest } from "../../domain/change-pages-model.ts";
 
 /**
  * The pages of the map the run's call graph proves the change reaches (S10-S12). Advisory: it only adds pages, ranked after

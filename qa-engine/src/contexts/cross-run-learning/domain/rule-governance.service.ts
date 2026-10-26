@@ -1,5 +1,5 @@
 /* src/contexts/cross-run-learning/domain/rule-governance.service.ts The SINGLE source of ranking truth. The SqliteLearningRepository now does a plain unordered SELECT and defers to THIS service — deleting the duplicate ORDER BY. Pure, off-path, never gates publish. */
-import type { LearningRule } from "../application/ports/index.ts";
+import type { LearningRule } from "./learning-repository.ts";
 
 const RETRIEVABLE: ReadonlySet<LearningRule["status"]> = new Set(["active", "candidate"]);
 

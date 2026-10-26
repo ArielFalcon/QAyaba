@@ -5,10 +5,7 @@ import { defaultAgentDeps } from "../../integrations/opencode-client";
 import { RedactionPortAdapter } from "../../orchestrator/sanitizer";
 import { logJson } from "../../integrations/logger";
 import type { BoundaryProfile, RepoRef } from "@contexts/service-topology/domain/index.ts";
-import type {
-  ProfileProposerPort,
-  ProposerFeedback,
-} from "@contexts/service-topology/application/ports/index.ts";
+import type { ProfileProposerPort, ProposerFeedback } from "@contexts/service-topology/application/index.ts";
 import { ProposerVerdictSchema, UNPARSEABLE_SENTINEL, type SchemaCandidate } from "./proposer-verdict.schema";
 
 /** Model pinned for every proposer session. Keep in sync with agents/opencode.json qa-proposer.model. */

@@ -4,7 +4,7 @@ import { sanitizeText } from "./sanitize-text.ts";
 import { capDomLines, captureDomForRoutes, defaultCaptureDomDeps, MAX_ROUTES, MAX_ROUTES_PER_CHANGE, REDIRECT_ADVISORY_INTRO } from "./dom-snapshot.ts";
 import type { CapturedPage, CaptureDomDeps, CaptureRoutesInput, PageDelivery } from "./dom-snapshot.ts";
 import { loggableRoute, loggableRoutes } from "./loggable-route.ts";
-import type { ArchitectureContext, ApiOperation } from "../application/ports/generation-ports.ts";
+import type { ArchitectureContext, ApiOperation } from "../domain/generation-input.ts";
 import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-element.ts";
 import { classifyRoutes, ROUTE_REASON } from "../../../shared-kernel/route-capturability.ts";
 import { claim, type FactId, type PromptClaim } from "../domain/prompt-contract-lint.ts";

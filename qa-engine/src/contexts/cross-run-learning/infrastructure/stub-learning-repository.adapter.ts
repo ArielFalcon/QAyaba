@@ -1,5 +1,7 @@
 /* src/contexts/cross-run-learning/infrastructure/stub-learning-repository.adapter.ts The v1 wiring: learning is OFF-PATH. This no-op never returns rules (so generation is never influenced) and swallows saves/outcomes — provably never gates publish. */
-import type { LearningRepositoryPort, LearningRule, RelevanceBias } from "../application/ports/index.ts";
+import type { LearningRepositoryPort } from "../application/ports/learning-repository.port.ts";
+import type { LearningRule } from "../domain/learning-repository.ts";
+import type { RelevanceBias } from "../domain/rule-governance.service.ts";
 import type { Sha } from "@kernel/sha.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 

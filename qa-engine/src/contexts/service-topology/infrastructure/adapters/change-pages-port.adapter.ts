@@ -10,7 +10,8 @@ import type { GraphRoute, ImpactBudget, LocalSymbolRef } from "@kernel/code/inde
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { Sha } from "@kernel/sha.ts";
 import { joinChangePages, type ChangePagesJoin, type PageMap } from "../../domain/change-pages.ts";
-import type { ChangePagesPort, ChangePagesRequest } from "../../application/ports/change-pages.port.ts";
+import type { ChangePagesPort } from "../../application/ports/change-pages.port.ts";
+import type { ChangePagesRequest } from "../../domain/change-pages-model.ts";
 
 export interface ChangePagesPortAdapterDeps {
   codeGraph: CodeGraphPort;

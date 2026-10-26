@@ -12,7 +12,7 @@ import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/sh
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun } from "./runner";
 import { getRecord, saveContextMap, markContextStale, isContextStale, loadContextMap as loadStoredContextMap, upsertLearningRule, recordRuleOutcome, quarantineLearningRules } from "./history";
-import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
+import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
 import type { AgentDeps } from "../integrations/opencode-client";
 import { CAMPAIGN_FREEZE_ENV } from "./campaign-freeze";
 import { REFLECTOR_ENABLED_ENV } from "./reflector-switch";

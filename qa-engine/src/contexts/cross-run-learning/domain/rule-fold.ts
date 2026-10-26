@@ -1,5 +1,5 @@
 
-import type { LearningRule, RuleStatus } from "@contexts/cross-run-learning/application/ports/index.ts";
+import type { LearningRule, RuleStatus } from "./learning-repository.ts";
 
 export const MIN_OUTCOMES = 3;
 export const PROMOTE_RATE = 0.6;

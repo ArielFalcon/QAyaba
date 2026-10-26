@@ -1,7 +1,8 @@
 /* ObjectiveSignalPort: change-coverage measure + blocks. unknown never blocks. */
 
 import type { BlastRadius } from "@kernel/blast-radius.ts";
-import type { CoverageMeasurement, ObjectiveSignalPort } from "../../application/ports/objective-signal.port.ts";
+import type { CoverageMeasurement } from "../../domain/objective-signal.ts";
+import type { ObjectiveSignalPort } from "../../application/ports/objective-signal.port.ts";
 import { DecideCoverageService, type ChangeCoverage, type CoveragePolicy } from "@contexts/objective-signal/application/index.ts";
 import type { CoverageCollectorPort, CoverageReport, ValueOraclePort } from "@contexts/objective-signal/application/index.ts";
 import { parseDiffHunks } from "@contexts/objective-signal/application/index.ts";

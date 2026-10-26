@@ -10,7 +10,8 @@
 
 import { MAX_SESSION_PAGES } from "@kernel/agent-browser.ts";
 import type { GeoLocation } from "@kernel/geolocation.ts";
-import { BrowserActionError, type AgentBrowserHostPort, type BlockedRequest, type BrowserAction, type BrowserCallOptions, type PageState } from "../../application/ports/agent-browser.ports.ts";
+import { BrowserActionError, type BlockedRequest, type BrowserAction, type BrowserCallOptions, type PageState } from "../../domain/agent-browser-host.ts";
+import { type AgentBrowserHostPort } from "../../application/ports/agent-browser-host.port.ts";
 import type { RouteGuard } from "../../domain/agent-browser-route-guard.ts";
 import type { BrowserLauncherPort, LaunchedBrowser, PwContext, PwContextOptions, PwPage, PwRequest, SessionMaterial } from "./playwright-types.ts";
 

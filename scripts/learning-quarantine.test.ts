@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { main, parseArguments, type QuarantineDeps } from "./learning-quarantine.ts";
-import type { LearningRule } from "../qa-engine/src/contexts/cross-run-learning/application/ports/index.ts";
+import type { LearningRule } from "@contexts/cross-run-learning/application/index.ts";
 
 const NOW = new Date("2026-10-12T10:00:00.000Z");
 

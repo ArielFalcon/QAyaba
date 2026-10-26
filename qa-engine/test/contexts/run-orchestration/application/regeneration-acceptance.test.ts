@@ -4,8 +4,11 @@ import assert from "node:assert/strict";
 import { RegenerationAcceptance } from "@contexts/run-orchestration/application/regeneration-acceptance.ts";
 import { MAX_ACCEPTANCE_EXECUTIONS } from "@kernel/derive-cycle-backstop.ts";
 import { isRunDeadlineError } from "@kernel/run-deadline.ts";
-import type { SpecSnapshot, SpecSnapshotPort } from "@contexts/run-orchestration/application/ports/spec-snapshot.port.ts";
-import type { ClosedLoopHandle, ExecutionPort, RunDeadlinePort, ValidationPort } from "@contexts/run-orchestration/application/ports/index.ts";
+import type { SpecSnapshot } from "@contexts/run-orchestration/domain/spec-snapshot.ts";
+import type { SpecSnapshotPort } from "@contexts/run-orchestration/application/ports/spec-snapshot.port.ts";
+import type { ClosedLoopHandle } from "@contexts/agent-tools/application/index.ts";
+import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
+import type { RunDeadlinePort } from "@contexts/run-orchestration/application/ports/run-deadline.port.ts";
 
 const bytesOf = (text: string): Uint8Array => new TextEncoder().encode(text);
 

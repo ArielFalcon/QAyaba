@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { UntrustedGitTreeError } from "@kernel/domain-error.ts";
 import { ContextMapCapturePortAdapter } from "@contexts/generation/infrastructure/adapters/context-map-capture-port.adapter.ts";
-import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ArchitectureContext } from "@contexts/generation/domain/generation-input.ts";
 
 const VALID_CONTEXT_JSON: ArchitectureContext = {
   builtAtSha: "abc1234",

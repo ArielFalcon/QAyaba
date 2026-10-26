@@ -9,7 +9,7 @@
  */
 
 import type { AgentDeps, AgentTurnEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
-import type { JudgeAgentPort, JudgeAnswer } from "@contexts/evaluation/application/ports/judge-ports";
+import type { JudgeAgentPort, JudgeAnswer } from "@contexts/evaluation/application/index.ts";
 
 /* The key of the judge role in agents/opencode.json and the stem of agents/agent/qa-judge.md. */
 export const JUDGE_AGENT_NAME = "qa-judge";

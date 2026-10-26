@@ -6,11 +6,11 @@
 import { randomBytes } from "node:crypto";
 import { GradeRunUseCase } from "@contexts/evaluation/application/grade-run.use-case";
 import { RegradeUseCase, MAX_REGRADE_RUNS, type RegradeRequest } from "@contexts/evaluation/application/regrade.use-case";
-import type { EvaluationStatus, RegradeJob, RegradeJobStorePort, RunSelectorPort, ScoreSinkPort, ScoreStorePort, EvidencePort } from "@contexts/evaluation/application/ports/index";
+import type { EvaluationStatus, RegradeJob, RegradeJobStorePort, RunSelectorPort, ScoreSinkPort, ScoreStorePort, EvidencePort } from "@contexts/evaluation/application/index.ts";
 import { campaignRunsView, type CampaignRunRow, type CampaignRunView } from "@contexts/evaluation/domain/campaign-runs";
 import { GRADER_CATALOG } from "@contexts/evaluation/domain/grader-catalog";
 import type { JudgeCatalogEntry } from "@contexts/evaluation/domain/judges";
-import type { JudgeRegradePort } from "@contexts/evaluation/application/ports/judge-ports";
+import type { JudgeRegradePort } from "@contexts/evaluation/application/index.ts";
 import type { Score, ScoreDataType, ScorePolarity, ScoreSource } from "@contexts/evaluation/domain/score";
 import { RUN_PHASES } from "@contexts/run-orchestration/domain/run-phase-cursor";
 import {

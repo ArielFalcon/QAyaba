@@ -5,7 +5,7 @@ import { Sha } from "@kernel/sha.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { AcceptDeliveredSpecsUseCase, type AcceptInput } from "@contexts/run-orchestration/application/accept-delivered-specs.use-case.ts";
-import type { ExecutionOpts } from "@contexts/run-orchestration/application/ports/index.ts";
+import type { ExecutionOpts } from "@contexts/test-execution/application/index.ts";
 
 const PASS: QaCase[] = [{ name: "flows/a.spec.ts › loads", status: "pass", file: "flows/a.spec.ts" }];
 const FAIL: QaCase[] = [{ name: "flows/a.spec.ts › loads", status: "fail", file: "flows/a.spec.ts", detail: "boom" }];

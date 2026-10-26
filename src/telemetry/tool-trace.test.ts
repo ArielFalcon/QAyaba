@@ -21,7 +21,7 @@ import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-
 import { AgentBrowserRegistry } from "@contexts/agent-tools/infrastructure/agent-browser-registry";
 import type { ToolTraceWiring } from "@contexts/agent-tools/infrastructure/adapters/tool-call-trace";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock";
-import type { AgentBrowserHostPort, PageState } from "@contexts/test-execution/application/ports/agent-browser.ports";
+import type { AgentBrowserHostPort, PageState } from "@contexts/test-execution/application/index.ts";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { createExecSandbox, resetExecSandboxWarnings } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";

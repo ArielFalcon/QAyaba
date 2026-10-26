@@ -2,7 +2,7 @@
  * Webhook cross-repo dispatch: primary uses the event's mode/guidance/baseSha;
  * a service-repo deploy always triggers a diff-mode e2e run of the owning app.
  */
-import type { AppRepositoryPort } from "../../qa-engine/src/contexts/app-catalog/application/ports/index";
+import type { AppRepositoryPort } from "@contexts/app-catalog/application/index.ts";
 import type { RunMode } from "../types";
 
 export interface WebhookDispatch {

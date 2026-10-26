@@ -10,7 +10,8 @@ import { LearningPortAdapter, DEFAULT_RULES_CHAR_BUDGET } from "@contexts/cross-
 import { SqliteLearningRepository, type LearningRow, type LearningStore } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter.ts";
 import { renderLearnedRules } from "@contexts/cross-run-learning/application/index.ts";
 import { StubLearningRepository } from "@contexts/cross-run-learning/infrastructure/stub-learning-repository.adapter.ts";
-import type { LearningRepositoryPort, LearningRule } from "@contexts/cross-run-learning/application/ports/index.ts";
+import type { LearningRepositoryPort } from "@contexts/cross-run-learning/application/ports/learning-repository.port.ts";
+import type { LearningRule } from "@contexts/cross-run-learning/domain/learning-repository.ts";
 import type { RelevanceBias } from "@contexts/cross-run-learning/application/index.ts";
 import { Sha } from "@kernel/sha.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";

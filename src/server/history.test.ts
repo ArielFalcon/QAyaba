@@ -12,7 +12,7 @@ import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-t
 import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
 import { initCurriculum } from "@contexts/cross-run-learning/domain/curriculum";
 import type { RuleStatus } from "../qa/learning/learning-rule";
-import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
+import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
 
 test("a marked context-stale flag stays armed across reads until it is cleared", () => {
   const app = "hist-ctx-stale";

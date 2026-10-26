@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { trustedSessionRenewal } from "@contexts/agent-tools/infrastructure/adapters/trusted-session-renewal.ts";
-import type { AuthSessionPort, AuthSessionRequest } from "@contexts/app-catalog/application/ports/auth-session.port.ts";
+import type { AuthSessionPort, AuthSessionRequest } from "@contexts/app-catalog/application/index.ts";
 
 const LOGIN = 'import { test as setup } from "@playwright/test";\nsetup("login", async ({ page }) => { await page.goto("/"); });\n';
 

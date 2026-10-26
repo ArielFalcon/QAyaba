@@ -1,4 +1,4 @@
-import type { PromptBudgetPort } from "../application/ports/index.ts";
+import type { PromptBudgetPort } from "../application/ports/prompt-budget.port.ts";
 
 type RoleWindowBytes = (role: string) => number;
 type Cap = (s: string) => string;

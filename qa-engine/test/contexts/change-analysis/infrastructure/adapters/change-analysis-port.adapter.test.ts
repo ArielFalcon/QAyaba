@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { ChangeAnalysisPortAdapter } from "@contexts/change-analysis/infrastructure/adapters/change-analysis-port.adapter.ts";
 import { Sha } from "@kernel/sha.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
-import type { VcsReadPort } from "@contexts/change-analysis/application/ports/index.ts";
+import type { VcsReadPort } from "@contexts/change-analysis/application/ports/vcs-read.port.ts";
 
 function fakeVcsRead(overrides: Partial<VcsReadPort> = {}): VcsReadPort {
   return {

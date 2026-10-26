@@ -1,4 +1,4 @@
-import type { LearningRule } from "@contexts/cross-run-learning/application/ports/index.ts";
+import type { LearningRule } from "./learning-repository.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 
 export const RULE_FIELD_MAX = 400;

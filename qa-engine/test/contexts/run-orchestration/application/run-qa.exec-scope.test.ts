@@ -9,7 +9,7 @@ import { Sha } from "@kernel/sha.ts";
 import { ok } from "@kernel/result.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RunQaUseCase } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
-import type { ObserverPort } from "@contexts/run-orchestration/application/ports/index.ts";
+import type { ObserverPort } from "@contexts/run-orchestration/application/ports/observer.port.ts";
 import { ERROR_CLASS } from "@contexts/cross-run-learning/domain/error-class.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";

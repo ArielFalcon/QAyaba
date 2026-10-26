@@ -7,7 +7,7 @@
  */
 
 import { RUN_PHASES } from "@contexts/run-orchestration/domain/run-phase-cursor";
-import type { EvidencePort } from "@contexts/evaluation/application/ports/index";
+import type { EvidencePort } from "@contexts/evaluation/application/index.ts";
 import type { ContextEvidence, ContextFreshness, DeliveredContextSource, DeliveredOmission, DeliveredSpecEvidence, PlanEvidence, RunEvaluationEvidence, RunSpecCallEvidence, SidekickReportEvidence } from "@contexts/evaluation/domain/run-evaluation-evidence";
 import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
 import { getRecord, getRunFacts, getRunOutcome, getRunPhases, getAgentTurns, getRunPlan, listRunSpans, listSpecSnapshots, type AgentTurnRecord, type RunFactsPatch, type RunPhases, type SpecSnapshotRow } from "./history";

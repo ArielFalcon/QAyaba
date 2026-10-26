@@ -18,7 +18,7 @@ import type { EndReason } from "@contexts/run-orchestration/application/run-flow
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import type { SuiteStorePort } from "@kernel/ports/suite-store.port.ts";
-import type { ReviewPort } from "@contexts/run-orchestration/application/ports/index.ts";
+import type { ReviewPort } from "@contexts/generation/application/index.ts";
 import { scriptedGeneration } from "../../../../support/generation-output.ts";
 import { RIG_SPEC, scratchDir, type Rig } from "./run-end-rig.ts";
 

@@ -1,7 +1,8 @@
 /* Fail-closed on an unparseable verdict. Reviewer path forwards blockingCount + parsed so a parse miss is not treated as a rejection. */
 import { sep } from "node:path";
 import { scanSpecTree } from "../../../shared-infrastructure/spec-path-confinement.ts";
-import type { VerdictParserPort, GeneratorDeliverable, ReviewJudgment } from "../application/ports/index.ts";
+import type { VerdictParserPort } from "../application/ports/verdict-parser.port.ts";
+import type { GeneratorDeliverable, ReviewJudgment } from "../domain/manifest-repository.ts";
 import type { SpecMeta } from "@kernel/qa-case.ts";
 import { GENERATION_NOTE_MAX_CHARS } from "../domain/generation-end.ts";
 import { sanitizeText } from "./sanitize-text.ts";

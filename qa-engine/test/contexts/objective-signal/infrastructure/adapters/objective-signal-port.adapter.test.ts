@@ -15,7 +15,9 @@ import assert from "node:assert/strict";
 import { ObjectiveSignalPortAdapter } from "@contexts/objective-signal/infrastructure/adapters/objective-signal-port.adapter.ts";
 import { DecideCoverageService, type ChangeCoverage } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
 import { assembleChangeCoverage } from "@contexts/objective-signal/domain/assemble-change-coverage.ts";
-import type { CoverageCollectorPort, ValueOraclePort, CoverageReport, ValueOracleResult } from "@contexts/objective-signal/application/ports/index.ts";
+import type { CoverageCollectorPort } from "@contexts/objective-signal/application/ports/coverage-collector.port.ts";
+import type { ValueOraclePort } from "@contexts/objective-signal/application/ports/value-oracle.port.ts";
+import type { CoverageReport, ValueOracleResult } from "@contexts/objective-signal/domain/coverage-collector.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { Sha } from "@kernel/sha.ts";
 

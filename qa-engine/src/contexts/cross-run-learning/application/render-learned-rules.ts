@@ -1,4 +1,4 @@
-import type { RetrievedRule } from "./ports/learning.port.ts";
+import type { RetrievedRule } from "../domain/learning.ts";
 
 export function renderLearnedRules(rules: readonly RetrievedRule[]): string {
   const active = rules.filter((r) => r.status === "active");

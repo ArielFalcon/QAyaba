@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GradeRunUseCase } from "@contexts/evaluation/application/grade-run.use-case";
-import type { ScoreStorePort } from "@contexts/evaluation/application/ports/index";
+import type { ScoreStorePort } from "@contexts/evaluation/application/index.ts";
 import { gradeEvidence } from "@contexts/evaluation/domain/graders";
 import type { RunRecord } from "../types";
 import type { SpecSnapshotRow } from "./history";

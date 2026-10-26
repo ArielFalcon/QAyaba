@@ -1,6 +1,6 @@
 
 import type { OnboardingService, OnboardingRoundProgress } from "@contexts/service-topology/application/onboarding-service.ts";
-import type { ProfileProposerPort, ResolveLinksResult } from "@contexts/service-topology/application/ports/index.ts";
+import type { ProfileProposerPort, ResolveLinksResult } from "@contexts/service-topology/application/index.ts";
 import type { BoundaryProfile, RepoRef } from "@contexts/service-topology/domain/index.ts";
 import { serializeBoundary, spliceBoundariesBlock } from "./write-boundaries";
 import { aggregateResolution, type ResolutionSummary } from "./resolution-summary";

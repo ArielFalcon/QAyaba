@@ -8,7 +8,6 @@ export {
 export type { CoordinationBudget } from "./coordination-budget.ts";
 export type { AcceptanceCriterion, CoordinationContext } from "./coordination-context.ts";
 export type { EvidenceConfidence, EvidenceKind, EvidenceRef } from "./evidence-ref.ts";
-
 export {
   evidenceFromBudget,
   evidenceFromChangeAnalysis,
@@ -29,7 +28,6 @@ export {
   observationConflictIn,
   preferredEvidence,
 } from "./evidence-precedence.ts";
-
 export { SIDEKICK_AUTHORITY, type SidekickAuthority } from "./authority.ts";
 export {
   createDelegationBrief,
@@ -70,7 +68,6 @@ export {
   type SidekickExecutorDeps,
   type SidekickRender,
 } from "./sidekick-executor.ts";
-
 export {
   applyPushback,
   PUSHBACK_REASONS,
@@ -91,3 +88,4 @@ export { CORRECTION_ORIGIN } from "./lead-correction.ts";
 export type { CorrectionFinding, CorrectionOrigin } from "./lead-correction.ts";
 export { LeadSidekicks } from "./lead-sidekicks.ts";
 export type { CoordinateResult, CoordinatedPass } from "./lead-sidekicks.ts";
+

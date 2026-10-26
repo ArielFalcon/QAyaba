@@ -21,44 +21,28 @@ import { CoordinationTelemetryRecorder } from "@contexts/coordination/applicatio
 import type { CoordinateInput } from "@contexts/coordination/application/lead-sidekicks.ts";
 import { Sha } from "@kernel/sha.ts";
 import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
-import type {
-  ChangeAnalysisPort,
-  GenerationPort,
-  ReviewPort,
-  ValidationPort,
-  ExecutionPort,
-  ObjectiveSignalPort,
-  PublicationPort,
-  LearningPort,
-  WorkspacePort,
-  DeployGatePort,
-  RunHistoryPort,
-  SetupPort,
-  CleanupPort,
-  PreExecGroundingPort,
-  PreGenerationGroundingPort,
-  ReviewDomGroundingPort,
-  RetrievedRule,
-  StructuralSignalPort,
-  ServiceLinksPort,
-  ServiceLink,
-  CrossRepoImpactPort,
-  ConfinementPort,
-  MirrorGcPort,
-  CurriculumPort,
-  CurriculumFoldInput,
-  RelevanceBias,
-  ContextMapCapturePort,
-  GenerationEnrichment,
-  RunDeadlinePort,
-  SuiteStorePort,
-} from "@contexts/run-orchestration/application/ports/index.ts";
+import type { ChangeAnalysisPort, StructuralSignalPort } from "@contexts/change-analysis/application/index.ts";
+import type { GenerationPort, ReviewPort, PreExecGroundingPort, PreGenerationGroundingPort, ReviewDomGroundingPort, ContextMapCapturePort, GenerationEnrichment } from "@contexts/generation/application/index.ts";
+import type { ValidationPort, ExecutionPort } from "@contexts/test-execution/application/index.ts";
+import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
+import type { PublicationPort } from "@contexts/run-orchestration/application/ports/publication.port.ts";
+import type { LearningPort, RetrievedRule, CurriculumPort, CurriculumFoldInput, RelevanceBias } from "@contexts/cross-run-learning/application/index.ts";
+import type { WorkspacePort } from "@contexts/run-orchestration/application/ports/workspace.port.ts";
+import type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";
+import type { RunHistoryPort } from "@contexts/run-orchestration/application/ports/run-history.port.ts";
+import type { SetupPort } from "@contexts/run-orchestration/application/ports/setup.port.ts";
+import type { CleanupPort } from "@contexts/run-orchestration/application/ports/cleanup.port.ts";
+import type { ServiceLinksPort, ServiceLink, CrossRepoImpactPort } from "@contexts/service-topology/application/index.ts";
+import type { ConfinementPort } from "@contexts/run-orchestration/application/ports/confinement.port.ts";
+import type { MirrorGcPort } from "@contexts/run-orchestration/application/ports/mirror-gc.port.ts";
+import type { RunDeadlinePort } from "@contexts/run-orchestration/application/ports/run-deadline.port.ts";
+import type { SuiteStorePort } from "@kernel/ports/suite-store.port.ts";
 /* reflector-rewire (design ADR-1/ADR-4/ADR-5): ReflectorPort/ReflectionInput are declared in
    cross-run-learning (co-located with StructuredReflection/LearningRepositoryPort), NOT in this
-   context's own ports barrel — same cross-context import precedent as LearningRepositoryPort
+   context's own ports — same cross-context import precedent as LearningRepositoryPort
    (composition-root.ts / learning-port.adapter.ts).
  */
-import type { LearningRule, ReflectorPort, ReflectionInput, ProcessAuditPort } from "@contexts/cross-run-learning/application/ports/index.ts";
+import type { LearningRule, ReflectorPort, ReflectionInput, ProcessAuditPort } from "@contexts/cross-run-learning/application/index.ts";
 import { ok, err } from "@kernel/result.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { attributableRules } from "@contexts/cross-run-learning/domain/rule-fold.ts";
@@ -66,7 +50,7 @@ import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { CodeGraphIndexRecord } from "@kernel/code/index.ts";
 import { GenerationPortAdapter } from "@contexts/generation/infrastructure/adapters/generation-port.adapter.ts";
 import { GenerateTestsUseCase, type GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
-import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/index.ts";
 
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { extractSpecContract } from "@contexts/objective-signal/infrastructure/ts-spec-contract.extractor.ts";
@@ -1668,7 +1652,7 @@ test("context mode NEVER calls execute() (context.json is not a Playwright spec)
 
 test("a diff-mode fail retry computes coverageWillMeasure and threads it into the FixLoop", async () => {
   /* The use-case's ExecutionPort accepts an ExecutionOpts bag (see
-     ports/index.ts) and the fixLoopExecution closure below DOES thread FixLoopExecuteInput.specFiles
+     test-execution's execution.port.ts) and the fixLoopExecution closure below DOES thread FixLoopExecuteInput.specFiles
      through to it (see "filtered-retry threads specFiles" tests further down in this
      file) — that gap is closed. This test's own scope stays coverageWillMeasure specifically: the
      narrowest port-observable proof is instrumenting FixLoop.begin itself and asserting the use-case
@@ -3609,7 +3593,7 @@ test("KEYSTONE: the enforce-mode coverage-regen re-measure ALSO receives the run
  */
 
 function fakeObserver(): {
-  observer: import("@contexts/run-orchestration/application/ports/index.ts").ObserverPort;
+  observer: import("@contexts/run-orchestration/application/index.ts").ObserverPort;
   steps: Array<{ step: string; detail?: string }>;
   events: import("@kernel/run-event.ts").RunEventBody[];
 } {
@@ -5090,7 +5074,7 @@ test("a non-pass verdict never calls measure() at all — no baselineCases quest
   assert.equal(measureCallCount, 0, "measure() must never be called for a non-pass verdict — baselineCases threading is entirely moot here");
 });
 
-/* CleanupPort must run so namespaced rows do not leak into live DEV. See ports/index.ts for
+/* CleanupPort must run so namespaced rows do not leak into live DEV. See cleanup.port.ts for
    the full "when does cleanup run" contract.
  */
 
@@ -5921,7 +5905,7 @@ test("a crossRepoImpact port that reports an untrusted git dir fails the run lou
 });
 
 /* the fix-loop generation closure's own specSources return, and failureDomSnapshot. Before this
-   fix, GenerationPort.generate()'s return type carried no specSources field at all (the barrel's
+   fix, GenerationPort.generate()'s return type carried no specSources field at all (the port's
    own contract), so round 0's Lever-2 check ALWAYS saw specSources:[] no matter what the real
    GenerationPortAdapter's readSpecSource collaborator produced — checkSpecSelectors(specSources,
    trees) with an empty specSources array structurally cannot find a contradiction (its for-loop

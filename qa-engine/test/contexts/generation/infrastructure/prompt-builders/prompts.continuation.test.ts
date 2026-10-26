@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildPromptAssembled } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
-import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/generation-input.ts";
 import { STEP_MILESTONE_SECTION_ID } from "@contexts/generation/domain/step-limit.ts";
 import { setAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { rosterFixturePath } from "../../../../support/roster-fixture.ts";

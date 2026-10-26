@@ -10,7 +10,7 @@ import { redactByValue } from "../../../shared-infrastructure/run-secret-redacti
 import type { ExecCommandClass, ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import type { SandboxProfile } from "../../../shared-infrastructure/process-sandbox/exec-env.ts";
 import { readConfinedSpecFile, readFailureReason, readOwnedSpecFile, scanSpecTree, writeOwnedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
-import type { CheckResult, ValidationResult } from "../application/ports/index.ts";
+import type { CheckResult, ValidationResult } from "../domain/execution-strategy.ts";
 import {
   detectCodeProject,
   realDetectDeps,

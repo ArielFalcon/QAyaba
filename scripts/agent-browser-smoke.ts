@@ -31,7 +31,7 @@ import { createRouteGuard } from "../qa-engine/src/contexts/test-execution/domai
 import { PlaywrightAgentBrowserHost } from "../qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts";
 import { SandboxedChromiumLauncher } from "../qa-engine/src/contexts/test-execution/infrastructure/agent-browser/chromium-sandbox.launcher.ts";
 import { loadPlaywrightChromium } from "../qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-core.loader.ts";
-import type { BlockedRequest } from "../qa-engine/src/contexts/test-execution/application/ports/agent-browser.ports.ts";
+import type { BlockedRequest } from "@contexts/test-execution/application/index.ts";
 
 const SESSION_VALUE = "sess-9f3a1c7e";
 const failures: string[] = [];

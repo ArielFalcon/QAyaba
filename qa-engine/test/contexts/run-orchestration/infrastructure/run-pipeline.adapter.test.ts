@@ -7,19 +7,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { RunPipelineAdapter } from "@contexts/run-orchestration/infrastructure/run-pipeline.adapter.ts";
 import { Sha } from "@kernel/sha.ts";
-import type {
-  ChangeAnalysisPort,
-  GenerationPort,
-  ReviewPort,
-  ValidationPort,
-  ExecutionPort,
-  ObjectiveSignalPort,
-  PublicationPort,
-  LearningPort,
-  WorkspacePort,
-  DeployGatePort,
-  RunHistoryPort,
-} from "@contexts/run-orchestration/application/ports/index.ts";
+import type { ChangeAnalysisPort } from "@contexts/change-analysis/application/index.ts";
+import type { GenerationPort, ReviewPort } from "@contexts/generation/application/index.ts";
+import type { ValidationPort, ExecutionPort } from "@contexts/test-execution/application/index.ts";
+import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
+import type { PublicationPort } from "@contexts/run-orchestration/application/ports/publication.port.ts";
+import type { LearningPort } from "@contexts/cross-run-learning/application/index.ts";
+import type { WorkspacePort } from "@contexts/run-orchestration/application/ports/workspace.port.ts";
+import type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";
+import type { RunHistoryPort } from "@contexts/run-orchestration/application/ports/run-history.port.ts";
 import { ok } from "@kernel/result.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 

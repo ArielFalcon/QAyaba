@@ -24,7 +24,10 @@ import {
   type RunSpecFailureFact,
   type RunSpecStatus,
 } from "../domain/run-spec-capability.ts";
-import type { SessionRenewalPort, SpecCleanupPort, SpecExecutionResult, SpecExecutorPort } from "./ports/run-spec.ports.ts";
+import type { SessionRenewalPort } from "./ports/session-renewal.port.ts";
+import type { SpecCleanupPort } from "./ports/spec-cleanup.port.ts";
+import type { SpecExecutionResult } from "../domain/spec-executor.ts";
+import type { SpecExecutorPort } from "./ports/spec-executor.port.ts";
 
 export const MAX_GREP_CHARS = 200;
 export const MAX_ERROR_CHARS = 2_000;

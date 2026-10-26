@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ROUTE_LINK_FIELDS, rankRoutesWithRelevance } from "@contexts/generation/domain/route-ranking.ts";
-import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ArchitectureContext } from "@contexts/generation/domain/generation-input.ts";
 
 /* The routes in rank order, without their relevance. */
 const routesOf = (...args: Parameters<typeof rankRoutesWithRelevance>): string[] => rankRoutesWithRelevance(...args).map((entry) => entry.route);

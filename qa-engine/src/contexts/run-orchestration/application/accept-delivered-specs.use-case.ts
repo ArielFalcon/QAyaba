@@ -10,7 +10,9 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { decide, isAccepted, type RunEvidence } from "../domain/run-decision.service.ts";
-import type { ExecutionPort, ObjectiveSignalPort, ReviewPort, ValidationPort } from "./ports/index.ts";
+import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
+import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
+import type { ReviewPort } from "@contexts/generation/application/index.ts";
 
 /* The runs of the delivered specs: twice, so that a spec that passes once by luck does not count. */
 export const ACCEPTANCE_RUNS = 2;

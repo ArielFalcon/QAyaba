@@ -11,17 +11,13 @@ import { ok } from "@kernel/result.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { SuiteStorePort } from "@kernel/ports/suite-store.port.ts";
 import { RunQaUseCase, type RunQaConfig, type RunQaInput, type RunQaResult, type RunQaUseCaseDeps } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
-import type {
-  ChangeAnalysisPort,
-  ExecutionPort,
-  GenerationPort,
-  ObjectiveSignalPort,
-  PublicationPort,
-  ReviewPort,
-  SetupPort,
-  ValidationPort,
-  WorkspacePort,
-} from "@contexts/run-orchestration/application/ports/index.ts";
+import type { ChangeAnalysisPort } from "@contexts/change-analysis/application/index.ts";
+import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
+import type { GenerationPort, ReviewPort } from "@contexts/generation/application/index.ts";
+import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
+import type { PublicationPort } from "@contexts/run-orchestration/application/ports/publication.port.ts";
+import type { SetupPort } from "@contexts/run-orchestration/application/ports/setup.port.ts";
+import type { WorkspacePort } from "@contexts/run-orchestration/application/ports/workspace.port.ts";
 import { scriptedGeneration } from "../../../../support/generation-output.ts";
 import { reassignableGeneration, runWorkspace, type RunWorkspace } from "../../../../support/run-workspace.ts";
 

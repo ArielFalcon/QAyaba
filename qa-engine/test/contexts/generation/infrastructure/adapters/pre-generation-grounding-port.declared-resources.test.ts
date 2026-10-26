@@ -9,7 +9,7 @@ import { PreGenerationGroundingPortAdapter } from "@contexts/generation/infrastr
 import { MAX_DECLARED_RESOURCE_SOURCE_BYTES } from "@contexts/generation/infrastructure/adapters/implementation-resources.ts";
 import { rankRoutesWithRelevance } from "@contexts/generation/domain/route-ranking.ts";
 
-import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ArchitectureContext } from "@contexts/generation/domain/generation-input.ts";
 
 const routesOf = (...args: Parameters<typeof rankRoutesWithRelevance>): string[] => rankRoutesWithRelevance(...args).map((entry) => entry.route);
 

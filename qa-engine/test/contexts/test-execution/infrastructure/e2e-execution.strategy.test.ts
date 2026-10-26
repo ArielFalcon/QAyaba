@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { E2eExecutionStrategy } from "@contexts/test-execution/infrastructure/e2e-execution.strategy.ts";
-import type { ExecutionRequest } from "@contexts/test-execution/application/ports/index.ts";
+import type { ExecutionRequest } from "@contexts/test-execution/domain/execution-strategy.ts";
 
 /* ExecutionRequest carries the full set of ExecuteOptions / CodeExecuteOptions fields so no
    capability is silently dropped at the port boundary:

@@ -22,7 +22,8 @@ import type { AgentBrowserHostPort } from "@contexts/test-execution/application/
 import { PlaywrightAgentBrowserHost } from "@contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts";
 import type { BrowserLauncherPort, SessionMaterial } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
 import type { AuthSessionContext, AuthSessionPort } from "@contexts/app-catalog/application/index.ts";
-import type { AgentBrowserHandle, AgentBrowserOpenInput, AgentBrowserPort } from "../../application/ports/agent-browser.port.ts";
+import type { AgentBrowserHandle, AgentBrowserOpenInput } from "../../domain/agent-browser.ts";
+import type { AgentBrowserPort } from "../../application/ports/agent-browser.port.ts";
 import type { AgentBrowserRegistry } from "../agent-browser-registry.ts";
 import { trustedSessionRenewal } from "./trusted-session-renewal.ts";
 import { traceToolCall, type ToolTraceWiring } from "./tool-call-trace.ts";

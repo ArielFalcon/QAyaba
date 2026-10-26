@@ -19,7 +19,7 @@ import type { AppConfig } from "../../../src/orchestrator/config-loader.ts";
 import type { AgentDeps } from "../../../src/integrations/opencode-client.ts";
 import { AgentRuntimeFacade } from "../../../src/agent-runtime/facades.ts";
 import type { AgentFacade, AgentProvider, AgentRuntimeStrategy, StepLimits } from "../../../src/agent-runtime/types.ts";
-import type { OpencodeRunInput, ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput, ReviewInput } from "@contexts/generation/application/index.ts";
 
 /* ── shared sentinel helpers ─────────────────────────────────────────────────────────────────────
    A sentinel is a value that is IMPOSSIBLE to produce by accident (unlike "", 0, false, or []),

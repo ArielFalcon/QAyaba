@@ -13,7 +13,7 @@ import { lintCell, type FactId, type LintSection, type PromptClaim } from "@cont
 import { renderLearnedRules } from "@contexts/cross-run-learning/application/index.ts";
 import { renderBlastRadiusSignal } from "@contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts";
 import type { RetrievedRule } from "@contexts/cross-run-learning/application/index.ts";
-import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/generation-input.ts";
 import { setAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { rosterFixturePath } from "../../../../support/roster-fixture.ts";
 

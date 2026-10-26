@@ -9,7 +9,8 @@ import { GENERATION_END } from "@kernel/generation-end.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RunQaUseCase, type RunQaInput, type RunQaUseCaseDeps } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
-import type { ClosedLoopHandle, ClosedLoopOpenInput, GenerationEnrichment } from "@contexts/run-orchestration/application/ports/index.ts";
+import type { ClosedLoopHandle, ClosedLoopOpenInput } from "@contexts/agent-tools/application/index.ts";
+import type { GenerationEnrichment } from "@contexts/generation/application/index.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../support/run-workspace.ts";
 

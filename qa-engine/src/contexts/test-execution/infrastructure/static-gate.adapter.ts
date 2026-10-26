@@ -1,4 +1,5 @@
-import type { StaticGatePort, CheckResult, ValidationResult } from "../application/ports/index.ts";
+import type { StaticGatePort } from "../application/ports/static-gate.port.ts";
+import type { CheckResult, ValidationResult } from "../domain/execution-strategy.ts";
 
 export interface StaticGateChecks {
   typecheck(specDir: string): Promise<CheckResult>;

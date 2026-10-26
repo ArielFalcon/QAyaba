@@ -1,4 +1,5 @@
-import type { ExecutionStrategyPort, ExecutionRequest, ExecutionResult } from "../application/ports/index.ts";
+import type { ExecutionStrategyPort } from "../application/ports/execution-strategy.port.ts";
+import type { ExecutionRequest, ExecutionResult } from "../domain/execution-strategy.ts";
 
 interface CodeExecutionResult {
   verdict: string;

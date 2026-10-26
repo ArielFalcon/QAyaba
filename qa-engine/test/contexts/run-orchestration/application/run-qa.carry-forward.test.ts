@@ -5,15 +5,9 @@ import { Sha } from "@kernel/sha.ts";
 import { ok } from "@kernel/result.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { RunQaUseCase, type RunQaConfig } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
-import type {
-  ExecutionPort,
-  GenerationEnrichment,
-  GenerationOutput,
-  ObjectiveSignalPort,
-  PreExecGroundingPort,
-  ReviewPort,
-  ValidationPort,
-} from "@contexts/run-orchestration/application/ports/index.ts";
+import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
+import type { GenerationEnrichment, GenerationOutput, PreExecGroundingPort, ReviewPort } from "@contexts/generation/application/index.ts";
+import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
 

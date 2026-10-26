@@ -10,7 +10,7 @@
  *    experimental) is information for a reader of the catalog, never an input to any gate.
  */
 
-import type { CalibrationStorePort, JudgeRegradePort } from "@contexts/evaluation/application/ports/judge-ports";
+import type { CalibrationStorePort, JudgeRegradePort } from "@contexts/evaluation/application/index.ts";
 import type { JudgeBatchResult, JudgeWorkItem, RunJudgesUseCase } from "@contexts/evaluation/application/run-judges.use-case";
 import { JUDGE_NAMES, type JudgeName, type JudgeStatus } from "@contexts/evaluation/domain/judges";
 import type { JudgeSetup, JudgeSwitch } from "./judge-settings";

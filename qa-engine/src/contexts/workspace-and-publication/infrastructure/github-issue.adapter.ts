@@ -1,4 +1,5 @@
-import type { GitHubIssuePort, Issue } from "../application/ports/index.ts";
+import type { GitHubIssuePort } from "../application/ports/github-issue.port.ts";
+import type { Issue } from "../domain/vcs-write.ts";
 import { clampTitle, clampBody, type GitHubHttpDeps } from "./github-http.ts";
 
 export class GitHubIssueAdapter implements GitHubIssuePort {

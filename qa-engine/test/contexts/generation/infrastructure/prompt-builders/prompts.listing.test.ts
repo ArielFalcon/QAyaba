@@ -21,7 +21,7 @@ import { isTestWritingTurn } from "@contexts/generation/domain/step-limit.ts";
 import { REDACTED } from "@kernel/ports/redaction.port.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
-import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/generation-input.ts";
 import { setAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { rosterFixturePath } from "../../../../support/roster-fixture.ts";
 

@@ -1,6 +1,6 @@
 /* The shell's SQLite side of the LLM-judge ports (docs/observability-design.md section 11.3): the attempt ledger, the calibration reports and the label pairs. */
 
-import type { CalibrationPairsPort, CalibrationStorePort, JudgeAttempt, JudgeLedgerPort, JudgeOutcome, JudgePairs } from "@contexts/evaluation/application/ports/judge-ports";
+import type { CalibrationPairsPort, CalibrationStorePort, JudgeAttempt, JudgeLedgerPort, JudgeOutcome, JudgePairs } from "@contexts/evaluation/application/index.ts";
 import type { CalibrationReport } from "@contexts/evaluation/domain/judge-calibration";
 import { parseJudgeGraderVersion, type JudgeName } from "@contexts/evaluation/domain/judges";
 import { insertJudgeAttempt, insertJudgeCalibration, judgeTokensUsedOn, lastJudgeOutcome, latestJudgeModel, latestJudgeCalibration, listJudgeLabelPairs } from "./history";

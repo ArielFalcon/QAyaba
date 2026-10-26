@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GenerateTestsUseCase, type GenerationPorts, type GenerationResult } from "@contexts/generation/application/generate-tests.use-case.ts";
-import type { GeneratorDeliverable, ManifestEntry } from "@contexts/generation/application/ports/index.ts";
+import type { GeneratorDeliverable } from "@contexts/generation/domain/manifest-repository.ts";
+import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 import { GENERATION_NOTE_MAX_CHARS } from "@contexts/generation/domain/generation-end.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { NOOP_KIND, type NoopKind } from "@kernel/noop-kind.ts";
