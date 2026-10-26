@@ -24,8 +24,9 @@ interface CoverageEntry {
 // LAST `//# sourceMappingURL=` names, or `<script url>.map` when the script names none (a build that
 // keeps its maps "hidden"). A map is fetched through the browser context's request, so the run's DEV
 // gate credentials, client certificate and cookies reach it as they reach the page. Anything that is
-// not a source map (an app's HTML fallback, an error page) is no map. Best-effort, once per URL per
-// worker: no map → the orchestrator falls back to URL-suffix resolution.
+// not a source map (an app's HTML fallback, an error page) is no map. Only what the orchestrator reads
+// is kept (sources, sourceRoot, mappings): a map's embedded sources would more than double a dump.
+// Best-effort, once per URL per worker: no map → the orchestrator falls back to URL-suffix resolution.
 interface QaMapRequest {
   get(url: string, options?: { failOnStatusCode?: boolean }): Promise<{ ok(): boolean; text(): Promise<string> }>;
 }
@@ -34,6 +35,11 @@ function qaIsSourceMap(value: unknown): boolean {
   const m = value as { sources?: unknown; mappings?: unknown } | null;
   return typeof m === "object" && m !== null && Array.isArray(m.sources) && typeof m.mappings === "string";
 }
+function qaReadFields(value: unknown): unknown {
+  if (!qaIsSourceMap(value)) return undefined;
+  const m = value as { sources: unknown[]; sourceRoot?: unknown; mappings: string };
+  return { ...(m.sourceRoot !== undefined ? { sourceRoot: m.sourceRoot } : {}), sources: m.sources, mappings: m.mappings };
+}
 async function qaFetchSourceMap(url: string, request: QaMapRequest): Promise<unknown> {
   if (qaSourceMaps.has(url)) return qaSourceMaps.get(url);
   let map: unknown;
@@ -41,7 +47,7 @@ async function qaFetchSourceMap(url: string, request: QaMapRequest): Promise<unk
     const res = await request.get(url, { failOnStatusCode: false });
     if (res.ok()) {
       const json: unknown = JSON.parse(await res.text());
-      if (qaIsSourceMap(json)) map = json;
+      map = qaReadFields(json);
     }
   } catch {
     /* best-effort: no map */
@@ -63,7 +69,8 @@ async function attachSourceMaps(entries: CoverageEntry[], request: QaMapRequest)
         const meta = ref.slice(5, comma);
         const data = ref.slice(comma + 1);
         const json: unknown = JSON.parse(meta.includes("base64") ? Buffer.from(data, "base64").toString("utf8") : decodeURIComponent(data));
-        if (qaIsSourceMap(json)) e.map = json;
+        const map = qaReadFields(json);
+        if (map !== undefined) e.map = map;
         continue;
       }
       let mapUrl: URL;

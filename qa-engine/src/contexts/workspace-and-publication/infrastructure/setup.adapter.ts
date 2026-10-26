@@ -147,7 +147,10 @@ function withCaptureFixture(src: string, block: string): string | undefined {
  */
 export const SOURCE_MAPS_MARKER = ">>> qa-source-maps (system-owned: do not edit) >>>";
 const SOURCE_MAPS_END_MARKER = "// <<< qa-source-maps <<<\n";
-const EARLIER_SOURCE_MAPS_BLOCKS: ReadonlySet<string> = new Set([]);
+const EARLIER_SOURCE_MAPS_BLOCKS: ReadonlySet<string> = new Set([
+  /* It kept each map whole, embedded sources included. */
+  "36277aa0f962f8b292a20fa1a9daf0dcfd4a6cab5662810e1ec020d387593b55",
+]);
 
 /*
  * The one revision shipped without markers, which fetched maps without the gate's credentials, known by its

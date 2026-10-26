@@ -1403,6 +1403,14 @@ test("ensureSourceMaps: a fixtures.ts still holding the previous seed's source-m
   assert.doesNotMatch(after, /const res = await fetch\(mapUrl\)/);
 });
 
+const FULL_MAPS_SEED = readFileSync(fileURLToPath(new URL("./__fixtures__/seed-revisions/fixtures.rev-full-maps.txt", import.meta.url)), "utf8");
+
+test("ensureSourceMaps: a fixtures.ts still holding the seed's code that kept each map whole is brought to the current seed", () => {
+  const current = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  assert.notEqual(FULL_MAPS_SEED, current);
+  assert.equal(withFixtures(FULL_MAPS_SEED, (dir) => realAdapter().ensureSourceMaps(dir)), current);
+});
+
 test("ensureMutationFixture: a fixtures.ts from the seed without the mutation fixture gets it, typed, after the response oracle's; one that has it, or is not shaped like the seed, is left as it is", () => {
   const current = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
   const after = withFixtures(UNGATED_MAPS_SEED, (dir) => realAdapter().ensureMutationFixture(dir));
