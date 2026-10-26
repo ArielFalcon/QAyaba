@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 import { RegenerationAcceptance } from "@contexts/run-orchestration/application/regeneration-acceptance.ts";
 import { MAX_ACCEPTANCE_EXECUTIONS } from "@kernel/derive-cycle-backstop.ts";
 import { isRunDeadlineError } from "@kernel/run-deadline.ts";
-import type { SpecSnapshot } from "@contexts/run-orchestration/domain/spec-snapshot.ts";
-import type { SpecSnapshotPort } from "@contexts/run-orchestration/application/ports/spec-snapshot.port.ts";
+import type { SuiteRestorePoint } from "@contexts/run-orchestration/domain/suite-restore-point.ts";
+import type { SuiteRestorePort } from "@contexts/run-orchestration/application/ports/suite-restore.port.ts";
 import type { ClosedLoopHandle } from "@contexts/agent-tools/application/index.ts";
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
 import type { RunDeadlinePort } from "@contexts/run-orchestration/application/ports/run-deadline.port.ts";
@@ -13,7 +13,7 @@ import type { RunDeadlinePort } from "@contexts/run-orchestration/application/po
 const bytesOf = (text: string): Uint8Array => new TextEncoder().encode(text);
 
 /* A snapshot the caller took before the turn: the files that existed, with their bytes. */
-const snapshotOf = (files: readonly string[]): SpecSnapshot => ({ files: new Map(files.map((f) => [f, bytesOf(`old:${f}`)])) });
+const snapshotOf = (files: readonly string[]): SuiteRestorePoint => ({ files: new Map(files.map((f) => [f, bytesOf(`old:${f}`)])) });
 
 const deadline = (remainingMs?: number): RunDeadlinePort => ({
   arm: () => {},
@@ -23,7 +23,7 @@ const deadline = (remainingMs?: number): RunDeadlinePort => ({
 
 interface Harness {
   service: RegenerationAcceptance;
-  snapshot: SpecSnapshotPort;
+  snapshot: SuiteRestorePort;
   restores: Array<{ created: readonly string[] }>;
   executed: Array<{ specFiles: string[]; retries: number; namespace: string }>;
   ledgered: Array<{ file: string; sha256: string; bytes?: Uint8Array }>;
@@ -34,7 +34,7 @@ function harness(): Harness {
   const restores: Harness["restores"] = [];
   const executed: Harness["executed"] = [];
   const ledgered: Harness["ledgered"] = [];
-  const snapshot: SpecSnapshotPort = {
+  const snapshot: SuiteRestorePort = {
     snapshot: async (_dir, files) => ({ files: new Map(files.map((f) => [f, bytesOf(`now:${f}`)])) }),
     restore: async (_dir, _snap, created) => { restores.push({ created }); },
   };

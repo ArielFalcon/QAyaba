@@ -10,7 +10,7 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { ContractFeedback } from "../../domain/contract-feedback.ts";
 import type { ReviewPort } from "@contexts/generation/application/index.ts";
-import type { SpecSnapshot } from "../../domain/spec-snapshot.ts";
+import type { SuiteRestorePoint } from "../../domain/suite-restore-point.ts";
 import type { RegenerationAcceptance } from "../regeneration-acceptance.ts";
 import type { ReviewedSpecs, ReviewTally } from "./phases/review-services.ts";
 import type { DegradeReason } from "./failure-policy.ts";
@@ -171,7 +171,7 @@ export interface ReviewRoundScratch {
   decidedBy: "model" | "precheck" | "unchanged";
   /** The spec each verified finding's citation names. */
   blockingSpecs: Map<string, string>;
-  snapshot: SpecSnapshot;
+  snapshot: SuiteRestorePoint;
   deliveredBefore: readonly DeliveredSpec[];
   regen: GenerationOutput | undefined;
   changedSpecFiles: string[];

@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { OnboardingService, type OnboardingRoundProgress } from "@contexts/service-topology/application/onboarding-service.ts";
 import type { ProfileProposerPort } from "@contexts/service-topology/application/ports/profile-proposer.port.ts";
 import type { ProposerFeedback } from "@contexts/service-topology/application/service-boundary-resolver.ts";
+import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrastructure/resolver-factory.ts";
 import type { RepoRef, HttpBoundaryProfile, BoundaryProfile } from "@contexts/service-topology/domain/index.ts";
 
 /* ---- Fixtures: reuse the SAME pool as profile-scorer.test.ts, so this proves the service
@@ -74,7 +75,7 @@ function alwaysThrowsProposer(): ProfileProposerPort {
 }
 
 test("onboard: proposer returns the correct nname profile -> resolves it, resolvedScore > 0, rounds === 1", async () => {
-  const service = new OnboardingService(fixedProposer([CORRECT_PROFILE], []), 3);
+  const service = new OnboardingService(fixedProposer([CORRECT_PROFILE], []), buildServiceBoundaryResolver, 3);
   const result = await service.onboard([backendRepo], frontendRepo);
 
   assert.notEqual(result.profile, null);
@@ -90,7 +91,7 @@ test("onboard: proposer returns the correct nname profile -> resolves it, resolv
 
 test("onboard: proposer returns only a wrong-receiver profile every round -> profile null, rounds === ceiling, full audit trail", async () => {
   const ceiling = 3;
-  const service = new OnboardingService(fixedProposer([WRONG_RECEIVER_PROFILE], []), ceiling);
+  const service = new OnboardingService(fixedProposer([WRONG_RECEIVER_PROFILE], []), buildServiceBoundaryResolver, ceiling);
   const result = await service.onboard([backendRepo], frontendRepo);
 
   assert.equal(result.profile, null);
@@ -106,6 +107,7 @@ test("onboard: proposer returns only a wrong-receiver profile every round -> pro
 test("onboard: wrong profile on round 1, correct profile on round 2 -> returns the correct one, rounds === 2", async () => {
   const service = new OnboardingService(
     byRoundProposer({ 1: [WRONG_RECEIVER_PROFILE], 2: [CORRECT_PROFILE] }),
+    buildServiceBoundaryResolver,
     3,
   );
   const result = await service.onboard([backendRepo], frontendRepo);
@@ -119,7 +121,7 @@ test("onboard: wrong profile on round 1, correct profile on round 2 -> returns t
 /* ---- Case 4: proposer returns [] every round -> fail-open, profile null, no crash ---- */
 
 test("onboard: proposer returns [] every round -> fail-open, profile null, no crash", async () => {
-  const service = new OnboardingService(alwaysEmptyProposer(), 3);
+  const service = new OnboardingService(alwaysEmptyProposer(), buildServiceBoundaryResolver, 3);
   const result = await service.onboard([backendRepo], frontendRepo);
 
   assert.equal(result.profile, null);
@@ -130,7 +132,7 @@ test("onboard: proposer returns [] every round -> fail-open, profile null, no cr
 /* ---- Case 5: proposer throws -> fail-open, treated as an empty round, no crash ---- */
 
 test("onboard: proposer throws every round -> fail-open, treated as empty, no crash", async () => {
-  const service = new OnboardingService(alwaysThrowsProposer(), 3);
+  const service = new OnboardingService(alwaysThrowsProposer(), buildServiceBoundaryResolver, 3);
   const result = await service.onboard([backendRepo], frontendRepo);
 
   assert.equal(result.profile, null);
@@ -147,6 +149,7 @@ test("onboard: audit trail accumulates all scored candidates across rounds, not 
       2: [WRONG_RECEIVER_PROFILE],
       3: [WRONG_RECEIVER_PROFILE],
     }),
+    buildServiceBoundaryResolver,
     3,
   );
   const result = await service.onboard([backendRepo], frontendRepo);
@@ -159,7 +162,7 @@ test("onboard: audit trail accumulates all scored candidates across rounds, not 
 
 test("onboard: passes accumulated candidates as feedback to the proposer on subsequent rounds", async () => {
   const feedbackLog: (ProposerFeedback | undefined)[] = [];
-  const service = new OnboardingService(fixedProposer([WRONG_RECEIVER_PROFILE], feedbackLog), 2);
+  const service = new OnboardingService(fixedProposer([WRONG_RECEIVER_PROFILE], feedbackLog), buildServiceBoundaryResolver, 2);
   await service.onboard([backendRepo], frontendRepo);
 
   assert.equal(feedbackLog.length, 2, "proposer is called once per round up to the ceiling");
@@ -172,7 +175,7 @@ test("onboard: passes accumulated candidates as feedback to the proposer on subs
    behaving exactly as it did before onRound existed.
  */
 test("onboard: constructing without onRound behaves byte-identical to today (regression guard)", async () => {
-  const service = new OnboardingService(fixedProposer([CORRECT_PROFILE], []), 3);
+  const service = new OnboardingService(fixedProposer([CORRECT_PROFILE], []), buildServiceBoundaryResolver, 3);
   const result = await service.onboard([backendRepo], frontendRepo);
 
   assert.notEqual(result.profile, null);
@@ -185,6 +188,7 @@ test("onboard: onRound fires once per round with round/proposed/scored/bestResol
   const progress: OnboardingRoundProgress[] = [];
   const service = new OnboardingService(
     byRoundProposer({ 1: [WRONG_RECEIVER_PROFILE], 2: [CORRECT_PROFILE] }),
+    buildServiceBoundaryResolver,
     3,
     (p) => progress.push(p),
   );
@@ -210,6 +214,7 @@ test("onboard: a throwing onRound callback does not crash onboard() — the roun
   };
   const service = new OnboardingService(
     byRoundProposer({ 1: [WRONG_RECEIVER_PROFILE], 2: [CORRECT_PROFILE] }),
+    buildServiceBoundaryResolver,
     3,
     throwingOnRound,
   );

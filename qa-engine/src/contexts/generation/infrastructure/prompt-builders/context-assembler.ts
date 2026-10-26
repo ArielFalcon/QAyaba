@@ -1,6 +1,6 @@
 
 
-import { sha256Hex } from "../../../../shared-infrastructure/content-hash.ts";
+import { sha256Hex } from "../../../../shared-kernel/content-hash.ts";
 import { redactByValue } from "../../../../shared-infrastructure/redaction/run-secret-redaction.ts";
 import { ContextAssemblerAdapter } from "@contexts/generation/infrastructure/context-assembler.adapter.ts";
 import type { PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";

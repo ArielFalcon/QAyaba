@@ -13,6 +13,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { MirrorRegistryAdapter } from "../qa-engine/src/contexts/service-topology/infrastructure/mirror-registry.adapter.ts";
+import { buildServiceBoundaryResolver } from "../qa-engine/src/contexts/service-topology/infrastructure/resolver-factory.ts";
 import { OnboardingService, type OnboardingResult } from "../qa-engine/src/contexts/service-topology/application/onboarding-service.ts";
 import type { RepoRef } from "../qa-engine/src/contexts/service-topology/domain/index.ts";
 import { LlmProfileProposerAdapter, PROPOSER_MODEL } from "../src/server/onboarding/llm-profile-proposer.adapter.ts";
@@ -165,7 +166,7 @@ export async function runOnboarding(argv: string[], deps: OnboardingCliDeps): Pr
 function realDeps(app: string, mirrorRoot: string): OnboardingCliDeps {
   const registry = new MirrorRegistryAdapter(mirrorRoot);
   const proposer = new LlmProfileProposerAdapter(defaultAgentDeps, PROPOSER_MODEL, { app });
-  const service = new OnboardingService(proposer, 3);
+  const service = new OnboardingService(proposer, buildServiceBoundaryResolver, 3);
   return {
     mirrorDir: (repo) => registry.mirrorDir(repo),
     runOnboardingLoop: (system, front) => service.onboard(system, front),

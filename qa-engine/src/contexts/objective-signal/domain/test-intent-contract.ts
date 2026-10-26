@@ -39,6 +39,16 @@ export interface SpecIntent {
   readonly clauses: readonly IntentClause[];
 }
 
+/** What one spec file's contract came to: its tests in source order and how much of them is readable. */
+export interface SpecContractExtraction {
+  /** One entry per `test`/`it` call found, in source order. */
+  readonly specs: readonly SpecIntent[];
+  readonly clauseCount: number;
+  readonly opaqueCount: number;
+  /** Opaque clauses over all clauses, 0 when the file has none. */
+  readonly opacityRatio: number;
+}
+
 /**
  * How a primary pass relates to the change's token set.
  * - `anchored`: a readable clause names a change token.

@@ -5,7 +5,7 @@ import { AgentTimeoutError, AgentUnavailableError, StalledAgentError, isInfraErr
 import type { AgentPromptOpts, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { redactByValue } from "../../../shared-infrastructure/redaction/run-secret-redaction.ts";
-import { sha256Hex } from "../../../shared-infrastructure/content-hash.ts";
+import { sha256Hex } from "../../../shared-kernel/content-hash.ts";
 import { carryAgentErrorType, classifyAgentFault, classifyProviderError, type AgentErrorType } from "../domain/agent-error-class.ts";
 import type { TimeLimitSource, TurnLimit } from "@kernel/turn-limit.ts";
 import { buildTurnStepBudget, type TurnCallMetrics, type TurnStepBudget } from "../domain/turn-efficiency-summary.ts";

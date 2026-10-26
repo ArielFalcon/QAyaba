@@ -24,3 +24,6 @@ export function importsTestFromFixtures(source: string): boolean {
     return bindings.elements.some((element) => !element.isTypeOnly && (element.propertyName ?? element.name).text === "test");
   });
 }
+
+/* The check as an object, for a use case that receives it as a dependency. */
+export const typescriptSpecFixtures: { importsTestFromFixtures(source: string): boolean } = { importsTestFromFixtures };

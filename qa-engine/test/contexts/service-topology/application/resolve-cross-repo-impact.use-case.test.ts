@@ -8,7 +8,6 @@ import { ResolveCrossRepoImpactUseCase } from "@contexts/service-topology/applic
 import type { ServiceLink } from "@contexts/service-topology/domain/index.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { GraphRoute } from "@kernel/code/index.ts";
-import type { SandboxedBinaryRunner } from "../../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { Sha } from "@kernel/sha.ts";
 import { err, ok } from "@kernel/result.ts";
@@ -28,7 +27,7 @@ const link: ServiceLink = {
   confidence: 1,
   source: "openapi",
 };
-const runner = { run: async () => ({ exitCode: 0, stdout: "", stderr: "", timedOut: false }) } as unknown as SandboxedBinaryRunner;
+const runner = { refresh: async () => {} };
 
 function graph(over: { impacted?: ReturnType<CodeGraphPort["impactedSymbols"]>; routes?: GraphRoute[] | { reason: string } }): CodeGraphPort {
   const reached = ok({ indexedSha: SHA, symbols: [{ file: CONTROLLER, symbol: "handle", kind: "method", depth: 0 }], truncated: false });

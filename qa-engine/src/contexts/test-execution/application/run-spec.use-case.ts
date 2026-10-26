@@ -7,8 +7,7 @@
 
 import { createHash } from "node:crypto";
 import { MAX_SPEC_SOURCE_BYTES, type SpecFilesPort, type SpecRoot } from "@kernel/ports/spec-files.port.ts";
-import { dropOpaqueTokens } from "../../../shared-infrastructure/output-token-filter.ts";
-import { importsTestFromFixtures } from "../../../shared-infrastructure/spec-fixtures-import.ts";
+import { dropOpaqueTokens } from "../domain/output-token-filter.ts";
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
 import { failureUnsettled, type QaCase } from "@kernel/qa-case.ts";
@@ -26,6 +25,7 @@ import {
 } from "../domain/run-spec-capability.ts";
 import type { SessionRenewalPort } from "./ports/session-renewal.port.ts";
 import type { SpecCleanupPort } from "./ports/spec-cleanup.port.ts";
+import type { SpecFixturesCheckPort } from "./ports/spec-fixtures-check.port.ts";
 import type { SpecExecutionResult } from "../domain/spec-executor.ts";
 import type { SpecExecutorPort } from "./ports/spec-executor.port.ts";
 
@@ -96,6 +96,8 @@ export interface RunSpecDeps {
   capability: RunSpecCapability;
   specRoot: SpecRoot;
   specFiles: SpecFilesPort;
+  /* Judges whether a spec takes its `test` from the suite's fixtures. */
+  fixtures: SpecFixturesCheckPort;
   /* The spec directory as the agent sees it from the mirror's root (`e2e`): a path may carry it as a prefix. */
   specRelDir: string;
   /* The key two users of one test account contend on. */
@@ -175,7 +177,7 @@ export class RunSpecUseCase {
     if ("absent" in read) return this.refusal(RUN_SPEC_INVALID.NOT_FOUND, `spec not found: ${rel}. Write it under the e2e directory first.`);
     if ("reason" in read) return this.refusal(RUN_SPEC_INVALID.INVALID_REQUEST, `${rel} cannot be used: ${read.reason}`);
     const source = read.bytes.toString("utf8");
-    if (!importsTestFromFixtures(source)) {
+    if (!this.deps.fixtures.importsTestFromFixtures(source)) {
       return this.refusal(RUN_SPEC_INVALID.INVALID_REQUEST, `${rel} must import test from the suite's fixtures file (for example: import { test, expect } from "./fixtures"), so that its requests to DEV can be counted.`);
     }
     const sha256 = createHash("sha256").update(read.bytes).digest("hex");

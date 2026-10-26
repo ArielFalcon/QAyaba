@@ -5,15 +5,14 @@
  */
 
 import type { SpecRoot } from "@kernel/ports/spec-files.port.ts";
-import { sha256Hex } from "../../../../shared-infrastructure/content-hash.ts";
+import { sha256Hex } from "../../../../shared-kernel/content-hash.ts";
 import { specSetDigest } from "./spec-set-digest.ts";
-import { specSnapshotPort } from "../../infrastructure/adapters/spec-snapshot.adapter.ts";
+import { suiteRestorePort } from "../suite-restore.ts";
 import { RegenerationAcceptance } from "../regeneration-acceptance.ts";
-import type { SpecSnapshot } from "../../domain/spec-snapshot.ts";
+import type { SuiteRestorePoint } from "../../domain/suite-restore-point.ts";
 import type { ContractFeedback } from "../../domain/contract-feedback.ts";
 import { EMPTY_TOKEN_SET, type ChangeTokenSet } from "@contexts/objective-signal/application/index.ts";
-import { diffContracts, type IntentViolation } from "@contexts/objective-signal/application/index.ts";
-import type { SpecIntentView } from "../../domain/intent-contract.ts";
+import { diffContracts, type IntentViolation, type SpecIntent } from "@contexts/objective-signal/application/index.ts";
 import type { RunQaConfig, RunQaUseCaseDeps } from "./run-types.ts";
 import { carryOn } from "./failure-policy.ts";
 import type { WorkspaceHandle } from "../../domain/workspace-handle.ts";
@@ -44,7 +43,7 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
   /* The fix loop in progress: its ports and scratch are live objects, so the state holds only where it stands. */
   const fixLoopHandle: { current: FixLoopState | undefined } = { current: undefined };
   const integrityCounters = { acceptances: 0, rejected: 0, proofReused: 0, capHit: false };
-  const snapshotPort = specSnapshotPort(specRoot);
+  const snapshotPort = suiteRestorePort(specRoot, deps.specFiles);
   /* Built once per run; the deadline, validation, execution and the closed-loop proof source are each passed per call. */
   /*
    * The test-intent lock. A primary pass fixes each spec's contract against the change's own tokens
@@ -57,7 +56,7 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
   const intentLock = cfg.reviewLoopIntegrity ? intentLockPolicy : { ...intentLockPolicy, mode: "off" as const };
   const intentState: {
     tokens: ChangeTokenSet;
-    baselines: Map<string, readonly SpecIntentView[]>;
+    baselines: Map<string, readonly SpecIntent[]>;
     violations: number;
     wouldReject: number;
     clauses: number;
@@ -127,7 +126,7 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
    * a fixture the specs now read differently.
    */
   const sameBytes = (a: Uint8Array, b: Uint8Array): boolean => a.length === b.length && a.every((v, i) => v === b[i]);
-  const suiteChangedFiles = async (before: SpecSnapshot, regenSpecs: readonly string[]): Promise<string[]> => {
+  const suiteChangedFiles = async (before: SuiteRestorePoint, regenSpecs: readonly string[]): Promise<string[]> => {
     const listing = deps.specFiles.listSuite(workspace.specDir);
     /* A listing the walk could not finish cannot say what changed: the caller then judges the whole suite. */
     if (listing.cut) return [...new Set([...before.files.keys(), ...regenSpecs.map((file) => file.replaceAll("\\", "/"))])];
@@ -154,7 +153,7 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
    * specs import (a fixture, a helper, the login setup), or the suite could not be listed — every spec, since
    * a spec whose own bytes did not change can still read differently now (B-4, and the proof it rests on).
    */
-  const snapshotSuite = (): Promise<SpecSnapshot> => snapshotPort.snapshot(workspace.specDir, deps.specFiles.listSuite(workspace.specDir).files);
+  const snapshotSuite = (): Promise<SuiteRestorePoint> => snapshotPort.snapshot(workspace.specDir, deps.specFiles.listSuite(workspace.specDir).files);
   const acceptanceScope = (changed: readonly string[]): string[] => {
     const specs = changed.filter((file) => file.endsWith(".spec.ts"));
     const supportChanged = specs.length !== changed.length;

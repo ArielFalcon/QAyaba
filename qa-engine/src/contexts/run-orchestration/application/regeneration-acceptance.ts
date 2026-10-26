@@ -17,8 +17,8 @@ import type { ContractFeedback } from "../domain/contract-feedback.ts";
 import type { ClosedLoopHandle } from "@contexts/agent-tools/application/index.ts";
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
 import type { RunDeadlinePort } from "./ports/run-deadline.port.ts";
-import type { SpecSnapshot } from "../domain/spec-snapshot.ts";
-import type { SpecSnapshotPort } from "./ports/spec-snapshot.port.ts";
+import type { SuiteRestorePoint } from "../domain/suite-restore-point.ts";
+import type { SuiteRestorePort } from "./ports/suite-restore.port.ts";
 
 /** One accepted file's proof: its suite-relative path, the sha256 of its green bytes, and those bytes when they could be read, so a later restore has them. */
 export interface AcceptanceProofEntry {
@@ -48,7 +48,7 @@ export type AcceptanceOutcome =
   | { kind: "cap" };
 
 export interface RegenerationAcceptanceDeps {
-  snapshot: SpecSnapshotPort;
+  snapshot: SuiteRestorePort;
   /** sha256 of the accepted bytes; injected so the service never imports node:crypto. */
   fingerprint: (bytes: Uint8Array) => string;
   /** Records one accepted file's proof (its path, the sha256 of its green bytes, and those bytes). */
@@ -64,7 +64,7 @@ export interface AcceptanceInput {
   /** The execution namespace: `${runId}-acc<n>`. */
   namespace: string;
   /** The pre-turn snapshot the caller took before sending the turn. */
-  snapshot: SpecSnapshot;
+  snapshot: SuiteRestorePoint;
   /** The proof source: a changed file whose current bytes `isClosed([file])` is not executed. Absent: every change is executed. */
   closedLoop?: Pick<ClosedLoopHandle, "isClosed">;
   /**
@@ -85,7 +85,7 @@ export class RegenerationAcceptance {
   constructor(private readonly deps: RegenerationAcceptanceDeps) {}
 
   /** Before the turn: capture the pre-turn bytes of the specs the regeneration may touch. */
-  snapshot(specDir: string, specFiles: readonly string[]): Promise<SpecSnapshot> {
+  snapshot(specDir: string, specFiles: readonly string[]): Promise<SuiteRestorePoint> {
     return this.deps.snapshot.snapshot(specDir, specFiles);
   }
 

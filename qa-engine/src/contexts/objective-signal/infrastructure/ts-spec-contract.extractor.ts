@@ -4,7 +4,7 @@
    telemetry only — an opaque clause never rejects anything. */
 
 import ts from "typescript";
-import type { IntentClause, MatcherStrength, SpecIntent } from "../domain/test-intent-contract.ts";
+import type { IntentClause, MatcherStrength, SpecContractExtraction, SpecIntent } from "../domain/test-intent-contract.ts";
 
 /** Matcher strength per assertion method. A method the table does not name is mid-strength ("presence"),
     so an unrecognized matcher can never make a regeneration look weaker than it is. */
@@ -68,15 +68,6 @@ const SCOPE_METHODS = new Set([
 const POSITIONAL_METHODS = new Set(["first", "last", "nth"]);
 
 const TEST_CALLS = new Set(["test", "it"]);
-
-export interface SpecContractExtraction {
-  /** One entry per `test`/`it` call found, in source order. */
-  readonly specs: readonly SpecIntent[];
-  readonly clauseCount: number;
-  readonly opaqueCount: number;
-  /** Opaque clauses over all clauses, 0 when the file has none. */
-  readonly opacityRatio: number;
-}
 
 const EMPTY: SpecContractExtraction = { specs: [], clauseCount: 0, opaqueCount: 0, opacityRatio: 0 };
 

@@ -5,6 +5,7 @@ import type { CrossRepoImpact } from "../../domain/cross-repo-impact.ts";
 import type { ServiceLink } from "../../domain/index.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { SandboxedBinaryRunner } from "../../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
+import { GitMirrorRefreshAdapter } from "./git-mirror-refresh.adapter.ts";
 import { ResolveCrossRepoImpactUseCase, type CrossRepoVcsRead, type MirrorRegistryLike } from "@contexts/service-topology/application/index.ts";
 
 export interface CrossRepoImpactPortAdapterDeps {
@@ -19,7 +20,7 @@ export class CrossRepoImpactPortAdapter implements CrossRepoImpactPort {
   private readonly useCase: ResolveCrossRepoImpactUseCase;
 
   constructor(deps: CrossRepoImpactPortAdapterDeps) {
-    this.useCase = new ResolveCrossRepoImpactUseCase(deps.mirrors, deps.makeVcs, deps.codeGraph, deps.runner);
+    this.useCase = new ResolveCrossRepoImpactUseCase(deps.mirrors, deps.makeVcs, deps.codeGraph, new GitMirrorRefreshAdapter(deps.runner));
   }
 
   async resolve(triggerRepo: string, triggerSha: string, resolvedLinks: readonly ServiceLink[]): Promise<CrossRepoImpact | null> {

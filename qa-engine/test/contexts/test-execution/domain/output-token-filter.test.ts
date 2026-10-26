@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { MIN_OPAQUE_TOKEN_CHARS, OPAQUE_TOKEN_REMOVED, dropOpaqueTokens } from "../../src/shared-infrastructure/output-token-filter.ts";
+import { MIN_OPAQUE_TOKEN_CHARS, OPAQUE_TOKEN_REMOVED, dropOpaqueTokens } from "../../../../src/contexts/test-execution/domain/output-token-filter.ts";
 
 /* Fixed, random-looking bytes: a digest of a seed, so the cases never change between runs. */
 const bytesOf = (seed: string, length: number): Buffer => createHash("sha512").update(seed).digest().subarray(0, length);

@@ -1,5 +1,8 @@
-import { buildServiceBoundaryResolver } from "../infrastructure/resolver-factory.ts";
+import type { ServiceBoundaryResolverPort } from "./ports/service-boundary-resolver.port.ts";
 import type { BoundaryProfile, RepoRef } from "../domain/index.ts";
+
+/** Builds the resolver for a set of declared boundary profiles. */
+export type BoundaryResolverFactory = (profiles: readonly BoundaryProfile[]) => ServiceBoundaryResolverPort;
 
 /** How much of a candidate BoundaryProfile's extracted call-site pattern actually resolves. */
 export interface ProfileScore {
@@ -30,8 +33,9 @@ export async function scoreProfile(
   profile: BoundaryProfile,
   system: RepoRef[],
   front: RepoRef,
+  buildResolver: BoundaryResolverFactory,
 ): Promise<ProfileScore> {
-  const resolver = buildServiceBoundaryResolver([profile]);
+  const resolver = buildResolver([profile]);
   const result = await resolver.resolveLinks(system, front);
 
   const links = result.links.length;

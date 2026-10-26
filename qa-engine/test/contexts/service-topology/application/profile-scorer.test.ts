@@ -7,6 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { scoreProfile, selectBestProfile, type ProfileScore } from "@contexts/service-topology/application/profile-scorer.ts";
+import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrastructure/resolver-factory.ts";
 import type { RepoRef, HttpBoundaryProfile } from "@contexts/service-topology/domain/index.ts";
 
 function withScore<T extends Record<string, unknown>>(extra: T, score: ProfileScore): T & { score: ProfileScore } {
@@ -118,7 +119,7 @@ test("selectBestProfile: when every candidate is ZERO_SCORE, returns the first o
 test("scoreProfile: a zero-coverage score is frozen (ZERO_SCORE singleton must not be mutable by callers)", async () => {
   const missingBackend: RepoRef = { repo: "org/nonexistent", mirrorDir: "/nonexistent/path" };
   const missingFront: RepoRef = { repo: "org/nonexistent-front", mirrorDir: "/nonexistent/front" };
-  const score = await scoreProfile(CORRECT_PROFILE, [missingBackend], missingFront);
+  const score = await scoreProfile(CORRECT_PROFILE, [missingBackend], missingFront, buildServiceBoundaryResolver);
   assert.equal(Object.isFrozen(score), true, "ZERO_SCORE must be frozen so it cannot be mutated by reference");
   assert.throws(() => {
     score.links = 999;
@@ -174,7 +175,7 @@ const CORRECT_PROFILE: HttpBoundaryProfile = {
 };
 
 test("scoreProfile: the correct profile yields links > 0 and a coverage matching the known fixture", async () => {
-  const score = await scoreProfile(CORRECT_PROFILE, [backendRepo], frontendRepo);
+  const score = await scoreProfile(CORRECT_PROFILE, [backendRepo], frontendRepo, buildServiceBoundaryResolver);
   /* Known fixture shape (openapi-http-resolver.adapter.test.ts): 2 links (listOrders, getOrderById),
      1 drift (POST /orders), 1 external (name-unknown-api), 1 unresolved (dynamic id) = coverage 5.
    */
@@ -192,7 +193,7 @@ test("scoreProfile: a profile with a WRONG receiver extracts zero call-sites (co
     ...CORRECT_PROFILE,
     frontCallSite: { kind: "receiver-verb-call", receiver: "this.nope" },
   };
-  const score = await scoreProfile(wrongReceiver, [backendRepo], frontendRepo);
+  const score = await scoreProfile(wrongReceiver, [backendRepo], frontendRepo, buildServiceBoundaryResolver);
   assert.equal(score.coverage, 0, "wrong receiver must match nothing in the front egress files");
   assert.equal(score.links, 0);
   assert.equal(score.resolutionRatio, 0, "resolutionRatio must be 0 (not NaN) when coverage is 0");
@@ -203,7 +204,7 @@ test("scoreProfile: a profile with the right receiver but a WRONG servicePrefixT
     ...CORRECT_PROFILE,
     servicePrefixTemplate: "wrong-{service}-prefix",
   };
-  const score = await scoreProfile(wrongPrefix, [backendRepo], frontendRepo);
+  const score = await scoreProfile(wrongPrefix, [backendRepo], frontendRepo, buildServiceBoundaryResolver);
   assert.ok(score.coverage > 0, "the receiver still matches — call-sites are extracted");
   assert.ok(score.links < 2, "the wrong prefix must not resolve as many links as the correct profile");
 });
@@ -211,6 +212,6 @@ test("scoreProfile: a profile with the right receiver but a WRONG servicePrefixT
 test("scoreProfile: fail-open — an unresolvable app (missing mirrors) yields an all-zero score with resolutionRatio 0, never throws", async () => {
   const missingBackend: RepoRef = { repo: "org/nonexistent", mirrorDir: "/nonexistent/path" };
   const missingFront: RepoRef = { repo: "org/nonexistent-front", mirrorDir: "/nonexistent/front" };
-  const score = await scoreProfile(CORRECT_PROFILE, [missingBackend], missingFront);
+  const score = await scoreProfile(CORRECT_PROFILE, [missingBackend], missingFront, buildServiceBoundaryResolver);
   assert.deepEqual(score, { links: 0, drift: 0, external: 0, unresolved: 0, coverage: 0, resolutionRatio: 0, resolvedScore: 0 });
 });

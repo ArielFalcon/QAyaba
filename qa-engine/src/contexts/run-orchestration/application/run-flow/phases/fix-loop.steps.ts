@@ -6,7 +6,7 @@ import { MAX_SPEC_SOURCE_BYTES, type SpecRoot } from "@kernel/ports/spec-files.p
 import { FixLoop, type FixLoopState, type FixLoopInput, type FixLoopAcceptancePort, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../../../domain/fix-loop.aggregate.ts";
 import { checkSpecSelectors, contradictionOrigins } from "@contexts/generation/application/index.ts";
 import { attributeContradictions } from "../../../domain/helpers/contradiction-attribution.ts";
-import type { SpecSnapshot } from "../../../domain/spec-snapshot.ts";
+import type { SuiteRestorePoint } from "../../../domain/suite-restore-point.ts";
 import { goto, type StepOutcome } from "../run-flow.ts";
 import type { StepId } from "../step-ids.ts";
 import type { FixLoopStep } from "../../../domain/fix-loop-action.ts";
@@ -138,7 +138,7 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
   const fixLoopAcceptance: FixLoopAcceptancePort = {
     begin: () => snapshotSuite(),
     accept: async ({ round, specs, namespace }) => {
-      const snapshot = round as SpecSnapshot;
+      const snapshot = round as SuiteRestorePoint;
       /* A round that changed anything the specs import is accepted over the whole suite, never over its specs alone. */
       const changedSpecFiles = acceptanceScope(await suiteChangedFiles(snapshot, specs));
       if (changedSpecFiles.length === 0) {
@@ -184,7 +184,7 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
       };
     },
     restore: async (token) => {
-      const snapshot = token as SpecSnapshot;
+      const snapshot = token as SuiteRestorePoint;
       /* Every file created after the best round goes, and its own bytes go back: the suite is exactly the best round's. */
       const created = services.specFiles.list(workspace.specDir).filter((file) => !snapshot.files.has(file));
       await snapshotPort.restore(workspace.specDir, snapshot, created);

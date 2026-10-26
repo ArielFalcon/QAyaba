@@ -11,6 +11,7 @@ export type { AgentBrowserHostPort } from "./ports/agent-browser-host.port.ts";
 export type { ExecutionPort } from "./ports/execution.port.ts";
 export type { SessionRenewalPort } from "./ports/session-renewal.port.ts";
 export type { SpecCleanupPort } from "./ports/spec-cleanup.port.ts";
+export type { SpecFixturesCheckPort } from "./ports/spec-fixtures-check.port.ts";
 export type { SpecExecutorPort } from "./ports/spec-executor.port.ts";
 export type { ValidationPort } from "./ports/validation.port.ts";
 export { BrowserActionError } from "../domain/agent-browser-host.ts";

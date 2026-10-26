@@ -3,11 +3,9 @@ import { existsSync } from "node:fs";
 import type { BlastRadius } from "../../../shared-kernel/blast-radius.ts";
 import { Sha } from "../../../shared-kernel/sha.ts";
 import type { CodeGraphPort } from "../../../shared-kernel/ports/code-graph.port.ts";
-import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
-import { hardenGitArgs } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
 import { rethrowIfUntrusted } from "../../../shared-kernel/domain-error.ts";
-import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import type { ServiceLink } from "../domain/index.ts";
+import type { MirrorRefreshPort } from "./ports/mirror-refresh.port.ts";
 import { MATCH_TIER, routeServesOperation, type CrossRepoImpact, type ImpactedLink } from "../domain/cross-repo-impact.ts";
 
 /** Minimal read-side VCS surface — structural match to VcsReadPort.blastRadius without importing that context. */
@@ -19,7 +17,6 @@ export interface MirrorRegistryLike {
   mirrorDir(repo: string): Promise<string>;
 }
 
-const FETCH_TIMEOUT_MS = 30_000;
 /* The same walk budget as the structural signal: a hub module cannot blow it. */
 const IMPACT_BUDGET = { depth: 3, maxSymbols: 300 } as const;
 
@@ -29,7 +26,7 @@ export class ResolveCrossRepoImpactUseCase {
     private readonly makeVcs: (repoDir: string) => CrossRepoVcsRead,
     /* Absent: only the contract-file tier matches. */
     private readonly codeGraph: CodeGraphPort | undefined,
-    private readonly runner: SandboxedBinaryRunner,
+    private readonly mirrorRefresh: MirrorRefreshPort,
   ) {}
 
   async resolve(triggerRepo: string, triggerSha: string, resolvedLinks: readonly ServiceLink[]): Promise<CrossRepoImpact | null> {
@@ -41,13 +38,7 @@ export class ResolveCrossRepoImpactUseCase {
       if (!existsSync(mirrorDir)) return null;
 
       /* Best-effort mirror-freshness fetch before the diff is read. exitCode/timedOut are unread — a failed fetch falls through with whatever is already on disk. */
-      await this.runner.run({
-        command: "git",
-        args: hardenGitArgs(["fetch", "--no-recurse-submodules", "origin"], mirrorDir),
-        cwd: mirrorDir,
-        env: scrubEnv(),
-        timeoutMs: FETCH_TIMEOUT_MS,
-      });
+      await this.mirrorRefresh.refresh(mirrorDir);
 
       const vcs = this.makeVcs(mirrorDir);
       const blast = await vcs.blastRadius(Sha.of(triggerSha));

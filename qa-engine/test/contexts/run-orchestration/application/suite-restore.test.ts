@@ -1,4 +1,4 @@
-/* The spec snapshot port over a real working copy: a snapshot reads the pre-turn bytes of every spec through the confined
+/* The suite restore port over a real working copy: a snapshot reads the pre-turn bytes of every spec through the confined
  * reader (a link or a climb out is refused, and a faithful "before" must not stand in for the proven bytes); a restore writes
  * those bytes back and removes the files the turn created, so the bytes on disk always equal the last bytes that executed green. */
 import { test } from "node:test";
@@ -6,8 +6,9 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { specSnapshotPort } from "@contexts/run-orchestration/infrastructure/adapters/spec-snapshot.adapter.ts";
-import { MAX_SPEC_SOURCE_BYTES } from "../../../../../src/shared-infrastructure/spec-path-confinement.ts";
+import { suiteRestorePort } from "@contexts/run-orchestration/application/suite-restore.ts";
+import { MAX_SPEC_SOURCE_BYTES } from "../../../../src/shared-kernel/ports/spec-files.port.ts";
+import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 
 const bytesOf = (text: string): Uint8Array => new TextEncoder().encode(text);
 const textOf = (bytes: Uint8Array | undefined): string => (bytes === undefined ? "" : Buffer.from(bytes).toString("utf8"));
@@ -25,7 +26,7 @@ test("a snapshot reads the bytes of each spec through the confined reader, and a
     mkdirSync(join(root.specDir, "flows"), { recursive: true });
     writeFileSync(join(root.specDir, "flows", "a.spec.ts"), "the green bytes");
     writeFileSync(join(root.specDir, "flows", "b.spec.ts"), "b green");
-    const port = specSnapshotPort(root);
+    const port = suiteRestorePort(root, confinedSpecFiles);
 
     const snapshot = await port.snapshot(root.specDir, ["flows/a.spec.ts", "flows/b.spec.ts"]);
     assert.equal(textOf(snapshot.files.get("flows/a.spec.ts")), "the green bytes");
@@ -46,7 +47,7 @@ test("a restore removes the files the turn created", async () => {
   await withRoot(async (root) => {
     mkdirSync(join(root.specDir, "flows"), { recursive: true });
     writeFileSync(join(root.specDir, "flows", "a.spec.ts"), "the green bytes");
-    const port = specSnapshotPort(root);
+    const port = suiteRestorePort(root, confinedSpecFiles);
 
     const snapshot = await port.snapshot(root.specDir, ["flows/a.spec.ts"]);
     writeFileSync(join(root.specDir, "flows", "created.spec.ts"), "created by the turn");
@@ -65,7 +66,7 @@ test("a snapshot that meets a symbolic link throws: a faithful before cannot be 
     writeFileSync(join(root.mirrorDir, "outside.txt"), "outside the spec directory");
     mkdirSync(join(root.specDir, "flows"), { recursive: true });
     symlinkSync(join(root.mirrorDir, "outside.txt"), join(root.specDir, "flows", "planted.spec.ts"));
-    const port = specSnapshotPort(root);
+    const port = suiteRestorePort(root, confinedSpecFiles);
 
     await assert.rejects(() => port.snapshot(root.specDir, ["flows/planted.spec.ts"]));
   });
@@ -87,7 +88,7 @@ test("a support file the reader refuses is left out of the snapshot; a spec that
     writeFileSync(join(specDir, "fixtures.ts"), "// support\n");
     /* A support file past the reader's cap: real suites carry data files, and none of them may stop an acceptance. */
     writeFileSync(join(specDir, "seed.json"), "x".repeat(MAX_SPEC_SOURCE_BYTES + 1));
-    const port = specSnapshotPort({ mirrorDir: mirror, specDir });
+    const port = suiteRestorePort({ mirrorDir: mirror, specDir }, confinedSpecFiles);
 
     const snapshot = await port.snapshot(specDir, ["a.spec.ts", "fixtures.ts", "seed.json"]);
     assert.deepEqual([...snapshot.files.keys()].sort(), ["a.spec.ts", "fixtures.ts"]);

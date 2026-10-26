@@ -40,7 +40,7 @@ import type { PhaseSpans } from "../run-phase-spans.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { PreconditionKind } from "@contexts/app-catalog/application/index.ts";
 import type { CoordinationTelemetryPort } from "@contexts/coordination/application/index.ts";
-import type { IntentContractPort } from "../ports/intent-contract.port.ts";
+import type { IntentContractPort } from "@contexts/objective-signal/application/index.ts";
 import type { ReflectorPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/index.ts";
 
 /** A login the run could not complete: the kind, a note already scrubbed of credentials, and the attempt's duration. */

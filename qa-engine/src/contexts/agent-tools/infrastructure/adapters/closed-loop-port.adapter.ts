@@ -16,6 +16,7 @@ import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import { removeTreeBounded } from "../../../../shared-infrastructure/bounded-tree-removal.ts";
 import { MAX_SPEC_SOURCE_BYTES, purgeRefusedDirectory, readOwnedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { confinedSpecFiles } from "../../../../shared-infrastructure/spec-files.adapter.ts";
+import { typescriptSpecFixtures } from "../../../../shared-infrastructure/spec-fixtures-import.ts";
 import { AccountLock } from "@contexts/test-execution/application/index.ts";
 import { PROBE_REL_DIR, RUN_SPEC_FLOW_AGENT, RunSpecCapability, loopClosed } from "@contexts/test-execution/application/index.ts";
 import { RunSpecUseCase, type RunSpecRequest, type RunSpecResponse } from "@contexts/test-execution/application/index.ts";
@@ -87,6 +88,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
       capability,
       specRoot: root,
       specFiles: confinedSpecFiles,
+      fixtures: typescriptSpecFixtures,
       specRelDir: this.deps.specRelDir,
       account: this.deps.account,
       lock: this.deps.lock,
@@ -191,6 +193,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
       capability,
       specRoot: workspace,
       specFiles: confinedSpecFiles,
+      fixtures: typescriptSpecFixtures,
       specRelDir: this.deps.specRelDir,
       account: this.deps.account,
       lock: this.deps.lock,

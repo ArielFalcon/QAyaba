@@ -1,4 +1,4 @@
-import { scoreProfile, selectBestProfile, type ProfileScore } from "./profile-scorer.ts";
+import { scoreProfile, selectBestProfile, type BoundaryResolverFactory, type ProfileScore } from "./profile-scorer.ts";
 import type { ProfileProposerPort } from "./ports/profile-proposer.port.ts";
 import type { ProposerFeedback } from "./service-boundary-resolver.ts";
 import type { BoundaryProfile, RepoRef } from "../domain/index.ts";
@@ -45,6 +45,7 @@ export interface OnboardingRoundProgress {
 export class OnboardingService {
   constructor(
     private readonly proposer: ProfileProposerPort,
+    private readonly buildResolver: BoundaryResolverFactory,
     private readonly ceiling = 3,
     private readonly onRound?: (p: OnboardingRoundProgress) => void,
   ) {}
@@ -62,7 +63,7 @@ export class OnboardingService {
       const proposed = await this.proposeSafely(system, front, feedback);
 
       for (const profile of proposed) {
-        const score = await scoreProfile(profile, system, front);
+        const score = await scoreProfile(profile, system, front, this.buildResolver);
         candidates.push({ profile, score });
       }
 
