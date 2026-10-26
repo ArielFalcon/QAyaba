@@ -1,4 +1,5 @@
 /* src/contexts/objective-signal/infrastructure/stryker-mutation-oracle.adapter.ts ValueOraclePort for the CODE target. Signal-only by contract: a null valueScore never gates publish. The process-tree kill on the hang/timeout path is injected via ProcessKillPort (shared-kernel) rather than a local byte-copy — this was the last of the 4 killTree duplicates named in process-kill.port.ts's consolidation note (execute.ts, code-runner.ts, static-signal/exec.ts, learning/mutation-code.ts); ProcessKillAdapter (shared-infrastructure) is the one concrete implementation, same as sandboxed-binary-runner.adapter.ts's usage. `timeoutMs` is also injected (ctor-level, defaulting to DEFAULT_MUTATION_TIMEOUT_MS) so the hang/timeout path is testable against the real adapter without waiting out the 600s production default. */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { ChildProcess } from "node:child_process";
@@ -84,7 +85,7 @@ function writeStrykerConfig(repoDir: string, testCommand: string, testArgs: stri
 /* mutation-scope:begin unreadable-report */
 /* A report that was there and cannot be used: said aloud with the reason of the module's own and nothing the report held. */
 function unread(reason: string): null {
-  console.warn(`[qa] WARNING: the Stryker report was not read (${reason}); the mutation score stays unmeasured (non-blocking).`);
+  engineLog.warn(`[qa] WARNING: the Stryker report was not read (${reason}); the mutation score stays unmeasured (non-blocking).`);
   return null;
 }
 

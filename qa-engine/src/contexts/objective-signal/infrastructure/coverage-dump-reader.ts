@@ -1,4 +1,5 @@
 /* Coverage dump readers. Fail-open: an absent, unusable or corrupt dump or report degrades to an empty result — never throws, never waits, never leaves the mirror. An empty report is unmeasured → unknown → never blocks publish. What a run of the tests leaves is the agent's to shape, so every read goes through run-output-reader (the strict read under a cap; what cannot be used is said aloud, quoting nothing of it). The dumps of a run, and the reports of a run, are each used whole or not at all: the coverage of some of them is a ratio of a part of what the run did, lower than the real one, and under enforce it would block a valid change, so when any of them cannot be used none of them is used and the result is empty. */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { join } from "node:path";
 import type { CoverageScripts } from "../domain/coverage-collector.ts";
 import { MAX_V8_DUMP_BYTES, MAX_V8_DUMP_FILES, MAX_V8_DUMPS_TOTAL_BYTES } from "../domain/dump-sanitizers.ts";
@@ -47,7 +48,7 @@ export async function readV8Coverage(e2eDir: string, namespace: string, changedF
     },
     limits,
   );
-  if (ranOutOfTime) console.warn(`[qa] WARNING: ${join(e2eDir, rel)}: the dumps were not all decoded in the time a run is given (${time.budgetMs} ms); none of them is used, so the coverage is unknown this run (non-blocking).`);
+  if (ranOutOfTime) engineLog.warn(`[qa] WARNING: ${join(e2eDir, rel)}: the dumps were not all decoded in the time a run is given (${time.budgetMs} ms); none of them is used, so the coverage is unknown this run (non-blocking).`);
   return dumps ?? [];
 }
 

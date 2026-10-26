@@ -54,8 +54,6 @@ const NOT_MIGRATED: readonly string[] = [
   "qa-engine/src/contexts/generation/infrastructure/telemetry/turn-trace-registry.ts",
   "qa-engine/src/contexts/generation/infrastructure/telemetry/with-turn-telemetry.ts",
   "qa-engine/src/contexts/generation/infrastructure/verdict-parser.adapter.ts",
-  "qa-engine/src/contexts/objective-signal/infrastructure/coverage-dump-reader.ts",
-  "qa-engine/src/contexts/objective-signal/infrastructure/stryker-mutation-oracle.adapter.ts",
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter.ts",
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/spec-snapshot-validation.adapter.ts",
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/mirror-provision.adapter.ts",
