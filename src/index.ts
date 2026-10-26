@@ -56,6 +56,7 @@ import { getHistoryDatabase } from "./server/persistence/index";
 import { pruneHistory, retentionPolicyFrom } from "./server/persistence/retention";
 import { backupDatabase } from "./server/persistence/backup";
 import { type RunMode, type TestTarget } from "./types";
+import { installShutdown, installUnhandledRejectionRecorder } from "./server/shutdown";
 import { github } from "./integrations/github";
 import { createApp as adminCreateApp, updateApp as adminUpdateApp, deleteApp as adminDeleteApp, type AppAdminDeps } from "./server/app-admin";
 import { writeConfig, configExists } from "./server/onboard";
@@ -216,9 +217,22 @@ if (!secret && !ALLOW_UNSIGNED_WEBHOOK) {
 }
 
 
-let shuttingDown = false;
-const SHUTDOWN_TIMEOUT_MS = 25_000;
 const eventStreamController = new AbortController();
+/* The one SIGTERM/SIGINT pair: cancels the in-flight run, drains, flushes telemetry and exits (src/server/shutdown.ts). */
+const lifecycle = installShutdown({
+  queue,
+  telemetry: { flush: () => telemetry.telemetry.flush(), shutdown: (timeoutMs) => telemetry.shutdown(timeoutMs) },
+  hostHealth,
+  eventStream: eventStreamController,
+  drainMs: settings.server.drainMs,
+  telemetryShutdownMs: TELEMETRY_SHUTDOWN_TIMEOUT_MS,
+  exit: (code) => process.exit(code),
+  log: (message) => console.log(message),
+});
+installUnhandledRejectionRecorder(
+  (summary) => recordIncident({ source: "qa-author", severity: "error", summary }),
+  (message) => console.error(message),
+);
 const agentRuntime = createAgentRuntimeManager({
   env: settings.environment,
   fs: defaultEnvStoreFs(),
@@ -273,7 +287,7 @@ function runnerDeps(): RunnerDeps {
  * draining; the factory then keeps the stale flag armed for the next run.
  */
 const enqueueContextHealRun = ({ app, sha, parentRunId }: ContextHealRunRequest): string => {
-  if (shuttingDown) return "";
+  if (lifecycle.shuttingDown()) return "";
   return enqueueContextMapRun(queue, app, sha, runnerDeps(), parentRunId);
 };
 
@@ -336,9 +350,7 @@ engineFactory = createRunEngineFactory({
 const maintainer = createMaintainerRuntime({
   queue,
   getAgentDeps: currentAgentDeps,
-  setShuttingDown: (v) => {
-    shuttingDown = v;
-  },
+  setShuttingDown: (v) => lifecycle.setShuttingDown(v),
   root: ROOT,
   selfRepo: SELF_REPO,
   autonomous: AUTONOMOUS_MAINTAINER,
@@ -346,65 +358,9 @@ const maintainer = createMaintainerRuntime({
 });
 const { triggerMaintainer, confirmSwapAfterBoot, recoverMaintainerState, recoverRollbackRecord } = maintainer;
 
-process.on("SIGTERM", () => {
-  console.log("[qa] SIGTERM received — cancelling in-flight run and draining");
-  shuttingDown = true;
-  hostHealth.stop();
-  eventStreamController.abort();
-
-  /*
-   * Cancel the in-flight job: abort its signal so the pipeline's checkSignal()
-   * unwinds deterministically, letting teardown/cleanup run before exit.
-   */
-  queue.cancel();
-
-  /*
-   * Drain: wait for the cancelled job's finally block. If it takes too long,
-   * force-exit so the orchestrator doesn't hang the host process indefinitely.
-   */
-  const drainTimer = setTimeout(() => {
-    console.log("[qa] shutdown timeout — forcing exit");
-    /* Synchronous: commit the buffered span ledger rows before the process is cut. */
-    telemetry.telemetry.flush();
-    process.exit(1);
-  }, SHUTDOWN_TIMEOUT_MS);
-  queue.drain().finally(async () => {
-    clearTimeout(drainTimer);
-    console.log("[qa] drained — exiting");
-    await telemetry.shutdown(TELEMETRY_SHUTDOWN_TIMEOUT_MS);
-    process.exit(0);
-  });
-});
-
-process.on("SIGINT", () => {
-  console.log("[qa] SIGINT received — cancelling in-flight run and draining");
-  shuttingDown = true;
-  hostHealth.stop();
-  eventStreamController.abort();
-  queue.cancel();
-  const drainTimer = setTimeout(() => {
-    console.log("[qa] shutdown timeout — forcing exit");
-    /* Synchronous: commit the buffered span ledger rows before the process is cut. */
-    telemetry.telemetry.flush();
-    process.exit(1);
-  }, SHUTDOWN_TIMEOUT_MS);
-  queue.drain().finally(async () => {
-    clearTimeout(drainTimer);
-    console.log("[qa] drained — exiting");
-    await telemetry.shutdown(TELEMETRY_SHUTDOWN_TIMEOUT_MS);
-    process.exit(0);
-  });
-});
-
-process.on("unhandledRejection", (reason) => {
-  const msg = reason instanceof Error ? reason.message : String(reason);
-  console.error("[qa] unhandled rejection:", reason instanceof Error ? reason.stack ?? msg : msg);
-  recordIncident({ source: "qa-author", severity: "error", summary: `unhandled rejection: ${msg}` });
-});
-
 /* One path for the control API and the webhook; the trigger is what tells their runs apart in the trace. */
 function enqueueRunFrom(trigger: "api" | "webhook", app: string, sha: string, target: string, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean, agentBrowser?: boolean, observability?: RunObservabilityRequest, grounding?: import("./contract/commands").GroundingInput): string {
-  if (shuttingDown) {
+  if (lifecycle.shuttingDown()) {
     console.warn(`[qa] rejecting run ${app}@${sha} — shutting down`);
     return "";
   }
@@ -675,7 +631,7 @@ const onboardingJob = createOnboardingJob({
      * run that queue.drain() would just have to outlive. onboarding-job.ts's runMapping()
      * already treats an empty-string return as a clean "spec skip", never a fail-open warning.
      */
-    if (shuttingDown) return "";
+    if (lifecycle.shuttingDown()) return "";
     const sha = await getHeadSha(mirrorDir, defaultMirrorDeps);
     /*
      * The SQLite context_maps store (ContextRepository, wired via ContextMapCapturePort) is the map's
@@ -696,7 +652,7 @@ const onboardingJob = createOnboardingJob({
    * the suite store (run-qa.use-case.ts), which is what "verified" means.
    */
   enqueueLoginRun: async ({ app, mirrorDir }) => {
-    if (shuttingDown) return "";
+    if (lifecycle.shuttingDown()) return "";
     return enqueueLoginBootstrapRun(queue, app, await getHeadSha(mirrorDir, defaultMirrorDeps), runnerDeps());
   },
   hasLogin: (app) => loadAppConfig(app).auth?.kind === "form",
@@ -713,7 +669,7 @@ const apiDeps: ApiDeps = {
   createApp: (input) => adminCreateApp(input, appAdminDeps),
   updateApp: (input) => adminUpdateApp(input, appAdminDeps),
   deleteApp: (name, purge) => adminDeleteApp(name, purge, appAdminDeps),
-  bootstrapLogin: (app, sha) => (shuttingDown ? "" : enqueueLoginBootstrapRun(queue, app, sha, runnerDeps())),
+  bootstrapLogin: (app, sha) => (lifecycle.shuttingDown() ? "" : enqueueLoginBootstrapRun(queue, app, sha, runnerDeps())),
   listRepos: (owner, page) => github.listRepos(owner, page),
   runEvents,
 
@@ -826,7 +782,7 @@ const apiDeps: ApiDeps = {
    */
   cancelRun: (id) => cancelTrackedRun(queue, id, { runEvents, afterRun }),
   continueRun: (parentId, cases, guidance) => {
-    if (shuttingDown) return "";
+    if (lifecycle.shuttingDown()) return "";
     const parent = getHistory().runs.getRecord(parentId);
     if (!parent) return "";
     /*
@@ -951,7 +907,7 @@ const server = createServer(guardRequestHandler(async (req, res) => {
       const sig = typeof req.headers["x-hub-signature-256"] === "string" ? req.headers["x-hub-signature-256"] : undefined;
       const result = handleWebhook(body, sig, { secret });
       if (result.payload) {
-        if (shuttingDown) {
+        if (lifecycle.shuttingDown()) {
           res.writeHead(503, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ message: "shutting down" }));
           return;

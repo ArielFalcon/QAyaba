@@ -49,7 +49,7 @@ export function renderSettingsDocs(registry: readonly SettingDef[] = SETTINGS_RE
     "",
     "Generated from `src/settings/registry.ts` by `npm run settings:gen`; do not edit by hand. `npm run settings:check` fails when this file is stale.",
     "",
-    "The orchestrator reads its environment once, in `loadSettings(env)`. An empty value counts as unset. A value that cannot be parsed stops the start with one error that lists every offending variable (never a secret's value). The field column is the path in the typed `Settings` object; `-` marks a variable that is read live from `Settings.environment` (a child's environment, a secret redacted by value) or only by a child process. A secret never appears in a dump of the settings: it shows as `[set]`.",
+    "The orchestrator reads its environment once, in `loadSettings(env)`. An empty value counts as unset. A value that cannot be parsed stops the start with one error that lists every offending variable (never a secret's value). The field column is the path in the typed `Settings` object; `-` marks a variable that is read live from `Settings.environment` (a child's environment, a secret redacted by value) or only by a child process. A secret never appears in a dump of the settings: it shows as `[set]`. One field has no variable: `server.drainMs` is the fixed window a cancelled run gets to unwind on shutdown (see `DEFAULT_DRAIN_MS`).",
     "",
   ];
   for (const group of SETTING_GROUPS) {

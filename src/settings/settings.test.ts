@@ -8,7 +8,7 @@ import { DEFAULT_CAMPAIGN_RETENTION_DAYS, DEFAULT_SERVICE_NAME, DEFAULT_SPAN_RET
 import { resolveRunTimeBudgets } from "@contexts/run-orchestration/application/index";
 import { renderSettingsDocs } from "../../scripts/gen-settings-docs";
 import { settingsDocStaleness } from "../../scripts/check-settings-fresh";
-import { DEFAULT_REVIEWER_TIMEOUT_MS, DEFAULT_SESSION_TTL_SECONDS, DEFAULT_STALL_MS } from "./defaults";
+import { DEFAULT_DRAIN_MS, DEFAULT_REVIEWER_TIMEOUT_MS, DEFAULT_SESSION_TTL_SECONDS, DEFAULT_STALL_MS } from "./defaults";
 import { SETTINGS_REGISTRY, settingDef } from "./registry";
 import { describeSettings, loadSettings, SettingsError } from "./settings";
 import { createSettingsStore } from "./store";
@@ -20,6 +20,7 @@ test("a minimal environment yields the defaults each parser yields on its own", 
   assert.equal(settings.server.port, DEFAULT_PORT);
   assert.equal(settings.server.listenHost, DEFAULT_LISTEN_HOST);
   assert.equal(settings.server.toolsPort, DEFAULT_TOOLS_PORT);
+  assert.equal(settings.server.drainMs, DEFAULT_DRAIN_MS);
   assert.equal(settings.auth.sessionTtlSeconds, DEFAULT_SESSION_TTL_SECONDS);
   assert.equal(settings.webhook.allowUnsigned, false);
   assert.equal(settings.agent.reviewerTimeoutMs, DEFAULT_REVIEWER_TIMEOUT_MS);

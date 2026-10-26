@@ -13,7 +13,7 @@ import { resolveLangfuseConfig, type LangfuseConfig } from "../telemetry/langfus
 import { resolveRunTimeBudgets } from "@contexts/run-orchestration/application/index";
 import { resolveDiffTimeBudgets } from "@contexts/generation/application/index";
 import { resolveExecSandboxMode, type ExecSandboxMode } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
-import { DEFAULT_REVIEWER_TIMEOUT_MS, DEFAULT_SELF_REPO, DEFAULT_SESSION_TTL_SECONDS, DEFAULT_STALL_MS } from "./defaults";
+import { DEFAULT_DRAIN_MS, DEFAULT_REVIEWER_TIMEOUT_MS, DEFAULT_SELF_REPO, DEFAULT_SESSION_TTL_SECONDS, DEFAULT_STALL_MS } from "./defaults";
 import { SETTINGS_REGISTRY, settingDef } from "./registry";
 
 type RunTimeBudgets = ReturnType<typeof resolveRunTimeBudgets>;
@@ -53,6 +53,8 @@ export interface Settings {
     readonly toolsListenHost: string | undefined;
     readonly selfRepo: string;
     readonly noColor: boolean;
+    /* Fixed (no environment variable): the shutdown drain window. */
+    readonly drainMs: number;
   };
   readonly auth: {
     readonly apiToken: string | undefined;
@@ -202,6 +204,7 @@ export function loadSettings(env: EnvironmentMap): Settings {
       toolsListenHost: r.str("QA_TOOLS_LISTEN_HOST"),
       selfRepo: r.str("QAYABA_REPO") ?? DEFAULT_SELF_REPO,
       noColor: r.str("NO_COLOR") !== undefined,
+      drainMs: DEFAULT_DRAIN_MS,
     },
     auth: {
       apiToken: r.str("QA_API_TOKEN"),
