@@ -33,7 +33,7 @@ detached, as the sandbox uid and gid (`CODE_SANDBOX_UID`, `1002` in the image), 
 
 The environment is built from an allowlist per profile, not by removing known secrets from the orchestrator's: a secret
 the orchestrator gains later is absent from every child without anyone listing it. A caller can add only the
-Playwright contract (`PW_*`, `PLAYWRIGHT_JSON_OUTPUT_NAME`, `QA_FAILURE_CAPTURE_DIR`, `QA_FAULT_INJECT`).
+Playwright contract (`PW_*`, `PLAYWRIGHT_JSON_OUTPUT_NAME`, `QA_FAILURE_CAPTURE_DIR`, `QA_FAULT_INJECT`, `QA_FAULT_INJECT_OPERATIONS`).
 
 **`codegraph_explore` (the lead and the exploring role).** The one code-graph action an agent can ask for runs in this `graph` profile, not in the
 agents container: the agent sends terms to the tools endpoint (`/internal/codegraph`, service token), the orchestrator admits
