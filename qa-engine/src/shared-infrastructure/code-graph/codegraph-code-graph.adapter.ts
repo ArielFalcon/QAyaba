@@ -18,7 +18,7 @@ import { err, ok, type Result } from "../../shared-kernel/result.ts";
 import type { BlastRadius, TouchedLines } from "../../shared-kernel/blast-radius.ts";
 import type { CodeGraphPort } from "../../shared-kernel/ports/code-graph.port.ts";
 import type { CodeExplorePort, ExploreAnswer } from "../../shared-kernel/ports/code-explore.port.ts";
-import type { CodeGraphIndexRecord, CodeGraphUnavailable, GraphRoute, ImpactBudget, ImpactReport, ImpactedSymbol, IndexOutcome, LocalSymbolRef } from "../../shared-kernel/code/index.ts";
+import type { CodeGraphIndexRecord, CodeGraphUnavailable, GraphRoute, ImpactBudget, ImpactReport, ImpactedSymbol, IndexOutcome, LocalSymbolRef, SeedBasis } from "../../shared-kernel/code/index.ts";
 import type { Sandbox } from "../process-sandbox/sandbox.ts";
 import type { SandboxedBinaryRunner } from "../process-sandbox/sandboxed-binary-runner.ts";
 import { CODEGRAPH_ENGINE, storePathOf, type CodegraphEngine, type EngineFailure, type EngineStatus } from "./codegraph-engine.ts";
@@ -41,7 +41,9 @@ interface WalkNode {
   symbol: string;
   kind: string;
   startLine: number;
+  endLine?: number;
   depth: number;
+  confidence: number;
   via?: LocalSymbolRef;
 }
 
@@ -251,8 +253,8 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
     return ok({ value: answer.value, sha: entry.sha });
   }
 
-  private async walkFrom(repoDir: string, seeds: readonly StoreSymbol[], budget: ImpactBudget, sha: string, cut: boolean): Promise<Result<ImpactReport, CodeGraphUnavailable>> {
-    if (seeds.length === 0) return ok({ indexedSha: sha, symbols: [], truncated: cut });
+  private async walkFrom(repoDir: string, seeds: readonly StoreSymbol[], budget: ImpactBudget, sha: string, cut: boolean, basis: SeedBasis): Promise<Result<ImpactReport, CodeGraphUnavailable>> {
+    if (seeds.length === 0) return ok({ indexedSha: sha, symbols: [], truncated: cut, seedBasis: "none" });
     const walked = await this.read<{ nodes: WalkNode[]; truncated: boolean }>(repoDir, { op: "walk", seeds: seeds.map((s) => s.id), depth: budget.depth, maxNodes: budget.maxSymbols });
     if (!walked.ok) return walked;
     const symbols: ImpactedSymbol[] = [];
@@ -263,16 +265,24 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
       const key = `${n.file}::${n.symbol}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      symbols.push({ file: n.file, symbol: n.symbol, kind: n.kind, depth: n.depth, ...(n.via ? { via: n.via } : {}) });
+      symbols.push({
+        file: n.file,
+        symbol: n.symbol,
+        kind: n.kind,
+        depth: n.depth,
+        confidence: n.confidence,
+        ...(n.depth === 0 && n.endLine !== undefined ? { range: { start: n.startLine, end: n.endLine } } : {}),
+        ...(n.via ? { via: n.via } : {}),
+      });
     }
-    return ok({ indexedSha: walked.value.sha, symbols, truncated: walked.value.value.truncated || cut });
+    return ok({ indexedSha: walked.value.sha, symbols, truncated: walked.value.value.truncated || cut, seedBasis: basis });
   }
 
   async impactedSymbols(repoDir: string, changed: BlastRadius, budget: ImpactBudget): Promise<Result<ImpactReport, CodeGraphUnavailable>> {
     const files = changed.changedFiles.filter((f) => !this.deps.isTestFile(f));
     const entry = this.indexOf(repoDir);
     if (!entry) return err({ reason: "the repo is not indexed in this run" });
-    if (files.length === 0) return ok({ indexedSha: entry.sha, symbols: [], truncated: false });
+    if (files.length === 0) return ok({ indexedSha: entry.sha, symbols: [], truncated: false, seedBasis: "none" });
     const lines = changed.touchedLines ? [...changed.touchedLines].map(([file, set]) => [file, [...set].sort((a, b) => a - b)]).sort() : null;
     const key = JSON.stringify([repoDir, entry.workspace, entry.sha, [...files].sort(), lines, budget.depth, budget.maxSymbols]);
     const known = this.walks.get(key);
@@ -287,16 +297,16 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
   private async walkChange(repoDir: string, files: string[], touchedLines: TouchedLines | undefined, budget: ImpactBudget): Promise<Result<ImpactReport, CodeGraphUnavailable>> {
     const listed = await this.read<{ symbols: StoreSymbol[]; truncated: boolean }>(repoDir, { op: "symbols", files });
     if (!listed.ok) return listed;
-    return this.walkFrom(repoDir, selectSeeds(listed.value.value.symbols, files, touchedLines), budget, listed.value.sha, listed.value.value.truncated);
+    return this.walkFrom(repoDir, selectSeeds(listed.value.value.symbols, files, touchedLines), budget, listed.value.sha, listed.value.value.truncated, touchedLines === undefined ? "whole-file" : "lines");
   }
 
   async callersOf(repoDir: string, symbols: readonly LocalSymbolRef[], budget: ImpactBudget): Promise<Result<ImpactReport, CodeGraphUnavailable>> {
     const entry = this.indexOf(repoDir);
     if (!entry) return err({ reason: "the repo is not indexed in this run" });
-    if (symbols.length === 0) return ok({ indexedSha: entry.sha, symbols: [], truncated: false });
+    if (symbols.length === 0) return ok({ indexedSha: entry.sha, symbols: [], truncated: false, seedBasis: "none" });
     const found = await this.read<{ symbols: StoreSymbol[]; truncated: boolean }>(repoDir, { op: "find", symbols: symbols.map((s) => ({ file: s.file, symbol: s.symbol })) });
     if (!found.ok) return found;
-    return this.walkFrom(repoDir, found.value.value.symbols, budget, found.value.sha, found.value.value.truncated);
+    return this.walkFrom(repoDir, found.value.value.symbols, budget, found.value.sha, found.value.value.truncated, "lines");
   }
 
   async explore(repoDir: string, terms: readonly string[], maxFiles: number): Promise<Result<ExploreAnswer, CodeGraphUnavailable>> {

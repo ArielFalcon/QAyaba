@@ -27,8 +27,8 @@ function fakeVcs(calls: string[]): VcsReadPort {
 
 const graph: CodeGraphPort = {
   syncTo: async (repo, sha) => ({ repo, engine: "fake", engineVersion: "1", sha, outcome: "built", durationMs: 0, nodeCount: 1, edgeCount: 0 }),
-  impactedSymbols: async () => ok({ indexedSha: SHA, symbols: [], truncated: false }),
-  callersOf: async () => ok({ indexedSha: SHA, symbols: [], truncated: false }),
+  impactedSymbols: async () => ok({ indexedSha: SHA, symbols: [], truncated: false, seedBasis: "lines" as const }),
+  callersOf: async () => ok({ indexedSha: SHA, symbols: [], truncated: false, seedBasis: "lines" as const }),
   routes: async () => ok([]),
 };
 const coChange: CoChangePort = { coChangeCoupling: async () => ok([]) };
@@ -52,7 +52,7 @@ test("the structural signal reads the code graph it was built from", async () =>
   const api = buildChangeAnalysis({
     vcs: fakeVcs([]),
     structural: {
-      codeGraph: { ...graph, impactedSymbols: async (repo) => { seen.push(repo); return ok({ indexedSha: SHA, symbols: [], truncated: false }); } },
+      codeGraph: { ...graph, impactedSymbols: async (repo) => { seen.push(repo); return ok({ indexedSha: SHA, symbols: [], truncated: false, seedBasis: "lines" as const }); } },
       coChange,
       repoDir: "/repo",
     },

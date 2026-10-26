@@ -15,7 +15,7 @@ const ORDERS = "web/src/app/orders/orders.page.ts";
 const API = "web/src/app/orders/orders.api.ts";
 const MAP = { builtAtSha: SHA, routes: [{ path: "/orders", implementationFiles: [ORDERS] }], api: [], feBe: [] };
 
-const report = (symbols: ImpactedSymbol[]) => ok({ indexedSha: SHA, symbols, truncated: false });
+const report = (symbols: ImpactedSymbol[]) => ok({ indexedSha: SHA, symbols, truncated: false, seedBasis: "lines" as const });
 
 function fakeGraph(over: Partial<CodeGraphPort> = {}): CodeGraphPort & { asked: string[] } {
   const asked: string[] = [];
@@ -44,7 +44,7 @@ test("in one repo the change is walked with its touched lines and the routes of 
   const graph = fakeGraph({
     impactedSymbols: async (_repo, changed) => {
       walked = changed;
-      return report([{ file: "web/src/app/shared/format.ts", symbol: "formatMoney", kind: "function", depth: 0 }, { file: ORDERS, symbol: "total", kind: "method", depth: 1, via: { file: "web/src/app/shared/format.ts", symbol: "formatMoney" } }]);
+      return report([{ file: "web/src/app/shared/format.ts", symbol: "formatMoney", kind: "function", depth: 0, confidence: 1 }, { file: ORDERS, symbol: "total", kind: "method", depth: 1, confidence: 1, via: { file: "web/src/app/shared/format.ts", symbol: "formatMoney" } }]);
     },
   });
   const adapter = new ChangePagesPortAdapter({ codeGraph: graph, repoDir: "/m/web", budget: BUDGET });
@@ -62,7 +62,7 @@ test("an index that cannot answer the walk adds nothing; routes it cannot list l
   assert.equal(await unavailable.resolve(request()), undefined);
 
   const noRoutes = new ChangePagesPortAdapter({
-    codeGraph: fakeGraph({ impactedSymbols: async () => report([{ file: ORDERS, symbol: "total", kind: "method", depth: 0 }]), routes: async () => err({ reason: "x" }) }),
+    codeGraph: fakeGraph({ impactedSymbols: async () => report([{ file: ORDERS, symbol: "total", kind: "method", depth: 0, confidence: 1 }]), routes: async () => err({ reason: "x" }) }),
     repoDir: "/m/web",
     budget: BUDGET,
   });
@@ -80,7 +80,7 @@ test("across repos the walk starts at the call sites of the reached links in the
     callersOf: async (repo, symbols) => {
       graph.asked.push(`callers ${repo}`);
       seedsAsked.push([...symbols]);
-      return report([{ file: API, symbol: "fetchOrders", kind: "function", depth: 0 }, { file: ORDERS, symbol: "load", kind: "method", depth: 1, via: { file: API, symbol: "fetchOrders" } }]);
+      return report([{ file: API, symbol: "fetchOrders", kind: "function", depth: 0, confidence: 1 }, { file: ORDERS, symbol: "load", kind: "method", depth: 1, confidence: 1, via: { file: API, symbol: "fetchOrders" } }]);
     },
   });
   const adapter = new ChangePagesPortAdapter({ codeGraph: graph, repoDir: "/m/orders-api", pagesRepoDir: "/m/web", budget: BUDGET });
@@ -124,11 +124,11 @@ test("an index that cannot answer a walk or list routes says so in the log, with
 });
 
 test("a walk the budget cut is logged and its seeds are no proven non-hubs; a complete walk logs nothing", async () => {
-  const reached = [{ file: ORDERS, symbol: "total", kind: "method", depth: 0 }];
+  const reached = [{ file: ORDERS, symbol: "total", kind: "method", depth: 0, confidence: 1 }];
   const log = captureWarnings();
   let join;
   try {
-    const cut = new ChangePagesPortAdapter({ codeGraph: fakeGraph({ impactedSymbols: async () => ok({ indexedSha: SHA, symbols: reached, truncated: true }) }), repoDir: "/m/web", budget: BUDGET });
+    const cut = new ChangePagesPortAdapter({ codeGraph: fakeGraph({ impactedSymbols: async () => ok({ indexedSha: SHA, symbols: reached, truncated: true, seedBasis: "lines" as const }) }), repoDir: "/m/web", budget: BUDGET });
     join = await cut.resolve(request());
   } finally { log.restore(); }
   assert.deepEqual(join?.pages, []);

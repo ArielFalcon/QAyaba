@@ -16,7 +16,7 @@ import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
 import { newSandboxReport, withExecScope } from "../../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 
 const SHA = "abc1234";
-const report = (symbols: ImpactedSymbol[], truncated = false) => ok({ indexedSha: SHA, symbols, truncated });
+const report = (symbols: ImpactedSymbol[], truncated = false) => ok({ indexedSha: SHA, symbols, truncated, seedBasis: "lines" as const });
 
 function fakeCodeGraph(overrides: Partial<CodeGraphPort> = {}): CodeGraphPort {
   return {
@@ -32,8 +32,8 @@ function fakeCoChange(impl?: CoChangePort["coChangeCoupling"]): CoChangePort {
 }
 
 const changed = BlastRadius.of(Sha.of(SHA), ["src/Foo.java", "src/Bar.java"]);
-const changedSymbol: ImpactedSymbol = { file: "src/Foo.java", symbol: "run", kind: "method", depth: 0 };
-const caller: ImpactedSymbol = { file: "src/Caller.java", symbol: "call", kind: "method", depth: 1, via: { file: "src/Foo.java", symbol: "run" } };
+const changedSymbol: ImpactedSymbol = { file: "src/Foo.java", symbol: "run", kind: "method", depth: 0, confidence: 1 };
+const caller: ImpactedSymbol = { file: "src/Caller.java", symbol: "call", kind: "method", depth: 1, confidence: 1, via: { file: "src/Foo.java", symbol: "run" } };
 
 test("renders the walk's changed symbols, the code that reaches them and the co-change files as the pure renderer would", async () => {
   const coupled = [{ file: "src/Coupled.java", couplingScore: 0.8, coChanges: 5 }];
@@ -175,7 +175,7 @@ function fakeExplore(answer: string | undefined, asked: Array<{ terms: readonly 
 
 test("with the dossier on, the block carries the engine's source of the change's top symbols, sanitized, and names the files it shows", async () => {
   const asked: Array<{ terms: readonly string[]; maxFiles: number }> = [];
-  const other: ImpactedSymbol = { file: "src/Bar.java", symbol: "idle", kind: "method", depth: 0 };
+  const other: ImpactedSymbol = { file: "src/Bar.java", symbol: "idle", kind: "method", depth: 0, confidence: 1 };
   const adapter = new StructuralSignalPortAdapter(
     fakeCodeGraph({ impactedSymbols: async () => report([other, changedSymbol, caller]) }),
     fakeCoChange(),

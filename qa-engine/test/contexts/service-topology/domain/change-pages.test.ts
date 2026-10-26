@@ -8,7 +8,7 @@ const FORMAT = "web/src/app/shared/format.ts";
 const ORDERS = "web/src/app/orders/orders.page.ts";
 const PROFILE = "web/src/app/profile/profile.page.ts";
 
-const sym = (file: string, symbol: string, depth: number, via?: { file: string; symbol: string }): ImpactedSymbol => ({ file, symbol, kind: "function", depth, ...(via ? { via } : {}) });
+const sym = (file: string, symbol: string, depth: number, via?: { file: string; symbol: string }): ImpactedSymbol => ({ file, symbol, kind: "function", depth, confidence: 1, ...(via ? { via } : {}) });
 const walk = (reached: ImpactedSymbol[], extra: Partial<PageWalk> = {}): PageWalk => ({ reached, handlers: false, ...extra });
 
 const MAP = {

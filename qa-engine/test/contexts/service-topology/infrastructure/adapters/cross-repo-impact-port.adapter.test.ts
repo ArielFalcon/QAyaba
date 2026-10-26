@@ -107,9 +107,9 @@ class FakeCodeGraph implements CodeGraphPort {
   }
   async impactedSymbols(): ReturnType<CodeGraphPort["impactedSymbols"]> {
     this.calls++;
-    return ok({ indexedSha: TRIGGER_SHA, symbols: this.reached.map((s) => ({ ...s, kind: "method", depth: 0 })), truncated: false });
+    return ok({ indexedSha: TRIGGER_SHA, symbols: this.reached.map((s) => ({ ...s, kind: "method", depth: 0, confidence: 1 })), truncated: false, seedBasis: "lines" as const });
   }
-  async callersOf(): ReturnType<CodeGraphPort["callersOf"]> { return ok({ indexedSha: TRIGGER_SHA, symbols: [], truncated: false }); }
+  async callersOf(): ReturnType<CodeGraphPort["callersOf"]> { return ok({ indexedSha: TRIGGER_SHA, symbols: [], truncated: false, seedBasis: "lines" as const }); }
   async routes(): ReturnType<CodeGraphPort["routes"]> { this.routesCalls++; return this.graphRoutes; }
 }
 

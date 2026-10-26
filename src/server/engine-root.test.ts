@@ -865,7 +865,7 @@ test("buildEngine: a graph that knows only co-change files for the diff gives a 
   const seen: Array<{ signal: string | undefined; flag: boolean | undefined; hasFlagKey: boolean }> = [];
   const cfg = fakeConfig({
     mode: "diff",
-    codeGraph: { ...recordingCodeGraph().codeGraph, impactedSymbols: async () => ok({ indexedSha: "abc1234", symbols: [], truncated: false }) },
+    codeGraph: { ...recordingCodeGraph().codeGraph, impactedSymbols: async () => ok({ indexedSha: "abc1234", symbols: [], truncated: false, seedBasis: "lines" as const }) },
     coChange: { coChangeCoupling: async () => ok([{ file: "src/y.ts", couplingScore: 0.8, coChanges: 5 }]) },
     vcs: {
       blastRadius: async (sha) => BlastRadius.of(sha, ["src/x.ts"]),
@@ -1426,8 +1426,8 @@ function recordingCodeGraph() {
   const calls: string[] = [];
   const codeGraph: CodeGraphPort = {
     syncTo: async (repo, sha) => { calls.push(`syncTo ${repo} ${sha}`); return { repo, engine: "fake", engineVersion: "1", sha, outcome: "built", durationMs: 0, nodeCount: 1, edgeCount: 0 }; },
-    impactedSymbols: async (repo) => { calls.push(`impactedSymbols ${repo}`); return ok({ indexedSha: "abc1234", symbols: [{ file: "src/x.ts", symbol: "handleX", kind: "function", depth: 0 }], truncated: false }); },
-    callersOf: async () => ok({ indexedSha: "abc1234", symbols: [], truncated: false }),
+    impactedSymbols: async (repo) => { calls.push(`impactedSymbols ${repo}`); return ok({ indexedSha: "abc1234", symbols: [{ file: "src/x.ts", symbol: "handleX", kind: "function", depth: 0, confidence: 1 }], truncated: false, seedBasis: "lines" as const }); },
+    callersOf: async () => ok({ indexedSha: "abc1234", symbols: [], truncated: false, seedBasis: "lines" as const }),
     routes: async () => ok([]),
   };
   return { calls, codeGraph };

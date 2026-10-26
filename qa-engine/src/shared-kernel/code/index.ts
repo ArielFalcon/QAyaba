@@ -39,12 +39,21 @@ export interface CodeGraphIndexRecord {
   reason?: string;
 }
 
-/** A symbol the graph reached from a change: depth 0 is a changed symbol itself; `via` is the symbol one hop closer to the change. */
+/**
+ * A symbol the graph reached from a change: depth 0 is a changed symbol itself; `via` is the symbol one hop closer to the change.
+ * `confidence` is the lowest confidence of an edge on the path that first reached it (1 for a changed symbol or an edge that
+ * states none): evidence for a consumer to weigh, never a filter. `range` is the line span of a changed symbol (depth 0 only).
+ */
 export interface ImpactedSymbol extends LocalSymbolRef {
   kind: string;
   depth: number;
+  confidence: number;
+  range?: { start: number; end: number };
   via?: LocalSymbolRef;
 }
+
+/** Where a walk's seeds came from: the symbols holding the touched lines, every symbol of the changed files (the diff was not read), or no symbol at all. */
+export type SeedBasis = "lines" | "whole-file" | "none";
 
 /** What a walk is allowed to spend: how many hops, and how many symbols in all. */
 export interface ImpactBudget {
@@ -52,11 +61,12 @@ export interface ImpactBudget {
   maxSymbols: number;
 }
 
-/** A walk's answer, ordered by (depth, file, line, symbol). `truncated` says the budget cut it. `indexedSha` is the commit of the index it read. */
+/** A walk's answer, ordered by (depth, file, line, symbol). `truncated` says the budget cut it. `indexedSha` is the commit of the index it read. `seedBasis` says what the depth-0 symbols stand for. */
 export interface ImpactReport {
   indexedSha: string;
   symbols: ImpactedSymbol[];
   truncated: boolean;
+  seedBasis: SeedBasis;
 }
 
 /** A route the engine recognised in the source: a backend handler (`method` + `path`) or a frontend page (`path` only), and the symbol it points at. */

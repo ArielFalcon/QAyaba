@@ -7247,8 +7247,8 @@ function indexRecord(repoDir: string, sha: string, overrides: Partial<CodeGraphI
 function fakeCodeGraph(syncTo: CodeGraphPort["syncTo"]): CodeGraphPort {
   return {
     syncTo,
-    impactedSymbols: async () => ok({ indexedSha: "abc1234", symbols: [], truncated: false }),
-    callersOf: async () => ok({ indexedSha: "abc1234", symbols: [], truncated: false }),
+    impactedSymbols: async () => ok({ indexedSha: "abc1234", symbols: [], truncated: false, seedBasis: "lines" as const }),
+    callersOf: async () => ok({ indexedSha: "abc1234", symbols: [], truncated: false, seedBasis: "lines" as const }),
     routes: async () => ok([]),
   };
 }

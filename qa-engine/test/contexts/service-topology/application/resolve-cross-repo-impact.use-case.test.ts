@@ -30,11 +30,11 @@ const link: ServiceLink = {
 const runner = { refresh: async () => {} };
 
 function graph(over: { impacted?: ReturnType<CodeGraphPort["impactedSymbols"]>; routes?: GraphRoute[] | { reason: string } }): CodeGraphPort {
-  const reached = ok({ indexedSha: SHA, symbols: [{ file: CONTROLLER, symbol: "handle", kind: "method", depth: 0 }], truncated: false });
+  const reached = ok({ indexedSha: SHA, symbols: [{ file: CONTROLLER, symbol: "handle", kind: "method", depth: 0, confidence: 1 }], truncated: false, seedBasis: "lines" as const });
   return {
     syncTo: async (repo, sha) => ({ repo, engine: "fake", engineVersion: "1", sha, outcome: "built", durationMs: 0, nodeCount: 1, edgeCount: 0 }),
     impactedSymbols: async () => (over.impacted ? over.impacted : reached),
-    callersOf: async () => ok({ indexedSha: SHA, symbols: [], truncated: false }),
+    callersOf: async () => ok({ indexedSha: SHA, symbols: [], truncated: false, seedBasis: "lines" as const }),
     routes: async () => (Array.isArray(over.routes) ? ok(over.routes) : over.routes ? err(over.routes) : ok([])),
   };
 }
@@ -71,7 +71,7 @@ test("an index that cannot answer the walk or list routes is logged with its rea
 });
 
 test("a walk the budget cut is logged; a complete one logs nothing", async () => {
-  const cut = await resolve(graph({ impacted: Promise.resolve(ok({ indexedSha: SHA, symbols: [], truncated: true })) }));
+  const cut = await resolve(graph({ impacted: Promise.resolve(ok({ indexedSha: SHA, symbols: [], truncated: true, seedBasis: "lines" as const })) }));
   assert.equal(cut.warnings.length, 1);
   const whole = await resolve(graph({ routes: [handler("ANY")] }));
   assert.deepEqual(whole.warnings, []);

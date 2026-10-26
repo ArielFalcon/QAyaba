@@ -703,3 +703,122 @@ test("when the budget cuts a walk the nodes kept do not depend on the order the 
     rmSync(h.root, { recursive: true, force: true });
   }
 });
+
+const NODE_SQL = "INSERT INTO nodes (id, kind, name, qualified_name, file_path, language, start_line, end_line, start_column, end_column, updated_at) VALUES (?, ?, ?, ?, ?, 'typescript', ?, ?, 0, 0, 0)";
+
+/* The recorded store plus the nodes and edges a test adds by SQL; `edges` are [source, target, kind, metadata?]. */
+function storeWith(h: Harness, name: string, nodes: Array<[id: string, kind: string, name: string, file: string, start: number, end: number]>, edges: Array<[string, string, string, string?]>): void {
+  const store = join(h.root, name);
+  copyFileSync(STORE, store);
+  const db = new DatabaseSync(store);
+  const insertNode = db.prepare(NODE_SQL);
+  for (const [id, kind, symbol, file, start, end] of nodes) insertNode.run(id, kind, symbol, symbol, file, start, end);
+  const insertEdge = db.prepare("INSERT INTO edges (source, target, kind, metadata) VALUES (?, ?, ?, ?)");
+  for (const [source, target, kind, metadata] of edges) insertEdge.run(source, target, kind, metadata ?? null);
+  db.close();
+  h.engine.store = store;
+}
+
+const CHAIN_NODES: Array<[string, string, string, string, number, number]> = [
+  ["function:leaf", "function", "leaf", "a/chain.ts", 1, 3],
+  ["function:mid", "function", "mid", "a/chain.ts", 5, 7],
+  ["function:top", "function", "top", "a/chain.ts", 9, 11],
+];
+
+test("a reached symbol carries the lowest confidence of the edges on its path, and an edge without metadata counts as certain", async () => {
+  const h = harness();
+  try {
+    storeWith(h, "confidence.db", CHAIN_NODES, [
+      ["function:mid", "function:leaf", "calls", '{"confidence":0.5,"resolvedBy":"instance-method"}'],
+      ["function:top", "function:mid", "calls", '{"confidence":0.8}'],
+    ]);
+    await h.adapter.syncTo(h.mirror, h.sha);
+
+    const report = await h.adapter.callersOf(h.mirror, [{ file: "a/chain.ts", symbol: "leaf" }], BUDGET);
+
+    assert.ok(report.ok);
+    assert.deepEqual(report.value.symbols.map((s) => [s.symbol, s.depth, s.confidence]), [["leaf", 0, 1], ["mid", 1, 0.5], ["top", 2, 0.5]]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("an edge whose metadata holds no confidence reads as certain", async () => {
+  const h = harness();
+  try {
+    storeWith(h, "no-confidence.db", CHAIN_NODES, [["function:mid", "function:leaf", "calls", '{"resolvedBy":"import"}'], ["function:top", "function:mid", "calls"]]);
+    await h.adapter.syncTo(h.mirror, h.sha);
+
+    const report = await h.adapter.callersOf(h.mirror, [{ file: "a/chain.ts", symbol: "leaf" }], BUDGET);
+
+    assert.ok(report.ok);
+    assert.deepEqual(report.value.symbols.map((s) => s.confidence), [1, 1, 1]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a changed symbol carries the range the store holds for it, and a reached one carries none", async () => {
+  const h = harness();
+  try {
+    await h.adapter.syncTo(h.mirror, h.sha);
+    const store = new DatabaseSync(STORE, { readOnly: true });
+    const row = store.prepare("SELECT start_line AS start, end_line AS end FROM nodes WHERE name = 'formatMoney' AND kind = 'function'").get() as { start: number; end: number };
+    store.close();
+
+    const report = await h.adapter.impactedSymbols(h.mirror, BlastRadius.of(Sha.of(h.sha), [FORMAT], new Map([[FORMAT, new Set([row.start])]])), BUDGET);
+
+    assert.ok(report.ok);
+    assert.deepEqual(report.value.symbols.find((s) => s.symbol === "formatMoney")?.range, { start: row.start, end: row.end });
+    assert.ok(report.value.symbols.filter((s) => s.depth > 0).every((s) => s.range === undefined));
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("the report says whether the seeds came from the touched lines, from whole files, or from no symbol at all", async () => {
+  const h = harness();
+  try {
+    await h.adapter.syncTo(h.mirror, h.sha);
+    const sha = Sha.of(h.sha);
+
+    const lines = await h.adapter.impactedSymbols(h.mirror, BlastRadius.of(sha, [FORMAT], new Map([[FORMAT, new Set([2])]])), BUDGET);
+    const whole = await h.adapter.impactedSymbols(h.mirror, BlastRadius.of(sha, [FORMAT]), BUDGET);
+    const between = await h.adapter.impactedSymbols(h.mirror, BlastRadius.of(sha, [FORMAT], new Map([[FORMAT, new Set([100000])]])), BUDGET);
+    const noSymbol = await h.adapter.impactedSymbols(h.mirror, BlastRadius.of(sha, ["web/src/no-such-file.ts"]), BUDGET);
+
+    assert.deepEqual([lines, whole, between, noSymbol].map((r) => (r.ok ? r.value.seedBasis : "unavailable")), ["lines", "whole-file", "none", "none"]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a changed free function seeds the walk and its free caller is reached one hop away", async () => {
+  const h = harness();
+  try {
+    storeWith(h, "free.db", CHAIN_NODES, [["function:mid", "function:leaf", "calls", '{"confidence":1}']]);
+    await h.adapter.syncTo(h.mirror, h.sha);
+
+    const report = await h.adapter.impactedSymbols(h.mirror, BlastRadius.of(Sha.of(h.sha), ["a/chain.ts"], new Map([["a/chain.ts", new Set([2])]])), BUDGET);
+
+    assert.ok(report.ok);
+    assert.deepEqual(report.value.symbols.map((s) => [s.symbol, s.depth]), [["leaf", 0], ["mid", 1]]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a changed arrow component seeds the walk", async () => {
+  const h = harness();
+  try {
+    storeWith(h, "arrow.db", [["component:Widget", "component", "Widget", "a/widget.tsx", 3, 9]], []);
+    await h.adapter.syncTo(h.mirror, h.sha);
+
+    const report = await h.adapter.impactedSymbols(h.mirror, BlastRadius.of(Sha.of(h.sha), ["a/widget.tsx"], new Map([["a/widget.tsx", new Set([5])]])), BUDGET);
+
+    assert.ok(report.ok);
+    assert.deepEqual(report.value.symbols.map((s) => [s.symbol, s.kind, s.depth]), [["Widget", "component", 0]]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});

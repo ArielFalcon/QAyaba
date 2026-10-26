@@ -46,12 +46,12 @@ test("the ledger is one per process, so decisions outlive a run", () => {
 });
 
 function graph(over: Partial<CodeGraphPort>): CodeGraphPort {
-  return { syncTo: async () => { throw new Error("unused"); }, impactedSymbols: async () => { throw new Error("unused"); }, callersOf: async () => ok({ indexedSha: "s", symbols: [], truncated: false }), routes: async () => ok([]), ...over };
+  return { syncTo: async () => { throw new Error("unused"); }, impactedSymbols: async () => { throw new Error("unused"); }, callersOf: async () => ok({ indexedSha: "s", symbols: [], truncated: false, seedBasis: "lines" as const }), routes: async () => ok([]), ...over };
 }
 
 test("a symbol ref names a file and a symbol, and the graph holds it only when it finds exactly that symbol in that file", async () => {
   const seen: unknown[] = [];
-  const held = graph({ callersOf: async (_dir, symbols) => { seen.push(symbols); return ok({ indexedSha: "s", symbols: [{ file: "src/cart.ts", symbol: "totalOf", kind: "function", depth: 0 }], truncated: false }); } });
+  const held = graph({ callersOf: async (_dir, symbols) => { seen.push(symbols); return ok({ indexedSha: "s", symbols: [{ file: "src/cart.ts", symbol: "totalOf", kind: "function", depth: 0, confidence: 1 }], truncated: false, seedBasis: "lines" as const }); } });
   assert.equal(await graphHoldsSymbol(held, "/m", "src/cart.ts#totalOf"), true);
   assert.deepEqual(seen, [[{ file: "src/cart.ts", symbol: "totalOf" }]]);
   assert.equal(await graphHoldsSymbol(held, "/m", "src/other.ts#totalOf"), false, "another file's symbol is not the one named");

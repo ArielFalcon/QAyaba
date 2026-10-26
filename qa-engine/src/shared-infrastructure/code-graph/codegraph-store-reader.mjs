@@ -10,7 +10,8 @@
  *
  * Usage: node codegraph-store-reader.mjs <store path> <request JSON>
  *   {"op":"symbols","files":["a.ts"]}                       → {"symbols":[{id,file,symbol,kind,startLine,endLine}],"truncated":bool}
- *   {"op":"walk","seeds":["<id>"],"depth":3,"maxNodes":300} → {"nodes":[{id,file,symbol,kind,startLine,depth,via?}],"truncated":bool}
+ *   {"op":"walk","seeds":["<id>"],"depth":3,"maxNodes":300} → {"nodes":[{id,file,symbol,kind,startLine,endLine?,depth,confidence,via?}],"truncated":bool}
+ *     (`confidence` is the lowest an edge on the path that first reached the node holds, 1 for a seed or an edge that states none; `endLine` is given for a seed)
  *   {"op":"routes"}                                         → {"routes":[{name,file,line,target?:{file,symbol,kind}}]}
  *   {"op":"find","symbols":[{"file":"a.ts","symbol":"f"}]}  → {"symbols":[...as symbols],"truncated":bool}
  *   {"op":"ping"}                                           → {"ready":true} (the store opens and is of the pinned version)
@@ -126,16 +127,16 @@ function find(db, symbols) {
  * Other references (a field's type, a constructor parameter) are not followed: they name a dependency, not a caller.
  */
 function walk(db, seeds, cutSeeds, depth, maxNodes) {
-  const node = db.prepare("SELECT id, name, kind, file_path, start_line FROM nodes WHERE id = ?");
+  const node = db.prepare("SELECT id, name, kind, file_path, start_line, end_line FROM nodes WHERE id = ?");
   /* Ordered by position, so that when the budget cuts a walk it keeps the same nodes on every run. */
   /* A caller calls or instantiates the node; a route references its page; code that runs references a value it reads or a function it passes on. */
-  const callers = db.prepare(`SELECT DISTINCT e.source AS id, s.file_path, s.start_line, s.name FROM edges e JOIN nodes s ON s.id = e.source JOIN nodes t ON t.id = e.target WHERE e.target = ? AND (e.kind IN ('calls', 'instantiates') OR (e.kind = 'references' AND (s.kind = 'route' OR (t.kind IN (${REFERENCED_KINDS.map(() => "?").join(",")}) AND s.kind IN (${CALLABLE_KINDS.map(() => "?").join(",")}))))) ORDER BY s.file_path, s.start_line, s.name, s.id`);
+  const callers = db.prepare(`SELECT e.source AS id, s.file_path, s.start_line, s.name, MAX(COALESCE(json_extract(e.metadata, '$.confidence'), 1)) AS confidence FROM edges e JOIN nodes s ON s.id = e.source JOIN nodes t ON t.id = e.target WHERE e.target = ? AND (e.kind IN ('calls', 'instantiates') OR (e.kind = 'references' AND (s.kind = 'route' OR (t.kind IN (${REFERENCED_KINDS.map(() => "?").join(",")}) AND s.kind IN (${CALLABLE_KINDS.map(() => "?").join(",")}))))) GROUP BY e.source, s.file_path, s.start_line, s.name ORDER BY s.file_path, s.start_line, s.name, s.id`);
   /* The top-level code of the files that import the node. */
-  const importers = db.prepare(`SELECT DISTINCT c.id AS id, c.file_path, c.start_line, c.name FROM edges e JOIN nodes f ON f.id = e.source AND f.kind = 'file' JOIN edges ce ON ce.source = f.id AND ce.kind = 'contains' JOIN nodes c ON c.id = ce.target WHERE e.target = ? AND e.kind = 'imports' AND c.kind IN (${TOP_LEVEL_CODE_KINDS.map(() => "?").join(",")}) ORDER BY c.file_path, c.start_line, c.name, c.id`);
+  const importers = db.prepare(`SELECT c.id AS id, c.file_path, c.start_line, c.name, MAX(COALESCE(json_extract(e.metadata, '$.confidence'), 1)) AS confidence FROM edges e JOIN nodes f ON f.id = e.source AND f.kind = 'file' JOIN edges ce ON ce.source = f.id AND ce.kind = 'contains' JOIN nodes c ON c.id = ce.target WHERE e.target = ? AND e.kind = 'imports' AND c.kind IN (${TOP_LEVEL_CODE_KINDS.map(() => "?").join(",")}) GROUP BY c.id, c.file_path, c.start_line, c.name ORDER BY c.file_path, c.start_line, c.name, c.id`);
   const containers = db.prepare(`SELECT e.source AS id, s.file_path, s.start_line, s.name FROM edges e JOIN nodes s ON s.id = e.source WHERE e.target = ? AND e.kind = 'contains' AND s.kind IN (${CONTAINER_KINDS.map(() => "?").join(",")}) ORDER BY s.file_path, s.start_line, s.name, s.id`);
   const reached = new Map();
   let truncated = false;
-  const add = (id, d, via) => {
+  const add = (id, d, via, confidence) => {
     if (reached.has(id)) return false;
     if (reached.size >= maxNodes) {
       truncated = true;
@@ -143,7 +144,7 @@ function walk(db, seeds, cutSeeds, depth, maxNodes) {
     }
     const row = node.get(id);
     if (!row || row.kind === "file" || row.kind === "import") return false;
-    reached.set(id, { id, file: row.file_path, symbol: row.name, kind: row.kind, startLine: row.start_line, depth: d, ...(via ? { via } : {}) });
+    reached.set(id, { id, file: row.file_path, symbol: row.name, kind: row.kind, startLine: row.start_line, ...(d === 0 ? { endLine: row.end_line } : {}), depth: d, confidence, ...(via ? { via } : {}) });
     return true;
   };
   const refOf = (id) => {
@@ -156,19 +157,20 @@ function walk(db, seeds, cutSeeds, depth, maxNodes) {
       out.push(id);
       const r = reached.get(id);
       if (r?.kind !== "method") continue;
-      for (const { id: owner } of containers.all(id, ...CONTAINER_KINDS)) if (add(owner, d, refOf(id))) out.push(owner);
+      for (const { id: owner } of containers.all(id, ...CONTAINER_KINDS)) if (add(owner, d, refOf(id), r.confidence)) out.push(owner);
     }
     return out;
   };
   /* Seeds enter the budget in position order, not in the order the request listed them. */
   const seedRows = seeds.map((id) => node.get(id)).filter((row) => row !== undefined).map((row) => ({ id: row.id, file: row.file_path, symbol: row.name, startLine: row.start_line }));
-  let frontier = withContainer(seedRows.sort(byPosition).map((r) => r.id).filter((id) => add(id, 0)), 0);
+  let frontier = withContainer(seedRows.sort(byPosition).map((r) => r.id).filter((id) => add(id, 0, undefined, 1)), 0);
   for (let d = 1; d <= depth && frontier.length > 0 && !truncated; d++) {
     const next = [];
     for (const id of [...frontier].sort((a, b) => byPosition(reached.get(a), reached.get(b)))) {
       let found = callers.all(id, ...REFERENCED_KINDS, ...CALLABLE_KINDS);
       if (found.length === 0 && INJECTABLE_KINDS.includes(reached.get(id).kind)) found = importers.all(id, ...TOP_LEVEL_CODE_KINDS);
-      for (const { id: caller } of found) if (add(caller, d, refOf(id))) next.push(caller);
+      const through = reached.get(id).confidence;
+      for (const { id: caller, confidence } of found) if (add(caller, d, refOf(id), Math.min(through, confidence))) next.push(caller);
     }
     frontier = withContainer(next, d);
   }
