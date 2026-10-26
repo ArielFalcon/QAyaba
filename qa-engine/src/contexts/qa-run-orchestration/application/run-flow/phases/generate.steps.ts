@@ -15,13 +15,12 @@ import { reviewerApprovalOf } from "../../ports/index.ts";
 import type { GenerationOutput } from "../../ports/index.ts";
 import type { CoordinateResult } from "../../coordination/lead-sidekicks.ts";
 import { evidenceFromPackDataRoutes } from "../../coordination/evidence-from.ts";
-import type { RunQaResult } from "../../run-qa.use-case.ts";
-import type { StepResult } from "../run-flow.ts";
+import { end, type StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { afterGeneration, closedLoopSignal, geolocationEnrichment, loopClosedNow, regenerate } from "./generation-services.ts";
 
-type Result = Promise<StepResult<RunState, RunQaResult>>;
+type Result = Promise<StepOutcome<RunState>>;
 
 /*
  * Lead + sidekicks is how every e2e run generates: the lead is asked for a plan and its flows are authored by sidekicks, each in a
@@ -97,7 +96,7 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
  * In the lead/sidekick mode the flows' specs stand in for the lead's first pass (coordinateFirstPass).
  */
 export async function generateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, input, workspace, signal, generation } = ctx;
+  const { deps, workspace, signal, generation } = ctx;
   const { generating, diff: classificationDiff } = state.classification;
   const { authSeedUnauthored } = state.setup;
   const { baseEnrichment } = state.grounding;
@@ -117,7 +116,7 @@ export async function generateFirstPass(state: Readonly<RunState>, ctx: Workspac
      */
     const coordinated = await coordinateFirstPass(state, ctx);
     const coordinatedFirstPass = coordinated.generated;
-    if (signal?.aborted) return { end: await ctx.ends.aborted(workspace.mirrorDir), reason: "aborted" };
+    if (signal?.aborted) return end("aborted");
     generated = coordinatedFirstPass
       ?? (await afterGeneration(ctx, await deps.generation.generate(workspace.specDir, signal, classificationDiff, {
         ...baseEnrichment,
@@ -143,7 +142,7 @@ export async function generateFirstPass(state: Readonly<RunState>, ctx: Workspac
  * regression run generates nothing, so it has no end and never lands here.
  */
 export async function settleGenerationEnd(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, input, cfg, workspace, trail, services } = ctx;
+  const { deps, trail, services } = ctx;
   const { generated } = state.generation;
   const { diff: classificationDiff, intent: classificationIntent } = state.classification;
   const { retrievedRuleIds, diffArchetypes, moreNodes: groundingMoreNodes } = state.grounding;
@@ -168,17 +167,15 @@ export async function settleGenerationEnd(state: Readonly<RunState>, ctx: Worksp
           text: `[qa] the generator declared the change unobservable on DEV, while the pack's changed-value lines show more nodes than unchanged lines for ${groundingMoreNodes.length} changed value(s)`,
         });
       }
-      const skipped = ctx.ends.skipped({ note: generated.note, reviewerApproved: reviewerApprovalOf(generated) });
       const skipLoopSignal = await closedLoopSignal(ctx);
-      return {
-        end: await ctx.ends.persistSkipped(skipped, {
-          ...(generated.noopKind ? { noop: { kind: generated.noopKind } } : {}),
-          ...(services.confinement.totals !== undefined ? { confinement: services.confinement.totals } : {}),
-          ...(skipLoopSignal ? { closedLoop: skipLoopSignal } : {}),
-          ...(agentBrowserSignal() ? { agentBrowser: agentBrowserSignal() } : {}),
-        }),
-        reason: "generation-noop",
-      };
+      return end("generation-noop", {
+        note: generated.note,
+        reviewerApproved: reviewerApprovalOf(generated),
+        ...(generated.noopKind ? { noop: { kind: generated.noopKind } } : {}),
+        ...(services.confinement.totals !== undefined ? { confinement: services.confinement.totals } : {}),
+        ...(skipLoopSignal ? { closedLoop: skipLoopSignal } : {}),
+        ...(agentBrowserSignal() ? { agentBrowser: agentBrowserSignal() } : {}),
+      });
     } else if (terminal.persisted) {
       const endNote = generated.note ?? `generation ended without specs (${generated.end})`;
       console.error(`[qa] generation ended without specs (${generated.end}): ${endNote}`);
@@ -188,21 +185,17 @@ export async function settleGenerationEnd(state: Readonly<RunState>, ctx: Worksp
         level: "error",
         text: `[qa] generation ended without specs (${terminal.errorClass}): an engine-side ${engineSideCauseOf(generated.end)}, not a fault of the app under test`,
       });
-      return {
-        end: await ctx.ends.terminal(terminal.verdict, { generating: true, static: false }, {
-          generationEnd: generated.end,
-          note: endNote,
-          reviewerApproved: reviewerApprovalOf(generated),
-          rulesRetrieved: retrievedRuleIds,
-          diffArchetypes,
-          archetype: detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
-          confinement: services.confinement.totals,
-          mirrorDir: workspace.mirrorDir,
-          closedLoop: await closedLoopSignal(ctx),
-          agentBrowser: agentBrowserSignal(),
-        }),
-        reason: "generation-ended-without-specs",
-      };
+      return end("generation-ended-without-specs", {
+        generationEnd: generated.end,
+        note: endNote,
+        reviewerApproved: reviewerApprovalOf(generated),
+        rulesRetrieved: retrievedRuleIds,
+        diffArchetypes,
+        archetype: detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
+        confinement: services.confinement.totals,
+        closedLoop: await closedLoopSignal(ctx),
+        agentBrowser: agentBrowserSignal(),
+      });
     } else {
       const emptyNote =
         generated.note ||
@@ -210,7 +203,7 @@ export async function settleGenerationEnd(state: Readonly<RunState>, ctx: Worksp
           "(provider unavailable, quota exhausted, timeout, or model refusal). Not a code defect and not a " +
           "no-op decision; surfaced as infra-error so it is diagnosable rather than a silent skip.";
       console.error(`[qa] generation runtime failure (empty, unparseable output): ${emptyNote}`);
-      return { end: await ctx.ends.infraError(emptyNote, workspace.mirrorDir), reason: "generation-empty-output" };
+      return end("generation-empty-output", { note: emptyNote });
     }
   }
 }

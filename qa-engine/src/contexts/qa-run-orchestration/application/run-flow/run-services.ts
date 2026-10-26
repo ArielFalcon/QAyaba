@@ -14,7 +14,7 @@ import { EMPTY_TOKEN_SET, type ChangeTokenSet } from "@contexts/objective-signal
 import { diffContracts, type IntentViolation } from "@contexts/objective-signal/domain/test-intent-contract.ts";
 import type { SpecIntentView } from "../ports/intent-contract.port.ts";
 import { rethrowIfUntrusted } from "../../../../shared-kernel/domain-error.ts";
-import type { RunQaConfig, RunQaUseCaseDeps } from "../run-qa.use-case.ts";
+import type { RunQaConfig, RunQaUseCaseDeps } from "./run-types.ts";
 
 export interface PreparedWorkspace {
   specDir: string;

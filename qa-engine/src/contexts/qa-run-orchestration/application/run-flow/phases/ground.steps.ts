@@ -7,12 +7,11 @@ import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 import { rethrowIfUntrusted } from "../../../../../shared-kernel/domain-error.ts";
 import { rethrowIfRunDeadline } from "../../../../../shared-kernel/run-deadline.ts";
 import type { RelevanceBias, RetrievedRule, ServiceLink, ContractDrift, CrossRepoImpact } from "../../ports/index.ts";
-import type { RunQaResult } from "../../run-qa.use-case.ts";
-import type { StepResult } from "../run-flow.ts";
+import { end, type StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 
-type Result = Promise<StepResult<RunState, RunQaResult>>;
+type Result = Promise<StepOutcome<RunState>>;
 
 /*
  * Bias retrieval toward the CURRENT diff's structural shape, using the SAME detector generation's own curriculum/archetype calls already use (detectArchetype
@@ -112,7 +111,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
     } catch (err) {
       rethrowIfRunDeadline(err);
       /* Abort during grounding takes the abort route, not ungrounded continue. */
-      if (signal?.aborted) return { end: await ctx.ends.aborted(workspace.mirrorDir), reason: "aborted" };
+      if (signal?.aborted) return end("aborted");
       console.error("[qa] WARNING: pre-generation grounding failed (non-fatal, generation continues ungrounded):", err);
     }
   }
@@ -120,7 +119,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
    * The adapter may resolve a partial GroundingResult on abort instead of
    * throwing — this check is what actually routes abort vs continue.
    */
-  if (signal?.aborted) return { end: await ctx.ends.aborted(workspace.mirrorDir), reason: "aborted" };
+  if (signal?.aborted) return end("aborted");
   return {
     update: {
       grounding: {

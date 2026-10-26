@@ -8,13 +8,12 @@ import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rul
 import { MAX_STATIC_FIX_ROUNDS } from "../../../domain/helpers/derive-cycle-backstop.ts";
 import { reviewerApprovalOf } from "../../ports/index.ts";
 import type { ExecutionPort, ValidationPort } from "../../ports/index.ts";
-import type { RunQaResult } from "../../run-qa.use-case.ts";
-import type { StepResult } from "../run-flow.ts";
+import { end, type StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { closedLoopSignal, loopClosedNow, regenerate, staticGateFindings } from "./generation-services.ts";
 
-type Result = Promise<StepResult<RunState, RunQaResult>>;
+type Result = Promise<StepOutcome<RunState>>;
 
 const STATIC_GATE_ERROR_DETAIL_MAX_CHARS = 4000;
 
@@ -67,7 +66,7 @@ export async function checkDevHealth(ctx: WorkspaceRunContext): Promise<{ health
 
 /* What every exit of these phases tells the persisted outcome about the run so far. */
 async function endingEvidence(state: Readonly<RunState>, ctx: WorkspaceRunContext) {
-  const { workspace, services } = ctx;
+  const { services } = ctx;
   const { lastGenerated, retries } = state.execution;
   const { preExecAmbiguityCatches, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed } = state.generation;
   return {
@@ -82,7 +81,6 @@ async function endingEvidence(state: Readonly<RunState>, ctx: WorkspaceRunContex
     confinement: services.confinement.totals,
     /* FixLoop has not run: the tested section is the latest generation's. */
     tested: lastGenerated.specMetas,
-    mirrorDir: workspace.mirrorDir,
     closedLoop: await closedLoopSignal(ctx),
     agentBrowser: ctx.trail.agentBrowser?.signals(),
   };
@@ -94,10 +92,11 @@ async function endingEvidence(state: Readonly<RunState>, ctx: WorkspaceRunContex
  * This exit persists static:false even though validation already passed — the stored field
  * for this source is false.
  */
-async function preExecuteInfraError(state: Readonly<RunState>, ctx: WorkspaceRunContext, reason: string, ending: { preconditionFailed?: boolean } = {}): Promise<RunQaResult> {
+async function preExecuteInfraError(state: Readonly<RunState>, ctx: WorkspaceRunContext, reason: string, ending: { preconditionFailed?: boolean } = {}): Result {
   /* Confinement still runs for revert even though this exit does not publish. */
   await ctx.services.confinement.enforce();
-  return await ctx.ends.terminal("infra-error", { generating: state.classification.generating, static: false }, {
+  return end("pre-execute-infra", {
+    generating: state.classification.generating,
     ...(await endingEvidence(state, ctx)),
     note: reason,
     ...(ending.preconditionFailed ? { preconditionFailed: true } : {}),
@@ -111,7 +110,7 @@ async function preExecuteInfraError(state: Readonly<RunState>, ctx: WorkspaceRun
  * changedFiles scopes the code-target compile gate; ignored by e2e. Empty outside diff mode.
  */
 export async function validateStatically(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, input, workspace, signal } = ctx;
+  const { deps, workspace, signal } = ctx;
   const { generating } = state.classification;
   const validateChangedFiles = state.classification.intent?.changedFiles ?? [];
   deps.observer?.onStep("validate");
@@ -130,7 +129,7 @@ export async function validateStatically(state: Readonly<RunState>, ctx: Workspa
   while (!staticFixRetired && !validation.ok && !validation.infra && generating && hasDelivered() && staticFixRounds < MAX_STATIC_FIX_ROUNDS) {
     /* Cancel mid-repair must stop before burning another generate()+validate() round-trip. */
     if (signal?.aborted) {
-      return { end: await ctx.ends.aborted(workspace.mirrorDir), reason: "aborted" };
+      return end("aborted");
     }
     staticFixRounds++;
     /* mutation-scope:begin static-fix-round */
@@ -156,14 +155,11 @@ export async function validateStatically(state: Readonly<RunState>, ctx: Workspa
     const staticGateNote = validation.errors.slice(0, 2).join("\n\n") || undefined;
     /* Last confinement pass immediately before this exit's publish(). */
     await ctx.services.confinement.enforce();
-    return {
-      end: await ctx.ends.terminal(validation.infra ? "infra-error" : "invalid", { generating, static: false }, {
-        ...(await endingEvidence({ ...state, execution }, ctx)),
-        skipPersist: !validation.infra && input.mode === "context",
-        note: staticGateNote,
-      }),
-      reason: validation.infra ? "pre-execute-infra" : "static-gate-failed",
-    };
+    return end(validation.infra ? "pre-execute-infra" : "static-gate-failed", {
+      generating,
+      ...(await endingEvidence({ ...state, execution }, ctx)),
+      note: staticGateNote,
+    });
   }
   return { update: { execution } };
 }
@@ -181,16 +177,16 @@ async function withLinterFixes(validation: Awaited<ReturnType<WorkspaceRunContex
 
 /* Mid-run DEV pre-flight: a DEV that is down ends the run before the specs run. */
 export async function checkHealth(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, workspace, signal } = ctx;
+  const { deps, signal } = ctx;
   deps.observer?.onStep("health");
   const health = await checkDevHealth(ctx);
   if (!health.healthy) {
     const healthReason = health.reason;
     console.error("[qa] health pre-flight failed before execute:", healthReason);
-    return { end: await preExecuteInfraError(state, ctx, healthReason), reason: "pre-execute-infra" };
+    return await preExecuteInfraError(state, ctx, healthReason);
   }
   if (signal?.aborted) {
-    return { end: await ctx.ends.aborted(workspace.mirrorDir), reason: "aborted" };
+    return end("aborted");
   }
 }
 
@@ -201,12 +197,12 @@ export async function checkHealth(state: Readonly<RunState>, ctx: WorkspaceRunCo
 export async function prepareExecuteAuth(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { workspace, signal } = ctx;
   const auth = await ctx.ends.prepareAuth(workspace.specDir, "pre-execute", signal);
-  if ("failed" in auth) return { end: await preExecuteInfraError(state, ctx, auth.failed), reason: "pre-execute-infra" };
+  if ("failed" in auth) return await preExecuteInfraError(state, ctx, auth.failed);
   if ("precondition" in auth) {
-    if (signal?.aborted) return { end: await ctx.ends.aborted(workspace.mirrorDir), reason: "aborted" };
+    if (signal?.aborted) return end("aborted");
     /* Reached only by a run that generates tests (the guard above), which a failed login always ends. */
     ctx.ends.announcePrecondition(auth.precondition, true);
-    return { end: await preExecuteInfraError(state, ctx, ctx.ends.preconditionNote(auth.precondition), { preconditionFailed: true }), reason: "pre-execute-infra" };
+    return await preExecuteInfraError(state, ctx, ctx.ends.preconditionNote(auth.precondition), { preconditionFailed: true });
   }
   return { update: { execution: { ...state.execution, authVerifiedSha256: auth.setupSha256 } } };
 }
@@ -224,7 +220,7 @@ export async function executeSpecs(state: Readonly<RunState>, ctx: WorkspaceRunC
   /* The primary pass just ran: its bytes fix the contract every later regeneration is measured against (A5). */
   await services.primeIntentBaseline();
   if (signal?.aborted) {
-    return { end: await ctx.ends.aborted(workspace.mirrorDir), reason: "aborted" };
+    return end("aborted");
   }
   return { update: { execution: { ...state.execution, run } } };
 }

@@ -1,32 +1,42 @@
 /*
- * A run as a declarative table of steps. Each step has an id, reads the run's state, does its work and either returns an update to
- * the state or ends the run with a reason. The runner walks the table in order: a step whose `runs` says no is passed over, a step
- * that names a phase opens it on the run's phase cursor first (a step without one runs inside the phase already open), an update is
- * merged into the state, and the first end stops the walk. Every step the runner passes over, runs or ends on is reported to the
- * run's recorder, so the trace says in which order the steps came and why the run stopped. Loops (static fix, fix loop, review
- * rounds) live inside their step: the table itself is linear.
+ * A run as a declarative table of steps. Each step has an id, reads the run's state, does its work and returns one closed outcome:
+ * nothing or an update (go on to the next step), `goto` (go on to the step with that id), or `end` (the run is over, for a reason).
+ * The runner walks the table in order: a step whose `runs` says no is passed over, a step that names a phase opens it on the run's
+ * phase cursor first (a step without one runs inside the phase already open), an update is merged into the state, and the first
+ * end stops the walk. Every step the runner passes over, runs or ends on is reported to the run's recorder, so the trace says in
+ * which order the steps came and why the run stopped. The runner does not turn an end into a result: that is `finalizeRun`.
  */
 
 import type { RunPhase } from "../../domain/run-phase-cursor.ts";
-import type { EndReason } from "./run-end.ts";
+import { runEnd, type EndReason, type FactsArg, type RunEnd } from "./run-end.ts";
 import type { StepId } from "./step-ids.ts";
 
-export type StepResult<S, R> = { end: R; reason: EndReason } | { update: Partial<S> } | void;
+/** What a step decides: go on (nothing, or an update), go to a named step, or end the run. */
+export type StepOutcome<S, Id extends string = StepId> = void | { update: Partial<S> } | { goto: Id; update?: Partial<S> } | { end: RunEnd; update?: Partial<S> };
 
-export interface FlowStep<S, C, R, Id extends string = StepId> {
+/** Go on to the next step. */
+export const next = <S, Id extends string = StepId>(update?: Partial<S>): StepOutcome<S, Id> => (update ? { update } : undefined);
+
+/** Go on to the step with this id. */
+export const goto = <S, Id extends string = StepId>(id: Id, update?: Partial<S>): StepOutcome<S, Id> => ({ goto: id, ...(update ? { update } : {}) });
+
+/** End the run for a reason, carrying the facts that reason has. */
+export const end = <S, R extends EndReason, Id extends string = StepId>(reason: R, ...facts: FactsArg<R>): StepOutcome<S, Id> => ({ end: runEnd(reason, ...facts) });
+
+export interface FlowStep<S, C, Id extends string = StepId> {
   /** Stable identity of the step: what the trace, the tests and the failure policy call it. */
   id: Id;
   /** The phase the step opens on the cursor before it runs; absent, it runs inside the open phase. */
   phase?: RunPhase;
   /** Whether the step runs for this run; absent, it always does. */
   runs?: (state: Readonly<S>, ctx: C) => boolean;
-  run: (state: Readonly<S>, ctx: C) => Promise<StepResult<S, R>>;
+  run: (state: Readonly<S>, ctx: C) => Promise<StepOutcome<S, Id>>;
 }
 
 /** What the runner tells the recorder about one step: it ran, it was passed over, or it ended the run (with the reason). */
 export type StepEvent<Id extends string = StepId> =
   | { id: Id; outcome: "ran" | "skipped" }
-  | { id: Id; outcome: "ended"; reason: EndReason };
+  | { id: Id; outcome: "ended"; reason: RunEnd["reason"] };
 
 /** What the runner needs from the run: the phase cursor, and somewhere to report the steps. */
 export interface FlowHooks<Id extends string = StepId> {
@@ -34,28 +44,53 @@ export interface FlowHooks<Id extends string = StepId> {
   record(event: StepEvent<Id>): void;
 }
 
-/** The result a step ended the run with and why, or the state once every step ran without ending it. */
-export type FlowOutcome<S, R> = { end: R; reason: EndReason } | { state: S };
+/** The end the run came to, or the state once every step ran without ending it. */
+export type FlowOutcome<S> = { end: RunEnd } | { state: S };
 
-export async function runFlow<S extends object, C, R, Id extends string = StepId>(
-  steps: ReadonlyArray<FlowStep<S, C, R, Id>>,
+/* A table that sends the run back for ever is a defect of the table; the walk stops loudly instead of hanging. */
+const MAX_TRANSITIONS = 10_000;
+
+/** Throws on a table whose ids are not unique: a step must be told apart from every other. */
+export function validateTable<S, C, Id extends string>(steps: ReadonlyArray<FlowStep<S, C, Id>>): void {
+  const seen = new Set<string>();
+  for (const step of steps) {
+    if (seen.has(step.id)) throw new Error(`the step table names "${step.id}" twice`);
+    seen.add(step.id);
+  }
+}
+
+export async function runFlow<S extends object, C, Id extends string = StepId>(
+  steps: ReadonlyArray<FlowStep<S, C, Id>>,
   state: S,
   ctx: C,
   hooks: FlowHooks<Id>,
-): Promise<FlowOutcome<S, R>> {
-  for (const step of steps) {
+): Promise<FlowOutcome<S>> {
+  validateTable(steps);
+  let index = 0;
+  for (let transitions = 0; index < steps.length; transitions++) {
+    if (transitions >= MAX_TRANSITIONS) throw new Error(`the step table did not end after ${MAX_TRANSITIONS} transitions`);
+    const step = steps[index]!;
     if (step.runs && !step.runs(state, ctx)) {
       hooks.record({ id: step.id, outcome: "skipped" });
+      index++;
       continue;
     }
     if (step.phase) hooks.enter(step.phase);
-    const result = await step.run(state, ctx);
-    if (result && "end" in result) {
-      hooks.record({ id: step.id, outcome: "ended", reason: result.reason });
-      return { end: result.end, reason: result.reason };
+    const outcome = await step.run(state, ctx);
+    if (outcome && "end" in outcome) {
+      if (outcome.update) Object.assign(state, outcome.update);
+      hooks.record({ id: step.id, outcome: "ended", reason: outcome.end.reason });
+      return { end: outcome.end };
     }
     hooks.record({ id: step.id, outcome: "ran" });
-    if (result) Object.assign(state, result.update);
+    if (outcome?.update) Object.assign(state, outcome.update);
+    if (outcome && "goto" in outcome) {
+      const target = steps.findIndex((candidate) => candidate.id === outcome.goto);
+      if (target < 0) throw new Error(`the step "${step.id}" goes to "${outcome.goto}", which the step table does not have`);
+      index = target;
+    } else {
+      index++;
+    }
   }
   return { state };
 }

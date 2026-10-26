@@ -1,16 +1,16 @@
 /* The closing of a run: the outcome derived and saved, what the outcome teaches the learning loop, and the result the run returns. */
 
 import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rule.ts";
+import { deriveErrorClass, toReflectionInput, toRunOutcome } from "../outcome-assembly.ts";
 import { learningGates } from "../../../domain/helpers/learning-gates.ts";
-import type { RunQaResult } from "../../run-qa.use-case.ts";
-import type { StepResult } from "../run-flow.ts";
+import type { StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { closedLoopSignal } from "./generation-services.ts";
 import { decidedOf, reviewerApprovedForOutcomeOf } from "./decide.steps.ts";
 import { DETERMINISTIC_SELECTOR_BLOCKS } from "./execute.steps.ts";
 
-type Result = Promise<StepResult<RunState, RunQaResult>>;
+type Result = Promise<StepOutcome<RunState>>;
 
 /* The signals the persisted outcome and the returned result report alike: what the run's tools, integrity checks and staleness came to. */
 function sharedSignals(state: Readonly<RunState>, ctx: WorkspaceRunContext, loopSignal: Awaited<ReturnType<typeof closedLoopSignal>>) {
@@ -42,7 +42,7 @@ function sharedSignals(state: Readonly<RunState>, ctx: WorkspaceRunContext, loop
 
 /* Derive errorClass/valueScore once for both the persisted outcome and the returned result. */
 export async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, ends, services } = ctx;
+  const { deps, services } = ctx;
   const { decision, isContextCleanPass } = decidedOf(state);
   const { run, retries, validation } = state.execution;
   const { coverageRatio, valueScore, mutantCount, killedCount } = state.coverage;
@@ -52,11 +52,12 @@ export async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRu
   const { publishOutcome } = state.publication;
   const loopSignal = await closedLoopSignal(ctx);
   /* Thread the review loop's real final-round corrections into errorClass derivation. */
-  const errorClass = ends.deriveErrorClass(decision.verdict, coverageRatio, valueScore, finalReviewerCorrections, {
+  const errorClass = deriveErrorClass(decision.verdict, coverageRatio, valueScore, finalReviewerCorrections, {
     ...(state.fixLoop.devNotRenderedConclusive ? { preconditionFailed: true } : {}),
+    sandboxRefused: ctx.ends.sandboxRefused(),
   });
   if (isContextCleanPass) return { update: { persisted: { errorClass, loopSignal, mainlineOutcome: undefined } } };
-  const mainlineOutcome = ends.toRunOutcome(decision, run.cases, retries, coverageRatio, errorClass, {
+  const mainlineOutcome = toRunOutcome(ctx, decision, run.cases, retries, coverageRatio, errorClass, {
     staticOk: validation.ok,
     reviewerApproved: reviewerApprovedForOutcomeOf(state),
     valueScore,
@@ -151,7 +152,7 @@ export async function learnFromOutcome(state: Readonly<RunState>, ctx: Workspace
     const reflectStartedAt = Date.now();
     /* Archetype from classificationDiff; undefined outside diff mode — never fabricated. */
     const archetype = detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []);
-    await deps.reflector.reflect(ctx.ends.toReflectionInput(mainlineOutcome, archetype));
+    await deps.reflector.reflect(toReflectionInput(mainlineOutcome, archetype));
     const reflectMs = Date.now() - reflectStartedAt;
     deps.observer?.onEvent({
       type: "log.line",
@@ -187,8 +188,9 @@ export async function finishRun(state: Readonly<RunState>, ctx: WorkspaceRunCont
   const reviewerApprovedForOutcome = reviewerApprovedForOutcomeOf(state);
   deps.observer?.onStep("done");
   return {
-    reason: isContextCleanPass ? "context-pass" : "decided",
     end: {
+      reason: isContextCleanPass ? "context-pass" : "decided",
+      built: {
       decision,
       errorClass,
       ...(mainlineOutcome ? { outcome: mainlineOutcome } : {}),
@@ -214,6 +216,7 @@ export async function finishRun(state: Readonly<RunState>, ctx: WorkspaceRunCont
       },
       cases: run.cases,
       logs: run.logs,
+      },
     },
   };
 }

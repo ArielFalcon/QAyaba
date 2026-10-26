@@ -4,14 +4,13 @@ import { CORRECTION_ORIGIN } from "../../coordination/lead-correction.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
 import { isRunDeadlineError } from "../../../../../shared-kernel/run-deadline.ts";
-import type { RunQaResult } from "../../run-qa.use-case.ts";
-import type { StepResult } from "../run-flow.ts";
+import type { StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { executeAccepted, validateAccepted } from "./execute.steps.ts";
 import { regenerate } from "./generation-services.ts";
 
-type Result = Promise<StepResult<RunState, RunQaResult>>;
+type Result = Promise<StepOutcome<RunState>>;
 
 /* A context run executes nothing (its pass is synthetic), so it has no coverage or value to measure. */
 export const measuresCoverage = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean => state.execution.run.verdict === "pass" && ctx.input.mode !== "context";

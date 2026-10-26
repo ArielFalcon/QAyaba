@@ -3,14 +3,13 @@
 import { isAccepted } from "../../../domain/run-decision.service.ts";
 import { rethrowIfUntrusted } from "../../../../../shared-kernel/domain-error.ts";
 import type { PublicationPort } from "../../ports/index.ts";
-import type { RunQaResult } from "../../run-qa.use-case.ts";
-import type { StepResult } from "../run-flow.ts";
+import { end, type StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { decidedOf } from "./decide.steps.ts";
 import { resolveTested } from "./fix-loop.steps.ts";
 
-type Result = Promise<StepResult<RunState, RunQaResult>>;
+type Result = Promise<StepOutcome<RunState>>;
 
 /*
  * Every side-effect-bearing decision calls publish — not just "pr". "none" is
@@ -76,7 +75,7 @@ export async function keepAcceptedSuite(state: Readonly<RunState>, ctx: Workspac
 export const publishes = (state: Readonly<RunState>): boolean => decidedOf(state).decision.sideEffect !== "none";
 
 export async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, input, cfg, workspace, services, ends } = ctx;
+  const { deps, input, cfg, workspace, services } = ctx;
   const { run } = state.execution;
   const { reviewerApproved } = state.review;
   const { lastAdjudicatorVerdict } = state.fixLoop;
@@ -108,13 +107,9 @@ export async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceR
       ...(resolveTested(state)?.length ? { tested: resolveTested(state) } : {}),
     });
   } catch (pubErr) {
-    return {
-      end: await ends.infraError(
-        `publication failed after verdict was decided (decided: ${run.verdict}, reviewerApproved: ${reviewerApproved}): ${pubErr instanceof Error ? pubErr.message : String(pubErr)}`,
-        workspace.mirrorDir,
-      ),
-      reason: "publication-failed",
-    };
+    return end("publication-failed", {
+      note: `publication failed after verdict was decided (decided: ${run.verdict}, reviewerApproved: ${reviewerApproved}): ${pubErr instanceof Error ? pubErr.message : String(pubErr)}`,
+    });
   }
   /*
    * Merge denylist reverts into gateSignals.confinement. Count only

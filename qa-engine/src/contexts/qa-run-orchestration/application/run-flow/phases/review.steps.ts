@@ -12,8 +12,7 @@ import { verifyRebuttals, findingKey } from "../../../domain/review-rebuttals.se
 import type { ContractFeedback } from "../../../domain/contract-feedback.ts";
 import type { GenerationOutput, ReviewPort } from "../../ports/index.ts";
 import type { RegenerationAcceptance } from "../../regeneration-acceptance.ts";
-import type { RunQaResult } from "../../run-qa.use-case.ts";
-import type { StepResult } from "../run-flow.ts";
+import { end, type StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { liveExecutionOptions, executeAccepted, validateAccepted } from "./execute.steps.ts";
@@ -21,7 +20,7 @@ import { closedLoopSignal, contractFindingText, correctThroughLead, regenerateBy
 import { resolveTested } from "./fix-loop.steps.ts";
 import { addReviewStats, annotateReviewPhase, newReviewTally, readReviewedSpecs, rebuttalEvidence, recordReviewDecision } from "./review-services.ts";
 
-type Result = Promise<StepResult<RunState, RunQaResult>>;
+type Result = Promise<StepOutcome<RunState>>;
 
 const MAX_REVIEW_ROUNDS = 2;
 
@@ -40,7 +39,7 @@ export const reviewsRun = (state: Readonly<RunState>, ctx: WorkspaceRunContext):
  * inherit the generator's self-approval.
  */
 export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, input, cfg, signal, trail, workspace, services, generation, ends } = ctx;
+  const { deps, input, cfg, signal, trail, workspace, services, generation } = ctx;
   const { acceptance, integrityCounters, snapshotPort, runDeadlinePort, suiteChangedFiles, snapshotSuite, acceptanceScope } = services;
   const { closedLoop } = trail;
   const { diff: classificationDiff, intent: classificationIntent } = state.classification;
@@ -67,7 +66,6 @@ export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunCo
     archetype: detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
     confinement: services.confinement.totals,
     tested: resolveTested(state),
-    mirrorDir: workspace.mirrorDir,
     closedLoop: await closedLoopSignal(ctx),
     agentBrowser: agentBrowserSignal(),
   });
@@ -116,13 +114,13 @@ export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunCo
           reviewDomSnapshot = await deps.reviewDomGrounding.capture(workspace.specDir, specsForReview, signal);
         } catch (err) {
           /* Abort during capture stops the run, not an ungrounded review round. */
-          if (signal?.aborted) return { end: await ends.aborted(workspace.mirrorDir), reason: "aborted" };
+          if (signal?.aborted) return end("aborted");
           console.error("[qa] WARNING: reviewer DOM grounding failed (non-fatal, review continues ungrounded):", err);
           reviewDomSnapshot = undefined;
         }
         lastReviewSpecsKey = specsKey;
       }
-      if (signal?.aborted) return { end: await ends.aborted(workspace.mirrorDir), reason: "aborted" };
+      if (signal?.aborted) return end("aborted");
     }
 
     const reviewedSpecs = readReviewedSpecs(specRoot, reviewCases);
@@ -269,7 +267,7 @@ export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunCo
      */
     if (reviewResult.unavailable) {
       annotateReviewPhase(ctx, reviewStats, lastCorrectionClass, "unavailable");
-      return { end: await ends.reviewerUnavailable(reviewResult.rationale, reviewCases.length, await exitFacts()), reason: "reviewer-unavailable" };
+      return end("reviewer-unavailable", { rationale: reviewResult.rationale, passedCases: reviewCases.length, ...(await exitFacts()) });
     }
     /* parsed:false fails closed immediately, without burning a regeneration round. */
     if (reviewResult.parsed === false) {
@@ -396,7 +394,7 @@ export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunCo
        * justified, and publishing would ignore the finding: the engine reports that it could not settle it.
        */
       if (settled.disputed.length > 0) {
-        return { end: await ends.reviewDisputed(settled.disputed, reviewCases.filter((c) => c.status === "pass").length, await exitFacts()), reason: "review-disputed" };
+        return end("review-disputed", { disputed: settled.disputed, passedCases: reviewCases.filter((c) => c.status === "pass").length, ...(await exitFacts()) });
       }
       reviewerApproved = false;
       break;

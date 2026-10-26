@@ -9,14 +9,13 @@ import { FixLoop, type FixLoopAcceptancePort, type FixLoopExecutionPort, type Fi
 import { checkSpecSelectors, contradictionOrigins } from "../../../domain/helpers/selector-check.ts";
 import { attributeContradictions } from "../../../domain/helpers/contradiction-attribution.ts";
 import type { SpecSnapshot } from "../../ports/spec-snapshot.port.ts";
-import type { RunQaResult } from "../../run-qa.use-case.ts";
-import type { StepResult } from "../run-flow.ts";
+import type { StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { checkDevHealth, executeAccepted, liveExecutionOptions, validateAccepted } from "./execute.steps.ts";
 import { loopClosedNow, regenerate } from "./generation-services.ts";
 
-type Result = Promise<StepResult<RunState, RunQaResult>>;
+type Result = Promise<StepOutcome<RunState>>;
 
 /*
  * Renders every failing case's failureDom into one prompt-facing block.

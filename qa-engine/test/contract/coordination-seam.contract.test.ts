@@ -159,10 +159,10 @@ test("wires coordination only into RunQaUseCase — generation/FixLoop/AgentRunt
       `${rel} must not name CoordinationPort`,
     );
   }
-  const useCase = readFileSync(
-    join(qaEngineRoot, "src/contexts/qa-run-orchestration/application/run-qa.use-case.ts"),
-    "utf8",
-  );
+  /* The use case and the types of its dependencies, which name the seam it is given. */
+  const useCase = ["run-qa.use-case.ts", "run-flow/run-types.ts"]
+    .map((file) => readFileSync(join(qaEngineRoot, "src/contexts/qa-run-orchestration/application", file), "utf8"))
+    .join("\n");
   assert.equal(useCase.includes("LeadSidekicks"), true);
   assert.equal(useCase.includes("advisoryOnly"), false, "advisory downgrade was removed with the modes");
   const composition = readFileSync(

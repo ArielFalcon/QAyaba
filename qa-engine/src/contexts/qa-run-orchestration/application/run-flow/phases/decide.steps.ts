@@ -2,13 +2,12 @@
 
 import { decide, type RunEvidence } from "../../../domain/run-decision.service.ts";
 import { reviewerApprovalOf } from "../../ports/index.ts";
-import type { RunQaResult } from "../../run-qa.use-case.ts";
-import type { StepResult } from "../run-flow.ts";
+import { end, type StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { DecidedOutcome, RunState } from "../run-state.ts";
 import { reviewsTests } from "./review.steps.ts";
 
-type Result = Promise<StepResult<RunState, RunQaResult>>;
+type Result = Promise<StepOutcome<RunState>>;
 
 /* What the decision and everything after it rests on; a step after the decide phase cannot run before it. */
 export function decidedOf(state: Readonly<RunState>): DecidedOutcome {
@@ -30,7 +29,7 @@ export const guardsFinalProof = (state: Readonly<RunState>, ctx: WorkspaceRunCon
  * as a loud infra-error. No proof means no publication (fails closed).
  */
 export async function guardFinalProof(_state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, ends, workspace, services, generation } = ctx;
+  const { deps, workspace, services, generation } = ctx;
   const { specRoot, proofLedger, snapshotPort } = services;
   const deliveredFiles = [...new Set(generation.delivered.map((d) => d.file))].filter((file) => file.endsWith(".spec.ts"));
   if (deliveredFiles.length === 0) return;
@@ -39,76 +38,48 @@ export async function guardFinalProof(_state: Readonly<RunState>, ctx: Workspace
     try {
       current = await deps.suiteStore.fingerprint(specRoot, deliveredFiles);
     } catch (err) {
-      return {
-        end: await ends.infraError(
-          `the final proof guard could not fingerprint the delivered specs: ${err instanceof Error ? err.message : String(err)}`,
-          workspace.mirrorDir,
-        ),
-        reason: "final-proof-guard",
-      };
+      return end("final-proof-guard", {
+        note: `the final proof guard could not fingerprint the delivered specs: ${err instanceof Error ? err.message : String(err)}`,
+      });
     }
   }
   for (const file of deliveredFiles) {
     const proof = proofLedger.get(file);
     if (proof && current.get(file) === proof.sha256) continue;
     if (!proof) {
-      return {
-        end: await ends.infraError(
-          `the final proof guard found no proof for ${file}: the run cannot publish bytes that never executed green`,
-          workspace.mirrorDir,
-        ),
-        reason: "final-proof-guard",
-      };
+      return end("final-proof-guard", {
+        note: `the final proof guard found no proof for ${file}: the run cannot publish bytes that never executed green`,
+      });
     }
     if (proof.bytes === undefined) {
-      return {
-        end: await ends.infraError(
-          `the final proof guard found ${file} changed after it executed green, but holds no proven bytes to restore`,
-          workspace.mirrorDir,
-        ),
-        reason: "final-proof-guard",
-      };
+      return end("final-proof-guard", {
+        note: `the final proof guard found ${file} changed after it executed green, but holds no proven bytes to restore`,
+      });
     }
     try {
       await snapshotPort.restore(workspace.specDir, { files: new Map([[file, proof.bytes]]) }, []);
     } catch (err) {
-      return {
-        end: await ends.infraError(
-          `the final proof guard could not restore ${file}: ${err instanceof Error ? err.message : String(err)}`,
-          workspace.mirrorDir,
-        ),
-        reason: "final-proof-guard",
-      };
+      return end("final-proof-guard", {
+        note: `the final proof guard could not restore ${file}: ${err instanceof Error ? err.message : String(err)}`,
+      });
     }
     if (!deps.suiteStore) {
-      return {
-        end: await ends.infraError(
-          `the final proof guard cannot verify the restored ${file}: no suite store is composed`,
-          workspace.mirrorDir,
-        ),
-        reason: "final-proof-guard",
-      };
+      return end("final-proof-guard", {
+        note: `the final proof guard cannot verify the restored ${file}: no suite store is composed`,
+      });
     }
     let restored: ReadonlyMap<string, string>;
     try {
       restored = await deps.suiteStore.fingerprint(specRoot, [file]);
     } catch (err) {
-      return {
-        end: await ends.infraError(
-          `the final proof guard could not verify the restored ${file}: ${err instanceof Error ? err.message : String(err)}`,
-          workspace.mirrorDir,
-        ),
-        reason: "final-proof-guard",
-      };
+      return end("final-proof-guard", {
+        note: `the final proof guard could not verify the restored ${file}: ${err instanceof Error ? err.message : String(err)}`,
+      });
     }
     if (restored.get(file) !== proof.sha256) {
-      return {
-        end: await ends.infraError(
-          `the final proof guard restored ${file} but its bytes still differ from the proven ones`,
-          workspace.mirrorDir,
-        ),
-        reason: "final-proof-guard",
-      };
+      return end("final-proof-guard", {
+        note: `the final proof guard restored ${file} but its bytes still differ from the proven ones`,
+      });
     }
   }
 }

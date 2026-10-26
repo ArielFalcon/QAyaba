@@ -2,18 +2,17 @@
 
 import { isOk } from "@kernel/result.ts";
 import { changeTokens } from "@contexts/objective-signal/domain/change-tokens.ts";
-import type { RunQaResult } from "../../run-qa.use-case.ts";
-import type { StepResult } from "../run-flow.ts";
+import { end, type StepOutcome } from "../run-flow.ts";
 import type { RunContext, WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { CodeGraphIndexRecord } from "@kernel/code/index.ts";
 
-type Result = Promise<StepResult<RunState, RunQaResult>>;
+type Result = Promise<StepOutcome<RunState>>;
 
 /* Already-aborted signal short-circuits before the entry gate. */
 export async function stopIfAbortedBeforeGate(_state: Readonly<RunState>, ctx: RunContext): Result {
-  if (ctx.signal?.aborted) return { end: await ctx.ends.aborted(), reason: "aborted" };
+  if (ctx.signal?.aborted) return end("aborted");
 }
 
 export async function waitForDeploy(_state: Readonly<RunState>, ctx: RunContext): Result {
@@ -22,10 +21,10 @@ export async function waitForDeploy(_state: Readonly<RunState>, ctx: RunContext)
     const gateResult = await ctx.deps.deployGate.waitUntilServing(ctx.input.sha);
     if (!isOk(gateResult)) {
       /* Thread the deploy-gate InfraError message as the diagnostic note — never drop it. */
-      return { end: await ctx.ends.infraError(gateResult.error.message), reason: "deploy-gate-failed" };
+      return end("deploy-gate-failed", { note: gateResult.error.message });
     }
   }
-  if (ctx.signal?.aborted) return { end: await ctx.ends.aborted(), reason: "aborted" };
+  if (ctx.signal?.aborted) return end("aborted");
 }
 
 /*
@@ -38,12 +37,8 @@ export async function classifyChange(_state: Readonly<RunState>, ctx: WorkspaceR
   ctx.deps.observer?.onStep("classify");
   const classification = await ctx.deps.changeAnalysis.classify(ctx.input.sha, ctx.input.baseSha ? { baseSha: ctx.input.baseSha } : undefined);
   if (classification.action === "skip") {
-    /*
-     * Prepare already checked out the mirror. Classify-skip does not persist, but
-     * the working copy was touched and must still be pruned.
-     */
-    await ctx.ends.pruneMirror(ctx.workspace.mirrorDir);
-    return { end: ctx.ends.skipped(), reason: "classify-skipped" };
+    /* Prepare already checked out the mirror. Classify-skip does not persist, but the working copy was touched and is pruned with the end. */
+    return end("classify-skipped");
   }
   return {
     update: {
@@ -88,7 +83,7 @@ export async function indexMirror(_state: Readonly<RunState>, ctx: WorkspaceRunC
       }
     }
   }
-  if (ctx.signal?.aborted) return { end: await ctx.ends.aborted(workspace.mirrorDir), reason: "aborted" };
+  if (ctx.signal?.aborted) return end("aborted");
 }
 
 async function indexOne(ctx: WorkspaceRunContext, codeGraph: CodeGraphPort, repoDir: string, sha: string): Promise<void> {
