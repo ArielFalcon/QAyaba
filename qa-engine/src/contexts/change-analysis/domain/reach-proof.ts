@@ -21,12 +21,25 @@ export interface ProofWalk {
   truncated?: boolean;
 }
 
+/* A contract operation of a service that the change impacted, as the cross-repo impact left it. */
+export interface ReachLink {
+  repo: string;
+  verb: string;
+  path: string;
+  /* The contract file the operation is declared in. */
+  file: string;
+  confidence: number;
+  change?: "added" | "removed" | "changed";
+}
+
 export interface ProofInput {
   map: PageMap;
   walks: readonly ProofWalk[];
   /* The routes the engine recognised in the repo whose pages the map names, and in the walked repo for the handler proof. */
   pageRoutes: readonly GraphRoute[];
   handlerRoutes: readonly GraphRoute[];
+  /* The operations of the services the change impacted. */
+  links?: readonly ReachLink[];
 }
 
 export interface ReachHit {

@@ -10,7 +10,7 @@ import type { GraphRoute, ImpactBudget, LocalSymbolRef } from "@kernel/code/inde
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { Sha } from "@kernel/sha.ts";
 import type { PageMap } from "@kernel/page-files.ts";
-import { buildChangeScope, changedSymbolOf, type ProofWalk, type ReachProof } from "../../domain/reach-proof.ts";
+import { buildChangeScope, changedSymbolOf, type ProofWalk, type ReachLink, type ReachProof } from "../../domain/reach-proof.ts";
 import { entryKey, MAX_KNOWN_ENTRY_POINTS, type ChangeScope, type EntryPoint, type RepoScope } from "../../domain/change-scope.ts";
 import type { ChangeScopePort, ChangeScopeRepo, ChangeScopeRequest } from "../../application/ports/change-scope.port.ts";
 
@@ -73,7 +73,7 @@ export class ChangeScopePortAdapter implements ChangeScopePort {
     }
 
     const map = this.mapOf(request);
-    return buildChangeScope({ proofs: { map, walks, pageRoutes, handlerRoutes }, repos, degraded, linked: new Set() }, this.deps.proofs);
+    return buildChangeScope({ proofs: { map, walks, pageRoutes, handlerRoutes, links: linksOf(request) }, repos, degraded, linked: new Set() }, this.deps.proofs);
   }
 
   private mapOf(request: ChangeScopeRequest): PageMap {
@@ -119,12 +119,14 @@ export class ChangeScopePortAdapter implements ChangeScopePort {
   private async callSiteWalk(request: ChangeScopeRequest, pages: { repo: string; repoDir: string } | undefined, degraded: Array<{ repo: string; reason: string }>): Promise<ProofWalk | undefined> {
     const prefixOf = new Map<string, string[]>();
     const seeds: LocalSymbolRef[] = [];
-    for (const { link } of request.crossRepoImpact?.impactedLinks ?? []) {
+    for (const { link, operationChange } of request.crossRepoImpact?.impactedLinks ?? []) {
+      /* An operation added by the change has no caller yet. */
+      if (operationChange === "added") continue;
       if (!link.from.file || !link.from.symbol) continue;
       const seed = { file: link.from.file, symbol: link.from.symbol };
       if (prefixOf.has(keyOf(seed))) continue;
       const operation = link.operation ? `${link.operation.verb} ${link.operation.path}` : (link.contractRef ?? link.to.symbol ?? link.to.file);
-      prefixOf.set(keyOf(seed), [`${link.to.repo}: ${operation}`]);
+      prefixOf.set(keyOf(seed), [`${link.to.repo}: ${operation}${operationChange === "removed" ? " (removed)" : ""}`]);
       seeds.push(seed);
     }
     if (seeds.length === 0) return undefined;
@@ -139,6 +141,17 @@ export class ChangeScopePortAdapter implements ChangeScopePort {
     }
     return { repo: pages.repo, reached: walk.value.symbols, prefixOf, handlers: false, truncated: walk.value.truncated };
   }
+}
+
+/* The operations of the impacted links, one per operation. */
+function linksOf(request: ChangeScopeRequest): ReachLink[] {
+  const byKey = new Map<string, ReachLink>();
+  for (const { link, operationChange } of request.crossRepoImpact?.impactedLinks ?? []) {
+    if (!link.operation) continue;
+    const key = `${link.to.repo} ${link.operation.verb.toUpperCase()} ${link.operation.path}`;
+    if (!byKey.has(key)) byKey.set(key, { repo: link.to.repo, verb: link.operation.verb.toUpperCase(), path: link.operation.path, file: link.to.file, confidence: link.confidence, ...(operationChange ? { change: operationChange } : {}) });
+  }
+  return [...byKey.values()];
 }
 
 function emptyScope(r: ChangeScopeRepo): RepoScope {

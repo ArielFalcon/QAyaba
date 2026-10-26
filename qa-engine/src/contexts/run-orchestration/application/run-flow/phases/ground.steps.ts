@@ -192,17 +192,21 @@ export async function resolveServiceLinks(state: Readonly<RunState>, ctx: Worksp
 export async function resolveCrossRepoImpact(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { deps, input } = ctx;
   const resolvedServiceLinks = state.grounding.serviceLinks;
-  const services: Array<{ repo: string; sha: string }> = [];
-  if (input.triggerRepo) services.push({ repo: input.triggerRepo, sha: input.sha.toString() });
+  const services: Array<{ repo: string; sha: string; baseRef?: string }> = [];
+  /* Where an entry's range starts: its base, or `commits` back from its head; absent, the commit before the head. */
+  const baseRefOf = (entry: { headSha: { toString(): string }; baseSha?: { toString(): string }; commits?: number }): string | undefined =>
+    entry.baseSha?.toString() ?? (entry.commits !== undefined ? `${entry.headSha.toString()}~${entry.commits}` : undefined);
+  const anchor = input.changeSet.anchor;
+  if (input.triggerRepo) services.push({ repo: input.triggerRepo, sha: input.sha.toString(), ...(baseRefOf(anchor) ? { baseRef: baseRefOf(anchor)! } : {}) });
   for (const entry of input.changeSet.entries) {
-    if (entry.role === "service" && entry !== input.changeSet.anchor && entry.repo !== input.triggerRepo) services.push({ repo: entry.repo, sha: entry.headSha.toString() });
+    if (entry.role === "service" && entry !== anchor && entry.repo !== input.triggerRepo) services.push({ repo: entry.repo, sha: entry.headSha.toString(), ...(baseRefOf(entry) ? { baseRef: baseRefOf(entry)! } : {}) });
   }
   const impacts: CrossRepoImpact[] = [];
   if (deps.crossRepoImpact && resolvedServiceLinks.length) {
-    for (const { repo, sha } of services) {
+    for (const { repo, sha, baseRef } of services) {
       if (!resolvedServiceLinks.some((l) => l.to.repo === repo)) continue;
       try {
-        const impact = await deps.crossRepoImpact.resolve(repo, sha, resolvedServiceLinks);
+        const impact = await deps.crossRepoImpact.resolve(repo, sha, resolvedServiceLinks, ...(baseRef ? [baseRef] : []));
         if (impact) impacts.push(impact);
       } catch (err) {
         carryOn(err);

@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ChangeScopePortAdapter, entryPointsOf } from "@contexts/change-analysis/infrastructure/adapters/change-scope-port.adapter.ts";
-import { MAX_KNOWN_ENTRY_POINTS, crossRepoCallSite, fileImplementsPage, handlerServesOperation } from "@contexts/change-analysis/application/index.ts";
+import { MAX_KNOWN_ENTRY_POINTS, crossRepoCallSite, fileImplementsPage, handlerServesOperation, openapiOperationDiff } from "@contexts/change-analysis/application/index.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { GraphRoute, ImpactedSymbol, LocalSymbolRef } from "@kernel/code/index.ts";
 import type { ServiceLink } from "@kernel/service-links.ts";
@@ -136,4 +136,30 @@ test("entry points are every route the engine knows: handlers as operations, the
   const capped = entryPointsOf("org/r", many);
   assert.equal(capped.entryPoints.length, MAX_KNOWN_ENTRY_POINTS);
   assert.equal(capped.truncated, true);
+});
+
+const apiRepo = { repo: "org/orders-api", role: "service" as const, repoDir: "/m/api", headSha: SHA, changedFiles: ["api/openapi.yaml"] };
+const withProofs = (g: CodeGraphPort) => new ChangeScopePortAdapter({ codeGraph: g, budget: BUDGET, proofs: [...PROOFS, openapiOperationDiff], loadMap: () => MAP });
+const impacted = (operationChange?: "added" | "removed" | "changed") => ({ impactedLinks: [{ link: link({ file: "web/src/app/orders/orders.api.ts", symbol: "listOrders" }), tier: "contract-file", ...(operationChange ? { operationChange } : {}) }] }) as never;
+
+test("an impacted contract operation is an operation entry of its service, reached across repos with the link as evidence", async () => {
+  const scope = await withProofs(graph()).resolve({ specDir: "/s", repos: [apiRepo], pages: { repo: "org/web", repoDir: "/m/web" }, crossRepoImpact: impacted("changed") });
+  const operation = scope.reach.find((r) => r.entry.kind === "operation");
+  assert.deepEqual(operation?.entry, { kind: "operation", repo: "org/orders-api", verb: "GET", path: "/api/orders" });
+  assert.equal(operation?.tier, "cross-repo");
+  assert.equal(operation?.basis, "contract");
+  assert.deepEqual(operation?.evidence, ["org/orders-api: GET /api/orders"]);
+});
+
+test("an operation the change removed reaches its callers with evidence saying so; one it added reaches no caller", async () => {
+  const callers = graph({ callersOf: async () => report([sym(ORDERS, "load", 1, { file: "web/src/app/orders/orders.api.ts", symbol: "listOrders" }), sym("web/src/app/orders/orders.api.ts", "listOrders", 0)]) });
+  const removed = await withProofs(callers).resolve({ specDir: "/s", repos: [apiRepo], pages: { repo: "org/web", repoDir: "/m/web" }, crossRepoImpact: impacted("removed") });
+  const page = removed.reach.find((r) => r.entry.kind === "page");
+  assert.match(page?.evidence[0] ?? "", /^org\/orders-api: GET \/api\/orders \(removed\)$/);
+
+  let asked = false;
+  const spy = graph({ callersOf: async () => { asked = true; return report([]); } });
+  const added = await withProofs(spy).resolve({ specDir: "/s", repos: [apiRepo], pages: { repo: "org/web", repoDir: "/m/web" }, crossRepoImpact: impacted("added") });
+  assert.equal(asked, false, "an added operation has no caller to walk from");
+  assert.deepEqual(added.reach.map((r) => r.entry.kind), ["operation"]);
 });

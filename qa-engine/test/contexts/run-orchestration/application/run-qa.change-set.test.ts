@@ -144,3 +144,26 @@ test("the cross-repo impact is resolved for each service entry of the change at 
     dispose(rig);
   }
 });
+
+test("the cross-repo impact of a service entry reads the contract from the entry's own range start", async () => {
+  const linkTo = (repo: string): ServiceLink => ({ from: { repo: FRONT, file: "src/api.ts", symbol: "call" }, to: { repo, file: "src/routes.ts", symbol: "handle" }, transport: "http", confidence: 1, source: "openapi" });
+  const links = [linkTo(BACK), linkTo("org/billing")];
+  const bases: Array<string | undefined> = [];
+  const crossRepoImpact: CrossRepoImpactPort = { resolve: async (_repo, _sha, _links, baseRef) => { bases.push(baseRef); return null; } };
+  const rig = newRig();
+  try {
+    rig.input = {
+      changeSet: ChangeSet.of("demo", [
+        { repo: FRONT, role: "primary", headSha: FRONT_SHA },
+        { repo: BACK, role: "service", headSha: BACK_SHA, baseSha: Sha.of("a000000") },
+        { repo: "org/billing", role: "service", headSha: Sha.of("c333333"), commits: 2 },
+      ]),
+      sha: FRONT_SHA,
+    };
+    rig.extra = { serviceLinks: { resolve: async () => ({ links, drift: [] }) }, crossRepoImpact };
+    await observe(rig, "change-set-impact-base");
+    assert.deepEqual(bases, ["a000000", "c333333~2"]);
+  } finally {
+    dispose(rig);
+  }
+});

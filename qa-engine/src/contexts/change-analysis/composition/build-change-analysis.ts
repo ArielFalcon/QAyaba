@@ -18,6 +18,7 @@ import type { PageMap } from "@kernel/page-files.ts";
 import type { ServesOperation } from "../domain/reach-proofs/handler-serves-operation.ts";
 import { crossRepoCallSite } from "../domain/reach-proofs/cross-repo-call-site.ts";
 import { fileImplementsPage } from "../domain/reach-proofs/file-implements-page.ts";
+import { openapiOperationDiff } from "../domain/reach-proofs/openapi-operation-diff.ts";
 import { handlerServesOperation } from "../domain/reach-proofs/handler-serves-operation.ts";
 import { ChangeScopePortAdapter } from "../infrastructure/adapters/change-scope-port.adapter.ts";
 import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
@@ -106,7 +107,7 @@ export function buildChangeAnalysis(deps: ChangeAnalysisDeps): ChangeAnalysisApi
             codeGraph: deps.scope.codeGraph,
             budget: ADVISORY_BUDGET,
             /* The proof kinds that fill a change scope: a new kind is a new entry here. */
-            proofs: [fileImplementsPage, handlerServesOperation(deps.scope.serves), crossRepoCallSite],
+            proofs: [fileImplementsPage, handlerServesOperation(deps.scope.serves), crossRepoCallSite, openapiOperationDiff],
             ...(deps.scope.loadMap ? { loadMap: deps.scope.loadMap } : {}),
           }),
         }
