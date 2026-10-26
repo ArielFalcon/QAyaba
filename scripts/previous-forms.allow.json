@@ -148,5 +148,11 @@
     "path": "AGENTS.md",
     "contains": ".codex",
     "reason": "The ADR records the engine it superseded."
+  },
+  {
+    "rule": "dead-path",
+    "path": "AGENTS.md",
+    "contains": "qa-run-orchestration/",
+    "reason": "Pending edit of a file outside this phase's write authority; the context was renamed to run-orchestration in arch-p3 T6 and the replacement text is recorded in the arch-p3 Log. Remove this entry with that edit."
   }
 ]
