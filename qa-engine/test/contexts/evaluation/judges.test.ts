@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -214,4 +216,30 @@ test("evidence cannot forge the fence that marks it as data", () => {
   assert.ok(input.ok);
   assert.equal(input.text.split("DIFF>>>").length - 1, 1, "only the real closing fence survives");
   assert.equal(input.text.split("<<<SPEC").length - 1, 1, "only the real spec fence survives");
+});
+
+test("the use-case judge is shown the candidates before the plan, and the input is unchanged when the evidence holds none", () => {
+  const candidates = [
+    { id: "uc-1a2b3c4d", entry: "page /cart", tier: "direct", reachability: "page", pages: ["/cart"], existingSpecs: ["e2e/cart.spec.ts"] },
+    { id: "uc-5e6f7a8b", entry: "operation POST /orders", tier: "transitive", reachability: "backend-only", pages: [], existingSpecs: [] },
+  ];
+  const plan = [{ id: "cart", objective: "the cart shows the new total", acceptance: [] }];
+  const input = buildJudgeInput("use_case_coverage", ev({ plan, candidates }), identity);
+  assert.ok(input.ok);
+  assert.match(input.text, /<<<CANDIDATES[\s\S]*uc-1a2b3c4d \| page \/cart \| direct, page \| specs: e2e\/cart\.spec\.ts[\s\S]*uc-5e6f7a8b[\s\S]*no spec yet[\s\S]*CANDIDATES>>>/);
+  assert.ok(input.text.indexOf("<<<CANDIDATES") < input.text.indexOf("<<<PLAN"), "candidates come before the plan");
+  const without = buildJudgeInput("use_case_coverage", ev({ plan }), identity);
+  const empty = buildJudgeInput("use_case_coverage", ev({ plan, candidates: [] }), identity);
+  assert.ok(without.ok && empty.ok);
+  assert.doesNotMatch(without.text, /CANDIDATES/);
+  assert.equal(empty.text, without.text);
+  const other = buildJudgeInput("spec_relevance", ev({ candidates }), identity);
+  assert.ok(other.ok);
+  assert.doesNotMatch(other.text, /CANDIDATES/, "only the use-case judge reads candidates");
+});
+
+test("the pinned judge prompt declares a version the judge setup reads and asks the judge to start from the candidates", () => {
+  const prompt = readFileSync(join(import.meta.dirname, "..", "..", "..", "..", "agents", "agent", "qa-judge.md"), "utf8");
+  assert.ok(parseJudgePromptVersion(prompt));
+  assert.match(prompt, /CANDIDATES/);
 });

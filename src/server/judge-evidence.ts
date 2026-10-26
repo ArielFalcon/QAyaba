@@ -91,6 +91,23 @@ export function planFlowsOf(raw: string | undefined): JudgeEvidence["plan"] {
   }
 }
 
+/* The use cases the plan had to answer for, as the run kept them; an entry that does not read as one is left out. */
+export function planCandidatesOf(raw: string | undefined): NonNullable<JudgeEvidence["candidates"]> {
+  if (raw === undefined) return [];
+  try {
+    const parsed = JSON.parse(raw) as { candidates?: unknown };
+    if (!Array.isArray(parsed.candidates)) return [];
+    const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : []);
+    return parsed.candidates.flatMap((value: unknown) => {
+      const c = value as { id?: unknown; entry?: unknown; tier?: unknown; reachability?: unknown; pages?: unknown; existingSpecs?: unknown } | null;
+      if (!c || typeof c.id !== "string" || typeof c.tier !== "string" || typeof c.reachability !== "string") return [];
+      return [{ id: c.id, entry: typeof c.entry === "string" ? c.entry : "", tier: c.tier, reachability: c.reachability, pages: strings(c.pages), existingSpecs: strings(c.existingSpecs) }];
+    });
+  } catch {
+    return [];
+  }
+}
+
 export class HistoryJudgeEvidence implements JudgeEvidencePort {
   constructor(private readonly deps: JudgeEvidenceDeps = defaultJudgeEvidenceDeps) {}
 
@@ -109,6 +126,7 @@ export class HistoryJudgeEvidence implements JudgeEvidencePort {
       specs: deliveredSpecs(d.listSpecSnapshots(runId)),
       failures: record.cases.filter((c) => c.status === "fail").map((c) => ({ name: c.name, message: c.detail ?? "the case failed; no detail was recorded" })),
       plan: planFlowsOf(d.getRunPlan(runId)),
+      candidates: planCandidatesOf(d.getRunPlan(runId)),
     };
   }
 }

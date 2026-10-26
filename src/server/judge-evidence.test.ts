@@ -93,3 +93,20 @@ test("the judges read the flows of the plan the run kept, and a run that kept no
   assert.deepEqual(new HistoryJudgeEvidence(deps()).load("r")!.plan, []);
   assert.deepEqual(new HistoryJudgeEvidence(deps({ plan: "{nope" })).load("r")!.plan, []);
 });
+
+test("the evidence carries the candidates the run's plan kept, with the pages and specs of each, and none for a plan that kept no candidates", () => {
+  const plan = JSON.stringify({
+    kind: "fanout",
+    flows: [],
+    candidates: [
+      { id: "uc-1", entry: "page /cart", tier: "direct", reachability: "page", state: "planned", pages: ["/cart"], existingSpecs: ["e2e/cart.spec.ts"] },
+      { id: "uc-2", tier: "direct", reachability: "backend-only", state: "unplanned" },
+      { reachability: "page" },
+    ],
+  });
+  assert.deepEqual(new HistoryJudgeEvidence(deps({ plan })).load("r")!.candidates, [
+    { id: "uc-1", entry: "page /cart", tier: "direct", reachability: "page", pages: ["/cart"], existingSpecs: ["e2e/cart.spec.ts"] },
+    { id: "uc-2", entry: "", tier: "direct", reachability: "backend-only", pages: [], existingSpecs: [] },
+  ]);
+  assert.deepEqual(new HistoryJudgeEvidence(deps({ plan: JSON.stringify({ kind: "noop", flows: [] }) })).load("r")!.candidates, []);
+});

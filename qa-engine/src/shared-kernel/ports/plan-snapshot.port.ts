@@ -47,6 +47,10 @@ export interface PlanSnapshotCandidate {
   state: PlanCandidateState;
   /* The pages through which a browser reaches the candidate (its own route for a page, the pages that reach it for an operation); empty for a backend-only one. */
   pages?: string[];
+  /* The entry point the candidate stands for (`page /cart`, `operation POST /orders`). */
+  entry?: string;
+  /* The specs the suite already held for it, bounded. */
+  existingSpecs?: string[];
   /* The lead's reason, for a dropped candidate. */
   reason?: string;
 }

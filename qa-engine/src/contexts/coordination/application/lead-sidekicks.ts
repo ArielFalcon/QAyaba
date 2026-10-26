@@ -23,6 +23,7 @@ import type { DelegationWorkspacePort } from "./ports/delegation-workspace.port.
 import { createDelegationBrief, type BriefCandidate } from "./delegation-brief.ts";
 import { briefCandidatesFor } from "./brief-candidates.ts";
 import { proofsFor } from "./change-proofs.ts";
+import { entryKey } from "@kernel/change-reach.ts";
 import { candidatePagesOf, pageRoutesOf, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { admissionSetOf, flowCovers, MAX_PLAN_ROUNDS, planCoverage, renderReplanRequest, unvisitedBy, type AdmissionSet, type PlanCoverage } from "./plan-coverage.ts";
 import type { CandidateClaim, DelegationResult } from "./delegation-result.ts";
@@ -70,6 +71,9 @@ const candidatesOf = (flow: AdmittedFlow, input: CoordinateInput): { candidates:
 const changeRoutesOf = (input: { candidates?: readonly UseCaseCandidate[] }): string[] => pageRoutesOf(input.candidates ?? []);
 
 /* Less than this of a flow's time left and a second attempt is not started; less than this of the run and a plan is not asked for. */
+/* The specs of a candidate a plan snapshot keeps. */
+const MAX_SNAPSHOT_SPECS = 3;
+
 export const MIN_FLOW_MS = 60_000;
 /* What a run keeps for what follows the flows (validation, execution, the reviewer): a quarter of what is left, and never less than this. */
 export const MIN_RESERVE_MS = 120_000;
@@ -930,7 +934,7 @@ export class LeadSidekicks {
       };
     });
     const unvisited = unvisitedBy(changeRoutes, flows.flatMap((flow) => flow.routes));
-    const state = (candidate: UseCaseCandidate, state: PlanSnapshotCandidate["state"], why?: string): PlanSnapshotCandidate => ({ id: candidate.id, tier: candidate.tier, reachability: candidate.reachability, state, pages: candidatePagesOf(candidate), ...(why !== undefined ? { reason: why } : {}) });
+    const state = (candidate: UseCaseCandidate, state: PlanSnapshotCandidate["state"], why?: string): PlanSnapshotCandidate => ({ id: candidate.id, tier: candidate.tier, reachability: candidate.reachability, state, pages: candidatePagesOf(candidate), entry: entryKey(candidate.entry), existingSpecs: candidate.existingSpecs.slice(0, MAX_SNAPSHOT_SPECS), ...(why !== undefined ? { reason: why } : {}) });
     const candidates: PlanSnapshotCandidate[] = coverage
       ? [...coverage.covered.map((c) => state(c, "planned")), ...coverage.dropped.map((d) => state(d.candidate, "dropped", d.reason)), ...coverage.unresolved.map((c) => state(c, "unplanned"))]
       : [];

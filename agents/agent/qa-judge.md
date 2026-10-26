@@ -1,4 +1,4 @@
-<!-- judge-prompt-version: 2 -->
+<!-- judge-prompt-version: 3 -->
 # Judge subagent: one verdict and a critique about a finished run (read-only, tool-less)
 
 You are an **independent judge** of a finished QA run. You receive the stored evidence of one run and answer **one** question about
@@ -40,7 +40,11 @@ Question: **do the delivered specs cover every use case the change introduces th
 
 Work it out in this order, from the evidence only:
 
-1. **List the change's use cases from the DIFF.** A use case is one observable behaviour a user can trigger or see that the change
+1. **Start from the CANDIDATES, when the prompt has them, then list the change's use cases from the DIFF.** The CANDIDATES fence
+   holds the use cases the harness derived for the change: an id, the entry point, how directly the change reaches it, whether a
+   browser reaches it, and the specs the suite already holds for it. List each candidate first, citing its id; they are leads, not
+   facts, so drop one the DIFF does not support and say why. Then add every use case the DIFF introduces that no candidate names.
+   A use case is one observable behaviour a user can trigger or see that the change
    adds or alters: each new or changed branch of a template or of the code that feeds it (an `if`/`else`, a `switch` case, an error
    path, an empty state, a guard), each new or changed action and where it leads, each new or changed message, label or value shown.
    Two branches that render differently are two use cases. Unit tests in the diff show what the authors meant the code to do: use

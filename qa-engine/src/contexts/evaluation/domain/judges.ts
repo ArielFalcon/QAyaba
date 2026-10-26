@@ -94,6 +94,8 @@ export interface JudgeEvidence {
   failures: ReadonlyArray<{ name: string; message: string }>;
   /* The flows of the lead's plan as the run kept them (`run_plans`); empty when the run kept none. */
   plan: ReadonlyArray<{ id: string; objective: string; acceptance: readonly string[] }>;
+  /* The use cases the change makes testable, as the run's plan kept them; absent or empty when the run kept none. */
+  candidates?: ReadonlyArray<{ id: string; entry: string; tier: string; reachability: string; pages: readonly string[]; existingSpecs: readonly string[] }>;
 }
 
 /* Byte caps of a judge prompt: the budget is per day, so the input of one call is bounded and says what it cut. */
@@ -104,6 +106,7 @@ export const JUDGE_INPUT_CAPS = {
   failureBytes: 1_500,
   failures: 8,
   planBytes: 4_000,
+  candidateBytes: 3_000,
   totalBytes: 48_000,
 } as const;
 
@@ -141,6 +144,10 @@ export function buildJudgeInput(name: JudgeName, e: JudgeEvidence, sanitize: (te
     if (name === "use_case_coverage") {
       if (e.diff === undefined || e.diff.trim() === "") return { ok: false, reason: "the run held no commit diff" };
       parts.push(fence("DIFF", clean("diff", e.diff, JUDGE_INPUT_CAPS.diffBytes)));
+      if (e.candidates !== undefined && e.candidates.length > 0) {
+        const lines = e.candidates.map((c) => [c.id, c.entry, `${c.tier}, ${c.reachability}`, c.existingSpecs.length > 0 ? `specs: ${c.existingSpecs.join(", ")}` : "no spec yet"].filter((part) => part !== "").join(" | "));
+        parts.push(fence("CANDIDATES", clean("candidates", lines.join("\n"), JUDGE_INPUT_CAPS.candidateBytes)));
+      }
       if (e.plan.length > 0) {
         const plan = e.plan.map((flow) => [`flow ${flow.id}: ${flow.objective}`, ...flow.acceptance.map((a) => `  - ${a}`)].join("\n")).join("\n");
         parts.push(fence("PLAN", clean("plan", plan, JUDGE_INPUT_CAPS.planBytes)));
