@@ -246,7 +246,7 @@ Branch: `fix/failure-observation-conflict` (owner rule: one branch, no PR split)
 - [x] T1 — S1a — inline — `ChangeSet`, `commits` and service base through the run — commit: e8edc8af
 - [~] T2 — S1b — inline — Coalescing and companion entries — commit: a29ef112 (engine: per-entry gate, checkout, classify, impact), 29596308 (shell: registry, runner, wiring); open: run view / API `changeSet` field (see L9)
 - [x] T3 — S2 — inline — Edge confidence, seed ranges and basis in the graph port — commit: b030577e (governance commit: engine-edge reader, ships alone; independent verifier passed, no blockers; advisories fixed in 3f8b5d29)
-- [x] T4 — S3a — inline — `ChangeScope`, reach proofs as strategies, `computeChangeScope` step — commit: 71ad9b9f (domain + three strategies), 3f8b5d29 (step, port, adapter, wiring, span); the `openapi-operation-diff` strategy is S3b (T5)
+- [x] T4 — S3a — inline — `ChangeScope`, reach proofs as strategies, `computeChangeScope` step — commit: 71ad9b9f (domain + three strategies), c6a358ef (step, port, adapter, wiring, span); the `openapi-operation-diff` strategy is S3b (T5)
 - [ ] T5 — S3b — inline — Per-operation OpenAPI diff and call-site reach — commit: pending
 - [ ] T6 — S3c — inline — The lead's graph tool over every repo (governance commit; AGENTS.md text handed to the owner) — commit: pending
 - [ ] T7 — S4 — inline — `UseCaseCandidate[]`, ranking and Context Pack migration, retire `joinChangePages` — commit: pending
