@@ -20,7 +20,7 @@ const recording = (id: Id, phase?: RunPhase, extra: Partial<Step> = {}): Step =>
 function recorder(cancelled: () => boolean = () => false) {
   const entered: RunPhase[] = [];
   const events: StepEvent<Id>[] = [];
-  const hooks: FlowHooks<Id> = { aborted: cancelled, enter: (phase) => entered.push(phase), record: (event) => events.push(event) };
+  const hooks: FlowHooks<Id> = { aborted: cancelled, endOf: (reason) => runEnd(reason as "aborted"), enter: (phase) => entered.push(phase), record: (event) => events.push(event) };
   return { entered, events, hooks };
 }
 
@@ -64,7 +64,7 @@ test("every step is reported in table order as ran, skipped or ended, and the en
 
 test("a step is reported after its phase is entered, so the report lands in the phase the step opens", async () => {
   const order: string[] = [];
-  const hooks: FlowHooks<Id> = { aborted: () => false, enter: (phase) => order.push(`enter ${phase}`), record: (event) => order.push(`${event.outcome} ${event.id}`) };
+  const hooks: FlowHooks<Id> = { aborted: () => false, endOf: (reason) => runEnd(reason as "aborted"), enter: (phase) => order.push(`enter ${phase}`), record: (event) => order.push(`${event.outcome} ${event.id}`) };
   await runFlow([recording("a", "gate"), recording("b", "setup", { runs: () => false }), recording("c", "execute")], { trace: [], n: 0 }, { skipB: false }, hooks);
   assert.deepEqual(order, ["enter gate", "ran a", "skipped b", "enter execute", "ran c"]);
 });

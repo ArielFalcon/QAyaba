@@ -32,13 +32,8 @@ export function withoutProbeSpecs<T extends Pick<GenerationOutput, "specs" | "de
   };
 }
 
-/* The probes the generator left in the working copy could not be removed. */
-export class ProbeSweepError extends Error {
-  constructor(reason: string) {
-    super(`the run_spec probes could not be removed from the working copy (${reason})`);
-    this.name = "ProbeSweepError";
-  }
-}
+export { ProbeSweepError } from "../failure-policy.ts";
+import { ProbeSweepError } from "../failure-policy.ts";
 
 export const geolocationEnrichment = (ctx: WorkspaceRunContext): { geolocation?: GeolocationFacts } =>
   ctx.trail.geolocation ? { geolocation: ctx.trail.geolocation.facts() } : {};

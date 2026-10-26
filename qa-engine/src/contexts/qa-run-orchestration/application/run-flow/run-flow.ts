@@ -9,8 +9,9 @@
  */
 
 import type { RunPhase } from "../../domain/run-phase-cursor.ts";
-import { RunAbortedError } from "./abort.ts";
-import { runEnd, supersededByAbort, type EndReason, type FactsArg, type RunEnd } from "./run-end.ts";
+import type { EndReason } from "./end-reason.ts";
+import { guarded, type StepClass } from "./failure-policy.ts";
+import { runEnd, supersededByAbort, type FactsArg, type RunEnd } from "./run-end.ts";
 import type { StepId } from "./step-ids.ts";
 
 /** What a step decides: go on (nothing, or an update), go to a named step, or end the run. */
@@ -28,6 +29,8 @@ export const end = <S, R extends EndReason, Id extends string = StepId>(reason: 
 export interface FlowStep<S, C, Id extends string = StepId> {
   /** Stable identity of the step: what the trace, the tests and the failure policy call it. */
   id: Id;
+  /** What the step is to the run (see failure-policy.ts); absent, it is `required`. */
+  class?: StepClass;
   /** The phase the step opens on the cursor before it runs; absent, it runs inside the open phase. */
   phase?: RunPhase;
   /** Whether the step runs for this run; absent, it always does. */
@@ -44,6 +47,8 @@ export type StepEvent<Id extends string = StepId> =
 export interface FlowHooks<Id extends string = StepId> {
   /** Whether the run was cancelled: asked before every step, and the run ends `aborted` as soon as it was. */
   aborted(): boolean;
+  /** The end a failure that ends the run is turned into: the caller knows the run, the runner does not. */
+  endOf(reason: EndReason, err: unknown): RunEnd;
   enter(phase: RunPhase): void;
   record(event: StepEvent<Id>): void;
 }
@@ -84,14 +89,7 @@ export async function runFlow<S extends object, C, Id extends string = StepId>(
       continue;
     }
     if (step.phase) hooks.enter(step.phase);
-    let outcome: StepOutcome<S, Id>;
-    try {
-      outcome = await step.run(state, ctx);
-    } catch (err) {
-      if (!(err instanceof RunAbortedError)) throw err;
-      hooks.record({ id: step.id, outcome: "ended", reason: "aborted" });
-      return { end: runEnd("aborted") };
-    }
+    const outcome: StepOutcome<S, Id> = await guarded({ id: step.id, class: step.class ?? "required" }, () => step.run(state, ctx), hooks.endOf);
     if (outcome && "end" in outcome) {
       if (outcome.update) Object.assign(state, outcome.update);
       const ending = hooks.aborted() && supersededByAbort(outcome.end) ? runEnd("aborted") : outcome.end;

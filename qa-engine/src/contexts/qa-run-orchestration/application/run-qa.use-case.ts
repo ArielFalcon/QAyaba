@@ -10,21 +10,22 @@
 
 import { type CoordinationGateSignal } from "@kernel/coordination.ts";
 import { createRunSecretScope, withRunSecretScope } from "../../../shared-infrastructure/run-secret-redaction.ts";
-import { isSandboxUnavailable, type SandboxUnavailableError } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
+import { isSandboxUnavailable } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { activeExecScope, refusedScope, sandboxRefused, sandboxSignal, withExecScope, type ExecScopePort } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { AuthSession } from "./ports/auth-session.port.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { RunPhaseCursor, recordPhaseSnapshot, type PhaseClock, type RunPhase } from "../domain/run-phase-cursor.ts";
 import { PhaseSpans } from "./run-phase-spans.ts";
 import { runFlow, type FlowHooks } from "./run-flow/run-flow.ts";
-import { runEnd, type RunEnd } from "./run-flow/run-end.ts";
+import { actionFor } from "./run-flow/failure-policy.ts";
+import { failureEnd } from "./run-flow/failure-ends.ts";
+import { type RunEnd } from "./run-flow/run-end.ts";
 import { finalizeRun, recordCrashEvidence } from "./run-flow/finalize-run.ts";
 import type { RunState } from "./run-flow/run-state.ts";
 import { initialRunState } from "./run-flow/run-state.ts";
 import { createRunServices } from "./run-flow/run-services.ts";
 import type { RunContext, RunHost, WorkspaceRunContext } from "./run-flow/run-context.ts";
 import { BEFORE_WORKSPACE, IN_WORKSPACE } from "./run-flow/run-steps.ts";
-import { ProbeSweepError } from "./run-flow/phases/generation-services.ts";
 import { DEMOTE_REASON } from "@kernel/ports/suite-store.port.ts";
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry.ts";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
@@ -32,13 +33,10 @@ import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { RedactionScope } from "@kernel/telemetry/telemetry.port.ts";
 import { attachTraceFacts, type RunTraceFacts } from "@kernel/run-trace-facts.ts";
 import { generationRunsReviewer } from "@contexts/generation/domain/generation-review.ts";
-import { ERROR_CLASS } from "../domain/helpers/error-class.ts";
 import { AuthPreconditionError } from "../domain/auth-precondition.ts";
 import { CycleBudget } from "../domain/cycle-budget.ts";
 import { WallClockBudget } from "../domain/wall-clock-budget.ts";
 import { rethrowIfUntrusted } from "../../../shared-kernel/domain-error.ts";
-import { isRunDeadlineError, type RunDeadlineExceededError } from "../../../shared-kernel/run-deadline.ts";
-import { renderRunDeadlineNote } from "../domain/run-time-budget.ts";
 import type { PreconditionFailure, RunQaConfig, RunQaUseCaseDeps, RunQaInput, RunQaResult, RunTrail } from "./run-flow/run-types.ts";
 
 export type { PreconditionFailure, RunQaConfig, RunQaUseCaseDeps, RunQaInput, RunQaResult, RunTrail } from "./run-flow/run-types.ts";
@@ -94,7 +92,7 @@ export class RunQaUseCase {
       return await withRunSecretScope(secrets, () =>
         withExecScope(refusedScope(input.runId, err.reason === "scope" ? "uid" : err.reason), async () => {
           const ctx = this.contextOf(input, undefined, this.trailOf(input, secrets));
-          const result = await this.finalize(this.sandboxEnd(err, ctx.trail), ctx);
+          const result = await this.finalize(failureEnd("sandbox-unavailable", err, ctx), ctx);
           return attachTraceFacts(result, { endReason: "sandbox-unavailable" });
         }),
       );
@@ -318,46 +316,6 @@ export class RunQaUseCase {
     }
   }
 
-  /**
-   * The run could not execute agent-influenced code safely (no sandbox uid under QA_EXEC_SANDBOX=required, or the egress
-   * filter is down under QA_EGRESS_MODE=enforce). It ends as a persisted infra-error of its own class, E-SANDBOX: nothing
-   * is learned from it and no Issue is opened, since it says nothing about the app or the tests, and the operator sees
-   * why on the record.
-   */
-  private sandboxEnd(err: SandboxUnavailableError, trail: RunTrail): RunEnd {
-    const note = `The run could not execute the tests safely and ended without running them (${ERROR_CLASS.SANDBOX}): ${err.message}`;
-    console.error(`[qa] ${note}`);
-    this.deps.observer?.onEvent({ type: "agent.error", detail: note });
-    return runEnd("sandbox-unavailable", { note, ...(trail.rulesRetrieved ? { rulesRetrieved: trail.rulesRetrieved } : {}) });
-  }
-
-  /* The throwaway specs of the closed loop could not be swept: nothing in the working copy can be trusted to be a deliverable, so the run ends as a persisted infra-error before it validates, executes or publishes anything. */
-  private probeSweepEnd(err: ProbeSweepError, trail: RunTrail): RunEnd {
-    console.error(`[qa] ${err.message}`);
-    this.deps.observer?.onEvent({ type: "agent.error", detail: err.message });
-    return runEnd("probe-sweep-failed", { note: err.message, ...(trail.rulesRetrieved ? { rulesRetrieved: trail.rulesRetrieved } : {}) });
-  }
-
-  /**
-   * The run's time ran out: an agent turn was refused or stopped by the run-level deadline. The run ends as a
-   * persisted infra-error under E-TIME-BUDGET with a note that says so, never as an empty result and never as an
-   * uncaught integration error. Nothing is published and nothing is learned (how long the agents took says nothing
-   * about the app or the tests).
-   */
-  private deadlineEnd(err: RunDeadlineExceededError, trail: RunTrail): RunEnd {
-    trail.limit = { fired: "run-deadline", role: err.role };
-    trail.generationEnd ??= GENERATION_END.TIME_BUDGET;
-    const note = renderRunDeadlineNote({ budgetMs: err.budgetMs, label: err.label, role: err.role, stop: err.stop });
-    console.error(`[qa] ${note}`);
-    this.deps.observer?.onEvent({ type: "agent.error", detail: note });
-    this.deps.observer?.onEvent({
-      type: "log.line",
-      level: "error",
-      text: `[qa] the run ended on its time budget (${ERROR_CLASS.TIME_BUDGET}): an engine-side limit on how long the agents may take, not a fault of the app under test`,
-    });
-    return runEnd("run-deadline", { note, generationEnd: GENERATION_END.TIME_BUDGET, ...(trail.rulesRetrieved ? { rulesRetrieved: trail.rulesRetrieved } : {}) });
-  }
-
   /* An end of the run: the trail learns why, then the end becomes the run's result. */
   private async finalize(end: RunEnd, ctx: RunContext, state?: Readonly<RunState>): Promise<RunQaResult> {
     ctx.trail.endReason = end.reason;
@@ -370,13 +328,11 @@ export class RunQaUseCase {
     try {
       return await this.drive(baseCtx);
     } catch (err) {
-      if (isSandboxUnavailable(err) && err.reason !== "scope") return await this.finalize(this.sandboxEnd(err, trail), baseCtx);
-      if (err instanceof ProbeSweepError) return await this.finalize(this.probeSweepEnd(err, trail), baseCtx);
-      if (!isRunDeadlineError(err)) {
-        await this.keepSandboxEvidence(err, baseCtx);
-        throw err;
-      }
-      return await this.finalize(this.deadlineEnd(err, trail), baseCtx);
+      /* An error from outside any step (the working copy being prepared, say) ends the run the way the policy says; one nothing classifies goes on to the caller. */
+      const action = actionFor(err, "required");
+      if (action.do === "end") return await this.finalize(failureEnd(action.reason, err, baseCtx), baseCtx);
+      await this.keepSandboxEvidence(err, baseCtx);
+      throw err;
     }
   }
 
@@ -421,6 +377,7 @@ export class RunQaUseCase {
     const { input, signal, trail } = baseCtx;
     const hooks: FlowHooks = {
       aborted: () => signal?.aborted === true,
+      endOf: (reason, err) => failureEnd(reason, err, baseCtx),
       enter: (phase: RunPhase) => trail.phases.enter(phase),
       record: (event) =>
         trail.spans.step({
