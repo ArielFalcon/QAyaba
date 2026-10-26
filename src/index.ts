@@ -9,11 +9,9 @@ import { qayabaDataDir, qayabaRoot } from "./paths";
 import { randomBytes } from "node:crypto";
 import { writeFileSync, readFileSync, rmSync, unlinkSync, existsSync } from "node:fs";
 import { JobQueue } from "./server/queue";
-import { handleWebhook } from "./server/webhook";
 import { describeAppLoadFailure, loadAppConfig, listAppConfigs } from "./orchestrator/config-loader";
 
 import { YamlAppConfigAdapter } from "../qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter";
-import { resolveWebhookDispatch, type WebhookDispatch } from "./server/webhook-routing";
 import { handleApi, ApiDeps, type RunObservabilityRequest } from "./server/api";
 import { authorizeBearer, createLocalConsoleLogin, issueSession, isPublicControlPlaneRoute } from "./server/auth";
 import { verifyGithubIdentity, authorizeUser } from "./server/github-auth";
@@ -32,7 +30,7 @@ import { createEvaluationService } from "./server/evaluation-service";
 import { composeJudges } from "./server/judges-composition";
 import { LangfuseScoreSink, scoreSinkHealthOf } from "./telemetry/langfuse-score-sink";
 import { ScoreMetricsSink, composeScoreSinks } from "./telemetry/score-metrics-sink";
-import { guardRequestHandler, guardResponse } from "./server/guarded-handler";
+import { guardRequestHandler } from "./server/guarded-handler";
 import { hashStaticPrompts, type RunConfigEnvironment } from "./server/effective-config";
 import { buildRunViewExtras, defaultRunViewDeps } from "./server/run-view";
 import { enqueueTrackedRun, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./server/runner";
@@ -58,6 +56,7 @@ import { backupDatabase } from "./server/persistence/backup";
 import { type RunMode, type TestTarget } from "./types";
 import { installShutdown, installUnhandledRejectionRecorder } from "./server/shutdown";
 import { startHealthPoller } from "./server/health-poller";
+import { createWebhookHandler } from "./server/webhook-handler";
 import { github } from "./integrations/github";
 import { createApp as adminCreateApp, updateApp as adminUpdateApp, deleteApp as adminDeleteApp, type AppAdminDeps } from "./server/app-admin";
 import { writeConfig, configExists } from "./server/onboard";
@@ -167,7 +166,6 @@ const AUTONOMOUS_MAINTAINER = settings.maintainer.autoMerge;
 
 const port = settings.server.port;
 const listenHost = settings.server.listenHost;
-const MAX_BODY = 1_000_000;
 const secret = settings.webhook.secret;
 
 /*
@@ -777,6 +775,16 @@ const apiDeps: ApiDeps = {
   },
 };
 
+/* Deliveries on any non-API path: fail closed without a secret, signature check, one run per dispatched app (src/server/webhook-handler.ts). */
+const webhookHandler = createWebhookHandler({
+  secret,
+  allowUnsigned: ALLOW_UNSIGNED_WEBHOOK,
+  catalog: appCatalog,
+  enqueue: enqueueWebhookRun,
+  shuttingDown: () => lifecycle.shuttingDown(),
+  log: logJson,
+});
+
 const server = createServer(guardRequestHandler(async (req, res) => {
   const path = (req.url ?? "/").split("?")[0] ?? "/";
   const traceId = req.headers["x-trace-id"] as string | undefined;
@@ -847,59 +855,7 @@ const server = createServer(guardRequestHandler(async (req, res) => {
   }
 
   if (req.method === "POST") {
-    /* Fail closed: no webhook secret configured and not explicitly opted in → reject. */
-    if (!secret && !ALLOW_UNSIGNED_WEBHOOK) {
-      res.writeHead(401, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ message: "webhook secret not configured (set WEBHOOK_SECRET or WEBHOOK_ALLOW_UNSIGNED=true)" }));
-      return;
-    }
-    let body = "";
-    let aborted = false;
-    req.on("data", (chunk) => {
-      body += chunk;
-      if (body.length > MAX_BODY) {
-        aborted = true;
-        res.writeHead(413, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ message: "payload too large" }));
-        req.destroy();
-      }
-    });
-    req.on("end", () => void guardResponse(res, async () => {
-      if (aborted) return;
-      const sig = typeof req.headers["x-hub-signature-256"] === "string" ? req.headers["x-hub-signature-256"] : undefined;
-      const result = handleWebhook(body, sig, { secret });
-      if (result.payload) {
-        if (lifecycle.shuttingDown()) {
-          res.writeHead(503, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ message: "shutting down" }));
-          return;
-        }
-        const { repo, sha, mode, guidance, baseSha } = result.payload;
-
-        let dispatch: WebhookDispatch[];
-        try {
-          dispatch = await resolveWebhookDispatch(appCatalog, repo, { mode, guidance, baseSha });
-        } catch (err) {
-          logJson("error", "webhook dispatch resolution failed", { error: err instanceof Error ? err.message : String(err), repo, sha });
-          res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ message: "internal error — could not resolve webhook dispatch" }));
-          return;
-        }
-        if (dispatch.length === 0) logJson("warn", "no config/apps entry for repo; event ignored", { repo });
-        for (const d of dispatch) {
-          try {
-            enqueueWebhookRun(d.app, sha, d.target, d.mode, d.guidance, undefined, undefined, d.triggerRepo, d.baseSha);
-          } catch (err) {
-            logJson("error", "webhook enqueue failed", { error: err instanceof Error ? err.message : String(err), repo, sha });
-            res.writeHead(500, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ message: "internal error — run could not be enqueued" }));
-            return;
-          }
-        }
-      }
-      res.writeHead(result.status, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ message: result.message }));
-    }, (message) => logJson("error", message)));
+    webhookHandler(req, res);
     return;
   }
 
