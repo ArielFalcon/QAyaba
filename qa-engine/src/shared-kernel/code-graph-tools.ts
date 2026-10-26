@@ -3,8 +3,10 @@
 /* The tools the lead is given, by the name OpenCode shows the model (the file agents/tool/codegraph.ts and its exports). */
 export const CODE_GRAPH_TOOLS = ["codegraph_explore"] as const;
 
-/* The one role that holds them: the lead, which plans and reviews the change. A sidekick authors one flow from its brief and is not given them. */
-export const CODE_GRAPH_AGENT = "qa-lead";
+/* The lead, which plans and reviews the change, and the explore role, which answers the lead's questions about the code and the live app read-only. An author sidekick writes one flow from its brief and is not given the tools. */
+export const CODE_GRAPH_LEAD_AGENT = "qa-lead";
+export const CODE_GRAPH_EXPLORE_AGENT = "qa-explore";
+export const CODE_GRAPH_AGENTS: ReadonlySet<string> = new Set([CODE_GRAPH_LEAD_AGENT, CODE_GRAPH_EXPLORE_AGENT]);
 
 export interface CodeGraphToolLimits {
   /* Tool calls in one run, across every session of the lead. */

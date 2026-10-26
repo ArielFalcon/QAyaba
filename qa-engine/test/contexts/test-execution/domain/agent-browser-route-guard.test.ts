@@ -12,6 +12,14 @@ test("a read of a declared origin is allowed whatever the safe method", () => {
   }
 });
 
+test("a read-only decision ignores every allowMutating entry, and reads are decided as before", () => {
+  const g = guard({ allowMutating: ["POST /api/search", "/graphql"] });
+  assert.equal(g.decide({ method: "POST", url: "https://dev.example.com/api/search" }, { readOnly: true }).allow, false);
+  assert.equal(g.decide({ method: "PATCH", url: "https://dev.example.com/graphql" }, { readOnly: true }).allow, false);
+  assert.equal(g.decide({ method: "GET", url: "https://dev.example.com/api/search" }, { readOnly: true }).allow, true);
+  assert.equal(g.decide({ method: "POST", url: "https://dev.example.com/api/search" }).allow, true, "a decision that is not read-only keeps the app's entries");
+});
+
 test("every method that can write is blocked, with the reason named", () => {
   const g = guard();
   for (const method of ["POST", "PUT", "PATCH", "DELETE", "post", "PROPFIND"]) {

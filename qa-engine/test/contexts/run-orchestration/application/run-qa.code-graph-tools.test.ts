@@ -23,6 +23,7 @@ function rig(opts: { openThrows?: boolean; generateThrows?: boolean; closeThrows
   const handle: CodeGraphToolsHandle = {
     limits: DEFAULT_CODE_GRAPH_TOOL_LIMITS,
     signals: () => ({ calls: 3, refused: 0, failed: 1 }),
+    grantShare: () => {},
     close: () => { events.push("close"); if (opts.closeThrows) throw new Error("registry stuck"); },
   };
   const deps = (over: Partial<RunQaUseCaseDeps> = {}): RunQaUseCaseDeps => {

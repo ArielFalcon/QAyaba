@@ -37,6 +37,8 @@ export interface BrowserCallOptions {
   timeoutMs: number;
   /* Where the caller's authoring scope is now: the action runs at it. Absent: the context keeps the app default. */
   geolocation?: GeoLocation;
+  /* The session never writes to DEV: every request its page makes is judged read-only. */
+  readOnly?: boolean;
 }
 
 /* The browser could not do what was asked for a reason the agent can act on (a ref that is gone, an element that is not there). Anything else the host throws is a fault and is not shown. */

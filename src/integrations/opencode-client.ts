@@ -20,7 +20,7 @@ import { installHttpDispatcher } from "../util/net";
 import { enforcedStepLimit } from "../agent-runtime/step-limit";
 import { openCodeServerAuth } from "./opencode-server-auth";
 import { AGENT_BROWSER_AGENTS } from "@contexts/test-execution/application/index";
-import { CODE_GRAPH_AGENT } from "@kernel/code-graph-tools";
+import { CODE_GRAPH_AGENTS } from "@kernel/code-graph-tools";
 
 
 import {
@@ -543,7 +543,7 @@ export function hidesGeolocationTool(agent: string, sessionId: string): boolean 
 }
 
 /*
- * The same arrangement for the lead's code-graph tools: the lead's role holds them in the configuration, and a prompt of a session
+ * The same arrangement for the code-graph tools: the lead's role and the explore role hold them in the configuration, and a prompt of a session
  * whose run granted no code graph (the app is not in it, or the session is the lead's for a flow) hides them. Until a lookup is
  * installed (a test, the standalone CLI) nothing is granted.
  */
@@ -554,7 +554,7 @@ export function setCodeGraphGrantLookup(lookup: ((sessionId: string) => boolean)
 }
 
 export function hidesCodeGraphTools(agent: string, sessionId: string): boolean {
-  return agent === CODE_GRAPH_AGENT && !(codeGraphGrant?.(sessionId) ?? false);
+  return CODE_GRAPH_AGENTS.has(agent) && !(codeGraphGrant?.(sessionId) ?? false);
 }
 
 /*

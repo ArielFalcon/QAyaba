@@ -165,7 +165,7 @@ export class AgentBrowserUseCase {
     const geolocation = this.deps.location?.(sessionId);
     let state: PageState;
     try {
-      state = await host.perform(sessionId, action, { signal, timeoutMs, ...(geolocation ? { geolocation } : {}) });
+      state = await host.perform(sessionId, action, { signal, timeoutMs, ...(geolocation ? { geolocation } : {}), ...(capability.isReadOnly(sessionId) ? { readOnly: true } : {}) });
     } catch (err) {
       if (err instanceof BrowserActionError) return this.refusal(AGENT_BROWSER_REFUSAL.FAILED, err.message);
       console.error(`[qa] authenticated browser action failed: ${err instanceof Error ? err.message : String(err)}`);

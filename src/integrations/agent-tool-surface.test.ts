@@ -46,7 +46,7 @@ import { join } from "node:path";
 import type { AgentConfig } from "@opencode-ai/sdk";
 import { AGENT_NAME_FOR_ROLE, capabilitiesForRole } from "../agent-runtime/types";
 import { AGENT_BROWSER_TOOLS } from "../../qa-engine/src/shared-kernel/agent-browser";
-import { CODE_GRAPH_AGENT, CODE_GRAPH_TOOLS } from "../../qa-engine/src/shared-kernel/code-graph-tools";
+import { CODE_GRAPH_AGENTS, CODE_GRAPH_EXPLORE_AGENT, CODE_GRAPH_TOOLS } from "../../qa-engine/src/shared-kernel/code-graph-tools";
 import { AGENT_BROWSER_AGENTS } from "../../qa-engine/src/contexts/test-execution/application/index";
 import { NO_TOOLS } from "./opencode-client";
 import type { AgentRole } from "../agent-runtime/types";
@@ -870,7 +870,7 @@ function keyCovers(key: string, name: string): boolean {
   return key === name || (key.endsWith("*") && name.startsWith(key.slice(0, -1)));
 }
 
-test("the authenticated browser tools are off for every agent by the global tools map and on for the authoring roles alone", () => {
+test("the authenticated browser tools are off for every agent by the global tools map and on for the authoring and exploring roles alone", () => {
   const raw = loadRawConfig();
   const globalTools = (raw.tools ?? {}) as Record<string, unknown>;
   for (const tool of AGENT_BROWSER_TOOLS) assert.equal(globalTools[tool], false, `the global default switches ${tool} off`);
@@ -881,7 +881,7 @@ test("the authenticated browser tools are off for every agent by the global tool
     .filter(([, agent]) => AGENT_BROWSER_TOOLS.every((tool) => agentTools(agent)[tool] === true))
     .map(([name]) => name)
     .sort();
-  assert.deepEqual(on, authoring, "all four tools are on for the authoring roles and for no other agent");
+  assert.deepEqual(on, authoring, "all four tools are on for the authoring roles and the explore role and for no other agent");
   for (const [name, agent] of Object.entries(agents)) {
     if (AGENT_BROWSER_AGENTS.has(name)) continue;
     for (const [key, value] of Object.entries(agentTools(agent))) {
@@ -913,17 +913,18 @@ test("the browser tool file exists, where the tools directory of the config puts
   assert.ok(existsSync(join(process.cwd(), "agents", "lib", "authbrowser-client.mjs")), "and so does the client it calls through");
 });
 
-test("the code-graph tools are off for every agent by the global tools map and on for the lead alone", () => {
+test("the code-graph tools are off for every agent by the global tools map and on for the lead and the explore role alone", () => {
   const raw = loadRawConfig();
   const globalTools = (raw.tools ?? {}) as Record<string, unknown>;
   for (const tool of CODE_GRAPH_TOOLS) assert.equal(globalTools[tool], false, `the global default switches ${tool} off`);
   const { agents } = loadAgentConfig();
   const on = Object.entries(agents)
     .filter(([, agent]) => CODE_GRAPH_TOOLS.every((tool) => agentTools(agent)[tool] === true))
-    .map(([name]) => name);
-  assert.deepEqual(on, [CODE_GRAPH_AGENT]);
+    .map(([name]) => name)
+    .sort();
+  assert.deepEqual(on, [...CODE_GRAPH_AGENTS].sort());
   for (const [name, agent] of Object.entries(agents)) {
-    if (name === CODE_GRAPH_AGENT) continue;
+    if (CODE_GRAPH_AGENTS.has(name)) continue;
     for (const [key, value] of Object.entries(agentTools(agent))) {
       for (const tool of CODE_GRAPH_TOOLS) assert.ok(!(value === true && keyCovers(key, tool)), `${name} must not enable ${tool} (via "${key}")`);
     }
@@ -940,6 +941,26 @@ test("the lead resolves to read-only: no write, shell, fetch, run_spec, authenti
   assert.equal(decision("read"), "allow", "the lead reads");
   assert.equal(decision("codegraph_explore"), "allow", "the lead explores the code graph");
   assert.equal(capabilitiesForRole("lead").canWrite, false, "the capability policy agrees");
+});
+
+test("qa-explore resolves every write tool, bash, webfetch and run_spec to deny", () => {
+  const explorer = recordedAgents().find((agent) => agent.name === CODE_GRAPH_EXPLORE_AGENT);
+  assert.ok(explorer, "the recording holds the explore role");
+  const decision = (permission: string): string | undefined => explorer.permission.filter((rule) => rule.permission === permission && rule.pattern === "*").pop()?.action;
+  for (const permission of ["edit", "bash", "webfetch", "run_spec", "set_geolocation", "playwright*", "serena*"]) {
+    assert.equal(decision(permission), "deny", `the explore role resolves ${permission} to deny`);
+  }
+  assert.equal(decision("read"), "allow", "the explore role reads");
+  assert.equal(decision("codegraph_explore"), "allow", "it explores the code graph");
+  for (const tool of AGENT_BROWSER_TOOLS) assert.equal(decision(tool), "allow", `it holds ${tool}`);
+});
+
+test("qa-explore carries the credential-deny read block", () => {
+  const { agents } = loadAgentConfig();
+  const explorer = agents[CODE_GRAPH_EXPLORE_AGENT] as { permission?: { read?: Record<string, unknown>; edit?: unknown } };
+  const reviewer = agents["qa-reviewer"] as { permission?: { read?: Record<string, unknown> } };
+  assert.deepEqual(explorer.permission?.read, reviewer.permission?.read);
+  assert.equal(explorer.permission?.edit, "deny");
 });
 
 test("the lead carries the credential-deny read block", () => {

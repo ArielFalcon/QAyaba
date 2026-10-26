@@ -43,3 +43,18 @@ test("a run holds one code graph at a time", () => {
   registry.register(live("r1"));
   assert.throws(() => registry.register(live("r1")), /already/);
 });
+
+test("an explore session is bound only with a delegation id, and says which", () => {
+  const registry = new CodeGraphToolRegistry();
+  const graph = live("r1");
+  registry.register(graph);
+  registry.bindSession({ sessionId: "no-id", runId: "r1", agent: "qa-explore" });
+  registry.bindSession({ sessionId: "e1", runId: "r1", agent: "qa-explore", delegationId: "r1-explore-0" });
+  registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-lead" });
+  assert.equal(registry.find("no-id"), undefined);
+  assert.equal(registry.find("e1"), graph);
+  assert.equal(registry.delegationOf("e1"), "r1-explore-0");
+  assert.equal(registry.delegationOf("lead"), undefined);
+  registry.unbindSession("e1");
+  assert.equal(registry.delegationOf("e1"), undefined);
+});

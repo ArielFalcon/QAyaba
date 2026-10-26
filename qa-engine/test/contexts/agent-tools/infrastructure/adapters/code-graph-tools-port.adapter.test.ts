@@ -229,3 +229,41 @@ test("an engine error or a throw is a failed call that leaves a log and the reas
     console.error = original;
   }
 });
+
+test("an explore session's calls are bounded by its share, which can never exceed what the run has left, and the lead's limits are unchanged", async () => {
+  const { port, registry, handle } = await (async () => {
+    const a = adapter({ maxCalls: 5 });
+    const handle = (await a.port.open({ runId: "r1" }))!;
+    a.registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-lead" });
+    a.registry.bindSession({ sessionId: "e1", runId: "r1", agent: "qa-explore", delegationId: "r1-explore-0" });
+    a.registry.bindSession({ sessionId: "e2", runId: "r1", agent: "qa-explore", delegationId: "r1-explore-1" });
+    return { ...a, handle };
+  })();
+  void port;
+  const lead = registry.find("lead")!;
+  const ask = (sessionId: string, agent = "qa-explore") => registry.find(sessionId)!.call({ sessionId, agent, query: explore });
+  await lead.call(request());
+  await lead.call(request());
+  handle.grantShare("r1-explore-0", 2);
+  handle.grantShare("r1-explore-1", 99);
+  assert.equal((await ask("e1")).ok, true);
+  assert.equal((await ask("e1")).ok, true);
+  const spent = await ask("e1");
+  assert.equal(spent.ok === false && spent.code, "no-calls");
+  const clamped = await ask("e2");
+  assert.equal(clamped.ok, true, "the run had 3 calls left when the share was granted: 1 is left of 3 after e1's 2");
+  assert.equal((await ask("e2")).ok, false, "the run's own 5 calls are spent");
+});
+
+test("an explore session with no share has no calls, and a role that is neither the lead nor explore is refused", async () => {
+  const a = adapter();
+  await a.port.open({ runId: "r1" });
+  a.registry.bindSession({ sessionId: "e1", runId: "r1", agent: "qa-explore", delegationId: "r1-explore-0" });
+  a.registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-lead" });
+  const none = await a.registry.find("e1")!.call({ sessionId: "e1", agent: "qa-explore", query: explore });
+  assert.equal(none.ok === false && none.code, "no-calls");
+  const wrong = await a.registry.find("lead")!.call({ sessionId: "lead", agent: "qa-sidekick", query: explore });
+  assert.equal(wrong.ok === false && wrong.code, "wrong-agent");
+  const swapped = await a.registry.find("lead")!.call({ sessionId: "lead", agent: "qa-explore", query: explore });
+  assert.equal(swapped.ok === false && swapped.code, "wrong-agent", "an explore agent name on the lead's session (no delegation) is refused");
+});

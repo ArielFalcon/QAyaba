@@ -7,6 +7,7 @@
     "qa-assistant": { "model": "opencode/minimax-m3.1-flash-free", "maxSteps": 10 },
     "qa-reflector": { "model": "opencode/fixture-reflector-model", "maxSteps": 5 },
     "qa-proposer": { "model": "opencode/fixture-proposer-model", "maxSteps": 15 },
-    "qa-sidekick": { "model": "opencode/fixture-sidekick-model", "maxSteps": 35 }
+    "qa-sidekick": { "model": "opencode/fixture-sidekick-model", "maxSteps": 35 },
+    "qa-explore": { "model": "opencode/fixture-explore-model", "maxSteps": 40 }
   }
 }

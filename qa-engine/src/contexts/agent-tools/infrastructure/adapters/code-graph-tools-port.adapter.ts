@@ -9,7 +9,7 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { CODE_GRAPH_AGENT, DEFAULT_CODE_GRAPH_TOOL_LIMITS, type CodeGraphToolLimits } from "@kernel/code-graph-tools.ts";
+import { CODE_GRAPH_EXPLORE_AGENT, CODE_GRAPH_LEAD_AGENT, DEFAULT_CODE_GRAPH_TOOL_LIMITS, type CodeGraphToolLimits } from "@kernel/code-graph-tools.ts";
 import { err } from "@kernel/result.ts";
 import type { CodeExplorePort } from "@kernel/ports/code-explore.port.ts";
 import type { CodeGraphToolRequest, CodeGraphToolResponse } from "../../domain/code-graph-query.ts";
@@ -48,6 +48,8 @@ export class CodeGraphToolsPortAdapter implements CodeGraphToolsPort {
     const limits = this.deps.limits ?? DEFAULT_CODE_GRAPH_TOOL_LIMITS;
     const counts = { calls: 0, refused: 0, failed: 0 };
     let revoked = false;
+    /* The calls each explore delegation may make, and how many it has made. */
+    const shares = new Map<string, { share: number; used: number }>();
     /* The run's async context as it is now: its sandbox scope and its secret scope. Every call runs inside it. */
     const inRunContext = AsyncLocalStorage.snapshot();
     const refuse = (code: "wrong-agent" | "revoked" | "no-calls", message: string): CodeGraphToolResponse => {
@@ -71,8 +73,14 @@ export class CodeGraphToolsPortAdapter implements CodeGraphToolsPort {
       runId: input.runId,
       call: async (request) => {
         if (revoked) return refuse("revoked", "the code graph is no longer available to this run");
-        if (request.agent !== CODE_GRAPH_AGENT) return refuse("wrong-agent", "the code graph is available only to the lead");
+        const delegationId = this.deps.registry.delegationOf(request.sessionId);
+        const leads = request.agent === CODE_GRAPH_LEAD_AGENT && delegationId === undefined;
+        const explores = request.agent === CODE_GRAPH_EXPLORE_AGENT && delegationId !== undefined;
+        if (!leads && !explores) return refuse("wrong-agent", "the code graph is available only to the lead and to its exploration");
         if (counts.calls >= limits.maxCalls) return refuse("no-calls", `this run's ${limits.maxCalls} code-graph calls are spent`);
+        const share = explores ? (shares.get(delegationId) ?? { share: 0, used: 0 }) : undefined;
+        if (share && share.used >= share.share) return refuse("no-calls", `the ${share.share} code-graph calls of this exploration are spent`);
+        if (share) share.used += 1;
         counts.calls += 1;
         return inRunContext(() =>
           traceToolCall(
@@ -87,6 +95,9 @@ export class CodeGraphToolsPortAdapter implements CodeGraphToolsPort {
     return {
       limits,
       signals: () => ({ ...counts }),
+      grantShare: (delegationId, calls) => {
+        shares.set(delegationId, { share: Math.max(0, Math.min(Math.floor(calls), limits.maxCalls - counts.calls)), used: 0 });
+      },
       close: () => {
         revoked = true;
         this.deps.registry.unregister(input.runId);

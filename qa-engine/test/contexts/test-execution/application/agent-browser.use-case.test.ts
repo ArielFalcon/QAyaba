@@ -17,11 +17,13 @@ function page(over: Partial<PageState> = {}): PageState {
 class FakeHost implements AgentBrowserHostPort {
   readonly calls: { sessionId: string; action: BrowserAction }[] = [];
   readonly timeouts: number[] = [];
+  readonly readOnly: (boolean | undefined)[] = [];
   resets = 0;
   closed = 0;
   next: () => Promise<PageState> | PageState = () => page();
-  async perform(sessionId: string, action: BrowserAction, opts?: { timeoutMs: number }): Promise<PageState> {
+  async perform(sessionId: string, action: BrowserAction, opts?: { timeoutMs: number; readOnly?: boolean }): Promise<PageState> {
     this.calls.push({ sessionId, action });
+    this.readOnly.push(opts?.readOnly);
     if (opts) this.timeouts.push(opts.timeoutMs);
     return this.next();
   }
@@ -33,6 +35,8 @@ function setup(over: { host?: FakeHost; lock?: AccountLock; renew?: (() => Promi
   const host = over.host ?? new FakeHost();
   const capability = new AgentBrowserCapability({ runId: "r1", limits: { ...DEFAULT_AGENT_BROWSER_LIMITS, ...over.limits }, expiresAtMs: over.expiresAtMs ?? 1_000_000, now: over.now ?? (() => 0) });
   capability.bindSession("s1");
+  capability.bindSession("explore", "r1-explore-0", "qa-explore");
+  capability.setShare("r1-explore-0", 5);
   const lock = over.lock ?? new AccountLock();
   const useCase = new AgentBrowserUseCase({
     capability,
@@ -74,6 +78,13 @@ test("a revoked capability and an expired one refuse every call", async () => {
   clock = 100;
   const e = await expiring.useCase.call(nav("/orders"));
   assert.equal(e.ok === false && e.code, AGENT_BROWSER_REFUSAL.EXPIRED);
+});
+
+test("an explore session's call reaches the host read-only and an authoring session's does not", async () => {
+  const { host, useCase } = setup();
+  await useCase.call({ ...nav("/orders"), sessionId: "explore", agent: "qa-explore" });
+  await useCase.call(nav("/orders"));
+  assert.deepEqual(host.readOnly, [true, undefined]);
 });
 
 test("a navigation resolves a path against the app's base address and returns the page", async () => {

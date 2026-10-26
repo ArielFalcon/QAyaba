@@ -35,11 +35,11 @@ The environment is built from an allowlist per profile, not by removing known se
 the orchestrator gains later is absent from every child without anyone listing it. A caller can add only the
 Playwright contract (`PW_*`, `PLAYWRIGHT_JSON_OUTPUT_NAME`, `QA_FAILURE_CAPTURE_DIR`, `QA_FAULT_INJECT`).
 
-**The lead's `codegraph_explore`.** The one code-graph action an agent can ask for runs in this `graph` profile, not in the
+**`codegraph_explore` (the lead and the exploring role).** The one code-graph action an agent can ask for runs in this `graph` profile, not in the
 agents container: the agent sends terms to the tools endpoint (`/internal/codegraph`, service token), the orchestrator admits
 them (1 to 8 identifier or path terms, none starting with `-`, passed to the engine after `--`), binds the call to the run's own
 index and workspace, sets the file cap itself, and returns the engine's text redacted and cut between files. The agent names
-neither a project nor a path, and no code path reaches any other engine command.
+neither a project nor a path, and no code path reaches any other engine command. The lead's own sessions are bound as before; an exploring session is bound only with the delegation it was opened for, and spends from a share of the run's call limit that can never exceed what the run has left.
 
 **The account.** The test account reaches the `login` profile and nothing else, with one opt-in: an app whose flows need a
 login the saved session cannot give them sets `e2e.specCredentials: account` in its config, and its suite children also get
@@ -210,14 +210,14 @@ leave DEV data the fixtures' `cleanup()` should have undone is covered by the na
 
 ## The authenticated agent browser
 
-With `qa.agentBrowser.enabled` (or a run's own choice) the authoring roles (`qa-generator`, `qa-sidekick`) may read DEV signed in as the test account, without ever holding
-the session. The agent never runs a browser: four tools (`agents/tool/authbrowser.ts`: `authbrowser_navigate`, `_snapshot`, `_click`, `_type`) send the action to the
+With `qa.agentBrowser.enabled` (or a run's own choice) the authoring roles (`qa-generator`, `qa-sidekick`) and the exploring role (`qa-explore`) may read DEV signed in as the test account, without ever holding
+the session. An exploring session is read-only whatever the app declares: the route guard ignores the app's `allowMutating` entries for the requests of its page, and a request no page can be named for gets the same narrower right while an exploring session holds a page. The agent never runs a browser: four tools (`agents/tool/authbrowser.ts`: `authbrowser_navigate`, `_snapshot`, `_click`, `_type`) send the action to the
 orchestrator, which owns the browser, decides and answers. It reuses the `run_spec` mechanism (endpoint, token, session binding, account lease); it is not an MCP server, because the
 Playwright MCP's own build tracks a different Playwright than the image's browsers and a general MCP would have to be pruned instead of being small by construction.
 
 | Boundary | How |
 |---|---|
-| Who may call | only a session the agent transport bound to an authoring role of a live run (`AgentBrowserRegistry`); the tools are off in the global tools map and for every role but those two (`agents/opencode.json`, pinned by `agent-tool-surface.test.ts`) |
+| Who may call | only a session the agent transport bound to an authoring or exploring role of a live run (`AgentBrowserRegistry`); the tools are off in the global tools map and for every role but those three (`agents/opencode.json`, pinned by `agent-tool-surface.test.ts`) |
 | Transport | `POST /internal/authbrowser` on the `run_spec` listener (`QA_TOOLS_PORT`, `QA_TOOLS_TOKEN`); the body is read key by key, so an action outside the four never reaches the browser. The tools are on for the authoring roles in the config, so a prompt of an authoring session the run did **not** grant carries a per-prompt `tools` map hiding them (`openCodePromptBody`, from the registry): a run without the browser does not list four tools the orchestrator would refuse |
 | The browser | Chromium started through the execution launcher (profile `suite`: the sandbox uid, the run's work dir, the egress lease of the app's origins, a `timeout` wrapper so it ends by itself), driven by `playwright-core` (pinned to the image's version, imported by one loader module only). The protocol runs over a pipe pair the browser inherits (`--remote-debugging-pipe`), behind a loopback WebSocket on a path of 32 random bytes for one client: the egress filter rejects every loopback connection of the sandbox uid, so a debugging port could not even answer the orchestrator |
 | The session | read into memory from the run's auth directory (strict reader) and handed to an ephemeral context as data; never staged to the browser's process, never written by the host (`npm run arch:check` fails on a file API in the browser modules), nothing the browser refreshes is saved; a context is built from the session as it is saved *then*, so a renewed login is picked up. A renewal rebuilds the context, which takes every session's page with it; each such session is told at its next call that its page is new. The call that counts as a lost session is therefore narrow: it was sent to the app's declared login path or to a login-looking path (a navigation, or a page that also asks for a password), or a navigation was sent elsewhere and shows a password field; a page the agent asked for is never one, whatever its path looks like |
@@ -230,7 +230,7 @@ Playwright MCP's own build tracks a different Playwright than the image's browse
 `npx tsx scripts/agent-browser-smoke.ts` proves the browser half with real Chromium against a local server, and, run in the built orchestrator image as the sandbox uid, the same checks behind the
 real filter (see its header for the `--cap-add NET_ADMIN` form with `QA_SMOKE_ORIGIN`): the session reaches the page and is in no file, a form POST and a fetch POST never reach the server, a denied route and an undeclared
 origin are never requested, no service worker registers, no process outlives the host. `agents/smoke/authbrowser-tool.smoke.mjs` proves the agent half on the image's pinned OpenCode: the tools load under those names,
-are offered to the two authoring roles alone, reach the endpoint with the real session id, agent name and token, and a per-prompt tools map can hide them. Re-run both after a pin bump.
+are offered to the authoring roles and the exploring role alone, reach the endpoint with the real session id, agent name and token, and a per-prompt tools map can hide them. Re-run both after a pin bump.
 
 Known limits: the page content the agent reads (account data among it) goes to the model provider, as it does through the plain Playwright MCP; a page can still obtain a pristine `ServiceWorkerContainer` from a fresh frame, in which case a worker's own requests
 are held by the egress filter and the session's rights, not by the route guard; a sidekick holds the tools when the lead/sidekick mode grants them to its flow (a per-flow share of the run's caps), and a sidekick without a grant has them denied per prompt (`docs/lead-sidekicks.md`).
