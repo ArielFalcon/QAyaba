@@ -1,7 +1,7 @@
 
 
 import { sha256Hex } from "../../../../shared-infrastructure/content-hash.ts";
-import { redactByValue } from "../../../../shared-infrastructure/run-secret-redaction.ts";
+import { redactByValue } from "../../../../shared-infrastructure/redaction/run-secret-redaction.ts";
 import { ContextAssemblerAdapter } from "@contexts/generation/infrastructure/context-assembler.adapter.ts";
 import type { PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import type { Omission, SectionMeta } from "@kernel/telemetry/section-meta.ts";

@@ -21,7 +21,7 @@ import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-sn
 import { domCaptureObserver, recordDomCapture } from "@contexts/generation/infrastructure/dom-capture-trace";
 import { MAX_ITEM_IDS } from "@contexts/generation/domain/context-item-ids";
 import { recordContextSpan } from "../../qa-engine/src/shared-infrastructure/telemetry/run-spans";import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
-import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
+import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-infrastructure/redaction/run-secret-redaction";
 import { testExecSandbox } from "../../qa-engine/test/support/exec-sandbox-harness";
 import { Sha } from "@kernel/sha";
 import { BlastRadius } from "@kernel/blast-radius";

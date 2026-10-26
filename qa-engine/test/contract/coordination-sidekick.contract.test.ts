@@ -15,6 +15,9 @@ import {
 } from "@contexts/coordination/application/acceptance-report.ts";
 import type { AgentRuntimePort, AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
+import { PatternRedactionAdapter } from "../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
+
+const redaction = new PatternRedactionAdapter();
 
 const scope = {
   readablePaths: ["e2e/"],
@@ -23,7 +26,7 @@ const scope = {
 };
 
 function brief(overrides: { task?: string } = {}) {
-  return createDelegationBrief({
+  return createDelegationBrief({ redaction,
     delegationId: "d1",
     runId: "r1",
     objective: "cover checkout",
@@ -40,13 +43,13 @@ test("resolveCapabilityRole maps lead→primary and sidekicks→dedicated sideki
 });
 
 test("the sidekick prompt carries no escalation policy block", () => {
-  const { text } = renderSidekickBrief(brief());
+  const { text } = renderSidekickBrief(redaction, brief());
   assert.equal(text.includes("Escalation policy"), false);
   assert.doesNotMatch(text, /onNeedsLead|onNoProgress|onBudgetExhausted/);
 });
 
 test("renderSidekickBrief includes authority, scope and validation — not a lead transcript", () => {
-  const { text, sectionSizes } = renderSidekickBrief(brief());
+  const { text, sectionSizes } = renderSidekickBrief(redaction, brief());
   assert.match(text, /write smoke spec/);
   assert.match(text, /checkout completes/);
   assert.match(text, /canExpandScope:\s*false/);
@@ -59,17 +62,17 @@ test("renderSidekickBrief includes authority, scope and validation — not a lea
    prompts do via sanitizeText — secrets in guidance/commit message must not reach the provider.
  */
 test("renderSidekickBrief states how the change reaches the flow's pages only when the brief carries proofs", () => {
-  const withProofs = createDelegationBrief({ delegationId: "d1", runId: "r1", objective: "o", task: "t", scope, proofs: ["/orders: a.ts::f > b.ts::Page > page /orders"] });
-  const { text, sectionSizes } = renderSidekickBrief(withProofs);
+  const withProofs = createDelegationBrief({ redaction, delegationId: "d1", runId: "r1", objective: "o", task: "t", scope, proofs: ["/orders: a.ts::f > b.ts::Page > page /orders"] });
+  const { text, sectionSizes } = renderSidekickBrief(redaction, withProofs);
   assert.match(text, /## How the change reaches this flow's pages[^\n]*\n- \/orders: a\.ts::f > b\.ts::Page > page \/orders/);
   assert.ok(sectionSizes.proofs! > 0);
-  assert.equal("proofs" in renderSidekickBrief(brief()).sectionSizes, false);
+  assert.equal("proofs" in renderSidekickBrief(redaction, brief()).sectionSizes, false);
 });
 
 test("renderSidekickBrief redacts secrets in objective, task, knownFacts, and acceptance criteria", () => {
   const secret = "token: ghs_supersecretvalue";
-  const { text } = renderSidekickBrief(
-    createDelegationBrief({
+  const { text } = renderSidekickBrief(redaction, 
+    createDelegationBrief({ redaction,
       delegationId: "d1",
       runId: "r1",
       objective: `cover checkout with ${secret}`,
@@ -125,7 +128,7 @@ test("SidekickExecutor opens sidekick session, prompts, disposes, and parses Del
       return session;
     },
   };
-  const executor = new SidekickExecutor({ runtime, render: renderSidekickBrief });
+  const executor = new SidekickExecutor({ redaction, runtime, render: (brief) => renderSidekickBrief(redaction, brief) });
   const result = await executor.execute(brief(), {
     cwd: "/tmp/mirror",
     capability: "sidekick-standard",
@@ -171,9 +174,9 @@ test("SidekickExecutor redacts secrets in DelegationResult summary, concerns, an
     },
     async dispose() {},
   };
-  const executor = new SidekickExecutor({
+  const executor = new SidekickExecutor({ redaction,
     runtime: { openSession: async () => session },
-    render: renderSidekickBrief,
+    render: (brief) => renderSidekickBrief(redaction, brief),
   });
   const result = await executor.execute(brief(), {
     cwd: "/tmp/mirror",
@@ -216,7 +219,7 @@ test("a retry with feedback is one prompt that carries the brief and the feedbac
       return session;
     },
   };
-  const executor = new SidekickExecutor({ runtime, render: renderSidekickBrief });
+  const executor = new SidekickExecutor({ redaction, runtime, render: (brief) => renderSidekickBrief(redaction, brief) });
   const result = await executor.execute(brief(), {
     cwd: "/tmp/mirror",
     capability: "sidekick-standard",
@@ -249,9 +252,9 @@ test("SidekickExecutor rejects a result for a foreign brief as failed", async ()
     },
     async dispose() {},
   };
-  const executor = new SidekickExecutor({
+  const executor = new SidekickExecutor({ redaction,
     runtime: { openSession: async () => session },
-    render: renderSidekickBrief,
+    render: (brief) => renderSidekickBrief(redaction, brief),
   });
   const result = await executor.execute(brief(), { cwd: "/tmp", capability: "sidekick-standard" });
   assert.equal(result.status, "failed");
@@ -279,9 +282,9 @@ test("SidekickExecutor marks write outside writablePaths as blocked", async () =
     },
     async dispose() {},
   };
-  const executor = new SidekickExecutor({
+  const executor = new SidekickExecutor({ redaction,
     runtime: { openSession: async () => session },
-    render: renderSidekickBrief,
+    render: (brief) => renderSidekickBrief(redaction, brief),
   });
   const result = await executor.execute(brief(), { cwd: "/tmp", capability: "sidekick-standard" });
   assert.equal(result.status, "blocked");
@@ -322,9 +325,9 @@ test("SidekickExecutor adopts long camelCase and digit-bearing spec paths it wro
       },
       async dispose() {},
     };
-    const executor = new SidekickExecutor({
+    const executor = new SidekickExecutor({ redaction,
       runtime: { openSession: async () => session },
-      render: renderSidekickBrief,
+      render: (brief) => renderSidekickBrief(redaction, brief),
     });
     const result = await executor.execute(brief(), { cwd: mirror, capability: "sidekick-standard" });
 
@@ -358,14 +361,14 @@ test("SidekickExecutor passes escalated model via OpenSessionOpts without naming
     },
     async dispose() {},
   };
-  const executor = new SidekickExecutor({
+  const executor = new SidekickExecutor({ redaction,
     runtime: {
       openSession: async (_role, _cwd, opts) => {
         seenModel = opts?.model;
         return session;
       },
     },
-    render: renderSidekickBrief,
+    render: (brief) => renderSidekickBrief(redaction, brief),
   });
   const result = await executor.execute(brief(), {
     cwd: "/tmp",
@@ -403,8 +406,8 @@ async function executeWith(fields: Record<string, unknown>, criteria: readonly s
     },
     async dispose() {},
   };
-  const executor = new SidekickExecutor({ runtime: { openSession: async () => session }, render: renderSidekickBrief });
-  const repairBrief = createDelegationBrief({
+  const executor = new SidekickExecutor({ redaction, runtime: { openSession: async () => session }, render: (brief) => renderSidekickBrief(redaction, brief) });
+  const repairBrief = createDelegationBrief({ redaction,
     delegationId: "d1",
     runId: "r1",
     objective: "Repair failing QA specs",
@@ -557,8 +560,8 @@ test("a report entry's note is scrubbed before it re-enters the lead context", a
 });
 
 test("the brief numbers each acceptance criterion and asks for a report of every status by that number", () => {
-  const { text } = renderSidekickBrief(
-    createDelegationBrief({
+  const { text } = renderSidekickBrief(redaction, 
+    createDelegationBrief({ redaction,
       delegationId: "d1",
       runId: "r1",
       objective: "Repair failing QA specs",
@@ -580,15 +583,15 @@ test("the brief numbers each acceptance criterion and asks for a report of every
   for (const { criterion, status } of acceptance) {
     assert.deepEqual([...status].sort(), [...ACCEPTANCE_STATUSES].sort(), "the example names every status the executor reads");
     for (const one of status) {
-      assert.equal(readAcceptanceReport([{ criterion, status: one }], acceptance.length).defect, undefined, one);
+      assert.equal(readAcceptanceReport(redaction, [{ criterion, status: one }], acceptance.length).defect, undefined, one);
     }
   }
 });
 
 test("a brief that carries its flow's pages renders them in a section of their own, and one without renders no such section", () => {
-  const withPages = createDelegationBrief({ delegationId: "d1", runId: "r1", objective: "cover checkout", task: "write smoke spec", scope, pages: "route /cart:\n  button \"Checkout\"" });
-  const rendered = renderSidekickBrief(withPages);
+  const withPages = createDelegationBrief({ redaction, delegationId: "d1", runId: "r1", objective: "cover checkout", task: "write smoke spec", scope, pages: "route /cart:\n  button \"Checkout\"" });
+  const rendered = renderSidekickBrief(redaction, withPages);
   assert.ok("pages" in rendered.sectionSizes);
   assert.ok(rendered.text.includes("button \"Checkout\""));
-  assert.equal("pages" in renderSidekickBrief(brief()).sectionSizes, false);
+  assert.equal("pages" in renderSidekickBrief(redaction, brief()).sectionSizes, false);
 });

@@ -3,8 +3,8 @@ import { checkCircuit, recordCircuitFailure, recordCircuitSuccess } from "./resi
 import { createStallWatchdog, type StallWatchdog } from "./resilience/stall-watchdog.ts";
 import { AgentTimeoutError, AgentUnavailableError, StalledAgentError, isInfraError } from "@kernel/domain-error.ts";
 import type { AgentPromptOpts, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
-import { sanitizeText } from "./sanitize-text.ts";
-import { redactByValue } from "../../../shared-infrastructure/run-secret-redaction.ts";
+import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
+import { redactByValue } from "../../../shared-infrastructure/redaction/run-secret-redaction.ts";
 import { sha256Hex } from "../../../shared-infrastructure/content-hash.ts";
 import { carryAgentErrorType, classifyAgentFault, classifyProviderError, type AgentErrorType } from "../domain/agent-error-class.ts";
 import type { TimeLimitSource, TurnLimit } from "@kernel/turn-limit.ts";

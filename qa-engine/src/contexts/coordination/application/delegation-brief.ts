@@ -1,4 +1,4 @@
-import { scrub } from "./scrub.ts";
+import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { AcceptanceCriterion } from "./coordination-context.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 import { SIDEKICK_AUTHORITY, type SidekickAuthority } from "./authority.ts";
@@ -37,6 +37,8 @@ export interface DelegationBrief {
 }
 
 export function createDelegationBrief(input: {
+  /* Where every free-form field is redacted before it enters the brief. */
+  redaction: RedactionPort;
   delegationId: string;
   runId: string;
   objective: string;
@@ -49,6 +51,7 @@ export function createDelegationBrief(input: {
   pages?: string;
   proofs?: readonly string[];
 }): DelegationBrief {
+  const scrub = (text: string): string => input.redaction.redact(text);
   if (!input.delegationId) throw new Error("DelegationBrief requires delegationId");
   if (!input.runId) throw new Error("DelegationBrief requires runId");
   return {

@@ -1,17 +1,9 @@
-/* Prompt-side secret redaction. Twin of src/orchestrator/sanitizer.ts — qa-engine must not import src/; the regex set is duplicated here and sanitize-text-parity.test.ts keeps both in lockstep. Post-redaction fail-loud: if a secret is still detectable, throw SecretLeakError rather than sending it. Before the patterns, the secrets of the run this call is part of (its test account, its session) are replaced by value (run-secret-redaction.ts): that pass has no twin in src/ and does nothing outside a run. */
+/* Pattern-based secret redaction for text leaving the system (prompts, Issues, telemetry, delegation briefs). The pure functions below are the policy; PatternRedactionAdapter serves them through the kernel RedactionPort. Before the patterns, the secrets of the run this call is part of (its test account, its session) are replaced by value (run-secret-redaction.ts): that pass does nothing outside a run. Post-redaction fail-loud: if a secret is still detectable, throw SecretLeakError rather than sending it. qa-engine must not import src/. */
 
-import { REDACTED, SecretLeakError } from "@kernel/ports/redaction.port.ts";
-import { redactByValueCounted } from "../../../shared-infrastructure/run-secret-redaction.ts";
+import { REDACTED, SecretLeakError, type RedactionMode, type RedactionPort, type SecretDetection } from "@kernel/ports/redaction.port.ts";
+import { redactByValueCounted } from "./run-secret-redaction.ts";
 
-export interface SecretDetection {
-  redacted: boolean;
-  patterns: string[];
-  count: number; /* total redactions across all patterns */
-}
-
-
-/** "issue" (default) is the aggressive Issue-bound policy. "model" narrows api-key-assignment to a quoted literal or a high-entropy bare token so a diff→model prompt keeps code shapes like `password: string`. */
-export type SanitizeMode = "issue" | "model";
+export type { RedactionMode, SecretDetection };
 
 const CODE_KEYWORDS = new Set([
   "string", "number", "boolean", "undefined", "null", "any", "unknown", "never", "void", "object",
@@ -49,7 +41,7 @@ const NAMED_SECRET_PATTERNS: Array<{ name: string; p: RegExp; skip?: (m: string)
   { name: "llm-api-key", p: /\bsk-[A-Za-z0-9_-]{20,}\b/g },
   { name: "slack-token", p: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g },
   { name: "url-credentials", p: /(?<=:\/\/)[^\s:/@]+:[^\s:/@]+(?=@)/g },
-  /* Bearer tokens in command output. Bare-value capture is greedy `\S+` so an embedded quote inside the secret is not leaked; redactPreservingTrailingQuote re-emits a trailing quote only when it is unbalanced (belongs to enclosing prose). Quoted branches are escape-aware. Keep in lockstep with src/orchestrator/sanitizer.ts. */
+  /* Bearer tokens in command output. Bare-value capture is greedy `\S+` so an embedded quote inside the secret is not leaked; redactPreservingTrailingQuote re-emits a trailing quote only when it is unbalanced (belongs to enclosing prose). Quoted branches are escape-aware. */
   { name: "bearer-token", p: /(?:Authorization|auth)\s*[:=]\s*Bearer\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\S+)/gi },
   { name: "jwt", p: /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g },
   { name: "private-key-pem", p: /-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]+?-----END [A-Z ]+PRIVATE KEY-----/g },
@@ -66,7 +58,7 @@ const NAMED_SECRET_PATTERNS: Array<{ name: string; p: RegExp; skip?: (m: string)
   },
 ];
 
-/* A ≥40-char [A-Za-z0-9+/=] run also matches real code (paths with `/`, long camelCase identifiers). Escapes requiring no `+`/`=`: a PATH (≥3 slashes) or a camelCase/PascalCase identifier (word segments ≥2, at least one ≥3). Twin of src/orchestrator/sanitizer.ts — keep in lockstep. */
+/* A ≥40-char [A-Za-z0-9+/=] run also matches real code (paths with `/`, long camelCase identifiers). Escapes requiring no `+`/`=`: a PATH (≥3 slashes) or a camelCase/PascalCase identifier (word segments ≥2, at least one ≥3). */
 const MAX_IDENTIFIER_LEN = 64;
 const CASE_TRANSITION_RE = /[a-z][A-Z]/;
 const WORD_SEGMENT_RE = /[A-Z]?[a-z]+|[A-Z]+(?![a-z])/g;
@@ -105,7 +97,7 @@ const PII_PATTERNS: RegExp[] = [/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,
 /* The name the by-value pass reports under in a detection. */
 const RUN_SECRET_PATTERN = "run-secret";
 
-export function sanitizeText(input: string, mode: SanitizeMode = "issue"): { text: string; detection: SecretDetection } {
+export function sanitizeText(input: string, mode: RedactionMode = "issue"): { text: string; detection: SecretDetection } {
   if (!input) return { text: input, detection: { redacted: false, patterns: [], count: 0 } };
 
   /* The run's own secrets go first, by value: no pattern would find a plain password or a cookie. Outside a run's scope this changes nothing. */
@@ -151,7 +143,7 @@ export function sanitizeText(input: string, mode: SanitizeMode = "issue"): { tex
 }
 
 /** True when a secret is still detectable. Resets /g lastIndex so repeated calls stay deterministic. Mirrors sanitizeText's skip decision, including model-mode. */
-export function containsSecrets(text: string, mode: SanitizeMode = "issue"): boolean {
+export function containsSecrets(text: string, mode: RedactionMode = "issue"): boolean {
   if (!text) return false;
   const masked = text.replace(/data:[^;]+;base64,[A-Za-z0-9+/=]+/gi, "");
   for (const { p, skip, modelSkip } of NAMED_SECRET_PATTERNS) {
@@ -168,11 +160,26 @@ export function containsSecrets(text: string, mode: SanitizeMode = "issue"): boo
   return false;
 }
 
-/** Post-redaction fail-loud guard. If a secret is still detectable, throw SecretLeakError — never send it. Same kernel error type as the src/orchestrator twin. */
-export function assertNoSecretLeak(redactedText: string, mode: SanitizeMode, boundary: string): void {
+/** Post-redaction fail-loud guard. If a secret is still detectable, throw SecretLeakError — never send it. The error type lives in the kernel. */
+export function assertNoSecretLeak(redactedText: string, mode: RedactionMode, boundary: string): void {
   if (containsSecrets(redactedText, mode)) {
     console.error(`[sanitizer] ${boundary}: a secret survived redaction — refusing to proceed`);
     throw new SecretLeakError(`${boundary}: a secret survived redaction — refusing to proceed`);
   }
 }
 
+
+/** The kernel RedactionPort over the pattern policy above. Stateless: the by-value pass reads the active run's scope. */
+export class PatternRedactionAdapter implements RedactionPort {
+  redact(text: string, mode: RedactionMode = "issue"): string {
+    return sanitizeText(text, mode).text;
+  }
+
+  detect(text: string, mode: RedactionMode = "issue"): SecretDetection {
+    return sanitizeText(text, mode).detection;
+  }
+
+  containsSecret(text: string, mode: RedactionMode = "issue"): boolean {
+    return containsSecrets(text, mode);
+  }
+}

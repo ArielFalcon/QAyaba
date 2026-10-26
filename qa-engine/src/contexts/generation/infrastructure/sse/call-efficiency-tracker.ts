@@ -44,7 +44,7 @@ import {
   toolCallSubject,
   type ToolSequenceEntry,
 } from "../../domain/tool-sequence.ts";
-import { sanitizeText } from "../sanitize-text.ts";
+import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { NAV_OUTCOME_READ_CHARS, isNavigationCall } from "../../domain/nav-outcome.ts";
 import { TRACE_MAX_ENTRIES, type CallStatus, type CallTrace, type StepTrace, type StepUsageTrace, type TurnTrace } from "../../domain/turn-trace.ts";
 

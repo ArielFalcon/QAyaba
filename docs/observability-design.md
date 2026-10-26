@@ -67,7 +67,7 @@ Reuse this before adding anything.
 | Section abstraction | `context-assembler.ts:11-49` | `AssembledPrompt.sectionSizes` per section id | No section or prompt hash |
 | `SandboxReport` / exec scope (ALS) | `process-sandbox/exec-scope.ts` | Denied hosts per run, `openDeniedWindow` per login attempt, refusal reason | Denials keep the host but drop the port. Not per child |
 | `RunDeadlineExceededError` | `shared-kernel/run-deadline.ts:20` | `budgetMs`, `label`, `role`, `stop` | Only on the deadline path. Other limits are implicit |
-| Run-secret redaction (ALS) | `shared-infrastructure/run-secret-redaction.ts` | `redactByValue` inside the run scope | **No-op outside the run's async context** |
+| Run-secret redaction (ALS) | `shared-infrastructure/redaction/run-secret-redaction.ts` | `redactByValue` inside the run scope | **No-op outside the run's async context** |
 | `/api/metrics` | `src/server/metrics.ts`, `src/index.ts:775` | Prometheus text: queue depth, sessions, verdict counts | Not OTel. Raw path only |
 | `probe-report`, `efficiency-benchmark`, campaign runner | `scripts/` | The acceptance baselines | Campaign identity exists only client-side; the server cannot tag a run |
 

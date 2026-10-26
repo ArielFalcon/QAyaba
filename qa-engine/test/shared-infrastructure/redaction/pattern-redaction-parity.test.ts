@@ -1,18 +1,18 @@
 /* these two copies must stay byte-compatible; engine cannot import src/ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createRunSecretScope, withRunSecretScope } from "../../../../src/shared-infrastructure/run-secret-redaction.ts";
+import { createRunSecretScope, withRunSecretScope } from "../../../src/shared-infrastructure/redaction/run-secret-redaction.ts";
 
 import {
   sanitizeText as ported,
   containsSecrets as portedContainsSecrets,
   assertNoSecretLeak as portedAssertNoSecretLeak,
-} from "@contexts/generation/infrastructure/sanitize-text.ts";
+} from "../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import {
   sanitizeText as reference,
   containsSecrets as referenceContainsSecrets,
   assertNoSecretLeak as referenceAssertNoSecretLeak,
-} from "../../../../../src/orchestrator/sanitizer.ts";
+} from "../../../../src/orchestrator/sanitizer.ts";
 
 test("redacts a mixed secret + PII + private-IP line identically", () => {
   const input = "apiKey=sk-abc123XYZ host=10.0.3.14 email leaker@example.com token: ghs_supersecretvalue";

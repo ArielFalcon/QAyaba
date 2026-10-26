@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createExecScopeProvider } from "../../../src/shared-infrastructure/process-sandbox/exec-scope-provider.ts";
 import { REDACTED } from "@kernel/ports/redaction.port.ts";
-import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../src/shared-infrastructure/run-secret-redaction.ts";
+import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../src/shared-infrastructure/redaction/run-secret-redaction.ts";
 import { SandboxResidueError } from "../../../src/shared-infrastructure/process-sandbox/sandbox-reaper.ts";
 import { isSandboxUnavailable } from "../../../src/shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { activeExecScope } from "../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";

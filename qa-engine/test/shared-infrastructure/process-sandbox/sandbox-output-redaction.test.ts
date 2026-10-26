@@ -8,7 +8,7 @@ import { REDACTED } from "@kernel/ports/redaction.port.ts";
 import { runE2E, type E2eExecuteDeps } from "@contexts/test-execution/infrastructure/e2e-execution.runner.ts";
 import { runCheck } from "@contexts/test-execution/infrastructure/static-gate.checks.ts";
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
-import { createRunSecretScope, withRunSecretScope } from "../../../src/shared-infrastructure/run-secret-redaction.ts";
+import { createRunSecretScope, withRunSecretScope } from "../../../src/shared-infrastructure/redaction/run-secret-redaction.ts";
 import { sharedTestExec } from "../../support/exec-sandbox-harness.ts";
 
 const SECRET = "hunter2-account-password";

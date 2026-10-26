@@ -1,10 +1,10 @@
-/* Behavioral tests for sanitize-text.ts, scoped to sanitizeText ONLY (capDiff/capText live in
+/* Behavioral tests for pattern-redaction.adapter.ts, scoped to sanitizeText ONLY (capDiff/capText live in
    prompt-cap.ts; containsSecrets/SECRET_AUDIT/recordAudit are diagnostic-only and not consumed
    by context-pack.ts).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
+import { sanitizeText } from "../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
 test("redacts secrets (api key, token)", () => {
   const { text: out } = sanitizeText("const apiKey = sk-abc123XYZ\ntoken: ghs_supersecretvalue");

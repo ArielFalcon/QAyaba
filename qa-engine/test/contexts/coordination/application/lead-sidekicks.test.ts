@@ -23,7 +23,8 @@ import type { DelegationWorkspacePort } from "@contexts/coordination/application
 import type { AgentBrowserHandle, ClosedLoopHandle, FlowLedgerEntry, FlowLoopHandle, FlowLoopOpenInput, GeolocationHandle } from "@contexts/agent-tools/application/index.ts";
 import type { PlanOutput } from "@kernel/plan-output.ts";
 import type { GeoLocation } from "@kernel/geolocation.ts";
-import { evidenceFromPackDataRoutes } from "@contexts/coordination/application/evidence-from.ts";
+
+import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
 class FakeTimers implements TimerPort {
   now = 0;
@@ -121,6 +122,7 @@ function rig(scriptOver: Partial<Script> = {}): Rig {
     return result(brief, over);
   };
   r.deps = {
+    redaction: new PatternRedactionAdapter(),
     sidekick: {
       open: async (brief, opts) => {
         const session = ++r.sessionsOpened;
@@ -821,7 +823,7 @@ test("a sidekick whose run_spec read empty a page the Context Pack read with res
     if (flowInput.flowId === "cart") r.flowLoops.at(-1)!.ledger.push({ path: flowInput.specFile, sha256: "bytes", status: "failed", devWrites: 0, failures: [{ path: "/shops/madrid", resultCount: 0 }] });
     return handle;
   })(r.closedLoop.openFlow);
-  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, knownFacts: evidenceFromPackDataRoutes([{ path: "/shops/madrid", resultCount: 3 }]) }));
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, confirmedDataRoutes: [{ path: "/shops/madrid", resultCount: 3 }] }));
   assert.equal(outcome.action, "fanout");
   if (outcome.action !== "fanout") return;
   assert.deepEqual(outcome.aggregated.incompleteFlows.map((f) => [f.id, f.kind]), [["cart", "failed"]], "an empty read the pack contradicts is no decline");
@@ -834,7 +836,7 @@ test("a sidekick whose run_spec read empty a page the Context Pack read with res
 
 test("a sidekick that declines with no empty read of a page the Context Pack read with results still declines", async () => {
   const r = rig({ answers: { cart: [{ summary: "nothing to assert", filesChanged: [] }], login: [{}] }, hasFile: new Set(["login"]) });
-  const outcome = await r.coordinator.coordinate(input(r, { knownFacts: evidenceFromPackDataRoutes([{ path: "/shops/madrid", resultCount: 3 }]) }));
+  const outcome = await r.coordinator.coordinate(input(r, { confirmedDataRoutes: [{ path: "/shops/madrid", resultCount: 3 }] }));
   assert.equal(outcome.action, "fanout");
   if (outcome.action !== "fanout") return;
   assert.deepEqual(outcome.aggregated.incompleteFlows.map((f) => f.id), []);

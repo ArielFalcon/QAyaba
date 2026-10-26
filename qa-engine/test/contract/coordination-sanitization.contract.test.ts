@@ -10,11 +10,14 @@ import { evidenceFromChangeAnalysis } from "@contexts/coordination/application/e
 import { FileCoordinationTelemetryAdapter } from "@contexts/coordination/infrastructure/adapters/coordination-telemetry-port.adapter.ts";
 import { SidekickExecutor } from "@contexts/coordination/application/sidekick-executor.ts";
 import type { AgentRuntimePort, AgentSession } from "@kernel/ports/agent-runtime.port.ts";
+import { PatternRedactionAdapter } from "../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
+
+const redaction = new PatternRedactionAdapter();
 
 const SECRET = "token: ghs_supersecretvalue";
 
 test("change-analysis evidence, the brief, and the JSONL sink redact an injected secret", () => {
-  const evidence = evidenceFromChangeAnalysis({
+  const evidence = evidenceFromChangeAnalysis(redaction, {
     action: "generate",
     reason: `type=feat; leak ${SECRET}`,
     fileCount: 9,
@@ -22,7 +25,7 @@ test("change-analysis evidence, the brief, and the JSONL sink redact an injected
   assert.doesNotMatch(evidence.summary, /ghs_supersecretvalue/);
   assert.match(evidence.summary, /\[REDACTED\]/);
 
-  const brief = createDelegationBrief({
+  const brief = createDelegationBrief({ redaction,
     delegationId: "d1",
     runId: "r1",
     objective: `cover checkout with ${SECRET}`,
@@ -73,8 +76,8 @@ test("an illegal write's replacement summary and concerns redact a secret-bearin
       return session;
     },
   };
-  const result = await new SidekickExecutor({ runtime }).execute(
-    createDelegationBrief({
+  const result = await new SidekickExecutor({ redaction, runtime }).execute(
+    createDelegationBrief({ redaction,
       delegationId: "d1",
       runId: "r1",
       objective: "cover checkout",

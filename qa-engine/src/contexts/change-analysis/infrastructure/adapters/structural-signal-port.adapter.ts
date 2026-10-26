@@ -10,7 +10,7 @@ import type { StructuralSignalResult } from "../../domain/structural-signal.ts";
 import { DOSSIER_HEADING, MAX_DOSSIER_BYTES, hasSymbolBlocks, renderBlastRadiusSignal } from "./blast-radius-signal.ts";
 import { shapeExploreAnswer } from "@contexts/agent-tools/application/index.ts";
 import { isExploreTerm } from "@contexts/agent-tools/application/index.ts";
-import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
+import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
 import { activeExecScope } from "../../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 

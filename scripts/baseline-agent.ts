@@ -44,7 +44,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
-import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
+import { sanitizeText } from "../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { CallEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
 import { buildTurnStepBudget, type TurnCallMetrics } from "@contexts/generation/domain/turn-efficiency-summary.ts";
 import { finalStepText } from "@contexts/generation/domain/step-exhaustion.ts";

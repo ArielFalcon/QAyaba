@@ -1,6 +1,6 @@
 /* A route named in a log line. Some routes come from a link a page showed, so the page decides their text: it is redacted like everything else that leaves for a log, held to one line and cut at a bound. */
 
-import { sanitizeText } from "./sanitize-text.ts";
+import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
 /* The longest a route is written in a log line, and the most routes one line names. */
 export const MAX_LOGGED_ROUTE_CHARS = 120;

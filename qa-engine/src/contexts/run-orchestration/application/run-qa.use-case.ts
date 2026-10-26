@@ -8,7 +8,7 @@
  * Pre-exec gateSignals use the number 0, not undefined, when unwired.
  */
 
-import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../shared-infrastructure/run-secret-redaction.ts";
+import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../shared-infrastructure/redaction/run-secret-redaction.ts";
 import { isSandboxUnavailable } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { activeExecScope, refusedScope, sandboxRefused, sandboxSignal, withExecScope, type ExecScopePort } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { AuthSession } from "@contexts/app-catalog/application/index.ts";

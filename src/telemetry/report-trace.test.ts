@@ -5,7 +5,7 @@ import { synthesizeReportSpans } from "../../qa-engine/src/contexts/test-executi
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import { planReport, MAX_PLANNED_CASES } from "../../qa-engine/src/contexts/test-execution/domain/playwright-report-plan";
 import { newSandboxReport, withExecScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
-import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
+import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-infrastructure/redaction/run-secret-redaction";
 import type { QaCase } from "@kernel/qa-case";
 import { parsePlaywrightReport } from "@contexts/test-execution/infrastructure/playwright-report";
 import { traceHarness, T0, SpanStatusCode } from "./trace-harness";
@@ -271,7 +271,7 @@ test("a telemetry port that throws on every call does not make the synthesis thr
 });
 
 test("an error message is redacted by the run's own secrets before it is exported", async () => {
-  const { createRunSecretScope, withRunSecretScope } = await import("../../qa-engine/src/shared-infrastructure/run-secret-redaction");
+  const { createRunSecretScope, withRunSecretScope } = await import("../../qa-engine/src/shared-infrastructure/redaction/run-secret-redaction");
   const h = traceHarness();
   const secrets = createRunSecretScope();
   secrets.addAccountSecrets(["hunter2-secret-value"]);

@@ -12,7 +12,6 @@ import { detectArchetype } from "@contexts/cross-run-learning/application/index.
 import { reviewerApprovalOf } from "@contexts/generation/application/index.ts";
 import type { GenerationOutput } from "@contexts/generation/application/index.ts";
 import type { CoordinateResult } from "@contexts/coordination/application/index.ts";
-import { evidenceFromPackDataRoutes } from "@contexts/coordination/application/index.ts";
 import { end, type StepOutcome } from "../run-flow.ts";
 import { throwIfAborted } from "../abort.ts";
 import { preExecAction } from "../../../domain/pre-exec-regen.ts";
@@ -56,8 +55,7 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
       ...(agentBrowser ? { agentBrowser } : {}),
       ...(geolocation ? { geolocation } : {}),
       ...(deps.sidekickDevBaseUrl ? { devBaseUrl: deps.sidekickDevBaseUrl } : {}),
-      /* The pages the pack read with results: every sidekick's brief states them, and a flow's empty read of one is checked against them. */
-      ...(state.grounding.confirmedDataRoutes?.length ? { knownFacts: evidenceFromPackDataRoutes(state.grounding.confirmedDataRoutes) } : {}),
+      ...(state.grounding.confirmedDataRoutes?.length ? { confirmedDataRoutes: state.grounding.confirmedDataRoutes } : {}),
       ...(state.grounding.contextPack ? { contextPack: state.grounding.contextPack } : {}),
       ...(state.grounding.changeRoutes.length > 0 ? { changeRoutes: state.grounding.changeRoutes } : {}),
       ...(state.grounding.changeProofs.length > 0 ? { changeProofs: state.grounding.changeProofs } : {}),

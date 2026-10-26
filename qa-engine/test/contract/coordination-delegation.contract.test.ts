@@ -9,6 +9,9 @@ import {
   type DelegationResult,
 } from "@contexts/coordination/application/delegation-result.ts";
 import { SIDEKICK_AUTHORITY } from "@contexts/coordination/application/authority.ts";
+import { PatternRedactionAdapter } from "../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
+
+const redaction = new PatternRedactionAdapter();
 
 const scope = {
   readablePaths: ["e2e/"],
@@ -17,7 +20,7 @@ const scope = {
 };
 
 test("createDelegationBrief freezes SIDEKICK_AUTHORITY", () => {
-  const brief = createDelegationBrief({
+  const brief = createDelegationBrief({ redaction,
     delegationId: "d1",
     runId: "r1",
     objective: "cover login",
@@ -37,11 +40,11 @@ test("createDelegationBrief freezes SIDEKICK_AUTHORITY", () => {
 
 test("createDelegationBrief requires delegationId and runId", () => {
   assert.throws(
-    () => createDelegationBrief({ delegationId: "", runId: "r1", objective: "o", task: "t", scope }),
+    () => createDelegationBrief({ redaction, delegationId: "", runId: "r1", objective: "o", task: "t", scope }),
     /delegationId/,
   );
   assert.throws(
-    () => createDelegationBrief({ delegationId: "d1", runId: "", objective: "o", task: "t", scope }),
+    () => createDelegationBrief({ redaction, delegationId: "d1", runId: "", objective: "o", task: "t", scope }),
     /runId/,
   );
 });

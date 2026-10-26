@@ -2,7 +2,7 @@
 
 import { join } from "node:path";
 import type { ProcessKillPort } from "@kernel/process-sandbox/process-kill.port.ts";
-import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
+import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import type { ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";

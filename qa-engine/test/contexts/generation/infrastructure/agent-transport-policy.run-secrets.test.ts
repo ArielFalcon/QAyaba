@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { REDACTED } from "@kernel/ports/redaction.port.ts";
 import { createAgentDeps, type AgentTurnEvent, type RawAgentTransport } from "@contexts/generation/infrastructure/agent-transport-policy.ts";
 import { resetCircuit } from "@contexts/generation/infrastructure/resilience/circuit-breaker.ts";
-import { createRunSecretScope, withRunSecretScope } from "../../../../src/shared-infrastructure/run-secret-redaction.ts";
+import { createRunSecretScope, withRunSecretScope } from "../../../../src/shared-infrastructure/redaction/run-secret-redaction.ts";
 
 const PASSWORD = "plain-pass-9981";
 

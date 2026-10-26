@@ -4,7 +4,7 @@
  * or malformed report is a contract defect, never read as "met" — a criterion without a well-formed
  * entry stays unverified — and an unmet the sidekick reports blocks in any shape it takes.
  */
-import { scrub } from "./scrub.ts";
+import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 
 export const ACCEPTANCE_STATUSES = ["met", "unmet", "unverified"] as const;
 export type AcceptanceStatus = (typeof ACCEPTANCE_STATUSES)[number];
@@ -51,18 +51,18 @@ function isUnmet(status: unknown): boolean {
 
 /* A whole-number criterion and a known status; whether the number is one of the brief's is decided for
    the report as a whole. */
-function toEntry({ criterion, status, note }: ReportItem): AcceptanceReportEntry | undefined {
+function toEntry(redaction: RedactionPort, { criterion, status, note }: ReportItem): AcceptanceReportEntry | undefined {
   if (typeof criterion !== "number" || !Number.isInteger(criterion)) return undefined;
   if (typeof status !== "string" || !(ACCEPTANCE_STATUSES as readonly string[]).includes(status)) return undefined;
   return {
     criterion,
     status: status as AcceptanceStatus,
-    ...(typeof note === "string" ? { note: scrub(note) } : {}),
+    ...(typeof note === "string" ? { note: redaction.redact(note) } : {}),
   };
 }
 
 /* Reads the raw `acceptance` value of a sidekick answer against a brief with `criteriaCount` criteria. */
-export function readAcceptanceReport(raw: unknown, criteriaCount: number): AcceptanceReport {
+export function readAcceptanceReport(redaction: RedactionPort, raw: unknown, criteriaCount: number): AcceptanceReport {
   const items = reportItems(raw);
   if (items.length === 0) {
     if (criteriaCount === 0) return { entries: [] };
@@ -80,10 +80,10 @@ export function readAcceptanceReport(raw: unknown, criteriaCount: number): Accep
   const unmet: string[] = [];
   let malformed = 0;
   for (const item of items) {
-    const entry = toEntry(item);
+    const entry = toEntry(redaction, item);
     if (!entry) malformed += 1;
     if (entry && outside.length === 0) entries.push(entry);
-    else if (isUnmet(item.status)) unmet.push(scrub(`criterion ${JSON.stringify(item.criterion)}`));
+    else if (isUnmet(item.status)) unmet.push(redaction.redact(`criterion ${JSON.stringify(item.criterion)}`));
   }
   const unreported: number[] = [];
   for (let n = 1; n <= criteriaCount; n++) {

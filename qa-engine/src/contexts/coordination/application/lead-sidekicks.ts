@@ -30,7 +30,7 @@ import type { CoordinationTelemetryPort } from "./coordination-telemetry.ts";
 import { PLAN_SNAPSHOT_KIND, type PlanSnapshotFlow, type PlanSnapshotKind, type PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port.ts";
 import type { AgentCapability } from "./agent-capability.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
-import { evidenceFromEmptyRead } from "./evidence-from.ts";
+import { evidenceFromEmptyRead, evidenceFromPackDataRoutes } from "./evidence-from.ts";
 import { observationConflictIn } from "./evidence-precedence.ts";
 import { AUTHORING_FAILURE, authoringFailureFeedback, classifyAuthoringFailure, type AuthoringFailure } from "./authoring-failure.ts";
 import { FanOutDispatcher, FLOW_RESULT, type TimerPort } from "./fan-out-dispatcher.ts";
@@ -41,7 +41,7 @@ import { SIDEKICK_AUTHORING, sidekickAuthoring, sidekickDeniedTools, type Sideki
 import type { SidekickExecutor, SidekickSession } from "./sidekick-executor.ts";
 import { packPagesFor } from "@contexts/generation/application/index.ts";
 import { namesTemplatePage } from "@contexts/generation/application/index.ts";
-import { scrub } from "./scrub.ts";
+import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import { CORRECTION_ORIGIN, admitLeadCorrection, correctionPreamble, renderLeadCorrection, type CorrectionOrigin, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type CorrectionFinding } from "./lead-correction.ts";
 
 /* The flow's slice of the Context Pack, as a brief field, or nothing when the pack did not read its pages. */
@@ -62,6 +62,8 @@ export const MIN_RESERVE_MS = 120_000;
 export const RESERVE_SHARE = 0.25;
 
 export interface LeadSidekicksDeps {
+  /* Where every free-form string the lead, the briefs and the evidence carry is redacted. */
+  redaction: RedactionPort;
   sidekick: Pick<SidekickExecutor, "open">;
   workspaces: DelegationWorkspacePort;
   timers: TimerPort;
@@ -95,7 +97,8 @@ export interface CoordinateInput {
   /* The run's authoring location, when the app declares one: a flow may name a place and each flow owns its own value. */
   geolocation?: GeolocationHandle;
   devBaseUrl?: string;
-  knownFacts?: readonly EvidenceRef[];
+  /* The pages the run's Context Pack read with results: every sidekick's brief states them, and a flow's empty read of one is checked against them. */
+  confirmedDataRoutes?: readonly { path: string; resultCount: number }[];
   /* The run's Context Pack: each flow's brief carries the Live DOM of the pages that flow visits. */
   contextPack?: string;
   /* The pages of the app's map the change is linked to: the planning turn is told them, and those no admitted flow visits are reported. */
@@ -279,6 +282,7 @@ export class LeadSidekicks {
           ...(input.agentBrowser ? { browserCalls: input.agentBrowser.limits.maxCalls } : {}),
         },
         {
+          redaction: this.deps.redaction,
           specRelDir: input.specRelDir,
           specFileFor: this.deps.specFileFor,
           ...(input.geolocation ? { places: input.geolocation.facts().places } : {}),
@@ -442,13 +446,14 @@ export class LeadSidekicks {
     const { input } = context;
     const { flow } = entry;
     return createDelegationBrief({
+      redaction: this.deps.redaction,
       delegationId: entry.delegationId,
       runId: input.runId,
       objective: flow.objective,
       task: taskOf(flow, entry.loop, context.mode === SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER && input.agentBrowser ? input.agentBrowser.limits.perCallMs : undefined, entry.geolocation),
       acceptanceCriteria: flow.acceptance,
       scope: { readablePaths: ["."], writablePaths: flow.writablePaths, allowedCommands: [] },
-      knownFacts: input.knownFacts ?? [],
+      knownFacts: knownFactsOf(this.deps.redaction, input),
       ...(pagesOf(input.contextPack, flow.routes) ?? {}),
       ...(proofsOf(input.changeProofs, flow.routes) ?? {}),
       ...(input.devBaseUrl ? { artifactRefs: [{ id: "dev-base-url", path: input.devBaseUrl }] } : {}),
@@ -509,7 +514,7 @@ export class LeadSidekicks {
       return this.keepDelivered(entry, { outcome: { id: flow.id, kind: FLOW_OUTCOME.FAILED, reason: `${appDefect}; the spec that showed it is no longer in the workspace` }, proposals: undefined });
     }
     /* What the run knows beside what the sidekick says: the pages the Context Pack read with results, and the pages the flow's own run_spec calls read empty. */
-    const evidence = [...(input.knownFacts ?? []), ...emptyReadEvidence(ledger)];
+    const evidence = [...knownFactsOf(this.deps.redaction, input), ...emptyReadEvidence(this.deps.redaction, ledger)];
     const conflict = observationConflictIn(evidence);
     entry.conflict = conflict ? `${conflict.pack.summary}, but ${conflict.read.summary}` : undefined;
     /* A decline that rests on an empty read the Context Pack contradicts is not taken. */
@@ -536,7 +541,7 @@ export class LeadSidekicks {
       const changePages = changePagesOf(input.changeRoutes ?? [], flows.map((flow, i) => ({ routes: flow.routes, review: underReview[i]! })));
       let answer: { output: string; timedOut: boolean };
       try {
-        answer = await lead.ask(renderLeadReview(underReview, { turn, maxTurns: MAX_REVIEW_TURNS }, changePages), { timeoutMs: Math.min(input.settings.planBudgetMs, room ?? input.settings.planBudgetMs) });
+        answer = await lead.ask(renderLeadReview(this.deps.redaction, underReview, { turn, maxTurns: MAX_REVIEW_TURNS }, changePages), { timeoutMs: Math.min(input.settings.planBudgetMs, room ?? input.settings.planBudgetMs) });
       } catch (err) {
         /* The run's own time spent ends the run; any other failure of the lead's turn leaves the flows as they are. */
         if (isRunDeadlineError(err)) throw err;
@@ -549,7 +554,7 @@ export class LeadSidekicks {
         this.record(input, { kind: "lead-decision", reason: `review turn ${turn}: the lead ran out of its time; the flows stand as they are` });
         break;
       }
-      const admission = admitLeadReview(answer.output, underReview, { revisionsAllowed: turn < MAX_REVIEW_TURNS });
+      const admission = admitLeadReview(this.deps.redaction, answer.output, underReview, { revisionsAllowed: turn < MAX_REVIEW_TURNS });
       if (!admission.readable) {
         this.record(input, { kind: "lead-decision", reason: `review turn ${turn}: the lead's answer could not be read; the flows stand as they are` });
         break;
@@ -675,7 +680,7 @@ export class LeadSidekicks {
     }));
     let output = "";
     try {
-      const answer = await lead.ask(renderLeadCorrection(under, findings, origin), { timeoutMs: Math.min(input.settings.planBudgetMs, room ?? input.settings.planBudgetMs) });
+      const answer = await lead.ask(renderLeadCorrection(this.deps.redaction, under, findings, origin), { timeoutMs: Math.min(input.settings.planBudgetMs, room ?? input.settings.planBudgetMs) });
       if (answer.timedOut) this.record(input, { kind: "lead-decision", reason: `correction (${origin}): the lead ran out of its time; each flow is sent its own findings` });
       else output = answer.output;
     } catch (err) {
@@ -683,7 +688,7 @@ export class LeadSidekicks {
       this.record(input, { kind: "lead-decision", reason: `correction (${origin}): the lead's turn failed (${err instanceof Error ? err.message : String(err)}); each flow is sent its own findings` });
     }
     tally.turns += 1;
-    const admission = admitLeadCorrection(output, under, findings, origin);
+    const admission = admitLeadCorrection(this.deps.redaction, output, under, findings, origin);
     tally.rebutted += admission.rebuttals.length;
     tally.unrouted += admission.unrouted.length;
     for (const r of admission.refused) this.record(input, { kind: "lead-decision", reason: `correction (${origin}): ${r.flowId ? `flow ${r.flowId} ` : ""}${r.finding ? `finding ${r.finding} ` : ""}not taken: ${r.reason}` });
@@ -729,7 +734,7 @@ export class LeadSidekicks {
     await this.deps.workspaces.refresh(entry.workspace, entry.request).catch((err: unknown) => console.error(`[qa] refreshing flow ${entry.flow.id}'s workspace failed (it corrects the bytes it has): ${err instanceof Error ? err.message : String(err)}`));
     const instruction = [
       correctionPreamble(origin),
-      ...order.findings.map((finding) => `- ${scrub(finding)}`),
+      ...order.findings.map((finding) => `- ${this.deps.redaction.redact(finding)}`),
       `The lead's instruction: ${order.instruction}`,
       origin === CORRECTION_ORIGIN.REVIEW
         ? "Correct each finding in your spec without weakening an assertion; a finding you hold to be wrong goes in concerns, with the evidence."
@@ -836,10 +841,14 @@ function taskOf(
   ].filter(Boolean).join("\n");
 }
 
+function knownFactsOf(redaction: RedactionPort, input: Pick<CoordinateInput, "confirmedDataRoutes">): EvidenceRef[] {
+  return input.confirmedDataRoutes?.length ? evidenceFromPackDataRoutes(redaction, input.confirmedDataRoutes) : [];
+}
+
 /* The pages the flow's run_spec calls read empty at a failure point, each once. */
-function emptyReadEvidence(ledger: readonly FlowLedgerEntry[]): EvidenceRef[] {
+function emptyReadEvidence(redaction: RedactionPort, ledger: readonly FlowLedgerEntry[]): EvidenceRef[] {
   const paths = ledger.flatMap((entry) => (entry.failures ?? []).flatMap((f) => (f.resultCount === 0 && f.path !== undefined ? [f.path] : [])));
-  return [...new Set(paths)].map(evidenceFromEmptyRead);
+  return [...new Set(paths)].map((path) => evidenceFromEmptyRead(redaction, path));
 }
 
 const MAX_FACTS_CHARS = 2_000;

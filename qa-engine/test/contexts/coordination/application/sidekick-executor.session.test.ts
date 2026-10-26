@@ -4,8 +4,11 @@ import { SidekickExecutor } from "@contexts/coordination/application/sidekick-ex
 import { createDelegationBrief } from "@contexts/coordination/application/delegation-brief.ts";
 import type { OpenSessionOpts } from "@kernel/ports/agent-runtime.port.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
+import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
-const brief = createDelegationBrief({
+const redaction = new PatternRedactionAdapter();
+
+const brief = createDelegationBrief({ redaction,
   delegationId: "run-1-flow-cart",
   runId: "run-1",
   objective: "the cart total",
@@ -16,7 +19,7 @@ const brief = createDelegationBrief({
 const RESULT = JSON.stringify({ delegationId: "run-1-flow-cart", runId: "run-1", status: "completed", summary: "done", filesChanged: [{ path: "e2e/flows/cart.spec.ts" }], evidence: [], validation: [], acceptance: [], assumptions: [], concerns: [], unresolvedQuestions: [], recommendation: "accept" });
 
 function executor(opened: Array<{ role: AgentRole; cwd: string; opts: OpenSessionOpts | undefined }>) {
-  return new SidekickExecutor({
+  return new SidekickExecutor({ redaction,
     runtime: {
       openSession: async (role, cwd, opts) => {
         opened.push({ role, cwd, opts });
@@ -49,7 +52,7 @@ test("an open sidekick session answers a follow-up in the same session, read as 
   const prompts: string[] = [];
   let opened = 0;
   let disposed = 0;
-  const sidekick = new SidekickExecutor({
+  const sidekick = new SidekickExecutor({ redaction,
     runtime: {
       openSession: async () => {
         opened += 1;
@@ -72,7 +75,7 @@ test("an open sidekick session answers a follow-up in the same session, read as 
 
 test("a sidekick session whose first answer throws is disposed before the error leaves", async () => {
   let disposed = 0;
-  const sidekick = new SidekickExecutor({
+  const sidekick = new SidekickExecutor({ redaction,
     runtime: { openSession: async () => ({ prompt: async () => { throw new Error("boom"); }, dispose: async () => { disposed += 1; } }) },
   });
   await assert.rejects(sidekick.open(brief, { cwd: "/w", capability: "sidekick-standard" }), /boom/);

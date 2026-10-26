@@ -2,11 +2,11 @@
 
 import { lstatSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
-import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
+import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { MANIFEST_FILE, MAX_MANIFEST_BYTES, validateManifest as validateManifestShape, type ManifestValidation } from "@kernel/manifest/manifest-entry.ts";
 import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
-import { redactByValue } from "../../../shared-infrastructure/run-secret-redaction.ts";
+import { redactByValue } from "../../../shared-infrastructure/redaction/run-secret-redaction.ts";
 import type { ExecCommandClass, ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import type { SandboxProfile } from "../../../shared-infrastructure/process-sandbox/exec-env.ts";
 import { readConfinedSpecFile, readFailureReason, readOwnedSpecFile, scanSpecTree, writeOwnedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";

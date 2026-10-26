@@ -155,8 +155,8 @@ test("isProtectedPath flags the secret boundary (a fix must never weaken what sc
      themselves.
    */
   assert.equal(isProtectedPath("src/server/run-engine-factory.ts"), true);
-  /* the canonical REDACTED placeholder + SecretLeakError, consumed by BOTH sanitizer twins
-     (src/orchestrator/sanitizer.ts and qa-engine's sanitize-text.ts) — a fix could weaken redaction
+  /* the canonical REDACTED placeholder + SecretLeakError, consumed by every redaction adapter
+     (src/orchestrator/sanitizer.ts and qa-engine's pattern-redaction.adapter.ts) — a fix could weaken redaction
      for the whole system from this single shared-kernel seam.
    */
   assert.equal(isProtectedPath("qa-engine/src/shared-kernel/ports/redaction.port.ts"), true);
@@ -264,7 +264,7 @@ test("isProtectedPath flags the test infrastructure an autonomous fix could weak
 });
 
 /* assembled and sanitized — literally the directory the 4th and 5th unsanitized-prompt-site defects
-   lived in (only sanitize-text.ts was protected; every sibling, including prompts.ts itself, was
+   lived in (only the sanitizer was protected; every sibling, including prompts.ts itself, was
    not). run-orchestration/infrastructure/adapters/ is the port-implementation layer wiring EVERY
    domain security boundary (write-confinement, publication, GitHub) into the use case — only
    publication-port.adapter.ts was protected. Per-file judgment on exactly this class of surface has

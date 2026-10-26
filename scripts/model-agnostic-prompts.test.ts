@@ -36,6 +36,9 @@ import { LlmProfileProposerAdapter, PROPOSER_MODEL } from "../src/server/onboard
 import type { RunRecord } from "../src/types.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { DIMENSIONS, MATRIX_STEP_LIMIT, allValidSpecs, buildInput, cellName, type CellSpec } from "./prompt-contract-matrix.ts";
+import { PatternRedactionAdapter } from "../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
+
+const redaction = new PatternRedactionAdapter();
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -511,7 +514,7 @@ async function repairPrompts(subject: string): Promise<PromptText[]> {
 /* The sidekick's brief and the lead's feedback turn, as the executor sends them. */
 async function sidekickPrompts(subject: string): Promise<PromptText[]> {
   const sent: string[] = [];
-  const brief = createDelegationBrief({
+  const brief = createDelegationBrief({ redaction,
     delegationId: "d1",
     runId: "r1",
     objective: `repair the ${subject} cart spec`,
@@ -522,7 +525,7 @@ async function sidekickPrompts(subject: string): Promise<PromptText[]> {
     artifactRefs: [{ id: "a1", path: "e2e/flows/cart.spec.ts" }],
     validationPlan: [{ id: "v1", description: "the spec lists cleanly" }],
   });
-  await new SidekickExecutor({ runtime: recordingRuntime(sent) }).execute(brief, {
+  await new SidekickExecutor({ redaction, runtime: recordingRuntime(sent) }).execute(brief, {
     cwd: "/m",
     capability: "sidekick-standard",
     feedback: `the ${subject} total is still missing`,

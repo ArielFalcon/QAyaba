@@ -16,7 +16,7 @@ import {
   redactByValue,
   registerSessionSecretsFromStorageState,
   withRunSecretScope,
-} from "../../src/shared-infrastructure/run-secret-redaction.ts";
+} from "../../../src/shared-infrastructure/redaction/run-secret-redaction.ts";
 
 const PASSWORD = "Tr0ub4dor&3-horse";
 

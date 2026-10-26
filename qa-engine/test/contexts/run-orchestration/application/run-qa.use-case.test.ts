@@ -9391,7 +9391,7 @@ test("a failure that reads empty, twice, a page the Context Pack read with resul
   }
 });
 
-test("the pages the Context Pack read with results reach the coordination as deterministic facts for every sidekick", async () => {
+test("the pages the Context Pack read with results reach the coordination for every sidekick", async () => {
   const { ports } = stubPorts({ ground: async () => ({ packConfirmedDataRoutes: [{ path: "/owners/list", resultCount: 3 }] }) });
   const seen: CoordinateInput[] = [];
   const leadSidekicks = { coordinate: async (coordinateInput: CoordinateInput) => { seen.push(coordinateInput); return { action: "lead" as const, signal: { plan: "lead", flows: 1, delivered: 0, incomplete: 0, takeover: false } }; } };
@@ -9401,9 +9401,7 @@ test("the pages the Context Pack read with results reach the coordination as det
     config: baseConfig,
   }).run({ ...baseInput, runId: "pack-facts-to-sidekicks" });
   assert.equal(seen.length, 1);
-  const facts = seen[0]!.knownFacts ?? [];
-  assert.deepEqual(facts.map((f) => [f.kind, f.confidence, f.dataRef]), [["grounding", "deterministic", "/owners/list"]]);
-  assert.match(facts[0]!.summary, /3 results/);
+  assert.deepEqual(seen[0]!.confirmedDataRoutes, [{ path: "/owners/list", resultCount: 3 }]);
 });
 
 test("the fix_loop phase span says what made the triage re-read a failure and what the re-read came to", async () => {

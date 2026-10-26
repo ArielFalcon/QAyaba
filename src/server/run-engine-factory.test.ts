@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { appSuiteStoreDir, createRunEngineFactory, engineAgentDeps, buildCompositionConfig, buildVcsPublish, resolveCodeSandbox, type ContextHealRunRequest } from "./run-engine-factory";
 import { AppConfig } from "../orchestrator/config-loader";
 import { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry";
-import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
+import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-infrastructure/redaction/run-secret-redaction";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun } from "./runner";
 import { getRecord, saveContextMap, markContextStale, isContextStale, loadContextMap as loadStoredContextMap, upsertLearningRule, recordRuleOutcome, quarantineLearningRules } from "./history";

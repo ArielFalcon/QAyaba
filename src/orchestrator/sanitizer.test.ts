@@ -49,7 +49,7 @@ test("issue mode (explicit): identical to default — aggressive public-surface 
    with no boundary at a quote. When the matched value is immediately followed by a closing quote
    that belongs to the SURROUNDING prose (not the secret's own value), `\S+` greedily swallows that
    selectorContradiction line quoting a UI element's accessible name. Kept in lockstep with this
-   file's qa-engine twin (sanitize-text.ts) — see sanitize-text-parity.test.ts.
+   file's qa-engine counterpart (pattern-redaction.adapter.ts) — see pattern-redaction-parity.test.ts.
  */
 test("a secret-shaped match immediately followed by a closing quote does not swallow that quote", () => {
   const input = "role:name 'button' with name \"Token: refresh\" is NOT in the captured tree";
@@ -85,7 +85,7 @@ test("bearer-token does not swallow a trailing closing quote either", () => {
 
 /* A quoted-value capture that stops at the first quote INSIDE the value leaves the tail
    unredacted. A secret value with an embedded quote must not leak that tail. Keep in lockstep with
-   this file's qa-engine twin (sanitize-text.ts) — see sanitize-text-parity.test.ts.
+   this file's qa-engine counterpart (pattern-redaction.adapter.ts) — see pattern-redaction-parity.test.ts.
  */
 test("a secret value with an embedded quote does not leak its tail", () => {
   const input = 'token=abc"def';

@@ -177,11 +177,11 @@ export const PROTECTED_PATHS: string[] = [
 
   "qa-engine/src/shared-kernel/ports/redaction.port.ts",
   /*
-   * Model-prompt sanitizer twin (diff/commit-body/reviewer-text → model). Must stay in lockstep
-   * with src/orchestrator/sanitizer.ts so prompt assembly never imports src/. Also covered by the
-   * generation/infrastructure/ prefix below; listed so narrowing that prefix cannot unprotect it.
+   * Pattern redaction of everything that leaves the system (diff/commit-body/reviewer-text → model,
+   * logs → Issue, delegation briefs → provider) and the by-value redaction of the run's own account
+   * secrets: a weakened pattern or a dropped by-value pass leaks a secret to a provider or a tracker.
    */
-  "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
+  "qa-engine/src/shared-infrastructure/redaction/",
   /* Also covered by the adapters/ prefix below; listed so narrowing that prefix cannot unprotect it. */
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter.ts",
   /* The only map from a workspace handle to the mirror, the commit and the target; also covered by the adapters/ prefix below, listed so narrowing that prefix cannot unprotect it. */
@@ -427,6 +427,7 @@ export const SECURITY_SENSITIVE_SURFACE_ROOTS: string[] = [
   "qa-engine/src/contexts/workspace-and-publication/",
   "qa-engine/src/shared-infrastructure/process-sandbox/",
   "qa-engine/src/shared-infrastructure/egress/",
+  "qa-engine/src/shared-infrastructure/redaction/",
   "qa-engine/src/contexts/generation/infrastructure/",
   "qa-engine/src/contexts/run-orchestration/infrastructure/adapters/",
   "qa-engine/src/contexts/change-analysis/infrastructure/adapters/",

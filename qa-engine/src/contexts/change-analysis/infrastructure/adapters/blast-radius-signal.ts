@@ -1,6 +1,6 @@
 /* Pure renderer of CodeGraphPort results into one advisory markdown block (GenerationEnrichment.staticSignal). Per-section MAX_ITEMS, whole-block MAX_LEN truncated at the last newline, every cell sanitized. Empty composition renders "" — never a fabricated "no blast radius found" claim. A block that names symbols is titled and introduced as the structural exploration it is; one that holds co-change files alone says it is version-control history and borrows nothing of the other's title, introduction or truncation marker. Caller degrades CodeGraphUnavailable to empty arrays. */
 
-import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
+import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/application/index.ts";
 import type { LocalSymbolRef, CoupledFile } from "@kernel/code/index.ts";
 

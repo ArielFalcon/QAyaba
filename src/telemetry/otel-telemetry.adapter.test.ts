@@ -4,7 +4,7 @@ import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor, type Re
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { SpanKind, SpanStatusCode, type Tracer, type Meter } from "@opentelemetry/api";
 import { ARRAY_CAP, OtelTelemetry, type CaptureMode } from "./otel-telemetry.adapter";
-import { createRunSecretScope } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
+import { createRunSecretScope } from "../../qa-engine/src/shared-infrastructure/redaction/run-secret-redaction";
 import type { TelemetryClock } from "@kernel/telemetry/telemetry.port";
 import { GENAI } from "@kernel/telemetry/genai-semconv";
 import { attrKey, lookupAttribute } from "@kernel/telemetry/attribute-registry";

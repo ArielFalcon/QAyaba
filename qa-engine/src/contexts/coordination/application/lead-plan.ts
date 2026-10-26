@@ -9,7 +9,7 @@
 
 import { LEAD_PLAN_KIND, type LeadPlanKind } from "@kernel/coordination.ts";
 import { normalizeGeoLocation, resolvePlace, type GeoLocation } from "@kernel/geolocation.ts";
-import { scrub } from "./scrub.ts";
+import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 
 export { LEAD_PLAN_KIND, type LeadPlanKind };
 
@@ -57,6 +57,8 @@ export interface PlanLimits {
 }
 
 export interface PlanDeps {
+  /* Where every free-form string the plan carries is redacted before it is kept. */
+  redaction: RedactionPort;
   /* The spec directory as the repository sees it (`e2e`). */
   specRelDir: string;
   /* The spec file, relative to the spec directory, that a flow's id names. */
@@ -95,8 +97,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function text(value: unknown, max: number): string {
-  return typeof value === "string" ? scrub(value).replace(/\s+/g, " ").trim().slice(0, max) : "";
+function text(redaction: RedactionPort, value: unknown, max: number): string {
+  return typeof value === "string" ? redaction.redact(value).replace(/\s+/g, " ").trim().slice(0, max) : "";
 }
 
 /* The id as a file-safe slug. An id that is nothing once cleaned is still a name, so two such flows are a duplicate and not a blank. */
@@ -105,9 +107,9 @@ function slugOf(value: unknown): string {
   return raw.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, MAX_FLOW_ID_CHARS).replace(/-+$/g, "") || "flow";
 }
 
-function strings(value: unknown, max: number, maxItems: number): string[] {
+function strings(redaction: RedactionPort, value: unknown, max: number, maxItems: number): string[] {
   if (!Array.isArray(value)) return [];
-  return value.map((item) => text(item, max)).filter((item) => item !== "").slice(0, maxItems);
+  return value.map((item) => text(redaction, item, max)).filter((item) => item !== "").slice(0, maxItems);
 }
 
 /* A segment that holds a stand-in for a value (`qa-bot-<run>-missing`, `{city}`) names a page of no fixed address: it is kept as a parameter. */
@@ -145,15 +147,15 @@ function locationOf(value: unknown, places: Readonly<Record<string, GeoLocation>
   return normalizeGeoLocation(value);
 }
 
-function rawFlowOf(value: unknown, places: Readonly<Record<string, GeoLocation>>): RawFlow | undefined {
+function rawFlowOf(value: unknown, places: Readonly<Record<string, GeoLocation>>, redaction: RedactionPort): RawFlow | undefined {
   if (!isRecord(value)) return undefined;
-  const objective = text(value.objective, MAX_OBJECTIVE_CHARS);
+  const objective = text(redaction, value.objective, MAX_OBJECTIVE_CHARS);
   if (objective === "") return undefined;
   const location = locationOf(value.location, places);
-  const acceptance = strings(value.acceptance, MAX_ACCEPTANCE_CHARS, MAX_ACCEPTANCE_ITEMS);
+  const acceptance = strings(redaction, value.acceptance, MAX_ACCEPTANCE_CHARS, MAX_ACCEPTANCE_ITEMS);
   const named = routesOf(value.routes);
   return {
-    id: slugOf(scrub(typeof value.id === "string" ? value.id : "")),
+    id: slugOf(redaction.redact(typeof value.id === "string" ? value.id : "")),
     objective,
     acceptance,
     routes: named.length > 0 ? named : routesOf(pathsIn([objective, ...acceptance])),
@@ -171,7 +173,7 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
   if (!isRecord(raw)) return leadAlone(PLAN_DOWNGRADE.MALFORMED);
 
   if (raw.kind === LEAD_PLAN_KIND.NOOP) {
-    const reason = text(raw.reason, MAX_NOOP_REASON_CHARS);
+    const reason = text(deps.redaction, raw.reason, MAX_NOOP_REASON_CHARS);
     return reason === "" ? leadAlone(PLAN_DOWNGRADE.MALFORMED) : { kind: LEAD_PLAN_KIND.NOOP, reason };
   }
   if (raw.kind === LEAD_PLAN_KIND.LEAD) return leadAlone();
@@ -181,7 +183,7 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
   if (raw.flows.length > limits.maxFlows) return leadAlone(PLAN_DOWNGRADE.OVER_LIMIT);
   const flows: RawFlow[] = [];
   for (const entry of raw.flows) {
-    const flow = rawFlowOf(entry, deps.places ?? {});
+    const flow = rawFlowOf(entry, deps.places ?? {}, deps.redaction);
     if (!flow) return leadAlone(PLAN_DOWNGRADE.MALFORMED);
     flows.push(flow);
   }

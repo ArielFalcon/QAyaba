@@ -13,7 +13,7 @@ import { GENAI } from "@kernel/telemetry/genai-semconv.ts";
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry.ts";
 import type { SpanHandle, TelemetryClock, TelemetryContext, TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import { activeExecScope, openDeniedWindow, withExecScopeParent } from "../../../../shared-infrastructure/process-sandbox/exec-scope.ts";
-import { activeRunSecretScope } from "../../../../shared-infrastructure/run-secret-redaction.ts";
+import { activeRunSecretScope } from "../../../../shared-infrastructure/redaction/run-secret-redaction.ts";
 import type { ToolAttemptDirectory } from "@contexts/generation/application/index.ts";
 
 /* What the shell hands the adapters to trace the calls they serve. Absent: nothing is traced. */

@@ -11,6 +11,8 @@ const repoRoot = join(import.meta.dirname, "..", "..");
 const CONTEXTS = "qa-engine/src/contexts";
 
 const SECURITY_RELEVANT_MODULES = [
+  "qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter.ts",
+  "qa-engine/src/shared-infrastructure/redaction/run-secret-redaction.ts",
   `${CONTEXTS}/app-catalog/infrastructure/auth-session.adapter.ts`,
   `${CONTEXTS}/app-catalog/application/ports/auth-session.port.ts`,
   `${CONTEXTS}/app-catalog/domain/auth-session.ts`,

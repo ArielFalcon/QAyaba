@@ -4,7 +4,7 @@ import type { LearningRule, ReflectionInput, StructuredReflection } from "../dom
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import { capRuleFields, correctionToErrorClass, decideDistill } from "../domain/distill-rule.ts";
 /* Default sanitize mode is "issue" — the same as every sibling reviewer/selector-authored field. */
-import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
+import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
 const DEDUP_SCAN_LIMIT = 200;
 

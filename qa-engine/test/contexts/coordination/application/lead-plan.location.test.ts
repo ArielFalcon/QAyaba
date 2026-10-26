@@ -1,11 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { admitLeadPlan, LEAD_PLAN_KIND, type AdmittedFlow, type AdmittedPlan } from "@contexts/coordination/application/lead-plan.ts";
 
 const BARCELONA = { latitude: 41.3874, longitude: 2.1686 };
 const MADRID = { latitude: 40.4168, longitude: -3.7038 };
 
 const deps = {
+  redaction: new PatternRedactionAdapter(),
   specRelDir: "e2e",
   specFileFor: (id: string) => `flows/${id}.spec.ts`,
   places: { barcelona: BARCELONA, madrid: MADRID },
@@ -43,7 +45,7 @@ test("without declared places a named location is dropped, and a point still wor
     admitLeadPlan(
       { kind: "fanout", flows: [flow("named", "barcelona"), flow("point", { latitude: 1, longitude: 2 })] },
       limits,
-      { specRelDir: "e2e", specFileFor: deps.specFileFor },
+      { redaction: deps.redaction, specRelDir: "e2e", specFileFor: deps.specFileFor },
     ),
   );
   assert.equal(admitted[0]!.location, undefined);

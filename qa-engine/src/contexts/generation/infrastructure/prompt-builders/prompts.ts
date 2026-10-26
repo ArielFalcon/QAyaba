@@ -2,7 +2,7 @@
 
 import { join } from "node:path";
 import { readConfinedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
-import { sanitizeText, assertNoSecretLeak, type SanitizeMode } from "../sanitize-text.ts";
+import { sanitizeText, assertNoSecretLeak, type RedactionMode } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { capText, capDiff, extractDiffFilePath } from "../prompt-cap.ts";
 import { failureUnsettled, type FailureSettle, type QaCase } from "@kernel/qa-case.ts";
 import { stripAnsi } from "@kernel/ansi.ts";
@@ -169,7 +169,7 @@ const CODE_FILE_EXTENSIONS = new Set([
   "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "java", "go", "rs", "kt", "cs", "rb", "php", "swift",
 ]);
 
-function diffSectionMode(filePath: string): SanitizeMode {
+function diffSectionMode(filePath: string): RedactionMode {
   const base = filePath.split("/").pop() ?? filePath;
   const dot = base.lastIndexOf(".");
   const ext = dot > 0 ? base.slice(dot + 1).toLowerCase() : "";
@@ -192,7 +192,7 @@ function cappedDiffText(diff: string): string {
   }
   return sections
     .map((section) => {
-      const mode: SanitizeMode = DIFF_HEADER_RE.test(section) ? diffSectionMode(extractDiffFilePath(section)) : "issue";
+      const mode: RedactionMode = DIFF_HEADER_RE.test(section) ? diffSectionMode(extractDiffFilePath(section)) : "issue";
       const redacted = sanitizeText(section, mode).text;
       assertNoSecretLeak(redacted, mode, "diff→model");
       return redacted;

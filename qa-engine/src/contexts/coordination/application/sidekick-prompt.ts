@@ -1,13 +1,14 @@
 /* Sidekick prompt assembly lives here so generation does not import DelegationBrief. Injected into SidekickExecutor.
-Free-form brief fields are scrubbed with sanitizeText at this egress — the same twin the lead/worker prompt builders use — so secrets never reach the provider. */
-import { scrub } from "./scrub.ts";
+Free-form brief fields are redacted through the RedactionPort at this egress, so secrets never reach the provider. */
+import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import { ACCEPTANCE_STATUSES } from "./acceptance-report.ts";
 
-export function renderSidekickBrief(brief: DelegationBrief): {
+export function renderSidekickBrief(redaction: RedactionPort, brief: DelegationBrief): {
   text: string;
   sectionSizes: Record<string, number>;
 } {
+  const scrub = (text: string): string => redaction.redact(text);
   const authority = [
     "## Authority (frozen — you cannot raise these)",
     `- canModifyArchitecture: ${brief.authority.canModifyArchitecture}`,

@@ -5,7 +5,7 @@ import type { VerdictParserPort } from "../application/ports/verdict-parser.port
 import type { GeneratorDeliverable, ReviewJudgment } from "../domain/manifest-repository.ts";
 import type { SpecMeta } from "@kernel/qa-case.ts";
 import { GENERATION_NOTE_MAX_CHARS } from "../domain/generation-end.ts";
-import { sanitizeText } from "./sanitize-text.ts";
+import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { boundReviewCorrections, boundReviewRationale, boundReviewText, reviewAnswerIsOversized, REVIEW_CORRECTION_MAX_CHARS, REVIEW_CORRECTIONS_MAX, REVIEW_RATIONALE_MAX_CHARS, REVIEW_RESPONSE_MAX_CHARS } from "../domain/review-output.ts";
 import type { NoopKind } from "@kernel/noop-kind.ts";
 

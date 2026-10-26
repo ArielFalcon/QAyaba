@@ -13,7 +13,7 @@ import type { ContextPackAssembly, ContextPackDeps } from "@contexts/generation/
 import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance.ts";
 import { readManifest } from "@contexts/generation/infrastructure/manifest-fs.ts";
-import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
+import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { extractExportedNames, isSafeAttributeName } from "@contexts/generation/application/index.ts";
 import { formatSuiteEntry } from "@contexts/generation/application/index.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";

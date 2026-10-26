@@ -1336,9 +1336,9 @@ Each is a genuine equivalent mutant: no test can observe it without asserting th
   mark); the numbers are the design's.
 
 **merge-guard** (`src/server/merge-guard.ts`)
-- `sanitize-text.ts` and `publication-port.adapter.ts` entries → `""` (StringLiteral ×2): both files
-  are also covered by a directory prefix entry; they are listed so narrowing that prefix cannot
-  unprotect them.
+- the `redaction/` directory entry and the `publication-port.adapter.ts` entry → `""` (StringLiteral ×2): the
+  adapter is also covered by a directory prefix entry; it is listed so narrowing that prefix cannot
+  unprotect it.
 - `assessChange` reasons — the `" | "` and `", "` list separators (StringLiteral ×2): each unreadable
   row and each protected file is still named.
 - `quotedLength` — `i < text.length` → `<=` (EqualityOperator): `text[text.length]` is undefined, so

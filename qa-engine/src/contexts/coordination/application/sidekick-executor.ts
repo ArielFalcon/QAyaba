@@ -1,7 +1,7 @@
 /* Sidekick executor: owns an AgentRuntimePort session for one DelegationBrief. Does not modify GenerateTestsUseCase. Model names stay out of this module — callers pass OpenSessionOpts.model for escalated capacity from external config. Free-form DelegationResult fields are scrubbed on parse — they re-enter lead context / notes. filesChanged paths are authority inputs (scope check, on-disk adoption) and stay raw; they are scrubbed only where echoed into a summary or concern. */
 import type { AgentRole } from "@kernel/agent-role.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
-import { scrub, scrubStrings } from "./scrub.ts";
+import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { AgentCapability } from "./agent-capability.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import {
@@ -29,6 +29,8 @@ export interface SidekickRender {
 }
 
 export interface SidekickExecutorDeps {
+  /* Where every free-form string a sidekick returns or is sent is redacted. */
+  redaction: RedactionPort;
   runtime: Pick<AgentRuntimePort, "openSession">;
   render?: SidekickRender;
 }
@@ -81,7 +83,8 @@ function asStringArray(value: unknown): string[] {
   return value.filter((x): x is string => typeof x === "string");
 }
 
-function parseDelegationResult(raw: unknown, brief: DelegationBrief): DelegationResult | undefined {
+function parseDelegationResult(raw: unknown, brief: DelegationBrief, redaction: RedactionPort): DelegationResult | undefined {
+  const scrub = (text: string): string => redaction.redact(text);
   if (!raw || typeof raw !== "object") return undefined;
   const o = raw as Record<string, unknown>;
   const status = o.status;
@@ -109,7 +112,7 @@ function parseDelegationResult(raw: unknown, brief: DelegationBrief): Delegation
         .filter((e): e is EvidenceRef => !!e && typeof e === "object" && typeof (e as EvidenceRef).id === "string")
         .map((e) => ({ ...e, summary: typeof e.summary === "string" ? scrub(e.summary) : e.summary }))
     : [];
-  const acceptance = readAcceptanceReport(o.acceptance, brief.acceptanceCriteria.length);
+  const acceptance = readAcceptanceReport(redaction, o.acceptance, brief.acceptanceCriteria.length);
   return {
     delegationId: o.delegationId,
     runId: o.runId,
@@ -118,28 +121,28 @@ function parseDelegationResult(raw: unknown, brief: DelegationBrief): Delegation
     filesChanged,
     evidence,
     validation,
-    assumptions: scrubStrings(asStringArray(o.assumptions)),
-    concerns: scrubStrings(asStringArray(o.concerns)),
-    unresolvedQuestions: scrubStrings(asStringArray(o.unresolvedQuestions)),
+    assumptions: asStringArray(o.assumptions).map(scrub),
+    concerns: asStringArray(o.concerns).map(scrub),
+    unresolvedQuestions: asStringArray(o.unresolvedQuestions).map(scrub),
     recommendation: recommendation as DelegationRecommendation,
     acceptance: acceptance.entries,
     ...(acceptance.defect ? { acceptanceReportDefect: acceptance.defect } : {}),
-    ...testCorrectOf(o.testCorrect),
+    ...testCorrectOf(o.testCorrect, redaction),
   };
 }
 
 const MAX_CLAIM_CHARS = 600;
 
 /* A well-formed test-correct claim, its reason scrubbed and capped; nothing for any other shape. */
-function testCorrectOf(value: unknown): { testCorrect?: { cause: "env" | "app"; reason: string } } {
+function testCorrectOf(value: unknown, redaction: RedactionPort): { testCorrect?: { cause: "env" | "app"; reason: string } } {
   if (!value || typeof value !== "object") return {};
   const { cause, reason } = value as { cause?: unknown; reason?: unknown };
   if ((cause !== "env" && cause !== "app") || typeof reason !== "string" || reason.trim() === "") return {};
-  return { testCorrect: { cause, reason: scrub(reason).trim().slice(0, MAX_CLAIM_CHARS) } };
+  return { testCorrect: { cause, reason: redaction.redact(reason).trim().slice(0, MAX_CLAIM_CHARS) } };
 }
 
-function failedResult(brief: DelegationBrief, summary: string): DelegationResult {
-  const safe = scrub(summary);
+function failedResult(brief: DelegationBrief, summary: string, redaction: RedactionPort): DelegationResult {
+  const safe = redaction.redact(summary);
   return {
     delegationId: brief.delegationId,
     runId: brief.runId,
@@ -178,7 +181,7 @@ export class SidekickExecutor {
   private readonly render: SidekickRender;
 
   constructor(private readonly deps: SidekickExecutorDeps) {
-    this.render = deps.render ?? renderSidekickBrief;
+    this.render = deps.render ?? ((brief) => renderSidekickBrief(deps.redaction, brief));
   }
 
   /* One answer in a session of its own, which ends with it. */
@@ -198,7 +201,7 @@ export class SidekickExecutor {
       descriptor: {
         runId: brief.runId,
         role,
-        objective: scrub(brief.objective),
+        objective: this.deps.redaction.redact(brief.objective),
         ...(opts.delegationId !== undefined ? { delegationId: opts.delegationId } : {}),
         ...(opts.denyTools?.length ? { denyTools: opts.denyTools } : {}),
       },
@@ -214,14 +217,14 @@ export class SidekickExecutor {
       const assembled = this.render(brief);
       /* A fresh session that has seen nothing gets the brief and any feedback in one prompt: answering the brief on its own first would spend the flow's budget on work that is then thrown away. */
       const text = opts.feedback
-        ? [assembled.text, ``, `## Feedback from lead`, scrub(opts.feedback), ``, contract].join("\n")
+        ? [assembled.text, ``, `## Feedback from lead`, this.deps.redaction.redact(opts.feedback), ``, contract].join("\n")
         : assembled.text;
       const { output } = await session.prompt(text, { sectionSizes: assembled.sectionSizes });
       const first = this.read(output, brief);
       return {
         first,
         ask: async (instruction, askOpts) => {
-          const followUp = [`## Feedback from lead`, scrub(instruction), ``, contract].join("\n");
+          const followUp = [`## Feedback from lead`, this.deps.redaction.redact(instruction), ``, contract].join("\n");
           const answer = await session.prompt(followUp, askOpts?.timeoutMs !== undefined ? { timeoutMs: askOpts.timeoutMs } : {});
           return this.read(answer.output, brief);
         },
@@ -234,19 +237,19 @@ export class SidekickExecutor {
   }
 
   private read(output: string, brief: DelegationBrief): DelegationResult {
-    const parsed = parseDelegationResult(extractJsonObject(output), brief);
-    if (!parsed) return failedResult(brief, "sidekick output was not a valid DelegationResult");
+    const parsed = parseDelegationResult(extractJsonObject(output), brief, this.deps.redaction);
+    if (!parsed) return failedResult(brief, "sidekick output was not a valid DelegationResult", this.deps.redaction);
     if (!belongsToBrief(parsed, brief.delegationId, brief.runId)) {
-      return failedResult(brief, "sidekick result did not belong to this brief");
+      return failedResult(brief, "sidekick result did not belong to this brief", this.deps.redaction);
     }
     const illegal = parsed.filesChanged.filter((f) => !isPathWithinWritableRoots(f.path, brief.scope.writablePaths));
     if (illegal.length > 0) {
       return {
         ...parsed,
         status: "blocked",
-        summary: scrub(`write outside writablePaths: ${illegal.map((f) => f.path).join(", ")}`),
+        summary: this.deps.redaction.redact(`write outside writablePaths: ${illegal.map((f) => f.path).join(", ")}`),
         recommendation: "escalate",
-        concerns: [...parsed.concerns, scrub(`paths outside scope: ${illegal.map((f) => f.path).join(", ")}`)],
+        concerns: [...parsed.concerns, this.deps.redaction.redact(`paths outside scope: ${illegal.map((f) => f.path).join(", ")}`)],
       };
     }
     return applyPushback(brief, parsed);

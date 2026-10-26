@@ -1,6 +1,6 @@
 
 import { REDACTED, SecretLeakError, type RedactionPort } from "../../qa-engine/src/shared-kernel/ports/redaction.port";
-import { redactByValueCounted } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
+import { redactByValueCounted } from "../../qa-engine/src/shared-infrastructure/redaction/run-secret-redaction";
 
 /*
  * Sanitize data leaving the system — execution logs → Issue. Secrets are injected at
@@ -294,8 +294,12 @@ export function redactSourceForModel(text: string, env: Record<string, string | 
 export class RedactionPortAdapter implements RedactionPort {
   constructor(private readonly env: Record<string, string | undefined> = process.env) {}
 
-  redact(text: string): string {
-    return sanitizeText(stripEnvValues(text, this.env)).text;
+  redact(text: string, mode: SanitizeMode = "issue"): string {
+    return sanitizeText(stripEnvValues(text, this.env), mode).text;
+  }
+
+  detect(text: string, mode: SanitizeMode = "issue"): SecretDetection {
+    return sanitizeText(stripEnvValues(text, this.env), mode).detection;
   }
 
 
@@ -308,8 +312,8 @@ export class RedactionPortAdapter implements RedactionPort {
     return this.redact(raw);
   }
 
-  containsSecret(text: string): boolean {
-    return containsSecrets(text);
+  containsSecret(text: string, mode: SanitizeMode = "issue"): boolean {
+    return containsSecrets(text, mode);
   }
 }
 

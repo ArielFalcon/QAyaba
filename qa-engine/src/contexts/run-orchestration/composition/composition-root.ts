@@ -76,6 +76,7 @@ import { CrossRepoImpactPortAdapter } from "../../service-topology/infrastructur
 import { GitMirrorReadAdapter } from "@contexts/change-analysis/infrastructure/git-mirror-read.adapter.ts";
 import type { ExecScopePort } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
+import { PatternRedactionAdapter } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { readConfinedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
 
 import { GenerateTestsUseCase, type GenerationResult, type GenerateOpts } from "@contexts/generation/application/generate-tests.use-case.ts";
@@ -373,6 +374,9 @@ export interface CompositionConfig {
   /* What lead and sidekicks need from the shell. Optional, no stub: absent (or a code target) omits RunQaUseCaseDeps.leadSidekicks and a run is authored by its lead alone. */
   delegation?: DelegationWiring;
 }
+
+/* The pattern redaction every coordinated free-form string passes through. */
+const patternRedaction = new PatternRedactionAdapter();
 
 const DEFAULT_DEPLOY_GATE_INTERVAL_MS = 2000;
 const DEFAULT_DEPLOY_GATE_TIMEOUT_MS = 60000;
@@ -723,7 +727,8 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
               sidekickProvider: cfg.delegation.sidekickProvider,
               plannerProvider: cfg.delegation.plannerProvider,
               leadSidekicks: new LeadSidekicks({
-                sidekick: new SidekickExecutor({ runtime: cfg.reviewRuntime.runtime }),
+                redaction: patternRedaction,
+                sidekick: new SidekickExecutor({ runtime: cfg.reviewRuntime.runtime, redaction: patternRedaction }),
                 workspaces: new FsDelegationWorkspaceAdapter({ root: cfg.delegation.workspaceRoot }),
                 timers: systemTimers,
                 telemetry: coordinationTelemetry,

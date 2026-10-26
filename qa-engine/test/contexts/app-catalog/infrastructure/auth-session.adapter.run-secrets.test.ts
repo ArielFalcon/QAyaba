@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { REDACTED } from "@kernel/ports/redaction.port.ts";
 import { AuthSessionAdapter, type AuthSessionAdapterDeps } from "@contexts/app-catalog/infrastructure/auth-session.adapter.ts";
-import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../../src/shared-infrastructure/run-secret-redaction.ts";
+import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../../src/shared-infrastructure/redaction/run-secret-redaction.ts";
 
 const dir = (prefix: string): string => mkdtempSync(join(tmpdir(), prefix));
 

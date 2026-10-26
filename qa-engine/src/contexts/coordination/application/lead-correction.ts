@@ -10,7 +10,7 @@
  */
 
 import { REVIEW_ACTION, MAX_INSTRUCTION_CHARS, MAX_SPEC_CHARS, firstJsonObject } from "./lead-review.ts";
-import { scrub } from "./scrub.ts";
+import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 
 const MAX_REF_CHARS = 400;
 const MAX_REASON_CHARS = 400;
@@ -146,7 +146,8 @@ function cut(text: string, max: number): string {
 }
 
 /* The correction turn's prompt: the flows, the findings numbered, and the answer it reads. */
-export function renderLeadCorrection(flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): string {
+export function renderLeadCorrection(redaction: RedactionPort, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): string {
+  const scrub = (text: string): string => redaction.redact(text);
   const owner = findings.map((finding) => flowOfFinding(finding, flows));
   const line = (index: number): string => `${index + 1}. ${scrub(findings[index]!.text)}`;
   const blocks = flows.flatMap((flow) => {
@@ -179,11 +180,11 @@ export function renderLeadCorrection(flows: readonly FlowUnderCorrection[], find
   ].filter(Boolean).join("\n\n");
 }
 
-function textOf(value: unknown, max: number): string {
-  return typeof value === "string" ? scrub(value).trim().slice(0, max) : "";
+function textOf(redaction: RedactionPort, value: unknown, max: number): string {
+  return typeof value === "string" ? redaction.redact(value).trim().slice(0, max) : "";
 }
 
-export function admitLeadCorrection(output: string, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): CorrectionAdmission {
+export function admitLeadCorrection(redaction: RedactionPort, output: string, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): CorrectionAdmission {
   const admission: CorrectionAdmission = { readable: false, orders: [], rebuttals: [], unrouted: [], refused: [] };
   const owner = findings.map((finding) => flowOfFinding(finding, flows));
   const byId = new Map(flows.map((flow) => [flow.id, flow]));
@@ -211,7 +212,7 @@ export function admitLeadCorrection(output: string, flows: readonly FlowUnderCor
         }
         if (owner[index] === undefined) extra.add(index);
       }
-      routed.set(flow.id, { action, instruction: textOf(e.instruction, MAX_INSTRUCTION_CHARS), extra });
+      routed.set(flow.id, { action, instruction: textOf(redaction, e.instruction, MAX_INSTRUCTION_CHARS), extra });
     }
     /* A fact the run observed is not the lead's to withdraw: rebuttals are read only for the reviewer's findings. */
     for (const entry of rebuttable(origin) && Array.isArray(raw!.rebuttals) ? raw!.rebuttals : []) {
@@ -219,10 +220,10 @@ export function admitLeadCorrection(output: string, flows: readonly FlowUnderCor
       const e = entry as Record<string, unknown>;
       const index = numberOf(e.finding);
       const basis = e.basis === "execution" || e.basis === "contract" ? e.basis : undefined;
-      const ref = textOf(e.ref, MAX_REF_CHARS);
+      const ref = textOf(redaction, e.ref, MAX_REF_CHARS);
       if (index === undefined || !basis || ref === "" || rebutted.has(index)) continue;
       rebutted.add(index);
-      admission.rebuttals.push({ finding: findings[index]!.text, basis, ref, reason: textOf(e.reason, MAX_REASON_CHARS) });
+      admission.rebuttals.push({ finding: findings[index]!.text, basis, ref, reason: textOf(redaction, e.reason, MAX_REASON_CHARS) });
     }
   }
 

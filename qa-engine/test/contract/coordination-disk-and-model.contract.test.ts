@@ -6,6 +6,9 @@ import {
   applyPushback,
   createDelegationBrief,
 } from "@contexts/coordination/application/index.ts";
+import { PatternRedactionAdapter } from "../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
+
+const redaction = new PatternRedactionAdapter();
 
 test("classifyDelegationFailure: failed and blocked statuses are always a contract failure", () => {
   assert.equal(classifyDelegationFailure("failed", 0, 0), "failed");
@@ -36,7 +39,7 @@ test("resolveSidekickModel only returns model for sidekick-escalated", () => {
 });
 
 test("pushback rejects path escape even with code-mode root '.'", () => {
-  const brief = createDelegationBrief({
+  const brief = createDelegationBrief({ redaction,
     delegationId: "d1",
     runId: "r1",
     objective: "x",
@@ -62,7 +65,7 @@ test("pushback rejects path escape even with code-mode root '.'", () => {
 });
 
 test("pushback allows relative project path under code-mode root '.'", () => {
-  const brief = createDelegationBrief({
+  const brief = createDelegationBrief({ redaction,
     delegationId: "d1",
     runId: "r1",
     objective: "x",

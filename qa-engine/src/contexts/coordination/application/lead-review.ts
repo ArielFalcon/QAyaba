@@ -10,7 +10,7 @@
 
 import { namesTemplatePage } from "@contexts/generation/application/index.ts";
 import { FLOW_OUTCOME, type FlowOutcome } from "./flow-outcomes.ts";
-import { scrub } from "./scrub.ts";
+import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 
 export const REVIEW_ACTION = {
   ACCEPT: "accept",
@@ -67,27 +67,27 @@ function cut(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}\n… (cut at ${max} characters)` : text;
 }
 
-function runSpecLine(flow: FlowUnderReview): string {
+function runSpecLine(redaction: RedactionPort, flow: FlowUnderReview): string {
   if (!flow.runSpec) return "run_spec: not available to this flow.";
   const { calls, maxCalls, lastStatus, lastFailure } = flow.runSpec;
   const verified = flow.verified ? "the spec it holds now is the one that passed" : "the spec it holds now has NOT passed run_spec";
   return [
     `run_spec: ${calls} of ${maxCalls} calls used${lastStatus ? `; last call ${lastStatus}` : ""}; ${verified}.`,
-    lastFailure ? `Last failure: ${scrub(lastFailure)}` : "",
+    lastFailure ? `Last failure: ${redaction.redact(lastFailure)}` : "",
   ].filter(Boolean).join("\n");
 }
 
-function flowBlock(flow: FlowUnderReview): string {
+function flowBlock(redaction: RedactionPort, flow: FlowUnderReview): string {
   return [
     `### Flow \`${flow.id}\``,
-    `Objective: ${scrub(flow.objective)}`,
-    flow.acceptance.length > 0 ? ["Acceptance:", ...flow.acceptance.map((a, i) => `${i + 1}. ${scrub(a)}`)].join("\n") : "",
-    `Outcome: ${flow.outcome.kind}${flow.outcome.reason ? ` (${scrub(flow.outcome.reason)})` : ""}`,
-    flow.summary ? `Sidekick says: ${scrub(flow.summary)}` : "",
-    flow.concerns.length > 0 ? `Sidekick concerns: ${flow.concerns.map(scrub).join("; ")}` : "",
-    runSpecLine(flow),
-    flow.appDefect ? `App defect shown by its run: ${scrub(flow.appDefect)}. It is reported as it ran and is never sent back to be made green.` : "",
-    flow.spec !== undefined ? ["Spec:", "```ts", cut(scrub(flow.spec), MAX_SPEC_CHARS), "```"].join("\n") : "Spec: none delivered.",
+    `Objective: ${redaction.redact(flow.objective)}`,
+    flow.acceptance.length > 0 ? ["Acceptance:", ...flow.acceptance.map((a, i) => `${i + 1}. ${redaction.redact(a)}`)].join("\n") : "",
+    `Outcome: ${flow.outcome.kind}${flow.outcome.reason ? ` (${redaction.redact(flow.outcome.reason)})` : ""}`,
+    flow.summary ? `Sidekick says: ${redaction.redact(flow.summary)}` : "",
+    flow.concerns.length > 0 ? `Sidekick concerns: ${flow.concerns.map((concern) => redaction.redact(concern)).join("; ")}` : "",
+    runSpecLine(redaction, flow),
+    flow.appDefect ? `App defect shown by its run: ${redaction.redact(flow.appDefect)}. It is reported as it ran and is never sent back to be made green.` : "",
+    flow.spec !== undefined ? ["Spec:", "```ts", cut(redaction.redact(flow.spec), MAX_SPEC_CHARS), "```"].join("\n") : "Spec: none delivered.",
   ].filter(Boolean).join("\n");
 }
 
@@ -126,7 +126,7 @@ function changePagesBlock(pages: ChangePages, last: boolean): string {
 }
 
 /* The review turn's prompt: the flows as the orchestrator knows them, the change pages no passing flow covers, and the answer it reads. */
-export function renderLeadReview(flows: readonly FlowUnderReview[], turn: { turn: number; maxTurns: number }, changePages?: ChangePages): string {
+export function renderLeadReview(redaction: RedactionPort, flows: readonly FlowUnderReview[], turn: { turn: number; maxTurns: number }, changePages?: ChangePages): string {
   const last = turn.turn >= turn.maxTurns;
   return [
     `## Review of the flows (turn ${turn.turn} of ${turn.maxTurns})`,
@@ -135,7 +135,7 @@ export function renderLeadReview(flows: readonly FlowUnderReview[], turn: { turn
     last
       ? "This is the last review: each flow can only be accepted or dropped."
       : `"revise" sends your instruction to the same sidekick, which keeps what it learned; "replace" starts a fresh sidekick on the flow, for one that is stuck. Be specific: name the assertion, the page or the fact to fix.`,
-    ...flows.map(flowBlock),
+    ...flows.map((flow) => flowBlock(redaction, flow)),
     ...(changePages ? [changePagesBlock(changePages, last)] : []),
     "## Answer",
     `Answer with this JSON object and nothing else; a flow you do not name stays as it is. Actions: "${REVIEW_ACTION.ACCEPT}", "${REVIEW_ACTION.REVISE}" (needs an instruction), "${REVIEW_ACTION.REPLACE}", "${REVIEW_ACTION.DROP}" (a flow that delivered nothing, with a reason).`,
@@ -172,19 +172,19 @@ export function firstJsonObject(text: string): unknown {
   return undefined;
 }
 
-function textOf(value: unknown, max: number): string {
-  return typeof value === "string" ? scrub(value).trim().slice(0, max) : "";
+function textOf(redaction: RedactionPort, value: unknown, max: number): string {
+  return typeof value === "string" ? redaction.redact(value).trim().slice(0, max) : "";
 }
 
 const ACTIONS = new Set<string>(Object.values(REVIEW_ACTION));
 
 /* What the orchestrator tells a sidekick whose spec was accepted before it passed. */
-function verifyInstruction(flow: FlowUnderReview): string {
-  const failure = flow.runSpec?.lastFailure ? ` Its last failure: ${scrub(flow.runSpec.lastFailure)}` : "";
+function verifyInstruction(redaction: RedactionPort, flow: FlowUnderReview): string {
+  const failure = flow.runSpec?.lastFailure ? ` Its last failure: ${redaction.redact(flow.runSpec.lastFailure)}` : "";
   return `Your spec has not passed run_spec on its current bytes.${failure} Run it, make it pass without weakening an assertion, and report again.`;
 }
 
-export function admitLeadReview(output: string, flows: readonly FlowUnderReview[], opts: { revisionsAllowed: boolean }): ReviewAdmission {
+export function admitLeadReview(redaction: RedactionPort, output: string, flows: readonly FlowUnderReview[], opts: { revisionsAllowed: boolean }): ReviewAdmission {
   const admission: ReviewAdmission = { readable: false, orders: [], accepted: [], dropped: [], refused: [] };
   const raw = firstJsonObject(output);
   if (!raw || typeof raw !== "object" || !Array.isArray((raw as { review?: unknown }).review)) return admission;
@@ -205,8 +205,8 @@ export function admitLeadReview(output: string, flows: readonly FlowUnderReview[
     const action = typeof e.action === "string" && ACTIONS.has(e.action) ? (e.action as ReviewAction) : undefined;
     if (!flow || !action || seen.has(flow.id)) continue;
     seen.add(flow.id);
-    const instruction = textOf(e.instruction, MAX_INSTRUCTION_CHARS);
-    const reason = textOf(e.reason, MAX_REASON_CHARS);
+    const instruction = textOf(redaction, e.instruction, MAX_INSTRUCTION_CHARS);
+    const reason = textOf(redaction, e.reason, MAX_REASON_CHARS);
     const delivered = flow.outcome.kind === FLOW_OUTCOME.DELIVERED;
 
     switch (action) {
@@ -224,7 +224,7 @@ export function admitLeadReview(output: string, flows: readonly FlowUnderReview[
         }
         if (opts.revisionsAllowed) {
           refuse(flow.id, action, "the spec has not passed run_spec on its current bytes; it is sent back with the orchestrator's facts");
-          order(flow, REVIEW_ACTION.REVISE, verifyInstruction(flow));
+          order(flow, REVIEW_ACTION.REVISE, verifyInstruction(redaction, flow));
         } else {
           refuse(flow.id, action, "the spec has not passed run_spec on its current bytes and no review turn is left; the run's execution judges it");
           admission.accepted.push(flow.id);
@@ -234,7 +234,7 @@ export function admitLeadReview(output: string, flows: readonly FlowUnderReview[
       case REVIEW_ACTION.REVISE:
       case REVIEW_ACTION.REPLACE: {
         if (flow.appDefect !== undefined) {
-          refuse(flow.id, action, `the flow showed an app defect (${scrub(flow.appDefect)}), which is never sent back to be made green`);
+          refuse(flow.id, action, `the flow showed an app defect (${redaction.redact(flow.appDefect)}), which is never sent back to be made green`);
           break;
         }
         if (!opts.revisionsAllowed) {

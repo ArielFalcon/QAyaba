@@ -10,7 +10,10 @@ import {
   type PlanLimits,
 } from "@contexts/coordination/application/lead-plan.ts";
 
+import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
+
 const deps: PlanDeps = {
+  redaction: new PatternRedactionAdapter(),
   specRelDir: "e2e",
   specFileFor: (id) => `flows/${id}.spec.ts`,
 };

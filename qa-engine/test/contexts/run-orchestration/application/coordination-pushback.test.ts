@@ -8,6 +8,9 @@ import {
   type DelegationBrief,
   type DelegationResult,
 } from "@contexts/coordination/application/index.ts";
+import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
+
+const redaction = new PatternRedactionAdapter();
 
 /* Pushback is the external authority check on a sidekick's DelegationResult: what it reports as
    findings, and whether it blocks the delegation. */
@@ -15,7 +18,7 @@ import {
 const CRITERION = "Failing cases pass on re-execute";
 
 function brief(overrides: Partial<Parameters<typeof createDelegationBrief>[0]> = {}): DelegationBrief {
-  return createDelegationBrief({
+  return createDelegationBrief({ redaction,
     delegationId: "d1",
     runId: "r1",
     objective: "Repair failing QA specs",
