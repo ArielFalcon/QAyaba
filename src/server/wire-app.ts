@@ -10,7 +10,8 @@ import { describeAppLoadFailure, loadAppConfig, listAppConfigs } from "../orches
 
 import { YamlAppConfigAdapter } from "../../qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter";
 import { routeApi } from "./api";
-import type { ApiDeps, RunObservabilityRequest } from "./api/deps";
+import type { ApiDeps } from "./api/deps";
+import type { ApiRunRequest } from "./api/run-request";
 import { authorizeBearer, createLocalConsoleLogin, issueSession } from "./auth";
 import { verifyGithubIdentity, authorizeUser } from "./github-auth";
 import { createFixedWindowLimiter } from "./rate-limit";
@@ -365,17 +366,17 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
   const { triggerMaintainer, confirmSwapAfterBoot, recoverMaintainerState, recoverRollbackRecord } = maintainer;
 
   /* One path for the control API and the webhook; the trigger is what tells their runs apart in the trace. */
-  function enqueueRunFrom(trigger: "api" | "webhook", app: string, sha: string, target: string, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean, agentBrowser?: boolean, observability?: RunObservabilityRequest, grounding?: import("../contract/commands").GroundingInput): string {
+  function enqueueRunFrom(trigger: "api" | "webhook", request: ApiRunRequest): string {
     if (lifecycle.shuttingDown()) {
-      console.warn(`[qa] rejecting run ${app}@${sha} — shutting down`);
+      console.warn(`[qa] rejecting run ${request.app}@${request.sha} — shutting down`);
       return "";
     }
 
-    return enqueueTrackedRun(queue, { app, sha, target: target as TestTarget, mode, guidance, shadow, commits, source: "webhook", trigger, triggerRepo, baseSha, ...(closedLoop !== undefined ? { closedLoop } : {}), ...(agentBrowser !== undefined ? { agentBrowser } : {}), ...(observability?.campaign ? { campaign: observability.campaign } : {}), ...(observability?.captureMode ? { captureMode: observability.captureMode } : {}), ...(grounding ? { grounding } : {}) }, runnerDeps());
+    return enqueueTrackedRun(queue, { ...request, source: "webhook", trigger }, runnerDeps());
   }
 
-  const enqueueApiRun: ApiDeps["enqueue"] = (...args) => enqueueRunFrom("api", ...args);
-  const enqueueWebhookRun: ApiDeps["enqueue"] = (...args) => enqueueRunFrom("webhook", ...args);
+  const enqueueApiRun: ApiDeps["enqueue"] = (request) => enqueueRunFrom("api", request);
+  const enqueueWebhookRun: ApiDeps["enqueue"] = (request) => enqueueRunFrom("webhook", request);
 
   /*
    * Orphan-session sweep threshold. Must always exceed the longest possible agent

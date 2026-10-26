@@ -2,9 +2,7 @@
 
 import type { z } from "zod";
 import type { TelemetryBackendsHealth, TelemetryHealth } from "../../telemetry/telemetry-health";
-import type { CampaignIdentity } from "../../contract/campaign";
-import type { CaptureMode } from "@kernel/telemetry/capture-mode";
-import type { RunMode, TestTarget, RunRecord } from "../../types";
+import type { RunRecord } from "../../types";
 import type { AppConfig } from "../../orchestrator/config-loader";
 import type { CreateAppInput as AdminCreateAppInput, CreateAppResult, UpdateAppInput as AdminUpdateAppInput } from "../app-admin";
 import type {
@@ -22,13 +20,13 @@ import type {
   ReportViewSchema,
   RunReportViewSchema,
   TelemetryHealthView,
-  GroundingInput,
 } from "../../contract/commands";
 import type { RunEventStore } from "../run-events";
 import type { AgentTurnRecord } from "../persistence/repositories/telemetry.repository";
 import type { TelemetryAnalysis } from "../persistence/telemetry-analysis.query";
 import type { EvaluationService } from "../evaluation-service";
 import type { RunViewExtras } from "../run-view";
+import type { ApiRunRequest } from "./run-request";
 
 /*
  * Outcome of exchanging a GitHub user token for a server session: a minted session on
@@ -38,15 +36,10 @@ export type LoginOutcome =
   | { ok: true; token: string; username: string; expiresAt: string }
   | { ok: false; reason: "identity" | "forbidden" };
 
-/* What a run request adds for the evaluation side: the campaign replicate it is, and the content capture it asks for (the funnel caps it). Neither changes what the run does. */
-export interface RunObservabilityRequest {
-  campaign?: CampaignIdentity;
-  captureMode?: CaptureMode;
-}
-
 export interface ApiDeps {
   queue: { readonly size: number };
-  enqueue(app: string, sha: string, target: TestTarget, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean, agentBrowser?: boolean, observability?: RunObservabilityRequest, grounding?: GroundingInput): string;
+  /* Queues a run and returns its id ("" while shutting down). One path serves the API and the webhook. */
+  enqueue(request: ApiRunRequest): string;
   loadApp(name: string): AppConfig;  /* throws AppNotFoundError when the app has no config and AppConfigInvalidError when its config cannot be loaded */
   listApps(): AppConfig[];
   resolveRef(repo: string, ref: string): Promise<string>;

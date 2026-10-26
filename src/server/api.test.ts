@@ -465,7 +465,7 @@ test("POST /api/v1/runs forwards a baseSha to the enqueue so the run's diff span
   await routeApi(
     mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", baseSha: "def5678", mode: "diff", target: "e2e" })),
     res,
-    deps({ enqueue: (_app, _sha, _target, _mode, _guidance, _shadow, _commits, _triggerRepo, baseSha) => { seenBaseSha = baseSha; return "run-range"; } }),
+    deps({ enqueue: (req) => { seenBaseSha = req.baseSha; return "run-range"; } }),
   );
   assert.equal(res.status, 202);
   assert.equal(seenBaseSha, "def5678");
@@ -477,7 +477,7 @@ test("POST /api/v1/runs without a baseSha enqueues a plain single-commit run", a
   await routeApi(
     mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e" })),
     res,
-    deps({ enqueue: (_app, _sha, _target, _mode, _guidance, _shadow, _commits, _triggerRepo, baseSha) => { seenBaseSha = baseSha; return "run-plain"; } }),
+    deps({ enqueue: (req) => { seenBaseSha = req.baseSha; return "run-plain"; } }),
   );
   assert.equal(res.status, 202);
   assert.equal(seenBaseSha, undefined);
@@ -502,7 +502,7 @@ test("POST /api/runs accepts context mode", async () => {
   await routeApi(
     mkReq("POST", "/api/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "context" })),
     res,
-    deps({ enqueue: (_app, _sha, _target, mode) => { seenMode = mode; return "run-context"; } }),
+    deps({ enqueue: (req) => { seenMode = req.mode; return "run-context"; } }),
   );
   assert.equal(res.status, 202);
   assert.equal(seenMode, "context");
@@ -1025,6 +1025,16 @@ test("DELETE /api/runs/:id for a non-running run → 409", async () => {
   );
   assert.equal(ok, true);
   assert.equal(res.status, 409);
+});
+
+test("POST /api/v1/runs hands the enqueue exactly the fields the caller set", async () => {
+  const seen: Array<Record<string, unknown>> = [];
+  const enqueue: ApiDeps["enqueue"] = (req) => { seen.push(req); return "run-new"; };
+  await routeApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e" })), mkRes(), deps({ enqueue }));
+  assert.deepEqual(Object.keys(seen[0]!).sort(), ["app", "mode", "sha", "target"]);
+  await routeApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", baseSha: "def5678", guidance: "g", commits: 2, shadow: false, closedLoop: false })), mkRes(), deps({ enqueue }));
+  assert.deepEqual(Object.keys(seen[1]!).sort(), ["app", "baseSha", "closedLoop", "commits", "guidance", "mode", "sha", "shadow", "target"]);
+  assert.equal(seen[1]!.shadow, false);
 });
 
 test("POST /api/runs/:id/continue enqueues a continuation of the failed cases → 202", async () => {
@@ -1695,7 +1705,7 @@ test("login-bootstrap is a POST only: a GET on the path is not the route", async
 
 test("POST /api/v1/runs forwards a run's own choice about the run_spec loop, and a plain run carries none", async () => {
   const seen: Array<boolean | undefined> = [];
-  const enqueue: ApiDeps["enqueue"] = (_app, _sha, _target, _mode, _guidance, _shadow, _commits, _triggerRepo, _baseSha, closedLoop) => { seen.push(closedLoop); return "run-loop"; };
+  const enqueue: ApiDeps["enqueue"] = (req) => { seen.push(req.closedLoop); return "run-loop"; };
   for (const body of [{ closedLoop: true }, { closedLoop: false }, {}]) {
     const res = mkRes();
     await routeApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e", ...body })), res, deps({ enqueue }));
@@ -1715,7 +1725,7 @@ test("POST /api/v1/runs rejects a closedLoop that is not a boolean (nothing is e
 
 test("POST /api/v1/runs forwards a run's own choice about the agent browser, and a plain run carries none", async () => {
   const seen: Array<boolean | undefined> = [];
-  const enqueue: ApiDeps["enqueue"] = (_app, _sha, _target, _mode, _guidance, _shadow, _commits, _triggerRepo, _baseSha, _closedLoop, agentBrowser) => { seen.push(agentBrowser); return "run-browser"; };
+  const enqueue: ApiDeps["enqueue"] = (req) => { seen.push(req.agentBrowser); return "run-browser"; };
   for (const body of [{ agentBrowser: true }, { agentBrowser: false }, {}]) {
     const res = mkRes();
     await routeApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e", ...body })), res, deps({ enqueue }));

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { routeApi } from "./api";
 import type { ApiDeps } from "./api/deps";
+import type { ApiRunRequest } from "./api/run-request";
 import { AppNotFoundError } from "../orchestrator/config-loader";
 import { RegradeRequestError } from "@contexts/evaluation/application/index";
 import { GRADER_CATALOG } from "@contexts/evaluation/application/index";
@@ -288,15 +289,16 @@ test("GET /runs/:id carries the campaign and the effectiveConfig exactly in the 
 });
 
 test("POST /runs hands the campaign and the requested capture mode to the enqueue, and nothing else of them", async () => {
-  const seen: unknown[] = [];
-  const d = deps({ enqueue: (...args) => { seen.push(args); return "run-new"; } });
+  const seen: ApiRunRequest[] = [];
+  const d = deps({ enqueue: (req) => { seen.push(req); return "run-new"; } });
   const campaign = { id: "ab-1", variant: { arm: "treatment", model: "m1" }, replicate: 2 };
   const ok = await call("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", campaign, captureMode: "full" }), d);
   assert.equal(ok.status, 202);
-  const args = seen[0] as unknown[];
-  assert.deepEqual(args[11], { campaign, captureMode: "full" });
+  assert.deepEqual(seen[0]!.campaign, campaign);
+  assert.equal(seen[0]!.captureMode, "full");
   await call("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234" }), d);
-  assert.deepEqual((seen[1] as unknown[])[11], {});
+  assert.equal("campaign" in seen[1]!, false);
+  assert.equal("captureMode" in seen[1]!, false);
 });
 
 test("POST /runs refuses a malformed campaign or capture mode with a 400 that carries schemaVersion", async () => {

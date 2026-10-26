@@ -1,4 +1,5 @@
 import { afterEach, test } from "node:test";
+import type { ApiRunRequest } from "./api/run-request";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { createServer, type Server } from "node:http";
@@ -16,7 +17,7 @@ afterEach(async () => {
 type Match = { app: { name: string; code?: unknown }; role: "primary" | "service" };
 
 async function start(over: Partial<WebhookHandlerDeps> & { matches?: Match[]; resolveFails?: boolean } = {}) {
-  const enqueued: unknown[][] = [];
+  const enqueued: ApiRunRequest[] = [];
   const logs: Array<{ level: string; message: string }> = [];
   const handler = createWebhookHandler({
     secret: SECRET,
@@ -29,7 +30,7 @@ async function start(over: Partial<WebhookHandlerDeps> & { matches?: Match[]; re
         return (over.matches ?? [{ app: { name: "shop" }, role: "primary" }]) as never;
       },
     },
-    enqueue: ((...args: unknown[]) => { enqueued.push(args); return "run-1"; }) as WebhookHandlerDeps["enqueue"],
+    enqueue: (request) => { enqueued.push(request); return "run-1"; },
     shuttingDown: () => false,
     log: (level, message) => logs.push({ level, message }),
     ...over,
@@ -77,8 +78,18 @@ test("a signed delivery enqueues one run per app it dispatches to", async () => 
   const res = await post(url, body, { "x-hub-signature-256": sign(body) });
   assert.equal(res.status, 202);
   assert.equal(enqueued.length, 2);
-  assert.deepEqual(enqueued.map((args) => args[0]), ["shop", "admin"]);
-  assert.ok(enqueued.every((args) => args[1] === SHA));
+  assert.deepEqual(enqueued.map((request) => request.app), ["shop", "admin"]);
+  assert.ok(enqueued.every((request) => request.sha === SHA));
+});
+
+test("a delivery's run request carries the service repo that triggered it and sets no field it has no value for", async () => {
+  const { url, enqueued } = await start({ matches: [{ app: { name: "shop" }, role: "primary" }, { app: { name: "admin" }, role: "service" }] });
+  const body = JSON.stringify({ repo: "o/shop", sha: SHA });
+  await post(url, body, { "x-hub-signature-256": sign(body) });
+  const [primary, service] = enqueued;
+  assert.deepEqual(Object.keys(primary!).sort(), ["app", "mode", "sha", "target"]);
+  assert.equal(service!.triggerRepo, "o/shop");
+  assert.ok(enqueued.every((request) => Object.values(request).every((value) => value !== undefined)));
 });
 
 test("a delivery with a wrong signature is refused and enqueues nothing", async () => {

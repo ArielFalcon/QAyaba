@@ -68,7 +68,7 @@ export function createWebhookHandler(deps: WebhookHandlerDeps): (req: IncomingMe
         if (dispatch.length === 0) deps.log("warn", "no config/apps entry for repo; event ignored", { repo });
         for (const d of dispatch) {
           try {
-            deps.enqueue(d.app, sha, d.target, d.mode, d.guidance, undefined, undefined, d.triggerRepo, d.baseSha);
+            deps.enqueue({ ...d, sha });
           } catch (err) {
             deps.log("error", "webhook enqueue failed", { error: err instanceof Error ? err.message : String(err), repo, sha });
             json(res, 500, { message: "internal error — run could not be enqueued" });

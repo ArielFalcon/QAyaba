@@ -6,7 +6,8 @@ import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import { RUN_MODES, type RunMode, type TestTarget } from "../../../types";
 import { CampaignCaptureMismatchError } from "../../campaign-capture";
 import { ApiError } from "../api-error";
-import type { ApiDeps, RunObservabilityRequest } from "../deps";
+import type { ApiDeps } from "../deps";
+import { apiRunRequest } from "../run-request";
 import { reply, type ApiResult } from "../respond";
 import { loadApp, redactionPort } from "../support";
 
@@ -89,11 +90,9 @@ export async function createRun(deps: ApiDeps, body: Record<string, unknown>): P
     if (!parsed.success) throw new ApiError(400, `'grounding' is invalid: ${parsed.error.issues.map((i) => i.message).join("; ")}`);
     grounding = parsed.data;
   }
-  const observability: RunObservabilityRequest = { ...(campaign ? { campaign } : {}), ...(captureMode ? { captureMode } : {}) };
-
   let id: string;
   try {
-    id = deps.enqueue(appConfig.name, sha, target, mode, guidance, shadow, commits, undefined, baseSha, closedLoop, agentBrowser, observability, grounding);
+    id = deps.enqueue(apiRunRequest({ app: appConfig.name, sha, target, mode }, { guidance, shadow, commits, baseSha, closedLoop, agentBrowser, campaign, captureMode, grounding }));
   } catch (err) {
     if (err instanceof CampaignCaptureMismatchError) throw new ApiError(409, err.message);
     throw new ApiError(500, `failed to enqueue run: ${redactionPort.redactError(err)}`);
