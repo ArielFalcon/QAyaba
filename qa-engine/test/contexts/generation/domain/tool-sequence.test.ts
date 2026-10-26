@@ -24,6 +24,13 @@ test("a shell call's subject is its command line, a memory search's its query", 
   assert.deepEqual(toolCallSubject({ query: "login flow" }), { kind: "query", value: "login flow" });
 });
 
+test("a code-graph call's subject is the terms it named, in order; terms that are not text are not a subject", () => {
+  assert.deepEqual(toolCallSubject({ terms: ["AppNavbarComponent", "src/app/app.html"] }), { kind: "query", value: "AppNavbarComponent src/app/app.html" });
+  assert.deepEqual(toolCallSubject({ terms: ["showNavbar", 3, ""] }), { kind: "query", value: "showNavbar" });
+  assert.equal(toolCallSubject({ terms: [] }), undefined);
+  assert.equal(toolCallSubject({ terms: "showNavbar" }), undefined);
+});
+
 test("a call that points at nothing, or whose input is not an object, has no subject", () => {
   assert.equal(toolCallSubject({ content: "body", title: "t" }), undefined);
   assert.equal(toolCallSubject({}), undefined);

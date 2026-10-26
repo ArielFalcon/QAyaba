@@ -41,9 +41,17 @@ function stringUnder(record: Record<string, unknown> | null | undefined, keys: r
   return undefined;
 }
 
+/* The terms a code-graph call names (agents/tool/codegraph.ts `terms`), in order and space-joined; the ones that are not text are skipped. */
+function termsUnder(record: Record<string, unknown>): string | undefined {
+  const terms = record.terms;
+  if (!Array.isArray(terms)) return undefined;
+  const named = terms.filter((term): term is string => typeof term === "string" && term !== "");
+  return named.length > 0 ? named.join(" ") : undefined;
+}
+
 /**
  * The one thing a call pointed at, by the keys its input carries: a search's pattern (scoped to the path it
- * searched in), a file path, a url, a command line, a memory query, or the element a browser call names.
+ * searched in), a file path, a url, a command line, a memory query or the terms a code-graph call names, or the element a browser call names.
  * Undefined when the input names none of them. Content, text and bodies are deliberately not read.
  */
 export function toolCallSubject(input: unknown): ToolCallSubject | undefined {
@@ -61,7 +69,7 @@ export function toolCallSubject(input: unknown): ToolCallSubject | undefined {
   if (url !== undefined) return { kind: "url", value: url };
   const command = stringUnder(record, COMMAND_KEYS);
   if (command !== undefined) return { kind: "command", value: command };
-  const query = stringUnder(record, ["query"]);
+  const query = stringUnder(record, ["query"]) ?? termsUnder(record);
   if (query !== undefined) return { kind: "query", value: query };
   const element = stringUnder(record, ["element"]);
   return element !== undefined ? { kind: "element", value: element } : undefined;
