@@ -198,6 +198,12 @@ export const PROTECTED_PATHS: string[] = [
    * is constructed. An autonomous edit can hand the session another directory or environment without touching the adapter.
    */
   "qa-engine/src/contexts/app-catalog/composition/build-app-catalog.ts",
+  /*
+   * The run-orchestration builder — the one place the run's configuration block (shadow, review and coverage
+   * policy, retries) and the deploy gate are fixed. An autonomous edit can turn shadow off or drop the gate
+   * without touching the flow.
+   */
+  "qa-engine/src/contexts/run-orchestration/composition/build-run-orchestration.ts",
 
   "qa-engine/src/shared-kernel/ports/redaction.port.ts",
   /*
