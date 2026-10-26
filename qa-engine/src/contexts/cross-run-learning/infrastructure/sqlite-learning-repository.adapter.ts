@@ -7,6 +7,7 @@ import type { LearningRule, RuleStatus, ErrorClass } from "../domain/learning-re
 import type { RelevanceBias } from "../domain/rule-governance.service.ts";
 import type { Sha } from "@kernel/sha.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
+import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import { RuleGovernanceService, type InjectionPolicy } from "../domain/rule-governance.service.ts";
 
 function rowToRule(row: LearningRow): LearningRule {
@@ -38,6 +39,7 @@ export class SqliteLearningRepository implements LearningRepositoryPort {
   constructor(
     private readonly store: LearningStorePort,
     private readonly policy: InjectionPolicy = { reflectorUnproven: true },
+    private readonly redaction?: RedactionPort,
   ) {}
 
   async save(rule: LearningRule): Promise<void> {
@@ -50,7 +52,7 @@ export class SqliteLearningRepository implements LearningRepositoryPort {
   }
 
   async applyOutcome(outcome: RunOutcome): Promise<void> {
-    new FoldRunOutcome(this.store).execute(outcome);
+    new FoldRunOutcome(this.store, this.redaction).execute(outcome);
   }
 
   /* Off-path telemetry: increment usage on retrieved rules. A store fake that omits incrementUsage is unaffected. Never gates publish. */

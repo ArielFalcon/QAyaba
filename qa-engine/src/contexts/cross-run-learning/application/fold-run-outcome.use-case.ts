@@ -1,10 +1,15 @@
 /* Folds a finished run's outcome into the learning ledger: the oracle scorecard, then the score onto each retrieved rule that could have shaped the run. Off-path: a failure is logged and never gates or fails the run it learns from. */
+import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { attributableRules, preventionOutcome } from "../domain/rule-fold.ts";
 import type { LearningStorePort } from "./ports/learning-store.port.ts";
 
 export class FoldRunOutcome {
-  constructor(private readonly store: LearningStorePort) {}
+  /* `redaction` cleans the failure text before it is logged; without it only the error kind is logged, so no message text reaches the log unredacted. */
+  constructor(
+    private readonly store: LearningStorePort,
+    private readonly redaction?: RedactionPort,
+  ) {}
 
   execute(outcome: RunOutcome): void {
     try {
@@ -52,7 +57,9 @@ export class FoldRunOutcome {
         }
       }
     } catch (err) {
-      console.warn(`[qa] the learning fold failed and the run goes on unfolded: ${err instanceof Error ? err.message : String(err)}`);
+      const detail = err instanceof Error ? err.message : String(err);
+      const shown = this.redaction ? this.redaction.redact(detail) : err instanceof Error ? err.name : "non-error value";
+      console.warn(`[qa] the learning fold failed and the run goes on unfolded: ${shown}`);
     }
   }
 }

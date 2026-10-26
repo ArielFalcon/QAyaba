@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { FoldRunOutcome, type LearningStorePort } from "@contexts/cross-run-learning/application/index.ts";
 import { PREVENTION_HELD_SCORE } from "@contexts/cross-run-learning/domain/rule-fold.ts";
 import type { LearningRule } from "@contexts/cross-run-learning/domain/learning-repository.ts";
+import { REDACTED, type RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 
 function rule(id: string, over: Partial<LearningRule> = {}): LearningRule {
@@ -91,20 +92,36 @@ test("a rule tagged with another kind of change is not credited when the diff's 
   assert.deepEqual(folds.map((f) => f.id), ["untagged"]);
 });
 
-test("a failing ledger is swallowed and logged, and the fold never throws into the run", () => {
+function foldFailureWarnings(redaction?: RedactionPort): string[] {
   const warnings: string[] = [];
   const original = console.warn;
   console.warn = (message: string) => void warnings.push(message);
   try {
     const { store } = ledger();
     store.saveScorecardEntry = () => {
-      throw new Error("disk full");
+      throw new Error("disk full token=s3cr3t-value");
     };
 
-    assert.doesNotThrow(() => new FoldRunOutcome(store).execute(outcome()));
+    assert.doesNotThrow(() => new FoldRunOutcome(store, redaction).execute(outcome()));
   } finally {
     console.warn = original;
   }
+  return warnings;
+}
+
+test("a failing ledger is swallowed and logged with its message passed through the redaction", () => {
+  const redaction: RedactionPort = { redact: (text) => text.replace("s3cr3t-value", REDACTED), detect: () => ({ redacted: false, patterns: [], count: 0 }), containsSecret: () => false };
+
+  const warnings = foldFailureWarnings(redaction);
+
   assert.equal(warnings.length, 1);
   assert.match(warnings[0]!, /disk full/);
+  assert.doesNotMatch(warnings[0]!, /s3cr3t-value/);
+});
+
+test("a failing ledger with no redaction available logs the error kind and never its message", () => {
+  const warnings = foldFailureWarnings();
+
+  assert.equal(warnings.length, 1);
+  assert.doesNotMatch(warnings[0]!, /disk full|s3cr3t-value/);
 });
