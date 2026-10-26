@@ -18,6 +18,7 @@ import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../support/run-workspace.ts";
 import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
+import { served } from "../../../support/coordinator-over-author.ts";
 const INPUT: RunQaInput = { app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "geo-run" };
 const PASS: QaCase[] = [{ name: "a", status: "pass", file: "flows/a.spec.ts" }];
 const MADRID = { latitude: 40.4168, longitude: -3.7038 };
@@ -45,8 +46,8 @@ function rig(opts: { openThrows?: boolean; executeThrows?: boolean; generateThro
     const { generation: generationOver, ...rest } = over;
     return {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/map.ts", diff: "" }) },
-    generation: generationOnDisk(generationOver ?? {
-      generate: async (_d, _s, _diff, enrichment) => {
+    ...served(generationOnDisk(generationOver ?? {
+      author: async (_d, _s, _diff, enrichment) => {
         events.push("generate");
         enrichments.push(enrichment ?? {});
         if (opts.generateThrows) throw new Error("agent down");
@@ -54,7 +55,7 @@ function rig(opts: { openThrows?: boolean; executeThrows?: boolean; generateThro
         if (opts.moveOnGenerate) move(BARCELONA);
         return scriptedGeneration({ specs: ["flows/a.spec.ts"]});
       },
-    }),
+    })),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
     execution: { execute: async (_specDir, options) => { events.push("execute"); executionRequests.push(options ?? {}); if (opts.executeThrows) throw new Error("runner exploded"); return { verdict: "pass", cases: PASS, logs: "" }; } },
@@ -128,7 +129,7 @@ test("no location for a code run, a context run, a regression run, a login boots
   assert.equal(code.opened.length, 0, "code");
 
   const context = rig();
-  await new RunQaUseCase(context.deps({ generation: { generate: async () => scriptedGeneration({ specs: [".qa/context.json"], note: "map" }) } })).run({ ...INPUT, mode: "context" });
+  await new RunQaUseCase(context.deps({ ...served({ author: async () => scriptedGeneration({ specs: [".qa/context.json"], note: "map" }) }) })).run({ ...INPUT, mode: "context" });
   assert.equal(context.opened.length, 0, "context");
 
   const regression = rig();

@@ -10,7 +10,7 @@ import { readDelegationResult } from "./delegation-reading.ts";
 import type { DelegationResult } from "./delegation-result.ts";
 import { readExploreResult, renderExploreBrief } from "./explore-kind.ts";
 import { renderSidekickBrief } from "./sidekick-prompt.ts";
-import { REVIEW_SIDEKICK } from "@kernel/sidekick-session.ts";
+import { AUTHOR_SIDEKICK, REVIEW_SIDEKICK } from "@kernel/sidekick-session.ts";
 
 export const SIDEKICK_KIND = { AUTHOR: "author", EXPLORE: "explore", REVIEW: "review" } as const;
 export type SidekickKind = (typeof SIDEKICK_KIND)[keyof typeof SIDEKICK_KIND];
@@ -35,8 +35,8 @@ export type AgentTool = (typeof AGENT_TOOL)[keyof typeof AGENT_TOOL];
 export const SIDEKICK_WORKSPACE = { ISOLATED_SPEC_FILE: "isolated-spec-file", WORKING_COPY: "working-copy" } as const;
 export type SidekickWorkspace = (typeof SIDEKICK_WORKSPACE)[keyof typeof SIDEKICK_WORKSPACE];
 
-/* What bounds a kind's time: the flow budget the plan admitted, the exploration budget, the reviewer's session timeout. `maxSteps` is the roster's. */
-export const SIDEKICK_BUDGET = { FLOW: "flow-budget", EXPLORE: "explore-budget", REVIEW: "review-timeout" } as const;
+/* What bounds a kind's time: the flow budget the plan admitted, the run's own deadline and its tier budget for an author of the whole run, the exploration budget, the reviewer's session timeout. `maxSteps` is the roster's. */
+export const SIDEKICK_BUDGET = { FLOW: "flow-budget", RUN: "run-deadline", EXPLORE: "explore-budget", REVIEW: "review-timeout" } as const;
 export type SidekickBudget = (typeof SIDEKICK_BUDGET)[keyof typeof SIDEKICK_BUDGET];
 
 interface SidekickKindBase {
@@ -67,8 +67,7 @@ export type SidekickKindSpec = DelegatingKindSpec | ReviewKindSpec;
 
 const AUTHOR: DelegatingKindSpec = {
   id: SIDEKICK_KIND.AUTHOR,
-  agent: "qa-sidekick",
-  role: "sidekick",
+  ...AUTHOR_SIDEKICK,
   tools: [AGENT_TOOL.READ, AGENT_TOOL.WRITE, AGENT_TOOL.RUN_SPEC, AGENT_TOOL.AUTHBROWSER, AGENT_TOOL.SET_GEOLOCATION, AGENT_TOOL.PLAYWRIGHT],
   tiers: [SIDEKICK_TIER.STANDARD, SIDEKICK_TIER.ESCALATED],
   workspace: SIDEKICK_WORKSPACE.ISOLATED_SPEC_FILE,
@@ -76,6 +75,31 @@ const AUTHOR: DelegatingKindSpec = {
   render: (redaction, brief) => renderSidekickBrief(redaction, brief),
   parse: (redaction, output, brief) => readDelegationResult(output, brief, redaction),
 };
+
+/*
+ * What an author works on. A `flow` is one flow of a plan, in a private copy that holds the one spec file it may write. The other
+ * targets are the run's own authoring, by one author in the run's working copy under the run's deadline and effort tier: `e2e`
+ * (a login still to be written, and every regeneration of an e2e run), `code` (tests in the repo's own framework) and `context`
+ * (the architecture map). A target changes where the author works and what bounds it, never what it may use: the roster's grant is the kind's.
+ */
+export const AUTHOR_TARGET = { FLOW: "flow", E2E: "e2e", CODE: "code", CONTEXT: "context" } as const;
+export type AuthorTarget = (typeof AUTHOR_TARGET)[keyof typeof AUTHOR_TARGET];
+
+export interface AuthorTargetSpec {
+  readonly workspace: SidekickWorkspace;
+  readonly budget: SidekickBudget;
+}
+
+const RUN_AUTHORING: AuthorTargetSpec = { workspace: SIDEKICK_WORKSPACE.WORKING_COPY, budget: SIDEKICK_BUDGET.RUN };
+
+const AUTHOR_TARGETS: Readonly<Record<AuthorTarget, AuthorTargetSpec>> = {
+  [AUTHOR_TARGET.FLOW]: { workspace: SIDEKICK_WORKSPACE.ISOLATED_SPEC_FILE, budget: SIDEKICK_BUDGET.FLOW },
+  [AUTHOR_TARGET.E2E]: RUN_AUTHORING,
+  [AUTHOR_TARGET.CODE]: RUN_AUTHORING,
+  [AUTHOR_TARGET.CONTEXT]: RUN_AUTHORING,
+};
+
+export const authorTargetSpec = (target: AuthorTarget): AuthorTargetSpec => AUTHOR_TARGETS[target];
 
 const EXPLORE: DelegatingKindSpec = {
   id: SIDEKICK_KIND.EXPLORE,

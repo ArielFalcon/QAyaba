@@ -19,6 +19,7 @@ import { activeExecScope, type ExecScopePort } from "../../../../src/shared-infr
 import { createExecScopeProvider } from "../../../../src/shared-infrastructure/process-sandbox/exec-scope-provider.ts";
 import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
+import { served } from "../../../support/coordinator-over-author.ts";
 
 async function runWith(options: { execScope?: ExecScopePort; observer?: ObserverPort; execute: () => Promise<{ verdict: "pass"; cases: []; logs: string }> }): Promise<{ saved: RunOutcome[]; threw?: unknown }> {
   const ws = runWorkspace("qa-run-exec-scope-");
@@ -34,7 +35,7 @@ async function runWith(options: { execScope?: ExecScopePort; observer?: Observer
           contradiction: true,
         }),
       },
-      generation: generationOnDisk({ generate: async () => scriptedGeneration({ specs: ["a.spec.ts"], declaredSpecs: [{ file: "a.spec.ts", flow: "f", objective: "o" }]}) }),
+      ...served(generationOnDisk({ author: async () => scriptedGeneration({ specs: ["a.spec.ts"], declaredSpecs: [{ file: "a.spec.ts", flow: "f", objective: "o" }]}) })),
       review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
       validation: { validate: async () => ({ ok: true, errors: [] }) },
       execution: { execute: options.execute },

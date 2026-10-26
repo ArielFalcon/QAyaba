@@ -11,6 +11,7 @@ import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.t
 import { activeRunSecretScope, redactByValue, type RunSecretScope } from "../../../../src/shared-kernel/run-secret-redaction.ts";
 import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
+import { served } from "../../../support/coordinator-over-author.ts";
 
 const SECRET = "account-secret-7731";
 
@@ -27,13 +28,13 @@ async function runOnce(runId: string, observe: { atGenerate?: RunSecretScope | u
           contradiction: true,
         }),
       },
-      generation: generationOnDisk({
-        generate: async () => {
+      ...served(generationOnDisk({
+        author: async () => {
           observe.atGenerate = activeRunSecretScope();
           activeRunSecretScope()?.addAccountSecrets([SECRET]);
           return scriptedGeneration({ specs: ["a.spec.ts"], declaredSpecs: [{ file: "a.spec.ts", flow: "f", objective: "o" }]});
         },
-      }),
+      })),
       review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
       validation: { validate: async () => ({ ok: true, errors: [] }) },
       execution: {

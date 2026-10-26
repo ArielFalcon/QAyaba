@@ -26,20 +26,23 @@ import { scriptedGeneration } from "../../qa-engine/test/support/generation-outp
 import { generationOnDisk, runWorkspace } from "../../qa-engine/test/support/run-workspace";
 import { traceHarness } from "./trace-harness";
 import { confinedSpecFiles } from "../../qa-engine/src/shared-infrastructure/spec-files.adapter";
+import { loginToBeWritten, served } from "../../qa-engine/test/support/coordinator-over-author";
 
 type Overrides = Partial<{
   classify: RunQaUseCaseDeps["changeAnalysis"]["classify"];
-  generate: RunQaUseCaseDeps["generation"]["generate"];
+  generate: RunQaUseCaseDeps["generation"]["author"];
   validate: RunQaUseCaseDeps["validation"]["validate"];
   setup: () => Promise<void>;
   runDeadline: RunQaUseCaseDeps["runDeadline"];
+  /* The run authors in one author sidekick turn of its own (a login still to be written), so what that turn throws reaches the run itself. */
+  direct: boolean;
 }>;
 
 function baseDeps(clock: { now(): number }, overrides: Overrides = {}): RunQaUseCaseDeps {
   const ws = runWorkspace("qa-trace-");
   return {
     changeAnalysis: { classify: overrides.classify ?? (async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" })) },
-    generation: generationOnDisk({ generate: overrides.generate ?? (async () => scriptedGeneration({ specs: ["a.spec.ts"]})) }),
+    ...served(generationOnDisk({ author: overrides.generate ?? (async () => scriptedGeneration({ specs: ["a.spec.ts"]})) })),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate: overrides.validate ?? (async () => ({ ok: true, errors: [] })) },
     execution: { execute: async () => ({ verdict: "pass", cases: [], logs: "" }) },
@@ -52,6 +55,7 @@ function baseDeps(clock: { now(): number }, overrides: Overrides = {}): RunQaUse
     deployGate: { waitUntilServing: async () => ok(true) },
     runHistory: { save: async () => {} },
     setup: { setup: overrides.setup ?? (async () => {}) },
+    ...(overrides.direct ? loginToBeWritten() : {}),
     ...(overrides.runDeadline ? { runDeadline: overrides.runDeadline } : {}),
     config: { needsReview: true },
     phaseClock: clock,
@@ -131,10 +135,10 @@ const EXITS: Array<{ name: string; overrides?: (controller: AbortController) => 
   { name: "an operator abort before the first phase", abort: true, entersAPhase: false },
   {
     name: "an operator abort in the middle of generation",
-    overrides: (controller) => ({ generate: async () => { controller.abort(); throw new Error("aborted"); } }),
+    overrides: (controller) => ({ direct: true, generate: async () => { controller.abort(); throw new Error("aborted"); } }),
     threw: true,
   },
-  { name: "an unhandled engine error", overrides: () => ({ generate: async () => { throw new Error("agent runtime fell over"); } }), threw: true },
+  { name: "an unhandled engine error", overrides: () => ({ direct: true, generate: async () => { throw new Error("agent runtime fell over"); } }), threw: true },
 ];
 
 for (const exit of EXITS) {
@@ -155,6 +159,7 @@ test("an engine error nothing handles marks the phase it happened in as an error
   const h = traceHarness();
   const secret = "hunter2-fake-account-password";
   const useCase = useCaseWith(h.telemetry, h.clock, {
+    direct: true,
     setup: async () => {
       activeRunSecretScope()?.addAccountSecrets([secret]);
     },

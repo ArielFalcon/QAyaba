@@ -3,6 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Sha } from "@kernel/sha.ts";
+import { ERROR_CLASS } from "@kernel/error-class.ts";
 import { ok } from "@kernel/result.ts";
 import { RUN_PURPOSE } from "@kernel/run-mode.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -13,6 +14,7 @@ import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
 import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
+import { served } from "../../../support/coordinator-over-author.ts";
 
 const INPUT: RunQaInput = { app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "graph-run" };
 const PASS: QaCase[] = [{ name: "a", status: "pass", file: "flows/a.spec.ts" }];
@@ -30,13 +32,13 @@ function rig(opts: { openThrows?: boolean; generateThrows?: boolean; closeThrows
     const { generation: generationOver, ...rest } = over;
     return {
       changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
-      generation: generationOnDisk(generationOver ?? {
-        generate: async () => {
+      ...served(generationOnDisk(generationOver ?? {
+        author: async () => {
           events.push("generate");
           if (opts.generateThrows) throw new Error("agent down");
           return scriptedGeneration({ specs: ["flows/a.spec.ts"]});
         },
-      }),
+      })),
       review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
       validation: { validate: async () => ({ ok: true, errors: [] }) },
       execution: { execute: async () => ({ verdict: "pass", cases: PASS, logs: "" }) },
@@ -76,7 +78,7 @@ test("no code-graph tools for a code run, a context run, a regression run or a l
   await new RunQaUseCase(code.deps({ config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: true } })).run({ ...INPUT, target: "code" });
   assert.equal(code.events.some((e) => e.startsWith("open")), false, "code");
   const context = rig();
-  await new RunQaUseCase(context.deps({ generation: { generate: async () => scriptedGeneration({ specs: [".qa/context.json"], note: "map" }) } })).run({ ...INPUT, mode: "context" });
+  await new RunQaUseCase(context.deps({ ...served({ author: async () => scriptedGeneration({ specs: [".qa/context.json"], note: "map" }) }) })).run({ ...INPUT, mode: "context" });
   assert.equal(context.events.some((e) => e.startsWith("open")), false, "context");
   const regression = rig();
   await new RunQaUseCase(regression.deps({ changeAnalysis: { classify: async () => ({ action: "regression", reason: "no source change", diff: "" }) } })).run(INPUT);
@@ -93,8 +95,8 @@ test("a port that fails to open, or a revocation that throws, costs the run noth
   assert.equal((await new RunQaUseCase(stuck.deps()).run(INPUT)).decision.verdict, "pass");
 });
 
-test("the tools are revoked when the run throws", async () => {
+test("the tools are revoked when no author could serve the run", async () => {
   const r = rig({ generateThrows: true });
-  await assert.rejects(new RunQaUseCase(r.deps()).run(INPUT));
+  assert.equal((await new RunQaUseCase(r.deps()).run(INPUT)).errorClass, ERROR_CLASS.NO_AUTHOR);
   assert.equal(r.events.filter((e) => e === "close").length, 1);
 });

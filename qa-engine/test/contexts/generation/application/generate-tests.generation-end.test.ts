@@ -83,7 +83,7 @@ async function generate(turns: Turn[], options: { valid?: (text: string) => bool
           },
         }),
   };
-  const result = await new GenerateTestsUseCase(ports).generate({
+  const result = await new GenerateTestsUseCase(ports).author({
     repo: "org/demo",
     sha: "abc1234",
     diff: "d",

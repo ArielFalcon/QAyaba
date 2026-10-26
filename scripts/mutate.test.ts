@@ -251,7 +251,7 @@ test("the spec-path-confinement preset mutates the confined reader and the stric
     "shared-infrastructure/spec-path-confinement.purge.test.ts",
     "shared-infrastructure/spec-path-confinement.repo-walk.test.ts",
     "infrastructure/verdict-parser.adapter.test.ts",
-    "adapters/generation-port.adapter.test.ts",
+    "adapters/generation-turns.adapter.test.ts",
     "adapters/review-dom-grounding-port.adapter.test.ts",
     "prompt-builders/prompts.test.ts",
     "infrastructure/manifest-fs.test.ts",
@@ -458,7 +458,7 @@ test("the carry-forward preset mutates the spec path and the one fold, the decla
     "qa-engine/src/contexts/generation/domain/suite-listing.ts",
     "qa-engine/src/contexts/generation/domain/suite-listing-render.ts",
     "qa-engine/src/contexts/generation/application/generate-tests.use-case.ts",
-    "qa-engine/src/contexts/generation/infrastructure/adapters/generation-port.adapter.ts",
+    "qa-engine/src/contexts/generation/infrastructure/adapters/generation-turns.adapter.ts",
     "qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter.ts",
     "qa-engine/src/contexts/generation/domain/selector-check.ts",
     "qa-engine/src/contexts/generation/domain/pre-exec-grounding.service.ts",
@@ -473,7 +473,7 @@ test("the carry-forward preset mutates the spec path and the one fold, the decla
   for (const whole of ["spec-path", "delivered-spec", "declared-specs", "delivered-specs", "contradiction-attribution", "suite-entry", "suite-listing", "suite-listing-render"]) {
     assert.ok(preset.mutate.some((entry) => sourcePathOf(entry) === entry && entry.endsWith(`/${whole}.ts`)), `${whole} is mutated whole, never narrowed to a range`);
   }
-  for (const wired of ["generate-tests.use-case", "generation-port.adapter", "pre-generation-grounding-port.adapter", "selector-check", "pre-exec-grounding.service", "fix-loop.aggregate", "generation-services", "generate.steps", "execute.steps", "fix-loop.steps", "coverage.steps", "review.steps"]) {
+  for (const wired of ["generate-tests.use-case", "generation-turns.adapter", "pre-generation-grounding-port.adapter", "selector-check", "pre-exec-grounding.service", "fix-loop.aggregate", "generation-services", "generate.steps", "execute.steps", "fix-loop.steps", "coverage.steps", "review.steps"]) {
     assert.ok(
       preset.mutate.filter((entry) => sourcePathOf(entry).endsWith(`/${wired}.ts`)).every((entry) => sourcePathOf(entry) !== entry),
       `${wired} is narrowed to the lines that wire the carry-forward: the rest of it is other code`,
@@ -493,7 +493,7 @@ test("the carry-forward preset mutates the spec path and the one fold, the decla
     "domain/suite-listing.test.ts",
     "domain/suite-listing-render.test.ts",
     "application/run-qa.carry-forward.test.ts",
-    "adapters/generation-port.adapter.test.ts",
+    "adapters/generation-turns.adapter.test.ts",
     "adapters/pre-generation-grounding-port.adapter.test.ts",
   ]) {
     assert.ok(preset.tests.some((t) => t.endsWith(tests)), `${tests} runs against every mutant`);

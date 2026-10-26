@@ -6,7 +6,7 @@ import { buildGeneration, type GenerationDeps } from "@contexts/generation/compo
 function deps(over: Partial<GenerationDeps> = {}, run: Partial<GenerationDeps["run"]> = {}): GenerationDeps {
   return {
     run: { repo: "o/app", appName: "app", mirrorDir: "/mirrors/o/app", e2eRelDir: "e2e", branch: "qa/x", target: "e2e", mode: "diff", isCode: false, ...run },
-    generationUseCase: { generate: async () => { throw new Error("unused"); } },
+    generationUseCase: { author: async () => { throw new Error("unused"); } },
     review: { runtime: { runtime: { openSession: async () => { throw new Error("unused"); } }, rendering: {} as never, verdicts: {} as never } },
     grounding: {},
     ...over,
@@ -33,9 +33,9 @@ test("a code run is grounded on nothing", () => {
 
 test("generating reaches the injected use case", async () => {
   const seen: string[] = [];
-  const api = buildGeneration(deps({ generationUseCase: { generate: async () => { seen.push("generate"); throw new Error("stop"); } } }));
+  const api = buildGeneration(deps({ generationUseCase: { author: async () => { seen.push("generate"); throw new Error("stop"); } } }));
 
-  await assert.rejects(() => api.generation.generate({ specDir: "/mirrors/o/app/e2e", objectives: [], signal: undefined } as never), /stop/);
+  await assert.rejects(() => api.generation.author({ specDir: "/mirrors/o/app/e2e", objectives: [], signal: undefined } as never), /stop/);
   assert.deepEqual(seen, ["generate"]);
 });
 

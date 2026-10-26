@@ -293,17 +293,9 @@ const RUNTIME_SIGNALS_LINES: readonly string[] = [
 ];
 
 export interface BuildPromptAssembledOpts {
-  /** Explicit byte-budget override for tests/telemetry that must not depend on the live model-window catalog. Undefined ⇒ the qa-generator catalog window (production path). */
+  /** Explicit byte-budget override for tests/telemetry that must not depend on the live model-window catalog. Undefined ⇒ the author's catalog window (production path). */
   budgetBytes?: number;
-  /** The regeneration is sent in the generator session that already holds the run's grounding: the sections it holds are left out. Ignored on a turn that is not a regeneration. */
-  continuation?: boolean;
 }
-
-/* What the generator session already holds from the turn that opened it, and a continuation therefore leaves out. The run's tool budgets and authoring location stay: they are small and may have moved. */
-const HELD_BY_THE_SESSION: ReadonlySet<string> = new Set([
-  "working-rules", "regen-discipline", "arch-map", HARNESS_FACTS_SECTION_ID, "static-signal", "service-links",
-  "skill-exemplars", APP_LOGIN_SECTION_ID, "context-pack", "learned-rules", "diff",
-]);
 
 export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptAssembledOpts = {}): AssembledPrompt {
   const isGenerationMode = input.mode !== "context";
@@ -311,7 +303,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   const isCode = input.target === "code";
   /* A re-generation turn (fix / reviewer-corrections / coverage-gap) has already distilled the blast radius — it must not trace it again or re-skim the repo. */
   const isReGen = isGenerationMode && isReGenTurn(input);
-  const isContinuation = isReGen && opts.continuation === true;
 
   const sanitizedDomSnapshot = input.domSnapshot ? sanitizeText(input.domSnapshot, "model").text : undefined;
 
@@ -669,19 +660,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ``,
       ].join("\n")
     : "";
-  const continuationContent = isContinuation
-    ? [
-        `## Continuation — same session`,
-        ``,
-        `The suite you wrote was run. The working rules, the grounding and the change are earlier in this session`,
-        `(or in its summary, if it was compacted): do NOT re-read them, do NOT trace the change's callers again, do NOT re-skim the`,
-        `repository and do NOT re-navigate a route you already explored. Change only what the signal below requires.`,
-        `If something you need is no longer in this session, look up only that.`,
-        GROUNDING_UNCOVERED_ESCAPE,
-        ``,
-      ].join("\n")
-    : "";
-
   /* The stock auth seed did not sign in: the generator authors the login before any spec. Where to read the login page from depends on whether a live-DOM Context Pack is actually in this prompt. */
   const authSetupPath = `${input.e2eRelDir}/auth.setup.ts`;
   const appLoginContent =
@@ -798,9 +776,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ...(stepLimitContent ? [section(STEP_LIMIT_SECTION_ID, "critical-recap", stepLimitContent, { priority: 1, claims: [claim.provides("step-limit")] })] : []),
       ...(stepMilestoneContent ? [section(STEP_MILESTONE_SECTION_ID, "critical-recap", stepMilestoneContent, { priority: 2 })] : []),
     ];
-    return assemble(isContinuation
-      ? [section("continuation", "stable-prefix", continuationContent, { priority: 1 }), ...sections.filter((s) => !HELD_BY_THE_SESSION.has(s.id))]
-      : sections, { budgetBytes: opts.budgetBytes ?? roleWindowBytes("qa-generator") });
+    return assemble(sections, { budgetBytes: opts.budgetBytes ?? roleWindowBytes("qa-sidekick") });
   };
 
   /* The listing is a section the byte budget may cut or shed. What the task says about reading the suite depends on whether the listing is there, and the decision not to ask for the outcome again rests on the objectives the listing shows. So when the budget sheds the listing the prompt is assembled again with the task worded for a prompt that has none, so that the agent is sent to read the suite and no claim reads a fact the prompt provides; when it cuts the listing, the prompt is assembled again with what is left of it. Either way the task asks for the outcome. The second assembly is kept only if the question costs the prompt no section and no part of the head of the listing: a wording must not take what the listing is for. */

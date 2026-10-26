@@ -3,6 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Sha } from "@kernel/sha.ts";
+import { ERROR_CLASS } from "@kernel/error-class.ts";
 import { ok } from "@kernel/result.ts";
 import { RUN_PURPOSE } from "@kernel/run-mode.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -15,6 +16,7 @@ import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../support/run-workspace.ts";
 import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
+import { served } from "../../../support/coordinator-over-author.ts";
 const INPUT: RunQaInput = { app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "browser-run" };
 const PASS: QaCase[] = [{ name: "a", status: "pass", file: "flows/a.spec.ts" }];
 const SIGNAL = { calls: 12, blocks: 3, invalidations: 1, renewals: 1 };
@@ -35,14 +37,14 @@ function rig(opts: { openThrows?: boolean; grant?: boolean; executeThrows?: bool
     const { generation: generationOver, ...rest } = over;
     return {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
-    generation: generationOnDisk(generationOver ?? {
-      generate: async (_d, _s, _diff, enrichment) => {
+    ...served(generationOnDisk(generationOver ?? {
+      author: async (_d, _s, _diff, enrichment) => {
         events.push("generate");
         enrichments.push(enrichment ?? {});
         if (opts.generateThrows) throw new Error("agent down");
         return scriptedGeneration({ specs: ["flows/a.spec.ts"]});
       },
-    }),
+    })),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
     execution: { execute: async () => { events.push("execute"); if (opts.executeThrows) throw new Error("runner exploded"); return { verdict: "pass", cases: PASS, logs: "" }; } },
@@ -102,7 +104,7 @@ test("no browser for a code run, a context run, a regression run, a login bootst
   assert.equal(code.opened.length, 0, "code");
 
   const context = rig();
-  await new RunQaUseCase(context.deps({ generation: { generate: async () => scriptedGeneration({ specs: [".qa/context.json"], note: "map" }) } })).run({ ...INPUT, mode: "context" });
+  await new RunQaUseCase(context.deps({ ...served({ author: async () => scriptedGeneration({ specs: [".qa/context.json"], note: "map" }) }) })).run({ ...INPUT, mode: "context" });
   assert.equal(context.opened.length, 0, "context");
 
   const regression = rig();
@@ -142,9 +144,9 @@ test("the browser is closed once when the run ends, and a close that throws does
   assert.equal(r.events.filter((e) => e === "close").length, 1);
 });
 
-test("the browser is closed when the run throws, whichever phase it was in", async () => {
+test("the browser is closed when the run throws, whichever phase it was in, and when no author could serve it", async () => {
   const generating = rig({ generateThrows: true });
-  await assert.rejects(new RunQaUseCase(generating.deps()).run(INPUT));
+  assert.equal((await new RunQaUseCase(generating.deps()).run(INPUT)).errorClass, ERROR_CLASS.NO_AUTHOR);
   assert.equal(generating.events.filter((e) => e === "close").length, 1);
 
   const executing = rig({ executeThrows: true });
@@ -156,7 +158,7 @@ test("a run cancelled before it generates still closes the browser it opened", a
   const r = rig();
   const controller = new AbortController();
   await new RunQaUseCase(r.deps({
-    generation: { generate: async () => { controller.abort(); throw new Error("aborted"); } },
+    ...served({ author: async () => { controller.abort(); throw new Error("aborted"); } }),
   })).run(INPUT, controller.signal).catch(() => undefined);
   assert.equal(r.events.filter((e) => e === "close").length, 1);
 });

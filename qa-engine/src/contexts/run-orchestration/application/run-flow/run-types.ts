@@ -16,7 +16,7 @@ import type { AuthSessionContext, AuthSessionPort } from "@contexts/app-catalog/
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { ChangeAnalysisPort } from "@contexts/change-analysis/application/index.ts";
 import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
-import type { GenerationPort, ReviewPort, PreExecGroundingPort, PreGenerationGroundingPort, ReviewDomGroundingPort, ContextMapCapturePort } from "@contexts/generation/application/index.ts";
+import type { AuthorPort, LeadPort, ReviewPort, PreExecGroundingPort, PreGenerationGroundingPort, ReviewDomGroundingPort, ContextMapCapturePort } from "@contexts/generation/application/index.ts";
 import type { ValidationPort, ExecutionPort } from "@contexts/test-execution/application/index.ts";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
 import type { PublicationPort } from "../ports/publication.port.ts";
@@ -100,7 +100,8 @@ export interface RunQaUseCaseDeps {
   /** Extracts a spec's clause contract for the intent lock. Absent: the lock has nothing to judge and never rejects. */
   intentContract?: IntentContractPort;
   changeAnalysis: ChangeAnalysisPort;
-  generation: GenerationPort;
+  /* The lead plans and the author sidekicks write: one port serves both turns. */
+  generation: LeadPort & AuthorPort;
   review: ReviewPort;
   validation: ValidationPort;
   execution: ExecutionPort;

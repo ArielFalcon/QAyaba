@@ -4,7 +4,7 @@
  * without a decision, or after the step budget ran out, is infra-error.
  * Change-coverage "unknown"
  * never blocks publish. Classify runs only in diff mode; cleanup only when
- * previousNamespace is set. Coordination fails open to GenerationPort.
+ * previousNamespace is set. An e2e run that no author sidekick can serve ends `E-NO-AUTHOR`.
  * Pre-exec gateSignals use the number 0, not undefined, when unwired.
  */
 
@@ -143,7 +143,6 @@ export class RunQaUseCase {
       throw err;
     } finally {
       phases.close();
-      await this.releaseGeneratorSession();
       await this.closeCoordinatedPass(trail);
       await this.closeClosedLoop(trail);
       await this.closeAgentBrowser(trail);
@@ -156,7 +155,7 @@ export class RunQaUseCase {
   /* How the run ended, for its trace: the decision, the end of generation, and the limit that fired (the deadline's own, else the one the generation end names). A run that threw before a result was built has no decision. */
   private traceFactsOf(result: RunQaResult | undefined, state: Readonly<RunState>): RunTraceFacts {
     const end = state.run.generationEnd;
-    const fromEnd = end === GENERATION_END.EXHAUSTED ? { fired: "step-cap", role: "qa-generator" } : end === GENERATION_END.TIME_BUDGET ? { fired: "tier-budget", role: "qa-generator" } : undefined;
+    const fromEnd = end === GENERATION_END.EXHAUSTED ? { fired: "step-cap", role: "qa-sidekick" } : end === GENERATION_END.TIME_BUDGET ? { fired: "tier-budget", role: "qa-sidekick" } : undefined;
     const limit = state.run.limit ?? fromEnd;
     const cfg: RunQaConfig = { ...DEFAULT_CONFIG, ...this.deps.config };
     return {
@@ -251,15 +250,6 @@ export class RunQaUseCase {
     const text = `[qa] sandbox: egress denied ${denied.length} host(s): ${shown.join(", ")}${more}`;
     console.warn(text);
     this.deps.observer?.onEvent({ type: "log.line", level: "warn", text });
-  }
-
-  /* Ends the generator session the run kept for its regenerations. A fault is said and never changes how the run ended. */
-  private async releaseGeneratorSession(): Promise<void> {
-    try {
-      await this.deps.generation.release?.();
-    } catch (err) {
-      console.error(`[qa] releasing the generator session failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
-    }
   }
 
   /* Revokes the browser's right and stops it. A fault is said and never changes how the run ended. */

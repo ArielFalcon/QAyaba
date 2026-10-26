@@ -6,7 +6,8 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { GenerationPort } from "@contexts/generation/application/index.ts";
+import type { AuthorPort, LeadPort } from "@contexts/generation/application/index.ts";
+import { briefingLead } from "./coordinator-over-author.ts";
 import { SuiteStoreAdapter } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts";
 import type { SuiteStorePort } from "@kernel/ports/suite-store.port.ts";
 
@@ -81,36 +82,39 @@ function writeDelivered(specDir: string, specs: readonly string[]): void {
   }
 }
 
-/** A generation port that leaves the specs each turn delivers on disk until the turn returns. */
-export function generationOnDisk(port: GenerationPort): GenerationPort {
-  return {
+/** An authoring port that leaves the specs each turn delivers on disk until the turn returns. */
+export function generationOnDisk(port: LeadPort & AuthorPort): LeadPort & AuthorPort {
+  const wrapped: LeadPort & AuthorPort = {
     ...port,
-    generate: async (...args) => {
-      const output = await port.generate(...args);
+    author: async (...args) => {
+      const output = await port.author(...args);
       writeDelivered(args[0], output.specs);
       return output;
     },
   };
+  return wrapped;
 }
 
 /*
- * The same port, for a rig whose tests replace `generate` after the harness is built: the assignment keeps the disk side effect,
+ * The same port, for a rig whose tests replace `author` after the harness is built: the assignment keeps the disk side effect,
  * so a scripted turn still leaves the specs it reported in the spec directory it was given.
  */
-export function reassignableGeneration(initial: GenerationPort["generate"]): GenerationPort {
+export function reassignableGeneration(initial: AuthorPort["author"]): LeadPort & AuthorPort {
   /* The getter hands out the concrete function, so a test that captures it and wraps it keeps a direct call, never a cycle. */
-  const onDisk = (generate: GenerationPort["generate"]): GenerationPort["generate"] => async (...args) => {
-    const output = await generate(...args);
+  const onDisk = (author: AuthorPort["author"]): AuthorPort["author"] => async (...args) => {
+    const output = await author(...args);
     writeDelivered(args[0], output.specs);
     return output;
   };
   let current = onDisk(initial);
-  return {
-    get generate() {
+  const port: LeadPort & AuthorPort = {
+    get author() {
       return current;
     },
-    set generate(next: GenerationPort["generate"]) {
+    set author(next: AuthorPort["author"]) {
       current = onDisk(next);
     },
+    plan: briefingLead(() => port),
   };
+  return port;
 }

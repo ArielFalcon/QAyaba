@@ -11,6 +11,7 @@ import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
 import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
+import { served } from "../../../support/coordinator-over-author.ts";
 
 /* A clock that only moves when a port "takes time", so phase durations are exact. */
 function steppedClock() {
@@ -20,7 +21,7 @@ function steppedClock() {
 
 type Overrides = Partial<{
   classify: RunQaUseCaseDeps["changeAnalysis"]["classify"];
-  generate: RunQaUseCaseDeps["generation"]["generate"];
+  author: RunQaUseCaseDeps["generation"]["author"];
   validate: RunQaUseCaseDeps["validation"]["validate"];
   setup: () => Promise<void>;
   ground: NonNullable<RunQaUseCaseDeps["preGenerationGrounding"]>["ground"];
@@ -32,7 +33,7 @@ function harness(overrides: Overrides = {}) {
   const saved: RunOutcome[] = [];
   const deps: RunQaUseCaseDeps = {
     changeAnalysis: { classify: overrides.classify ?? (async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" })) },
-    generation: generationOnDisk({ generate: overrides.generate ?? (async () => scriptedGeneration({ specs: ["a.spec.ts"]})) }),
+    ...served(generationOnDisk({ author: overrides.author ?? (async () => scriptedGeneration({ specs: ["a.spec.ts"]})) })),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate: overrides.validate ?? (async () => ({ ok: true, errors: [] })) },
     execution: { execute: async () => ({ verdict: "pass", cases: [], logs: "" }) },
@@ -57,7 +58,7 @@ const input = { app: "demo", sha: Sha.of("abc1234"), source: "manual" as const, 
 
 test("a run that passes through every stage reports learn as its furthest phase and the time of each stage it entered", async () => {
   const { useCase, clock } = harness({
-    generate: async () => { clock.spend(40); return scriptedGeneration({ specs: ["a.spec.ts"]}); },
+    author: async () => { clock.spend(40); return scriptedGeneration({ specs: ["a.spec.ts"]}); },
   });
 
   const out = await useCase.run(input);
@@ -114,7 +115,7 @@ test("a static gate failure is persisted with validate as its furthest phase", a
 
 test("the run deadline stopping the generator ends the run with generate as its furthest phase", async () => {
   const { useCase, saved } = harness({
-    generate: async () => { throw new RunDeadlineExceededError(600_000, "diff-tiny", "primary", "mid-turn"); },
+    author: async () => { throw new RunDeadlineExceededError(600_000, "diff-tiny", "primary", "mid-turn"); },
   });
 
   const out = await useCase.run(input);
@@ -148,10 +149,10 @@ test("an already-aborted run has entered no phase", async () => {
 
 test("an error the run does not handle still tells the caller how far the run got", async () => {
   const failure = new Error("agent runtime failed mid-turn");
-  const { useCase } = harness({ generate: async () => { throw failure; } });
+  const { useCase } = harness({ validate: async () => { throw failure; } });
 
   await assert.rejects(() => useCase.run(input), (err) => err === failure);
 
-  assert.equal(phaseSnapshotOf(failure)?.furthestPhase, "generate");
-  assert.ok(phaseSnapshotOf(failure)?.phaseTimings.generate !== undefined);
+  assert.equal(phaseSnapshotOf(failure)?.furthestPhase, "validate");
+  assert.ok(phaseSnapshotOf(failure)?.phaseTimings.validate !== undefined);
 });

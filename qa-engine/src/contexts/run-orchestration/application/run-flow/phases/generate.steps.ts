@@ -1,6 +1,6 @@
 /* The generate phase of a run: the agent writes the specs (or the lead/sidekick mode authors them as flows), the way the generation ended decides whether the run goes on, and the pre-exec grounding may ask for one corrective regeneration before the static gate. */
 
-import { CORRECTION_ORIGIN } from "@contexts/coordination/application/index.ts";
+import { CORRECTION_ORIGIN, authorTargetOf, dispatchAuthor } from "@contexts/coordination/application/index.ts";
 import { relative } from "node:path";
 import { AUTHORING_REFUSAL, DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
@@ -28,7 +28,7 @@ type Result = Promise<StepOutcome<RunState>>;
  * an end that names why nothing was finished. When no author sidekick can run (the plan was not admitted as a fan-out, the generation
  * cannot plan, no sidekick can author, there is no time, or coordination failed) the run ends `E-NO-AUTHOR` with the reason the
  * recorded signal carries; the lead never authors in the author's place.
- * A code run, a context run and a login still to be written never coordinate.
+ * A code run, a context run and a login still to be written never coordinate: one author sidekick authors them in the working copy (`authorFirstPass`).
  */
 async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<{ generated?: GenerationOutput; leadReviewTurns?: number }> {
   const { deps, input, cfg, workspace, signal } = ctx;
@@ -37,8 +37,12 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
   const { authSeedUnauthored } = state.setup;
   const { baseEnrichment } = state.grounding;
   const coordinationSettings = deps.coordinationSettings ?? DEFAULT_COORDINATION_SETTINGS;
-  if (!deps.leadSidekicks) return {};
   if (!generating || cfg.isCode || input.mode === "context" || authSeedUnauthored) return {};
+  /* The coordinator is part of an e2e run's composition: without one nothing could author its flows. */
+  if (!deps.leadSidekicks) {
+    ctx.host.recordCoordination({ refusal: AUTHORING_REFUSAL.NO_COORDINATOR, flows: 0, delivered: 0, incomplete: 0 });
+    throw new NoAuthorError(AUTHORING_REFUSAL.NO_COORDINATOR, "the run has no coordinator to plan and dispatch its author sidekicks");
+  }
   let result: CoordinateResult;
   try {
     result = await deps.leadSidekicks.coordinate({
@@ -98,8 +102,7 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
 }
 
 /*
- * Skipped when generating is false (regression) — the synthetic empty approved
- * result is not a GenerationPort call.
+ * Skipped when generating is false (regression) — the synthetic empty result is not an authoring turn.
  * In the lead/sidekick mode the flows' specs stand in for the lead's first pass (coordinateFirstPass).
  */
 export async function generateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
@@ -127,12 +130,18 @@ export async function generateFirstPass(state: Readonly<RunState>, ctx: Workspac
     leadReviewTurns = coordinated.leadReviewTurns ?? 0;
     throwIfAborted(signal);
     generated = coordinatedFirstPass
-      ?? (await afterGeneration(ctx, await deps.generation.generate(workspace.specDir, signal, classificationDiff, {
-        ...baseEnrichment,
-        ...geolocationEnrichment(ctx),
-        ...(authSeedUnauthored ? { authSeedUnauthored: true } : {}),
+      ?? (await afterGeneration(ctx, await dispatchAuthor(deps.generation, {
+        target: authorTargetOf({ isCode: ctx.cfg.isCode, mode: ctx.input.mode }),
+        specDir: workspace.specDir,
+        ...(signal ? { signal } : {}),
+        diff: classificationDiff,
+        enrichment: {
+          ...baseEnrichment,
+          ...geolocationEnrichment(ctx),
+          ...(authSeedUnauthored ? { authSeedUnauthored: true } : {}),
+        },
       })));
-    mergeDelivered(state, generated, coordinatedFirstPass ? "sidekick" : "lead");
+    mergeDelivered(state, generated, coordinatedFirstPass ? "sidekick" : "author");
   }
   /*
    * Confinement after a real generate() only. The regression synthetic stand-in

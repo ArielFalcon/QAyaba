@@ -1,6 +1,7 @@
-/* GenerationPort → GenerateTestsUseCase. Static per-run context is constructor config; specDir/objectives/signal/diff vary per call. Per-call `diff` is the live commit diff and takes precedence over ctx.diff. specSources come from optional readSpecSource — absent collaborator omits them (Lever-2 finds nothing). stepLimit comes from optional stepLimitFor — absent collaborator, or a role with no limit, omits the key. reexploreNavigations is omitted; FixLoop treats absent as 0. A regeneration turn carries the specs the run delivered so far (deliveredSpecs), the ones a selector contradiction points at (attributedSpecFiles) and the suite's own entries (existingSpecFiles), minus every file the confined reader no longer finds; a first pass carries no delivered or attributed spec, and the suite's entries exactly as the grounding folded them. AbortSignal is forwarded into openSession. */
+/* LeadPort and AuthorPort → GenerateTestsUseCase. Static per-run context is constructor config; specDir/objectives/signal/diff vary per call. Per-call `diff` is the live commit diff and takes precedence over ctx.diff. specSources come from optional readSpecSource — absent collaborator omits them (Lever-2 finds nothing). stepLimit comes from optional stepLimitFor — absent collaborator, or a role with no limit, omits the key. reexploreNavigations is omitted; FixLoop treats absent as 0. A regeneration turn carries the specs the run delivered so far (deliveredSpecs), the ones a selector contradiction points at (attributedSpecFiles) and the suite's own entries (existingSpecFiles), minus every file the confined reader no longer finds; a first pass carries no delivered or attributed spec, and the suite's entries exactly as the grounding folded them. AbortSignal is forwarded into openSession. */
 
-import type { GenerationPort } from "../../application/ports/generation.port.ts";
+import type { LeadPort } from "../../application/ports/lead.port.ts";
+import type { AuthorPort } from "../../application/ports/author.port.ts";
 import type { GenerationEnrichment } from "../../domain/generation-enrichment.ts";
 import type { GenerationOutput } from "../../domain/generation.ts";
 import { renderLearnedRules } from "@contexts/cross-run-learning/application/index.ts";
@@ -18,7 +19,7 @@ function toGenerationIntent(intent: GenerationEnrichment["intent"]): GenerationC
   return intent as GenerationCommitIntent | undefined;
 }
 
-export interface GenerationPortStaticContext {
+export interface GenerationTurnsContext {
   repo: string;
   appName: string;
   mirrorDir: string;
@@ -39,7 +40,7 @@ export interface GenerationPortStaticContext {
   services?: Array<{ repo: string; mirrorDir: string; openapi?: string | string[] }>;
 }
 
-export interface GenerationPortCollaborators {
+export interface GenerationTurnsCollaborators {
   /* Optional: re-reads a just-generated spec file's source text. `reported` is the path as the agent reported it, relative to the root's spec directory: the collaborator must confine it (the composition root defaults to the confined reader), and it throws when the path is refused, as loudly as a missing file. Absent -> specSources omitted. */
   readSpecSource?: (root: SpecRoot, reported: string) => string;
   /* The step limit the runtime enforces for a role this run, asked for on every generation. Absent -> no input states a limit. */
@@ -48,16 +49,16 @@ export interface GenerationPortCollaborators {
   deadline?: { allowance?(purpose: "first-pass"): number | null };
 }
 
-export class GenerationPortAdapter implements GenerationPort {
+export class GenerationTurnsAdapter implements LeadPort, AuthorPort {
   constructor(
     private readonly useCase: GenerateTestsUseCase,
-    private readonly ctx: GenerationPortStaticContext,
-    private readonly collaborators: GenerationPortCollaborators = {},
+    private readonly ctx: GenerationTurnsContext,
+    private readonly collaborators: GenerationTurnsCollaborators = {},
   ) {}
 
   async plan(specDir: string, signal: AbortSignal | undefined, diff: string | undefined, enrichment: GenerationEnrichment): Promise<PlanOutput> {
-    if (!enrichment.planning) throw new Error("GenerationPortAdapter.plan needs enrichment.planning: the limits the plan will be held to");
-    const input = await this.buildInput(specDir, diff, enrichment);
+    if (!enrichment.planning) throw new Error("GenerationTurnsAdapter.plan needs enrichment.planning: the limits the plan will be held to");
+    const input = await this.buildInput(specDir, diff, enrichment, "lead");
     const planned = await this.useCase.plan(input, { ...(signal ? { signal } : {}) });
     return {
       ...(planned.plan ? { plan: planned.plan } : {}),
@@ -70,16 +71,12 @@ export class GenerationPortAdapter implements GenerationPort {
     };
   }
 
-  async release(): Promise<void> {
-    await this.useCase.releaseSession();
-  }
-
-  async generate(specDir: string, signal?: AbortSignal, diff?: string, enrichment?: GenerationEnrichment): Promise<GenerationOutput> {
-    const input = await this.buildInput(specDir, diff, enrichment);
+  async author(specDir: string, signal?: AbortSignal, diff?: string, enrichment?: GenerationEnrichment): Promise<GenerationOutput> {
+    const input = await this.buildInput(specDir, diff, enrichment, "author");
     const root: SpecRoot = { mirrorDir: this.ctx.mirrorDir, specDir };
 
     const { deadline } = this.collaborators;
-    const generated = await this.useCase.generate(input, { ...(signal ? { signal } : {}), ...(deadline ? { deadline } : {}) });
+    const generated = await this.useCase.author(input, { ...(signal ? { signal } : {}), ...(deadline ? { deadline } : {}) });
 
     const result: GenerationOutput = {
       specs: generated.specs,
@@ -106,14 +103,14 @@ export class GenerationPortAdapter implements GenerationPort {
   /* mutation-scope:begin generate-return-tail */
   }
 
-  /* A generation that ends on its time budget or a declared no-op publishes nothing of its manifest, as does a run with no review. */
+  /* An authoring turn that ends on its time budget or a declared no-op publishes nothing of its manifest, as does a run with no review. */
   private publishesSpecMetas(end: GenerationOutput["end"]): boolean {
     return this.ctx.reviewRequired === true && this.ctx.mode !== "context" && end !== GENERATION_END.TIME_BUDGET && end !== GENERATION_END.DECLARED_NOOP;
   }
 
   /* The run input of one turn, from the run's static context and the enrichment the caller hands. */
-  private async buildInput(specDir: string, diff: string | undefined, enrichment: GenerationEnrichment | undefined): Promise<OpencodeRunInput> {
-    const stepLimit = await this.collaborators.stepLimitFor?.("generator");
+  private async buildInput(specDir: string, diff: string | undefined, enrichment: GenerationEnrichment | undefined, role: "lead" | "author"): Promise<OpencodeRunInput> {
+    const stepLimit = await this.collaborators.stepLimitFor?.(role);
   /* mutation-scope:end generate-return-tail */
     const root: SpecRoot = { mirrorDir: this.ctx.mirrorDir, specDir };
     /* On a regeneration turn only, what the run delivered, what a contradiction points at and the suite's own entries, minus the files that are no longer a regular file inside the spec directory (deleted, renamed away, a link out, a path that climbs): the agent can change the suite between passes, and a path it reported is never trusted. A first pass hands the suite's entries on as the grounding folded them. */

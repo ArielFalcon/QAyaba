@@ -8,7 +8,7 @@ import {
   type FixLoopExecutionPort,
   type FixLoopGenerateInput,
   type FixLoopGenerateResult,
-  type FixLoopGenerationPort,
+  type FixLoopRegenerationPort,
   type FixLoopInput,
   type FixLoopIntegrity,
   type FixLoopRun,
@@ -18,7 +18,7 @@ import { CycleBudget } from "@kernel/cycle-budget.ts";
 import { WallClockBudget } from "@kernel/wall-clock-budget.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
-/* ExecutionPort/GenerationPort/SelectorCheck (this file); each loop decision tested in isolation.
+/* ExecutionPort/the regeneration port/SelectorCheck (this file); each loop decision tested in isolation.
    The retry loop under a run that fails identically every time lives in fix-loop-retry.test.ts.
  */
 
@@ -32,10 +32,10 @@ function budgets(): { cycleBudget: CycleBudget; wallClockBudget: WallClockBudget
   return { cycleBudget, wallClockBudget };
 }
 
-/* A stub GenerationPort that always regenerates one spec with no selector-contradiction feedback. */
-function regenAlwaysSucceeds(): FixLoopGenerationPort {
+/* A stub the regeneration port that always regenerates one spec with no selector-contradiction feedback. */
+function regenAlwaysSucceeds(): FixLoopRegenerationPort {
   return {
-    generate: async () => ({ specs: ["checkout.spec.ts"], approved: true }),
+    regenerate: async () => ({ specs: ["checkout.spec.ts"], approved: true }),
   };
 }
 
@@ -79,14 +79,14 @@ test("break-issue with runner_infra evidence -> infra-error, no regen call", asy
       throw new Error("execute must not be called — the loop should break BEFORE any retry-execute");
     },
   };
-  const generation: FixLoopGenerationPort = {
-    generate: async () => {
+  const regeneration: FixLoopRegenerationPort = {
+    regenerate: async () => {
       regenCalled = true;
       return { specs: [], approved: true };
     },
   };
   const { cycleBudget, wallClockBudget } = budgets();
-  const loop = new FixLoop({ execution, generation, selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) } });
+  const loop = new FixLoop({ execution, regeneration, selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) } });
 
   const result = await loop.run({
     initialRun: { verdict: "fail", cases: [makeCase({ detail: "browserType.launch: Executable doesn't exist" })] },
@@ -112,11 +112,11 @@ test("break-issue with app_defect (real-bug) evidence -> realBugDetected=true, v
       throw new Error("execute must not be called — the loop should break on the FIRST evaluation");
     },
   };
-  const generation = regenAlwaysSucceeds();
+  const regeneration = regenAlwaysSucceeds();
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
@@ -147,14 +147,14 @@ test("loop condition — maxRetries=0 disables the fix-loop entirely (no regen, 
       throw new Error("execute must not be called when maxRetries=0");
     },
   };
-  const generation: FixLoopGenerationPort = {
-    generate: async () => {
+  const regeneration: FixLoopRegenerationPort = {
+    regenerate: async () => {
       regenCalled = true;
       return { specs: [], approved: true };
     },
   };
   const { cycleBudget, wallClockBudget } = budgets();
-  const loop = new FixLoop({ execution, generation, selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) } });
+  const loop = new FixLoop({ execution, regeneration, selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) } });
 
   const result = await loop.run({
     initialRun: { verdict: "fail", cases: [makeCase()] },
@@ -176,9 +176,9 @@ test("loop condition — maxRetries=0 disables the fix-loop entirely (no regen, 
 
 test("loop condition — verdict!=='fail' skips the loop entirely (already pass)", async () => {
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("must not execute"); } };
-  const generation: FixLoopGenerationPort = { generate: async () => { throw new Error("must not regen"); } };
+  const regeneration: FixLoopRegenerationPort = { regenerate: async () => { throw new Error("must not regen"); } };
   const { cycleBudget, wallClockBudget } = budgets();
-  const loop = new FixLoop({ execution, generation, selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) } });
+  const loop = new FixLoop({ execution, regeneration, selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) } });
 
   const result = await loop.run({
     initialRun: { verdict: "pass", cases: [{ name: "login", status: "pass" }] },
@@ -199,9 +199,9 @@ test("loop condition — verdict!=='fail' skips the loop entirely (already pass)
 
 test("loop condition — generating=false skips the loop entirely (regression-only run)", async () => {
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("must not execute"); } };
-  const generation: FixLoopGenerationPort = { generate: async () => { throw new Error("must not regen"); } };
+  const regeneration: FixLoopRegenerationPort = { regenerate: async () => { throw new Error("must not regen"); } };
   const { cycleBudget, wallClockBudget } = budgets();
-  const loop = new FixLoop({ execution, generation, selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) } });
+  const loop = new FixLoop({ execution, regeneration, selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) } });
 
   const result = await loop.run({
     initialRun: { verdict: "fail", cases: [makeCase()] },
@@ -232,8 +232,8 @@ test("Lever-2 absentKeys short-circuit — regenerates WITHOUT re-executing, loo
       return { verdict: "pass", cases: [{ name: "login", status: "pass" }] };
     },
   };
-  const generation: FixLoopGenerationPort = {
-    generate: async () => {
+  const regeneration: FixLoopRegenerationPort = {
+    regenerate: async () => {
       generateCallCount++;
       return { specs: ["login.spec.ts"], approved: true };
     },
@@ -249,7 +249,7 @@ test("Lever-2 absentKeys short-circuit — regenerates WITHOUT re-executing, loo
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: {
       check: () => ({
         contradictions: ['button:"Submit" is NOT in the captured failure-point tree. Present roles: (none)'],
@@ -285,8 +285,8 @@ test("Lever-2 absentKeys short-circuit — regenerates WITHOUT re-executing, loo
 async function regenInputFor(findings: Partial<SpecSelectorFindings> & { origins?: ContradictionOrigin[] }): Promise<FixLoopGenerateInput> {
   const seen: FixLoopGenerateInput[] = [];
   const execution: FixLoopExecutionPort = { execute: async () => ({ verdict: "pass", cases: [{ name: "login", status: "pass" }] }) };
-  const generation: FixLoopGenerationPort = {
-    generate: async (input) => {
+  const regeneration: FixLoopRegenerationPort = {
+    regenerate: async (input) => {
       seen.push(input);
       return { specs: ["login.spec.ts"], approved: true };
     },
@@ -294,7 +294,7 @@ async function regenInputFor(findings: Partial<SpecSelectorFindings> & { origins
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false, ...findings }) },
   });
   await loop.run({
@@ -341,13 +341,13 @@ test("filtered-retry — canFilter true (coverageWillMeasure=false, regen stayed
       return { verdict: "pass", cases: [{ name: "login", status: "pass", file: "login.spec.ts" }] };
     },
   };
-  const generation: FixLoopGenerationPort = {
-    generate: async () => ({ specs: ["login.spec.ts"], approved: true }),
+  const regeneration: FixLoopRegenerationPort = {
+    regenerate: async () => ({ specs: ["login.spec.ts"], approved: true }),
   };
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
@@ -380,7 +380,7 @@ async function retryScopeFor(failingFile: string, regenSpecs: string[]): Promise
         return { verdict: "pass", cases: [{ name: "login", status: "pass", file: failingFile }] };
       },
     },
-    generation: { generate: async () => ({ specs: regenSpecs, approved: true }) },
+    regeneration: { regenerate: async () => ({ specs: regenSpecs, approved: true }) },
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
   });
   const { cycleBudget, wallClockBudget } = budgets();
@@ -425,16 +425,16 @@ test("filtered-retry — regen specs are ALL outside the failing set -> full re-
       return { verdict: "pass", cases: [{ name: "checkout", status: "pass", file: "checkout.spec.ts" }] };
     },
   };
-  const generation: FixLoopGenerationPort = {
+  const regeneration: FixLoopRegenerationPort = {
     /* Zero overlap with the failing set (["login.spec.ts"]) — the regen wrote an entirely
        different spec file. Filtering execute() to the stale failing set would silently never
        run the file the regen actually produced. */
-    generate: async () => ({ specs: ["checkout.spec.ts"], approved: true }),
+    regenerate: async () => ({ specs: ["checkout.spec.ts"], approved: true }),
   };
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
@@ -468,13 +468,13 @@ test("filtered-retry — canFilter false when coverageWillMeasure=true (never fi
       return { verdict: "pass", cases: [{ name: "login", status: "pass", file: "login.spec.ts" }] };
     },
   };
-  const generation: FixLoopGenerationPort = {
-    generate: async () => ({ specs: ["login.spec.ts"], approved: true }),
+  const regeneration: FixLoopRegenerationPort = {
+    regenerate: async () => ({ specs: ["login.spec.ts"], approved: true }),
   };
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
@@ -519,13 +519,13 @@ test("bestRunSoFar regression guard — a worse terminal retry is discarded for 
       };
     },
   };
-  const generation: FixLoopGenerationPort = {
-    generate: async () => ({ specs: ["login.spec.ts", "checkout.spec.ts"], approved: true }),
+  const regeneration: FixLoopRegenerationPort = {
+    regenerate: async () => ({ specs: ["login.spec.ts", "checkout.spec.ts"], approved: true }),
   };
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
@@ -571,13 +571,13 @@ test("bestRunSoFar guard is SKIPPED when realBugDetected fired (the current fail
       };
     },
   };
-  const generation: FixLoopGenerationPort = {
-    generate: async () => ({ specs: ["checkout.spec.ts"], approved: true }),
+  const regeneration: FixLoopRegenerationPort = {
+    regenerate: async () => ({ specs: ["checkout.spec.ts"], approved: true }),
   };
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
@@ -623,11 +623,11 @@ test("an accepted round's execution replaces its changed file's cases, and the l
       throw new Error("the accepted path must not call the retry execution port");
     },
   };
-  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
+  const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
@@ -665,11 +665,11 @@ test("a rejected acceptance keeps the prior run and stops without executing", as
       throw new Error("a rejected round must not run the retry execution port");
     },
   };
-  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
+  const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
@@ -702,11 +702,11 @@ test("a capped acceptance keeps the prior run and stops without executing", asyn
       throw new Error("a capped round must not run the retry execution port");
     },
   };
-  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
+  const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
@@ -748,11 +748,11 @@ test("the best round's snapshot is restored when a later round regresses", async
     };
   });
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
-  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
+  const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
@@ -783,11 +783,11 @@ test("an accepted round keeps a case the run cannot attribute to a file", async 
     accepted: "round-a-v1",
   }));
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
-  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
+  const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
@@ -832,11 +832,11 @@ test("the initial run's own bytes are restored when the first accepted round is 
     accepted: "round-worse",
   }));
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
-  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts", "c.spec.ts"], approved: true }) };
+  const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts", "c.spec.ts"], approved: true }) };
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
@@ -866,11 +866,11 @@ test("an accepted round never hides a flaky spec it did not re-run", async () =>
     accepted: "round-a-pass",
   }));
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
-  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
+  const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
@@ -902,11 +902,11 @@ test("DEV unhealthy before a round's acceptance skips it", async () => {
   let devCalls = 0;
   const acceptance = fakeAcceptance(async () => ({ kind: "cap" }));
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
-  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
+  const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
@@ -940,11 +940,11 @@ test("a rejected fail round ends as infra-error when DEV went unhealthy during i
     execution: { verdict: "fail", cases: [] },
   }));
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
-  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
+  const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
@@ -973,11 +973,11 @@ test("a validation rejection while DEV is down stays a validation rejection, not
   let devCalls = 0;
   const acceptance = fakeAcceptance(async () => ({ kind: "rejected", reason: "TS2554: expected 2 arguments" }));
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
-  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
+  const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
@@ -1010,11 +1010,11 @@ test("a rejected infra-error round ends the run as infra-error", async () => {
     execution: { verdict: "infra-error", cases: [] },
   }));
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
-  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
+  const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     acceptance,
   });
@@ -1057,8 +1057,8 @@ test("reexploreNavigations thrash-stop — a heavy re-exploration round downgrad
       };
     },
   };
-  const generation: FixLoopGenerationPort = {
-    generate: async () => {
+  const regeneration: FixLoopRegenerationPort = {
+    regenerate: async () => {
       generateCallCount++;
       /* Every regen reports heavy re-exploration (>= REEXPLORE_FLAIL_THRESHOLD=3) — mirrors an agent
          that re-navigated instead of fixing from the injected failure-point tree.
@@ -1069,7 +1069,7 @@ test("reexploreNavigations thrash-stop — a heavy re-exploration round downgrad
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
@@ -1113,13 +1113,13 @@ test("mid-retry infra-error (DEV dies after a filtered retry-execute) discards c
       };
     },
   };
-  const generation: FixLoopGenerationPort = {
-    generate: async () => ({ specs: ["checkout.spec.ts"], approved: true }),
+  const regeneration: FixLoopRegenerationPort = {
+    regenerate: async () => ({ specs: ["checkout.spec.ts"], approved: true }),
   };
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
     /* devHealthy on FixLoopInput is the FIRST check (adjudicator evidence, always healthy here); the
        SECOND, independent devHealthy() call happens right after the retry-execute returns fail — this
@@ -1153,17 +1153,17 @@ test("mid-retry infra-error (DEV dies after a filtered retry-execute) discards c
   assert.deepEqual(result.run.cases, [], "a discarded infra-error run must carry zero cases, matching every other infra-error assignment in this aggregate");
 });
 
-/* cycleBudget/wallClockBudget thread into the FixLoopGenerationPort.generate() call so a composed
+/* cycleBudget/wallClockBudget thread into the FixLoopthe author port call so a composed
    generation adapter can enforce the budget check at the generate() call boundary, rather than the
    fix-loop re-implementing budget logic it structurally does not own.
  */
-test("the regen call threads cycleBudget/wallClockBudget to the GenerationPort, not the fix-loop block)", async () => {
+test("the regen call threads cycleBudget/wallClockBudget to the the regeneration port, not the fix-loop block)", async () => {
   const receivedGenerateInputs: Array<{ cycleBudget?: CycleBudget; wallClockBudget?: WallClockBudget }> = [];
   const execution: FixLoopExecutionPort = {
     execute: async () => ({ verdict: "pass" as const, cases: [{ name: "checkout", status: "pass" as const }] }),
   };
-  const generation: FixLoopGenerationPort = {
-    generate: async (input) => {
+  const regeneration: FixLoopRegenerationPort = {
+    regenerate: async (input) => {
       receivedGenerateInputs.push(input);
       return { specs: ["checkout.spec.ts"], approved: true };
     },
@@ -1171,7 +1171,7 @@ test("the regen call threads cycleBudget/wallClockBudget to the GenerationPort, 
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
@@ -1202,8 +1202,8 @@ test("lastSpecMetas reflects the FINAL regen round's own specMetas once the loop
   const execution: FixLoopExecutionPort = {
     execute: async () => ({ verdict: "pass" as const, cases: [{ name: "checkout", status: "pass" as const }] }),
   };
-  const generation: FixLoopGenerationPort = {
-    generate: async () => ({
+  const regeneration: FixLoopRegenerationPort = {
+    regenerate: async () => ({
       specs: ["checkout.spec.ts"],
       approved: true,
       specMetas: [{ flow: "Checkout", objective: "user can pay with a saved card" }],
@@ -1212,7 +1212,7 @@ test("lastSpecMetas reflects the FINAL regen round's own specMetas once the loop
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
@@ -1239,15 +1239,15 @@ test("lastSpecMetas is undefined when the loop never regenerated (already passin
       throw new Error("execute must not be called — the loop condition is false from the start (verdict already pass)");
     },
   };
-  const generation: FixLoopGenerationPort = {
-    generate: async () => {
+  const regeneration: FixLoopRegenerationPort = {
+    regenerate: async () => {
       throw new Error("generate must not be called — the loop never engages");
     },
   };
   const { cycleBudget, wallClockBudget } = budgets();
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
@@ -1296,8 +1296,8 @@ function recordingLoop(opts: {
         return next;
       },
     },
-    generation: {
-      generate: async (i) => {
+    regeneration: {
+      regenerate: async (i) => {
         rec.generates.push(i);
         return opts.regen ? opts.regen(rec.generates.length) : { specs: ["checkout.spec.ts"], approved: true };
       },

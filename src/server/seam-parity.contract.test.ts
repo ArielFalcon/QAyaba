@@ -202,10 +202,10 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
    */
   const OPTIONAL_ALLOWLIST: Record<string, string> = {
     guidance: "supplied by buildEngineRootDeps ONLY when run.guidance is present (asserted below as a present-when-given case) — legitimately absent for diff-mode runs with no manual guidance.",
-    diff: "DELIBERATELY static '' — see this fn's own header 'difference #2': GenerationPortAdapter/ReviewPortAdapter both resolve the REAL per-run diff dynamically from ChangeAnalysisPort.classify() instead, since no per-run diff exists yet at composition-build time.",
+    diff: "DELIBERATELY static '' — see this fn's own header 'difference #2': GenerationTurnsAdapter/ReviewPortAdapter both resolve the REAL per-run diff dynamically from ChangeAnalysisPort.classify() instead, since no per-run diff exists yet at composition-build time.",
     baseUrl: "supplied ONLY when app.dev?.baseUrl is present (asserted below as a present-when-given case) — legitimately absent for code-mode apps (no dev: block).",
     testIdAttribute: "supplied ONLY when app.e2e?.testIdAttribute is present (asserted below as a present-when-given case) — deliberately NO 'data-testid' default applied here (the seed playwright.config.ts already defaults it); legitimately absent when the app declares none.",
-    readSpecSource: "DELIBERATELY absent — the shell passes no spec reader. The composition root defaults to the confined reader (asserted below by reading real specs through the wired GenerationPort), so FixLoop's Lever-2 selector-contradiction check still receives specSources on the real production path, and a path the agent reported is never read by a bare fs call that follows a symlink out of the spec directory.",
+    readSpecSource: "DELIBERATELY absent — the shell passes no spec reader. The composition root defaults to the confined reader (asserted below by reading real specs through the wired the authoring port), so FixLoop's Lever-2 selector-contradiction check still receives specSources on the real production path, and a path the agent reported is never read by a bare fs call that follows a symlink out of the spec directory.",
     stepLimitFor: "supplied ONLY when the host wires getAgentFacade: the per-run memo over the live runtime's step limits (asserted below as a present-when-given case that reaches the generation and review inputs). Legitimately absent when the host wires none: absent means no prompt of the run states a step limit, never a stand-in number.",
     setupCollaborators: "IS supplied (e2e + code) — asserted below as a present case; listed here only because this describe-block enumerates the type's full optional-field set before splitting into present/allowlisted.",
     cleanupCollaborators: "IS supplied (e2e only, matching engine-root.ts's own `!cfg.isCode` gate) — asserted below as a present case.",
@@ -381,7 +381,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
   });
 
   /* The spec reader is the composition root's own: the shell hands it none (asserted above), so what Lever-2 reads
-     is whatever the root defaults to, observed here through the wired GenerationPort with real files. */
+     is whatever the root defaults to, observed here through the wired the authoring port with real files. */
   test("the composition root reads the delivered specs through the confined reader: a spec inside the spec directory is a source, and a symlink that leaves it is refused", async () => {
     const mirrorRoot = mkdtempSync(join(tmpdir(), "qa-seam-confined-reader-"));
     try {
@@ -394,14 +394,14 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
 
       const delivering = (specs: string[]): EngineRootDeps => ({
         ...cfg,
-        generationUseCase: { generate: async () => ({ specs, end: GENERATION_END.DELIVERED }) },
+        generationUseCase: { author: async () => ({ specs, end: GENERATION_END.DELIVERED }) },
       });
 
-      const inside = await wireEngine(delivering(["flows/inside.spec.ts"])).generation.generate(specDir);
+      const inside = await wireEngine(delivering(["flows/inside.spec.ts"])).generation.author(specDir);
       assert.deepEqual(inside.specSources, ["// inside the spec directory\n"]);
 
       await assert.rejects(
-        wireEngine(delivering(["flows/leak.spec.ts"])).generation.generate(specDir),
+        wireEngine(delivering(["flows/leak.spec.ts"])).generation.author(specDir),
         (err: unknown) => err instanceof ConfinedPathError && err.path === "flows/leak.spec.ts",
       );
     } finally {
@@ -430,7 +430,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
     const adapters = wireEngine({
       ...cfg,
       generationUseCase: {
-        generate: async (input) => {
+        author: async (input) => {
           generated.push(input);
           return { specs: [], end: GENERATION_END.DELIVERED };
         },
@@ -447,14 +447,14 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
       },
     });
     const specDir = join(cfg.mirrorDir, cfg.e2eRelDir);
-    await adapters.generation.generate(specDir);
+    await adapters.generation.author(specDir);
     await adapters.review.review(specDir, []);
     assert.ok(generated[0] && reviewed[0], "both prompts were built");
     return { cfg, generation: generated[0], review: reviewed[0] };
   }
 
   test("the step limit of each role crosses the composition root: the generator's reaches the generation input and the reviewer's the review input", async () => {
-    const { cfg, generation, review } = await inputsBuiltThrough({ ...fakeFactoryDeps(), getAgentFacade: () => facadeReporting({ primary: 41, reviewer: 17 }) });
+    const { cfg, generation, review } = await inputsBuiltThrough({ ...fakeFactoryDeps(), getAgentFacade: () => facadeReporting({ sidekick: 41, reviewer: 17 }) });
 
     const dyingLayer = "buildEngineRootDeps() -> wireEngine() (src/server/run-engine-factory.ts -> engine-root.ts)";
     assert.notEqual(cfg.stepLimitFor, undefined, `stepLimitFor dropped at ${dyingLayer}`);
@@ -492,7 +492,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
       assignments: { primary: assignedTo(NO_LIMIT_RUNTIME), reviewer: assignedTo(NO_LIMIT_RUNTIME), chat: assignedTo(NO_LIMIT_RUNTIME) },
     });
     const split = new AgentRuntimeFacade(
-      { opencode: providerReporting("opencode", { primary: 41, reviewer: 17 }), [NO_LIMIT_NAME]: providerReporting(NO_LIMIT_RUNTIME) } as Record<AgentProvider, AgentRuntimeStrategy>,
+      { opencode: providerReporting("opencode", { sidekick: 41, reviewer: 17 }), [NO_LIMIT_NAME]: providerReporting(NO_LIMIT_RUNTIME) } as Record<AgentProvider, AgentRuntimeStrategy>,
       { assignments: { primary: assignedTo("opencode"), reviewer: assignedTo(NO_LIMIT_RUNTIME), chat: assignedTo(NO_LIMIT_RUNTIME) } },
     );
 

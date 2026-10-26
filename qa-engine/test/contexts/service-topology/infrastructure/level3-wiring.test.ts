@@ -114,7 +114,7 @@ test("GenerateTestsUseCase propagates serviceLinks to renderMain intact when pre
     confidence: 1.0,
     source: "openapi-http",
   };
-  await useCase.generate({
+  await useCase.author({
     repo: "org/demo",
     sha: "abc",
     diff: "d",
@@ -139,7 +139,7 @@ test("GenerateTestsUseCase passes serviceLinks as absent to renderMain when not 
   const capturedInput: { value: OpencodeRunInput | undefined } = { value: undefined };
   const ports = makeGenerationPorts(capturedInput);
   const useCase = new GenerateTestsUseCase(ports);
-  await useCase.generate({
+  await useCase.author({
     repo: "org/demo",
     sha: "abc",
     diff: "d",

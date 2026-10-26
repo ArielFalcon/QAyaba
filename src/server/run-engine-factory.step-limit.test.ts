@@ -74,37 +74,37 @@ function limitOf(config: EngineRootDeps, role: StepLimitRole): Promise<number | 
   return config.stepLimitFor(role);
 }
 
-const ROLES: readonly StepLimitRole[] = ["generator", "reviewer"];
+const ROLES: readonly StepLimitRole[] = ["author", "reviewer"];
 const limitsOf = (config: EngineRootDeps): Promise<Array<number | undefined>> => Promise.all(ROLES.map((role) => limitOf(config, role)));
 
 /* Lets every promise callback already queued run, with timers (mocked or not) left alone. */
 const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
-test("each role's limit is the one the live runtime reports for its own role, and the generator's is the primary role's", async () => {
-  const config = compose(() => reporting({ primary: 41, reviewer: 17 }).facade);
+test("each role's limit is the one the live runtime reports for its own role, and the author's is the author sidekick's role", async () => {
+  const config = compose(() => reporting({ sidekick: 41, reviewer: 17 }).facade);
 
   assert.deepEqual(await limitsOf(config), [41, 17]);
 });
 
 test("a role the runtime reports no limit for has none, and a limit reported for some other role never stands in for it", async () => {
-  assert.deepEqual(await limitsOf(compose(() => reporting({ primary: 41 }).facade)), [41, undefined]);
-  assert.deepEqual(await limitsOf(compose(() => reporting({ chat: 5, maintainer: 6, sidekick: 7 }).facade)), [undefined, undefined]);
+  assert.deepEqual(await limitsOf(compose(() => reporting({ sidekick: 41 }).facade)), [41, undefined]);
+  assert.deepEqual(await limitsOf(compose(() => reporting({ chat: 5, maintainer: 6, primary: 7 }).facade)), [undefined, undefined]);
 });
 
 test("ONE read of the run's directory serves every role and every prompt, however they ask", async () => {
-  const { facade, reads } = reporting({ primary: 41, reviewer: 17 });
+  const { facade, reads } = reporting({ sidekick: 41, reviewer: 17 });
   const config = compose(() => facade);
 
   await limitsOf(config);
   await limitsOf(config);
-  await Promise.all([limitOf(config, "generator"), limitOf(config, "generator"), limitOf(config, "reviewer")]);
+  await Promise.all([limitOf(config, "author"), limitOf(config, "author"), limitOf(config, "reviewer")]);
 
   assert.deepEqual(reads, [config.mirrorDir]);
 });
 
 test("nothing is read until a prompt asks: a run that never prompts never touches the runtime", async () => {
   let resolved = 0;
-  const { facade, reads } = reporting({ primary: 41 });
+  const { facade, reads } = reporting({ sidekick: 41 });
   const config = compose(() => {
     resolved += 1;
     return facade;
@@ -112,23 +112,23 @@ test("nothing is read until a prompt asks: a run that never prompts never touche
   await flush();
 
   assert.deepEqual([resolved, reads.length], [0, 0]);
-  await limitOf(config, "generator");
+  await limitOf(config, "author");
   assert.deepEqual([resolved, reads.length], [1, 1], "the first ask resolves the facade once and reads once");
   await limitsOf(config);
   assert.deepEqual([resolved, reads.length], [1, 1], "later asks reuse both");
 });
 
 test("the facade is resolved for each run: a runtime switched between runs gives each run the limit of the runtime it runs on", async () => {
-  const first = reporting({ primary: 40 });
-  const second = reporting({ primary: 25 });
+  const first = reporting({ sidekick: 40 });
+  const second = reporting({ sidekick: 25 });
   let current = first;
   const getAgentFacade = () => current.facade;
 
   const firstRun = compose(getAgentFacade);
-  assert.equal(await limitOf(firstRun, "generator"), 40);
+  assert.equal(await limitOf(firstRun, "author"), 40);
   current = second;
   const secondRun = compose(getAgentFacade);
-  assert.equal(await limitOf(secondRun, "generator"), 25);
+  assert.equal(await limitOf(secondRun, "author"), 25);
 
   assert.equal(first.reads.length, 1);
   assert.equal(second.reads.length, 1);
@@ -145,7 +145,7 @@ test("a read inside STEP_LIMIT_READ_TIMEOUT_MS is used and warns nothing", async
   await flush();
   t.mock.timers.tick(STEP_LIMIT_READ_TIMEOUT_MS - 1);
   assert.ok(answer, "the read was started by the first ask");
-  answer({ primary: 41, reviewer: 17 });
+  answer({ sidekick: 41, reviewer: 17 });
 
   assert.deepEqual(await asks, [41, 17]);
   assert.equal(warn.mock.callCount(), 0);
@@ -169,7 +169,7 @@ test("a read that outlasts STEP_LIMIT_READ_TIMEOUT_MS gives every role no limit 
   assert.ok(warning.includes(String(STEP_LIMIT_READ_TIMEOUT_MS)), "the warning names the deadline that passed");
 
   assert.ok(answer);
-  answer({ primary: 41, reviewer: 17 });
+  answer({ sidekick: 41, reviewer: 17 });
   await flush();
   assert.deepEqual(await limitsOf(config), [undefined, undefined]);
   assert.equal(reads.length, 1, "a later ask does not read again");
@@ -213,20 +213,20 @@ test("a host that cannot resolve a facade gives every role no limit and one warn
 });
 
 test("the baked config copy is never the source: a runtime that reports no limit gives none, and a live limit beats the file's", async () => {
-  const baked = maxStepsFromConfig(AGENT_NAME_FOR_ROLE.primary);
+  const baked = maxStepsFromConfig(AGENT_NAME_FOR_ROLE.sidekick);
   assert.equal(typeof baked, "number", "the baked agents/opencode.json declares a limit for the generator, so a silent fallback to it would show");
   const live = (baked as number) + 1;
 
   assert.deepEqual(await limitsOf(compose(() => reporting({}).facade)), [undefined, undefined]);
-  assert.equal(await limitOf(compose(() => reporting({ primary: live }).facade), "generator"), live);
+  assert.equal(await limitOf(compose(() => reporting({ sidekick: live }).facade), "author"), live);
 });
 
 test("a number that is not a positive whole step count is no limit, however the runtime came to report it", async () => {
   for (const notALimit of [0, -3, 2.5, Number.NaN, Number.POSITIVE_INFINITY]) {
-    const config = compose(() => reporting({ primary: notALimit, reviewer: notALimit }).facade);
+    const config = compose(() => reporting({ sidekick: notALimit, reviewer: notALimit }).facade);
     assert.deepEqual(await limitsOf(config), [undefined, undefined], `${notALimit} must not reach a prompt as a limit`);
   }
-  assert.deepEqual(await limitsOf(compose(() => reporting({ primary: 1, reviewer: 1 }).facade)), [1, 1], "the smallest whole count is a limit");
+  assert.deepEqual(await limitsOf(compose(() => reporting({ sidekick: 1, reviewer: 1 }).facade)), [1, 1], "the smallest whole count is a limit");
 });
 
 test("a host that wires no facade composes no resolver: absence means no prompt states a limit, never a stand-in", () => {
@@ -236,11 +236,11 @@ test("a host that wires no facade composes no resolver: absence means no prompt 
 });
 
 test("the run's one read of its runtime also installs the context window the runtime reports for each model, so a prompt is budgeted by the real window", async () => {
-  const { facade } = reporting({ primary: 41 });
+  const { facade } = reporting({ sidekick: 41 });
   facade.modelWindows = async () => ({ "some-provider/uncataloged-model": 500_000 });
   setRuntimeRoleModels({ primary: "some-provider/uncataloged-model", reviewer: "some-provider/uncataloged-model", chat: "some-provider/uncataloged-model" });
   try {
-    await limitOf(compose(() => facade), "generator");
+    await limitOf(compose(() => facade), "author");
     assert.equal(roleWindowBytes("qa-generator"), Math.floor(500_000 * INPUT_PROMPT_SAFETY_MARGIN * BYTES_PER_TOKEN));
   } finally {
     setLiveModelWindows(undefined);
@@ -250,12 +250,12 @@ test("the run's one read of its runtime also installs the context window the run
 
 test("a window read that fails leaves the catalog in charge and still answers the step limits", async (t) => {
   t.mock.method(console, "warn", () => undefined);
-  const { facade } = reporting({ primary: 41 });
+  const { facade } = reporting({ sidekick: 41 });
   facade.modelWindows = async () => { throw new Error("providers unreachable"); };
   setLiveModelWindows({ "opencode-go/minimax-m3": 7 });
   setRuntimeRoleModels({ primary: "opencode-go/minimax-m3", reviewer: "opencode-go/minimax-m3", chat: "opencode-go/minimax-m3" });
   try {
-    assert.equal(await limitOf(compose(() => facade), "generator"), 41);
+    assert.equal(await limitOf(compose(() => facade), "author"), 41);
     assert.equal(roleWindowBytes("qa-generator"), modelWindowBytes("minimax-m3"), "a previous run's windows never outlive a failed read");
   } finally {
     setLiveModelWindows(undefined);

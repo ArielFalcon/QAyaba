@@ -22,7 +22,7 @@ import { TracedObjectiveSignalPort } from "../../qa-engine/src/contexts/objectiv
 import type { SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port";
 import { type PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port";
 
-import { GenerationPortAdapter, type GenerationPortCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/generation-port.adapter";
+import { GenerationTurnsAdapter, type GenerationTurnsCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/generation-turns.adapter";
 import { type ReviewPortRuntime } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/review-port.adapter";
 import type { GitHubPrCollaborator, GitHubIssueCollaborator } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter";
 import type { PathConfinementCollaborator } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/confinement-port.adapter";
@@ -72,7 +72,7 @@ export { codeGraphFor, buildAppCatalog, buildPublishWorkspace };
 export type { PublishDeps };
 
 export interface EngineRootDeps {
-  /* Static per-run context (shared across GenerationPort/ReviewPort/ExecutionPort/PublicationPort). */
+  /* Static per-run context (shared across the lead and author turns/ReviewPort/ExecutionPort/PublicationPort). */
   repo: string;
   appName: string;
   mirrorDir: string;
@@ -132,12 +132,12 @@ export interface EngineRootDeps {
   /* ChangeAnalysisPort collaborator. */
   vcs: VcsReadPort;
 
-  /* GenerationPort collaborator — an ALREADY-CONSTRUCTED use-case (its own leaf IO ports are the generation context's own concern) plus the optional specSources file-read collaborator. */
+  /* The lead and author turns' collaborator — an ALREADY-CONSTRUCTED use-case (its own leaf IO ports are the generation context's own concern) plus the optional specSources file-read collaborator. */
   generationUseCase: {
-    generate(input: OpencodeRunInput, opts?: GenerateOpts): Promise<GenerationResult>;
+    author(input: OpencodeRunInput, opts?: GenerateOpts): Promise<GenerationResult>;
   };
   /* Override of the spec reader behind Lever-2's specSources. The shell passes none: absent, the composition root reads through the confined reader, the one that never follows a path an agent reported out of the spec directory. */
-  readSpecSource?: GenerationPortCollaborators["readSpecSource"];
+  readSpecSource?: GenerationTurnsCollaborators["readSpecSource"];
   /* The step limit the agent runtime enforces for a role this run, shared by every prompt of the run (the shell reads it once). It resolves undefined when the runtime enforces none for the role or cannot be read, and never rejects. Optional, no stub: absent, no prompt of the run states a step limit. */
   stepLimitFor?: StepLimitFor;
 
@@ -192,9 +192,9 @@ export interface EngineRootDeps {
     mirrorRoot: string;
     runner: SandboxedBinaryRunner;
   };
-  /* Triggering microservice for a cross-repo run — its repo, its own read-only mirror dir, and its own openapi hint. Prompt-context only (GenerationPortAdapter → OpencodeRunInput.service). No verdict/gate/coverage/publish path reads it. Absent in the same-repo case — never a stub. */
+  /* Triggering microservice for a cross-repo run — its repo, its own read-only mirror dir, and its own openapi hint. Prompt-context only (GenerationTurnsAdapter → OpencodeRunInput.service). No verdict/gate/coverage/publish path reads it. Absent in the same-repo case — never a stub. */
   triggerService?: { repo: string; mirrorDir: string; openapi?: string | string[] };
-  /* Every declared service repo for a context-mode run (read-only working copies). Prompt-context only (GenerationPortAdapter → OpencodeRunInput.services). Mutually exclusive with triggerService (context mode is never service-triggered). Absent — never an empty array — when the run is not context-mode or the app has no services. */
+  /* Every declared service repo for a context-mode run (read-only working copies). Prompt-context only (GenerationTurnsAdapter → OpencodeRunInput.services). Mutually exclusive with triggerService (context mode is never service-triggered). Absent — never an empty array — when the run is not context-mode or the app has no services. */
   services?: Array<{ repo: string; mirrorDir: string; openapi?: string | string[] }>;
   /* FE↔BE architecture map (context.json). Absent → the pack degrades to blast-radius + DOM only. */
   contextMap?: ArchitectureContext;
@@ -277,7 +277,7 @@ export interface EngineRootDeps {
   coordinationTelemetryPath?: string;
   /* How the app's runs are coordinated (qa.coordination, limits defaulted). Absent: the defaults. */
   coordinationSettings?: CoordinationSettings;
-  /* What lead and sidekicks need from the shell. Optional, no stub: absent (or a code target) omits RunQaUseCaseDeps.leadSidekicks and a run is authored by its lead alone. */
+  /* What lead and sidekicks need from the shell. Optional, no stub: absent (or a code target) omits RunQaUseCaseDeps.leadSidekicks, and an e2e run that authors flows then ends `E-NO-AUTHOR`. */
   delegation?: DelegationWiring;
 }
 

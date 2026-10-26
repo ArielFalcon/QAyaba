@@ -12,6 +12,7 @@ import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
 import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
+import { loginToBeWritten, served } from "../../../support/coordinator-over-author.ts";
 
 /** A spec the lead delivered and declared. */
 const declared = (file: string, objective: string): DeliveredSpec => ({ file, flow: `${file} flow`, objective });
@@ -91,14 +92,15 @@ async function run(scenario: Scenario): Promise<GenerationEnrichment[]> {
           contradiction: true,
         }),
       },
-      generation: generationOnDisk({
-        generate: async (_specDir, _signal, _diff, enrichment) => {
+      ...loginToBeWritten(),
+      ...served(generationOnDisk({
+        author: async (_specDir, _signal, _diff, enrichment) => {
           calls.push(enrichment ?? {});
           const output = scenario.generations[Math.min(calls.length - 1, scenario.generations.length - 1)]!;
           if (calls.length > 1) scenario.rewrite?.(calls.length, output.specs, (file, text) => ws.write(file, text));
           return output;
         },
-      }),
+      })),
       review: { review: scenario.review ?? (async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true })) },
       validation: { validate: scenario.validate ?? (async () => ({ ok: true, errors: [] })) },
       execution: { execute: scenario.execute ?? PASSING },

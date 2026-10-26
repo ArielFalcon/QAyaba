@@ -30,7 +30,7 @@ function generate(deliverable: GeneratorDeliverable, options: Options = {}): Pro
     manifest: { read: async () => [], reconcile: async (_root, entries) => (options.reconcile ? options.reconcile([...entries]) : [...entries]) },
     budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
   };
-  return new GenerateTestsUseCase(ports).generate({
+  return new GenerateTestsUseCase(ports).author({
     repo: "org/demo",
     sha: "abc1234",
     diff: "d",

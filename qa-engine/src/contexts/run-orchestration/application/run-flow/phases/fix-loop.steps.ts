@@ -3,7 +3,7 @@
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/index.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { MAX_SPEC_SOURCE_BYTES, type SpecRoot } from "@kernel/ports/spec-files.port.ts";
-import { FixLoop, type FixLoopState, type FixLoopInput, type FixLoopAcceptancePort, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../../../domain/fix-loop.aggregate.ts";
+import { FixLoop, type FixLoopState, type FixLoopInput, type FixLoopAcceptancePort, type FixLoopExecutionPort, type FixLoopRegenerationPort, type FixLoopSelectorCheckPort } from "../../../domain/fix-loop.aggregate.ts";
 import { checkSpecSelectors, contradictionOrigins } from "@contexts/generation/application/index.ts";
 import { attributeContradictions } from "../../../domain/helpers/contradiction-attribution.ts";
 import type { SuiteRestorePoint } from "../../../domain/suite-restore-point.ts";
@@ -74,9 +74,9 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
       return { verdict: r.verdict, cases: r.cases };
     },
   };
-  const fixLoopGeneration: FixLoopGenerationPort = {
+  const fixLoopRegeneration: FixLoopRegenerationPort = {
     /* Forward FixLoopGenerateInput so a retry prompt sees what failed. */
-    generate: async (fixLoopInput) => {
+    regenerate: async (fixLoopInput) => {
       /* A run with no time left, or a spent wall-clock budget, starts no further agent turn: the round returns nothing and the loop ends on what it has. */
       if (!regenerationAllowed(ctx)) {
         return { specs: [], note: "wall-clock budget exhausted: no further regeneration" };
@@ -191,7 +191,7 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
   };
   return new FixLoop({
     execution: fixLoopExecution,
-    generation: fixLoopGeneration,
+    regeneration: fixLoopRegeneration,
     selectorCheck: fixLoopSelectorCheck,
     acceptance: fixLoopAcceptance,
   });
@@ -300,7 +300,7 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
   const pending: FixLoopSession["pending"] = {
     selectorContradictions: state.generation.groundingCorrections,
     attributedSpecFiles: state.generation.groundingAttribution,
-    /* The specs of the latest lead generation: the next Lever-2 check reads their sources, by index, so the contradictions it finds were raised by these specs. */
+    /* The specs of the latest author generation: the next Lever-2 check reads their sources, by index, so the contradictions it finds were raised by these specs. */
     latestSpecs: lastGenerated.specs,
   };
   /* mutation-scope:end pending-contradictions */

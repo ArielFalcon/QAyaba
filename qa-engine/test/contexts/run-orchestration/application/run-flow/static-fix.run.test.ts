@@ -11,7 +11,7 @@ function counting(failures: number) {
   return {
     calls,
     arm: (rig: ReturnType<typeof newRig>) => {
-      rig.generate = async () => { calls.generate += 1; return scriptedGeneration({ specs: [RIG_SPEC]}); };
+      rig.author = async () => { calls.generate += 1; return scriptedGeneration({ specs: [RIG_SPEC]}); };
       rig.validate = async () => { calls.validate += 1; return calls.validate <= failures ? { ok: false, errors: ["[lint] no-wait-for-timeout"] } : { ok: true, errors: [] }; };
       rig.execute = async () => { calls.execute += 1; return { verdict: "pass", cases: [], logs: "" }; };
     },
@@ -52,8 +52,8 @@ test("a cancel during a repair round stops the run before another regeneration i
   try {
     const run = counting(100);
     run.arm(rig);
-    const generate = rig.generate;
-    rig.generate = async (...args) => {
+    const generate = rig.author;
+    rig.author = async (...args) => {
       const out = await generate(...args);
       if (run.calls.generate === 2) rig.abort.abort();
       return out;

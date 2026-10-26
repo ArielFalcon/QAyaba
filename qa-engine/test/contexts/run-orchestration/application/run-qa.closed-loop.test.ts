@@ -3,6 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Sha } from "@kernel/sha.ts";
+import { ERROR_CLASS } from "@kernel/error-class.ts";
 import { ok } from "@kernel/result.ts";
 import { RUN_PURPOSE } from "@kernel/run-mode.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
@@ -15,6 +16,7 @@ import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../support/run-workspace.ts";
 import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
+import { served } from "../../../support/coordinator-over-author.ts";
 
 const INPUT: RunQaInput = { app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "loop-run" };
 const LIMITS = { maxCalls: 8, perCallMs: 120_000, maxDevWrites: 20 };
@@ -54,14 +56,14 @@ function rig(opts: { closed?: boolean; openThrows?: boolean; grant?: boolean } =
     const { generation: generationOver, ...rest } = over;
     return {
       changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
-      generation: generationOnDisk(generationOver ?? {
-        generate: async (_d, _s, _diff, enrichment) => {
+      ...served(generationOnDisk(generationOver ?? {
+        author: async (_d, _s, _diff, enrichment) => {
           r.generations++;
           events.push("generate");
           r.enrichments.push(enrichment ?? {});
           return scriptedGeneration({ specs: ["flows/a.spec.ts"]});
         },
-      }),
+      })),
       review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
       validation: { validate: async () => (events.push("validate"), { ok: true, errors: [] }) },
       execution: { execute: async () => (events.push("execute"), { verdict: "pass", cases: PASS, logs: "" }) },
@@ -121,7 +123,7 @@ test("no loop for a code run, a context run, a regression run, a login bootstrap
   assert.equal(code.opened.length, 0, "code");
 
   const context = rig();
-  await new RunQaUseCase(context.deps({ generation: { generate: async () => scriptedGeneration({ specs: [".qa/context.json"], note: "map" }) } })).run({ ...INPUT, mode: "context" });
+  await new RunQaUseCase(context.deps({ ...served({ author: async () => scriptedGeneration({ specs: [".qa/context.json"], note: "map" }) }) })).run({ ...INPUT, mode: "context" });
   assert.equal(context.opened.length, 0, "context");
 
   const regression = rig();
@@ -167,7 +169,7 @@ test("the loop is closed however the run ends: a result, an invalid run, a throw
   assert.equal(invalid.events.filter((e) => e === "close").length, 1);
 
   const thrown = rig();
-  await assert.rejects(new RunQaUseCase(thrown.deps({ generation: { generate: async () => { throw new Error("boom"); } } })).run(INPUT), /boom/);
+  await assert.rejects(new RunQaUseCase(thrown.deps({ validation: { validate: async () => { throw new Error("boom"); } } })).run(INPUT), /boom/);
   assert.equal(thrown.events.filter((e) => e === "close").length, 1);
 });
 
@@ -181,7 +183,7 @@ test("a handle that fails to close changes nothing about the result", async () =
 test("a probe the generator listed as a deliverable is not delivered", async () => {
   const r = rig({ closed: true });
   const out = await new RunQaUseCase(r.deps({
-    generation: { generate: async () => scriptedGeneration({ specs: ["flows/a.spec.ts", ".qa-probe/try.spec.ts", "e2e/.qa-probe/other.spec.ts"]}) },
+    ...served(generationOnDisk({ author: async () => scriptedGeneration({ specs: ["flows/a.spec.ts", ".qa-probe/try.spec.ts", "e2e/.qa-probe/other.spec.ts"]}) })),
   })).run(INPUT);
   assert.equal(out.decision.verdict, "pass");
   assert.deepEqual(r.closedAsked.at(-1), ["flows/a.spec.ts"]);
@@ -260,7 +262,7 @@ test("a closed loop never turns a declared no-op into anything but a skip", asyn
   for (const closed of [true, false]) {
     const r = rig({ closed });
     const out = await new RunQaUseCase(r.deps({
-      generation: { generate: async () => scriptedGeneration({ specs: [], end: GENERATION_END.DECLARED_NOOP, note: "nothing worth testing" }) },
+      ...served({ author: async () => scriptedGeneration({ specs: [], end: GENERATION_END.DECLARED_NOOP, note: "nothing worth testing" }) }),
     })).run(INPUT);
     assert.equal(out.decision.verdict, "skipped", `closed=${closed}`);
     assert.equal(r.events.filter((e) => e === "close").length, 1);
@@ -271,7 +273,7 @@ test("silence is still not a decision, and running out of steps or time still en
   for (const closed of [true, false]) {
     for (const end of [GENERATION_END.UNDECIDED_EMPTY, GENERATION_END.EXHAUSTED, GENERATION_END.TIME_BUDGET]) {
       const r = rig({ closed });
-      const out = await new RunQaUseCase(r.deps({ generation: { generate: async () => scriptedGeneration({ specs: [], end, note: "no verdict" }) } })).run({ ...INPUT, runId: `silence-${end}` });
+      const out = await new RunQaUseCase(r.deps({ ...served({ author: async () => scriptedGeneration({ specs: [], end, note: "no verdict" }) }) })).run({ ...INPUT, runId: `silence-${end}` });
       assert.equal(out.decision.verdict, "infra-error", `${end} closed=${closed}`);
     }
   }
@@ -290,7 +292,7 @@ test("the single change-coverage regeneration still runs when the loop is closed
     })).run(INPUT);
     assert.equal(out.decision.sideEffect, "pr", `closed=${closed}`);
     assert.equal(r.generations, 2, `the first pass and the one coverage regeneration, closed=${closed}`);
-    assert.deepEqual(r.enrichments[1]!.closedLoop, LIMITS, "the regeneration may use the tool too");
+    assert.equal(r.enrichments[1]!.closedLoop, undefined, "an author of the run's own authoring is bound to no loop, so it is told no budget");
     assert.ok(r.events.lastIndexOf("close") > r.events.lastIndexOf("generate"), "the loop outlives the last generation");
   }
 });

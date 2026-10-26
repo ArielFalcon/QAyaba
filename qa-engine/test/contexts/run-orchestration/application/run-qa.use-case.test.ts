@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RunQaUseCase } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
+import { RunQaUseCase, type RunQaUseCaseDeps } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
 import { renderBlastRadiusSignal } from "@contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts";
 import { FixLoop } from "@contexts/run-orchestration/domain/fix-loop.aggregate.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "@kernel/derive-cycle-backstop.ts";
@@ -25,7 +25,7 @@ import { Sha } from "@kernel/sha.ts";
 import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 import type { ChangeAnalysisPort } from "@contexts/change-analysis/application/index.ts";
 import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
-import type { GenerationPort, ReviewPort, PreExecGroundingPort, PreGenerationGroundingPort, ReviewDomGroundingPort, ContextMapCapturePort, GenerationEnrichment } from "@contexts/generation/application/index.ts";
+import type { AuthorPort, LeadPort, ReviewPort, PreExecGroundingPort, PreGenerationGroundingPort, ReviewDomGroundingPort, ContextMapCapturePort, GenerationEnrichment } from "@contexts/generation/application/index.ts";
 import type { ValidationPort, ExecutionPort } from "@contexts/test-execution/application/index.ts";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
 import type { PublicationPort } from "@contexts/run-orchestration/application/ports/publication.port.ts";
@@ -51,13 +51,14 @@ import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { attributableRules } from "@contexts/cross-run-learning/domain/rule-fold.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { CodeGraphIndexRecord } from "@kernel/code/index.ts";
-import { GenerationPortAdapter } from "@contexts/generation/infrastructure/adapters/generation-port.adapter.ts";
+import { GenerationTurnsAdapter } from "@contexts/generation/infrastructure/adapters/generation-turns.adapter.ts";
 import { GenerateTestsUseCase, type GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { OpencodeRunInput } from "@contexts/generation/application/index.ts";
 
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { extractSpecContract } from "@contexts/objective-signal/infrastructure/ts-spec-contract.extractor.ts";
 import { reassignableGeneration, runWorkspace } from "../../../support/run-workspace.ts";
+import { authoredByCoordinator, coordinatorOver, loginToBeWritten } from "../../../support/coordinator-over-author.ts";
 import { scriptedLoginEvidence } from "../../../support/login-evidence.ts";
 import type { WorkspaceHandle } from "@contexts/run-orchestration/application/index.ts";
 import { fakeHandle, rootsOf } from "./run-flow/fake-workspace.ts";
@@ -75,7 +76,7 @@ import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-fi
 
 function stubPorts(overrides: Partial<{
   classify: ChangeAnalysisPort["classify"];
-  generate: GenerationPort["generate"];
+  generate: AuthorPort["author"];
   review: ReviewPort["review"];
   validate: ValidationPort["validate"];
   autofix: NonNullable<ValidationPort["autofix"]>;
@@ -108,7 +109,7 @@ function stubPorts(overrides: Partial<{
   const changeAnalysis: ChangeAnalysisPort = {
     classify: overrides.classify ?? (async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" })),
   };
-  const generation: GenerationPort = reassignableGeneration(
+  const generation: LeadPort & AuthorPort = reassignableGeneration(
     overrides.generate ?? (async () => (scriptedGeneration({ specs: ["a.spec.ts"]}))),
   );
   const review: ReviewPort = {
@@ -166,6 +167,7 @@ function stubPorts(overrides: Partial<{
   return {
     ports: {
       changeAnalysis, generation, review, validation, execution, objectiveSignal, publication, learning, workspace, specFiles: confinedSpecFiles, deployGate, runHistory, setup, cleanup, suiteStore,
+      leadSidekicks: coordinatorOver(generation),
       ...(preExecGrounding ? { preExecGrounding } : {}),
       ...(preGenerationGrounding ? { preGenerationGrounding } : {}),
       ...(reviewDomGrounding ? { reviewDomGrounding } : {}),
@@ -192,7 +194,7 @@ const baseInput = {
  * on disk and acceptance can judge them (a scripted generation alone writes nothing). Each call rewrites the bytes, which is what
  * a regeneration does.
  */
-function realCoverageWorkspace(): { prepare: WorkspacePort["prepare"]; generate: GenerationPort["generate"]; cleanup: () => void } {
+function realCoverageWorkspace(): { prepare: WorkspacePort["prepare"]; generate: AuthorPort["author"]; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), "qa-coverage-"));
   const specDir = join(dir, "e2e");
   let calls = 0;
@@ -725,7 +727,7 @@ interface TenScenarioCase {
   scenario: string;
   overrides: Partial<{
     classify: ChangeAnalysisPort["classify"];
-    generate: GenerationPort["generate"];
+    generate: AuthorPort["author"];
     review: ReviewPort["review"];
     validate: ValidationPort["validate"];
     execute: ExecutionPort["execute"];
@@ -924,14 +926,14 @@ test("a regression commit that PASSES the existing suite publishes NOTHING (pass
     classify: async () => ({ action: "regression", reason: "type=refactor", diff: "diff --git a/src/x.ts b/src/x.ts\n+moved code\n" }),
     execute: async () => { executeCallCount++; return { verdict: "pass", cases: [{ name: "existing-suite-flow", status: "pass" as const }], logs: "" }; },
   });
-  ports.generation.generate = async () => { generateCallCount++; return scriptedGeneration({ specs: ["a.spec.ts"]}); };
+  ports.generation.author = async () => { generateCallCount++; return scriptedGeneration({ specs: ["a.spec.ts"]}); };
   ports.review.review = async () => { reviewCallCount++; return { approved: true, corrections: [], blockingCount: 0, parsed: true }; };
   ports.publication.publish = async () => { publishCallCount++; return { outcome: "pr" }; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "regression-pass-nothing-new" });
 
-  assert.equal(generateCallCount, 0, "a regression run must NEVER call GenerationPort.generate() — no new tests are written");
+  assert.equal(generateCallCount, 0, "a regression run must NEVER call the author port — no new tests are written");
   assert.equal(reviewCallCount, 0, "a regression run must NEVER call the reviewer — nothing new was generated to judge");
   assert.equal(executeCallCount, 1, "the EXISTING suite must still be executed (regression's whole purpose)");
   assert.equal(out.decision.verdict, "pass");
@@ -946,7 +948,7 @@ test("a regression commit whose EXISTING suite FAILS still opens an Issue (fail/
     classify: async () => ({ action: "regression", reason: "type=perf", diff: "diff --git a/src/x.ts b/src/x.ts\n+perf tweak\n" }),
     execute: async () => { executeCallCount++; return { verdict: "fail", cases: [{ name: "stale-flow", status: "fail" as const }], logs: "boom" }; },
   });
-  ports.generation.generate = async () => { generateCallCount++; return scriptedGeneration({ specs: ["a.spec.ts"]}); };
+  ports.generation.author = async () => { generateCallCount++; return scriptedGeneration({ specs: ["a.spec.ts"]}); };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "regression-fail-issue" });
@@ -974,7 +976,7 @@ test("a generate-typed commit (unchanged) still calls generate() normally — re
   const { ports } = stubPorts({
     classify: async () => ({ action: "generate", reason: "type=feat", diff: "diff --git a/src/x.ts b/src/x.ts\n+if (x) return 1;\n" }),
   });
-  ports.generation.generate = async () => { generateCallCount++; return scriptedGeneration({ specs: ["a.spec.ts"]}); };
+  ports.generation.author = async () => { generateCallCount++; return scriptedGeneration({ specs: ["a.spec.ts"]}); };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   await useCase.run({ ...baseInput, runId: "generate-unaffected" });
@@ -1010,7 +1012,7 @@ test("classification.reason + contradiction:true reach baseEnrichment when the c
       contradiction: true,
     }),
   });
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     capturedEnrichments.push(enrichment as Record<string, unknown> | undefined);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -1030,7 +1032,7 @@ test("contradiction key is ABSENT (never a fabricated false) when the classifier
   const { ports } = stubPorts({
     classify: async () => ({ action: "generate", reason: "type=feat", diff: "diff --git a/src/x.ts b/src/x.ts\n+if (x) return 1;\n" }),
   });
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     capturedEnrichments.push(enrichment as Record<string, unknown> | undefined);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -1185,7 +1187,7 @@ test("dynamic diff: generate() receives the change-analysis diff (diff mode), no
   const { ports } = stubPorts({
     classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "diff --git a/src/x.ts b/src/x.ts\n+real change\n" }),
   });
-  ports.generation.generate = async (_specDir, _signal, diff) => {
+  ports.generation.author = async (_specDir, _signal, diff) => {
     capturedDiffs.push(diff);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -1215,7 +1217,7 @@ test("dynamic diff: the static-fix repair loop also threads the SAME classificat
         : { ok: true, errors: [] };
     },
   });
-  ports.generation.generate = async (_specDir, _signal, diff) => {
+  ports.generation.author = async (_specDir, _signal, diff) => {
     capturedDiffs.push(diff);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -1236,7 +1238,7 @@ test("dynamic diff: the FixLoop's own regenerate() call also threads the SAME cl
     classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "diff --git a/src/x.ts b/src/x.ts\n+fixloop change\n" }),
     execute: async () => ({ verdict: "fail" as const, cases: [{ name: "login", status: "fail" as const }], logs: "x" }),
   });
-  ports.generation.generate = async (_specDir, _signal, diff) => {
+  ports.generation.author = async (_specDir, _signal, diff) => {
     capturedDiffs.push(diff);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -1256,7 +1258,7 @@ test("dynamic diff: a non-diff mode (e.g. complete) never calls classify(), so g
   const { ports } = stubPorts({
     classify: async () => { classifyCallCount++; return { action: "generate", reason: "n/a", diff: "should never be read" }; },
   });
-  ports.generation.generate = async (_specDir, _signal, diff) => {
+  ports.generation.author = async (_specDir, _signal, diff) => {
     capturedDiffs.push(diff);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -1413,7 +1415,7 @@ test("enforce mode — the regen's generate() throws — KEEPS the first measure
     blocks: (status) => status === "fail",
   });
   let genCallCount = 0;
-  ports.generation.generate = async () => {
+  ports.generation.author = async () => {
     genCallCount++;
     if (genCallCount === 1) return scriptedGeneration({ specs: ["a.spec.ts"]});
     throw new Error("agent runtime crashed mid-regen");
@@ -1438,7 +1440,7 @@ test("enforce mode — the run deadline is spent during the coverage regeneratio
     blocks: (status) => status === "fail",
   });
   let genCallCount = 0;
-  ports.generation.generate = async () => {
+  ports.generation.author = async () => {
     genCallCount++;
     if (genCallCount === 1) return scriptedGeneration({ specs: ["a.spec.ts"]});
     throw new RunDeadlineExceededError(600_000, "diff", "primary", "before-turn");
@@ -1460,7 +1462,7 @@ test("enforce mode — the regen produces ZERO specs — KEEPS the first measure
     blocks: (status) => status === "fail",
   });
   let genCallCount = 0;
-  ports.generation.generate = async () => {
+  ports.generation.author = async () => {
     genCallCount++;
     if (genCallCount === 1) return scriptedGeneration({ specs: ["a.spec.ts"]});
     return scriptedGeneration({ specs: []}); /* regen produced nothing reviewable */
@@ -1484,8 +1486,8 @@ test("signal mode — first measure fails, NO regen fires, NO second measure() c
     measure: async () => { measureCallCount++; return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }; },
     blocks: () => false,
   });
-  const originalGenerate = ports.generation.generate;
-  ports.generation.generate = async (...args) => { genCallCount++; return originalGenerate(...args); };
+  const originalGenerate = ports.generation.author;
+  ports.generation.author = async (...args) => { genCallCount++; return originalGenerate(...args); };
   const useCase = new RunQaUseCase({
     ...ports,
     config: { ...baseConfig, needsReview: false, coveragePolicyMode: "signal" },
@@ -2621,7 +2623,7 @@ test("signal mode — an accepted regeneration after the measurement reuses it a
           : { approved: true, corrections: [], blockingCount: 0, parsed: true };
       },
     });
-    ports.generation.generate = async () => {
+    ports.generation.author = async () => {
       generation++;
       fixtures.write("flows/restaurants.spec.ts", generation === 1 ? "// first\n" : "// second\n");
       return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"]});
@@ -2676,7 +2678,7 @@ test("enforce mode — a review regeneration after the measurement gets ONE fina
           : { approved: true, corrections: [], blockingCount: 0, parsed: true };
       },
     });
-    ports.generation.generate = async () => {
+    ports.generation.author = async () => {
       generation++;
       fixtures.write("flows/restaurants.spec.ts", `// generation ${generation}\n`);
       return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"]});
@@ -2712,7 +2714,7 @@ test("the final guard restores the proven bytes when a spec changes after its gr
         return { status: "unknown" as const, ratio: null };
       },
     });
-    ports.generation.generate = async () => {
+    ports.generation.author = async () => {
       fixtures.write("flows/restaurants.spec.ts", "// proven\n");
       return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"]});
     };
@@ -4156,7 +4158,7 @@ test("the FixLoop's regenerate() call forwards fixCases into generate()'s enrich
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "fail" as const, cases: [{ name: "login", status: "fail" as const, detail: "timed out waiting for selector" }], logs: "x" }),
   });
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     capturedFixCases.push(enrichment?.fixCases);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -4187,7 +4189,7 @@ test("the FixLoop's regenerate() call forwards selectorContradictions when Lever
     }),
   });
   let genCall = 0;
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     genCall++;
     capturedEnrichments.push(enrichment ?? {});
     /* The initial call's specSources become the round-0 Lever-2 comparison source; return a spec
@@ -4200,8 +4202,8 @@ test("the FixLoop's regenerate() call forwards selectorContradictions when Lever
 
   await useCase.run({ ...baseInput, runId: "w2-f2-selector-contradictions-forwarded" });
 
-  /* This scenario's stub GenerationPort never supplies specSources (that is
-     GenerationPortAdapter's own collaborator, absent in this unit-level stub), so Lever-2 has
+  /* This scenario's stub the authoring port never supplies specSources (that is
+     GenerationTurnsAdapter's own collaborator, absent in this unit-level stub), so Lever-2 has
      nothing to check against and legitimately finds zero contradictions — the assertion here is
      that the FIELD ITSELF is threaded through the enrichment object (present when non-empty, never
      silently dropped), not that this particular stub scenario produces a non-empty result.
@@ -4220,7 +4222,7 @@ test("the FixLoop's regenerate() call forwards domSnapshot when Lever-2 supplies
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "fail" as const, cases: [{ name: "login", status: "fail" as const, detail: "err" }], logs: "x" }),
   });
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     capturedDomSnapshots.push(enrichment?.domSnapshot);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -4231,7 +4233,7 @@ test("the FixLoop's regenerate() call forwards domSnapshot when Lever-2 supplies
   /* Same scope note as the selectorContradictions test above: this scenario's failing case carries
      no failureDom, so the FixLoop's own Lever-2 check has nothing to build a domSnapshot from
      (matches fix-loop.aggregate.ts's own `haveTrees` guard) — the field is legitimately absent here.
-     Proven present-when-populated by the generation-port.adapter.test.ts enrichment-mapping test.
+     Proven present-when-populated by the generation-turns.adapter.test.ts enrichment-mapping test.
    */
   assert.ok(capturedDomSnapshots.length > 0, "generate() must have been called at least once");
 });
@@ -4253,7 +4255,7 @@ test("a reviewer rejection with blocking corrections triggers regeneration with 
       ? { approved: false, corrections: ["[false-positive] assertion targets the wrong element"], blockingCount: 1, parsed: true }
       : { approved: true, corrections: [], blockingCount: 0, parsed: true };
   };
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     capturedReviewCorrections.push(enrichment?.reviewCorrections);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -4304,7 +4306,7 @@ test("not pr)", async () => {
     reviewCallCount++;
     return { approved: false, corrections: ["[false-positive] persistent issue"], blockingCount: 1, parsed: true };
   };
-  ports.generation.generate = async (_specDir, _signal, _diff, _enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, _enrichment) => {
     generateCallCount++;
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -4451,7 +4453,7 @@ test("parsed:false (a parse miss) fails closed WITHOUT burning a regeneration ro
     reviewCallCount++;
     return { approved: true, corrections: [], blockingCount: 0, parsed: false }; /* parse miss, NOT a real rejection */
   };
-  ports.generation.generate = async () => { generateCallCount++; return scriptedGeneration({ specs: ["a.spec.ts"]}); };
+  ports.generation.author = async () => { generateCallCount++; return scriptedGeneration({ specs: ["a.spec.ts"]}); };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "w2-f3-parse-miss-fails-closed-no-burn" });
@@ -4472,7 +4474,7 @@ test("a regeneration that produces zero specs mid-loop is a lost cause — termi
     return { approved: false, corrections: ["[false-positive] x"], blockingCount: 1, parsed: true };
   };
   let generateCallCount = 0;
-  ports.generation.generate = async () => {
+  ports.generation.author = async () => {
     generateCallCount++;
     /* Initial call succeeds; the review-driven regen (round 0's rejection) produces nothing. */
     return generateCallCount === 1 ? scriptedGeneration({ specs: ["a.spec.ts"]}) : scriptedGeneration({ specs: []});
@@ -4487,9 +4489,9 @@ test("a regeneration that produces zero specs mid-loop is a lost cause — termi
 
 /* On the orchestrated path, exactly ONE reviewer session
    fires per generation round (RunQaUseCase's own ReviewPort) — GenerateTestsUseCase's internal
-   reviewer branch must never fire (this use-case's own stub ReviewPort/GenerationPort cannot
+   reviewer branch must never fire (this use-case's own stub ReviewPort/the authoring port cannot
    directly observe GenerateTestsUseCase's internals; the call-count proof that engine-root.ts
-   wires needsReview:false into GenerationPortAdapter's ctx lives in engine-root.test.ts — this
+   wires needsReview:false into GenerationTurnsAdapter's ctx lives in engine-root.test.ts — this
    test's scope is the use-case's OWN single-reviewer contract: review() is called AT MOST once per
    round, never twice for the same round). ──────────────────────────────────────────────────────────
  */
@@ -4511,7 +4513,7 @@ test("exactly ONE reviewer session (review() call) fires for a clean pass — no
 test("no-op skip (approved + zero specs) still works — needsReview:true generation self-approval is preserved", async () => {
   /* AGENTS.md invariant: "Honor the agent's no-op decision — approved + zero specs is a valid
      skipped, never invalid." This must hold regardless of the composition root's needsReview wiring (which only
-     changes GenerationPortAdapter's ctx.needsReview, not this use-case's OWN generation stub
+     changes GenerationTurnsAdapter's ctx.needsReview, not this use-case's OWN generation stub
      contract) — generation returning approved:true with zero specs is ALWAYS a valid skip.
    */
   const { ports } = stubPorts({ generate: async () => (scriptedGeneration({ specs: [], end: GENERATION_END.DECLARED_NOOP, note: "nothing in this change is worth a test" })) });
@@ -4529,7 +4531,7 @@ test("classify() surfaces intent, and diff-mode generate() receives it via enric
   const { ports } = stubPorts({
     classify: async () => ({ action: "generate", reason: "type=feat", diff: "the-diff", intent: theIntent }),
   });
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     capturedIntents.push(enrichment?.intent);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -4549,7 +4551,7 @@ test("a non-diff mode never calls classify(), so generate() receives no intent (
   const { ports } = stubPorts({
     classify: async () => { classifyCallCount++; return { action: "generate", reason: "n/a", diff: "should never be read", intent: { type: "feat", breaking: false, message: "x", changedFiles: [] } }; },
   });
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     capturedIntents.push(enrichment?.intent);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -4588,7 +4590,7 @@ test("learning.retrieve(sha) is called before the first generate(), and its resu
   const { ports } = stubPorts({
     retrieve: async (sha) => { retrieveCalledWithSha = sha.toString(); return rules; },
   });
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     capturedLearnedRules.push(enrichment?.learnedRules);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -4624,7 +4626,7 @@ test("retrieved rules also reach review()'s enrichment.learnedRules", async () =
 test("an empty retrieve() result omits enrichment.learnedRules entirely (never a fabricated empty marker)", async () => {
   const capturedLearnedRules: (readonly RetrievedRule[] | undefined)[] = [];
   const { ports } = stubPorts({ retrieve: async () => [] });
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     capturedLearnedRules.push(enrichment?.learnedRules);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -5229,7 +5231,7 @@ test("4b.4: a present structuralSignal port is called exactly once before the fi
   const structuralSignal: StructuralSignalPort = {
     render: async () => { renderCallCount++; return { text: "## Structural blast radius (deterministic — from the code graph, advisory)\nsome content", hasSymbols: false }; },
   };
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     capturedStaticSignals.push(enrichment?.staticSignal);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -5247,7 +5249,7 @@ test("4b.4: a present structuralSignal port is called exactly once before the fi
 test("4b.4: an ABSENT structuralSignal port leaves baseEnrichment with NO staticSignal key at all (byte-identical to today)", async () => {
   const capturedEnrichments: (Record<string, unknown> | undefined)[] = [];
   const { ports } = stubPorts({});
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     capturedEnrichments.push(enrichment as Record<string, unknown> | undefined);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -5265,7 +5267,7 @@ test("4b.4: an empty render() result (no signal to report) leaves baseEnrichment
   const capturedEnrichments: (Record<string, unknown> | undefined)[] = [];
   const { ports } = stubPorts({});
   const structuralSignal: StructuralSignalPort = { render: async () => ({ text: "", hasSymbols: false }) };
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     capturedEnrichments.push(enrichment as Record<string, unknown> | undefined);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -5282,7 +5284,7 @@ test("4b.4: a throwing structuralSignal port degrades to NO staticSignal, never 
   const { ports } = stubPorts({});
   const structuralSignal: StructuralSignalPort = { render: async () => { throw new Error("code graph wedged"); } };
   const capturedEnrichments: (Record<string, unknown> | undefined)[] = [];
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     capturedEnrichments.push(enrichment as Record<string, unknown> | undefined);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -5303,7 +5305,7 @@ test("the structural signal port is invoked once and its text reaches generation
   const structuralSignal: StructuralSignalPort = { render: async () => { calls.push("render"); return { text: "## Structural blast radius\ncontent", hasSymbols: false }; } };
   const capturedSignals: Array<string | undefined> = [];
   const { ports } = stubPorts({});
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     capturedSignals.push(enrichment?.staticSignal);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -5392,7 +5394,7 @@ test("baseEnrichment carries staticSignal on a cross-repo run when structuralSig
   const structuralSignal: StructuralSignalPort = {
     render: async () => ({ text: "## Structural blast radius\nsome content", hasSymbols: false }),
   };
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     capturedEnrichments.push(enrichment as Record<string, unknown> | undefined);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -5523,7 +5525,7 @@ test("a present serviceLinks port is called exactly once before the first genera
   const serviceLinks: ServiceLinksPort = {
     resolve: async () => { resolveCallCount++; return { links: [link], drift: [] }; },
   };
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     capturedServiceLinks.push(enrichment?.serviceLinks);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -5556,7 +5558,7 @@ test("a present serviceLinks port is invoked exactly once EVEN in a non-diff gen
 test("an ABSENT serviceLinks port leaves baseEnrichment with NO serviceLinks/contractDrift key at all (byte-identical to today)", async () => {
   const capturedEnrichments: (Record<string, unknown> | undefined)[] = [];
   const { ports } = stubPorts({});
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     capturedEnrichments.push(enrichment as Record<string, unknown> | undefined);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -5575,7 +5577,7 @@ test("a present serviceLinks port that resolves to empty links+drift leaves base
   const capturedEnrichments: (Record<string, unknown> | undefined)[] = [];
   const { ports } = stubPorts({});
   const serviceLinks: ServiceLinksPort = { resolve: async () => ({ links: [], drift: [] }) };
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     capturedEnrichments.push(enrichment as Record<string, unknown> | undefined);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -5593,7 +5595,7 @@ test("a throwing serviceLinks port degrades to NO serviceLinks/contractDrift key
   const { ports } = stubPorts({});
   const serviceLinks: ServiceLinksPort = { resolve: async () => { throw new Error("mirror registry unreachable"); } };
   const capturedEnrichments: (Record<string, unknown> | undefined)[] = [];
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     capturedEnrichments.push(enrichment as Record<string, unknown> | undefined);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -5619,7 +5621,7 @@ test("non-empty links + empty drift populates ONLY baseEnrichment.serviceLinks �
     source: "openapi",
   };
   const serviceLinks: ServiceLinksPort = { resolve: async () => ({ links: [link], drift: [] }) };
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     capturedEnrichments.push(enrichment as Record<string, unknown> | undefined);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -5643,7 +5645,7 @@ test("a clean green run's verdict/sideEffect is unaffected by the serviceLinks w
   assert.equal(out.decision.sideEffect, "pr");
 });
 
-/* Anti-inert: drive RunQaUseCase.run() end-to-end through the REAL GenerationPortAdapter (not a
+/* Anti-inert: drive RunQaUseCase.run() end-to-end through the REAL GenerationTurnsAdapter (not a
    use-case-level generation stub) with a RECORDING ServiceLinksPort fake, proving the FULL path —
    port -> enrichment -> adapter -> OpencodeRunInput — not merely that the port was invoked in isolation.
  */
@@ -5672,11 +5674,11 @@ function fakeGenerationPortsForAntiInert(capture: { input?: OpencodeRunInput }):
   };
 }
 
-test("anti-inert: RunQaUseCase.run() end-to-end through the REAL GenerationPortAdapter — a recording ServiceLinksPort's non-empty links reach the generation port's OpencodeRunInput.serviceLinks", async () => {
+test("anti-inert: RunQaUseCase.run() end-to-end through the REAL GenerationTurnsAdapter — a recording ServiceLinksPort's non-empty links reach the generation port's OpencodeRunInput.serviceLinks", async () => {
   const captured: { input?: OpencodeRunInput } = {};
   const generationPorts = fakeGenerationPortsForAntiInert(captured);
   const generateTestsUseCase = new GenerateTestsUseCase(generationPorts);
-  const generation = new GenerationPortAdapter(generateTestsUseCase, {
+  const generation = new GenerationTurnsAdapter(generateTestsUseCase, {
     repo: "org/front", appName: "app", mirrorDir: "/mirrors/org/front", e2eRelDir: "e2e",
     namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
   });
@@ -5699,20 +5701,20 @@ test("anti-inert: RunQaUseCase.run() end-to-end through the REAL GenerationPortA
   const out = await useCase.run({ ...baseInput, runId: "anti-inert-present" });
 
   assert.equal(resolveCallCount, 1, "serviceLinks.resolve() must have been called exactly once");
-  assert.ok(captured.input, "renderMain must have been called — the generator session never ran through the REAL GenerationPortAdapter");
+  assert.ok(captured.input, "renderMain must have been called — the generator session never ran through the REAL GenerationTurnsAdapter");
   assert.deepEqual(
     captured.input?.serviceLinks,
     [link],
-    "the recorded link must reach the REAL GenerationPortAdapter's OpencodeRunInput.serviceLinks — proving the full port -> enrichment -> adapter -> prompt-input path, not just that the port was invoked",
+    "the recorded link must reach the REAL GenerationTurnsAdapter's OpencodeRunInput.serviceLinks — proving the full port -> enrichment -> adapter -> prompt-input path, not just that the port was invoked",
   );
   assert.notEqual(out.decision.verdict, "infra-error");
 });
 
-test("anti-inert companion: with the serviceLinks collaborator OMITTED, the REAL GenerationPortAdapter's OpencodeRunInput carries NO serviceLinks key at all", async () => {
+test("anti-inert companion: with the serviceLinks collaborator OMITTED, the REAL GenerationTurnsAdapter's OpencodeRunInput carries NO serviceLinks key at all", async () => {
   const captured: { input?: OpencodeRunInput } = {};
   const generationPorts = fakeGenerationPortsForAntiInert(captured);
   const generateTestsUseCase = new GenerateTestsUseCase(generationPorts);
-  const generation = new GenerationPortAdapter(generateTestsUseCase, {
+  const generation = new GenerationTurnsAdapter(generateTestsUseCase, {
     repo: "org/front", appName: "app", mirrorDir: "/mirrors/org/front", e2eRelDir: "e2e",
     namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
   });
@@ -5756,7 +5758,7 @@ test("a cross-repo run whose trigger matches a resolved service link asks the cr
   };
   const serviceLinks: ServiceLinksPort = { resolve: async () => ({ links: [link], drift: [] }) };
 
-  const captured: Parameters<GenerationPort["generate"]>[3][] = [];
+  const captured: Parameters<AuthorPort["author"]>[3][] = [];
   const { ports } = stubPorts({
     generate: async (_a, _b, _c, enrichment) => {
       captured.push(enrichment);
@@ -5875,9 +5877,9 @@ test("a crossRepoImpact port that reports an untrusted git dir fails the run lou
 });
 
 /* the fix-loop generation closure's own specSources return, and failureDomSnapshot. Before this
-   fix, GenerationPort.generate()'s return type carried no specSources field at all (the port's
+   fix, the author port's return type carried no specSources field at all (the port's
    own contract), so round 0's Lever-2 check ALWAYS saw specSources:[] no matter what the real
-   GenerationPortAdapter's readSpecSource collaborator produced — checkSpecSelectors(specSources,
+   GenerationTurnsAdapter's readSpecSource collaborator produced — checkSpecSelectors(specSources,
    trees) with an empty specSources array structurally cannot find a contradiction (its for-loop
    never runs). These tests prove the wiring by driving a REAL absent-selector contradiction through
    checkSpecSelectors' own pure contract: a spec source referencing a selector genuinely absent from
@@ -5894,7 +5896,7 @@ test("initialSpecSources threads from the initial generation into FixLoopInput, 
       generateCallCount++;
       capturedEnrichments.push(enrichment ?? {});
       /* The initial (round -1) generate() call returns the spec whose source text is later re-read
-         as specSources — GenerationPort's widened return type (this fix) carries it back here.
+         as specSources — the authoring port's widened return type (this fix) carries it back here.
        */
       return scriptedGeneration({ specs: ["a.spec.ts"], specSources: [ABSENT_BUTTON_SPEC_SOURCE] });
     },
@@ -5912,7 +5914,7 @@ test("initialSpecSources threads from the initial generation into FixLoopInput, 
       logs: "x",
     }),
   });
-  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+  const useCase = new RunQaUseCase({ ...ports, ...loginToBeWritten(), config: baseConfig });
 
   await useCase.run({ ...baseInput, runId: "initial-spec-sources-arms-round-0" });
 
@@ -6044,7 +6046,7 @@ test("failureDomSnapshot threads the initial run's failure-point DOM into the Fi
       logs: "x",
     }),
   });
-  ports.generation.generate = async (_specDir, _signal, _diff, enrichment) => {
+  ports.generation.author = async (_specDir, _signal, _diff, enrichment) => {
     capturedDomSnapshots.push(enrichment?.domSnapshot);
     return scriptedGeneration({ specs: ["a.spec.ts"]});
   };
@@ -6476,7 +6478,7 @@ test("confinement wiring: a regression run (generating:false) makes no enforce()
 
   await useCase.run({ ...baseInput, runId: "confinement-regression-run" });
 
-  assert.equal(calls.length, 1, "a regression run never calls the real GenerationPort, so only the pre-publish enforce() call fires");
+  assert.equal(calls.length, 1, "a regression run never calls the real the authoring port, so only the pre-publish enforce() call fires");
 });
 
 /* resolveTested() prefers the FixLoop's own FINAL regen specMetas when the loop engaged and produced
@@ -6493,7 +6495,7 @@ test("tested is sourced from the initial generation's specMetas when the FixLoop
     })),
     publish: async (decision) => { publishedTested = decision.tested; return { outcome: "pr" }; },
   });
-  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+  const useCase = new RunQaUseCase({ ...ports, ...loginToBeWritten(), config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "tested-initial-only" });
 
@@ -7132,7 +7134,7 @@ test("curriculum: a regression run offers nothing and folds nothing — no promp
   const folds: CurriculumFoldInput[] = [];
   let selectCalls = 0;
   /* A `regression` classification sets `generating = false`, and the generate phase then substitutes
-     a synthetic { specs: [], approved: true } WITHOUT calling GenerationPort.generate() — no prompt
+     a synthetic { specs: [], approved: true } WITHOUT calling the author port — no prompt
      carries an exemplar. This fixture makes the existing suite run green with coverage "pass", the
      one shape that would otherwise credit every selected archetype for a generation that never ran.
    */
@@ -7353,7 +7355,7 @@ test("code-graph index: a failed, timed-out or thrown index never ends the run",
   ]) {
     let generateCalls = 0;
     const { ports } = stubPorts();
-    ports.generation.generate = async () => {
+    ports.generation.author = async () => {
       generateCalls++;
       return scriptedGeneration({ specs: ["a.spec.ts"]});
     };
@@ -7873,7 +7875,7 @@ interface EndRun {
   mirrorDir: string;
 }
 
-async function runEndingWith(generation: ReturnType<typeof scriptedGeneration>, config = baseConfig): Promise<EndRun> {
+async function runEndingWith(generation: ReturnType<typeof scriptedGeneration>, config = baseConfig, deps: Partial<RunQaUseCaseDeps> = {}): Promise<EndRun> {
   let published = 0;
   let validated = 0;
   let executed = 0;
@@ -7885,7 +7887,7 @@ async function runEndingWith(generation: ReturnType<typeof scriptedGeneration>, 
     execute: async () => { executed++; return { verdict: "pass", cases: [], logs: "" }; },
   });
   const { observer, events } = fakeObserver();
-  const out = await new RunQaUseCase({ ...ports, observer, config, mirrorGc: { prune: async (w: WorkspaceHandle) => { pruned.push(rootsOf(w).mirrorDir); } } }).run(baseInput);
+  const out = await new RunQaUseCase({ ...ports, ...deps, observer, config, mirrorGc: { prune: async (w: WorkspaceHandle) => { pruned.push(rootsOf(w).mirrorDir); } } }).run(baseInput);
   return { out, savedOutcomes, events, published, validated, executed, pruned, mirrorDir: ws.mirrorDir };
 }
 
@@ -7976,7 +7978,7 @@ test("a declared no-op skips the run with the agent's reason as its persisted no
 });
 
 test("a generation that delivered specs while exhausting its steps continues to a normal outcome and only logs the exhaustion", async () => {
-  const run = await runEndingWith(scriptedGeneration({ specs: ["a.spec.ts"], end: GENERATION_END.DELIVERED, turn: EXHAUSTED_TURN }));
+  const run = await runEndingWith(scriptedGeneration({ specs: ["a.spec.ts"], end: GENERATION_END.DELIVERED, turn: EXHAUSTED_TURN }), baseConfig, loginToBeWritten());
   assert.equal(run.out.decision.verdict, "pass");
   assert.equal(run.executed, 1);
   assert.equal(run.events.some((e) => e.type === "agent.error"), false, "no failure is reported for a run that delivered");
@@ -8171,12 +8173,6 @@ async function coordinationReviewOutcome(opts: {
   return telemetry.events.find((event) => event.kind === "outcome")?.reviewOutcome;
 }
 
-/* A coordinator whose flows deliver what the scripted generation delivers. */
-async function authoredByCoordinator(generation: GenerationPort, input: CoordinateInput): Promise<CoordinateResult> {
-  const generated = await generation.generate(input.specDir);
-  return { action: "fanout", aggregated: { end: GENERATION_END.DELIVERED, specs: generated.specs, incompleteFlows: [] }, proposals: [], signal: { plan: "fanout", flows: 1, delivered: 1, incomplete: 0 } };
-}
-
 const FLAKY_RUN: ExecutionPort["execute"] = async () => ({ verdict: "flaky", cases: [{ name: "checkout", status: "flaky" as const }], logs: "" });
 
 test("the coordination outcome reports the review as not applicable when the run needed one and none looked at it", async () => {
@@ -8351,7 +8347,7 @@ test("the deadline reaching the pre-generation grounding ends the run: it is not
 
 test("an agent failure that is not the deadline is still the integration error it was: it propagates and is not recorded as a time-budget end", async () => {
   const { ports, savedOutcomes } = stubPorts({ generate: async () => { throw new Error("provider returned 500"); } });
-  await assert.rejects(new RunQaUseCase({ ...ports, config: baseConfig }).run(baseInput), /provider returned 500/);
+  await assert.rejects(new RunQaUseCase({ ...ports, ...loginToBeWritten(), config: baseConfig }).run(baseInput), /provider returned 500/);
   assert.equal(savedOutcomes.length, 0);
 });
 
@@ -8412,7 +8408,7 @@ test("reviewer pre-check (R4): a spec asserting an empty state the captured DOM 
       execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
       review: async () => { modelReviews++; return { approved: true, corrections: [], blockingCount: 0, parsed: true }; },
     });
-    ports.generation.generate = async (specDir, _signal, _diff, enrichment) => {
+    ports.generation.author = async (specDir, _signal, _diff, enrichment) => {
       regenCorrections.push(enrichment?.reviewCorrections);
       fixtures.write("flows/restaurants.spec.ts", R4_SPEC);
       return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"]});
@@ -8451,7 +8447,7 @@ test("reviewer pre-check: a legitimate spec whose assertions the captured DOM co
         return { approved: true, corrections: [], blockingCount: 0, rationale: "the list is asserted against the captured page", parsed: true };
       },
     });
-    ports.generation.generate = async (_specDir) => {
+    ports.generation.author = async (_specDir) => {
       fixtures.write("flows/restaurants.spec.ts", R4_LEGIT_SPEC);
       return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"]});
     };
@@ -8481,7 +8477,7 @@ test("a generator that changes nothing after a rejection is not reviewed twice: 
         return { approved: false, corrections: ["[false-positive] the list is never asserted"], blockingCount: 1, parsed: true };
       },
     });
-    ports.generation.generate = async (_specDir) => {
+    ports.generation.author = async (_specDir) => {
       fixtures.write("flows/restaurants.spec.ts", R4_LEGIT_SPEC);
       return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"]});
     };
@@ -8511,7 +8507,7 @@ test("a regeneration that only adds comments does not buy a second review: the r
         return { approved: false, corrections: ["[false-positive] the list is never asserted"], blockingCount: 1, parsed: true };
       },
     });
-    ports.generation.generate = async (_specDir) => {
+    ports.generation.author = async (_specDir) => {
       generation++;
       fixtures.write("flows/restaurants.spec.ts", generation === 1 ? R4_LEGIT_SPEC : `// regenerated: addressed the reviewer\n${R4_LEGIT_SPEC}`);
       return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"]});
@@ -8542,7 +8538,7 @@ test("a materially changed spec is re-reviewed with the prior corrections and th
           : { approved: true, corrections: [], blockingCount: 0, parsed: true };
       },
     });
-    ports.generation.generate = async (_specDir) => {
+    ports.generation.author = async (_specDir) => {
       generation++;
       fixtures.write("flows/restaurants.spec.ts", generation === 1 ? R4_SPEC : R4_LEGIT_SPEC);
       return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"]});
@@ -8591,7 +8587,7 @@ test("each review round records a bounded qayaba.review metric: what decided it 
       captureReviewDom: async () => R4_DOM,
       execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
     });
-    ports.generation.generate = async (_specDir) => {
+    ports.generation.author = async (_specDir) => {
       fixtures.write("flows/restaurants.spec.ts", R4_SPEC);
       return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"]});
     };
@@ -8640,7 +8636,7 @@ test("the reviewer judges only the specs this run delivered; the existing suite 
         return { approved: true, corrections: [], blockingCount: 0, rationale: "the delivered spec targets the rename", parsed: true };
       },
     });
-    ports.generation.generate = async (_specDir) => {
+    ports.generation.author = async (_specDir) => {
       fixtures.write("flows/restaurants.spec.ts", R4_LEGIT_SPEC);
       return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"]});
     };
@@ -8681,7 +8677,7 @@ test("the reviewer decision span carries the delivered targets, the existing sui
         parsed: true,
       }),
     });
-    ports.generation.generate = async (_specDir) => {
+    ports.generation.author = async (_specDir) => {
       fixtures.write("flows/restaurants.spec.ts", R4_LEGIT_SPEC);
       return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"]});
     };
@@ -8744,7 +8740,7 @@ test("the fix_loop phase span carries its outcome, the failing counts and the sp
 });
 /* The intent lock: the primary pass fixes each spec's contract, and a later regeneration that weakens it
    is recorded (signal) or rejected with its pre-turn bytes (enforce). The baseline never crosses runs. */
-function intentWorkspace(bodies: readonly string[]): { prepare: WorkspacePort["prepare"]; generate: GenerationPort["generate"]; cleanup: () => void } {
+function intentWorkspace(bodies: readonly string[]): { prepare: WorkspacePort["prepare"]; generate: AuthorPort["author"]; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), "qa-intent-"));
   const specDir = join(dir, "e2e");
   let calls = 0;
@@ -8920,7 +8916,7 @@ test("a fix-loop round the contract rejects hands its violations to the next rou
       }),
     });
     const scripted = real.generate;
-    ports.generation.generate = async (specDir, signal, diff, enrichment) => {
+    ports.generation.author = async (specDir, signal, diff, enrichment) => {
       contractFeedback.push(enrichment?.contractFeedback as readonly { rule: string }[] | undefined);
       return scripted(specDir, signal, diff, enrichment);
     };
@@ -8968,7 +8964,7 @@ test("a correction turn rejected by the contract earns one more turn carrying th
       },
     });
     const scripted = real.generate;
-    ports.generation.generate = async (specDir, signal, diff, enrichment) => {
+    ports.generation.author = async (specDir, signal, diff, enrichment) => {
       enrichments.push(enrichment?.contractFeedback as readonly { rule: string }[] | undefined);
       return scripted(specDir, signal, diff, enrichment);
     };
@@ -9024,7 +9020,7 @@ test("with the integrity switch on, a blocking finding that cites a spec outside
       execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
       review: citedReview({ kind: "contract", ref: "specs/auth.spec.ts#clause-1" }),
     });
-    ports.generation.generate = generate;
+    ports.generation.author = generate;
     const useCase = new RunQaUseCase({
       ...ports,
       config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: true },
@@ -9047,7 +9043,7 @@ test("with the switch off, the same finding keeps its pre-change behaviour and t
       execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
       review: citedReview({ kind: "contract", ref: "specs/auth.spec.ts#clause-1" }),
     });
-    ports.generation.generate = generate;
+    ports.generation.author = generate;
     const useCase = new RunQaUseCase({
       ...ports,
       config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: false },
@@ -9073,7 +9069,7 @@ test("a verified blocking finding on a spec this run delivered still rejects", a
       }),
       review: citedReview({ kind: "execution", ref: "flows/checkout.spec.ts" }),
     });
-    ports.generation.generate = generate;
+    ports.generation.author = generate;
     const useCase = new RunQaUseCase({
       ...ports,
       config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: true },
@@ -9133,7 +9129,7 @@ function disputedPorts(fixtures: ReturnType<typeof reviewFixtures>, generate: ()
     }),
     review,
   });
-  ports.generation.generate = generate as GenerationPort["generate"];
+  ports.generation.author = generate as AuthorPort["author"];
   return { ports, savedOutcomes, foldedOutcomes };
 }
 
@@ -9255,7 +9251,7 @@ for (const [label, change, expected] of [
         },
         review: correctiveReview(),
       });
-      ports.generation.generate = async () => {
+      ports.generation.author = async () => {
         turn += 1;
         if (turn === 1) {
           ws.write("a.spec.ts", "test('a', async () => {});\n");
@@ -9282,7 +9278,7 @@ test("a declared no-op records its kind in the gate signals of the run it skips"
     const { ports, savedOutcomes } = stubPorts({
       generate: async () => ({ ...scriptedGeneration({ specs: [], end: GENERATION_END.DECLARED_NOOP, note: "no rows on DEV" }), noopKind: kind }),
     });
-    const out = await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, runId: `noop-kind-${kind}` });
+    const out = await new RunQaUseCase({ ...ports, ...loginToBeWritten(), config: baseConfig }).run({ ...baseInput, runId: `noop-kind-${kind}` });
     assert.equal(out.outcome?.verdict, "skipped");
     assert.deepEqual(savedOutcomes.at(-1)?.gateSignals.noop, { kind });
   }
@@ -9300,7 +9296,7 @@ test("an unobservable no-op declared while the pack shows more nodes than unchan
     generate: async () => ({ ...scriptedGeneration({ specs: [], end: GENERATION_END.DECLARED_NOOP, note: "no rows on DEV" }), noopKind: NOOP_KIND.UNOBSERVABLE }),
   });
   const { observer, events } = fakeObserver();
-  const out = await new RunQaUseCase({ ...ports, observer, config: baseConfig }).run({ ...baseInput, runId: "noop-contradicted" });
+  const out = await new RunQaUseCase({ ...ports, ...loginToBeWritten(), observer, config: baseConfig }).run({ ...baseInput, runId: "noop-contradicted" });
   assert.equal(out.outcome?.verdict, "skipped");
   const warnings = events.filter((e) => e.type === "log.line" && e.level === "warn");
   assert.equal(warnings.length, 1);

@@ -18,7 +18,7 @@ import { runOf, type ReviewSession, type RunState } from "../run-state.ts";
 import { acceptedRegeneration, addRetries, remeasured, rollbackDelivered, withAcceptanceCalls, withRun } from "../reducers.ts";
 import { liveExecutionOptions, executeAccepted, validateAccepted } from "./execute.steps.ts";
 import { reviewRequired } from "../../../domain/review-required.ts";
-import { closedLoopSignal, contractFindingText, correctThroughLead, mayCorrectThroughLead, regenerateByLead } from "./generation-services.ts";
+import { closedLoopSignal, contractFindingText, correctThroughLead, mayCorrectThroughLead, regenerateByAuthor } from "./generation-services.ts";
 import { resolveTested } from "./fix-loop.steps.ts";
 import { addReviewStats, annotateReviewPhase, newReviewTally, readReviewedSpecs, rebuttalEvidence, recordReviewDecision } from "./review-services.ts";
 
@@ -357,7 +357,7 @@ export async function reviewCorrect(state: Readonly<RunState>, ctx: WorkspaceRun
         ...(contractFeedback ?? []).map((v) => ({ text: contractFindingText(v), spec: v.file })),
       ], signal)
     : {
-        output: await regenerateByLead(state, ctx, signal, {
+        output: await regenerateByAuthor(state, ctx, signal, {
           reviewCorrections: reviewResult.corrections,
           ...(contractFeedback ? { contractFeedback } : {}),
         }),

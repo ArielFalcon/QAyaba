@@ -90,6 +90,7 @@ export interface RuntimeRoleModels {
 
 const AGENT_TO_RUNTIME_ROLE: Record<string, keyof RuntimeRoleModels> = {
   "qa-generator": "primary",
+  "qa-sidekick": "primary",
   "qa-reviewer": "reviewer",
   "qa-assistant": "chat",
 };

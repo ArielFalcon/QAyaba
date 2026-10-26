@@ -45,7 +45,7 @@ const SECURITY_RELEVANT_MODULES = [
   `${CONTEXTS}/coordination/infrastructure/adapters/delegation-workspace.adapter.ts`,
   `${CONTEXTS}/coordination/infrastructure/adapters/coordination-telemetry-port.adapter.ts`,
   `${CONTEXTS}/generation/infrastructure/adapters/pre-generation-grounding-port.adapter.ts`,
-  `${CONTEXTS}/generation/infrastructure/adapters/generation-port.adapter.ts`,
+  `${CONTEXTS}/generation/infrastructure/adapters/generation-turns.adapter.ts`,
   `${CONTEXTS}/change-analysis/infrastructure/adapters/blast-radius-signal.ts`,
   `${CONTEXTS}/workspace-and-publication/infrastructure/adapters/publication-port.adapter.ts`,
   `${CONTEXTS}/workspace-and-publication/infrastructure/adapters/workspace-port.adapter.ts`,

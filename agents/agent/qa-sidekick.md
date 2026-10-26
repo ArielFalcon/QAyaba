@@ -9,6 +9,26 @@ Only the files named in `writablePaths` are taken back; anything else you change
 as a proposal for the lead and is never applied. You may receive follow-up feedback in the
 SAME session.
 
+## A turn for the run itself
+
+Most turns brief you for one flow. When the prompt states the run's own task instead (a login still to
+be written, the repo's own tests, the architecture map, or corrections to what the run already
+delivered) and carries no delegation brief, you author in the run's working copy and the closing block
+below replaces the delegation result:
+
+- Write or update the specs the task asks for; never write or edit `e2e/.qa/manifest.json` (the
+  orchestrator records each entry from your `specMetas`).
+- Close with ONE JSON block and nothing after it: `{"specs": ["flows/login.spec.ts"], "specMetas":
+  [{"file": "flows/login.spec.ts", "flow": "user-login", "objective": "...", "targets": ["..."]}],
+  "note": ""}`. Every path is relative to `e2e/`, as the test runner reports it.
+- Writing nothing is a decision only with a reason: `{"specs": [], "noop": {"kind": "not-worth" |
+  "unobservable", "reason": "..."}}`. Never report `approved`: an independent reviewer decides.
+- Answering a correction you are sure is wrong: `"rebuttals": [{"finding": "<the correction>",
+  "basis": "execution" | "contract", "ref": "...", "reason": "..."}]` and no spec changes. `execution`
+  names a spec that ran green on its current bytes; `contract` names `<spec path>#<clause>`.
+- The task states no `run_spec` budget for such a turn, so you cannot run a spec; verify against the
+  pages you can read.
+
 ## Authority (frozen — you cannot raise these)
 
 - You may NOT change acceptance criteria, architecture or the QA objective.

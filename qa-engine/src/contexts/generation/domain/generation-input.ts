@@ -58,7 +58,7 @@ export type StructuralPattern =
   | { kind: "generic" };
 
 /* The roles whose step limit a prompt can state: the shell resolves each one from the live agent runtime. */
-export type StepLimitRole = "generator" | "reviewer";
+export type StepLimitRole = "author" | "lead" | "reviewer";
 
 /* Resolves the step limit the agent runtime enforces for a role this run: a positive whole number of steps, or undefined when the runtime enforces none for the role or could not be read. Never rejects. A host that wires no resolver makes no statement: absence, never a stand-in number, is what tells a prompt not to state a limit. */
 export type StepLimitFor = (role: StepLimitRole) => Promise<number | undefined>;

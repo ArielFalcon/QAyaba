@@ -124,7 +124,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${ORCH_TEST}/domain/fix-loop.aggregate.test.ts`,
       `${ORCH_TEST}/domain/fix-loop-retry.test.ts`,
       `${ORCH_TEST}/application/run-qa.use-case.test.ts`,
-      `${GENERATION_CTX_TEST}/infrastructure/adapters/generation-port.adapter.test.ts`,
+      `${GENERATION_CTX_TEST}/infrastructure/adapters/generation-turns.adapter.test.ts`,
       "qa-engine/test/contract/coordination-seam.contract.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,
@@ -271,10 +271,10 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/domain/suite-listing-render.ts`,
       /* Only the lines that declare a generation's specs, hand them on and probe them: the rest of these modules is other code. */
       `${GEN}/application/generate-tests.use-case.ts@intent-change-type`,
-      `${GENERATION_CTX}/infrastructure/adapters/generation-port.adapter.ts@generate-return-tail`,
-      `${GENERATION_CTX}/infrastructure/adapters/generation-port.adapter.ts@services-and-step-limit`,
-      `${GENERATION_CTX}/infrastructure/adapters/generation-port.adapter.ts@attribution-and-dom-snapshot`,
-      `${GENERATION_CTX}/infrastructure/adapters/generation-port.adapter.ts@note-and-parsed-passthrough`,
+      `${GENERATION_CTX}/infrastructure/adapters/generation-turns.adapter.ts@generate-return-tail`,
+      `${GENERATION_CTX}/infrastructure/adapters/generation-turns.adapter.ts@services-and-step-limit`,
+      `${GENERATION_CTX}/infrastructure/adapters/generation-turns.adapter.ts@attribution-and-dom-snapshot`,
+      `${GENERATION_CTX}/infrastructure/adapters/generation-turns.adapter.ts@note-and-parsed-passthrough`,
       /* The grounding's one line that folds the manifest into the suite's entries. */
       `${GENERATION_CTX}/infrastructure/adapters/pre-generation-grounding-port.adapter.ts@existing-spec-listing`,
       /* The checks' own lines that say which spec raised a contradiction, and the FixLoop's hand-over of them. */
@@ -288,7 +288,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GENERATION_CTX}/domain/pre-exec-grounding.service.ts@fail-closed-count`,
       `${ORCH}/domain/fix-loop.aggregate.ts@accepted-round-changed-set`,
       /* The run's own lines, now in the phases that moved them out of the use case: the regeneration that is handed what the run delivered and merges what it delivers, the first pass's merge, the pre-exec grounding's attribution and corrective regeneration, and the FixLoop's hand-over and attribution of each contradiction. */
-      `${ORCH}/application/run-flow/phases/generation-services.ts@lead-regeneration-routing`,
+      `${ORCH}/application/run-flow/phases/generation-services.ts@author-regeneration-routing`,
       `${ORCH}/application/run-flow/phases/generate.steps.ts@regression-run-stand-in`,
       `${ORCH}/application/run-flow/phases/generate.steps.ts@fail-closed-counter`,
       `${ORCH}/application/run-flow/phases/generate.steps.ts@pre-exec-capture-and-check`,
@@ -318,7 +318,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GENERATION_CTX_TEST}/infrastructure/adapters/pre-generation-grounding-port.adapter.test.ts`,
       /* Apart from run-qa.use-case.test.ts, whose many tests would all run once per mutant. */
       `${ORCH_TEST}/application/run-qa.carry-forward.test.ts`,
-      `${GENERATION_CTX_TEST}/infrastructure/adapters/generation-port.adapter.test.ts`,
+      `${GENERATION_CTX_TEST}/infrastructure/adapters/generation-turns.adapter.test.ts`,
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
@@ -486,7 +486,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "qa-engine/test/shared-infrastructure/spec-path-confinement.purge.test.ts",
       "qa-engine/test/shared-infrastructure/spec-path-confinement.repo-walk.test.ts",
       /* Lever-2's spec sources, the reviewer's inlining and the review DOM grounding. */
-      `${GENERATION_CTX_TEST}/infrastructure/adapters/generation-port.adapter.test.ts`,
+      `${GENERATION_CTX_TEST}/infrastructure/adapters/generation-turns.adapter.test.ts`,
       `${GENERATION_CTX_TEST}/infrastructure/adapters/review-dom-grounding-port.adapter.test.ts`,
       `${GEN_TEST}/infrastructure/prompt-builders/prompts.test.ts`,
       /* The manifest's file hashes and write, the sidekick's claimed files and the pre-exec capture. */

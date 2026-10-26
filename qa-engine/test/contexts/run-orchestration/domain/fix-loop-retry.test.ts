@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { FixLoop, type FixLoopExecutionPort, type FixLoopGenerationPort } from "@contexts/run-orchestration/domain/fix-loop.aggregate.ts";
+import { FixLoop, type FixLoopExecutionPort, type FixLoopRegenerationPort } from "@contexts/run-orchestration/domain/fix-loop.aggregate.ts";
 import { CycleBudget } from "@kernel/cycle-budget.ts";
 import { WallClockBudget } from "@kernel/wall-clock-budget.ts";
 
@@ -23,8 +23,8 @@ test("a run that fails identically on every execution is retried once and ends a
     },
   };
   let generateCallCount = 0;
-  const generation: FixLoopGenerationPort = {
-    generate: async () => {
+  const regeneration: FixLoopRegenerationPort = {
+    regenerate: async () => {
       generateCallCount++;
       return { specs: ["a.spec.ts"], approved: true };
     },
@@ -33,7 +33,7 @@ test("a run that fails identically on every execution is retried once and ends a
   const wallClockBudget = WallClockBudget.derive({ cycleBudget, agentTimeoutMs: 60_000 });
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     /* No specSources/failureTrees supplied: the failing case has no failureDom (empty trees, empty findings) and no e2e spec-file reads. */
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
   });
@@ -86,8 +86,8 @@ test("FixLoop's OWN retries counter reaches 2 under maxRetries=2 with a progress
     },
   };
   let generateCallCount = 0;
-  const generation: FixLoopGenerationPort = {
-    generate: async () => {
+  const regeneration: FixLoopRegenerationPort = {
+    regenerate: async () => {
       generateCallCount++;
       return { specs: ["checkout.spec.ts"], approved: true };
     },
@@ -96,7 +96,7 @@ test("FixLoop's OWN retries counter reaches 2 under maxRetries=2 with a progress
   const wallClockBudget = WallClockBudget.derive({ cycleBudget, agentTimeoutMs: 60_000 });
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
@@ -149,14 +149,14 @@ test("failureTrees are re-derived per-round from the CURRENT run's failing cases
       };
     },
   };
-  const generation: FixLoopGenerationPort = {
-    generate: async () => ({ specs: ["checkout.spec.ts"], approved: true }),
+  const regeneration: FixLoopRegenerationPort = {
+    regenerate: async () => ({ specs: ["checkout.spec.ts"], approved: true }),
   };
   const cycleBudget = CycleBudget.derive({ maxRetries: 2 });
   const wallClockBudget = WallClockBudget.derive({ cycleBudget, agentTimeoutMs: 60_000 });
   const loop = new FixLoop({
     execution,
-    generation,
+    regeneration,
     selectorCheck: {
       check: (specSources, trees) => {
         receivedTreesPerCall.push(trees);

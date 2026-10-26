@@ -10,9 +10,9 @@ import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import { readConfinedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import type { GenerateOpts, GenerationResult } from "../application/generate-tests.use-case.ts";
-import type { GenerationPort, PreExecGroundingPort, PreGenerationGroundingPort, ReviewDomGroundingPort, ReviewPort } from "../application/index.ts";
+import type { AuthorPort, LeadPort, PreExecGroundingPort, PreGenerationGroundingPort, ReviewDomGroundingPort, ReviewPort } from "../application/index.ts";
 import type { ArchitectureContext, OpencodeRunInput, StepLimitFor } from "../application/index.ts";
-import { GenerationPortAdapter, type GenerationPortCollaborators } from "../infrastructure/adapters/generation-port.adapter.ts";
+import { GenerationTurnsAdapter, type GenerationTurnsCollaborators } from "../infrastructure/adapters/generation-turns.adapter.ts";
 import { PreExecGroundingPortAdapter, type PreExecGroundingCollaborators } from "../infrastructure/adapters/pre-exec-grounding-port.adapter.ts";
 import { PreGenerationGroundingPortAdapter, type PreGenerationGroundingCollaborators } from "../infrastructure/adapters/pre-generation-grounding-port.adapter.ts";
 import { ReviewDomGroundingPortAdapter, type ReviewDomGroundingCollaborators } from "../infrastructure/adapters/review-dom-grounding-port.adapter.ts";
@@ -47,12 +47,12 @@ export interface GenerationDeps {
     services?: Array<{ repo: string; mirrorDir: string; openapi?: string | string[] }>;
   };
   /* An already-constructed use case: its own leaf ports are the generation context's concern. */
-  generationUseCase: { generate(input: OpencodeRunInput, opts?: GenerateOpts): Promise<GenerationResult> };
+  generationUseCase: { author(input: OpencodeRunInput, opts?: GenerateOpts): Promise<GenerationResult> };
   /* Re-reads a just-generated spec. Absent: the confined reader, the one that never follows a path an agent reported out of the spec directory. */
-  readSpecSource?: GenerationPortCollaborators["readSpecSource"];
+  readSpecSource?: GenerationTurnsCollaborators["readSpecSource"];
   /* The step limit the runtime enforces for a role this run. Absent: no prompt states one. */
   stepLimitFor?: StepLimitFor;
-  deadline?: GenerationPortCollaborators["deadline"];
+  deadline?: GenerationTurnsCollaborators["deadline"];
   review: { runtime: ReviewPortRuntime; timeoutMs?: number };
   grounding: {
     contextMap?: ArchitectureContext;
@@ -72,7 +72,7 @@ export interface GenerationDeps {
 }
 
 export interface GenerationApi {
-  generation: GenerationPort;
+  generation: LeadPort & AuthorPort;
   review: ReviewPort;
   /* Absent for a code run: nothing is grounded on a DEV page. */
   preGenerationGrounding?: PreGenerationGroundingPort;
@@ -97,8 +97,8 @@ function stagedRootsOf(workingCopyDir: string, e2eDir: string, stagedDir: string
 
 export function buildGeneration(deps: GenerationDeps): GenerationApi {
   const { run, grounding, telemetry } = deps;
-  const generation = new GenerationPortAdapter(
-    deps.generationUseCase as ConstructorParameters<typeof GenerationPortAdapter>[0],
+  const generation = new GenerationTurnsAdapter(
+    deps.generationUseCase as ConstructorParameters<typeof GenerationTurnsAdapter>[0],
     {
       repo: run.repo,
       appName: run.appName,

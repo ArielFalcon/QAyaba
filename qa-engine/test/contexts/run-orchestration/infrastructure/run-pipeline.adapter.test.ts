@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { RunPipelineAdapter } from "@contexts/run-orchestration/infrastructure/run-pipeline.adapter.ts";
 import { Sha } from "@kernel/sha.ts";
 import type { ChangeAnalysisPort } from "@contexts/change-analysis/application/index.ts";
-import type { GenerationPort, ReviewPort } from "@contexts/generation/application/index.ts";
+import type { AuthorPort, LeadPort, ReviewPort } from "@contexts/generation/application/index.ts";
 import type { ValidationPort, ExecutionPort } from "@contexts/test-execution/application/index.ts";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
 import type { PublicationPort } from "@contexts/run-orchestration/application/ports/publication.port.ts";
@@ -21,6 +21,7 @@ import type { RunOutcome } from "@kernel/run-outcome.ts";
 
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
+import { served } from "../../../support/coordinator-over-author.ts";
 import { fakeHandle, rootsOf } from "../application/run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 /* so the adapter's own scenario tests are apples-to-apples with the use-case's own 10-scenario
@@ -31,7 +32,7 @@ import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-fi
 
 function stubPorts(overrides: Partial<{
   classify: ChangeAnalysisPort["classify"];
-  generate: GenerationPort["generate"];
+  generate: AuthorPort["author"];
   review: ReviewPort["review"];
   validate: ValidationPort["validate"];
   execute: ExecutionPort["execute"];
@@ -51,9 +52,9 @@ function stubPorts(overrides: Partial<{
   const changeAnalysis: ChangeAnalysisPort = {
     classify: overrides.classify ?? (async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" })),
   };
-  const generation: GenerationPort = generationOnDisk({
-    generate: overrides.generate ?? (async () => (scriptedGeneration({ specs: ["a.spec.ts"]}))),
-  });
+  const { generation, leadSidekicks } = served(generationOnDisk({
+    author: overrides.generate ?? (async () => (scriptedGeneration({ specs: ["a.spec.ts"]}))),
+  }));
   const review: ReviewPort = {
     review: overrides.review ?? (async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true })),
   };
@@ -87,7 +88,7 @@ function stubPorts(overrides: Partial<{
   };
 
   return {
-    ports: { changeAnalysis, generation, review, validation, execution, objectiveSignal, publication, learning, workspace, specFiles: confinedSpecFiles, deployGate, runHistory, suiteStore: ws.suiteStore },
+    ports: { changeAnalysis, generation, leadSidekicks, review, validation, execution, objectiveSignal, publication, learning, workspace, specFiles: confinedSpecFiles, deployGate, runHistory, suiteStore: ws.suiteStore },
     savedOutcomes,
     foldedOutcomes,
   };
@@ -124,7 +125,7 @@ interface TenScenarioCase {
   scenario: string;
   overrides: Partial<{
     classify: ChangeAnalysisPort["classify"];
-    generate: GenerationPort["generate"];
+    generate: AuthorPort["author"];
     review: ReviewPort["review"];
     validate: ValidationPort["validate"];
     execute: ExecutionPort["execute"];

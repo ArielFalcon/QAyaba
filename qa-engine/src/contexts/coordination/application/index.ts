@@ -74,14 +74,18 @@ export { authorTask } from "./author-task.ts";
 export { renderSidekickBrief } from "./sidekick-prompt.ts";
 export {
   AGENT_TOOL,
+  AUTHOR_TARGET,
   REGISTERED_SIDEKICK_KINDS,
   SIDEKICK_BUDGET,
   SIDEKICK_KIND,
   SIDEKICK_TIER,
   SIDEKICK_WORKSPACE,
+  authorTargetSpec,
   delegatingKindSpec,
   sidekickKindSpec,
   type AgentTool,
+  type AuthorTarget,
+  type AuthorTargetSpec,
   type DelegatingKindSpec,
   type ReviewKindSpec,
   type SidekickKind,
@@ -115,3 +119,4 @@ export type { CorrectionFinding, CorrectionOrigin } from "./lead-correction.ts";
 export { LeadSidekicks } from "./lead-sidekicks.ts";
 export type { CoordinateResult, CoordinatedPass } from "./lead-sidekicks.ts";
 
+export { authorTargetOf, dispatchAuthor, type AuthorRequest, type RunAuthorTarget } from "./author-dispatch.ts";

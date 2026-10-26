@@ -11,6 +11,7 @@ import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
 import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
+import { served } from "../../../support/coordinator-over-author.ts";
 
 const INPUT = { app: "demo", sha: Sha.of("abc1234"), source: "manual" as const, mode: "manual" as const, target: "e2e" as const, runId: "purpose-run" };
 
@@ -18,7 +19,7 @@ function useCase(saved: RunOutcome[], opts: { verdict?: "pass" | "fail"; note?: 
   const ws = runWorkspace("qa-purpose-");
   return new RunQaUseCase({
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "x", diff: "" }) },
-    generation: generationOnDisk({ generate: async () => scriptedGeneration({ specs: ["a.spec.ts"]}) }),
+    ...served(generationOnDisk({ author: async () => scriptedGeneration({ specs: ["a.spec.ts"]}) })),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
     execution: { execute: async () => ({ verdict: opts.verdict ?? "pass", cases: [], logs: "" }) },

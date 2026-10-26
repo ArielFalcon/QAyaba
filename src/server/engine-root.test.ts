@@ -8,11 +8,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  buildEngine,
+  buildEngine as composeEngine,
   wireEngine,
   type EngineRootDeps,
 } from "./engine-root";
 import { RunPipelineAdapter } from "@contexts/run-orchestration/infrastructure/run-pipeline.adapter";
+import { loginToBeWritten } from "../../qa-engine/test/support/coordinator-over-author";
 import { Sha } from "@kernel/sha";
 import { BlastRadius } from "@kernel/blast-radius";
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -75,7 +76,7 @@ function fakeConfig(overrides: Partial<EngineRootDeps> = {}): EngineRootDeps {
       diff: async () => "diff --git a/src/x.ts b/src/x.ts",
     },
     generationUseCase: {
-      generate: async () => ({ specs: ["a.spec.ts"], end: GENERATION_END.DELIVERED }),
+      author: async () => ({ specs: ["a.spec.ts"], end: GENERATION_END.DELIVERED }),
     },
     /* The delivered specs exist nowhere on disk in this suite, which wires ports and reads no files: Lever-2's spec reader is a fake like every other collaborator here. The composition root's own default, the confined reader, is exercised against real files in seam-parity.contract.test.ts. */
     readSpecSource: () => "",
@@ -186,6 +187,16 @@ test("the pre-exec grounding reads the suite through the confined reader, anchor
 });
 
 /* ── buildEngine: wires the run pipeline ───────────────────────────────────────── */
+
+/*
+ * The engine as the composition config wires it, for a run whose login is still to be written: one author sidekick authors it with
+ * no plan, so the wired generation port's authoring turn is what these tests observe. A config that wires lead and sidekicks
+ * (`delegation`) and a code run keep their own coordination.
+ */
+function buildEngine(cfg: EngineRootDeps) {
+  const wired = wireEngine(cfg);
+  return wired.leadSidekicks || cfg.isCode ? composeEngine(cfg) : new RunPipelineAdapter({ ...wired, ...loginToBeWritten() });
+}
 
 test("buildEngine wires a pipeline from the composition config alone", () => {
   const port = buildEngine(fakeConfig());
@@ -736,7 +747,7 @@ test("buildEngine wires groundingCollaborators.buildContextPack into the run whe
       },
     },
     generationUseCase: {
-      generate: async (input) => {
+      author: async (input) => {
         seenContextPacks.push(input.contextPack);
         return { specs: ["a.spec.ts"], end: GENERATION_END.DELIVERED };
       },
@@ -801,7 +812,7 @@ test("buildEngine wires structuralSignal when the code graph and the co-change h
       diff: async () => "diff --git a/src/x.ts b/src/x.ts\n+ handleX();",
     },
     generationUseCase: {
-      generate: async (input) => {
+      author: async (input) => {
         seenStaticSignals.push(input.staticSignal);
         seenSymbolFlags.push(input.staticSignalHasSymbols);
         return { specs: ["a.spec.ts"], end: GENERATION_END.DELIVERED };
@@ -837,7 +848,7 @@ test("buildEngine: a graph that knows only co-change files for the diff gives a 
       diff: async () => "diff --git a/src/x.ts b/src/x.ts\n+ handleX();",
     },
     generationUseCase: {
-      generate: async (input) => {
+      author: async (input) => {
         seen.push({ signal: input.staticSignal, flag: input.staticSignalHasSymbols, hasFlagKey: "staticSignalHasSymbols" in input });
         return { specs: ["a.spec.ts"], end: GENERATION_END.DELIVERED };
       },
@@ -865,7 +876,7 @@ test("buildEngine leaves structuralSignal undefined when the code graph is absen
   const cfg = fakeConfig({
     mode: "diff",
     generationUseCase: {
-      generate: async (input) => {
+      author: async (input) => {
         seenStaticSignals.push(input.staticSignal);
         return { specs: ["a.spec.ts"], end: GENERATION_END.DELIVERED };
       },
@@ -899,7 +910,7 @@ test("buildEngine degrades structuralSignal to no section when the repo is not i
     },
     coChange: quietCoChange,
     generationUseCase: {
-      generate: async (input) => {
+      author: async (input) => {
         seenStaticSignals.push(input.staticSignal);
         return { specs: ["a.spec.ts"], end: GENERATION_END.DELIVERED };
       },
@@ -961,7 +972,7 @@ test("buildEngine wires serviceLinks when a serviceTopology collaborator is supp
         },
       },
       generationUseCase: {
-        generate: async (input) => {
+        author: async (input) => {
           seenServiceLinks.push(input.serviceLinks);
           return { specs: ["a.spec.ts"], end: GENERATION_END.DELIVERED };
         },
@@ -992,7 +1003,7 @@ test("buildEngine leaves serviceLinks undefined when serviceTopology is absent (
   const cfg = fakeConfig({
     mode: "diff",
     generationUseCase: {
-      generate: async (input) => {
+      author: async (input) => {
         seenEnrichments.push(input as unknown as Record<string, unknown>);
         return { specs: ["a.spec.ts"], end: GENERATION_END.DELIVERED };
       },
@@ -1015,7 +1026,7 @@ test("buildEngine leaves serviceLinks undefined when serviceTopology is absent (
 });
 
 /* EngineRootDeps.triggerService is advisory, prompt-context only (reaches
-   GenerationPortAdapter's ctx.service -> OpencodeRunInput.service and NOTHING else: no
+   GenerationTurnsAdapter's ctx.service -> OpencodeRunInput.service and NOTHING else: no
    verdict/gate/coverage/publish path reads it). Present -> the generation input carries
    {repo, mirrorDir(, openapi)} for the TRIGGERING service. Absent (the common same-repo case) ->
    the key is omitted entirely.
@@ -1028,7 +1039,7 @@ test("buildEngine threads cfg.triggerService into OpencodeRunInput.service when 
     repo: "org/front",
     triggerService: { repo: "org/orders-svc", mirrorDir: "/mirrors/org__orders-svc", openapi: "openapi.yaml" },
     generationUseCase: {
-      generate: async (input) => {
+      author: async (input) => {
         seenServices.push(input.service);
         return { specs: ["a.spec.ts"], end: GENERATION_END.DELIVERED };
       },
@@ -1055,7 +1066,7 @@ test("buildEngine leaves OpencodeRunInput.service entirely absent when cfg.trigg
   const cfg = fakeConfig({
     mode: "diff",
     generationUseCase: {
-      generate: async (input) => {
+      author: async (input) => {
         seenInputs.push(input as unknown as Record<string, unknown>);
         return { specs: ["a.spec.ts"], end: GENERATION_END.DELIVERED };
       },
@@ -1135,7 +1146,7 @@ test("buildEngine gives the context pack no staged roots on a same-repo run", as
   assert.equal(await stagedRootsSeenByThePack({}), "absent");
 });
 
-/* EngineRootDeps.services is advisory, prompt-context ONLY (reaches GenerationPortAdapter's
+/* EngineRootDeps.services is advisory, prompt-context ONLY (reaches GenerationTurnsAdapter's
    ctx.services -> OpencodeRunInput.services and NOTHING else: no verdict/gate/coverage/publish path
    reads it). Present -> every declared service ref reaches the generation input. Absent/empty ->
    the key is omitted entirely.
@@ -1151,7 +1162,7 @@ test("buildEngine threads cfg.services into OpencodeRunInput.services for a cont
       { repo: "org/payments-svc", mirrorDir: "/mirrors/org__payments-svc" },
     ],
     generationUseCase: {
-      generate: async (input) => {
+      author: async (input) => {
         seenServicesList.push(input.services);
         return { specs: ["a.spec.ts"], end: GENERATION_END.DELIVERED };
       },
@@ -1181,7 +1192,7 @@ test("buildEngine leaves OpencodeRunInput.services entirely absent when cfg.serv
   const cfg = fakeConfig({
     mode: "diff",
     generationUseCase: {
-      generate: async (input) => {
+      author: async (input) => {
         seenInputs.push(input as unknown as Record<string, unknown>);
         return { specs: ["a.spec.ts"], end: GENERATION_END.DELIVERED };
       },
@@ -1332,7 +1343,7 @@ test("buildEngine end-to-end: a duplicate page-rooted selector in the captured r
       mirrorDir,
       checkout: async () => mirrorDir,
       generationUseCase: {
-        generate: async () => ({
+        author: async () => ({
           specs: ["ambiguous.spec.ts"],
           end: GENERATION_END.DELIVERED,
         }),

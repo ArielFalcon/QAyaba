@@ -11,6 +11,7 @@ import { scriptedGeneration } from "../../qa-engine/test/support/generation-outp
 import { generationOnDisk, runWorkspace } from "../../qa-engine/test/support/run-workspace";
 import { traceHarness } from "./trace-harness";
 import { confinedSpecFiles } from "../../qa-engine/src/shared-infrastructure/spec-files.adapter";
+import { served } from "../../qa-engine/test/support/coordinator-over-author";
 
 const SPEC_SOURCE = "await page.goto('/orders');\nawait page.getByTestId('invented-id').click();\nawait page.getByTestId('real-id').click();\n";
 
@@ -18,7 +19,7 @@ function useCase(telemetry: TelemetryPort | undefined, withGrounding = true, val
   const ws = runWorkspace("qa-gates-");
   const deps: RunQaUseCaseDeps = {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
-    generation: generationOnDisk({ generate: async () => scriptedGeneration({ specs: ["a.spec.ts"]}) }),
+    ...served(generationOnDisk({ author: async () => scriptedGeneration({ specs: ["a.spec.ts"]}) })),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate },
     execution: { execute: async () => ({ verdict: "pass", cases: [], logs: "" }) },

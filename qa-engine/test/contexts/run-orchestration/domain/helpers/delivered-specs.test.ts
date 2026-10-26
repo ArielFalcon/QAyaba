@@ -19,31 +19,31 @@ test("a lead pass delivers its specs with the flow and objective it declared, in
     { file: "a.spec.ts", flow: "login", objective: "the user signs in" },
     { file: "b.spec.ts", flow: "checkout", objective: "the order is placed" },
   ];
-  assert.deepEqual(mergeDeliveredSpecs([], lead(["a.spec.ts", "b.spec.ts"], declared), "lead"), declared);
+  assert.deepEqual(mergeDeliveredSpecs([], lead(["a.spec.ts", "b.spec.ts"], declared), "author"), declared);
 });
 
 test("a later lead pass refreshes the flow and objective of a spec it delivers again: the newest wins", () => {
   const before = [{ file: "a.spec.ts", flow: "login", objective: "old objective" }];
-  const after = mergeDeliveredSpecs(before, lead(["a.spec.ts"], [{ file: "a.spec.ts", flow: "sign in", objective: "new objective" }]), "lead");
+  const after = mergeDeliveredSpecs(before, lead(["a.spec.ts"], [{ file: "a.spec.ts", flow: "sign in", objective: "new objective" }]), "author");
   assert.deepEqual(after, [{ file: "a.spec.ts", flow: "sign in", objective: "new objective" }]);
 });
 
 test("a later lead pass that declares no objective for a spec leaves the one it had", () => {
   const before = [{ file: "a.spec.ts", flow: "login", objective: "the user signs in" }];
-  assert.deepEqual(mergeDeliveredSpecs(before, lead(["a.spec.ts"], [{ file: "a.spec.ts" }]), "lead"), before);
-  assert.deepEqual(mergeDeliveredSpecs(before, lead(["a.spec.ts"], [{ file: "a.spec.ts", flow: "  ", objective: "" }]), "lead"), before);
+  assert.deepEqual(mergeDeliveredSpecs(before, lead(["a.spec.ts"], [{ file: "a.spec.ts" }]), "author"), before);
+  assert.deepEqual(mergeDeliveredSpecs(before, lead(["a.spec.ts"], [{ file: "a.spec.ts", flow: "  ", objective: "" }]), "author"), before);
 });
 
 test("a lead pass with no declarations still delivers its specs, by path, and clears nothing", () => {
   const before = [{ file: "a.spec.ts", flow: "login", objective: "the user signs in" }];
-  assert.deepEqual(mergeDeliveredSpecs(before, lead(["a.spec.ts", "b.spec.ts"]), "lead"), [
+  assert.deepEqual(mergeDeliveredSpecs(before, lead(["a.spec.ts", "b.spec.ts"]), "author"), [
     { file: "a.spec.ts", flow: "login", objective: "the user signs in" },
     { file: "b.spec.ts" },
   ]);
 });
 
 test("a spec a lead pass reports but does not declare is still delivered", () => {
-  assert.deepEqual(mergeDeliveredSpecs([], lead(["a.spec.ts", "b.spec.ts"], [{ file: "b.spec.ts", flow: "checkout", objective: "o" }]), "lead"), [
+  assert.deepEqual(mergeDeliveredSpecs([], lead(["a.spec.ts", "b.spec.ts"], [{ file: "b.spec.ts", flow: "checkout", objective: "o" }]), "author"), [
     { file: "a.spec.ts" },
     { file: "b.spec.ts", flow: "checkout", objective: "o" },
   ]);
@@ -72,30 +72,30 @@ test("a sidekick pass keeps the order: the specs it delivers again stay where th
 test("a spec is the same spec however each pass spells its path", () => {
   const before = [{ file: "flows/a.spec.ts", flow: "login", objective: "the user signs in" }];
   assert.deepEqual(mergeDeliveredSpecs(before, lead(["./flows\\a.spec.ts"]), "sidekick"), before);
-  assert.deepEqual(mergeDeliveredSpecs(before, lead(["flows/a.spec.ts"], [{ file: ".\\flows/a.spec.ts", objective: "newer" }]), "lead"), [
+  assert.deepEqual(mergeDeliveredSpecs(before, lead(["flows/a.spec.ts"], [{ file: ".\\flows/a.spec.ts", objective: "newer" }]), "author"), [
     { file: "flows/a.spec.ts", flow: "login", objective: "newer" },
   ]);
 });
 
 test("the passes of a run in turn: the lead's objective survives a sidekick re-delivery and a sidekick spec stays path-only", () => {
-  const first = mergeDeliveredSpecs([], lead(["a.spec.ts"], [{ file: "a.spec.ts", flow: "login", objective: "O1" }]), "lead");
+  const first = mergeDeliveredSpecs([], lead(["a.spec.ts"], [{ file: "a.spec.ts", flow: "login", objective: "O1" }]), "author");
   const second = mergeDeliveredSpecs(first, lead(["a.spec.ts", "d.spec.ts"], [{ file: "a.spec.ts", flow: "x", objective: "synthetic" }, { file: "d.spec.ts", flow: "d", objective: "synthetic" }]), "sidekick");
   assert.deepEqual(second, [{ file: "a.spec.ts", flow: "login", objective: "O1" }, { file: "d.spec.ts" }]);
-  const third = mergeDeliveredSpecs(second, lead(["d.spec.ts"], [{ file: "d.spec.ts", flow: "d flow", objective: "O2" }]), "lead");
+  const third = mergeDeliveredSpecs(second, lead(["d.spec.ts"], [{ file: "d.spec.ts", flow: "d flow", objective: "O2" }]), "author");
   assert.deepEqual(third, [{ file: "a.spec.ts", flow: "login", objective: "O1" }, { file: "d.spec.ts", flow: "d flow", objective: "O2" }]);
 });
 
 test("a pass that delivered nothing leaves the delivered specs as they were", () => {
   const before = [{ file: "a.spec.ts", flow: "login", objective: "the user signs in" }];
-  assert.deepEqual(mergeDeliveredSpecs(before, lead([]), "lead"), before);
+  assert.deepEqual(mergeDeliveredSpecs(before, lead([]), "author"), before);
   assert.deepEqual(mergeDeliveredSpecs(before, lead([]), "sidekick"), before);
-  assert.deepEqual(mergeDeliveredSpecs([], lead([]), "lead"), []);
+  assert.deepEqual(mergeDeliveredSpecs([], lead([]), "author"), []);
 });
 
 test("the delivered specs and the pass are left as they were, and a new list is returned", () => {
   const before = frozen<DeliveredSpec[]>([{ file: "a.spec.ts", flow: "login", objective: "O1" }]);
   const output = frozen({ specs: ["a.spec.ts", "b.spec.ts"], declaredSpecs: [{ file: "a.spec.ts", objective: "O2" }, { file: "b.spec.ts", flow: "b" }] });
-  const merged = mergeDeliveredSpecs(before, output, "lead");
+  const merged = mergeDeliveredSpecs(before, output, "author");
   assert.notEqual(merged, before);
   assert.deepEqual(before, [{ file: "a.spec.ts", flow: "login", objective: "O1" }]);
   assert.deepEqual(merged, [{ file: "a.spec.ts", flow: "login", objective: "O2" }, { file: "b.spec.ts", flow: "b" }]);

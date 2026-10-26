@@ -13,13 +13,14 @@ import type { SuiteStorePort } from "@kernel/ports/suite-store.port.ts";
 import { RunQaUseCase, type RunQaConfig, type RunQaInput, type RunQaResult, type RunQaUseCaseDeps } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
 import type { ChangeAnalysisPort } from "@contexts/change-analysis/application/index.ts";
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
-import type { GenerationPort, ReviewPort } from "@contexts/generation/application/index.ts";
+import type { AuthorPort, LeadPort, ReviewPort } from "@contexts/generation/application/index.ts";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
 import type { PublicationPort } from "@contexts/run-orchestration/application/ports/publication.port.ts";
 import type { SetupPort } from "@contexts/run-orchestration/application/ports/setup.port.ts";
 import type { WorkspacePort } from "@contexts/run-orchestration/application/ports/workspace.port.ts";
 import { scriptedGeneration } from "../../../../support/generation-output.ts";
 import { reassignableGeneration, runWorkspace, type RunWorkspace } from "../../../../support/run-workspace.ts";
+import { coordinatorOver } from "../../../../support/coordinator-over-author.ts";
 import { fakeHandle, rootsOf } from "./fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../../src/shared-infrastructure/spec-files.adapter.ts";
 
@@ -43,7 +44,7 @@ export interface Rig {
   abort: AbortController;
   /** The ports a row replaces. */
   classify: ChangeAnalysisPort["classify"];
-  generate: GenerationPort["generate"];
+  author: AuthorPort["author"];
   review: ReviewPort["review"];
   validate: ValidationPort["validate"];
   execute: ExecutionPort["execute"];
@@ -74,7 +75,7 @@ export function newRig(): Rig {
     config: {},
     abort: new AbortController(),
     classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }),
-    generate: async () => scriptedGeneration({ specs: [RIG_SPEC]}),
+    author: async () => scriptedGeneration({ specs: [RIG_SPEC]}),
     review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }),
     validate: async () => ({ ok: true, errors: [] }),
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
@@ -112,10 +113,11 @@ export async function observe(rig: Rig, runId: string): Promise<Observed> {
   const folded: RunOutcome[] = [];
   let reflections = 0;
   let publishCalls = 0;
-  const generation = reassignableGeneration(rig.generate);
+  const generation = reassignableGeneration(rig.author);
   let deps: RunQaUseCaseDeps = {
     changeAnalysis: { classify: rig.classify },
     generation,
+    leadSidekicks: coordinatorOver(generation),
     review: { review: rig.review },
     validation: { validate: rig.validate },
     execution: { execute: rig.execute },

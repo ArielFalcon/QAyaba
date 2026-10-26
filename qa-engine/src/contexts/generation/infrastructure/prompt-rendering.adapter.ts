@@ -4,7 +4,7 @@ import type { OpencodeRunInput } from "../domain/opencode-run-input.ts";
 import type { ReviewInput } from "../domain/generation-input.ts";
 
 export interface PromptBuilders {
-  buildPromptAssembled(input: OpencodeRunInput, opts?: { continuation?: boolean }): { text: string; sectionSizes: Record<string, number>; providedPaths?: readonly string[] } & RenderedPromptFacts;
+  buildPromptAssembled(input: OpencodeRunInput): { text: string; sectionSizes: Record<string, number>; providedPaths?: readonly string[] } & RenderedPromptFacts;
   buildReviewerPromptAssembled(input: ReviewInput): { text: string; sectionSizes: Record<string, number> } & RenderedPromptFacts;
   specFileForFlow(flow: string): string;
 }
@@ -12,8 +12,8 @@ export interface PromptBuilders {
 export class PromptRenderingAdapter implements PromptRenderingPort {
   constructor(private readonly b: PromptBuilders) {}
 
-  renderMain(input: OpencodeRunInput, opts?: { continuation?: boolean }): { text: string; sectionSizes: Record<string, number>; providedPaths?: readonly string[] } & RenderedPromptFacts {
-    return opts?.continuation ? this.b.buildPromptAssembled(input, { continuation: true }) : this.b.buildPromptAssembled(input);
+  renderMain(input: OpencodeRunInput): { text: string; sectionSizes: Record<string, number>; providedPaths?: readonly string[] } & RenderedPromptFacts {
+    return this.b.buildPromptAssembled(input);
   }
 
   renderReviewer(input: ReviewInput): { text: string; sectionSizes: Record<string, number> } & RenderedPromptFacts {

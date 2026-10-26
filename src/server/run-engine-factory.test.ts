@@ -809,7 +809,7 @@ test("the composed engine's agent turns are held to the run's deadline: once it 
   config.runDeadline!.arm({ mode: "manual" });
   clock.t += 60_000;
   const input = { repo: "org/demo", sha: "abc1234", diff: "d", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", namespace: "ns", needsReview: false, target: "e2e" as const, mode: "manual" as const, appName: "factory-run-deadline", runId: "run-deadline", guidance: "g" };
-  await assert.rejects(config.generationUseCase.generate(input), (err: unknown) => isRunDeadlineError(err) && (err as { stop: string }).stop === "before-turn");
+  await assert.rejects(config.generationUseCase.author(input), (err: unknown) => isRunDeadlineError(err) && (err as { stop: string }).stop === "before-turn");
   await assert.rejects(config.reviewRuntime.runtime.openSession("reviewer", "/m"), (err: unknown) => isRunDeadlineError(err));
   assert.equal(opened, 0);
 });
@@ -897,7 +897,7 @@ test("the composed RepairPort drives GenerateTestsUseCase's generator-contract-c
     { mode: "diff" },
   );
 
-  const result = await repairApp.generationUseCase.generate({
+  const result = await repairApp.generationUseCase.author({
     repo: app.repo,
     sha: "shaRepair1",
     diff: "d",
@@ -1946,7 +1946,7 @@ async function generateThroughTransport(
   parts: Array<{ type: string; text?: string }>,
   tracker: { take: () => import("@contexts/generation/application/index").TurnCallMetrics | null },
   maxSteps: number,
-): Promise<{ result: Awaited<ReturnType<ReturnType<typeof buildEngineRootDeps>["generationUseCase"]["generate"]>>; persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] }> {
+): Promise<{ result: Awaited<ReturnType<ReturnType<typeof buildEngineRootDeps>["generationUseCase"]["author"]>>; persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] }> {
   const persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] = [];
   const base = createAgentDeps(
     {
@@ -1974,7 +1974,7 @@ async function generateThroughTransport(
     "qa-bot-abc1234-runStats",
     { mode: "diff" },
   );
-  const result = await config.generationUseCase.generate({
+  const result = await config.generationUseCase.author({
     repo: "org/demo",
     sha: "abc1234",
     diff: "d",
@@ -2042,7 +2042,7 @@ test("a generation that ran out of steps ends exhausted and is never sent a repa
  * the real transport policy and the wrapper chain the factory composes. Advancing the clock by the
  * budget the change's tier allows is all it takes for the generator's turn to be stopped and classified.
  */
-async function generateOnAHungTransport(diff: string, advanceMs: number): Promise<{ result: Awaited<ReturnType<ReturnType<typeof buildEngineRootDeps>["generationUseCase"]["generate"]>>; persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] }> {
+async function generateOnAHungTransport(diff: string, advanceMs: number): Promise<{ result: Awaited<ReturnType<ReturnType<typeof buildEngineRootDeps>["generationUseCase"]["author"]>>; persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] }> {
   const persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] = [];
   let prompting = false;
   const base = createAgentDeps(
@@ -2063,7 +2063,7 @@ async function generateOnAHungTransport(diff: string, advanceMs: number): Promis
   );
   mock.timers.enable({ apis: ["setTimeout"] });
   try {
-    const generating = config.generationUseCase.generate({
+    const generating = config.generationUseCase.author({
       repo: "org/demo", sha: "abc1234", diff, mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", namespace: "ns",
       target: "e2e", mode: "diff", appName: "factory-time-budget", runId: "run-factory-time",
     });
@@ -3319,7 +3319,7 @@ test("createRunEngineFactory's returned closure propagates the undeclared-trigge
 
 /* this fix): a context-mode run mirrors EVERY declared app.services[] entry (read-only, each at its
    OWN svc.baseBranch ?? "main") and threads them onto EngineRootDeps.services so
-   GenerationPortAdapter's ctx.services -> OpencodeRunInput.services carries the full set for the FE<->BE
+   GenerationTurnsAdapter's ctx.services -> OpencodeRunInput.services carries the full set for the FE<->BE
    architecture-map builder (buildContextTask's "## Microservice repos" section, prompts.ts:1181).
    Mirrors triggerService's OWN conditional-spread precedent above hop-for-hop — the ONE difference is
    cardinality (every declared service, not just the triggering one) and applicability (context mode

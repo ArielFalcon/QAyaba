@@ -3,6 +3,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Sha } from "@kernel/sha.ts";
+import { ERROR_CLASS } from "@kernel/error-class.ts";
+import { loginToBeWritten } from "../../../support/coordinator-over-author.ts";
 import { ok } from "@kernel/result.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { AUTHORING_REFUSAL, DEFAULT_COORDINATION_SETTINGS, type CoordinationGateSignal } from "@kernel/coordination.ts";
@@ -58,7 +60,7 @@ function rig(result: () => Promise<CoordinateResult> | CoordinateResult = () => 
     return {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "the diff" }) },
     generation: generationOnDisk(generationOver ?? {
-      generate: async (_d, _s, _diff, enrichment) => {
+      author: async (_d, _s, _diff, enrichment) => {
         calls.push("generate");
         r.enrichments.push(enrichment ?? {});
         return scriptedGeneration({ specs: ["flows/a.spec.ts"]});
@@ -100,19 +102,21 @@ function rig(result: () => Promise<CoordinateResult> | CoordinateResult = () => 
   return r;
 }
 
-test("a run with no coordinator wired generates in one lead turn, with no planning limits in the enrichment", async () => {
+test("a run with no coordinator ends infra-error E-NO-AUTHOR (no-coordinator) and no author is ever asked", async () => {
   const bare = rig();
-  await new RunQaUseCase(bare.deps({ leadSidekicks: undefined })).run(INPUT);
+  const out = await new RunQaUseCase(bare.deps({ leadSidekicks: undefined })).run(INPUT);
+  assert.equal(out.decision.verdict, "infra-error");
+  assert.equal(out.errorClass, ERROR_CLASS.NO_AUTHOR);
+  assert.match(out.note ?? "", new RegExp(AUTHORING_REFUSAL.NO_COORDINATOR));
   assert.equal(bare.coordinated.length, 0);
   assert.equal(bare.planned.length, 0);
-  assert.deepEqual(bare.calls.filter((c) => c === "generate"), ["generate"]);
-  assert.ok(bare.enrichments.every((e) => e.planning === undefined));
+  assert.deepEqual(bare.calls.filter((c) => c === "generate"), [], "the author is never asked");
 });
 
-test("a run with no coordinator records no coordination, and a coordinated one records what became of it", async () => {
+test("a run with no coordinator records the refusal, and a coordinated one records what became of it", async () => {
   const bare = rig();
   const plain = await new RunQaUseCase(bare.deps({ leadSidekicks: undefined })).run(INPUT);
-  assert.equal(plain.outcome?.gateSignals.coordination, undefined);
+  assert.equal(plain.outcome?.gateSignals.coordination?.refusal, AUTHORING_REFUSAL.NO_COORDINATOR);
 
   const coordinated = rig(() => ({ ...authored(), signal: signalOf({ plan: "fanout", flows: 1, delivered: 1, authoring: "authenticated-browser" }) }));
   const out = await new RunQaUseCase(coordinated.deps()).run(INPUT);
@@ -162,7 +166,7 @@ test("the proofs of the pages the call graph added reach the coordinator, and a 
 
 test("a generation that cannot plan is told to the coordinator as no planning turn", async () => {
   const r = rig();
-  await new RunQaUseCase(r.deps({ generation: { generate: async () => scriptedGeneration({ specs: ["flows/a.spec.ts"]}) } })).run(INPUT);
+  await new RunQaUseCase(r.deps({ generation: { author: async () => scriptedGeneration({ specs: ["flows/a.spec.ts"]}) } })).run(INPUT);
   assert.equal(r.coordinated[0]!.plan, undefined);
 });
 
@@ -227,7 +231,7 @@ test("coordination asks for nothing from a code run, a context run, a regression
   assert.equal(code.coordinated.length, 0, "code");
 
   const context = rig();
-  await new RunQaUseCase(context.deps({ generation: { generate: async () => scriptedGeneration({ specs: [".qa/context.json"], note: "map" }) } })).run({ ...INPUT, mode: "context" });
+  await new RunQaUseCase(context.deps({ generation: { author: async () => scriptedGeneration({ specs: [".qa/context.json"], note: "map" }) } })).run({ ...INPUT, mode: "context" });
   assert.equal(context.coordinated.length, 0, "context");
 
   const regression = rig();
@@ -239,10 +243,12 @@ test("coordination asks for nothing from a code run, a context run, a regression
   assert.equal(unauthored.coordinated.length, 0, "a login still to write");
 });
 
-test("without the coordinator wired, nothing is planned and the lead authors alone", async () => {
+test("a login still to be written is authored by one author sidekick with no plan, whether or not a coordinator is wired", async () => {
   const r = rig();
-  await new RunQaUseCase(r.deps({ leadSidekicks: undefined })).run(INPUT);
+  await new RunQaUseCase(r.deps({ ...loginToBeWritten(), leadSidekicks: undefined })).run(INPUT);
   assert.equal(r.calls.filter((c) => c === "generate").length, 1);
+  assert.equal(r.calls.includes("plan"), false);
+  assert.equal(r.coordinated.length, 0);
 });
 
 test("a coordinator that fails ends the run E-NO-AUTHOR (coordination-failed) and the failure is recorded", async () => {
@@ -329,7 +335,7 @@ test("the corrections a coordinated run routes through the lead are recorded and
   assert.ok(turns > 0 && turns <= leadCorrectionBudget({ maxRetries: 2 }));
 });
 
-test("a finding no flow was sent goes to a regeneration with only that finding", async () => {
+test("a finding no flow was sent goes to a fresh author sidekick with only that finding, and the author is told no run_spec budget", async () => {
   let r!: Rig;
   let kept!: ReturnType<typeof keptPass>;
   r = rig(() => delivered(kept.pass));
@@ -338,7 +344,22 @@ test("a finding no flow was sent goes to a regeneration with only that finding",
   const regen = r.enrichments.filter((e) => e.reviewCorrections !== undefined);
   assert.deepEqual(kept.seen.corrected, [[{ text: "a loose finding" }]], "the lead is asked first");
   assert.deepEqual(regen.map((e) => e.reviewCorrections), [["a loose finding"]]);
+  assert.equal(regen[0]!.closedLoop, undefined, "a run-level author is bound to no loop, so its prompt states no budget");
   assert.equal(kept.seen.released, 1);
+});
+
+test("a code run and a context run are authored by one author sidekick, with no plan, and the working copy is confined after it", async () => {
+  const code = rig();
+  await new RunQaUseCase(code.deps({ config: { needsReview: false, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: true } })).run({ ...INPUT, target: "code" });
+  assert.equal(code.coordinated.length, 0);
+  assert.deepEqual(code.calls.filter((c) => c === "generate" || c === "plan"), ["generate"]);
+  assert.ok(code.calls.indexOf("confine") > code.calls.indexOf("generate"), "confinement follows the author's turn");
+
+  const context = rig();
+  await new RunQaUseCase(context.deps()).run({ ...INPUT, mode: "context" });
+  assert.equal(context.coordinated.length, 0);
+  assert.deepEqual(context.calls.filter((c) => c === "generate" || c === "plan"), ["generate"]);
+  assert.ok(context.calls.indexOf("confine") > context.calls.indexOf("generate"));
 });
 
 test("a pass whose flows delivered nothing is released at once and never asked to correct", async () => {

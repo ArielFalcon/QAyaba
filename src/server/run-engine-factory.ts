@@ -475,9 +475,10 @@ const contextMapWrittenThisRun: ContextMapWrittenThisRun = (specDir) =>
  */
 export const STEP_LIMIT_READ_TIMEOUT_MS = 30_000;
 
-/* The runtime role each step-limit role runs as: the generator's session is the primary role's. */
+/* The runtime role each step-limit role runs as. */
 const RUNTIME_ROLE_OF_STEP_LIMIT_ROLE: Readonly<Record<StepLimitRole, AgentRole>> = {
-  generator: "primary",
+  author: "sidekick",
+  lead: "lead",
   reviewer: "reviewer",
 };
 
@@ -883,8 +884,6 @@ export function buildEngineRootDeps(
     promptCapMs: agentPromptCapMs(),
     /* QA_DIFF_TIME_BUDGET_MS_{TINY,FOCUSED,BROAD} override a tier's time; read here once because qa-engine never reads process.env. A mistyped value throws. */
     timeBudgets: resolveDiffTimeBudgets(deps.env ?? process.env),
-    /* An OpenCode session keeps its conversation; a runtime that starts a fresh process per prompt remembers nothing. */
-    continuesSessions: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "primary").provider === "opencode" : false),
   });
 
 

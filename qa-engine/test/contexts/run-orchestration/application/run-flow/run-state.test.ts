@@ -11,6 +11,7 @@ import { scriptedGeneration } from "../../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../../support/run-workspace.ts";
 import { fakeWorkspace } from "./fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../../src/shared-infrastructure/spec-files.adapter.ts";
+import { served } from "../../../../support/coordinator-over-author.ts";
 
 /* What a JSON round trip keeps: the walk throws at the first value it would change or lose, and otherwise returns the value without its undefined fields. */
 function plainData(value: unknown, path: string): unknown {
@@ -52,7 +53,7 @@ async function runChecked(input: RunQaInput, execute: RunQaUseCaseDeps["executio
   let loopSteps = 0;
   const deps: RunQaUseCaseDeps = {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
-    generation: generationOnDisk({ generate: async () => scriptedGeneration({ specs: ["a.spec.ts"]}) }),
+    ...served(generationOnDisk({ author: async () => scriptedGeneration({ specs: ["a.spec.ts"]}) })),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
     execution: { execute },

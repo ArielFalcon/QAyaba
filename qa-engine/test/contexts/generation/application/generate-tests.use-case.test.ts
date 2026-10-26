@@ -60,7 +60,7 @@ test("renders → opens session → parses deliverable → reconciles manifest (
   };
 
   const useCase = new GenerateTestsUseCase(ports);
-  const out = await useCase.generate({
+  const out = await useCase.author({
     repo: "org/demo",
     sha: "abc",
     diff: "d",
@@ -110,8 +110,8 @@ test("the files the rendered prompt already carries are handed to the session wi
     target: "e2e", mode: "diff", appName: "a",
   };
 
-  await new GenerateTestsUseCase(build(["e2e/.qa/context.json"])).generate(input);
-  await new GenerateTestsUseCase(build(undefined)).generate(input);
+  await new GenerateTestsUseCase(build(["e2e/.qa/context.json"])).author(input);
+  await new GenerateTestsUseCase(build(undefined)).author(input);
 
   assert.deepEqual(seenOpts[0]?.providedPaths, ["e2e/.qa/context.json"]);
   assert.equal(seenOpts[0]?.sectionSizes !== undefined, true, "the section sizes still travel with it");
@@ -152,7 +152,7 @@ test("code target skips manifest reconciliation entirely and passes specMetas th
     },
   };
 
-  const out = await new GenerateTestsUseCase(ports).generate({
+  const out = await new GenerateTestsUseCase(ports).author({
     repo: "org/demo",
     sha: "abc",
     diff: "d",
@@ -222,7 +222,7 @@ test("fires exactly ONE bounded repair when checkGenerator returns valid:false",
 
   let repairCount = 0;
   const useCase = new GenerateTestsUseCase(ports);
-  const out = await useCase.generate({
+  const out = await useCase.author({
     repo: "r",
     sha: "s",
     diff: "d",
@@ -274,7 +274,7 @@ test("parse miss → empty specs (fail-closed, no phantom spec names)", async ()
   };
 
   const useCase = new GenerateTestsUseCase(ports);
-  const out = await useCase.generate({
+  const out = await useCase.author({
     repo: "r",
     sha: "s",
     diff: "d",
@@ -328,7 +328,7 @@ test("manifest.reconcile is called with [] when the deliverable carries specs bu
   };
 
   const useCase = new GenerateTestsUseCase(ports);
-  const out = await useCase.generate({
+  const out = await useCase.author({
     repo: "r",
     sha: "s",
     diff: "d",
@@ -377,7 +377,7 @@ test("manifest.reconcile receives the run's spec root: the mirror, and the spec 
   const useCase = new GenerateTestsUseCase(ports);
 
   for (const [mirrorDir, e2eRelDir] of [["/m", "e2e"], ["/work/app", "tests"]] as const) {
-    await useCase.generate({ repo: "r", sha: "s", diff: "d", mirrorDir, e2eRelDir, namespace: "ns", target: "e2e", mode: "diff", appName: "a" });
+    await useCase.author({ repo: "r", sha: "s", diff: "d", mirrorDir, e2eRelDir, namespace: "ns", target: "e2e", mode: "diff", appName: "a" });
   }
 
   assert.deepEqual(roots, [
@@ -437,7 +437,7 @@ test("manifest entries are built from specMetas with objective/flow/targets + ch
   };
 
   const useCase = new GenerateTestsUseCase(ports);
-  await useCase.generate({
+  await useCase.author({
     repo: "r",
     sha: "abc1234",
     diff: "d",
@@ -499,7 +499,7 @@ test("manifest entry changeRef.type falls back to 'unknown' when input.intent is
   };
 
   const useCase = new GenerateTestsUseCase(ports);
-  await useCase.generate({
+  await useCase.author({
     repo: "r",
     sha: "def5678",
     diff: "d",
@@ -560,7 +560,7 @@ test("a spec present in specs[] but ABSENT from specMetas[] gets NO manifest ent
   };
 
   const useCase = new GenerateTestsUseCase(ports);
-  const out = await useCase.generate({
+  const out = await useCase.author({
     repo: "r",
     sha: "sha1",
     diff: "d",
@@ -636,7 +636,7 @@ test("follow-up #27: a malformed generator verdict triggers ONE bounded repair w
   };
 
   const useCase = new GenerateTestsUseCase(ports);
-  await useCase.generate({
+  await useCase.author({
     repo: "r",
     sha: "s",
     diff: "d",
@@ -703,7 +703,7 @@ test("assembled manifest entries satisfy the real ManifestEntrySchema shape (obj
   };
 
   const useCase = new GenerateTestsUseCase(ports);
-  await useCase.generate({
+  await useCase.author({
     repo: "r",
     sha: "shaXYZ",
     diff: "d",
@@ -749,7 +749,7 @@ async function reportedSpecsFor(target: "e2e" | "code"): Promise<string[]> {
       manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
       budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
     };
-    const out = await new GenerateTestsUseCase(ports).generate({
+    const out = await new GenerateTestsUseCase(ports).author({
       repo: "org/demo", sha: "abc", diff: "d", mirrorDir, e2eRelDir: "e2e", namespace: "ns",
       target, mode: "diff", appName: "a",
     });
@@ -801,12 +801,12 @@ async function optionsSentFor(input: Partial<OpencodeRunInput>, repairing?: "gen
         }
       : {}),
   };
-  await new GenerateTestsUseCase(ports).generate({
+  await new GenerateTestsUseCase(ports).author({
     repo: "r", sha: "s", diff: "d", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
     target: "e2e", mode: "diff", appName: "a",
     ...input,
   });
-  return { generator: sent["primary"] ?? [] };
+  return { generator: sent["sidekick"] ?? [] };
 }
 
 test("the generator's prompt is sent with the limit its input states, beside the options it already carried", async () => {
@@ -868,7 +868,7 @@ for (const mode of ["diff", "context"] as const) {
       budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
     };
 
-    const result = await new GenerateTestsUseCase(ports).generate({
+    const result = await new GenerateTestsUseCase(ports).author({
       repo: "r", sha: "s", diff: "", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
       target: "e2e", mode, appName: "a",
     });

@@ -12,7 +12,7 @@ import type { GeolocationFacts } from "@kernel/geolocation.ts";
 import { PROBE_REL_DIR } from "@contexts/test-execution/application/index.ts";
 import type { GenerationEnrichment, GenerationOutput } from "@contexts/generation/application/index.ts";
 import type { CoordinatedPass } from "@contexts/coordination/application/index.ts";
-import { CORRECTION_ORIGIN, type CorrectionOrigin, type CorrectionFinding } from "@contexts/coordination/application/index.ts";
+import { CORRECTION_ORIGIN, authorTargetOf, dispatchAuthor, type CorrectionOrigin, type CorrectionFinding } from "@contexts/coordination/application/index.ts";
 import { leadCorrectionAction, leadCorrectionBudget } from "../../../domain/lead-correction-budget.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
@@ -68,20 +68,26 @@ export async function loopClosedNow(state: Readonly<RunState>, ctx: WorkspaceRun
 export async function closedLoopSignal(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<ClosedLoopGateSignal | undefined> {
   const { closedLoop } = ctx.trail;
   return closedLoop ? { ...closedLoop.signals(), closed: await loopClosedNow(state, ctx) } : undefined;
-/* mutation-scope:begin lead-regeneration-routing */
+/* mutation-scope:begin author-regeneration-routing */
 }
 
-/* One regeneration by the lead alone over what the run has delivered so far; what it delivers joins that. */
-export async function regenerateByLead(state: Readonly<RunState>, ctx: WorkspaceRunContext, regenerationSignal: AbortSignal | undefined, enrichment: GenerationEnrichment): Promise<GenerationOutput> {
-  const { deps, workspace } = ctx;
-  const regenerated = await afterGeneration(ctx, await deps.generation.generate(workspace.specDir, regenerationSignal, state.classification.diff, {
-    ...state.grounding.baseEnrichment,
-    ...geolocationEnrichment(ctx),
-    ...enrichment,
-    ...(state.generation.delivered.length > 0 ? { deliveredSpecs: state.generation.delivered } : {}),
-/* mutation-scope:end lead-regeneration-routing */
+/* One regeneration by a fresh author sidekick over what the run has delivered so far; what it delivers joins that. */
+export async function regenerateByAuthor(state: Readonly<RunState>, ctx: WorkspaceRunContext, regenerationSignal: AbortSignal | undefined, enrichment: GenerationEnrichment): Promise<GenerationOutput> {
+  const { deps, workspace, cfg } = ctx;
+  const regenerated = await afterGeneration(ctx, await dispatchAuthor(deps.generation, {
+    target: authorTargetOf({ isCode: cfg.isCode, mode: ctx.input.mode }),
+    specDir: workspace.specDir,
+    ...(regenerationSignal ? { signal: regenerationSignal } : {}),
+    diff: state.classification.diff,
+    enrichment: {
+      ...state.grounding.baseEnrichment,
+      ...geolocationEnrichment(ctx),
+      ...enrichment,
+      ...(state.generation.delivered.length > 0 ? { deliveredSpecs: state.generation.delivered } : {}),
+/* mutation-scope:end author-regeneration-routing */
+    },
   }));
-  mergeDelivered(state, regenerated, "lead");
+  mergeDelivered(state, regenerated, "author");
   return regenerated;
 }
 
@@ -89,7 +95,7 @@ export async function regenerateByLead(state: Readonly<RunState>, ctx: Workspace
 const MAX_FINDING_DETAIL_CHARS = 2_000;
 const cutDetail = (text: string): string => (text.length > MAX_FINDING_DETAIL_CHARS ? `${text.slice(0, MAX_FINDING_DETAIL_CHARS)} … (cut)` : text);
 
-/* One finding a regeneration's evidence yields, and the slice of that evidence it stands for: what the lead regenerates with when no flow takes it. */
+/* One finding a regeneration's evidence yields, and the slice of that evidence it stands for: what an author regenerates with when no flow takes it. */
 export interface EvidenceFinding {
   finding: CorrectionFinding;
   piece: Pick<GenerationEnrichment, "fixCases" | "selectorContradictions" | "coverageGap" | "contractFeedback">;
@@ -127,7 +133,7 @@ function findingsOf(enrichment: GenerationEnrichment): EvidenceFinding[] {
 }
 
 /*
- * The evidence no flow took, as the lead's regeneration reads it: what the enrichment says beside the evidence, and the slices of
+ * The evidence no flow took, as an author's regeneration reads it: what the enrichment says beside the evidence, and the slices of
  * the findings left. The failure DOM goes with the failing cases it was captured for, the attribution with the contradictions.
  */
 function leftoverOf(enrichment: GenerationEnrichment, findings: readonly EvidenceFinding[], unrouted: readonly number[]): GenerationEnrichment {
@@ -174,7 +180,7 @@ export async function regenerate(
 ): Promise<Regenerated> {
   const pass = ctx.trail.coordinatedPass;
   const findings = pass ? (evidence ?? findingsOf(enrichment)) : [];
-  if (!pass || findings.length === 0 || !mayCorrectThroughLead(state, ctx)) return { output: await regenerateByLead(state, ctx, regenerationSignal, enrichment), leadCorrections: 0 };
+  if (!pass || findings.length === 0 || !mayCorrectThroughLead(state, ctx)) return { output: await regenerateByAuthor(state, ctx, regenerationSignal, enrichment), leadCorrections: 0 };
   return correctThroughLead(state, ctx, pass, findings.map((f) => f.finding), regenerationSignal, origin, (unrouted) => leftoverOf(enrichment, findings, unrouted));
 }
 
@@ -203,7 +209,7 @@ export async function correctThroughLead(
     parsed: corrected.readable,
   });
   mergeDelivered(state, byFlows, "sidekick");
-  const regenerated = corrected.unrouted.length > 0 ? await regenerateByLead(state, ctx, regenerationSignal, leftover(corrected.unrouted)) : undefined;
+  const regenerated = corrected.unrouted.length > 0 ? await regenerateByAuthor(state, ctx, regenerationSignal, leftover(corrected.unrouted)) : undefined;
   const rebuttals = [...corrected.rebuttals, ...(regenerated?.rebuttals ?? [])];
   const specs = [...new Set([...byFlows.specs, ...(regenerated?.specs ?? [])])];
   const specSources = sourcesOf(specs, [byFlows, ...(regenerated ? [regenerated] : [])]);

@@ -22,7 +22,8 @@ export type { ReviewDomGroundingPort } from "./ports/review-dom-grounding.port.t
 export type { ContextMapCapturePort } from "./ports/context-map-capture.port.ts";
 export type { OpencodeRunInput } from "../domain/opencode-run-input.ts";
 export type { GenerationEnrichment } from "../domain/generation-enrichment.ts";
-export type { GenerationPort } from "./ports/generation.port.ts";
+export type { LeadPort } from "./ports/lead.port.ts";
+export type { AuthorPort } from "./ports/author.port.ts";
 export type { PreGenerationGroundingPort } from "./ports/pre-generation-grounding.port.ts";
 export type { PromptRenderingPort } from "./ports/prompt-rendering.port.ts";
 export type { ReviewPort } from "./ports/review.port.ts";

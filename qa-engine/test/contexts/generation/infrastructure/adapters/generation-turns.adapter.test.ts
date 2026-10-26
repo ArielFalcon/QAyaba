@@ -1,5 +1,5 @@
-/* test/contexts/run-orchestration/infrastructure/adapters/generation-port.adapter.test.ts
-   GenerationPortAdapter must delegate to the REAL GenerateTestsUseCase.generate()
+/* test/contexts/run-orchestration/infrastructure/adapters/generation-turns.adapter.test.ts
+   GenerationTurnsAdapter must delegate to the REAL GenerateTestsUseCase.author()
    and map {specs, reviewed, approved, note} -> {specs, approved, note}. specSources is populated from
    a file-read collaborator (file I/O stays OUTSIDE the domain, per fix-loop.aggregate.ts's own
    FixLoopGenerateResult.specSources contract) — absent/empty when the read collaborator is absent.
@@ -14,7 +14,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GenerationPortAdapter } from "@contexts/generation/infrastructure/adapters/generation-port.adapter.ts";
+import { GenerationTurnsAdapter } from "@contexts/generation/infrastructure/adapters/generation-turns.adapter.ts";
 import { ConfinedPathError, readConfinedSpecFile, type SpecRoot } from "../../../../../src/shared-infrastructure/spec-path-confinement.ts";
 import { renderBlastRadiusSignal } from "@contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
@@ -72,15 +72,15 @@ function fakeGenerationPorts(overrides: {
   };
 }
 
-test("generate() delegates to GenerateTestsUseCase and maps GenerationResult onto the port shape", async () => {
+test("author() delegates to GenerateTestsUseCase and maps GenerationResult onto the port shape", async () => {
   const ports = fakeGenerationPorts();
   const useCase = new GenerateTestsUseCase(ports);
-  const adapter = new GenerationPortAdapter(useCase, {
+  const adapter = new GenerationTurnsAdapter(useCase, {
     repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
     namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
   });
 
-  const result = await adapter.generate("/mirrors/org/app/e2e");
+  const result = await adapter.author("/mirrors/org/app/e2e");
 
   assert.deepEqual(result.specs, ["flows/checkout.spec.ts"]);
   assert.equal(result.note, "ok");
@@ -93,30 +93,30 @@ const STATIC_CONTEXT = {
 
 const TESTED_METAS = { specs: ["flows/checkout.spec.ts"], parsed: true, specMetas: [{ file: "flows/checkout.spec.ts", flow: "checkout", objective: "the user pays", targets: [] }] };
 
-test("generate() publishes no specMetas unless the run requires a review", async () => {
+test("author() publishes no specMetas unless the run requires a review", async () => {
   const ports = fakeGenerationPorts();
   ports.verdicts.parseGenerator = () => TESTED_METAS;
-  const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(ports), { ...STATIC_CONTEXT });
-  const result = await adapter.generate("/mirrors/org/app/e2e");
+  const adapter = new GenerationTurnsAdapter(new GenerateTestsUseCase(ports), { ...STATIC_CONTEXT });
+  const result = await adapter.author("/mirrors/org/app/e2e");
   assert.equal("specMetas" in result, false);
   assert.deepEqual(result.specs, TESTED_METAS.specs);
 });
 
-test("generate() publishes the manifest's flow and objective when the run requires a review", async () => {
+test("author() publishes the manifest's flow and objective when the run requires a review", async () => {
   const ports = fakeGenerationPorts();
   ports.verdicts.parseGenerator = () => TESTED_METAS;
-  const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(ports), { ...STATIC_CONTEXT, reviewRequired: true });
-  const result = await adapter.generate("/mirrors/org/app/e2e");
+  const adapter = new GenerationTurnsAdapter(new GenerateTestsUseCase(ports), { ...STATIC_CONTEXT, reviewRequired: true });
+  const result = await adapter.author("/mirrors/org/app/e2e");
   assert.deepEqual(result.specMetas, [{ flow: "checkout", objective: "the user pays" }]);
 });
 
-test("generate() forwards how the generation ended", async () => {
-  const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(fakeGenerationPorts()), { ...STATIC_CONTEXT});
-  const result = await adapter.generate("/mirrors/org/app/e2e");
+test("author() forwards how the generation ended", async () => {
+  const adapter = new GenerationTurnsAdapter(new GenerateTestsUseCase(fakeGenerationPorts()), { ...STATIC_CONTEXT});
+  const result = await adapter.author("/mirrors/org/app/e2e");
   assert.equal(result.end, GENERATION_END.DELIVERED);
 });
 
-test("generate() forwards an exhausted generation's end, its note and the main turn's stats", async () => {
+test("author() forwards an exhausted generation's end, its note and the main turn's stats", async () => {
   const ports = fakeGenerationPorts();
   const exhausting: GenerationPorts = {
     ...ports,
@@ -131,15 +131,15 @@ test("generate() forwards an exhausted generation's end, its note and the main t
     } as unknown as GenerationPorts["runtime"],
     verdicts: { ...ports.verdicts, parseGenerator: () => ({ specs: [], parsed: true, outputTail: "cut off" }) },
   };
-  const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(exhausting), { ...STATIC_CONTEXT});
-  const result = await adapter.generate("/mirrors/org/app/e2e");
+  const adapter = new GenerationTurnsAdapter(new GenerateTestsUseCase(exhausting), { ...STATIC_CONTEXT});
+  const result = await adapter.author("/mirrors/org/app/e2e");
   assert.equal(result.end, GENERATION_END.EXHAUSTED);
   assert.equal(result.turn?.stepsUsed, 30);
   assert.equal(result.turn?.writeCount, 0);
   assert.match(result.note ?? "", /30\/30/);
 });
 
-test("generate() populates specSources from an injected file-read collaborator (absent by default), handing it the run's spec root and each reported path", async () => {
+test("author() populates specSources from an injected file-read collaborator (absent by default), handing it the run's spec root and each reported path", async () => {
   const ports = fakeGenerationPorts();
   ports.verdicts.parseGenerator = () => ({ specs: ["flows/checkout.spec.ts", "login.spec.ts"], note: "ok" });
   const useCase = new GenerateTestsUseCase(ports);
@@ -148,13 +148,13 @@ test("generate() populates specSources from an injected file-read collaborator (
     calls.push({ root, reported });
     return `// source of ${reported}`;
   };
-  const adapter = new GenerationPortAdapter(
+  const adapter = new GenerationTurnsAdapter(
     useCase,
     { repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "" },
     { readSpecSource },
   );
 
-  const result = await adapter.generate("/mirrors/org/app/e2e");
+  const result = await adapter.author("/mirrors/org/app/e2e");
 
   assert.deepEqual(result.specSources, ["// source of flows/checkout.spec.ts", "// source of login.spec.ts"]);
   const root = { mirrorDir: "/mirrors/org/app", specDir: "/mirrors/org/app/e2e" };
@@ -164,15 +164,15 @@ test("generate() populates specSources from an injected file-read collaborator (
   ]);
 });
 
-test("generate() roots the spec reads at the spec directory of the call, which for a code run is the mirror itself", async () => {
+test("author() roots the spec reads at the spec directory of the call, which for a code run is the mirror itself", async () => {
   const roots: SpecRoot[] = [];
-  const adapter = new GenerationPortAdapter(
+  const adapter = new GenerationTurnsAdapter(
     new GenerateTestsUseCase(fakeGenerationPorts()),
     { ...STATIC_CONTEXT},
     { readSpecSource: (root) => { roots.push(root); return ""; } },
   );
 
-  await adapter.generate("/mirrors/org/app");
+  await adapter.author("/mirrors/org/app");
 
   assert.deepEqual(roots, [{ mirrorDir: "/mirrors/org/app", specDir: "/mirrors/org/app" }]);
 });
@@ -187,59 +187,59 @@ function withMirror(run: (dirs: { tmp: string; mirror: string; specDir: string }
   return run({ tmp, mirror, specDir }).finally(() => rmSync(tmp, { recursive: true, force: true }));
 }
 
-test("generate() reads the delivered specs through the confined reader: a file inside the spec directory is a source", () =>
+test("author() reads the delivered specs through the confined reader: a file inside the spec directory is a source", () =>
   withMirror(async ({ mirror, specDir }) => {
     writeFileSync(join(specDir, "flows", "checkout.spec.ts"), "// the real spec\n");
-    const adapter = new GenerationPortAdapter(
+    const adapter = new GenerationTurnsAdapter(
       new GenerateTestsUseCase(fakeGenerationPorts()),
       { ...STATIC_CONTEXT, mirrorDir: mirror},
       { readSpecSource: readConfinedSpecFile },
     );
 
-    const result = await adapter.generate(specDir);
+    const result = await adapter.author(specDir);
 
     assert.deepEqual(result.specSources, ["// the real spec\n"]);
   }));
 
-test("generate() fails with the typed error, naming the reported path, when a delivered spec is a symlink that leaves the spec directory", () =>
+test("author() fails with the typed error, naming the reported path, when a delivered spec is a symlink that leaves the spec directory", () =>
   withMirror(async ({ tmp, mirror, specDir }) => {
     symlinkSync(join(tmp, "secret.txt"), join(specDir, "flows", "checkout.spec.ts"));
-    const adapter = new GenerationPortAdapter(
+    const adapter = new GenerationTurnsAdapter(
       new GenerateTestsUseCase(fakeGenerationPorts()),
       { ...STATIC_CONTEXT, mirrorDir: mirror},
       { readSpecSource: readConfinedSpecFile },
     );
 
-    await assert.rejects(adapter.generate(specDir), (err: unknown) => err instanceof ConfinedPathError && err.path === "flows/checkout.spec.ts");
+    await assert.rejects(adapter.author(specDir), (err: unknown) => err instanceof ConfinedPathError && err.path === "flows/checkout.spec.ts");
   }));
 
-test("generate() fails with the typed error when a delivered spec climbs out of the spec directory", () =>
+test("author() fails with the typed error when a delivered spec climbs out of the spec directory", () =>
   withMirror(async ({ mirror, specDir }) => {
     const ports = fakeGenerationPorts();
     ports.verdicts.parseGenerator = () => ({ specs: ["../../secret.txt"], note: "ok" });
-    const adapter = new GenerationPortAdapter(
+    const adapter = new GenerationTurnsAdapter(
       new GenerateTestsUseCase(ports),
       { ...STATIC_CONTEXT, mirrorDir: mirror},
       { readSpecSource: readConfinedSpecFile },
     );
 
-    await assert.rejects(adapter.generate(specDir), (err: unknown) => err instanceof ConfinedPathError && err.path === "../../secret.txt");
+    await assert.rejects(adapter.author(specDir), (err: unknown) => err instanceof ConfinedPathError && err.path === "../../secret.txt");
   }));
 
-test("generate() omits specSources when no readSpecSource collaborator is injected", async () => {
+test("author() omits specSources when no readSpecSource collaborator is injected", async () => {
   const ports = fakeGenerationPorts();
   const useCase = new GenerateTestsUseCase(ports);
-  const adapter = new GenerationPortAdapter(useCase, {
+  const adapter = new GenerationTurnsAdapter(useCase, {
     repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
     namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
   });
 
-  const result = await adapter.generate("/mirrors/org/app/e2e");
+  const result = await adapter.author("/mirrors/org/app/e2e");
 
   assert.equal(result.specSources, undefined);
 });
 
-test("generate() never reports re-exploration counts, however much navigation the call-efficiency tracker recorded during the turn", async (t) => {
+test("author() never reports re-exploration counts, however much navigation the call-efficiency tracker recorded during the turn", async (t) => {
   const sessionId = "sess-navigation-heavy";
   t.after(() => callEfficiencyTracker.clear(sessionId));
   /* The stream of tool events a real turn produces, recorded while the generator turn runs. */
@@ -266,23 +266,23 @@ test("generate() never reports re-exploration counts, however much navigation th
     }),
   } as unknown as GenerationPorts["runtime"];
   const useCase = new GenerateTestsUseCase({ ...fakeGenerationPorts(), runtime });
-  const adapter = new GenerationPortAdapter(useCase, {
+  const adapter = new GenerationTurnsAdapter(useCase, {
     repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
     namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
   });
 
-  const result = await adapter.generate("/mirrors/org/app/e2e");
+  const result = await adapter.author("/mirrors/org/app/e2e");
 
   assert.equal("reexploreNavigations" in result, false, "measuring calls must not activate the progress gate's re-exploration signal");
   assert.equal(callEfficiencyTracker.take(sessionId, "")?.totalCalls, 25, "the tracker really held the navigation the signal could have been fed with");
 });
 
 /* already forwards opts?.signal into runtime.openSession(role, mirrorDir, { signal }) for BOTH the
-   missing link. It must declare + forward the signal into GenerateTestsUseCase.generate(input,
+   missing link. It must declare + forward the signal into GenerateTestsUseCase.author(input,
    opts), or the queue's AbortSignal is silently dropped before it ever reaches the agent session.
  */
 
-test("generate() forwards an AbortSignal into GenerateTestsUseCase.generate()'s GenerateOpts", async () => {
+test("author() forwards an AbortSignal into GenerateTestsUseCase.author()'s GenerateOpts", async () => {
   const controller = new AbortController();
   const capturedSignals: (AbortSignal | undefined)[] = [];
   const ports = fakeGenerationPorts();
@@ -294,82 +294,82 @@ test("generate() forwards an AbortSignal into GenerateTestsUseCase.generate()'s 
     };
   };
   const useCase = new GenerateTestsUseCase(ports);
-  const adapter = new GenerationPortAdapter(useCase, {
+  const adapter = new GenerationTurnsAdapter(useCase, {
     repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
     namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
   });
 
-  await adapter.generate("/mirrors/org/app/e2e", controller.signal);
+  await adapter.author("/mirrors/org/app/e2e", controller.signal);
 
   assert.ok(capturedSignals.length > 0, "openSession must have been called at least once");
   for (const captured of capturedSignals) {
-    assert.equal(captured, controller.signal, "the SAME AbortSignal instance passed to generate() must reach GenerateTestsUseCase's own opts.signal, not be dropped at the adapter");
+    assert.equal(captured, controller.signal, "the SAME AbortSignal instance passed to author() must reach GenerateTestsUseCase's own opts.signal, not be dropped at the adapter");
   }
 });
 
-test("generate() with no signal at all behaves exactly as before (no third-arg regression)", async () => {
+test("author() with no signal at all behaves exactly as before (no third-arg regression)", async () => {
   const ports = fakeGenerationPorts();
   const useCase = new GenerateTestsUseCase(ports);
-  const adapter = new GenerationPortAdapter(useCase, {
+  const adapter = new GenerationTurnsAdapter(useCase, {
     repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
     namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
   });
 
-  const result = await adapter.generate("/mirrors/org/app/e2e");
+  const result = await adapter.author("/mirrors/org/app/e2e");
 
   assert.deepEqual(result.specs, ["flows/checkout.spec.ts"]);
 });
 
 /* Production constructs this adapter BEFORE the run/checkout, so the STATIC ctx.diff supplied at
    composition time is always "". This adapter must accept the run's ACTUAL diff as a fourth
-   generate() argument and PREFER it over the static ctx.diff — falling back to ctx.diff only when
+   author() argument and PREFER it over the static ctx.diff — falling back to ctx.diff only when
    the caller omits the argument (callers that pre-compute ctx.diff before the adapter is built
    keep working unchanged).
  */
 
-test("generate() PREFERS a dynamic diff argument over the static ctx.diff supplied at construction time", async () => {
+test("author() PREFERS a dynamic diff argument over the static ctx.diff supplied at construction time", async () => {
   const ports = fakeGenerationPorts();
   let capturedInput: OpencodeRunInput | undefined;
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
     capturedInput = input;
     return originalGenerate.call(this, input, opts);
   };
   try {
     const useCase = new GenerateTestsUseCase(ports);
-    const adapter = new GenerationPortAdapter(useCase, {
+    const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
       namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "STALE-STATIC-DIFF",
     });
 
-    await adapter.generate("/mirrors/org/app/e2e", undefined, "REAL-DYNAMIC-DIFF");
+    await adapter.author("/mirrors/org/app/e2e", undefined, "REAL-DYNAMIC-DIFF");
 
-    assert.equal(capturedInput?.diff, "REAL-DYNAMIC-DIFF", "a diff argument passed to generate() must win over the static ctx.diff, matching the run's actual commit diff");
+    assert.equal(capturedInput?.diff, "REAL-DYNAMIC-DIFF", "a diff argument passed to author() must win over the static ctx.diff, matching the run's actual commit diff");
   } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
+    GenerateTestsUseCase.prototype.author = originalGenerate;
   }
 });
 
-test("generate() FALLS BACK to the static ctx.diff when no dynamic diff argument is supplied (preserves the F.2 operator's own pre-computed-diff path)", async () => {
+test("author() FALLS BACK to the static ctx.diff when no dynamic diff argument is supplied (preserves the F.2 operator's own pre-computed-diff path)", async () => {
   const ports = fakeGenerationPorts();
   let capturedInput: OpencodeRunInput | undefined;
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
     capturedInput = input;
     return originalGenerate.call(this, input, opts);
   };
   try {
     const useCase = new GenerateTestsUseCase(ports);
-    const adapter = new GenerationPortAdapter(useCase, {
+    const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
       namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "OPERATOR-PRECOMPUTED-DIFF",
     });
 
-    await adapter.generate("/mirrors/org/app/e2e");
+    await adapter.author("/mirrors/org/app/e2e");
 
     assert.equal(capturedInput?.diff, "OPERATOR-PRECOMPUTED-DIFF", "omitting the diff argument must fall back to ctx.diff unchanged — the operator's own pre-computed-diff composition must keep working");
   } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
+    GenerateTestsUseCase.prototype.author = originalGenerate;
   }
 });
 
@@ -377,22 +377,22 @@ test("generate() FALLS BACK to the static ctx.diff when no dynamic diff argument
    — absent fields stay absent, present fields flow through unchanged (never re-derived, never dropped).
  */
 
-test("generate() maps enrichment.reviewCorrections/fixCases/selectorContradictions/domSnapshot/coverageGap/intent onto OpencodeRunInput", async () => {
+test("author() maps enrichment.reviewCorrections/fixCases/selectorContradictions/domSnapshot/coverageGap/intent onto OpencodeRunInput", async () => {
   const ports = fakeGenerationPorts();
   let capturedInput: OpencodeRunInput | undefined;
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
     capturedInput = input;
     return originalGenerate.call(this, input, opts);
   };
   try {
     const useCase = new GenerateTestsUseCase(ports);
-    const adapter = new GenerationPortAdapter(useCase, {
+    const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
       namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", {
+    await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", {
       reviewCorrections: ["fix the assertion"],
       fixCases: [{ name: "login", status: "fail", detail: "timed out" }],
       selectorContradictions: ["role:button is NOT in the tree"],
@@ -408,7 +408,7 @@ test("generate() maps enrichment.reviewCorrections/fixCases/selectorContradictio
     assert.equal(capturedInput?.coverageGap, "src/x.ts:12-15 not exercised");
     assert.deepEqual(capturedInput?.intent, { type: "feat", breaking: false, message: "add checkout", changedFiles: ["src/x.ts"] });
   } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
+    GenerateTestsUseCase.prototype.author = originalGenerate;
   }
 });
 
@@ -417,22 +417,22 @@ test("generate() maps enrichment.reviewCorrections/fixCases/selectorContradictio
    "existing-suite-manifest" section, generation-input.ts).
  */
 
-test("generate() maps enrichment.contextPack/existingSpecFiles onto OpencodeRunInput", async () => {
+test("author() maps enrichment.contextPack/existingSpecFiles onto OpencodeRunInput", async () => {
   const ports = fakeGenerationPorts();
   let capturedInput: OpencodeRunInput | undefined;
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
     capturedInput = input;
     return originalGenerate.call(this, input, opts);
   };
   try {
     const useCase = new GenerateTestsUseCase(ports);
-    const adapter = new GenerationPortAdapter(useCase, {
+    const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
       namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", {
+    await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", {
       contextPack: "## Context Pack\n\nblast radius...",
       existingSpecFiles: ["flows/checkout.spec.ts", "home.spec.ts"],
     });
@@ -440,31 +440,31 @@ test("generate() maps enrichment.contextPack/existingSpecFiles onto OpencodeRunI
     assert.equal(capturedInput?.contextPack, "## Context Pack\n\nblast radius...");
     assert.deepEqual(capturedInput?.existingSpecFiles, ["flows/checkout.spec.ts", "home.spec.ts"]);
   } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
+    GenerateTestsUseCase.prototype.author = originalGenerate;
   }
 });
 
-test("generate() with absent enrichment.contextPack/existingSpecFiles omits both from OpencodeRunInput (never fabricated)", async () => {
+test("author() with absent enrichment.contextPack/existingSpecFiles omits both from OpencodeRunInput (never fabricated)", async () => {
   const ports = fakeGenerationPorts();
   let capturedInput: OpencodeRunInput | undefined;
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
     capturedInput = input;
     return originalGenerate.call(this, input, opts);
   };
   try {
     const useCase = new GenerateTestsUseCase(ports);
-    const adapter = new GenerationPortAdapter(useCase, {
+    const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
       namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", {});
+    await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", {});
 
     assert.equal(capturedInput?.contextPack, undefined);
     assert.equal(capturedInput?.existingSpecFiles, undefined);
   } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
+    GenerateTestsUseCase.prototype.author = originalGenerate;
   }
 });
 
@@ -478,22 +478,22 @@ const T4_CONTEXT_MAP = {
   feBe: [{ route: "/owners", operationId: "getOwners" }],
 };
 
-test("generate() maps enrichment.contextMap onto OpencodeRunInput", async () => {
+test("author() maps enrichment.contextMap onto OpencodeRunInput", async () => {
   const ports = fakeGenerationPorts();
   let capturedInput: OpencodeRunInput | undefined;
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
     capturedInput = input;
     return originalGenerate.call(this, input, opts);
   };
   try {
     const useCase = new GenerateTestsUseCase(ports);
-    const adapter = new GenerationPortAdapter(useCase, {
+    const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
       namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", {
+    await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", {
       contextMap: T4_CONTEXT_MAP,
     });
 
@@ -501,59 +501,59 @@ test("generate() maps enrichment.contextMap onto OpencodeRunInput", async () => 
     assert.deepEqual(capturedInput?.contextMap, T4_CONTEXT_MAP);
     assert.equal(capturedInput?.contextMap?.api[0]?.operationId, "getOwners");
   } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
+    GenerateTestsUseCase.prototype.author = originalGenerate;
   }
 });
 
-test("generate() maps enrichment.harnessFacts onto OpencodeRunInput and omits the key when there are none", async () => {
+test("author() maps enrichment.harnessFacts onto OpencodeRunInput and omits the key when there are none", async () => {
   const ports = fakeGenerationPorts();
   const captured: OpencodeRunInput[] = [];
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
     captured.push(input);
     return originalGenerate.call(this, input, opts);
   };
   try {
     const useCase = new GenerateTestsUseCase(ports);
-    const adapter = new GenerationPortAdapter(useCase, {
+    const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
       namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
     });
     const harnessFacts = { testIdAttribute: "data-cy", fixtures: { file: "fixtures.ts", exports: ["test", "expect"] } };
 
-    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { harnessFacts });
-    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", {});
+    await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", { harnessFacts });
+    await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", {});
 
     assert.deepEqual(captured[0]?.harnessFacts, harnessFacts);
     assert.equal("harnessFacts" in (captured[1] ?? {}), false);
   } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
+    GenerateTestsUseCase.prototype.author = originalGenerate;
   }
 });
 
-test("generate() with absent enrichment.contextMap omits it from OpencodeRunInput (never fabricated)", async () => {
+test("author() with absent enrichment.contextMap omits it from OpencodeRunInput (never fabricated)", async () => {
   const ports = fakeGenerationPorts();
   let capturedInput: OpencodeRunInput | undefined;
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
     capturedInput = input;
     return originalGenerate.call(this, input, opts);
   };
   try {
     const useCase = new GenerateTestsUseCase(ports);
-    const adapter = new GenerationPortAdapter(useCase, {
+    const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
       namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", {
+    await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", {
       contextPack: "## Context Pack\n\nblast radius...",
     });
 
     assert.equal(capturedInput?.contextMap, undefined);
     assert.equal(capturedInput?.contextPack, "## Context Pack\n\nblast radius...");
   } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
+    GenerateTestsUseCase.prototype.author = originalGenerate;
   }
 });
 
@@ -562,68 +562,68 @@ test("generate() with absent enrichment.contextMap omits it from OpencodeRunInpu
    which made every manifest entry fail the real schema's changeRef.sha non-empty check).
  */
 
-test("generate() maps enrichment.sha onto OpencodeRunInput.sha", async () => {
+test("author() maps enrichment.sha onto OpencodeRunInput.sha", async () => {
   const ports = fakeGenerationPorts();
   let capturedInput: OpencodeRunInput | undefined;
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
     capturedInput = input;
     return originalGenerate.call(this, input, opts);
   };
   try {
     const useCase = new GenerateTestsUseCase(ports);
-    const adapter = new GenerationPortAdapter(useCase, {
+    const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
       namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { sha: "abc1234def" });
+    await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", { sha: "abc1234def" });
 
     assert.equal(capturedInput?.sha, "abc1234def");
   } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
+    GenerateTestsUseCase.prototype.author = originalGenerate;
   }
 });
 
-test("generate() with no enrichment.sha falls back to empty string (today's behavior, until run-qa.use-case.ts threads it)", async () => {
+test("author() with no enrichment.sha falls back to empty string (today's behavior, until run-qa.use-case.ts threads it)", async () => {
   const ports = fakeGenerationPorts();
   let capturedInput: OpencodeRunInput | undefined;
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
     capturedInput = input;
     return originalGenerate.call(this, input, opts);
   };
   try {
     const useCase = new GenerateTestsUseCase(ports);
-    const adapter = new GenerationPortAdapter(useCase, {
+    const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
       namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate("/mirrors/org/app/e2e");
+    await adapter.author("/mirrors/org/app/e2e");
 
     assert.equal(capturedInput?.sha, "");
   } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
+    GenerateTestsUseCase.prototype.author = originalGenerate;
   }
 });
 
-test("generate() with no enrichment argument omits every enrichment field from OpencodeRunInput (unchanged prompt)", async () => {
+test("author() with no enrichment argument omits every enrichment field from OpencodeRunInput (unchanged prompt)", async () => {
   const ports = fakeGenerationPorts();
   let capturedInput: OpencodeRunInput | undefined;
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
     capturedInput = input;
     return originalGenerate.call(this, input, opts);
   };
   try {
     const useCase = new GenerateTestsUseCase(ports);
-    const adapter = new GenerationPortAdapter(useCase, {
+    const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
       namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate("/mirrors/org/app/e2e");
+    await adapter.author("/mirrors/org/app/e2e");
 
     assert.equal(capturedInput?.reviewCorrections, undefined);
     assert.equal(capturedInput?.fixCases, undefined);
@@ -632,7 +632,7 @@ test("generate() with no enrichment argument omits every enrichment field from O
     assert.equal(capturedInput?.coverageGap, undefined);
     assert.equal(capturedInput?.intent, undefined);
   } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
+    GenerateTestsUseCase.prototype.author = originalGenerate;
   }
 });
 
@@ -640,17 +640,17 @@ test("generate() with no enrichment argument omits every enrichment field from O
    — the SAME conditional-spread as staticSignal/contextPack (absent/empty -> key OMITTED, not set to []).
  */
 
-test("generate() maps a non-empty enrichment.serviceLinks onto OpencodeRunInput.serviceLinks, same order", async () => {
+test("author() maps a non-empty enrichment.serviceLinks onto OpencodeRunInput.serviceLinks, same order", async () => {
   const ports = fakeGenerationPorts();
   let capturedInput: OpencodeRunInput | undefined;
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
     capturedInput = input;
     return originalGenerate.call(this, input, opts);
   };
   try {
     const useCase = new GenerateTestsUseCase(ports);
-    const adapter = new GenerationPortAdapter(useCase, {
+    const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
       namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
     });
@@ -665,50 +665,50 @@ test("generate() maps a non-empty enrichment.serviceLinks onto OpencodeRunInput.
       },
     ];
 
-    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { serviceLinks: links });
+    await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", { serviceLinks: links });
 
     assert.deepEqual(capturedInput?.serviceLinks, links);
   } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
+    GenerateTestsUseCase.prototype.author = originalGenerate;
   }
 });
 
-test("generate() with absent/empty enrichment.serviceLinks OMITS the key entirely from OpencodeRunInput", async () => {
+test("author() with absent/empty enrichment.serviceLinks OMITS the key entirely from OpencodeRunInput", async () => {
   const ports = fakeGenerationPorts();
   let capturedInput: OpencodeRunInput | undefined;
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
     capturedInput = input;
     return originalGenerate.call(this, input, opts);
   };
   try {
     const useCase = new GenerateTestsUseCase(ports);
-    const adapter = new GenerationPortAdapter(useCase, {
+    const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
       namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { serviceLinks: [] });
+    await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", { serviceLinks: [] });
     assert.equal("serviceLinks" in (capturedInput ?? {}), false, "empty serviceLinks must be OMITTED, not set to []");
 
-    await adapter.generate("/mirrors/org/app/e2e");
+    await adapter.author("/mirrors/org/app/e2e");
     assert.equal("serviceLinks" in (capturedInput ?? {}), false, "absent enrichment must OMIT serviceLinks entirely");
   } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
+    GenerateTestsUseCase.prototype.author = originalGenerate;
   }
 });
 
-test("generate() maps a non-empty enrichment.contractDrift onto OpencodeRunInput.contractDrift, same order", async () => {
+test("author() maps a non-empty enrichment.contractDrift onto OpencodeRunInput.contractDrift, same order", async () => {
   const ports = fakeGenerationPorts();
   let capturedInput: OpencodeRunInput | undefined;
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
     capturedInput = input;
     return originalGenerate.call(this, input, opts);
   };
   try {
     const useCase = new GenerateTestsUseCase(ports);
-    const adapter = new GenerationPortAdapter(useCase, {
+    const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
       namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
     });
@@ -716,130 +716,130 @@ test("generate() maps a non-empty enrichment.contractDrift onto OpencodeRunInput
       { from: { repo: "org/front", file: "src/api.ts", symbol: "getOrder" }, verb: "DELETE", path: "/orders/{id}" },
     ];
 
-    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { contractDrift: drift });
+    await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", { contractDrift: drift });
 
     assert.deepEqual(capturedInput?.contractDrift, drift);
   } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
+    GenerateTestsUseCase.prototype.author = originalGenerate;
   }
 });
 
-test("generate() with absent/empty enrichment.contractDrift OMITS the key entirely from OpencodeRunInput", async () => {
+test("author() with absent/empty enrichment.contractDrift OMITS the key entirely from OpencodeRunInput", async () => {
   const ports = fakeGenerationPorts();
   let capturedInput: OpencodeRunInput | undefined;
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
     capturedInput = input;
     return originalGenerate.call(this, input, opts);
   };
   try {
     const useCase = new GenerateTestsUseCase(ports);
-    const adapter = new GenerationPortAdapter(useCase, {
+    const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
       namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { contractDrift: [] });
+    await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", { contractDrift: [] });
     assert.equal("contractDrift" in (capturedInput ?? {}), false, "empty contractDrift must be OMITTED, not set to []");
 
-    await adapter.generate("/mirrors/org/app/e2e");
+    await adapter.author("/mirrors/org/app/e2e");
     assert.equal("contractDrift" in (capturedInput ?? {}), false, "absent enrichment must OMIT contractDrift entirely");
   } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
+    GenerateTestsUseCase.prototype.author = originalGenerate;
   }
 });
 
 /* The structural signal and the flag that says it names symbols travel together: the prompt reads the flag to decide whether the signal stands for an explored blast radius. A flag never travels without its signal, and an absent flag stays absent (a co-change-only signal), never false. */
 
-test("generate() maps the structural signal and its symbol flag onto OpencodeRunInput together, and omits the flag for a signal that names no symbols", async () => {
+test("author() maps the structural signal and its symbol flag onto OpencodeRunInput together, and omits the flag for a signal that names no symbols", async () => {
   const ports = fakeGenerationPorts();
   let capturedInput: OpencodeRunInput | undefined;
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
     capturedInput = input;
     return originalGenerate.call(this, input, opts);
   };
   try {
     const useCase = new GenerateTestsUseCase(ports);
-    const adapter = new GenerationPortAdapter(useCase, {
+    const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
       namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { staticSignal: "## Structural blast radius\n- `save`", staticSignalHasSymbols: true });
+    await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", { staticSignal: "## Structural blast radius\n- `save`", staticSignalHasSymbols: true });
     assert.equal(capturedInput?.staticSignal, "## Structural blast radius\n- `save`");
     assert.equal(capturedInput?.staticSignalHasSymbols, true);
 
     const coChangeOnly = renderBlastRadiusSignal({ impacted: [], callers: [], coupled: [{ file: "src/Other.java", couplingScore: 0.82, coChanges: 14 }] });
-    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { staticSignal: coChangeOnly });
+    await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", { staticSignal: coChangeOnly });
     assert.equal(capturedInput?.staticSignal, coChangeOnly);
     assert.equal("staticSignalHasSymbols" in (capturedInput ?? {}), false, "a signal without the flag leaves it absent, never false");
 
-    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { staticSignal: "## Structural blast radius\n- `save`", staticSignalHasSymbols: true, staticSignalFiles: ["src/Foo.java"] });
+    await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", { staticSignal: "## Structural blast radius\n- `save`", staticSignalHasSymbols: true, staticSignalFiles: ["src/Foo.java"] });
     assert.deepEqual(capturedInput?.staticSignalFiles, ["src/Foo.java"], "the dossier's files travel with their signal");
 
-    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { staticSignalHasSymbols: true, staticSignalFiles: ["src/Foo.java"] });
+    await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", { staticSignalHasSymbols: true, staticSignalFiles: ["src/Foo.java"] });
     assert.equal("staticSignalHasSymbols" in (capturedInput ?? {}), false, "a flag without a signal is dropped");
     assert.equal("staticSignalFiles" in (capturedInput ?? {}), false, "files without a signal are dropped");
     assert.equal("staticSignal" in (capturedInput ?? {}), false);
   } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
+    GenerateTestsUseCase.prototype.author = originalGenerate;
   }
 });
 
 /* TRIGGERING microservice (repo + its OWN mirror dir + its OWN openapi hint) for a cross-repo run —
    distinct from ctx.mirrorDir/ctx.openapi, which stay bound to the PRIMARY repo. App-static (known
-   once per run, fixed for the whole run), so it lives on GenerationPortStaticContext exactly like
+   once per run, fixed for the whole run), so it lives on GenerationTurnsContext exactly like
    baseUrl/openapi above, NOT on the per-call GenerationEnrichment (which carries only values that
-   vary between generate() calls within the same run). Absent -> OMITTED entirely, the SAME
+   vary between author() calls within the same run). Absent -> OMITTED entirely, the SAME
    absence-vs-present discipline serviceLinks/contractDrift above already established.
  */
 
-test("generate() maps ctx.service onto OpencodeRunInput.service when the run is cross-repo (triggered by a declared microservice)", async () => {
+test("author() maps ctx.service onto OpencodeRunInput.service when the run is cross-repo (triggered by a declared microservice)", async () => {
   const ports = fakeGenerationPorts();
   let capturedInput: OpencodeRunInput | undefined;
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
     capturedInput = input;
     return originalGenerate.call(this, input, opts);
   };
   try {
     const useCase = new GenerateTestsUseCase(ports);
-    const adapter = new GenerationPortAdapter(useCase, {
+    const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/front", appName: "app", mirrorDir: "/mirrors/org/front", e2eRelDir: "e2e",
       namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
       service: { repo: "org/orders-svc", mirrorDir: "/mirrors/org/orders-svc", openapi: "openapi.yaml" },
     });
 
-    await adapter.generate("/mirrors/org/front/e2e");
+    await adapter.author("/mirrors/org/front/e2e");
 
     assert.deepEqual(capturedInput?.service, { repo: "org/orders-svc", mirrorDir: "/mirrors/org/orders-svc", openapi: "openapi.yaml" });
     assert.equal(capturedInput?.mirrorDir, "/mirrors/org/front", "the PRIMARY mirrorDir must stay the agent's cwd — service.mirrorDir is a read-only sibling, never a substitute");
   } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
+    GenerateTestsUseCase.prototype.author = originalGenerate;
   }
 });
 
-test("generate() with no ctx.service (same-repo run) OMITS the service key entirely from OpencodeRunInput", async () => {
+test("author() with no ctx.service (same-repo run) OMITS the service key entirely from OpencodeRunInput", async () => {
   const ports = fakeGenerationPorts();
   let capturedInput: OpencodeRunInput | undefined;
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
     capturedInput = input;
     return originalGenerate.call(this, input, opts);
   };
   try {
     const useCase = new GenerateTestsUseCase(ports);
-    const adapter = new GenerationPortAdapter(useCase, {
+    const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
       namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate("/mirrors/org/app/e2e");
+    await adapter.author("/mirrors/org/app/e2e");
 
     assert.equal("service" in (capturedInput ?? {}), false, "no ctx.service (the common same-repo case) must OMIT the key, not set it to undefined");
   } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
+    GenerateTestsUseCase.prototype.author = originalGenerate;
   }
 });
 
@@ -851,17 +851,17 @@ test("generate() with no ctx.service (same-repo run) OMITS the service key entir
    ctx.service/serviceLinks/contractDrift above already established.
  */
 
-test("generate() maps ctx.services onto OpencodeRunInput.services (context mode, every declared service)", async () => {
+test("author() maps ctx.services onto OpencodeRunInput.services (context mode, every declared service)", async () => {
   const ports = fakeGenerationPorts();
   let capturedInput: OpencodeRunInput | undefined;
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
     capturedInput = input;
     return originalGenerate.call(this, input, opts);
   };
   try {
     const useCase = new GenerateTestsUseCase(ports);
-    const adapter = new GenerationPortAdapter(useCase, {
+    const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/front", appName: "app", mirrorDir: "/mirrors/org/front", e2eRelDir: "e2e",
       namespace: "qa-bot-abc1234", target: "e2e", mode: "context", diff: "",
       services: [
@@ -870,7 +870,7 @@ test("generate() maps ctx.services onto OpencodeRunInput.services (context mode,
       ],
     });
 
-    await adapter.generate("/mirrors/org/front/e2e");
+    await adapter.author("/mirrors/org/front/e2e");
 
     assert.deepEqual(capturedInput?.services, [
       { repo: "org/orders-svc", mirrorDir: "/mirrors/org/orders-svc", openapi: "openapi.yaml" },
@@ -878,30 +878,30 @@ test("generate() maps ctx.services onto OpencodeRunInput.services (context mode,
     ]);
     assert.equal(capturedInput?.mirrorDir, "/mirrors/org/front", "the PRIMARY mirrorDir must stay the agent's cwd — service mirrorDirs are read-only siblings, never a substitute");
   } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
+    GenerateTestsUseCase.prototype.author = originalGenerate;
   }
 });
 
-test("generate() with no ctx.services OMITS the services key entirely from OpencodeRunInput", async () => {
+test("author() with no ctx.services OMITS the services key entirely from OpencodeRunInput", async () => {
   const ports = fakeGenerationPorts();
   let capturedInput: OpencodeRunInput | undefined;
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
     capturedInput = input;
     return originalGenerate.call(this, input, opts);
   };
   try {
     const useCase = new GenerateTestsUseCase(ports);
-    const adapter = new GenerationPortAdapter(useCase, {
+    const adapter = new GenerationTurnsAdapter(useCase, {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
       namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate("/mirrors/org/app/e2e");
+    await adapter.author("/mirrors/org/app/e2e");
 
     assert.equal("services" in (capturedInput ?? {}), false, "no ctx.services (the common case) must OMIT the key, not set it to undefined or an empty array");
   } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
+    GenerateTestsUseCase.prototype.author = originalGenerate;
   }
 });
 
@@ -940,12 +940,12 @@ async function generatorPromptWith(rules: readonly RetrievedRule[]): Promise<str
     manifest: { read: async () => [], reconcile: async (_specDir, entries) => [...entries] },
     budget: { capDiff: (d: string) => d, capText: (t: string) => t, budgetForRole: () => 0 },
   });
-  const adapter = new GenerationPortAdapter(useCase, {
+  const adapter = new GenerationTurnsAdapter(useCase, {
     repo: "org/app", appName: "app", mirrorDir: "/nonexistent/mirror", e2eRelDir: "e2e",
     namespace: "qa-bot-abc1234", target: "e2e", mode: "diff",
     diff: "diff --git a/src/owners.ts b/src/owners.ts\n+export const search = () => [];\n",
   });
-  await adapter.generate("/nonexistent/mirror/e2e", undefined, undefined, rules.length ? { learnedRules: rules } : undefined);
+  await adapter.author("/nonexistent/mirror/e2e", undefined, undefined, rules.length ? { learnedRules: rules } : undefined);
   return generatorPrompt;
 }
 
@@ -969,7 +969,7 @@ async function generatorPromptFor(
     runtime: {
       openSession: async (role) => ({
         prompt: async (text: string) => {
-          if (role === "primary") generatorPrompt = text;
+          if (role === "sidekick") generatorPrompt = text;
           return { output: '{"specs":[]}' };
         },
         dispose: async () => {},
@@ -985,12 +985,12 @@ async function generatorPromptFor(
     manifest: { read: async () => [], reconcile: async (_specDir, entries) => [...entries] },
     budget: { capDiff: (d: string) => d, capText: (t: string) => t, budgetForRole: () => 0 },
   });
-  const adapter = new GenerationPortAdapter(useCase, {
+  const adapter = new GenerationTurnsAdapter(useCase, {
     repo: "org/app", appName: "app", mirrorDir: run.mirrorDir ?? "/nonexistent/mirror", e2eRelDir: run.e2eRelDir,
     namespace: "qa-bot-abc1234", target: run.target, mode: "diff", baseUrl: "https://dev",
     diff: "diff --git a/src/owners.ts b/src/owners.ts\n+export const search = () => [];\n",
   });
-  await adapter.generate(run.specDir ?? `/nonexistent/mirror/${run.e2eRelDir}`, undefined, undefined, enrichment);
+  await adapter.author(run.specDir ?? `/nonexistent/mirror/${run.e2eRelDir}`, undefined, undefined, enrichment);
   return generatorPrompt;
 }
 
@@ -1017,46 +1017,58 @@ test("a code-target run never renders the app login section, even with an unauth
   assert.ok(!prompt.includes("auth.setup.ts"));
 });
 
-/* The step limit the agent runtime enforces reaches each generation input: the generator's on every call, the
-   in-generate reviewer's only when that reviewer runs. The resolver is the shell's; with none, or with no limit
-   for a role, the input carries no key at all (absence is what tells a prompt not to state a limit). */
+/* The step limit the agent runtime enforces reaches each input: the author's on every authoring call, the lead's on a planning turn.
+   The resolver is the shell's; with none, or with no limit for a role, the input carries no key at all (absence is what
+   tells a prompt not to state a limit). */
 
 function recordingUseCase(inputs: OpencodeRunInput[]): GenerateTestsUseCase {
   return {
-    generate: async (input: OpencodeRunInput) => {
+    author: async (input: OpencodeRunInput) => {
       inputs.push(input);
       return { specs: [], end: GENERATION_END.DELIVERED };
     },
   } as unknown as GenerateTestsUseCase;
 }
 
-/* A resolver that tells the two roles apart by value, so a limit put on the wrong field shows. */
+/* A resolver that tells the roles apart by value, so a limit put on the wrong field shows. */
 function resolverAsking(asked: StepLimitRole[]): (role: StepLimitRole) => Promise<number | undefined> {
   return async (role) => {
     asked.push(role);
-    return role === "generator" ? 41 : 17;
+    return role === "author" ? 41 : role === "lead" ? 29 : 17;
   };
 }
 
-test("generate() puts the generator's limit from the resolver on every input it builds, a regeneration's included", async () => {
+test("author() puts the author's limit from the resolver on every input it builds, a regeneration's included", async () => {
   const inputs: OpencodeRunInput[] = [];
   const asked: StepLimitRole[] = [];
-  const adapter = new GenerationPortAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT}, { stepLimitFor: resolverAsking(asked) });
+  const adapter = new GenerationTurnsAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT}, { stepLimitFor: resolverAsking(asked) });
 
-  await adapter.generate("/mirrors/org/app/e2e");
-  await adapter.generate("/mirrors/org/app/e2e", undefined, undefined, { reviewCorrections: ["fix the assertion"] });
+  await adapter.author("/mirrors/org/app/e2e");
+  await adapter.author("/mirrors/org/app/e2e", undefined, undefined, { reviewCorrections: ["fix the assertion"] });
 
   assert.deepEqual(inputs.map((input) => input.stepLimit), [41, 41]);
-  assert.deepEqual(asked, ["generator", "generator"], "a generation never asks for the reviewer's limit");
+  assert.deepEqual(asked, ["author", "author"], "an authoring turn asks for the author's limit alone");
 });
 
-test("generate() carries no limit key when there is no resolver, or when the resolver has none for the role", async () => {
+test("plan() puts the lead's limit from the resolver on the input of the planning turn", async () => {
   const inputs: OpencodeRunInput[] = [];
-  const noResolver = new GenerationPortAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT});
-  const noLimit = new GenerationPortAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT}, { stepLimitFor: async () => undefined });
+  const asked: StepLimitRole[] = [];
+  const planning = { ...recordingUseCase(inputs), plan: async (input: OpencodeRunInput) => { inputs.push(input); return { parsed: true, timedOut: false }; } } as unknown as GenerateTestsUseCase;
+  const adapter = new GenerationTurnsAdapter(planning, { ...STATIC_CONTEXT }, { stepLimitFor: resolverAsking(asked) });
 
-  await noResolver.generate("/mirrors/org/app/e2e");
-  await noLimit.generate("/mirrors/org/app/e2e");
+  await adapter.plan("/mirrors/org/app/e2e", undefined, undefined, { planning: { budgetMs: 1000 } as never });
+
+  assert.deepEqual(inputs.map((input) => input.stepLimit), [29]);
+  assert.deepEqual(asked, ["lead"]);
+});
+
+test("author() carries no limit key when there is no resolver, or when the resolver has none for the role", async () => {
+  const inputs: OpencodeRunInput[] = [];
+  const noResolver = new GenerationTurnsAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT});
+  const noLimit = new GenerationTurnsAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT}, { stepLimitFor: async () => undefined });
+
+  await noResolver.author("/mirrors/org/app/e2e");
+  await noLimit.author("/mirrors/org/app/e2e");
 
   assert.equal(inputs.length, 2);
   for (const input of inputs) {
@@ -1066,24 +1078,24 @@ test("generate() carries no limit key when there is no resolver, or when the res
 
 /* What the verdict declared for each delivered spec travels out on the port's output; and the specs the run delivered so far travel in on a regeneration turn only, those whose file is still a regular file inside the spec directory. */
 
-test("generate() hands on what the verdict declared for each delivered spec, and omits the key when it declared none", async () => {
+test("author() hands on what the verdict declared for each delivered spec, and omits the key when it declared none", async () => {
   const declaredSpecs = [{ file: "flows/checkout.spec.ts", flow: "checkout", objective: "the order is placed" }, { file: "login.spec.ts" }];
-  const delivering = { generate: async () => ({ specs: ["flows/checkout.spec.ts", "login.spec.ts"], declaredSpecs, end: GENERATION_END.DELIVERED }) } as unknown as GenerateTestsUseCase;
-  const nothing = { generate: async () => ({ specs: [], end: GENERATION_END.DECLARED_NOOP }) } as unknown as GenerateTestsUseCase;
-  const emptyHanded = { generate: async () => ({ specs: [], declaredSpecs: [], end: GENERATION_END.DECLARED_NOOP }) } as unknown as GenerateTestsUseCase;
+  const delivering = { author: async () => ({ specs: ["flows/checkout.spec.ts", "login.spec.ts"], declaredSpecs, end: GENERATION_END.DELIVERED }) } as unknown as GenerateTestsUseCase;
+  const nothing = { author: async () => ({ specs: [], end: GENERATION_END.DECLARED_NOOP }) } as unknown as GenerateTestsUseCase;
+  const emptyHanded = { author: async () => ({ specs: [], declaredSpecs: [], end: GENERATION_END.DECLARED_NOOP }) } as unknown as GenerateTestsUseCase;
 
-  const delivered = await new GenerationPortAdapter(delivering, { ...STATIC_CONTEXT}).generate("/mirrors/org/app/e2e");
-  const none = await new GenerationPortAdapter(nothing, { ...STATIC_CONTEXT}).generate("/mirrors/org/app/e2e");
-  const empty = await new GenerationPortAdapter(emptyHanded, { ...STATIC_CONTEXT}).generate("/mirrors/org/app/e2e");
+  const delivered = await new GenerationTurnsAdapter(delivering, { ...STATIC_CONTEXT}).author("/mirrors/org/app/e2e");
+  const none = await new GenerationTurnsAdapter(nothing, { ...STATIC_CONTEXT}).author("/mirrors/org/app/e2e");
+  const empty = await new GenerationTurnsAdapter(emptyHanded, { ...STATIC_CONTEXT}).author("/mirrors/org/app/e2e");
 
   assert.deepEqual(delivered.declaredSpecs, declaredSpecs);
   assert.equal("declaredSpecs" in none, false);
   assert.equal("declaredSpecs" in empty, false, "an empty list of declarations is no key, never []");
 });
 
-test("generate() declares the specs of a real generation, by path when the verdict declared nothing else for them", async () => {
-  const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(fakeGenerationPorts()), { ...STATIC_CONTEXT});
-  const result = await adapter.generate("/mirrors/org/app/e2e");
+test("author() declares the specs of a real generation, by path when the verdict declared nothing else for them", async () => {
+  const adapter = new GenerationTurnsAdapter(new GenerateTestsUseCase(fakeGenerationPorts()), { ...STATIC_CONTEXT});
+  const result = await adapter.author("/mirrors/org/app/e2e");
   assert.deepEqual(result.declaredSpecs, [{ file: "flows/checkout.spec.ts" }]);
 });
 
@@ -1098,8 +1110,8 @@ const REGENERATION_SIGNALS: ReadonlyArray<readonly [string, GenerationEnrichment
 /* The one generation input the adapter builds for `enrichment`, over a real mirror. */
 async function inputFor(enrichment: GenerationEnrichment, mirror: string, specDir: string): Promise<OpencodeRunInput> {
   const inputs: OpencodeRunInput[] = [];
-  const adapter = new GenerationPortAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT, mirrorDir: mirror});
-  await adapter.generate(specDir, undefined, undefined, enrichment);
+  const adapter = new GenerationTurnsAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT, mirrorDir: mirror});
+  await adapter.author(specDir, undefined, undefined, enrichment);
   assert.equal(inputs.length, 1);
   return inputs[0]!;
 }
@@ -1108,7 +1120,7 @@ const A = { file: "flows/a.spec.ts", flow: "login", objective: "the user signs i
 const B = { file: "b.spec.ts" };
 
 for (const [signal, regeneration] of REGENERATION_SIGNALS) {
-  test(`generate() hands the delivered specs whose file is there to a regeneration turn driven by ${signal}, as they were declared and in order`, () =>
+  test(`author() hands the delivered specs whose file is there to a regeneration turn driven by ${signal}, as they were declared and in order`, () =>
     withMirror(async ({ mirror, specDir }) => {
       writeFileSync(join(specDir, "flows", "a.spec.ts"), "// a\n");
       writeFileSync(join(specDir, "b.spec.ts"), "// b\n");
@@ -1117,7 +1129,7 @@ for (const [signal, regeneration] of REGENERATION_SIGNALS) {
     }));
 }
 
-test("generate() hands no delivered spec to a first pass, whatever the enrichment holds", () =>
+test("author() hands no delivered spec to a first pass, whatever the enrichment holds", () =>
   withMirror(async ({ mirror, specDir }) => {
     writeFileSync(join(specDir, "b.spec.ts"), "// b\n");
     const input = await inputFor({ deliveredSpecs: [B], attributedSpecFiles: ["b.spec.ts"] }, mirror, specDir);
@@ -1138,7 +1150,7 @@ const REFUSED: ReadonlyArray<readonly [string, string, (dirs: { tmp: string; spe
 ];
 
 for (const [why, refused, arrange] of REFUSED) {
-  test(`generate() drops a delivered spec that is ${why}, and keeps the one that is there`, () =>
+  test(`author() drops a delivered spec that is ${why}, and keeps the one that is there`, () =>
     withMirror(async ({ tmp, mirror, specDir }) => {
       writeFileSync(join(specDir, "flows", "a.spec.ts"), "// a\n");
       arrange({ tmp, specDir });
@@ -1163,7 +1175,7 @@ function canMakeNamedPipes(): boolean {
 const NO_NAMED_PIPES = canMakeNamedPipes() ? false : "mkfifo is not available on this platform, so the named-pipe case is not exercised";
 
 /* The probe judges a path without opening it: a spec the agent replaced with a named pipe is dropped, and the generation never waits on it. Under the watch a probe that did open it fails within a fraction of a second instead of hanging. */
-test("generate() drops a delivered spec that is a named pipe without opening it", { skip: NO_NAMED_PIPES }, () =>
+test("author() drops a delivered spec that is a named pipe without opening it", { skip: NO_NAMED_PIPES }, () =>
   withMirror(async ({ mirror, specDir }) => {
     const pipe = join(specDir, "flows", "pipe.spec.ts");
     execFileSync("mkfifo", [pipe]);
@@ -1175,13 +1187,13 @@ test("generate() drops a delivered spec that is a named pipe without opening it"
     assert.equal("attributedSpecFiles" in input, false);
   }));
 
-test("generate() carries no delivered-specs key at all when none of them is there any more", () =>
+test("author() carries no delivered-specs key at all when none of them is there any more", () =>
   withMirror(async ({ mirror, specDir }) => {
     const input = await inputFor({ fixCases: FAILING_CASES, deliveredSpecs: [A, B] }, mirror, specDir);
     assert.equal("deliveredSpecs" in input, false);
   }));
 
-test("generate() judges a delivered spec by the spec directory of the call: a file beside it is not a spec of the suite", () =>
+test("author() judges a delivered spec by the spec directory of the call: a file beside it is not a spec of the suite", () =>
   withMirror(async ({ mirror, specDir }) => {
     writeFileSync(join(mirror, "top.spec.ts"), "// beside the suite\n");
     const entry = { file: "top.spec.ts" };
@@ -1191,7 +1203,7 @@ test("generate() judges a delivered spec by the spec directory of the call: a fi
     assert.deepEqual(code.deliveredSpecs, [entry]);
   }));
 
-test("generate() hands a regeneration turn the attributed spec files that are still there, in order, and drops the others", () =>
+test("author() hands a regeneration turn the attributed spec files that are still there, in order, and drops the others", () =>
   withMirror(async ({ tmp, mirror, specDir }) => {
     writeFileSync(join(specDir, "flows", "a.spec.ts"), "// a\n");
     writeFileSync(join(specDir, "b.spec.ts"), "// b\n");
@@ -1204,7 +1216,7 @@ test("generate() hands a regeneration turn the attributed spec files that are st
     assert.deepEqual(input.attributedSpecFiles, ["b.spec.ts", "flows/a.spec.ts"]);
   }));
 
-test("generate() carries no attributed-files key when there are none, or none of them is there", () =>
+test("author() carries no attributed-files key when there are none, or none of them is there", () =>
   withMirror(async ({ mirror, specDir }) => {
     const absent = await inputFor({ selectorContradictions: ["x"] }, mirror, specDir);
     const gone = await inputFor({ selectorContradictions: ["x"], attributedSpecFiles: ["gone.spec.ts"] }, mirror, specDir);
@@ -1218,7 +1230,7 @@ const SUITE_A = formatSuiteEntry({ file: "flows/a.spec.ts", flow: "login", objec
 const SUITE_B = formatSuiteEntry({ file: "b.spec.ts" });
 
 for (const [signal, regeneration] of REGENERATION_SIGNALS) {
-  test(`generate() hands the existing-suite entries whose file is there to a regeneration turn driven by ${signal}, as they were folded and in order`, () =>
+  test(`author() hands the existing-suite entries whose file is there to a regeneration turn driven by ${signal}, as they were folded and in order`, () =>
     withMirror(async ({ mirror, specDir }) => {
       writeFileSync(join(specDir, "flows", "a.spec.ts"), "// a\n");
       writeFileSync(join(specDir, "b.spec.ts"), "// b\n");
@@ -1227,7 +1239,7 @@ for (const [signal, regeneration] of REGENERATION_SIGNALS) {
     }));
 }
 
-test("generate() hands a first pass every existing-suite entry exactly as it came, whatever is on disk", () =>
+test("author() hands a first pass every existing-suite entry exactly as it came, whatever is on disk", () =>
   withMirror(async ({ mirror, specDir }) => {
     const entries = [SUITE_A, SUITE_B, "flows/gone.spec.ts", "../../secret.txt"];
     const input = await inputFor({ existingSpecFiles: entries }, mirror, specDir);
@@ -1235,7 +1247,7 @@ test("generate() hands a first pass every existing-suite entry exactly as it cam
   }));
 
 for (const [why, refused, arrange] of REFUSED) {
-  test(`generate() drops an existing-suite entry whose file is ${why}, and keeps the one that is there`, () =>
+  test(`author() drops an existing-suite entry whose file is ${why}, and keeps the one that is there`, () =>
     withMirror(async ({ tmp, mirror, specDir }) => {
       writeFileSync(join(specDir, "flows", "a.spec.ts"), "// a\n");
       arrange({ tmp, specDir });
@@ -1244,7 +1256,7 @@ for (const [why, refused, arrange] of REFUSED) {
     }));
 }
 
-test("generate() drops an existing-suite entry that is a named pipe without opening it", { skip: NO_NAMED_PIPES }, () =>
+test("author() drops an existing-suite entry that is a named pipe without opening it", { skip: NO_NAMED_PIPES }, () =>
   withMirror(async ({ mirror, specDir }) => {
     const pipe = join(specDir, "flows", "pipe.spec.ts");
     execFileSync("mkfifo", [pipe]);
@@ -1255,13 +1267,13 @@ test("generate() drops an existing-suite entry that is a named pipe without open
     assert.deepEqual(input.existingSpecFiles, [SUITE_A]);
   }));
 
-test("generate() carries no existing-suite key at all when none of the entries is there any more", () =>
+test("author() carries no existing-suite key at all when none of the entries is there any more", () =>
   withMirror(async ({ mirror, specDir }) => {
     const input = await inputFor({ fixCases: FAILING_CASES, existingSpecFiles: [SUITE_A, SUITE_B] }, mirror, specDir);
     assert.equal("existingSpecFiles" in input, false);
   }));
 
-test("generate() judges an existing-suite entry by the spec directory of the call: a file beside it is not a spec of the suite", () =>
+test("author() judges an existing-suite entry by the spec directory of the call: a file beside it is not a spec of the suite", () =>
   withMirror(async ({ mirror, specDir }) => {
     writeFileSync(join(mirror, "top.spec.ts"), "// beside the suite\n");
     const entries = [formatSuiteEntry({ file: "top.spec.ts" })];
@@ -1294,26 +1306,26 @@ test("the prompt of a first pass lists the suite exactly as the grounding folded
     assert.equal(present, bare);
   }));
 
-test("generate() hands the authenticated browser's limits to the prompt input when the run granted it, and nothing otherwise", async () => {
+test("author() hands the authenticated browser's limits to the prompt input when the run granted it, and nothing otherwise", async () => {
   const ports = fakeGenerationPorts();
   const captured: Array<OpencodeRunInput | undefined> = [];
-  const originalGenerate = GenerateTestsUseCase.prototype.generate;
-  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+  const originalGenerate = GenerateTestsUseCase.prototype.author;
+  GenerateTestsUseCase.prototype.author = async function (input: OpencodeRunInput, opts) {
     captured.push(input);
     return originalGenerate.call(this, input, opts);
   };
   try {
-    const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(ports), {
+    const adapter = new GenerationTurnsAdapter(new GenerateTestsUseCase(ports), {
       repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
       namespace: "qa-bot-abc1234", target: "e2e", mode: "diff", diff: "",
     });
     const limits = { maxCalls: 12, perCallMs: 20_000, leaseWaitMs: 5_000 };
-    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { agentBrowser: limits });
-    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", {});
+    await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", { agentBrowser: limits });
+    await adapter.author("/mirrors/org/app/e2e", undefined, "the-diff", {});
     assert.deepEqual(captured[0]?.agentBrowser, limits);
     assert.equal("agentBrowser" in (captured[1] ?? {}), false);
   } finally {
-    GenerateTestsUseCase.prototype.generate = originalGenerate;
+    GenerateTestsUseCase.prototype.author = originalGenerate;
   }
 });
 
@@ -1325,7 +1337,7 @@ test("plan() hands the use case the input a first pass has, with the limits of t
       return { plan: { kind: "single" }, parsed: true, timedOut: false };
     },
   });
-  const adapter = new GenerationPortAdapter(useCase, { ...STATIC_CONTEXT, guidance: "cover the cart" });
+  const adapter = new GenerationTurnsAdapter(useCase, { ...STATIC_CONTEXT, guidance: "cover the cart" });
   const planning = { maxFlows: 4, maxParallel: 2, budgetMs: 120_000 };
   const result = await adapter.plan("/mirrors/org/app/e2e", undefined, "the diff", { sha: "abc1234", runId: "run-9", planning });
   assert.deepEqual(result.plan, { kind: "single" });
@@ -1341,7 +1353,7 @@ test("plan() refuses a call that carries no limits for the plan, before any sess
   let opened = false;
   const ports = fakeGenerationPorts();
   const guarded: GenerationPorts = { ...ports, runtime: { openSession: async () => { opened = true; throw new Error("no"); } } as unknown as GenerationPorts["runtime"] };
-  const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(guarded), { ...STATIC_CONTEXT});
+  const adapter = new GenerationTurnsAdapter(new GenerateTestsUseCase(guarded), { ...STATIC_CONTEXT});
   await assert.rejects(adapter.plan("/mirrors/org/app/e2e", undefined, "diff", { sha: "abc1234" }), /planning/);
   assert.equal(opened, false);
 });
@@ -1350,7 +1362,7 @@ test("plan() forwards a plan turn that ran out of time and one that gave a no-op
   const outcomes = [{ parsed: false, timedOut: true }, { noopReason: "docs only", parsed: true, timedOut: false }] as const;
   for (const outcome of outcomes) {
     const useCase = Object.assign(new GenerateTestsUseCase(fakeGenerationPorts()), { plan: async () => outcome });
-    const adapter = new GenerationPortAdapter(useCase, { ...STATIC_CONTEXT});
+    const adapter = new GenerationTurnsAdapter(useCase, { ...STATIC_CONTEXT});
     const result = await adapter.plan("/mirrors/org/app/e2e", undefined, "diff", { sha: "abc1234", planning: { maxFlows: 3, maxParallel: 2, budgetMs: 60_000 } });
     assert.equal(result.timedOut, outcome.timedOut);
     assert.equal(result.noopReason, "noopReason" in outcome ? outcome.noopReason : undefined);

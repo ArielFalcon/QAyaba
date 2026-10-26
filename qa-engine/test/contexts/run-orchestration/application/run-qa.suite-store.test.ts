@@ -18,6 +18,7 @@ import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../support/run-workspace.ts";
 import { fakeHandle, rootsOf } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
+import { served } from "../../../support/coordinator-over-author.ts";
 const INPUT = { app: "demo", sha: Sha.of("abc1234"), source: "manual" as const, mode: "diff" as const, target: "e2e" as const, runId: "suite-run" };
 const sha256 = (text: string): string => createHash("sha256").update(text).digest("hex");
 
@@ -73,7 +74,7 @@ function rig(opts: { authRestored?: boolean; restoreThrows?: Error; captureThrow
     const { generation: generationOver, ...rest } = over;
     return {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
-    generation: generationOnDisk(generationOver ?? { generate: async () => scriptedGeneration({ specs: ["flows/a.spec.ts"]}) }),
+    ...served(generationOnDisk(generationOver ?? { author: async () => scriptedGeneration({ specs: ["flows/a.spec.ts"]}) })),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
     execution: { execute: async () => ({ verdict: "pass", cases: PASSING, logs: "" }) },
@@ -107,7 +108,7 @@ test("a code run, a context run and a run that ends at classification never touc
   assert.equal(code.events.includes("restore") || code.events.includes("capture"), false, "code");
 
   const context = rig();
-  await new RunQaUseCase(context.deps({ generation: { generate: async () => scriptedGeneration({ specs: [".qa/context.json"], note: "map" }) } })).run({ ...INPUT, mode: "context" });
+  await new RunQaUseCase(context.deps({ ...served({ author: async () => scriptedGeneration({ specs: [".qa/context.json"], note: "map" }) }) })).run({ ...INPUT, mode: "context" });
   assert.equal(context.events.includes("restore") || context.events.includes("capture"), false, "context");
 
   const skipped = rig();
@@ -136,12 +137,12 @@ test("a spec the reviewer's correction round rewrote is executed by its acceptan
   let reviews = 0;
   let executions = 0;
   const out = await new RunQaUseCase(r.deps({
-    generation: {
-      generate: async (_specDir, _signal, _diff, enrichment) => {
+    ...served({
+      author: async (_specDir, _signal, _diff, enrichment) => {
         if (enrichment?.reviewCorrections !== undefined) r.write("flows/a.spec.ts", "a v2, executed by acceptance");
         return scriptedGeneration({ specs: ["flows/a.spec.ts"]});
       },
-    },
+    }),
     review: { review: async () => (reviews++ === 0 ? { approved: false, corrections: ["assert the total"], blockingCount: 1, parsed: true } : { approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     execution: { execute: async () => (executions++, { verdict: "pass", cases: PASSING, logs: "" }) },
   })).run(INPUT);
@@ -182,7 +183,7 @@ test("a run that is not accepted keeps nothing: a failed or flaky verdict, a rej
   ];
   for (const [name, over] of cases) {
     const r = rig();
-    await new RunQaUseCase(r.deps({ ...over, generation: { generate: async () => scriptedGeneration({ specs: ["flows/a.spec.ts"]}) } })).run({ ...INPUT, runId: `not-accepted-${name}` });
+    await new RunQaUseCase(r.deps({ ...over, ...served({ author: async () => scriptedGeneration({ specs: ["flows/a.spec.ts"]}) }) })).run({ ...INPUT, runId: `not-accepted-${name}` });
     assert.equal(r.captured.length, 0, name);
   }
 });

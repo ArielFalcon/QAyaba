@@ -26,10 +26,10 @@ export function evidenceFromGeneration(redaction: RedactionPort, input: {
   return {
     id: "generation",
     kind: "generation",
-    source: "GenerationPort",
+    source: "AuthorPort",
     summary: redaction.redact(`specs=${input.specs}; approved=${input.approved}; parsed=${input.parsed !== false}`),
     confidence: "observed",
-    dataRef: "GenerationPort.generate",
+    dataRef: "AuthorPort.author",
   };
 }
 

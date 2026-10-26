@@ -1,4 +1,4 @@
-/* FixLoop aggregate: triage → selector check → adjudicate → regen → accept (validate + execute the changed specs; a rejected or capped round restores its bytes), with absentKeys short-circuit and a fewest-failures regression guard that restores the best round's bytes too. Triage and the typed test-correct claim are capabilities the caller grants only while the review-loop integrity switch is on. CycleBudget/WallClockBudget are forwarded unread into every generate() call — this aggregate neither ticks nor inspects them, and neither does the generation adapter: CycleBudget.ceiling is telemetry-only, and WallClockBudget.exhausted() is checked directly by run-qa.use-case.ts before each regen round, not by this aggregate or the generator. break-needs-human exits without setting realBugDetected; the caller labels the Issue. Filtered-retry scopes to failing specs only when change-coverage will not measure this run. */
+/* FixLoop aggregate: triage → selector check → adjudicate → regen → accept (validate + execute the changed specs; a rejected or capped round restores its bytes), with absentKeys short-circuit and a fewest-failures regression guard that restores the best round's bytes too. Triage and the typed test-correct claim are capabilities the caller grants only while the review-loop integrity switch is on. CycleBudget/WallClockBudget are forwarded unread into every regenerate() call — this aggregate neither ticks nor inspects them, and neither does the generation adapter: CycleBudget.ceiling is telemetry-only, and WallClockBudget.exhausted() is checked directly by run-qa.use-case.ts before each regen round, not by this aggregate or the generator. break-needs-human exits without setting realBugDetected; the caller labels the Issue. Filtered-retry scopes to failing specs only when change-coverage will not measure this run. */
 
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { RunMode } from "@kernel/run-mode.ts";
@@ -27,7 +27,7 @@ export interface FixLoopGenerateInput {
   domSnapshot?: string;
   /* A-2b: the intent lock's deltas on the previous round, handed back as facts. Absent when that round broke no contract. */
   contractFeedback?: readonly ContractFeedback[];
-  /* CycleBudget/WallClockBudget are forwarded unread into generate() — this aggregate never ticks or inspects them, and neither does the generation adapter (see this file's header comment). */
+  /* CycleBudget/WallClockBudget are forwarded unread into regenerate() — this aggregate never ticks or inspects them, and neither does the generation adapter (see this file's header comment). */
   cycleBudget: CycleBudget;
   wallClockBudget: WallClockBudget;
 }
@@ -41,8 +41,8 @@ export interface FixLoopGenerateResult {
   /* The generator's typed claim that the test is correct and the app/environment is not. A claim, never evidence: the loop verifies it against the round's own artifacts. */
   testCorrect?: { cause: "env" | "app"; reason: string };
 }
-export interface FixLoopGenerationPort {
-  generate(input: FixLoopGenerateInput): Promise<FixLoopGenerateResult>;
+export interface FixLoopRegenerationPort {
+  regenerate(input: FixLoopGenerateInput): Promise<FixLoopGenerateResult>;
 }
 
 export interface FixLoopExecuteInput {
@@ -62,7 +62,7 @@ export interface FixLoopSelectorCheckPort {
 
 export interface FixLoopDeps {
   execution: FixLoopExecutionPort;
-  generation: FixLoopGenerationPort;
+  regeneration: FixLoopRegenerationPort;
   selectorCheck: FixLoopSelectorCheckPort;
   /**
    * The run's acceptance of an e2e round: the pre-turn snapshot, the changed-spec validation and
@@ -641,7 +641,7 @@ export class FixLoop {
     }
 
     /* Regeneration with review:skip. Cycle/wall-clock budgets are forwarded unread (see the header). */
-    const result = await this.deps.generation.generate({
+    const result = await this.deps.regeneration.regenerate({
       fixCases: round.failed,
       ...(round.selectorContradictions.length > 0 ? { selectorContradictions: round.selectorContradictions } : {}),
       ...(round.selectorContradictions.length > 0 && round.origins ? { selectorContradictionOrigins: round.origins } : {}),
