@@ -1,6 +1,11 @@
 /*
- * The run, read top to bottom: every step in the order it runs, the phase it opens and when it is skipped. The steps before the
- * working copy is prepared see only the run's context; the rest also see its workspace and live services.
+ * The run, read top to bottom: every step in the order it runs, the phase it opens (15 phases, 47 steps) and when it is skipped.
+ * The steps before the working copy is prepared see only the run's context; the rest also see its workspace and live services.
+ * Each step names the class it has for the failure policy (`class`, absent for `required`) and the top-level fields of the
+ * state it may write (`writes`); the runner refuses an update outside them, and the reducers are the only code that writes a
+ * shared field. A repair loop (the static fix, the corrective regeneration before execution, the fix loop, the coverage
+ * regeneration, the review rounds) is a run of steps of its own: the step that ends a round names the next one with `goto`, so
+ * the table also holds the loops' entries and exits.
  */
 
 import type { FlowStep } from "./run-flow.ts";

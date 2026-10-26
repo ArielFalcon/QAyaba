@@ -3,6 +3,8 @@
  * `classifyFailure` (the only reader of the error predicates) into a closed `FailureKind`; the kind and the class of the step that
  * failed pick one action from POLICY: end the run for a reason, rethrow the error, or carry on (said aloud, never silent). A step
  * no longer remembers which errors it must not swallow: it is wrapped in `guarded`, and a catch that carries on asks `carryOn`.
+ * A fault that reaches a step of class `proven` after a suite ran green on its final bytes may also degrade: the run goes on to the
+ * final guard with what it proved and the fault named on the outcome, unless the run requires a review verdict it does not have.
  * This file is pure: it runs no step and builds no end; the caller that knows the run builds the end a reason calls for.
  */
 

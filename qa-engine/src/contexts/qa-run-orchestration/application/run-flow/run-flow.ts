@@ -5,7 +5,7 @@
  * cancelled run is never a failed login: an end in ABORT_SUPERSEDES under a cancelled run becomes `aborted` too), a step whose `runs` says no is passed over, a step that names a phase opens it on the run's
  * phase cursor first (a step without one runs inside the phase already open), an update is merged into the state, and the first
  * end stops the walk. Every step the runner passes over, runs or ends on is reported to the run's recorder, so the trace says in
- * which order the steps came and why the run stopped. A step may declare the top-level fields of the state it updates (`writes`), and the runner refuses an update outside them. The runner does not turn an end into a result: that is `finalizeRun`.
+ * which order the steps came and why the run stopped. A step may declare the top-level fields of the state it updates (`writes`), and the runner refuses an update outside them. A fault a step lets escape goes through `guarded`, which asks the failure policy (failure-policy.ts) and gets one of: rethrow, end the run for a reason, or degrade (go on from a named step with the fault said on the outcome). Repair loops are not loops in a step: each round is a step of its own, and the step that decides the next one names it with `goto`, so the count of rounds lives in the state's `loops` and the way a loop ends is a pure function with one row per exit. The runner reports each step it passes over, runs or ends on to the recorder. The runner does not turn an end into a result: that is `finalizeRun`.
  */
 
 import type { RunPhase } from "../../domain/run-phase-cursor.ts";

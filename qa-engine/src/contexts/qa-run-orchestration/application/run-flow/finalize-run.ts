@@ -2,7 +2,9 @@
  * How a run ends. `finalizeRun` turns an end (a reason and the facts it carries) into the run's result and does what the reason
  * calls for to the outside, in one fixed order: publish what the decision calls for, prune the working copy once the git write is
  * done, save the run's record, learn from it, say the run is done. Which of these a reason does is END_EFFECTS (run-end.ts); the
- * body here is the same for every end, so a change to what an end does is made once.
+ * body here is the same for every end, so a change to what an end does is made once. It is the only place the run is saved,
+ * published, learned from and pruned: the end a decided run reaches (publication and its failure included) is built by
+ * decided-end.ts and goes through the same body, and a crash goes through it with the evidence the run has (CRASH_EVIDENCE_EFFECTS).
  */
 
 import type { GenerationEndKind } from "@kernel/generation-end.ts";
