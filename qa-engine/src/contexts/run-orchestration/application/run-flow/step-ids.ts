@@ -44,6 +44,7 @@ export const STEP_IDS = [
   "announce-coverage",
   "measure-coverage",
   "regenerate-for-coverage",
+  "regenerate-for-branch-cases",
   "review-tests",
   "review-round",
   "review-correct",

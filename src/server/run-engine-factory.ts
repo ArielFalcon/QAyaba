@@ -93,7 +93,8 @@ import { CodeExecutionStrategy } from "@contexts/test-execution/infrastructure/c
 import { CodeValidationStrategy } from "@contexts/test-execution/infrastructure/code-validation.strategy";
 import { StrykerMutationOracleAdapter } from "@contexts/objective-signal/infrastructure/stryker-mutation-oracle.adapter";
 import { FaultInjectionOracleAdapter } from "@contexts/objective-signal/infrastructure/fault-injection-oracle.adapter";
-import { readFaultCounters } from "@contexts/objective-signal/infrastructure/fault-injection-counter-reader";
+import { countInjectedResponses, readFaultCounters } from "@contexts/objective-signal/infrastructure/fault-injection-counter-reader";
+import { BundleMutationOracleAdapter } from "@contexts/objective-signal/infrastructure/bundle-mutation-oracle.adapter";
 import { NullValueOracleAdapter } from "@contexts/objective-signal/infrastructure/null-value-oracle.adapter";
 import { GitHubPrAdapter } from "@contexts/workspace-and-publication/infrastructure/github-pr.adapter";
 import { GitHubIssueAdapter } from "@contexts/workspace-and-publication/infrastructure/github-issue.adapter";
@@ -675,7 +676,7 @@ export function buildEngineRootDeps(
 
   const codeSandbox = resolveCodeSandbox(deps.env ?? activeEnvironment());
 
-  const coveragePolicy = { mode: app.qa.changeCoverage?.mode ?? "signal", minRatio: app.qa.changeCoverage?.minRatio ?? 0.7 } as const;
+  const coveragePolicy = { mode: app.qa.changeCoverage?.mode ?? "signal", minRatio: app.qa.changeCoverage?.minRatio ?? 0.7, branchCases: app.qa.changeCoverage?.branchCases ?? "regenerate" } as const;
   const intentLock = { mode: app.qa.intentLock?.mode ?? "signal", opacityFlagRatio: app.qa.intentLock?.opacityFlagRatio ?? 0.5 } as const;
 
   const mirrorRoot = deps.mirrorRoot ?? workdirRoot();
@@ -973,6 +974,18 @@ export function buildEngineRootDeps(
     : isCode
       ? new StrykerMutationOracleAdapter(mutationOracleDeps)
       : new FaultInjectionOracleAdapter(runCorruptedFaultInjection, readFaultCounters, app.dev?.baseUrl ?? "");
+  /*
+   * The mutation pass: an e2e app whose value oracle is on re-runs, for each of a few mutants of the changed code in the served
+   * script, the spec files that reached it, once (no retry: a mutant that fails a test once was noticed). Its counters sit beside
+   * the response oracle's.
+   */
+  const mutation = valueOraclePolicy === "off" || isCode
+    ? undefined
+    : new BundleMutationOracleAdapter(
+        ({ dir, baseUrl, namespace, mutant, specFiles }) => runE2E(dir, { baseUrl, namespace, mutant, specFiles, retries: 0 }, e2eExecuteDeps),
+        countInjectedResponses,
+        app.dev?.baseUrl ?? "",
+      );
 
   /*
    * checkout(sha) resolves the real per-run mirrorDir and stages every declared sibling service's
@@ -1047,6 +1060,7 @@ export function buildEngineRootDeps(
      */
     coveragePolicyMode: coveragePolicy.mode,
     coverageMinRatio: coveragePolicy.minRatio,
+    coverageBranchCases: coveragePolicy.branchCases,
     /* The same intentLock that configures the contract check, so the derived policy has one source. */
     intentLock,
     agentTimeoutMs: agentTimeout(run.mode),
@@ -1356,7 +1370,7 @@ export function buildEngineRootDeps(
       : {}),
 
     ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}),
-    objectiveSignal: { collector, oracle },
+    objectiveSignal: { collector, oracle, ...(mutation ? { mutation } : {}) },
     coveragePolicy,
     /* Change-coverage: unknown never blocks publish. */
     assembleChangeCoverage,

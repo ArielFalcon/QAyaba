@@ -8,6 +8,7 @@ import {
 import {
   EFFORT_BY_TIER,
   EFFORT_NO_OP_CLAUSE,
+  EFFORT_PER_BEHAVIOUR,
 } from "@contexts/generation/infrastructure/prompt-builders/task-builders.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
@@ -257,6 +258,14 @@ test("every tier declares its effort as a ceiling that admits the reasoned no-op
     assert.doesNotMatch(effort.text, /\d/, `${tier}: no figure`);
   }
   assert.equal(new Set(DIFF_TIER_NAMES.map((tier) => EFFORT_BY_TIER[tier].text)).size, DIFF_TIER_NAMES.length, "each tier says something of its own");
+});
+
+test("every tier bounds the spec files, one per flow, and asks within each for a test per behaviour the change decides", () => {
+  for (const tier of DIFF_TIER_NAMES) {
+    const { text } = EFFORT_BY_TIER[tier];
+    assert.match(text, /\bspec files?\b/, `${tier}: the bound counts spec files, not tests`);
+    assert.ok(text.includes(EFFORT_PER_BEHAVIOUR), `${tier}: a test per behaviour inside each spec`);
+  }
 });
 
 test("a diff's task carries the effort of its own tier at, below and above each limit, and no other tier's, and every cell is clean", () => {

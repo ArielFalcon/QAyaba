@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
+import { renderBranchGap, renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
 
 /* Enforce-mode regen's coverage-gap renderer. Expected outputs are hand-written against
    ObjectiveSignalPort.measure()'s return shape — `uncovered?: {file; lines: number[]}[]`, no
@@ -81,4 +81,19 @@ test("renderCoverageGap: candidates that hold none of the uncovered lines leave 
   const plain = renderCoverageGap([{ file: "src/a.ts", lines: [40] }]);
   assert.equal(renderCoverageGap([{ file: "src/a.ts", lines: [40] }], 10, [cand("uc-1", "/one", "src/a.ts", 1, 5)]), plain);
   assert.equal(renderCoverageGap([{ file: "src/a.ts", lines: [40] }], 10, []), plain);
+});
+
+test("renderBranchGap: the arms on changed lines no test ran, one line each with where and which arm; nothing when every arm ran", () => {
+  assert.equal(renderBranchGap([]), "");
+  const [heading, ...items] = renderBranchGap([
+    { file: "src/store.ts", line: 57, kind: "if", arm: "else" },
+    { file: "src/store.html", line: 12, kind: "conditional", arm: "false" },
+  ]).split("\n");
+  assert.match(heading!, /:$/, "a heading introduces the list");
+  assert.deepEqual(items, ["- src/store.ts:57 if: else", "- src/store.html:12 conditional: false"]);
+});
+
+test("renderBranchGap: over the max truncates and reports the remainder count", () => {
+  const arms = Array.from({ length: 4 }, (_, i) => ({ file: "src/a.ts", line: i + 1, kind: "if", arm: "else" }));
+  assert.equal(renderBranchGap(arms, 2).split("\n").at(-1), "…and 2 more arm(s)");
 });

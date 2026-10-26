@@ -150,6 +150,7 @@ async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunConte
       workspace,
       /* tested omitted when empty. parentRunId only from /continue, never fabricated. Intra-run regens reuse this same input object. */
       ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
+      ...(state.review.missingCases.length ? { missingCases: state.review.missingCases } : {}),
       ...(resolveTested(state)?.length ? { tested: resolveTested(state) } : {}),
     });
   } catch (pubErr) {
@@ -223,8 +224,8 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
   const { decision, isContextCleanPass } = decidedOf(state);
   const { retries, validation } = state.execution;
   const run = runOf(state);
-  const { coverageRatio, valueScore, mutantCount, killedCount } = state.coverage;
-  const { finalReviewerCorrections, reviewerSignal } = state.review;
+  const { coverageRatio, valueScore, mutantCount, killedCount, branchCoverage, bundleMutation, branchCases } = state.coverage;
+  const { finalReviewerCorrections, reviewerSignal, missingCases } = state.review;
   const { retrievedRuleIds, diffArchetypes, blastRadiusSignal, serviceLinks, contractDrift, crossRepoImpact } = state.grounding;
   const { preExecAmbiguityCatches, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed } = state.generation;
   const loopSignal = await closedLoopSignal(state, ctx);
@@ -241,6 +242,10 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
     /* Real oracle counts when threaded; absent (never a fabricated 0) when the oracle never measured. */
     mutantCount,
     killedCount,
+    ...(branchCoverage ? { branchCoverage } : {}),
+    ...(bundleMutation ? { bundleMutation } : {}),
+    ...(branchCases ? { branchCases } : {}),
+    ...(missingCases.length ? { missingCases } : {}),
     reviewerCorrections: finalReviewerCorrections,
     ...(reviewerSignal !== undefined ? { reviewer: reviewerSignal } : {}),
     /* Publish outcome string, never fabricated when publish() was not called. */

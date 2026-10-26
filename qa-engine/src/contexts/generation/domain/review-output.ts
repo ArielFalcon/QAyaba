@@ -10,7 +10,7 @@
 /* The version of the reviewer's instructions (static role file + assembled output contract). It is
  * stamped into both prompts so a run's verdict can be tied to the wording that produced it. Bump it
  * whenever the reviewer's contract changes. */
-export const REVIEWER_PROMPT_VERSION = 6;
+export const REVIEWER_PROMPT_VERSION = 7;
 
 /* One or two sentences: the durable WHY of the verdict, not an essay. */
 export const REVIEW_RATIONALE_MAX_CHARS = 320;

@@ -54,3 +54,52 @@ test("the change-coverage measurement is a span with its decision, what it count
   assert.equal(span.attributes["qayaba.coverage.mapped_files"], 0);
   assert.equal(span.attributes["qayaba.coverage.unmeasured"], "no-changed-file-mapped");
 });
+
+test("the change-coverage span carries the branches on the changed lines when a decision was seen there, and nothing of them when none was", async () => {
+  const measured = (measurement: NonNullable<Awaited<ReturnType<ObjectiveSignalPort["measure"]>>["measurement"]>) => async () => {
+    const h = traceHarness();
+    const inner: ObjectiveSignalPort = { measure: async () => ({ status: "pass", ratio: 1, measurement }), blocks: () => false };
+    await inPhase(h, "qayaba.phase.coverage", () => new TracedObjectiveSignalPort(inner, h.telemetry).measure(BlastRadius.of(Sha.of("abc1234"), []), "/e2e", "diff"));
+    return h.only("qayaba.coverage.measure").attributes;
+  };
+  const withBranches = await measured({ changedLines: 3, coveredChanged: 3, changedFiles: 1, mappedFiles: 1, changedBranches: 4, takenBranches: 3 })();
+  assert.equal(withBranches["qayaba.coverage.changed_branches"], 4);
+  assert.equal(withBranches["qayaba.coverage.taken_branches"], 3);
+  const without = await measured({ changedLines: 3, coveredChanged: 3, changedFiles: 1, mappedFiles: 1 })();
+  assert.equal("qayaba.coverage.changed_branches" in without, false);
+  assert.equal("qayaba.coverage.taken_branches" in without, false);
+});
+
+test("the change-coverage span says how many mutants were judged and how many a test noticed, and nothing of them when none was judged", async () => {
+  const spanOf = async (result: Awaited<ReturnType<ObjectiveSignalPort["measure"]>>) => {
+    const h = traceHarness();
+    const inner: ObjectiveSignalPort = { measure: async () => result, blocks: () => false };
+    await inPhase(h, "qayaba.phase.coverage", () => new TracedObjectiveSignalPort(inner, h.telemetry).measure(BlastRadius.of(Sha.of("abc1234"), []), "/e2e", "diff"));
+    return h.only("qayaba.coverage.measure").attributes;
+  };
+  const judged = await spanOf({ status: "pass", ratio: 1, bundleMutation: { applied: 3, killed: 2, survived: [{ file: "src/a.ts", line: 1, operator: "negate condition" }] } });
+  assert.equal(judged["qayaba.mutation.applied"], 3);
+  assert.equal(judged["qayaba.mutation.killed"], 2);
+  assert.equal("qayaba.mutation.applied" in (await spanOf({ status: "pass", ratio: 1 })), false);
+});
+
+test("a recount of the change-coverage is its own span with what it counted, and a port that cannot recount stays one that cannot", async () => {
+  const h = traceHarness();
+  const inner: ObjectiveSignalPort = {
+    measure: async () => ({ status: "unknown", ratio: null }),
+    blocks: () => false,
+    recount: async () => ({ status: "pass", ratio: 0.9, uncovered: [], untakenArms: [], measurement: { changedLines: 10, coveredChanged: 9, changedFiles: 1, mappedFiles: 1, changedBranches: 4, takenBranches: 4 } }),
+  };
+
+  const result = await inPhase(h, "qayaba.phase.coverage", () => new TracedObjectiveSignalPort(inner, h.telemetry).recount!(BlastRadius.of(Sha.of("abc1234"), []), "/e2e", "diff", []));
+
+  assert.equal(result?.ratio, 0.9);
+  const span = h.only("qayaba.coverage.recount");
+  assert.equal(span.parentSpanContext?.spanId, h.only("qayaba.phase.coverage").spanContext().spanId);
+  assert.equal(span.attributes["qayaba.coverage.status"], "pass");
+  assert.equal(span.attributes["qayaba.coverage.ratio"], 0.9);
+  assert.equal(span.attributes["qayaba.coverage.changed_lines"], 10);
+  assert.equal(span.attributes["qayaba.coverage.taken_branches"], 4);
+
+  assert.equal(new TracedObjectiveSignalPort({ measure: inner.measure, blocks: inner.blocks }, h.telemetry).recount, undefined);
+});

@@ -44,6 +44,19 @@ test("readV8Coverage: reads every *.json dump under .qa/coverage/<namespace> and
   });
 });
 
+test("readV8Coverage: a dump the given filter leaves out is neither read nor added, and the others are", async () => {
+  await withTmpDir(async (e2eDir) => {
+    const dumpDir = join(e2eDir, ".qa", "coverage", "qa-abc");
+    mkdirSync(dumpDir, { recursive: true });
+    writeFileSync(join(dumpDir, "flows-a-spec-ts-x-0-0.json"), dumpOf([0, 22]));
+    writeFileSync(join(dumpDir, "flows-b-spec-ts-y-0-0.json"), dumpOf([22, 34]));
+
+    const dumps = await readV8Coverage(e2eDir, "qa-abc", ["src/svc.ts"], undefined, undefined, undefined, undefined, undefined, (name) => !name.startsWith("flows-a-"));
+
+    assert.deepEqual(dumps.map((d) => [...(d.get("src/svc.ts") ?? [])]), [[2]]);
+  });
+});
+
 test("readV8Coverage: what comes back is the lines the parse reduced each dump to and nothing of the dump, which the parse is given whole with the changed files", async () => {
   await withTmpDir(async (e2eDir) => {
     const dumpDir = join(e2eDir, ".qa", "coverage", "qa-abc");

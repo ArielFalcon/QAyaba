@@ -1331,7 +1331,11 @@ test("the seed runs the failure capture from an auto fixture", () => {
 test("setup gives a fixtures.ts from the seed that ran the capture from hooks the capture fixture, matching the current seed", () => {
   let after = "";
   const warnings = warningsOf(() => {
-    after = afterEnsure("fixtures.ts", shippedRevision("fixtures.rev-hooks.txt"), (adapter, dir) => adapter.ensureFailureCapture(dir));
+    after = afterEnsure("fixtures.ts", shippedRevision("fixtures.rev-hooks.txt"), (adapter, dir) => {
+      adapter.ensureFailureCapture(dir);
+      adapter.ensureSourceMaps(dir);
+      adapter.ensureMutationFixture(dir);
+    });
   });
   assert.equal(after, readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8"));
   assert.deepEqual(warnings, []);
@@ -1368,4 +1372,83 @@ test("a seed-shaped fixtures.ts whose capture block was edited gets no fixture, 
   assert.equal(after, edited);
   assert.equal(warnings.length, 1);
   assert.match(warnings[0]!, /only the first spec file/);
+});
+
+/* The previous seed's fixtures.ts, byte-for-byte as it shipped: its source maps were fetched without the run's DEV gate credentials. */
+const UNGATED_MAPS_SEED = readFileSync(fileURLToPath(new URL("./__fixtures__/seed-revisions/fixtures.rev-ungated-maps.txt", import.meta.url)), "utf8");
+
+function withFixtures(content: string, run: (dir: string) => void): string {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-maps-"));
+  try {
+    writeFileSync(join(dir, "fixtures.ts"), content);
+    run(dir);
+    return readFileSync(join(dir, "fixtures.ts"), "utf8");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/* The text of `src` between the line of its `opening` marker and the end of its closing marker line. */
+function markedBlock(src: string, opening: string, closing: string): string {
+  const start = src.lastIndexOf("\n", src.indexOf(opening)) + 1;
+  const end = src.indexOf(closing) + closing.length;
+  return src.slice(start, end);
+}
+
+test("ensureSourceMaps: a fixtures.ts still holding the previous seed's source-map code gets the current seed's, call site included", () => {
+  const current = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  const after = withFixtures(UNGATED_MAPS_SEED, (dir) => realAdapter().ensureSourceMaps(dir));
+  assert.equal(markedBlock(after, ">>> qa-source-maps", "// <<< qa-source-maps <<<\n"), markedBlock(current, ">>> qa-source-maps", "// <<< qa-source-maps <<<\n"));
+  assert.match(after, /attachSourceMaps\(entries as unknown as CoverageEntry\[\], page\.request\)/);
+  assert.doesNotMatch(after, /const res = await fetch\(mapUrl\)/);
+});
+
+test("ensureMutationFixture: a fixtures.ts from the seed without the mutation fixture gets it, typed, after the response oracle's; one that has it, or is not shaped like the seed, is left as it is", () => {
+  const current = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  const after = withFixtures(UNGATED_MAPS_SEED, (dir) => realAdapter().ensureMutationFixture(dir));
+  const opening = ">>> qa-mutation-fixture";
+  const closing = "// <<< qa-mutation-fixture <<<\n";
+  assert.equal(markedBlock(after, opening, closing), markedBlock(current, opening, closing));
+  assert.match(after, /_faultInject: void;\n  \/\/ system-owned: do not edit — the orchestrator's mutation pass \(PW_MUTANT\)\.\n  _mutate: void;\n/);
+  assert.ok(after.indexOf("_mutate: [") > after.indexOf("_faultInject: ["), "after the response oracle's fixture");
+
+  assert.equal(withFixtures(current, (dir) => realAdapter().ensureMutationFixture(dir)), current);
+  const own = "export const test = base.extend({});\nexport { expect };\n";
+  assert.equal(withFixtures(own, (dir) => realAdapter().ensureMutationFixture(dir)), own);
+});
+
+test("setup brings a fixtures.ts that is still the previous seed byte-for-byte to the current seed", () => {
+  const current = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  const after = withFixtures(UNGATED_MAPS_SEED, (dir) => {
+    const adapter = realAdapter();
+    adapter.ensureFailureCapture(dir);
+    adapter.ensureSourceMaps(dir);
+    adapter.ensureMutationFixture(dir);
+  });
+  assert.equal(after, current);
+});
+
+test("ensureSourceMaps: the current seed, an edited copy of the previous code and a call site that is not the seed's are each left as they are", () => {
+  const current = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  assert.equal(withFixtures(current, (dir) => realAdapter().ensureSourceMaps(dir)), current);
+
+  const edited = UNGATED_MAPS_SEED.replace("const res = await fetch(mapUrl);", "const res = await fetch(mapUrl, { cache: \"no-store\" });");
+  assert.notEqual(edited, UNGATED_MAPS_SEED);
+  assert.equal(withFixtures(edited, (dir) => realAdapter().ensureSourceMaps(dir)), edited);
+
+  const ownCall = UNGATED_MAPS_SEED.replace("await attachSourceMaps(entries as unknown as CoverageEntry[]);", "await attachSourceMaps(entries as never);");
+  assert.equal(withFixtures(ownCall, (dir) => realAdapter().ensureSourceMaps(dir)), ownCall);
+});
+
+test("setup upgrades the source-map code of an existing project before it installs", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-maps-"));
+  try {
+    for (const name of ["package.json", "package-lock.json"]) writeFileSync(join(dir, name), "{}");
+    writeFileSync(join(dir, "fixtures.ts"), UNGATED_MAPS_SEED);
+    const runner = fakeRunner(async () => okResult());
+    await new SetupAdapter({ fs: nodeFsDeps, runner, seedDir: REAL_SEED_DIR }).setup(dir).catch(() => undefined);
+    assert.match(readFileSync(join(dir, "fixtures.ts"), "utf8"), /page\.request\)/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

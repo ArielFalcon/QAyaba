@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { diffWithoutTestFiles } from "@contexts/generation/domain/diff-without-test-files.ts";
+import { diffWithoutTestFiles } from "@kernel/diff-parser/diff-without-test-files.ts";
 
 const section = (path: string, body: string) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n${body}\n`;
 

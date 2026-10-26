@@ -4,7 +4,7 @@
  * is the language registry's. Pure.
  */
 import { LanguageRegistry } from "@kernel/language-id.ts";
-import { diffGitHeaderPath } from "@kernel/diff-parser/diff-parser.service.ts";
+import { diffGitHeaderPath } from "./diff-parser.service.ts";
 
 export function diffWithoutTestFiles(diff: string): { diff: string; testFiles: string[] } {
   const sections = diff.split(/^(?=diff --git )/m);

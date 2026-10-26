@@ -23,7 +23,7 @@ const WRITERS: Record<string, Record<string, readonly string[]>> = {
   coverage: {
     withAcceptanceCalls: ["run-flow/phases/coverage.steps.ts", "run-flow/phases/review.steps.ts"],
     acceptedRegeneration: ["run-flow/phases/coverage.steps.ts", "run-flow/phases/review.steps.ts"],
-    remeasured: ["run-flow/phases/review.steps.ts"],
+    remeasured: ["run-flow/phases/coverage.steps.ts", "run-flow/phases/review.steps.ts"],
   },
   generation: {
     mergeDelivered: ["run-flow/phases/generate.steps.ts", "run-flow/phases/generation-services.ts"],

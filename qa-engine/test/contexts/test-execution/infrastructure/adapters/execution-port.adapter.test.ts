@@ -19,13 +19,14 @@ import type { E2eExecuteOptions } from "@contexts/test-execution/infrastructure/
 const E2E_EXECUTE_OPTIONS_ALL_FIELDS = {
   baseUrl: true, namespace: true, onCase: true, onRunning: true, onDiscovered: true,
   faultInject: true, signal: true, timeoutMs: true, project: true, testIdAttribute: true,
-  specFiles: true, retries: true, grep: true, countWrites: true, cleanupPass: true, faultOperations: true,
+  specFiles: true, retries: true, grep: true, countWrites: true, cleanupPass: true, faultOperations: true, mutant: true,
 } satisfies Record<keyof E2eExecuteOptions, true>;
 
 const E2E_EXECUTE_OPTIONS_ALLOWLIST: Record<string, string> = {
   baseUrl: "held as ExecutionPortStaticContext (constructor-time, not per-call) — carried through ctx.baseUrl, asserted by the dispatch tests below, not a drop.",
   namespace: "held as ExecutionPortStaticContext (constructor-time, overridable per-call via opts.namespace) — asserted by the dispatch/override tests below, not a drop.",
   cleanupPass: "a dedicated cleanup pass is a separate call to runE2E (scripts/campaign.ts); a pipeline run's execution is never one, so the port has nothing to map.",
+  mutant: "the mutation pass is a separate call to runE2E by the value oracle (like the response oracle's corrupted re-run); a pipeline run's execution never carries a mutant, so the port has nothing to map.",
 };
 
 test("E2eExecuteOptions' own field list matches the allowlist + ExecutionPortAdapter's mapped set exactly (retired seam-parity block (c))", () => {

@@ -11,7 +11,7 @@ import type { PlanningLimits } from "@kernel/coordination.ts";
 import { candidateLine } from "@kernel/use-case-candidate.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
-import { diffWithoutTestFiles } from "@contexts/generation/domain/diff-without-test-files.ts";
+import { diffWithoutTestFiles } from "@kernel/diff-parser/diff-without-test-files.ts";
 import type { MilestoneOutcome, StepMilestone } from "@contexts/generation/domain/step-limit.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 import type { OpencodeRunInput } from "../../domain/opencode-run-input.ts";

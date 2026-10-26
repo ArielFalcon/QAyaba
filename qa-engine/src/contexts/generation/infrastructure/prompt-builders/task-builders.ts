@@ -284,7 +284,7 @@ export interface TaskGuards {
   reaskObjective: boolean;
 }
 
-/* What a diff of each size asks of the agent. The effort is a ceiling on the work and never a floor: no tier asks for a spec, and declaring the no-op, for either of its reasons, is within every bound. `upperBound` counts focused specs for the whole change, or for each affected flow. The texts carry no figure and no word the lint counts, so the line adds nothing to the directive budget and declares no claim. */
+/* What a diff of each size asks of the agent. The effort is a ceiling on the work and never a floor: no tier asks for a spec, and declaring the no-op, for either of its reasons, is within every bound. `upperBound` counts spec files (a flow each) for the whole change, or for each affected flow; inside each, a test per behaviour the change decides. The texts carry no figure and no word the lint counts, so the line adds nothing to the directive budget and declares no claim. */
 export interface EffortTier {
   upperBound: { specs: number; per: "change" | "flow" };
   admitsNoOp: true;
@@ -297,12 +297,14 @@ export const NO_OP_REASONS = {
   devCannotShow: "cannot be observed on DEV in its current state",
 } as const;
 export const EFFORT_NO_OP_CLAUSE = `or none if ${NO_OP_REASONS.nothingWorthATest} or the change ${NO_OP_REASONS.devCannotShow}`;
-const effortText = (tier: DiffTier, bound: string): string => `Expected effort (${tier} change): at most ${bound}, ${EFFORT_NO_OP_CLAUSE}.`;
+/* What each spec file holds: the change's own decisions, not its happy path alone. */
+export const EFFORT_PER_BEHAVIOUR = "each with a test per behaviour the change decides";
+const effortText = (tier: DiffTier, bound: string): string => `Expected effort (${tier} change): at most ${bound}, ${EFFORT_PER_BEHAVIOUR}, ${EFFORT_NO_OP_CLAUSE}.`;
 
 export const EFFORT_BY_TIER: Record<DiffTier, EffortTier> = {
-  tiny: { upperBound: { specs: 2, per: "change" }, admitsNoOp: true, text: effortText("tiny", "one or two focused specs") },
-  focused: { upperBound: { specs: 4, per: "change" }, admitsNoOp: true, text: effortText("focused", "a few focused specs for the affected flows") },
-  broad: { upperBound: { specs: 1, per: "flow" }, admitsNoOp: true, text: effortText("broad", "one focused spec per affected flow, not a suite rewrite") },
+  tiny: { upperBound: { specs: 2, per: "change" }, admitsNoOp: true, text: effortText("tiny", "one or two spec files") },
+  focused: { upperBound: { specs: 4, per: "change" }, admitsNoOp: true, text: effortText("focused", "a few spec files for the affected flows") },
+  broad: { upperBound: { specs: 1, per: "flow" }, admitsNoOp: true, text: effortText("broad", "one spec file per affected flow, not a suite rewrite") },
 };
 
 /* The change's real size, from the changed files and the diff's own lines. */

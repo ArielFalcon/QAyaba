@@ -59,12 +59,14 @@ export interface PublicationRenderCollaborator {
     adjudication?: { class: string; confidence: string; reason: string };
     causal?: CausalLabelView;
     reviewerNote?: string;
+    missingCases?: readonly string[];
   }): string;
   prBody(input: {
     sha?: string;
     isCode: boolean;
     tested?: { flow?: string; objective?: string }[];
     parentRunId?: string;
+    missingCases?: readonly string[];
   }): string;
 }
 
@@ -137,6 +139,7 @@ export class PublicationPortAdapter implements PublicationPort {
     workspace?: WorkspaceHandle;
     tested?: { flow?: string; objective?: string }[];
     parentRunId?: string;
+    missingCases?: readonly string[];
   }): Promise<{ outcome: string; revertedDenylisted?: string[]; revertedDangerous?: string[] }> {
     /* A handle this registry did not issue throws here, on every route, before anything is rendered or sent. */
     const workspace = decision.workspace ? this.registry.resolve(decision.workspace) : undefined;
@@ -161,6 +164,7 @@ export class PublicationPortAdapter implements PublicationPort {
           ...(decision.adjudication ? { adjudication: decision.adjudication } : {}),
           ...(decision.causal ? { causal: decision.causal } : {}),
           ...(decision.reviewerNote ? { reviewerNote: decision.reviewerNote } : {}),
+          ...(decision.missingCases?.length ? { missingCases: decision.missingCases } : {}),
         }),
       );
     const prBodyText = (): string =>
@@ -170,6 +174,7 @@ export class PublicationPortAdapter implements PublicationPort {
           isCode: workspace?.isCode ?? this.ctx.isCode ?? false,
           ...(decision.tested?.length ? { tested: decision.tested } : {}),
           ...(decision.parentRunId ? { parentRunId: decision.parentRunId } : {}),
+          ...(decision.missingCases?.length ? { missingCases: decision.missingCases } : {}),
         }),
       );
     /* Issues open in the triggering repo when supplied; PRs always target ctx.repo (primary). */

@@ -1,34 +1,28 @@
 /* src/contexts/objective-signal/infrastructure/v8-browser-coverage.adapter.ts CoverageCollectorPort over V8/Chromium browser coverage dumps (.json files in .qa/coverage/<ns>/). The missing DI seam: the read of the dumps is injected (no hard-coded readdirSync/readFileSync), so this is unit-testable without disk and fail-open by contract (no dumps → empty report, never a throw). The injected read hands back what each dump covers (the lines of the changed files), not the dump: a dump holds every script a page loaded with its source map, megabytes of it, and the dumps of a suite are many, so each is reduced as it is read and none is kept.
    A dump is written by code the agent wrote, so what decoding it costs is bounded by its size and never by how its numbers are chosen: ranges that each cover the whole script, a script of nothing but line breaks or a source map of a million segments cost the script's length or the dump's size, once, and a dump past a bound is not decoded at all. How fast the segments of a source map decode still varies with their shape (a fifth of the usual speed on a map made to be slow), so the decoding is also asked, as it goes, whether the time it was given is spent (`TimeSpent`), and stops when it is. */
 import type { CoverageCollectorPort } from "../application/ports/coverage-collector.port.ts";
-import type { CoverageReport, CoverageScripts } from "../domain/coverage-collector.ts";
-
-interface RawSourceMap {
-  version?: number;
-  sources: string[];
-  sourcesContent?: (string | null)[];
-  mappings: string;
-  sourceRoot?: string;
-}
-
-interface V8Range {
-  startOffset: number;
-  endOffset: number;
-  count: number;
-}
-
-export interface V8Entry {
-  url?: string;
-  source?: string;
-  functions?: Array<{ ranges?: V8Range[] }>;
-  map?: RawSourceMap;
-}
+import type { CoverageReport, CoverageScripts, DumpSource } from "../domain/coverage-collector.ts";
+import { isDumpOfSpecFile } from "../domain/dump-names.ts";
+import { BranchSink } from "./v8-branch-coverage.ts";
+import {
+  MAX_V8_COVERED_LINES_PER_FILE,
+  MAX_V8_SCRIPT_LINES,
+  decodeMappings,
+  lineStartOffsets,
+  type MappingSegment,
+  type RawSourceMap,
+  type TimeSpent,
+  type V8Entry,
+  type V8Range,
+} from "./v8-source-map.ts";
+export { MAX_V8_COVERED_LINES_PER_FILE, MAX_V8_SCRIPT_LINES, decodeMappings, lineStartOffsets };
+export type { MappingSegment, RawSourceMap, TimeSpent, V8Entry, V8Range };
 
 /* What one dump covers: the lines (1-based) of each changed file that a script of the dump ran. */
 export type CoveredLines = Map<string, Set<number>>;
 
-/* Reads the dumps of a namespace and reduces each to the lines of `changedFiles` it covers, one dump at a time. */
-export type ReadV8Coverage = (specDir: string, namespace: string, changedFiles: string[], scripts?: CoverageScripts) => Promise<CoveredLines[]>;
+/* Reads the dumps of a namespace (those `keep` accepts by name, when given) and reduces each to the lines of `changedFiles` it covers, one dump at a time; `branches`, when given, is added the decisions of the changed files each dump ran. */
+export type ReadV8Coverage = (specDir: string, namespace: string, changedFiles: string[], scripts?: CoverageScripts, branches?: BranchSink, keep?: (name: string) => boolean) => Promise<CoveredLines[]>;
 
 export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
   constructor(
@@ -37,8 +31,18 @@ export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
   ) {}
 
   async collect(specDir: string, namespace: string, changedFiles?: string[]): Promise<CoverageReport> {
+    return this.recollect(specDir, [{ namespace }], changedFiles);
+  }
+
+  /* The dumps of each source, read into one sink as one collection: an arm taken in any of them is taken. */
+  async recollect(specDir: string, sources: readonly DumpSource[], changedFiles?: string[]): Promise<CoverageReport> {
     const scripts: CoverageScripts = { total: 0, withSourceMap: 0 };
-    const dumps = await this.readCoverage(specDir, namespace, changedFiles ?? this.changedFiles, scripts);
+    const branches = new BranchSink();
+    const dumps: CoveredLines[] = [];
+    for (const { namespace, exceptSpecFiles = [] } of sources) {
+      const keep = exceptSpecFiles.length === 0 ? undefined : (name: string) => !exceptSpecFiles.some((file) => isDumpOfSpecFile(name, file));
+      dumps.push(...(await this.readCoverage(specDir, namespace, changedFiles ?? this.changedFiles, scripts, branches, keep)));
+    }
     const merged = new Map<string, Set<number>>();
     for (const covered of dumps) {
       for (const [file, lines] of covered) {
@@ -47,83 +51,19 @@ export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
         merged.set(file, set);
       }
     }
-    return { covered: [...merged].map(([file, lines]) => ({ file, lines: [...lines] })), scripts };
-  }
-}
-
-/* A script an app serves has some lines per kilobyte at the most, and a file of its sources some hundreds of thousands of lines: past these a dump is not decoded, which leaves the set of dumps unused. */
-export const MAX_V8_SCRIPT_LINES = 1_000_000;
-export const MAX_V8_COVERED_LINES_PER_FILE = 1_000_000;
-
-const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-/* The numbers of one segment of a source map: base-64 digits of five bits each, the sixth bit saying that another digit follows and the lowest bit of the whole saying that the number is negative. A character that is no digit is skipped. */
-function decodeVlq(segment: string): number[] {
-  const result: number[] = [];
-  let shift = 0;
-  let value = 0;
-  for (const ch of segment) {
-    const digit = B64.indexOf(ch);
-    if (digit === -1) continue;
-    const hasContinuation = digit & 32;
-    value += (digit & 31) << shift;
-    if (hasContinuation) {
-      shift += 5;
-    } else {
-      const negate = value & 1;
-      value >>= 1;
-      result.push(negate ? -value : value);
-      value = 0;
-      shift = 0;
-    }
-  }
-  return result;
-}
-
-/* Where a segment of a source map starts in the generated script, and the line of the source it comes from. */
-interface MappingSegment {
-  genLine: number;
-  genCol: number;
-  sourceIndex: number;
-  origLine: number;
-}
-
-const SEMICOLON = 59;
-const COMMA = 44;
-
-/* The segments of a source map's `mappings`, one at a time and in one pass over the string: none is kept, and no list of lines or of segments is made, however many there are. A segment of four fields or five (the fifth is the index of a name) maps; one of fewer only moves the column. The column of the source is not kept: nothing here asks for it. */
-function* decodeMappings(mappings: string): Generator<MappingSegment> {
-  let sourceIndex = 0;
-  let origLine = 0;
-  let genLine = 0;
-  let genCol = 0;
-  let segmentStart = 0;
-  for (let at = 0; at <= mappings.length; at++) {
-    const code = at < mappings.length ? mappings.charCodeAt(at) : SEMICOLON;
-    if (code !== COMMA && code !== SEMICOLON) continue;
-    const fields = decodeVlq(mappings.slice(segmentStart, at));
-    if (fields.length > 0) {
-      genCol += fields[0]!;
-      if (fields.length >= 4) {
-        sourceIndex += fields[1]!;
-        origLine += fields[2]!;
-        yield { genLine, genCol, sourceIndex, origLine };
-      }
-    }
-    segmentStart = at + 1;
-    if (code === SEMICOLON) {
-      genLine += 1;
-      genCol = 0;
-    }
+    /* Branches only beside a measurement: with no dump used there is nothing they could be a part of. */
+    const decisions = dumps.length > 0 ? branches.result() : undefined;
+    const sites = dumps.length > 0 ? branches.mutationSites() : undefined;
+    return { covered: [...merged].map(([file, lines]) => ({ file, lines: [...lines] })), scripts, ...(decisions ? { branches: decisions } : {}), ...(sites ? { mutationSites: sites } : {}) };
   }
 }
 
 /* A source of a map as a path to match against the changed files: the map's source root put before it, with one separator between. What is before the repository's own path (a scheme, `../`, `./`, a separator) needs no taking off, since a path is matched to a changed file by its end. */
-function sourcePathOf(source: string, sourceRoot?: string): string {
+export function sourcePathOf(source: string, sourceRoot?: string): string {
   return sourceRoot ? sourceRoot.replace(/\/$/, "") + "/" + source.replace(/^\//, "") : source;
 }
 
-function resolveUrlToRepoFile(url: string, changedFiles: string[]): string | null {
+export function resolveUrlToRepoFile(url: string, changedFiles: string[]): string | null {
   let path: string;
   try { path = new URL(url).pathname; } catch { path = url; }
   path = path.replace(/\\/g, "/").replace(/^\/+/, "");
@@ -137,19 +77,6 @@ function resolveUrlToRepoFile(url: string, changedFiles: string[]): string | nul
     }
   }
   return best;
-}
-
-/* Where each line of a script starts. The count is bounded before the list is made: a script of nothing but line breaks would otherwise make a list of its own length. */
-function lineStartOffsets(source: string): Int32Array {
-  let count = 1;
-  for (let at = source.indexOf("\n"); at !== -1; at = source.indexOf("\n", at + 1)) {
-    count += 1;
-    if (count > MAX_V8_SCRIPT_LINES) throw new RangeError();
-  }
-  const starts = new Int32Array(count);
-  let line = 1;
-  for (let at = source.indexOf("\n"); at !== -1; at = source.indexOf("\n", at + 1)) starts[line++] = at + 1;
-  return starts;
 }
 
 /* The bytes of a script that ran. The ranges are in the order V8 reported them and a later one decides a byte over the ones before it wherever they overlap. Taken from the last back, the first range to reach a byte is the one that decides it, and `next` skips the bytes already decided, so every byte is decided once and the work is the script's length plus the number of ranges, however the ranges overlap. A range with an offset that is not a whole number reaches no byte. */
@@ -194,9 +121,6 @@ function linesThatRan(ran: Uint8Array, starts: Int32Array): number[] {
   return lines;
 }
 
-/* Whether the time the decoding was given is spent. It is asked as the decoding goes, so that a dump made to be slow to decode costs that time at the most and not what its numbers say. */
-export type TimeSpent = () => boolean;
-
 /* How many segments of a source map are decoded between two looks at the time: a millisecond or so of decoding, however the map is made. */
 const SEGMENTS_BETWEEN_LOOKS_AT_THE_TIME = 4096;
 
@@ -214,8 +138,8 @@ function coverOriginalLines(map: RawSourceMap, files: ReadonlyArray<string | nul
   }
 }
 
-/* What the entries of one dump cover of the changed files; `scripts`, when given, is added the scripts the dump held and the ones that carried a source map. A script is reduced only when it is a changed file or maps to one. Throws on a dump that cannot be decoded within the bounds above, or before the time `spent` speaks of is. */
-export function defaultParseV8Coverage(entries: V8Entry[], changedFiles: string[], spent?: TimeSpent, scripts?: CoverageScripts): Map<string, Set<number>> {
+/* What the entries of one dump cover of the changed files; `scripts`, when given, is added the scripts the dump held and the ones that carried a source map, and `branches` the decisions of the changed files they hold with what of them ran. A script is reduced only when it is a changed file or maps to one. Throws on a dump that cannot be decoded within the bounds above, or before the time `spent` speaks of is. */
+export function defaultParseV8Coverage(entries: V8Entry[], changedFiles: string[], spent?: TimeSpent, scripts?: CoverageScripts, branches?: BranchSink): Map<string, Set<number>> {
   const out = new Map<string, Set<number>>();
   /* The one place a covered line is kept: the lines of a file are bounded however many scripts and segments claim them. */
   const cover = (file: string, line: number): void => {
@@ -246,6 +170,7 @@ export function defaultParseV8Coverage(entries: V8Entry[], changedFiles: string[
     const starts = lineStartOffsets(source);
     if (directFile) for (const line of linesThatRan(ran, starts)) cover(directFile, line);
     else coverOriginalLines(map!, files, starts, ran, cover, spent);
+    branches?.add(entry, directFile, files, spent);
   }
   return out;
 }

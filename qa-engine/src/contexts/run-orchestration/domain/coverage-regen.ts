@@ -21,3 +21,23 @@ export const MAX_COVERAGE_REGENERATIONS = 1;
 export function coverageRegenAction({ measured, blocks, perCommit, regenerated }: CoverageRegenInput): CoverageRegenAction {
   return measured && blocks && perCommit && regenerated < MAX_COVERAGE_REGENERATIONS ? "regenerate" : "keep";
 }
+
+export type BranchCasesAction = "regenerate" | "keep";
+
+export interface BranchCasesInput {
+  /** The run executed green, so there is a measurement to act on. */
+  measured: boolean;
+  /** The measurement blocks publication: the coverage regeneration then carries the same arms in its gap. */
+  blocks: boolean;
+  /** Only a per-commit diff run on one repo has a real signal to repair. */
+  perCommit: boolean;
+  /** The branch cases are configured on. */
+  enabled: boolean;
+  /** The arms of the changed code no test ran. */
+  untakenArms: number;
+}
+
+/* The one regeneration from the arms no test ran: it never blocks, so it runs only where the coverage regeneration does not and only with arms to cover. The step runs once per run. */
+export function branchCasesAction({ measured, blocks, perCommit, enabled, untakenArms }: BranchCasesInput): BranchCasesAction {
+  return measured && perCommit && !blocks && enabled && untakenArms > 0 ? "regenerate" : "keep";
+}

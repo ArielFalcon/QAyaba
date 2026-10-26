@@ -109,7 +109,17 @@ the same label as the changed one: it stays green whether the change works or no
 Under `e2e/`, create or update `*.spec.ts` files. **Consult the
 `playwright-authoring` skill** for the how (locators, waiting, fixtures) and for
 this app's capabilities: authentication, geolocation, mobile/offline,
-cookies/cache, file upload. Each test must:
+cookies/cache, file upload.
+
+**Which tests.** A spec covers one flow. Inside it, write one test per behaviour the changed
+code decides on that flow: the outcome when it succeeds, and each other state the change handles
+(an error message, an empty result, a rejected input, a missing permission) that the page can be
+brought to through the UI against DEV. The diff shows those decisions. A state the change does not
+handle, or one only a mocked network could provoke (a server failure), is not a case.
+When your task is a brief, each of its acceptance criteria is one behaviour the change decides: give it a
+test of its own in your spec, so a criterion that fails names its test.
+
+Each test must:
 
 - **Use only selectors verified in step 2** — never invent selectors.
 - **Import the repo's shared harness**: `import { test, expect, ns } from

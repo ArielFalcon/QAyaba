@@ -9,10 +9,11 @@ import { assemble, type AssembledPrompt } from "./context-assembler.ts";
 import { derivePromptContext, withAssembly, type Assembly, type BuildPromptAssembledOpts } from "./generator-context.ts";
 import { GENERATOR_SECTIONS, SUITE_LISTING_SECTION_ID } from "./generator-sections.ts";
 import { renderSections } from "./prompt-sections.ts";
-import { REVIEWER_SECTIONS, deriveReviewerContext } from "./reviewer-sections.ts";
+import { REVIEWER_MISSING_CASES_SECTION_ID, REVIEWER_SECTIONS, deriveReviewerContext } from "./reviewer-sections.ts";
 
 export type { AssembledPrompt };
 export { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES };
+export { REVIEWER_MISSING_CASES_SECTION_ID };
 export { AGENT_BROWSER_SECTION_ID, CLOSED_LOOP_SECTION_ID, GEOLOCATION_SECTION_ID, LEAD_PLAN_SECTION_ID };
 
 export function specFileForFlow(flow: string): string {

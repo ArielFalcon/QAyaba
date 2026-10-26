@@ -35,6 +35,10 @@ export interface OutcomeExtras {
   /* Same "never ran" (absent) vs "ran and found zero" distinction as the sibling counts below. */
   mutantCount?: number;
   killedCount?: number;
+  branchCoverage?: RunOutcome["gateSignals"]["branchCoverage"];
+  bundleMutation?: RunOutcome["gateSignals"]["bundleMutation"];
+  branchCases?: RunOutcome["gateSignals"]["branchCases"];
+  missingCases?: string[];
   note?: string;
   rulesRetrieved?: string[];
   diffArchetypes?: string[];
@@ -176,6 +180,10 @@ export function toRunOutcome(
       /* Conditional-spread, not `?? 0`: absent means the oracle never measured this run. */
       ...(extra?.mutantCount !== undefined ? { mutantCount: extra.mutantCount } : {}),
       ...(extra?.killedCount !== undefined ? { killedCount: extra.killedCount } : {}),
+      ...(extra?.branchCoverage ? { branchCoverage: extra.branchCoverage } : {}),
+      ...(extra?.bundleMutation ? { bundleMutation: extra.bundleMutation } : {}),
+      ...(extra?.branchCases ? { branchCases: extra.branchCases } : {}),
+      ...(extra?.missingCases?.length ? { missingCases: extra.missingCases } : {}),
       reviewerCorrections: extra?.reviewerCorrections ?? [],
       /* Conditional-spread: true undefined survives when no reviewer-unavailable rationale exists. */
       ...(extra?.reviewerRationale !== undefined ? { reviewerRationale: extra.reviewerRationale } : {}),

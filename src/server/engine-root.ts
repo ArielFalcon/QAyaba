@@ -63,7 +63,7 @@ import type { E2eExecutionStrategy } from "@contexts/test-execution/infrastructu
 import type { CodeExecutionStrategy } from "@contexts/test-execution/infrastructure/code-execution.strategy";
 import type { CodeValidationStrategy } from "@contexts/test-execution/infrastructure/code-validation.strategy";
 import type { CoveragePolicy, ChangeCoverage } from "@contexts/objective-signal/application/index";
-import type { CoverageCollectorPort, ValueOraclePort } from "@contexts/objective-signal/application/index";
+import type { BundleMutationPort, CoverageCollectorPort, ValueOraclePort } from "@contexts/objective-signal/application/index";
 import type { VcsReadPort } from "@contexts/change-analysis/application/index";
 import type { LearningRepositoryPort, ReflectorPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/index";
 
@@ -91,6 +91,8 @@ export interface EngineRootDeps {
   coveragePolicyMode: "off" | "signal" | "enforce";
   /* The change-coverage threshold of the same policy; recorded with the run's coverage decision. */
   coverageMinRatio?: number;
+  /* The branch cases of the same policy: one regeneration from the arms of the changed code no test ran. Absent: off. */
+  coverageBranchCases?: "regenerate" | "off";
   /* The test-intent lock (off | signal | enforce) plus the opacity ratio it flags. Absent: signal, 0.5. */
   intentLock?: { mode: "off" | "signal" | "enforce"; opacityFlagRatio: number };
   /* Per-mode agent session budget (ms). Factory maps agentTimeout(mode). Optional: omitted fakes keep the use-case default (0 = derived but not enforced). */
@@ -219,6 +221,8 @@ export interface EngineRootDeps {
   objectiveSignal: {
     collector: Pick<CoverageCollectorPort, "collect">;
     oracle: Pick<ValueOraclePort, "measure">;
+    /* The mutation pass over the served script; absent when the value oracle is off or the target has no browser. */
+    mutation?: BundleMutationPort;
   };
   coveragePolicy: CoveragePolicy;
   assembleChangeCoverage?: (diff: string, report: Awaited<ReturnType<CoverageCollectorPort["collect"]>>) => ChangeCoverage;
@@ -429,6 +433,7 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
   const objectiveSignalApi = buildObjectiveSignal({
     collector: cfg.objectiveSignal.collector,
     oracle: cfg.objectiveSignal.oracle,
+    ...(cfg.objectiveSignal.mutation ? { mutation: cfg.objectiveSignal.mutation } : {}),
     policy: cfg.coveragePolicy,
     repoDir: cfg.mirrorDir,
     /* Same per-run namespace ExecutionPortAdapter uses (`cfg.branch`) so coverage dumps are read from the directory execution wrote. */
@@ -536,6 +541,7 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
       isCode: cfg.isCode,
       coveragePolicyMode: cfg.coveragePolicyMode,
       ...(cfg.coverageMinRatio !== undefined ? { coverageMinRatio: cfg.coverageMinRatio } : {}),
+      ...(cfg.coverageBranchCases !== undefined ? { coverageBranchCases: cfg.coverageBranchCases } : {}),
       ...(cfg.intentLock !== undefined ? { intentLock: cfg.intentLock } : {}),
       ...(cfg.agentTimeoutMs !== undefined ? { agentTimeoutMs: cfg.agentTimeoutMs } : {}),
       ...(cfg.wallClockBudgetMs !== undefined ? { wallClockBudgetMs: cfg.wallClockBudgetMs } : {}),

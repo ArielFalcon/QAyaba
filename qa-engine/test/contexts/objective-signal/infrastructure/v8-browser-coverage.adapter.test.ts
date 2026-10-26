@@ -59,3 +59,18 @@ test("the report says how many scripts the dumps held and how many carried a sou
 
   assert.deepEqual(report.scripts, { total: 7, withSourceMap: 0 });
 });
+
+test("a recollection adds the dumps of several namespaces into one report, leaving out of each the dumps of the spec files it excludes", async () => {
+  const dumps: Record<string, Array<[string, CoveredLines]>> = {
+    base: [
+      ["flows-a-spec-ts-x-0-0.json", covers(["src/svc.ts", [1, 2]])],
+      ["flows-b-spec-ts-y-0-0.json", covers(["src/svc.ts", [3]])],
+    ],
+    acc: [["flows-a-spec-ts-x-0-0.json", covers(["src/svc.ts", [7]])]],
+  };
+  const adapter = new V8BrowserCoverageAdapter(async (_dir, namespace, _files, _scripts, _branches, keep) => (dumps[namespace] ?? []).filter(([name]) => keep?.(name) ?? true).map(([, c]) => c), CHANGED_FILES);
+
+  const report = await adapter.recollect("/e2e", [{ namespace: "base", exceptSpecFiles: ["flows/a.spec.ts"] }, { namespace: "acc" }]);
+
+  assert.deepEqual(report.covered.map((c) => [c.file, [...c.lines].sort((a, b) => a - b)]), [["src/svc.ts", [3, 7]]], "the rewritten spec counts only from its new run");
+});

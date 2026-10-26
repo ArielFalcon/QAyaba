@@ -9,7 +9,7 @@ import { renderSpecChanges, sameReviewedSpecs, type ReviewSpecText } from "@cont
 import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
 import type { SpecRoot } from "@kernel/ports/spec-files.port.ts";
 import { precheckSpecsAgainstDom } from "@contexts/generation/application/index.ts";
-import { citedSpec, filterReviewFindings } from "../../../domain/review-finding-filter.service.ts";
+import { citedSpec, filterReviewFindings, takeMissingCases } from "../../../domain/review-finding-filter.service.ts";
 import { verifyRebuttals, findingKey } from "../../../domain/review-rebuttals.service.ts";
 import { MAX_REVIEW_ROUNDS, reviewAction } from "../../../domain/review-action.ts";
 import type { ReviewPort } from "@contexts/generation/application/index.ts";
@@ -22,6 +22,7 @@ import { liveExecutionOptions, executeAccepted, validateAccepted } from "./execu
 import { reviewRequired } from "../../../domain/review-required.ts";
 import { closedLoopSignal, contractFindingText, correctThroughLead, mayCorrectThroughLead, regenerateByAuthor } from "./generation-services.ts";
 import { resolveTested } from "./fix-loop.steps.ts";
+import { branchCoverageOf } from "./coverage.steps.ts";
 import { addReviewStats, annotateReviewPhase, newReviewTally, readReviewedSpecs, rebuttalEvidence, recordReviewDecision } from "./review-services.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
@@ -89,6 +90,10 @@ export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunCo
     reviewerApproved: true,
     /* Stays [] when the review loop never runs — never fabricated. */
     finalReviewerCorrections: [],
+    /* The reviewer's missing cases, each once across the rounds. */
+    missingCases: [],
+    /* The arms no test ran describe the bytes under review until the review accepts a regeneration of its own. */
+    armsCurrent: state.coverage.untakenArmsCurrent && state.coverage.untakenArms.length > 0,
     previousRoundCorrections: undefined,
     /* The blocking count that produced the previous rejection, so a skipped round reports it unchanged. */
     previousRoundBlocking: undefined,
@@ -209,6 +214,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
         ...(specChanges ? { specChanges } : {}),
         ...(reviewDomSnapshot ? { domSnapshot: reviewDomSnapshot } : {}),
         ...(existingSpecFiles.length ? { existingSpecFiles } : {}),
+        ...(session.armsCurrent ? { untakenArms: state.coverage.untakenArms } : {}),
         /* The run's own execution of the specs under review: the reviewer weighs a 5xx or a redirect against the test instead of guessing. */
         ...(reviewCases.length > 0 ? { executionEvidence: { verdict: run.verdict, cases: reviewCases } } : {}),
       });
@@ -217,6 +223,28 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
     }
   }
   reviewStats.rounds++;
+  /* The missing cases the reviewer cites from the arms no test ran are taken out first, whatever the integrity switch: recorded and shown, never a requirement or a gate. */
+  if (decidedBy === "model" && reviewResult.citations?.some((citation) => citation?.kind === "arm")) {
+    const cited = reviewResult.corrections.map((text, index) => ({
+      text,
+      severity: reviewResult.severities?.[index] ?? ("blocking" as const),
+      ...(reviewResult.citations?.[index] ? { citation: reviewResult.citations[index]! } : {}),
+    }));
+    const untakenArmRefs = session.armsCurrent ? new Set(state.coverage.untakenArms.map((u) => `${u.file}:${u.line}`)) : new Set<string>();
+    const taken = takeMissingCases(cited, untakenArmRefs);
+    for (const text of taken.missingCases) if (!session.missingCases.includes(text)) session.missingCases.push(text);
+    const blocking = taken.rest.filter((f) => f.severity === "blocking").length;
+    const restedOnArms = cited.some((f) => f.citation?.kind === "arm" && f.severity === "blocking");
+    reviewResult = {
+      ...reviewResult,
+      /* A rejection that rested only on missing cases is no rejection. */
+      approved: reviewResult.approved || (restedOnArms && blocking === 0),
+      corrections: taken.rest.map((f) => f.text),
+      severities: taken.rest.map((f) => f.severity),
+      citations: taken.rest.map((f) => f.citation),
+      blockingCount: blocking,
+    };
+  }
   /*
    * The findings filter (D): only a finding that cites a contract clause, an execution or a DOM
    * fact this run can verify may block. Everything else is advisory telemetry, never sent to the
@@ -469,6 +497,7 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
     integrityCounters.acceptances += 1;
     if (outcome.executedSpecs.length === 0) integrityCounters.proofReused += 1;
     coverage = acceptedRegeneration(coverage);
+    session.armsCurrent = false;
     const changedSet = new Set(changedSpecFiles);
     const realCases = outcome.execution?.cases ?? [];
     if (realCases.length > 0) {
@@ -505,6 +534,7 @@ export async function reviewSettle(state: Readonly<RunState>, ctx: WorkspaceRunC
         /* A genuine review verdict overwrites generation's self-approval default. */
         reviewerApprovedForOutcome: reviewerApproved,
         finalReviewerCorrections,
+        missingCases: session.missingCases,
         reviewerSignal: {
           rounds: reviewStats.rounds,
           modelRounds: reviewStats.modelRounds,
@@ -544,7 +574,9 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
     const measuredRun = await deps.execution.execute(workspace.specDir, { ...liveExecutionOptions(ctx), namespace: finalNamespace });
     const finalRun = { verdict: measuredRun.verdict, cases: measuredRun.cases, logs: run.logs };
     if (measuredRun.verdict !== "pass") return { update: { execution: withRun(state.execution, finalRun) } };
-    const baselineCases = measuredRun.cases.filter((c) => c.status === "pass").map((c) => c.name);
+    const passed = measuredRun.cases.filter((c) => c.status === "pass");
+    const baselineCases = passed.map((c) => c.name);
+    const caseFiles = [...new Set(passed.flatMap((c) => (c.file ? [c.file] : [])))];
     const faultAim = faultAimOf({ scope: state.grounding.changeScope, candidates: state.grounding.candidates, flowCandidates: state.generation.flowCandidates });
     const finalSignal = await deps.objectiveSignal.measure(
       BlastRadius.of(input.sha, state.classification.intent?.changedFiles ?? []),
@@ -553,6 +585,7 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
       baselineCases,
       {
         namespace: finalNamespace,
+        caseFiles,
         ...(state.grounding.candidates.length > 0 ? { candidates: state.grounding.candidates } : {}),
         ...(faultAim ? { faultAim } : {}),
       },
@@ -566,6 +599,11 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
           coverageRatio: finalSignal.ratio,
           coverageStatus: finalSignal.status,
           perCandidate: finalSignal.measurement?.perCandidate,
+          branchCoverage: branchCoverageOf(finalSignal.measurement),
+          uncovered: finalSignal.uncovered ?? [],
+          untakenArms: finalSignal.untakenArms ?? [],
+          untakenArmsCurrent: true,
+          bundleMutation: finalSignal.bundleMutation ?? state.coverage.bundleMutation,
           blocksPublish: deps.objectiveSignal.blocks(finalSignal.status),
           /* The oracle measured again on the delivered bytes: its score describes what is on disk now. */
           valueScore: finalSignal.valueScore ?? valueScore,

@@ -189,3 +189,14 @@ test("renderIssue: the change-reach section lists at most the bounded number of 
   const body = renderIssue({ verdict: "fail", cases: [failCase()], causal: { reach: "in-reach", basis: "flow", via: [], reason: "r", cases: many } });
   assert.match(body, /…and 10 more case\(s\) omitted/);
 });
+
+test("the reviewer's missing cases are listed in a PR body and an Issue, and nothing of them when there are none", () => {
+  const missingCases = ["[missing-case] the empty search result is not tested", "[missing-case] a rejected coupon is not tested"];
+  const pr = renderPrBody({ isCode: false, missingCases });
+  const issue = renderIssue({ verdict: "fail", cases: [{ name: "pays", status: "fail" }], missingCases });
+  for (const text of missingCases) {
+    assert.ok(pr.includes(text), `PR: ${text}`);
+    assert.ok(issue.includes(text), `Issue: ${text}`);
+  }
+  assert.equal(renderPrBody({ isCode: false }), renderPrBody({ isCode: false, missingCases: [] }));
+});

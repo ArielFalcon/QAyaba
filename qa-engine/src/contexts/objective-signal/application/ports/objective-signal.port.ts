@@ -1,7 +1,7 @@
 import type { BlastRadius } from "@kernel/blast-radius.ts";
 import type { CandidateValue, FaultAim, ValueStats } from "../../domain/fault-injection-score.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
-import type { CoverageMeasurement } from "../../domain/objective-signal.ts";
+import type { BundleMutationOutcome, CoverageMeasurement, CoverageRecount, CoverageRerun, UntakenArm } from "../../domain/objective-signal.ts";
 
 export interface ObjectiveSignalPort {
   /**
@@ -19,13 +19,21 @@ export interface ObjectiveSignalPort {
    * never gates. `opts.crossRepo` says the diff was withheld because the changed lines live in another repo.
    * `opts.faultAim` is what the response oracle may corrupt and for which use cases; without it the oracle gives no score
    * (`valueScore` null) and `valueByCandidate` is absent. It is a signal and never gates.
+   * `opts.caseFiles` are the spec files of this run's passing cases: a bundle mutant re-runs the ones whose tests reached it.
    * `opts.namespace` overrides the dump namespace for the regen's second
    * measure(); the first measurement is untouched.
    */
-  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; faultAim?: FaultAim }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; valueByCandidate?: CandidateValue[]; valueStats?: ValueStats; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[]; measurement?: CoverageMeasurement }>;
+  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[]; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; faultAim?: FaultAim }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; valueByCandidate?: CandidateValue[]; valueStats?: ValueStats; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[]; untakenArms?: UntakenArm[]; bundleMutation?: BundleMutationOutcome; measurement?: CoverageMeasurement }>;
   /**
    * Single source of truth for whether a measured status blocks publish.
    * Only "enforce" + "fail" blocks; "unknown" never blocks regardless of mode.
    */
   blocks(status: "pass" | "fail" | "unknown"): boolean;
+  /**
+   * The change-coverage counted again over dumps a run already holds, re-running nothing (no oracle, no mutant): the first
+   * measurement's namespace without the dumps of each re-run's spec files, plus every re-run's own dumps. Null when nothing can
+   * be counted that way (coverage off, no diff, or a collector that reads reports a run writes whole). Absent on a port that
+   * cannot recount.
+   */
+  recount?(br: BlastRadius, specDir: string, diff: string | undefined, reruns: readonly CoverageRerun[], opts?: { namespace?: string }): Promise<CoverageRecount | null>;
 }

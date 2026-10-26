@@ -16,6 +16,8 @@ import type { PromptSectionDef, SectionRender } from "./prompt-sections.ts";
 
 /* The reviewer's statement of its own cap is a section of its own, apart from the generator's. */
 export const REVIEWER_STEP_LIMIT_SECTION_ID = "reviewer-step-limit";
+/* The reviewer section that lists the arms of the changed code no delivered test ran. */
+export const REVIEWER_MISSING_CASES_SECTION_ID = "reviewer-missing-cases";
 
 export interface ReviewerContext {
   readonly input: ReviewInput;
@@ -135,6 +137,22 @@ function renderExistingSuite(ctx: ReviewerContext): SectionRender {
   return { content: existingSpecsContent, claims: existingSpecsClaims, maxBytes: 8_000, overflow: "summarize" };
 }
 
+function renderMissingCases({ input }: ReviewerContext): SectionRender {
+  const arms = input.untakenArms ?? [];
+  return {
+    content: [
+      `## Decisions of the change no test ran — measured by the orchestrator`,
+      `Each line is an arm of a decision on a changed line that no delivered test ran in this run's browser coverage.`,
+      `When one is a behaviour worth a test that the page can be brought to through the UI against DEV, report it as a`,
+      `correction prefixed [missing-case], with "severity":"advisory" and "citation":{"kind":"arm","ref":"<file>:<line>"} as listed.`,
+      `A missing case is recorded and shown with the run; it never changes "approved".`,
+      ...arms.map((u) => `- ${sanitizeText(`${u.file}:${u.line} ${u.kind}: ${u.arm}`, "model").text}`),
+    ].join("\n"),
+    maxBytes: 4_000,
+    overflow: "summarize",
+  };
+}
+
 function renderPriorCorrections(ctx: ReviewerContext): SectionRender {
   const { input } = ctx;
   const PRIOR_CORRECTIONS_MAX_BYTES = 8_000;
@@ -205,6 +223,8 @@ export const REVIEWER_SECTIONS: readonly PromptSectionDef<ReviewerContext>[] = [
     applies: ({ input }) => Boolean(input.learnedRules),
     render: ({ input }) => ({ content: [``, input.learnedRules].join("\n") }),
   },
+  /* The arms of the changed code no delivered test ran, measured by the orchestrator: a missing case cites one of them, and it is a record, never a reason to reject. */
+  { id: REVIEWER_MISSING_CASES_SECTION_ID, tier: "volatile", priority: 3, applies: ({ input }) => Boolean(input.untakenArms?.length), render: renderMissingCases },
   /* VOLATILE: prior-round corrections (priority 4 — convergence context; lowest priority in VOLATILE so it does not crowd out the spec contents or DOM grounding on budget overflow). */
   { id: "reviewer-prior-corrections", tier: "volatile", priority: 4, applies: ({ input }) => Boolean(input.priorCorrections?.length), render: renderPriorCorrections },
   /* What the generator changed since the rejection this round answers: the smallest section in the prompt, and the one the round is about. Shed first when the window is tight. */

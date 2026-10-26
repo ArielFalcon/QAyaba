@@ -487,9 +487,11 @@ function renderCoverageGap(ctx: PromptContext): SectionRender {
     ? [
         `## Cover the change (HIGH priority)`,
         ``,
-        `The tests ran green but did NOT exercise all the lines this commit changed. Extend or add`,
-        `tests so those lines are actually executed and asserted (covering ≠ asserting — assert the`,
-        `behavior of the changed code, do not just touch the line):`,
+        `The tests ran green but did NOT exercise all of what this commit changed (the lines or decision`,
+        `arms below). Extend or add tests so each is actually executed and asserted (covering ≠ asserting —`,
+        `assert the behavior of the changed code, do not just touch the line). An arm the page cannot be`,
+        `brought to through the UI against DEV (one only a mocked network could provoke) is not a case:`,
+        `leave it and say why in your verdict note.`,
         ``,
         ...(treeInPrompt
           ? [

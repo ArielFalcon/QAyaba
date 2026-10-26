@@ -85,6 +85,8 @@ export interface ReviewInput {
    * judged against this change plus the prior corrections; unchanged specs are not re-reviewed. */
   specChanges?: string;
   executionResult?: string;
+  /* The arms of decisions on changed lines no delivered test ran, as the run's coverage measured them on the bytes under review: the facts a missing-case finding cites. Absent when none was measured or the measurement does not describe these bytes. */
+  untakenArms?: { file: string; line: number; kind: string; arm: string }[];
   /* The step limit the runtime enforces for the reviewer's session. Absent = the runtime enforces none or could not be read, and no prompt states one. */
   stepLimit?: number;
 }

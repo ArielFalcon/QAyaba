@@ -20,7 +20,7 @@ import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
 import type { FixLoopStage } from "../../domain/fix-loop.aggregate.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import type { CandidateCoverage, CandidateValue, CausalLabel, ValueStats } from "@contexts/objective-signal/application/index.ts";
+import type { BundleMutationOutcome, CandidateCoverage, CandidateValue, CausalLabel, UntakenArm, ValueStats } from "@contexts/objective-signal/application/index.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunEvidence } from "../../domain/run-decision.service.ts";
 import type { EndReason } from "./end-reason.ts";
@@ -154,6 +154,16 @@ export interface FixLoopOutcome {
   devNotRenderedConclusive: boolean;
 }
 
+/**
+ * What the one regeneration from the arms no test ran did: its acceptance, the arms before it and the arms after it. `armsAfter` is the
+ * recount of an accepted turn, the same count when its bytes were put back, and absent when an accepted turn could not be recounted.
+ */
+export interface BranchCasesOutcome {
+  outcome: "accepted" | "empty" | "rejected" | "capped";
+  armsBefore: number;
+  armsAfter?: number;
+}
+
 /* What the coverage phase measured; the review phase's acceptances add to the counter and the stale re-measure replaces the measurement or marks it stale. */
 export interface CoverageOutcome {
   /** Unknown never blocks; only the port's own reading of the mode and status sets it. */
@@ -176,6 +186,16 @@ export interface CoverageOutcome {
   uncovered: { file: string; lines: number[] }[];
   /** The share of each use case's changed lines the run executed, or why it has none; undefined when no use case was asked for. A signal beside the ratio, never a gate. */
   perCandidate: CandidateCoverage[] | undefined;
+  /** The arms of the decisions on changed lines and how many ran; undefined when none was seen. A signal, never a gate. */
+  branchCoverage: { changed: number; taken: number } | undefined;
+  /** The arms on changed lines no test ran: the gap of a coverage or branch regeneration, and the reviewer's list of missing cases. */
+  untakenArms: UntakenArm[];
+  /** `untakenArms` describes the bytes on disk: false until measured, and after an accepted regeneration the dumps on disk could not recount. */
+  untakenArmsCurrent: boolean;
+  /** What the branch-case regeneration did; undefined when it did not run. A signal, never a gate. */
+  branchCases: BranchCasesOutcome | undefined;
+  /** What the mutants of the changed code did; undefined when none was judged. A signal, never a gate. */
+  bundleMutation: BundleMutationOutcome | undefined;
   /** Acceptances spent so far; each names its namespace by it. */
   acceptanceCalls: number;
   /** An accepted regeneration rewrote specs after the last measurement: the coverage ratio is then stale. */
@@ -210,6 +230,10 @@ export interface ReviewSession {
   existingSpecFiles: string[];
   reviewerApproved: boolean;
   finalReviewerCorrections: string[];
+  /** The reviewer's missing cases, each once across the rounds. */
+  missingCases: string[];
+  /** The arms no test ran describe the bytes under review until the review accepts a regeneration of its own. */
+  armsCurrent: boolean;
   previousRoundCorrections: string[] | undefined;
   previousRoundBlocking: number | undefined;
   previousRoundSpecs: ReviewedSpecs | undefined;
@@ -231,6 +255,8 @@ export interface ReviewOutcome {
   reviewerApprovedForOutcome: boolean | undefined;
   /** Stays [] when the review loop never runs, never fabricated. */
   finalReviewerCorrections: string[];
+  /** The reviewer's missing cases: findings that cite an arm of the changed code no test ran. Recorded and shown, never a gate. */
+  missingCases: string[];
   /** What the review phase cost and decided; absent when the phase never ran. */
   reviewerSignal: RunOutcome["gateSignals"]["reviewer"];
 }
@@ -376,12 +402,17 @@ export function initialRunState(): RunState {
       killedCount: undefined,
       uncovered: [],
       perCandidate: undefined,
+      branchCoverage: undefined,
+      untakenArms: [],
+      untakenArmsCurrent: false,
+      branchCases: undefined,
+      bundleMutation: undefined,
       acceptanceCalls: 0,
       acceptedRegenAfterMeasure: false,
       coverageStale: false,
       valueStale: false,
     },
-    review: { session: undefined, reviewerApproved: true, reviewerApprovedForOutcome: undefined, finalReviewerCorrections: [], reviewerSignal: undefined },
+    review: { session: undefined, reviewerApproved: true, reviewerApprovedForOutcome: undefined, finalReviewerCorrections: [], missingCases: [], reviewerSignal: undefined },
     decided: undefined,
     loops: initialLoopCounters(),
     degraded: [],

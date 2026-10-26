@@ -1,6 +1,6 @@
 /* Builds the objective-signal context: the change-coverage port the keystone decision reads, and the pure parser of a spec's test intent. */
 
-import type { ChangeCoverage, CoverageCollectorPort, CoveragePolicy, IntentContractPort, ObjectiveSignalPort, ValueOraclePort } from "../application/index.ts";
+import type { BundleMutationPort, ChangeCoverage, CoverageCollectorPort, CoveragePolicy, IntentContractPort, ObjectiveSignalPort, ValueOraclePort } from "../application/index.ts";
 import { DecideCoverageService } from "../domain/decide-coverage.service.ts";
 import { ObjectiveSignalPortAdapter } from "../infrastructure/adapters/objective-signal-port.adapter.ts";
 import { extractSpecContract } from "../infrastructure/ts-spec-contract.extractor.ts";
@@ -8,6 +8,8 @@ import { extractSpecContract } from "../infrastructure/ts-spec-contract.extracto
 export interface ObjectiveSignalDeps {
   collector: Pick<CoverageCollectorPort, "collect">;
   oracle: Pick<ValueOraclePort, "measure">;
+  /* The mutation pass over the served script; absent when the value oracle is off or the target has no browser. */
+  mutation?: BundleMutationPort;
   policy: CoveragePolicy;
   /* The working copy the coverage dumps belong to. */
   repoDir: string;
@@ -27,7 +29,7 @@ export interface ObjectiveSignalApi {
 export function buildObjectiveSignal(deps: ObjectiveSignalDeps): ObjectiveSignalApi {
   return {
     objectiveSignal: new ObjectiveSignalPortAdapter(
-      { collector: deps.collector as CoverageCollectorPort, decide: new DecideCoverageService(), oracle: deps.oracle as ValueOraclePort },
+      { collector: deps.collector as CoverageCollectorPort, decide: new DecideCoverageService(), oracle: deps.oracle as ValueOraclePort, ...(deps.mutation ? { mutation: deps.mutation } : {}) },
       {
         policy: deps.policy,
         repoDir: deps.repoDir,

@@ -15,8 +15,8 @@ function orchestratorEnvironmentNames(): string[] {
   return Array.isArray(environment) ? environment.map((entry) => entry.split("=")[0]!) : Object.keys(environment);
 }
 
-/* Variables .env.example still assigns although nothing reads them: the runtime-selector variables the orchestrator reports as no longer read, the removed second runtime's key, and a data directory no code consults. Each is deleted from both lists when the example drops it; the second test fails if one is listed here after it has gone. */
-const ASSIGNED_BUT_UNREAD = new Set(["AGENT_RUNTIME_MODE", "AGENT_SINGLE_PROVIDER", "AGENT_PRIMARY_PROVIDER", "AGENT_REVIEWER_PROVIDER", "AGENT_CHAT_PROVIDER", "CODEX_API_KEY", "ENGRAM_DATA_DIR"]);
+/* Variables .env.example still assigns although nothing reads them: the runtime-selector variables the orchestrator reports as no longer read, and the removed second runtime's key. Each is deleted from both lists when the example drops it; the second test fails if one is listed here after it has gone. */
+const ASSIGNED_BUT_UNREAD = new Set(["AGENT_RUNTIME_MODE", "AGENT_SINGLE_PROVIDER", "AGENT_PRIMARY_PROVIDER", "AGENT_REVIEWER_PROVIDER", "AGENT_CHAT_PROVIDER", "CODEX_API_KEY"]);
 
 /* The variables .env.example assigns, one name per assignment line. */
 function exampleAssignmentNames(): string[] {

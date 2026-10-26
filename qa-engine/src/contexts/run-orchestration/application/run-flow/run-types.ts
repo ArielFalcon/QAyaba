@@ -72,6 +72,11 @@ export interface RunQaConfig {
   /** The change-coverage threshold in force; recorded with the run's coverage decision. */
   coverageMinRatio?: number;
   /**
+   * The branch cases: "regenerate" gives a green diff run whose measurement found arms of the changed code no test ran one
+   * regeneration with those arms as the cases still missing, in any coverage mode that measures. Absent or "off": none.
+   */
+  coverageBranchCases?: "regenerate" | "off";
+  /**
    * The test-intent lock: whether the contract a primary pass establishes binds later regenerations.
    * "signal" (default) records the deltas that would have been rejected; "enforce" rejects them and
    * restores the pre-turn bytes. The opacity ratio flags a contract, never blocks one.

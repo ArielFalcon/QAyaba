@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   filterReviewFindings,
+  takeMissingCases,
   type CitedFinding,
   type ReviewScope,
 } from "@contexts/run-orchestration/domain/review-finding-filter.service.ts";
@@ -118,4 +119,23 @@ test("an execution citation on an in-scope spec the run never executed is droppe
   );
   assert.deepEqual(out.blocking, []);
   assert.equal(out.dropped.length, 1, "an execution claim needs an execution of that spec");
+});
+
+test("a finding that cites an arm no test ran is a missing case, kept only when that arm is in the run's list, and never blocks whatever severity it carries", () => {
+  const findings = [
+    { text: "[missing-case] the empty result of the search is not tested", severity: "blocking" as const, citation: { kind: "arm" as const, ref: "src/search.ts:12" } },
+    { text: "[missing-case] an arm the run never listed", severity: "advisory" as const, citation: { kind: "arm" as const, ref: "src/search.ts:99" } },
+    { text: "[false-positive] a.spec.ts asserts nothing", severity: "blocking" as const, citation: { kind: "execution" as const, ref: "a.spec.ts" } },
+  ];
+
+  const { missingCases, dropped, rest } = takeMissingCases(findings, new Set(["src/search.ts:12", "src/search.ts:30"]));
+
+  assert.deepEqual(missingCases, ["[missing-case] the empty result of the search is not tested"]);
+  assert.deepEqual(dropped, ["[missing-case] an arm the run never listed"]);
+  assert.deepEqual(rest, [findings[2]]);
+});
+
+test("an arm citation that reaches the evidence filter is never a verified finding", () => {
+  const out = filterReviewFindings([{ text: "x", severity: "blocking", citation: { kind: "arm", ref: "src/a.ts:1" } }], { inScopeSpecs: new Set(["a.spec.ts"]), executedSpecs: new Set(["a.spec.ts"]) });
+  assert.deepEqual(out, { blocking: [], advisory: [], dropped: ["x"] });
 });

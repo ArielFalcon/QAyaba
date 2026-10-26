@@ -542,3 +542,10 @@ test("an explore request is a decision for the parser: it needs no specs, no pla
 test("an explore key that is not a list is no request", () => {
   assert.equal(parseVerdict('{"explore":{"question":"x"},"specs":["a.spec.ts"]}').explore, undefined);
 });
+
+test("parseReviewerVerdict keeps the evidence each correction cites, an arm of the changed code included", () => {
+  const r = parseReviewerVerdict(
+    '{"approved":true,"rationale":"ok","corrections":[{"text":"[missing-case] the empty search is not tested","severity":"advisory","citation":{"kind":"arm","ref":"src/search.ts:12"}},{"text":"[false-positive] a.spec.ts asserts nothing","severity":"blocking","citation":{"kind":"execution","ref":"a.spec.ts"}}]}',
+  );
+  assert.deepEqual(r.citations, [{ kind: "arm", ref: "src/search.ts:12" }, { kind: "execution", ref: "a.spec.ts" }]);
+});

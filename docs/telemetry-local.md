@@ -7,16 +7,14 @@ brings the app up brings the telemetry up. Design: `docs/observability-design.md
 ## Start and stop
 
 ```bash
-export GRAFANA_ADMIN_PASSWORD=<choose one>   # or Doppler / .env
-
 doppler run -- docker compose up --build   # the app and its telemetry
 docker compose ps                          # status
 docker compose down                        # stop (keeps the volumes)
 ```
 
-**Every compose command needs `GRAFANA_ADMIN_PASSWORD`**, including `down`, `ps`, `logs` and `config`: compose
-interpolates the whole file, so a missing password fails the command before anything runs (that is intended; there is no
-default password in the repo). If the collector cannot be reached, the orchestrator's exporter fails open (runs are
+Grafana's admin user is `admin` with the password `GRAFANA_ADMIN_PASSWORD` (host env, Doppler or `.env`), `admin` when
+unset; Grafana is published on loopback only. Grafana reads the password when its data volume is first created, so a later
+change needs the password reset in Grafana or a new `lgtm-data` volume. If the collector cannot be reached, the orchestrator's exporter fails open (runs are
 unaffected; the loss shows in `/api/health` as `otlp.dropped` and `otlp.lastError`, reported after the exporter's
 retries, about 8 seconds per batch), but nothing is recorded.
 
@@ -47,7 +45,7 @@ this to a running stack needs the orchestrator and `collector` recreated (new en
 
 | Name | Where | Purpose |
 |---|---|---|
-| `GRAFANA_ADMIN_PASSWORD` | host env, Doppler or `.env` | Required for every command that loads the file. No default exists. |
+| `GRAFANA_ADMIN_PASSWORD` | host env, Doppler or `.env` | Grafana's admin password; `admin` when unset. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | set by the telemetry file on the orchestrator (`http://collector:4318`) and the agents (`http://collector-agents:4319`) | Where each side exports. On the agents side OpenCode reads it and exports its logs and traces; the collector keeps the logs and drops its rootless process trace. |
 | `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | `.env` | Optional logs URL; when unset the generic endpoint gets `/v1/logs`. It does not enable the exporter by itself (the generic endpoint or a traces endpoint must exist). |
 | `OTEL_SERVICE_NAME` | set by the telemetry file (`qayaba-orchestrator`) | Resource service name. |

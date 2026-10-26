@@ -1,5 +1,5 @@
 /*
- * The run, read top to bottom: every step in the order it runs, the phase it opens (15 phases, 47 steps) and when it is skipped.
+ * The run, read top to bottom: every step in the order it runs, the phase it opens (15 phases, 48 steps) and when it is skipped.
  * The steps before the working copy is prepared see only the run's context; the rest also see its workspace and live services.
  * Each step names the class it has for the failure policy (`class`, absent for `required`) and the top-level fields of the
  * state it may write (`writes`); the runner refuses an update outside them, and the reducers are the only code that writes a
@@ -21,7 +21,7 @@ import {
 } from "./phases/generate.steps.ts";
 import { announceExecution, checkHealth, executeSpecs, prepareExecuteAuth, staticFixRound, validateStatically } from "./phases/execute.steps.ts";
 import { fingerprintGreenSuite, fixAccept, fixAdjudicate, fixReexecute, fixRegenerate, fixTriage, runFixLoop, settleFixLoop } from "./phases/fix-loop.steps.ts";
-import { announceCoverage, announcesCoverage, measureCoverage, measuresCoverage, regenerateForCoverage, regeneratesForCoverage } from "./phases/coverage.steps.ts";
+import { announceCoverage, announcesCoverage, measureCoverage, measuresCoverage, regenerateForBranchCases, regenerateForCoverage, regeneratesForBranchCases, regeneratesForCoverage } from "./phases/coverage.steps.ts";
 import { releaseCoordinatedPass, remeasureStaleCoverage, remeasuresStaleCoverage, reviewCorrect, reviewInProgress, reviewResolve, reviewRound, reviewSettle, reviewTests, reviewsRun } from "./phases/review.steps.ts";
 import { decideRun, guardFinalProof, guardsFinalProof } from "./phases/decide.steps.ts";
 import { armRunDeadline, classifyChange, indexMirror, waitForDeploy } from "./phases/opening.steps.ts";
@@ -70,6 +70,7 @@ export const IN_WORKSPACE: ReadonlyArray<FlowStep<RunState, WorkspaceRunContext>
   { id: "announce-coverage", writes: [], phase: "coverage", runs: announcesCoverage, run: announceCoverage },
   { id: "measure-coverage", writes: ["coverage"], runs: measuresCoverage, run: measureCoverage },
   { id: "regenerate-for-coverage", writes: ["coverage", "degraded", "execution", "loops"], class: "proven", runs: regeneratesForCoverage, run: regenerateForCoverage },
+  { id: "regenerate-for-branch-cases", writes: ["coverage", "degraded", "execution", "loops"], class: "proven", runs: regeneratesForBranchCases, run: regenerateForBranchCases },
   { id: "review-tests", writes: ["degraded", "loops", "review"], class: "proven", phase: "review", runs: reviewsRun, run: reviewTests },
   { id: "review-round", writes: ["degraded", "execution", "loops"], class: "proven", runs: reviewInProgress, run: reviewRound },
   { id: "review-correct", writes: ["coverage", "degraded", "loops"], class: "proven", runs: reviewInProgress, run: reviewCorrect },

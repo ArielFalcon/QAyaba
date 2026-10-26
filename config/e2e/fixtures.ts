@@ -19,35 +19,70 @@ interface CoverageEntry {
   map?: unknown;
 }
 
-// system-owned: do not edit. For each script, parse its `//# sourceMappingURL=` and attach the
-// resolved source map (inline data-URI decoded; external .map fetched from DEV). Best-effort: any
-// failure leaves `map` unset and the orchestrator falls back to URL-suffix resolution.
-async function attachSourceMaps(entries: CoverageEntry[]): Promise<void> {
+// >>> qa-source-maps (system-owned: do not edit) >>>
+// For each script, find its source map and attach it: the inline data-URI decoded, or the file the
+// LAST `//# sourceMappingURL=` names, or `<script url>.map` when the script names none (a build that
+// keeps its maps "hidden"). A map is fetched through the browser context's request, so the run's DEV
+// gate credentials, client certificate and cookies reach it as they reach the page. Anything that is
+// not a source map (an app's HTML fallback, an error page) is no map. Best-effort, once per URL per
+// worker: no map → the orchestrator falls back to URL-suffix resolution.
+interface QaMapRequest {
+  get(url: string, options?: { failOnStatusCode?: boolean }): Promise<{ ok(): boolean; text(): Promise<string> }>;
+}
+const qaSourceMaps = new Map<string, unknown>();
+function qaIsSourceMap(value: unknown): boolean {
+  const m = value as { sources?: unknown; mappings?: unknown } | null;
+  return typeof m === "object" && m !== null && Array.isArray(m.sources) && typeof m.mappings === "string";
+}
+async function qaFetchSourceMap(url: string, request: QaMapRequest): Promise<unknown> {
+  if (qaSourceMaps.has(url)) return qaSourceMaps.get(url);
+  let map: unknown;
+  try {
+    const res = await request.get(url, { failOnStatusCode: false });
+    if (res.ok()) {
+      const json: unknown = JSON.parse(await res.text());
+      if (qaIsSourceMap(json)) map = json;
+    }
+  } catch {
+    /* best-effort: no map */
+  }
+  qaSourceMaps.set(url, map);
+  return map;
+}
+async function attachSourceMaps(entries: CoverageEntry[], request: QaMapRequest): Promise<void> {
   for (const e of entries) {
     if (!e.source || !e.url) continue;
     // The LAST sourceMappingURL comment wins (source-map spec): a minified bundle can inline an
     // earlier library chunk's own `//# sourceMappingURL=` in a string, which must not be mistaken
     // for the bundle's real (trailing) map reference.
     const all = e.source.match(/\/\/[#@]\s*sourceMappingURL=(\S+)/g);
-    if (!all || all.length === 0) continue;
-    const ref = /sourceMappingURL=(\S+)/.exec(all[all.length - 1]!)![1]!;
+    const ref = all && all.length > 0 ? /sourceMappingURL=(\S+)/.exec(all[all.length - 1]!)![1]! : undefined;
     try {
-      if (ref.startsWith("data:")) {
+      if (ref?.startsWith("data:")) {
         const comma = ref.indexOf(",");
         const meta = ref.slice(5, comma);
         const data = ref.slice(comma + 1);
-        const json = meta.includes("base64") ? Buffer.from(data, "base64").toString("utf8") : decodeURIComponent(data);
-        e.map = JSON.parse(json);
-      } else {
-        const mapUrl = new URL(ref, e.url).toString();
-        const res = await fetch(mapUrl);
-        if (res.ok) e.map = await res.json();
+        const json: unknown = JSON.parse(meta.includes("base64") ? Buffer.from(data, "base64").toString("utf8") : decodeURIComponent(data));
+        if (qaIsSourceMap(json)) e.map = json;
+        continue;
       }
+      let mapUrl: URL;
+      if (ref) mapUrl = new URL(ref, e.url);
+      else {
+        mapUrl = new URL(e.url);
+        if (!/^https?:$/.test(mapUrl.protocol)) continue;
+        mapUrl.search = "";
+        mapUrl.hash = "";
+        mapUrl.pathname += ".map";
+      }
+      const map = await qaFetchSourceMap(mapUrl.toString(), request);
+      if (map !== undefined) e.map = map;
     } catch {
       /* best-effort: no map → URL-suffix fallback */
     }
   }
 }
+// <<< qa-source-maps <<<
 
 // >>> fault-operations (system-owned: do not edit) >>>
 // The operations the response-corruption pass may touch. The orchestrator hands them in QA_FAULT_INJECT_OPERATIONS as a
@@ -101,6 +136,8 @@ export interface QaFixtures {
   _coverage: void;
   // system-owned: do not edit — the orchestrator's response-oracle pass (QA_FAULT_INJECT).
   _faultInject: void;
+  // system-owned: do not edit — the orchestrator's mutation pass (PW_MUTANT).
+  _mutate: void;
   // system-owned: do not edit — runs the failure-point capture around every test.
   _failureCapture: void;
 }
@@ -188,7 +225,7 @@ export const test = base.extend<QaFixtures>({
           // to original source files+lines. Without this, a hashed/bundled deploy (Angular/React
           // prod) is permanently "unknown" — the served URL never matches a repo path. Best-effort:
           // a missing map just falls back to URL-suffix resolution (unbundled/dev).
-          await attachSourceMaps(entries as unknown as CoverageEntry[]);
+          await attachSourceMaps(entries as unknown as CoverageEntry[], page.request);
           // Per-namespace subdir (qa-bot-<sha>): the orchestrator reads only this run's dumps.
           const dir = join(process.cwd(), ".qa", "coverage", process.env.PW_NAMESPACE ?? "local");
           mkdirSync(dir, { recursive: true });
@@ -276,6 +313,49 @@ export const test = base.extend<QaFixtures>({
     },
     { auto: true },
   ],
+  // >>> qa-mutation-fixture (system-owned: do not edit) >>>
+  // The orchestrator's MUTATION pass sets PW_MUTANT to one edit of one script the page loads
+  // ({ url, sha256, start, end, replacement }) and re-runs the tests that reached it: a test that stays
+  // green while the changed code it ran does the opposite does not check that code. The edit is made
+  // only to a response whose text is the script the coverage saw (same sha256). How many responses were
+  // mutated is counted beside the response oracle's counters, so a mutant that never reached the page
+  // is not scored. No-op in a normal run.
+  _mutate: [
+    async ({ page }, use) => {
+      let mutated = 0;
+      const raw = process.env.PW_MUTANT;
+      if (raw) {
+        const { createHash } = await import("node:crypto");
+        const m = JSON.parse(raw) as { url: string; sha256: string; start: number; end: number; replacement: string };
+        await page.route((url) => url.href === m.url, async (route) => {
+          let res;
+          try {
+            res = await route.fetch();
+          } catch {
+            return route.continue();
+          }
+          const body = await res.text();
+          if (createHash("sha256").update(body).digest("hex") !== m.sha256) return route.fulfill({ response: res });
+          mutated++;
+          return route.fulfill({ response: res, body: body.slice(0, m.start) + m.replacement + body.slice(m.end) });
+        });
+      }
+      await use();
+      if (mutated > 0) {
+        try {
+          const fs = await import("node:fs");
+          const path = await import("node:path");
+          const dir = path.join(process.cwd(), ".qa", "fault-injection", process.env.PW_NAMESPACE ?? "local");
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(path.join(dir, `mutated-${process.pid}.json`), JSON.stringify({ corrupted: mutated }));
+        } catch {
+          /* best effort — the marker is a signal, never a test failure */
+        }
+      }
+    },
+    { auto: true },
+  ],
+  // <<< qa-mutation-fixture <<<
 });
 
 export { expect };

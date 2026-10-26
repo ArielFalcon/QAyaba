@@ -491,3 +491,138 @@ test("measure() reports a diff that only deletes as deletion-only, and a withhel
   assert.equal(withheld.measurement?.unmeasured, "no-diff");
   assert.equal(withheld.measurement?.perCandidate?.[0]?.unmeasured, "cross-repo");
 });
+
+test("measure() counts only the change's own code: the repo's test files a commit carries are neither collected nor counted", async () => {
+  const diff = [
+    SAMPLE_DIFF,
+    "diff --git a/src/checkout.spec.ts b/src/checkout.spec.ts",
+    "+++ b/src/checkout.spec.ts",
+    "@@ -1,0 +1,3 @@",
+    "+it('a', () => {});",
+    "+it('b', () => {});",
+    "+it('c', () => {});",
+  ].join("\n");
+  let collected: string[] | undefined;
+  const collector = fakeCollector({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }] }, (_dir, _ns, files) => { collected = files; });
+  const oracle = fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" });
+  const adapter = new ObjectiveSignalPortAdapter(
+    { collector, decide: new DecideCoverageService(), oracle },
+    { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
+  );
+
+  const result = await adapter.measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), "/mirrors/org/app/e2e", diff);
+
+  assert.deepEqual(collected, ["src/checkout.ts"]);
+  assert.equal(result.ratio, 1);
+  assert.equal(result.status, "pass");
+  assert.equal(result.measurement?.changedLines, 2);
+  assert.equal(result.uncovered?.length, 0);
+});
+
+test("measure() of a commit that only changes the repo's tests has no changed lines to cover, which never blocks", async () => {
+  const diff = ["diff --git a/src/checkout.spec.ts b/src/checkout.spec.ts", "+++ b/src/checkout.spec.ts", "@@ -1,0 +1,1 @@", "+it('a', () => {});"].join("\n");
+  const adapter = new ObjectiveSignalPortAdapter(
+    { collector: fakeCollector({ covered: [] }), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }) },
+    { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
+  );
+
+  const result = await adapter.measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.spec.ts"]), "/mirrors/org/app/e2e", diff);
+
+  assert.equal(result.status, "unknown");
+  assert.equal(result.measurement?.unmeasured, "no-changed-lines");
+  assert.equal(adapter.blocks(result.status), false);
+});
+
+test("measure() reports the branches on the changed lines and the arms that never ran beside the line ratio, which alone decides", async () => {
+  const report: CoverageReport = {
+    covered: [{ file: "src/checkout.ts", lines: [1, 2] }],
+    branches: [{ file: "src/checkout.ts", line: 1, column: 0, kind: "if", arms: [{ label: "then", taken: true }, { label: "else", taken: false }] }],
+  };
+  const adapter = new ObjectiveSignalPortAdapter(
+    { collector: fakeCollector(report), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }) },
+    { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
+  );
+
+  const result = await adapter.measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), "/mirrors/org/app/e2e", SAMPLE_DIFF);
+
+  assert.equal(result.status, "pass");
+  assert.equal(result.measurement?.changedBranches, 2);
+  assert.equal(result.measurement?.takenBranches, 1);
+  assert.deepEqual(result.untakenArms, [{ file: "src/checkout.ts", line: 1, kind: "if", arm: "else" }]);
+});
+
+test("measure() hands the mutants on the changed lines to the mutation oracle, with the spec files that reached them, and reports what it found", async () => {
+  const site = (line: number) => ({ file: "src/checkout.ts", line, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, ranIn: ["flows-pay-spec-ts-x-0-0.json"] });
+  const report: CoverageReport = { covered: [{ file: "src/checkout.ts", lines: [1, 2] }], mutationSites: [site(1), site(9)] };
+  const asked: unknown[] = [];
+  const mutation = {
+    measure: async (mutants: Array<{ site: { line: number }; specFiles: string[] }>, specDir: string, namespace: string, baselineCases: string[]) => {
+      asked.push({ lines: mutants.map((m) => m.site.line), specFiles: mutants.map((m) => m.specFiles), specDir, namespace, baselineCases });
+      return { applied: 1, killed: 0, survived: [{ file: "src/checkout.ts", line: 1, operator: "negate condition" }] };
+    },
+  };
+  const adapter = new ObjectiveSignalPortAdapter(
+    { collector: fakeCollector(report), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }), mutation },
+    { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage, namespace: "run-7" },
+  );
+
+  const result = await adapter.measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), "/mirrors/org/app/e2e", SAMPLE_DIFF, ["pays"], { caseFiles: ["flows/pay.spec.ts", "flows/other.spec.ts"] });
+
+  assert.deepEqual(asked, [{ lines: [1], specFiles: [["flows/pay.spec.ts"]], specDir: "/mirrors/org/app/e2e", namespace: "run-7", baselineCases: ["pays"] }]);
+  assert.deepEqual(result.bundleMutation, { applied: 1, killed: 0, survived: [{ file: "src/checkout.ts", line: 1, operator: "negate condition" }] });
+});
+
+test("measure() asks no mutation when no site is on a changed line, coverage measured nothing, or no mutation oracle is wired", async () => {
+  let asked = 0;
+  const mutation = { measure: async () => { asked++; return null; } };
+  const site = { file: "src/checkout.ts", line: 40, column: 0, operator: "negate condition", script: { url: "u", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, ranIn: ["d"] };
+  const build = (report: CoverageReport, withMutation = true) => new ObjectiveSignalPortAdapter(
+    { collector: fakeCollector(report), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }), ...(withMutation ? { mutation } : {}) },
+    { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
+  );
+  const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
+
+  const offChanged = await build({ covered: [{ file: "src/checkout.ts", lines: [1] }], mutationSites: [site] }).measure(br, "/e2e", SAMPLE_DIFF, ["t"]);
+  const unmeasured = await build({ covered: [], mutationSites: [{ ...site, line: 1 }] }).measure(br, "/e2e", SAMPLE_DIFF, ["t"]);
+  const unwired = await build({ covered: [{ file: "src/checkout.ts", lines: [1] }], mutationSites: [{ ...site, line: 1 }] }, false).measure(br, "/e2e", SAMPLE_DIFF, ["t"]);
+
+  assert.equal(asked, 0);
+  for (const r of [offChanged, unmeasured, unwired]) assert.equal("bundleMutation" in r, false);
+});
+
+test("recount() measures the change again over the dumps on disk: the first run's without those of the re-run spec files, plus each re-run's, with no oracle and no mutant", async () => {
+  const asked: unknown[] = [];
+  let oracleCalls = 0;
+  const collector: CoverageCollectorPort = {
+    collect: async () => ({ covered: [] }),
+    recollect: async (specDir, sources) => {
+      asked.push([specDir, sources]);
+      return { covered: [{ file: "src/checkout.ts", lines: [1, 2] }], branches: [{ file: "src/checkout.ts", line: 2, column: 0, kind: "if", arms: [{ label: "then", taken: true }, { label: "else", taken: false }] }] };
+    },
+  };
+  const oracle: ValueOraclePort = { measure: async () => { oracleCalls++; return { valueScore: 1, mutantCount: 1, killedCount: 1, details: "" }; } };
+  const adapter = new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService(), oracle }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage });
+  const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
+
+  const result = await adapter.recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "run-acc0", specFiles: ["flows/a.spec.ts"] }, { namespace: "run-acc1", specFiles: ["flows/b.spec.ts"] }], { namespace: "run-ns" });
+
+  assert.deepEqual(asked, [["/e2e", [{ namespace: "run-ns", exceptSpecFiles: ["flows/a.spec.ts", "flows/b.spec.ts"] }, { namespace: "run-acc0" }, { namespace: "run-acc1" }]]]);
+  assert.equal(result?.status, "pass");
+  assert.equal(result?.ratio, 1);
+  assert.deepEqual(result?.uncovered, []);
+  assert.deepEqual(result?.untakenArms, [{ file: "src/checkout.ts", line: 2, kind: "if", arm: "else" }]);
+  assert.equal(result?.measurement?.changedBranches, 2);
+  assert.equal(oracleCalls, 0, "a recount re-runs nothing");
+});
+
+test("recount() has nothing to say with coverage off, without a diff, or with a collector that cannot add namespaces", async () => {
+  const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
+  const oracle = fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" });
+  const recollecting: CoverageCollectorPort = { collect: async () => ({ covered: [] }), recollect: async () => ({ covered: [{ file: "src/checkout.ts", lines: [1] }] }) };
+  const make = (collector: CoverageCollectorPort, mode: "off" | "signal") => new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService(), oracle }, { policy: { mode, minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage });
+  const rerun = [{ namespace: "acc", specFiles: ["flows/a.spec.ts"] }];
+
+  assert.equal(await make(recollecting, "off").recount!(br, "/e2e", SAMPLE_DIFF, rerun), null);
+  assert.equal(await make(recollecting, "signal").recount!(br, "/e2e", undefined, rerun), null);
+  assert.equal(await make(fakeCollector({ covered: [] }), "signal").recount!(br, "/e2e", SAMPLE_DIFF, rerun), null);
+});

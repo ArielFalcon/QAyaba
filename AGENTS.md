@@ -145,7 +145,12 @@ is the only engine; webhook (`src/server/webhook-handler.ts`, wired by `src/serv
    parse miss. The reviewer's findings are evidence-bound: a blocking correction must cite a contract
    clause, an execution of this run or a DOM fact, the orchestrator verifies the citation
    (`review-finding-filter.service.ts`) and only a verified blocking finding blocks — an uncited,
-   out-of-scope or DOM-only one is advisory telemetry, never sent to the author. The author may
+   out-of-scope or DOM-only one is advisory telemetry, never sent to the author. A finding that cites
+   an arm of the changed code no test ran (`{"kind":"arm","ref":"<file>:<line>"}`, tagged
+   `[missing-case]`) is a missing case: it is taken out before that filter whatever the integrity switch,
+   kept only when the run's measurement lists that arm (the reviewer receives the list only while it
+   describes the bytes under review), recorded in `gateSignals.missingCases` and shown in the PR or
+   Issue, and it never blocks or rejects: a rejection resting only on missing cases is an approval. The author may
    answer a finding with a typed `rebuttals` entry instead of a correction; it withdraws the finding only
    against evidence the run can check (a case green on the current bytes, or a contract clause still
    intact — `review-rebuttals.service.ts`). A verified blocking finding that survives while its rebuttal
@@ -208,7 +213,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   there), a ledger of every call's sha256, revoked when the run ends. Scratch specs live in `e2e/.qa-probe/` and are swept
   after every generation: never delivered, stored or validated. When `loopClosed` (every delivered spec's current bytes are those
   whose last call passed) the regenerations that only repeat that work are skipped; the declared no-op, `E-NO-DECISION` /
-  `E-STEP-BUDGET` / `E-TIME-BUDGET` and the single enforce-mode coverage regeneration are unchanged. The `Run spec budget` prompt
+  `E-STEP-BUDGET` / `E-TIME-BUDGET` and the single coverage or branch-case regeneration are unchanged. The `Run spec budget` prompt
   section (facts only) exists only when granted. `gateSignals.closedLoop { calls, devWrites, closed }`.
 - **Authenticated browser (`authbrowser_*`)** — off unless `qa.agentBrowser.enabled` (or a run asks: `--agent-browser on|off`,
   `agentBrowser` on `POST /api/v1/runs`). The author (`qa-author`) and the explorer (`qa-explore`, read-only) get four custom tools
@@ -268,7 +273,8 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   workspace is refreshed from the working copy first, a finding no flow took goes to a regeneration, and the result goes through the
   round's acceptance and rebuttal check like any regeneration. The run's own checks before the review take the same route: the
   static gate's errors (one finding per error block), a failing execution's cases in the fix loop (and the contract deltas of a
-  round the intent lock refused), the pre-execution selector contradictions and the change-coverage gap each go to the lead as
+  round the intent lock refused), the pre-execution selector contradictions and the change-coverage gap (the changed lines no test ran and the
+  arms of their decisions that never ran) each go to the lead as
   facts it routes to their flows and never rebuts; what no flow takes goes to the lead's own regeneration with only that evidence,
   and the run's acceptance of the round is unchanged. The run releases the pass after the review and in its `finally`. DEV access: every action holds its account's lease (`DevLease`, an `AccountLock`
   whose read-only concurrency is gated by the proxy; the proxy has no read-only mode yet, so today every action is exclusive).
@@ -294,7 +300,10 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   see `docs/efficiency-benchmark.md`).
 - **Effort tier** — an e2e `diff` first pass gets the diff's real size and the effort its tier
   warrants (`shared-kernel/diff-stat.ts`: tiny ≤2 files and 40 lines, focused ≤8 and 400,
-  broad above): always an upper bound, and every tier admits the reasoned no-op. The same tiers bound
+  broad above): always an upper bound on spec files (a flow each), each holding a test per behaviour
+  the change decides (its success and each other state it handles that the page can be brought to
+  through the UI), and every tier admits the reasoned no-op. A lead's plan names one acceptance
+  outcome per such behaviour, and an author writes a test per criterion. The same tiers bound
   the first pass's wall time (`DIFF_TIME_BUDGET_MS`: tiny 6 min, focused 12 min, broad none), because a
   step can be arbitrarily long and the step cap alone never ends a turn spent on a few slow ones. The
   budget covers the whole first pass: the session carries it and each prompt, the repair included, is
@@ -585,11 +594,37 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   re-measured under its own `${runId}-coverage-regen` namespace. Only that second
   measurement can change the decision; a failed or empty regen keeps the first result.
 
+- The changed lines are the change's own code: the repo's test files a commit carries (the language
+  registry's `isTestFile`) are neither collected nor counted.
 - A browser run maps covered bundle bytes to repository files only through source maps the page's
-  scripts carry (inline, or fetched from the URL their `sourceMappingURL` names). When the dumps held
+  scripts carry (inline, fetched from the URL their `sourceMappingURL` names, or `<script>.map` when
+  they name none), fetched through the browser context so a DEV gate's credentials reach them. When the dumps held
   scripts and none carried a map, the measurement ends `unknown` with `unmeasured: no-source-maps`
   (span `qayaba.coverage.unmeasured`), distinct from `no-changed-file-mapped` (maps existed, none
   reached a changed file). It is an app/DEV build property, fixed by serving maps, never by a guess.
+- **Branch coverage** (signal, never a gate): the decisions of the scripts the page ran (if/else with the
+  implicit else, `?:`, `&&`/`||`/`??`, switch clauses) are placed through the same maps, and an arm is
+  taken when V8's block counts say it ran. The arms on changed lines go on the coverage span
+  (`qayaba.coverage.changed_branches`/`taken_branches`) and `gateSignals.branchCoverage`; the ones that
+  never ran join the enforce regeneration's gap. A happy-path suite shows a high line ratio and a low
+  branch one.
+- **Bundle mutation** (signal, never a gate; on with `qa.valueOracle`): up to three mutants of the changed
+  code in the served script (a negated condition, a swapped comparison or logical operator), each one
+  re-run of the spec files whose tests reached it, through the seed's `_mutate` fixture (`PW_MUTANT`).
+  A mutant is judged only when it reached a page; it is killed when a passing test fails.
+  `gateSignals.bundleMutation` holds `{ applied, killed, survived[] }` beside the response oracle's
+  `valueScore`, whose meaning is unchanged.
+- **Branch cases** (never a gate; `qa.changeCoverage.branchCases`, default `regenerate`): a green diff run
+  whose measurement blocks nothing and found untaken arms on changed lines gets **one** regeneration (the
+  step `regenerate-for-branch-cases`) with those arms as the cases still missing (a blocking enforce
+  measurement regenerates for coverage instead, with the same arms in its gap). It goes through acceptance
+  like any regeneration; an accepted one is recounted from the dumps already on disk (the first run's minus
+  those of the re-run spec files, plus the acceptance's), never by re-running DEV.
+  `gateSignals.branchCases { outcome, armsBefore, armsAfter? }`. A run deadline spent during it is the
+  run's degrade (`deadline-after-proof`), as for the coverage regeneration.
+- **Missing cases**: the reviewer gets the arms still untaken and may cite one (`arm`, `[missing-case]`).
+  A cited arm the run listed is recorded (`gateSignals.missingCases`) and shown in the PR or Issue; it
+  never blocks or rejects.
 
 - **Causal label and calibration** (record only, never a gate): `gateSignals.causal` labels a failure by whether the change reaches it, `coverageByCandidate` and `valueByCandidate`/`valueStats` hold the per-use-case coverage and kill rates, and `npm run fault-calibrate` gives each campaign variant a calibration verdict. The response oracle corrupts only the operations the change reaches and writes no score without a scope.
 
