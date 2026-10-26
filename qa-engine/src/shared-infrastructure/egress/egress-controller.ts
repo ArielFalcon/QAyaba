@@ -3,7 +3,7 @@
 
 import type { EgressGate, EgressLease } from "../process-sandbox/exec-sandbox.ts";
 import type { SandboxReport } from "../process-sandbox/exec-scope.ts";
-import { compileEgressPolicy, type EgressPolicy } from "./egress-policy.ts";
+import { compileEgressPolicy, type EgressPolicy } from "../../shared-kernel/egress-policy.ts";
 import type { IptablesApplier } from "./iptables-runner.ts";
 
 export interface ProxyPort {

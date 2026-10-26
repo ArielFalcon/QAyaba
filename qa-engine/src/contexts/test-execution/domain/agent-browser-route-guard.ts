@@ -8,7 +8,7 @@
  * Order: scheme, origin, denied route, method. A denied route is closed to every method and wins over an allowance.
  */
 
-import { compileEgressPolicy } from "../../../shared-infrastructure/egress/egress-policy.ts";
+import { compileEgressPolicy } from "../../../shared-kernel/egress-policy.ts";
 
 export const GUARD_REASON = {
   SCHEME: "scheme",

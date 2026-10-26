@@ -166,6 +166,8 @@ test("isProtectedPath flags the secret boundary (a fix must never weaken what sc
   assert.equal(isProtectedPath("qa-engine/src/shared-kernel/ports/spec-files.port.ts"), true);
   /* the exec scope the run flow reads the sandbox through: its kernel port and the shared ambient views */
   assert.equal(isProtectedPath("qa-engine/src/shared-kernel/ports/exec-scope.port.ts"), true);
+  /* the egress policy compiler lives in the kernel (the route guard and the controller share it): it keeps the egress protection */
+  assert.equal(isProtectedPath("qa-engine/src/shared-kernel/egress-policy.ts"), true);
   assert.equal(isProtectedPath("qa-engine/src/shared-infrastructure/process-sandbox/ambient-exec-scope.ts"), true);
   /* the logs→Issue containsSecret fail-loud call site — an autonomous fix could remove the guard
      that refuses to ship a secret-carrying Issue body.

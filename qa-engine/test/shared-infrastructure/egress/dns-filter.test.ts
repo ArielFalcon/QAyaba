@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import dgram from "node:dgram";
 import { buildDnsQuery, DnsFilter, parseDnsQuestion } from "../../../src/shared-infrastructure/egress/dns-filter.ts";
-import { compileEgressPolicy } from "../../../src/shared-infrastructure/egress/egress-policy.ts";
+import { compileEgressPolicy } from "../../../src/shared-kernel/egress-policy.ts";
 
 function ask(port: number, query: Buffer): Promise<Buffer | undefined> {
   return new Promise((resolve) => {

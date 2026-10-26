@@ -13,7 +13,7 @@ import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import { DEFAULT_AGENT_BROWSER_LIMITS } from "@kernel/agent-browser.ts";
 import type { GeoLocation } from "@kernel/geolocation.ts";
 import { activeExecScope } from "../../../../shared-infrastructure/process-sandbox/exec-scope.ts";
-import { originOf } from "../../../../shared-infrastructure/egress/egress-policy.ts";
+import { originOf } from "../../../../shared-kernel/egress-policy.ts";
 import { AccountLock } from "@contexts/test-execution/application/index.ts";
 import { AgentBrowserCapability } from "@contexts/test-execution/application/index.ts";
 import { createRouteGuard } from "@contexts/test-execution/application/index.ts";

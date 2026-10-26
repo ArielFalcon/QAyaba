@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { parse } from "yaml";
 import { DnsFilter } from "../../qa-engine/src/shared-infrastructure/egress/dns-filter";
 import { EgressController } from "../../qa-engine/src/shared-infrastructure/egress/egress-controller";
-import { compileEgressPolicy, originOf } from "../../qa-engine/src/shared-infrastructure/egress/egress-policy";
+import { compileEgressPolicy, originOf } from "../../qa-engine/src/shared-kernel/egress-policy";
 import { createIptablesApplier } from "../../qa-engine/src/shared-infrastructure/egress/iptables-runner";
 import { TransparentProxy } from "../../qa-engine/src/shared-infrastructure/egress/transparent-proxy";
 import type { EgressGate } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";

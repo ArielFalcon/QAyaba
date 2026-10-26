@@ -1,7 +1,7 @@
 /* What a sandboxed child may reach is a list of declared origins, compiled once into rules the proxy and the DNS filter ask. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { compileEgressPolicy, EgressPolicyError, originOf } from "../../../src/shared-infrastructure/egress/egress-policy.ts";
+import { compileEgressPolicy, EgressPolicyError, originOf } from "../../src/shared-kernel/egress-policy.ts";
 
 test("an origin allows its host on its port, and the scheme's default port when none is written", () => {
   const policy = compileEgressPolicy(["https://dev.example.com", "http://plain.example.com", "https://alt.example.com:8443"]);

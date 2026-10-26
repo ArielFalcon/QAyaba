@@ -304,6 +304,7 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/shared-infrastructure/code-graph/codegraph-code-graph.adapter.ts",
   /* The egress filter: the policy compiler, the transparent proxy that decides on the name a connection asks for, the DNS filter, the iptables rules and their applier, the controller that holds the leases, and the wiring that reads the declared origins; plus the registries file, which is the list of package registries every install may reach. Widening any of them hands agent code a network. */
   "qa-engine/src/shared-infrastructure/egress/",
+  "qa-engine/src/shared-kernel/egress-policy.ts",
   "src/server/egress-wiring.ts",
   "src/server/dns-forward.ts",
   "src/server/sandbox-health.ts",

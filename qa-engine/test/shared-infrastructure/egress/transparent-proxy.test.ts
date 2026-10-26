@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import net from "node:net";
 import { TransparentProxy } from "../../../src/shared-infrastructure/egress/transparent-proxy.ts";
-import { compileEgressPolicy } from "../../../src/shared-infrastructure/egress/egress-policy.ts";
+import { compileEgressPolicy } from "../../../src/shared-kernel/egress-policy.ts";
 
 function helloFor(name: string): Buffer {
   const nameBytes = Buffer.from(name);

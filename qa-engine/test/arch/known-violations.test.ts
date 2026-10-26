@@ -13,7 +13,7 @@ import { join } from "node:path";
 const repoRoot = join(import.meta.dirname, "..", "..", "..");
 const DEPCRUISE = join(repoRoot, "node_modules", ".bin", "depcruise");
 
-export const KNOWN_VIOLATIONS_CEILING = 28;
+export const KNOWN_VIOLATIONS_CEILING = 27;
 
 const LAYERING_RULES = ["domain-imports-nothing-outward", "application-not-infrastructure", "cross-context-internals", "no-circular"];
 

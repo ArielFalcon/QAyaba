@@ -394,20 +394,6 @@
     }
   },
   {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/test-execution/domain/agent-browser-route-guard.ts",
-    "to": "qa-engine/src/shared-infrastructure/egress/egress-policy.ts",
-    "unresolvedTo": "../../../shared-infrastructure/egress/egress-policy.ts",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "domain-imports-nothing-outward"
-    }
-  },
-  {
     "type": "cycle",
     "from": "qa-engine/src/contexts/generation/infrastructure/dom-snapshot.ts",
     "to": "qa-engine/src/contexts/generation/infrastructure/route-catalog.ts",
