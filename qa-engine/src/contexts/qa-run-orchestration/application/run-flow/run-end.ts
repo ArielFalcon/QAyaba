@@ -46,7 +46,7 @@ export interface EndEvidence {
 }
 
 /** The ends that leave nothing behind but an infra-error result with a note: no run record, no publication, no learning. */
-export type NotedFailure = "deploy-gate-failed" | "setup-failed" | "auth-failed" | "generation-empty-output" | "final-proof-guard" | "publication-failed";
+export type NotedFailure = "deploy-gate-failed" | "setup-failed" | "auth-failed" | "generation-empty-output" | "final-proof-guard";
 
 /** An infra-error that stopped the run before it could reach a verdict, persisted on its own. */
 export type UnreachedVerdict = "sandbox-unavailable" | "probe-sweep-failed";
@@ -140,7 +140,6 @@ export const END_EFFECTS: Readonly<Record<EndReason, EndEffects>> = {
   "reviewer-unavailable": RECORDED_TERMINAL,
   "review-disputed": RECORDED_TERMINAL,
   "final-proof-guard": UNRECORDED,
-  "publication-failed": UNRECORDED,
   "run-deadline": RECORDED_TERMINAL,
   "sandbox-unavailable": RECORDED_TERMINAL,
   "probe-sweep-failed": RECORDED_TERMINAL,

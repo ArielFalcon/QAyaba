@@ -59,16 +59,16 @@ test("an untrusted git tree is rethrown from every class of step", () => {
   for (const stepClass of STEP_CLASSES) assert.deepEqual(POLICY["untrusted-tree"][stepClass], { do: "rethrow" });
 });
 
-test("only a step off the verdict's path carries on past a fault of a collaborator, and only the publish step turns a failed publication into an end", () => {
+test("only a step off the verdict's path carries on past a fault of a collaborator, and only the publish step degrades on a failed publication", () => {
   for (const kind of ["integration", "unknown"] as const) {
     assert.deepEqual(POLICY[kind]["off-path"], { do: "fail-open" });
     for (const stepClass of ["required", "proven", "publish"] as const) assert.deepEqual(POLICY[kind][stepClass], { do: "rethrow" });
   }
-  assert.deepEqual(POLICY.publication.publish, { do: "end", reason: "publication-failed" });
+  assert.deepEqual(POLICY.publication.publish, { do: "degrade", reason: "publication-failed" });
   assert.deepEqual(POLICY.publication["off-path"], { do: "rethrow" });
 });
 
-const endOf = (reason: EndReason): RunEnd => (reason === "aborted" ? runEnd("aborted") : runEnd("publication-failed", { note: reason }));
+const endOf = (reason: EndReason): RunEnd => (reason === "aborted" ? runEnd("aborted") : runEnd("setup-failed", { note: reason }));
 
 test("a wrapped step that succeeds returns what it returned", async () => {
   assert.deepEqual(await guarded({ id: "set-up-project", class: "required" }, async () => ({ update: { x: 1 } }), endOf), { update: { x: 1 } });

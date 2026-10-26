@@ -16,14 +16,12 @@ import { closedLoopSignal } from "./phases/generation-services.ts";
 import { resolveTested } from "./phases/fix-loop.steps.ts";
 import type { PublicationPort } from "../ports/index.ts";
 import { deriveErrorClass, toReflectionInput, toRunOutcome } from "./outcome-assembly.ts";
-import { runEnd, type RunEnd } from "./run-end.ts";
 import type { WorkspaceRunContext } from "./run-context.ts";
 import type { RunQaResult } from "./run-types.ts";
 import type { RunState } from "./run-state.ts";
-import { carryOn } from "./failure-policy.ts";
+import { PublicationFailedError, actionFor, carryOn } from "./failure-policy.ts";
 
-/* `endInstead` finalizes any other end the effects come to (a publication that failed): the caller's own finalizeRun. */
-export async function finalizeDecided(state: Readonly<RunState>, ctx: WorkspaceRunContext, endInstead: (end: RunEnd) => Promise<RunQaResult>): Promise<RunQaResult> {
+export async function finalizeDecided(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<RunQaResult> {
   await recordCoordinationOutcome(state, ctx);
   await ctx.services.confinement.enforce();
 
@@ -32,16 +30,7 @@ export async function finalizeDecided(state: Readonly<RunState>, ctx: WorkspaceR
   if (keepsSuite(state, ctx)) await keepAcceptedSuite(state, ctx);
 
   let publishOutcome: string | undefined;
-  if (decidedOf(state).decision.sideEffect !== "none") {
-    const published = await publishDecision(state, ctx);
-    /* Publication can throw after a verdict is decided: the run ends as the failure it is, with nothing persisted. */
-    if ("failed" in published) {
-      const end = runEnd("publication-failed", { note: published.failed });
-      ctx.trail.endReason = end.reason;
-      return await endInstead(end);
-    }
-    publishOutcome = published.outcome;
-  }
+  if (decidedOf(state).decision.sideEffect !== "none") publishOutcome = await publishDecision(state, ctx);
 
   /* Once, after confinement and publish, so gc never races this run's git write. */
   await ctx.host.pruneMirror(ctx.workspace.mirrorDir);
@@ -135,7 +124,7 @@ async function keepAcceptedSuite(state: Readonly<RunState>, ctx: WorkspaceRunCon
  * blocksPublish ride along so a green-but-rejected run opens an Issue and an enforce coverage fail holds the PR. e2eChanged is
  * omitted (no computed source: do not fabricate). Cross-repo Issues file in triggerRepo; PRs still target the primary.
  */
-async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<{ outcome: string } | { failed: string }> {
+async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<string> {
   const { deps, input, cfg, workspace, services } = ctx;
   const { run } = state.execution;
   const { reviewerApproved } = state.review;
@@ -160,9 +149,14 @@ async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunConte
       ...(resolveTested(state)?.length ? { tested: resolveTested(state) } : {}),
     });
   } catch (pubErr) {
-    return {
-      failed: `publication failed after verdict was decided (decided: ${run.verdict}, reviewerApproved: ${reviewerApproved}): ${pubErr instanceof Error ? pubErr.message : String(pubErr)}`,
-    };
+    /* The verdict was decided before the port failed: the policy keeps it, and the run records and learns from it with the failure as its note. */
+    const failure = new PublicationFailedError(
+      `publication failed after verdict was decided (decided: ${run.verdict}, reviewerApproved: ${reviewerApproved}): ${pubErr instanceof Error ? pubErr.message : String(pubErr)}`,
+      { cause: pubErr },
+    );
+    if (actionFor(failure, "publish").do !== "degrade") throw failure;
+    console.error(`[qa] ${failure.message}`);
+    return failure.message;
   }
   /*
    * Merge denylist reverts into gateSignals.confinement. Count only revertedDangerous toward dangerous: not every revert is a
@@ -175,7 +169,7 @@ async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunConte
       reverted: [...published.revertedDenylisted],
     });
   }
-  return { outcome: published.outcome };
+  return published.outcome;
 }
 
 /* What persisting derived: the error class and closed-loop signal both the record and the result report, and the record itself (absent for a clean context pass). */

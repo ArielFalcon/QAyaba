@@ -15,7 +15,6 @@ export const END_REASONS = [
   "reviewer-unavailable",
   "review-disputed",
   "final-proof-guard",
-  "publication-failed",
   "run-deadline",
   "sandbox-unavailable",
   "probe-sweep-failed",

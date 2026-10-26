@@ -50,7 +50,7 @@ export async function finalizeRun(end: RunEnd, ctx: RunContext, state?: Readonly
   const effects = END_EFFECTS[end.reason];
   if (end.reason === "decided" || end.reason === "context-pass") {
     if (!isWorkspaceContext(ctx) || !state) throw new Error("a run cannot be decided before its working copy is prepared");
-    return await finalizeDecided(state, ctx, (other) => finalizeRun(other, ctx, state));
+    return await finalizeDecided(state, ctx);
   }
   return await finalizeShape(shapeOf(await enforcedEnd(end, effects, ctx), ctx), effects, ctx);
 }
@@ -111,7 +111,6 @@ function shapeOf(end: Exclude<RunEnd, { reason: "decided" | "context-pass" }>, c
     case "auth-failed":
     case "generation-empty-output":
     case "final-proof-guard":
-    case "publication-failed":
       console.error("[qa] infra-error terminal:", end.note);
       return { kind: "failure", note: end.note };
     case "generation-noop":

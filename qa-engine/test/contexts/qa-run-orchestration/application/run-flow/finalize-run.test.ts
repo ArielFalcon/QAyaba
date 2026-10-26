@@ -94,7 +94,7 @@ test("an end before the working copy exists prunes nothing", async () => {
   assert.deepEqual(calls.order, []);
 });
 
-for (const reason of ["deploy-gate-failed", "setup-failed", "auth-failed", "generation-empty-output", "final-proof-guard", "publication-failed"] as const) {
+for (const reason of ["deploy-gate-failed", "setup-failed", "auth-failed", "generation-empty-output", "final-proof-guard"] as const) {
   test(`${reason} is an unrecorded infra-error carrying its note`, async () => {
     const { result, calls } = await end(runEnd(reason, { note: `${reason} happened` }));
     assert.equal(result.decision.verdict, "infra-error");
@@ -312,15 +312,16 @@ test("a clean context pass publishes its map, persists nothing and reports no re
   assert.equal(calls.order.includes("prune"), true);
 });
 
-test("a publication that throws after the verdict ends the run as an unrecorded infra-error naming the decided verdict", async () => {
+test("a publication that throws after the verdict keeps the decided verdict, records the run with the failure as its note and learns from it", async () => {
   const { ctx, state, calls } = decidedRun({ verdict: "pass", publishFails: true });
   const result = await finalizeRun(runEnd("decided"), ctx, state);
-  assert.equal(result.decision.verdict, "infra-error");
+  assert.equal(result.decision.verdict, "pass");
   assert.match(result.note ?? "", /publication failed after verdict was decided \(decided: pass, reviewerApproved: true\): the forge is down/);
-  assert.equal(calls.saved.length, 0);
-  assert.equal(calls.folded.length, 0);
-  assert.equal(ctx.trail.endReason, "publication-failed");
-  assert.deepEqual(calls.order, ["enforce", "publish", "prune"]);
+  assert.equal(calls.saved.length, 1);
+  assert.equal(calls.saved[0]!.verdict, "pass");
+  assert.equal(calls.saved[0]!.note, result.note);
+  assert.equal(calls.folded.length, 1);
+  assert.deepEqual(calls.order, ["enforce", "publish", "prune", "save", "fold"]);
 });
 
 test("a run cannot be decided before its working copy is prepared", async () => {
@@ -354,7 +355,7 @@ for (const row of RUN_END_ROWS) {
       const mode = rig.input.mode ?? "diff";
       const persists = effects.persist === "yes" || (effects.persist === "not-in-context-mode" && mode !== "context");
       assert.equal(row.expect.persisted, persists, "persisted");
-      if (row.expect.publishCalled && reason !== "publication-failed") assert.equal(effects.publish, "decision", "a run that dispatched publication ends for a reason that may");
+      if (row.expect.publishCalled) assert.equal(effects.publish, "decision", "a run that dispatched publication ends for a reason that may");
       if (effects.publish === "none") assert.equal(row.expect.published, "none", "published");
       if (row.expect.folded || row.expect.reflected) assert.notEqual(effects.learn, "none", "learned");
       if (effects.learn === "none") assert.equal(row.expect.folded || row.expect.reflected, false, "learned");

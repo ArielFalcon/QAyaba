@@ -39,7 +39,10 @@ export type FailureKind = (typeof FAILURE_KINDS)[number];
 export const STEP_CLASSES = ["required", "proven", "off-path", "publish"] as const;
 export type StepClass = (typeof STEP_CLASSES)[number];
 
-export type FailureAction = { do: "rethrow" } | { do: "fail-open" } | { do: "end"; reason: EndReason };
+/** What a run keeps going with after a fault it cannot recover from, said on the outcome. */
+export type DegradeReason = "publication-failed";
+
+export type FailureAction = { do: "rethrow" } | { do: "fail-open" } | { do: "end"; reason: EndReason } | { do: "degrade"; reason: DegradeReason };
 
 const RETHROW: FailureAction = { do: "rethrow" };
 const FAIL_OPEN: FailureAction = { do: "fail-open" };
@@ -55,7 +58,8 @@ export const POLICY: Readonly<Record<FailureKind, Readonly<Record<StepClass, Fai
   "sandbox-unavailable": endFor("sandbox-unavailable"),
   "probe-sweep": endFor("probe-sweep-failed"),
   "untrusted-tree": always(RETHROW),
-  publication: { required: RETHROW, proven: RETHROW, "off-path": RETHROW, publish: { do: "end", reason: "publication-failed" } },
+  /* The verdict was decided before the port failed: the run keeps it, says the publication failed, and records the run. */
+  publication: { required: RETHROW, proven: RETHROW, "off-path": RETHROW, publish: { do: "degrade", reason: "publication-failed" } },
   /* A fault of a collaborator that is off the verdict's path never changes the verdict; it is said, and the run goes on. */
   integration: { required: RETHROW, proven: RETHROW, "off-path": FAIL_OPEN, publish: RETHROW },
   unknown: { required: RETHROW, proven: RETHROW, "off-path": FAIL_OPEN, publish: RETHROW },
@@ -99,6 +103,9 @@ export async function guarded<O, E>(
         return undefined;
       case "end":
         return { end: endOf(action.reason, err) };
+      case "degrade":
+        /* A step cannot go on past a fault in the middle of its work; only an effect that has somewhere to go on to degrades, and it asks the policy itself. */
+        throw err;
     }
   }
 }

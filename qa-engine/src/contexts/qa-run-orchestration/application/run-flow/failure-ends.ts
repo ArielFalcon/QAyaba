@@ -59,8 +59,6 @@ export function failureEnd(reason: EndReason, err: unknown, run: { deps: RunQaUs
       deps.observer?.onEvent({ type: "agent.error", detail: note });
       return runEnd("probe-sweep-failed", { note, ...rules });
     }
-    case "publication-failed":
-      return runEnd("publication-failed", { note: messageOf(err) });
     default:
       throw new Error(`no end is built for a failure that ends the run as "${reason}"`);
   }
