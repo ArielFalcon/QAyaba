@@ -1,4 +1,5 @@
 /* app scopes repo.listAll for the existing-rule set the dedup decision runs against. archetype comes from the use-case (never fabricated here; coalesced to null only when the use-case has none). */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { LearningRepositoryPort } from "../application/ports/learning-repository.port.ts";
 import type { LearningRule, ReflectionInput, StructuredReflection } from "../domain/learning-repository.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
@@ -142,8 +143,8 @@ export class ReflectorPortAdapter {
 
   async reflect(input: ReflectionInput): Promise<void> {
     const { runtime, repo, backfill, cwd, app, timeoutMs, onReflectError } = this.deps;
-    const reportError = onReflectError ?? ((e: unknown) => console.error("[ReflectorPortAdapter] reflect failed (off-path, swallowed):", e));
-    const reportSkip = this.deps.onSkipDuplicate ?? ((line: string) => console.log(line));
+    const reportError = onReflectError ?? ((e: unknown) => engineLog.error("[ReflectorPortAdapter] reflect failed (off-path, swallowed):", { error: e }));
+    const reportSkip = this.deps.onSkipDuplicate ?? ((line: string) => engineLog.info(line));
 
     let session: Awaited<ReturnType<AgentRuntimePort["openSession"]>> | undefined;
     try {

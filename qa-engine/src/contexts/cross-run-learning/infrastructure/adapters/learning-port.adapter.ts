@@ -1,5 +1,6 @@
 /* LearningPort: retrieve budget-fitted rules for the generator prompt; fold outcomes off-path (never gates the run). */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { RetrievedRule } from "@kernel/learned-rule.ts";
 import type { Sha } from "@kernel/sha.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
@@ -23,9 +24,9 @@ export class LearningPortAdapter implements LearningPort {
     private readonly repo: LearningRepositoryPort,
     private readonly app: string,
     private readonly limit = DEFAULT_RETRIEVE_LIMIT,
-    /* Injectable so a test can assert the swallow without polluting stderr; defaults to console.error. */
-    private readonly onFoldError: (err: unknown) => void = (err) => console.error("[LearningPortAdapter] fold failed (off-path, swallowed):", err),
-    private readonly onIncrementUsageError: (err: unknown) => void = (err) => console.warn("[LearningPortAdapter] incrementUsage failed (off-path, swallowed):", err),
+    /* Injectable so a test can assert the swallow without polluting stderr; defaults to the process logger. */
+    private readonly onFoldError: (err: unknown) => void = (err) => engineLog.error("[LearningPortAdapter] fold failed (off-path, swallowed):", { error: err }),
+    private readonly onIncrementUsageError: (err: unknown) => void = (err) => engineLog.warn("[LearningPortAdapter] incrementUsage failed (off-path, swallowed):", { error: err }),
     private readonly maxChars = DEFAULT_RULES_CHAR_BUDGET,
   ) {}
 

@@ -1,4 +1,5 @@
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { SelectedExemplar } from "@kernel/learned-rule.ts";
 import type { CurriculumPort } from "../application/ports/curriculum.port.ts";
 import type { CurriculumFoldInput } from "../domain/curriculum-model.ts";
@@ -19,7 +20,7 @@ export class CurriculumPortAdapter implements CurriculumPort {
     private readonly loadFn: CurriculumLoad,
     private readonly saveFn: CurriculumSave,
     private readonly onError: (err: unknown) => void = (err) =>
-      console.warn("[CurriculumPortAdapter] off-path failure, swallowed:", err),
+      engineLog.warn("[CurriculumPortAdapter] off-path failure, swallowed:", { error: err }),
   ) {}
 
   async select(diff: string | undefined, changedFiles: readonly string[]): Promise<readonly SelectedExemplar[]> {
