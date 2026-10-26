@@ -80,8 +80,9 @@ function renderLeadPlan(limits: PlanningLimits): string {
     `This turn asks for a plan, not for specs: write no file. Close with ONLY a JSON object {"plan": ...} of one of these shapes.`,
     `- {"plan":{"kind":"${LEAD_PLAN_KIND.NOOP}","reason":"<why nothing here is worth a test, or the element and the evidence showing the change cannot be observed on DEV in its current state>"}}`,
     `- {"plan":{"kind":"${LEAD_PLAN_KIND.LEAD}"}} when the change is one piece of work that you will author yourself.`,
-    `- {"plan":{"kind":"${LEAD_PLAN_KIND.FANOUT}","flows":[{"id":"<short-slug>","objective":"<what the flow proves>","acceptance":["<an observable outcome>"],"routes":["/<path the flow visits>"]${locationField}}]}} when the change is several independent flows, each of which can be written and run without the others.`,
+    `- {"plan":{"kind":"${LEAD_PLAN_KIND.FANOUT}","flows":[{"id":"<short-slug>","objective":"<what the flow proves>","acceptance":["<the observable outcome of one behaviour the change decides>"],"routes":["/<path the flow visits>"]${locationField}}]}} when the change is several independent flows, each of which can be written and run without the others.`,
     `A fan-out names at most ${limits.maxFlows} flows, and ${limits.maxParallel} are written at once. A flow is one spec file named by its id; no two flows share a file or depend on each other's data.`,
+    `A flow's acceptance names one outcome per behaviour the change decides on its pages: the outcome when it succeeds, and each other state the change handles there (an error, an empty result, a rejected input) that the page can be brought to through the UI against DEV.`,
     ...(limits.locations?.length ? [`A flow may name one of the app's locations; a flow without one inherits the run's.`] : []),
     ...(limits.changeRoutes?.length
       ? [`The change is linked to these pages of the app's map: ${limits.changeRoutes.join(", ")}. Give a flow to each page whose behaviour the change alters; a page no flow visits is reported with the plan.`]
@@ -1196,7 +1197,7 @@ interface TaskGuards {
   reaskObjective: boolean;
 }
 
-/* What a diff of each size asks of the agent. The effort is a ceiling on the work and never a floor: no tier asks for a spec, and declaring the no-op, for either of its reasons, is within every bound. `upperBound` counts focused specs for the whole change, or for each affected flow. The texts carry no figure and no word the lint counts, so the line adds nothing to the directive budget and declares no claim. */
+/* What a diff of each size asks of the agent. The effort is a ceiling on the work and never a floor: no tier asks for a spec, and declaring the no-op, for either of its reasons, is within every bound. `upperBound` counts spec files (a flow each) for the whole change, or for each affected flow; inside each, a test per behaviour the change decides. The texts carry no figure and no word the lint counts, so the line adds nothing to the directive budget and declares no claim. */
 export interface EffortTier {
   upperBound: { specs: number; per: "change" | "flow" };
   admitsNoOp: true;
@@ -1205,12 +1206,14 @@ export interface EffortTier {
 
 /* The clause every tier ends with, so that what the data declares (the no-op is admitted) is what the text says. */
 export const EFFORT_NO_OP_CLAUSE = "or none if nothing here is worth a test or the change cannot be observed on DEV in its current state";
-const effortText = (tier: DiffTier, bound: string): string => `Expected effort (${tier} change): at most ${bound}, ${EFFORT_NO_OP_CLAUSE}.`;
+/* What each spec file holds: the change's own decisions, not its happy path alone. */
+export const EFFORT_PER_BEHAVIOUR = "each with a test per behaviour the change decides";
+const effortText = (tier: DiffTier, bound: string): string => `Expected effort (${tier} change): at most ${bound}, ${EFFORT_PER_BEHAVIOUR}, ${EFFORT_NO_OP_CLAUSE}.`;
 
 export const EFFORT_BY_TIER: Record<DiffTier, EffortTier> = {
-  tiny: { upperBound: { specs: 2, per: "change" }, admitsNoOp: true, text: effortText("tiny", "one or two focused specs") },
-  focused: { upperBound: { specs: 4, per: "change" }, admitsNoOp: true, text: effortText("focused", "a few focused specs for the affected flows") },
-  broad: { upperBound: { specs: 1, per: "flow" }, admitsNoOp: true, text: effortText("broad", "one focused spec per affected flow, not a suite rewrite") },
+  tiny: { upperBound: { specs: 2, per: "change" }, admitsNoOp: true, text: effortText("tiny", "one or two spec files") },
+  focused: { upperBound: { specs: 4, per: "change" }, admitsNoOp: true, text: effortText("focused", "a few spec files for the affected flows") },
+  broad: { upperBound: { specs: 1, per: "flow" }, admitsNoOp: true, text: effortText("broad", "one spec file per affected flow, not a suite rewrite") },
 };
 
 /* The change's real size, from the changed files and the diff's own lines. */

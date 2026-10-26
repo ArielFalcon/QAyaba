@@ -5,8 +5,8 @@
     "directives": 17
   },
   "staticLayers": {
-    "opencode": 20427,
-    "codex": 35747
+    "opencode": 20901,
+    "codex": 36221
   },
   "buckets": {
     "complete/code/first/tree-none/none": {
@@ -138,7 +138,7 @@
       "directives": 6
     },
     "complete/e2e/first/tree-none/none/planning/limit": {
-      "bytes": 2418,
+      "bytes": 2722,
       "directives": 3
     },
     "complete/e2e/first/tree-none/none/signal": {
@@ -182,7 +182,7 @@
       "directives": 4
     },
     "complete/e2e/first/tree-none/pack/planning/limit": {
-      "bytes": 3386,
+      "bytes": 3690,
       "directives": 3
     },
     "complete/e2e/first/tree-none/pack/signal": {
@@ -1554,187 +1554,187 @@
       "directives": 9
     },
     "diff/e2e/first/tree-none/none": {
-      "bytes": 5254,
+      "bytes": 5302,
       "directives": 8
     },
     "diff/e2e/first/tree-none/none/co-change": {
-      "bytes": 4146,
+      "bytes": 4194,
       "directives": 7
     },
     "diff/e2e/first/tree-none/none/co-change/limit": {
-      "bytes": 4265,
+      "bytes": 4313,
       "directives": 7
     },
     "diff/e2e/first/tree-none/none/co-change/no-suite": {
-      "bytes": 4118,
+      "bytes": 4166,
       "directives": 6
     },
     "diff/e2e/first/tree-none/none/co-change/no-suite/limit": {
-      "bytes": 4237,
+      "bytes": 4285,
       "directives": 6
     },
     "diff/e2e/first/tree-none/none/limit": {
-      "bytes": 5373,
+      "bytes": 5421,
       "directives": 8
     },
     "diff/e2e/first/tree-none/none/loop/browser/limit": {
-      "bytes": 4007,
+      "bytes": 4055,
       "directives": 7
     },
     "diff/e2e/first/tree-none/none/loop/limit": {
-      "bytes": 4040,
+      "bytes": 4088,
       "directives": 7
     },
     "diff/e2e/first/tree-none/none/no-suite": {
-      "bytes": 3755,
+      "bytes": 3803,
       "directives": 6
     },
     "diff/e2e/first/tree-none/none/no-suite/limit": {
-      "bytes": 3874,
+      "bytes": 3922,
       "directives": 6
     },
     "diff/e2e/first/tree-none/none/planning/limit": {
-      "bytes": 4334,
+      "bytes": 4686,
       "directives": 4
     },
     "diff/e2e/first/tree-none/none/service": {
-      "bytes": 5942,
+      "bytes": 5990,
       "directives": 8
     },
     "diff/e2e/first/tree-none/none/service/limit": {
-      "bytes": 6061,
+      "bytes": 6109,
       "directives": 8
     },
     "diff/e2e/first/tree-none/none/signal": {
-      "bytes": 5543,
+      "bytes": 5591,
       "directives": 9
     },
     "diff/e2e/first/tree-none/none/signal/limit": {
-      "bytes": 5662,
+      "bytes": 5710,
       "directives": 9
     },
     "diff/e2e/first/tree-none/none/signal/no-suite": {
-      "bytes": 4044,
+      "bytes": 4092,
       "directives": 7
     },
     "diff/e2e/first/tree-none/none/signal/no-suite/limit": {
-      "bytes": 4163,
+      "bytes": 4211,
       "directives": 7
     },
     "diff/e2e/first/tree-none/none/signal/service": {
-      "bytes": 6231,
+      "bytes": 6279,
       "directives": 9
     },
     "diff/e2e/first/tree-none/none/signal/service/limit": {
-      "bytes": 6350,
+      "bytes": 6398,
       "directives": 9
     },
     "diff/e2e/first/tree-none/pack": {
-      "bytes": 6025,
+      "bytes": 6073,
       "directives": 6
     },
     "diff/e2e/first/tree-none/pack/co-change": {
-      "bytes": 4848,
+      "bytes": 4896,
       "directives": 5
     },
     "diff/e2e/first/tree-none/pack/co-change/limit": {
-      "bytes": 4967,
+      "bytes": 5015,
       "directives": 5
     },
     "diff/e2e/first/tree-none/pack/co-change/no-suite": {
-      "bytes": 4820,
+      "bytes": 4868,
       "directives": 4
     },
     "diff/e2e/first/tree-none/pack/co-change/no-suite/limit": {
-      "bytes": 4939,
+      "bytes": 4987,
       "directives": 4
     },
     "diff/e2e/first/tree-none/pack/contracts-only": {
-      "bytes": 5464,
+      "bytes": 5512,
       "directives": 8
     },
     "diff/e2e/first/tree-none/pack/contracts-only/limit": {
-      "bytes": 5583,
+      "bytes": 5631,
       "directives": 8
     },
     "diff/e2e/first/tree-none/pack/contracts-only/service": {
-      "bytes": 6152,
+      "bytes": 6200,
       "directives": 8
     },
     "diff/e2e/first/tree-none/pack/contracts-only/service/limit": {
-      "bytes": 6271,
+      "bytes": 6319,
       "directives": 8
     },
     "diff/e2e/first/tree-none/pack/contracts-only/signal": {
-      "bytes": 5753,
+      "bytes": 5801,
       "directives": 9
     },
     "diff/e2e/first/tree-none/pack/contracts-only/signal/limit": {
-      "bytes": 5872,
+      "bytes": 5920,
       "directives": 9
     },
     "diff/e2e/first/tree-none/pack/contracts-only/signal/service": {
-      "bytes": 6441,
+      "bytes": 6489,
       "directives": 9
     },
     "diff/e2e/first/tree-none/pack/contracts-only/signal/service/limit": {
-      "bytes": 6560,
+      "bytes": 6608,
       "directives": 9
     },
     "diff/e2e/first/tree-none/pack/limit": {
-      "bytes": 6144,
+      "bytes": 6192,
       "directives": 6
     },
     "diff/e2e/first/tree-none/pack/loop/browser/limit": {
-      "bytes": 5080,
+      "bytes": 5128,
       "directives": 5
     },
     "diff/e2e/first/tree-none/pack/loop/limit": {
-      "bytes": 4742,
+      "bytes": 4790,
       "directives": 5
     },
     "diff/e2e/first/tree-none/pack/no-suite": {
-      "bytes": 4457,
+      "bytes": 4505,
       "directives": 4
     },
     "diff/e2e/first/tree-none/pack/no-suite/limit": {
-      "bytes": 4576,
+      "bytes": 4624,
       "directives": 4
     },
     "diff/e2e/first/tree-none/pack/planning/limit": {
-      "bytes": 5302,
+      "bytes": 5654,
       "directives": 4
     },
     "diff/e2e/first/tree-none/pack/service": {
-      "bytes": 6713,
+      "bytes": 6761,
       "directives": 6
     },
     "diff/e2e/first/tree-none/pack/service/limit": {
-      "bytes": 6832,
+      "bytes": 6880,
       "directives": 6
     },
     "diff/e2e/first/tree-none/pack/signal": {
-      "bytes": 6314,
+      "bytes": 6362,
       "directives": 7
     },
     "diff/e2e/first/tree-none/pack/signal/limit": {
-      "bytes": 6433,
+      "bytes": 6481,
       "directives": 7
     },
     "diff/e2e/first/tree-none/pack/signal/no-suite": {
-      "bytes": 4746,
+      "bytes": 4794,
       "directives": 5
     },
     "diff/e2e/first/tree-none/pack/signal/no-suite/limit": {
-      "bytes": 4865,
+      "bytes": 4913,
       "directives": 5
     },
     "diff/e2e/first/tree-none/pack/signal/service": {
-      "bytes": 7002,
+      "bytes": 7050,
       "directives": 7
     },
     "diff/e2e/first/tree-none/pack/signal/service/limit": {
-      "bytes": 7121,
+      "bytes": 7169,
       "directives": 7
     },
     "diff/e2e/regen-coverage/tree-none/none": {
@@ -3338,7 +3338,7 @@
       "directives": 6
     },
     "exhaustive/e2e/first/tree-none/none/planning/limit": {
-      "bytes": 2555,
+      "bytes": 2859,
       "directives": 3
     },
     "exhaustive/e2e/first/tree-none/none/signal": {
@@ -3382,7 +3382,7 @@
       "directives": 4
     },
     "exhaustive/e2e/first/tree-none/pack/planning/limit": {
-      "bytes": 3523,
+      "bytes": 3827,
       "directives": 3
     },
     "exhaustive/e2e/first/tree-none/pack/signal": {
@@ -4706,7 +4706,7 @@
       "directives": 6
     },
     "manual/e2e/first/tree-none/none/planning/limit": {
-      "bytes": 2535,
+      "bytes": 2839,
       "directives": 4
     },
     "manual/e2e/first/tree-none/none/signal": {
@@ -4766,7 +4766,7 @@
       "directives": 4
     },
     "manual/e2e/first/tree-none/pack/planning/limit": {
-      "bytes": 3503,
+      "bytes": 3807,
       "directives": 4
     },
     "manual/e2e/first/tree-none/pack/signal": {
@@ -6011,63 +6011,21 @@
     }
   },
   "lastIncrease": {
-    "reason": "the shared rules name one order for reading code (code-graph tools, serena, file tools) and one source order for the live DOM, so no role is sent to a tool it does not hold",
+    "reason": "missing cases: the diff tiers bound spec files and ask for a test per behaviour the change decides; the lead plan names one acceptance outcome per behaviour; the generator and sidekick layers say which tests a flow holds",
     "budgets": [
-      "diff/e2e/first/tree-none/brief:bytes",
-      "diff/e2e/first/tree-none/brief+pack/contracts-only:bytes",
-      "diff/e2e/first/tree-none/brief+pack/contracts-only/limit:bytes",
-      "diff/e2e/first/tree-none/brief+pack/contracts-only/service:bytes",
-      "diff/e2e/first/tree-none/brief+pack/contracts-only/service/limit:bytes",
-      "diff/e2e/first/tree-none/brief+pack/loop/browser/limit:bytes",
-      "diff/e2e/first/tree-none/brief+pack/no-blast:bytes",
-      "diff/e2e/first/tree-none/brief+pack/no-blast/co-change:bytes",
-      "diff/e2e/first/tree-none/brief+pack/no-blast/co-change/limit:bytes",
-      "diff/e2e/first/tree-none/brief+pack/no-blast/co-change/no-suite:bytes",
-      "diff/e2e/first/tree-none/brief+pack/no-blast/co-change/no-suite/limit:bytes",
-      "diff/e2e/first/tree-none/brief+pack/no-blast/contracts-only:bytes",
-      "diff/e2e/first/tree-none/brief+pack/no-blast/contracts-only/limit:bytes",
-      "diff/e2e/first/tree-none/brief+pack/no-blast/contracts-only/service:bytes",
-      "diff/e2e/first/tree-none/brief+pack/no-blast/contracts-only/service/limit:bytes",
-      "diff/e2e/first/tree-none/brief+pack/no-blast/contracts-only/signal:bytes",
-      "diff/e2e/first/tree-none/brief+pack/no-blast/contracts-only/signal/limit:bytes",
-      "diff/e2e/first/tree-none/brief+pack/no-blast/contracts-only/signal/service:bytes",
-      "diff/e2e/first/tree-none/brief+pack/no-blast/contracts-only/signal/service/limit:bytes",
-      "diff/e2e/first/tree-none/brief+pack/no-blast/limit:bytes",
-      "diff/e2e/first/tree-none/brief+pack/no-blast/no-suite:bytes",
-      "diff/e2e/first/tree-none/brief+pack/no-blast/no-suite/limit:bytes",
-      "diff/e2e/first/tree-none/brief+pack/no-blast/service:bytes",
-      "diff/e2e/first/tree-none/brief+pack/no-blast/service/limit:bytes",
-      "diff/e2e/first/tree-none/brief/limit:bytes",
-      "diff/e2e/first/tree-none/brief/loop/limit:bytes",
-      "diff/e2e/first/tree-none/brief/no-blast:bytes",
-      "diff/e2e/first/tree-none/brief/no-blast/co-change:bytes",
-      "diff/e2e/first/tree-none/brief/no-blast/co-change/limit:bytes",
-      "diff/e2e/first/tree-none/brief/no-blast/co-change/no-suite:bytes",
-      "diff/e2e/first/tree-none/brief/no-blast/co-change/no-suite/limit:bytes",
-      "diff/e2e/first/tree-none/brief/no-blast/limit:bytes",
-      "diff/e2e/first/tree-none/brief/no-blast/no-suite:bytes",
-      "diff/e2e/first/tree-none/brief/no-blast/no-suite/limit:bytes",
-      "diff/e2e/first/tree-none/brief/no-blast/service:bytes",
-      "diff/e2e/first/tree-none/brief/no-blast/service/limit:bytes",
-      "diff/e2e/first/tree-none/brief/no-blast/signal:bytes",
-      "diff/e2e/first/tree-none/brief/no-blast/signal/limit:bytes",
-      "diff/e2e/first/tree-none/brief/no-blast/signal/no-suite:bytes",
-      "diff/e2e/first/tree-none/brief/no-blast/signal/no-suite/limit:bytes",
-      "diff/e2e/first/tree-none/brief/no-blast/signal/service:bytes",
-      "diff/e2e/first/tree-none/brief/no-blast/signal/service/limit:bytes",
-      "diff/e2e/first/tree-none/brief/no-suite:bytes",
-      "diff/e2e/first/tree-none/brief/no-suite/limit:bytes",
-      "diff/e2e/first/tree-none/brief/service:bytes",
-      "diff/e2e/first/tree-none/brief/service/limit:bytes",
+      "complete/e2e/first/tree-none/none/planning/limit:bytes",
+      "complete/e2e/first/tree-none/pack/planning/limit:bytes",
       "diff/e2e/first/tree-none/none:bytes",
       "diff/e2e/first/tree-none/none/co-change:bytes",
       "diff/e2e/first/tree-none/none/co-change/limit:bytes",
       "diff/e2e/first/tree-none/none/co-change/no-suite:bytes",
       "diff/e2e/first/tree-none/none/co-change/no-suite/limit:bytes",
       "diff/e2e/first/tree-none/none/limit:bytes",
+      "diff/e2e/first/tree-none/none/loop/browser/limit:bytes",
       "diff/e2e/first/tree-none/none/loop/limit:bytes",
       "diff/e2e/first/tree-none/none/no-suite:bytes",
       "diff/e2e/first/tree-none/none/no-suite/limit:bytes",
+      "diff/e2e/first/tree-none/none/planning/limit:bytes",
       "diff/e2e/first/tree-none/none/service:bytes",
       "diff/e2e/first/tree-none/none/service/limit:bytes",
       "diff/e2e/first/tree-none/none/signal:bytes",
@@ -6094,64 +6052,19 @@
       "diff/e2e/first/tree-none/pack/loop/limit:bytes",
       "diff/e2e/first/tree-none/pack/no-suite:bytes",
       "diff/e2e/first/tree-none/pack/no-suite/limit:bytes",
+      "diff/e2e/first/tree-none/pack/planning/limit:bytes",
       "diff/e2e/first/tree-none/pack/service:bytes",
       "diff/e2e/first/tree-none/pack/service/limit:bytes",
-      "manual/e2e/first/tree-none/brief:bytes",
-      "manual/e2e/first/tree-none/brief+pack:bytes",
-      "manual/e2e/first/tree-none/brief+pack/contracts-only:bytes",
-      "manual/e2e/first/tree-none/brief+pack/contracts-only/limit:bytes",
-      "manual/e2e/first/tree-none/brief+pack/limit:bytes",
-      "manual/e2e/first/tree-none/brief+pack/loop/browser/limit:bytes",
-      "manual/e2e/first/tree-none/brief+pack/loop/limit:bytes",
-      "manual/e2e/first/tree-none/brief+pack/no-blast:bytes",
-      "manual/e2e/first/tree-none/brief+pack/no-blast/contracts-only:bytes",
-      "manual/e2e/first/tree-none/brief+pack/no-blast/contracts-only/limit:bytes",
-      "manual/e2e/first/tree-none/brief+pack/no-blast/contracts-only/signal:bytes",
-      "manual/e2e/first/tree-none/brief+pack/no-blast/contracts-only/signal/limit:bytes",
-      "manual/e2e/first/tree-none/brief+pack/no-blast/limit:bytes",
-      "manual/e2e/first/tree-none/brief+pack/no-blast/no-suite:bytes",
-      "manual/e2e/first/tree-none/brief+pack/no-blast/no-suite/limit:bytes",
-      "manual/e2e/first/tree-none/brief+pack/no-blast/signal:bytes",
-      "manual/e2e/first/tree-none/brief+pack/no-blast/signal/limit:bytes",
-      "manual/e2e/first/tree-none/brief+pack/no-blast/signal/no-suite:bytes",
-      "manual/e2e/first/tree-none/brief+pack/no-blast/signal/no-suite/limit:bytes",
-      "manual/e2e/first/tree-none/brief+pack/no-suite:bytes",
-      "manual/e2e/first/tree-none/brief+pack/no-suite/limit:bytes",
-      "manual/e2e/first/tree-none/brief/limit:bytes",
-      "manual/e2e/first/tree-none/brief/loop/limit:bytes",
-      "manual/e2e/first/tree-none/brief/no-blast:bytes",
-      "manual/e2e/first/tree-none/brief/no-blast/limit:bytes",
-      "manual/e2e/first/tree-none/brief/no-blast/no-suite:bytes",
-      "manual/e2e/first/tree-none/brief/no-blast/no-suite/limit:bytes",
-      "manual/e2e/first/tree-none/brief/no-blast/signal:bytes",
-      "manual/e2e/first/tree-none/brief/no-blast/signal/limit:bytes",
-      "manual/e2e/first/tree-none/brief/no-blast/signal/no-suite:bytes",
-      "manual/e2e/first/tree-none/brief/no-blast/signal/no-suite/limit:bytes",
-      "manual/e2e/first/tree-none/brief/no-suite:bytes",
-      "manual/e2e/first/tree-none/brief/no-suite/limit:bytes",
-      "manual/e2e/first/tree-none/none:bytes",
-      "manual/e2e/first/tree-none/none/limit:bytes",
-      "manual/e2e/first/tree-none/none/loop/limit:bytes",
-      "manual/e2e/first/tree-none/none/no-suite:bytes",
-      "manual/e2e/first/tree-none/none/no-suite/limit:bytes",
-      "manual/e2e/first/tree-none/none/signal:bytes",
-      "manual/e2e/first/tree-none/none/signal/limit:bytes",
-      "manual/e2e/first/tree-none/none/signal/no-suite:bytes",
-      "manual/e2e/first/tree-none/none/signal/no-suite/limit:bytes",
-      "manual/e2e/first/tree-none/pack:bytes",
-      "manual/e2e/first/tree-none/pack/contracts-only:bytes",
-      "manual/e2e/first/tree-none/pack/contracts-only/limit:bytes",
-      "manual/e2e/first/tree-none/pack/contracts-only/signal:bytes",
-      "manual/e2e/first/tree-none/pack/contracts-only/signal/limit:bytes",
-      "manual/e2e/first/tree-none/pack/limit:bytes",
-      "manual/e2e/first/tree-none/pack/loop/browser/limit:bytes",
-      "manual/e2e/first/tree-none/pack/loop/limit:bytes",
-      "manual/e2e/first/tree-none/pack/no-suite:bytes",
-      "manual/e2e/first/tree-none/pack/no-suite/limit:bytes",
-      "manual/e2e/first/tree-none/pack/signal:bytes",
-      "manual/e2e/first/tree-none/pack/signal/limit:bytes",
-      "manual/e2e/first/tree-none/pack/signal/no-suite:bytes",
-      "manual/e2e/first/tree-none/pack/signal/no-suite/limit:bytes",
+      "diff/e2e/first/tree-none/pack/signal:bytes",
+      "diff/e2e/first/tree-none/pack/signal/limit:bytes",
+      "diff/e2e/first/tree-none/pack/signal/no-suite:bytes",
+      "diff/e2e/first/tree-none/pack/signal/no-suite/limit:bytes",
+      "diff/e2e/first/tree-none/pack/signal/service:bytes",
+      "diff/e2e/first/tree-none/pack/signal/service/limit:bytes",
+      "exhaustive/e2e/first/tree-none/none/planning/limit:bytes",
+      "exhaustive/e2e/first/tree-none/pack/planning/limit:bytes",
+      "manual/e2e/first/tree-none/none/planning/limit:bytes",
+      "manual/e2e/first/tree-none/pack/planning/limit:bytes",
       "static:opencode",
       "static:codex"
     ]

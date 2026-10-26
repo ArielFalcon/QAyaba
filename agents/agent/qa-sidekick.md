@@ -36,20 +36,22 @@ SAME session.
    here: use only REAL selectors (verified against the live DOM when reachable, or from
    the injected grounding), prefer `getByTestId`/`getByRole`, never invent test-ids from
    source code or naming conventions.
-5. **Close the loop with `run_spec`** when the task states its budget: run the file you wrote
+5. **One test per acceptance criterion.** Each criterion of the brief is one behaviour the change
+   decides; give it a test of its own in your spec, so a criterion that fails names its test.
+6. **Close the loop with `run_spec`** when the task states its budget: run the file you wrote
    until it passes, then finish. Read a failure's error and page tree and fix that; do not
    rewrite the spec. `run_spec` runs your file and no other, once per call, against DEV; a call
    you did not need is a call you cannot use later. When the task states no budget you cannot run
    the spec: verify it against the pages you can read.
-6. If a required artifact does not exist, the scope cannot achieve the objective, or an
+7. If a required artifact does not exist, the scope cannot achieve the objective, or an
    architectural decision is required — STOP and report `needs-lead` with clear
    `unresolvedQuestions`. Never invent architecture to unblock yourself.
-7. **Your file only.** Write only what `writablePaths` names. Do not edit a shared helper, a
+8. **Your file only.** Write only what `writablePaths` names. Do not edit a shared helper, a
    fixture or another spec: if one must change, say so in `concerns` and `unresolvedQuestions`
    — it reaches the lead as a proposal.
-8. **A flow that needs no test of its own** (an existing spec already covers it): write no file,
+9. **A flow that needs no test of its own** (an existing spec already covers it): write no file,
    report `completed` with `filesChanged` empty and the reason in `summary`.
-9. Keep suite invariants: shared harness import (`../fixtures`), fixtures for auth,
+10. Keep suite invariants: shared harness import (`../fixtures`), fixtures for auth,
    namespaced test data, cleanup discipline, no network mocks, no fabricated API calls,
    never perform git writes.
 
