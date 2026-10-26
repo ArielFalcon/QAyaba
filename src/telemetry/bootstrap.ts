@@ -1,4 +1,4 @@
-/* Composition of the telemetry stack, once per process (src/index.ts and src/cli.ts). The only place that builds an OpenTelemetry provider.
+/* Composition of the telemetry stack, once per process (src/server/wire-app.ts and src/cli.ts). The only place that builds an OpenTelemetry provider.
 
    `off` (or OTEL_SDK_DISABLED) returns the null object and creates nothing. `local` (the default) builds a NodeTracerProvider by hand, not NodeSDK, so no auto-instrumentation patches any module: the span ledger always, plus an OTLP/proto batch exporter only when an endpoint is configured. NodeSDK would also read the OTEL_BSP_*, resource and OTEL_SDK_DISABLED variables itself; without it they are mapped here (config.ts). Nothing here throws at runtime: a bad configuration throws once, at composition, and shutdown never throws. */
 

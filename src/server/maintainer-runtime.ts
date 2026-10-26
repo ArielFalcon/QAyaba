@@ -30,7 +30,7 @@ import { activeSettings } from "../settings/store";
 const redactionPort = new RedactionPortAdapter();
 
 /*
- * The closure config the runtime needs from the composition root (index.ts). These are values that
+ * The closure config the runtime needs from the composition root (src/server/wire-app.ts). These are values that
  * only the entrypoint owns: the live job queue, the current agent deps, the entrypoint's
  * `shuttingDown` flag setter, the self-repo identity, and the HTTP port the canary probes.
  */

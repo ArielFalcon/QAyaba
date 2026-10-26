@@ -220,7 +220,7 @@ export interface OnboardingJob {
    *  as-is. With an app that DIFFERS from the current job's app, returns a scoped idle response
    *  for the REQUESTED app instead — this process holds exactly one job at a time, and a caller
    *  polling a different app's URL must never see another app's in-flight or completed job (the
-   *  per-app REST surface is a facade over one process-wide job; see src/index.ts's composition
+   *  per-app REST surface is a facade over one process-wide job; see src/server/wire-app.ts's composition
    *  wiring for the app-identity thread-through this depends on). */
   status(app?: string): OnboardingJobStatus;
   /** Synchronous rejection ({ok:false}) when a job is already non-terminal (the mutex); otherwise a
@@ -241,7 +241,7 @@ export interface OnboardingJob {
   isActive(): boolean;
 }
 
-/** Builds a fresh in-memory OnboardingJob. One job instance = one mutex; src/index.ts constructs one. */
+/** Builds a fresh in-memory OnboardingJob. One job instance = one mutex; src/server/wire-app.ts constructs one. */
 export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
   let status: OnboardingJobStatus = { state: ONBOARD_STATE.idle, round: 0, ceiling: 3, candidatesScored: 0 };
   /*

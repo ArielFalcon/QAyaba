@@ -163,7 +163,7 @@ export function performSwap(
 
 /*
  * Clear swap state once the new code is confirmed healthy after restart (removes marker
- * and backups). Called from index.ts after a successful post-restart health check.
+ * and backups). Called from src/server/wire-app.ts after a successful post-restart health check.
  */
 export function confirmSwapHealthy(appDir: string, dataDir: string, fs: SwapFs = realSwapFs): void {
   fs.removeMarker(join(dataDir, SWAP_MARKER_FILE));

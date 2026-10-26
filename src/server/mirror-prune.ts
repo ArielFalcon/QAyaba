@@ -160,7 +160,7 @@ export function getDirectorySize(dir: string): number {
 
 /*
  * queueCurrentRunId is the only piece the module cannot reach itself (the
- * JobQueue instance lives in index.ts), so the caller injects it.
+ * JobQueue instance lives in src/server/wire-app.ts), so the caller injects it.
  */
 export function defaultMirrorPruneDeps(queueCurrentRunId: () => string | null): MirrorPruneDeps {
   return {

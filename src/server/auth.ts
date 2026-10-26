@@ -185,7 +185,7 @@ export function isPublicControlPlaneRoute(method: string, apiPath: string): bool
  * authorizeBearer is the request authorizer: it accepts EITHER the static machine token
  * (constant-time compared) OR a valid user-session JWT, and returns the principal it
  * authenticated — "machine" or the GitHub username — or null when neither matches. This is
- * the single home for "who is allowed to call the API", so index.ts's authorized() stays a
+ * the single home for "who is allowed to call the API", so wire-app.ts's authorized() stays a
  * thin wrapper and the rule is unit-tested here.
  */
 export function authorizeBearer(

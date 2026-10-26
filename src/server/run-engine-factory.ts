@@ -374,7 +374,7 @@ const AGENT_BROWSER_LIFETIME_SECONDS = 3 * 60 * 60;
 /* The host's already-built real collaborators this factory reuses instead of re-assembling. */
 export interface RunEngineFactoryDeps {
   /*
-   * Reads the SAME AgentDeps facade the host's currentAgentDeps() resolves (src/index.ts) — the
+   * Reads the SAME AgentDeps facade the host's currentAgentDeps() resolves (src/server/wire-app.ts) — the
    * real :4097 supervisor, not a second AgentRuntimeManager instance.
    */
   /* The host's agent sessions. A run passes the context that classifies its agents' steps for the trace; a host that traces nothing ignores it. */

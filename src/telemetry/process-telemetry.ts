@@ -1,4 +1,4 @@
-/* The process-wide telemetry handle, built once at start by src/index.ts and src/cli.ts (the composition roots). The engine factory takes `processTelemetry().telemetry` as a dep; nothing else reads the environment for telemetry. */
+/* The process-wide telemetry handle, built once at start by src/server/wire-app.ts and src/cli.ts (the composition roots). The engine factory takes `processTelemetry().telemetry` as a dep; nothing else reads the environment for telemetry. */
 
 import { createTelemetry, type TelemetryHandle } from "./bootstrap";
 
