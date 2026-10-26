@@ -233,6 +233,8 @@ export const AppConfigSchema = z
         .object({
           mode: z.enum(["off", "signal", "enforce"]).optional(),
           minRatio: z.number().min(0).max(1).optional(),
+          /* regenerate (default) = one regeneration from the arms of the changed code no test ran; off = none. */
+          branchCases: z.enum(["regenerate", "off"]).optional(),
         })
         .optional(),
       /*

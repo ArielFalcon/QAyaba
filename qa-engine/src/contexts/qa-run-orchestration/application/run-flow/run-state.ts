@@ -16,6 +16,7 @@ import type {
   SelectedExemplar,
   ServiceLink,
   UntakenArm,
+  BranchCasesOutcome,
   BundleMutationOutcome,
 } from "../ports/index.ts";
 import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
@@ -142,8 +143,12 @@ export interface CoverageOutcome {
   uncovered: { file: string; lines: number[] }[];
   /** The arms of the decisions on changed lines and how many ran; undefined when none was seen. A signal, never a gate. */
   branchCoverage: { changed: number; taken: number } | undefined;
-  /** The arms on changed lines no test ran, for the enforce-mode regeneration beside the uncovered lines. */
+  /** The arms on changed lines no test ran: the gap of a coverage or branch regeneration, and the reviewer's list of missing cases. */
   untakenArms: UntakenArm[];
+  /** `untakenArms` describes the bytes on disk: false until measured, and after an accepted regeneration the dumps on disk could not recount. */
+  untakenArmsCurrent: boolean;
+  /** What the branch-case regeneration did; undefined when it did not run. A signal, never a gate. */
+  branchCases: BranchCasesOutcome | undefined;
   /** What the mutants of the changed code did; undefined when none was judged. A signal, never a gate. */
   bundleMutation: BundleMutationOutcome | undefined;
   /** Acceptances spent so far; each names its namespace by it. */
@@ -259,6 +264,8 @@ export function initialRunState(): RunState {
       uncovered: [],
       branchCoverage: undefined,
       untakenArms: [],
+      untakenArmsCurrent: false,
+      branchCases: undefined,
       bundleMutation: undefined,
       acceptanceCalls: 0,
       acceptedRegenAfterMeasure: false,

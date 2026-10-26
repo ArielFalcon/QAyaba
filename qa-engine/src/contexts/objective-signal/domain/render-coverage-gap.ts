@@ -27,10 +27,10 @@ export function renderCoverageGap(uncovered: Uncovered, max = 10): string {
 
 type Untaken = { file: string; line: number; kind: string; arm: string }[];
 
-/* Renders the arms on changed lines no test ran, for the same regeneration; empty when every arm ran. */
+/* Renders the arms on changed lines no test ran, for a coverage or branch-case regeneration; empty when every arm ran. */
 export function renderBranchGap(untaken: Untaken, max = 20): string {
   if (untaken.length === 0) return "";
   const lines = untaken.slice(0, max).map((u) => `- ${u.file}:${u.line} ${u.kind}: ${u.arm}`);
   const more = untaken.length > max ? `\n…and ${untaken.length - max} more arm(s)` : "";
-  return `decision arms on changed lines that NO test ran (a test must reach the state that takes each):\n${lines.join("\n")}${more}`;
+  return `decision arms on changed lines that NO test ran (each is a behaviour the change decides, reached by a test when the page can be brought to that state through the UI against DEV):\n${lines.join("\n")}${more}`;
 }

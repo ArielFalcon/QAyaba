@@ -499,6 +499,9 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
           coverageRatio: finalSignal.ratio,
           coverageStatus: finalSignal.status,
           branchCoverage: branchCoverageOf(finalSignal.measurement),
+          uncovered: finalSignal.uncovered ?? [],
+          untakenArms: finalSignal.untakenArms ?? [],
+          untakenArmsCurrent: true,
           bundleMutation: finalSignal.bundleMutation ?? state.coverage.bundleMutation,
           blocksPublish: deps.objectiveSignal.blocks(finalSignal.status),
           /* The oracle measured again on the delivered bytes: its score describes what is on disk now. */

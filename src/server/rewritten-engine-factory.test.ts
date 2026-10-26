@@ -1537,6 +1537,17 @@ test("buildRewrittenCompositionConfig: coveragePolicyMode defaults to \"signal\"
   assert.equal(config.coveragePolicyMode, config.coveragePolicy.mode);
 });
 
+test("the branch cases regenerate unless an app's changeCoverage turns them off", () => {
+  const branchCasesOf = (changeCoverage?: { branchCases?: "regenerate" | "off" }) => {
+    const base = cfg("factory-branch-cases");
+    const app: AppConfig = changeCoverage ? { ...base, qa: { ...base.qa, changeCoverage } } : base;
+    return buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-branch-run", { mode: "diff" }).coverageBranchCases;
+  };
+  assert.equal(branchCasesOf(), "regenerate");
+  assert.equal(branchCasesOf({}), "regenerate");
+  assert.equal(branchCasesOf({ branchCases: "off" }), "off");
+});
+
 /* Branch/namespace must be per-run, not a static literal — otherwise every run collides on DEV test data. */
 
 test("buildRewrittenCompositionConfig sets branch to the PASSED namespace, not a static literal", () => {

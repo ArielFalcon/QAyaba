@@ -38,6 +38,7 @@ export function toLegacyRunOutcome(outcome: KernelRunOutcome): LegacyRunOutcome 
       ...(outcome.gateSignals.killedCount !== undefined ? { killedCount: outcome.gateSignals.killedCount } : {}),
       ...(outcome.gateSignals.branchCoverage !== undefined ? { branchCoverage: outcome.gateSignals.branchCoverage } : {}),
       ...(outcome.gateSignals.bundleMutation !== undefined ? { bundleMutation: outcome.gateSignals.bundleMutation } : {}),
+      ...(outcome.gateSignals.branchCases !== undefined ? { branchCases: outcome.gateSignals.branchCases } : {}),
       reviewerCorrections: outcome.gateSignals.reviewerCorrections,
       ...(outcome.gateSignals.reviewerRationale !== undefined ? { reviewerRationale: outcome.gateSignals.reviewerRationale } : {}),
       ...(outcome.gateSignals.reviewerApproved !== undefined ? { reviewerApproved: outcome.gateSignals.reviewerApproved } : {}),

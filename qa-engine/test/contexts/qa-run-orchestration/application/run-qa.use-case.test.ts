@@ -92,6 +92,7 @@ function stubPorts(overrides: Partial<{
   execute: ExecutionPort["execute"];
   measure: ObjectiveSignalPort["measure"];
   blocks: ObjectiveSignalPort["blocks"];
+  recount: NonNullable<ObjectiveSignalPort["recount"]>;
   publish: PublicationPort["publish"];
   fold: LearningPort["fold"];
   retrieve: LearningPort["retrieve"];
@@ -137,6 +138,7 @@ function stubPorts(overrides: Partial<{
        Tests that need enforce-mode blocksPublish semantics inject their own overrides.blocks.
      */
     blocks: overrides.blocks ?? (() => false),
+    ...(overrides.recount ? { recount: overrides.recount } : {}),
   };
   const publication: PublicationPort = {
     publish: overrides.publish ?? (async () => ({ outcome: "pr" })),
@@ -9487,5 +9489,127 @@ test("the fix_loop phase span says what made the triage re-read a failure and wh
     assert.equal(span.attrs["qayaba.fix_loop.triage_files"], 1);
   } finally {
     fixtures.cleanup();
+  }
+});
+
+/* ── The branch cases: one regeneration from the arms of the changed code no test ran, in signal mode too ── */
+
+const ARMS = [
+  { file: "src/a.ts", line: 3, kind: "if", arm: "else" },
+  { file: "src/a.ts", line: 7, kind: "logical", arm: "right of || evaluated" },
+];
+
+test("signal mode: a green run with arms no test ran regenerates once with those arms as the missing cases, recounts the coverage from the dumps on disk and records both counts", async () => {
+  const real = realCoverageWorkspace();
+  const turns: string[] = [];
+  const recounts: unknown[] = [];
+  try {
+    const { ports, savedOutcomes } = stubPorts({
+      prepare: real.prepare,
+      generate: async (...args) => {
+        turns.push(JSON.stringify(args));
+        return real.generate(...args);
+      },
+      execute: async () => ({ verdict: "pass" as const, cases: [{ name: "a works", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
+      measure: async () => ({ status: "pass" as const, ratio: 0.9, uncovered: [], untakenArms: ARMS, measurement: { changedLines: 10, coveredChanged: 9, changedFiles: 1, mappedFiles: 1, changedBranches: 6, takenBranches: 4 } }),
+      recount: async (_br, specDir, _diff, reruns, opts) => {
+        recounts.push([specDir.endsWith("e2e"), reruns, opts]);
+        return { status: "pass" as const, ratio: 1, uncovered: [], untakenArms: [ARMS[1]!], measurement: { changedLines: 10, coveredChanged: 10, changedFiles: 1, mappedFiles: 1, changedBranches: 6, takenBranches: 5 } };
+      },
+    });
+    const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false, coveragePolicyMode: "signal", coverageBranchCases: "regenerate" } });
+
+    const out = await useCase.run({ ...baseInput, runId: "branch-cases-signal" });
+
+    assert.equal(out.decision.sideEffect, "pr", "the branch cases never block");
+    assert.equal(turns.length, 2, "the first pass and one regeneration");
+    assert.ok(turns[1]!.includes("src/a.ts:3 if: else") && turns[1]!.includes("src/a.ts:7 logical: right of || evaluated"), "the regeneration is given the arms");
+    assert.ok(!turns[1]!.includes("all changed lines are covered"), "an arms-only gap says nothing of the lines");
+    assert.deepEqual(recounts, [[true, [{ namespace: "branch-cases-signal-acc0", specFiles: ["a.spec.ts"] }], {}]]);
+    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2, armsAfter: 1 });
+    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCoverage, { changed: 6, taken: 5 }, "the recount is what the run records");
+    assert.equal(savedOutcomes.at(-1)!.gateSignals.coverageRatio, 1);
+  } finally {
+    real.cleanup();
+  }
+});
+
+test("no branch regeneration without arms, with the branch cases off, or when the enforce-mode coverage regeneration already carries them", async () => {
+  const cases: ReadonlyArray<[string, Partial<{ untakenArms: typeof ARMS; mode: "signal" | "enforce"; branchCases: "regenerate" | "off" | undefined; status: "pass" | "fail" }>, number]> = [
+    ["no arms", { untakenArms: [], mode: "signal", branchCases: "regenerate", status: "pass" }, 1],
+    ["off", { untakenArms: ARMS, mode: "signal", branchCases: "off", status: "pass" }, 1],
+    ["not configured", { untakenArms: ARMS, mode: "signal", branchCases: undefined, status: "pass" }, 1],
+    ["enforce failing", { untakenArms: ARMS, mode: "enforce", branchCases: "regenerate", status: "fail" }, 2],
+  ];
+  for (const [label, c, expectedTurns] of cases) {
+    const real = realCoverageWorkspace();
+    let turns = 0;
+    try {
+      const { ports, savedOutcomes } = stubPorts({
+        prepare: real.prepare,
+        generate: async (...args) => {
+          turns++;
+          return real.generate(...args);
+        },
+        execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+        measure: async () => ({ status: c.status!, ratio: 0.5, uncovered: [{ file: "src/a.ts", lines: [1] }], untakenArms: c.untakenArms! }),
+        blocks: (status) => c.mode === "enforce" && status === "fail",
+      });
+      const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false, coveragePolicyMode: c.mode!, ...(c.branchCases ? { coverageBranchCases: c.branchCases } : {}) } });
+
+      await useCase.run({ ...baseInput, runId: `branch-cases-${label.replace(/ /g, "-")}` });
+
+      assert.equal(turns, expectedTurns, `${label}: generation turns`);
+      assert.equal(savedOutcomes.at(-1)!.gateSignals.branchCases, undefined, `${label}: no branch regeneration recorded`);
+    } finally {
+      real.cleanup();
+    }
+  }
+});
+
+test("a branch regeneration that delivers nothing keeps the first measurement and its bytes, and recounts nothing", async () => {
+  const real = realCoverageWorkspace();
+  let turns = 0;
+  let recounts = 0;
+  try {
+    const { ports, savedOutcomes } = stubPorts({
+      prepare: real.prepare,
+      generate: async (...args) => (++turns === 1 ? real.generate(...args) : scriptedGeneration({ specs: [], approved: true })),
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      measure: async () => ({ status: "pass" as const, ratio: 0.9, uncovered: [], untakenArms: ARMS, measurement: { changedLines: 10, coveredChanged: 9, changedFiles: 1, mappedFiles: 1, changedBranches: 6, takenBranches: 4 } }),
+      recount: async () => {
+        recounts++;
+        return null;
+      },
+    });
+    const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false, coveragePolicyMode: "signal", coverageBranchCases: "regenerate" } });
+
+    await useCase.run({ ...baseInput, runId: "branch-cases-empty" });
+
+    assert.equal(turns, 2);
+    assert.equal(recounts, 0);
+    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "empty", armsBefore: 2, armsAfter: 2 });
+    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCoverage, { changed: 6, taken: 4 });
+  } finally {
+    real.cleanup();
+  }
+});
+
+test("an accepted branch regeneration the port cannot recount leaves the arms after it unknown", async () => {
+  const real = realCoverageWorkspace();
+  try {
+    const { ports, savedOutcomes } = stubPorts({
+      prepare: real.prepare,
+      generate: real.generate,
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      measure: async () => ({ status: "pass" as const, ratio: 0.9, uncovered: [], untakenArms: ARMS }),
+    });
+    const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false, coveragePolicyMode: "signal", coverageBranchCases: "regenerate" } });
+
+    await useCase.run({ ...baseInput, runId: "branch-cases-no-recount" });
+
+    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2 });
+  } finally {
+    real.cleanup();
   }
 });

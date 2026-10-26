@@ -635,6 +635,16 @@ export interface BundleMutationOutcome {
   killed: number;
   survived: { file: string; line: number; operator: string }[];
 }
+/**
+ * What the one regeneration from the arms no test ran did: its acceptance (or the deadline that ended it), the arms before it and
+ * the arms after it. `armsAfter` is the recount of an accepted turn, the same count when its bytes were put back, and absent when
+ * an accepted turn could not be recounted.
+ */
+export interface BranchCasesOutcome {
+  outcome: "accepted" | "empty" | "rejected" | "capped" | "deadline";
+  armsBefore: number;
+  armsAfter?: number;
+}
 /** An arm of a decision on a changed line that no test ran. */
 export interface UntakenArm {
   file: string;

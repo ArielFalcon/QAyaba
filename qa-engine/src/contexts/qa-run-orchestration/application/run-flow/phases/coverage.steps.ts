@@ -1,4 +1,4 @@
-/* The coverage phase of a run: the change-coverage measurement of a green execution and, in enforce mode, the one regeneration at the uncovered lines. */
+/* The coverage phase of a run: the change-coverage measurement of a green execution and at most one regeneration at its gap: in enforce mode at the uncovered lines (with the arms no test ran), otherwise, with the branch cases on, at the arms no test ran. */
 
 import { CORRECTION_ORIGIN } from "../../coordination/lead-correction.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
@@ -8,7 +8,7 @@ import type { RunQaResult } from "../../run-qa.use-case.ts";
 import type { StepResult } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { CoverageOutcome, RunState } from "../run-state.ts";
-import type { CoverageMeasurement } from "../../ports/index.ts";
+import type { BranchCasesOutcome, CoverageMeasurement, CoverageRerun } from "../../ports/index.ts";
 import { executeAccepted, validateAccepted } from "./execute.steps.ts";
 import { regenerate } from "./generation-services.ts";
 
@@ -73,6 +73,7 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
         uncovered: signal.uncovered ?? [],
         branchCoverage: branchCoverageOf(signal.measurement),
         untakenArms: signal.untakenArms ?? [],
+        untakenArmsCurrent: true,
         bundleMutation: signal.bundleMutation,
         /*
          * Ask the port: only enforce+fail blocks. Unknown/pass never block. Do not
@@ -88,19 +89,29 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
 export const regeneratesForCoverage = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean =>
   measuresCoverage(state, ctx) && state.coverage.blocksPublish && measuresPerCommit(ctx);
 
+/* Whether the branch-case regeneration runs: arms of the changed code no test ran, on a per-commit diff whose measurement blocks nothing (a blocking one regenerates for coverage, with the same arms in its gap), with the branch cases on. */
+export const regeneratesForBranchCases = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean =>
+  measuresCoverage(state, ctx) && measuresPerCommit(ctx) && !state.coverage.blocksPublish && ctx.cfg.coverageBranchCases === "regenerate" && state.coverage.untakenArms.length > 0;
+
+/* How a gap regeneration ended; `reruns` names the acceptance's own dumps when every spec it changed executed in it, so the coverage can be recounted from them. */
+interface GapRegeneration {
+  outcome: BranchCasesOutcome["outcome"];
+  run: RunState["execution"]["run"];
+  acceptanceCalls: number;
+  reruns?: CoverageRerun[];
+}
+
 /*
- * Enforce-mode one-shot coverage regen: this step runs at most once per run and is independent of the FixLoop budget. A regen
- * throw propagates. The regen's changed specs go through acceptance: they execute green (or reuse a proof) before they stand.
- * A rejected or capped regen keeps the first measurement and restores the prior bytes. The whole-suite re-measure that decides
- * coverage is the single final re-measure before decide.
+ * One regeneration at a gap of the change: its changed specs go through acceptance, so they execute green (or reuse a proof) before
+ * they stand. A turn that delivers nothing, or whose specs are rejected or capped, keeps the first measurement and restores the prior
+ * bytes. A spent run deadline keeps the first measurement too; any other fault propagates.
  */
-export async function regenerateForCoverage(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
+async function regenerateAtGap(state: Readonly<RunState>, ctx: WorkspaceRunContext, gap: string): Promise<GapRegeneration> {
   const { input, trail, workspace, services, generation } = ctx;
   const { acceptance, integrityCounters, snapshotPort, runDeadlinePort, suiteChangedFiles, snapshotSuite, acceptanceScope } = services;
-  let { acceptanceCalls, acceptedRegenAfterMeasure } = state.coverage;
+  let { acceptanceCalls } = state.coverage;
   let { run } = state.execution;
   try {
-    const gap = [renderCoverageGap(state.coverage.uncovered), renderBranchGap(state.coverage.untakenArms)].filter(Boolean).join("\n\n");
     const snapshot = await snapshotSuite();
     const deliveredBefore = generation.delivered;
     const regen = await regenerate(state, ctx, undefined, { coverageGap: gap }, CORRECTION_ORIGIN.COVERAGE);
@@ -108,43 +119,96 @@ export async function regenerateForCoverage(state: Readonly<RunState>, ctx: Work
     const changedFiles = await suiteChangedFiles(snapshot, regen.specs);
     const changedSpecFiles = acceptanceScope(changedFiles);
     if (regen.specs.length === 0) {
-      /* A coverage turn that delivers no specs is not a change to accept: whatever it wrote is put back. */
+      /* A turn that delivers no specs is not a change to accept: whatever it wrote is put back. */
       if (changedFiles.length > 0) {
         await snapshotPort.restore(workspace.specDir, snapshot, changedFiles.filter((file) => !snapshot.files.has(file)));
       }
       generation.delivered = deliveredBefore;
-    } else if (changedSpecFiles.length > 0) {
-      const { closedLoop } = trail;
-      const outcome = await acceptance.accept({
-        specDir: workspace.specDir,
-        changedSpecFiles,
-        namespace: `${input.runId}-acc${acceptanceCalls++}`,
-        snapshot,
-        ...(closedLoop ? { closedLoop } : {}),
-        deadline: runDeadlinePort,
-        validate: validateAccepted(ctx),
-        execute: executeAccepted(ctx),
-      });
-      if (outcome.kind === "accepted") {
-        integrityCounters.acceptances += 1;
-        if (outcome.executedSpecs.length === 0) integrityCounters.proofReused += 1;
-        acceptedRegenAfterMeasure = true;
-        if (outcome.execution?.cases.length) {
-          const changedSet = new Set(changedSpecFiles);
-          run = { ...run, cases: [...run.cases.filter((c) => !changedSet.has(c.file ?? c.name)), ...outcome.execution.cases] };
-        }
-      } else {
-        /* Rejected or capped: the turn's specs are not the run's. */
-        generation.delivered = deliveredBefore;
-        if (outcome.kind === "rejected") integrityCounters.rejected += 1;
-        else integrityCounters.capHit = true;
-        /* The first measurement and the prior bytes stand. */
-      }
+      return { outcome: "empty", run, acceptanceCalls };
     }
+    if (changedSpecFiles.length === 0) return { outcome: "empty", run, acceptanceCalls };
+    const { closedLoop } = trail;
+    const namespace = `${input.runId}-acc${acceptanceCalls++}`;
+    const outcome = await acceptance.accept({
+      specDir: workspace.specDir,
+      changedSpecFiles,
+      namespace,
+      snapshot,
+      ...(closedLoop ? { closedLoop } : {}),
+      deadline: runDeadlinePort,
+      validate: validateAccepted(ctx),
+      execute: executeAccepted(ctx),
+    });
+    if (outcome.kind !== "accepted") {
+      /* Rejected or capped: the turn's specs are not the run's; the first measurement and the prior bytes stand. */
+      generation.delivered = deliveredBefore;
+      if (outcome.kind === "rejected") integrityCounters.rejected += 1;
+      else integrityCounters.capHit = true;
+      return { outcome: outcome.kind === "rejected" ? "rejected" : "capped", run, acceptanceCalls };
+    }
+    integrityCounters.acceptances += 1;
+    if (outcome.executedSpecs.length === 0) integrityCounters.proofReused += 1;
+    if (outcome.execution?.cases.length) {
+      const changedSet = new Set(changedSpecFiles);
+      run = { ...run, cases: [...run.cases.filter((c) => !changedSet.has(c.file ?? c.name)), ...outcome.execution.cases] };
+    }
+    /* A spec whose proof was reused left no dumps here: the coverage cannot be recounted without it. */
+    const executed = new Set(outcome.executedSpecs);
+    const recountable = changedSpecFiles.every((file) => executed.has(file));
+    return { outcome: "accepted", run, acceptanceCalls, ...(recountable ? { reruns: [{ namespace, specFiles: changedSpecFiles }] } : {}) };
   } catch (regenErr) {
-    /* The run's time is spent: the first measurement stands, as for any regeneration that cannot finish. Any other fault still propagates. */
     if (!isRunDeadlineError(regenErr)) throw regenErr;
-    console.warn(`[qa] the run deadline was spent during the coverage regeneration; the first measurement stands (${regenErr.message})`);
+    console.warn(`[qa] the run deadline was spent during a coverage regeneration; the first measurement stands (${regenErr.message})`);
+    return { outcome: "deadline", run, acceptanceCalls };
   }
-  return { update: { execution: { ...state.execution, run }, coverage: { ...state.coverage, acceptanceCalls, acceptedRegenAfterMeasure } } };
+}
+
+/*
+ * The coverage after an accepted gap regeneration, counted again from the dumps on disk: the arms and lines the reviewer and the
+ * record describe are then the delivered bytes'. Under enforce only the final whole-suite re-measure decides, so the recount informs
+ * and never touches the decision; under signal it is the measurement, and only the value score stays stale. Without a recount the
+ * arms are not current.
+ */
+async function recountAfter(state: Readonly<RunState>, ctx: WorkspaceRunContext, regen: GapRegeneration): Promise<Pick<RunState, "coverage">["coverage"]> {
+  const { deps, input, cfg, trail, workspace } = ctx;
+  const accepted = regen.outcome === "accepted";
+  const base = { ...state.coverage, acceptanceCalls: regen.acceptanceCalls, acceptedRegenAfterMeasure: state.coverage.acceptedRegenAfterMeasure || accepted };
+  if (!accepted) return base;
+  const { coverageNamespace } = state.fixLoop;
+  const recount =
+    regen.reruns && deps.objectiveSignal.recount
+      ? await deps.objectiveSignal.recount(BlastRadius.of(input.sha, state.classification.intent?.changedFiles ?? []), workspace.specDir, state.classification.diff, regen.reruns, coverageNamespace ? { namespace: coverageNamespace } : {})
+      : null;
+  if (!recount) return { ...base, untakenArmsCurrent: false };
+  const arms = { ...base, uncovered: recount.uncovered, untakenArms: recount.untakenArms, untakenArmsCurrent: true, branchCoverage: branchCoverageOf(recount.measurement) };
+  if (cfg.coveragePolicyMode !== "signal") return arms;
+  trail.coverageStatus = recount.status;
+  return {
+    ...arms,
+    coverageRatio: recount.ratio,
+    coverageStatus: recount.status,
+    acceptedRegenAfterMeasure: false,
+    valueStale: state.coverage.valueScore !== null || state.coverage.valueStale,
+  };
+}
+
+/* Enforce-mode one-shot coverage regeneration at the uncovered lines and the arms no test ran; it runs at most once per run and is independent of the FixLoop budget. The whole-suite re-measure that decides coverage is the single final re-measure before decide. */
+export async function regenerateForCoverage(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
+  const gap = [renderCoverageGap(state.coverage.uncovered), renderBranchGap(state.coverage.untakenArms)].filter(Boolean).join("\n\n");
+  const regen = await regenerateAtGap(state, ctx, gap);
+  return { update: { execution: { ...state.execution, run: regen.run }, coverage: await recountAfter(state, ctx, regen) } };
+}
+
+/* The one regeneration from the arms of the changed code no test ran: they are the cases still missing. It never blocks; what it did is recorded with the arms before and after it. */
+export async function regenerateForBranchCases(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
+  const armsBefore = state.coverage.untakenArms.length;
+  const regen = await regenerateAtGap(state, ctx, renderBranchGap(state.coverage.untakenArms));
+  const coverage = await recountAfter(state, ctx, regen);
+  const armsAfter = regen.outcome !== "accepted" ? armsBefore : coverage.untakenArmsCurrent ? coverage.untakenArms.length : undefined;
+  return {
+    update: {
+      execution: { ...state.execution, run: regen.run },
+      coverage: { ...coverage, branchCases: { outcome: regen.outcome, armsBefore, ...(armsAfter !== undefined ? { armsAfter } : {}) } },
+    },
+  };
 }

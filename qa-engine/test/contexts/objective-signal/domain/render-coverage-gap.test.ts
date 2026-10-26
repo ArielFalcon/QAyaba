@@ -63,13 +63,12 @@ test("renderCoverageGap: exactly at the max — no truncation trailer", () => {
 
 test("renderBranchGap: the arms on changed lines no test ran, one line each with where and which arm; nothing when every arm ran", () => {
   assert.equal(renderBranchGap([]), "");
-  assert.equal(
-    renderBranchGap([
-      { file: "src/store.ts", line: 57, kind: "if", arm: "else" },
-      { file: "src/store.html", line: 12, kind: "conditional", arm: "false" },
-    ]),
-    "decision arms on changed lines that NO test ran (a test must reach the state that takes each):\n- src/store.ts:57 if: else\n- src/store.html:12 conditional: false",
-  );
+  const [heading, ...items] = renderBranchGap([
+    { file: "src/store.ts", line: 57, kind: "if", arm: "else" },
+    { file: "src/store.html", line: 12, kind: "conditional", arm: "false" },
+  ]).split("\n");
+  assert.match(heading!, /:$/, "a heading introduces the list");
+  assert.deepEqual(items, ["- src/store.ts:57 if: else", "- src/store.html:12 conditional: false"]);
 });
 
 test("renderBranchGap: over the max truncates and reports the remainder count", () => {

@@ -173,6 +173,8 @@ export interface CompositionConfig {
   coveragePolicyMode: "off" | "signal" | "enforce";
   /* The change-coverage threshold of the same policy; recorded with the run's coverage decision. */
   coverageMinRatio?: number;
+  /* The branch cases of the same policy: one regeneration from the arms of the changed code no test ran. Absent: off. */
+  coverageBranchCases?: "regenerate" | "off";
   /* The test-intent lock (off | signal | enforce) plus the opacity ratio it flags. Absent: signal, 0.5. */
   intentLock?: { mode: "off" | "signal" | "enforce"; opacityFlagRatio: number };
   /* Per-mode agent session budget (ms). Factory maps agentTimeout(mode). Optional: omitted fakes keep the use-case default (0 = derived but not enforced). */
@@ -740,6 +742,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
       isCode: cfg.isCode,
       coveragePolicyMode: cfg.coveragePolicyMode,
       ...(cfg.coverageMinRatio !== undefined ? { coverageMinRatio: cfg.coverageMinRatio } : {}),
+      ...(cfg.coverageBranchCases !== undefined ? { coverageBranchCases: cfg.coverageBranchCases } : {}),
       ...(cfg.intentLock !== undefined ? { intentLock: cfg.intentLock } : {}),
       ...(cfg.agentTimeoutMs !== undefined ? { agentTimeoutMs: cfg.agentTimeoutMs } : {}),
       ...(cfg.wallClockBudgetMs !== undefined ? { wallClockBudgetMs: cfg.wallClockBudgetMs } : {}),
