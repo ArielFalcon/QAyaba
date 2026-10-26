@@ -27,7 +27,7 @@ import { toRunReportView } from "./server/run-report-view";
 import { createDurableRunEventStore } from "./server/durable-run-events";
 import { serveDashboard, resolveDashboardDir } from "./server/static";
 import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents } from "./server/maintainer";
-import { getRecord, listRecords, currentRun, continuationDepth, MAX_CONTINUATION_DEPTH, loadScorecard, listRunOutcomes, getRunOutcome, getRunFacts, getAgentTurns, computeTelemetryAnalysis, loadContextMap } from "./server/history";
+import { getRecord, listRecords, currentRun, continuationDepth, MAX_CONTINUATION_DEPTH, loadScorecard, listRunOutcomes, getRunOutcome, getRunFacts, getAgentTurns, computeTelemetryAnalysis } from "./server/history";
 import { createEvaluationService } from "./server/evaluation-service";
 import { composeJudges } from "./server/judges-composition";
 import { LangfuseScoreSink, resolveLangfuseConfig, scoreSinkHealthOf } from "./telemetry/langfuse-score-sink";
@@ -90,6 +90,7 @@ import { resolveApiToken } from "./server/api-token";
 import { shouldLogApiRequest } from "./server/api-request-log";
 import { suiteHoldsVerifiedLoginFor } from "./server/login-bootstrap-wiring";
 import { contextMapNeedsRebuildFor } from "./server/context-map-wiring";
+import { getHistory } from "./server/persistence/index";
 
 const SELF_REPO = process.env.QAYABA_REPO ?? "ArielFalcon/qayaba";
 const ROOT = qayabaRoot();
@@ -735,7 +736,7 @@ const apiDeps: ApiDeps = {
   intelligence: loadIntelligenceView,
   /* Read-only stored FE<->BE architecture map. null (no row yet) -> the route 404s. */
   contextMap: (app) => {
-    const stored = loadContextMap(app);
+    const stored = getHistory().contexts.loadContextMap(app);
     if (!stored) return null;
     return { app, map: stored.data, builtAtSha: stored.builtAtSha, updatedAt: stored.updatedAt };
   },

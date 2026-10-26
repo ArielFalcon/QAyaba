@@ -10,6 +10,7 @@
 
 import Database from "better-sqlite3";
 import { getHistoryDatabase } from "./persistence/index";
+import { scoreValueOf } from "./persistence/score-value";
 import { randomBytes } from "node:crypto";
 import { RunRecord, RunMode, TestTarget, QaCase, RunVerdict, SpecRecord, RunOutcome, AgentActivity, type RunChangeEntry } from "../types";
 import { applyOutcome as foldApplyOutcome } from "@contexts/cross-run-learning/application/index";
@@ -130,8 +131,6 @@ let loadCurriculumStmt!: Database.Statement;
 let saveCurriculumStmt!: Database.Statement;
 let loadScorecardStmt!: Database.Statement;
 let saveScorecardStmt!: Database.Statement;
-let loadContextMapStmt!: Database.Statement;
-let saveContextMapStmt!: Database.Statement;
 let insertAgentTurnStmt!: Database.Statement;
 let getAgentTurnsStmt!: Database.Statement;
 let initialized = false;
@@ -202,12 +201,6 @@ function ensureDb(): void {
   saveCurriculumStmt = db.prepare("INSERT INTO curriculum (app, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(app) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at");
   loadScorecardStmt = db.prepare("SELECT data FROM scorecard WHERE app = ?");
   saveScorecardStmt = db.prepare("INSERT INTO scorecard (app, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(app) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at");
-  loadContextMapStmt = db.prepare("SELECT built_at_sha, data, updated_at FROM context_maps WHERE app = ?");
-  saveContextMapStmt = db.prepare(
-    "INSERT INTO context_maps (app, built_at_sha, data, updated_at) VALUES (?, ?, ?, ?) " +
-      "ON CONFLICT(app) DO UPDATE SET built_at_sha = excluded.built_at_sha, data = excluded.data, updated_at = excluded.updated_at",
-  );
-
   /* agent_turns: insert a turn record; retrieve all turns for a run ordered by id. */
   insertAgentTurnStmt = db.prepare(`
     INSERT INTO agent_turns
@@ -963,35 +956,6 @@ export function releaseLearningRuleQuarantine(ruleId: string): boolean {
 }
 
 /*
- * Mark an app's architecture map as stale so the next generating run rebuilds it. Used by the
- * process-audit context-heal: a file-level invalidation of e2e/.qa/context.json does NOT survive
- * the next run's `git checkout -f`/`git clean -fd`, but this DB flag does. Idempotent (latest wins).
- */
-export function markContextStale(app: string): void {
-  ensureDb();
-  db.prepare("INSERT OR REPLACE INTO context_stale (app, at) VALUES (?, ?)").run(app, new Date().toISOString());
-}
-
-/* Whether the app's architecture map is marked stale. Read-only: the flag stays armed. */
-export function isContextStale(app: string): boolean {
-  ensureDb();
-  return db.prepare("SELECT app FROM context_stale WHERE app = ?").get(app) !== undefined;
-}
-
-/* Disarm the staleness flag: a rebuild was accepted by the queue, or a context run stored a fresh map. */
-export function clearContextStale(app: string): void {
-  ensureDb();
-  db.prepare("DELETE FROM context_stale WHERE app = ?").run(app);
-}
-
-
-/* Record that an off-path rebuild was requested now. Idempotent: the latest request wins. */
-export function recordContextHealRequest(app: string): void {
-  ensureDb();
-  db.prepare("INSERT OR REPLACE INTO context_heal_requests (app, at) VALUES (?, ?)").run(app, new Date().toISOString());
-}
-
-/*
  * Back-fill the structured reflection onto an already-saved run outcome. The outcome row is
  * written at verdict time, BEFORE the async best-effort reflection exists; without this the
  * `reflection` column is permanently null and the (expensive, LLM-produced) reflection is
@@ -1134,19 +1098,6 @@ export function replaceRunScores(rows: readonly ScoreRow[], gradedAt: string, sc
 }
 
 /* A stored value must be of the type its row declares; a row that is not is skipped and said, never shipped as an empty or wrong value. */
-function scoreValueOf(raw: string, dataType: string): number | boolean | string | undefined {
-  let v: unknown;
-  try {
-    v = JSON.parse(raw);
-  } catch {
-    return undefined;
-  }
-  if (dataType === "NUMERIC") return typeof v === "number" && Number.isFinite(v) ? v : undefined;
-  if (dataType === "BOOLEAN") return typeof v === "boolean" ? v : undefined;
-  if (dataType === "CATEGORICAL") return typeof v === "string" ? v : undefined;
-  return undefined;
-}
-
 export function listRunScoreRows(runId: string): ScoreRow[] {
   ensureDb();
   const rows = db.prepare("SELECT * FROM run_scores WHERE run_id = ? ORDER BY name, grader_version").all(runId) as Array<Record<string, unknown>>;
@@ -1171,124 +1122,6 @@ export function listRunScoreRows(runId: string): ScoreRow[] {
     });
   }
   return out;
-}
-
-export interface JudgeAttemptRow {
-  runId: string;
-  judge: string;
-  promptVersion: string;
-  model: string | null;
-  outcome: string;
-  tokens: number;
-  detail: string | null;
-  at: string;
-}
-
-export function insertJudgeAttempt(row: JudgeAttemptRow): void {
-  ensureDb();
-  db.prepare(
-    "INSERT INTO judge_attempts (run_id, judge, prompt_version, model, outcome, tokens, detail, at) VALUES (@runId, @judge, @promptVersion, @model, @outcome, @tokens, @detail, @at)",
-  ).run(row);
-}
-
-/* The newest outcome recorded for the run, judge and prompt version; undefined when never attempted. */
-export function lastJudgeOutcome(runId: string, judge: string, promptVersion: string): string | undefined {
-  ensureDb();
-  const row = db.prepare("SELECT outcome FROM judge_attempts WHERE run_id = ? AND judge = ? AND prompt_version = ? ORDER BY id DESC LIMIT 1").get(runId, judge, promptVersion) as { outcome: string } | undefined;
-  return row?.outcome;
-}
-
-/* The model that answered the judge's newest scored attempt of the prompt version; undefined when it has none. */
-export function latestJudgeModel(judge: string, promptVersion: string): string | undefined {
-  ensureDb();
-  const row = db.prepare("SELECT model FROM judge_attempts WHERE judge = ? AND prompt_version = ? AND outcome = 'scored' AND model IS NOT NULL ORDER BY id DESC LIMIT 1").get(judge, promptVersion) as { model: string } | undefined;
-  return row?.model;
-}
-
-/* Tokens the judge attempts of a UTC day (YYYY-MM-DD) used. */
-export function judgeTokensUsedOn(day: string): number {
-  ensureDb();
-  const row = db.prepare("SELECT COALESCE(SUM(tokens), 0) AS used FROM judge_attempts WHERE substr(at, 1, 10) = ?").get(day) as { used: number };
-  return row.used;
-}
-
-/* How many attempts ended each way over the window starting at `sinceIso`: the count of unparseable replies is what a judge's prompt author reads. */
-export function judgeOutcomeCounts(judge: string, sinceIso: string): Record<string, number> {
-  ensureDb();
-  const rows = db.prepare("SELECT outcome, COUNT(*) AS n FROM judge_attempts WHERE judge = ? AND at >= ? GROUP BY outcome").all(judge, sinceIso) as Array<{ outcome: string; n: number }>;
-  return Object.fromEntries(rows.map((r) => [r.outcome, r.n]));
-}
-
-export interface JudgeCalibrationRow {
-  judge: string;
-  promptVersion: string;
-  model: string;
-  trainN: number;
-  devN: number;
-  testN: number;
-  tpr: number | null;
-  tnr: number | null;
-  agreement: number | null;
-  status: string;
-  /* The full report as JSON. */
-  report: string;
-  computedAt: string;
-}
-
-export function insertJudgeCalibration(row: JudgeCalibrationRow): void {
-  ensureDb();
-  db.prepare(
-    `INSERT INTO judge_calibrations (judge, prompt_version, model, train_n, dev_n, test_n, tpr, tnr, agreement, status, report, computed_at)
-     VALUES (@judge, @promptVersion, @model, @trainN, @devN, @testN, @tpr, @tnr, @agreement, @status, @report, @computedAt)`,
-  ).run(row);
-}
-
-/* The newest calibration of the judge for exactly this prompt version. */
-export function latestJudgeCalibration(judge: string, promptVersion: string): JudgeCalibrationRow | undefined {
-  ensureDb();
-  const r = db.prepare("SELECT * FROM judge_calibrations WHERE judge = ? AND prompt_version = ? ORDER BY id DESC LIMIT 1").get(judge, promptVersion) as Record<string, unknown> | undefined;
-  if (!r) return undefined;
-  return {
-    judge: r.judge as string,
-    promptVersion: r.prompt_version as string,
-    model: r.model as string,
-    trainN: r.train_n as number,
-    devN: r.dev_n as number,
-    testN: r.test_n as number,
-    tpr: (r.tpr as number | null) ?? null,
-    tnr: (r.tnr as number | null) ?? null,
-    agreement: (r.agreement as number | null) ?? null,
-    status: r.status as string,
-    report: r.report as string,
-    computedAt: r.computed_at as string,
-  };
-}
-
-/*
- * The scores of the judge's newest (grader version, model) group paired with the human labels of the same runs. "Newest" is the group
- * with the latest graded_at: a judge whose prompt or model changed is calibrated for what it is now, never for what it was.
- */
-export function listJudgeLabelPairs(judge: string): { graderVersion: string; model: string; pairs: Array<{ runId: string; human: number | boolean | string; judge: number | boolean | string }> } | undefined {
-  ensureDb();
-  const newest = db
-    .prepare("SELECT grader_version, judge_model FROM run_scores WHERE name = ? AND source = 'llm_judge' ORDER BY graded_at DESC, rowid DESC LIMIT 1")
-    .get(judge) as { grader_version: string; judge_model: string | null } | undefined;
-  if (!newest) return undefined;
-  const judged = db
-    .prepare("SELECT run_id, value, data_type FROM run_scores WHERE name = ? AND source = 'llm_judge' AND grader_version = ? AND judge_model IS ?")
-    .all(judge, newest.grader_version, newest.judge_model) as Array<{ run_id: string; value: string; data_type: string }>;
-  const labels = new Map(
-    (db.prepare("SELECT run_id, value, data_type FROM run_scores WHERE name = ? AND source = 'human'").all(judge) as Array<{ run_id: string; value: string; data_type: string }>).map((r) => [r.run_id, r]),
-  );
-  const pairs: Array<{ runId: string; human: number | boolean | string; judge: number | boolean | string }> = [];
-  for (const j of judged) {
-    const human = labels.get(j.run_id);
-    if (!human) continue;
-    const humanValue = scoreValueOf(human.value, human.data_type);
-    const judgeValue = scoreValueOf(j.value, j.data_type);
-    if (humanValue !== undefined && judgeValue !== undefined) pairs.push({ runId: j.run_id, human: humanValue, judge: judgeValue });
-  }
-  return { graderVersion: newest.grader_version, model: newest.judge_model ?? "unknown", pairs };
 }
 
 export function setRunEvaluationStatus(runId: string, status: string, at: string): void {
@@ -1692,45 +1525,6 @@ export function saveScorecardEntry(entry: ScorecardEntry): void {
   ensureDb();
   const sc = updateScorecard(loadScorecard(entry.app), entry);
   saveScorecardStmt.run(sc.app, JSON.stringify(sc), sc.updatedAt);
-}
-
-export interface StoredContextMap {
-  builtAtSha: string;
-  data: ArchitectureContext;
-  updatedAt: string;
-}
-
-/*
- * Persist the app's FE<->BE architecture map (per-app row; latest wins — not append-only, same as
- * curriculum/scorecard above). `builtAtSha` is the deterministic run sha the orchestrator captured
- * this map at, not necessarily identical to `data.builtAtSha` (the agent's own self-reported field
- * inside the JSON, left untouched) — see ContextMapCapturePortAdapter's caller.
- */
-export function saveContextMap(app: string, builtAtSha: string, data: ArchitectureContext): void {
-  ensureDb();
-  saveContextMapStmt.run(app, builtAtSha, JSON.stringify(data), new Date().toISOString());
-}
-
-/*
- * A corrupt row (exists but fails to parse) is logged loudly and treated as "no stored map" —
- * never crashes a run. Same fault-isolation shape as loadCurriculum, except a context map is
- * advisory grounding, not a fold input: there is nothing here for a caller to distinguish from
- * "no row yet" (unlike CURRICULUM_CORRUPT, which guards a fold from clobbering real evidence), so
- * undefined is the correct, single "no usable stored map" signal for both cases.
- */
-export function loadContextMap(app: string): StoredContextMap | undefined {
-  ensureDb();
-  const row = loadContextMapStmt.get(app) as { built_at_sha: string; data: string; updated_at: string } | undefined;
-  if (!row) return undefined;
-  try {
-    return { builtAtSha: row.built_at_sha, data: JSON.parse(row.data) as ArchitectureContext, updatedAt: row.updated_at };
-  } catch (err) {
-    logJson("warn", `corrupt context-map row for app '${app}' — treating as no stored map`, {
-      app,
-      error: redactionPort.redactError(err),
-    });
-    return undefined;
-  }
 }
 
 export interface TelemetryRoleStat {

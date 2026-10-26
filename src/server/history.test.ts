@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync 
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import Database from "better-sqlite3";
-import { saveAgentTurnEvent, createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, childrenOf, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, quarantineLearningRules, releaseLearningRuleQuarantine, listAllLearningRules, getLearningRule, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, isContextStale, clearContextStale, recordContextHealRequest, saveAgentTurn, getAgentTurns, getAgentTurnTraces, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap, recordRunPhases, getRunPhases, getRunFunnel, saveCrashedRunOutcome } from "./history";
+import { saveAgentTurnEvent, createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, childrenOf, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, quarantineLearningRules, releaseLearningRuleQuarantine, listAllLearningRules, getLearningRule, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, saveAgentTurn, getAgentTurns, getAgentTurnTraces, loadCurriculum, saveCurriculum, recordRunPhases, getRunPhases, getRunFunnel, saveCrashedRunOutcome } from "./history";
 import { getHistoryDatabase } from "./persistence/index";
 import { backupDatabase } from "./persistence/backup";
 import { SpecRecordSchema } from "../contract/commands";
@@ -14,17 +14,7 @@ import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-t
 import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
 import { initCurriculum } from "@contexts/cross-run-learning/application/index";
 import type { RuleStatus } from "../qa/learning/learning-rule";
-import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
-
-test("a marked context-stale flag stays armed across reads until it is cleared", () => {
-  const app = "hist-ctx-stale";
-  assert.equal(isContextStale(app), false);
-  markContextStale(app);
-  assert.equal(isContextStale(app), true);
-  assert.equal(isContextStale(app), true, "reading the flag must not disarm it");
-  clearContextStale(app);
-  assert.equal(isContextStale(app), false);
-});
+import { getHistory } from "./persistence/index";
 
 test("createRecord stores an enqueued record findable by id", () => {
   const r = createRecord({ target: "e2e",  app: "hist-a", sha: "abcdef1234", mode: "diff" });
@@ -380,58 +370,12 @@ test("deleteAppHistory removes the app's runs (cascading cases/specs) but not ot
   assert.ok(getRecord(other.id));
 });
 
-/* ── context_maps (the persisted FE<->BE architecture map from mode:context runs) ────────── */
-
-test("saveContextMap/loadContextMap round-trip per app; latest save wins; a corrupt row is logged loudly and treated as absent, never crashes", () => {
-  const app = `hist-ctxmap-${Date.now().toString(36)}`;
-  assert.equal(loadContextMap(app), undefined, "no row yet");
-
-  const map1: ArchitectureContext = { builtAtSha: "sha1", routes: [{ path: "/a" }], api: [], feBe: [] };
-  saveContextMap(app, "sha1", map1);
-  const stored1 = loadContextMap(app);
-  assert.ok(stored1, "sanity: the valid row round-trips");
-  assert.equal(stored1!.builtAtSha, "sha1");
-  assert.deepEqual(stored1!.data, map1);
-  assert.equal(typeof stored1!.updatedAt, "string");
-
-  /* Latest save wins (per-app row, not append-only). */
-  const map2: ArchitectureContext = { builtAtSha: "sha2", routes: [], api: [], feBe: [] };
-  saveContextMap(app, "sha2", map2);
-  const stored2 = loadContextMap(app);
-  assert.equal(stored2!.builtAtSha, "sha2");
-  assert.deepEqual(stored2!.data, map2);
-
-  /* Corrupt the row directly (bypassing saveContextMap, which only ever writes valid JSON) — a
-     second connection to the SAME on-disk db (WAL mode allows this), same technique loadCurriculum's
-     own corrupt-row test above uses. */
-  const dbPath = process.env.HISTORY_DB_PATH ?? join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "qayaba.db");
-  const raw = new Database(dbPath);
-  try {
-    raw.prepare("UPDATE context_maps SET data = ? WHERE app = ?").run("{not valid json", app);
-  } finally {
-    raw.close();
-  }
-
-  const originalWarn = console.warn;
-  const logged: string[] = [];
-  console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
-  try {
-    const result = loadContextMap(app);
-    assert.equal(result, undefined, "a corrupt row must degrade to 'no stored map' — never crash a run");
-    assert.equal(logged.length, 1, "the corrupt row must be logged exactly once, not swallowed silently");
-    assert.match(logged[0] ?? "", /corrupt/i, "the log line must be identifiable as a corrupt context-map fault");
-    assert.match(logged[0] ?? "", new RegExp(app), "the log line must identify which app's row is corrupt");
-  } finally {
-    console.warn = originalWarn;
-  }
-});
-
 test("deleteAppHistory also clears the app's stored context map", () => {
   const app = `hist-ctxmap-del-${Date.now().toString(36)}`;
-  saveContextMap(app, "sha1", { builtAtSha: "sha1", routes: [], api: [], feBe: [] });
-  assert.ok(loadContextMap(app), "sanity: stored before delete");
+  getHistory().contexts.saveContextMap(app, "sha1", { builtAtSha: "sha1", routes: [], api: [], feBe: [] });
+  assert.ok(getHistory().contexts.loadContextMap(app), "sanity: stored before delete");
   deleteAppHistory(app);
-  assert.equal(loadContextMap(app), undefined, "purge must clear the app's context_maps row too");
+  assert.equal(getHistory().contexts.loadContextMap(app), undefined, "purge must clear the app's context_maps row too");
 });
 
 /* ── backupDatabase (WAL-safe online backup) ──────────────────────────────────

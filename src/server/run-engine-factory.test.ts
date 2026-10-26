@@ -16,7 +16,7 @@ import { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code
 import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun } from "./runner";
-import { getRecord, saveContextMap, markContextStale, isContextStale, loadContextMap as loadStoredContextMap, upsertLearningRule, recordRuleOutcome, quarantineLearningRules } from "./history";
+import { getRecord, upsertLearningRule, recordRuleOutcome, quarantineLearningRules } from "./history";
 import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
 import type { AgentDeps } from "../integrations/opencode-client";
 import { CAMPAIGN_FREEZE_ENV } from "./campaign-freeze";
@@ -57,6 +57,7 @@ import { setAgentsConfigPath as setCatalogAgentsConfigPath } from "@contexts/gen
 import { rosterFixturePath } from "../integrations/fixtures/opencode-roster";
 import { setAgentsConfigPath } from "../integrations/opencode-client";
 import type { RunMode } from "@kernel/run-mode";
+import { getHistory } from "./persistence/index";
 
 /* The publish step of a run as the engine wires it: the context's policy over the shell's git wiring. */
 function publishStep(isCode: boolean, mode: RunMode, git?: (args: string[], cwd?: string) => Promise<string>, writeExcludesFn?: (dir: string, patterns: readonly string[]) => void) {
@@ -434,7 +435,7 @@ test("an app's suite store lives under the data volume, one directory per app", 
 test("buildEngineRootDeps wires groundingCollaborators.loadContextMap: the stored map wins over the repo file when present", () => {
   const app = cfg("factory-contextmap-db-wins");
   const map: ArchitectureContext = { builtAtSha: "sha-db", routes: [{ path: "/db" }], api: [], feBe: [] };
-  saveContextMap(app.name, "sha-db", map);
+  getHistory().contexts.saveContextMap(app.name, "sha-db", map);
   const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   const result = config.groundingCollaborators!.loadContextMap!("/definitely/does/not/exist/on/disk");
   assert.deepEqual(result, map, "the DB is the engine's source of truth — it must win even when the repo file is absent (and would win even if present)");
@@ -459,8 +460,8 @@ const flushMicrotasks = (): Promise<void> => new Promise((resolve) => setImmedia
 test("buildEngineRootDeps — a stale-marked context map is NOT used for grounding (stored map skipped even though present)", () => {
   const app = cfg(`factory-contextmap-stale-${Date.now().toString(36)}`);
   const map: ArchitectureContext = { builtAtSha: "sha-old", routes: [{ path: "/old" }], api: [], feBe: [] };
-  saveContextMap(app.name, "sha-old", map);
-  markContextStale(app.name);
+  getHistory().contexts.saveContextMap(app.name, "sha-old", map);
+  getHistory().contexts.markContextStale(app.name);
 
   const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", sha: "abc1234" });
   const result = config.groundingCollaborators!.loadContextMap!("/definitely/does/not/exist/on/disk");
@@ -506,27 +507,27 @@ async function queueRunThroughRealFactory(app: AppConfig, sha: string): Promise<
 
 test("a queued run requests its context heal at that run's own sha", async () => {
   const app = cfg(`factory-contextmap-heal-funnel-${Math.random().toString(36).slice(2)}`);
-  markContextStale(app.name);
+  getHistory().contexts.markContextStale(app.name);
 
   const requests = await queueRunThroughRealFactory(app, "def5678");
 
   assert.deepEqual(requests.map(({ app: name, sha }) => ({ app: name, sha })), [{ app: app.name, sha: "def5678" }]);
-  assert.equal(isContextStale(app.name), false, "the accepted rebuild disarms the flag");
+  assert.equal(getHistory().contexts.isContextStale(app.name), false, "the accepted rebuild disarms the flag");
 });
 
 test("a queued run with no sha never requests a context heal and keeps the stale flag armed", async () => {
   const app = cfg(`factory-contextmap-heal-funnel-nosha-${Math.random().toString(36).slice(2)}`);
-  markContextStale(app.name);
+  getHistory().contexts.markContextStale(app.name);
 
   const requests = await queueRunThroughRealFactory(app, "");
 
   assert.deepEqual(requests, []);
-  assert.equal(isContextStale(app.name), true, "the next run that has a sha must retry the heal");
+  assert.equal(getHistory().contexts.isContextStale(app.name), true, "the next run that has a sha must retry the heal");
 });
 
 test("the context heal a run requests carries that run's own id as parentRunId", async () => {
   const app = cfg(`factory-contextmap-heal-parent-${Math.random().toString(36).slice(2)}`);
-  markContextStale(app.name);
+  getHistory().contexts.markContextStale(app.name);
   const requests: ContextHealRunRequest[] = [];
   const mirrorRoot = mkdtempSync(join(tmpdir(), "qayaba-heal-parent-"));
   const noCheckout = async (): Promise<never> => {
@@ -563,7 +564,7 @@ test("the context heal a run requests carries that run's own id as parentRunId",
 
 test("buildEngineRootDeps — a run without a runId requests its heal without a parentRunId (unlinked heals stay valid)", async () => {
   const app = cfg(`factory-contextmap-heal-noparent-${Math.random().toString(36).slice(2)}`);
-  markContextStale(app.name);
+  getHistory().contexts.markContextStale(app.name);
 
   let captured: ContextHealRunRequest | undefined;
   buildEngineRootDeps(
@@ -580,7 +581,7 @@ test("buildEngineRootDeps — a run without a runId requests its heal without a 
 
 test("buildEngineRootDeps — an accepted heal disarms the stale flag", async () => {
   const app = cfg(`factory-contextmap-heal-accepted-${Date.now().toString(36)}`);
-  markContextStale(app.name);
+  getHistory().contexts.markContextStale(app.name);
 
   buildEngineRootDeps(
     app,
@@ -589,7 +590,7 @@ test("buildEngineRootDeps — an accepted heal disarms the stale flag", async ()
     { mode: "diff", sha: "abc1234" },
   );
   await flushMicrotasks();
-  assert.equal(isContextStale(app.name), false);
+  assert.equal(getHistory().contexts.isContextStale(app.name), false);
 });
 
 for (const [label, enqueueContextRun] of [
@@ -600,7 +601,7 @@ for (const [label, enqueueContextRun] of [
 ] as const) {
   test(`buildEngineRootDeps — a heal enqueue ${label} keeps the stale flag armed and never blocks the run`, async () => {
     const app = cfg(`factory-contextmap-heal-kept-${Math.random().toString(36).slice(2)}`);
-    markContextStale(app.name);
+    getHistory().contexts.markContextStale(app.name);
 
     const config = buildEngineRootDeps(
       app,
@@ -610,23 +611,23 @@ for (const [label, enqueueContextRun] of [
     );
     await flushMicrotasks();
     assert.ok(config.groundingCollaborators, "composition completes whatever the heal enqueue does");
-    assert.equal(isContextStale(app.name), true, "the next qualifying run must retry the heal");
+    assert.equal(getHistory().contexts.isContextStale(app.name), true, "the next qualifying run must retry the heal");
   });
 }
 
 test("buildEngineRootDeps — a code-mode app never requests a heal (context maps are e2e-only)", () => {
   const app: AppConfig = { ...cfg(`factory-contextmap-stale-code-${Date.now().toString(36)}`), code: true, dev: undefined };
-  markContextStale(app.name);
+  getHistory().contexts.markContextStale(app.name);
 
   let requested = 0;
   buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps, enqueueContextRun: () => { requested += 1; return "run-heal-1"; } }, "qa-bot-abc1234-run1", { mode: "diff", target: "code", sha: "abc1234" });
   assert.equal(requested, 0);
-  assert.equal(isContextStale(app.name), true, "the flag stays armed for the next real e2e generating run");
+  assert.equal(getHistory().contexts.isContextStale(app.name), true, "the flag stays armed for the next real e2e generating run");
 });
 
 test("buildEngineRootDeps — a mode:context run never requests its own heal (it is the rebuild)", () => {
   const app = cfg(`factory-contextmap-stale-context-mode-${Date.now().toString(36)}`);
-  markContextStale(app.name);
+  getHistory().contexts.markContextStale(app.name);
 
   let requested = 0;
   buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps, enqueueContextRun: () => { requested += 1; return "run-heal-1"; } }, "qa-bot-abc1234-run1", { mode: "context", sha: "abc1234" });
@@ -665,8 +666,8 @@ for (const [label, enqueueContextRun] of [
     test(`a context run that stores ${written} disarms the stale flag and grounds the next run, with ${label}`, async () => {
       const app = cfg(`factory-contextmap-fresh-capture-${Math.random().toString(36).slice(2)}`);
       const fresh: ArchitectureContext = { builtAtSha: "sha-new", routes: [{ path: "/fresh" }], api: [], feBe: [] };
-      saveContextMap(app.name, "sha-old", CONDEMNED_MAP);
-      markContextStale(app.name);
+      getHistory().contexts.saveContextMap(app.name, "sha-old", CONDEMNED_MAP);
+      getHistory().contexts.markContextStale(app.name);
       const deps = { getAgentDeps: stubAgentDeps, ...(enqueueContextRun ? { enqueueContextRun } : {}) };
       const specDir = specDirWithContextMap(JSON.stringify(fresh), committedBefore);
       try {
@@ -676,7 +677,7 @@ for (const [label, enqueueContextRun] of [
         rmSync(specDir, { recursive: true, force: true });
       }
 
-      assert.equal(isContextStale(app.name), false);
+      assert.equal(getHistory().contexts.isContextStale(app.name), false);
       /* The next run is at another commit that changed nothing the map names, so the map fits it. */
       const nextRun = buildEngineRootDeps(app, { ...deps, contextMapChanges: () => [] }, "qa-bot-0a1b2c3-run2", { mode: "diff", sha: "0a1b2c3" });
       assert.deepEqual(nextRun.groundingCollaborators!.loadContextMap!("/definitely/does/not/exist/on/disk")?.routes, [{ path: "/fresh" }]);
@@ -687,8 +688,8 @@ for (const [label, enqueueContextRun] of [
      storing it would re-key the known-bad map at the new sha and disarm the flag that condemned it. */
   test(`a context run that leaves the committed, condemned map untouched stores nothing and keeps the stale flag armed, with ${label}`, async () => {
     const app = cfg(`factory-contextmap-untouched-${Math.random().toString(36).slice(2)}`);
-    saveContextMap(app.name, "sha-old", CONDEMNED_MAP);
-    markContextStale(app.name);
+    getHistory().contexts.saveContextMap(app.name, "sha-old", CONDEMNED_MAP);
+    getHistory().contexts.markContextStale(app.name);
     const deps = { getAgentDeps: stubAgentDeps, ...(enqueueContextRun ? { enqueueContextRun } : {}) };
     const specDir = specDirWithContextMap(undefined, JSON.stringify(CONDEMNED_MAP));
     try {
@@ -698,8 +699,8 @@ for (const [label, enqueueContextRun] of [
       rmSync(specDir, { recursive: true, force: true });
     }
 
-    assert.equal(isContextStale(app.name), true);
-    assert.equal(loadStoredContextMap(app.name)?.builtAtSha, "sha-old", "the condemned map is not stored again at the new sha");
+    assert.equal(getHistory().contexts.isContextStale(app.name), true);
+    assert.equal(getHistory().contexts.loadContextMap(app.name)?.builtAtSha, "sha-old", "the condemned map is not stored again at the new sha");
   });
 }
 
@@ -709,7 +710,7 @@ for (const [label, enqueueContextRun] of [
 test("a context run that stores a new map is captured even when git judges the working copy owned by another user", async () => {
   const app = cfg(`factory-contextmap-other-owner-${Math.random().toString(36).slice(2)}`);
   const fresh: ArchitectureContext = { builtAtSha: "sha-new", routes: [{ path: "/fresh" }], api: [], feBe: [] };
-  markContextStale(app.name);
+  getHistory().contexts.markContextStale(app.name);
   const specDir = specDirWithContextMap(JSON.stringify(fresh));
   const previous = process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER;
   process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER = "1";
@@ -721,13 +722,13 @@ test("a context run that stores a new map is captured even when git judges the w
     else process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER = previous;
     rmSync(specDir, { recursive: true, force: true });
   }
-  assert.equal(isContextStale(app.name), false, "the map was stored, so the flag that condemned the old one is disarmed");
-  assert.deepEqual(loadStoredContextMap(app.name)?.data.routes, [{ path: "/fresh" }]);
+  assert.equal(getHistory().contexts.isContextStale(app.name), false, "the map was stored, so the flag that condemned the old one is disarmed");
+  assert.deepEqual(getHistory().contexts.loadContextMap(app.name)?.data.routes, [{ path: "/fresh" }]);
 });
 
 test("a context run that stores no map (missing or invalid) keeps the stale flag armed", async () => {
   const app = cfg(`factory-contextmap-no-capture-${Math.random().toString(36).slice(2)}`);
-  markContextStale(app.name);
+  getHistory().contexts.markContextStale(app.name);
   const contextRun = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run1", { mode: "context", sha: "def5678" });
   for (const body of [undefined, JSON.stringify({ builtAtSha: "", routes: [], api: [], feBe: [] })]) {
     const specDir = specDirWithContextMap(body);
@@ -737,17 +738,17 @@ test("a context run that stores no map (missing or invalid) keeps the stale flag
       rmSync(specDir, { recursive: true, force: true });
     }
   }
-  assert.equal(isContextStale(app.name), true);
+  assert.equal(getHistory().contexts.isContextStale(app.name), true);
 });
 
 test("buildEngineRootDeps — a cross-repo (service-triggered) run never requests a primary-app heal", () => {
   const app: AppConfig = { ...cfg(`factory-contextmap-stale-crossrepo-${Date.now().toString(36)}`), services: [{ repo: "org/service" }] };
-  markContextStale(app.name);
+  getHistory().contexts.markContextStale(app.name);
 
   let requested = 0;
   buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps, enqueueContextRun: () => { requested += 1; return "run-heal-1"; } }, "qa-bot-abc1234-run1", { mode: "diff", triggerRepo: "org/service", sha: "abc1234" });
   assert.equal(requested, 0, "a service sha is not a primary-repo sha");
-  assert.equal(isContextStale(app.name), true);
+  assert.equal(getHistory().contexts.isContextStale(app.name), true);
 });
 
 /* GenerateTestsUseCase.AuthoringPorts.repair must be wired so a malformed verdict gets one
@@ -1034,7 +1035,7 @@ function assertRestOfGroundingWired(app: AppConfig, config: ReturnType<typeof bu
   const domDeps = config.groundingCollaborators?.contextPackDeps?.domDeps;
   assert.ok(domDeps, "a DOM capture is wired");
   assert.notEqual(domDeps, defaultCaptureDomDeps, "the DOM capture is the authDir-backed one");
-  saveContextMap(app.name, "abc1234", { builtAtSha: "abc1234", routes: [{ path: "/stored" }], api: [], feBe: [] });
+  getHistory().contexts.saveContextMap(app.name, "abc1234", { builtAtSha: "abc1234", routes: [{ path: "/stored" }], api: [], feBe: [] });
   assert.deepEqual(config.groundingCollaborators?.loadContextMap?.("/definitely/does/not/exist/on/disk")?.routes, [{ path: "/stored" }], "the stored context map still grounds");
 }
 
@@ -3590,7 +3591,7 @@ test("with the campaign freeze on, a run neither learns nor reflects nor audits 
 
 test("with the campaign freeze on, a stale-flagged app requests no context rebuild", async () => {
   const app = cfg(`factory-freeze-stale-${Math.random().toString(36).slice(2)}`);
-  markContextStale(app.name);
+  getHistory().contexts.markContextStale(app.name);
   const requested: string[] = [];
   buildEngineRootDeps(
     app,
@@ -3600,7 +3601,7 @@ test("with the campaign freeze on, a stale-flagged app requests no context rebui
   );
   await flushMicrotasks();
   assert.deepEqual(requested, [], "a frozen campaign never adds a run to the queue");
-  assert.equal(isContextStale(app.name), true, "the flag is left as the campaign found it");
+  assert.equal(getHistory().contexts.isContextStale(app.name), true, "the flag is left as the campaign found it");
 });
 
 /*
@@ -3615,7 +3616,7 @@ const mapNamingFiles: ArchitectureContext = {
 };
 const storedMapApp = (label: string): AppConfig => {
   const app = cfg(`factory-map-validity-${label}-${Math.random().toString(36).slice(2)}`);
-  saveContextMap(app.name, "sha-built", mapNamingFiles);
+  getHistory().contexts.saveContextMap(app.name, "sha-built", mapNamingFiles);
   return app;
 };
 
@@ -3693,7 +3694,7 @@ test("a map that does not fit asks for its rebuild once per commit, however soon
 
 test("a stored map is reused when a page's implementation files were only modified, without that page's front-to-back links", async () => {
   const app = cfg(`factory-map-validity-pages-${Math.random().toString(36).slice(2)}`);
-  saveContextMap(app.name, "sha-built", {
+  getHistory().contexts.saveContextMap(app.name, "sha-built", {
     ...mapNamingFiles,
     routes: [...mapNamingFiles.routes, { path: "/cart", implementationFiles: ["src/cart/cart.page.ts"] }],
     feBe: [{ route: "/shops", operationId: "listShops" }, { route: "/cart", operationId: "getCart" }],

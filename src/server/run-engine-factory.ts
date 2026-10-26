@@ -160,7 +160,7 @@ import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
 import type { LearningStorePort } from "@contexts/cross-run-learning/application/index";
-import { listLearningRules, listLearningRulesForGovernance, getLearningRule, listAllLearningRules, quarantineLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, isContextStale, clearContextStale, recordContextHealRequest, saveScorecardEntry, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap as loadStoredContextMap } from "./history";
+import { listLearningRules, listLearningRulesForGovernance, getLearningRule, listAllLearningRules, quarantineLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, saveScorecardEntry, loadCurriculum, saveCurriculum } from "./history";
 import { recordIncident } from "./maintainer";
 import { resolveCampaignFreeze } from "./campaign-freeze";
 import { serviceTopologyWired, structuralSignalsOn as structuralSignalsOnFor, toolsApply } from "./run-config-gates";
@@ -170,6 +170,7 @@ import { ProcessAuditPortAdapter } from "@contexts/cross-run-learning/infrastruc
 import { CurriculumPortAdapter } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
 import { YamlBoundaryProfileAdapter } from "@contexts/service-topology/infrastructure/yaml-boundary-profile.adapter";
 import { expandEnv } from "../orchestrator/config-loader";
+import { getHistory } from "./persistence/index";
 
 /*
  * Role→agent-name mapping for AgentRuntimeAdapter. Also the durable coordination telemetry
@@ -457,8 +458,8 @@ const contextHealRequested = new Set<string>();
 
 /* Persist a context run's validated map; a fresh map replaces the one the stale flag condemned. */
 const storeFreshContextMap: ContextMapSave = (app, sha, map) => {
-  saveContextMap(app, sha, map);
-  clearContextStale(app);
+  getHistory().contexts.saveContextMap(app, sha, map);
+  getHistory().contexts.clearContextStale(app);
 };
 
 /* The mirror's git status for the spec dir's context map: any entry means this run wrote it. */
@@ -756,8 +757,8 @@ export function buildEngineRootDeps(
    * (context maps are e2e-only), `run.mode !== "context"` (a context-mode run IS the rebuild) and
    * `!triggerService` (a service-triggered run's sha belongs to the service repo, not the primary).
    */
-  const contextHeal = new RequestContextHeal(deps.enqueueContextRun, { clear: clearContextStale });
-  const contextStale = !isCode && run.mode !== "context" && !triggerService && isContextStale(app.name);
+  const contextHeal = new RequestContextHeal(deps.enqueueContextRun, { clear: (app) => getHistory().contexts.clearContextStale(app) });
+  const contextStale = !isCode && run.mode !== "context" && !triggerService && getHistory().contexts.isContextStale(app.name);
   if (contextStale && campaignFrozen) {
     /* A campaign's queue holds only its own runs: the rebuild is left for after it, and the flag stays as the campaign found it. */
     console.log(`[qa] context map for ${app.name} was marked stale by the process audit — skipping the stored/disk map this run; the campaign freeze requests no rebuild.`);
@@ -778,7 +779,7 @@ export function buildEngineRootDeps(
       return;
     }
     contextHealRequested.add(key);
-    recordContextHealRequest(app.name);
+    getHistory().contexts.recordContextHealRequest(app.name);
     mapProvenance = { ...mapProvenance, recapture: "requested" };
     contextHeal.execute(app.name, run.sha, run.runId);
   };
@@ -1107,7 +1108,7 @@ export function buildEngineRootDeps(
           };
           return undefined;
         }
-        const stored = loadStoredContextMap(app.name);
+        const stored = getHistory().contexts.loadContextMap(app.name);
         if (stored) {
           const capturedMs = Date.parse(stored.updatedAt);
           const ageMs = Number.isFinite(capturedMs) ? Math.max(0, Date.now() - capturedMs) : undefined;
@@ -1453,7 +1454,7 @@ export function buildEngineRootDeps(
         }),
       invalidateContext: (reason) => {
         try {
-          markContextStale(app.name);
+          getHistory().contexts.markContextStale(app.name);
           console.log(`[audit] marked context stale for ${app.name} — rebuilds next run (${reason})`);
           return true;
         } catch {

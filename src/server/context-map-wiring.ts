@@ -4,7 +4,8 @@ import { contextMapValidity, type ChangedFile } from "@contexts/run-orchestratio
 import { loadAppConfig, type AppConfig } from "../orchestrator/config-loader";
 import { ensureMirror, defaultMirrorDeps } from "../integrations/repo-mirror";
 import { resolveCampaignFreeze } from "./campaign-freeze";
-import { isContextStale, loadContextMap, type StoredContextMap } from "./history";
+import { getHistory } from "./persistence/index";
+import type { StoredContextMap } from "./persistence/repositories/context.repository";
 import { gitChangedFiles } from "./run-engine-factory";
 
 export interface ContextMapQuestionDeps {
@@ -20,8 +21,8 @@ const HEX_SHA = /^[0-9a-f]{7,40}$/i;
 
 const defaultDeps: ContextMapQuestionDeps = {
   loadApp: loadAppConfig,
-  loadStoredMap: loadContextMap,
-  isStale: isContextStale,
+  loadStoredMap: (app) => getHistory().contexts.loadContextMap(app),
+  isStale: (app) => getHistory().contexts.isContextStale(app),
   syncMirror: (repo, sha) => ensureMirror(repo, sha, defaultMirrorDeps),
   changesBetween: gitChangedFiles,
 };
