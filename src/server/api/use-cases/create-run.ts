@@ -96,7 +96,7 @@ export async function createRun(deps: ApiDeps, body: Record<string, unknown>): P
     id = deps.enqueue(appConfig.name, sha, target, mode, guidance, shadow, commits, undefined, baseSha, closedLoop, agentBrowser, observability, grounding);
   } catch (err) {
     if (err instanceof CampaignCaptureMismatchError) throw new ApiError(409, err.message);
-    throw new ApiError(500, `failed to enqueue run: ${err instanceof Error ? err.message : String(err)}`);
+    throw new ApiError(500, `failed to enqueue run: ${redactionPort.redactError(err)}`);
   }
   if (!id) throw new ApiError(503, "service shutting down");
   return reply.contract(202, CreateRunResultSchema, { schemaVersion: 1, id, app: appConfig.name, sha, target, mode, status: "enqueued" });

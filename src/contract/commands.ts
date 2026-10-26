@@ -549,8 +549,16 @@ export type SpecRecord = z.infer<typeof SpecRecordSchema>;
 export type AgentActivity = z.infer<typeof AgentActivitySchema>;
 /* Public evaluation contract (docs/observability-design.md section 14). Every body below carries schemaVersion 1, errors included. */
 
-/* The body of every non-2xx answer of the evaluation and run endpoints. */
-export const ApiErrorSchema = z.object({ schemaVersion: z.literal(1), error: z.string() });
+/*
+ * The body of every non-2xx answer of the control API. `issues` lists what a rejected request body got wrong and `errors` the
+ * reasons an app config was refused; both travel beside the one-line `error` and are absent from every other failure.
+ */
+export const ApiErrorSchema = z.object({
+  schemaVersion: z.literal(1),
+  error: z.string(),
+  issues: z.array(z.unknown()).optional(),
+  errors: z.array(z.string()).optional(),
+});
 
 export const ScoreSchema = z.object({
   name: z.string(),

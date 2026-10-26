@@ -12,23 +12,23 @@ import { loadApp, redactionPort } from "../support";
  */
 export async function startLoginBootstrap(deps: ApiDeps, name: string): Promise<ApiResult> {
   const bootstrapLogin = deps.bootstrapLogin;
-  if (!bootstrapLogin) throw new ApiError(501, "login bootstrap is not available", { bare: true });
+  if (!bootstrapLogin) throw new ApiError(501, "login bootstrap is not available");
   const appConfig = loadApp(deps, name);
   if (appConfig.code === true || appConfig.auth?.kind !== "form") {
-    throw new ApiError(409, `app '${name}' declares no form login to bootstrap`, { bare: true });
+    throw new ApiError(409, `app '${name}' declares no form login to bootstrap`);
   }
   let sha: string;
   try {
     sha = await deps.resolveRef(appConfig.repo, appConfig.baseBranch ?? "main");
   } catch (err) {
-    throw new ApiError(400, redactionPort.redactError(err), { bare: true });
+    throw new ApiError(400, redactionPort.redactError(err));
   }
   let id: string;
   try {
     id = bootstrapLogin(appConfig.name, sha);
   } catch (err) {
-    throw new ApiError(500, `failed to enqueue the login run: ${err instanceof Error ? err.message : String(err)}`, { bare: true });
+    throw new ApiError(500, `failed to enqueue the login run: ${redactionPort.redactError(err)}`);
   }
-  if (!id) throw new ApiError(503, "service shutting down", { bare: true });
+  if (!id) throw new ApiError(503, "service shutting down");
   return reply.contract(202, LoginBootstrapResultSchema, { id, app: appConfig.name, sha, status: "enqueued" });
 }

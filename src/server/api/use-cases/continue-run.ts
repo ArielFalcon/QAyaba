@@ -30,17 +30,17 @@ export interface Continuable {
 /* The finished run with failed cases a continuation starts from. */
 export function findContinuable(deps: ApiDeps, parentId: string): Continuable {
   const parent = deps.getRecord(parentId);
-  if (!parent) throw new ApiError(404, `run not found: ${parentId}`, { bare: true });
-  if (!deps.continuation) throw new ApiError(501, "continue is not available", { bare: true });
-  if (parent.status !== "done") throw new ApiError(409, `run ${parentId} is not finished yet (status: ${parent.status})`, { bare: true });
+  if (!parent) throw new ApiError(404, `run not found: ${parentId}`);
+  if (!deps.continuation) throw new ApiError(501, "continue is not available");
+  if (parent.status !== "done") throw new ApiError(409, `run ${parentId} is not finished yet (status: ${parent.status})`);
   const failedNames = new Set(parent.cases.filter((c) => c.status === "fail").map((c) => c.name));
-  if (failedNames.size === 0) throw new ApiError(409, `run ${parentId} has no failed cases to continue`, { bare: true });
+  if (failedNames.size === 0) throw new ApiError(409, `run ${parentId} has no failed cases to continue`);
   return { parent, failedNames };
 }
 
 export function continueRun(deps: ApiDeps, { parent, failedNames }: Continuable, input: z.infer<typeof ContinueBodySchema>): ApiResult {
   const continuation = deps.continuation;
-  if (!continuation) throw new ApiError(501, "continue is not available", { bare: true });
+  if (!continuation) throw new ApiError(501, "continue is not available");
   const { cases, guidance } = input;
 
   /*
@@ -49,7 +49,7 @@ export function continueRun(deps: ApiDeps, { parent, failedNames }: Continuable,
    */
   if (cases && cases.length > 0) {
     const unknown = cases.filter((c) => !failedNames.has(c));
-    if (unknown.length > 0) throw new ApiError(409, `not failed cases of ${parent.id}: ${unknown.join(", ")}`, { bare: true });
+    if (unknown.length > 0) throw new ApiError(409, `not failed cases of ${parent.id}: ${unknown.join(", ")}`);
   }
 
   /*
@@ -65,6 +65,6 @@ export function continueRun(deps: ApiDeps, { parent, failedNames }: Continuable,
     const failed = parent.cases.filter((c) => c.status === "fail" && (want.size === 0 || want.has(c.name)));
     id = continuation.enqueue({ parent, fixCases: failed, ...(guidance !== undefined ? { guidance } : {}) });
   }
-  if (!id) throw new ApiError(503, "service shutting down", { bare: true });
+  if (!id) throw new ApiError(503, "service shutting down");
   return reply.contract(202, ContinueResultSchema, { id, parentRunId: parent.id, app: parent.app, sha: parent.sha, status: "enqueued" });
 }

@@ -1,5 +1,6 @@
 /* Wraps HTTP handling so a throw can never leave a request unanswered or become an unhandled rejection. */
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { ApiError, respondError } from "./api/api-error";
 
 /* Runs `work`; if it throws, logs the fault and answers 500 in the schemaVersion error shape (or just ends a response already started). */
 export async function guardResponse(res: ServerResponse, work: () => Promise<void> | void, log: (message: string) => void): Promise<void> {
@@ -11,8 +12,7 @@ export async function guardResponse(res: ServerResponse, work: () => Promise<voi
       if (res.headersSent) {
         res.end();
       } else {
-        res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ schemaVersion: 1, error: "internal error" }));
+        respondError(res, new ApiError(500, "internal error"));
       }
     } catch {
       /* the socket is gone: nothing left to answer */

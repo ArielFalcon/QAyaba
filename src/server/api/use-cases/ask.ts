@@ -8,19 +8,20 @@ import { buildHelpContext } from "../../help";
 import { ApiError } from "../api-error";
 import type { ApiDeps } from "../deps";
 import { reply, type ApiResult } from "../respond";
+import { redactionPort } from "../support";
 
 /* Truncate to prevent context window exhaustion. */
 const MAX_QUESTION_LENGTH = 4000;
 
 export async function askAboutRun(deps: ApiDeps, runId: string, readBody: () => Promise<Record<string, unknown>>): Promise<ApiResult> {
   const record = deps.getRecord(runId);
-  if (!record) throw new ApiError(404, `run not found: ${runId}`, { bare: true });
+  if (!record) throw new ApiError(404, `run not found: ${runId}`);
   const ask = deps.ask;
-  if (!ask) throw new ApiError(501, "ask is not available", { bare: true });
+  if (!ask) throw new ApiError(501, "ask is not available");
 
   const body = await readBody();
   let question = typeof body.question === "string" ? body.question.trim() : "";
-  if (!question) throw new ApiError(400, "'question' is required", { bare: true });
+  if (!question) throw new ApiError(400, "'question' is required");
   if (question.length > MAX_QUESTION_LENGTH) question = question.substring(0, MAX_QUESTION_LENGTH) + " [truncated]";
 
   const historyLines: string[] = [];
@@ -50,7 +51,7 @@ export async function askAboutRun(deps: ApiDeps, runId: string, readBody: () => 
     /* Sanitize on egress (logs→chat is a new egress path). */
     return reply.contract(200, AskResponseSchema, { answer: sanitizeText(answer).text });
   } catch (err) {
-    throw new ApiError(502, `assistant failed: ${err instanceof Error ? err.message : String(err)}`, { bare: true });
+    throw new ApiError(502, `assistant failed: ${redactionPort.redactError(err)}`);
   }
 }
 
@@ -66,11 +67,11 @@ const HELP_INSTRUCTION =
 
 export async function answerHelp(deps: ApiDeps, readBody: () => Promise<Record<string, unknown>>): Promise<ApiResult> {
   const ask = deps.ask;
-  if (!ask) throw new ApiError(501, "help chat is not available (ask not wired)", { bare: true });
+  if (!ask) throw new ApiError(501, "help chat is not available (ask not wired)");
 
   const body = await readBody();
   const question = typeof body.question === "string" ? body.question.trim() : "";
-  if (!question) throw new ApiError(400, "'question' is required", { bare: true });
+  if (!question) throw new ApiError(400, "'question' is required");
 
   const historyLines: string[] = [];
   if (Array.isArray(body.history)) {
@@ -90,6 +91,6 @@ export async function answerHelp(deps: ApiDeps, readBody: () => Promise<Record<s
     const answer = await ask({ context: fullContext, question, instruction: HELP_INSTRUCTION });
     return reply.contract(200, AskResponseSchema, { answer: sanitizeText(answer).text });
   } catch (err) {
-    throw new ApiError(502, `assistant failed: ${err instanceof Error ? err.message : String(err)}`, { bare: true });
+    throw new ApiError(502, `assistant failed: ${redactionPort.redactError(err)}`);
   }
 }

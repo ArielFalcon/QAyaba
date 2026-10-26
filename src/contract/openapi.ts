@@ -515,6 +515,18 @@ function paths(): Record<string, unknown> {
   };
 }
 
+/* Every error status a path declares answers an ApiError body, whether or not the path says so. */
+function withErrorBodies(table: Record<string, unknown>): Record<string, unknown> {
+  for (const item of Object.values(table) as Array<Record<string, { responses?: Record<string, Record<string, unknown>> }>>) {
+    for (const operation of Object.values(item)) {
+      for (const [status, response] of Object.entries(operation.responses ?? {})) {
+        if (Number(status) >= 400 && response.content === undefined) response.content = jsonBody("ApiError");
+      }
+    }
+  }
+  return table;
+}
+
 export function buildOpenApiDocument(): Record<string, unknown> {
   return {
     openapi: "3.0.3",
@@ -523,9 +535,10 @@ export function buildOpenApiDocument(): Record<string, unknown> {
       version: API_VERSION,
       description:
         "The Channel Gateway contract: queued commands + the RunEvent SSE stream. " +
+        "Every non-2xx answer is an ApiError body; a request to a known path with a method it does not take answers 405 with an Allow header. " +
         "Source of truth: src/contract/*.ts (zod). GENERATED — do not edit by hand; run `npm run contract:gen`.",
     },
-    paths: paths(),
+    paths: withErrorBodies(paths()),
     components: { schemas: componentSchemas() },
   };
 }

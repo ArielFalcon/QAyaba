@@ -36,7 +36,7 @@ export function sendResult(res: ServerResponse, result: ApiResult): void {
       if (!checked.success) {
         /* Surface the drift loudly (AGENTS.md invariant): a silent 500 hides a real schema mismatch between the route and the contract. */
         console.error("[contract] response validation failed:", checked.error.issues);
-        respondError(res, new ApiError(500, "contract response validation failed", { bare: true }));
+        respondError(res, new ApiError(500, "contract response validation failed"));
         return;
       }
       json(res, result.status, checked.data);

@@ -1,4 +1,5 @@
 import { afterEach, test } from "node:test";
+import { ApiErrorSchema } from "../contract/commands";
 import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -75,7 +76,8 @@ test("the twenty-first sign-in from one address in a minute is answered 429 with
   for (let i = 0; i < 21; i++) last = await fetch(`${base}/api/auth/login`, { method: "POST" });
   assert.equal(last?.status, 429);
   assert.equal(last?.headers.get("retry-after"), "60");
-  assert.match(((await last?.json()) as { error: string }).error, /too many login attempts/);
+  const body = ApiErrorSchema.parse(await last?.json());
+  assert.match(body.error, /too many login attempts/);
 });
 
 test("the first twenty sign-ins pass the throttle", async () => {
@@ -99,11 +101,11 @@ test("a maintainer route nobody handled is answered 404 and one that was handled
   assert.equal(await (await fetch(`${handled.base}/api/maintainer/status`, { headers: GOOD })).text(), "maintainer");
 });
 
-test("an API path no route matches is answered 404 with the bare error body", async () => {
+test("an API path no route matches is answered 404 in the API error shape", async () => {
   const { base } = await start();
   const res = await fetch(`${base}/api/nope`, { headers: GOOD });
   assert.equal(res.status, 404);
-  assert.deepEqual(await res.json(), { error: "not found" });
+  assert.deepEqual(await res.json(), { schemaVersion: 1, error: "not found" });
 });
 
 test("a write that is answered is logged and a successful read is not", async () => {

@@ -45,9 +45,8 @@ test("a body the schema rejects answers 400 with the issue messages", async () =
 });
 
 test("a route can name the label and carry the schema's issues beside it", async () => {
-  const err = await failureOf(parseJsonBody(bodyOf("{}"), Named, { invalid: withIssues("invalid input"), bare: true }));
+  const err = await failureOf(parseJsonBody(bodyOf("{}"), Named, { invalid: withIssues("invalid input") }));
   assert.equal(err.message, "invalid input");
-  assert.equal(err.bare, true);
   assert.ok(Array.isArray(err.extra.issues));
 });
 

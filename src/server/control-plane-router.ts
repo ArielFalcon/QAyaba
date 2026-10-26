@@ -1,6 +1,7 @@
 /* The control plane's request sequence, in order: CORS preflight, the `/api` surface (version prefix normalization, the Bearer auth gate, the per-address throttle on the public sign-in routes, metrics, the maintainer routes, the API), the same-origin web console, and the deployment webhook for any other POST. Everything it touches is injected, so the whole sequence runs over fakes. */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { ApiError, respondError } from "./api/api-error";
 import { isPublicRoute, normalizeApiPath } from "./api/route-table";
 import type { RateLimiter } from "./rate-limit";
 
@@ -23,11 +24,6 @@ export interface ControlPlaneDeps {
   shouldLogApiRequest(method: string | undefined, status: number): boolean;
   log(level: "info", message: string, meta?: Record<string, unknown>): void;
   now(): number;
-}
-
-function json(res: ServerResponse, status: number, body: unknown, extra: Record<string, string> = {}): void {
-  res.writeHead(status, { "Content-Type": "application/json", ...extra });
-  res.end(JSON.stringify(body));
 }
 
 export function createControlPlaneHandler(deps: ControlPlaneDeps): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
@@ -57,7 +53,7 @@ export function createControlPlaneHandler(deps: ControlPlaneDeps): (req: Incomin
        */
       const isPublic = isPublicRoute(req.method ?? "GET", apiPath);
       if (!isPublic && !deps.authorize(req)) {
-        json(res, 401, { schemaVersion: 1, error: "unauthorized" });
+        respondError(res, new ApiError(401, "unauthorized"));
         return;
       }
       /*
@@ -66,7 +62,7 @@ export function createControlPlaneHandler(deps: ControlPlaneDeps): (req: Incomin
        */
       const isAuthBootstrap = apiPath === "/api/auth/login" || apiPath === "/api/auth/local";
       if (isAuthBootstrap && !deps.loginLimiter.allow(req.socket.remoteAddress ?? "")) {
-        json(res, 429, { error: "too many login attempts — try again in a minute" }, { "Retry-After": "60" });
+        respondError(res, new ApiError(429, "too many login attempts — try again in a minute", { headers: { "Retry-After": "60" } }));
         return;
       }
       if (path === "/api/metrics") {
@@ -76,14 +72,14 @@ export function createControlPlaneHandler(deps: ControlPlaneDeps): (req: Incomin
       }
       if (path.startsWith("/api/maintainer")) {
         if (await deps.maintainer(req, res)) return;
-        json(res, 404, { error: "not found" });
+        respondError(res, new ApiError(404, "not found"));
         return;
       }
       if (await deps.api(req, res)) {
         if (deps.shouldLogApiRequest(req.method, res.statusCode)) deps.log("info", `API request`, { traceId, path, duration: deps.now() - startTime });
         return;
       }
-      json(res, 404, { error: "not found" });
+      respondError(res, new ApiError(404, "not found"));
       return;
     }
 
@@ -101,6 +97,6 @@ export function createControlPlaneHandler(deps: ControlPlaneDeps): (req: Incomin
       return;
     }
 
-    json(res, 404, { error: "not found" });
+    respondError(res, new ApiError(404, "not found"));
   };
 }

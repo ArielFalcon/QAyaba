@@ -3,7 +3,7 @@
   "info": {
     "title": "Qayaba Control Plane",
     "version": "1.0.0",
-    "description": "The Channel Gateway contract: queued commands + the RunEvent SSE stream. Source of truth: src/contract/*.ts (zod). GENERATED — do not edit by hand; run `npm run contract:gen`."
+    "description": "The Channel Gateway contract: queued commands + the RunEvent SSE stream. Every non-2xx answer is an ApiError body; a request to a known path with a method it does not take answers 405 with an Allow header. Source of truth: src/contract/*.ts (zod). GENERATED — do not edit by hand; run `npm run contract:gen`."
   },
   "paths": {
     "/api/v1/version": {
@@ -59,13 +59,34 @@
             }
           },
           "401": {
-            "description": "the GitHub token was rejected"
+            "description": "the GitHub token was rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           },
           "403": {
-            "description": "authenticated, but not a collaborator on any watched repo"
+            "description": "authenticated, but not a collaborator on any watched repo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           },
           "501": {
-            "description": "GitHub login is not configured on this server"
+            "description": "GitHub login is not configured on this server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       }
@@ -86,7 +107,14 @@
             }
           },
           "404": {
-            "description": "local console login is not offered for this request"
+            "description": "local console login is not offered for this request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       }
@@ -684,7 +712,14 @@
             }
           },
           "422": {
-            "description": "invalid app config"
+            "description": "invalid app config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       }
@@ -769,7 +804,14 @@
             }
           },
           "422": {
-            "description": "invalid app config"
+            "description": "invalid app config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       },
@@ -862,7 +904,14 @@
             }
           },
           "409": {
-            "description": "an onboarding job is already running"
+            "description": "an onboarding job is already running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       }
@@ -931,10 +980,24 @@
             }
           },
           "409": {
-            "description": "no confirmable boundary profile for this app"
+            "description": "no confirmable boundary profile for this app",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           },
           "422": {
-            "description": "no confirmable boundary profile for this app"
+            "description": "no confirmable boundary profile for this app",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       }
@@ -965,10 +1028,24 @@
             }
           },
           "404": {
-            "description": "app not found"
+            "description": "app not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           },
           "409": {
-            "description": "the app has no form login to bootstrap, or an onboarding job is running"
+            "description": "the app has no form login to bootstrap, or an onboarding job is running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           },
           "422": {
             "description": "app config invalid: the app has a config file that cannot be loaded",
@@ -981,7 +1058,14 @@
             }
           },
           "503": {
-            "description": "service shutting down"
+            "description": "service shutting down",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       }
@@ -1060,7 +1144,14 @@
             }
           },
           "404": {
-            "description": "app not found, or no stored architecture map yet for this app"
+            "description": "app not found, or no stored architecture map yet for this app",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           },
           "422": {
             "description": "app config invalid: the app has a config file that cannot be loaded",
@@ -1121,7 +1212,14 @@
             }
           },
           "404": {
-            "description": "run not found"
+            "description": "run not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       }
@@ -1476,7 +1574,14 @@
             }
           },
           "409": {
-            "description": "active run/session"
+            "description": "active run/session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       }
@@ -1527,7 +1632,14 @@
             }
           },
           "501": {
-            "description": "telemetry is not wired in this process"
+            "description": "telemetry is not wired in this process",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       }
@@ -1557,7 +1669,14 @@
             }
           },
           "409": {
-            "description": "active run/session"
+            "description": "active run/session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       }
@@ -5421,6 +5540,16 @@
           },
           "error": {
             "type": "string"
+          },
+          "issues": {
+            "type": "array",
+            "items": {}
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [

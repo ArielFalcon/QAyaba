@@ -1767,9 +1767,9 @@ for (const { route, method, path, body, over } of APP_ROUTES) {
 
   test(`${route}: an unexpected error from loadApp is not turned into a 404`, async () => {
     const res = mkRes();
-    const failure = new Error("disk unreachable");
-    await assert.rejects(routeApi(mkReq(method, path, body), res, deps({ ...over, loadApp: () => { throw failure; } })), failure);
-    assert.notEqual(res.status, 404);
+    await routeApi(mkReq(method, path, body), res, deps({ ...over, loadApp: () => { throw new Error("disk unreachable"); } }));
+    assert.equal(res.status, 500);
+    assert.deepEqual(JSON.parse(res.body), { schemaVersion: 1, error: "disk unreachable" });
   });
 }
 

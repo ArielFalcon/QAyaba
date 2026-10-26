@@ -5,6 +5,7 @@ import { ApiError } from "../api-error";
 import type { ApiContext } from "../context";
 import { parseJsonBody } from "../request";
 import { reply, type ApiResult } from "../respond";
+import { redactionPort } from "../support";
 
 /*
  * Exchange a GitHub user token (obtained by the client via the OAuth device flow) for a
@@ -14,30 +15,29 @@ import { reply, type ApiResult } from "../respond";
  */
 export async function login(ctx: ApiContext): Promise<ApiResult> {
   const exchange = ctx.deps.login;
-  if (!exchange) throw new ApiError(501, "GitHub login is not configured on this server", { bare: true });
+  if (!exchange) throw new ApiError(501, "GitHub login is not configured on this server");
 
   const { githubToken } = await parseJsonBody(ctx.req, LoginRequestSchema, {
-    bare: true,
-    invalid: () => new ApiError(400, "'githubToken' is required", { bare: true }),
+    invalid: () => new ApiError(400, "'githubToken' is required"),
   });
 
   try {
     const outcome = await exchange(githubToken);
     if (outcome.ok) return reply.contract(200, LoginResponseSchema, { token: outcome.token, username: outcome.username, expiresAt: outcome.expiresAt });
-    if (outcome.reason === "forbidden") throw new ApiError(403, "this GitHub account cannot push to any watched repo", { bare: true });
-    throw new ApiError(401, "the GitHub token was rejected", { bare: true });
+    if (outcome.reason === "forbidden") throw new ApiError(403, "this GitHub account cannot push to any watched repo");
+    throw new ApiError(401, "the GitHub token was rejected");
   } catch (err) {
     if (err instanceof ApiError) throw err;
     /*
      * A GitHub API outage is infra, not a credential problem — surface it loudly, don't
      * masquerade it as a 401 (which would send the operator chasing a non-existent token bug).
      */
-    throw new ApiError(502, `GitHub login failed: ${err instanceof Error ? err.message : String(err)}`, { bare: true });
+    throw new ApiError(502, `GitHub login failed: ${redactionPort.redactError(err)}`);
   }
 }
 
 export function localLogin(ctx: ApiContext): ApiResult {
-  const unavailable = new ApiError(404, "local console login is not available", { bare: true });
+  const unavailable = new ApiError(404, "local console login is not available");
   if (!ctx.deps.localLogin) throw unavailable;
   const outcome = ctx.deps.localLogin(ctx.req.socket?.remoteAddress ?? "", ctx.req.headers.host);
   if (!outcome) throw unavailable;

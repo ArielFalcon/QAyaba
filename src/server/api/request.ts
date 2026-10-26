@@ -10,13 +10,11 @@ export interface ParseBodyOptions {
   readonly optional?: boolean;
   /* Builds the failure for a body the schema rejects; the default joins the issue messages. */
   readonly invalid?: (error: z.ZodError) => ApiError;
-  /* The failures this function throws carry no `schemaVersion`. */
-  readonly bare?: true;
 }
 
 /* A body the schema rejects with this label answers the label and the schema's issues. */
 export function withIssues(label: string): (error: z.ZodError) => ApiError {
-  return (error) => new ApiError(400, label, { bare: true, extra: { issues: error.issues } });
+  return (error) => new ApiError(400, label, { extra: { issues: error.issues } });
 }
 
 /* Reads the body (at most 100,000 bytes) and parses it through `schema`. Text that is not JSON, a body over the cap and a body the schema rejects all answer 400. */
@@ -26,11 +24,11 @@ export async function parseJsonBody<S extends z.ZodTypeAny>(req: IncomingMessage
     const text = await readBody(req);
     raw = options.optional && !text.trim() ? {} : JSON.parse(text);
   } catch {
-    throw new ApiError(400, "invalid JSON", options.bare ? { bare: true } : {});
+    throw new ApiError(400, "invalid JSON");
   }
   const parsed = schema.safeParse(raw);
   if (parsed.success) return parsed.data;
-  throw (options.invalid ?? ((error) => new ApiError(400, error.issues.map((i) => i.message).join("; "), options.bare ? { bare: true } : {})))(parsed.error);
+  throw (options.invalid ?? ((error) => new ApiError(400, error.issues.map((i) => i.message).join("; "))))(parsed.error);
 }
 
 /* The fields a route reads from a body that may be any JSON value: anything but an object has no fields. */

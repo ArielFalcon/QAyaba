@@ -21,6 +21,12 @@ import { appView, loadApp, redactionPort } from "../support";
 import { boundaryStatus, confirmBoundaries, proposeBoundaries, requireBoundaries } from "../use-cases/boundaries";
 import { startLoginBootstrap } from "../use-cases/login-bootstrap";
 
+/* An app config the onboarding rules refuse: the reasons joined as the message, each one kept in `errors`. */
+function invalidAppConfig(errors: readonly string[] | undefined): ApiError {
+  const reasons = errors ?? ["invalid app config"];
+  return new ApiError(422, reasons.join("; "), { extra: { errors: reasons } });
+}
+
 export function listApps(ctx: ApiContext): ApiResult {
   const apps: Array<{ name: string; repo: string; baseUrl: string; shadow: boolean }> = [];
   for (const app of ctx.deps.listApps()) {
@@ -39,40 +45,42 @@ export function getApp(ctx: ApiContext): ApiResult {
 
 export async function createApp(ctx: ApiContext): Promise<ApiResult> {
   const { deps } = ctx;
-  if (!deps.createApp) throw new ApiError(501, "app onboarding is not available", { bare: true });
-  const input = await parseJsonBody(ctx.req, CreateAppInputSchema, { bare: true, invalid: withIssues("invalid app create input") });
-  if (!input.repo.includes("/")) throw new ApiError(400, "'repo' is required in 'org/name' form", { bare: true });
+  if (!deps.createApp) throw new ApiError(501, "app onboarding is not available");
+  const input = await parseJsonBody(ctx.req, CreateAppInputSchema, { invalid: withIssues("invalid app create input") });
+  if (!input.repo.includes("/")) throw new ApiError(400, "'repo' is required in 'org/name' form");
   try {
     const result = await deps.createApp(input as AdminCreateAppInput);
-    if (!result.ok) return reply.json(422, { errors: result.errors ?? ["invalid app config"] });
+    if (!result.ok) throw invalidAppConfig(result.errors);
     /* env VALUES never travel back; CreateAppResult only carries the key names. */
     return reply.contract(input.dryRun || input.validateOnly ? 200 : 201, CreateAppResultSchema, result);
   } catch (err) {
-    throw new ApiError(500, redactionPort.redactError(err), { bare: true });
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(500, redactionPort.redactError(err));
   }
 }
 
 export async function updateApp(ctx: ApiContext): Promise<ApiResult> {
   const { deps } = ctx;
   const name = param(ctx, "name");
-  if (!deps.updateApp) throw new ApiError(501, "app update is not available", { bare: true });
-  const input = await parseJsonBody(ctx.req, UpdateAppInputSchema, { bare: true, invalid: withIssues("invalid app update input") });
+  if (!deps.updateApp) throw new ApiError(501, "app update is not available");
+  const input = await parseJsonBody(ctx.req, UpdateAppInputSchema, { invalid: withIssues("invalid app update input") });
   try {
     const result = await deps.updateApp({ ...input, name } as AdminUpdateAppInput);
-    if (!result.ok) return reply.json(422, { errors: result.errors ?? ["invalid app config"] });
+    if (!result.ok) throw invalidAppConfig(result.errors);
     return reply.contract(200, CreateAppResultSchema, result);
   } catch (err) {
-    throw new ApiError(500, redactionPort.redactError(err), { bare: true });
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(500, redactionPort.redactError(err));
   }
 }
 
 export function deleteApp(ctx: ApiContext): ApiResult {
   const { deps } = ctx;
-  if (!deps.deleteApp) throw new ApiError(501, "app deletion is not available", { bare: true });
+  if (!deps.deleteApp) throw new ApiError(501, "app deletion is not available");
   try {
     return reply.contract(200, DeleteAppResultSchema, deps.deleteApp(param(ctx, "name"), ctx.url.searchParams.get("purge") === "1"));
   } catch (err) {
-    throw new ApiError(err instanceof AppNotFoundError ? 404 : err instanceof AppConfigInvalidError ? 422 : 500, redactionPort.redactError(err), { bare: true });
+    throw new ApiError(err instanceof AppNotFoundError ? 404 : err instanceof AppConfigInvalidError ? 422 : 500, redactionPort.redactError(err));
   }
 }
 
@@ -80,8 +88,8 @@ export async function listRepos(ctx: ApiContext): Promise<ApiResult> {
   const { deps } = ctx;
   const owner = ctx.url.searchParams.get("owner");
   const page = Number(ctx.url.searchParams.get("page")) || 1;
-  if (!owner) throw new ApiError(400, "'owner' query parameter is required (e.g. /api/repos?owner=arielyumn)", { bare: true });
-  if (!deps.listRepos) throw new ApiError(501, "repo listing is not available", { bare: true });
+  if (!owner) throw new ApiError(400, "'owner' query parameter is required (e.g. /api/repos?owner=arielyumn)");
+  if (!deps.listRepos) throw new ApiError(501, "repo listing is not available");
   try {
     return reply.contract(200, RepoListResponseSchema, await deps.listRepos(owner, page));
   } catch (err) {
@@ -89,7 +97,7 @@ export async function listRepos(ctx: ApiContext): Promise<ApiResult> {
     const status = msg.includes("not found") || msg.includes("no repos found") ? 404
       : msg.includes("token") || msg.includes("GITHUB_TOKEN") ? 401
       : 500;
-    throw new ApiError(status, msg, { bare: true });
+    throw new ApiError(status, msg);
   }
 }
 
@@ -99,7 +107,7 @@ export function loginBootstrap(ctx: ApiContext): Promise<ApiResult> {
 
 export async function proposeBoundariesRoute(ctx: ApiContext): Promise<ApiResult> {
   requireBoundaries(ctx.deps);
-  const input = await parseJsonBody(ctx.req, ProposeBoundariesInputSchema, { optional: true, bare: true, invalid: withIssues("invalid propose-boundaries input") });
+  const input = await parseJsonBody(ctx.req, ProposeBoundariesInputSchema, { optional: true, invalid: withIssues("invalid propose-boundaries input") });
   return proposeBoundaries(ctx.deps, param(ctx, "name"), input);
 }
 
@@ -109,6 +117,6 @@ export function boundaryStatusRoute(ctx: ApiContext): ApiResult {
 
 export async function confirmBoundariesRoute(ctx: ApiContext): Promise<ApiResult> {
   requireBoundaries(ctx.deps);
-  await parseJsonBody(ctx.req, ConfirmBoundariesInputSchema, { bare: true, invalid: withIssues("invalid confirm-boundaries input") });
+  await parseJsonBody(ctx.req, ConfirmBoundariesInputSchema, { invalid: withIssues("invalid confirm-boundaries input") });
   return confirmBoundaries(ctx.deps, param(ctx, "name"));
 }

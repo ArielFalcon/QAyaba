@@ -11,6 +11,8 @@ import { ApiError, respondError } from "./api/api-error";
 import type { ApiDeps } from "./api/deps";
 import { normalizeApiPath, matchRoute } from "./api/route-table";
 import { sendResult } from "./api/respond";
+import { redactionPort } from "./api/support";
+import { logJson } from "../integrations/logger";
 
 /*
  * Answers the request from the route table. Returns true when the request matched an /api route (so the
@@ -29,8 +31,15 @@ export async function routeApi(req: IncomingMessage, res: ServerResponse, deps: 
     if (params && !params.success) throw new ApiError(400, params.error.issues.map((i) => i.message).join("; "));
     sendResult(res, await match.route.handler({ req, res, deps, url, params: params?.data ?? match.params }));
   } catch (err) {
-    if (!(err instanceof ApiError)) throw err;
-    respondError(res, err);
+    if (err instanceof ApiError) {
+      respondError(res, err);
+      return true;
+    }
+    /* A fault no route named: the operator reads the redacted message in the log, the caller gets it redacted and nothing more (no stack, no cause). */
+    const message = redactionPort.redactError(err);
+    logJson("error", "api request failed", { method: req.method, path: url.pathname, error: message });
+    if (res.headersSent) res.end();
+    else respondError(res, new ApiError(500, message));
   }
   return true;
 }

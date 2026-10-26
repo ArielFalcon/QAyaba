@@ -9,7 +9,7 @@ import { reply, type ApiResult } from "../respond";
 const UNAVAILABLE = "boundary-profile onboarding is not available";
 
 function boundariesOf(deps: ApiDeps): NonNullable<ApiDeps["boundaries"]> {
-  if (!deps.boundaries) throw new ApiError(501, UNAVAILABLE, { bare: true });
+  if (!deps.boundaries) throw new ApiError(501, UNAVAILABLE);
   return deps.boundaries;
 }
 
@@ -26,7 +26,7 @@ export function proposeBoundaries(deps: ApiDeps, name: string, input: z.infer<ty
    * — any error surfacing later only shows up on the next status() poll.
    */
   const result = boundaries.propose(name, input);
-  if (!(result instanceof Promise) && !result.ok) throw new ApiError(409, result.error, { bare: true });
+  if (!(result instanceof Promise) && !result.ok) throw new ApiError(409, result.error);
   return reply.contract(202, OnboardingJobStatusSchema, boundaries.status(name));
 }
 
@@ -36,6 +36,6 @@ export function boundaryStatus(deps: ApiDeps, name: string): ApiResult {
 
 export function confirmBoundaries(deps: ApiDeps, name: string): ApiResult {
   const result = boundariesOf(deps).confirm(name);
-  if (!result.ok) throw new ApiError(422, result.error, { bare: true });
+  if (!result.ok) throw new ApiError(422, result.error);
   return reply.contract(200, CreateAppResultSchema, { ok: true });
 }

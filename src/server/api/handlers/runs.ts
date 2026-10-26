@@ -37,19 +37,19 @@ export function getRun(ctx: ApiContext): ApiResult {
 export function listRuns(ctx: ApiContext): ApiResult {
   const app = ctx.url.searchParams.get("app");
   const limit = Number(ctx.url.searchParams.get("limit")) || 10;
-  if (!app) throw new ApiError(400, "?app=<name> query parameter is required", { bare: true });
+  if (!app) throw new ApiError(400, "?app=<name> query parameter is required");
   return reply.contract(200, z.array(RunRecordSchema), ctx.deps.listRecords(app, limit).map(sanitizeRecord));
 }
 
 export function cancelRun(ctx: ApiContext): ApiResult {
   const { deps } = ctx;
   const id = param(ctx, "id");
-  if (!deps.cancelRun) throw new ApiError(501, "cancel is not available", { bare: true });
+  if (!deps.cancelRun) throw new ApiError(501, "cancel is not available");
 
   const record = deps.getRecord(id);
-  if (!record) throw new ApiError(404, `run not found: ${id}`, { bare: true });
+  if (!record) throw new ApiError(404, `run not found: ${id}`);
   if (record.status !== "running" && record.status !== "enqueued") {
-    throw new ApiError(409, `run ${id} is not running (status: ${record.status})`, { bare: true });
+    throw new ApiError(409, `run ${id} is not running (status: ${record.status})`);
   }
 
   const cancelled = deps.cancelRun(id);
@@ -66,14 +66,14 @@ export function cancelRun(ctx: ApiContext): ApiResult {
    * Running per the (stale) record, but it is no longer the run holding the queue —
    * it already finished or a successor is now executing. Do NOT report it cancelled.
    */
-  return reply.json(409, { id, status: "running", message: "run is no longer the active run (it finished or a successor is now running)" });
+  throw new ApiError(409, "run is no longer the active run (it finished or a successor is now running)");
 }
 
 export function runTurns(ctx: ApiContext): ApiResult {
   const { deps } = ctx;
   const id = param(ctx, "id");
-  if (!deps.getAgentTurns) throw new ApiError(501, "agent turns are not available", { bare: true });
-  if (!deps.getRecord(id)) throw new ApiError(404, `run not found: ${id}`, { bare: true });
+  if (!deps.getAgentTurns) throw new ApiError(501, "agent turns are not available");
+  if (!deps.getRecord(id)) throw new ApiError(404, `run not found: ${id}`);
   /*
    * Defensive egress sanitization, matching sanitizeRecord on the sibling run-read endpoints.
    * prompt_text embeds the live-DEV domSnapshot and is persisted RAW (output_text is sanitized at
@@ -90,12 +90,12 @@ export function runTurns(ctx: ApiContext): ApiResult {
 export async function continueRunRoute(ctx: ApiContext): Promise<ApiResult> {
   const continuable = findContinuable(ctx.deps, param(ctx, "id"));
   /* Optional body: { cases?: string[], guidance?: string }. */
-  const input = await parseJsonBody(ctx.req, ContinueBodySchema, { optional: true, bare: true, invalid: () => new ApiError(400, "invalid JSON", { bare: true }) });
+  const input = await parseJsonBody(ctx.req, ContinueBodySchema, { optional: true, invalid: () => new ApiError(400, "invalid JSON") });
   return continueRun(ctx.deps, continuable, input);
 }
 
 export function askRun(ctx: ApiContext): Promise<ApiResult> {
-  return askAboutRun(ctx.deps, param(ctx, "id"), () => parseJsonBody(ctx.req, JsonFieldsSchema, { bare: true }));
+  return askAboutRun(ctx.deps, param(ctx, "id"), () => parseJsonBody(ctx.req, JsonFieldsSchema));
 }
 
 function sseWrite(res: ServerResponse, event: unknown): void {
@@ -127,9 +127,9 @@ export function streamRunEvents(ctx: ApiContext): ApiResult {
   const { req, res, deps } = ctx;
   const id = param(ctx, "id");
   const runEvents = deps.runEvents;
-  if (!runEvents) throw new ApiError(501, "run event stream is not available", { bare: true });
+  if (!runEvents) throw new ApiError(501, "run event stream is not available");
   const record = deps.getRecord(id);
-  if (!record) throw new ApiError(404, `run not found: ${id}`, { bare: true });
+  if (!record) throw new ApiError(404, `run not found: ${id}`);
 
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache, no-transform");

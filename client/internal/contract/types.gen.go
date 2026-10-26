@@ -1827,6 +1827,8 @@ type AgentTurnViewToolSequenceDenied bool
 // ApiError defines model for ApiError.
 type ApiError struct {
 	Error         string                `json:"error"`
+	Errors        *[]string             `json:"errors,omitempty"`
+	Issues        *[]interface{}        `json:"issues,omitempty"`
 	SchemaVersion ApiErrorSchemaVersion `json:"schemaVersion"`
 }
 

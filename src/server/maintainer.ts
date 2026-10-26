@@ -1,5 +1,6 @@
 import { IncomingMessage, ServerResponse } from "node:http";
 import { Incident, IncidentSeverity, IncidentSource } from "../types";
+import { ApiError, respondError } from "./api/api-error";
 import { json, readBody } from "./helpers";
 
 const MAX_INCIDENTS = 30;
@@ -100,24 +101,24 @@ async function handleReport(req: IncomingMessage, res: ServerResponse): Promise<
   try {
     body = JSON.parse(await readBody(req, 50_000));
   } catch {
-    json(res, 400, { error: "invalid JSON or payload too large" });
+    respondError(res, new ApiError(400, "invalid JSON or payload too large"));
     return true;
   }
 
   const source = validSource(body.source);
   if (!source) {
-    json(res, 400, { error: "'source' must be one of: health-check, log-scraper, qa-author, qa-reviewer, cli" });
+    respondError(res, new ApiError(400, "'source' must be one of: health-check, log-scraper, qa-author, qa-reviewer, cli"));
     return true;
   }
 
   const severity = validSeverity(body.severity);
   if (!severity) {
-    json(res, 400, { error: "'severity' must be one of: warn, error, critical" });
+    respondError(res, new ApiError(400, "'severity' must be one of: warn, error, critical"));
     return true;
   }
 
   if (typeof body.summary !== "string" || !body.summary.trim()) {
-    json(res, 400, { error: "'summary' is required" });
+    respondError(res, new ApiError(400, "'summary' is required"));
     return true;
   }
 
@@ -144,7 +145,7 @@ function handleListIncidents(res: ServerResponse, statusFilter?: string | null):
 function handleGetIncident(res: ServerResponse, id: string): boolean {
   const incident = getIncident(id);
   if (!incident) {
-    json(res, 404, { error: `incident not found: ${id}` });
+    respondError(res, new ApiError(404, `incident not found: ${id}`));
     return true;
   }
   json(res, 200, incident);
@@ -158,7 +159,7 @@ function handleTrigger(res: ServerResponse, onTrigger?: () => Promise<void>): bo
     return true;
   }
   if (maintainerStatus !== "idle") {
-    json(res, 409, { message: `maintainer is already ${maintainerStatus}` });
+    respondError(res, new ApiError(409, `maintainer is already ${maintainerStatus}`));
     return true;
   }
   json(res, 202, { message: `triggered diagnosis for ${pending.length} pending incident(s)`, pending: pending.length });
