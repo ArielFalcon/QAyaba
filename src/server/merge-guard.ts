@@ -206,6 +206,12 @@ export const PROTECTED_PATHS: string[] = [
    */
   "qa-engine/src/contexts/app-catalog/composition/build-app-catalog.ts",
   /*
+   * The change-analysis builder — where the code graph of an app is constructed: the launcher profile its engine
+   * runs in, the store cache under the data directory the sandbox uid cannot reach, and the workspace scope.
+   * An autonomous edit can run the engine outside the graph profile or move the cache somewhere the sandbox reaches.
+   */
+  "qa-engine/src/contexts/change-analysis/composition/build-change-analysis.ts",
+  /*
    * The run-orchestration builder — the one place the run's configuration block (shadow, review and coverage
    * policy, retries) and the deploy gate are fixed. An autonomous edit can turn shadow off or drop the gate
    * without touching the flow.
