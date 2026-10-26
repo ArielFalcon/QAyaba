@@ -6,6 +6,7 @@
  * run_spec tool or the suite is executing as the same account.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { GeoLocation } from "@kernel/geolocation.ts";
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
@@ -150,7 +151,7 @@ export class AgentBrowserUseCase {
     } catch (err) {
       if (stop?.aborted) return this.refusal(AGENT_BROWSER_REFUSAL.FAILED, "the call was cancelled");
       if (waitSignal.aborted) return this.refusal(AGENT_BROWSER_REFUSAL.BUSY, "DEV busy: the test account is in use by another step of this run; try again in a moment");
-      console.error(`[qa] authenticated browser call ${reservation.callNumber} failed in the harness: ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] authenticated browser call ${reservation.callNumber} failed in the harness: ${err instanceof Error ? err.message : String(err)}`);
       return this.refusal(AGENT_BROWSER_REFUSAL.FAILED, "the browser could not complete the call");
     } finally {
       if (!waited) tell({ "qayaba.lease.wait_ms": Math.max(0, now() - asked) });
@@ -168,7 +169,7 @@ export class AgentBrowserUseCase {
       state = await host.perform(sessionId, action, { signal, timeoutMs, ...(geolocation ? { geolocation } : {}), ...(capability.isReadOnly(sessionId) ? { readOnly: true } : {}) });
     } catch (err) {
       if (err instanceof BrowserActionError) return this.refusal(AGENT_BROWSER_REFUSAL.FAILED, err.message);
-      console.error(`[qa] authenticated browser action failed: ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] authenticated browser action failed: ${err instanceof Error ? err.message : String(err)}`);
       return this.refusal(AGENT_BROWSER_REFUSAL.FAILED, "the browser could not complete the call");
     }
 
@@ -194,7 +195,7 @@ export class AgentBrowserUseCase {
       try {
         renewed = await session.renew(signal);
       } catch (err) {
-        console.error(`[qa] authenticated browser session renewal failed: ${err instanceof Error ? err.message : String(err)}`);
+        engineLog.error(`[qa] authenticated browser session renewal failed: ${err instanceof Error ? err.message : String(err)}`);
         renewed = false;
       }
       if (renewed) await host.reset();

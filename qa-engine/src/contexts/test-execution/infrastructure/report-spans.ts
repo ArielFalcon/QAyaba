@@ -11,6 +11,7 @@
  * ends the synthesis.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { activeExecScope, runScopeKey, type RunScope } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import { runChildOptions } from "../../../shared-infrastructure/telemetry/run-spans.ts";
 import { guardTelemetry } from "../../../shared-kernel/telemetry/guarded-telemetry.ts";
@@ -98,7 +99,7 @@ export function synthesizeReportSpans(deps: ReportSpanDeps, report: unknown, cas
       scope?.telemetry?.annotate?.({ "qayaba.spans.synthesized_dropped": total });
     }
   } catch (err) {
-    console.error(`[telemetry] the Playwright report could not be turned into spans (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+    engineLog.error(`[telemetry] the Playwright report could not be turned into spans (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

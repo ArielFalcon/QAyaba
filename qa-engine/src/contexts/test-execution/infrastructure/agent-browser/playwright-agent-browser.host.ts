@@ -8,6 +8,7 @@
  * The module imports no file API on purpose (see the dependency rule): all it holds comes in through its dependencies.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { MAX_SESSION_PAGES } from "@kernel/agent-browser.ts";
 import type { GeoLocation } from "@kernel/geolocation.ts";
 import { BrowserActionError, type BlockedRequest, type BrowserAction, type BrowserCallOptions, type PageState } from "../../domain/agent-browser-host.ts";
@@ -186,7 +187,7 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
     this.context = undefined;
     this.building = undefined;
     this.forgetPages();
-    console.error("[qa] the agent browser disconnected; the next call starts a new one");
+    engineLog.error("[qa] the agent browser disconnected; the next call starts a new one");
     await this.stop(launched);
   }
 
@@ -357,7 +358,7 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
         allowed = decision.allow;
         if (!decision.allow) this.recordBlock(request, decision.detail, decision.reason);
       } catch (err) {
-        console.error(`[qa] the agent browser could not judge a request, so it was blocked: ${err instanceof Error ? err.message : String(err)}`);
+        engineLog.error(`[qa] the agent browser could not judge a request, so it was blocked: ${err instanceof Error ? err.message : String(err)}`);
       }
       if (allowed) await route.continue().catch(() => undefined);
       else await route.abort("blockedbyclient").catch(() => undefined);

@@ -1,5 +1,6 @@
 /* Never a fifth duplicate copy (process-kill.adapter.ts's own header: "the ONE killTree"). 2. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { lstatSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
@@ -186,7 +187,7 @@ export async function fixLintedSpecs(
       writeOwnedSpecFile(root, rel, output);
       fixed.push(rel);
     } catch (err) {
-      console.error(`[qa] the linter's fix of ${rel} was not written: ${readFailureReason(err)}`);
+      engineLog.error(`[qa] the linter's fix of ${rel} was not written: ${readFailureReason(err)}`);
     }
   }
   return fixed;

@@ -11,6 +11,7 @@
  * cannot be used leaves none of the folder's files behind, so a coverage of some of the dumps is never taken for the run's.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { chmodSync, chownSync, lstatSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { MAX_V8_DUMP_FILES, MAX_V8_DUMP_BYTES, MAX_V8_DUMPS_TOTAL_BYTES, sanitizeV8Dump, MAX_FAULT_INJECTION_COUNTER_BYTES, MAX_FAULT_INJECTION_COUNTER_FILES, sanitizeFaultCounter } from "@contexts/objective-signal/application/index.ts";
@@ -128,12 +129,12 @@ export function openDumpBridge(input: DumpBridgeInput): DumpBridge {
         );
         if ("absent" in scan) continue;
         if ("unusable" in scan) {
-          console.warn(`[qa] WARNING: the ${kind.folder} dumps of this run were not read (${scan.unusable}); the signal stays unmeasured this run (non-blocking).`);
+          engineLog.warn(`[qa] WARNING: the ${kind.folder} dumps of this run were not read (${scan.unusable}); the signal stays unmeasured this run (non-blocking).`);
           leaveOut(kind);
           continue;
         }
         if (scan.cut || scan.leftOut.length > 0) {
-          console.warn(`[qa] WARNING: the ${kind.folder} dumps of this run: ${scan.leftOut.length} file(s) not usable${scan.cut ? " and more entries than are looked at" : ""} (${describeReasons(scan.leftOut)}). None of them is used, so the signal stays unmeasured this run (non-blocking).`);
+          engineLog.warn(`[qa] WARNING: the ${kind.folder} dumps of this run: ${scan.leftOut.length} file(s) not usable${scan.cut ? " and more entries than are looked at" : ""} (${describeReasons(scan.leftOut)}). None of them is used, so the signal stays unmeasured this run (non-blocking).`);
           leaveOut(kind);
           continue;
         }

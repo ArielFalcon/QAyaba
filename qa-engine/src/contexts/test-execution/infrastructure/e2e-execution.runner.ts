@@ -1,5 +1,6 @@
 /* E2E Playwright runner against live DEV. Timeouts and recordAudit are injected — this module never reads process.env and never imports src/orchestrator. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { createHash } from "node:crypto";
 import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -292,7 +293,7 @@ export async function runE2E(
   /* Single sanitizeText pass: a separate containsSecrets() pre-check is redundant with this SAME detection result (mirrors code-execution.runner.ts's own AMENDMENT-1 simplification) — the warn fires under the exact same condition as before, just derived from one call instead of two. */
   const sanitized = sanitizeText(logs);
   if (sanitized.detection.redacted) {
-    console.warn("[sanitizer] Secrets detected in E2E execution logs — redacting before publish");
+    engineLog.warn("[sanitizer] Secrets detected in E2E execution logs — redacting before publish");
   }
   deps.recordAudit?.(opts.namespace, sanitized.detection);
 
@@ -313,7 +314,7 @@ export async function runE2E(
     try {
       deps.onReport?.(report, cases);
     } catch (err) {
-      console.error(`[qa] the report observer failed (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] the report observer failed (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
     }
       /* mutation-scope:end no-report-outcome */
   };
@@ -379,7 +380,7 @@ export async function runE2E(
     if (dump?.resultCount !== undefined) qa.failureResultCount = dump.resultCount;
     /* No dump (or an unparseable one) for a FAILED case: loud WARNING (grounding gap — never swallow). */
     if (c.status === "fail" && !qa.failureDom) {
-      console.warn(`[qa] WARNING: no failure-point DOM captured for failed case ${JSON.stringify(c.name)} (no fixture dump) — fix-loop will run without grounding.`);
+      engineLog.warn(`[qa] WARNING: no failure-point DOM captured for failed case ${JSON.stringify(c.name)} (no fixture dump) — fix-loop will run without grounding.`);
     }
   }
 
@@ -546,12 +547,12 @@ export function readFailureDumps(dir: string, limits: RunOutputLimits = FAILURE_
   const scan = scanRunOutputDir({ mirrorDir: root, specDir: root }, relative(root, dir) || ".", (name) => DUMP_FILE_RE.test(name), toFailureDump, limits, { readCut: true });
   if ("absent" in scan) return [];
   if ("unusable" in scan) {
-    console.warn(`[qa] WARNING: ${dir} was not read (${scan.unusable}); no failure capture dump is used, so every failed case runs without grounding.`);
+    engineLog.warn(`[qa] WARNING: ${dir} was not read (${scan.unusable}); no failure capture dump is used, so every failed case runs without grounding.`);
     return [];
   }
-  if (scan.cut) console.warn(`[qa] WARNING: ${dir}: more than ${limits.maxFiles} entries; only the first ${limits.maxFiles} were looked at.`);
+  if (scan.cut) engineLog.warn(`[qa] WARNING: ${dir}: more than ${limits.maxFiles} entries; only the first ${limits.maxFiles} were looked at.`);
   if (scan.leftOut.length > 0) {
-    console.warn(`[qa] WARNING: ${dir}: ${scan.leftOut.length} failure capture dump(s) not read — ${describeReasons(scan.leftOut)}; the cases they would have grounded run without grounding.`);
+    engineLog.warn(`[qa] WARNING: ${dir}: ${scan.leftOut.length} failure capture dump(s) not read — ${describeReasons(scan.leftOut)}; the cases they would have grounded run without grounding.`);
   }
   return scan.files;
 }
@@ -686,7 +687,7 @@ export function createDefaultE2eCleanupDeps(processKill: ProcessKillPort = new P
         };
         const ms = timeoutMs ?? DEFAULT_CLEANUP_TIMEOUT_MS;
         const timer = setTimeout(() => {
-          console.warn(`[qa] orphan-data cleanup timed out after ${ms}ms — killed (best-effort, continuing)`);
+          engineLog.warn(`[qa] orphan-data cleanup timed out after ${ms}ms — killed (best-effort, continuing)`);
           processKill.killTree(child);
           settle();
         }, ms);
@@ -790,7 +791,7 @@ export function createDefaultE2eExecuteDeps(
             if (harvest) dumps.harvest();
             else dumps.dispose();
           } catch (err) {
-            console.error(`[qa] the dump folders of the run could not be handed over (${err instanceof Error ? err.message : String(err)}); the coverage and fault-injection signals stay unmeasured (non-blocking)`);
+            engineLog.error(`[qa] the dump folders of the run could not be handed over (${err instanceof Error ? err.message : String(err)}); the coverage and fault-injection signals stay unmeasured (non-blocking)`);
           } finally {
             try { rmSync(dumpRoot, { recursive: true, force: true }); } catch { /* best-effort */ }
           }

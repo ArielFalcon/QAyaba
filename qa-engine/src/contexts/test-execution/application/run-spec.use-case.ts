@@ -5,6 +5,7 @@
  * calls, their time and the writes they may send to DEV are counted here, and the answer never carries raw process output.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { createHash } from "node:crypto";
 import { MAX_SPEC_SOURCE_BYTES, type SpecFilesPort, type SpecRoot } from "@kernel/ports/spec-files.port.ts";
 import { dropOpaqueTokens } from "../domain/output-token-filter.ts";
@@ -229,7 +230,7 @@ export class RunSpecUseCase {
         note = [note, "the spec changed while the call ran, so this result is not recorded as a pass of the file as it stands now; run it again"].filter((n) => n !== undefined).join("; ");
       }
     } catch (err) {
-      console.error(`[qa] run_spec call ${reservation.callNumber} failed in the harness: ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] run_spec call ${reservation.callNumber} failed in the harness: ${err instanceof Error ? err.message : String(err)}`);
       note = "the call could not be completed by the harness; nothing was reported by the spec";
     } finally {
       if (!waited) tell({ "qayaba.lease.wait_ms": Math.max(0, now() - asked) });
@@ -245,13 +246,13 @@ export class RunSpecUseCase {
     try {
       result = await this.deps.executor.execute({ specFile: rel, namespace, timeoutMs, ...(grep !== undefined ? { grep } : {}), ...(stop ? { signal: stop } : {}) });
     } catch (err) {
-      console.error(`[qa] run_spec execution failed (${namespace}): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] run_spec execution failed (${namespace}): ${err instanceof Error ? err.message : String(err)}`);
       failure = "the spec could not be run";
     }
     try {
       await this.deps.cleanup.cleanup(namespace, this.deps.signal);
     } catch (err) {
-      console.warn(`[qa] run_spec cleanup of ${namespace} failed (best effort): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.warn(`[qa] run_spec cleanup of ${namespace} failed (best effort): ${err instanceof Error ? err.message : String(err)}`);
     }
     if (result === undefined) return { status: RUN_SPEC_STATUS.ERROR, tests: [], passedTests: 0, devWrites: 0, failures: [], note: failure ?? "the spec could not be run" };
 
@@ -293,7 +294,7 @@ export class RunSpecUseCase {
     try {
       return await this.deps.session!.renew(this.deps.signal);
     } catch (err) {
-      console.error(`[qa] run_spec session renewal failed: ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] run_spec session renewal failed: ${err instanceof Error ? err.message : String(err)}`);
       return false;
     }
   }

@@ -1,5 +1,6 @@
 /* Code-mode runner: install the repo's deps and classify by exit code (binary pass/fail, no flaky). Sandbox is injected — this module never reads process.env. A missing runtime is infra-error, never a pass. Local result type so this file stays src/-free. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -66,12 +67,12 @@ export const realDetectDeps: DetectDeps = {
       read = readOwnedSpecFile({ mirrorDir: dir, specDir: dir }, basename(p), MAX_PACKAGE_JSON_BYTES);
     } catch (err) {
       const reason = readFailureReason(err);
-      console.warn(`[qa] WARNING: ${p} was not read (${reason}); the test command cannot be chosen from it.`);
+      engineLog.warn(`[qa] WARNING: ${p} was not read (${reason}); the test command cannot be chosen from it.`);
       return new ManifestRefusal(reason);
     }
     if ("absent" in read) return null;
     if ("reason" in read) {
-      console.warn(`[qa] WARNING: ${p} was not read (${read.reason}); the test command cannot be chosen from it.`);
+      engineLog.warn(`[qa] WARNING: ${p} was not read (${read.reason}); the test command cannot be chosen from it.`);
       return new ManifestRefusal(read.reason);
     }
     try {
@@ -433,7 +434,7 @@ export async function runCodeTests(
 
   const sanitized = sanitizeText(out.logs);
   if (sanitized.detection.redacted) {
-    console.warn("[sanitizer] Secrets detected in code-test logs — redacting before publish");
+    engineLog.warn("[sanitizer] Secrets detected in code-test logs — redacting before publish");
   }
   deps.recordAudit?.(opts.namespace, sanitized.detection);
 
