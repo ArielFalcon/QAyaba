@@ -13,7 +13,7 @@ import { dirname, join } from "node:path";
 import { qayabaDataDir } from "../paths";
 import { mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { RunRecord, RunMode, TestTarget, QaCase, RunVerdict, SpecRecord, RunOutcome, AgentActivity } from "../types";
+import { RunRecord, RunMode, TestTarget, QaCase, RunVerdict, SpecRecord, RunOutcome, AgentActivity, type RunChangeEntry } from "../types";
 import { applyOutcome as foldApplyOutcome } from "@contexts/cross-run-learning/application/index";
 import { type LearningRule, type RuleUpsert, type Confidence, type RuleStatus } from "../qa/learning/learning-rule";
 import type { ErrorClass } from "@kernel/error-class";
@@ -560,6 +560,8 @@ function ensureDb(): void {
     if (!columnExists("runs", name)) db.exec(`ALTER TABLE runs ADD COLUMN ${name} ${type}`);
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_runs_campaign_id ON runs(campaign_id)");
+  /* Every repo's change a run reads, as JSON, when other pushes joined it before it started (NULL for a run of its own request). */
+  if (!columnExists("runs", "change_set")) db.exec("ALTER TABLE runs ADD COLUMN change_set TEXT");
   /* The parent-linked child runs (a context heal, a /continue) of a run: childrenOf(parentRunId) reads this. */
   db.exec("CREATE INDEX IF NOT EXISTS idx_runs_parent_run_id ON runs(parent_run_id)");
   /* The model an LLM judge answered with, beside the prompt version in grader_version (NULL for every other score). */
@@ -755,6 +757,7 @@ function rowToRecord(row: Record<string, unknown>): RunRecord {
     retrying: Boolean(row.retrying),
     parentRunId: (row.parent_run_id as string) || undefined,
     triggerRepo: (row.trigger_repo as string) || undefined,
+    ...(row.change_set ? { changeSet: JSON.parse(row.change_set as string) as RunChangeEntry[] } : {}),
     cases,
     specs: specRows.length > 0 ? specRows : undefined,
     logs: logsText ? logsText.split("\n").filter(Boolean) : [],
@@ -1061,6 +1064,7 @@ export function updateRecord(id: string, patch: RunRecordPatch): void {
   if (patch.failed !== undefined) add("failed", patch.failed);
   if (patch.note !== undefined) add("note", patch.note);
   if (patch.retrying !== undefined) add("retrying", patch.retrying ? 1 : 0);
+  if (patch.changeSet !== undefined) add("change_set", JSON.stringify(patch.changeSet));
   if (patch.phases !== undefined) {
     add("furthest_phase", patch.phases.furthestPhase);
     add("phase_timings", JSON.stringify(patch.phases.phaseTimings));

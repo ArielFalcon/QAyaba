@@ -48,6 +48,15 @@ export const AgentActivitySchema = z.object({
 
 export const RunStatusSchema = z.enum(["enqueued", "running", "done"]);
 
+/* One repo's change a run reads: listed on the record only when other pushes joined the run before it started. */
+export const RunChangeEntrySchema = z.object({
+  repo: z.string(),
+  role: z.enum(["primary", "service"]),
+  headSha: z.string(),
+  baseSha: z.string().optional(),
+  commits: z.number().int().positive().optional(),
+});
+
 export const RunRecordSchema = z.object({
   id: z.string(),
   app: z.string(),
@@ -67,6 +76,7 @@ export const RunRecordSchema = z.object({
   retrying: z.boolean().optional(),
   parentRunId: z.string().optional(),
   triggerRepo: z.string().optional(),
+  changeSet: z.array(RunChangeEntrySchema).optional(),
   cases: z.array(QaCaseSchema),
   specs: z.array(SpecRecordSchema).optional(),
   logs: z.array(z.string()),

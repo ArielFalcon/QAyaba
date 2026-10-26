@@ -16,14 +16,14 @@ import { phaseSnapshotOf } from "@contexts/run-orchestration/application/index";
 import { specCountsOf } from "./evaluation-evidence";
 import { recordIncident } from "./maintainer";
 import { testDataNamespace } from "../qa/test-data";
-import { RunMode, TestTarget, TriggerSource, QaCase, QaRunResult, engineStatus } from "../types";
+import { RunMode, TestTarget, TriggerSource, QaCase, QaRunResult, engineStatus, type RunChangeEntry } from "../types";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import { sleep as sleepWithAbort } from "../util/sleep";
 import { isInfraError } from "../errors";
 import type { RunEventStore } from "./run-events";
 import type { RunEventBody } from "../contract/events";
 import { Sha } from "@kernel/sha";
-import { ChangeSet, anchorProjection } from "@contexts/change-analysis/application/index";
+import { ChangeSet, anchorProjection, type ChangeEntry } from "@contexts/change-analysis/application/index";
 import { changeEntryOf, isCoalescible, PendingChangeSets, type DeclaredRepos } from "./pending-change-sets";
 import { RUN_PURPOSE, type RunPurpose } from "@kernel/run-mode";
 import { isUntrustedGitTreeError } from "@kernel/domain-error";
@@ -377,11 +377,24 @@ function declaredRepos(req: RunRequest, deps: RunnerDeps): DeclaredRepos | undef
   }
 }
 
+/* A change entry as the run record lists it: plain strings, the way the API returns it. */
+function recordedEntry(entry: ChangeEntry): RunChangeEntry {
+  return {
+    repo: entry.repo,
+    role: entry.role,
+    headSha: entry.headSha.toString(),
+    ...(entry.baseSha ? { baseSha: entry.baseSha.toString() } : {}),
+    ...(entry.commits !== undefined ? { commits: entry.commits } : {}),
+  };
+}
+
 function coalesceInto(req: RunRequest, declared: DeclaredRepos, deps: RunnerDeps): string | undefined {
   const runId = deps.pendingChangeSets!.offer(req, declared, (id) => getRecord(id)?.status === "enqueued");
   if (!runId) return undefined;
   const repo = req.triggerRepo ?? declared.primary;
   console.log(`[qa] coalesced ${repo}@${req.sha} into ${runId}`);
+  const set = deps.pendingChangeSets!.joinedSet(runId);
+  if (set) updateRecord(runId, { changeSet: set.entries.map(recordedEntry) });
   deps.runEvents?.publish(runId, { type: "log.line", level: "info", text: `${repo}@${req.sha} joined this run before it started` });
   return runId;
 }

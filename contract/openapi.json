@@ -2128,6 +2128,42 @@
           "triggerRepo": {
             "type": "string"
           },
+          "changeSet": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "repo": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "primary",
+                    "service"
+                  ]
+                },
+                "headSha": {
+                  "type": "string"
+                },
+                "baseSha": {
+                  "type": "string"
+                },
+                "commits": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "exclusiveMinimum": true,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "repo",
+                "role",
+                "headSha"
+              ],
+              "additionalProperties": false
+            }
+          },
           "cases": {
             "type": "array",
             "items": {
@@ -5800,6 +5836,42 @@
           },
           "triggerRepo": {
             "type": "string"
+          },
+          "changeSet": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "repo": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "primary",
+                    "service"
+                  ]
+                },
+                "headSha": {
+                  "type": "string"
+                },
+                "baseSha": {
+                  "type": "string"
+                },
+                "commits": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "exclusiveMinimum": true,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "repo",
+                "role",
+                "headSha"
+              ],
+              "additionalProperties": false
+            }
           },
           "cases": {
             "type": "array",

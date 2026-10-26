@@ -1077,6 +1077,24 @@ func (e RoleAssignmentProvider) Valid() bool {
 	}
 }
 
+// Defines values for RunDetailChangeSetRole.
+const (
+	RunDetailChangeSetRolePrimary RunDetailChangeSetRole = "primary"
+	RunDetailChangeSetRoleService RunDetailChangeSetRole = "service"
+)
+
+// Valid indicates whether the value is a known member of the RunDetailChangeSetRole enum.
+func (e RunDetailChangeSetRole) Valid() bool {
+	switch e {
+	case RunDetailChangeSetRolePrimary:
+		return true
+	case RunDetailChangeSetRoleService:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RunDetailEffectiveConfigLeversCaptureMode.
 const (
 	RunDetailEffectiveConfigLeversCaptureModeFull     RunDetailEffectiveConfigLeversCaptureMode = "full"
@@ -1257,6 +1275,24 @@ func (e RunEvaluationStatus) Valid() bool {
 	case RunEvaluationStatusFailed:
 		return true
 	case RunEvaluationStatusPending:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RunRecordChangeSetRole.
+const (
+	RunRecordChangeSetRolePrimary RunRecordChangeSetRole = "primary"
+	RunRecordChangeSetRoleService RunRecordChangeSetRole = "service"
+)
+
+// Valid indicates whether the value is a known member of the RunRecordChangeSetRole enum.
+func (e RunRecordChangeSetRole) Valid() bool {
+	switch e {
+	case RunRecordChangeSetRolePrimary:
+		return true
+	case RunRecordChangeSetRoleService:
 		return true
 	default:
 		return false
@@ -2517,8 +2553,15 @@ type RunDetail struct {
 		Replicate int               `json:"replicate"`
 		Variant   map[string]string `json:"variant"`
 	} `json:"campaign,omitempty"`
-	Cases           []QaCase `json:"cases"`
-	Decision        *string  `json:"decision"`
+	Cases     []QaCase `json:"cases"`
+	ChangeSet *[]struct {
+		BaseSha *string                `json:"baseSha,omitempty"`
+		Commits *int                   `json:"commits,omitempty"`
+		HeadSha string                 `json:"headSha"`
+		Repo    string                 `json:"repo"`
+		Role    RunDetailChangeSetRole `json:"role"`
+	} `json:"changeSet,omitempty"`
+	Decision        *string `json:"decision"`
 	EffectiveConfig struct {
 		Agents map[string]struct {
 			Model           *string `json:"model"`
@@ -2593,6 +2636,9 @@ type RunDetail struct {
 	Verdict *RunDetailVerdict `json:"verdict,omitempty"`
 }
 
+// RunDetailChangeSetRole defines model for RunDetail.ChangeSet.Role.
+type RunDetailChangeSetRole string
+
 // RunDetailEffectiveConfigLeversCaptureMode defines model for RunDetail.EffectiveConfig.Levers.CaptureMode.
 type RunDetailEffectiveConfigLeversCaptureMode string
 
@@ -2631,10 +2677,17 @@ type RunEvaluationStatus string
 
 // RunRecord defines model for RunRecord.
 type RunRecord struct {
-	Activity      *[]AgentActivity       `json:"activity,omitempty"`
-	App           string                 `json:"app"`
-	At            string                 `json:"at"`
-	Cases         []QaCase               `json:"cases"`
+	Activity  *[]AgentActivity `json:"activity,omitempty"`
+	App       string           `json:"app"`
+	At        string           `json:"at"`
+	Cases     []QaCase         `json:"cases"`
+	ChangeSet *[]struct {
+		BaseSha *string                `json:"baseSha,omitempty"`
+		Commits *int                   `json:"commits,omitempty"`
+		HeadSha string                 `json:"headSha"`
+		Repo    string                 `json:"repo"`
+		Role    RunRecordChangeSetRole `json:"role"`
+	} `json:"changeSet,omitempty"`
 	EngineStatus  *RunRecordEngineStatus `json:"engineStatus,omitempty"`
 	Failed        *int                   `json:"failed,omitempty"`
 	Id            string                 `json:"id"`
@@ -2655,6 +2708,9 @@ type RunRecord struct {
 	TriggerRepo   *string                `json:"triggerRepo,omitempty"`
 	Verdict       *RunRecordVerdict      `json:"verdict,omitempty"`
 }
+
+// RunRecordChangeSetRole defines model for RunRecord.ChangeSet.Role.
+type RunRecordChangeSetRole string
 
 // RunRecordEngineStatus defines model for RunRecord.EngineStatus.
 type RunRecordEngineStatus string

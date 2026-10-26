@@ -718,6 +718,14 @@ export interface components {
             retrying?: boolean;
             parentRunId?: string;
             triggerRepo?: string;
+            changeSet?: {
+                repo: string;
+                /** @enum {string} */
+                role: "primary" | "service";
+                headSha: string;
+                baseSha?: string;
+                commits?: number;
+            }[];
             cases: components["schemas"]["QaCase"][];
             specs?: components["schemas"]["SpecRecord"][];
             logs: string[];
@@ -1555,6 +1563,14 @@ export interface components {
             retrying?: boolean;
             parentRunId?: string;
             triggerRepo?: string;
+            changeSet?: {
+                repo: string;
+                /** @enum {string} */
+                role: "primary" | "service";
+                headSha: string;
+                baseSha?: string;
+                commits?: number;
+            }[];
             cases: components["schemas"]["QaCase"][];
             specs?: components["schemas"]["SpecRecord"][];
             logs: string[];

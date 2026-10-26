@@ -101,6 +101,12 @@ export class PendingChangeSets {
     return runId;
   }
 
+  /* The set a queued run holds now, when another push joined it; undefined otherwise. Leaves the set open. */
+  joinedSet(runId: string): ChangeSet | undefined {
+    const held = this.queued.get(runId);
+    return held?.joined ? held.set : undefined;
+  }
+
   /*
    * Closes the run's set: a push that arrives later queues a run of its own. Returns the set when another push joined it;
    * undefined when the run kept the single entry of its own request.

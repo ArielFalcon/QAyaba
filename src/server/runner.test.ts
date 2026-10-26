@@ -1907,6 +1907,21 @@ test("two webhook pushes of one app that land while the queue is busy are one ru
   assert.equal((rig.factoryRuns[0]?.changeSet as { entries: unknown[] }).entries.length, 2);
 });
 
+test("the record of a run that pushes joined lists every entry, and a run no push joined lists none", async () => {
+  const rig = coalescingRig("coalesce-record");
+  const first = enqueueTrackedRun(rig.queue, frontPush(rig.app), rig.deps);
+  assert.equal(getRecord(first)?.changeSet, undefined, "a run of its own request lists no entries");
+  enqueueTrackedRun(rig.queue, servicePush(rig.app), rig.deps);
+
+  assert.deepEqual(getRecord(first)?.changeSet, [
+    { repo: "org/demo", role: "primary", headSha: "f111111", baseSha: "f000000" },
+    { repo: "org/orders-svc", role: "service", headSha: "b222222", baseSha: "b000000" },
+  ]);
+  rig.release();
+  await rig.queue.drain();
+  assert.equal(getRecord(first)?.changeSet?.length, 2, "the entries outlive the run");
+});
+
 test("two pushes of one repo that land while the queue is busy are one run over both pushes' range", async () => {
   const rig = coalescingRig("coalesce-same-repo");
   const first = enqueueTrackedRun(rig.queue, frontPush(rig.app), rig.deps);

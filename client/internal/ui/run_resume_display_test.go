@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -82,5 +83,36 @@ func TestLiveSeedAnchorsElapsedClock(t *testing.T) {
 
 	if d, ok := m.runElapsed(); !ok || d < 0 {
 		t.Fatalf("snapshot should anchor the elapsed clock; runElapsed() = (%v, %v)", d, ok)
+	}
+}
+
+/* A run that other pushes joined names every repo's head in its header, not only the anchor's sha. */
+func TestLiveHeaderNamesEveryEntryOfAJoinedRun(t *testing.T) {
+	m := newLiveModel("r", "app", make(chan events.RunEvent, 1), func() {}, 160, 30)
+	var rec contract.RunRecord
+	raw := `{"id":"r","app":"app","sha":"f1111112","target":"e2e","mode":"diff","status":"enqueued","at":"2026-06-14T00:00:00Z","cases":[],"logs":[],
+		"changeSet":[{"repo":"org/front","role":"primary","headSha":"f1111112","baseSha":"f0000000"},{"repo":"org/back","role":"service","headSha":"b2222223"}]}`
+	if err := json.Unmarshal([]byte(raw), &rec); err != nil {
+		t.Fatal(err)
+	}
+
+	m, _ = m.Update(runSnapshotMsg{rec: rec})
+
+	out := m.header()
+	for _, want := range []string{"org/front@f111111", "org/back@b222222"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("header should name %q; got:\n%s", want, out)
+		}
+	}
+}
+
+/* A run of its own request keeps the short sha it always showed. */
+func TestLiveHeaderShowsTheShortShaOfASingleEntryRun(t *testing.T) {
+	m := newLiveModel("r", "app", make(chan events.RunEvent, 1), func() {}, 160, 30)
+	m, _ = m.Update(runSnapshotMsg{rec: contract.RunRecord{Id: "r", App: "app", Sha: "f1111112", Status: "running", At: "2026-06-14T00:00:00Z"}})
+
+	out := m.header()
+	if !strings.Contains(out, "f111111") || strings.Contains(out, "@") {
+		t.Fatalf("header should show only the short sha; got:\n%s", out)
 	}
 }

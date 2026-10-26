@@ -67,6 +67,7 @@ type liveModel struct {
 	runID          string
 	app            string
 	sha            string
+	entries        []string /* repo@short-sha of every repo's change, when other pushes joined the run */
 	target         string
 	mode           string
 	phase          string
@@ -679,6 +680,11 @@ func (m *liveModel) seedFromRecord(rec contract.RunRecord) {
 	if m.sha == "" {
 		m.sha = rec.Sha
 	}
+	if rec.ChangeSet != nil && len(*rec.ChangeSet) > 1 && len(m.entries) == 0 {
+		for _, e := range *rec.ChangeSet {
+			m.entries = append(m.entries, e.Repo+"@"+shortSha(e.HeadSha))
+		}
+	}
 	if m.target == "" {
 		m.target = string(rec.Target)
 	}
@@ -859,7 +865,9 @@ func (m liveModel) header() string {
 	left += "   " + renderSegs("", sg(icon, sc)) + lipgloss.NewStyle().Bold(true).Foreground(sc).Render(word)
 
 	right := ""
-	if m.sha != "" {
+	if len(m.entries) > 0 {
+		right = hintStyle.Render(strings.Join(m.entries, " · "))
+	} else if m.sha != "" {
 		right = hintStyle.Render(shortSha(m.sha))
 	}
 	if el, ok := m.runElapsed(); ok {

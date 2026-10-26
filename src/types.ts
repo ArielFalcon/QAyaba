@@ -1,6 +1,6 @@
 
 
-import type { ActivityKindSchema } from "./contract/commands";
+import type { ActivityKindSchema, RunChangeEntrySchema } from "./contract/commands";
 import type { z } from "zod";
 import { RUN_MODES, type RunMode, type TestTarget, type TriggerSource } from "@kernel/run-mode";
 import { RUN_ENGINE_STATUSES, engineStatus, type RunEngineStatus, type RunVerdict } from "@kernel/run-verdict";
@@ -100,6 +100,8 @@ export interface AgentActivity {
 }
 
 /* Full run history record persisted in SQLite (src/server/history.ts). */
+export type RunChangeEntry = z.infer<typeof RunChangeEntrySchema>;
+
 export interface RunRecord {
   id: string;
   app: string;
@@ -119,6 +121,7 @@ export interface RunRecord {
   retrying?: boolean;
   parentRunId?: string;
   triggerRepo?: string;  /* cross-repo runs: the service repo that originated the event */
+  changeSet?: RunChangeEntry[];  /* every repo's change the run reads, when other pushes joined it before it started */
   cases: QaCase[];
   specs?: SpecRecord[];
   logs: string[];
