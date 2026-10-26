@@ -486,8 +486,8 @@ are hidden from the prompts of a session the run did not grant them (a per-promp
 ### Lead and sidekicks
 
 Every e2e run is coordinated: the lead plans the change's independent flows and sidekicks author them in
-parallel (`docs/lead-sidekicks.md`). There is no coordination arm to choose. A sidekick needs the run's closed loop and/or authenticated browser for an app with a login; otherwise its sidekicks stay out and the lead authors alone, with the reason logged. The coordination a run
-used is recorded in its probe report (`gateSignals.coordination { mode, plan, downgrade, flows, delivered, incomplete, takeover, authoring }`, the "Coordination" lines of its markdown), so a run that was downgraded is visible and is not
+parallel (`docs/lead-sidekicks.md`). There is no coordination arm to choose. A sidekick needs the run's closed loop and/or authenticated browser for an app with a login; otherwise no author can serve the run and it ends `E-NO-AUTHOR` with the reason logged. The coordination a run
+used is recorded in its probe report (`gateSignals.coordination { plan, refusal, flows, delivered, incomplete, authoring, review, corrections }`, the "Coordination" lines of its markdown), so a run that no author could serve is visible and is not
 read as a result for the coordination. Compare cost, wall time, steps and the rubric score of the valid replicates, and per flow: how many were delivered, how many came back to the lead, and the time between the plan and the
 last flow. The sidekicks add DEV load (one `run_spec` loop per flow, serialized per test account by the lease) and a plan turn; the wall-clock win exists only when the flows are independent.
 
