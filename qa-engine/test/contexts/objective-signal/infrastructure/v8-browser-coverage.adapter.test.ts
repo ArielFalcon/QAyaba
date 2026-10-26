@@ -74,3 +74,29 @@ test("a recollection adds the dumps of several namespaces into one report, leavi
 
   assert.deepEqual(report.covered.map((c) => [c.file, [...c.lines].sort((a, b) => a - b)]), [["src/svc.ts", [3, 7]]], "the rewritten spec counts only from its new run");
 });
+
+test("a mutant's source is read with its edit and only from the dumps of its spec files; a source other than a mutant's that yields no dump makes the report a part", async () => {
+  const dumps: Record<string, Array<[string, CoveredLines]>> = {
+    base: [["flows-a-spec-ts-x-0-0.json", covers(["src/svc.ts", [1]])]],
+    "base-mut0": [
+      ["flows-a-spec-ts-x-0-0.json", covers(["src/svc.ts", [5]])],
+      ["flows-b-spec-ts-y-0-0.json", covers(["src/svc.ts", [9]])],
+    ],
+  };
+  const edits: unknown[] = [];
+  const adapter = new V8BrowserCoverageAdapter(async (_dir, namespace, _files, _scripts, _branches, keep, _executable, mutant) => {
+    edits.push(mutant);
+    return (dumps[namespace] ?? []).filter(([name]) => keep?.(name) ?? true).map(([, c]) => c);
+  }, CHANGED_FILES);
+  const mutant = { url: "u", sha256: "h", edit: { start: 0, end: 1, replacement: "!" }, original: "a" };
+
+  const proved = await adapter.recollect("/e2e", [{ namespace: "base" }, { namespace: "base-mut0", onlySpecFiles: ["flows/a.spec.ts"], mutant }]);
+  const missingMutant = await adapter.recollect("/e2e", [{ namespace: "base" }, { namespace: "gone-mut1", mutant }]);
+  const missingBase = await adapter.recollect("/e2e", [{ namespace: "gone" }, { namespace: "base-mut0", mutant }]);
+
+  assert.deepEqual(proved.covered.map((c) => [c.file, [...c.lines].sort((a, b) => a - b)]), [["src/svc.ts", [1, 5]]], "the failing spec's dump only");
+  assert.deepEqual(edits.slice(0, 2), [undefined, mutant]);
+  assert.equal(proved.incomplete, undefined);
+  assert.equal(missingMutant.incomplete, undefined, "a mutant's re-run that wrote nothing proves nothing and takes nothing away");
+  assert.equal(missingBase.incomplete, true);
+});

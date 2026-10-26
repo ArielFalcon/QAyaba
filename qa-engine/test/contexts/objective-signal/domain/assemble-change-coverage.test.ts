@@ -397,3 +397,49 @@ test("branches are null when the report saw no decisions, or none on a changed l
   });
   assert.equal(new DecideCoverageService().decide(allUntaken, { mode: "enforce", minRatio: 0.7 }), "pass", "the line ratio alone decides");
 });
+
+/* ── executable changed lines ─────────────────────────────────────────────────────────────────── */
+
+/* src/a.ts gains an import, a blank line, two code lines and a comment; src/lazy.ts (a chunk no page loaded) gains a code line and a blank one. */
+const EXECUTABLE_DIFF = [
+  "diff --git a/src/a.ts b/src/a.ts",
+  "--- a/src/a.ts",
+  "+++ b/src/a.ts",
+  "@@ -0,0 +1,5 @@",
+  "+import { x } from './x';",
+  "+",
+  "+const y = x();",
+  "+run(y);",
+  "+// done",
+  "diff --git a/src/lazy.ts b/src/lazy.ts",
+  "--- a/src/lazy.ts",
+  "+++ b/src/lazy.ts",
+  "@@ -0,0 +1,2 @@",
+  "+go();",
+  "+",
+].join("\n");
+
+test("a browser collection counts only the changed lines its scripts hold code for, and a changed file no loaded script maps counts its non-blank lines as uncovered", () => {
+  const report: CoverageReport = { covered: [{ file: "src/a.ts", lines: [3] }], executable: [{ file: "src/a.ts", lines: [3, 4] }] };
+
+  const cc = assembleChangeCoverage(EXECUTABLE_DIFF, report);
+
+  assert.deepEqual(cc.overall, { changedLines: 3, coveredChanged: 1, ratio: 1 / 3 }, "a.ts lines 3 and 4, and lazy.ts line 1");
+  assert.deepEqual(cc.uncovered, [{ file: "src/a.ts", lines: [4] }, { file: "src/lazy.ts", lines: [1] }]);
+  assert.deepEqual(cc.notExecutable, [{ file: "src/a.ts", lines: [1, 2, 5] }], "the import, the blank line and the comment are not code");
+  assert.deepEqual(cc.notLoaded, [{ file: "src/lazy.ts", lines: [1] }]);
+});
+
+test("a covered changed line is counted even when no segment maps code to it", () => {
+  const cc = assembleChangeCoverage(EXECUTABLE_DIFF, { covered: [{ file: "src/a.ts", lines: [1] }], executable: [{ file: "src/a.ts", lines: [3] }] });
+
+  assert.deepEqual(cc.perFile.find((f) => f.file === "src/a.ts"), { file: "src/a.ts", changed: 2, covered: 1, ratio: 0.5 });
+});
+
+test("a collection that cannot tell code from the rest counts every added line, as before", () => {
+  const cc = assembleChangeCoverage(EXECUTABLE_DIFF, { covered: [{ file: "src/a.ts", lines: [3] }] });
+
+  assert.equal(cc.overall.changedLines, 7);
+  assert.equal(cc.notExecutable, undefined);
+  assert.equal(cc.notLoaded, undefined);
+});

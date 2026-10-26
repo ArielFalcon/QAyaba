@@ -1,6 +1,6 @@
-/* BundleMutationPort for the e2e target: each mutant of the changed code is one re-run, against DEV, of the spec files whose tests reached it, with the seed's mutation fixture editing that one script as the page loads it. A mutant is judged only when it reached a page (the fixture counts the responses it mutated beside the response oracle's counters) and the re-run ran tests that passed before: a mutant that reached no page, a re-run that could not run, and one that ran none of the passing tests say nothing of the tests. A judged mutant is killed when a test that passed before fails. Signal-only: the result never gates publish. */
+/* BundleMutationPort for the e2e target: each mutant of the changed code is one re-run, against DEV, of the spec files whose tests reached it, with the seed's mutation fixture editing that one script as the page loads it. A mutant is judged only when it reached a page (the fixture counts the responses it mutated beside the response oracle's counters) and the re-run ran tests that passed before: a mutant that reached no page, a re-run that could not run, and one that ran none of the passing tests say nothing of the tests. A judged mutant is killed when a test that passed before fails; its proof names the dumps of the spec files whose tests failed, so the changed code the mutant made run is credited to the tests that checked it. Signal-only: the result never gates publish. */
 import type { BundleMutationPort } from "../application/ports/bundle-mutation.port.ts";
-import type { BundleMutationResult, MutantRun } from "../domain/coverage-collector.ts";
+import type { BundleMutationResult, MutantProof, MutantRun } from "../domain/coverage-collector.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
 
@@ -21,6 +21,7 @@ export class BundleMutationOracleAdapter implements BundleMutationPort {
     let applied = 0;
     let killed = 0;
     const survived: BundleMutationResult["survived"] = [];
+    const proofs: MutantProof[] = [];
     for (const [i, { site, specFiles }] of mutants.entries()) {
       const mutantNamespace = `${namespace}-mut${i}`;
       const mutant = JSON.stringify({ url: site.script.url, sha256: site.script.sha256, ...site.edit });
@@ -36,9 +37,13 @@ export class BundleMutationOracleAdapter implements BundleMutationPort {
       const rerun = run.cases.filter((c) => passedBefore.has(c.name));
       if (rerun.length === 0) continue;
       applied++;
-      if (rerun.some((c) => c.status === "fail" || c.status === "flaky")) killed++;
-      else survived.push({ file: site.file, line: site.line, operator: site.operator });
+      const noticed = rerun.filter((c) => c.status === "fail" || c.status === "flaky");
+      if (noticed.length > 0) {
+        killed++;
+        const failedFiles = [...new Set(noticed.flatMap((c) => (c.file ? [c.file] : [])))];
+        proofs.push({ namespace: mutantNamespace, specFiles: failedFiles.length > 0 ? failedFiles : specFiles, url: site.script.url, sha256: site.script.sha256, edit: site.edit, original: site.original });
+      } else survived.push({ file: site.file, line: site.line, operator: site.operator });
     }
-    return applied > 0 ? { applied, killed, survived } : null;
+    return applied > 0 ? { applied, killed, survived, ...(proofs.length > 0 ? { proofs } : {}) } : null;
   }
 }

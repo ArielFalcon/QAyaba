@@ -11,7 +11,7 @@ export type { IntentContractPort } from "./ports/intent-contract.port.ts";
 export type { CoverageCollectorPort } from "./ports/coverage-collector.port.ts";
 export type { ObjectiveSignalPort } from "./ports/objective-signal.port.ts";
 export type { ValueOraclePort } from "./ports/value-oracle.port.ts";
-export type { CoverageReport, BranchHit, BranchKind, BranchArm, MutationSite, DumpSource, MutantRun, BundleMutationResult } from "../domain/coverage-collector.ts";
+export type { CoverageReport, BranchHit, BranchKind, BranchArm, MutationSite, DumpSource, MutantRun, BundleMutationResult, MutantEdit, MutantProof } from "../domain/coverage-collector.ts";
 export type { BundleMutationPort } from "./ports/bundle-mutation.port.ts";
 export type { CoverageMeasurement, CoverageRecount, CoverageRerun, UntakenArm, BundleMutationOutcome } from "../domain/objective-signal.ts";
 export { assembleChangeCoverage } from "../domain/assemble-change-coverage.ts";

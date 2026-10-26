@@ -56,6 +56,8 @@ function candidateLines(candidate: UseCaseCandidate, added: ReadonlyMap<string, 
 
 export function perCandidateCoverage(input: PerCandidateInput): CandidateCoverage[] {
   const added = input.diff !== undefined ? parseDiffHunks(input.diff) : new Map<string, Set<number>>();
+  /* A line the measurement found no code on is no more a use case's than the aggregate's. */
+  for (const { file, lines } of input.coverage?.notExecutable ?? []) for (const line of lines) added.get(file)?.delete(line);
   const touched = new Set(input.diff !== undefined ? diffChangedFiles(input.diff) : []);
   const uncovered = new Map((input.coverage?.uncovered ?? []).map((u) => [u.file, new Set(u.lines)]));
   return input.candidates.map((candidate) => {

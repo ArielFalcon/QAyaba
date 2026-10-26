@@ -22,6 +22,19 @@ export const measuresCoverage = (state: Readonly<RunState>, ctx: WorkspaceRunCon
 export const branchCoverageOf = (m: CoverageMeasurement | undefined): CoverageOutcome["branchCoverage"] =>
   m?.changedBranches !== undefined ? { changed: m.changedBranches, taken: m.takenBranches ?? 0 } : undefined;
 
+/* The part of a measurement the run records beside its ratio; undefined when it measured nothing. */
+export function changeCoverageOf(m: CoverageMeasurement | undefined): CoverageOutcome["changeCoverage"] {
+  if (!m || m.unmeasured !== undefined) return undefined;
+  return {
+    executableLines: m.changedLines,
+    ...(m.notExecutableLines !== undefined ? { notExecutableLines: m.notExecutableLines } : {}),
+    ...(m.notLoadedFiles ? { notLoadedFiles: m.notLoadedFiles } : {}),
+    ...(m.coveredByExecution !== undefined ? { coveredByExecution: m.coveredByExecution } : {}),
+    ...(m.provenByMutation !== undefined ? { provenByMutation: m.provenByMutation } : {}),
+    ...(m.armsProvenByMutation !== undefined ? { armsProvenByMutation: m.armsProvenByMutation } : {}),
+  };
+}
+
 /* Only a diff run on one repo measures a real per-commit coverage signal. */
 const measuresPerCommit = (ctx: WorkspaceRunContext): boolean => ctx.input.mode === "diff" && !ctx.input.triggerRepo;
 
@@ -88,6 +101,8 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
         untakenArms: signal.untakenArms ?? [],
         untakenArmsCurrent: true,
         bundleMutation: signal.bundleMutation,
+        mutantProofs: signal.mutantProofs ?? [],
+        changeCoverage: changeCoverageOf(signal.measurement),
         /*
          * Ask the port: only enforce+fail blocks. Unknown/pass never block. Do not
          * re-implement the mode check here.
@@ -196,10 +211,13 @@ async function recountAfter(state: Readonly<RunState>, ctx: WorkspaceRunContext,
   const { coverageNamespace } = state.fixLoop;
   const recount =
     regen.reruns && deps.objectiveSignal.recount
-      ? await deps.objectiveSignal.recount(BlastRadius.of(input.sha, state.classification.intent?.changedFiles ?? []), workspace.specDir, state.classification.diff, regen.reruns, coverageNamespace ? { namespace: coverageNamespace } : {})
+      ? await deps.objectiveSignal.recount(BlastRadius.of(input.sha, state.classification.intent?.changedFiles ?? []), workspace.specDir, state.classification.diff, regen.reruns, {
+          ...(coverageNamespace ? { namespace: coverageNamespace } : {}),
+          ...(state.coverage.mutantProofs.length > 0 ? { proofs: state.coverage.mutantProofs } : {}),
+        })
       : null;
   if (!recount) return { ...accepted, untakenArmsCurrent: false };
-  const arms: CoverageOutcome = { ...accepted, uncovered: recount.uncovered, untakenArms: recount.untakenArms, untakenArmsCurrent: true, branchCoverage: branchCoverageOf(recount.measurement) };
+  const arms: CoverageOutcome = { ...accepted, uncovered: recount.uncovered, untakenArms: recount.untakenArms, untakenArmsCurrent: true, branchCoverage: branchCoverageOf(recount.measurement), changeCoverage: changeCoverageOf(recount.measurement) ?? accepted.changeCoverage };
   if (cfg.coveragePolicyMode !== "signal") return arms;
   return {
     ...remeasured(arms),

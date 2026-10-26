@@ -36,6 +36,7 @@ export interface OutcomeExtras {
   mutantCount?: number;
   killedCount?: number;
   branchCoverage?: RunOutcome["gateSignals"]["branchCoverage"];
+  changeCoverage?: RunOutcome["gateSignals"]["changeCoverage"];
   bundleMutation?: RunOutcome["gateSignals"]["bundleMutation"];
   branchCases?: RunOutcome["gateSignals"]["branchCases"];
   missingCases?: string[];
@@ -181,6 +182,7 @@ export function toRunOutcome(
       ...(extra?.mutantCount !== undefined ? { mutantCount: extra.mutantCount } : {}),
       ...(extra?.killedCount !== undefined ? { killedCount: extra.killedCount } : {}),
       ...(extra?.branchCoverage ? { branchCoverage: extra.branchCoverage } : {}),
+      ...(extra?.changeCoverage ? { changeCoverage: extra.changeCoverage } : {}),
       ...(extra?.bundleMutation ? { bundleMutation: extra.bundleMutation } : {}),
       ...(extra?.branchCases ? { branchCases: extra.branchCases } : {}),
       ...(extra?.missingCases?.length ? { missingCases: extra.missingCases } : {}),

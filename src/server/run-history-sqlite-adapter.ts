@@ -37,6 +37,7 @@ export function toStoredRunOutcome(outcome: KernelRunOutcome): StoredRunOutcome 
       ...(outcome.gateSignals.mutantCount !== undefined ? { mutantCount: outcome.gateSignals.mutantCount } : {}),
       ...(outcome.gateSignals.killedCount !== undefined ? { killedCount: outcome.gateSignals.killedCount } : {}),
       ...(outcome.gateSignals.branchCoverage !== undefined ? { branchCoverage: outcome.gateSignals.branchCoverage } : {}),
+      ...(outcome.gateSignals.changeCoverage !== undefined ? { changeCoverage: outcome.gateSignals.changeCoverage } : {}),
       ...(outcome.gateSignals.bundleMutation !== undefined ? { bundleMutation: outcome.gateSignals.bundleMutation } : {}),
       ...(outcome.gateSignals.branchCases !== undefined ? { branchCases: outcome.gateSignals.branchCases } : {}),
       ...(outcome.gateSignals.missingCases !== undefined ? { missingCases: outcome.gateSignals.missingCases } : {}),

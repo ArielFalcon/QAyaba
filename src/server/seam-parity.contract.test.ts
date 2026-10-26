@@ -40,7 +40,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
   } satisfies Record<keyof KernelRunOutcome, true>;
 
   const ALL_GATE_SIGNAL_FIELDS = {
-    static: true, coverageRatio: true, valueScore: true, mutantCount: true, killedCount: true, branchCoverage: true, bundleMutation: true, branchCases: true, missingCases: true,
+    static: true, coverageRatio: true, valueScore: true, mutantCount: true, killedCount: true, branchCoverage: true, changeCoverage: true, bundleMutation: true, branchCases: true, missingCases: true,
     reviewerCorrections: true,
     reviewerRationale: true, reviewerApproved: true, reviewer: true, flaky: true, retries: true, confinement: true,
     usage: true, phaseTimings: true, furthestPhase: true, preExecAmbiguityCatches: true, deterministicSelectorBlocks: true,
@@ -72,7 +72,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
 
   test("gateSignals' own field list is fully mapped (no allowlist needed — every field carries through)", () => {
     const mapped = [
-      "static", "coverageRatio", "valueScore", "mutantCount", "killedCount", "branchCoverage", "bundleMutation", "branchCases", "missingCases", "reviewerCorrections",
+      "static", "coverageRatio", "valueScore", "mutantCount", "killedCount", "branchCoverage", "changeCoverage", "bundleMutation", "branchCases", "missingCases", "reviewerCorrections",
       "reviewerRationale",
       "reviewerApproved", "reviewer", "flaky", "retries", "confinement", "usage", "phaseTimings", "furthestPhase",
       "preExecAmbiguityCatches", "deterministicSelectorBlocks", "catalogGateInWindow",

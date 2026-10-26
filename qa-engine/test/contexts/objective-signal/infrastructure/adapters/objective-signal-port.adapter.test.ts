@@ -552,7 +552,7 @@ test("measure() reports the branches on the changed lines and the arms that neve
 });
 
 test("measure() hands the mutants on the changed lines to the mutation oracle, with the spec files that reached them, and reports what it found", async () => {
-  const site = (line: number) => ({ file: "src/checkout.ts", line, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, ranIn: ["flows-pay-spec-ts-x-0-0.json"] });
+  const site = (line: number) => ({ file: "src/checkout.ts", line, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x", ranIn: ["flows-pay-spec-ts-x-0-0.json"] });
   const report: CoverageReport = { covered: [{ file: "src/checkout.ts", lines: [1, 2] }], mutationSites: [site(1), site(9)] };
   const asked: unknown[] = [];
   const mutation = {
@@ -575,7 +575,7 @@ test("measure() hands the mutants on the changed lines to the mutation oracle, w
 test("measure() asks no mutation when no site is on a changed line, coverage measured nothing, or no mutation oracle is wired", async () => {
   let asked = 0;
   const mutation = { measure: async () => { asked++; return null; } };
-  const site = { file: "src/checkout.ts", line: 40, column: 0, operator: "negate condition", script: { url: "u", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, ranIn: ["d"] };
+  const site = { file: "src/checkout.ts", line: 40, column: 0, operator: "negate condition", script: { url: "u", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x", ranIn: ["d"] };
   const build = (report: CoverageReport, withMutation = true) => new ObjectiveSignalPortAdapter(
     { collector: fakeCollector(report), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }), ...(withMutation ? { mutation } : {}) },
     { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
@@ -625,4 +625,74 @@ test("recount() has nothing to say with coverage off, without a diff, or with a 
   assert.equal(await make(recollecting, "off").recount!(br, "/e2e", SAMPLE_DIFF, rerun), null);
   assert.equal(await make(recollecting, "signal").recount!(br, "/e2e", undefined, rerun), null);
   assert.equal(await make(fakeCollector({ covered: [] }), "signal").recount!(br, "/e2e", SAMPLE_DIFF, rerun), null);
+});
+
+/* src/checkout.ts gains two code lines: line 1 ran in the passing tests, line 2 only under a killed mutant. */
+const PROOF = { namespace: "run-7-mut0", specFiles: ["flows/pay.spec.ts"], url: "https://dev/main.js", sha256: "h", edit: { start: 0, end: 1, replacement: "!" }, original: "x" };
+
+function provingAdapter(verified: CoverageReport, asked: unknown[] = []) {
+  const first: CoverageReport = {
+    covered: [{ file: "src/checkout.ts", lines: [1] }],
+    branches: [{ file: "src/checkout.ts", line: 1, column: 0, kind: "if", arms: [{ label: "then", taken: false }, { label: "else", taken: true }] }],
+    mutationSites: [{ file: "src/checkout.ts", line: 1, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x", ranIn: ["flows-pay-spec-ts-x-0-0.json"] }],
+  };
+  const collector: CoverageCollectorPort = {
+    collect: async () => first,
+    recollect: async (_specDir, sources) => {
+      asked.push(sources);
+      return verified;
+    },
+  };
+  const mutation = { measure: async () => ({ applied: 1, killed: 1, survived: [], proofs: [PROOF] }) };
+  return new ObjectiveSignalPortAdapter(
+    { collector, decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }), mutation },
+    { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage, namespace: "run-7" },
+  );
+}
+
+test("measure() counts what a killed mutant made run as covered, says how much the passing tests ran by themselves, and hands the proofs on", async () => {
+  const asked: unknown[] = [];
+  const verified: CoverageReport = {
+    covered: [{ file: "src/checkout.ts", lines: [1, 2] }],
+    branches: [{ file: "src/checkout.ts", line: 1, column: 0, kind: "if", arms: [{ label: "then", taken: true }, { label: "else", taken: true }] }],
+  };
+
+  const result = await provingAdapter(verified, asked).measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), "/e2e", SAMPLE_DIFF, ["pays"], { caseFiles: ["flows/pay.spec.ts"] });
+
+  assert.deepEqual(asked, [[{ namespace: "run-7" }, { namespace: "run-7-mut0", onlySpecFiles: ["flows/pay.spec.ts"], mutant: { url: "https://dev/main.js", sha256: "h", edit: { start: 0, end: 1, replacement: "!" }, original: "x" } }]]);
+  assert.equal(result.status, "pass");
+  assert.equal(result.ratio, 1);
+  assert.deepEqual(result.uncovered, []);
+  assert.deepEqual(result.untakenArms, [], "the arm the mutant forced is not asked for again");
+  assert.equal(result.measurement?.coveredByExecution, 1);
+  assert.equal(result.measurement?.provenByMutation, 1);
+  assert.equal(result.measurement?.armsProvenByMutation, 1);
+  assert.deepEqual(result.mutantProofs, [PROOF]);
+  assert.deepEqual(result.bundleMutation, { applied: 1, killed: 1, survived: [] }, "the record keeps the counts, not the proofs");
+});
+
+test("measure() keeps the coverage by execution when the killed mutant's dumps cannot be read with the rest", async () => {
+  const result = await provingAdapter({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }], incomplete: true }).measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), "/e2e", SAMPLE_DIFF, ["pays"], { caseFiles: ["flows/pay.spec.ts"] });
+
+  assert.equal(result.ratio, 0.5);
+  assert.deepEqual(result.uncovered, [{ file: "src/checkout.ts", lines: [2] }]);
+  assert.equal(result.measurement?.provenByMutation, undefined);
+  assert.equal("mutantProofs" in result, false);
+});
+
+test("recount() adds the proofs of the spec files it did not re-run, and keeps the measurement before it when a source could not be read", async () => {
+  const asked: unknown[] = [];
+  const make = (report: CoverageReport) => new ObjectiveSignalPortAdapter(
+    { collector: { collect: async () => ({ covered: [] }), recollect: async (_d, sources) => { asked.push(sources); return report; } }, decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }) },
+    { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage },
+  );
+  const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
+  const stale = { ...PROOF, namespace: "run-7-mut1", specFiles: ["flows/rewritten.spec.ts"] };
+
+  const counted = await make({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }] }).recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "run-acc0", specFiles: ["flows/rewritten.spec.ts"] }], { namespace: "run-7", proofs: [PROOF, stale] });
+  const partial = await make({ covered: [{ file: "src/checkout.ts", lines: [1] }], incomplete: true }).recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "run-acc0", specFiles: ["flows/rewritten.spec.ts"] }], { namespace: "run-7" });
+
+  assert.deepEqual((asked[0] as Array<{ namespace: string }>).map((s) => s.namespace), ["run-7", "run-acc0", "run-7-mut0"], "a proof of a rewritten spec no longer holds");
+  assert.equal(counted?.ratio, 1);
+  assert.equal(partial, null);
 });

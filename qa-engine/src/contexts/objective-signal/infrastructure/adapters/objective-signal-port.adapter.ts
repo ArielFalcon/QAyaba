@@ -7,7 +7,7 @@ import type { CoverageRecount, CoverageRerun } from "../../domain/objective-sign
 import type { BundleMutationPort } from "../../application/ports/bundle-mutation.port.ts";
 import type { CoverageCollectorPort } from "../../application/ports/coverage-collector.port.ts";
 import type { ValueOraclePort } from "../../application/ports/value-oracle.port.ts";
-import type { BundleMutationResult, CoverageReport, DumpSource } from "../../domain/coverage-collector.ts";
+import type { BundleMutationResult, CoverageReport, DumpSource, MutantProof } from "../../domain/coverage-collector.ts";
 import { DecideCoverageService, type ChangeCoverage, type CoveragePolicy } from "../../domain/decide-coverage.service.ts";
 import { parseDiffHunks } from "../../domain/assemble-change-coverage.ts";
 import { selectMutants } from "../../domain/select-mutants.ts";
@@ -32,15 +32,25 @@ export interface ObjectiveSignalPortStaticContext {
   namespace?: string;
 }
 
-/* What the measurement counted, and why one that decides nothing did not. */
-function measurementOf(cc: ChangeCoverage | null, skipped: CoverageMeasurement["unmeasured"], scripts?: CoverageReport["scripts"], diff?: string): CoverageMeasurement {
+/* What the measurement counted, and why one that decides nothing did not. `byExecution` is the same measurement before a killed mutant's dumps were added, when they were. */
+function measurementOf(cc: ChangeCoverage | null, skipped: CoverageMeasurement["unmeasured"], scripts?: CoverageReport["scripts"], diff?: string, byExecution?: ChangeCoverage): CoverageMeasurement {
   if (!cc) return { changedLines: 0, coveredChanged: 0, changedFiles: 0, mappedFiles: 0, unmeasured: skipped ?? "not-assembled" };
+  const count = (lines: { lines: number[] }[] | undefined): number => (lines ?? []).reduce((n, f) => n + f.lines.length, 0);
   const counts = {
     changedLines: cc.overall.changedLines,
     coveredChanged: cc.overall.coveredChanged,
     changedFiles: cc.perFile.length,
     mappedFiles: cc.perFile.filter((file) => file.covered > 0).length,
     ...(cc.branches ? { changedBranches: cc.branches.changedBranches, takenBranches: cc.branches.takenBranches } : {}),
+    ...(cc.notExecutable ? { notExecutableLines: count(cc.notExecutable) } : {}),
+    ...(cc.notLoaded?.length ? { notLoadedFiles: cc.notLoaded.map((f) => f.file) } : {}),
+    ...(byExecution
+      ? {
+          coveredByExecution: byExecution.overall.coveredChanged,
+          provenByMutation: cc.overall.coveredChanged - byExecution.overall.coveredChanged,
+          ...(cc.branches && byExecution.branches ? { armsProvenByMutation: cc.branches.takenBranches - byExecution.branches.takenBranches } : {}),
+        }
+      : {}),
   };
   /* A diff that changes files and adds no line only deletes. */
   if (cc.overall.changedLines === 0) return { ...counts, unmeasured: diff !== undefined && diffChangedFiles(diff).length > 0 ? "deletion-only" : "no-changed-lines" };
@@ -68,25 +78,30 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     const changedFiles = changeDiff !== undefined ? [...parseDiffHunks(changeDiff).keys()] : undefined;
     const willAssemble = this.ctx.assembleChangeCoverage !== undefined && !!diff;
     const report = willAssemble ? await this.deps.collector.collect(specDir, namespace, changedFiles) : null;
-    const cc: ChangeCoverage | null = report ? this.ctx.assembleChangeCoverage!(changeDiff!, report) : null;
+    const executed: ChangeCoverage | null = report ? this.ctx.assembleChangeCoverage!(changeDiff!, report) : null;
+
+    const oracleResult = await this.deps.oracle.measure(br, this.ctx.repoDir, namespace, baselineCases ?? this.ctx.baselineCases, opts?.faultAim);
+
+    /* Mutants only of a measured change, on its changed lines, where a test reached: first the decisions an arm of which no test ran. */
+    let bundleMutation: BundleMutationResult | null = null;
+    if (this.deps.mutation && report?.mutationSites && executed?.measured && changeDiff !== undefined) {
+      const mutants = selectMutants(report.mutationSites, parseDiffHunks(changeDiff), opts?.caseFiles ?? [], undefined, report.branches);
+      if (mutants.length > 0) bundleMutation = await this.deps.mutation.measure(mutants, specDir, namespace, baselineCases ?? this.ctx.baselineCases ?? []);
+    }
+    const proofs = bundleMutation?.proofs ?? [];
+    /* What a killed mutant made run, a test checked: the verified coverage adds it, the coverage by execution alone stays beside it. */
+    const verified = proofs.length > 0 && executed ? await this.withProofs(specDir, [{ namespace }], proofs, changeDiff!, changedFiles) : null;
+    const cc = verified ?? executed;
 
     const status = this.deps.decide.decide(cc, this.ctx.policy);
     const ratio = cc?.measured ? cc.overall.ratio : null;
-    const aggregate = measurementOf(cc, !diff ? "no-diff" : this.ctx.assembleChangeCoverage === undefined ? "not-assembled" : undefined, report?.scripts, changeDiff);
+    const aggregate = measurementOf(cc, !diff ? "no-diff" : this.ctx.assembleChangeCoverage === undefined ? "not-assembled" : undefined, report?.scripts, changeDiff, verified ? executed! : undefined);
     /* Per use case: figures beside the aggregate, which stays the only one that decides. */
     const candidates = opts?.candidates ?? [];
     const measurement: CoverageMeasurement = candidates.length > 0
       ? { ...aggregate, perCandidate: perCandidateCoverage({ candidates, diff: changeDiff, coverage: cc, aggregate: aggregate.unmeasured, crossRepo: opts?.crossRepo === true }) }
       : aggregate;
 
-    const oracleResult = await this.deps.oracle.measure(br, this.ctx.repoDir, namespace, baselineCases ?? this.ctx.baselineCases, opts?.faultAim);
-
-    /* Mutants only of a measured change, on its changed lines, where a test reached. */
-    let bundleMutation: BundleMutationResult | null = null;
-    if (this.deps.mutation && report?.mutationSites && cc?.measured && changeDiff !== undefined) {
-      const mutants = selectMutants(report.mutationSites, parseDiffHunks(changeDiff), opts?.caseFiles ?? []);
-      if (mutants.length > 0) bundleMutation = await this.deps.mutation.measure(mutants, specDir, namespace, baselineCases ?? this.ctx.baselineCases ?? []);
-    }
 
     return {
       status,
@@ -98,22 +113,38 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
       killedCount: oracleResult.killedCount,
       ...(willAssemble && cc?.uncovered ? { uncovered: cc.uncovered } : {}),
       ...(cc?.untakenArms ? { untakenArms: cc.untakenArms } : {}),
-      ...(bundleMutation ? { bundleMutation } : {}),
+      ...(bundleMutation ? { bundleMutation: { applied: bundleMutation.applied, killed: bundleMutation.killed, survived: bundleMutation.survived } } : {}),
+      ...(verified ? { mutantProofs: proofs } : {}),
       measurement,
     };
+  }
+
+  /* The coverage of `sources` with the dumps of each proof's re-run added (its edit undone, only its failing spec files); null when a source could not be read, so a part never stands for the whole. */
+  private async withProofs(specDir: string, sources: readonly DumpSource[], proofs: readonly MutantProof[], changeDiff: string, changedFiles: string[] | undefined): Promise<ChangeCoverage | null> {
+    const { recollect } = this.deps.collector;
+    if (!recollect || !this.ctx.assembleChangeCoverage) return null;
+    const proofSources = proofs.map(({ namespace, specFiles, ...mutant }) => ({ namespace, onlySpecFiles: specFiles, mutant }));
+    const report = await recollect.call(this.deps.collector, specDir, [...sources, ...proofSources], changedFiles);
+    return report.incomplete ? null : this.ctx.assembleChangeCoverage(changeDiff, report);
   }
 
   blocks(status: "pass" | "fail" | "unknown"): boolean {
     return this.deps.decide.blocks(status, this.ctx.policy);
   }
 
-  async recount(br: BlastRadius, specDir: string, diff: string | undefined, reruns: readonly CoverageRerun[], opts?: { namespace?: string }): Promise<CoverageRecount | null> {
+  async recount(br: BlastRadius, specDir: string, diff: string | undefined, reruns: readonly CoverageRerun[], opts?: { namespace?: string; proofs?: readonly MutantProof[] }): Promise<CoverageRecount | null> {
     const { recollect } = this.deps.collector;
     if (this.ctx.policy.mode === "off" || !diff || !this.ctx.assembleChangeCoverage || !recollect) return null;
     const changeDiff = diffWithoutTestFiles(diff).diff;
     const base = opts?.namespace ?? this.ctx.namespace ?? br.sha.toString();
-    const sources: DumpSource[] = [{ namespace: base, exceptSpecFiles: [...new Set(reruns.flatMap((r) => r.specFiles))] }, ...reruns.map((r) => ({ namespace: r.namespace }))];
-    const report = await recollect.call(this.deps.collector, specDir, sources, [...parseDiffHunks(changeDiff).keys()]);
+    const rewritten = [...new Set(reruns.flatMap((r) => r.specFiles))];
+    const sources: DumpSource[] = [{ namespace: base, exceptSpecFiles: rewritten }, ...reruns.map((r) => ({ namespace: r.namespace }))];
+    /* A proof holds only for the spec bytes that killed its mutant: the re-run spec files are not those any more. */
+    const proofs = (opts?.proofs ?? []).map((p) => ({ ...p, specFiles: p.specFiles.filter((file) => !rewritten.includes(file)) })).filter((p) => p.specFiles.length > 0);
+    const proofSources = proofs.map(({ namespace, specFiles, ...mutant }) => ({ namespace, onlySpecFiles: specFiles, mutant }));
+    const report = await recollect.call(this.deps.collector, specDir, [...sources, ...proofSources], [...parseDiffHunks(changeDiff).keys()]);
+    /* A source that could not be read would count a part of the suite as the whole: the measurement before the recount stands. */
+    if (report.incomplete) return null;
     const cc = this.ctx.assembleChangeCoverage(changeDiff, report);
     return {
       status: this.deps.decide.decide(cc, this.ctx.policy),

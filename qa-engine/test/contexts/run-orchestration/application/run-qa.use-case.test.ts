@@ -9511,6 +9511,39 @@ test("signal mode: a green run with arms no test ran regenerates once with those
   }
 });
 
+test("the killed mutants the coverage counted are handed to the recount, and the run records what the coverage counted beside its ratio", async () => {
+  const real = realCoverageWorkspace();
+  const recounts: unknown[] = [];
+  const proof = { namespace: "proofs-mut0", specFiles: ["b.spec.ts"], url: "https://dev/main.js", sha256: "h", edit: { start: 0, end: 1, replacement: "!" }, original: "x" };
+  try {
+    const { ports, savedOutcomes } = stubPorts({
+      prepare: real.prepare,
+      generate: real.generate,
+      execute: async () => ({ verdict: "pass" as const, cases: [{ name: "a works", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
+      measure: async () => ({
+        status: "pass" as const,
+        ratio: 0.9,
+        uncovered: [],
+        untakenArms: ARMS,
+        mutantProofs: [proof],
+        measurement: { changedLines: 10, coveredChanged: 9, changedFiles: 1, mappedFiles: 1, notExecutableLines: 4, notLoadedFiles: ["src/lazy.ts"], coveredByExecution: 7, provenByMutation: 2, armsProvenByMutation: 1 },
+      }),
+      recount: async (_br, _specDir, _diff, _reruns, opts) => {
+        recounts.push(opts);
+        return null;
+      },
+    });
+    const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false, coveragePolicyMode: "signal", coverageBranchCases: "regenerate" } });
+
+    await useCase.run({ ...baseInput, runId: "proofs" });
+
+    assert.deepEqual(recounts, [{ proofs: [proof] }]);
+    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.changeCoverage, { executableLines: 10, notExecutableLines: 4, notLoadedFiles: ["src/lazy.ts"], coveredByExecution: 7, provenByMutation: 2, armsProvenByMutation: 1 });
+  } finally {
+    real.cleanup();
+  }
+});
+
 test("no branch regeneration without arms, with the branch cases off, or when the enforce-mode coverage regeneration already carries them", async () => {
   const cases: ReadonlyArray<[string, Partial<{ untakenArms: typeof ARMS; mode: "signal" | "enforce"; branchCases: "regenerate" | "off" | undefined; status: "pass" | "fail" }>, number]> = [
     ["no arms", { untakenArms: [], mode: "signal", branchCases: "regenerate", status: "pass" }, 1],

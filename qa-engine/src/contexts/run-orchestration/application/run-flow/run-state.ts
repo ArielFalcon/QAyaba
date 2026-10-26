@@ -20,7 +20,7 @@ import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
 import type { FixLoopStage } from "../../domain/fix-loop.aggregate.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import type { BundleMutationOutcome, CandidateCoverage, CandidateValue, CausalLabel, UntakenArm, ValueStats } from "@contexts/objective-signal/application/index.ts";
+import type { BundleMutationOutcome, CandidateCoverage, CandidateValue, CausalLabel, MutantProof, UntakenArm, ValueStats } from "@contexts/objective-signal/application/index.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunEvidence } from "../../domain/run-decision.service.ts";
 import type { EndReason } from "./end-reason.ts";
@@ -196,6 +196,10 @@ export interface CoverageOutcome {
   branchCases: BranchCasesOutcome | undefined;
   /** What the mutants of the changed code did; undefined when none was judged. A signal, never a gate. */
   bundleMutation: BundleMutationOutcome | undefined;
+  /** The killed mutants whose re-runs the coverage counts, so a recount counts them again; empty when none added a line. */
+  mutantProofs: MutantProof[];
+  /** What the coverage counted beside its ratio (code lines, lines left out, files not loaded, what only a killed mutant ran); undefined when nothing was measured. */
+  changeCoverage: RunOutcome["gateSignals"]["changeCoverage"];
   /** Acceptances spent so far; each names its namespace by it. */
   acceptanceCalls: number;
   /** An accepted regeneration rewrote specs after the last measurement: the coverage ratio is then stale. */
@@ -407,6 +411,8 @@ export function initialRunState(): RunState {
       untakenArmsCurrent: false,
       branchCases: undefined,
       bundleMutation: undefined,
+      mutantProofs: [],
+      changeCoverage: undefined,
       acceptanceCalls: 0,
       acceptedRegenAfterMeasure: false,
       coverageStale: false,

@@ -257,7 +257,7 @@ export class BranchSink {
       if (known) {
         if (!known.ranIn.includes(this.dump)) known.ranIn.push(this.dump);
       } else {
-        this.sites.set(id, { file: site.file, line: site.line, column: site.column, operator: site.operator, script: { url: entry.url!, sha256: placed.sha256 }, edit: { start: site.start, end: site.end, replacement: site.replacement }, ranIn: [this.dump] });
+        this.sites.set(id, { file: site.file, line: site.line, column: site.column, operator: site.operator, script: { url: entry.url!, sha256: placed.sha256 }, edit: { start: site.start, end: site.end, replacement: site.replacement }, original: source.slice(site.start, site.end), ranIn: [this.dump] });
       }
     }
     for (const d of placed.decisions) {

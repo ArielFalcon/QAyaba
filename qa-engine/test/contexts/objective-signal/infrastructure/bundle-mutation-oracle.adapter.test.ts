@@ -13,6 +13,7 @@ const mutant = (line: number, specFiles = ["flows/a.spec.ts"]): MutantRun => ({
     operator: "negate condition",
     script: { url: "https://dev.example/main.js", sha256: "abc" },
     edit: { start: 10, end: 20, replacement: "!(x === 1)" },
+    original: "x === 1",
     ranIn: ["flows-a-spec-ts-x-0-0.json"],
   },
   specFiles,
@@ -35,7 +36,12 @@ test("each mutant re-runs its spec files under its own namespace with its edit, 
 
   const result = await oracle.measure([mutant(10), mutant(12, ["flows/b.spec.ts"])], "/e2e", "run-1", ["shows missing", "other"]);
 
-  assert.deepEqual(result, { applied: 2, killed: 1, survived: [{ file: "src/store.ts", line: 12, operator: "negate condition" }] });
+  assert.deepEqual(result, {
+    applied: 2,
+    killed: 1,
+    survived: [{ file: "src/store.ts", line: 12, operator: "negate condition" }],
+    proofs: [{ namespace: "run-1-mut0", specFiles: ["flows/a.spec.ts"], url: "https://dev.example/main.js", sha256: "abc", edit: { start: 10, end: 20, replacement: "!(x === 1)" }, original: "x === 1" }],
+  }, "the killed mutant's proof names its re-run and the spec files whose tests failed");
   assert.deepEqual(runs.map((r) => [r.namespace, r.specFiles]), [["run-1-mut0", ["flows/a.spec.ts"]], ["run-1-mut1", ["flows/b.spec.ts"]]]);
   assert.deepEqual(runs[0]!.mutant, { url: "https://dev.example/main.js", sha256: "abc", start: 10, end: 20, replacement: "!(x === 1)" });
 });

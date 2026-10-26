@@ -13,6 +13,13 @@ type CoveredLines = Map<string, Set<number>>;
  */
 export function parseDiffHunks(diff: string): CoveredLines {
   const changed: CoveredLines = new Map();
+  for (const [file, lines] of addedLines(diff)) changed.set(file, new Set(lines.keys()));
+  return changed;
+}
+
+/* The text of each added line per file, numbered on the new side as `parseDiffHunks` numbers them. */
+export function addedLines(diff: string): Map<string, Map<number, string>> {
+  const changed = new Map<string, Map<number, string>>();
   let file: string | null = null;
   let newLine = 0;
   let newLeft = 0;
@@ -41,8 +48,8 @@ export function parseDiffHunks(diff: string): CoveredLines {
     if (c === "+") {
       if (file !== null) {
         let set = changed.get(file);
-        if (!set) changed.set(file, (set = new Set()));
-        set.add(newLine);
+        if (!set) changed.set(file, (set = new Map()));
+        set.set(newLine, raw.slice(1));
       }
       newLine++;
       newLeft--;
@@ -113,8 +120,35 @@ function toCoveredLines(report: CoverageReport): CoveredLines {
   return out;
 }
 
+/*
+ * The changed lines a browser collection can count: those its scripts hold code for. A line a loaded script's source map maps no code
+ * to (an import, a type, a comment, a brace) is not code and is left out; a covered line is code whatever the map says. A changed
+ * file no loaded script maps is not loaded: nothing says which of its lines are code, so its non-blank added lines are all counted,
+ * and none of them ran.
+ */
+export function executableChanged(added: ReadonlyMap<string, ReadonlyMap<number, string>>, executable: CoveredLines, covered: CoveredLines): Pick<ChangeCoverage, "notExecutable" | "notLoaded"> & { counted: CoveredLines } {
+  const counted: CoveredLines = new Map();
+  const notExecutable: { file: string; lines: number[] }[] = [];
+  const notLoaded: { file: string; lines: number[] }[] = [];
+  for (const [file, lines] of added) {
+    const code = executable.get(file);
+    const cov = covered.get(file);
+    const kept: number[] = [];
+    const left: number[] = [];
+    for (const [line, text] of lines) {
+      if (code ? code.has(line) || cov?.has(line) : text.trim() !== "") kept.push(line);
+      else left.push(line);
+    }
+    if (kept.length > 0) counted.set(file, new Set(kept));
+    if (code && left.length > 0) notExecutable.push({ file, lines: left.sort((a, b) => a - b) });
+    if (!code && kept.length > 0) notLoaded.push({ file, lines: kept.sort((a, b) => a - b) });
+  }
+  return { counted, notExecutable, notLoaded };
+}
+
 export function assembleChangeCoverage(diff: string, report: CoverageReport): ChangeCoverage {
-  const changed = parseDiffHunks(diff);
   const covered = toCoveredLines(report);
-  return computeChangeCoverage(changed, covered, report.branches);
+  if (!report.executable) return computeChangeCoverage(parseDiffHunks(diff), covered, report.branches);
+  const { counted, notExecutable, notLoaded } = executableChanged(addedLines(diff), toCoveredLines({ covered: report.executable }), covered);
+  return { ...computeChangeCoverage(counted, covered, report.branches), notExecutable, notLoaded };
 }

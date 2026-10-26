@@ -1,7 +1,8 @@
 /* Coverage dump readers. Fail-open: an absent, unusable or corrupt dump or report degrades to an empty result — never throws, never waits, never leaves the mirror. An empty report is unmeasured → unknown → never blocks publish. What a run of the tests leaves is the agent's to shape, so every read goes through run-output-reader (the strict read under a cap; what cannot be used is said aloud, quoting nothing of it). The dumps of a run, and the reports of a run, are each used whole or not at all: the coverage of some of them is a ratio of a part of what the run did, lower than the real one, and under enforce it would block a valid change, so when any of them cannot be used none of them is used and the result is empty. */
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { join } from "node:path";
-import type { CoverageScripts } from "../domain/coverage-collector.ts";
+import type { CoverageScripts, MutantEdit } from "../domain/coverage-collector.ts";
+import { undoMutant } from "./undo-mutant.ts";
 import { MAX_V8_DUMP_BYTES, MAX_V8_DUMP_FILES, MAX_V8_DUMPS_TOTAL_BYTES } from "../domain/dump-sanitizers.ts";
 import { defaultParseV8Coverage, type CoveredLines, type TimeSpent, type V8Entry } from "./v8-browser-coverage.adapter.ts";
 import type { BranchSink } from "./v8-branch-coverage.ts";
@@ -26,10 +27,10 @@ const REAL_TIME: V8DecodeTime = { now: () => performance.now(), budgetMs: V8_DEC
 export const MAX_COVERAGE_REPORT_BYTES = 32 * 1024 * 1024;
 
 /* What a dump covers of the changed files; throws on a dump it cannot decode within its bounds or before the time `spent` speaks of is, which leaves the set unused. */
-type ParseV8 = (entries: V8Entry[], changedFiles: string[], spent?: TimeSpent, scripts?: CoverageScripts, branches?: BranchSink) => CoveredLines;
+type ParseV8 = (entries: V8Entry[], changedFiles: string[], spent?: TimeSpent, scripts?: CoverageScripts, branches?: BranchSink, executable?: CoveredLines) => CoveredLines;
 
-/* The lines of `changedFiles` that the dumps of a namespace cover (and, in `scripts` when given, how many scripts they held and how many carried a source map; in `branches`, the decisions of the changed files they ran), one entry per dump in the order of their names. Each dump is parsed and reduced inside its read, so the dump itself is garbage as soon as the next one is read: the result is as small as the lines of the changed files, however many dumps and however large. A dump `keep` refuses (by its name) is neither read nor parsed. The time starts with the first dump; a dump that finds it spent is not even parsed, and a decoding that finds it spent stops: either leaves the set unused, said once with the reason. */
-export async function readV8Coverage(e2eDir: string, namespace: string, changedFiles: string[], limits: RunOutputLimits = V8_DUMP_LIMITS, parse: ParseV8 = defaultParseV8Coverage, time: V8DecodeTime = REAL_TIME, scripts?: CoverageScripts, branches?: BranchSink, keep: (name: string) => boolean = () => true): Promise<CoveredLines[]> {
+/* The lines of `changedFiles` that the dumps of a namespace cover (and, in `scripts` when given, how many scripts they held and how many carried a source map; in `branches`, the decisions of the changed files they ran), one entry per dump in the order of their names. Each dump is parsed and reduced inside its read, so the dump itself is garbage as soon as the next one is read: the result is as small as the lines of the changed files, however many dumps and however large. A dump `keep` refuses (by its name) is neither read nor parsed; a dump a mutant's re-run wrote (`mutant`) is read with the mutant's edit undone. The time starts with the first dump; a dump that finds it spent is not even parsed, and a decoding that finds it spent stops: either leaves the set unused, said once with the reason. */
+export async function readV8Coverage(e2eDir: string, namespace: string, changedFiles: string[], limits: RunOutputLimits = V8_DUMP_LIMITS, parse: ParseV8 = defaultParseV8Coverage, time: V8DecodeTime = REAL_TIME, scripts?: CoverageScripts, branches?: BranchSink, keep: (name: string) => boolean = () => true, executable?: CoveredLines, mutant?: MutantEdit): Promise<CoveredLines[]> {
   const rel = `.qa/coverage/${namespace}`;
   const startedAt = time.now();
   let ranOutOfTime = false;
@@ -46,7 +47,8 @@ export async function readV8Coverage(e2eDir: string, namespace: string, changedF
       if (spent()) throw new RangeError();
       branches?.beginDump(name);
       const parsed: unknown = JSON.parse(bytes.toString("utf8"));
-      return parse(Array.isArray(parsed) ? parsed : [], changedFiles, spent, scripts, branches);
+      const entries = Array.isArray(parsed) ? (parsed as V8Entry[]) : [];
+      return parse(mutant ? undoMutant(entries, mutant) : entries, changedFiles, spent, scripts, branches, executable);
     },
     limits,
   );

@@ -11,6 +11,7 @@ const site = (file: string, line: number, column: number, ranIn = ["flows-a-spec
   operator,
   script: { url: `https://dev.example/${file}.js`, sha256: "h" },
   edit: { start: column, end: column + 1, replacement: "!" },
+  original: "x",
   ranIn,
 });
 
@@ -50,4 +51,28 @@ test("a mutant re-runs the spec files whose tests' dumps ran it, told by the dum
   const long = "flows/restaurant-detail/restaurant-detail-missing-state-after-load.spec.ts";
   const dump = `${long.replace(/[^a-z0-9]+/gi, "-")}-test`.slice(0, 60) + "-0-0.json";
   assert.deepEqual(specFilesOf([dump], [long, "flows/b.spec.ts"]), [long], "a path longer than the dump's title is told by its first characters");
+});
+
+test("the decisions of changed lines an arm of which no test ran come first, each by the site that forces it, before one mutant per line", () => {
+  const sites = [
+    site("src/a.ts", 10, 2),
+    site("src/a.ts", 11, 0),
+    site("src/a.ts", 12, 0, undefined, "=== → !=="),
+    site("src/a.ts", 12, 6, undefined, "&& → ||"),
+    site("src/b.ts", 5, 0),
+  ];
+  const decision = (file: string, line: number, column: number, kind: "if" | "logical", taken: boolean[]) => ({ file, line, column, kind, arms: taken.map((t, i) => ({ label: `arm ${i}`, taken: t })) });
+  const decisions = [
+    decision("src/a.ts", 10, 2, "if", [true, true]),
+    decision("src/a.ts", 12, 6, "logical", [true, false]),
+    decision("src/b.ts", 5, 0, "if", [false, true]),
+  ];
+
+  const picked = selectMutants(sites, changed, ["flows/a.spec.ts"], undefined, decisions).map((m) => [m.site.file, m.site.line, m.site.column, m.site.operator]);
+
+  assert.deepEqual(picked, [
+    ["src/a.ts", 12, 6, "&& → ||"],
+    ["src/b.ts", 5, 0, "negate condition"],
+    ["src/a.ts", 10, 2, "negate condition"],
+  ], "the swap of the logical and the negation of the if first; a decision whose arms all ran is no target, and the fill skips the lines already taken");
 });

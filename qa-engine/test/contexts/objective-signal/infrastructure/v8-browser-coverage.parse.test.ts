@@ -430,3 +430,19 @@ test("the scripts of a dump are counted, and so are the ones that carry a source
 
   assert.deepEqual(scripts, { total: 2, withSourceMap: 1 });
 });
+
+test("the lines a bundle holds code for are every line of a changed file a segment maps to, ran or not; a line no segment maps to is not code", () => {
+  const executable = new Map<string, Set<number>>();
+  const covered = defaultParseV8Coverage(BUNDLED(covering(range(0, 5))) as never, ["src/a.ts", "src/b.ts"], undefined, undefined, undefined, executable);
+
+  assert.deepEqual([...covered.get("src/a.ts")!], [1], "only generated line 1 ran");
+  assert.deepEqual([...executable.get("src/a.ts")!].sort((a, b) => a - b), [1, 9], "but a.ts holds code on lines 1 and 9");
+  assert.deepEqual([...executable.get("src/b.ts")!], [5], "and b.ts on line 5, which did not run");
+});
+
+test("a script served at a changed file's own URL holds code on each of its lines that is not blank", () => {
+  const executable = new Map<string, Set<number>>();
+  defaultParseV8Coverage(OWN(covering(range(0, 3)), "a();\n\n  \nb();\n") as never, ["src/svc.ts"], undefined, undefined, undefined, executable);
+
+  assert.deepEqual([...executable.get("src/svc.ts")!], [1, 4]);
+});

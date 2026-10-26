@@ -10,6 +10,14 @@ export interface CoverageMeasurement {
   /** Arms of the decisions on changed lines, and how many of them ran. Absent when no decision was seen on a changed line. */
   changedBranches?: number;
   takenBranches?: number;
+  /** Changed lines the loaded scripts hold no code for (imports, types, comments): left out of `changedLines`. Absent when the collector cannot tell. */
+  notExecutableLines?: number;
+  /** Changed files no loaded script maps: their non-blank lines are counted, and uncovered. */
+  notLoadedFiles?: string[];
+  /** With a killed mutant's dumps added: the covered lines the passing tests ran by themselves, and the lines and arms only a killed mutant's re-run ran. `coveredChanged` holds both. */
+  coveredByExecution?: number;
+  provenByMutation?: number;
+  armsProvenByMutation?: number;
   /** Why the measurement decides nothing: no diff, no assembler, no changed line, or no executed source mapped to a changed file, or the scripts the page ran carried no source map at all (the app serves bundles that cannot be translated back to the repository's files). Absent when it measured. */
   /** The share of each use case's changed lines the run executed, or why it has none; absent when no candidates were asked for. A signal beside the aggregate, which alone decides. */
   perCandidate?: CandidateCoverage[];
