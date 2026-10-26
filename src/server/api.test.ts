@@ -1152,6 +1152,19 @@ test("POST /api/apps maps a validation failure to 422", async () => {
   assert.deepEqual(body.errors, ["bad url"]);
 });
 
+test("POST /api/apps redacts a secret in the reasons it refuses a config for", async () => {
+  const token = `ghp_${"a1B2c3D4".repeat(4)}abcd`;
+  const res = mkRes();
+  await routeApi(
+    mkReq("POST", "/api/apps", JSON.stringify({ repo: "org/x" })),
+    res,
+    deps({ createApp: async () => ({ ok: false, errors: [`repo validation failed: clone denied for ${token}`] }) }),
+  );
+  assert.equal(res.status, 422);
+  assert.ok(!res.body.includes(token), "no raw token in the 422 body");
+  assert.ok(res.body.includes("[REDACTED]"));
+});
+
 test("POST /api/apps without the dep returns 501", async () => {
   const res = mkRes();
   await routeApi(mkReq("POST", "/api/apps", JSON.stringify({ repo: "org/x" })), res, deps({}));

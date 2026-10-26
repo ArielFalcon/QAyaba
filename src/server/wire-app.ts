@@ -1,5 +1,5 @@
 
-import { appLogger } from "../integrations/redacting-logger";
+import { appLogger, logLine } from "../integrations/redacting-logger";
 import { installProcessLogger } from "@kernel/ports/process-logger";
 import { PendingChangeSets } from "./pending-change-sets";
 import type { IncomingMessage } from "node:http";
@@ -60,7 +60,6 @@ import { github } from "../integrations/github";
 import { createApp as adminCreateApp, updateApp as adminUpdateApp, deleteApp as adminDeleteApp, type AppAdminDeps } from "./app-admin";
 import { writeConfig, configExists } from "./onboard";
 import { applyEnvVars, defaultEnvStoreFs } from "./env-store";
-import { logJson } from "../integrations/logger";
 import { createOnboardingJob, type RepoIndexOutcome } from "./onboarding/onboarding-job";
 import { LlmProfileProposerAdapter, PROPOSER_MODEL } from "./onboarding/llm-profile-proposer.adapter";
 import { OnboardingService } from "@contexts/service-topology/application/index";
@@ -319,15 +318,15 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
   setCodeGraphGrantLookup((sessionId) => codeGraphRegistry.find(sessionId) !== undefined);
   /* A browser the authenticated agent tools started and a previous process of this container never stopped (it was restarted in place) ends here; a run closes its own browser when it ends. */
   const orphanBrowsers = sweepOrphanAgentBrowsers(execWorkRoot(settings.environment));
-  if (orphanBrowsers > 0) logJson("warn", `stopped ${orphanBrowsers} agent browser process(es) a previous orchestrator process left behind`);
+  if (orphanBrowsers > 0) appLogger.warn(`stopped ${orphanBrowsers} agent browser process(es) a previous orchestrator process left behind`);
   /* The workspaces of a run's sidekicks that a previous process never removed. */
   void new FsDelegationWorkspaceAdapter({ root: join(workdirRoot(), DELEGATIONS_DIR) }).sweepAll().then(
-    (swept) => { if (swept > 0) logJson("warn", `removed ${swept} sidekick workspace(s) a previous orchestrator process left behind`); },
-    (err: unknown) => logJson("error", `sweeping the sidekick workspaces failed: ${err instanceof Error ? err.message : String(err)}`),
+    (swept) => { if (swept > 0) appLogger.warn(`removed ${swept} sidekick workspace(s) a previous orchestrator process left behind`); },
+    (err: unknown) => appLogger.error(`sweeping the sidekick workspaces failed: ${err instanceof Error ? err.message : String(err)}`),
   );
   const toolsPort = settings.server.toolsPort;
   const toolsToken = resolveToolsToken(settings.environment);
-  if (toolsToken.generated) logJson("warn", "QA_TOOLS_TOKEN is not set: no run is granted the run_spec or authenticated browser tools until the same value is set on the orchestrator and agents services");
+  if (toolsToken.generated) appLogger.warn("QA_TOOLS_TOKEN is not set: no run is granted the run_spec or authenticated browser tools until the same value is set on the orchestrator and agents services");
   /* What every run records of the process around it (its effectiveConfig): the agent runtime, the prompt layers, the tool grants and the operator switches, each read where it is configured. */
   /* Memoised for the process's life: editing a prompt file needs a restart to show in later runs' effectiveConfig (docs/observability-design.md section 14). */
   let staticPromptHash: string | null | undefined;
@@ -340,7 +339,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
     maxCapture: settings.telemetry.config.maxCapture,
   };
   const toolsServer = createToolsServer({ token: toolsToken.token, registry: closedLoopRegistry, browsers: agentBrowserRegistry, geolocations: geolocationRegistry, codeGraphs: codeGraphRegistry });
-  toolsServer.on("error", (err: Error & { code?: string }) => logJson("error", `the tools endpoint cannot listen on port ${toolsPort}: ${err.message}; the agents' run_spec, authenticated browser and location calls will fail`));
+  toolsServer.on("error", (err: Error & { code?: string }) => appLogger.error(`the tools endpoint cannot listen on port ${toolsPort}: ${err.message}; the agents' run_spec, authenticated browser and location calls will fail`));
 
   engineFactory = createRunEngineFactory({
     telemetry: telemetry.telemetry,
@@ -459,9 +458,9 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
   function runHistoryRetention(): void {
     try {
       const report = pruneHistory(getHistoryDatabase(), retentionPolicyFrom(settings.retention), Date.now());
-      logJson("info", "history retention pruned", { report });
+      appLogger.info("history retention pruned", { report });
     } catch (err) {
-      logJson("error", "history retention failed", { error: redactionPort.redactError(err) });
+      appLogger.error("history retention failed", { error: redactionPort.redactError(err) });
     }
   }
   function startPoller(): void {
@@ -477,7 +476,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
       runHistoryRetention,
       backupDatabase: () => backupDatabase(getHistoryDatabase()),
       pruneMirrors: () => void pruneMirrors(defaultMirrorPruneDeps(() => queue.current)),
-      log: logJson,
+      log: logLine,
     });
   }
 
@@ -512,7 +511,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
       try {
         settingsStore.reload();
       } catch (err) {
-        logJson("error", "the applied variables do not form valid settings; the previous settings stay in force", { error: redactionPort.redactError(err) });
+        appLogger.error("the applied variables do not form valid settings; the previous settings stay in force", { error: redactionPort.redactError(err) });
       }
       return applied;
     },
@@ -785,7 +784,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
       api: (req, res) => routeApi(req, res, apiDeps),
       dashboard: (req, res) => serveDashboard(req, res, { dir: resolveDashboardDir(ROOT) }),
       shouldLogApiRequest,
-      log: logJson,
+      log: logLine,
       now: Date.now,
     },
     /* Deliveries on any non-API path: fail closed without a secret, signature check, one run per dispatched app. */
@@ -795,7 +794,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
       catalog: appCatalog,
       enqueue: enqueueWebhookRun,
       shuttingDown: () => lifecycle.shuttingDown(),
-      log: logJson,
+      log: logLine,
     },
     toolsServer,
     lifecycle,
@@ -806,7 +805,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
        * health call. No-op when no proxy is configured. (A per-run build refines the timeouts.)
        */
       const startupTimeout = settings.agent.timeoutMs ?? 900_000;
-      installHttpDispatcher(startupTimeout).catch((err) => logJson("warn", "HTTP dispatcher setup failed", { error: err instanceof Error ? err.message : String(err) }));
+      installHttpDispatcher(startupTimeout).catch((err) => appLogger.warn("HTTP dispatcher setup failed", { error: err instanceof Error ? err.message : String(err) }));
       /*
        * Start the SSE event stream from OpenCode so agent activity (tool calls,
        * file edits, streaming text) is routed to RunRecord logs in real time.
@@ -825,13 +824,13 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
            */
           try { runEvents.publish(runId, body); } catch { /* advisory */ }
         },
-      )?.catch((err) => logJson("warn", "event stream reconnect loop failed", { error: err instanceof Error ? err.message : String(err) }));
+      )?.catch((err) => appLogger.warn("event stream reconnect loop failed", { error: err instanceof Error ? err.message : String(err) }));
       recoverRollbackRecord();
       confirmSwapAfterBoot();
       startPoller();
       recoverMaintainerState();
     },
-    log: logJson,
+    log: logLine,
     exit: (code) => process.exit(code),
     redact: (err) => redactionPort.redactError(err),
   });

@@ -16,7 +16,7 @@
 import { join } from "node:path";
 import { readdirSync, statSync, rmSync } from "node:fs";
 import { loadAppConfig, listAppConfigs } from "../orchestrator/config-loader";
-import { logJson } from "../integrations/logger";
+import { logLine } from "../integrations/redacting-logger";
 import { DELEGATIONS_DIR, EXPERIMENT_COPIES_DIR, JUDGE_WORKDIR, WARM_SNAPSHOTS_DIR } from "../paths";
 import { getHistory } from "./persistence/index";
 import { activeSettings } from "../settings/store";
@@ -202,6 +202,6 @@ export function defaultMirrorPruneDeps(queueCurrentRunId: () => string | null): 
         },
       }),
     now: () => Date.now(),
-    log: logJson,
+    log: logLine,
   };
 }

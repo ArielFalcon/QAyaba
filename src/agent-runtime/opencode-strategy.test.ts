@@ -247,3 +247,14 @@ describe("OpenCodeRuntimeStrategy.stepLimits", () => {
     assert.match(warning, /ECONNREFUSED/, "it carries what failed");
   });
 });
+
+describe("OpenCodeRuntimeStrategy.health", () => {
+  it("reports a supervisor it cannot reach without quoting a secret the failure carried", async () => {
+    const token = `ghp_${"a1B2c3D4".repeat(4)}abcd`;
+    /* A URL with credentials makes fetch fail with a message that quotes the whole URL. */
+    const strategy = new OpenCodeRuntimeStrategy({ env: { OPENCODE_API_KEY: "test-key", AGENT_SUPERVISOR_URL: `http://agent:${token}@127.0.0.1:1` } });
+    const health = await strategy.health();
+    assert.equal(health.status, "failed");
+    assert.ok(!JSON.stringify(health).includes(token), "the health report carries no raw token");
+  });
+});

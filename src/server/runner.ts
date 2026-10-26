@@ -279,7 +279,8 @@ async function runViaEngine(
     passed: outcome.verdict === "pass",
     cases,
     logs: outcome.logs ?? "",
-    ...(outcome.note !== undefined ? { note: outcome.note } : {}),
+    /* The note is an engine-written text that reaches the record, the verdict event and the API: the shell redacts it where it takes it over. */
+    ...(outcome.note !== undefined ? { note: redactionPort.redact(outcome.note) } : {}),
     ...(outcome.gateSignals.furthestPhase !== undefined ? { phases: { furthestPhase: outcome.gateSignals.furthestPhase, phaseTimings: outcome.gateSignals.phaseTimings ?? {} } } : {}),
   };
 }

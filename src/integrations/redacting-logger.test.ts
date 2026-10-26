@@ -66,6 +66,13 @@ test("an error field that is not an Error is rendered as redacted text", async (
   assert.ok(!file.includes(GITHUB_TOKEN));
 });
 
+test("an error field that is a structure keeps its shape with every string redacted", () => {
+  const metas: (Record<string, unknown> | undefined)[] = [];
+  const logger = createRedactingLogger({ sink: (_level, _message, meta) => void metas.push(meta) });
+  logger.warn("indexing failed", { error: { reason: `denied for ${GITHUB_TOKEN}`, attempts: 2 } });
+  assert.deepEqual(metas[0]?.error, { reason: `denied for ${REDACTED}`, attempts: 2 });
+});
+
 test("the stack of an error field is written only at debug level, redacted", () => {
   const lines: { level: string; meta: Record<string, unknown> | undefined }[] = [];
   const logger = createRedactingLogger({ sink: (level, _message, meta) => void lines.push({ level, meta }) });

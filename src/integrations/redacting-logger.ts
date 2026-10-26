@@ -48,7 +48,8 @@ function redactFields(level: LogLevel, fields: LogFields, redact: (text: string)
       out[key] = redactValue(value, redact, 0);
       continue;
     }
-    out.error = redact(errorMessage(value));
+    /* A thrown value is rendered as its message; a structure someone put in the field keeps its shape. */
+    out.error = typeof value === "object" && value !== null && !(value instanceof Error) ? redactValue(value, redact, 0) : redact(errorMessage(value));
     if (level === "debug" && value instanceof Error && value.stack) out.stack = redact(value.stack);
   }
   return out;
@@ -87,3 +88,6 @@ export function createRedactingLogger(deps: RedactingLoggerDeps = {}): LoggerPor
 
 /* The process logger every shell module without its own dependency seam logs through. */
 export const appLogger: LoggerPort = createRedactingLogger();
+
+/* The sink a dependency takes as `log: (level, message, meta) => void`: the process logger, level by level. */
+export const logLine = (level: LogLevel, message: string, meta?: Record<string, unknown>): void => appLogger[level](message, meta);

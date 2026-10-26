@@ -23,7 +23,8 @@ import { startLoginBootstrap } from "../use-cases/login-bootstrap";
 
 /* An app config the onboarding rules refuse: the reasons joined as the message, each one kept in `errors`. */
 function invalidAppConfig(errors: readonly string[] | undefined): ApiError {
-  const reasons = errors ?? ["invalid app config"];
+  /* The reasons come from the validation of a clone or a read of a file: they can quote what the remote or the file said. */
+  const reasons = (errors ?? ["invalid app config"]).map((reason) => redactionPort.redact(reason));
   return new ApiError(422, reasons.join("; "), { extra: { errors: reasons } });
 }
 

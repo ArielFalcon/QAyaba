@@ -75,6 +75,23 @@ test("enqueueTrackedRun with no engineFactory supplied — throws loudly, finali
   assert.match(r.note ?? "", /engineFactory is required/);
 });
 
+test("a note the engine ends a run with is redacted before the record and the verdict event carry it", async () => {
+  const queue = new JobQueue();
+  const token = `ghp_${"a1B2c3D4".repeat(4)}abcd`;
+  const { port } = fakePort({ verdict: "infra-error", note: `the publication failed with ${token}` });
+  const events: unknown[] = [];
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-note-redaction", sha: "abc9999", target: "e2e", mode: "diff", source: "manual" },
+    { loadApp: cfg, engineFactory: () => port, runEvents: { publish: (_id: string, event: unknown) => void events.push(event) } as never },
+  );
+  await queue.drain();
+  const note = getHistory().runs.getRecord(id)!.note ?? "";
+  assert.ok(!note.includes(token), "the stored note carries no raw token");
+  assert.ok(note.includes("[REDACTED]"));
+  assert.ok(!JSON.stringify(events).includes(token), "the verdict event carries no raw token");
+});
+
 test("engineFactory supplied — routes to port.run", async () => {
   const queue = new JobQueue();
   const { port, calls } = fakePort({ verdict: "pass" });

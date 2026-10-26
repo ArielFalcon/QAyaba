@@ -1,3 +1,4 @@
+import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import { appLogger } from "../integrations/redacting-logger";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -188,7 +189,8 @@ async function supervisorHealth(env: Record<string, string | undefined>, provide
     const body = await res.json() as { providers?: Record<string, AgentProviderHealth> };
     return body.providers?.[provider];
   } catch (err) {
-    return { provider, status: "failed", configured: true, error: err instanceof Error ? err.message : String(err) };
+    /* A fetch failure quotes the URL it was given, which can carry credentials. */
+    return { provider, status: "failed", configured: true, error: new RedactionPortAdapter().redactError(err) };
   }
 }
 
