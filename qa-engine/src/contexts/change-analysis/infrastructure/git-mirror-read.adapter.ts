@@ -40,6 +40,13 @@ export class GitMirrorReadAdapter implements VcsReadPort {
     return r.stdout.trim();
   }
 
+  async ancestor(sha: Sha, n: number): Promise<Sha> {
+    const r = await this.runner.run({ command: "git", args: hardenGitArgs(["rev-parse", "--verify", `${sha.value}~${n}^{commit}`], this.repoDir), cwd: this.repoDir, env: scrubEnv() });
+    if (r.timedOut) throw new Error(`git rev-parse timed out for ${sha.value}~${n}`);
+    if (r.exitCode !== 0) throw new Error(`git rev-parse failed (exit ${r.exitCode}): ${r.stderr.trim()}`);
+    return Sha.of(r.stdout.trim());
+  }
+
   async blastRadius(sha: Sha, opts?: { baseSha?: Sha; commits?: number }): Promise<BlastRadius> {
     const diff = await this.diff(sha, opts);
     return BlastRadius.of(sha, this.parser.changedFiles(diff), this.parser.touchedLines(diff));

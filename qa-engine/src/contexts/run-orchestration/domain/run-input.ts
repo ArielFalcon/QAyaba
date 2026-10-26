@@ -1,9 +1,12 @@
 import type { Sha } from "@kernel/sha.ts";
+import type { ChangeSet } from "@kernel/change-set.ts";
 import type { TriggerSource, RunMode, TestTarget, RunPurpose } from "@kernel/run-mode.ts";
 
 /** Single input → RunOutcome. Production implementation is RunPipelineAdapter. */
 export interface RunInput {
   app: string;
+  /** Every repo the run reads. `sha`, `baseSha` and `triggerRepo` below are the projection of its anchor entry (`anchorProjection`). */
+  changeSet: ChangeSet;
   sha: Sha;
   source: TriggerSource;
   mode: RunMode;

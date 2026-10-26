@@ -1834,3 +1834,35 @@ test("a context run rebuilt inside a run's turn opens its own trace: no span of 
   assert.equal(inParentTrace.some((s) => s.name === "phase of context"), false);
   await h.dispose();
 });
+
+test("the run's change set carries the request's commit count and projects to the run input", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  enqueueTrackedRun(
+    queue,
+    { app: "runner-commits", sha: "def5678", target: "e2e", mode: "diff", source: "webhook", commits: 3 },
+    { loadApp: (name) => cfg(name), engineFactory: () => port },
+  );
+  await queue.drain();
+  const input = calls[0]!;
+  assert.equal(input.changeSet.anchor.commits, 3);
+  assert.equal(input.changeSet.anchor.headSha.value, input.sha.value);
+  assert.equal(input.baseSha, undefined);
+});
+
+test("a service push with a base projects its repo and base onto the run input", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  enqueueTrackedRun(
+    queue,
+    { app: "runner-service-base", sha: "def5678", target: "e2e", mode: "diff", source: "webhook", triggerRepo: "org/orders-svc", baseSha: "bad00001" },
+    { loadApp: (name) => ({ ...cfg(name), services: [{ repo: "org/orders-svc" }] }), engineFactory: () => port },
+  );
+  await queue.drain();
+  const input = calls[0]!;
+  assert.equal(input.changeSet.anchor.role, "service");
+  assert.equal(input.changeSet.anchor.repo, "org/orders-svc");
+  assert.equal(input.triggerRepo, "org/orders-svc");
+  assert.equal(input.baseSha?.value, "bad00001");
+  assert.equal(input.changeSet.anchor.baseSha?.value, "bad00001");
+});

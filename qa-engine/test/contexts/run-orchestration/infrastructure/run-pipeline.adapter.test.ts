@@ -24,6 +24,7 @@ import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.t
 import { served } from "../../../support/coordinator-over-author.ts";
 import { fakeHandle, rootsOf } from "../application/run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
+import { primaryChangeSet } from "../../../support/change-set.ts";
 /* so the adapter's own scenario tests are apples-to-apples with the use-case's own 10-scenario
    parity: same green-pr fixture semantics (scenarioApp needsReview:true, makeDeps({}) — generate()
    approved:true with 1 spec, execute() a clean pass, no coverage config, not shadow, onFailure
@@ -97,6 +98,7 @@ function stubPorts(overrides: Partial<{
 const baseInput = {
   app: "demo",
   sha: Sha.of("abc1234"),
+  changeSet: primaryChangeSet("demo", Sha.of("abc1234")),
   source: "manual" as const,
   mode: "diff" as const,
   target: "e2e" as const,

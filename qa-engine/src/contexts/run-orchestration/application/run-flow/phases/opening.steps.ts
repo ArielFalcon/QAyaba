@@ -29,7 +29,7 @@ export async function waitForDeploy(_state: Readonly<RunState>, ctx: RunContext)
  */
 export async function classifyChange(_state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   ctx.deps.observer?.onStep("classify");
-  const classification = await ctx.deps.changeAnalysis.classify(ctx.input.sha, ctx.input.baseSha ? { baseSha: ctx.input.baseSha } : undefined);
+  const classification = await ctx.deps.changeAnalysis.classify(ctx.input.changeSet.anchor);
   if (classification.action === "skip") {
     /* Prepare already checked out the mirror. Classify-skip does not persist, but the working copy was touched and is pruned with the end. */
     return end("classify-skipped");

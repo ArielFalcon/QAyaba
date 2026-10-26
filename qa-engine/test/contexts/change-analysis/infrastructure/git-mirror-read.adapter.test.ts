@@ -247,3 +247,16 @@ test("REAL repo: blastRadius() names a changed file whose path holds spaces and 
     rmSync(repo, { recursive: true, force: true });
   }
 });
+
+test("ancestor() names the commit n steps behind sha through rev-parse", async () => {
+  let seen: SandboxedRunRequest | null = null;
+  const adapter = new GitMirrorReadAdapter("/repo", runnerReturning("b45e0001" + "0".repeat(32) + "\n", (r) => (seen = r)));
+  const base = await adapter.ancestor(Sha.of("deadbee1"), 3);
+  assert.equal(base.value, "b45e0001" + "0".repeat(32));
+  assert.ok(seen!.args.includes("deadbee1~3^{commit}"));
+});
+
+test("ancestor() throws when git cannot name the commit", async () => {
+  const adapter = new GitMirrorReadAdapter("/repo", { run: async () => ({ stdout: "", stderr: "bad revision", exitCode: 128, timedOut: false }) } as unknown as SandboxedBinaryRunner);
+  await assert.rejects(() => adapter.ancestor(Sha.of("deadbee1"), 30), /rev-parse failed/);
+});

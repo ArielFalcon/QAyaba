@@ -17,8 +17,9 @@ import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../../s
 import { fakeWorkspace } from "./fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { served } from "../../../../support/coordinator-over-author.ts";
+import { primaryChangeSet } from "../../../../support/change-set.ts";
 
-const base = { app: "demo", sha: Sha.of("abc1234"), source: "manual" as const, target: "e2e" as const, mode: "diff" as const };
+const base = { app: "demo", changeSet: primaryChangeSet("demo", Sha.of("abc1234")), sha: Sha.of("abc1234"), source: "manual" as const, target: "e2e" as const, mode: "diff" as const };
 const SECRET = "hunter2-hunter2-secret";
 
 function depsFor(ws: RunWorkspace, seen: RunCheckpoint[], over: Partial<RunQaUseCaseDeps> = {}): RunQaUseCaseDeps {

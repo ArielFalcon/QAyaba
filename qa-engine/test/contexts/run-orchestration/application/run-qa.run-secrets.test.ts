@@ -12,6 +12,7 @@ import { activeRunSecretScope, redactByValue, type RunSecretScope } from "../../
 import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { served } from "../../../support/coordinator-over-author.ts";
+import { primaryChangeSet } from "../../../support/change-set.ts";
 
 const SECRET = "account-secret-7731";
 
@@ -55,7 +56,7 @@ async function runOnce(runId: string, observe: { atGenerate?: RunSecretScope | u
       cleanup: { cleanup: async () => {} },
       config: { needsReview: false },
     });
-    await useCase.run({ app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId });
+    await useCase.run({ app: "demo", changeSet: primaryChangeSet("demo", Sha.of("abc1234")), sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId });
   } finally {
     ws.cleanup();
   }

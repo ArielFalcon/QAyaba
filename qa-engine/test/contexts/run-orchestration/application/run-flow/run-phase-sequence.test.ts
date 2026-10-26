@@ -12,6 +12,7 @@ import { generationOnDisk, runWorkspace } from "../../../../support/run-workspac
 import { fakeWorkspace } from "./fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { served } from "../../../../support/coordinator-over-author.ts";
+import { primaryChangeSet } from "../../../../support/change-set.ts";
 
 const PHASE_SPAN_PREFIX = "qayaba.phase.";
 
@@ -71,7 +72,7 @@ async function runOf(input: RunQaInput, execute?: RunQaUseCaseDeps["execution"][
 const phasesOf = async (input: RunQaInput): Promise<string[]> => (await runOf(input)).entered;
 const idsOf = async (input: RunQaInput, outcome: string): Promise<string[]> => (await runOf(input)).steps.filter((step) => step.outcome === outcome).map((step) => step.id);
 
-const base = { app: "demo", sha: Sha.of("abc1234"), source: "manual" as const, target: "e2e" as const };
+const base = { app: "demo", changeSet: primaryChangeSet("demo", Sha.of("abc1234")), sha: Sha.of("abc1234"), source: "manual" as const, target: "e2e" as const };
 
 test("a green diff run opens every phase but the fix loop, in pipeline order", async () => {
   const entered = await phasesOf({ ...base, mode: "diff", runId: "sequence-diff" });

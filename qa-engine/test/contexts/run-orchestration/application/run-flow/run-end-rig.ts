@@ -23,6 +23,7 @@ import { reassignableGeneration, runWorkspace, type RunWorkspace } from "../../.
 import { coordinatorOver } from "../../../../support/coordinator-over-author.ts";
 import { fakeHandle, rootsOf } from "./fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../../src/shared-infrastructure/spec-files.adapter.ts";
+import { primaryChangeSet } from "../../../../support/change-set.ts";
 
 /** Where a run stood and what it did to the outside when it ended. */
 export interface Observed {
@@ -104,7 +105,7 @@ export function dispose(rig: Rig): void {
   rig.ws.cleanup();
 }
 
-const BASE_INPUT = { app: "demo", sha: Sha.of("abc1234"), source: "manual" as const, mode: "diff" as const, target: "e2e" as const };
+const BASE_INPUT = { app: "demo", changeSet: primaryChangeSet("demo", Sha.of("abc1234")), sha: Sha.of("abc1234"), source: "manual" as const, mode: "diff" as const, target: "e2e" as const };
 const BASE_CONFIG: Partial<RunQaConfig> = { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false };
 
 /** Runs one run through the rig and reports what it did. The rig is the caller's to dispose. */

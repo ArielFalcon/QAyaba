@@ -12,6 +12,7 @@ import { generationOnDisk, runWorkspace } from "../../../../support/run-workspac
 import { fakeWorkspace } from "./fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { served } from "../../../../support/coordinator-over-author.ts";
+import { primaryChangeSet } from "../../../../support/change-set.ts";
 
 /* What a JSON round trip keeps: the walk throws at the first value it would change or lose, and otherwise returns the value without its undefined fields. */
 function plainData(value: unknown, path: string): unknown {
@@ -44,7 +45,7 @@ test("a run's initial state is plain data", () => {
   assertRoundTrips(initialRunState(), "at the start");
 });
 
-const base = { app: "demo", sha: Sha.of("abc1234"), source: "manual" as const, target: "e2e" as const, mode: "diff" as const };
+const base = { app: "demo", changeSet: primaryChangeSet("demo", Sha.of("abc1234")), sha: Sha.of("abc1234"), source: "manual" as const, target: "e2e" as const, mode: "diff" as const };
 
 /* Runs the pipeline and checks the state after every step, except while a review round holds its snapshot of the suite. */
 async function runChecked(input: RunQaInput, execute: RunQaUseCaseDeps["execution"]["execute"]): Promise<{ checked: number; loopSteps: number }> {

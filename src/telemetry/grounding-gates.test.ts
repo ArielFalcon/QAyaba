@@ -12,6 +12,7 @@ import { generationOnDisk, runWorkspace } from "../../qa-engine/test/support/run
 import { traceHarness } from "./trace-harness";
 import { confinedSpecFiles } from "../../qa-engine/src/shared-infrastructure/spec-files.adapter";
 import { served } from "../../qa-engine/test/support/coordinator-over-author";
+import { primaryChangeSet } from "../../qa-engine/test/support/change-set";
 
 const SPEC_SOURCE = "await page.goto('/orders');\nawait page.getByTestId('invented-id').click();\nawait page.getByTestId('real-id').click();\n";
 
@@ -49,7 +50,7 @@ function useCase(telemetry: TelemetryPort | undefined, withGrounding = true, val
   return new RunQaUseCase(deps);
 }
 
-const input = { app: "demo", sha: Sha.of("abc1234"), source: "manual" as const, mode: "diff" as const, target: "e2e" as const, runId: "gates" };
+const input = { app: "demo", changeSet: primaryChangeSet("demo", Sha.of("abc1234")), sha: Sha.of("abc1234"), source: "manual" as const, mode: "diff" as const, target: "e2e" as const, runId: "gates" };
 
 test("a spec that uses a test id the captured page lacks is an event on the phase it was found in, with the counts of the gate", async () => {
   const h = traceHarness();

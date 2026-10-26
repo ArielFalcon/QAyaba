@@ -20,6 +20,7 @@ import { createExecScopeProvider } from "../../../../src/shared-infrastructure/p
 import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { served } from "../../../support/coordinator-over-author.ts";
+import { primaryChangeSet } from "../../../support/change-set.ts";
 
 async function runWith(options: { execScope?: ExecScopePort; observer?: ObserverPort; execute: () => Promise<{ verdict: "pass"; cases: []; logs: string }> }): Promise<{ saved: RunOutcome[]; threw?: unknown }> {
   const ws = runWorkspace("qa-run-exec-scope-");
@@ -54,7 +55,7 @@ async function runWith(options: { execScope?: ExecScopePort; observer?: Observer
       ...(options.observer ? { observer: options.observer } : {}),
     });
     try {
-      await useCase.run({ app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "run-exec-scope" });
+      await useCase.run({ app: "demo", changeSet: primaryChangeSet("demo", Sha.of("abc1234")), sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "run-exec-scope" });
     } catch (threw) {
       return { saved, threw };
     }

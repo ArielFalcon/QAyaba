@@ -12,6 +12,7 @@ import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.t
 import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { served } from "../../../support/coordinator-over-author.ts";
+import { primaryChangeSet } from "../../../support/change-set.ts";
 
 /* A clock that only moves when a port "takes time", so phase durations are exact. */
 function steppedClock() {
@@ -54,7 +55,7 @@ function harness(overrides: Overrides = {}) {
   return { useCase: new RunQaUseCase(deps), clock, saved };
 }
 
-const input = { app: "demo", sha: Sha.of("abc1234"), source: "manual" as const, mode: "diff" as const, target: "e2e" as const, runId: "phase-cursor" };
+const input = { app: "demo", changeSet: primaryChangeSet("demo", Sha.of("abc1234")), sha: Sha.of("abc1234"), source: "manual" as const, mode: "diff" as const, target: "e2e" as const, runId: "phase-cursor" };
 
 test("a run that passes through every stage reports learn as its furthest phase and the time of each stage it entered", async () => {
   const { useCase, clock } = harness({

@@ -34,6 +34,7 @@ export async function resolveWebhookDispatch(
           target: "e2e",
           mode: "diff",
           ...(opts.guidance !== undefined ? { guidance: opts.guidance } : {}),
+          ...(opts.baseSha !== undefined ? { baseSha: opts.baseSha } : {}),
           triggerRepo: repo,
         },
   );

@@ -19,7 +19,8 @@ import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../supp
 import { fakeHandle, rootsOf } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { served } from "../../../support/coordinator-over-author.ts";
-const INPUT = { app: "demo", sha: Sha.of("abc1234"), source: "manual" as const, mode: "diff" as const, target: "e2e" as const, runId: "suite-run" };
+import { primaryChangeSet } from "../../../support/change-set.ts";
+const INPUT = { app: "demo", changeSet: primaryChangeSet("demo", Sha.of("abc1234")), sha: Sha.of("abc1234"), source: "manual" as const, mode: "diff" as const, target: "e2e" as const, runId: "suite-run" };
 const sha256 = (text: string): string => createHash("sha256").update(text).digest("hex");
 
 const PASSING: QaCase[] = [

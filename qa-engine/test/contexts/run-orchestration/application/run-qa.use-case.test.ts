@@ -63,6 +63,8 @@ import { scriptedLoginEvidence } from "../../../support/login-evidence.ts";
 import type { WorkspaceHandle } from "@contexts/run-orchestration/application/index.ts";
 import { fakeHandle, rootsOf } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
+import { ChangeSet } from "@contexts/change-analysis/application/index.ts";
+import { primaryChangeSet } from "../../../support/change-set.ts";
 /* Ports through the full lifecycle. NO inline IO, NO prompt strings, NO learning side-effects on
    the verdict path (LearningPort.fold is off-path). Drives the SAME stub shapes scenarios.ts
    provides for the equivalent runPipeline scenario.
@@ -183,6 +185,7 @@ function stubPorts(overrides: Partial<{
 const baseInput = {
   app: "demo",
   sha: Sha.of("abc1234"),
+  changeSet: primaryChangeSet("demo", Sha.of("abc1234")),
   source: "manual" as const,
   mode: "diff" as const,
   target: "e2e" as const,
@@ -984,22 +987,25 @@ test("a generate-typed commit (unchanged) still calls generate() normally — re
   assert.ok(generateCallCount >= 1, "a genuinely generate-typed commit must still call generate() — the regression gate only applies to the regression action");
 });
 
-/* ChangeAnalysisPort.classify(sha, {baseSha}) — the use-case's own half of the seam (the runner's
+/* ChangeAnalysisPort.classify(entry) — the use-case's own half of the seam (the runner's
    half is pinned in src/server/runner.test.ts).
  */
 
-test("input.baseSha is forwarded to classify() as {baseSha}, absent -> classify() called with no opts (single-commit, unchanged)", async () => {
-  const seenOpts: unknown[] = [];
+test("classify() receives the change set's anchor entry, base and commit count included", async () => {
+  const seen: unknown[] = [];
   const { ports } = stubPorts({
-    classify: async (_sha, opts) => { seenOpts.push(opts); return { action: "generate", reason: "type=feat", diff: "" }; },
+    classify: async (entry) => { seen.push(entry); return { action: "generate", reason: "type=feat", diff: "" }; },
   });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+  const head = Sha.of("abc1234");
+  const withBase = ChangeSet.of("demo", [{ repo: "org/demo", role: "primary", headSha: head, baseSha: Sha.of("bad00001") }]);
+  const withCount = ChangeSet.of("demo", [{ repo: "org/demo", role: "primary", headSha: head, commits: 3 }]);
 
   await useCase.run({ ...baseInput, runId: "no-basesha" });
-  await useCase.run({ ...baseInput, runId: "with-basesha", baseSha: Sha.of("bad00001") });
+  await useCase.run({ ...baseInput, runId: "with-basesha", changeSet: withBase, baseSha: Sha.of("bad00001") });
+  await useCase.run({ ...baseInput, runId: "with-commits", changeSet: withCount });
 
-  assert.equal(seenOpts[0], undefined, "no input.baseSha -> classify() called with opts undefined, byte-identical to a run without a base SHA");
-  assert.deepEqual(seenOpts[1], { baseSha: Sha.of("bad00001") }, "input.baseSha must be forwarded verbatim as classify()'s opts.baseSha");
+  assert.deepEqual(seen, [baseInput.changeSet.anchor, withBase.anchor, withCount.anchor]);
 });
 
 test("classification.reason + contradiction:true reach baseEnrichment when the classifier escalated", async () => {

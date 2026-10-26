@@ -27,6 +27,7 @@ import { generationOnDisk, runWorkspace } from "../../qa-engine/test/support/run
 import { traceHarness } from "./trace-harness";
 import { confinedSpecFiles } from "../../qa-engine/src/shared-infrastructure/spec-files.adapter";
 import { loginToBeWritten, served } from "../../qa-engine/test/support/coordinator-over-author";
+import { primaryChangeSet } from "../../qa-engine/test/support/change-set";
 
 type Overrides = Partial<{
   classify: RunQaUseCaseDeps["changeAnalysis"]["classify"];
@@ -66,7 +67,7 @@ function useCaseWith(telemetry: TelemetryPort | undefined, clock: { now(): numbe
   return new RunQaUseCase({ ...baseDeps(clock, overrides), ...(telemetry ? { telemetry } : {}) });
 }
 
-const input = { app: "demo", sha: Sha.of("abc1234"), source: "manual" as const, mode: "diff" as const, target: "e2e" as const, runId: "run-trace-1" };
+const input = { app: "demo", changeSet: primaryChangeSet("demo", Sha.of("abc1234")), sha: Sha.of("abc1234"), source: "manual" as const, mode: "diff" as const, target: "e2e" as const, runId: "run-trace-1" };
 
 /* The runner opens the root and runs the engine under it; a test does the same. */
 async function runUnderRoot(h: ReturnType<typeof traceHarness>, useCase: RunQaUseCase, signal?: AbortSignal): Promise<{ result?: RunQaResult; threw?: unknown }> {

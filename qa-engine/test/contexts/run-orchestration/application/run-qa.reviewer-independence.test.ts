@@ -11,6 +11,7 @@ import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.t
 import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { served } from "../../../support/coordinator-over-author.ts";
+import { primaryChangeSet } from "../../../support/change-set.ts";
 
 async function persistedOutcome(config: Partial<RunQaConfig>): Promise<RunOutcome> {
   const ws = runWorkspace("qa-reviewer-independence-");
@@ -32,7 +33,7 @@ async function persistedOutcome(config: Partial<RunQaConfig>): Promise<RunOutcom
     setup: { setup: async () => {} },
     config: { needsReview: true, ...config },
   };
-  await new RunQaUseCase(deps).run({ app: "demo", sha: Sha.of("abc1234"), source: "manual", target: "e2e", mode: "diff", runId: "independence" });
+  await new RunQaUseCase(deps).run({ app: "demo", changeSet: primaryChangeSet("demo", Sha.of("abc1234")), sha: Sha.of("abc1234"), source: "manual", target: "e2e", mode: "diff", runId: "independence" });
   assert.equal(saved.length, 1);
   return saved[0]!;
 }

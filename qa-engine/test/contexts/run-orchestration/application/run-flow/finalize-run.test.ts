@@ -24,6 +24,7 @@ import { RUN_END_ROWS } from "./run-end-rows.ts";
 import { dispose, newRig } from "./run-end-rig.ts";
 import type { WorkspaceHandle } from "@contexts/run-orchestration/application/index.ts";
 import { fakeHandle, rootsOf } from "./fake-workspace.ts";
+import { primaryChangeSet } from "../../../../support/change-set.ts";
 
 const MIRROR = "/mirrors/org__app";
 
@@ -57,7 +58,7 @@ function context(opts: { mode?: RunQaInput["mode"]; mirrorDir?: string | undefin
   const mirrorDir = "mirrorDir" in opts ? opts.mirrorDir : MIRROR;
   const cycleBudget = CycleBudget.derive({ maxRetries: cfg.maxRetries });
   const ctx: RunContext & { workspace?: WorkspaceHandle } = {
-    input: { app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: opts.mode ?? "diff", target: "e2e", runId: "finalize-run" },
+    input: { app: "demo", changeSet: primaryChangeSet("demo", Sha.of("abc1234")), sha: Sha.of("abc1234"), source: "manual", mode: opts.mode ?? "diff", target: "e2e", runId: "finalize-run" },
     signal: undefined,
     trail,
     deps,

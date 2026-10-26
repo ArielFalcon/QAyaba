@@ -12,8 +12,9 @@ import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.t
 import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { served } from "../../../support/coordinator-over-author.ts";
+import { primaryChangeSet } from "../../../support/change-set.ts";
 
-const INPUT = { app: "demo", sha: Sha.of("abc1234"), source: "manual" as const, mode: "manual" as const, target: "e2e" as const, runId: "purpose-run" };
+const INPUT = { app: "demo", changeSet: primaryChangeSet("demo", Sha.of("abc1234")), sha: Sha.of("abc1234"), source: "manual" as const, mode: "manual" as const, target: "e2e" as const, runId: "purpose-run" };
 
 function useCase(saved: RunOutcome[], opts: { verdict?: "pass" | "fail"; note?: string } = {}): RunQaUseCase {
   const ws = runWorkspace("qa-purpose-");

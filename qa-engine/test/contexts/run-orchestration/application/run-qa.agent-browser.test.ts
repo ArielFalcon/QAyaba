@@ -17,7 +17,8 @@ import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../supp
 import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { served } from "../../../support/coordinator-over-author.ts";
-const INPUT: RunQaInput = { app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "browser-run" };
+import { primaryChangeSet } from "../../../support/change-set.ts";
+const INPUT: RunQaInput = { app: "demo", changeSet: primaryChangeSet("demo", Sha.of("abc1234")), sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "browser-run" };
 const PASS: QaCase[] = [{ name: "a", status: "pass", file: "flows/a.spec.ts" }];
 const SIGNAL = { calls: 12, blocks: 3, invalidations: 1, renewals: 1 };
 

@@ -37,7 +37,7 @@ test("the change-analysis port reads the commit through the vcs it was built fro
   const calls: string[] = [];
   const api = buildChangeAnalysis({ vcs: fakeVcs(calls) });
 
-  const result = await api.changeAnalysis.classify(Sha.of(SHA));
+  const result = await api.changeAnalysis.classify({ repo: "org/front", role: "primary", headSha: Sha.of(SHA) });
 
   assert.equal(result.action, "generate");
   assert.deepEqual(calls.sort(), ["diff", "message"]);

@@ -4,6 +4,7 @@
  */
 
 import type { Sha } from "@kernel/sha.ts";
+import type { ChangeSet } from "@kernel/change-set.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { RunMode, RunPurpose, TestTarget, TriggerSource } from "@kernel/run-mode.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
@@ -270,6 +271,8 @@ export interface RunQaUseCaseDeps {
 
 export interface RunQaInput {
   app: string;
+  /** Every repo the run reads; `sha`, `baseSha` and `triggerRepo` are the projection of its anchor entry. */
+  changeSet: ChangeSet;
   sha: Sha;
   source: TriggerSource;
   mode: RunMode;

@@ -13,7 +13,10 @@ import assert from "node:assert/strict";
 import { ChangeAnalysisPortAdapter } from "@contexts/change-analysis/infrastructure/adapters/change-analysis-port.adapter.ts";
 import { Sha } from "@kernel/sha.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
+import type { ChangeEntry } from "@kernel/change-set.ts";
 import type { VcsReadPort } from "@contexts/change-analysis/application/ports/vcs-read.port.ts";
+
+const entryOf = (headSha: Sha, opts?: { baseSha?: Sha }): ChangeEntry => ({ repo: "org/front", role: "primary", headSha, ...(opts?.baseSha ? { baseSha: opts.baseSha } : {}) });
 
 function fakeVcsRead(overrides: Partial<VcsReadPort> = {}): VcsReadPort {
   return {
@@ -32,7 +35,7 @@ test("classify() sources message+diff from VcsReadPort and delegates to classify
   });
   const adapter = new ChangeAnalysisPortAdapter(vcs);
 
-  const result = await adapter.classify(sha);
+  const result = await adapter.classify(entryOf(sha));
 
   /* feat -> generate (DEFAULT_ACTION table in commit-classification.ts) — proves REAL delegation,
      not an invented/hardcoded action.
@@ -49,7 +52,7 @@ test("classify() escalates a contradicting refactor message to generate (delegat
   });
   const adapter = new ChangeAnalysisPortAdapter(vcs);
 
-  const result = await adapter.classify(sha);
+  const result = await adapter.classify(entryOf(sha));
 
   assert.equal(result.action, "generate");
   assert.match(result.reason, /escalated to generate/);
@@ -70,7 +73,7 @@ test("classify() surfaces the SAME diff it already fetched from VcsReadPort for 
   });
   const adapter = new ChangeAnalysisPortAdapter(vcs);
 
-  const result = await adapter.classify(sha);
+  const result = await adapter.classify(entryOf(sha));
 
   assert.equal(result.diff, theDiff, "classify() must return the SAME diff it fetched to classify the commit, not discard it");
   assert.equal(diffCallCount, 1, "classify() must fetch the diff exactly once — reuse the SAME value for both classification and the returned diff, never a second VcsReadPort.diff() call");
@@ -89,7 +92,7 @@ test("classify() surfaces the FULL CommitIntent classifyCommit() already derived
   });
   const adapter = new ChangeAnalysisPortAdapter(vcs);
 
-  const result = await adapter.classify(sha);
+  const result = await adapter.classify(entryOf(sha));
 
   assert.equal(result.intent.type, "feat");
   assert.equal(result.intent.breaking, false);
@@ -106,13 +109,13 @@ test("classify() surfaces breaking:true for a BREAKING CHANGE commit, matching c
   });
   const adapter = new ChangeAnalysisPortAdapter(vcs);
 
-  const result = await adapter.classify(sha);
+  const result = await adapter.classify(entryOf(sha));
 
   assert.equal(result.intent.breaking, true);
   assert.equal(result.action, "generate");
 });
 
-test("classify(sha, {baseSha}) sources the UNION diff via VcsReadPort.diff(sha, {baseSha}) and the range's other messages via otherMessages()", async () => {
+test("classify(entryOf(sha, {baseSha})) sources the UNION diff via VcsReadPort.diff(sha, {baseSha}) and the range's other messages via otherMessages()", async () => {
   const sha = Sha.of("deadbee1");
   const baseSha = Sha.of("bad00001");
   let diffOpts: unknown;
@@ -124,7 +127,7 @@ test("classify(sha, {baseSha}) sources the UNION diff via VcsReadPort.diff(sha, 
   });
   const adapter = new ChangeAnalysisPortAdapter(vcs);
 
-  const result = await adapter.classify(sha, { baseSha });
+  const result = await adapter.classify(entryOf(sha, { baseSha }));
 
   assert.deepEqual(diffOpts, { baseSha }, "must forward baseSha to VcsReadPort.diff so it fetches the UNION diff");
   assert.equal(otherMessagesCalled, true, "must fetch the range's other commit messages via otherMessages()");
@@ -133,7 +136,7 @@ test("classify(sha, {baseSha}) sources the UNION diff via VcsReadPort.diff(sha, 
   assert.equal(result.intent.type, "chore", "intent must stay the HEAD commit's own, even when a range member escalates the action");
 });
 
-test("classify(sha) with NO opts.baseSha never calls otherMessages — byte-identical to the single-commit path", async () => {
+test("classify(entryOf(sha)) with NO opts.baseSha never calls otherMessages — byte-identical to the single-commit path", async () => {
   const sha = Sha.of("deadbee1");
   let otherMessagesCalled = false;
   const vcs = fakeVcsRead({
@@ -143,12 +146,12 @@ test("classify(sha) with NO opts.baseSha never calls otherMessages — byte-iden
   });
   const adapter = new ChangeAnalysisPortAdapter(vcs);
 
-  await adapter.classify(sha);
+  await adapter.classify(entryOf(sha));
 
   assert.equal(otherMessagesCalled, false, "otherMessages must never be called when the caller supplies no baseSha");
 });
 
-test("classify(sha, {baseSha}) degrades to a single-commit-equivalent range when VcsReadPort has no otherMessages collaborator ([SWAP])", async () => {
+test("classify(entryOf(sha, {baseSha})) degrades to a single-commit-equivalent range when VcsReadPort has no otherMessages collaborator ([SWAP])", async () => {
   const sha = Sha.of("deadbee1");
   const baseSha = Sha.of("bad00001");
   /* fakeVcsRead's default shape omits otherMessages entirely — mirrors a VcsReadPort */
@@ -158,7 +161,29 @@ test("classify(sha, {baseSha}) degrades to a single-commit-equivalent range when
   });
   const adapter = new ChangeAnalysisPortAdapter(vcs);
 
-  const result = await adapter.classify(sha, { baseSha });
+  const result = await adapter.classify(entryOf(sha, { baseSha }));
 
   assert.equal(result.action, "skip", "absent otherMessages must not throw — degrades to the head commit's own classification");
+});
+
+test("classify() of an entry with a commit count reads the range that count spans", async () => {
+  const calls: { diff?: unknown; other?: unknown } = {};
+  const vcs = fakeVcsRead({
+    ancestor: async (_sha, n) => Sha.of(`b45e000${n}`),
+    diff: async (_sha, opts) => { calls.diff = opts; return "diff --git a/src/foo.ts b/src/foo.ts\n+++ b/src/foo.ts\n+if (x) { return 1; }\n"; },
+    otherMessages: async (_sha, opts) => { calls.other = opts; return ["fix: earlier"]; },
+  });
+  const adapter = new ChangeAnalysisPortAdapter(vcs);
+
+  await adapter.classify({ repo: "org/front", role: "primary", headSha: Sha.of("abcd1234"), commits: 3 });
+
+  assert.equal((calls.diff as { baseSha: Sha }).baseSha.value, "b45e0003");
+  assert.equal((calls.other as { baseSha: Sha }).baseSha.value, "b45e0003");
+});
+
+test("classify() of an entry without a base or a count reads the tip commit alone", async () => {
+  let diffOpts: unknown = "unset";
+  const vcs = fakeVcsRead({ diff: async (_sha, opts) => { diffOpts = opts; return "diff --git a/src/foo.ts b/src/foo.ts\n+++ b/src/foo.ts\n+if (x) { return 1; }\n"; } });
+  await new ChangeAnalysisPortAdapter(vcs).classify({ repo: "org/front", role: "primary", headSha: Sha.of("abcd1234") });
+  assert.equal(diffOpts, undefined);
 });

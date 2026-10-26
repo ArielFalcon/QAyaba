@@ -9,6 +9,7 @@ import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.t
 import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { served } from "../../../support/coordinator-over-author.ts";
+import { primaryChangeSet } from "../../../support/change-set.ts";
 
 function build(config: Partial<RunQaConfig>, measure: RunQaUseCaseDeps["objectiveSignal"]["measure"], verdict: "pass" | "fail" = "pass") {
   const ws = runWorkspace("qa-facts-");
@@ -32,7 +33,7 @@ function build(config: Partial<RunQaConfig>, measure: RunQaUseCaseDeps["objectiv
   return new RunQaUseCase(deps);
 }
 
-const input = (mode: "diff" | "context") => ({ app: "demo", sha: Sha.of("abc1234"), source: "manual" as const, mode, target: "e2e" as const, runId: "facts" });
+const input = (mode: "diff" | "context") => ({ app: "demo", changeSet: primaryChangeSet("demo", Sha.of("abc1234")), sha: Sha.of("abc1234"), source: "manual" as const, mode, target: "e2e" as const, runId: "facts" });
 
 test("a run that measured coverage reports the engine's decision with the policy in force, and that a reviewer was due", async () => {
   const useCase = build({ coveragePolicyMode: "enforce", coverageMinRatio: 0.8 }, async () => ({ status: "fail", ratio: 0.5 }));

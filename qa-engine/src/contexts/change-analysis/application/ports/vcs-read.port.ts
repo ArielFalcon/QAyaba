@@ -5,6 +5,8 @@ import type { BlastRadius } from "@kernel/blast-radius.ts";
 export interface VcsReadPort {
   diff(sha: Sha, opts?: { baseSha?: Sha; commits?: number }): Promise<string>;
   message(sha: Sha): Promise<string>;
+  /** The commit `n` first-parent steps behind `sha`. Throws when git cannot name one. Optional: omitting it means a commit-count range cannot be resolved. */
+  ancestor?(sha: Sha, n: number): Promise<Sha>;
   blastRadius(sha: Sha, opts?: { baseSha?: Sha; commits?: number }): Promise<BlastRadius>;
   /**
    * Other commits' messages in the full reachable `baseSha..sha` range (both merge parents), excluding `sha` itself (head comes from message(sha)). Order unspecified. [] when baseSha is absent or equals sha. Optional: omitting it is the single-commit path.

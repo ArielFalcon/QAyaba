@@ -23,6 +23,7 @@ import { isInfraError } from "../errors";
 import type { RunEventStore } from "./run-events";
 import type { RunEventBody } from "../contract/events";
 import { Sha } from "@kernel/sha";
+import { ChangeSet, anchorProjection } from "@contexts/change-analysis/application/index";
 import { RUN_PURPOSE, type RunPurpose } from "@kernel/run-mode";
 import { isUntrustedGitTreeError } from "@kernel/domain-error";
 import type { CampaignIdentity } from "../contract/campaign";
@@ -217,17 +218,25 @@ async function runViaEngine(
   previousNamespace?: string,
 ): Promise<QaRunResult & { phases?: { furthestPhase: string; phaseTimings: Record<string, number> }; facts: RunFacts }> {
   assertTriggerRepoDeclared(appConfig, req.triggerRepo);
+  const changeSet = ChangeSet.of(req.app, [{
+    repo: req.triggerRepo ?? appConfig.repo,
+    role: req.triggerRepo && req.triggerRepo !== appConfig.repo ? "service" : "primary",
+    headSha: Sha.of(req.sha),
+    ...(req.baseSha ? { baseSha: Sha.of(req.baseSha) } : req.commits !== undefined ? { commits: req.commits } : {}),
+  }]);
+  const projection = anchorProjection(changeSet);
   const input: RunInput = {
     app: req.app,
-    sha: Sha.of(req.sha),
+    changeSet,
+    sha: projection.sha,
     source: req.source ?? "webhook",
     mode: req.mode,
     target: req.target,
     runId,
     ...(req.guidance ? { guidance: req.guidance } : {}),
-    ...(req.triggerRepo ? { triggerRepo: req.triggerRepo } : {}),
+    ...(projection.triggerRepo ? { triggerRepo: projection.triggerRepo } : {}),
     ...(previousNamespace ? { previousNamespace } : {}),
-    ...(req.baseSha ? { baseSha: Sha.of(req.baseSha) } : {}),
+    ...(projection.baseSha ? { baseSha: projection.baseSha } : {}),
 
     ...(req.parentRunId ? { parentRunId: req.parentRunId } : {}),
     ...(req.purpose ? { purpose: req.purpose } : {}),

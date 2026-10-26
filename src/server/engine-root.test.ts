@@ -32,6 +32,7 @@ import { TracedCurriculumPort, TracedLearningPort } from "@contexts/generation/i
 import { SpecSnapshotValidationPort } from "@contexts/workspace-and-publication/infrastructure/adapters/spec-snapshot-validation.adapter";
 import { TracedSuiteStore } from "@contexts/workspace-and-publication/infrastructure/adapters/suite-store-trace";
 import { SuiteStoreAdapter } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
+import { primaryChangeSet } from "../../qa-engine/test/support/change-set";
 /* ── A minimal fake EngineRootDeps — every collaborator is a lightweight stub, matching the
    SAME stub shapes run-pipeline.adapter.test.ts already uses for the 10-scenario parity
    (this test does not re-run that parity; it proves the composition root wires the RIGHT classes).
@@ -209,6 +210,7 @@ test("buildEngine drives a full run end-to-end through the 11 wired ports (green
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -240,6 +242,7 @@ test("buildEngine wires cfg.reflectorPort through to RunQaUseCase — a static-g
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -256,6 +259,7 @@ test("buildEngine omits reflector entirely when cfg.reflectorPort is absent — 
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -286,6 +290,7 @@ test("buildEngine wires cfg.processAudit through to RunQaUseCase — a static-ga
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -302,6 +307,7 @@ test("buildEngine omits processAudit entirely when cfg.processAudit is absent �
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -329,6 +335,7 @@ test("buildEngine wires cfg.contextMapCapture through to RunQaUseCase — a clea
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "context",
     target: "e2e",
@@ -346,6 +353,7 @@ test("buildEngine omits contextMapCapture entirely when cfg.contextMapCapture is
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "context",
     target: "e2e",
@@ -379,6 +387,7 @@ test("a shadow composition publishes to the shadow log — no PR/Issue collabora
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -398,6 +407,7 @@ test("buildEngine selects NullDeployGateAdapter when versionUrl is absent (stati
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -417,6 +427,7 @@ test("buildEngine selects the real DeployGatePortAdapter when versionUrl is pres
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -449,6 +460,7 @@ test("buildEngine threads testIdAttribute into the ExecutionPortAdapter", async 
   await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -478,6 +490,7 @@ test("buildEngine wires setupCollaborators.e2e into the run when target is 'e2e'
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -503,6 +516,7 @@ test("buildEngine wires setupCollaborators.code into the run when target is 'cod
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "code",
@@ -530,6 +544,7 @@ test("buildEngine composes specDir as the bare mirrorDir for a code:true app (Wo
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "code",
@@ -559,6 +574,7 @@ test("buildEngine dispatches ValidationPort to the code strategy for a code:true
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "code",
@@ -592,6 +608,7 @@ test("buildEngine threads cfg.target:'code' onto ReviewInput.target — the code
   await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "code",
@@ -626,6 +643,7 @@ test("buildEngine threads cfg.reviewTimeoutMs onto ReviewPortAdapter's openSessi
   await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -655,6 +673,7 @@ test("buildEngine with absent cfg.reviewTimeoutMs omits timeoutMs from ReviewPor
   await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -677,6 +696,7 @@ test("buildEngine surfaces infra-error when a wired setup collaborator throws", 
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -693,6 +713,7 @@ test("buildEngine runs without setupCollaborators (absent -> no-op, backward com
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -718,6 +739,7 @@ test("buildEngine surfaces infra-error when the real deploy gate never serves", 
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -758,6 +780,7 @@ test("buildEngine wires groundingCollaborators.buildContextPack into the run whe
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -785,6 +808,7 @@ test("buildEngine does NOT wire grounding on the code target, even when groundin
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "code",
@@ -824,6 +848,7 @@ test("buildEngine wires structuralSignal when the code graph and the co-change h
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -859,6 +884,7 @@ test("buildEngine: a graph that knows only co-change files for the diff gives a 
   await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -887,6 +913,7 @@ test("buildEngine leaves structuralSignal undefined when the code graph is absen
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -921,6 +948,7 @@ test("buildEngine degrades structuralSignal to no section when the repo is not i
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -983,6 +1011,7 @@ test("buildEngine wires serviceLinks when a serviceTopology collaborator is supp
     const outcome = await port.run({
       app: "app",
       sha: Sha.of("abc1234"),
+      changeSet: primaryChangeSet("app", Sha.of("abc1234")),
       source: "manual",
       mode: "diff",
       target: "e2e",
@@ -1014,6 +1043,7 @@ test("buildEngine leaves serviceLinks undefined when serviceTopology is absent (
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -1050,6 +1080,7 @@ test("buildEngine threads cfg.triggerService into OpencodeRunInput.service when 
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -1077,6 +1108,7 @@ test("buildEngine leaves OpencodeRunInput.service entirely absent when cfg.trigg
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -1104,7 +1136,7 @@ async function stagedRootsSeenByThePack(overrides: Partial<EngineRootDeps>): Pro
     ...overrides,
   });
   const port = buildEngine(cfg);
-  await port.run({ app: "app", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "engine-root-staged-roots" });
+  await port.run({ app: "app", changeSet: primaryChangeSet("app", Sha.of("abc1234")), sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "engine-root-staged-roots" });
   assert.ok(seen.length > 0, "the pre-generation grounding must have built a context pack");
   return "stagedRoots" in seen[0]! ? seen[0]!.stagedRoots : "absent";
 }
@@ -1173,6 +1205,7 @@ test("buildEngine threads cfg.services into OpencodeRunInput.services for a cont
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "context",
     target: "e2e",
@@ -1203,6 +1236,7 @@ test("buildEngine leaves OpencodeRunInput.services entirely absent when cfg.serv
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -1221,6 +1255,7 @@ test("buildEngine runs without groundingCollaborators/reviewDomGroundingCollabor
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -1264,6 +1299,7 @@ test("buildEngine wires preExecGrounding into the run when target is 'e2e' and a
     const outcome = await port.run({
       app: "app",
       sha: Sha.of("abc1234"),
+      changeSet: primaryChangeSet("app", Sha.of("abc1234")),
       source: "manual",
       mode: "diff",
       target: "e2e",
@@ -1292,6 +1328,7 @@ test("buildEngine does NOT wire preExecGrounding on the code target, even when p
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "code",
@@ -1309,6 +1346,7 @@ test("buildEngine runs without preExecGroundingCollaborators (absent -> no-op, b
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
     source: "manual",
     mode: "diff",
     target: "e2e",
@@ -1365,6 +1403,7 @@ test("buildEngine end-to-end: a duplicate page-rooted selector in the captured r
     const outcome = await port.run({
       app: "app",
       sha: Sha.of("abc1234"),
+      changeSet: primaryChangeSet("app", Sha.of("abc1234")),
       source: "manual",
       mode: "diff",
       target: "e2e",
@@ -1399,6 +1438,7 @@ const quietCoChange: CoChangePort = { coChangeCoupling: async () => ok([]) };
 const diffRun = {
   app: "app",
   sha: Sha.of("abc1234"),
+  changeSet: primaryChangeSet("app", Sha.of("abc1234")),
   source: "manual",
   mode: "diff",
   target: "e2e",

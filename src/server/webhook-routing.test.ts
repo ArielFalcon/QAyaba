@@ -99,3 +99,17 @@ test("resolveWebhookDispatch: a malformed config is skipped — the healthy app 
     assert.deepEqual(sorted(actual), [{ app: "shop", target: "e2e", mode: "diff" }], "the malformed file must be skipped, never hiding the healthy app");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("resolveWebhookDispatch: a service push keeps the webhook's base", async () => {
+  const root = makeRoot({ "shop.yaml": SHOP, "orders.yaml": ORDERS_CODE });
+  try {
+    const adapter = new YamlAppConfigAdapter({ load: (name) => loadAppConfig(name, root), list: () => listAppConfigs(root) });
+
+    const actual = await resolveWebhookDispatch(adapter, "org/orders-svc", { mode: "diff", baseSha: "base123" });
+
+    assert.deepEqual(sorted(actual), [
+      { app: "orders", target: "code", mode: "diff", baseSha: "base123" },
+      { app: "shop", target: "e2e", mode: "diff", triggerRepo: "org/orders-svc", baseSha: "base123" },
+    ]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
