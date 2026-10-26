@@ -15,7 +15,7 @@ import { reviewerApprovedForOutcomeOf, decidedOf } from "./phases/decide.steps.t
 import { DETERMINISTIC_SELECTOR_BLOCKS } from "./phases/execute.steps.ts";
 import { closedLoopSignal } from "./phases/generation-services.ts";
 import { resolveTested } from "./phases/fix-loop.steps.ts";
-import type { PublicationPort } from "../ports/publication.port.ts";
+import type { PublicationPort } from "@contexts/workspace-and-publication/application/index.ts";
 import { deriveErrorClass, toReflectionInput, toRunOutcome } from "./outcome-assembly.ts";
 import type { WorkspaceRunContext } from "./run-context.ts";
 import type { RunQaResult } from "./run-types.ts";

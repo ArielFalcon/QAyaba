@@ -22,7 +22,7 @@ import { decide, type RunEvidence } from "@contexts/run-orchestration/domain/run
 import type { RunQaConfig, RunQaInput, RunQaResult, RunQaUseCaseDeps } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
 import { RUN_END_ROWS } from "./run-end-rows.ts";
 import { dispose, newRig } from "./run-end-rig.ts";
-import type { WorkspaceHandle } from "@contexts/run-orchestration/application/index.ts";
+import type { WorkspaceHandle } from "@contexts/workspace-and-publication/application/index.ts";
 import { fakeHandle, rootsOf } from "./fake-workspace.ts";
 import { primaryChangeSet } from "../../../../support/change-set.ts";
 

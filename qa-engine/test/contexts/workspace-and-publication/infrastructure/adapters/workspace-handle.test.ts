@@ -4,7 +4,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { WorkspaceHandle } from "@contexts/run-orchestration/application/index.ts";
+import type { WorkspaceHandle } from "@contexts/workspace-and-publication/application/index.ts";
 import { Sha } from "@kernel/sha.ts";
 import { PublicationPortAdapter } from "@contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter.ts";
 import { WorkspacePortAdapter } from "@contexts/workspace-and-publication/infrastructure/adapters/workspace-port.adapter.ts";

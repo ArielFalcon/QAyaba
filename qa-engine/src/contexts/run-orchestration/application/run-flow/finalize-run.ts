@@ -15,12 +15,12 @@ import { decide } from "../../domain/run-decision.service.ts";
 import { RunDecision } from "../../domain/run-decision.ts";
 import { ERROR_CLASS } from "@kernel/error-class.ts";
 import { learningGates, observesOperatingSignal } from "@contexts/cross-run-learning/application/index.ts";
-import type { PublicationPort } from "../ports/publication.port.ts";
+import type { PublicationPort } from "@contexts/workspace-and-publication/application/index.ts";
 import type { RunQaResult } from "./run-types.ts";
 import type { RunContext, WorkspaceRunContext } from "./run-context.ts";
 import { deriveErrorClass, toReflectionInput, toRunOutcome } from "./outcome-assembly.ts";
 import { CRASH_EVIDENCE_EFFECTS, END_EFFECTS, type EndEffects, type EndEvidence, type GroundingSignals, type RunEnd } from "./run-end.ts";
-import type { WorkspaceHandle } from "../../domain/workspace-handle.ts";
+import type { WorkspaceHandle } from "@contexts/workspace-and-publication/application/index.ts";
 import type { RunState } from "./run-state.ts";
 import { finalizeDecided } from "./decided-end.ts";
 

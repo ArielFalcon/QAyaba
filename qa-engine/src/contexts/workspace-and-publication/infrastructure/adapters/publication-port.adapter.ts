@@ -4,7 +4,8 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { SecretLeakError } from "@kernel/ports/redaction.port.ts";
-import type { PublicationPort, WorkspaceHandle } from "@contexts/run-orchestration/application/index.ts";
+import type { PublicationPort } from "../../application/ports/publication.port.ts";
+import type { WorkspaceHandle } from "../../domain/workspace-handle.ts";
 import type { WorkspaceRegistry } from "./workspace-registry.ts";
 
 /* Local structural mirror of workspace-and-publication's PublishContext/PublishDecision (domain/publish-decision.service.ts) — duck-typed, NOT imported, per the security-boundary note. */

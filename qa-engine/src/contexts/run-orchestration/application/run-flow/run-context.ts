@@ -5,7 +5,7 @@ import type { WallClockBudget } from "../../../../shared-kernel/wall-clock-budge
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { PreconditionFailure, RunQaConfig, RunQaInput, RunQaUseCaseDeps, RunTrail } from "./run-types.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
-import type { WorkspaceHandle } from "../../domain/workspace-handle.ts";
+import type { WorkspaceHandle } from "@contexts/workspace-and-publication/application/index.ts";
 import type { RunServices } from "./run-services.ts";
 
 /* What the use case does for a run that is not an end: the notes it keeps on the trail, the login and suite helpers, and the ambient sandbox facts. Bound to the run. */

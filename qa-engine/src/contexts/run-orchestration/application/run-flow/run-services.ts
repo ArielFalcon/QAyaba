@@ -16,7 +16,7 @@ import { EMPTY_TOKEN_SET, type ChangeTokenSet } from "@contexts/objective-signal
 import { diffContracts, type IntentViolation, type SpecIntent } from "@contexts/objective-signal/application/index.ts";
 import type { RunQaConfig, RunQaUseCaseDeps } from "./run-types.ts";
 import { carryOn } from "./failure-policy.ts";
-import type { WorkspaceHandle } from "../../domain/workspace-handle.ts";
+import type { WorkspaceHandle } from "@contexts/workspace-and-publication/application/index.ts";
 import type { FixLoopState } from "../../domain/fix-loop.aggregate.ts";
 
 export interface ConfinementTotals {

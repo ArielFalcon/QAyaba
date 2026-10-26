@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { Sha } from "@kernel/sha.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { ChangeSet, deriveCandidates, type ChangeScope, type ChangeScopePort } from "@contexts/change-analysis/application/index.ts";
-import type { PublicationPort } from "@contexts/run-orchestration/application/ports/publication.port.ts";
+import type { PublicationPort } from "@contexts/workspace-and-publication/application/index.ts";
 import { renderIssue } from "@contexts/workspace-and-publication/domain/render-publication.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import type { CoordinateResult } from "@contexts/coordination/application/index.ts";

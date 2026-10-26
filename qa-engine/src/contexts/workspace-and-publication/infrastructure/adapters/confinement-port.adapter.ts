@@ -1,6 +1,8 @@
 /* ConfinementPort over the path-based write-confinement collaborator: the mirror root and the target come from the run's handle, never from the caller. */
 
-import type { ConfinementPort, ConfinementResult, WorkspaceHandle } from "@contexts/run-orchestration/application/index.ts";
+import type { ConfinementPort } from "../../application/ports/confinement.port.ts";
+import type { ConfinementResult } from "../../domain/confinement-result.ts";
+import type { WorkspaceHandle } from "../../domain/workspace-handle.ts";
 import type { WorkspaceRegistry } from "./workspace-registry.ts";
 
 /* Structural mirror of WriteConfinementAdapter.enforce (infrastructure/write-confinement.adapter.ts) — duck-typed, the shell supplies the real one. */

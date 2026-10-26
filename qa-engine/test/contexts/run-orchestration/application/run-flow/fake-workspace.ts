@@ -1,6 +1,6 @@
 /* A WorkspacePort for tests: hands out a handle for a prepared working copy and resolves it back to its roots, the way the adapter does. */
 
-import type { WorkspaceHandle, WorkspaceKind, WorkspacePort } from "@contexts/run-orchestration/application/index.ts";
+import type { WorkspaceHandle, WorkspaceKind, WorkspacePort } from "@contexts/workspace-and-publication/application/index.ts";
 
 export interface FakeRoots {
   mirrorDir: string;

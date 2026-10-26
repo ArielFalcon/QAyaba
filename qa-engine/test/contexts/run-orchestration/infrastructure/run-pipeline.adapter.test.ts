@@ -11,9 +11,9 @@ import type { ChangeAnalysisPort } from "@contexts/change-analysis/application/i
 import type { AuthorPort, LeadPort, ReviewPort } from "@contexts/generation/application/index.ts";
 import type { ValidationPort, ExecutionPort } from "@contexts/test-execution/application/index.ts";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
-import type { PublicationPort } from "@contexts/run-orchestration/application/ports/publication.port.ts";
+import type { PublicationPort } from "@contexts/workspace-and-publication/application/index.ts";
 import type { LearningPort } from "@contexts/cross-run-learning/application/index.ts";
-import type { WorkspacePort } from "@contexts/run-orchestration/application/ports/workspace.port.ts";
+import type { WorkspacePort } from "@contexts/workspace-and-publication/application/index.ts";
 import type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";
 import type { RunHistoryPort } from "@contexts/run-orchestration/application/ports/run-history.port.ts";
 import { ok } from "@kernel/result.ts";

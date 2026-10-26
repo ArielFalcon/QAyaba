@@ -1,6 +1,6 @@
 /* CleanupPort → orphan test-data cleanup. e2e-only. baseUrl absent → no-op (this adapter is the only place that conjunct can live without leaking baseUrl into the use-case). Collaborator never rejects by contract; the use-case still wraps the call in a non-blocking try/catch so a misbehaving collaborator never alters this run's verdict. */
 
-import type { CleanupPort } from "@contexts/run-orchestration/application/index.ts";
+import type { CleanupPort } from "../../application/ports/cleanup.port.ts";
 
 export type CleanupFn = (args: {
   dir: string;

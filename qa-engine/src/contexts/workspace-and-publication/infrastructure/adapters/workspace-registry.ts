@@ -4,7 +4,7 @@
  * the mirror root, the commit and the target here. A handle this registry did not issue (another run's registry, or an object the
  * caller built) is refused loudly, so no path the caller names ever reaches a git write.
  */
-import type { WorkspaceHandle } from "@contexts/run-orchestration/application/index.ts";
+import type { WorkspaceHandle } from "../../domain/workspace-handle.ts";
 
 export interface WorkspaceRecord {
   readonly mirrorDir: string;

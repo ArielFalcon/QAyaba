@@ -28,16 +28,16 @@ import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.
 import type { AuthorPort, LeadPort, ReviewPort, PreExecGroundingPort, PreGenerationGroundingPort, ReviewDomGroundingPort, ContextMapCapturePort, GenerationEnrichment } from "@contexts/generation/application/index.ts";
 import type { ValidationPort, ExecutionPort } from "@contexts/test-execution/application/index.ts";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
-import type { PublicationPort } from "@contexts/run-orchestration/application/ports/publication.port.ts";
+import type { PublicationPort } from "@contexts/workspace-and-publication/application/index.ts";
 import type { LearningPort, CurriculumPort, CurriculumFoldInput, RelevanceBias } from "@contexts/cross-run-learning/application/index.ts";
-import type { WorkspacePort } from "@contexts/run-orchestration/application/ports/workspace.port.ts";
+import type { WorkspacePort } from "@contexts/workspace-and-publication/application/index.ts";
 import type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";
 import type { RunHistoryPort } from "@contexts/run-orchestration/application/ports/run-history.port.ts";
-import type { SetupPort } from "@contexts/run-orchestration/application/ports/setup.port.ts";
-import type { CleanupPort } from "@contexts/run-orchestration/application/ports/cleanup.port.ts";
+import type { SetupPort } from "@contexts/workspace-and-publication/application/index.ts";
+import type { CleanupPort } from "@contexts/workspace-and-publication/application/index.ts";
 import type { ServiceLinksPort, CrossRepoImpactPort } from "@contexts/service-topology/application/index.ts";
-import type { ConfinementPort } from "@contexts/run-orchestration/application/ports/confinement.port.ts";
-import type { MirrorGcPort } from "@contexts/run-orchestration/application/ports/mirror-gc.port.ts";
+import type { ConfinementPort } from "@contexts/workspace-and-publication/application/index.ts";
+import type { MirrorGcPort } from "@contexts/workspace-and-publication/application/index.ts";
 import type { RunDeadlinePort } from "@contexts/run-orchestration/application/ports/run-deadline.port.ts";
 import type { SuiteStorePort } from "@kernel/ports/suite-store.port.ts";
 /* reflector-rewire (design ADR-1/ADR-4/ADR-5): ReflectorPort/ReflectionInput are declared in
@@ -60,7 +60,7 @@ import { extractSpecContract } from "@contexts/objective-signal/infrastructure/t
 import { reassignableGeneration, runWorkspace } from "../../../support/run-workspace.ts";
 import { authoredByCoordinator, coordinatorOver, loginToBeWritten } from "../../../support/coordinator-over-author.ts";
 import { scriptedLoginEvidence } from "../../../support/login-evidence.ts";
-import type { WorkspaceHandle } from "@contexts/run-orchestration/application/index.ts";
+import type { WorkspaceHandle } from "@contexts/workspace-and-publication/application/index.ts";
 import { fakeHandle, rootsOf } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { ChangeSet } from "@contexts/change-analysis/application/index.ts";

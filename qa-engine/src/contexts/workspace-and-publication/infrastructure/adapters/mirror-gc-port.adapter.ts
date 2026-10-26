@@ -1,6 +1,7 @@
 /* MirrorGcPort over the path-based gc collaborator: the mirror root comes from the run's handle, never from the caller. */
 
-import type { MirrorGcPort, WorkspaceHandle } from "@contexts/run-orchestration/application/index.ts";
+import type { MirrorGcPort } from "../../application/ports/workspace-mirror-gc.port.ts";
+import type { WorkspaceHandle } from "../../domain/workspace-handle.ts";
 import type { WorkspaceRegistry } from "./workspace-registry.ts";
 
 /* Structural mirror of MirrorGcAdapter.prune (infrastructure/mirror-gc.adapter.ts) — duck-typed, the shell supplies the real one. */

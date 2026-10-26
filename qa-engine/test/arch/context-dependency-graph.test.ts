@@ -19,9 +19,9 @@ const ALLOWED: Record<string, readonly string[]> = {
   "change-analysis": ["agent-tools", "generation"],
   coordination: ["agent-tools", "generation", "test-execution"],
   generation: ["cross-run-learning", "service-topology"],
-  "run-orchestration": ["agent-tools", "app-catalog", "change-analysis", "coordination", "cross-run-learning", "generation", "objective-signal", "service-topology", "test-execution"],
+  "run-orchestration": ["agent-tools", "app-catalog", "change-analysis", "coordination", "cross-run-learning", "generation", "objective-signal", "service-topology", "test-execution", "workspace-and-publication"],
   "test-execution": ["generation", "objective-signal"],
-  "workspace-and-publication": ["run-orchestration", "test-execution"],
+  "workspace-and-publication": ["objective-signal", "test-execution"],
 };
 
 interface CruiseModule {

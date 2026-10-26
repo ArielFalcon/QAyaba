@@ -27,7 +27,7 @@ import type { StepId } from "./run-flow/step-ids.ts";
 import { type RunEnd } from "./run-flow/run-end.ts";
 import { finalizeRun, recordCrashEvidence } from "./run-flow/finalize-run.ts";
 import type { RunState } from "./run-flow/run-state.ts";
-import type { WorkspaceHandle } from "../domain/workspace-handle.ts";
+import type { WorkspaceHandle } from "@contexts/workspace-and-publication/application/index.ts";
 import { initialRunState } from "./run-flow/run-state.ts";
 import { recordCoordination, recordProof, recordRunFact } from "./run-flow/reducers.ts";
 import { createRunServices } from "./run-flow/run-services.ts";

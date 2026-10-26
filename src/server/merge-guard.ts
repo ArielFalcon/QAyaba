@@ -118,6 +118,19 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/contexts/workspace-and-publication/application/ports/shadow-publication.port.ts",
   "qa-engine/src/contexts/workspace-and-publication/application/ports/mirror-gc.port.ts",
   "qa-engine/src/contexts/workspace-and-publication/domain/vcs-write.ts",
+  /*
+   * The run's workspace seam: the handle is the only thing the flow holds of a working copy, and publication, confinement, cleanup, setup
+   * and mirror gc act only on a handle the workspace adapter issued. Widening a port (a path or a sha parameter) or the handle (a mirror
+   * root) hands the flow, and through it the agent-facing contexts, a way to name what the orchestrator writes or prunes.
+   */
+  "qa-engine/src/contexts/workspace-and-publication/application/ports/cleanup.port.ts",
+  "qa-engine/src/contexts/workspace-and-publication/application/ports/confinement.port.ts",
+  "qa-engine/src/contexts/workspace-and-publication/application/ports/publication.port.ts",
+  "qa-engine/src/contexts/workspace-and-publication/application/ports/setup.port.ts",
+  "qa-engine/src/contexts/workspace-and-publication/application/ports/workspace-mirror-gc.port.ts",
+  "qa-engine/src/contexts/workspace-and-publication/application/ports/workspace.port.ts",
+  "qa-engine/src/contexts/workspace-and-publication/domain/workspace-handle.ts",
+  "qa-engine/src/contexts/workspace-and-publication/domain/confinement-result.ts",
 
   /*
    * Composes the reviewer-facing Issue/PR body from the run's own artifacts. Deliberately NOT a
