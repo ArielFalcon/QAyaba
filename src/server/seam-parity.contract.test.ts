@@ -257,8 +257,8 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
        immediately above. Asserted below as a present case.
      */
     curriculumPort: "IS supplied (CurriculumPortAdapter over history.ts's loadCurriculum/saveCurriculum) — asserted below as a present case.",
-    codeGraph: "IS supplied when qa.structuralSignals.mode is not 'off' (factory default 'signal') — the run's one CodegraphCodeGraphAdapter, indexed by the index phase and read by the structural signal and the cross-repo impact. Asserted below as a present-when-default case.",
-    codeExplore: "IS supplied with codeGraph (the same CodegraphCodeGraphAdapter instance, so it reads the index the run built) — the lead's code-graph tool and the change dossier read it. Asserted below as a present-when-default case.",
+    codeGraph: "IS supplied when qa.structuralSignals.mode is not 'off' (factory default 'signal') — the run's one code-graph adapter, indexed by the index phase and read by the structural signal and the cross-repo impact. Asserted below as a present-when-default case.",
+    codeExplore: "IS supplied with codeGraph (the same code-graph adapter instance, so it reads the index the run built) — the lead's code-graph tool and the change dossier read it. Asserted below as a present-when-default case.",
     coChange: "IS supplied with codeGraph (GitCoChangeAdapter over the trusted git runner). Asserted below as a present-when-default case.",
     codeGraphPrimary: "Supplied only on a service-triggered run (the primary repo, indexed too); this fixture is a same-repo run, so it is absent.",
     codeGraphRepoDir: "IS supplied (classify-source mirror: SERVICE on a webhook, PRIMARY otherwise) — pins CodeGraphPort.syncTo and StructuralSignalPortAdapter off workspace.mirrorDir on cross-repo runs. Asserted below as a present case.",

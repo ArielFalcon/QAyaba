@@ -43,7 +43,7 @@ import type { SandboxedBinaryRunner } from "../../qa-engine/src/shared-infrastru
 import { PatternRedactionAdapter } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
 import { confinedSpecFiles } from "../../qa-engine/src/shared-infrastructure/spec-files.adapter";
 
-import { buildChangeAnalysis } from "../../qa-engine/src/contexts/change-analysis/composition/build-change-analysis";
+import { buildChangeAnalysis, codeGraphFor } from "../../qa-engine/src/contexts/change-analysis/composition/build-change-analysis";
 import { buildServiceTopology } from "../../qa-engine/src/contexts/service-topology/composition/build-service-topology";
 import { buildObjectiveSignal } from "../../qa-engine/src/contexts/objective-signal/composition/build-objective-signal";
 import { buildWorkspaceAndPublication, type PublishDeps } from "../../qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication";
@@ -65,6 +65,9 @@ import type { CoveragePolicy, ChangeCoverage } from "@contexts/objective-signal/
 import type { CoverageCollectorPort, ValueOraclePort } from "@contexts/objective-signal/application/index";
 import type { VcsReadPort } from "@contexts/change-analysis/application/index";
 import type { LearningRepositoryPort, ReflectorPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/index";
+
+/* The code graph of an app, built by its context: the factory builds a run's graph with it and onboarding builds its first index with it. */
+export { codeGraphFor };
 
 export interface EngineRootDeps {
   /* Static per-run context (shared across GenerationPort/ReviewPort/ExecutionPort/PublicationPort). */

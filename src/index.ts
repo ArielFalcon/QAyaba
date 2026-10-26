@@ -38,7 +38,8 @@ import { resolveReflectorEnabled } from "./server/reflector-switch";
 import { resolveCampaignFreeze } from "./server/campaign-freeze";
 import { buildRunViewExtras, defaultRunViewDeps } from "./server/run-view";
 import { enqueueTrackedRun, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./server/runner";
-import { appAuthDir, appSuiteStoreDir, buildCodeGraph, createRunEngineFactory, resolveCodeSandbox } from "./server/run-engine-factory";
+import { codeGraphFor } from "./server/engine-root";
+import { appAuthDir, appSuiteStoreDir, createRunEngineFactory, resolveCodeSandbox } from "./server/run-engine-factory";
 import type { ContextHealRunRequest } from "@contexts/run-orchestration/application/index";
 import { egressGateFor } from "./server/egress-wiring";
 import { SandboxedBinaryRunnerAdapter } from "../qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter";
@@ -611,7 +612,7 @@ async function indexRepoForOnboarding(repo: string, mirrorDir: string, app: stri
       /* Not configured yet: the declared languages alone. */
     }
     const record = await onboardingExec.scoped({ runId: `onboard-index-${Date.now()}` }, () =>
-      buildCodeGraph({ exec: onboardingExec.exec, git: onboardingGit, dataDir: qayabaDataDir(), appName: app, sandbox: onboardingSandbox, exclude }).syncTo(mirrorDir, sha),
+      codeGraphFor({ exec: onboardingExec.exec, git: onboardingGit, dataDir: qayabaDataDir(), sandbox: onboardingSandbox, processKill: new ProcessKillAdapter() })(app, exclude).syncTo(mirrorDir, sha),
     );
     if (record.outcome === "failed" || record.outcome === "timeout" || record.outcome === "skipped") {
       return { repo, status: "failed", error: record.reason ?? record.outcome };

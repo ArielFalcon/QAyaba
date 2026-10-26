@@ -26,7 +26,7 @@ import {
 } from "../integrations/opencode-client";
 import type { RunPipelinePort, ObserverPort } from "@contexts/run-orchestration/application/index.ts";
 import { RequestContextHeal, type EnqueueContextRun } from "@contexts/run-orchestration/application/index";
-import { buildEngine, type EngineRootDeps } from "./engine-root";
+import { buildEngine, codeGraphFor, type EngineRootDeps } from "./engine-root";
 import type { PublishDeps } from "../../qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication";
 import { createDiscoverLogin } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner";
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
@@ -106,11 +106,7 @@ import { assembleChangeCoverage } from "@contexts/objective-signal/domain/assemb
 import { SandboxedBinaryRunnerAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter";
 import { ProcessKillAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter";
 
-import { CodegraphCodeGraphAdapter } from "../../qa-engine/src/shared-infrastructure/code-graph/codegraph-code-graph.adapter";
-import { CodegraphEngine } from "../../qa-engine/src/shared-infrastructure/code-graph/codegraph-engine";
-import { CodegraphStoreCache } from "../../qa-engine/src/shared-infrastructure/code-graph/codegraph-store-cache";
 import { GitCoChangeAdapter } from "../../qa-engine/src/shared-infrastructure/code-graph/git-co-change.adapter";
-import { LanguageRegistry } from "@contexts/change-analysis/domain/language-id";
 
 
 import {
@@ -149,7 +145,6 @@ import {
 } from "../../qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks";
 import { resolveSandbox, openInstallTree, sealInstallTree, type Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
 import type { ExecSandboxPort } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
-import type { SandboxedBinaryRunner } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner";
 import { createExecBinaryRunner } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-binary-runner";
 import { buildExecWiring, suiteAccountFor } from "./exec-sandbox-factory";
 import { blockedHostMatcher, egressGateFor, loadRegistryGroups, resolveRunOrigins } from "./egress-wiring";
@@ -556,23 +551,6 @@ export function resolveCodeSandbox(env: NodeJS.ProcessEnv, resolve: (env: NodeJS
   return sandbox;
 }
 
-/*
- * The code graph of one app, the same for a run and for onboarding's first index: the engine and its store reader run in the
- * launcher's graph profile, the workspace is checked out by the trusted git runner, and the store cache lives under the data
- * dir, which the sandbox uid cannot reach. Its scope is the language registry's declared languages and the app's exclusions.
- */
-export function buildCodeGraph(input: { exec: ExecSandboxPort; git: SandboxedBinaryRunner; dataDir: string; appName: string; sandbox: Sandbox | null; exclude: readonly string[] }): CodegraphCodeGraphAdapter {
-  return new CodegraphCodeGraphAdapter({
-    engine: new CodegraphEngine(createExecBinaryRunner({ exec: input.exec, profile: "graph", commandClass: "code-graph", processKill: new ProcessKillAdapter() }), undefined, process.execPath),
-    git: input.git,
-    cache: new CodegraphStoreCache(join(input.dataDir, "code-graph", input.appName)),
-    workDir: () => input.exec.workDir(),
-    sandbox: input.sandbox,
-    scope: { extensions: LanguageRegistry.extensions, manifests: LanguageRegistry.manifests, exclude: input.exclude },
-    isTestFile: (file) => LanguageRegistry.isTestFile(file),
-  });
-}
-
 export interface AcceptanceHarnessInput {
   app: AppConfig;
   /* The throwaway working copy an experiment arm delivered its specs in: the suite lives at <copyDir>/e2e. */
@@ -840,7 +818,7 @@ export function buildEngineRootDeps(
   const structuralSignalsOn = asked === false || asked === "off" ? false : asked === true || asked === "signal" ? true : structuralSignalsOnFor(app);
   /* The run's code graph (one instance: the index phase builds it, the structural signal and the cross-repo impact read it). */
   const codeGraph = structuralSignalsOn
-    ? buildCodeGraph({ exec, git: runner, dataDir, appName: app.name, sandbox: codeSandbox, exclude: app.qa.structuralSignals?.exclude ?? [] })
+    ? codeGraphFor({ exec, git: runner, dataDir, sandbox: codeSandbox, processKill: new ProcessKillAdapter() })(app.name, app.qa.structuralSignals?.exclude ?? [])
     : undefined;
   const serviceTopologyOn = grounding?.stitcher === false || grounding?.stitcher === "off" ? false : serviceTopologyWired(app);
   const toolsApplyToRun = toolsApply(target, app);
