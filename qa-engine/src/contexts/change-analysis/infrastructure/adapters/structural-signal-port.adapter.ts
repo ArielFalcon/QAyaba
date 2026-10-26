@@ -1,5 +1,6 @@
 /* StructuralSignalPort: advisory blast-radius from the code graph and the git co-change history. Unindexed repo → empty. One walk answers the whole change: its depth-0 symbols are the changed ones, the rest are what reaches them. With the dossier on, the engine's read-equivalent source of the change's top symbols rides in the same block (S14), so the benefit does not depend on a model choosing a tool. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { BlastRadius } from "@kernel/blast-radius.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { CoChangePort } from "@kernel/ports/co-change.port.ts";
@@ -53,7 +54,7 @@ function note(attrs: Attrs): void {
   try {
     activeExecScope()?.telemetry?.annotate?.(attrs);
   } catch (cause) {
-    console.error(`[qa] structural signal telemetry failed and was dropped: ${cause instanceof Error ? cause.message : String(cause)}`);
+    engineLog.error(`[qa] structural signal telemetry failed and was dropped: ${cause instanceof Error ? cause.message : String(cause)}`);
   }
 }
 
@@ -62,14 +63,14 @@ const reasonOf = (cause: unknown): string => (cause instanceof Error ? cause.mes
 /* The impact walk, or nothing when it fails; a failed or truncated walk is logged and recorded, never silent. */
 async function safeImpacted(codeGraph: CodeGraphPort, repoDir: string, changed: BlastRadius): Promise<{ symbols: ImpactedSymbol[]; indexedSha?: string }> {
   const failed = (reason: string) => {
-    console.warn(`[qa] structural signal: the impact walk failed, so the block lists no symbols: ${reason}`);
+    engineLog.warn(`[qa] structural signal: the impact walk failed, so the block lists no symbols: ${reason}`);
     note({ "qayaba.structural.walk": "failed", "qayaba.code_graph.reason": reason });
     return { symbols: [] };
   };
   try {
     const result = await codeGraph.impactedSymbols(repoDir, changed, ADVISORY_BUDGET);
     if (!result.ok) return failed(reasonOf(result.error.reason));
-    if (result.value.truncated) console.warn(`[qa] structural signal: the impact walk stopped at its budget (${ADVISORY_BUDGET.maxSymbols} symbols, depth ${ADVISORY_BUDGET.depth}); the block lists only part of what the change reaches`);
+    if (result.value.truncated) engineLog.warn(`[qa] structural signal: the impact walk stopped at its budget (${ADVISORY_BUDGET.maxSymbols} symbols, depth ${ADVISORY_BUDGET.depth}); the block lists only part of what the change reaches`);
     note({ "qayaba.structural.walk": result.value.truncated ? "truncated" : "complete" });
     return { symbols: result.value.symbols, indexedSha: result.value.indexedSha };
   } catch (cause) {
@@ -103,7 +104,7 @@ export class StructuralSignalPortAdapter implements StructuralSignalPort {
     const terms = topChangedSymbols(symbols, limits.maxSymbols);
     if (terms.length === 0) return undefined;
     const withheld = (outcome: "unavailable" | "empty", why: string): undefined => {
-      console.warn(`[qa] structural signal: the change dossier is not in the block (${outcome}): ${why}`);
+      engineLog.warn(`[qa] structural signal: the change dossier is not in the block (${outcome}): ${why}`);
       note({ "qayaba.structural.dossier": outcome });
       return undefined;
     };
@@ -132,7 +133,7 @@ export class StructuralSignalPortAdapter implements StructuralSignalPort {
     /* The renderer leaves out a dossier the block's byte budget cannot hold: its files are provided only when the text shows them. */
     const shown = dossier !== undefined && text.includes(DOSSIER_HEADING);
     if (dossier !== undefined) {
-      if (!shown) console.warn("[qa] structural signal: the renderer left the change dossier out of the block (over its byte budget)");
+      if (!shown) engineLog.warn("[qa] structural signal: the renderer left the change dossier out of the block (over its byte budget)");
       note({ "qayaba.structural.dossier": shown ? "shown" : "over-budget" });
     }
     return {

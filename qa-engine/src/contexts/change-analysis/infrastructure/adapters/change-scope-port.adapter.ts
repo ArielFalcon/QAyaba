@@ -5,6 +5,7 @@
  * link without a call-site symbol claims nothing). The proofs are strategies handed in; this adapter only asks the index and
  * hands the walks to `buildChangeScope`. Never throws: a repo whose index cannot answer is a `degraded` entry of the scope.
  */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { GraphRoute, ImpactBudget, LocalSymbolRef } from "@kernel/code/index.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
@@ -93,7 +94,7 @@ export class ChangeScopePortAdapter implements ChangeScopePort {
     try {
       return this.deps.loadMap?.(request.specDir) ?? {};
     } catch (err) {
-      console.error(`[qa] the context map could not be read for the change's scope (the scope goes on without it): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] the context map could not be read for the change's scope (the scope goes on without it): ${err instanceof Error ? err.message : String(err)}`);
       return {};
     }
   }

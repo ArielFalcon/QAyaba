@@ -26,8 +26,6 @@ const NOT_MIGRATED: readonly string[] = [
   "qa-engine/src/contexts/app-catalog/infrastructure/auth-session.adapter.ts",
   "qa-engine/src/contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner.ts",
   "qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter.ts",
-  "qa-engine/src/contexts/change-analysis/infrastructure/adapters/change-scope-port.adapter.ts",
-  "qa-engine/src/contexts/change-analysis/infrastructure/adapters/structural-signal-port.adapter.ts",
   "qa-engine/src/contexts/cross-run-learning/application/fold-run-outcome.use-case.ts",
   "qa-engine/src/contexts/cross-run-learning/infrastructure/adapters/learning-port.adapter.ts",
   "qa-engine/src/contexts/cross-run-learning/infrastructure/curriculum-port.adapter.ts",
