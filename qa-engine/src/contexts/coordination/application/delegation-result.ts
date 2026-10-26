@@ -14,6 +14,17 @@ export type DelegationStatus = (typeof DELEGATION_STATUSES)[number];
 export const DELEGATION_RECOMMENDATIONS = ["accept", "review", "retry", "escalate"] as const;
 export type DelegationRecommendation = (typeof DELEGATION_RECOMMENDATIONS)[number];
 
+export const CANDIDATE_CLAIMS = ["covered", "not-covered", "blocked"] as const;
+export type CandidateClaimStatus = (typeof CANDIDATE_CLAIMS)[number];
+
+/* A sidekick's claim about one use case of its brief: what it says it did, not what the orchestrator saw. */
+export interface CandidateClaim {
+  readonly id: string;
+  readonly status: CandidateClaimStatus;
+  /* The title of the test that covers it, as the sidekick wrote it. */
+  readonly spec?: string;
+}
+
 export interface FileChange {
   readonly path: string;
 }
@@ -32,6 +43,8 @@ export interface DelegationResult {
   readonly recommendation: DelegationRecommendation;
   /** Per-criterion report, keyed by the brief's 1-based criterion numbers; only well-formed entries. */
   readonly acceptance: readonly AcceptanceReportEntry[];
+  /** The sidekick's claim per use case its brief listed; only well-formed entries for ids the brief carried. */
+  readonly candidates?: readonly CandidateClaim[];
   /** Set when the report is absent or malformed: every criterion without a kept entry is unverified. */
   readonly acceptanceReportDefect?: AcceptanceReportDefect;
   /** The sidekick's claim, on a correction of a failing execution, that its test is right and the app or the environment is not. */

@@ -61,7 +61,15 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
       ...(deps.sidekickDevBaseUrl ? { devBaseUrl: deps.sidekickDevBaseUrl } : {}),
       ...(state.grounding.confirmedDataRoutes?.length ? { confirmedDataRoutes: state.grounding.confirmedDataRoutes } : {}),
       ...(state.grounding.contextPack ? { contextPack: state.grounding.contextPack } : {}),
-      ...(state.grounding.candidates.length > 0 ? { candidates: state.grounding.candidates } : {}),
+      ...(state.grounding.candidates.length > 0
+        ? {
+            candidates: state.grounding.candidates,
+            change: {
+              diffs: [...(classificationDiff ? [classificationDiff] : []), ...(state.classification.companions ?? []).map((companion) => companion.diff)],
+              ...(classificationIntent?.message ? { subject: classificationIntent.message } : {}),
+            },
+          }
+        : {}),
       ...(deps.generation.plan
         ? { plan: (planning) => deps.generation.plan!(workspace.specDir, signal, classificationDiff, { ...baseEnrichment, ...geolocationEnrichment(ctx), planning }) }
         : {}),

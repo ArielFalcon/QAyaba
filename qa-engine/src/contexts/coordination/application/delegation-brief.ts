@@ -19,6 +19,24 @@ export interface ValidationStep {
   readonly description: string;
 }
 
+/* Where a candidate's expected behavior comes from: the declared contract operation, the commit's stated intent, or the diff itself. */
+export interface ExpectedSource {
+  readonly kind: "contract" | "commit-message" | "diff";
+  readonly ref: string;
+}
+
+/* A use case of the change a flow must exercise, with the part of the change that reaches it. */
+export interface BriefCandidate {
+  readonly id: string;
+  /* The entry point: `page /route` or `VERB /path`. */
+  readonly entry: string;
+  readonly tier: string;
+  readonly evidence: readonly string[];
+  readonly symbols: readonly string[];
+  readonly hunks: readonly string[];
+  readonly expectedFrom: readonly ExpectedSource[];
+}
+
 export interface DelegationBrief {
   readonly delegationId: string;
   readonly runId: string;
@@ -34,6 +52,8 @@ export interface DelegationBrief {
   readonly pages?: string;
   /* How the change reaches the flow's pages, as the call graph proved it (`route: step > step`). */
   readonly proofs?: readonly string[];
+  /* The use cases the flow must exercise: ids to report on, the symbols and hunks that reach them, and where the expected behavior comes from. */
+  readonly candidates?: readonly BriefCandidate[];
 }
 
 export function createDelegationBrief(input: {
@@ -50,6 +70,7 @@ export function createDelegationBrief(input: {
   validationPlan?: readonly ValidationStep[];
   pages?: string;
   proofs?: readonly string[];
+  candidates?: readonly BriefCandidate[];
 }): DelegationBrief {
   const scrub = (text: string): string => input.redaction.redact(text);
   if (!input.delegationId) throw new Error("DelegationBrief requires delegationId");
@@ -67,5 +88,18 @@ export function createDelegationBrief(input: {
     authority: SIDEKICK_AUTHORITY,
     ...(input.pages ? { pages: scrub(input.pages) } : {}),
     ...(input.proofs?.length ? { proofs: input.proofs.map(scrub) } : {}),
+    ...(input.candidates?.length
+      ? {
+          candidates: input.candidates.map((c) => ({
+            id: c.id,
+            entry: scrub(c.entry),
+            tier: c.tier,
+            evidence: c.evidence.map(scrub),
+            symbols: c.symbols.map(scrub),
+            hunks: c.hunks.map(scrub),
+            expectedFrom: c.expectedFrom.map((source) => ({ kind: source.kind, ref: scrub(source.ref) })),
+          })),
+        }
+      : {}),
   };
 }

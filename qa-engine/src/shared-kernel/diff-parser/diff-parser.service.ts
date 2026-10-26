@@ -15,7 +15,41 @@ interface ScannedLiteral extends ChangedLiteral {
   raw: string;
 }
 
+/* One hunk of a unified diff: its file (new side), the header line, the new-side lines it spans (a pure deletion spans the line it sits at) and its body lines. */
+export interface DiffHunk {
+  file: string;
+  header: string;
+  newStart: number;
+  newEnd: number;
+  lines: string[];
+}
+
 export class DiffParserService {
+  /* Every hunk of the diff, in diff order. A file with no `+++` path (a pure deletion) has no new side and no hunks. */
+  hunks(diff: string): DiffHunk[] {
+    const hunks: DiffHunk[] = [];
+    let file: string | null = null;
+    let current: DiffHunk | undefined;
+    for (const raw of diff.split("\n")) {
+      if (raw.startsWith("diff --git")) { file = null; current = undefined; continue; }
+      const header = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(raw);
+      if (header) {
+        if (file === null) { current = undefined; continue; }
+        const start = Number(header[1]);
+        const count = header[2] === undefined ? 1 : Number(header[2]);
+        current = { file, header: raw, newStart: start, newEnd: Math.max(start, start + count - 1), lines: [] };
+        hunks.push(current);
+        continue;
+      }
+      if (!current) {
+        if (raw.startsWith("+++ ")) file = headerPath(raw);
+        continue;
+      }
+      if (raw !== "") current.lines.push(raw);
+    }
+    return hunks;
+  }
+
   /* Added/modified lines per file, numbered on the new side. Pure deletions contribute nothing. */
   changedLines(diff: string): ChangedLines {
     const changed: ChangedLines = new Map();

@@ -50,7 +50,11 @@ signed-in app (see below); without either, no sidekick can author and the run en
    in every review turn (`plan-coverage.ts`).
 3. **Author.** Each sidekick's brief carries the Live DOM of its flow's pages (by address, or by the map template a
    page was opened from), cut from the run's Context Pack and bounded; a flow whose pages the pack did not read gets
-   none. `FanOutDispatcher` runs at most `maxParallel` flows. Each has its own abort signal and time
+   none. The brief also lists up to `MAX_BRIEF_CANDIDATES` use cases the flow must exercise (those its plan cites, then
+   those its routes name): each with its id, the symbols and the bounded, redacted hunks of the change that reach it, and
+   where the expected behavior comes from (the declared contract operation, the commit's stated intent, the diff); the
+   sidekick reports a claim per id (`covered`, `not-covered`, `blocked`), which the plan snapshot keeps beside the flow's
+   outcome and no grader trusts. `FanOutDispatcher` runs at most `maxParallel` flows. Each has its own abort signal and time
    (`flowBudgetMs`, cut to the run's deadline); a flow that throws does not stop the others.
 4. **Take back.** Each sidekick works in a plain, bounded copy of what the run may read
    (`<mirrors>/.qa-delegations/<run>/<delegation>`). Only the files its brief names (`writablePaths`) are copied

@@ -20,11 +20,12 @@ import type { LeadSessionHandle, PlanOutput } from "@kernel/plan-output.ts";
 import type { CodeGraphToolsHandle } from "@contexts/agent-tools/application/index.ts";
 import type { DelegationWorkspace, DelegationWorkspaceRequest, WorkspaceChange } from "../domain/delegation-workspace.ts";
 import type { DelegationWorkspacePort } from "./ports/delegation-workspace.port.ts";
-import { createDelegationBrief } from "./delegation-brief.ts";
+import { createDelegationBrief, type BriefCandidate } from "./delegation-brief.ts";
+import { briefCandidatesFor } from "./brief-candidates.ts";
 import { proofsFor } from "./change-proofs.ts";
 import { pageRoutesOf, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
-import { admissionSetOf, MAX_PLAN_ROUNDS, planCoverage, renderReplanRequest, unvisitedBy, type AdmissionSet, type PlanCoverage } from "./plan-coverage.ts";
-import type { DelegationResult } from "./delegation-result.ts";
+import { admissionSetOf, flowCovers, MAX_PLAN_ROUNDS, planCoverage, renderReplanRequest, unvisitedBy, type AdmissionSet, type PlanCoverage } from "./plan-coverage.ts";
+import type { CandidateClaim, DelegationResult } from "./delegation-result.ts";
 import { classifyDelegationFailure } from "./delegation-failure-class.ts";
 import { admitLeadReview, candidateGapsOf, MAX_REVIEW_TURNS, renderLeadReview, REVIEW_ACTION, type FlowUnderReview, type ReviewOrder } from "./lead-review.ts";
 import type { CoordinationTelemetryPort } from "./coordination-telemetry.ts";
@@ -57,6 +58,12 @@ const pagesOf = (pack: string | undefined, routes: readonly string[]): { pages: 
 const proofsOf = (proofs: readonly UseCaseCandidate[] | undefined, routes: readonly string[]): { proofs: string[] } | undefined => {
   const lines = proofsFor(proofs, routes);
   return lines === undefined ? undefined : { proofs: lines };
+};
+
+/* The use cases of the change the flow must exercise, with the changed code that reaches them. */
+const candidatesOf = (flow: AdmittedFlow, input: CoordinateInput): { candidates: BriefCandidate[] } | undefined => {
+  const candidates = briefCandidatesFor(flow, input.candidates, { diffs: input.change?.diffs ?? [], ...(input.change?.subject !== undefined ? { subject: input.change.subject } : {}) });
+  return candidates.length > 0 ? { candidates } : undefined;
 };
 
 /* The pages of the change's candidates, in the order they are offered: the baseline the plan snapshot keeps beside the per-candidate states. */
@@ -114,6 +121,8 @@ export interface CoordinateInput {
   contextPack?: string;
   /* The use cases the change makes testable: the planning turn is told their pages, those no admitted flow visits are reported, and each flow's brief carries the evidence of the pages it visits. */
   candidates?: readonly UseCaseCandidate[];
+  /* What the briefs quote of the change: the diff of each repo of the change and the anchor commit's subject. */
+  change?: { diffs: readonly string[]; subject?: string };
   /* The run's deadline, when one is armed. */
   deadline?: { remainingMs(): number | undefined };
   /* The planning turn, asked for with the limits the plan will be held to. Absent: this run's generation cannot plan. */
@@ -304,7 +313,7 @@ export class LeadSidekicks {
         this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.REJECTED, [], admitted.downgrade);
         return refuse(`${AUTHORING_REFUSAL.PLAN_REJECTED}:${admitted.downgrade}`, `the plan was not admitted (${admitted.downgrade})`, { authoring: authoringName });
       }
-      this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.FANOUT, admitted.flows, undefined, undefined, coverage);
+      this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.FANOUT, admitted.flows, undefined, undefined, { admission, coverage });
       this.reportUnplanned(input, coverage);
       const result = await this.fanOut(input, admitted.flows, admitted.parallel, { mode: authoring.mode, ...(planned.lead ? { lead: planned.lead } : {}) }, { ...base, plan: LEAD_PLAN_KIND.FANOUT, authoring: authoringName }, { admission, coverage });
       /* A pass kept open holds the lead's session from here on. */
@@ -447,7 +456,7 @@ export class LeadSidekicks {
         return p && p.total > 0 ? [p] : [];
       });
       const aggregated = aggregateFlowOutcomes(outcomes);
-      this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.FANOUT, flows, undefined, outcomes, decided.coverage);
+      this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.FANOUT, flows, undefined, outcomes, decided, new Map([...live].flatMap(([id, entry]) => (entry.last?.candidates ? [[id, entry.last.candidates] as const] : []))));
       const signal: CoordinationGateSignal = {
         ...base,
         flows: flows.length,
@@ -567,6 +576,7 @@ export class LeadSidekicks {
       knownFacts: knownFactsOf(this.deps.redaction, input),
       ...(pagesOf(input.contextPack, flow.routes) ?? {}),
       ...(proofsOf(input.candidates, flow.routes) ?? {}),
+      ...candidatesOf(flow, input),
       ...(input.devBaseUrl ? { artifactRefs: [{ id: "dev-base-url", path: input.devBaseUrl }] } : {}),
     });
   }
@@ -891,7 +901,8 @@ export class LeadSidekicks {
   }
 
   /* Keeps what the run planned: the flows, the pages each visits, and what became of every use case the plan had to answer for. A flow visits a page when one of its routes names it (`namesTemplatePage`). */
-  private snapshotPlan(input: CoordinateInput, kind: PlanSnapshotKind, flows: readonly AdmittedFlow[], reason?: string, outcomes?: readonly FlowOutcome[], coverage?: PlanCoverage): void {
+  private snapshotPlan(input: CoordinateInput, kind: PlanSnapshotKind, flows: readonly AdmittedFlow[], reason?: string, outcomes?: readonly FlowOutcome[], decided?: PlanDecision, claims?: ReadonlyMap<string, readonly CandidateClaim[]>): void {
+    const coverage = decided?.coverage;
     const changeRoutes = changeRoutesOf(input);
     const known = new Set((input.candidates ?? []).map((c) => c.id));
     const snapshotFlows: PlanSnapshotFlow[] = flows.map((flow) => {
@@ -903,7 +914,10 @@ export class LeadSidekicks {
         routes: [...flow.routes],
         specFile: flow.specFile,
         visits: changeRoutes.filter((route) => flow.routes.some((visited) => namesTemplatePage(route, visited))),
-        candidates: flow.candidates.filter((id) => known.has(id)),
+        candidates: [...new Set([...flow.candidates.filter((id) => known.has(id)), ...(decided?.admission.required ?? []).filter((c) => flowCovers(flow, c)).map((c) => c.id)])].map((id) => {
+          const claimed = claims?.get(flow.id)?.find((claim) => claim.id === id)?.status;
+          return { id, ...(claimed !== undefined ? { claimed } : {}) };
+        }),
         ...(outcome ? { outcome: { kind: outcome.kind, ...(outcome.reason !== undefined ? { reason: outcome.reason } : {}), ...(outcome.specs ? { specs: [...outcome.specs] } : {}) } } : {}),
       };
     });

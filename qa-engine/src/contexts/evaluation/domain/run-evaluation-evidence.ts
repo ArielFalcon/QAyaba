@@ -61,10 +61,14 @@ export interface PlanEvidence {
   kind: string;
   /* The pages of the app's map the change is linked to. */
   changeRoutes: readonly string[];
+  /* The use cases the plan had to answer for and what became of each; empty when the run kept none. */
+  candidates: ReadonlyArray<{ id: string; state: "planned" | "dropped" | "unplanned"; reason?: string }>;
   flows: ReadonlyArray<{
     id: string;
     /* The change pages the flow visits. */
     visits: readonly string[];
+    /* The use cases the flow answers for, with the sidekick's claim: a claim, never a fact. */
+    candidates: ReadonlyArray<{ id: string; claimed?: string }>;
     /* Whether the flow delivered a spec and every case of it passed the final execution: false when it delivered none or a case failed; undefined when the run's cases cannot be tied to its spec. */
     passed: boolean | undefined;
   }>;

@@ -1,8 +1,24 @@
 /* Sidekick prompt assembly lives here so generation does not import DelegationBrief. Injected into SidekickExecutor.
 Free-form brief fields are redacted through the RedactionPort at this egress, so secrets never reach the provider. */
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
-import type { DelegationBrief } from "./delegation-brief.ts";
+import type { BriefCandidate, DelegationBrief } from "./delegation-brief.ts";
 import { ACCEPTANCE_STATUSES } from "./acceptance-report.ts";
+import { CANDIDATE_CLAIMS } from "./delegation-result.ts";
+
+/* The use cases this flow must exercise: where the change reaches each, the changed code, and where the expected behavior comes from. */
+function changeSection(candidates: readonly BriefCandidate[], scrub: (text: string) => string): string {
+  return [
+    "## Change this flow must exercise",
+    "Expected values come from the contract or the commit's stated intent, never from what the page shows: a page that already shows the new behavior proves nothing about the change.",
+    ...candidates.flatMap((candidate) => [
+      `### ${candidate.id}: ${scrub(candidate.entry)} (${candidate.tier})`,
+      candidate.evidence.length > 0 ? `Reached through: ${candidate.evidence.map(scrub).join(" > ")}` : "",
+      candidate.symbols.length > 0 ? `Changed symbols: ${candidate.symbols.map(scrub).join("; ")}` : "",
+      `Expected behavior comes from: ${candidate.expectedFrom.map((source) => `${source.kind} (${scrub(source.ref)})`).join("; ")}`,
+      ...candidate.hunks.map((hunk) => ["Changed code:", "```diff", scrub(hunk), "```"].join("\n")),
+    ].filter(Boolean)),
+  ].join("\n");
+}
 
 export function renderSidekickBrief(redaction: RedactionPort, brief: DelegationBrief): {
   text: string;
@@ -58,11 +74,13 @@ export function renderSidekickBrief(redaction: RedactionPort, brief: DelegationB
     `task: ${scrub(brief.task)}`,
   ].join("\n");
 
+  const withCandidates = brief.candidates !== undefined && brief.candidates.length > 0;
   const contract = [
     "## Output contract",
     "End with ONLY JSON:",
-    `{"delegationId":"${brief.delegationId}","runId":"${brief.runId}","status":"completed"|"completed-with-concerns"|"blocked"|"needs-lead"|"failed","summary":"...","filesChanged":[{"path":"..."}],"evidence":[],"validation":[{"id":"...","ok":true}],"acceptance":[{"criterion":1,"status":${ACCEPTANCE_STATUSES.map((st) => JSON.stringify(st)).join("|")},"note":"..."}],"assumptions":[],"concerns":[],"unresolvedQuestions":[],"recommendation":"accept"|"review"|"retry"|"escalate"}`,
+    `{"delegationId":"${brief.delegationId}","runId":"${brief.runId}","status":"completed"|"completed-with-concerns"|"blocked"|"needs-lead"|"failed","summary":"...","filesChanged":[{"path":"..."}],"evidence":[],"validation":[{"id":"...","ok":true}],"acceptance":[{"criterion":1,"status":${ACCEPTANCE_STATUSES.map((st) => JSON.stringify(st)).join("|")},"note":"..."}],${withCandidates ? `"candidates":[{"id":"uc-...","status":${CANDIDATE_CLAIMS.map((st) => JSON.stringify(st)).join("|")},"spec":"<test title>"}],` : ""}"assumptions":[],"concerns":[],"unresolvedQuestions":[],"recommendation":"accept"|"review"|"retry"|"escalate"}`,
     "acceptance: one entry for every numbered acceptance criterion, by its number: met only when you checked it holds, unmet when your work does not satisfy it, unverified when you could not check it; [] when there are none. Only an unmet entry reports a failure — concerns are notes.",
+    ...(withCandidates ? ["candidates: one entry for every use case of the Change section, by its id: covered when a test of yours exercises it, not-covered when none does, blocked when you could not. It is your claim; the orchestrator's own run of the spec decides."] : []),
     "Do NOT write outside writablePaths. Do NOT change acceptance criteria. Prefer needs-lead over inventing architecture.",
   ].join("\n");
 
@@ -74,6 +92,7 @@ export function renderSidekickBrief(redaction: RedactionPort, brief: DelegationB
     facts,
     ...(brief.pages ? { pages: ["## Pages of this flow (from the run's Context Pack)", brief.pages].join("\n") } : {}),
     ...(brief.proofs?.length ? { proofs: ["## How the change reaches this flow's pages (from the run's call graph)", ...brief.proofs.map((proof) => `- ${scrub(proof)}`)].join("\n") } : {}),
+    ...(withCandidates ? { change: changeSection(brief.candidates!, scrub) } : {}),
     artifacts,
     validation,
     contract,

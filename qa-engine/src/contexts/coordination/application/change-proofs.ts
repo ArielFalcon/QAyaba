@@ -6,7 +6,7 @@ export const MAX_BRIEF_PROOFS = 3;
 export const MAX_PROOF_STEPS = 8;
 
 /* A proof longer than the bound keeps where it starts (the change) and where it ends (the page), and says how many steps it left out between them. */
-function boundedSteps(proof: readonly string[]): string[] {
+export function boundedSteps(proof: readonly string[]): string[] {
   if (proof.length <= MAX_PROOF_STEPS) return [...proof];
   const head = Math.floor((MAX_PROOF_STEPS - 1) / 2);
   const tail = MAX_PROOF_STEPS - 1 - head;

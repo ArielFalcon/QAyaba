@@ -1,7 +1,7 @@
 /* How a sidekick's answer is read: the first JSON object of its output, checked against the brief it answers, scrubbed, and held to its writable roots. An answer that cannot be read is a failed result, never an empty one. Free-form fields are scrubbed on parse: they re-enter the lead's context. filesChanged paths are authority inputs (scope check, on-disk adoption) and stay raw; they are scrubbed only where echoed into a summary or concern. */
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
-import { belongsToBrief, DELEGATION_RECOMMENDATIONS, DELEGATION_STATUSES, type DelegationRecommendation, type DelegationResult, type DelegationStatus } from "./delegation-result.ts";
+import { belongsToBrief, CANDIDATE_CLAIMS, DELEGATION_RECOMMENDATIONS, type CandidateClaim, type CandidateClaimStatus, DELEGATION_STATUSES, type DelegationRecommendation, type DelegationResult, type DelegationStatus } from "./delegation-result.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 import { readAcceptanceReport } from "./acceptance-report.ts";
 import { applyPushback } from "./pushback.ts";
@@ -86,11 +86,28 @@ function parseDelegationResult(raw: unknown, brief: DelegationBrief, redaction: 
     recommendation: recommendation as DelegationRecommendation,
     acceptance: acceptance.entries,
     ...(acceptance.defect ? { acceptanceReportDefect: acceptance.defect } : {}),
+    ...candidateClaimsOf(o.candidates, brief, redaction),
     ...testCorrectOf(o.testCorrect, redaction),
   };
 }
 
 const MAX_CLAIM_CHARS = 600;
+const MAX_CLAIM_SPEC_CHARS = 200;
+
+/* The claims about the use cases the brief listed: a well-formed entry for an id the brief carried, once each; nothing for any other. */
+function candidateClaimsOf(value: unknown, brief: DelegationBrief, redaction: RedactionPort): { candidates?: CandidateClaim[] } {
+  if (!Array.isArray(value) || !brief.candidates?.length) return {};
+  const claims: CandidateClaim[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const { id, status, spec } = entry as { id?: unknown; status?: unknown; spec?: unknown };
+    if (typeof id !== "string" || !brief.candidates.some((c) => c.id === id) || claims.some((c) => c.id === id)) continue;
+    if (typeof status !== "string" || !(CANDIDATE_CLAIMS as readonly string[]).includes(status)) continue;
+    const title = typeof spec === "string" ? redaction.redact(spec).trim().slice(0, MAX_CLAIM_SPEC_CHARS) : "";
+    claims.push({ id, status: status as CandidateClaimStatus, ...(title !== "" ? { spec: title } : {}) });
+  }
+  return claims.length > 0 ? { candidates: claims } : {};
+}
 
 /* A well-formed test-correct claim, its reason scrubbed and capped; nothing for any other shape. */
 function testCorrectOf(value: unknown, redaction: RedactionPort): { testCorrect?: { cause: "env" | "app"; reason: string } } {

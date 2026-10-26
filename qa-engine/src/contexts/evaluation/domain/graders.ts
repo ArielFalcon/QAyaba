@@ -335,6 +335,32 @@ const planReach: Grader = {
   }),
 };
 
+/*
+ * How many of the use cases the plan had to answer for it planned, and how many a passing spec delivered, per candidate. A candidate is
+ * planned when a flow answers for it, delivered when such a flow's spec passed the final execution; a sidekick's claim never scores. The
+ * comment lists every candidate by id and state (delivered, planned, unplanned, dropped with its reason).
+ */
+const planCandidates: Grader = {
+  names: ["plan_candidate_coverage", "delivered_candidate_coverage"],
+  grade: finishedOnly((e) => {
+    const plan = fanoutPlan(e);
+    if (!plan || plan.candidates.length === 0) return [];
+    const flowsOf = (id: string): typeof plan.flows => plan.flows.filter((f) => f.candidates.some((c) => c.id === id));
+    const planned = plan.candidates.filter((c) => c.state === "planned");
+    const stateOf = (c: (typeof plan.candidates)[number]): string => {
+      if (c.state === "dropped") return `dropped: ${c.reason ?? "no reason"}`;
+      if (c.state === "unplanned") return "unplanned";
+      return flowsOf(c.id).some((f) => f.passed === true) ? "delivered" : "planned";
+    };
+    const comment = { comment: plan.candidates.map((c) => `${c.id}: ${stateOf(c)}`).join("; ") };
+    const scores: RawScore[] = [{ name: "plan_candidate_coverage", value: ratio(planned.length, plan.candidates.length), ...comment }];
+    if (plan.flows.some((f) => f.passed === undefined)) return scores;
+    const delivered = plan.candidates.filter((c) => stateOf(c) === "delivered");
+    scores.push({ name: "delivered_candidate_coverage", value: ratio(delivered.length, plan.candidates.length), ...comment });
+    return scores;
+  }),
+};
+
 /* The share of the plan's flows that delivered a spec whose every case passed the final execution. */
 const flowDeliveryRate: Grader = {
   names: ["flow_delivery_rate"],
@@ -430,6 +456,7 @@ export const GRADERS: readonly Grader[] = [
   contextFresh,
   noopConsistent,
   planReach,
+  planCandidates,
   flowDeliveryRate,
   changePagesGrounded,
   runSpecFinalAgreement,

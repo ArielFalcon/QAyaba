@@ -14,7 +14,7 @@ function snapshot(runId: string, over: Partial<PlanSnapshot> = {}): PlanSnapshot
     changeRoutes: ["/cart"],
     unvisited: [],
     candidates: [{ id: "uc-1", tier: "direct", reachability: "page", state: "dropped", reason: `no test ${SECRET}` }],
-    flows: [{ id: "cart", objective: `the cart ${SECRET}`, acceptance: [`total ${SECRET}`], routes: ["/cart"], specFile: "flows/cart.spec.ts", visits: ["/cart"], candidates: ["uc-1"], outcome: { kind: "failed", reason: `crashed ${SECRET}` } }],
+    flows: [{ id: "cart", objective: `the cart ${SECRET}`, acceptance: [`total ${SECRET}`], routes: ["/cart"], specFile: "flows/cart.spec.ts", visits: ["/cart"], candidates: [{ id: "uc-1", claimed: "covered" }], outcome: { kind: "failed", reason: `crashed ${SECRET}` } }],
     recordedAt: Date.now(),
     ...over,
   };

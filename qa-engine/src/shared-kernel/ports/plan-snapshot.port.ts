@@ -15,6 +15,12 @@ export const PLAN_SNAPSHOT_KIND = {
 } as const;
 export type PlanSnapshotKind = (typeof PLAN_SNAPSHOT_KIND)[keyof typeof PLAN_SNAPSHOT_KIND];
 
+export interface PlanSnapshotFlowCandidate {
+  id: string;
+  /* What the sidekick said of the use case (`covered`, `not-covered`, `blocked`); absent when it said nothing. A claim, not a fact. */
+  claimed?: string;
+}
+
 export interface PlanSnapshotFlow {
   id: string;
   objective: string;
@@ -25,8 +31,8 @@ export interface PlanSnapshotFlow {
   specFile: string;
   /* The change pages this flow visits, as the orchestrator matched them. */
   visits: string[];
-  /* The ids of the use cases the flow cited. */
-  candidates: string[];
+  /* The use cases the flow answers for: those it cites and those whose pages it visits, each with what its sidekick claimed. The orchestrator's facts (a delivered spec, a passing final execution) are the flow's `outcome` and the run's cases. */
+  candidates: PlanSnapshotFlowCandidate[];
   /* How the flow ended; absent while its flows have not ended. */
   outcome?: { kind: string; reason?: string; specs?: string[] };
 }

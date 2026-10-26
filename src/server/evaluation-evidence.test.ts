@@ -227,17 +227,30 @@ test("the plan the run kept carries each flow's result in the final execution, t
   assert.deepEqual(executed.plan, {
     kind: "fanout",
     changeRoutes: ["/cart", "/orders"],
+    candidates: [],
     flows: [
-      { id: "cart", visits: ["/cart"], passed: true },
-      { id: "orders", visits: ["/orders"], passed: false },
-      { id: "login", visits: [], passed: false },
-      { id: "quiet", visits: [], passed: undefined },
+      { id: "cart", visits: ["/cart"], candidates: [], passed: true },
+      { id: "orders", visits: ["/orders"], candidates: [], passed: false },
+      { id: "login", visits: [], candidates: [], passed: false },
+      { id: "quiet", visits: [], candidates: [], passed: undefined },
     ],
   });
   const unexecuted = (await new HistoryEvidenceAdapter(deps({ getRecord: () => record({ verdict: "invalid", cases }), getRunPlan: () => JSON.stringify(plan) })).load("run-1"))!;
   assert.deepEqual(unexecuted.plan?.flows.map((f) => f.passed), [undefined, undefined, false, undefined]);
   const unreadable = (await new HistoryEvidenceAdapter(deps({ getRunPlan: () => "{not json" })).load("run-1"))!;
   assert.equal(unreadable.plan, undefined);
+});
+
+test("the plan's candidates and each flow's claims are read back, and an entry of another shape is left out", async () => {
+  const plan = {
+    kind: "fanout", changeRoutes: [],
+    candidates: [{ id: "uc-a", state: "planned" }, { id: "uc-b", state: "dropped", reason: "r" }, { id: "uc-c", state: "bogus" }, "x"],
+    flows: [{ id: "cart", visits: [], specFile: "flows/cart.spec.ts", candidates: [{ id: "uc-a", claimed: "covered" }, { id: 4 }], outcome: { kind: "delivered" } }],
+  };
+  const cases: RunRecord["cases"] = [{ name: "cart a", status: "pass", file: "flows/cart.spec.ts" }];
+  const evidence = (await new HistoryEvidenceAdapter(deps({ getRecord: () => record({ verdict: "pass", cases }), getRunPlan: () => JSON.stringify(plan) })).load("run-1"))!;
+  assert.deepEqual(evidence.plan?.candidates, [{ id: "uc-a", state: "planned" }, { id: "uc-b", state: "dropped", reason: "r" }]);
+  assert.deepEqual(evidence.plan?.flows[0], { id: "cart", visits: [], candidates: [{ id: "uc-a", claimed: "covered" }], passed: true });
 });
 
 const span = (name: string, attrs: Record<string, unknown>, id = name) => ({ name, spanId: id, parentSpanId: null, attrs: JSON.stringify(attrs) });

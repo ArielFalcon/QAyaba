@@ -112,19 +112,39 @@ export function planEvidenceOf(raw: string | undefined, record: Pick<RunRecord, 
     return undefined;
   }
   if (parsed === null || typeof parsed !== "object") return undefined;
-  const plan = parsed as { kind?: unknown; changeRoutes?: unknown; flows?: unknown };
+  const plan = parsed as { kind?: unknown; changeRoutes?: unknown; candidates?: unknown; flows?: unknown };
   if (typeof plan.kind !== "string" || !Array.isArray(plan.flows)) return undefined;
   const executed = record.verdict !== undefined && EXECUTED_VERDICTS.has(record.verdict);
   const flows = plan.flows.flatMap((value: unknown) => {
     if (value === null || typeof value !== "object") return [];
-    const flow = value as { id?: unknown; visits?: unknown; specFile?: unknown; outcome?: { kind?: unknown } };
+    const flow = value as { id?: unknown; visits?: unknown; candidates?: unknown; specFile?: unknown; outcome?: { kind?: unknown } };
     if (typeof flow.id !== "string") return [];
     const delivered = flow.outcome?.kind === "delivered";
     const statuses = typeof flow.specFile === "string" ? record.cases.filter((c) => specOfCase(c.file, [flow.specFile as string]) !== undefined).map((c) => c.status) : [];
     const passed = !delivered ? false : !executed || statuses.length === 0 ? undefined : statuses.every((s) => s === "pass");
-    return [{ id: flow.id, visits: asStringArray(flow.visits), passed }];
+    return [{ id: flow.id, visits: asStringArray(flow.visits), candidates: flowCandidatesOf(flow.candidates), passed }];
   });
-  return { kind: plan.kind, changeRoutes: asStringArray(plan.changeRoutes), flows };
+  return { kind: plan.kind, changeRoutes: asStringArray(plan.changeRoutes), candidates: planCandidatesOf(plan.candidates), flows };
+}
+
+const CANDIDATE_STATES = new Set(["planned", "dropped", "unplanned"]);
+
+/* The use cases the plan had to answer for, as the run kept them; an entry of another shape is left out. */
+function planCandidatesOf(value: unknown): PlanEvidence["candidates"] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry: unknown) => {
+    const c = entry as { id?: unknown; state?: unknown; reason?: unknown } | null;
+    if (c === null || typeof c !== "object" || typeof c.id !== "string" || typeof c.state !== "string" || !CANDIDATE_STATES.has(c.state)) return [];
+    return [{ id: c.id, state: c.state as "planned" | "dropped" | "unplanned", ...(typeof c.reason === "string" ? { reason: c.reason } : {}) }];
+  });
+}
+
+function flowCandidatesOf(value: unknown): PlanEvidence["flows"][number]["candidates"] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry: unknown) => {
+    const c = entry as { id?: unknown; claimed?: unknown } | null;
+    return c !== null && typeof c === "object" && typeof c.id === "string" ? [{ id: c.id, ...(typeof c.claimed === "string" ? { claimed: c.claimed } : {}) }] : [];
+  });
 }
 
 const optStr = (value: unknown): string | undefined => (typeof value === "string" && value !== "" ? value : undefined);

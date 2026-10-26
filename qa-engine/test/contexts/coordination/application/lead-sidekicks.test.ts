@@ -1330,3 +1330,25 @@ test("a plan against a run with no candidates is admitted untouched and records 
   assert.equal(lead.replans.length, 0);
   assert.deepEqual(r.plans[0]!.candidates, []);
 });
+
+test("a flow's brief carries the use cases it cites with the changed code, and the plan snapshot keeps what its sidekick claimed beside the flow's outcome", async () => {
+  const r = rig({ answers: { cart: [{ candidates: [{ id: "uc-/cart", status: "covered", spec: "the total" }] } as Partial<DelegationResult>] } });
+  const diff = ["diff --git a/src/cart.ts b/src/cart.ts", "--- a/src/cart.ts", "+++ b/src/cart.ts", "@@ -3,2 +3,3 @@", " keep", "+const total = 1;", " keep"].join("\n");
+  const candidates = [pageCandidate("/cart", ["src/cart.ts::total", "page /cart"], { seeds: [{ file: "src/cart.ts", symbol: "total", range: { start: 1, end: 9 } }] }), pageCandidate("/login")];
+  const plan = planOf([{ ...cartFlow, candidates: ["uc-/cart"] }, { ...loginFlow, routes: [] }]);
+  const outcome = await r.coordinator.coordinate(input(r, { candidates, change: { diffs: [diff], subject: "feat(cart): total" }, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  const brief = (flow: string) => r.executed.find((e) => e.brief.delegationId === `run-1-flow-${flow}`)!.brief;
+  assert.deepEqual(brief("cart").candidates?.map((c) => c.id), ["uc-/cart"]);
+  assert.ok(brief("cart").candidates?.[0]?.hunks[0]?.includes("+const total = 1;"));
+  assert.equal(brief("login").candidates, undefined, "a flow that cites and visits no use case carries none");
+  const cartFlowSnapshot = r.plans.at(-1)!.flows.find((f) => f.id === "cart")!;
+  assert.deepEqual(cartFlowSnapshot.candidates, [{ id: "uc-/cart", claimed: "covered" }]);
+  assert.equal(cartFlowSnapshot.outcome?.kind, "delivered");
+});
+
+test("a flow's briefs carry no candidates when the run derived none", async () => {
+  const r = rig();
+  await r.coordinator.coordinate(input(r));
+  assert.ok(r.executed.every((e) => !("candidates" in e.brief)));
+});
