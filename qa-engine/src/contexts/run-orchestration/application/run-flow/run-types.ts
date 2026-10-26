@@ -114,6 +114,8 @@ export interface RunQaUseCaseDeps {
   specFiles: SpecFilesPort;
   /** Absent for static sites and the code target. */
   deployGate?: DeployGatePort;
+  /** The gate of each companion entry's repo (an entry other than the anchor), by repo. A repo with none is not awaited. */
+  companionDeployGates?: ReadonlyMap<string, DeployGatePort>;
   runHistory: RunHistoryPort;
   /**
    * Absent: no sandbox scope is opened (a unit test, a run with nothing to execute). Present: the run owns a scope in

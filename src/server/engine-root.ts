@@ -131,6 +131,8 @@ export interface EngineRootDeps {
 
   /* ChangeAnalysisPort collaborator. */
   vcs: VcsReadPort;
+  /* A run over several repos reads each entry from its own repo's mirror (see ChangeAnalysisDeps.vcsFor). */
+  vcsFor?: (repo: string) => VcsReadPort;
 
   /* The lead and author turns' collaborator — an ALREADY-CONSTRUCTED use-case (its own leaf IO ports are the generation context's own concern) plus the optional specSources file-read collaborator. */
   generationUseCase: {
@@ -262,6 +264,8 @@ export interface EngineRootDeps {
   versionPoll?: VersionPollFn;
   deployGateIntervalMs?: number;
   deployGateTimeoutMs?: number;
+  /* The deploy gates of the other repos of a run over several repos (see RunOrchestrationDeps.deployGate.companions). */
+  companionDeployGates?: ReadonlyArray<{ repo: string; versionUrl?: string; poll?: VersionPollFn; intervalMs?: number; timeoutMs?: number }>;
 
   /* RunHistoryPort collaborator — a durable FileRunHistoryAdapter is used when a path is given (in-memory otherwise). */
   historyFilePath?: string;
@@ -290,6 +294,7 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
   const codeGraphPort = cfg.codeGraph;
   const changeAnalysisApi = buildChangeAnalysis({
     vcs: cfg.vcs,
+    ...(cfg.vcsFor ? { vcsFor: cfg.vcsFor } : {}),
     ...(codeGraphPort && cfg.coChange
       ? {
           structural: {
@@ -545,6 +550,7 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
       ...(cfg.versionPoll ? { poll: cfg.versionPoll } : {}),
       ...(cfg.deployGateIntervalMs !== undefined ? { intervalMs: cfg.deployGateIntervalMs } : {}),
       ...(cfg.deployGateTimeoutMs !== undefined ? { timeoutMs: cfg.deployGateTimeoutMs } : {}),
+      ...(cfg.companionDeployGates ? { companions: cfg.companionDeployGates } : {}),
     },
     history: {
       ...(cfg.runHistory ? { store: cfg.runHistory } : {}),

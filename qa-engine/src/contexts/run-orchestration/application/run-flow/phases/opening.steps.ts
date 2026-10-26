@@ -1,10 +1,11 @@
 /* The opening of a run: the deploy gate, then (in the prepared working copy) the change's classification, the run deadline and the code index. */
 
 import { isOk } from "@kernel/result.ts";
+import { ACTION_SEVERITY } from "@contexts/change-analysis/application/index.ts";
 import { changeTokens } from "@contexts/objective-signal/application/index.ts";
 import { end, type StepOutcome } from "../run-flow.ts";
 import type { RunContext, WorkspaceRunContext } from "../run-context.ts";
-import type { RunState } from "../run-state.ts";
+import type { CompanionClassification, RunState } from "../run-state.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { CodeGraphIndexRecord } from "@kernel/code/index.ts";
 
@@ -12,13 +13,25 @@ type Result = Promise<StepOutcome<RunState>>;
 
 export async function waitForDeploy(_state: Readonly<RunState>, ctx: RunContext): Result {
   ctx.deps.observer?.onStep("gate");
-  if (ctx.deps.deployGate) {
-    const gateResult = await ctx.deps.deployGate.waitUntilServing(ctx.input.sha);
-    if (!isOk(gateResult)) {
-      /* Thread the deploy-gate InfraError message as the diagnostic note — never drop it. */
-      return end("deploy-gate-failed", { note: gateResult.error.message });
-    }
+  const failure = await awaitEntryDeploys(ctx);
+  /* Thread the deploy-gate InfraError message as the diagnostic note — never drop it. */
+  if (failure !== undefined) return end("deploy-gate-failed", { note: failure });
+}
+
+/*
+ * Waits for DEV to serve each entry of the run's change at its head, in entry order, and stops at the first that does not.
+ * The anchor waits on the run's gate, every other entry on its own repo's gate; an entry with no gate is not awaited. The
+ * message of a run over several repos names the repo that failed. Returns that message, or undefined when all serve.
+ */
+export async function awaitEntryDeploys(ctx: RunContext): Promise<string | undefined> {
+  const { entries, anchor } = ctx.input.changeSet;
+  for (const entry of entries) {
+    const gate = entry === anchor ? ctx.deps.deployGate : ctx.deps.companionDeployGates?.get(entry.repo);
+    if (!gate) continue;
+    const result = await gate.waitUntilServing(entry === anchor ? ctx.input.sha : entry.headSha);
+    if (!isOk(result)) return entries.length > 1 ? `${entry.repo}: ${result.error.message}` : result.error.message;
   }
+  return undefined;
 }
 
 /*
@@ -29,8 +42,24 @@ export async function waitForDeploy(_state: Readonly<RunState>, ctx: RunContext)
  */
 export async function classifyChange(_state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   ctx.deps.observer?.onStep("classify");
-  const classification = await ctx.deps.changeAnalysis.classify(ctx.input.changeSet.anchor);
-  if (classification.action === "skip") {
+  const { entries, anchor } = ctx.input.changeSet;
+  const classification = await ctx.deps.changeAnalysis.classify(anchor);
+  /* The other entries are read on their own; the run's action is the most test-worthy of them all, so one repo's docs-only push never hides another's logic change. */
+  const companions: CompanionClassification[] = [];
+  for (const entry of entries) {
+    if (entry === anchor) continue;
+    const c = await ctx.deps.changeAnalysis.classify(entry);
+    companions.push({ repo: entry.repo, diff: c.diff, ...(c.intent ? { intent: c.intent } : {}), action: c.action, reason: c.reason });
+  }
+  let action = classification.action;
+  let reason = classification.reason;
+  for (const c of companions) {
+    if (ACTION_SEVERITY[c.action] > ACTION_SEVERITY[action]) {
+      action = c.action;
+      reason = `${c.repo}: ${c.reason}`;
+    }
+  }
+  if (action === "skip") {
     /* Prepare already checked out the mirror. Classify-skip does not persist, but the working copy was touched and is pruned with the end. */
     return end("classify-skipped");
   }
@@ -39,9 +68,10 @@ export async function classifyChange(_state: Readonly<RunState>, ctx: WorkspaceR
       classification: {
         diff: classification.diff,
         intent: classification.intent,
-        reason: classification.reason,
+        reason,
         contradiction: classification.contradiction,
-        generating: classification.action !== "regression",
+        generating: action !== "regression",
+        ...(companions.length > 0 ? { companions } : {}),
       },
     },
   };

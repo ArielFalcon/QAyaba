@@ -48,6 +48,8 @@ export interface MultiRepoCheckoutStaticContext {
   baseBranch: string;
   services: DeclaredService[];
   triggerService?: { repo: string; openapi?: string | string[] };
+  /** Declared services the run's change also reaches besides the trigger service (a run over several repos): each is checked out at its head and staged with that sha. */
+  changedServices?: ReadonlyArray<{ repo: string; headSha: string }>;
   /** A code-target run never stages declared services (see module header). */
   isCode: boolean;
 }
@@ -61,12 +63,15 @@ export class MultiRepoCheckoutAdapter {
   private async stageDeclaredServices(primaryDir: string, skipRepo?: string): Promise<void> {
     if (this.ctx.isCode || this.ctx.services.length === 0) return;
     const targets = this.ctx.services.filter((svc) => !(skipRepo && svc.repo === skipRepo));
+    const changedHead = new Map((this.ctx.changedServices ?? []).map((c) => [c.repo, c.headSha]));
     const settled = await Promise.allSettled(
       targets.map(async (svc) => {
-        const svcDir = await this.deps.ensureMirrorAtBranch(svc.repo, svc.baseBranch ?? "main");
+        const head = changedHead.get(svc.repo);
+        const svcDir = head !== undefined ? await this.deps.ensureMirror(svc.repo, head) : await this.deps.ensureMirrorAtBranch(svc.repo, svc.baseBranch ?? "main");
         await this.deps.stageServiceContext({
           workingCopyDir: primaryDir,
           service: { repo: svc.repo, mirrorDir: svcDir, ...(svc.openapi ? { openapi: svc.openapi } : {}) },
+          ...(head !== undefined ? { sha: head } : {}),
         });
       }),
     );

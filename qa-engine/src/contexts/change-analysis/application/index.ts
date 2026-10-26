@@ -1,5 +1,5 @@
 /* Public surface of this context: other contexts import only from this file. It declares nothing. */
-export { classifyRange } from "../domain/commit-classification.ts";
+export { classifyRange, ACTION_SEVERITY } from "../domain/commit-classification.ts";
 export { ChangeSet, anchorProjection } from "@kernel/change-set.ts";
 export type { ChangeEntry, ChangeRole } from "@kernel/change-set.ts";
 export type { ChangeAnalysisPort } from "./ports/change-analysis.port.ts";

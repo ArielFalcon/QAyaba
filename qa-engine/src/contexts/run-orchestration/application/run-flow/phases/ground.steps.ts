@@ -184,28 +184,41 @@ export async function resolveServiceLinks(state: Readonly<RunState>, ctx: Worksp
 }
 
 /*
- * Only on cross-repo runs. The .some() pre-filter skips the await when no
- * resolved link targets triggerRepo. A throw is fail-open, except an untrusted git dir (the mirror was replaced by
- * untrusted code), which fails the run.
+ * Only on cross-repo runs: once for the service the run was triggered by and once for each other service entry of its change,
+ * each at its own head, and the answers are merged. The .some() pre-filter skips the await when no resolved link targets the
+ * repo. A throw is fail-open, except an untrusted git dir (the mirror was replaced by untrusted code), which fails the run.
  */
 export async function resolveCrossRepoImpact(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { deps, input } = ctx;
   const resolvedServiceLinks = state.grounding.serviceLinks;
-  let crossRepoImpact: CrossRepoImpact | null = null;
-  if (
-    deps.crossRepoImpact &&
-    input.triggerRepo &&
-    resolvedServiceLinks.length &&
-    resolvedServiceLinks.some((l) => l.to.repo === input.triggerRepo)
-  ) {
-    try {
-      crossRepoImpact = await deps.crossRepoImpact.resolve(input.triggerRepo, input.sha.toString(), resolvedServiceLinks);
-    } catch (err) {
-      carryOn(err);
-      console.error("[qa] WARNING: cross-repo impact resolution failed (non-fatal, generation continues without it):", err);
+  const services: Array<{ repo: string; sha: string }> = [];
+  if (input.triggerRepo) services.push({ repo: input.triggerRepo, sha: input.sha.toString() });
+  for (const entry of input.changeSet.entries) {
+    if (entry.role === "service" && entry !== input.changeSet.anchor && entry.repo !== input.triggerRepo) services.push({ repo: entry.repo, sha: entry.headSha.toString() });
+  }
+  const impacts: CrossRepoImpact[] = [];
+  if (deps.crossRepoImpact && resolvedServiceLinks.length) {
+    for (const { repo, sha } of services) {
+      if (!resolvedServiceLinks.some((l) => l.to.repo === repo)) continue;
+      try {
+        const impact = await deps.crossRepoImpact.resolve(repo, sha, resolvedServiceLinks);
+        if (impact) impacts.push(impact);
+      } catch (err) {
+        carryOn(err);
+        console.error("[qa] WARNING: cross-repo impact resolution failed (non-fatal, generation continues without it):", err);
+      }
     }
   }
+  const crossRepoImpact = impacts.length <= 1 ? (impacts[0] ?? null) : mergeImpacts(impacts);
   return { update: { grounding: { ...state.grounding, crossRepoImpact } } };
+}
+
+function mergeImpacts(impacts: readonly CrossRepoImpact[]): CrossRepoImpact {
+  const serviceImpacted = impacts.flatMap((i) => i.serviceImpacted ?? []);
+  return {
+    impactedLinks: impacts.flatMap((i) => i.impactedLinks),
+    ...(serviceImpacted.length > 0 ? { serviceImpacted } : {}),
+  };
 }
 
 /* The enrichment every generation of the run starts from, assembled from everything the phase gathered. */

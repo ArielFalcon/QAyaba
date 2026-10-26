@@ -89,3 +89,26 @@ test("a reviewer independence that cannot be read leaves the run without it, and
 test("the pipeline runs over the ports supplied", () => {
   assert.equal(typeof build().pipeline.run, "function");
 });
+
+test("each companion repo with a version url gets a gate that polls its own url; a repo without one is not gated", async () => {
+  const polled: string[] = [];
+  const api = build({
+    deployGate: {
+      companions: [
+        { repo: "org/back", versionUrl: "https://back/version", poll: async (url) => (polled.push(url), { serving: true }), intervalMs: 0 },
+        { repo: "org/static" },
+      ],
+    },
+  });
+
+  const gate = api.deps.companionDeployGates?.get("org/back");
+  const result = await gate?.waitUntilServing(Sha.of("abc1234"));
+
+  assert.equal(result?.ok, true);
+  assert.deepEqual(polled, ["https://back/version"]);
+  assert.equal(api.deps.companionDeployGates?.has("org/static"), false);
+});
+
+test("a run with no companion repos has no companion gates", () => {
+  assert.equal(build().deps.companionDeployGates, undefined);
+});

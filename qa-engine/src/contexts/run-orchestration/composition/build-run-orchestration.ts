@@ -1,5 +1,6 @@
 /* Builds the run-orchestration context: the deploy gate, the run history, the run's configuration block and the pipeline that runs the flow over the ports the other contexts serve. */
 
+import type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";
 import type { RunHistoryPort } from "../application/ports/run-history.port.ts";
 import type { RunPipelinePort } from "../application/ports/run-pipeline.port.ts";
 import type { RunQaConfig } from "../application/run-flow/run-types.ts";
@@ -18,10 +19,17 @@ export type RunConfigDeps = Omit<RunQaConfig, "reviewerIndependence"> & {
 
 export interface RunOrchestrationDeps {
   /* Every port the other contexts serve and the optional collaborators of the flow; the deploy gate, the history and the config are this context's own. */
-  ports: Omit<RunPipelineAdapterDeps, "deployGate" | "runHistory" | "config">;
+  ports: Omit<RunPipelineAdapterDeps, "deployGate" | "companionDeployGates" | "runHistory" | "config">;
   config: RunConfigDeps;
   /* Absent versionUrl selects the gate that is always ready (static sites, the code target); present selects the poll loop. */
-  deployGate: { versionUrl?: string; poll?: VersionPollFn; intervalMs?: number; timeoutMs?: number };
+  deployGate: {
+    versionUrl?: string;
+    poll?: VersionPollFn;
+    intervalMs?: number;
+    timeoutMs?: number;
+    /* The other repos of a run over several repos: one gate each, by repo. A repo without a versionUrl is not awaited. */
+    companions?: ReadonlyArray<{ repo: string; versionUrl?: string; poll?: VersionPollFn; intervalMs?: number; timeoutMs?: number }>;
+  };
   /* An explicit store wins over a file path; with neither, the history is held in memory. */
   history: { store?: RunHistoryPort; filePath?: string };
 }
@@ -41,11 +49,21 @@ export function buildRunOrchestration(deps: RunOrchestrationDeps): RunOrchestrat
         timeoutMs: deps.deployGate.timeoutMs ?? DEFAULT_DEPLOY_GATE_TIMEOUT_MS,
       })
     : new NullDeployGateAdapter();
+  const companionDeployGates = new Map<string, DeployGatePort>();
+  for (const c of deps.deployGate.companions ?? []) {
+    if (!c.versionUrl) continue;
+    companionDeployGates.set(c.repo, new DeployGatePortAdapter(c.poll ?? (async () => ({ serving: true })), {
+      versionUrl: c.versionUrl,
+      intervalMs: c.intervalMs ?? DEFAULT_DEPLOY_GATE_INTERVAL_MS,
+      timeoutMs: c.timeoutMs ?? DEFAULT_DEPLOY_GATE_TIMEOUT_MS,
+    }));
+  }
   const runHistory = deps.history.store ?? (deps.history.filePath ? new FileRunHistoryAdapter(deps.history.filePath) : new InMemoryRunHistoryAdapter());
   const { reviewerIndependence: _read, ...config } = deps.config;
   const adapterDeps: RunOrchestrationApi["deps"] = {
     ...deps.ports,
     deployGate,
+    ...(companionDeployGates.size > 0 ? { companionDeployGates } : {}),
     runHistory,
     config: { ...config, ...recordedReviewerIndependence(deps.config) },
   };

@@ -50,6 +50,8 @@ export function codeGraphFor(deps: CodeGraphDeps): (appName: string, exclude: re
 export interface ChangeAnalysisDeps {
   /* Reads the run's commit range. */
   vcs: VcsReadPort;
+  /* A run over several repos reads each entry from its own repo's mirror. Absent: every entry is read from `vcs`. */
+  vcsFor?: (repo: string) => VcsReadPort;
   /* Absent: the context builds no code graph. */
   graph?: CodeGraphDeps;
   /* The structural signal, wired only with the code graph and its co-change history. Absent: no signal. */
@@ -77,7 +79,7 @@ export interface ChangeAnalysisApi {
 export function buildChangeAnalysis(deps: ChangeAnalysisDeps): ChangeAnalysisApi {
   const structural = deps.structural;
   return {
-    changeAnalysis: new ChangeAnalysisPortAdapter(deps.vcs),
+    changeAnalysis: new ChangeAnalysisPortAdapter(deps.vcs, deps.vcsFor),
     ...(structural
       ? { structuralSignal: new StructuralSignalPortAdapter(structural.codeGraph, structural.coChange, structural.repoDir, structural.explore ? { explore: structural.explore } : undefined) }
       : {}),

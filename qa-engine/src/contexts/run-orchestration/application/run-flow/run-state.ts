@@ -32,6 +32,17 @@ export interface Classification {
   contradiction?: boolean;
   /** False for a "regression" change, which runs the existing suite without generating. */
   generating: boolean;
+  /** The other entries of a run over several repos, each classified on its own; absent for a single-entry run. `diff`, `intent` and `reason` above stay the anchor's. */
+  companions?: readonly CompanionClassification[];
+}
+
+/** One non-anchor entry of the run's change, as the classifier read it. */
+export interface CompanionClassification {
+  repo: string;
+  diff: string;
+  intent?: CommitIntent;
+  action: "skip" | "regression" | "generate";
+  reason: string;
 }
 
 /* What the setup phase left for the later ones. */

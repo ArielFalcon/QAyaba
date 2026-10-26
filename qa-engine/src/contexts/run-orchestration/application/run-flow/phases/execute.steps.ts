@@ -3,7 +3,6 @@
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/index.ts";
 import { stripAnsi } from "@kernel/ansi.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
-import { isOk } from "@kernel/result.ts";
 import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "../../../../../shared-kernel/derive-cycle-backstop.ts";
 import { staticFixAction } from "../../../domain/static-fix.ts";
@@ -12,6 +11,7 @@ import { end, goto, type StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { addRetries, withRun } from "../reducers.ts";
+import { awaitEntryDeploys } from "./opening.steps.ts";
 import { closedLoopSignal, loopClosedNow, regenerate, staticGateFindings } from "./generation-services.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
@@ -60,9 +60,8 @@ export const validateAccepted = (state: Readonly<RunState>, ctx: WorkspaceRunCon
 
 /* Mid-run DEV pre-flight, distinct from the entry gate. Absent DeployGatePort (static sites / code) defaults to always-healthy. The failure's message comes back with it. */
 export async function checkDevHealth(ctx: WorkspaceRunContext): Promise<{ healthy: true } | { healthy: false; reason: string }> {
-  if (!ctx.deps.deployGate) return { healthy: true };
-  const result = await ctx.deps.deployGate.waitUntilServing(ctx.input.sha);
-  return isOk(result) ? { healthy: true } : { healthy: false, reason: result.error.message };
+  const failure = await awaitEntryDeploys(ctx);
+  return failure === undefined ? { healthy: true } : { healthy: false, reason: failure };
 }
 
 /* What every exit of these phases tells the persisted outcome about the run so far. */

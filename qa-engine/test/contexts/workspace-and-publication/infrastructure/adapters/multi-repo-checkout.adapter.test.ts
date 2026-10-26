@@ -204,3 +204,46 @@ test("when several service mirrors fail, checkout rejects with the first declare
 
   await assert.rejects(adapter.checkout(Sha.of("abc1234567")), /svc-a clone failed/);
 });
+
+test("same-repo checkout of a run that also changed a service: that service is staged at its head, the others at their branch", async () => {
+  const deps = spyDeps();
+  const adapter = new MultiRepoCheckoutAdapter(
+    {
+      primaryRepo: "org/demo",
+      baseBranch: "main",
+      services: [{ repo: "org/orders-svc" }, { repo: "org/payments-svc" }],
+      changedServices: [{ repo: "org/orders-svc", headSha: "def4567890" }],
+      isCode: false,
+    },
+    deps,
+  );
+
+  await adapter.checkout(Sha.of("abc1234567"));
+
+  assert.deepEqual(deps.ensureMirrorCalls, [{ repo: "org/demo", sha: "abc1234567" }, { repo: "org/orders-svc", sha: "def4567890" }]);
+  assert.deepEqual(deps.ensureMirrorAtBranchCalls, [{ repo: "org/payments-svc", branch: "main" }]);
+  const orders = deps.stageCalls.find((c) => c.service.repo === "org/orders-svc");
+  assert.equal(orders?.sha, "def4567890");
+  assert.equal(deps.stageCalls.find((c) => c.service.repo === "org/payments-svc")?.sha, undefined);
+});
+
+test("cross-repo checkout of a run that changed a second service: the second is staged at its head too", async () => {
+  const deps = spyDeps();
+  const adapter = new MultiRepoCheckoutAdapter(
+    {
+      primaryRepo: "org/demo",
+      baseBranch: "main",
+      services: [{ repo: "org/orders-svc" }, { repo: "org/payments-svc" }],
+      triggerService: { repo: "org/orders-svc" },
+      changedServices: [{ repo: "org/payments-svc", headSha: "def4567890" }],
+      isCode: false,
+    },
+    deps,
+  );
+
+  await adapter.checkout(Sha.of("abc1234567"));
+
+  assert.deepEqual(deps.ensureMirrorCalls, [{ repo: "org/orders-svc", sha: "abc1234567" }, { repo: "org/payments-svc", sha: "def4567890" }]);
+  assert.deepEqual(deps.ensureMirrorAtBranchCalls, [{ repo: "org/demo", branch: "main" }]);
+  assert.equal(deps.stageCalls.find((c) => c.service.repo === "org/payments-svc")?.sha, "def4567890");
+});

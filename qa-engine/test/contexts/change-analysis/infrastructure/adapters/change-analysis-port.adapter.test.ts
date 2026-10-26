@@ -187,3 +187,15 @@ test("classify() of an entry without a base or a count reads the tip commit alon
   await new ChangeAnalysisPortAdapter(vcs).classify({ repo: "org/front", role: "primary", headSha: Sha.of("abcd1234") });
   assert.equal(diffOpts, undefined);
 });
+
+test("classify() reads an entry from the VCS reader of its own repo when the adapter has a reader per repo", async () => {
+  const front = fakeVcsRead({ message: async () => "docs: front readme", diff: async () => "front-diff" });
+  const back = fakeVcsRead({ message: async () => "feat: back endpoint", diff: async () => "back-diff" });
+  const readers: Record<string, VcsReadPort> = { "org/front": front, "org/back": back };
+  const adapter = new ChangeAnalysisPortAdapter(front, (repo) => readers[repo]!);
+
+  const result = await adapter.classify({ repo: "org/back", role: "service", headSha: Sha.of("bbb2222") });
+
+  assert.equal(result.diff, "back-diff");
+  assert.match(result.reason, /type=feat/);
+});

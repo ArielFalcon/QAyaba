@@ -62,6 +62,7 @@ import type { AgentRole } from "@kernel/agent-role";
 import type { RunMode, TestTarget } from "@kernel/run-mode";
 
 import { GitMirrorReadAdapter } from "@contexts/change-analysis/infrastructure/git-mirror-read.adapter";
+import type { ChangeSet, VcsReadPort } from "@contexts/change-analysis/application/index";
 import { GenerateTestsUseCase } from "@contexts/generation/application/index";
 import { resolveDiffTimeBudgets } from "@contexts/generation/application/index";
 import { AgentRuntimeAdapter } from "@contexts/generation/infrastructure/agent-runtime.adapter";
@@ -642,7 +643,7 @@ export function buildEngineRootDeps(
   app: AppConfig,
   deps: RunEngineFactoryDeps,
   namespace: string,
-  run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] },
+  run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; changeSet?: ChangeSet; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] },
 
   observer?: ObserverPort,
 ): EngineRootDeps {
@@ -735,6 +736,15 @@ export function buildEngineRootDeps(
     throw new Error(`trigger repo ${run.triggerRepo} is not a declared service of app ${app.name}`);
   }
 
+  /* A run over several repos: the entries besides the anchor are declared services the change also reached. */
+  const companionServices = (run.changeSet?.entries ?? [])
+    .filter((entry) => entry !== run.changeSet!.anchor)
+    .map((entry) => {
+      const service = app.services?.find((s) => s.repo === entry.repo);
+      if (!service) throw new Error(`change entry ${entry.repo} is not a declared service of app ${app.name}`);
+      return { service, headSha: entry.headSha.toString() };
+    });
+
   if (triggerService && run.mode === "context") {
     throw new Error(`context mode cannot be triggered by a service repo (${triggerService.repo}); run it from the primary repo ${app.repo}`);
   }
@@ -813,6 +823,10 @@ export function buildEngineRootDeps(
    */
   const vcsDir = triggerService ? join(mirrorRoot, triggerService.repo.replaceAll("/", "__")) : mirrorDir;
   const vcs = new GitMirrorReadAdapter(vcsDir, runner);
+  /* Each entry of a run over several repos is read from its own mirror; the anchor's is the reader above. */
+  const vcsFor = companionServices.length > 0
+    ? (repo: string): VcsReadPort => (repo === (triggerService?.repo ?? app.repo) ? vcs : new GitMirrorReadAdapter(join(mirrorRoot, repo.replaceAll("/", "__")), runner))
+    : undefined;
 
 
   const grounding = run.grounding;
@@ -968,6 +982,7 @@ export function buildEngineRootDeps(
       baseBranch: app.baseBranch ?? "main",
       services: app.services ?? [],
       ...(triggerService ? { triggerService: { repo: triggerService.repo, ...(triggerService.openapi ? { openapi: triggerService.openapi } : {}) } } : {}),
+      ...(companionServices.length > 0 ? { changedServices: companionServices.map((c) => ({ repo: c.service.repo, headSha: c.headSha })) } : {}),
       isCode,
     },
     {
@@ -1039,6 +1054,7 @@ export function buildEngineRootDeps(
     diff: "",
 
     vcs,
+    ...(vcsFor ? { vcsFor } : {}),
     generationUseCase,
     ...(stepLimitFor ? { stepLimitFor } : {}),
     runDeadline,
@@ -1375,6 +1391,20 @@ export function buildEngineRootDeps(
     deployGateTimeoutMs: triggerService
       ? (triggerService.deployTimeoutMs ?? 600_000)
       : (app.dev?.deployTimeoutMs ?? 60000),
+    ...(companionServices.length > 0
+      ? {
+          companionDeployGates: companionServices.map(({ service }) => ({
+            repo: service.repo,
+            ...(service.versionUrl ? { versionUrl: service.versionUrl } : {}),
+            poll: async (versionUrl: string, sha: Sha) => {
+              const v = await fetchVersion(versionUrl);
+              return { serving: shaMatches(v?.sha, sha.value) && v?.healthy === true };
+            },
+            intervalMs: service.pollIntervalMs ?? 10_000,
+            timeoutMs: service.deployTimeoutMs ?? 600_000,
+          })),
+        }
+      : {}),
 
 
     ...(deps.historyFilePath ? { historyFilePath: deps.historyFilePath } : { runHistory: new SqliteRunHistoryAdapter() }),
@@ -1505,12 +1535,12 @@ export function engineAgentDeps(deps: Pick<RunEngineFactoryDeps, "getAgentDeps" 
 
 export function createRunEngineFactory(
   deps: RunEngineFactoryDeps,
-): (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] }, observer?: ObserverPort, previousNamespace?: string) => RunPipelinePort {
+): (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; changeSet?: ChangeSet; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] }, observer?: ObserverPort, previousNamespace?: string) => RunPipelinePort {
   const wrappedDeps: RunEngineFactoryDeps = {
     ...deps,
     getAgentDeps: (turn) => engineAgentDeps(deps, turn),
   };
-  return (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] }, observer?: ObserverPort): RunPipelinePort => {
+  return (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; changeSet?: ChangeSet; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] }, observer?: ObserverPort): RunPipelinePort => {
     const cfg = buildEngineRootDeps(appConfig, wrappedDeps, namespace, run, observer);
     return buildEngine(cfg);
   };

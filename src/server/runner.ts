@@ -98,7 +98,7 @@ export interface RunnerDeps {
   engineFactory?: (
     appConfig: AppConfig,
     namespace: string,
-    run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; runId?: string; grounding?: GroundingInput | StoredRunConfig["grounding"] },
+    run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; changeSet?: ChangeSet; sha?: string; runId?: string; grounding?: GroundingInput | StoredRunConfig["grounding"] },
     observer?: ObserverPort,
     previousNamespace?: string,
   ) => RunPipelinePort;

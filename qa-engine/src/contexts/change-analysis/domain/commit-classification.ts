@@ -90,7 +90,7 @@ export function classifyCommit(message: string, diff: string): CommitClassificat
 }
 
 /* skip < regression < generate — the action reflects the worst (most test-worthy) change anywhere in the range. */
-const ACTION_SEVERITY: Record<CommitAction, number> = { skip: 0, regression: 1, generate: 2 };
+export const ACTION_SEVERITY: Record<CommitAction, number> = { skip: 0, regression: 1, generate: 2 };
 
 /**
  * Classifies a push/PR range as one decision. `headMessage` is the tip commit (always explicit — never inferred from array position). `otherMessages` are the rest (order-independent; only MAX-severity action is taken). Empty `otherMessages` matches classifyCommit. Each message is classified against the same union diff; `intent` is always the head's.
