@@ -1,4 +1,5 @@
 import { test, mock } from "node:test";
+import { buildAppCatalog } from "../../qa-engine/src/contexts/app-catalog/composition/build-app-catalog";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -55,6 +56,13 @@ import { setAgentsConfigPath } from "../integrations/opencode-client";
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
 setCatalogAgentsConfigPath(rosterFixturePath());
 setAgentsConfigPath(rosterFixturePath());
+
+/* The auth session the engine root builds from the composed adapter deps. */
+function authSessionOf(config: { authSession?: Parameters<typeof buildAppCatalog>[0]["authSession"] }) {
+  const session = buildAppCatalog({ ...(config.authSession ? { authSession: config.authSession } : {}) }).authSession;
+  assert.ok(session, "an e2e app with a live DEV url composes an auth session");
+  return session;
+}
 
 const cfg = (name: string): AppConfig => ({
   name,
@@ -150,7 +158,7 @@ async function authSetupSpawnEnv(app: AppConfig, actionTimeoutMs: string | undef
     else process.env[AUTH_SETUP_ENV.actionTimeoutMs] = actionTimeoutMs;
     const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
     assert.ok(config.authSession, "an e2e app with a live DEV url composes an auth session");
-    await inRunScope(config, () => config.authSession!.prepare({ specDir, baseUrl: "https://dev", phase: "pre-generate", ...(app.auth ? { auth: app.auth } : {}) }));
+    await inRunScope(config, () => authSessionOf(config).prepare({ specDir, baseUrl: "https://dev", phase: "pre-generate", ...(app.auth ? { auth: app.auth } : {}) }));
     const [testIdAttribute = "", timeout = ""] = readFileSync(join(specDir, "setup-env.txt"), "utf8").split("\n");
     return { testIdAttribute, actionTimeoutMs: timeout };
   } finally {
@@ -200,7 +208,7 @@ async function loginFailingWhileRefused(app: AppConfig, hosts: string[]): Promis
         for (const watcher of activeExecScope()?.report.watchers ?? []) for (const host of hosts) watcher(host);
       }, 20);
       try {
-        return await config.authSession!.prepare({ specDir, baseUrl: "https://dev", phase: "pre-generate", ...(app.auth ? { auth: app.auth } : {}) });
+        return await authSessionOf(config).prepare({ specDir, baseUrl: "https://dev", phase: "pre-generate", ...(app.auth ? { auth: app.auth } : {}) });
       } finally {
         clearInterval(refusals);
       }
@@ -266,7 +274,7 @@ async function composedDiscovery(app: AppConfig, contextMap?: object): Promise<{
     process.env.EXTERNAL_API_TOKEN = ORCHESTRATOR_TOKEN;
     const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
     assert.ok(config.authSession, "an e2e app with a live DEV url composes an auth session");
-    const result = await inRunScope(config, () => config.authSession!.prepare({ specDir, baseUrl: "https://dev", phase: "pre-generate", ...(config.auth ? { auth: config.auth } : {}) })).catch((error: unknown) => error);
+    const result = await inRunScope(config, () => authSessionOf(config).prepare({ specDir, baseUrl: "https://dev", phase: "pre-generate", ...(config.auth ? { auth: config.auth } : {}) })).catch((error: unknown) => error);
     const inputFile = join(specDir, "login-input.txt");
     return { result, input: existsSync(inputFile) ? readFileSync(inputFile, "utf8") : undefined, seeded: existsSync(join(specDir, "seeded.txt")), authorized: config.auth };
   } finally {

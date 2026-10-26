@@ -13,7 +13,8 @@ import type { ObjectiveSignalPort } from "@contexts/objective-signal/application
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import type { CoordinationSettings } from "@kernel/coordination";
 import type { ToolAttemptDirectory } from "@contexts/generation/domain/tool-link";
-import type { AuthDeclaration, AuthSessionPort } from "@contexts/app-catalog/application/index";
+import type { AuthDeclaration } from "@contexts/app-catalog/application/index";
+import { buildAppCatalog, type AppCatalogDeps } from "../../qa-engine/src/contexts/app-catalog/composition/build-app-catalog";
 import { RunPipelineAdapter, type RunPipelineAdapterDeps } from "../../qa-engine/src/contexts/run-orchestration/infrastructure/run-pipeline.adapter";
 import { specFileForFlow } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { TracedObjectiveSignalPort } from "../../qa-engine/src/contexts/objective-signal/infrastructure/adapters/objective-signal-trace";
@@ -108,8 +109,8 @@ export interface CompositionConfig {
   diff?: string;
   baseUrl?: string;
   openapi?: string | string[];
-  /** Wired for e2e apps that have a DEV url. Absent in code mode. */
-  authSession?: AuthSessionPort;
+  /** The auth session's adapter deps, for e2e apps that have a DEV url. Absent in code mode. */
+  authSession?: AppCatalogDeps["authSession"];
   /** The run_spec loop. Optional, no stub: absent (or a code target) omits RunQaUseCaseDeps.closedLoop and no run grants the tool. */
   closedLoop?: ClosedLoopWiring;
   /** The authenticated agent browser. Optional, no stub: absent (or a code target, or an app with no DEV url) omits RunQaUseCaseDeps.agentBrowser and no run grants the tools. */
@@ -287,6 +288,7 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
   publication: RunPipelineAdapterDeps["publication"];
   runHistory: RunPipelineAdapterDeps["runHistory"];
 } {
+  const authSession = buildAppCatalog({ ...(cfg.authSession ? { authSession: cfg.authSession } : {}) }).authSession;
   const codeGraphPort = cfg.codeGraph;
   const changeAnalysisApi = buildChangeAnalysis({
     vcs: cfg.vcs,
@@ -345,7 +347,7 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
     run: { isCode: cfg.isCode, specRelDir: cfg.e2eRelDir, codeGraphRepoDir: cfg.codeGraphRepoDir ?? cfg.mirrorDir, ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}), ...(cfg.auth ? { auth: cfg.auth } : {}) },
     execution,
     ...(cleanup ? { cleanup } : {}),
-    ...(cfg.authSession ? { authSession: cfg.authSession } : {}),
+    ...(authSession ? { authSession } : {}),
     ...(cfg.codeExplore ? { codeExplore: cfg.codeExplore } : {}),
     ...(cfg.closedLoop ? { closedLoop: cfg.closedLoop } : {}),
     ...(cfg.agentBrowser ? { agentBrowser: cfg.agentBrowser } : {}),
@@ -494,9 +496,9 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
     ...(cfg.execScope ? { execScope: cfg.execScope } : {}),
     ...agentTools,
     ...(setup ? { setup } : {}),
-    ...(cfg.authSession && cfg.baseUrl
+    ...(authSession && cfg.baseUrl
       ? {
-          authSession: cfg.authSession,
+          authSession,
           authContext: {
             baseUrl: cfg.baseUrl,
             ...(cfg.auth ? { auth: cfg.auth } : {}),

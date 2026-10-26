@@ -93,6 +93,7 @@ test("isProtectedPath protects the engine root that wires every context's builde
   assert.equal(isProtectedPath("qa-engine/src/contexts/test-execution/composition/build-test-execution.ts"), true);
   assert.equal(isProtectedPath("qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication.ts"), true);
   assert.equal(isProtectedPath("qa-engine/src/contexts/agent-tools/composition/build-agent-tools.ts"), true);
+  assert.equal(isProtectedPath("qa-engine/src/contexts/app-catalog/composition/build-app-catalog.ts"), true);
 });
 
 test("isProtectedPath flags the recovery net and build/topology, exact and prefix", () => {

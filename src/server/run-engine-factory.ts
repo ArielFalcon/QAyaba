@@ -26,7 +26,6 @@ import {
 } from "../integrations/opencode-client";
 import type { RunPipelinePort, ObserverPort } from "@contexts/run-orchestration/application/index.ts";
 import { buildProduction, type CompositionConfig } from "./engine-root";
-import { AuthSessionAdapter } from "@contexts/app-catalog/infrastructure/auth-session.adapter";
 import { createDiscoverLogin } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner";
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { domCaptureObserver } from "@contexts/generation/infrastructure/dom-capture-trace";
@@ -1437,7 +1436,7 @@ export function buildCompositionConfig(
     ...(app.dev?.baseUrl ? { baseUrl: app.dev.baseUrl } : {}),
     ...(!isCode && app.dev?.baseUrl
       ? {
-          authSession: new AuthSessionAdapter({
+          authSession: {
             env: process.env,
             authDir,
             ...(deps.telemetry ? { telemetry: deps.telemetry } : {}),
@@ -1458,7 +1457,7 @@ export function buildCompositionConfig(
             intentionallyBlocked: blockedHostMatcher(app),
             /* The login child is the one process that carries the account: the launcher's `login` profile. It writes the session in the run's own `login` folder, and the adapter brings a confirmed one into the auth directory. */
             loginStaging: () => ({ dir: join(exec.workDir(), "login"), root: exec.workDir() }),
-            spawnSetup: async (specDir, env, signal) => {
+            spawnSetup: async (specDir: string, env: Record<string, string>, signal?: AbortSignal) => {
               const callDir = exec.allocDir("auth-setup", ["results"]);
               try {
                 const result = await loginRunner.run({
@@ -1478,7 +1477,7 @@ export function buildCompositionConfig(
                 rmSync(callDir, { recursive: true, force: true });
               }
             },
-          }),
+          },
           ...(app.auth ? { auth: app.auth } : {}),
         }
       : {}),

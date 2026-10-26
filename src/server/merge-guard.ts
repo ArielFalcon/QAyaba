@@ -193,6 +193,11 @@ export const PROTECTED_PATHS: string[] = [
    * drop the account lease without touching the adapters.
    */
   "qa-engine/src/contexts/agent-tools/composition/build-agent-tools.ts",
+  /*
+   * The app-catalog builder — the one place the auth session adapter, which holds the run's login material,
+   * is constructed. An autonomous edit can hand the session another directory or environment without touching the adapter.
+   */
+  "qa-engine/src/contexts/app-catalog/composition/build-app-catalog.ts",
 
   "qa-engine/src/shared-kernel/ports/redaction.port.ts",
   /*
