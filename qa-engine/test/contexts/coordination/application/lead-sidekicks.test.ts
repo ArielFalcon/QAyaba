@@ -541,7 +541,8 @@ test("a replace starts a fresh sidekick on the escalated model with the brief an
   assert.equal(cart.length, 2);
   assert.equal(cart[1]!.asked, undefined, "a new session");
   assert.notEqual(cart[1]!.session, cart[0]!.session);
-  assert.equal(cart[1]!.opts.capability, "sidekick-escalated");
+  assert.equal(cart[1]!.opts.kind, "author");
+
   assert.equal(cart[1]!.opts.model, "escalated/model");
   assert.match(cart[1]!.opts.feedback ?? "", /Start from the cart page/);
   assert.ok(r.sessionsDisposed.includes(cart[0]!.session), "the stuck session was ended");

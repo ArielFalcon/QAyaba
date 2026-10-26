@@ -528,7 +528,7 @@ async function sidekickPrompts(subject: string): Promise<PromptText[]> {
   });
   await new SidekickExecutor({ redaction, runtime: recordingRuntime(sent) }).execute(brief, {
     cwd: "/m",
-    capability: "sidekick-standard",
+    kind: "author",
     feedback: `the ${subject} total is still missing`,
   });
   return promptsSent("sidekick", sent);

@@ -1168,7 +1168,8 @@ export interface components {
             /** @enum {string} */
             kind: "proposal" | "delegation" | "escalation" | "lead-decision" | "pushback" | "outcome";
             action?: string;
-            capability?: string;
+            sidekickKind?: string;
+            tier?: string;
             reason: string;
             durationMs?: number;
             delegationId?: string;

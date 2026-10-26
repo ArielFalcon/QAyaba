@@ -329,7 +329,7 @@ func TestCoordinationEventsViewDecodesFromServerJSON(t *testing.T) {
 	const payload = `{
 		"events":[
 			{
-				"runId":"run_1","kind":"delegation","action":"navigate","capability":"browser",
+				"runId":"run_1","kind":"delegation","action":"navigate","sidekickKind":"author",
 				"reason":"frontend flow needs a live DOM","durationMs":1500,"delegationId":"d1",
 				"attempt":1,"valueScore":0.82,"coverageRatio":0.6,"at":1731000000000
 			}
@@ -350,8 +350,8 @@ func TestCoordinationEventsViewDecodesFromServerJSON(t *testing.T) {
 	if e.RunId != "run_1" || e.Kind != Delegation || e.Reason != "frontend flow needs a live DOM" {
 		t.Fatalf("event header fields: %+v", e)
 	}
-	if e.Action == nil || *e.Action != "navigate" || e.Capability == nil || *e.Capability != "browser" {
-		t.Fatalf("action/capability not decoded: %+v", e)
+	if e.Action == nil || *e.Action != "navigate" || e.SidekickKind == nil || *e.SidekickKind != "author" {
+		t.Fatalf("action/sidekickKind not decoded: %+v", e)
 	}
 	if e.DelegationId == nil || *e.DelegationId != "d1" || e.Attempt == nil || *e.Attempt != 1 {
 		t.Fatalf("delegationId/attempt not decoded: %+v", e)

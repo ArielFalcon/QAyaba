@@ -1,11 +1,11 @@
 /* Infra resolves escalated capacity to an optional model id; domain never names providers. */
-import type { AgentCapability } from "./agent-capability.ts";
+import { SIDEKICK_TIER, type SidekickTier } from "./sidekick-kinds.ts";
 
 export function resolveSidekickModel(
-  capability: AgentCapability,
+  tier: SidekickTier,
   escalatedModel: string | undefined,
 ): string | undefined {
-  if (capability !== "sidekick-escalated") return undefined;
+  if (tier !== SIDEKICK_TIER.ESCALATED) return undefined;
   const trimmed = escalatedModel?.trim();
   return trimmed || undefined;
 }

@@ -9,9 +9,7 @@ import { fileURLToPath } from "node:url";
 import { CycleBudget } from "@kernel/cycle-budget.ts";
 import { WallClockBudget } from "@kernel/wall-clock-budget.ts";
 import {
-  AGENT_CAPABILITIES,
   COORDINATION_ACTIONS,
-  isAgentCapability,
   isCoordinationAction,
   type CoordinationContext,
   type CoordinationDecision,
@@ -48,17 +46,6 @@ function sampleContext(overrides: Partial<CoordinationContext> = {}): Coordinati
   };
 }
 
-test("AgentCapability is lead | sidekick-standard | sidekick-escalated — not reviewer, not lead-takeover", () => {
-  assert.deepEqual([...AGENT_CAPABILITIES], ["lead", "sidekick-standard", "sidekick-escalated"]);
-  assert.equal(isAgentCapability("lead"), true);
-  assert.equal(isAgentCapability("sidekick-standard"), true);
-  assert.equal(isAgentCapability("sidekick-escalated"), true);
-  assert.equal(isAgentCapability("reviewer"), false);
-  assert.equal(isAgentCapability("lead-takeover"), false);
-  assert.equal(isAgentCapability("primary"), false);
-  assert.equal(isAgentCapability("worker"), false);
-});
-
 test("CoordinationDecision.action is the assignment union — not OrchestrationDecision verbs", () => {
   assert.deepEqual(
     [...COORDINATION_ACTIONS],
@@ -75,25 +62,16 @@ test("CoordinationDecision.action is the assignment union — not OrchestrationD
   assert.equal(isCoordinationAction("abort-human"), false);
 });
 
-test("takeover is an action whose nextCapability is lead, not a capability member", () => {
-  const decision: CoordinationDecision = {
-    action: "takeover",
-    reason: "sidekick emitted needs-lead",
-    evidence: [sampleEvidence()],
-    nextCapability: "lead",
-  };
+test("takeover is a coordination action", () => {
+  const decision: CoordinationDecision = { action: "takeover", reason: "sidekick emitted needs-lead", evidence: [sampleEvidence()] };
   assert.equal(isCoordinationAction(decision.action), true);
-  assert.equal(isAgentCapability(decision.nextCapability ?? ""), true);
-  assert.equal(decision.nextCapability, "lead");
-  assert.equal(isAgentCapability("lead-takeover"), false);
 });
 
-test("CoordinationDecision JSON round-trip keeps action, reason, evidence, optional nextCapability", () => {
+test("CoordinationDecision JSON round-trip keeps action, reason, evidence, evidence", () => {
   const decision: CoordinationDecision = {
     action: "escalate",
     reason: "same fingerprint after standard sidekick",
     evidence: [sampleEvidence()],
-    nextCapability: "sidekick-escalated",
   };
   const parsed = JSON.parse(JSON.stringify(decision)) as CoordinationDecision;
   assert.deepEqual(parsed, decision);

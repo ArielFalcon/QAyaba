@@ -84,7 +84,7 @@ test("an illegal write's replacement summary and concerns redact a secret-bearin
       task: "write smoke",
       scope: { readablePaths: ["e2e/"], writablePaths: ["e2e/specs/"], allowedCommands: [] },
     }),
-    { cwd: "/tmp/mirror", capability: "sidekick-standard" },
+    { cwd: "/tmp/mirror", kind: "author" },
   );
   assert.equal(result.status, "blocked");
   assert.doesNotMatch(result.summary, /ghs_supersecretvalue/);

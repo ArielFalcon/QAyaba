@@ -30,12 +30,11 @@ test("classifyDelegationFailure: a needs-lead handoff is not a contract failure 
   assert.equal(classifyDelegationFailure("needs-lead", 2, 0), undefined);
 });
 
-test("resolveSidekickModel only returns model for sidekick-escalated", () => {
-  assert.equal(resolveSidekickModel("sidekick-standard", "opencode-go/big"), undefined);
-  assert.equal(resolveSidekickModel("lead", "opencode-go/big"), undefined);
-  assert.equal(resolveSidekickModel("sidekick-escalated", "opencode-go/big"), "opencode-go/big");
-  assert.equal(resolveSidekickModel("sidekick-escalated", "  "), undefined);
-  assert.equal(resolveSidekickModel("sidekick-escalated", undefined), undefined);
+test("resolveSidekickModel only returns a model for the escalated tier", () => {
+  assert.equal(resolveSidekickModel("standard", "opencode-go/big"), undefined);
+  assert.equal(resolveSidekickModel("escalated", "opencode-go/big"), "opencode-go/big");
+  assert.equal(resolveSidekickModel("escalated", "  "), undefined);
+  assert.equal(resolveSidekickModel("escalated", undefined), undefined);
 });
 
 test("pushback rejects path escape even with code-mode root '.'", () => {

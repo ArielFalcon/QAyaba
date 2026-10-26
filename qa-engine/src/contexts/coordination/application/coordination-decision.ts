@@ -1,5 +1,4 @@
 /* Who executes next. */
-import type { AgentCapability } from "./agent-capability.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 
 export const COORDINATION_ACTIONS = [
@@ -20,5 +19,4 @@ export interface CoordinationDecision {
   readonly action: CoordinationAction;
   readonly reason: string;
   readonly evidence: readonly EvidenceRef[];
-  readonly nextCapability?: AgentCapability;
 }

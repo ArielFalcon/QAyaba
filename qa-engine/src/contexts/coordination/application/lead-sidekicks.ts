@@ -28,7 +28,8 @@ import { classifyDelegationFailure } from "./delegation-failure-class.ts";
 import { admitLeadReview, changePagesOf, MAX_REVIEW_TURNS, renderLeadReview, unvisitedBy, REVIEW_ACTION, type FlowUnderReview, type ReviewOrder } from "./lead-review.ts";
 import type { CoordinationTelemetryPort } from "./coordination-telemetry.ts";
 import { PLAN_SNAPSHOT_KIND, type PlanSnapshotFlow, type PlanSnapshotKind, type PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port.ts";
-import type { AgentCapability } from "./agent-capability.ts";
+import { authorTask } from "./author-task.ts";
+import { SIDEKICK_TIER, type SidekickKind, type SidekickTier } from "./sidekick-kinds.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 import { evidenceFromEmptyRead, evidenceFromPackDataRoutes } from "./evidence-from.ts";
 import { observationConflictIn } from "./evidence-precedence.ts";
@@ -182,7 +183,7 @@ interface LiveFlow {
   loop?: FlowLoopHandle;
   geolocation?: FlowGeolocationHandle;
   session?: SidekickSession;
-  capability: AgentCapability;
+  tier: SidekickTier;
   turns: number;
   last?: DelegationResult;
   /* Whether a turn of the flow ever put its spec in the working copy: those bytes stay there whatever a later turn does. */
@@ -397,7 +398,7 @@ export class LeadSidekicks {
       throw new Error(`flow ${flow.id} was stopped before it started`);
     }
     const geolocation = input.geolocation?.openFlow(delegationId, flow.location);
-    const entry: LiveFlow = { flow, delegationId, workspace, request, capability: "sidekick-standard", turns: 0, delivered: false, ...(geolocation ? { geolocation } : {}) };
+    const entry: LiveFlow = { flow, delegationId, workspace, request, tier: SIDEKICK_TIER.STANDARD, turns: 0, delivered: false, ...(geolocation ? { geolocation } : {}) };
     live.set(flow.id, entry);
     const probePath = `${PROBE_REL_DIR}/${posix.basename(flow.specFile)}`;
     if (input.closedLoop && flow.runSpecCalls > 0) {
@@ -419,10 +420,10 @@ export class LeadSidekicks {
 
   /* A fresh sidekick session on the flow's brief, with the feedback when there is some; the session is kept on the flow. */
   private async openSession(entry: LiveFlow, context: FlowContext, signal: AbortSignal, timeoutMs: number, feedback?: string): Promise<DelegationResult> {
-    const model = resolveSidekickModel(entry.capability, this.deps.escalatedModel);
+    const model = resolveSidekickModel(entry.tier, this.deps.escalatedModel);
     const session = await this.deps.sidekick.open(this.briefOf(entry, context), {
       cwd: entry.workspace.dir,
-      capability: entry.capability,
+      kind: entry.flow.kind,
       ...(model ? { model } : {}),
       signal,
       timeoutMs: Math.max(1, timeoutMs),
@@ -447,7 +448,7 @@ export class LeadSidekicks {
       delegationId: entry.delegationId,
       runId: input.runId,
       objective: flow.objective,
-      task: taskOf(flow, entry.loop, context.mode === SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER && input.agentBrowser ? input.agentBrowser.limits.perCallMs : undefined, entry.geolocation),
+      task: authorTask(flow, entry.loop, context.mode === SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER && input.agentBrowser ? input.agentBrowser.limits.perCallMs : undefined, entry.geolocation),
       acceptanceCriteria: flow.acceptance,
       scope: { readablePaths: ["."], writablePaths: flow.writablePaths, allowedCommands: [] },
       knownFacts: knownFactsOf(this.deps.redaction, input),
@@ -460,7 +461,8 @@ export class LeadSidekicks {
   /* What one turn of a sidekick came to, from what the orchestrator sees: the workspace, the flow's run_spec ledger and the Context Pack's reads. */
   private async assess(entry: LiveFlow, context: FlowContext, result: DelegationResult, signal: AbortSignal): Promise<FlowReport> {
     const { input } = context;
-    const { flow, delegationId, capability } = entry;
+    const { flow, delegationId, tier } = entry;
+    const sidekickKind = flow.kind;
     entry.turns += 1;
     entry.last = result;
     const attempt = entry.turns;
@@ -485,7 +487,8 @@ export class LeadSidekicks {
     this.record(input, {
       kind: "delegation",
       action: "delegate",
-      capability,
+      sidekickKind,
+      tier,
       reason: `flow ${flow.id} turn ${attempt}: sidekick status=${result.status}${copied ? ", file taken back" : ""}`,
       delegationId,
       attempt,
@@ -503,11 +506,11 @@ export class LeadSidekicks {
     if (appDefect) entry.appDefect = failure!.reason;
     if (copied) {
       entry.delivered = true;
-      if (appDefect) this.record(input, { kind: "delegation", action: "delegate", capability, reason: `flow ${flow.id}: ${appDefect}; the spec that showed it is taken back`, delegationId, attempt, failureClass: AUTHORING_FAILURE.APP_DEFECT });
+      if (appDefect) this.record(input, { kind: "delegation", action: "delegate", sidekickKind, tier, reason: `flow ${flow.id}: ${appDefect}; the spec that showed it is taken back`, delegationId, attempt, failureClass: AUTHORING_FAILURE.APP_DEFECT });
       return { outcome: { id: flow.id, kind: FLOW_OUTCOME.DELIVERED, specs: [flow.specFile] }, proposals };
     }
     if (appDefect) {
-      this.record(input, { kind: "delegation", action: "delegate", capability, reason: `flow ${flow.id}: ${appDefect}; the spec that showed it is no longer the sidekick's, and no attempt is made to make it pass`, delegationId, attempt, failureClass: AUTHORING_FAILURE.APP_DEFECT });
+      this.record(input, { kind: "delegation", action: "delegate", sidekickKind, tier, reason: `flow ${flow.id}: ${appDefect}; the spec that showed it is no longer the sidekick's, and no attempt is made to make it pass`, delegationId, attempt, failureClass: AUTHORING_FAILURE.APP_DEFECT });
       return this.keepDelivered(entry, { outcome: { id: flow.id, kind: FLOW_OUTCOME.FAILED, reason: `${appDefect}; the spec that showed it is no longer in the workspace` }, proposals: undefined });
     }
     /* What the run knows beside what the sidekick says: the pages the Context Pack read with results, and the pages the flow's own run_spec calls read empty. */
@@ -591,7 +594,7 @@ export class LeadSidekicks {
       return this.assess(entry, context, result, signal);
     }
     await this.closeSession(entry);
-    entry.capability = "sidekick-escalated";
+    entry.tier = SIDEKICK_TIER.ESCALATED;
     const result = await this.openSession(entry, context, signal, timeoutMs, instruction);
     return this.assess(entry, context, result, signal);
   }
@@ -801,7 +804,7 @@ export class LeadSidekicks {
     if (unvisited.length > 0) this.record(input, { kind: "lead-decision", reason: `plan: ${unvisited.length} of ${input.changeRoutes!.length} change page(s) no flow visits: ${unvisited.join(", ")}` });
   }
 
-  private record(input: CoordinateInput, event: { kind: "proposal" | "delegation" | "escalation" | "lead-decision"; action?: "direct" | "delegate" | "lead-takeover" | "escalate-sidekick" | "abort-human"; capability?: AgentCapability; reason: string; delegationId?: string; attempt?: number; durationMs?: number; failureClass?: string; progressFingerprint?: string; sidekickStatus?: string; lastRunSpec?: string }): void {
+  private record(input: CoordinateInput, event: { kind: "proposal" | "delegation" | "escalation" | "lead-decision"; action?: "direct" | "delegate" | "lead-takeover" | "escalate-sidekick" | "abort-human"; sidekickKind?: SidekickKind; tier?: SidekickTier; reason: string; delegationId?: string; attempt?: number; durationMs?: number; failureClass?: string; progressFingerprint?: string; sidekickStatus?: string; lastRunSpec?: string }): void {
     this.deps.telemetry?.record({ runId: input.runId, app: input.app, at: this.now(), ...event });
   }
 }
@@ -810,32 +813,6 @@ function describePlan(plan: AdmittedPlan): string {
   if (plan.kind === LEAD_PLAN_KIND.FANOUT) return `plan: fanout of ${plan.flows.length} flow(s), ${plan.parallel} at a time`;
   if (plan.kind === LEAD_PLAN_KIND.NOOP) return `plan: noop (${plan.reason})`;
   return `plan: rejected (${plan.downgrade})`;
-}
-
-/* What a sidekick is told to do for one flow. The facts about its tools are the orchestrator's; the rest is the flow's own. */
-function taskOf(
-  flow: AdmittedFlow,
-  loop: FlowLoopHandle | undefined,
-  browserCallMs: number | undefined,
-  geolocation: FlowGeolocationHandle | undefined,
-): string {
-  const places = geolocation ? Object.keys(geolocation.facts().places).sort() : [];
-  const browserUsesLocation = browserCallMs !== undefined && flow.browserCalls > 0 ? " The authenticated browser uses the authoring location." : "";
-  return [
-    `Write the Playwright E2E spec for ONE flow, as the single file ${flow.writablePaths[0]}. It is the only file you may write.`,
-    `Flow: ${flow.id}. It proves: ${flow.objective}`,
-    flow.routes.length > 0 ? `Pages it visits: ${flow.routes.join(", ")}` : "",
-    geolocation
-      ? `Authoring location: ${formatGeoLocation(geolocation.current())}; the app's default is ${formatGeoLocation(geolocation.facts().default)}.${places.length > 0 ? ` Places it declares: ${places.join(", ")}.` : ""}${browserUsesLocation} run_spec and the suite run at the app's default. A spec that depends on a location must call setLocation(context, latitude, longitude) from the suite's fixtures with the coordinates.`
-      : "",
-    loop
-      ? `run_spec: at most ${loop.limits.maxCalls} calls, ${Math.round(loop.limits.perCallMs / 1000)} seconds each, ${loop.limits.maxDevWrites} requests that write to DEV in all. It runs ${flow.writablePaths[0]} and no other file. Run it until it passes, then finish.`
-      : "You cannot run the spec: verify it by reading the pages and the grounding.",
-    browserCallMs !== undefined && flow.browserCalls > 0
-      ? `Authenticated browser: at most ${flow.browserCalls} authbrowser_* calls, ${Math.round(browserCallMs / 1000)} seconds each. It reads DEV as the test account and never writes.`
-      : "",
-    `Finish by emitting the DelegationResult JSON contract from the brief. If this flow needs no test of its own, write no file and say why in summary.`,
-  ].filter(Boolean).join("\n");
 }
 
 function knownFactsOf(redaction: RedactionPort, input: Pick<CoordinateInput, "confirmedDataRoutes">): EvidenceRef[] {

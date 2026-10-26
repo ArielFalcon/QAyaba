@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createDelegationBrief } from "@contexts/coordination/application/delegation-brief.ts";
 import {
-  resolveCapabilityRole,
   SidekickExecutor,
 } from "@contexts/coordination/application/sidekick-executor.ts";
 import { renderSidekickBrief } from "@contexts/coordination/application/sidekick-prompt.ts";
@@ -35,12 +34,6 @@ function brief(overrides: { task?: string } = {}) {
     acceptanceCriteria: ["checkout completes"],
   });
 }
-
-test("resolveCapabilityRole maps lead→primary and sidekicks→dedicated sidekick role without model names", () => {
-  assert.equal(resolveCapabilityRole("lead"), "primary");
-  assert.equal(resolveCapabilityRole("sidekick-standard"), "sidekick");
-  assert.equal(resolveCapabilityRole("sidekick-escalated"), "sidekick");
-});
 
 test("the sidekick prompt carries no escalation policy block", () => {
   const { text } = renderSidekickBrief(redaction, brief());
@@ -131,7 +124,7 @@ test("SidekickExecutor opens sidekick session, prompts, disposes, and parses Del
   const executor = new SidekickExecutor({ redaction, runtime, render: (brief) => renderSidekickBrief(redaction, brief) });
   const result = await executor.execute(brief(), {
     cwd: "/tmp/mirror",
-    capability: "sidekick-standard",
+    kind: "author",
   });
   assert.deepEqual(roles, ["sidekick"]);
   assert.equal(prompts.length, 1);
@@ -180,7 +173,7 @@ test("SidekickExecutor redacts secrets in DelegationResult summary, concerns, an
   });
   const result = await executor.execute(brief(), {
     cwd: "/tmp/mirror",
-    capability: "sidekick-standard",
+    kind: "author",
   });
   assert.equal(result.status, "completed-with-concerns");
   assert.doesNotMatch(result.summary, /ghs_supersecretvalue/);
@@ -222,7 +215,7 @@ test("a retry with feedback is one prompt that carries the brief and the feedbac
   const executor = new SidekickExecutor({ redaction, runtime, render: (brief) => renderSidekickBrief(redaction, brief) });
   const result = await executor.execute(brief(), {
     cwd: "/tmp/mirror",
-    capability: "sidekick-standard",
+    kind: "author",
     feedback: "selectors must use getByRole",
   });
   assert.equal(prompts.length, 1, "the brief is not sent on its own first, only to be answered and then corrected");
@@ -256,7 +249,7 @@ test("SidekickExecutor rejects a result for a foreign brief as failed", async ()
     runtime: { openSession: async () => session },
     render: (brief) => renderSidekickBrief(redaction, brief),
   });
-  const result = await executor.execute(brief(), { cwd: "/tmp", capability: "sidekick-standard" });
+  const result = await executor.execute(brief(), { cwd: "/tmp", kind: "author" });
   assert.equal(result.status, "failed");
   assert.equal(result.recommendation, "escalate");
 });
@@ -286,7 +279,7 @@ test("SidekickExecutor marks write outside writablePaths as blocked", async () =
     runtime: { openSession: async () => session },
     render: (brief) => renderSidekickBrief(redaction, brief),
   });
-  const result = await executor.execute(brief(), { cwd: "/tmp", capability: "sidekick-standard" });
+  const result = await executor.execute(brief(), { cwd: "/tmp", kind: "author" });
   assert.equal(result.status, "blocked");
   assert.equal(result.recommendation, "escalate");
 });
@@ -329,7 +322,7 @@ test("SidekickExecutor adopts long camelCase and digit-bearing spec paths it wro
       runtime: { openSession: async () => session },
       render: (brief) => renderSidekickBrief(redaction, brief),
     });
-    const result = await executor.execute(brief(), { cwd: mirror, capability: "sidekick-standard" });
+    const result = await executor.execute(brief(), { cwd: mirror, kind: "author" });
 
     assert.equal(result.status, "completed-with-concerns");
     assert.deepEqual(result.filesChanged.map((f) => f.path).sort(), [...written].sort());
@@ -372,7 +365,7 @@ test("SidekickExecutor passes escalated model via OpenSessionOpts without naming
   });
   const result = await executor.execute(brief(), {
     cwd: "/tmp",
-    capability: "sidekick-escalated",
+    kind: "author",
     model: "configured-externally",
   });
   assert.equal(seenModel, "configured-externally");
@@ -415,7 +408,7 @@ async function executeWith(fields: Record<string, unknown>, criteria: readonly s
     scope,
     acceptanceCriteria: criteria,
   });
-  return executor.execute(repairBrief, { cwd: "/tmp", capability: "sidekick-standard" });
+  return executor.execute(repairBrief, { cwd: "/tmp", kind: "author" });
 }
 
 test("the executor keeps the sidekick's per-criterion acceptance report and its notes", async () => {

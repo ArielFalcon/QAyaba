@@ -4022,7 +4022,10 @@
           "action": {
             "type": "string"
           },
-          "capability": {
+          "sidekickKind": {
+            "type": "string"
+          },
+          "tier": {
             "type": "string"
           },
           "reason": {

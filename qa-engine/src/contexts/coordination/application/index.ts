@@ -1,4 +1,3 @@
-export { AGENT_CAPABILITIES, isAgentCapability, type AgentCapability } from "./agent-capability.ts";
 export {
   COORDINATION_ACTIONS,
   isCoordinationAction,
@@ -60,9 +59,22 @@ export {
   DELEGATION_FAILURE_CLASSES,
   type DelegationFailureClass,
 } from "./delegation-failure-class.ts";
+export { authorTask } from "./author-task.ts";
 export { renderSidekickBrief } from "./sidekick-prompt.ts";
 export {
-  resolveCapabilityRole,
+  AGENT_TOOL,
+  REGISTERED_SIDEKICK_KINDS,
+  SIDEKICK_BUDGET,
+  SIDEKICK_KIND,
+  SIDEKICK_TIER,
+  SIDEKICK_WORKSPACE,
+  sidekickKindSpec,
+  type AgentTool,
+  type SidekickKind,
+  type SidekickKindSpec,
+  type SidekickTier,
+} from "./sidekick-kinds.ts";
+export {
   SidekickExecutor,
   type SidekickExecuteOpts,
   type SidekickExecutorDeps,

@@ -10,6 +10,7 @@
 import { LEAD_PLAN_KIND, type LeadPlanKind } from "@kernel/coordination.ts";
 import { normalizeGeoLocation, resolvePlace, type GeoLocation } from "@kernel/geolocation.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
+import { SIDEKICK_KIND, type SidekickKind } from "./sidekick-kinds.ts";
 
 export { LEAD_PLAN_KIND, type LeadPlanKind };
 
@@ -68,6 +69,8 @@ export interface PlanDeps {
 
 export interface AdmittedFlow {
   id: string;
+  /* The kind of sidekick that authors the flow. */
+  kind: SidekickKind;
   objective: string;
   acceptance: string[];
   routes: string[];
@@ -210,6 +213,7 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
       const specFile = deps.specFileFor(flow.id);
       return {
         id: flow.id,
+        kind: SIDEKICK_KIND.AUTHOR,
         objective: flow.objective,
         acceptance: flow.acceptance,
         routes: flow.routes,

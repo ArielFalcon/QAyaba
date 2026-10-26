@@ -31,7 +31,7 @@ function executor(opened: Array<{ role: AgentRole; cwd: string; opts: OpenSessio
 
 test("the session opens in the directory it is given, as the sidekick role, and says which flow it is for and which tools its run denied it", async () => {
   const opened: Array<{ role: AgentRole; cwd: string; opts: OpenSessionOpts | undefined }> = [];
-  await executor(opened).execute(brief, { cwd: "/work/run-1/cart", capability: "sidekick-standard", delegationId: "run-1-flow-cart", denyTools: ["serena*", "playwright*"], timeoutMs: 90_000 });
+  await executor(opened).execute(brief, { cwd: "/work/run-1/cart", kind: "author", delegationId: "run-1-flow-cart", denyTools: ["serena*", "playwright*"], timeoutMs: 90_000 });
   assert.equal(opened.length, 1);
   assert.equal(opened[0]!.role, "sidekick");
   assert.equal(opened[0]!.cwd, "/work/run-1/cart");
@@ -43,7 +43,7 @@ test("the session opens in the directory it is given, as the sidekick role, and 
 
 test("a session with no flow and no denied tools says neither", async () => {
   const opened: Array<{ role: AgentRole; cwd: string; opts: OpenSessionOpts | undefined }> = [];
-  await executor(opened).execute(brief, { cwd: "/m", capability: "sidekick-standard" });
+  await executor(opened).execute(brief, { cwd: "/m", kind: "author" });
   assert.equal("delegationId" in (opened[0]!.opts?.descriptor ?? {}), false);
   assert.equal("denyTools" in (opened[0]!.opts?.descriptor ?? {}), false);
 });
@@ -60,7 +60,7 @@ test("an open sidekick session answers a follow-up in the same session, read as 
       },
     },
   });
-  const session = await sidekick.open(brief, { cwd: "/w", capability: "sidekick-standard" });
+  const session = await sidekick.open(brief, { cwd: "/w", kind: "author" });
   assert.equal(session.first.status, "completed");
   assert.equal(disposed, 0, "the session outlives its first answer");
   const second = await session.ask("Assert the total, not the count.", { timeoutMs: 30_000 });
@@ -78,6 +78,6 @@ test("a sidekick session whose first answer throws is disposed before the error 
   const sidekick = new SidekickExecutor({ redaction,
     runtime: { openSession: async () => ({ prompt: async () => { throw new Error("boom"); }, dispose: async () => { disposed += 1; } }) },
   });
-  await assert.rejects(sidekick.open(brief, { cwd: "/w", capability: "sidekick-standard" }), /boom/);
+  await assert.rejects(sidekick.open(brief, { cwd: "/w", kind: "author" }), /boom/);
   assert.equal(disposed, 1);
 });

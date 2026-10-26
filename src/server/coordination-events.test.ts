@@ -12,8 +12,8 @@ import { tmpdir } from "node:os";
 import { mock } from "node:test";
 
 const raw = [
-  JSON.stringify({ runId: "r1", kind: "proposal", action: "delegate", capability: "sidekick-standard", reason: "big", at: 1 }),
-  JSON.stringify({ runId: "r1", kind: "delegation", action: "delegate", capability: "sidekick-standard", reason: "sidekick status=failed", failureClass: "failed", delegationId: "d1", attempt: 1, durationMs: 1000, at: 2 }),
+  JSON.stringify({ runId: "r1", kind: "proposal", action: "delegate", sidekickKind: "author", tier: "standard", reason: "big", at: 1 }),
+  JSON.stringify({ runId: "r1", kind: "delegation", action: "delegate", sidekickKind: "author", tier: "standard", reason: "sidekick status=failed", failureClass: "failed", delegationId: "d1", attempt: 1, durationMs: 1000, at: 2 }),
   JSON.stringify({ runId: "r1", kind: "delegation", reason: "sidekick status=completed-with-concerns", delegationId: "d2", attempt: 2, durationMs: 2000, at: 3 }),
   JSON.stringify({ runId: "r1", kind: "escalation", reason: "no progress", escalations: 1, at: 4 }),
   JSON.stringify({ runId: "r1", kind: "outcome", action: "delegate", reason: "pipeline verdict=pass", finalOutcome: "pass", reviewOutcome: "approved", escalations: 1, valueScore: 0.75, coverageRatio: 0.9, durationMs: 42000, at: 5 }),
@@ -138,7 +138,7 @@ test("readCoordinationLedger: a runId filter reads a run's events exactly, even 
     const path = join(dir, "coordination-events.jsonl");
     const lines: string[] = [];
     /* The target run's OWN early event, appended first. */
-    lines.push(JSON.stringify({ runId: "target", kind: "proposal", action: "delegate", capability: "sidekick-standard", reason: "big", at: 1 }));
+    lines.push(JSON.stringify({ runId: "target", kind: "proposal", action: "delegate", sidekickKind: "author", tier: "standard", reason: "big", at: 1 }));
     /* A large block of other runs' events interleaved in between — this run's events are no
        longer a contiguous block in the ledger. */
     for (let i = 0; i < 3000; i++) {
@@ -206,10 +206,10 @@ test("toCoordinationSignals counts a typed failureClass even when the reason pro
 test("toCoordinationSignals ignores an older ledger's failureClass that is not a delegation failure class", () => {
   const events = parseCoordinationLedger(
     [
-      JSON.stringify({ runId: "r1", kind: "delegation", action: "delegate", capability: "sidekick-standard", reason: "fix-loop-regen sidekick status=completed", delegationId: "r1-fix-loop-regen", attempt: 1, durationMs: 1000, failureClass: "fail", at: 1 }),
-      JSON.stringify({ runId: "r2", kind: "delegation", action: "delegate", capability: "sidekick-standard", reason: "sidekick status=blocked", delegationId: "r2-pre-generate", attempt: 1, durationMs: 1000, failureClass: "blocked", at: 2 }),
-      JSON.stringify({ runId: "r3", kind: "delegation", action: "delegate", capability: "sidekick-standard", reason: "sidekick status=completed", delegationId: "r3-pre-generate", attempt: 1, durationMs: 1000, failureClass: "timeout", at: 5 }),
-      JSON.stringify({ runId: "r4", kind: "delegation", action: "delegate", capability: "sidekick-standard", reason: "sidekick status=completed", delegationId: "r4-pre-generate", attempt: 1, durationMs: 1000, failureClass: "claimed-files-missing", at: 6 }),
+      JSON.stringify({ runId: "r1", kind: "delegation", action: "delegate", sidekickKind: "author", tier: "standard", reason: "fix-loop-regen sidekick status=completed", delegationId: "r1-fix-loop-regen", attempt: 1, durationMs: 1000, failureClass: "fail", at: 1 }),
+      JSON.stringify({ runId: "r2", kind: "delegation", action: "delegate", sidekickKind: "author", tier: "standard", reason: "sidekick status=blocked", delegationId: "r2-pre-generate", attempt: 1, durationMs: 1000, failureClass: "blocked", at: 2 }),
+      JSON.stringify({ runId: "r3", kind: "delegation", action: "delegate", sidekickKind: "author", tier: "standard", reason: "sidekick status=completed", delegationId: "r3-pre-generate", attempt: 1, durationMs: 1000, failureClass: "timeout", at: 5 }),
+      JSON.stringify({ runId: "r4", kind: "delegation", action: "delegate", sidekickKind: "author", tier: "standard", reason: "sidekick status=completed", delegationId: "r4-pre-generate", attempt: 1, durationMs: 1000, failureClass: "claimed-files-missing", at: 6 }),
       JSON.stringify({ runId: "r1", kind: "outcome", action: "delegate", reason: "pipeline verdict=pass", finalOutcome: "pass", escalations: 0, at: 3 }),
       JSON.stringify({ runId: "r2", kind: "outcome", action: "delegate", reason: "pipeline verdict=pass", finalOutcome: "pass", escalations: 0, at: 4 }),
     ].join("\n"),
@@ -275,7 +275,7 @@ test("parseCoordinationLedger surfaces every recorded optional field of an event
       reason: "sidekick status=completed",
       at: 1,
       action: "delegate",
-      capability: "sidekick-standard",
+      sidekickKind: "author", tier: "standard",
       delegationId: "d1",
       attempt: 2,
       failureClass: "blocked",
@@ -286,7 +286,8 @@ test("parseCoordinationLedger surfaces every recorded optional field of an event
     }),
   ).events;
   assert.ok(event);
-  assert.equal(event.capability, "sidekick-standard");
+  assert.equal(event.sidekickKind, "author");
+  assert.equal(event.tier, "standard");
   assert.equal(event.delegationId, "d1");
   assert.equal(event.attempt, 2);
   assert.equal(event.progressFingerprint, "fp-1");

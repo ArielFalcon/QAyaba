@@ -2,7 +2,7 @@
 Pure in-memory here by design: durable (JSONL) persistence is an infrastructure concern and lives
 in FileCoordinationTelemetryAdapter (infrastructure/adapters/coordination-telemetry-port.adapter.ts),
 which wraps CoordinationTelemetryRecorder below and implements the SAME CoordinationTelemetryPort. */
-import type { AgentCapability } from "./agent-capability.ts";
+import type { SidekickKind, SidekickTier } from "./sidekick-kinds.ts";
 import type { CoordinationAction } from "./coordination-decision.ts";
 
 /* The actions an event of the lead names: a lead takeover, a sidekick's escalation, a stop for a human; ledger lines recorded earlier also hold accept, retry-sidekick and continue-fix-loop. */
@@ -23,13 +23,15 @@ export interface CoordinationTelemetryEvent {
 
   readonly kind: CoordinationTelemetryKind;
   readonly action?: CoordinationAction | LeadDecisionAction;
-  readonly capability?: AgentCapability;
+  /** The kind of sidekick the event is about, and the capacity it ran at. */
+  readonly sidekickKind?: SidekickKind;
+  readonly tier?: SidekickTier;
   readonly reason: string;
   readonly durationMs?: number;
   readonly at: number;
   /** DelegationBrief.id when kind is delegation/escalation. */
   readonly delegationId?: string;
-  /** 1-based attempt within the run for this capability/point. */
+  /** 1-based attempt within the run for this kind/point. */
   readonly attempt?: number;
   readonly failureClass?: string;
   readonly progressFingerprint?: string;

@@ -1972,7 +1972,6 @@ type CoordinationEvent struct {
 	Action              *string               `json:"action,omitempty"`
 	At                  int                   `json:"at"`
 	Attempt             *int                  `json:"attempt,omitempty"`
-	Capability          *string               `json:"capability,omitempty"`
 	CoverageRatio       *float32              `json:"coverageRatio,omitempty"`
 	DelegationId        *string               `json:"delegationId,omitempty"`
 	DurationMs          *int                  `json:"durationMs,omitempty"`
@@ -1984,6 +1983,8 @@ type CoordinationEvent struct {
 	Reason              string                `json:"reason"`
 	ReviewOutcome       *string               `json:"reviewOutcome,omitempty"`
 	RunId               string                `json:"runId"`
+	SidekickKind        *string               `json:"sidekickKind,omitempty"`
+	Tier                *string               `json:"tier,omitempty"`
 	ValueScore          *float32              `json:"valueScore,omitempty"`
 }
 
