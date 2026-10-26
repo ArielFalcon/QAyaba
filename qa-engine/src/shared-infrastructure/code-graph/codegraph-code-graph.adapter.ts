@@ -11,6 +11,7 @@
  * sorted and de-duplicated, and carry the commit of the index they read.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { createHash } from "node:crypto";
 import { basename, join } from "node:path";
 import { existsSync, lstatSync, rmSync } from "node:fs";
@@ -195,7 +196,7 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
         } else if (synced.error.kind === "timeout") {
           /* The same sync would time out on the same store at every run, and none would resolve it: the store is forgotten so the next run builds it from nothing. */
           this.deps.cache!.discard(repo);
-          console.warn(`[qa] the code-graph sync of ${repo} timed out (${clean(synced.error.reason)}); its cached store was discarded and the next run builds it from nothing`);
+          engineLog.warn(`[qa] the code-graph sync of ${repo} timed out (${clean(synced.error.reason)}); its cached store was discarded and the next run builds it from nothing`);
           return failed(synced.error);
         }
       }
@@ -223,7 +224,7 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
           fileCount: status.value.fileCount,
           builtAt: new Date(this.now()).toISOString(),
         });
-        if (!published.published) console.warn(`[qa] the code-graph store of ${repo} was not cached (${clean(published.reason)}); the next run indexes it again`);
+        if (!published.published) engineLog.warn(`[qa] the code-graph store of ${repo} was not cached (${clean(published.reason)}); the next run indexes it again`);
       }
       this.indexed.set(repoDir, { workspace, sha });
       return record(outcome, status.value);
@@ -236,7 +237,7 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
   private async readable(workspace: string, signal: AbortSignal | undefined, clean: (reason: string) => string): Promise<boolean> {
     const probe = await this.deps.engine.read<{ ready: boolean }>(workspace, { op: "ping" }, signal);
     if (probe.ok && probe.value.ready === true) return true;
-    console.warn(`[qa] the code-graph store reader does not accept the store (${probe.ok ? "no answer" : clean(probe.error.reason)})`);
+    engineLog.warn(`[qa] the code-graph store reader does not accept the store (${probe.ok ? "no answer" : clean(probe.error.reason)})`);
     return false;
   }
 

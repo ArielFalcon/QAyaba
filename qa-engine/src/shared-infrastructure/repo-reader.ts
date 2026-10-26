@@ -1,5 +1,6 @@
 /* The one reader of the files of a repository's mirror that a resolver reads for something other than the suite: the topology resolvers read the sources of every repository of a system, and the front's mirror is the agent's own working copy, with the directories the service contexts are staged into. A mirror is a directory the agent can write into, so a file in it can be a link to anywhere, a named pipe that would hold the whole single-threaded orchestrator, or as large as the disk allows. The files are listed by the one walk of the files of a repository (spec-path-confinement: no link followed, no more than a cap of entries looked at) and read one by one through the strict, capped read of the same module, which judges each again when it is opened, up to a total of bytes for the repository (a cap on each file says nothing of how many there are).
    What cannot be used does not stop the resolver: a file that is refused, over its cap or unreadable is skipped, which is what a resolver does with a file it cannot parse. It is counted by why, and said once for the repository (`warn`), in words of this module's own: no file is named, since its name is the agent's to choose, and no byte of one is quoted, since a parser's message quotes what it parsed. */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { describeReasons } from "./run-output-reader.ts";
 import { REPO_WALK_LIMITS, readFailureReason, readOwnedSpecFile, walkRepoFiles, type OwnedSpecRead, type RepoWalkLimits } from "./spec-path-confinement.ts";
 
@@ -73,7 +74,7 @@ export class RepoReader {
     this.unlisted = 0;
     this.odd = 0;
     this.refused = undefined;
-    if (parts.length > 0) console.warn(`[qa] WARNING: ${label}: ${parts.join("; ")}; what is in them is not in the result (non-blocking).`);
+    if (parts.length > 0) engineLog.warn(`[qa] WARNING: ${label}: ${parts.join("; ")}; what is in them is not in the result (non-blocking).`);
   }
 
   /* The strict read of a file of the repository, never throwing: a failure to read it is counted by its code. Once the repository has cost its total, nothing more is read of it and each file asked for is counted; the file that crosses the total is read, so the bytes can pass it by one file's cap. Only bytes that were read are counted. */

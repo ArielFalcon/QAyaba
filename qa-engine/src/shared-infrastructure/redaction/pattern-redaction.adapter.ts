@@ -1,5 +1,6 @@
 /* Pattern-based secret redaction for text leaving the system (prompts, Issues, telemetry, delegation briefs). The pure functions below are the policy; PatternRedactionAdapter serves them through the kernel RedactionPort. Before the patterns, the secrets of the run this call is part of (its test account, its session) are replaced by value (run-secret-redaction.ts): that pass does nothing outside a run. Post-redaction fail-loud: if a secret is still detectable, throw SecretLeakError rather than sending it. qa-engine must not import src/. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { REDACTED, SecretLeakError, type RedactionMode, type RedactionPort, type SecretDetection } from "@kernel/ports/redaction.port.ts";
 import { redactByValueCounted } from "../../shared-kernel/run-secret-redaction.ts";
 
@@ -163,7 +164,7 @@ export function containsSecrets(text: string, mode: RedactionMode = "issue"): bo
 /** Post-redaction fail-loud guard. If a secret is still detectable, throw SecretLeakError — never send it. The error type lives in the kernel. */
 export function assertNoSecretLeak(redactedText: string, mode: RedactionMode, boundary: string): void {
   if (containsSecrets(redactedText, mode)) {
-    console.error(`[sanitizer] ${boundary}: a secret survived redaction — refusing to proceed`);
+    engineLog.error(`[sanitizer] ${boundary}: a secret survived redaction — refusing to proceed`);
     throw new SecretLeakError(`${boundary}: a secret survived redaction — refusing to proceed`);
   }
 }

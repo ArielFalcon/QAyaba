@@ -1,4 +1,5 @@
 /* The session file of a run's login joins the run's secrets by value (the scope itself is the kernel's run-secret-redaction.ts). */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { MAX_STORAGE_STATE_BYTES, activeRunSecretScope } from "@kernel/run-secret-redaction.ts";
 import { readFailureReason, readOwnedSpecFile } from "../spec-path-confinement.ts";
 
@@ -14,19 +15,19 @@ export function registerSessionSecretsFromStorageState(authDir: string, file: st
   try {
     read = readOwnedSpecFile({ mirrorDir: authDir, specDir: authDir }, file, MAX_STORAGE_STATE_BYTES);
   } catch (err) {
-    console.warn(`[qa] WARNING: the session file could not be read (${readFailureReason(err)}); its cookies and storage are not redacted by value this run (non-blocking).`);
+    engineLog.warn(`[qa] WARNING: the session file could not be read (${readFailureReason(err)}); its cookies and storage are not redacted by value this run (non-blocking).`);
     return;
   }
   if ("absent" in read) return;
   if ("reason" in read) {
-    console.warn(`[qa] WARNING: the session file was not read (${read.reason}); its cookies and storage are not redacted by value this run (non-blocking).`);
+    engineLog.warn(`[qa] WARNING: the session file was not read (${read.reason}); its cookies and storage are not redacted by value this run (non-blocking).`);
     return;
   }
   let state: unknown;
   try {
     state = JSON.parse(read.bytes.toString("utf8"));
   } catch {
-    console.warn("[qa] WARNING: the session file is not valid JSON; its cookies and storage are not redacted by value this run (non-blocking).");
+    engineLog.warn("[qa] WARNING: the session file is not valid JSON; its cookies and storage are not redacted by value this run (non-blocking).");
     return;
   }
   if (!isRecord(state)) return;

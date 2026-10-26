@@ -1,6 +1,7 @@
 /* The one reader of what a run of the tests leaves in a directory the orchestrator reads back: the coverage dumps, the native coverage reports and the fault-injection counters under the spec directory, and the failure-capture dumps and the Playwright report in the temporary directories the e2e runner makes. The tests run code the agent wrote, so every one of these files is the agent's to shape: a named pipe where a file is expected would hold the whole single-threaded orchestrator for ever, a link would put a file outside the mirror in the signal, and a file or a directory as large as the disk allows would fill its memory or its time. Every read goes through the strict read of spec-path-confinement, under a cap, and never throws.
    What it reads is a set, and what a missing part of the set does to the result is for the caller to say, in one of two ways. A set that measures a whole (a ratio of the change that the dumps cover, a count of the corrupted responses) is used whole or not at all (`readRunOutputDir`): when any file of it cannot be used (refused, over the cap, outside the budget, unreadable, or one `decode` throws on), or the directory holds more entries than are looked at, nothing of it is used and one line says so, in words that quote nothing it holds (the number of files and the reason of each, never a name, a path of the agent's, a parser's message or a byte of a file). The rest of the set measures a part of what the run did, and a ratio or a count of a part is one the run never made, lower than the real one: under enforce it would block a valid change. Nothing used is no measurement, which the keystone reads as "unknown", and unknown never blocks. A set whose files each stand alone (one failure dump grounds one case) is scanned (`scanRunOutputDir`), and the caller uses what could be used and says what could not. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { join } from "node:path";
 import { listOwnedSpecDir, readFailureReason, readOwnedSpecFile, type OwnedSpecRead, type SpecRoot } from "./spec-path-confinement.ts";
 
@@ -74,12 +75,12 @@ export function describeReasons(reasons: readonly string[]): string {
 }
 
 function warnUnread(where: string, reason: string): void {
-  console.warn(`[qa] WARNING: ${where} was not read (${reason}); the signal stays unmeasured this run (non-blocking).`);
+  engineLog.warn(`[qa] WARNING: ${where} was not read (${reason}); the signal stays unmeasured this run (non-blocking).`);
 }
 
 /* One line for a whole directory, never one per file: an agent can plant thousands. It says how many files could not be used and, for each reason, how many, and names none of them: a file name is the agent's to choose, so it never reaches a log. */
 function warnNotRead(where: string, reasons: readonly string[]): void {
-  console.warn(`[qa] WARNING: ${where}: ${reasons.length} file(s) not read — ${describeReasons(reasons)}. None of the directory is used, so the signal stays unmeasured this run (non-blocking).`);
+  engineLog.warn(`[qa] WARNING: ${where}: ${reasons.length} file(s) not read — ${describeReasons(reasons)}. None of the directory is used, so the signal stays unmeasured this run (non-blocking).`);
 }
 
 /* Decodes every file of the directory at `rel` that `accept` takes, in the order of their names, within `limits`, or says why it does not: a directory that is not there is no output and nothing to say (an empty list); one that cannot be vouched for (a link, a file, one with a link above it), one with more entries than the cap, and one with a file that cannot be used (refused, over the cap, outside the budget, unreadable, or one `decode` throws on) is not used at all, said once for the directory, and gives undefined. Never throws. */
@@ -98,7 +99,7 @@ export function readRunOutputDir<T>(
     return undefined;
   }
   if (scan.cut) {
-    console.warn(`[qa] WARNING: ${where}: more than ${limits.maxFiles} entries; none of the directory is used, so the signal stays unmeasured this run (non-blocking).`);
+    engineLog.warn(`[qa] WARNING: ${where}: more than ${limits.maxFiles} entries; none of the directory is used, so the signal stays unmeasured this run (non-blocking).`);
     return undefined;
   }
   if (scan.leftOut.length > 0) {

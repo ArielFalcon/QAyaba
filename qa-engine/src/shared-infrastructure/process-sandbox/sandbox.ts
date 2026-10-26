@@ -1,5 +1,6 @@
 /* Privilege-drop sandbox for untrusted code. scrubEnv removes secrets from the environment, but watched-repo commands still run as the orchestrator user (root in the container) with its filesystem — a test could read the API token, tamper with /app, write sibling mirrors, or plant a .git hook that later runs as root on publish. Untrusted spawns run as the image's `sandbox` user; the working copy is chowned to it. `.git` stays root-owned. NETWORK is left intact (Maven/Gradle resolve deps). `resolveSandbox` does not read process.env — the engine-root shell passes env in (the one standing env-read exception in qa-engine is scrub-env.ts). */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -26,7 +27,7 @@ export function resolveSandbox(
   const home = env.CODE_SANDBOX_HOME ?? "/home/sandbox";
   if (!Number.isInteger(uid) || uid <= 0 || !Number.isInteger(gid) || gid < 0) return null;
   if (!homeExists(home)) {
-    console.warn(`[qa] code-mode sandbox DISABLED: home ${home} not found (image built without the sandbox user?). Untrusted code will run as the current user.`);
+    engineLog.warn(`[qa] code-mode sandbox DISABLED: home ${home} not found (image built without the sandbox user?). Untrusted code will run as the current user.`);
     return null;
   }
   return { uid, gid, home };

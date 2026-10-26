@@ -52,16 +52,7 @@ const NOT_MIGRATED: readonly string[] = [
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts",
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/vcs-write.adapter.ts",
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/write-confinement.adapter.ts",
-  "qa-engine/src/shared-infrastructure/code-graph/codegraph-code-graph.adapter.ts",
-  "qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts",
-  "qa-engine/src/shared-infrastructure/process-sandbox/exec-scope-provider.ts",
-  "qa-engine/src/shared-infrastructure/process-sandbox/sandbox.ts",
   "qa-engine/src/shared-infrastructure/process-sandbox/scrub-env.ts",
-  "qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter.ts",
-  "qa-engine/src/shared-infrastructure/redaction/session-secrets.ts",
-  "qa-engine/src/shared-infrastructure/repo-reader.ts",
-  "qa-engine/src/shared-infrastructure/run-output-reader.ts",
-  "qa-engine/src/shared-infrastructure/telemetry/run-spans.ts",
   "qa-engine/src/shared-kernel/telemetry/guarded-telemetry.ts",
 ];
 

@@ -2,6 +2,7 @@
    QA_EXEC_SANDBOX decides what a missing sandbox uid means: `required` refuses to spawn (the run ends E-SANDBOX), `best-effort` runs as the current user and says so loudly, which is what a developer's laptop without the uid needs. The default is best-effort so that `npm run qa` on a host works; the compose file sets required.
    Nothing here reads process.env: the composition root passes the environment in. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { buildExecEnv, type GeoPoint, type SandboxProfile } from "./exec-env.ts";
 import { activeExecScope, openDeniedWindow, type RunScope, type SandboxReport } from "./exec-scope.ts";
@@ -130,7 +131,7 @@ export interface ExecSandboxDeps {
 
 export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
   const spawnFn = deps.spawnFn ?? nodeSpawn;
-  const warn = deps.warn ?? ((line: string): void => console.warn(line));
+  const warn = deps.warn ?? ((line: string): void => engineLog.warn(line));
   const telemetry = deps.telemetry ? guardTelemetry(deps.telemetry) : undefined;
 
   const originsFor = (profile: SandboxProfile, scope: RunScope): readonly string[] =>
@@ -266,7 +267,7 @@ export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
             const reaped = reaper.reapOrphans();
             trace?.reaped(reaped);
           } catch (err) {
-            console.error(`[qa] ERROR: ${err instanceof Error ? err.message : String(err)}; the next spawn is refused until they are gone`);
+            engineLog.error(`[qa] ERROR: ${err instanceof Error ? err.message : String(err)}; the next spawn is refused until they are gone`);
           }
         });
       }
@@ -357,7 +358,7 @@ function openExecSpan(telemetry: TelemetryPort, scope: RunScope, options: ExecSp
     };
   } catch (err) {
     window?.close();
-    console.error(`[telemetry] the span of a child could not be set up (the child starts untraced): ${err instanceof Error ? err.message : String(err)}`);
+    engineLog.error(`[telemetry] the span of a child could not be set up (the child starts untraced): ${err instanceof Error ? err.message : String(err)}`);
     return undefined;
   }
 }

@@ -6,6 +6,7 @@
  * Observability never changes how a run ends: every function here is total. A fault is logged once and the work goes on untraced.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { activeExecScope } from "../process-sandbox/exec-scope.ts";
 import { activeRunSecretScope } from "../../shared-kernel/run-secret-redaction.ts";
 import { capItemIds, type ContextSource } from "../../shared-kernel/context-item-ids.ts";
@@ -145,6 +146,6 @@ export function recordContextSpan(telemetry: TelemetryPort, record: ContextRecor
       }
     }
   } catch (err) {
-    console.error(`[telemetry] a context span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+    engineLog.error(`[telemetry] a context span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
   }
 }

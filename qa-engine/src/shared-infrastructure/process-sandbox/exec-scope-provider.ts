@@ -1,5 +1,6 @@
 /* Opens a run's sandbox scope: its work directory (made for the sandbox uid, removed when the run ends) and the policy its children run under. One provider per composition; one session per run. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { join } from "node:path";
 import { activeRunSecretScope } from "../../shared-kernel/run-secret-redaction.ts";
 import { ambientExecScope } from "./ambient-exec-scope.ts";
@@ -40,7 +41,7 @@ export function createExecScopeProvider(deps: ExecScopeProviderDeps): ExecScopeP
     try {
       sealMirrors(deps.mirrorRoot, deps.mirrorOps);
     } catch (err) {
-      console.warn(`[qa] WARNING: the mirrors could not be sealed (${err instanceof Error ? err.message : String(err)}); the sandbox uid may reach a mirror it should not until the next boot.`);
+      engineLog.warn(`[qa] WARNING: the mirrors could not be sealed (${err instanceof Error ? err.message : String(err)}); the sandbox uid may reach a mirror it should not until the next boot.`);
     }
   };
   return {
@@ -78,7 +79,7 @@ export function createExecScopeProvider(deps: ExecScopeProviderDeps): ExecScopeP
             try {
               deps.reaper.reapOrphans();
             } catch (err) {
-              console.error(`[qa] ERROR: ${err instanceof Error ? err.message : String(err)}`);
+              engineLog.error(`[qa] ERROR: ${err instanceof Error ? err.message : String(err)}`);
             }
           }
           removeRunWorkDir(workDir);
@@ -97,7 +98,7 @@ function closeOwnMirrors(opened: ReadonlySet<string> | undefined, ops: MirrorFsO
     try {
       closeMirror(dir, ops);
     } catch (err) {
-      console.warn(`[qa] WARNING: a mirror could not be closed (${err instanceof Error ? err.message : String(err)}); the next run's scope seals it.`);
+      engineLog.warn(`[qa] WARNING: a mirror could not be closed (${err instanceof Error ? err.message : String(err)}); the next run's scope seals it.`);
     }
   }
 }
