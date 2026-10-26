@@ -15,6 +15,7 @@
  * Never blocks or fails a run: the validation result is returned as it was, and a fault here is logged and ignored.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { createHash } from "node:crypto";
 import { activeExecScope } from "../../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import { redactByValue } from "../../../../shared-kernel/run-secret-redaction.ts";
@@ -109,7 +110,7 @@ export class SpecSnapshotValidationPort implements ValidationPort {
       const snapshots = snapshotSpecs(specDir, runId, run?.deliveredSpecs ?? [], this.deps, kept);
       if (snapshots.length > 0) this.deps.port.record(snapshots);
     } catch (err) {
-      console.error(`[qa] spec snapshots could not be kept (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] spec snapshots could not be kept (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }

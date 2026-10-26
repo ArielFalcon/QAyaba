@@ -1,7 +1,8 @@
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { ShadowPublicationPort } from "../application/ports/shadow-publication.port.ts";
 
 export class ShadowLogAdapter implements ShadowPublicationPort {
-  constructor(private readonly log: (msg: string) => void = console.log) {}
+  constructor(private readonly log: (msg: string) => void = ((m: string): void => engineLog.info(m))) {}
 
   async openPr(repo: string, branch: string, title: string, body: string): Promise<void> {
     this.log(`[shadow] openPr skipped — would open PR on ${repo} branch=${branch} title="${title}" body-length=${body.length}`);

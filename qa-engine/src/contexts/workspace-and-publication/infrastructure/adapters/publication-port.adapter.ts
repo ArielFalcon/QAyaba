@@ -1,5 +1,6 @@
 /* PublicationPort: injected decide collaborator owns the verdict → PR/Issue/shadow/quarantine/noop mapping; this adapter only dispatches. Duck-typed local interfaces — this file must not import workspace-and-publication (agent is read-only; only the orchestrator does git writes). */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { SecretLeakError } from "@kernel/ports/redaction.port.ts";
@@ -227,7 +228,7 @@ export class PublicationPortAdapter implements PublicationPort {
         const body = issueBody();
         /* After sanitize: if a secret is still detectable, refuse to open the Issue. This file cannot import src/; the check is injected. */
         if (this.deps.containsSecret?.(body)) {
-          console.error("[publication] logs→Issue: a secret survived redaction — refusing to open the Issue");
+          engineLog.error("[publication] logs→Issue: a secret survived redaction — refusing to open the Issue");
           throw new SecretLeakError("logs→Issue: a secret survived redaction — refusing to open the Issue");
         }
         const issue = await this.deps.issue.open(issueRepo, title, body);
