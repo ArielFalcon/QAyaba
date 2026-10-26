@@ -143,6 +143,8 @@ async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunConte
       ...(input.triggerRepo ? { issueRepo: input.triggerRepo } : {}),
       /* Adjudication is absent when FixLoop never engaged: never fabricated. */
       ...(lastAdjudicatorVerdict ? { adjudication: lastAdjudicatorVerdict } : {}),
+      /* The change-reach label of the failure; absent when no case failed. It is evidence on the Issue and decides nothing. */
+      ...(decidedOf(state).causal ? { causal: decidedOf(state).causal } : {}),
       /* The run's handle: the "pr" git-write reads the mirror and the commit from it. This is the only pr-capable call site. */
       workspace,
       /* tested omitted when empty. parentRunId only from /continue, never fabricated. Intra-run regens reuse this same input object. */
@@ -185,7 +187,9 @@ function sharedSignals(state: Readonly<RunState>, ctx: WorkspaceRunContext, loop
   const { agentBrowser } = ctx.trail;
   const { integrityCounters, intentLock, intentState } = ctx.services;
   const { coverageStale, valueStale } = state.coverage;
+  const causal = state.decided?.causal;
   return {
+    ...(causal ? { causal } : {}),
     ...(loopSignal ? { closedLoop: loopSignal } : {}),
     ...(agentBrowser?.signals() ? { agentBrowser: agentBrowser.signals() } : {}),
     ...(coverageStale ? { coverage: { stale: true } } : {}),

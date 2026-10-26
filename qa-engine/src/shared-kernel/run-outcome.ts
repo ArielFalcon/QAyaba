@@ -100,6 +100,8 @@ export interface RunOutcome {
     crossRepoImpactedCount?: number;
     /* The coverage signal was measured before the specs an accepted regeneration rewrote: the recorded ratio no longer describes the bytes on disk. Persist-only; never read by decide/verdict/gate/publish. */
     coverage?: { stale: boolean };
+    /* Whether the run's failure is in the change's reach, and the evidence the label rests on (plain shape; the domain's CausalLabel). Absent when no case failed or the run was not decided. Persist-only: it records and decides nothing. */
+    causal?: { reach: "in-reach" | "out-of-reach" | "unknown"; basis: "request" | "page" | "flow" | "none"; via: string[]; reason: string; cases: Array<{ name: string; reach: "in-reach" | "out-of-reach" | "unknown"; basis: "request" | "page" | "flow" | "none" }> };
     /* How the run's regeneration acceptance spent its proof ledger: how many regenerations were accepted (and how many of those reused a closed-loop proof instead of executing), how many were rejected, and whether the per-run execution cap was hit. Persist-only; never read by decide/verdict/gate/publish. */
     integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
   };

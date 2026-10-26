@@ -69,6 +69,8 @@ export interface OutcomeExtras {
   intent?: { mode: string; violations: number; wouldReject: number; clauses: number; opaque: number; opacityHigh: boolean };
   /* The kind a declared no-op named; absent for every run that is not one. */
   noop?: { kind: NoopKind };
+  /* Whether the failure is in the change's reach; absent when no case failed. */
+  causal?: RunOutcome["gateSignals"]["causal"];
 }
 
 /** What the end of a run adds to the error class of its verdict. */
@@ -199,6 +201,7 @@ export function toRunOutcome(
       ...(extra?.integrity !== undefined ? { integrity: extra.integrity } : {}),
       ...(extra?.intent !== undefined ? { intent: extra.intent } : {}),
       ...(extra?.noop !== undefined ? { noop: extra.noop } : {}),
+      ...(extra?.causal !== undefined ? { causal: extra.causal } : {}),
       ...(coordination ? { coordination } : {}),
     },
     rulesRetrieved: extra?.rulesRetrieved ?? [],

@@ -1,5 +1,8 @@
 /* The decide phase of a run: the final proof guard over the delivered specs, the verdict's decision and the coordinated run's closing telemetry. */
 
+import { namesTemplatePage } from "@contexts/generation/application/index.ts";
+import { labelFailure, type CausalLabel } from "@contexts/objective-signal/application/index.ts";
+import { requestServesOperation } from "@contexts/service-topology/application/index.ts";
 import { decide, type RunEvidence } from "../../../domain/run-decision.service.ts";
 import { end, type StepOutcome } from "../run-flow.ts";
 import { runEnd } from "../run-end.ts";
@@ -84,6 +87,16 @@ export async function guardFinalProof(state: Readonly<RunState>, ctx: WorkspaceR
   }
 }
 
+/* Whether the run's failure is in the change's reach, read from its failing cases and the run's scope and flows; undefined when no case failed. It records and decides nothing. */
+export function causalLabelOf(state: Readonly<RunState>): CausalLabel | undefined {
+  return labelFailure({
+    cases: runOf(state).cases,
+    scope: state.grounding.changeScope,
+    flows: state.generation.flowCandidates,
+    matchers: { servesOperation: requestServesOperation, namesPage: namesTemplatePage },
+  });
+}
+
 /* The last step of the table: the run reached its decision, and finalizeRun carries it out (publish, prune, persist, learn). */
 export async function decideRun(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { deps, cfg, input } = ctx;
@@ -99,5 +112,6 @@ export async function decideRun(state: Readonly<RunState>, ctx: WorkspaceRunCont
   };
   const decision = decide(evidence);
   const isContextCleanPass = input.mode === "context" && decision.verdict === "pass";
-  return { end: runEnd(isContextCleanPass ? "context-pass" : "decided"), update: { decided: { evidence, decision, isContextCleanPass } } };
+  const causal = causalLabelOf(state);
+  return { end: runEnd(isContextCleanPass ? "context-pass" : "decided"), update: { decided: { evidence, decision, isContextCleanPass, ...(causal ? { causal } : {}) } } };
 }

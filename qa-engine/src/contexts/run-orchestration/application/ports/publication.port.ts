@@ -1,5 +1,6 @@
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import type { CausalLabel } from "@contexts/objective-signal/application/index.ts";
 import type { WorkspaceHandle } from "../../domain/workspace-handle.ts";
 
 export interface PublicationPort {
@@ -26,6 +27,8 @@ export interface PublicationPort {
      * the adapter renders them as text and never branches on them.
      */
     adjudication?: { class: string; confidence: string; reason: string };
+    /** Whether the failure is in the change's reach, and the evidence the label rests on; absent when no case failed. Rendered on the Issue, never branched on. */
+    causal?: CausalLabel;
     /**
      * Threaded only for a reviewer-unavailable fail-closed exit — never for a
      * genuine rejection (corrections already signal that).

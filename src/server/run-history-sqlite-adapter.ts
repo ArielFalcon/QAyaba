@@ -67,6 +67,7 @@ export function toStoredRunOutcome(outcome: KernelRunOutcome): StoredRunOutcome 
       ...(outcome.gateSignals.value !== undefined ? { value: outcome.gateSignals.value } : {}),
       ...(outcome.gateSignals.integrity !== undefined ? { integrity: outcome.gateSignals.integrity } : {}),
       ...(outcome.gateSignals.intent !== undefined ? { intent: outcome.gateSignals.intent } : {}),
+      ...(outcome.gateSignals.causal !== undefined ? { causal: outcome.gateSignals.causal } : {}),
     },
     rulesRetrieved: outcome.rulesRetrieved,
     ...(outcome.reflection !== undefined ? { reflection: outcome.reflection as StoredRunOutcome["reflection"] } : {}),

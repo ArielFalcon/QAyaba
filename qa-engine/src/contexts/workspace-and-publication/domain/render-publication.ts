@@ -14,6 +14,15 @@ export interface AdjudicationLabel {
   reason: string;
 }
 
+/* The change-reach label of a failing run, as the Issue shows it. */
+export interface CausalLabelView {
+  reach: string;
+  basis: string;
+  via: readonly string[];
+  reason: string;
+  cases: ReadonlyArray<{ name: string; reach: string; basis: string }>;
+}
+
 const MAX_ITEMS = 50;
 const CAP_NAME = 200;
 const CAP_CAUSE = 200;
@@ -67,6 +76,19 @@ function renderAdjudicationSection(a: AdjudicationLabel): string {
   return [heading, `- Class: ${a.class}`, `- Confidence: ${a.confidence}`, `- Reason: ${a.reason}`].join("\n");
 }
 
+const REACH_WORDS: Record<string, string> = { "in-reach": "in the change's reach", "out-of-reach": "outside the change's reach", unknown: "reach unknown" };
+
+/* What the failure says about the change, in the evidence's own terms: the run-level reach, how it was established, the entries it rests on and at most MAX_ITEMS cases. A recorded label, not a decision. */
+function renderCausalSection(c: CausalLabelView): string {
+  const lines = ["Change reach", `- Reach: ${REACH_WORDS[c.reach] ?? c.reach}`, `- Basis: ${c.basis}`];
+  if (c.via.length) lines.push(`- Via: ${c.via.slice(0, MAX_ITEMS).map((v) => `\`${cap(v, CAP_NAME)}\``).join(", ")}`);
+  lines.push(`- Reason: ${cap(c.reason, CAP_CAUSE)}`);
+  const shown = c.cases.slice(0, MAX_ITEMS);
+  for (const k of shown) lines.push(`  - ${cap(k.name, CAP_NAME)}: ${REACH_WORDS[k.reach] ?? k.reach} (${k.basis})`);
+  if (c.cases.length > shown.length) lines.push(`  - …and ${c.cases.length - shown.length} more case(s) omitted`);
+  return lines.join("\n");
+}
+
 /* Threaded ONLY for the reviewer-unavailable fail-closed exit, never a genuine reviewer rejection (corrections are already that signal) — the caller's own contract. */
 function renderReviewerNoteSection(note: string): string {
   return ["Reviewer unavailable", note].join("\n");
@@ -78,6 +100,8 @@ export interface RenderIssueInput {
   sha?: string;
   tested?: TestedItem[];
   adjudication?: AdjudicationLabel;
+  /* Absent for a run with no failing case: the Issue then says nothing about reach. */
+  causal?: CausalLabelView;
   reviewerNote?: string;
 }
 
@@ -107,6 +131,9 @@ export function renderIssue(input: RenderIssueInput): string {
 
   if (input.adjudication) {
     blocks.push(renderAdjudicationSection(input.adjudication));
+  }
+  if (input.causal) {
+    blocks.push(renderCausalSection(input.causal));
   }
   if (input.reviewerNote && input.reviewerNote.trim()) {
     blocks.push(renderReviewerNoteSection(input.reviewerNote));

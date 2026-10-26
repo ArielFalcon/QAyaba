@@ -10,7 +10,7 @@ import { engineSideCauseOf, terminalForGenerationEnd } from "../../../domain/hel
 import { checkPreExecGrounding } from "@contexts/generation/application/index.ts";
 import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
 import type { GenerationOutput } from "@contexts/generation/application/index.ts";
-import type { CoordinateResult } from "@contexts/coordination/application/index.ts";
+import type { CoordinateResult, FlowCandidates } from "@contexts/coordination/application/index.ts";
 import { end, type StepOutcome } from "../run-flow.ts";
 import { throwIfAborted } from "../abort.ts";
 import { preExecAction } from "../../../domain/pre-exec-regen.ts";
@@ -30,7 +30,7 @@ type Result = Promise<StepOutcome<RunState>>;
  * recorded signal carries; the lead never authors in the author's place.
  * A code run, a context run and a login still to be written never coordinate: one author sidekick authors them in the working copy (`authorFirstPass`).
  */
-async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<{ generated?: GenerationOutput; leadReviewTurns?: number }> {
+async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<{ generated?: GenerationOutput; leadReviewTurns?: number; flowCandidates?: FlowCandidates[] }> {
   const { deps, input, cfg, workspace, signal } = ctx;
   const { closedLoop, agentBrowser, geolocation, codeGraphTools } = ctx.trail;
   const { generating, intent: classificationIntent, diff: classificationDiff } = state.classification;
@@ -101,11 +101,11 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
     else await result.pass.release().catch((err: unknown) => console.error(`[qa] releasing the coordinated pass failed: ${err instanceof Error ? err.message : String(err)}`));
   }
   if (aggregated.end !== GENERATION_END.DELIVERED) {
-    return { leadReviewTurns, generated: { specs: [], end: aggregated.end, parsed: true, ...(aggregated.note ? { note: aggregated.note } : {}) } };
+    return { leadReviewTurns, flowCandidates: result.flowCandidates, generated: { specs: [], end: aggregated.end, parsed: true, ...(aggregated.note ? { note: aggregated.note } : {}) } };
   }
   const unfinished = aggregated.incompleteFlows.map((f) => `${f.id} (${f.kind})`).join(", ");
   if (unfinished) deps.observer?.onEvent({ type: "log.line", level: "warn", text: `coordination: ${aggregated.incompleteFlows.length} flow(s) did not finish: ${unfinished}` });
-  return { leadReviewTurns, generated: await afterGeneration(ctx, { specs: aggregated.specs, end: GENERATION_END.DELIVERED, parsed: true, ...(unfinished ? { note: `flows that did not finish: ${unfinished}` } : {}) }) };
+  return { leadReviewTurns, flowCandidates: result.flowCandidates, generated: await afterGeneration(ctx, { specs: aggregated.specs, end: GENERATION_END.DELIVERED, parsed: true, ...(unfinished ? { note: `flows that did not finish: ${unfinished}` } : {}) }) };
 }
 
 /*
@@ -122,6 +122,7 @@ export async function generateFirstPass(state: Readonly<RunState>, ctx: Workspac
   /* A regression run generates nothing: a stand-in with no generation end, never one a generation could return. */
   let generated = state.generation.generated;
   let leadReviewTurns = 0;
+  let flowCandidates: FlowCandidates[] = [];
   if (!generating) {
     generated = { specs: [], end: null };
   } else {
@@ -135,6 +136,7 @@ export async function generateFirstPass(state: Readonly<RunState>, ctx: Workspac
     const coordinated = await coordinateFirstPass(state, ctx);
     const coordinatedFirstPass = coordinated.generated;
     leadReviewTurns = coordinated.leadReviewTurns ?? 0;
+    flowCandidates = coordinated.flowCandidates ?? [];
     throwIfAborted(signal);
     generated = coordinatedFirstPass
       ?? (await afterGeneration(ctx, await dispatchAuthor(deps.generation, {
@@ -155,7 +157,7 @@ export async function generateFirstPass(state: Readonly<RunState>, ctx: Workspac
    * wrote nothing. Sidekick writes are still agent writes.
    */
   if (generating) await ctx.services.confinement.enforce();
-  return { update: { generation: { ...state.generation, generated }, loops: { ...state.loops, leadReviewTurns } } };
+  return { update: { generation: { ...state.generation, generated, flowCandidates }, loops: { ...state.loops, leadReviewTurns } } };
 }
 
 /*

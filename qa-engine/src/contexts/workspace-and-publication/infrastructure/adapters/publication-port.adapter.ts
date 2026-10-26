@@ -38,6 +38,15 @@ export interface VcsPublishCollaborator {
   }>;
 }
 
+/* Local structural mirror of render-publication's CausalLabelView. */
+interface CausalLabelView {
+  reach: string;
+  basis: string;
+  via: readonly string[];
+  reason: string;
+  cases: ReadonlyArray<{ name: string; reach: string; basis: string }>;
+}
+
 /* Distilled Issue/PR body renderers. Duck-typed — this file cannot import workspace-and-publication. Required: there is no safe fallback body. Rendered bodies must not embed raw execution logs. */
 export interface PublicationRenderCollaborator {
   issue(input: {
@@ -46,6 +55,7 @@ export interface PublicationRenderCollaborator {
     sha?: string;
     tested?: { flow?: string; objective?: string }[];
     adjudication?: { class: string; confidence: string; reason: string };
+    causal?: CausalLabelView;
     reviewerNote?: string;
   }): string;
   prBody(input: {
@@ -117,6 +127,8 @@ export class PublicationPortAdapter implements PublicationPort {
     e2eChanged?: boolean;
     issueRepo?: string;
     adjudication?: { class: string; confidence: string; reason: string };
+    /* Whether the failure is in the change's reach; absent when no case failed. */
+    causal?: CausalLabelView;
     /* Reviewer-unavailable rationale (fail-closed catch), never a genuine rejection. Absent → no section. */
     reviewerNote?: string;
     /* The run's working copy: the "pr" git-write reads the mirror and the commit from it. Optional at the type; required in practice on that route. */
@@ -145,6 +157,7 @@ export class PublicationPortAdapter implements PublicationPort {
           ...(workspace ? { sha: workspace.sha } : {}),
           ...(decision.tested?.length ? { tested: decision.tested } : {}),
           ...(decision.adjudication ? { adjudication: decision.adjudication } : {}),
+          ...(decision.causal ? { causal: decision.causal } : {}),
           ...(decision.reviewerNote ? { reviewerNote: decision.reviewerNote } : {}),
         }),
       );

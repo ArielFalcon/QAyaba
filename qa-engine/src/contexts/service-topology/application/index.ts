@@ -11,3 +11,4 @@ export type { ResolveLinksResult } from "../domain/service-boundary-resolver.ts"
 export { OnboardingService } from "./onboarding-service.ts";
 export type { OnboardingResult, OnboardingRoundProgress } from "./onboarding-service.ts";
 export type { EventBoundaryProfile, HttpBackendBoundaryProfile, HttpBoundaryProfile } from "../domain/index.ts";
+export { operationUrlPattern, requestServesOperation } from "../domain/operation-url-pattern.ts";

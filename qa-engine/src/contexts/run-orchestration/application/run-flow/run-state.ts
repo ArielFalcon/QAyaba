@@ -20,6 +20,7 @@ import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
 import type { FixLoopStage } from "../../domain/fix-loop.aggregate.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
+import type { CausalLabel } from "@contexts/objective-signal/application/index.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunEvidence } from "../../domain/run-decision.service.ts";
 import type { EndReason } from "./end-reason.ts";
@@ -108,6 +109,8 @@ export interface GenerationOutcome {
   /** What the pre-exec grounding asked to correct, and the spec files it attributed those corrections to. */
   groundingCorrections: string[];
   groundingAttribution: string[];
+  /** The use cases each flow of a coordinated first pass cites, by spec file; empty when the run was not coordinated. */
+  flowCandidates: ReadonlyArray<{ specFile: string; candidates: readonly string[] }>;
 }
 
 /* What the validate, health and execute phases left for the fix loop and the phases after it; the fix loop replaces `run` and adds to `retries`. */
@@ -230,6 +233,8 @@ export interface ReviewOutcome {
 export interface DecidedOutcome {
   evidence: RunEvidence;
   decision: RunDecision;
+  /** Whether the run's failure is in the change's reach; absent when no case failed. Recorded, published and persisted, never read by the decision. */
+  causal?: CausalLabel;
   /** A clean context-mode pass produced an architecture map, not tests: it neither persists nor folds. */
   isContextCleanPass: boolean;
 }
@@ -342,6 +347,7 @@ export function initialRunState(): RunState {
       catalogGateFailClosed: 0,
       groundingCorrections: [],
       groundingAttribution: [],
+      flowCandidates: [],
     },
     execution: {
       staticFixRetired: false,

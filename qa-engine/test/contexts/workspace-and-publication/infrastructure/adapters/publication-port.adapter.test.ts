@@ -888,3 +888,23 @@ test("publish() with no tested/isCode/parentRunId supplied still renders a compl
   assert.ok(!bodySeen.includes("Covers:"), "no tested metadata was supplied, so the section must be absent");
   assert.ok(!bodySeen.includes("Continuation of"), "no parentRunId was supplied, so no continuation reference should render");
 });
+
+test("publish() renders the change-reach label in the Issue body, sanitized like the rest, and omits it when absent", async () => {
+  const bodies: string[] = [];
+  const build = () => {
+    const issue = { open: async (_repo: string, _title: string, body: string) => { bodies.push(body); return { url: "https://github.com/org/app/issues/8", number: 8 }; } };
+    return new PublicationPortAdapter({ decide: new PublishDecisionService(), pr: fakePr(), issue, shadowLog: new ShadowLogAdapter(() => {}), sanitize: (text: string) => text.replace(/hunter2/g, "[redacted]"), render: realRender() }, {
+      repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true,
+    });
+  };
+  await build().publish({
+    verdict: "fail",
+    cases: [{ name: "checkout", status: "fail" }],
+    logs: "x",
+    causal: { reach: "out-of-reach", basis: "request", via: ["GET /orders/{id}"], reason: "token hunter2 leaked", cases: [{ name: "checkout", reach: "out-of-reach", basis: "request" }] },
+  });
+  await build().publish({ verdict: "fail", cases: [{ name: "checkout", status: "fail" }], logs: "x" });
+  assert.match(bodies[0]!, /Change reach\n- Reach: outside the change's reach\n- Basis: request/);
+  assert.ok(!bodies[0]!.includes("hunter2"));
+  assert.ok(!bodies[1]!.includes("Change reach"));
+});

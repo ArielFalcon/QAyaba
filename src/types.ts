@@ -252,6 +252,8 @@ export interface RunOutcome {
     coverage?: { stale: boolean };
     /* The value score has the same staleness (an accepted regeneration rewrote the suite). Persist-only, never a gate. */
     value?: { stale: boolean };
+    /* Whether the run's failure is in the change's reach and the evidence for it; absent when no case failed. Persist-only, never a gate. */
+    causal?: { reach: "in-reach" | "out-of-reach" | "unknown"; basis: "request" | "page" | "flow" | "none"; via: string[]; reason: string; cases: Array<{ name: string; reach: "in-reach" | "out-of-reach" | "unknown"; basis: "request" | "page" | "flow" | "none" }> };
     /* How the run's regeneration acceptance spent its proof ledger. Persist-only. */
     integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
     /* The test-intent lock: derived clauses, deltas and would-be rejections, with the opacity flag. Persist-only. */

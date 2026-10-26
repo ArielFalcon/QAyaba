@@ -142,7 +142,13 @@ export type CoordinateResult =
   /* The lead declared that nothing is worth a test. */
   | { action: "noop"; reason: string; signal: CoordinationGateSignal }
   /* The flows were authored; `aggregated` says how it ended, as a generation would. */
-  | { action: "fanout"; aggregated: AggregatedFlows; proposals: FlowProposals[]; signal: CoordinationGateSignal; pass?: CoordinatedPass };
+  | { action: "fanout"; aggregated: AggregatedFlows; proposals: FlowProposals[]; signal: CoordinationGateSignal; pass?: CoordinatedPass; flowCandidates?: FlowCandidates[] };
+
+/* The use cases a flow cites, by the spec it writes (relative to the spec directory); only ids the run derived. */
+export interface FlowCandidates {
+  specFile: string;
+  candidates: string[];
+}
 
 /* What one correction turn came to: the specs taken back into the working copy, the lead's rebuttals, and the findings no flow was sent. */
 export interface PassCorrection {
@@ -456,6 +462,8 @@ export class LeadSidekicks {
         return p && p.total > 0 ? [p] : [];
       });
       const aggregated = aggregateFlowOutcomes(outcomes);
+      const known = new Set((input.candidates ?? []).map((c) => c.id));
+      const flowCandidates = flows.map((flow) => ({ specFile: flow.specFile, candidates: flow.candidates.filter((id) => known.has(id)) }));
       this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.FANOUT, flows, undefined, outcomes, decided, new Map([...live].flatMap(([id, entry]) => (entry.last?.candidates ? [[id, entry.last.candidates] as const] : []))));
       const signal: CoordinationGateSignal = {
         ...base,
@@ -469,9 +477,9 @@ export class LeadSidekicks {
       /* With the lead's session the pass is kept open for the reviewer's corrections; its holder releases it. */
       if (how.lead && !input.signal?.aborted && aggregated.end === GENERATION_END.DELIVERED) {
         handed = true;
-        return { action: "fanout", aggregated, proposals, signal, pass: this.passOf(how.lead, flows, parallel, context, live) };
+        return { action: "fanout", aggregated, proposals, signal, pass: this.passOf(how.lead, flows, parallel, context, live), flowCandidates };
       }
-      return { action: "fanout", aggregated, proposals, signal };
+      return { action: "fanout", aggregated, proposals, signal, flowCandidates };
     } finally {
       if (!handed) for (const entry of live.values()) await this.release(entry);
     }

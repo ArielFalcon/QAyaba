@@ -164,3 +164,28 @@ test("renderPrBody: omits the continuation reference entirely when parentRunId i
   const body = renderPrBody({ isCode: false });
   assert.ok(!body.includes("Continuation of"));
 });
+
+/* ── Scenario: A failing run's Issue says whether the failure is in the change's reach ─────────── */
+
+test("renderIssue: the change-reach section states the reach, basis, entries and each case for in-reach, out-of-reach and unknown", () => {
+  const cases = [failCase({ name: "a" })];
+  const reasons: Array<[string, string]> = [["in-reach", "in the change's reach"], ["out-of-reach", "outside the change's reach"], ["unknown", "reach unknown"]];
+  for (const [reach, words] of reasons) {
+    const body = renderIssue({ verdict: "fail", cases, causal: { reach, basis: reach === "unknown" ? "none" : "request", via: reach === "unknown" ? [] : ["GET /orders/{id}"], reason: "why", cases: [{ name: "a", reach, basis: "request" }] } });
+    assert.match(body, new RegExp(`Change reach\\n- Reach: ${words}\\n- Basis: ${reach === "unknown" ? "none" : "request"}`));
+    assert.match(body, new RegExp(`  - a: ${words} \\(request\\)`));
+    assert.equal(body.includes("- Via:"), reach !== "unknown");
+  }
+});
+
+test("renderIssue: an Issue with no label renders exactly as before", () => {
+  const body = renderIssue({ verdict: "fail", cases: [failCase()] });
+  assert.ok(!body.includes("Change reach"));
+  assert.equal(body, renderIssue({ verdict: "fail", cases: [failCase()], reviewerNote: "  " }));
+});
+
+test("renderIssue: the change-reach section lists at most the bounded number of cases and says how many it left out", () => {
+  const many = Array.from({ length: 60 }, (_, i) => ({ name: `case-${i}`, reach: "in-reach", basis: "flow" }));
+  const body = renderIssue({ verdict: "fail", cases: [failCase()], causal: { reach: "in-reach", basis: "flow", via: [], reason: "r", cases: many } });
+  assert.match(body, /…and 10 more case\(s\) omitted/);
+});

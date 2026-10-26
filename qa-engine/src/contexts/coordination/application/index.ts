@@ -117,6 +117,6 @@ export {
 export { CORRECTION_ORIGIN } from "./lead-correction.ts";
 export type { CorrectionFinding, CorrectionOrigin } from "./lead-correction.ts";
 export { LeadSidekicks } from "./lead-sidekicks.ts";
-export type { CoordinateResult, CoordinatedPass } from "./lead-sidekicks.ts";
+export type { CoordinateResult, CoordinatedPass, FlowCandidates } from "./lead-sidekicks.ts";
 
 export { authorTargetOf, dispatchAuthor, type AuthorRequest, type RunAuthorTarget } from "./author-dispatch.ts";
