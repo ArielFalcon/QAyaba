@@ -412,7 +412,7 @@ test("cells that state a step limit carry the facts-only step-limit section, lin
 test("a limited cell carries the milestone exactly when its turn writes tests, as a directive section the lint counts: neither facts-only nor captured data", async () => {
   const cells = await matrixOnce();
   const limited = cells.filter((c) => c.stepLimit !== undefined);
-  const writes = (spec: CellSpec): boolean => isTestWritingTurn({ mode: spec.mode, ...(spec.phase !== "first" ? { coverageGap: "a gap" } : {}) });
+  const writes = (spec: CellSpec): boolean => isTestWritingTurn({ mode: spec.mode, ...(spec.phase !== "first" ? { coverageGap: "a gap" } : {}), ...(spec.planning ? { planning: {} } : {}) });
   assert.ok(limited.some((c) => writes(c.spec)) && limited.some((c) => !writes(c.spec)), "the matrix has limited cells of both kinds");
   for (const cell of limited) {
     const section = cell.lint.sections.find((s) => s.id === STEP_MILESTONE_SECTION_ID);

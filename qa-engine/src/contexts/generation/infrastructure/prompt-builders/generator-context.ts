@@ -154,8 +154,7 @@ export function derivePromptContext(input: OpencodeRunInput, opts: BuildPromptAs
     suiteIsListed: listingContent !== "",
     editableListed: listing.editable.length > 0,
     blastRadiusGrounded: staticSignalHasSymbols,
-    /* A planning turn writes no test, so it has no milestone; its time is stated by the plan section. */
-    milestone: input.stepLimit !== undefined && !planningTurn ? stepMilestone(input, input.stepLimit) : undefined,
+    milestone: input.stepLimit !== undefined ? stepMilestone(input, input.stepLimit) : undefined,
     assembly: { suiteListed: listingContent !== "", reaskObjective: listing.reaskObjective },
   };
 }

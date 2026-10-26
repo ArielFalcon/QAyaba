@@ -22,14 +22,18 @@ export function stepMidpoint(limit: number): number {
   return Math.max(1, Math.floor(limit * STEP_LIMIT_MIDPOINT_FRACTION));
 }
 
-/* What decides whether a turn writes tests: its mode, and whether it is a regeneration. */
+/* What decides whether a turn writes tests: its mode, whether it is a regeneration, and whether it is asked for a plan. */
 export interface TurnShape extends RegenSignals {
   mode: RunMode;
+  /* The limits of a plan, present on a first pass asked for one. */
+  planning?: unknown;
 }
 
-/* Test-writing turns are the diff and manual first passes and every regeneration; a complete, exhaustive or context first pass analyzes, and a context run never writes tests. */
+/* Test-writing turns are the diff and manual first passes and every regeneration; a complete, exhaustive or context first pass analyzes, a first pass asked for a plan writes no file, and a context run never writes tests. */
 export function isTestWritingTurn(turn: TurnShape): boolean {
-  return turn.mode !== "context" && (isReGenTurn(turn) || turn.mode === "diff" || turn.mode === "manual");
+  if (turn.mode === "context") return false;
+  if (isReGenTurn(turn)) return true;
+  return turn.planning === undefined && (turn.mode === "diff" || turn.mode === "manual");
 }
 
 /* What meets the milestone: the first spec written, a reasoned decision to write none, the first correction, or the reason no correction applies. */

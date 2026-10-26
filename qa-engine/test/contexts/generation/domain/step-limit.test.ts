@@ -51,6 +51,12 @@ test("a first pass writes tests in diff and manual mode, and in no other: comple
   for (const mode of RUN_MODES) assert.equal(isTestWritingTurn({ mode }), writes[mode], mode);
 });
 
+test("a first pass asked for a plan writes no test and has no milestone; a regeneration of a planned run still writes tests", () => {
+  for (const mode of RUN_MODES) assert.equal(isTestWritingTurn({ mode, planning: {} }), false, mode);
+  assert.equal(stepMilestone({ mode: "diff", planning: {} }, 250), undefined);
+  assert.equal(isTestWritingTurn({ mode: "diff", planning: {}, coverageGap: "src/cart.ts: lines 10-14 were not executed" }), true);
+});
+
 test("a regeneration writes tests in every mode that writes any, whichever signal made it one, and a context run never does", () => {
   for (const mode of RUN_MODES) {
     for (const [label, signal] of REGEN_SIGNALS) {
