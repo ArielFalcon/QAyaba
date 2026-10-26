@@ -6,6 +6,8 @@ export type { ErrorClass } from "./../domain/error-class.ts";
 export { NON_LEARNING, OBSERVED_OPERATING, learningGates, observesOperatingSignal } from "./../domain/learning-gates.ts";
 export type { CurriculumPort } from "./ports/curriculum.port.ts";
 export type { LearningQuarantinePort } from "./ports/learning-quarantine.port.ts";
+export { FoldRunOutcome } from "./fold-run-outcome.use-case.ts";
+export type { LearningRow, LearningStore, ScorecardEntryInput } from "./ports/learning-store.port.ts";
 export type { LearningRepositoryPort } from "./ports/learning-repository.port.ts";
 export type { LearningPort } from "./ports/learning.port.ts";
 export type { ProcessAuditPort } from "./ports/process-audit.port.ts";

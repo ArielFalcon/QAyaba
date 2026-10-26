@@ -1,38 +1,12 @@
 /* The store is injected (no SQLite binary in tests); ranking is delegated to RuleGovernanceService (the SELECT is UNORDERED — the duplicate SQL ORDER BY is gone). */
 import type { LearningRepositoryPort } from "../application/ports/learning-repository.port.ts";
+import type { LearningRow, LearningStore } from "../application/ports/learning-store.port.ts";
+import { FoldRunOutcome } from "../application/fold-run-outcome.use-case.ts";
 import type { LearningRule, RuleStatus, ErrorClass } from "../domain/learning-repository.ts";
 import type { RelevanceBias } from "../domain/rule-governance.service.ts";
 import type { Sha } from "@kernel/sha.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RuleGovernanceService, type InjectionPolicy } from "../domain/rule-governance.service.ts";
-
-export interface LearningRow {
-  id: string;
-  trigger_text: string;
-  action_text: string;
-  error_class: string;
-  archetype: string | null;
-  status: string;
-  confidence: string;
-  usage_count: number;
-  outcome_count: number;
-  oracle_outcome_count?: number;
-  success_rate: number | null;
-  last_verified: string | null;
-  source: string;
-  at: string;
-  /** Set when an operator quarantined the rule; null or absent: in force. */
-  quarantined_at?: string | null;
-}
-export interface LearningStore {
-  selectRules(app: string): LearningRow[];
-  upsert(rule: LearningRule): void;
-  recordOutcome(outcome: RunOutcome): void;
-  incrementUsage?(ids: readonly string[]): void;
-  selectAllRules?(app: string, limit: number): LearningRow[];
-  /** Marks the app's rules by id as quarantined at `at` (those not already) and returns how many it marked. */
-  quarantine?(app: string, ids: readonly string[], at: string): number;
-}
 
 function rowToRule(row: LearningRow): LearningRule {
   return {
@@ -75,7 +49,7 @@ export class SqliteLearningRepository implements LearningRepositoryPort {
   }
 
   async applyOutcome(outcome: RunOutcome): Promise<void> {
-    this.store.recordOutcome(outcome);
+    new FoldRunOutcome(this.store).execute(outcome);
   }
 
   /* Off-path telemetry: increment usage on retrieved rules. A store fake that omits incrementUsage is unaffected. Never gates publish. */

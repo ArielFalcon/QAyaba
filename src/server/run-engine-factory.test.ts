@@ -1,4 +1,6 @@
 import { test, mock } from "node:test";
+import { FoldRunOutcome, type LearningStore } from "@contexts/cross-run-learning/application/index";
+import type { RunOutcome } from "@kernel/run-outcome";
 import { buildAppCatalog } from "../../qa-engine/src/contexts/app-catalog/composition/build-app-catalog";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -64,6 +66,11 @@ function publishStep(isCode: boolean, mode: RunMode, git?: (args: string[], cwd?
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
 setCatalogAgentsConfigPath(rosterFixturePath());
 setAgentsConfigPath(rosterFixturePath());
+
+/* The learning fold as the ledger runs it: the use case over the store the shell implements. */
+function foldRunOutcome(store: LearningStore, outcome: RunOutcome): void {
+  new FoldRunOutcome(store).execute(outcome);
+}
 
 /* The auth session the engine root builds from the composed adapter deps. */
 function authSessionOf(config: { authSession?: Parameters<typeof buildAppCatalog>[0]["authSession"] }) {
@@ -2317,12 +2324,12 @@ test("historyLearningStore(appName).incrementUsage() bridges onto history.ts's i
   assert.equal(rows[0]?.usageCount, 1, "usageCount must advance from 0 to 1 after incrementUsage");
 });
 
-/* historyLearningStore(appName).recordOutcome() folds a RunOutcome into individual rules'
+/* the learning fold over historyLearningStore(appName) folds a RunOutcome into individual rules'
    running statistics via the SAME learning_rules SQLite table upsert()/incrementUsage() already
    bridge onto. Real-DB integration tests: a unique app name per run avoids collisions with other
    tests' rows.
  */
-test("historyLearningStore(appName).recordOutcome() — oracle path folds valueScore into every retrieved rule", async () => {
+test("the learning fold over historyLearningStore(appName) — oracle path folds valueScore into every retrieved rule", async () => {
   const { historyLearningStore } = await import("./run-engine-factory");
   const { listLearningRules } = await import("./history");
   const app = `factory-learning-oracle-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -2338,7 +2345,7 @@ test("historyLearningStore(appName).recordOutcome() — oracle path folds valueS
     });
   }
 
-  store.recordOutcome({
+  foldRunOutcome(store, {
     runId: "run-1", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
     errorClass: null,
     gateSignals: { static: true, coverageRatio: 0.9, valueScore: 0.8, reviewerCorrections: [], flaky: false, retries: 0 },
@@ -2360,7 +2367,7 @@ test("historyLearningStore(appName).recordOutcome() — oracle path folds valueS
 /* A step-budget exhaustion is folded like any learning outcome, through the same store the production fold uses. It says
    nothing about rules of other classes and can only ever count against a rule of its own class, so it can neither promote
    a candidate nor disturb a proven rule. */
-test("historyLearningStore(appName).recordOutcome() — folding a step-budget outcome mints no active rule and leaves other classes' rules untouched", async () => {
+test("the learning fold over historyLearningStore(appName) — folding a step-budget outcome mints no active rule and leaves other classes' rules untouched", async () => {
   const { historyLearningStore } = await import("./run-engine-factory");
   const { listLearningRules, setRuleStatusByHuman } = await import("./history");
   const app = `factory-learning-step-budget-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -2377,7 +2384,7 @@ test("historyLearningStore(appName).recordOutcome() — folding a step-budget ou
   const before = new Map(listLearningRules(app, 10).map((r) => [r.id, r]));
 
   assert.doesNotThrow(() =>
-    store.recordOutcome({
+    foldRunOutcome(store, {
       runId: "run-step-budget", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "infra-error",
       errorClass: "E-STEP-BUDGET",
       gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
@@ -2457,7 +2464,7 @@ test("integration: upsert -> retrieve (real LearningPortAdapter) -> derive rules
   } as never;
 
   /* Fold via the REAL LearningPort.fold() -> LearningRepositoryPort.applyOutcome() ->
-     historyLearningStore(app).recordOutcome() -> history.ts's recordRuleOutcome(id, ...) chain —
+     foldRunOutcome(historyLearningStore(app), ) -> history.ts's recordRuleOutcome(id, ...) chain —
      the exact production path, not a hand-rolled call to recordOutcome/recordRuleOutcome directly.
    */
   await adapter.fold(outcome);
@@ -2469,7 +2476,7 @@ test("integration: upsert -> retrieve (real LearningPortAdapter) -> derive rules
   assert.equal(folded?.oracleOutcomeCount, 1, "the oracle path (gateSignals.valueScore !== null) must advance oracle_outcome_count");
 });
 
-test("historyLearningStore(appName).recordOutcome() — empty rulesRetrieved is a safe no-op", async () => {
+test("the learning fold over historyLearningStore(appName) — empty rulesRetrieved is a safe no-op", async () => {
   const { historyLearningStore } = await import("./run-engine-factory");
   const { listLearningRules } = await import("./history");
   const app = `factory-learning-empty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -2482,7 +2489,7 @@ test("historyLearningStore(appName).recordOutcome() — empty rulesRetrieved is 
     oracleOutcomeCount: 0, successRate: null, lastVerified: null, source: "test", at: new Date().toISOString(),
   });
 
-  store.recordOutcome({
+  foldRunOutcome(store, {
     runId: "run-2", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
     errorClass: null,
     gateSignals: { static: true, coverageRatio: null, valueScore: 0.5, reviewerCorrections: [], flaky: false, retries: 0 },
@@ -2501,7 +2508,7 @@ test("recordOutcome persists a scorecard entry even when rulesRetrieved is empty
   const app = `factory-scorecard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const store = historyLearningStore(app);
 
-  store.recordOutcome({
+  foldRunOutcome(store, {
     runId: "run-scorecard-1", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
     errorClass: null,
     gateSignals: { static: true, coverageRatio: 0.8, valueScore: 0.75, reviewerCorrections: [], flaky: false, retries: 0 },
@@ -2522,7 +2529,7 @@ test("recordOutcome persists the REAL mutantCount/killedCount from gateSignals, 
   const app = `factory-scorecard-mutant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const store = historyLearningStore(app);
 
-  store.recordOutcome({
+  foldRunOutcome(store, {
     runId: "run-scorecard-mutant-1", app, sha: "abc1234567", mode: "diff", target: "code", verdict: "pass",
     errorClass: null,
     gateSignals: { static: true, coverageRatio: null, valueScore: 0.85, mutantCount: 20, killedCount: 17, reviewerCorrections: [], flaky: false, retries: 0 },
@@ -2541,7 +2548,7 @@ test("recordOutcome persists mutantCount/killedCount as null ('not measured') wh
   const app = `factory-scorecard-unmeasured-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const store = historyLearningStore(app);
 
-  store.recordOutcome({
+  foldRunOutcome(store, {
     runId: "run-scorecard-unmeasured-1", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
     errorClass: null,
     gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
@@ -2554,7 +2561,7 @@ test("recordOutcome persists mutantCount/killedCount as null ('not measured') wh
   assert.equal(sc?.entries[0]?.killedCount, null, "an unmeasured killedCount must persist as null, never a fabricated 0");
 });
 
-test("historyLearningStore(appName).recordOutcome() — prevention path scores via preventionOutcome(rule.errorClass, outcome.errorClass) when valueScore is null", async () => {
+test("the learning fold over historyLearningStore(appName) — prevention path scores via preventionOutcome(rule.errorClass, outcome.errorClass) when valueScore is null", async () => {
   const { historyLearningStore } = await import("./run-engine-factory");
   const { listLearningRules } = await import("./history");
   const app = `factory-learning-prevention-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -2583,7 +2590,7 @@ test("historyLearningStore(appName).recordOutcome() — prevention path scores v
      preventionOutcome(rule.errorClass, null) = PREVENTION_HELD_SCORE (weak positive, held).
      failedRuleId's own class ("E-EXEC-FAIL") also did not recur on this clean run -> also held.
    */
-  store.recordOutcome({
+  foldRunOutcome(store, {
     runId: "run-3", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
     errorClass: null,
     gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
@@ -2635,7 +2642,7 @@ test("recordOutcome prevention path folds a retrieved rule even when the bulk LE
   assert.ok(!bulk.some((r) => r.id === targetId), "setup check: the target rule must genuinely sit outside the bulk LEDGER_LIMIT window");
 
   const store = historyLearningStore(app);
-  store.recordOutcome({
+  foldRunOutcome(store, {
     runId: "run-r6", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
     errorClass: null,
     gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
@@ -2650,7 +2657,7 @@ test("recordOutcome prevention path folds a retrieved rule even when the bulk LE
 /* A human veto is the highest-authority governance signal: a rule an operator deprecates while a
    run that already retrieved it is in flight must stay deprecated when that run's outcome folds —
    on the prevention path and on the oracle path alike. Walks the real production store
-   (historyLearningStore -> recordOutcome) against the real SQLite ledger. */
+   (historyLearningStore -> FoldRunOutcome) against the real SQLite ledger. */
 async function vetoedRuleAfterFold(gateSignals: { valueScore: number | null }) {
   const { historyLearningStore } = await import("./run-engine-factory");
   const { upsertLearningRule, setRuleStatusByHuman, getLearningRule } = await import("./history");
@@ -2658,7 +2665,7 @@ async function vetoedRuleAfterFold(gateSignals: { valueScore: number | null }) {
   const ruleId = `rule-veto-${app}`;
   const store = historyLearningStore(app);
   const fold = (runId: string, valueScore: number | null) =>
-    store.recordOutcome({
+    foldRunOutcome(store, {
       runId, app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
       errorClass: null,
       gateSignals: { static: true, coverageRatio: null, valueScore, reviewerCorrections: [], flaky: false, retries: 0 },
@@ -2711,7 +2718,7 @@ for (const [path, valueScore] of [["prevention", null], ["oracle", 0.9]] as cons
     upsertLearningRule({ id: ruleId, app, trigger: "selector absent", action: "use role+name", errorClass: "E-FRAGILE-SELECTOR", source: "test", initialStatus: "superseded" });
     const before = getLearningRule(app, ruleId)!;
 
-    historyLearningStore(app).recordOutcome({
+    foldRunOutcome(historyLearningStore(app), {
       runId: `run-in-flight-${path}`, app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
       errorClass: null,
       gateSignals: { static: true, coverageRatio: null, valueScore, reviewerCorrections: [], flaky: false, retries: 0 },
@@ -2736,7 +2743,7 @@ for (const [path, valueScore] of [["prevention", null], ["oracle", 0.9]] as cons
     const ruleId = `rule-owned-${suffix}`;
     upsertLearningRule({ id: ruleId, app: owner, trigger: "selector absent", action: "use role+name", errorClass: "E-FRAGILE-SELECTOR", source: "test" });
 
-    historyLearningStore(other).recordOutcome({
+    foldRunOutcome(historyLearningStore(other), {
       runId: `run-other-${path}`, app: other, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
       errorClass: null,
       gateSignals: { static: true, coverageRatio: null, valueScore, reviewerCorrections: [], flaky: false, retries: 0 },
@@ -2762,7 +2769,7 @@ async function creditedAfterFold(valueScore: number | null, diffArchetypes: stri
   upsertLearningRule({ id: ids.unrelated, app, trigger: "list paging", action: "assert the next page", errorClass: "E-FRAGILE-SELECTOR", archetype: "data-list", source: "test" });
   upsertLearningRule({ id: ids.untagged, app, trigger: "any change", action: "scope to a test id", errorClass: "E-FRAGILE-SELECTOR", archetype: null, source: "test" });
 
-  historyLearningStore(app).recordOutcome({
+  foldRunOutcome(historyLearningStore(app), {
     runId: "run-attribution", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
     errorClass: null,
     gateSignals: { static: true, coverageRatio: null, valueScore, reviewerCorrections: [], flaky: false, retries: 0 },
@@ -2947,7 +2954,7 @@ test("retrieval: the best-proven active rules are retrieved when the ledger hold
   for (const id of provenIds) {
     upsertLearningRule({ id, app, trigger: id, action: "a", errorClass: "E-EXEC-FAIL", source: "test", initialStatus: "active" });
   }
-  store.recordOutcome({
+  foldRunOutcome(store, {
     runId: "run-proof", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
     errorClass: null,
     gateSignals: { static: true, coverageRatio: null, valueScore: 1, reviewerCorrections: [], flaky: false, retries: 0 },

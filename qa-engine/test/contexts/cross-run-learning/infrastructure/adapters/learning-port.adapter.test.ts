@@ -7,7 +7,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { LearningPortAdapter, DEFAULT_RULES_CHAR_BUDGET } from "@contexts/cross-run-learning/infrastructure/adapters/learning-port.adapter.ts";
-import { SqliteLearningRepository, type LearningRow, type LearningStore } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter.ts";
+import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter.ts";
+import type { LearningRow, LearningStore } from "@contexts/cross-run-learning/application/index.ts";
 import { renderLearnedRules } from "@contexts/cross-run-learning/application/index.ts";
 import { StubLearningRepository } from "@contexts/cross-run-learning/infrastructure/stub-learning-repository.adapter.ts";
 import type { LearningRepositoryPort } from "@contexts/cross-run-learning/application/ports/learning-repository.port.ts";
@@ -394,7 +395,9 @@ async function retrieveFromVerboseLedger() {
   const store: LearningStore = {
     selectRules: () => rows,
     upsert: () => {},
-    recordOutcome: () => {},
+    saveScorecardEntry: () => {},
+    findRule: () => undefined,
+    recordRuleOutcome: () => {},
     incrementUsage: (ids) => { usageRecorded.push(...ids); },
   };
   const repo = new SqliteLearningRepository(store);

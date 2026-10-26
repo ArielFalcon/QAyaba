@@ -160,13 +160,13 @@ import { RedactionPortAdapter, recordAudit, redactSourceForModel } from "../orch
 import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, realGit, authHeaderArgs, hardenGitArgs, assertTrustedGitTree } from "../integrations/repo-mirror";
 import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
-import { SqliteLearningRepository, type LearningStore } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
+import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
+import type { LearningStore } from "@contexts/cross-run-learning/application/index";
 import { listLearningRules, listLearningRulesForGovernance, getLearningRule, listAllLearningRules, quarantineLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, isContextStale, clearContextStale, recordContextHealRequest, saveScorecardEntry, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap as loadStoredContextMap } from "./history";
 import { recordIncident } from "./maintainer";
 import { resolveCampaignFreeze } from "./campaign-freeze";
 import { serviceTopologyWired, structuralSignalsOn as structuralSignalsOnFor, toolsApply } from "./run-config-gates";
 import { resolveReflectorEnabled } from "./reflector-switch";
-import { attributableRules, preventionOutcome } from "@contexts/cross-run-learning/domain/rule-fold";
 import { ReflectorPortAdapter, REFLECT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter";
 import { ProcessAuditPortAdapter } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter";
 import { CurriculumPortAdapter } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
@@ -352,63 +352,10 @@ export function historyLearningStore(appName: string): LearningStore {
         archetype: rule.archetype ?? null,
         source: rule.source,
       }),
-    recordOutcome: (outcome) => {
-
-      try {
-        const { rulesRetrieved, gateSignals, errorClass } = outcome;
-        /* Persist the per-run oracle scorecard even when no rules were retrieved. */
-        saveScorecardEntry({
-          runId: outcome.runId,
-          app: outcome.app,
-          sha: outcome.sha,
-          target: outcome.target,
-          valueScore: gateSignals.valueScore,
-          /* Real counts when the value-oracle measured this run; null ("not measured") otherwise —
-           * never a hardcoded 0, which would be indistinguishable from a genuine measured zero. */
-          mutantCount: gateSignals.mutantCount ?? null,
-          killedCount: gateSignals.killedCount ?? null,
-          at: outcome.at,
-        });
-        if (rulesRetrieved.length === 0) return;  /* nothing retrieved -> nothing to fold onto rules */
-        const { valueScore, coverageRatio } = gateSignals;
-        const coverageMeasured = coverageRatio !== null;
-        const coverageCreditConfirmed = coverageMeasured ? coverageRatio > 0 : null;
-        /*
-         * Attribution: credit only the retrieved rules that could have shaped this run — untagged
-         * rules, or rules tagged with one of the diff's structural shapes. A suite-level score says
-         * nothing about a rule written for an unrelated kind of change. No known shapes (non-diff
-         * modes) keeps every rule. Rules are looked up directly by id within this app
-         * (getLearningRule), never via a capped bulk list, so ledger size cannot drop a fold; a rule
-         * deleted since retrieval, or another app's id, carries no signal. A rule retired after retrieval (human veto, process audit) is skipped
-         * by recordRuleOutcome itself.
-         */
-        const retrieved = rulesRetrieved
-          .map((id) => getLearningRule(appName, id))
-          .filter((rule): rule is NonNullable<typeof rule> => rule !== undefined);
-        const attributable = attributableRules(retrieved, { diffArchetypes: outcome.diffArchetypes ?? [] });
-
-        if (valueScore !== null) {
-          /* Oracle path: isOracleScore=true so candidate→active requires this evidence. */
-          for (const rule of attributable) {
-            recordRuleOutcome(rule.id, valueScore, coverageCreditConfirmed, true);
-          }
-        } else {
-          /*
-           * Prevention path: no oracle score — derived credit must not advance oracleOutcomeCount
-           * or by itself promote candidate → active.
-           */
-          for (const rule of attributable) {
-            const score = preventionOutcome(rule.errorClass, errorClass);
-            if (score !== null) recordRuleOutcome(rule.id, score, coverageCreditConfirmed);
-          }
-        }
-      } catch {
-        /*
-         * Off-path swallow, matching LearningPort.fold's existing off-path contract: a fold failure
-         * must never gate or fail the run it is trying to learn from.
-         */
-      }
-    },
+    saveScorecardEntry: (entry) => saveScorecardEntry(entry),
+    /* By id within this app, uncapped (getLearningRule), never via a bulk list. */
+    findRule: (id) => getLearningRule(appName, id),
+    recordRuleOutcome: (ruleId, score, coverageCreditConfirmed, isOracleScore) => recordRuleOutcome(ruleId, score, coverageCreditConfirmed, isOracleScore),
 
     incrementUsage: (ids) => incrementRuleUsage([...ids]),
   };
