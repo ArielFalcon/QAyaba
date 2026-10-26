@@ -245,7 +245,7 @@ Branch: `fix/failure-observation-conflict` (owner rule: one branch, no PR split)
 - [~] T0 — S0 — inline — Re-verify every `path:line`, count and symbol in this document against HEAD (and against the Phase 2, 3 and 4 landings: step ids, `bridges/` → `adapters/`, plan kinds, sidekick kinds); rewrite only the S# whose evidence moved and log the drift — commit: n/a
 - [x] T1 — S1a — inline — `ChangeSet`, `commits` and service base through the run — commit: e8edc8af
 - [~] T2 — S1b — inline — Coalescing and companion entries — commit: a29ef112 (engine: per-entry gate, checkout, classify, impact), 29596308 (shell: registry, runner, wiring); open: run view / API `changeSet` field (see L9)
-- [ ] T3 — S2 — inline — Edge confidence, seed ranges and basis in the graph port — commit: pending
+- [x] T3 — S2 — inline — Edge confidence, seed ranges and basis in the graph port — commit: b030577e (governance commit: engine-edge reader, ships alone)
 - [ ] T4 — S3a — inline — `ChangeScope`, reach proofs as strategies, `computeChangeScope` step — commit: pending
 - [ ] T5 — S3b — inline — Per-operation OpenAPI diff and call-site reach — commit: pending
 - [ ] T6 — S3c — inline — The lead's graph tool over every repo (governance commit; AGENTS.md text handed to the owner) — commit: pending
@@ -289,3 +289,10 @@ Route: all inline. No writer trigger holds: each task depends on the one before 
   - Verifier probe to run: a controllable queue, a push arriving between enqueue and dequeue (`take` is synchronous at the start of the job, `offer` checks `status === "enqueued"`), and a cancelled queued run.
   - Risk: item 4 (queue ordering: registry take/offer) and item 3 (`RunInput.changeSet` may hold several entries; factory run param gained `changeSet`).
   - Full `LC_ALL=C npm test` after both commits: 10816 pass, 0 fail.
+- L10 2026-10-26 — T3 (S2) done, `b030577e` (the store reader is an engine-edge protected path; the commit holds the reader, the shared-kernel types, the adapter mapping and tests only).
+  - Paths re-verified at HEAD: reader and adapter at `qa-engine/src/shared-infrastructure/code-graph/`, types in `qa-engine/src/shared-kernel/code/index.ts`; no drift except the test fakes (8 files) that construct `ImpactReport`/`ImpactedSymbol`, which gained required `confidence` and `seedBasis`.
+  - Behavior: `ImpactedSymbol.confidence` (lowest edge confidence on the path that first reached the symbol; parallel edges between one pair take the highest; 1 for a seed, a missing value, and the `contains` lift of a method to its class inherits the method's); `ImpactedSymbol.range` for depth 0; `ImpactReport.seedBasis`: `lines` (touched lines, and also named symbols of `callersOf`), `whole-file` (diff not read), `none` (no seed). Nothing filters on confidence.
+  - Assumption checked on the fixture store: `select kind, sum(metadata is null) ... group by kind` gives NULL metadata only for `contains` (44/44); `calls`, `imports`, `instantiates`, `references` carry none NULL.
+  - RED observed: 4 new adapter tests failed on the missing fields (confidence path minimum, confidence default, range, seedBasis); the free-function chain and arrow-component tests pass as pins. No P0.4 row touched, no wire type changed.
+  - Checks: typecheck, arch:check, previous-forms:check, sdk:typecheck, contract:check green; code-graph, service-topology, change-analysis and engine-root tests pass (550).
+  - Risk: item 6 (a wrong confidence or range would mis-tier a candidate); the store reader changed on the engine edge (security surface of the code-graph path, read-only SQL), so the commit ships alone.
