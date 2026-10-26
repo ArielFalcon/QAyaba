@@ -243,7 +243,7 @@ Branch: `fix/failure-observation-conflict` (owner rule: one branch, no PR split)
 ## Tasks
 
 - [~] T0 — S0 — inline — Re-verify every `path:line`, count and symbol in this document against HEAD (and against the Phase 2, 3 and 4 landings: step ids, `bridges/` → `adapters/`, plan kinds, sidekick kinds); rewrite only the S# whose evidence moved and log the drift — commit: n/a
-- [x] T1 — S1a — inline — `ChangeSet`, `commits` and service base through the run — commit: see L8
+- [x] T1 — S1a — inline — `ChangeSet`, `commits` and service base through the run — commit: e8edc8af
 - [ ] T2 — S1b — inline — Coalescing and companion entries — commit: pending
 - [ ] T3 — S2 — inline — Edge confidence, seed ranges and basis in the graph port — commit: pending
 - [ ] T4 — S3a — inline — `ChangeScope`, reach proofs as strategies, `computeChangeScope` step — commit: pending
