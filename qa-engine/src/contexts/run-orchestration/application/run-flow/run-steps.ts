@@ -13,7 +13,12 @@ import type { RunContext, WorkspaceRunContext } from "./run-context.ts";
 import { runOf, type RunState } from "./run-state.ts";
 import { cleanPriorRun, openAuthoringHandles, prepareLogin, restoreAcceptedSuite, setUpProject } from "./phases/setup.steps.ts";
 import { assembleEnrichment, groundRepository, readDiffShapes, resolveBlastRadius, resolveCrossRepoImpact, resolveServiceLinks, retrieveRules, selectExemplars } from "./phases/ground.steps.ts";
-import { generateFirstPass, groundBeforeExecution, preExecRegenerate, settleGenerationEnd } from "./phases/generate.steps.ts";
+import {
+  generateFirstPass,
+  groundBeforeExecution,
+  preExecRegenerate,
+  settleGenerationEnd,
+} from "./phases/generate.steps.ts";
 import { announceExecution, checkHealth, executeSpecs, prepareExecuteAuth, staticFixRound, validateStatically } from "./phases/execute.steps.ts";
 import { fingerprintGreenSuite, fixAccept, fixAdjudicate, fixReexecute, fixRegenerate, fixTriage, runFixLoop, settleFixLoop } from "./phases/fix-loop.steps.ts";
 import { announceCoverage, announcesCoverage, measureCoverage, measuresCoverage, regenerateForCoverage, regeneratesForCoverage } from "./phases/coverage.steps.ts";

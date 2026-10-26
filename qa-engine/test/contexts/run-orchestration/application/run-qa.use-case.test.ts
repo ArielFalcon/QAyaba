@@ -52,7 +52,7 @@ import { attributableRules } from "@contexts/cross-run-learning/domain/rule-fold
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { CodeGraphIndexRecord } from "@kernel/code/index.ts";
 import { GenerationTurnsAdapter } from "@contexts/generation/infrastructure/adapters/generation-turns.adapter.ts";
-import { GenerateTestsUseCase, type GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
+import { GenerateTestsUseCase, type AuthoringPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { OpencodeRunInput } from "@contexts/generation/application/index.ts";
 
 import { scriptedGeneration } from "../../../support/generation-output.ts";
@@ -5650,14 +5650,14 @@ test("a clean green run's verdict/sideEffect is unaffected by the serviceLinks w
    port -> enrichment -> adapter -> OpencodeRunInput — not merely that the port was invoked in isolation.
  */
 
-function fakeGenerationPortsForAntiInert(capture: { input?: OpencodeRunInput }): GenerationPorts {
+function fakeAuthoringPortsForAntiInert(capture: { input?: OpencodeRunInput }): AuthoringPorts {
   return {
     runtime: {
       openSession: async () => ({
         prompt: async () => ({ output: JSON.stringify({ specs: [] }) }),
         dispose: async () => {},
       }),
-    } as unknown as GenerationPorts["runtime"],
+    } as unknown as AuthoringPorts["runtime"],
     rendering: {
       render: () => "",
       renderMain: (input) => { capture.input = input; return { text: "", sectionSizes: {} }; },
@@ -5676,7 +5676,7 @@ function fakeGenerationPortsForAntiInert(capture: { input?: OpencodeRunInput }):
 
 test("anti-inert: RunQaUseCase.run() end-to-end through the REAL GenerationTurnsAdapter — a recording ServiceLinksPort's non-empty links reach the generation port's OpencodeRunInput.serviceLinks", async () => {
   const captured: { input?: OpencodeRunInput } = {};
-  const generationPorts = fakeGenerationPortsForAntiInert(captured);
+  const generationPorts = fakeAuthoringPortsForAntiInert(captured);
   const generateTestsUseCase = new GenerateTestsUseCase(generationPorts);
   const generation = new GenerationTurnsAdapter(generateTestsUseCase, {
     repo: "org/front", appName: "app", mirrorDir: "/mirrors/org/front", e2eRelDir: "e2e",
@@ -5712,7 +5712,7 @@ test("anti-inert: RunQaUseCase.run() end-to-end through the REAL GenerationTurns
 
 test("anti-inert companion: with the serviceLinks collaborator OMITTED, the REAL GenerationTurnsAdapter's OpencodeRunInput carries NO serviceLinks key at all", async () => {
   const captured: { input?: OpencodeRunInput } = {};
-  const generationPorts = fakeGenerationPortsForAntiInert(captured);
+  const generationPorts = fakeAuthoringPortsForAntiInert(captured);
   const generateTestsUseCase = new GenerateTestsUseCase(generationPorts);
   const generation = new GenerationTurnsAdapter(generateTestsUseCase, {
     repo: "org/front", appName: "app", mirrorDir: "/mirrors/org/front", e2eRelDir: "e2e",

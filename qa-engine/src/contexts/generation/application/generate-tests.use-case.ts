@@ -1,6 +1,6 @@
 /* Generate-tests use case. One bounded generator repair. Every generation ends in exactly one classified way (GenerationResult.end): with specs the run continues, without them the end says why. */
 import type { AgentRuntimePort, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
-import { AUTHOR_SIDEKICK, openSidekickSession } from "@kernel/sidekick-session.ts";
+import { AUTHOR_SIDEKICK, LEAD_AGENT, openSidekickSession } from "@kernel/sidekick-session.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
 import type { PromptRenderingPort } from "./ports/prompt-rendering.port.ts";
@@ -25,7 +25,7 @@ export interface RepairPort {
   instruction(kind: "generator" | "reviewer", issues: string[], opts?: { priorResponseTail?: string }): string;
 }
 
-export interface GenerationPorts {
+export interface AuthoringPorts {
   runtime: AgentRuntimePort;
   rendering: PromptRenderingPort;
   verdicts: VerdictParserPort;
@@ -100,7 +100,7 @@ export interface LeadSession {
 }
 
 export class GenerateTestsUseCase {
-  constructor(private readonly ports: GenerationPorts) {}
+  constructor(private readonly ports: AuthoringPorts) {}
 
   /**
    * The one turn a coordinated run asks its lead for a plan instead of specs. One prompt in one generator session, bounded by the
@@ -112,11 +112,11 @@ export class GenerateTestsUseCase {
     const planning = input.planning;
     if (!planning) throw new Error("GenerateTestsUseCase.plan needs input.planning: the limits the plan will be held to");
     const assembled = this.ports.rendering.renderMain(input);
-    const session = await this.ports.runtime.openSession("lead", input.mirrorDir, {
+    const session = await openSidekickSession(this.ports.runtime, LEAD_AGENT, input.mirrorDir, {
       ...(opts?.signal ? { signal: opts.signal } : {}),
       timeoutMs: planning.budgetMs,
       timeLimit: "prompt-budget",
-      descriptor: { runId: input.runId, role: "qa-lead" },
+      descriptor: { runId: input.runId },
     });
     let output = "";
     let turn: AgentTurnStats | undefined;
@@ -146,7 +146,7 @@ export class GenerateTestsUseCase {
       timedOut = true;
     }
     if (timedOut) return { parsed: false, timedOut: true, ...(turn ? { turn } : {}) };
-    let deliverable: ReturnType<GenerationPorts["verdicts"]["parseGenerator"]>;
+    let deliverable: ReturnType<AuthoringPorts["verdicts"]["parseGenerator"]>;
     try {
       deliverable = this.ports.verdicts.parseGenerator(output, `${input.mirrorDir}/${input.e2eRelDir}`);
     } catch (err) {

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { GenerateTestsUseCase, type GenerationPorts, type GenerationResult } from "@contexts/generation/application/generate-tests.use-case.ts";
+import { GenerateTestsUseCase, type AuthoringPorts, type GenerationResult } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { GeneratorDeliverable } from "@contexts/generation/domain/manifest-repository.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
@@ -13,7 +13,7 @@ interface Options {
 
 /* A generation whose verdict parses to `deliverable`, run through the use case with the ports faked at the boundary. */
 function generate(deliverable: GeneratorDeliverable, options: Options = {}): Promise<GenerationResult> {
-  const ports: GenerationPorts = {
+  const ports: AuthoringPorts = {
     runtime: {
       openSession: async () => ({ prompt: async () => ({ output: "VERDICT" }), dispose: () => {} }),
     },

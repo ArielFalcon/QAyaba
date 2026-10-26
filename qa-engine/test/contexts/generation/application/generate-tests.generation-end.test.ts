@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { GenerateTestsUseCase, type GenerationPorts, type GenerationResult } from "@contexts/generation/application/generate-tests.use-case.ts";
+import { GenerateTestsUseCase, type AuthoringPorts, type GenerationResult } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { GeneratorDeliverable } from "@contexts/generation/domain/manifest-repository.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 import { GENERATION_NOTE_MAX_CHARS } from "@contexts/generation/domain/generation-end.ts";
@@ -47,7 +47,7 @@ async function generate(turns: Turn[], options: { valid?: (text: string) => bool
   const repairsChecked: string[] = [];
   const valid = options.valid ?? ((text: string) => parseGenerator(text).parsed === true && (parseGenerator(text).specs.length > 0 || !!parseGenerator(text).noopReason));
   let turnIndex = 0;
-  const ports: GenerationPorts = {
+  const ports: AuthoringPorts = {
     runtime: {
       openSession: async () => ({
         prompt: async (text, opts) => {

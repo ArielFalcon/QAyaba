@@ -749,7 +749,7 @@ test("buildEngineRootDeps — a cross-repo (service-triggered) run never request
   assert.equal(isContextStale(app.name), true);
 });
 
-/* GenerateTestsUseCase.GenerationPorts.repair must be wired so a malformed verdict gets one
+/* GenerateTestsUseCase.AuthoringPorts.repair must be wired so a malformed verdict gets one
    bounded re-prompt instead of the fail-closed gate firing immediately. This test asserts the
    composed use-case's `repair` port is non-undefined; a companion integration test below drives a
    malformed generator verdict through the REAL wrapped checkGeneratorVerdict/repairInstruction.
@@ -757,11 +757,11 @@ test("buildEngineRootDeps — a cross-repo (service-triggered) run never request
 test("buildEngineRootDeps wires a non-undefined RepairPort into GenerateTestsUseCase (the bounded contract-repair was dormant on the production path before this fix)", () => {
   const app = cfg("factory-repair");
   const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  /* GenerationPorts.repair is a private constructor field on GenerateTestsUseCase — reach into it
+  /* AuthoringPorts.repair is a private constructor field on GenerateTestsUseCase — reach into it
      structurally (same class, no public accessor exists) to confirm the factory actually supplied it.
    */
   const ports = (config.generationUseCase as unknown as { ports: { repair?: unknown } }).ports;
-  assert.ok(ports.repair, "GenerationPorts.repair must be wired (was dormant/undefined before this fix)");
+  assert.ok(ports.repair, "AuthoringPorts.repair must be wired (was dormant/undefined before this fix)");
 });
 
 test("buildEngineRootDeps gives GenerateTestsUseCase the transport's own deadline as the ceiling of the generator's time budget", () => {

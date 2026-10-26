@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
-import type { GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
+import type { AuthoringPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 import type { ReviewInput } from "@contexts/generation/domain/generation-input.ts";
@@ -28,7 +28,7 @@ setAgentsConfigPath(rosterFixturePath());
 
 test("renders → opens session → parses deliverable → reconciles manifest (sequence)", async () => {
   const calls: string[] = [];
-  const ports: GenerationPorts = {
+  const ports: AuthoringPorts = {
     runtime: {
       openSession: async () => {
         calls.push("session");
@@ -82,7 +82,7 @@ test("renders → opens session → parses deliverable → reconciles manifest (
 
 test("the files the rendered prompt already carries are handed to the session with the prompt, and no key is added when it lists none", async () => {
   const seenOpts: Array<Record<string, unknown> | undefined> = [];
-  const build = (providedPaths: readonly string[] | undefined): GenerationPorts => ({
+  const build = (providedPaths: readonly string[] | undefined): AuthoringPorts => ({
     runtime: {
       openSession: async () => ({
         prompt: async (_text, opts) => {
@@ -120,7 +120,7 @@ test("the files the rendered prompt already carries are handed to the session wi
 
 test("code target skips manifest reconciliation entirely and passes specMetas through raw", async () => {
   const calls: string[] = [];
-  const ports: GenerationPorts = {
+  const ports: AuthoringPorts = {
     runtime: {
       openSession: async () => ({
         prompt: async () => ({ output: '{"specs":["src/foo.test.ts"]}' }),
@@ -175,7 +175,7 @@ test("fires exactly ONE bounded repair when checkGenerator returns valid:false",
   const promptTexts: string[] = [];
   let sessionPromptCount = 0;
 
-  const ports: GenerationPorts = {
+  const ports: AuthoringPorts = {
     runtime: {
       openSession: async () => ({
         prompt: async (text: string) => {
@@ -245,7 +245,7 @@ test("fires exactly ONE bounded repair when checkGenerator returns valid:false",
 /* Fail-closed: parse miss without review.
  */
 test("parse miss → empty specs (fail-closed, no phantom spec names)", async () => {
-  const ports: GenerationPorts = {
+  const ports: AuthoringPorts = {
     runtime: {
       openSession: async () => ({
         prompt: async () => ({ output: "no parseable verdict here" }),
@@ -296,7 +296,7 @@ test("parse miss → empty specs (fail-closed, no phantom spec names)", async ()
  */
 test("manifest.reconcile is called with [] when the deliverable carries specs but no specMetas", async () => {
   let reconcileArgs: ManifestEntry[] | undefined;
-  const ports: GenerationPorts = {
+  const ports: AuthoringPorts = {
     runtime: {
       openSession: async () => ({
         prompt: async () => ({ output: '{"specs":["flows/checkout.spec.ts"]}' }),
@@ -348,7 +348,7 @@ test("manifest.reconcile is called with [] when the deliverable carries specs bu
 /* The manifest's files are the names the agent reported, relative to the run's spec directory: they are resolved against the whole root, the mirror that anchors the confinement and the spec directory they are relative to, never against a bare directory. */
 test("manifest.reconcile receives the run's spec root: the mirror, and the spec directory the reported files are relative to", async () => {
   const roots: SpecRoot[] = [];
-  const ports: GenerationPorts = {
+  const ports: AuthoringPorts = {
     runtime: {
       openSession: async () => ({
         prompt: async () => ({ output: '{"specs":["flows/checkout.spec.ts"]}' }),
@@ -396,7 +396,7 @@ test("manifest.reconcile receives the run's spec root: the mirror, and the spec 
  */
 test("manifest entries are built from specMetas with objective/flow/targets + changeRef stamped from input.sha/intent.type", async () => {
   let reconcileArgs: ManifestEntry[] | undefined;
-  const ports: GenerationPorts = {
+  const ports: AuthoringPorts = {
     runtime: {
       openSession: async () => ({
         prompt: async () => ({
@@ -463,7 +463,7 @@ test("manifest entries are built from specMetas with objective/flow/targets + ch
 
 test("manifest entry changeRef.type falls back to 'unknown' when input.intent is absent", async () => {
   let reconcileArgs: ManifestEntry[] | undefined;
-  const ports: GenerationPorts = {
+  const ports: AuthoringPorts = {
     runtime: {
       openSession: async () => ({
         prompt: async () => ({ output: "irrelevant — parseGenerator stub below drives the deliverable" }),
@@ -524,7 +524,7 @@ test("manifest entry changeRef.type falls back to 'unknown' when input.intent is
  */
 test("a spec present in specs[] but ABSENT from specMetas[] gets NO manifest entry", async () => {
   let reconcileArgs: ManifestEntry[] | undefined;
-  const ports: GenerationPorts = {
+  const ports: AuthoringPorts = {
     runtime: {
       openSession: async () => ({
         prompt: async () => ({ output: "irrelevant — parseGenerator stub below drives the deliverable" }),
@@ -587,7 +587,7 @@ test("follow-up #27: a malformed generator verdict triggers ONE bounded repair w
   const capturedOpts: Array<{ kind: string; issues: string[]; opts?: { priorResponseTail?: string } }> = [];
   let sessionPromptCount = 0;
 
-  const ports: GenerationPorts = {
+  const ports: AuthoringPorts = {
     runtime: {
       openSession: async () => ({
         prompt: async () => {
@@ -667,7 +667,7 @@ test("follow-up #27: a malformed generator verdict triggers ONE bounded repair w
  */
 test("assembled manifest entries satisfy the real ManifestEntrySchema shape (objective/flow/targets non-empty, changeRef required)", async () => {
   let reconcileArgs: ManifestEntry[] | undefined;
-  const ports: GenerationPorts = {
+  const ports: AuthoringPorts = {
     runtime: {
       openSession: async () => ({
         prompt: async () => ({ output: "irrelevant" }),
@@ -734,7 +734,7 @@ async function reportedSpecsFor(target: "e2e" | "code"): Promise<string[]> {
   try {
     mkdirSync(join(mirrorDir, "e2e", "flows"), { recursive: true });
     writeFileSync(join(mirrorDir, "e2e", "flows", "login.spec.ts"), "export {};\n");
-    const ports: GenerationPorts = {
+    const ports: AuthoringPorts = {
       runtime: { openSession: async () => ({ prompt: async () => ({ output: '{"specs":["login.spec.ts"]}' }), dispose: () => {} }) },
       rendering: {
         render: () => "",
@@ -770,7 +770,7 @@ type SentOptions = Array<Record<string, unknown> | undefined>;
 /* Whether the generator answers its first prompt with no verdict, so that it is asked once more. */
 async function optionsSentFor(input: Partial<OpencodeRunInput>, repairing?: "generator"): Promise<{ generator: SentOptions }> {
   const sent: Record<string, SentOptions> = { primary: [] };
-  const ports: GenerationPorts = {
+  const ports: AuthoringPorts = {
     runtime: {
       openSession: async (role) => ({
         prompt: async (_text, opts) => {
@@ -847,7 +847,7 @@ test("a generator repair whose input states no limit is sent with no limit key e
 for (const mode of ["diff", "context"] as const) {
   test(`a ${mode}-mode generation never opens a reviewer session`, async () => {
     const opened: string[] = [];
-    const ports: GenerationPorts = {
+    const ports: AuthoringPorts = {
       runtime: {
         openSession: async (role) => {
           opened.push(role);

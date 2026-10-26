@@ -6,7 +6,7 @@ import type { ServiceLink } from "@kernel/service-links";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { OpencodeRunInput } from "@contexts/generation/application/index.ts";
-import type { GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
+import type { AuthoringPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 
@@ -66,7 +66,7 @@ test("OpencodeRunInput without serviceLinks is still valid (optional field)", ()
    the input it received — the stub does NOT masquerade as production prompt rendering.
  */
 
-function makeGenerationPorts(capturedInput: { value: OpencodeRunInput | undefined }): GenerationPorts {
+function makeAuthoringPorts(capturedInput: { value: OpencodeRunInput | undefined }): AuthoringPorts {
   return {
     runtime: {
       openSession: async () => ({
@@ -104,7 +104,7 @@ function makeGenerationPorts(capturedInput: { value: OpencodeRunInput | undefine
 
 test("GenerateTestsUseCase propagates serviceLinks to renderMain intact when present", async () => {
   const capturedInput: { value: OpencodeRunInput | undefined } = { value: undefined };
-  const ports = makeGenerationPorts(capturedInput);
+  const ports = makeAuthoringPorts(capturedInput);
   const useCase = new GenerateTestsUseCase(ports);
   const link: ServiceLink = {
     from: { repo: "front/webapp", file: "src/orders.api.ts", symbol: "listOrders" },
@@ -137,7 +137,7 @@ test("GenerateTestsUseCase propagates serviceLinks to renderMain intact when pre
 
 test("GenerateTestsUseCase passes serviceLinks as absent to renderMain when not provided", async () => {
   const capturedInput: { value: OpencodeRunInput | undefined } = { value: undefined };
-  const ports = makeGenerationPorts(capturedInput);
+  const ports = makeAuthoringPorts(capturedInput);
   const useCase = new GenerateTestsUseCase(ports);
   await useCase.author({
     repo: "org/demo",

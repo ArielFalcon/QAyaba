@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { GenerateTestsUseCase, type GenerationPorts, type GenerationResult } from "@contexts/generation/application/generate-tests.use-case.ts";
+import { GenerateTestsUseCase, type AuthoringPorts, type GenerationResult } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 import { DIFF_TIERS, DIFF_TIME_BUDGET_MS } from "@kernel/diff-stat.ts";
@@ -47,10 +47,10 @@ function baseInput(over: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
 function build(
   generatorSteps: Step[],
   opts: { promptCapMs?: number; specs?: string[]; repairInvalid?: boolean; timeBudgets?: DiffTimeBudgets; repairTimeoutMs?: number } = {},
-): { ports: GenerationPorts; seen: Harness } {
+): { ports: AuthoringPorts; seen: Harness } {
   const seen: Harness = { opened: [], prompts: [], disposed: [], clock: { now: 1_000_000 } };
   const steps = [...generatorSteps];
-  const ports: GenerationPorts = {
+  const ports: AuthoringPorts = {
     runtime: {
       openSession: async (role, _cwd, sessionOpts) => {
         seen.opened.push({ role, opts: sessionOpts });

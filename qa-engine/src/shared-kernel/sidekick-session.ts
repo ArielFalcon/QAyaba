@@ -13,6 +13,9 @@ export const REVIEW_SIDEKICK: SidekickIdentity = { agent: "qa-reviewer", role: "
 /* The author's: every session that writes tests is this agent's, whether it authors one flow of a plan or the whole of a run. The generation context opens its authoring turns through it (it cannot depend on the coordination context that registers the kind). */
 export const AUTHOR_SIDEKICK: SidekickIdentity = { agent: "qa-author", role: "author" };
 
+/* The lead's: its planning turns open their session the same way, so no context opens a session by naming a role. */
+export const LEAD_AGENT: SidekickIdentity = { agent: "qa-lead", role: "lead" };
+
 export function openSidekickSession(runtime: Pick<AgentRuntimePort, "openSession">, identity: SidekickIdentity, cwd: string, opts: OpenSessionOpts = {}): Promise<AgentSession> {
   return runtime.openSession(identity.role, cwd, { ...opts, descriptor: { ...opts.descriptor, role: identity.agent } });
 }

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { GenerateTestsUseCase, type GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
+import { GenerateTestsUseCase, type AuthoringPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { GeneratorDeliverable } from "@contexts/generation/domain/manifest-repository.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
@@ -26,9 +26,9 @@ interface Seen {
   disposed: number;
 }
 
-function build(step: { output: string } | { throws: Error }, deliverable: GeneratorDeliverable): { ports: GenerationPorts; seen: Seen } {
+function build(step: { output: string } | { throws: Error }, deliverable: GeneratorDeliverable): { ports: AuthoringPorts; seen: Seen } {
   const seen: Seen = { opened: [], prompts: [], rendered: [], parsedWith: [], disposed: 0 };
-  const ports: GenerationPorts = {
+  const ports: AuthoringPorts = {
     runtime: {
       openSession: async (role, cwd, opts) => {
         seen.opened.push({ role, cwd, opts });

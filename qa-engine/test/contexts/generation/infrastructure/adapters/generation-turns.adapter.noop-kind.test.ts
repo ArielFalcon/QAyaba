@@ -2,14 +2,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GenerationTurnsAdapter } from "@contexts/generation/infrastructure/adapters/generation-turns.adapter.ts";
-import { GenerateTestsUseCase, type GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
+import { GenerateTestsUseCase, type AuthoringPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { GeneratorDeliverable } from "@contexts/generation/domain/manifest-repository.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { NOOP_KIND } from "@kernel/noop-kind.ts";
 
-function portsReturning(deliverable: GeneratorDeliverable): GenerationPorts {
+function portsReturning(deliverable: GeneratorDeliverable): AuthoringPorts {
   return {
-    runtime: { openSession: async () => ({ prompt: async () => ({ output: "verdict" }), dispose: async () => {} }) } as unknown as GenerationPorts["runtime"],
+    runtime: { openSession: async () => ({ prompt: async () => ({ output: "verdict" }), dispose: async () => {} }) } as unknown as AuthoringPorts["runtime"],
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "prompt", sectionSizes: {} }),

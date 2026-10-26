@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { GenerateTestsUseCase, type GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
+import { GenerateTestsUseCase, type AuthoringPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import { AUTHOR_SIDEKICK } from "@kernel/sidekick-session.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
@@ -11,7 +11,7 @@ interface Opened { role: AgentRole; cwd: string; opts?: OpenSessionOpts }
 function author(): { turn(): Promise<unknown>; opened: Opened[]; disposed: () => number } {
   const opened: Opened[] = [];
   let disposed = 0;
-  const ports: GenerationPorts = {
+  const ports: AuthoringPorts = {
     runtime: {
       openSession: async (role, cwd, opts) => {
         opened.push({ role, cwd, ...(opts ? { opts } : {}) });
