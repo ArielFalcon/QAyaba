@@ -45,8 +45,8 @@ export interface ExecEnvInput {
 /* The names every profile may read from the base environment. */
 const COMMON_FROM_BASE = ["PATH", "LANG", "LC_ALL", "TZ", "PLAYWRIGHT_BROWSERS_PATH"] as const;
 
-/* What a caller may add: the Playwright contract and the capture directories. DEV_*, QA_* secrets and loader variables (NODE_OPTIONS) cannot be named. */
-const EXTRA_ENV_ALLOWED = /^(?:PW_[A-Z0-9_]+|PLAYWRIGHT_JSON_OUTPUT_NAME|QA_FAILURE_CAPTURE_DIR|QA_FAULT_INJECT)$/;
+/* What a caller may add: the Playwright contract, the capture directories and the response-corruption pass (its switch, and the operations it may corrupt, which only the orchestrator sets). DEV_*, QA_* secrets and loader variables (NODE_OPTIONS) cannot be named. */
+const EXTRA_ENV_ALLOWED = /^(?:PW_[A-Z0-9_]+|PLAYWRIGHT_JSON_OUTPUT_NAME|QA_FAILURE_CAPTURE_DIR|QA_FAULT_INJECT|QA_FAULT_INJECT_OPERATIONS)$/;
 
 /* The names the launcher owns outside a login: a caller cannot point a suite at another session. */
 const LAUNCHER_MANAGED = new Set(["PW_STORAGE_STATE", "PW_CLIENT_CERT_PATH"]);

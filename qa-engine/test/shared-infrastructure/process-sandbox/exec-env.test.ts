@@ -147,6 +147,13 @@ test("extra variables are limited to the Playwright and capture contract, and ca
   assert.throws(() => buildExecEnv(input("suite", { extraEnv: { NODE_OPTIONS: "--inspect" } })), /not allowed/);
 });
 
+test("the fault-injection operations list is an allowed extra, and no other QA_FAULT_INJECT name is", () => {
+  const operations = JSON.stringify([{ verb: "GET", pattern: "^/orders/[^/]+/?$" }]);
+  assert.equal(buildExecEnv(input("suite", { extraEnv: { QA_FAULT_INJECT: "1", QA_FAULT_INJECT_OPERATIONS: operations } })).QA_FAULT_INJECT_OPERATIONS, operations);
+  assert.throws(() => buildExecEnv(input("suite", { extraEnv: { QA_FAULT_INJECT_X: "1" } })), /not allowed/);
+  assert.throws(() => buildExecEnv(input("suite", { extraEnv: { QA_FAULT_INJECT_OPERATIONS_EXTRA: "1" } })), /not allowed/);
+});
+
 test("without a sandbox identity the child keeps the caller's home but still gets the run's temp dir", () => {
   const env = buildExecEnv({ ...input("suite"), sandbox: null });
   assert.equal(env.HOME, "/root");
