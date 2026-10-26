@@ -18,11 +18,12 @@ export function readManifestTargets(specDir: string): NonNullable<CandidateEnric
     const parsed: unknown = JSON.parse(read.bytes.toString("utf8"));
     if (!Array.isArray(parsed)) return [];
     return parsed.flatMap((entry: unknown) => {
-      const e = entry as { file?: unknown; useCase?: unknown; targets?: unknown };
+      const e = entry as { file?: unknown; useCase?: unknown; objective?: unknown; targets?: unknown };
       if (!e || typeof e !== "object" || !Array.isArray(e.targets)) return [];
       return [{
         ...(typeof e.file === "string" ? { file: e.file } : {}),
         ...(typeof e.useCase === "string" ? { useCase: e.useCase } : {}),
+        ...(typeof e.objective === "string" ? { objective: e.objective } : {}),
         targets: e.targets.filter((t): t is string => typeof t === "string"),
       }];
     });

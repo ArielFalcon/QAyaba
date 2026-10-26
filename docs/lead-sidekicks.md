@@ -46,7 +46,8 @@ signed-in app (see below); without either, no sidekick can author and the run en
    with a reason is the lead's declared no-op (the run is `skipped` with those reasons); with no reasoned drop it is refused `empty`. The plan must answer for each direct
    use-case candidate of the change that a browser can reach (the admission set, at most `MAX_ADMISSION_CANDIDATES`): a
    flow covers a candidate when it cites its id (`candidates`) or visits one of its pages, and the lead may drop one with a
-   reason (`dropped`); the planning turn lists them. A plan that leaves one unresolved is returned to the lead once, in
+   reason (`dropped`); the planning turn lists them, each with the specs the suite already holds for it and what the manifest
+   declares each one checks (`candidateLine`), so the lead plans from that instead of opening them. A plan that leaves one unresolved is returned to the lead once, in
    its open session (`MAX_PLAN_ROUNDS`); a second answer that is a plan of flows replaces the first. A candidate still
    unresolved is admitted as it stands, recorded `unplanned` on the plan snapshot and as a `lead-decision` event, and named
    in every review turn (`plan-coverage.ts`).

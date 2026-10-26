@@ -168,7 +168,7 @@ test("an operation the change removed reaches its callers with evidence saying s
   assert.deepEqual(added.reach.map((r) => r.entry.kind), ["operation"]);
 });
 
-test("candidates carry the map's page links of the changed files, the suite's manifest targets and the specs that open the route", async () => {
+test("candidates carry the map's page links of the changed files, the suite's manifest targets and objectives and the specs that open the route", async () => {
   const dir = mkdtempSync(join(tmpdir(), "candidates-"));
   try {
     mkdirSync(join(dir, ".qa"), { recursive: true });
@@ -185,6 +185,7 @@ test("candidates carry the map's page links of the changed files, the suite's ma
       ["/orders", "implementation", "Orders", ["orders.spec.ts"]],
       ["/profile", "source", null, ["opens-profile.spec.ts"]],
     ]);
+    assert.deepEqual(candidates.map((c) => c.specObjectives ?? null), [{ "orders.spec.ts": ["o"] }, null]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

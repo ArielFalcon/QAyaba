@@ -19,6 +19,8 @@ export interface UseCaseCandidate {
   reachability: Reachability;
   pages: string[];
   existingSpecs: string[];
+  /* What the suite's manifest declares each existing spec checks, keyed by spec file: the agent's own words, so a claim, not a fact. */
+  specObjectives?: Readonly<Record<string, readonly string[]>>;
   /* The map's name for the page, when it has one. */
   label?: string;
 }
@@ -36,11 +38,21 @@ export function candidatePagesOf(candidate: UseCaseCandidate): string[] {
 
 const MAX_LINE_EVIDENCE_CHARS = 240;
 const MAX_LINE_SPECS = 3;
+const MAX_LINE_OBJECTIVES = 3;
+const MAX_LINE_OBJECTIVE_CHARS = 120;
 
-/* One line that names a candidate to the lead: id, entry, how directly the change reaches it, the evidence path and the specs the suite already holds for it. Unsanitized: the caller redacts. */
+function specWithObjectives(file: string, objectives: readonly string[] | undefined): string {
+  const declared = (objectives ?? []).slice(0, MAX_LINE_OBJECTIVES).map((objective) => {
+    const flat = objective.replace(/\s+/g, " ").trim();
+    return flat.length > MAX_LINE_OBJECTIVE_CHARS ? `${flat.slice(0, MAX_LINE_OBJECTIVE_CHARS)}...` : flat;
+  }).filter((objective) => objective !== "");
+  return declared.length > 0 ? `${file} (declares: ${declared.join("; ")})` : file;
+}
+
+/* One line that names a candidate to the lead: id, entry, how directly the change reaches it, the evidence path and the specs the suite already holds for it, each with what its manifest declares it checks. Unsanitized: the caller redacts. */
 export function candidateLine(candidate: UseCaseCandidate): string {
   const evidence = candidate.evidence.join(" > ");
   const cut = evidence.length > MAX_LINE_EVIDENCE_CHARS ? `${evidence.slice(0, MAX_LINE_EVIDENCE_CHARS)}...` : evidence;
-  const specs = candidate.existingSpecs.slice(0, MAX_LINE_SPECS).join(", ");
+  const specs = candidate.existingSpecs.slice(0, MAX_LINE_SPECS).map((file) => specWithObjectives(file, candidate.specObjectives?.[file])).join(", ");
   return [candidate.id, entryKey(candidate.entry), `${candidate.tier}, ${candidate.reachability}`, cut, specs !== "" ? `specs: ${specs}` : "no spec yet"].filter((part) => part !== "").join(" | ");
 }

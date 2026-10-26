@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { deriveCandidates, type ChangeScope, type ReachEntry } from "@contexts/change-analysis/application/index.ts";
+import { candidateLine } from "@kernel/use-case-candidate.ts";
 
 const WEB = "org/web";
 const API = "org/api";
@@ -87,6 +88,25 @@ test("an operation's existing specs are those whose manifest targets name its ve
   const [c] = deriveCandidates(scopeOf([operation("POST", "/api/orders")]), { manifest: [{ file: "e2e/a.spec.ts", targets: ["post /api/orders"] }, { file: "e2e/b.spec.ts", targets: ["GET /api/orders"] }] });
 
   assert.deepEqual(c!.existingSpecs, ["e2e/a.spec.ts"]);
+});
+
+test("the candidate line says what each existing spec declares it checks, so the lead need not open it", () => {
+  const manifest = [
+    { file: "e2e/orders.spec.ts", objective: "an order\n placed shows in the list", targets: ["/orders"] },
+    { file: "e2e/orders.spec.ts", objective: "an empty list says so", targets: ["/orders"] },
+    { file: "e2e/opens.spec.ts", targets: ["/orders"] },
+  ];
+  const [c] = deriveCandidates(scopeOf([page("/orders")]), { manifest });
+
+  const line = candidateLine(c!);
+  assert.match(line, /specs: e2e\/opens\.spec\.ts, e2e\/orders\.spec\.ts \(declares: an order placed shows in the list; an empty list says so\)/);
+});
+
+test("a declared objective is cut to a bounded length in the candidate line", () => {
+  const [c] = deriveCandidates(scopeOf([page("/orders")]), { manifest: [{ file: "e2e/orders.spec.ts", objective: "x".repeat(1000), targets: ["/orders"] }] });
+
+  assert.ok(candidateLine(c!).length < 600);
+  assert.match(candidateLine(c!), /\(declares: x+\.\.\.\)/);
 });
 
 test("ids are stable across input order and differ per entry point", () => {

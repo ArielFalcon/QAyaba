@@ -22,7 +22,7 @@ export interface CandidateEnrichment {
   map?: PageMap;
   mapLinks?: readonly MapLink[];
   /* The suite's manifest entries: what each spec says it targets. */
-  manifest?: ReadonlyArray<{ file?: string; useCase?: string; targets: readonly string[] }>;
+  manifest?: ReadonlyArray<{ file?: string; useCase?: string; objective?: string; targets: readonly string[] }>;
   /* The suite's files with their text, read through the confined reader. */
   suiteFiles?: ReadonlyArray<{ file: string; text: string }>;
 }
@@ -79,6 +79,18 @@ function existingSpecsOf(entry: EntryPoint, label: string | undefined, enrichmen
   return [...new Set([...named, ...opening])].sort();
 }
 
+/* The objectives the manifest declares for the existing specs, in manifest order, once each; a spec without one is left out. */
+function objectivesOf(specs: readonly string[], enrichment: CandidateEnrichment): Record<string, string[]> | undefined {
+  const held = new Set(specs);
+  const out: Record<string, string[]> = {};
+  for (const m of enrichment.manifest ?? []) {
+    if (m.file === undefined || !held.has(m.file) || m.objective === undefined || m.objective.trim() === "") continue;
+    const list = (out[m.file] ??= []);
+    if (!list.includes(m.objective)) list.push(m.objective);
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 const sameOperationPath = (a: string, b: string): boolean => normalizeRoute(a.replace(/\{[^}]*\}|:[^/]+/g, ":")) === normalizeRoute(b.replace(/\{[^}]*\}|:[^/]+/g, ":"));
 
 /* The pages through which a browser reaches an operation: those the map joins to it and those whose reach crossed it as a call site. */
@@ -114,6 +126,8 @@ export function deriveCandidates(scope: ChangeScope, enrichment: CandidateEnrich
     const pages = r.entry.kind === "operation" ? pagesReaching(r.entry, scope.reach, enrichment.map) : [];
     const reachability: Reachability = r.entry.kind === "page" ? "page" : pages.length > 0 ? "via-page" : "backend-only";
     const label = labelOf(r.entry, enrichment.map);
+    const existingSpecs = existingSpecsOf(r.entry, label, enrichment);
+    const specObjectives = objectivesOf(existingSpecs, enrichment);
     return {
       id: candidateId(r.entry),
       entry: r.entry,
@@ -124,7 +138,8 @@ export function deriveCandidates(scope: ChangeScope, enrichment: CandidateEnrich
       confidence: r.confidence,
       reachability,
       pages,
-      existingSpecs: existingSpecsOf(r.entry, label, enrichment),
+      existingSpecs,
+      ...(specObjectives !== undefined ? { specObjectives } : {}),
       ...(label !== undefined ? { label } : {}),
     };
   });
