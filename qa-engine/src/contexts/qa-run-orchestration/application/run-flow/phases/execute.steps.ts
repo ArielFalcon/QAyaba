@@ -6,10 +6,10 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import { isOk } from "@kernel/result.ts";
 import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rule.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "../../../domain/helpers/derive-cycle-backstop.ts";
+import { staticFixAction } from "../../../domain/static-fix.ts";
 import { reviewerApprovalOf } from "../../ports/index.ts";
 import type { ExecutionPort, ValidationPort } from "../../ports/index.ts";
-import { end, type StepOutcome } from "../run-flow.ts";
-import { throwIfAborted } from "../abort.ts";
+import { end, goto, type StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { closedLoopSignal, loopClosedNow, regenerate, staticGateFindings } from "./generation-services.ts";
@@ -103,60 +103,68 @@ async function preExecuteInfraError(state: Readonly<RunState>, ctx: WorkspaceRun
 }
 
 /*
- * Bounded repair of static-gate errors (MAX_STATIC_FIX_ROUNDS). Skipped when
- * nothing was generated. Repair rounds get validation errors as fixCases; the
- * initial generate() does not. lastGenerated is the latest attempt's approved flag.
- * changedFiles scopes the code-target compile gate; ignored by e2e. Empty outside diff mode.
+ * The static gate on what the run delivered so far, with the linter's own fixes applied first; whether the repair rounds that
+ * follow may rewrite the specs is decided here once, from this first look. Context-mode validate() failure does not persist (Issue
+ * only). changedFiles scopes the code-target compile gate; ignored by e2e. Empty outside diff mode.
  */
 export async function validateStatically(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, workspace, signal } = ctx;
+  const { deps, workspace } = ctx;
   const { generating } = state.classification;
   const validateChangedFiles = state.classification.intent?.changedFiles ?? [];
   deps.observer?.onStep("validate");
   let validation = await deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow(ctx));
   if (generating) validation = await withLinterFixes(validation, ctx, validateChangedFiles);
-  let lastGenerated = state.generation.generated;
-  let retries = state.execution.retries;
-  let staticFixRounds = 0;
-  /* What the rounds repair: the specs the run has delivered, or those the last generation reported; a repair that returned nothing leaves the delivered ones to repair. */
-  const hasDelivered = () => ctx.generation.delivered.length > 0 || lastGenerated.specs.length > 0;
-  /* The same reasoning: a failing gate on a spec the generator saw pass ends the run invalid instead of rewriting the spec. */
-  const staticFixRetired = !validation.ok && !validation.infra && generating && hasDelivered() && (await loopClosedNow(ctx));
+  const lastGenerated = state.generation.generated;
+  /* A failing gate on a spec the generator saw pass ends the run invalid instead of rewriting the spec. */
+  const staticFixRetired = !validation.ok && !validation.infra && generating && hasDeliveredSpecs(ctx, lastGenerated) && (await loopClosedNow(ctx));
   if (staticFixRetired) {
     deps.observer?.onEvent({ type: "log.line", level: "info", text: "[qa] the static gate failed, but every delivered spec was seen passing through run_spec: no static-fix rounds" });
   }
-  while (!staticFixRetired && !validation.ok && !validation.infra && generating && hasDelivered() && staticFixRounds < MAX_STATIC_FIX_ROUNDS) {
-    /* Cancel mid-repair must stop before burning another generate()+validate() round-trip. */
-    throwIfAborted(signal);
-    staticFixRounds++;
-    /* mutation-scope:begin static-fix-round */
-    retries++;
-    deps.observer?.onStep("retry", `static-fix round ${staticFixRounds}/${MAX_STATIC_FIX_ROUNDS}`);
-    /* Repair regen reuses the same classificationDiff/intent as the initial generate(). */
-    /* mutation-scope:end static-fix-round */
-    const staticGateErrorDetail = stripAnsi(validation.errors.join("\n\n")).slice(0, STATIC_GATE_ERROR_DETAIL_MAX_CHARS);
-    lastGenerated = await regenerate(state, ctx, signal, {
-      fixCases: [{ name: "static-gate", status: "fail", detail: staticGateErrorDetail }],
-    }, CORRECTION_ORIGIN.STATIC_GATE, staticGateFindings(validation.errors.map(stripAnsi)));
-    await ctx.services.confinement.enforce();
-    validation = await withLinterFixes(await deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow(ctx)), ctx, validateChangedFiles);
-  }
-  const execution = { ...state.execution, validation, lastGenerated, retries };
+  return { update: { execution: { ...state.execution, validation, lastGenerated, staticFixRetired } } };
+}
 
-  if (!validation.ok) {
+/* What a static-fix round repairs: the specs the run has delivered, or those the last generation reported; a repair that returned nothing leaves the delivered ones to repair. */
+const hasDeliveredSpecs = (ctx: WorkspaceRunContext, lastGenerated: RunState["execution"]["lastGenerated"]): boolean => ctx.generation.delivered.length > 0 || lastGenerated.specs.length > 0;
+
+/*
+ * Bounded repair of static-gate errors (MAX_STATIC_FIX_ROUNDS), one round per run of this step: while `staticFixAction` says
+ * repair it regenerates, makes the confinement pass, validates again and goes round once more; when it says stop, the run goes on
+ * if the gate passed and ends if it did not. Repair rounds get validation errors as fixCases; the initial generate() does not.
+ * lastGenerated is the latest attempt's approved flag.
+ */
+export async function staticFixRound(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
+  const { deps, workspace, signal } = ctx;
+  const { generating } = state.classification;
+  const { validation, lastGenerated: previous, staticFixRetired } = state.execution;
+  const rounds = state.loops.staticFix;
+  const action = staticFixAction({ validation, rounds, max: MAX_STATIC_FIX_ROUNDS, retired: staticFixRetired, generating, hasDelivered: hasDeliveredSpecs(ctx, previous) });
+  if (action === "stop") {
+    if (validation.ok) return;
     /*
-     * Context-mode validate() failure does not persist (Issue only).
      * validation.infra is infra-error: the gate itself could not run, not a code defect.
      */
     console.error("[qa] static gate failed:", validation.errors);
     const staticGateNote = validation.errors.slice(0, 2).join("\n\n") || undefined;
     return end(validation.infra ? "pre-execute-infra" : "static-gate-failed", {
       generating,
-      ...(await endingEvidence({ ...state, execution }, ctx)),
+      ...(await endingEvidence(state, ctx)),
       note: staticGateNote,
     });
   }
-  return { update: { execution } };
+  const validateChangedFiles = state.classification.intent?.changedFiles ?? [];
+  const round = rounds + 1;
+  /* mutation-scope:begin static-fix-round */
+  const retries = state.execution.retries + 1;
+  deps.observer?.onStep("retry", `static-fix round ${round}/${MAX_STATIC_FIX_ROUNDS}`);
+  /* Repair regen reuses the same classificationDiff/intent as the initial generate(). */
+  /* mutation-scope:end static-fix-round */
+  const staticGateErrorDetail = stripAnsi(validation.errors.join("\n\n")).slice(0, STATIC_GATE_ERROR_DETAIL_MAX_CHARS);
+  const lastGenerated = await regenerate(state, ctx, signal, {
+    fixCases: [{ name: "static-gate", status: "fail", detail: staticGateErrorDetail }],
+  }, CORRECTION_ORIGIN.STATIC_GATE, staticGateFindings(validation.errors.map(stripAnsi)));
+  await ctx.services.confinement.enforce();
+  const revalidated = await withLinterFixes(await deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow(ctx)), ctx, validateChangedFiles);
+  return goto("static-fix-round", { execution: { ...state.execution, validation: revalidated, lastGenerated, retries }, loops: { ...state.loops, staticFix: round } });
 }
 
 /* The linter's own fixes, applied to the delivered specs before an agent turn is spent on the static gate; the gate runs again on what they made, and only what they leave goes to a repair turn. */

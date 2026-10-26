@@ -26,6 +26,7 @@ export const STEP_IDS = [
   "settle-generation-end",
   "ground-before-execution",
   "validate-statically",
+  "static-fix-round",
   "check-health",
   "prepare-execute-auth",
   "announce-execution",

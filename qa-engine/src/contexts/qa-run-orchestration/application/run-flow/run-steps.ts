@@ -9,7 +9,7 @@ import type { RunState } from "./run-state.ts";
 import { cleanPriorRun, openAuthoringHandles, prepareLogin, restoreAcceptedSuite, setUpProject } from "./phases/setup.steps.ts";
 import { assembleEnrichment, groundRepository, readDiffShapes, resolveBlastRadius, resolveCrossRepoImpact, resolveServiceLinks, retrieveRules, selectExemplars } from "./phases/ground.steps.ts";
 import { generateFirstPass, groundBeforeExecution, settleGenerationEnd } from "./phases/generate.steps.ts";
-import { announceExecution, checkHealth, executeSpecs, prepareExecuteAuth, validateStatically } from "./phases/execute.steps.ts";
+import { announceExecution, checkHealth, executeSpecs, prepareExecuteAuth, staticFixRound, validateStatically } from "./phases/execute.steps.ts";
 import { fingerprintGreenSuite, runFixLoop } from "./phases/fix-loop.steps.ts";
 import { announceCoverage, announcesCoverage, measureCoverage, measuresCoverage, regenerateForCoverage, regeneratesForCoverage } from "./phases/coverage.steps.ts";
 import { releaseCoordinatedPass, remeasureStaleCoverage, remeasuresStaleCoverage, reviewTests, reviewsRun } from "./phases/review.steps.ts";
@@ -42,6 +42,7 @@ export const IN_WORKSPACE: ReadonlyArray<FlowStep<RunState, WorkspaceRunContext>
   { id: "settle-generation-end", run: settleGenerationEnd },
   { id: "ground-before-execution", run: groundBeforeExecution },
   { id: "validate-statically", phase: "validate", run: validateStatically },
+  { id: "static-fix-round", run: staticFixRound },
   { id: "check-health", phase: "health", run: checkHealth },
   { id: "prepare-execute-auth", runs: (_state, ctx) => ctx.input.mode !== "context" && !ctx.cfg.isCode, run: prepareExecuteAuth },
   { id: "announce-execution", phase: "execute", runs: (_state, ctx) => ctx.input.mode !== "context", run: announceExecution },
