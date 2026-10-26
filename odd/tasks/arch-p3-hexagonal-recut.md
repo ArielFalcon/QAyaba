@@ -212,7 +212,7 @@ Rules (S9 enforces them): `domain/` imports nothing outward; `application/` impo
 - [x] T8 — S3 — inline — Workspace handle (publication and confinement authority) — commit: 4b57907b (L16)
 - [x] T9 — S4 — inline — Sanitizer behind the redaction port, adapter path protected — commit: 38a6f62b (L17, own commit, Risk item 2)
 - [x] T10 — S4 — inline — Spec files port and exec scope port; pure helpers out of shared-infrastructure — commit: 1ca8ec75 (spec-files port, Risk item 2), 86479f44 (exec-scope port, Risk item 2), 2ade7b52 (egress policy to the kernel, Risk item 2), 7f040d17 (remaining helpers, ports, intent contract) (L18, L19)
-- [x] T11 — S4 — inline — Kernel diet: wire contract to `src/contract`, single-owner modules to their owners, learning cycle closed — commit: T11HASH (L20)
+- [x] T11 — S4 — inline — Kernel diet: wire contract to `src/contract`, single-owner modules to their owners, learning cycle closed — commit: 5b12a579 (L20)
 - [ ] T12 — S5 — inline — Collapse the twins one pair per commit; sanitizer commit alone; delete parity tests and `tsconfig.parity.json` — commit: pending
 - [ ] T13 — S6 — inline — `build<Context>(deps)` for every context and the one root; remove the composition-root exemption (own commit for the rule and guard lists) — commit: pending
 - [ ] T14 — S7 — inline — Learning fold, publish policy and context-heal retry into their use cases (publish policy alone) — commit: pending
