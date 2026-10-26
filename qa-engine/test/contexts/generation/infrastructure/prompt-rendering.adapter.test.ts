@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PromptRenderingAdapter, type PromptBuilders } from "@contexts/generation/infrastructure/prompt-rendering.adapter.ts";
 import type { ReviewInput } from "@contexts/generation/domain/generation-input.ts";
-import type { OpencodeRunInput } from "@contexts/generation/application/generation-input.ts";
+import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 
 /* Minimal fake builders — typed against the real PromptBuilders interface so a field mismatch
    is caught at compile time; the "as never" casts on the input shapes keep the stubs concise.

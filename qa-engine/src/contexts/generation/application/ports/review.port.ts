@@ -1,5 +1,5 @@
 import type { QaCase } from "@kernel/qa-case.ts";
-import type { ReviewEnrichment } from "../review.ts";
+import type { ReviewEnrichment } from "../../domain/review-enrichment.ts";
 import type { ReviewStats } from "../../domain/review.ts";
 
 export interface ReviewPort {

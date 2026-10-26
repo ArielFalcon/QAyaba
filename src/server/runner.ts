@@ -25,7 +25,7 @@ import type { RunEventBody } from "../contract/events";
 import { Sha } from "@kernel/sha";
 import { RUN_PURPOSE, type RunPurpose } from "@kernel/run-mode";
 import { isUntrustedGitTreeError } from "@kernel/domain-error";
-import type { CampaignIdentity } from "@kernel/campaign";
+import type { CampaignIdentity } from "../contract/campaign";
 import { capCaptureMode, DEFAULT_CAPTURE_MODE, type CaptureMode } from "@kernel/telemetry/capture-mode";
 import { configInEffect, resolveRunConfig, type RunConfigEnvironment, type StoredRunConfig } from "./effective-config";
 import type { GroundingInput } from "../contract/commands";

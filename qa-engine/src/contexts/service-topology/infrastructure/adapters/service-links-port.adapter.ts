@@ -1,8 +1,8 @@
 /* ServiceLinksPort. Fail-open: a missing mirror dir is skipped (cloning is the cross-repo run's job). Empty system, empty profiles, or any thrown error degrades to { links: [], drift: [] }, logged, never propagated. A MirrorRegistryPort that rejects (not just a missing path) fails the whole resolve(), not per-service. */
 
+import type { ServiceLink, ContractDrift } from "@kernel/service-links.ts";
 import { existsSync } from "node:fs";
 import type { ServiceLinksPort } from "../../application/ports/service-links.port.ts";
-import type { ServiceLink, ContractDrift } from "../../domain/index.ts";
 import type { RepoRef, BoundaryProfile } from "@contexts/service-topology/application/index.ts";
 import type { BoundaryProfileProviderPort } from "@contexts/service-topology/application/index.ts";
 import type { MirrorRegistryPort } from "@kernel/ports/mirror-registry.port.ts";

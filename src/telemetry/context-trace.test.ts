@@ -1,4 +1,6 @@
 /* The grounding sources as context spans: what each supplied, as stable ids, under the phase that is open, over the real telemetry adapter. */
+import type { CrossRepoImpact, ServiceLink } from "@kernel/service-links";
+import type { RetrievedRule, SelectedExemplar } from "@kernel/learned-rule";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -13,8 +15,8 @@ import {
   telemetryGroundingTrace,
 } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/context-trace";
 import { PreGenerationGroundingPortAdapter } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter";
-import type { ChangePagesPort, CrossRepoImpact, ServiceLink, ServiceLinksPort } from "@contexts/service-topology/application/index.ts";
-import type { CurriculumPort, LearningPort, RetrievedRule, SelectedExemplar } from "@contexts/cross-run-learning/application/index.ts";
+import type { ChangePagesPort, ServiceLinksPort } from "@contexts/service-topology/application/index.ts";
+import type { CurriculumPort, LearningPort } from "@contexts/cross-run-learning/application/index.ts";
 import type { StructuralSignalPort } from "@contexts/change-analysis/application/index.ts";
 import { buildContextPack, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack";
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";

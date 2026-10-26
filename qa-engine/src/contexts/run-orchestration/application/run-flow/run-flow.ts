@@ -8,7 +8,7 @@
  * which order the steps came and why the run stopped. A step may declare the top-level fields of the state it updates (`writes`), and the runner refuses an update outside them. A fault a step lets escape goes through `guarded`, which asks the failure policy (failure-policy.ts) and gets one of: rethrow, end the run for a reason, or degrade (go on from a named step with the fault said on the outcome). Repair loops are not loops in a step: each round is a step of its own, and the step that decides the next one names it with `goto`, so the count of rounds lives in the state's `loops` and the way a loop ends is a pure function with one row per exit. The runner reports each step it passes over, runs or ends on to the recorder. The runner does not turn an end into a result: that is `finalizeRun`.
  */
 
-import type { RunPhase } from "../../domain/run-phase-cursor.ts";
+import type { RunPhase } from "@kernel/run-step.ts";
 import type { EndReason } from "./end-reason.ts";
 import { guarded, type DegradeReason, type StepClass } from "./failure-policy.ts";
 import { runEnd, supersededByAbort, type FactsArg, type RunEnd } from "./run-end.ts";

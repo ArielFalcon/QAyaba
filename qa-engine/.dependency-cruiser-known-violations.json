@@ -85,43 +85,9 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/evaluation/domain/grader-catalog.ts",
-    "to": "qa-engine/src/contexts/run-orchestration/domain/run-phase-cursor.ts",
-    "unresolvedTo": "@contexts/run-orchestration/domain/run-phase-cursor",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "qa-engine/src/contexts/evaluation/domain/graders.ts",
     "to": "qa-engine/src/contexts/generation/domain/context-item-ids.ts",
     "unresolvedTo": "@contexts/generation/domain/context-item-ids.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/evaluation/domain/graders.ts",
-    "to": "qa-engine/src/contexts/run-orchestration/domain/run-phase-cursor.ts",
-    "unresolvedTo": "@contexts/run-orchestration/domain/run-phase-cursor",
     "dependencyTypes": [
       "aliased",
       "aliased-tsconfig",

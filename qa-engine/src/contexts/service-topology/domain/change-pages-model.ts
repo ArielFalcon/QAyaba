@@ -1,5 +1,5 @@
+import type { CrossRepoImpact } from "@kernel/service-links.ts";
 import type { ArchitectureContext } from "@kernel/grounding.ts";
-import type { CrossRepoImpact } from "./cross-repo-impact.ts";
 
 export interface ChangePagesRequest {
   map: ArchitectureContext;

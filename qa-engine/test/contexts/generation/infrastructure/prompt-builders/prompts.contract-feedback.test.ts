@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { buildPromptAssembled } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { lintCell, type LintSection } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import type { AssembledPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
-import type { OpencodeRunInput } from "@contexts/generation/application/generation-input.ts";
+import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 import { setAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { rosterFixturePath } from "../../../../support/roster-fixture.ts";
 

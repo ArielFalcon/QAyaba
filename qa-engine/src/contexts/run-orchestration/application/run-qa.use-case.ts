@@ -12,7 +12,8 @@ import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../.
 import type { ExecScopePort } from "../../../shared-kernel/ports/exec-scope.port.ts";
 import type { AuthSession } from "@contexts/app-catalog/application/index.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
-import { RunPhaseCursor, recordPhaseSnapshot, type PhaseClock, type RunPhase } from "../domain/run-phase-cursor.ts";
+import { type RunPhase } from "@kernel/run-step.ts";
+import { RunPhaseCursor, recordPhaseSnapshot, type PhaseClock } from "../domain/run-phase-cursor.ts";
 import { PhaseSpans } from "./run-phase-spans.ts";
 import { runFlow, type FlowHooks } from "./run-flow/run-flow.ts";
 import { actionFor, carryOn } from "./run-flow/failure-policy.ts";

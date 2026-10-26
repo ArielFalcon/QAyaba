@@ -1,11 +1,11 @@
 /* Tier 2 of the cross-repo impact: a handler that takes any verb serves a link's operation, and an index that cannot answer (or a walk the budget cut) is said in the log instead of reading as "no impact". */
+import type { ServiceLink } from "@kernel/service-links";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ResolveCrossRepoImpactUseCase } from "@contexts/service-topology/application/resolve-cross-repo-impact.use-case.ts";
-import type { ServiceLink } from "@contexts/service-topology/domain/index.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { GraphRoute } from "@kernel/code/index.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";

@@ -1,4 +1,4 @@
-import type { GroundingChange } from "../pre-generation-grounding.ts";
+import type { GroundingChange } from "../../domain/grounding-change.ts";
 import type { GroundingResult } from "../../domain/pre-generation-grounding.ts";
 
 /**

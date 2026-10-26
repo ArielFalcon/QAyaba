@@ -6,7 +6,7 @@
  * says so (undefined or null) and the graders stay silent. Every read is injected (`*Deps`) so the assembly is unit-tested with fakes.
  */
 
-import { RUN_PHASES } from "@contexts/run-orchestration/domain/run-phase-cursor";
+import { RUN_PHASES } from "@kernel/run-step";
 import type { EvidencePort } from "@contexts/evaluation/application/index.ts";
 import type { ContextEvidence, ContextFreshness, DeliveredContextSource, DeliveredOmission, DeliveredSpecEvidence, PlanEvidence, RunEvaluationEvidence, RunSpecCallEvidence, SidekickReportEvidence } from "@contexts/evaluation/domain/run-evaluation-evidence";
 import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";

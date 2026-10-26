@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GRADER_CATALOG, specOfScore, scoreOf, STEP_INTENTS, CONTEXT_SOURCES, MAX_SCORE_COMMENT_CHARS, isGradedName } from "@contexts/evaluation/domain/grader-catalog.ts";
 import { GRADERS, gradeEvidence } from "@contexts/evaluation/domain/graders.ts";
-import { RUN_PHASES } from "@contexts/run-orchestration/domain/run-phase-cursor.ts";
+import { RUN_PHASES } from "@kernel/run-step.ts";
 import { evidence } from "./evidence-fixtures.ts";
 
 test("every name a grader can emit is a catalog base name", () => {

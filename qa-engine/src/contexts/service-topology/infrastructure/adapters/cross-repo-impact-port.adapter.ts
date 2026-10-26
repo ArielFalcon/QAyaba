@@ -1,8 +1,7 @@
 /* CrossRepoImpactPort. No static app context — every call is per-triggerRepo. Fail-open: the use-case degrades every error to null except UntrustedGitTreeError, which it rethrows; this adapter adds no further try/catch. Port-local types are structurally identical to the domain VOs (plain assignment, no double-cast). */
 
+import type { CrossRepoImpact, ServiceLink } from "@kernel/service-links.ts";
 import type { CrossRepoImpactPort } from "../../application/ports/cross-repo-impact.port.ts";
-import type { CrossRepoImpact } from "../../domain/cross-repo-impact.ts";
-import type { ServiceLink } from "../../domain/index.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { SandboxedBinaryRunner } from "../../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import { GitMirrorRefreshAdapter } from "./git-mirror-refresh.adapter.ts";

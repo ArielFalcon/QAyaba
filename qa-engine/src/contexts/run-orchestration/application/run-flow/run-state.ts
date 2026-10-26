@@ -1,11 +1,12 @@
 /* The data a run carries from one phase to the next. Each section is written by the phase that owns it and read by the later ones; it holds no live object, so it can be recorded as it stands. */
 
+import type { ContractDrift, CrossRepoImpact, ServiceLink } from "@kernel/service-links.ts";
+import type { RetrievedRule, SelectedExemplar } from "@kernel/learned-rule.ts";
 import type { ArchitectureContext, GroundingOmission, HarnessFacts } from "@kernel/grounding.ts";
 import type { CommitIntent } from "@kernel/commit-intent.ts";
-import type { ContractDrift, CrossRepoImpact, ServiceLink } from "@contexts/service-topology/application/index.ts";
 import type { GenerationEnrichment, GenerationOutput } from "@contexts/generation/application/index.ts";
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
-import type { RelevanceBias, RetrievedRule, SelectedExemplar } from "@contexts/cross-run-learning/application/index.ts";
+import type { RelevanceBias } from "@contexts/cross-run-learning/application/index.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { ContractFeedback } from "../../domain/contract-feedback.ts";

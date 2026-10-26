@@ -20,7 +20,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import type { RunEventBody } from "@kernel/contract/events.ts";
-import { QueueStatusSchema } from "@kernel/contract/commands.ts";
+import { QueueStatusSchema } from "../src/contract/commands.ts";
 import { classifyRunEfficiency, type CoarseRunEfficiency } from "@contexts/generation/domain/coarse-run-efficiency.ts";
 import { DIFF_TIER_NAMES, type DiffTier } from "@contexts/generation/domain/diff-stat.ts";
 import { CALL_BUCKETS } from "@contexts/generation/domain/tool-call-taxonomy.ts";

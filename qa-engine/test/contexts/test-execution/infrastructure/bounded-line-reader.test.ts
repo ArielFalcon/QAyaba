@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { BoundedLineReader } from "@kernel/process-sandbox/bounded-line-reader.ts";
+import { BoundedLineReader } from "@contexts/test-execution/infrastructure/bounded-line-reader.ts";
 
 const MAX = 20;
 

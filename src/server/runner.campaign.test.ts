@@ -8,7 +8,7 @@ import { buildRunViewExtras, defaultRunViewDeps } from "./run-view";
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { RunPipelinePort, RunInput } from "@contexts/run-orchestration/application/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome";
-import type { CampaignIdentity } from "@kernel/campaign";
+import type { CampaignIdentity } from "../contract/campaign";
 import { traceHarness } from "../telemetry/trace-harness";
 import { CampaignCaptureMismatchError } from "./campaign-capture";
 import type { RunConfigEnvironment } from "./effective-config";

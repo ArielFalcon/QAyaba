@@ -14,26 +14,7 @@
  * - Nothing here is stored in the run history of outcomes: the run's record holds it.
  */
 
-/** The run's stages in pipeline order. The order decides which entered phase counts as the furthest one. */
-export const RUN_PHASES = [
-  "gate",
-  "workspace",
-  "classify",
-  "setup",
-  "ground",
-  "generate",
-  "validate",
-  "health",
-  "execute",
-  "fix_loop",
-  "coverage",
-  "review",
-  "decide",
-  "publish",
-  "learn",
-] as const;
-
-export type RunPhase = (typeof RUN_PHASES)[number];
+import { RUN_PHASES, type RunPhase } from "@kernel/run-step.ts";
 
 export interface PhaseClock {
   /** Wall-clock milliseconds. */

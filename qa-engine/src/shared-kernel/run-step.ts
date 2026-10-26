@@ -14,3 +14,24 @@ export const RUN_STEPS: readonly RunStep[] = [
    string to window grounding activity out of the first-pass/whole-run
    metrics — keep both call sites in sync through this one constant. */
 export const PRE_GENERATION_GROUNDING_STEP_DETAIL = "pre-generation grounding";
+
+/** The run's stages in pipeline order. The order decides which entered phase counts as the furthest one. */
+export const RUN_PHASES = [
+  "gate",
+  "workspace",
+  "classify",
+  "setup",
+  "ground",
+  "generate",
+  "validate",
+  "health",
+  "execute",
+  "fix_loop",
+  "coverage",
+  "review",
+  "decide",
+  "publish",
+  "learn",
+] as const;
+
+export type RunPhase = (typeof RUN_PHASES)[number];

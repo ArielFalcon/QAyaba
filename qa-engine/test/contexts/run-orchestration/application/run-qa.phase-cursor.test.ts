@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { RunQaUseCase, type RunQaUseCaseDeps } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
-import { RUN_PHASES, phaseSnapshotOf } from "@contexts/run-orchestration/domain/run-phase-cursor.ts";
+import { RUN_PHASES } from "@kernel/run-step.ts";
+import { phaseSnapshotOf } from "@contexts/run-orchestration/domain/run-phase-cursor.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { ok } from "@kernel/result.ts";
 import { Sha } from "@kernel/sha.ts";

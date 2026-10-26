@@ -1,6 +1,6 @@
 /* Positive evidence that a code-mode test run executed at least one test, collected while its output streams by. The kept output is bounded (bounded-output-tail.ts), so the line that proves tests ran (a Go `ok` line, a Rust or Maven test count) can already be dropped by the time the run ends; reading the kept text alone would then call a passing suite "executed zero tests". */
 
-import { BoundedLineReader } from "@kernel/process-sandbox/bounded-line-reader.ts";
+import { BoundedLineReader } from "@contexts/test-execution/infrastructure/bounded-line-reader.ts";
 import type { Ecosystem } from "./code-execution.runner.ts";
 
 /** The single-line marker a runner prints when it ran tests, per ecosystem that reports zero tests as a clean exit. Ecosystems absent here have no such marker. */

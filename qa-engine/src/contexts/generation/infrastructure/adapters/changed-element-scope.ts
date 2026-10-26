@@ -1,7 +1,7 @@
 /* Gives each changed element the containers its line sits in, from the file at the run's commit in the working copy, so the pack can mark the one occurrence of a repeated text that the change touched. The working copy is a directory the agent can write into, so the file is read through the strict reader of the confinement module. Fail-open: a file that cannot be read leaves its elements as they came. */
 
 import type { ChangedElement } from "@kernel/diff-parser/changed-element.ts";
-import { enclosingScope } from "@kernel/diff-parser/enclosing-scope.ts";
+import { enclosingScope } from "@contexts/generation/domain/enclosing-scope.ts";
 import { readOwnedSpecFile } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { MAX_DECLARED_RESOURCE_SOURCE_BYTES } from "./implementation-resources.ts";
 

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
-import type { OpencodeRunInput } from "@contexts/generation/application/generation-input.ts";
+import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 import type { ReviewInput } from "@contexts/generation/domain/generation-input.ts";
 import type { SpecRoot } from "../../../../src/shared-infrastructure/spec-path-confinement.ts";
 import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter.ts";

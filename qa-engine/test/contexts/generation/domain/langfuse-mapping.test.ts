@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LANGFUSE, langfuseCostDetails, langfuseObservationType, langfuseUsageDetails } from "@kernel/telemetry/langfuse-mapping.ts";
+import { LANGFUSE, langfuseCostDetails, langfuseObservationType, langfuseUsageDetails } from "@contexts/generation/domain/langfuse-mapping.ts";
 import { GENAI, normalizeOpenCodeUsage } from "@kernel/telemetry/genai-semconv.ts";
 import { lookupAttribute } from "@kernel/telemetry/attribute-registry.ts";
 

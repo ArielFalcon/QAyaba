@@ -4,7 +4,7 @@ import type { ReviewDomGroundingPort } from "../../application/ports/review-dom-
 import { captureDom, defaultCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import type { CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import { readConfinedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
-import { raceWithAbort } from "@kernel/abort-race.ts";
+import { raceWithAbort } from "@contexts/generation/domain/abort-race.ts";
 
 export interface ReviewDomGroundingStaticContext {
   e2eDir: string;

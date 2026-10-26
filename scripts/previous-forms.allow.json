@@ -61,7 +61,7 @@
   },
   {
     "rule": "router-kind",
-    "path": "qa-engine/test/contract/coordination-event-kind.contract.test.ts",
+    "path": "src/contract/coordination-event-kind.contract.test.ts",
     "contains": "\"router\"",
     "reason": "Pins that the retired event kind is not in the vocabulary."
   },

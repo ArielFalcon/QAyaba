@@ -3,7 +3,7 @@
  * canonical order, token usage, spec counts, the publication decision and which budget ended the run. Read-only over the history.
  */
 
-import { RUN_PHASES } from "@contexts/run-orchestration/domain/run-phase-cursor";
+import { RUN_PHASES } from "@kernel/run-step";
 import type { RunDetail, RunRecord } from "../contract/commands";
 import { HistoryEvidenceAdapter } from "./evaluation-evidence";
 import { getAgentRoleFacts, getAgentTurns, getRunCampaign, getRunFacts, getRunPhases, getStoredEffectiveConfig, type AgentTurnRecord } from "./history";

@@ -5,6 +5,7 @@
    fail-open branch (absent mirror, unindexed mirror, empty diff, no matches, thrown exceptions).
    Zero mirror/VCS/code-graph calls when no link matches.
  */
+import type { ServiceLink } from "@kernel/service-links";
 import { test, describe, before, after, mock } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -12,7 +13,6 @@ import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CrossRepoImpactPortAdapter } from "@contexts/service-topology/infrastructure/adapters/cross-repo-impact-port.adapter.ts";
-import type { ServiceLink } from "@contexts/service-topology/application/index.ts";
 import type { MirrorRegistryPort } from "@kernel/ports/mirror-registry.port.ts";
 import type { SandboxedBinaryRunner, SandboxedRunRequest, SandboxedRunResult } from "../../../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import type { VcsReadPort } from "@contexts/change-analysis/application/index.ts";

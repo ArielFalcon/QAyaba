@@ -12,7 +12,7 @@ import type { ScoreSinkPort } from "@contexts/evaluation/application/index.ts";
 import { COVERAGE_CLASSES } from "@contexts/evaluation/domain/grader-catalog";
 import type { Score } from "@contexts/evaluation/domain/score";
 import { ERROR_CLASSES } from "@contexts/cross-run-learning/domain/error-class";
-import { RUN_PHASES } from "@contexts/run-orchestration/domain/run-phase-cursor";
+import { RUN_PHASES } from "@kernel/run-step";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 
 /* The categorical scores whose values are a closed set. Any other categorical score is not emitted. */

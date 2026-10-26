@@ -8,7 +8,7 @@
  * that looks fake is never valid (scripts/fake-pass-detector.ts).
  */
 import type { RunVerdict } from "@kernel/run-verdict.ts";
-import type { GroundingInput } from "@kernel/contract/commands.ts";
+import type { GroundingInput } from "../src/contract/commands.ts";
 import type { FakeFlag } from "./fake-pass-detector.ts";
 import { assertFileName } from "./probe-report.ts";
 

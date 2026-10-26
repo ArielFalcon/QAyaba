@@ -73,7 +73,7 @@ export interface RunOutcome {
     /* Real type is agent-runtime's RunUsage; unknown keeps the kernel free of downstream dependencies. */
     usage?: unknown;
     phaseTimings?: Record<string, number>;
-    /* The pipeline phase the run got furthest into (the canonical order lives in run-orchestration's run-phase-cursor). Absent when the run entered none. */
+    /* The pipeline phase the run got furthest into (the canonical order is RUN_PHASES in run-step.ts). Absent when the run entered none. */
     furthestPhase?: string;
     preExecAmbiguityCatches?: number;
     deterministicSelectorBlocks?: number;

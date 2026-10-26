@@ -1,6 +1,6 @@
 import type { RenderedPromptFacts } from "../domain/prompt-facts.ts";
 import type { PromptRenderingPort } from "../application/ports/prompt-rendering.port.ts";
-import type { OpencodeRunInput } from "../application/generation-input.ts";
+import type { OpencodeRunInput } from "../domain/opencode-run-input.ts";
 import type { ReviewInput } from "../domain/generation-input.ts";
 
 export interface PromptBuilders {

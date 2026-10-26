@@ -332,7 +332,7 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/contexts/service-topology/application/resolve-cross-repo-impact.use-case.ts",
   /* The bounds every untrusted child's output passes through: without one, a flooding install or test run takes the orchestrator down with it. */
   "qa-engine/src/shared-kernel/process-sandbox/bounded-output-tail.ts",
-  "qa-engine/src/shared-kernel/process-sandbox/bounded-line-reader.ts",
+  "qa-engine/src/contexts/test-execution/infrastructure/bounded-line-reader.ts",
   "qa-engine/src/shared-kernel/process-sandbox/bounded-whole-output.ts",
 
   "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts",

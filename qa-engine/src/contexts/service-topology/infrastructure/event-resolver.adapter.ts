@@ -1,8 +1,9 @@
 /* Config-driven EVENT boundary resolver. App-specific patterns come from the injected EventBoundaryProfile — no watched-app literals here. resolveLinks never throws: a per-repo/per-file error skips that unit; an unknown eventPattern.kind fails open to an empty result. Publisher symbols resolve to the enclosing class of the publish call, not the first class in the file. The sources are listed and read through one RepoReader (see repo-walk.ts): a mirror is a directory the agent writes into, so no link is followed, no named pipe is opened and neither the entries looked at nor the size of a file is unbounded; what could not be used is skipped, and said once for the repository.
    DETERMINISM (project invariant #1: stable, deterministic behavior): this resolver's JOIN is first-match-wins (`publishers.find(...)` in resolveLinks) — when two publishers in the scanned pool publish the SAME event name (realistic: nname's dual-transport NATS+Rabbit setup makes a relay/dual-publish of one event plausible), a walk in filesystem order would make the emitted link's `from` symbol depend on it, i.e. non-deterministic across runs/environments. The walk visits the entries in the order of their names. */
+import type { ServiceLink, ServiceSymbolRef } from "@kernel/service-links.ts";
 import type { ServiceBoundaryResolverPort } from "../application/ports/service-boundary-resolver.port.ts";
 import type { ResolveLinksResult } from "../domain/service-boundary-resolver.ts";
-import type { RepoRef, ServiceLink, ServiceSymbolRef, EventBoundaryProfile } from "../domain/index.ts";
+import type { RepoRef, EventBoundaryProfile } from "../domain/index.ts";
 import { RepoReader } from "../../../shared-infrastructure/repo-reader.ts";
 import { EventPatternCatalog, type EventPatternOccurrence } from "./event-pattern-catalog.ts";
 import { compileFileGlob } from "./glob-suffix.ts";

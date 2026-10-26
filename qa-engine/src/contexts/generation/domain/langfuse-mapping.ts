@@ -1,6 +1,6 @@
 /* The one module that decides how our spans read in Langfuse: the observation type each GenAI operation gets, the usage and cost buckets of a generation, and the input and output keys. Pure; no SDK. Langfuse's OTLP attribute mapping is documented for the keys below and is verified on a real instance by spike S0.5, not here. */
 
-import { GENAI, type ConventionTokenUsage } from "./genai-semconv.ts";
+import { GENAI, type ConventionTokenUsage } from "../../../shared-kernel/telemetry/genai-semconv.ts";
 
 export const LANGFUSE = {
   attrs: {

@@ -2,13 +2,14 @@
    HttpBackendResolver: config-driven BE→BE HTTP boundary resolver. Scans backend repos
    (system, plus front if not already in system) — FE HTTP stays OpenApiHttpResolver.
  */
+import type { ServiceLink } from "@kernel/service-links";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { HttpBackendResolver } from "@contexts/service-topology/infrastructure/http-backend-resolver.adapter.ts";
-import type { HttpBackendBoundaryProfile, RepoRef, ServiceLink } from "@contexts/service-topology/domain/index.ts";
+import type { HttpBackendBoundaryProfile, RepoRef } from "@contexts/service-topology/domain/index.ts";
 
 const OPENAPI_PATH = "src/main/resources/openapi/api-definition.yaml";
 

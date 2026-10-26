@@ -1,7 +1,7 @@
 /* Closed RunEvent vocabulary. Adding a variant means adding it to src/contract/events.ts first, then mirroring here so the schemas stay identical. */
 
 import { z } from "zod";
-export type { AgentRole, RoleAssignment, AgentProvider } from "./agent-role.ts";
+export type { AgentRole, RoleAssignment, AgentProvider } from "../../../shared-kernel/agent-role.ts";
 
 const RunVerdictSchema = z.enum(["pass", "fail", "flaky", "invalid", "infra-error", "skipped"]);
 const RunEngineStatusSchema = z.enum(["success", "error"]);

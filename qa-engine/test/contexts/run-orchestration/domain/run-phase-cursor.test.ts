@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { RunPhaseCursor, RUN_PHASES, phaseSnapshotOf, recordPhaseSnapshot } from "@contexts/run-orchestration/domain/run-phase-cursor.ts";
+import { RUN_PHASES } from "@kernel/run-step.ts";
+import { RunPhaseCursor, phaseSnapshotOf, recordPhaseSnapshot } from "@contexts/run-orchestration/domain/run-phase-cursor.ts";
 
 function fakeClock(start = 1_000) {
   let t = start;

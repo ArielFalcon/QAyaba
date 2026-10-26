@@ -311,9 +311,10 @@ test("isProtectedPath flags the engine's git hardening, the definition repo-mirr
 test("isProtectedPath flags the helpers that bound what an untrusted child's output can hold in the orchestrator's memory", () => {
   /* A flooding install or test run takes the orchestrator down if any of these stops bounding; the runners that use
      them are protected, and each helper holds the bound itself. */
-  for (const helper of ["bounded-output-tail.ts", "bounded-line-reader.ts", "bounded-whole-output.ts"]) {
+  for (const helper of ["bounded-output-tail.ts", "bounded-whole-output.ts"]) {
     assert.equal(isProtectedPath(`qa-engine/src/shared-kernel/process-sandbox/${helper}`), true, helper);
   }
+  assert.equal(isProtectedPath("qa-engine/src/contexts/test-execution/infrastructure/bounded-line-reader.ts"), true);
 });
 
 test("isProtectedPath flags the bounded runners and the git call sites an untrusted working copy reaches", () => {
@@ -417,9 +418,9 @@ test("every file under the orchestration adapters directory is protected or expl
   assert.deepEqual(unclassified, [], `unclassified adapter file(s): ${JSON.stringify(unclassified)}`);
 });
 
-test("the abort race that moved to the domain is not protected while the adapters prefix is", () => {
-  assert.equal(isProtectedPath("qa-engine/src/shared-kernel/abort-race.ts"), false);
-  assert.ok(existsSync(join(repoRoot, "qa-engine/src/shared-kernel/abort-race.ts")));
+test("the abort race in the generation domain is not protected while the adapters prefix is", () => {
+  assert.equal(isProtectedPath("qa-engine/src/contexts/generation/domain/abort-race.ts"), false);
+  assert.ok(existsSync(join(repoRoot, "qa-engine/src/contexts/generation/domain/abort-race.ts")));
   assert.equal(isProtectedPath("qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter.ts"), true);
 });
 

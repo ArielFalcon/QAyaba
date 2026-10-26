@@ -1,7 +1,8 @@
 /* service-topology/infrastructure/composite-resolver.adapter.ts Composite ServiceBoundaryResolverPort: per-resolver timeout + error isolation + link dedup. Mirrors CoverageCollectorAdapter's fail-open pattern (coverage-collector.adapter.ts). */
+import type { ServiceLink, ContractDrift } from "@kernel/service-links.ts";
 import type { ServiceBoundaryResolverPort } from "../application/ports/service-boundary-resolver.port.ts";
 import type { ResolveLinksResult } from "../domain/service-boundary-resolver.ts";
-import type { RepoRef, ServiceLink, ContractDrift, ExternalCall, UnresolvedCall } from "../domain/index.ts";
+import type { RepoRef, ExternalCall, UnresolvedCall } from "../domain/index.ts";
 
 const RESOLVER_TIMEOUT_MS = 30_000;
 

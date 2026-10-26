@@ -1,5 +1,4 @@
-import type { ServiceLink } from "../../domain/index.ts";
-import type { CrossRepoImpact } from "../../domain/cross-repo-impact.ts";
+import type { ServiceLink, CrossRepoImpact } from "@kernel/service-links.ts";
 
 /**
  * Advisory impacted-link narrowing. Fires only on cross-repo runs

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CoordinationEventSchema } from "../../src/shared-kernel/contract/commands.ts";
+import { CoordinationEventSchema } from "./commands";
 
 test("the coordination event kinds name the lead's decisions and no earlier routing step", () => {
   const kinds: readonly string[] = CoordinationEventSchema.shape.kind.options;

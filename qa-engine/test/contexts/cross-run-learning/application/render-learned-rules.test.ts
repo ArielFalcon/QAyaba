@@ -1,7 +1,7 @@
+import type { RetrievedRule } from "@kernel/learned-rule";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { renderLearnedRules, renderLearnedRulesForReviewer } from "@contexts/cross-run-learning/application/index.ts";
-import type { RetrievedRule } from "@contexts/cross-run-learning/application/index.ts";
 
 /* renderLearnedRules: proven (active) rules and experimental (candidate) hints go to separate
    sections, proven first, each rule carrying its trigger, action and error class. */

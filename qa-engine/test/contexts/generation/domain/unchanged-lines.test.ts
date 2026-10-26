@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { countUnchangedLinesHolding } from "@kernel/diff-parser/unchanged-lines.ts";
+import { countUnchangedLinesHolding } from "@contexts/generation/domain/unchanged-lines.ts";
 
 const source = ['<app-a label="Cambiar filtros" />', "<p>x</p>", '<app-b label="Cambiar filtros" />', '<app-c endActionLabel="Cambiar filtros" />'].join("\n");
 

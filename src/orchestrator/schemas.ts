@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { LoginPathSchema } from "../../qa-engine/src/shared-kernel/login-path";
+import { LoginPathSchema } from "../contract/login-path";
 import { MAX_PLACES, MAX_PLACE_NAME_CHARS, PLACE_NAME_PATTERN } from "../../qa-engine/src/shared-kernel/geolocation";
 import { mutatingEntryError, routePatternError } from "../../qa-engine/src/contexts/test-execution/domain/agent-browser-route-guard";
 import { isPageOfTemplate } from "../../qa-engine/src/contexts/generation/domain/route-instantiation";

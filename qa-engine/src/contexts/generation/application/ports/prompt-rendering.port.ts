@@ -1,4 +1,4 @@
-import type { OpencodeRunInput } from "../generation-input.ts";
+import type { OpencodeRunInput } from "../../domain/opencode-run-input.ts";
 import type { ReviewInput } from "../../domain/generation-input.ts";
 import type { RenderedPromptFacts } from "../../domain/prompt-facts.ts";
 import type { PromptSection } from "../../domain/manifest-repository.ts";

@@ -21,7 +21,7 @@
   },
   "include": [
     "test/shared-infrastructure/redaction/pattern-redaction-parity.test.ts",
-    "src/shared-kernel/contract/index.ts",
+
     "test/shared-kernel/run-outcome.test.ts",
     "test/contexts/generation/infrastructure/context-assembler.adapter-parity.test.ts",
     "test/contexts/generation/infrastructure/verdict-parser.adapter-parity.test.ts",

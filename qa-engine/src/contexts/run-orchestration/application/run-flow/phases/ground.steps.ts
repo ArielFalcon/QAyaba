@@ -1,11 +1,12 @@
 /* The ground phase of a run: what the agent is handed before it writes anything. The learned rules are retrieved, the curriculum's exemplars chosen, the repository grounded, and the blast radius, the service links and the cross-repo impact resolved; together they make the enrichment every generation starts from. */
 
+import type { RetrievedRule } from "@kernel/learned-rule.ts";
+import type { ServiceLink, ContractDrift, CrossRepoImpact } from "@kernel/service-links.ts";
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
-import type { RelevanceBias, RetrievedRule } from "@contexts/cross-run-learning/application/index.ts";
-import type { ServiceLink, ContractDrift, CrossRepoImpact } from "@contexts/service-topology/application/index.ts";
+import type { RelevanceBias } from "@contexts/cross-run-learning/application/index.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import { throwIfAborted } from "../abort.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";

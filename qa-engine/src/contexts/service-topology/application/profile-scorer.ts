@@ -1,22 +1,9 @@
 import type { ServiceBoundaryResolverPort } from "./ports/service-boundary-resolver.port.ts";
 import type { BoundaryProfile, RepoRef } from "../domain/index.ts";
+import type { ProfileScore } from "../domain/profile-score.ts";
 
 /** Builds the resolver for a set of declared boundary profiles. */
 export type BoundaryResolverFactory = (profiles: readonly BoundaryProfile[]) => ServiceBoundaryResolverPort;
-
-/** How much of a candidate BoundaryProfile's extracted call-site pattern actually resolves. */
-export interface ProfileScore {
-  links: number;
-  drift: number;
-  external: number;
-  unresolved: number;
-  /** Total call-sites the pattern extracted, across all four result buckets. */
-  coverage: number;
-  /** links / coverage, or 0 when coverage === 0 (never NaN). */
-  resolutionRatio: number;
-  /** links resolutionRatio — resolved-volume weighted by precision. The primary ranking key: raw links reward over-extraction. */
-  resolvedScore: number;
-}
 
 const ZERO_SCORE: ProfileScore = Object.freeze({
   links: 0,

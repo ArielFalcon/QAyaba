@@ -6,13 +6,15 @@
  * Read-only: what a port returns is returned as it was, and what it throws is thrown. Observability never changes what the agent receives or how a run ends.
  */
 
+import type { CrossRepoImpact, ServiceLink } from "@kernel/service-links.ts";
+import type { RetrievedRule, SelectedExemplar } from "@kernel/learned-rule.ts";
 import { recordContextSpan } from "../../../../shared-infrastructure/telemetry/run-spans.ts";
 import { advisoryLineIds, contextMapItemIds, itemId } from "@contexts/generation/application/index.ts";
 import { packProducedItemIds } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance.ts";
-import type { CrossRepoImpact, CrossRepoImpactPort, ServiceLink, ServiceLinksPort } from "@contexts/service-topology/application/index.ts";
-import type { CurriculumFoldInput, CurriculumPort, LearningPort, RelevanceBias, RetrievedRule, SelectedExemplar } from "@contexts/cross-run-learning/application/index.ts";
+import type { CrossRepoImpactPort, ServiceLinksPort } from "@contexts/service-topology/application/index.ts";
+import type { CurriculumFoldInput, CurriculumPort, LearningPort, RelevanceBias } from "@contexts/cross-run-learning/application/index.ts";
 import type { StructuralSignalPort, StructuralSignalResult } from "@contexts/change-analysis/application/index.ts";
 import type { GroundingTrace } from "./pre-generation-grounding-port.adapter.ts";
 

@@ -1,7 +1,7 @@
 /* Every metric instrument, declared with the attribute keys it may carry. Metric attributes come only from this closed set of low-cardinality registry keys: ids, shas, urls, paths, selectors and hosts go on spans, never on a metric (design §8.2). The adapter records only declared instruments with declared keys; `checkInstrumentTable` is the guard the tests run over this table. */
 
-import { lookupAttribute, type RegisteredKey } from "./attribute-registry.ts";
-import { GENAI } from "./genai-semconv.ts";
+import { lookupAttribute, type RegisteredKey } from "../../qa-engine/src/shared-kernel/telemetry/attribute-registry";
+import { GENAI } from "../../qa-engine/src/shared-kernel/telemetry/genai-semconv";
 
 export type InstrumentType = "counter" | "histogram" | "gauge";
 

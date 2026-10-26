@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildPromptAssembled } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
-import type { OpencodeRunInput } from "@contexts/generation/application/generation-input.ts";
+import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 
 
 function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {

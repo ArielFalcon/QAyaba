@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AbortRaceError, isAbortError, raceWithAbort } from "@kernel/abort-race.ts";
+import { AbortRaceError, isAbortError, raceWithAbort } from "@contexts/generation/domain/abort-race.ts";
 
 test("a signal that is already aborted rejects at once with the abort error", async () => {
   const controller = new AbortController();

@@ -23,7 +23,6 @@
   },
   "include": ["src", "test"],
   "exclude": [
-    "src/shared-kernel/contract/index.ts",
     "test/shared-kernel/run-outcome.test.ts",
     "test/contexts/generation/infrastructure/context-assembler.adapter-parity.test.ts",
     "test/contexts/generation/infrastructure/verdict-parser.adapter-parity.test.ts",

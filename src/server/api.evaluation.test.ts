@@ -5,7 +5,7 @@ import { handleApi, type ApiDeps } from "./api";
 import { AppNotFoundError } from "../orchestrator/config-loader";
 import { RegradeRequestError } from "@contexts/evaluation/application/regrade.use-case";
 import { GRADER_CATALOG } from "@contexts/evaluation/domain/grader-catalog";
-import { RUN_PHASES } from "@contexts/run-orchestration/domain/run-phase-cursor";
+import { RUN_PHASES } from "@kernel/run-step";
 import { CampaignRunsSchema, CreateRunResultSchema, EvaluationCatalogSchema, RegradeJobSchema, RunDetailSchema, RunEvaluationSchema } from "../contract/commands";
 import type { RunRecord } from "../types";
 import { catalogView, type EvaluationService } from "./evaluation-service";

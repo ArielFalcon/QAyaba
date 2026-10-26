@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { RunEventSchema, type RunEvent, type AgentRole } from "@kernel/run-event.ts";
+import { RunEventSchema, type RunEvent, type AgentRole } from "@contexts/run-orchestration/domain/run-event.ts";
 
 test("RunEvent re-exports the frozen wire schema and parses a valid envelope", () => {
   const ev: RunEvent = RunEventSchema.parse({

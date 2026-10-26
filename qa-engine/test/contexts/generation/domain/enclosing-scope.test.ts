@@ -1,7 +1,7 @@
 /* The containers a changed template line sits in, named the way the DOM capture names a page's containers, so the two can be matched. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { enclosingScope } from "@kernel/diff-parser/enclosing-scope.ts";
+import { enclosingScope } from "@contexts/generation/domain/enclosing-scope.ts";
 
 const LIST_TEMPLATE = [
   `<section class="restaurant-list">`,                 // 1

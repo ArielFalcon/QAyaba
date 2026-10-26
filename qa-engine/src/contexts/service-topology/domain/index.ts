@@ -1,35 +1,11 @@
 /* Cross-repo boundary domain. Transport-agnostic VOs. ServiceSymbolRef (cross-repo) is distinct from LocalSymbolRef (intra-repo). Profile types are the config contract an app supplies — nothing app-specific belongs in engine core. */
 
+import type { ServiceSymbolRef } from "@kernel/service-links.ts";
+
 /** Identifies a repo and the filesystem path to its working copy. */
 export interface RepoRef {
   repo: string;
   mirrorDir: string;
-}
-
-/** Cross-repo symbol reference. Only used in service-topology — NOT the same as LocalSymbolRef. */
-export interface ServiceSymbolRef {
-  repo: string;
-  file: string;
-  symbol: string;
-}
-
-/** A resolved cross-repo dependency link. Transport is open-union; the domain treats it as opaque. */
-export interface ServiceLink {
-  from: ServiceSymbolRef;
-  to: ServiceSymbolRef;
-  transport: "http" | "event" | "rpc";
-  contractRef?: string;
-  /** The contract operation an HTTP link calls: its verb (upper case) and its path as the contract declares it. */
-  operation?: { verb: string; path: string };
-  confidence: number;
-  source: string;
-}
-
-/** A detected FE↔BE contract drift: the frontend calls an endpoint the backend contract does not declare. */
-export interface ContractDrift {
-  from: ServiceSymbolRef;
-  verb: string;
-  path: string;
 }
 
 /** A call-site that targets a service outside the indexed repo set. */

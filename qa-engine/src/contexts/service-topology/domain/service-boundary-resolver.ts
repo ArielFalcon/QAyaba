@@ -1,4 +1,5 @@
-import type { ServiceLink, ContractDrift, ExternalCall, UnresolvedCall } from "./index.ts";
+import type { ServiceLink, ContractDrift } from "@kernel/service-links.ts";
+import type { ExternalCall, UnresolvedCall } from "./index.ts";
 
 /** Structured outcome from a single resolver run. */
 export interface ResolveLinksResult {

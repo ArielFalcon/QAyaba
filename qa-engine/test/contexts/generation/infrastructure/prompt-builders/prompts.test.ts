@@ -16,7 +16,7 @@ import {
 import { assemble as caAssemble, section as caSection } from "@contexts/generation/infrastructure/prompt-builders/context-assembler.ts";
 import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
-import type { OpencodeRunInput } from "@contexts/generation/application/generation-input.ts";
+import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 import type { ReviewInput, ArchitectureContext } from "@contexts/generation/domain/generation-input.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { BUILT_IN_EXEMPLARS } from "@kernel/scenario-catalog.ts";

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CampaignInputSchema, CreateRunInputSchema } from "@kernel/contract/commands.ts";
+import { CampaignInputSchema, CreateRunInputSchema } from "./commands";
 
 const ok = { id: "ab-2026-10:glm.1", variant: { model: "glm-5.3", closedLoop: "on" }, replicate: 3 };
 const base = { app: "demo", target: "e2e", mode: "diff" };

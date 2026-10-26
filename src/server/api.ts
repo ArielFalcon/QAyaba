@@ -7,8 +7,8 @@
  */
 
 import { describeSandboxHealth } from "./sandbox-health";
-import type { TelemetryBackendsHealth, TelemetryHealth } from "@kernel/telemetry/telemetry-health";
-import { CAMPAIGN_ID_PATTERN, type CampaignIdentity } from "@kernel/campaign";
+import type { TelemetryBackendsHealth, TelemetryHealth } from "../telemetry/telemetry-health";
+import { CAMPAIGN_ID_PATTERN, type CampaignIdentity } from "../contract/campaign";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";

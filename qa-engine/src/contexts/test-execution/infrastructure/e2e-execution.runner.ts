@@ -9,7 +9,7 @@ import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { redactByValue } from "../../../shared-infrastructure/redaction/run-secret-redaction.ts";
 import { sanitizeText, type SecretDetection } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { parseAriaSnapshot } from "@contexts/generation/infrastructure/dom-snapshot.ts";
-import { BoundedLineReader } from "@kernel/process-sandbox/bounded-line-reader.ts";
+import { BoundedLineReader } from "@contexts/test-execution/infrastructure/bounded-line-reader.ts";
 import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import type { ProcessKillPort } from "@kernel/process-sandbox/process-kill.port.ts";

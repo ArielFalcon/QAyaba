@@ -1,4 +1,4 @@
-import type { ContractDrift, ServiceLink } from "../../domain/index.ts";
+import type { ContractDrift, ServiceLink } from "@kernel/service-links.ts";
 
 /**
  * Advisory cross-repo links. resolve() is no-arg: links are app-static per SHA.

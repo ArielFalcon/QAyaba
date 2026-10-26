@@ -25,8 +25,8 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, w
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
-import type { GroundingInput } from "@kernel/contract/commands.ts";
-import { CAMPAIGN_ID_PATTERN, type CampaignIdentity } from "@kernel/campaign.ts";
+import type { GroundingInput } from "../src/contract/commands.ts";
+import { CAMPAIGN_ID_PATTERN, type CampaignIdentity } from "../src/contract/campaign.ts";
 import { EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../src/paths.ts";
 import { DecideCoverageService } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
 import { detectFakeSpec } from "./fake-pass-detector.ts";

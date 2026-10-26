@@ -1,3 +1,5 @@
+import type { RetrievedRule } from "@kernel/learned-rule";
+import type { ServiceLink } from "@kernel/service-links";
 import { mock, test } from "node:test";
 import { inspect } from "node:util";
 import assert from "node:assert/strict";
@@ -26,13 +28,13 @@ import type { GenerationPort, ReviewPort, PreExecGroundingPort, PreGenerationGro
 import type { ValidationPort, ExecutionPort } from "@contexts/test-execution/application/index.ts";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";
 import type { PublicationPort } from "@contexts/run-orchestration/application/ports/publication.port.ts";
-import type { LearningPort, RetrievedRule, CurriculumPort, CurriculumFoldInput, RelevanceBias } from "@contexts/cross-run-learning/application/index.ts";
+import type { LearningPort, CurriculumPort, CurriculumFoldInput, RelevanceBias } from "@contexts/cross-run-learning/application/index.ts";
 import type { WorkspacePort } from "@contexts/run-orchestration/application/ports/workspace.port.ts";
 import type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";
 import type { RunHistoryPort } from "@contexts/run-orchestration/application/ports/run-history.port.ts";
 import type { SetupPort } from "@contexts/run-orchestration/application/ports/setup.port.ts";
 import type { CleanupPort } from "@contexts/run-orchestration/application/ports/cleanup.port.ts";
-import type { ServiceLinksPort, ServiceLink, CrossRepoImpactPort } from "@contexts/service-topology/application/index.ts";
+import type { ServiceLinksPort, CrossRepoImpactPort } from "@contexts/service-topology/application/index.ts";
 import type { ConfinementPort } from "@contexts/run-orchestration/application/ports/confinement.port.ts";
 import type { MirrorGcPort } from "@contexts/run-orchestration/application/ports/mirror-gc.port.ts";
 import type { RunDeadlinePort } from "@contexts/run-orchestration/application/ports/run-deadline.port.ts";
@@ -3582,10 +3584,10 @@ test("KEYSTONE: the enforce-mode coverage-regen re-measure ALSO receives the run
 function fakeObserver(): {
   observer: import("@contexts/run-orchestration/application/index.ts").ObserverPort;
   steps: Array<{ step: string; detail?: string }>;
-  events: import("@kernel/run-event.ts").RunEventBody[];
+  events: import("@contexts/run-orchestration/domain/run-event.ts").RunEventBody[];
 } {
   const steps: Array<{ step: string; detail?: string }> = [];
-  const events: import("@kernel/run-event.ts").RunEventBody[] = [];
+  const events: import("@contexts/run-orchestration/domain/run-event.ts").RunEventBody[] = [];
   return {
     observer: {
       onStep(step, detail) {
@@ -7885,7 +7887,7 @@ const EXHAUSTED_TURN = { maxSteps: 30, stepsUsed: 30, exhausted: true, writeCoun
 interface EndRun {
   out: Awaited<ReturnType<RunQaUseCase["run"]>>;
   savedOutcomes: RunOutcome[];
-  events: import("@kernel/run-event.ts").RunEventBody[];
+  events: import("@contexts/run-orchestration/domain/run-event.ts").RunEventBody[];
   published: number;
   validated: number;
   executed: number;

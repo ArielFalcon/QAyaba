@@ -17,6 +17,7 @@
  *   tsx scripts/prompt-contract-matrix.ts --record                           rewrite scripts/prompt-contract-baseline.json
  *   tsx scripts/prompt-contract-matrix.ts --record --allow-increase "<why>"  the same, raising budgets for the stated reason
  */
+import type { ServiceLink } from "@kernel/service-links";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -47,7 +48,6 @@ import { DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
 import { LISTING_MAX_DO_NOT_REWRITE, LISTING_MAX_UNNAMED_EDITABLE } from "@contexts/generation/domain/suite-listing.ts";
 import { formatSuiteEntry } from "@contexts/generation/domain/suite-entry.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
-import type { ServiceLink } from "@contexts/service-topology/domain/index.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 

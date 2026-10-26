@@ -13,7 +13,7 @@ import type { RunOutcome } from "@kernel/run-outcome";
 import { attachTraceFacts, type RunTraceFacts } from "@kernel/run-trace-facts";
 import { AgentTimeoutError } from "@kernel/domain-error";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
-import { INSTRUMENTS } from "@kernel/telemetry/instrument-table";
+import { INSTRUMENTS } from "../telemetry/instrument-table";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { SpanStatusCode, traceHarness } from "../telemetry/trace-harness";
 import { createTelemetry } from "../telemetry/bootstrap";

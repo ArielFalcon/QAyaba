@@ -1,12 +1,13 @@
 /* Cross-repo impact for a triggering service: per-service VCS read plus a repo-agnostic code graph. resolve() fails open (→ null) on any error but one: UntrustedGitTreeError means untrusted code replaced the mirror's git dir, so it is rethrown, never turned into "no impact". Cheap pre-filter when no link targets the trigger repo. Best-effort git fetch before the diff; its result is unread. */
+import type { ServiceLink } from "@kernel/service-links.ts";
+import { MATCH_TIER, type CrossRepoImpact, type ImpactedLink } from "@kernel/service-links.ts";
 import { existsSync } from "node:fs";
 import type { BlastRadius } from "../../../shared-kernel/blast-radius.ts";
 import { Sha } from "../../../shared-kernel/sha.ts";
 import type { CodeGraphPort } from "../../../shared-kernel/ports/code-graph.port.ts";
 import { rethrowIfUntrusted } from "../../../shared-kernel/domain-error.ts";
-import type { ServiceLink } from "../domain/index.ts";
 import type { MirrorRefreshPort } from "./ports/mirror-refresh.port.ts";
-import { MATCH_TIER, routeServesOperation, type CrossRepoImpact, type ImpactedLink } from "../domain/cross-repo-impact.ts";
+import { routeServesOperation } from "../domain/cross-repo-impact.ts";
 
 /** Minimal read-side VCS surface — structural match to VcsReadPort.blastRadius without importing that context. */
 export interface CrossRepoVcsRead {

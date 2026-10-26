@@ -7,7 +7,7 @@
  */
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
 import { GENAI, normalizeOpenCodeUsage } from "@kernel/telemetry/genai-semconv.ts";
-import { LANGFUSE, langfuseCostDetails, langfuseObservationType, langfuseUsageDetails } from "@kernel/telemetry/langfuse-mapping.ts";
+import { LANGFUSE, langfuseCostDetails, langfuseObservationType, langfuseUsageDetails } from "@contexts/generation/domain/langfuse-mapping.ts";
 import type { RedactionScope, SpanHandle, TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import { classifyNavOutcome, isNavigationCall, type NavOutcomeInput } from "../../domain/nav-outcome.ts";
 import { classifyStepIntents, type StepCall, type StepIntentContext } from "../../domain/step-intent.ts";

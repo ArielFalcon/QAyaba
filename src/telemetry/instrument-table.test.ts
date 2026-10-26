@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { INSTRUMENTS, checkInstrumentTable, type InstrumentTable } from "@kernel/telemetry/instrument-table.ts";
+import { INSTRUMENTS, checkInstrumentTable, type InstrumentTable } from "./instrument-table";
 
 test("the shipped instrument table has no undeclared or denylisted attribute key", () => {
   assert.deepEqual(checkInstrumentTable(INSTRUMENTS), []);

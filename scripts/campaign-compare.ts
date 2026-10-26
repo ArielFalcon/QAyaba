@@ -13,12 +13,12 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   CampaignRunsSchema, EvaluationCatalogSchema, RunEvaluationSchema, type CampaignRuns, type EvaluationCatalog,
-} from "../qa-engine/src/shared-kernel/contract/commands.ts";
+} from "../src/contract/commands.ts";
 import {
   ComparisonError, compareCampaign, renderComparisonMarkdown, DEFAULT_BOOTSTRAP_ITERATIONS, DEFAULT_SEED,
   type CampaignComparison, type CampaignRun, type RunScore,
 } from "@contexts/evaluation/domain/campaign-comparison.ts";
-import { CAMPAIGN_ID_PATTERN } from "@kernel/campaign.ts";
+import { CAMPAIGN_ID_PATTERN } from "../src/contract/campaign.ts";
 
 export interface CompareArguments {
   campaign: string;

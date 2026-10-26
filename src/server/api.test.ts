@@ -21,7 +21,7 @@ import {
   RunRecordSchema,
   TelemetryHealthSchema,
 } from "../contract/commands";
-import type { TelemetryHealth } from "@kernel/telemetry/telemetry-health";
+import type { TelemetryHealth } from "../telemetry/telemetry-health";
 import { RunEventSchema, RunEvent } from "../contract/events";
 import { createRunEventStore, RunEventStore } from "./run-events";
 import type { AgentTurnRecord, TelemetryAnalysis } from "./history";

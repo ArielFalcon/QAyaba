@@ -2,7 +2,7 @@
 
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { ReviewPort } from "../../application/ports/review.port.ts";
-import type { ReviewEnrichment } from "../../application/review.ts";
+import type { ReviewEnrichment } from "../../domain/review-enrichment.ts";
 import type { ReviewStats } from "../../domain/review.ts";
 import { REVIEWER_UNAVAILABLE_MARKER } from "../../domain/review.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";

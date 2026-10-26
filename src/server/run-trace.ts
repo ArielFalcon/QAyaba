@@ -12,7 +12,7 @@
  */
 
 import type { RunVerdict } from "@kernel/run-verdict";
-import type { CampaignIdentity } from "@kernel/campaign";
+import type { CampaignIdentity } from "../contract/campaign";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import { attrKey } from "@kernel/telemetry/attribute-registry";
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry";

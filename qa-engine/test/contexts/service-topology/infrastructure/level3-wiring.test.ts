@@ -2,10 +2,10 @@
    1. OpencodeRunInput.serviceLinks field presence and renderMain prompt section
    2. GenerateTestsUseCase with optional ServiceBoundaryResolverPort
  */
+import type { ServiceLink } from "@kernel/service-links";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { OpencodeRunInput } from "@contexts/generation/application/index.ts";
-import type { ServiceLink } from "@contexts/service-topology/domain/index.ts";
 import type { GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";

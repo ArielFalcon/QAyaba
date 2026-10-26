@@ -1,10 +1,8 @@
 /* OpenAPI-anchored BE→BE HTTP link resolver. App-specific patterns come from the injected HttpBackendBoundaryProfile. resolveLinks never throws: per-repo/per-file errors skip that unit; an unknown callPattern.kind degrades to an empty result. The OpenAPI document and the sources are read through one RepoReader for each repository (see repo-walk.ts): a mirror is a directory the agent writes into, so no link is followed, no named pipe is opened and neither the entries looked at nor the size of a file is unbounded; what could not be used is skipped, and said once for the repository. */
+import type { ServiceLink, ServiceSymbolRef, ContractDrift } from "@kernel/service-links.ts";
 import type { ServiceBoundaryResolverPort } from "../application/ports/service-boundary-resolver.port.ts";
 import type { ResolveLinksResult } from "../domain/service-boundary-resolver.ts";
-import type {
-  RepoRef, ServiceLink, ServiceSymbolRef, ContractDrift, ExternalCall, UnresolvedCall,
-  HttpBackendBoundaryProfile,
-} from "../domain/index.ts";
+import type { RepoRef, ExternalCall, UnresolvedCall, HttpBackendBoundaryProfile } from "../domain/index.ts";
 import { CallPatternCatalog } from "./call-pattern-catalog.ts";
 import { compilePrefixTemplate, compileRepoTemplate, type PrefixMatch } from "./boundary-template.ts";
 import { compileFileGlob } from "./glob-suffix.ts";

@@ -1,17 +1,3 @@
-import type { ServiceLink, ServiceSymbolRef } from "./index.ts";
-
-export const MATCH_TIER = {
-  CONTRACT_FILE: "contract-file",
-  IMPACTED_SYMBOL: "impacted-symbol",
-} as const;
-export type MatchTier = (typeof MATCH_TIER)[keyof typeof MATCH_TIER];
-
-/** tier is a closed, code-defined literal — never a sanitizer-sentinel string and never attacker/agent-controlled. */
-export interface ImpactedLink {
-  link: ServiceLink;
-  tier: MatchTier;
-}
-
 
 /* A path's segments, a parameter (`{id}`, `:id`) reduced to one placeholder. */
 function pathSegments(path: string): string[] {
@@ -39,9 +25,4 @@ export function routeServesOperation(route: { method: string; path: string }, op
   if (longer.slice(0, cut).includes("{}")) return false;
   const tail = longer.slice(cut);
   return shorter.every((s, i) => s === tail[i]);
-}
-
-export interface CrossRepoImpact {
-  impactedLinks: ImpactedLink[];
-  serviceImpacted?: ServiceSymbolRef[];
 }

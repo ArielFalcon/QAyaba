@@ -1,8 +1,9 @@
 /* The walks behind the change-page join: in one repo the change and what reaches it, across repos the frontend call sites of the links the stitcher found reached. An index that cannot answer adds nothing; a link without a call-site symbol claims nothing. */
+import type { ServiceLink } from "@kernel/service-links";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ChangePagesPortAdapter } from "@contexts/service-topology/infrastructure/adapters/change-pages-port.adapter.ts";
-import type { ChangePagesRequest, ServiceLink } from "@contexts/service-topology/application/index.ts";
+import type { ChangePagesRequest } from "@contexts/service-topology/application/index.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { ImpactedSymbol, LocalSymbolRef } from "@kernel/code/index.ts";
 import type { BlastRadius } from "@kernel/blast-radius.ts";

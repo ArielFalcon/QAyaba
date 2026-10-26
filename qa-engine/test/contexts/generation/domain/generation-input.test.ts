@@ -4,7 +4,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { OpencodeRunInput } from "@contexts/generation/application/generation-input.ts";
+import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 import type { ReviewInput } from "@contexts/generation/domain/generation-input.ts";
 
 test("OpencodeRunInput accepts the full deterministic-signal field set (contextPack/domSnapshot/staticSignal/staticSignalHasSymbols)", () => {

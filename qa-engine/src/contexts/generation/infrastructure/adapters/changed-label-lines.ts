@@ -3,7 +3,7 @@
 import type { ChangedElement } from "@kernel/diff-parser/changed-element.ts";
 import type { ChangedLines } from "@kernel/diff-parser/changed-lines.ts";
 import type { ChangedLiteral } from "@kernel/diff-parser/changed-literal.ts";
-import { countUnchangedLinesHolding } from "@kernel/diff-parser/unchanged-lines.ts";
+import { countUnchangedLinesHolding } from "@contexts/generation/domain/unchanged-lines.ts";
 import { MAX_SPEC_SOURCE_BYTES, readOwnedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 
 /* The most distinct files read for one diff: the labels of a diff come from a few files, and a rewrite of the app says no more by reading them all. */

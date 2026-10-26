@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LearningRuleViewSchema } from "@kernel/contract/commands.ts";
+import { LearningRuleViewSchema } from "./commands";
 
 const rule = { trigger: "t", action: "a", errorClass: "E-X", confidence: "low", usageCount: 0, outcomeCount: 0, successRate: null };
 

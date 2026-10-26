@@ -7,7 +7,7 @@ import { WORDING } from "@contexts/generation/domain/changed-values.ts";
 import { countDirectives, lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import type { ChangedLiteral } from "@kernel/diff-parser/changed-literal.ts";
-import { countUnchangedLinesHolding } from "@kernel/diff-parser/unchanged-lines.ts";
+import { countUnchangedLinesHolding } from "@contexts/generation/domain/unchanged-lines.ts";
 
 const FILE = "src/app/restaurant-list.page.html";
 const PACK_INPUT = { baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e", routes: ["/restaurantes"] };

@@ -11,7 +11,7 @@ import type { RawOpencodeEvent } from "@contexts/generation/infrastructure/sse/a
 import { withTurnTelemetry, type TurnTelemetryDeps } from "@contexts/generation/infrastructure/telemetry/with-turn-telemetry";
 import { AgentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
 import type { StepIntentContext } from "@contexts/generation/domain/step-intent";
-import { INSTRUMENTS, checkInstrumentTable } from "@kernel/telemetry/instrument-table";
+import { INSTRUMENTS, checkInstrumentTable } from "./instrument-table";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";

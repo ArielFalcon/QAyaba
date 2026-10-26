@@ -6,7 +6,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import { scoreProfile, selectBestProfile, type ProfileScore } from "@contexts/service-topology/application/profile-scorer.ts";
+import { scoreProfile, selectBestProfile } from "@contexts/service-topology/application/profile-scorer.ts";
+import type { ProfileScore } from "@contexts/service-topology/domain/profile-score.ts";
 import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrastructure/resolver-factory.ts";
 import type { RepoRef, HttpBoundaryProfile } from "@contexts/service-topology/domain/index.ts";
 

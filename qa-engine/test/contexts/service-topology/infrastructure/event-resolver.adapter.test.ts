@@ -5,11 +5,12 @@
    app (Invariant #1). Fixtures under fixtures/event-cross-repo/ use generic Foo/Bar/Orphan
    names, never nname's real identifiers.
  */
+import type { ServiceLink } from "@kernel/service-links";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { EventResolver } from "@contexts/service-topology/infrastructure/event-resolver.adapter.ts";
-import type { RepoRef, EventBoundaryProfile, ServiceLink } from "@contexts/service-topology/domain/index.ts";
+import type { RepoRef, EventBoundaryProfile } from "@contexts/service-topology/domain/index.ts";
 
 const FIXTURES = join(import.meta.dirname, "../fixtures");
 

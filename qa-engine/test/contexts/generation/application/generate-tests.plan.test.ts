@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { GenerateTestsUseCase, type GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { GeneratorDeliverable } from "@contexts/generation/domain/manifest-repository.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
-import type { OpencodeRunInput } from "@contexts/generation/application/generation-input.ts";
+import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 import { AgentTimeoutError, AgentUnavailableError } from "@kernel/domain-error.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 import type { AgentPromptOpts, OpenSessionOpts } from "@kernel/ports/agent-runtime.port.ts";

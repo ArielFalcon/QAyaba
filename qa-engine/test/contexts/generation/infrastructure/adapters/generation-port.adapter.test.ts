@@ -7,6 +7,7 @@
    omits it — the FixLoop's own documented contract treats absent as 0 (the safe default), never a
    fabricated number.
  */
+import type { RetrievedRule } from "@kernel/learned-rule";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -22,10 +23,9 @@ import { formatSuiteEntry } from "@contexts/generation/domain/suite-entry.ts";
 import { withoutWaitingOnNamedPipe } from "../../../../support/named-pipe-watch.ts";
 import type { GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
-import type { OpencodeRunInput } from "@contexts/generation/application/generation-input.ts";
+import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 import type { StepLimitRole } from "@contexts/generation/domain/generation-input.ts";
 import type { GenerationEnrichment } from "@contexts/generation/application/index.ts";
-import type { RetrievedRule } from "@contexts/cross-run-learning/application/index.ts";
 import type { TestTarget } from "@kernel/run-mode.ts";
 import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter.ts";
 import {

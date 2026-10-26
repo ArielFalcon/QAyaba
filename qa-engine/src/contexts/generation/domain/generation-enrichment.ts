@@ -1,12 +1,12 @@
+import type { RetrievedRule, SelectedExemplar } from "@kernel/learned-rule.ts";
+import type { ServiceLink, ContractDrift, ImpactedLink } from "@kernel/service-links.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import type { AgentBrowserLimits } from "@kernel/agent-browser.ts";
 import type { GeolocationFacts } from "@kernel/geolocation.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { CommitIntent } from "@kernel/commit-intent.ts";
-import type { RetrievedRule, SelectedExemplar } from "@contexts/cross-run-learning/application/index.ts";
 import type { GroundingOmission, ArchitectureContext, HarnessFacts } from "@kernel/grounding.ts";
-import type { ServiceLink, ContractDrift, ImpactedLink } from "@contexts/service-topology/application/index.ts";
 import type { PlanningLimits } from "@kernel/coordination.ts";
 
 /** Optional trailing bag on generate(). Every field is independently absent-safe. */

@@ -1,4 +1,4 @@
-import type { RetrievedRule } from "@contexts/cross-run-learning/application/index.ts";
+import type { RetrievedRule } from "@kernel/learned-rule.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
 /**

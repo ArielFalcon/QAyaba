@@ -14,7 +14,7 @@ import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-proto";
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-proto";
 import { BatchLogRecordProcessor, LoggerProvider, type LogRecordExporter } from "@opentelemetry/sdk-logs";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
-import type { TelemetryHealth } from "@kernel/telemetry/telemetry-health";
+import type { TelemetryHealth } from "./telemetry-health";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { resolveCampaignFreeze } from "../server/campaign-freeze";
 import { commitRunSpans, pruneRunPlans, pruneRunSpans, pruneSpecSnapshots } from "../server/history";

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { end, goto, next, runFlow, validateTable, type FlowHooks, type FlowStep, type StepEvent } from "@contexts/run-orchestration/application/run-flow/run-flow.ts";
 import { throwIfAborted } from "@contexts/run-orchestration/application/run-flow/abort.ts";
 import { runEnd } from "@contexts/run-orchestration/application/run-flow/run-end.ts";
-import type { RunPhase } from "@contexts/run-orchestration/domain/run-phase-cursor.ts";
+import type { RunPhase } from "@kernel/run-step.ts";
 
 interface S { trace: string[]; n: number }
 type Id = "a" | "b" | "c" | "end" | "quiet" | "never";

@@ -7,7 +7,7 @@ import { capText, capDiff, extractDiffFilePath } from "../prompt-cap.ts";
 import { failureUnsettled, type FailureSettle, type QaCase } from "@kernel/qa-case.ts";
 import { stripAnsi } from "@kernel/ansi.ts";
 import type { ArchitectureContext, CommitIntent, ReviewInput } from "../../domain/generation-input.ts";
-import type { OpencodeRunInput } from "../../application/generation-input.ts";
+import type { OpencodeRunInput } from "../../domain/opencode-run-input.ts";
 import { deriveClaimsFromPackText, withoutPackSection } from "../context-pack.ts";
 import { diffStat, diffTier, type DiffStat, type DiffTier } from "@contexts/generation/domain/diff-stat.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";

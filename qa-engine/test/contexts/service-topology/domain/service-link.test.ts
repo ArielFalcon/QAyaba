@@ -1,9 +1,10 @@
 /* test/contexts/service-topology/domain/service-link.test.ts
    RED: domain VO structural contract tests — written before the VOs exist.
  */
+import type { ServiceLink, ServiceSymbolRef, ContractDrift } from "@kernel/service-links";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { ServiceLink, ServiceSymbolRef, RepoRef, ContractDrift } from "@contexts/service-topology/domain/index.ts";
+import type { RepoRef } from "@contexts/service-topology/domain/index.ts";
 
 test("ServiceSymbolRef has repo, file, and symbol fields", () => {
   const ref: ServiceSymbolRef = { repo: "ArielFalcon/name-webapp", file: "src/app/order/api/order.api.ts", symbol: "getOrder" };

@@ -11,7 +11,8 @@
  * Observability never changes how a run ends: this class only calls a telemetry port that is total (guardTelemetry).
  */
 
-import type { PhaseObserver, RunPhase } from "../domain/run-phase-cursor.ts";
+import type { RunPhase } from "@kernel/run-step.ts";
+import type { PhaseObserver } from "../domain/run-phase-cursor.ts";
 import type { RedactionScope, SpanHandle, TelemetryContext, TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 
 export interface PhaseSpansDeps {

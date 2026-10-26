@@ -6,7 +6,7 @@ import type { CaptureDomDeps } from "@contexts/generation/infrastructure/dom-sna
 import { buildRouteCatalog } from "@contexts/generation/infrastructure/route-catalog.ts";
 import { readConfinedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { enumerateExistingSpecFiles } from "./pre-generation-grounding-port.adapter.ts";
-import { raceWithAbort, isAbortError } from "@kernel/abort-race.ts";
+import { raceWithAbort, isAbortError } from "@contexts/generation/domain/abort-race.ts";
 
 /* One captured route: `nodes` required; `status`/`settled`/`testIds` from buildRouteCatalog, not the raw capture. */
 type CapturedRoute = Awaited<ReturnType<PreExecGroundingPort["capture"]>>["routes"][number];

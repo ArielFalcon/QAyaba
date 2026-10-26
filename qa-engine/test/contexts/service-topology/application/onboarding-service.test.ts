@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { OnboardingService, type OnboardingRoundProgress } from "@contexts/service-topology/application/onboarding-service.ts";
 import type { ProfileProposerPort } from "@contexts/service-topology/application/ports/profile-proposer.port.ts";
-import type { ProposerFeedback } from "@contexts/service-topology/application/service-boundary-resolver.ts";
+import type { ProposerFeedback } from "@contexts/service-topology/domain/profile-score.ts";
 import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrastructure/resolver-factory.ts";
 import type { RepoRef, HttpBoundaryProfile, BoundaryProfile } from "@contexts/service-topology/domain/index.ts";
 

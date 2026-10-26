@@ -1,9 +1,10 @@
 /* LearningPort: retrieve budget-fitted rules for the generator prompt; fold outcomes off-path (never gates the run). */
 
+import type { RetrievedRule } from "@kernel/learned-rule.ts";
 import type { Sha } from "@kernel/sha.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { LearningPort } from "../../application/ports/learning.port.ts";
-import type { RetrievedRule, RelevanceBias } from "../../domain/learning.ts";
+import type { RelevanceBias } from "../../domain/learning.ts";
 import type { LearningRepositoryPort, RuleStatus } from "@contexts/cross-run-learning/application/index.ts";
 import { renderLearnedRules } from "@contexts/cross-run-learning/application/index.ts";
 

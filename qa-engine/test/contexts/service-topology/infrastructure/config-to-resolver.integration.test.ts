@@ -7,12 +7,13 @@
    links against fixtures known (via openapi-http-resolver.adapter.test.ts) to produce exactly
    2 matched links (listOrders, getOrderById) for the nname-shaped convention.
  */
+import type { ServiceLink } from "@kernel/service-links";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { YamlBoundaryProfileAdapter } from "@contexts/service-topology/infrastructure/yaml-boundary-profile.adapter.ts";
 import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrastructure/resolver-factory.ts";
-import type { RepoRef, ServiceLink } from "@contexts/service-topology/domain/index.ts";
+import type { RepoRef } from "@contexts/service-topology/domain/index.ts";
 
 const FIXTURES = join(import.meta.dirname, "../fixtures");
 

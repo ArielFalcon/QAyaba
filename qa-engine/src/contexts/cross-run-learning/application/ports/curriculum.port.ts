@@ -1,4 +1,5 @@
-import type { CurriculumFoldInput, SelectedExemplar } from "../../domain/curriculum-model.ts";
+import type { SelectedExemplar } from "@kernel/learned-rule.ts";
+import type { CurriculumFoldInput } from "../../domain/curriculum-model.ts";
 
 /**
  * Per-app scenario-archetype prior. Optional and off-path: absent is today's

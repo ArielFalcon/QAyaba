@@ -1,5 +1,5 @@
 import type { RunStep } from "@kernel/run-step.ts";
-import type { RunEventBody } from "@kernel/run-event.ts";
+import type { RunEventBody } from "@contexts/run-orchestration/domain/run-event.ts";
 
 /** Replaces positional run callbacks with one typed observer. */
 export interface ObserverPort {

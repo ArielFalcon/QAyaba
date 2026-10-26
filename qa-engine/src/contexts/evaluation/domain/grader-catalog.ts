@@ -7,7 +7,7 @@
  * pipeline does not record (referenced context ids, spec snapshots, the no-op kind, strict-mode failure counts, campaign re-runs).
  */
 
-import { RUN_PHASES } from "@contexts/run-orchestration/domain/run-phase-cursor";
+import { RUN_PHASES } from "@kernel/run-step";
 import type { RawScore, Score, ScoreDataType, ScorePolarity } from "./score.ts";
 
 /* The longest comment a score carries: it is read by people and travels to a sink, never a free-form log. */

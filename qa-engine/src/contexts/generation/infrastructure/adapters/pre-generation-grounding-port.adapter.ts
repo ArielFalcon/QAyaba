@@ -1,7 +1,7 @@
 /* PreGenerationGroundingPort: fail-open context.json + context pack + harness facts. Never throws. */
 
 import type { ChangePagesPort } from "@contexts/service-topology/application/index.ts";
-import type { GroundingChange } from "../../application/pre-generation-grounding.ts";
+import type { GroundingChange } from "../../domain/grounding-change.ts";
 import type { PreGenerationGroundingPort } from "../../application/ports/pre-generation-grounding.port.ts";
 import type { GroundingResult } from "../../domain/pre-generation-grounding.ts";
 import type { HarnessFacts } from "@kernel/grounding.ts";
@@ -18,7 +18,7 @@ import { extractExportedNames, isSafeAttributeName } from "@contexts/generation/
 import { formatSuiteEntry } from "@contexts/generation/application/index.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import { listSpecFiles, readFailureReason, readOwnedSpecFile } from "../../../../shared-infrastructure/spec-path-confinement.ts";
-import { raceWithAbort, isAbortError } from "@kernel/abort-race.ts";
+import { raceWithAbort, isAbortError } from "@contexts/generation/domain/abort-race.ts";
 import { withDeclaredResources } from "./implementation-resources.ts";
 import { withChangedElementScopes } from "./changed-element-scope.ts";
 import { withUnchangedLines, type MeasuredLabels } from "./changed-label-lines.ts";

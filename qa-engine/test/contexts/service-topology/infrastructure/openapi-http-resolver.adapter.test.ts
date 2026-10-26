@@ -1,11 +1,12 @@
 /* test/contexts/service-topology/infrastructure/openapi-http-resolver.adapter.test.ts
    Uses tiny fixtures, no real repo dirs.
  */
+import type { ServiceLink, ContractDrift } from "@kernel/service-links";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { OpenApiHttpResolver, extractEnclosingMethodFallback } from "@contexts/service-topology/infrastructure/openapi-http-resolver.adapter.ts";
-import type { RepoRef, ServiceLink, ContractDrift, HttpBoundaryProfile } from "@contexts/service-topology/domain/index.ts";
+import type { RepoRef, HttpBoundaryProfile } from "@contexts/service-topology/domain/index.ts";
 
 const FIXTURES = join(import.meta.dirname, "../fixtures");
 

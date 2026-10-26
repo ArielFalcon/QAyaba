@@ -1,5 +1,5 @@
 import type { PlanOutput } from "@kernel/plan-output.ts";
-import type { GenerationEnrichment } from "../generation.ts";
+import type { GenerationEnrichment } from "../../domain/generation-enrichment.ts";
 import type { GenerationOutput } from "../../domain/generation.ts";
 
 export interface GenerationPort {

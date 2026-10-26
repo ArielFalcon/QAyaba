@@ -1,4 +1,5 @@
 /* The claims a prompt declares per section: what it provides, how it frames a fact, what it directs the agent to do. The prompt-contract lint reads them, so each behavior here is asserted on claims and section sizes, never on prompt wording. */
+import type { RetrievedRule } from "@kernel/learned-rule";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -12,8 +13,7 @@ import { PACK_HEADINGS } from "@contexts/generation/infrastructure/context-pack.
 import { lintCell, type FactId, type LintSection, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { renderLearnedRules } from "@contexts/cross-run-learning/application/index.ts";
 import { renderBlastRadiusSignal } from "@contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts";
-import type { RetrievedRule } from "@contexts/cross-run-learning/application/index.ts";
-import type { OpencodeRunInput } from "@contexts/generation/application/generation-input.ts";
+import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 import { setAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { rosterFixturePath } from "../../../../support/roster-fixture.ts";
 

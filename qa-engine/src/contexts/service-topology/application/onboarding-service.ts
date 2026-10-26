@@ -1,6 +1,7 @@
-import { scoreProfile, selectBestProfile, type BoundaryResolverFactory, type ProfileScore } from "./profile-scorer.ts";
+import { scoreProfile, selectBestProfile, type BoundaryResolverFactory } from "./profile-scorer.ts";
+import type { ProfileScore } from "../domain/profile-score.ts";
 import type { ProfileProposerPort } from "./ports/profile-proposer.port.ts";
-import type { ProposerFeedback } from "./service-boundary-resolver.ts";
+import type { ProposerFeedback } from "../domain/profile-score.ts";
 import type { BoundaryProfile, RepoRef } from "../domain/index.ts";
 
 /** Round-ceiling counter for the onboarding loop. Local to this context — not run-orchestration's CycleBudget. */

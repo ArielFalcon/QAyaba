@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import { decodeLiteralText } from "@kernel/diff-parser/changed-literal.ts";
-import { countUnchangedLinesHolding } from "@kernel/diff-parser/unchanged-lines.ts";
+import { countUnchangedLinesHolding } from "@contexts/generation/domain/unchanged-lines.ts";
 
 const svc = new DiffParserService();
 

@@ -1,14 +1,14 @@
+import type { ServiceLink, ContractDrift } from "@kernel/service-links.ts";
 import type { TestTarget, RunMode } from "@kernel/run-mode.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { Omission } from "@kernel/telemetry/section-meta.ts";
-import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
+import type { HarnessFacts } from "./harness-facts.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import type { AgentBrowserLimits } from "@kernel/agent-browser.ts";
 import type { GeolocationFacts } from "@kernel/geolocation.ts";
 import type { PlanningLimits } from "@kernel/coordination.ts";
-import type { ServiceLink, ContractDrift } from "@contexts/service-topology/application/index.ts";
-import type { ArchitectureContext, CommitIntent } from "../domain/generation-input.ts";
+import type { ArchitectureContext, CommitIntent } from "./generation-input.ts";
 
 export interface OpencodeRunInput {
   repo: string;

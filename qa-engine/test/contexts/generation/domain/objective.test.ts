@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Objective, Flow } from "@kernel/objective.ts";
+import { Objective, Flow } from "@contexts/generation/domain/objective.ts";
 
 test("Flow: is a non-empty named user flow", () => {
   assert.equal(Flow.of("login").name, "login");

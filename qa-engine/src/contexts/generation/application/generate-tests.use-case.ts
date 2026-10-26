@@ -9,7 +9,7 @@ import type { ManifestRepositoryPort } from "./ports/manifest-repository.port.ts
 import type { PromptBudgetPort } from "./ports/prompt-budget.port.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 import type { GeneratorDeliverable } from "../domain/manifest-repository.ts";
-import type { OpencodeRunInput } from "./generation-input.ts";
+import type { OpencodeRunInput } from "../domain/opencode-run-input.ts";
 import type { ReviewInput } from "../domain/generation-input.ts";
 import { isAgentTimeoutError } from "@kernel/domain-error.ts";
 import { classifyGenerationEnd, renderGenerationNote } from "../domain/generation-end.ts";
