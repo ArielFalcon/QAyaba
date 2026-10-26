@@ -288,7 +288,7 @@ Do not confuse this document with `odd/tasks/run-state-machine.md`: that is the 
 - [x] T6a — S6a — inline — `state.loops` and the `nextAction` conventions — commit: 41e1d890
 - [x] T6b — S6b — inline — Static fix as a state — commit: 144769e8
 - [x] T6c — S6c — inline — Pre-exec corrective regeneration as a state — commit: e4156048
-- [ ] T6d — S6d — inline — Fix loop as states with a pure `fixLoopAction` (independent verifier) — commit: pending
+- [x] T6d — S6d — inline — Fix loop as states with a pure `fixLoopAction` (independent verifier) — commit: 9ac0132a (pure action), 1c536ea6
 - [ ] T6e — S6e — inline — Coverage regeneration as a state — commit: pending
 - [ ] T6f — S6f — inline — Review rounds as states (independent verifier) — commit: pending
 - [ ] T6g — S6g — inline — Lead correction budget and review-turn count — commit: pending
