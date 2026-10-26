@@ -25,7 +25,7 @@ import {
   stallMs,
 } from "../integrations/opencode-client";
 import type { RunPipelinePort, ObserverPort } from "@contexts/run-orchestration/application/index.ts";
-import { RequestContextHeal, type EnqueueContextRun } from "@contexts/run-orchestration/application/index";
+import { RequestContextHeal, type EnqueueContextRunPort } from "@contexts/run-orchestration/application/index";
 import { buildEngine, codeGraphFor, type EngineRootDeps } from "./engine-root";
 import type { PublishDeps } from "../../qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication";
 import { createDiscoverLogin } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner";
@@ -157,7 +157,7 @@ import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, rea
 import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
-import type { LearningStore } from "@contexts/cross-run-learning/application/index";
+import type { LearningStorePort } from "@contexts/cross-run-learning/application/index";
 import { listLearningRules, listLearningRulesForGovernance, getLearningRule, listAllLearningRules, quarantineLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, isContextStale, clearContextStale, recordContextHealRequest, saveScorecardEntry, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap as loadStoredContextMap } from "./history";
 import { recordIncident } from "./maintainer";
 import { resolveCampaignFreeze } from "./campaign-freeze";
@@ -292,7 +292,7 @@ async function fetchVersion(url: string): Promise<{ sha?: string; healthy?: bool
 }
 
 
-export function historyLearningStore(appName: string): LearningStore {
+export function historyLearningStore(appName: string): LearningStorePort {
   return {
     /*
      * Dedicated governance-path read, NOT listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT) —
@@ -426,7 +426,7 @@ export interface RunEngineFactoryDeps {
    * context_stale flag (see RequestContextHeal). A failure to enqueue never blocks or fails
    * the run that triggered it.
    */
-  enqueueContextRun?: EnqueueContextRun;
+  enqueueContextRun?: EnqueueContextRunPort;
   /*
    * How the files differ between the commit a stored context map was built at and the run's commit, read in the primary
    * mirror; undefined when they cannot be compared. Test seam: the default asks git.
@@ -465,6 +465,7 @@ const contextMapWrittenThisRun: ContextMapWrittenThisRun = (specDir) =>
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   }).trim() !== "";
+    /* mutation-scope:end context-map-compare-fallback */
 
 /*
  * How long a run waits for the agent runtime to answer the step-limit read. The first read of a directory

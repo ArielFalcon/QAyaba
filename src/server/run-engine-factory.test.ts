@@ -1,6 +1,6 @@
 import { test, mock } from "node:test";
 import type { ContextHealRunRequest } from "@contexts/run-orchestration/application/index";
-import { FoldRunOutcome, type LearningStore } from "@contexts/cross-run-learning/application/index";
+import { FoldRunOutcome, type LearningStorePort } from "@contexts/cross-run-learning/application/index";
 import type { RunOutcome } from "@kernel/run-outcome";
 import { buildAppCatalog } from "../../qa-engine/src/contexts/app-catalog/composition/build-app-catalog";
 import assert from "node:assert/strict";
@@ -69,7 +69,7 @@ setCatalogAgentsConfigPath(rosterFixturePath());
 setAgentsConfigPath(rosterFixturePath());
 
 /* The learning fold as the ledger runs it: the use case over the store the shell implements. */
-function foldRunOutcome(store: LearningStore, outcome: RunOutcome): void {
+function foldRunOutcome(store: LearningStorePort, outcome: RunOutcome): void {
   new FoldRunOutcome(store).execute(outcome);
 }
 
@@ -2805,7 +2805,7 @@ test("a run whose diff shapes are unknown credits every retrieved rule", async (
   assert.deepEqual(credited, { matching: true, unrelated: true, untagged: true });
 });
 
-/* Before this fix, historyLearningStore(appName) never implemented LearningStore.selectAllRules,
+/* Before this fix, historyLearningStore(appName) never implemented LearningStorePort.selectAllRules,
    so SqliteLearningRepository.listAll() always fell back to its own documented fail-open empty
    set — ReflectorPortAdapter's anti-respawn dedup (decideDistill against the FULL existing-rule
    set, incl. deprecated/superseded) was fully implemented but structurally inert in production: it

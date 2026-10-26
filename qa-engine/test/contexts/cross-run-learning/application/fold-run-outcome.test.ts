@@ -1,7 +1,7 @@
 /* FoldRunOutcome: which retrieved rules a run's outcome is credited to, with which score, and that a failing ledger never fails the run. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { FoldRunOutcome, type LearningStore } from "@contexts/cross-run-learning/application/index.ts";
+import { FoldRunOutcome, type LearningStorePort } from "@contexts/cross-run-learning/application/index.ts";
 import { PREVENTION_HELD_SCORE } from "@contexts/cross-run-learning/domain/rule-fold.ts";
 import type { LearningRule } from "@contexts/cross-run-learning/domain/learning-repository.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
@@ -22,7 +22,7 @@ function outcome(over: Partial<RunOutcome> & { gate?: Partial<RunOutcome["gateSi
 function ledger(rules: LearningRule[] = []) {
   const scorecards: unknown[] = [];
   const folds: { id: string; score: number; coverage: boolean | null; oracle: boolean | undefined }[] = [];
-  const store: LearningStore = {
+  const store: LearningStorePort = {
     selectRules: () => [],
     upsert: () => {},
     saveScorecardEntry: (entry) => void scorecards.push(entry),

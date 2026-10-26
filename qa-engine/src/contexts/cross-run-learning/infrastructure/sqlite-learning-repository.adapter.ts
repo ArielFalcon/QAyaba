@@ -1,6 +1,7 @@
 /* The store is injected (no SQLite binary in tests); ranking is delegated to RuleGovernanceService (the SELECT is UNORDERED — the duplicate SQL ORDER BY is gone). */
 import type { LearningRepositoryPort } from "../application/ports/learning-repository.port.ts";
-import type { LearningRow, LearningStore } from "../application/ports/learning-store.port.ts";
+import type { LearningStorePort } from "../application/ports/learning-store.port.ts";
+import type { LearningRow } from "../domain/learning-store-model.ts";
 import { FoldRunOutcome } from "../application/fold-run-outcome.use-case.ts";
 import type { LearningRule, RuleStatus, ErrorClass } from "../domain/learning-repository.ts";
 import type { RelevanceBias } from "../domain/rule-governance.service.ts";
@@ -35,7 +36,7 @@ export class SqliteLearningRepository implements LearningRepositoryPort {
    * so none of its output reaches a prompt before it has proven itself; a deterministic distiller's rules keep their normal governance. Absent: every retrievable rule, as before; the composition root decides.
    */
   constructor(
-    private readonly store: LearningStore,
+    private readonly store: LearningStorePort,
     private readonly policy: InjectionPolicy = { reflectorUnproven: true },
   ) {}
 

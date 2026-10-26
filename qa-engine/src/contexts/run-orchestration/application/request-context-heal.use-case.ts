@@ -1,10 +1,10 @@
 /* Asks for a context-map rebuild and disarms the stale flag only once the queue has accepted it. A refused (""), rejected, thrown or unwired enqueue — or a run with no sha — keeps the flag armed, so the next qualifying run retries instead of the heal being lost. */
 import type { ContextStaleFlagPort } from "./ports/context-stale-flag.port.ts";
-import type { EnqueueContextRun } from "./ports/enqueue-context-run.port.ts";
+import type { EnqueueContextRunPort } from "./ports/enqueue-context-run.port.ts";
 
 export class RequestContextHeal {
   constructor(
-    private readonly enqueue: EnqueueContextRun | undefined,
+    private readonly enqueue: EnqueueContextRunPort | undefined,
     private readonly flag: ContextStaleFlagPort,
   ) {}
 

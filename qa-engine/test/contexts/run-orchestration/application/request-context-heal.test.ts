@@ -1,13 +1,13 @@
 /* RequestContextHeal: the stale flag is cleared only once the queue has accepted the rebuild, and stays armed in every other case. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { RequestContextHeal, type EnqueueContextRun } from "@contexts/run-orchestration/application/index.ts";
+import { RequestContextHeal, type EnqueueContextRunPort } from "@contexts/run-orchestration/application/index.ts";
 
 async function settle(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
-function run(enqueue: EnqueueContextRun | undefined, sha: string | undefined, parentRunId?: string) {
+function run(enqueue: EnqueueContextRunPort | undefined, sha: string | undefined, parentRunId?: string) {
   const cleared: string[] = [];
   const warnings: string[] = [];
   const original = console.warn;

@@ -1,10 +1,10 @@
 /* Folds a finished run's outcome into the learning ledger: the oracle scorecard, then the score onto each retrieved rule that could have shaped the run. Off-path: a failure is logged and never gates or fails the run it learns from. */
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { attributableRules, preventionOutcome } from "../domain/rule-fold.ts";
-import type { LearningStore } from "./ports/learning-store.port.ts";
+import type { LearningStorePort } from "./ports/learning-store.port.ts";
 
 export class FoldRunOutcome {
-  constructor(private readonly store: LearningStore) {}
+  constructor(private readonly store: LearningStorePort) {}
 
   execute(outcome: RunOutcome): void {
     try {
