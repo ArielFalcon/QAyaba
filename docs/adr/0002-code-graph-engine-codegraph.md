@@ -4,7 +4,7 @@
 - **Date:** 2026-10-25 (revised the same day after an architecture review; plan Log L16-L19)
 - **Deciders:** qayaba maintainers
 - **Supersedes:** the engine chosen before this ADR for `service-links` and the structural signal (codebase-memory), which git history keeps. It keeps the grounding-telemetry measurement model of `docs/observability-design.md` and uses it for acceptance.
-- **Related:** `odd/tasks/codegraph-migration.md` (the executable plan), `qa-engine/src/shared-kernel/ports/code-graph.port.ts`, `qa-engine/src/shared-infrastructure/code-graph/`, `qa-engine/src/contexts/service-topology/`, `qa-engine/src/contexts/generation/domain/route-ranking.ts`, `qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/code-graph-tools-port.adapter.ts`, `docs/execution-sandbox.md`
+- **Related:** `odd/tasks/codegraph-migration.md` (the executable plan), `qa-engine/src/shared-kernel/ports/code-graph.port.ts`, `qa-engine/src/shared-infrastructure/code-graph/`, `qa-engine/src/contexts/service-topology/`, `qa-engine/src/contexts/generation/domain/route-ranking.ts`, `qa-engine/src/contexts/agent-tools/infrastructure/adapters/code-graph-tools-port.adapter.ts`, `docs/execution-sandbox.md`
 
 ## 1. Context
 
