@@ -186,6 +186,8 @@ interface SessionState {
   droppedStreamed: Set<string>;
   /* A fault while keeping the turn's streamed text: the turn carries none. */
   streamedFaulted: boolean;
+  /* The session's messages the runtime reported as the user's: their parts are the prompt, never streamed text. */
+  userMessages: Set<string>;
 }
 
 interface StreamedPart {
@@ -230,6 +232,7 @@ function newSession(cwd: string, stepsComplete: boolean): SessionState {
     streamed: new Map(),
     droppedStreamed: new Set(),
     streamedFaulted: false,
+    userMessages: new Set(),
   };
 }
 
@@ -426,6 +429,8 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
 
   /** Never throws: a fault poisons only the affected session. */
   record(event: RawOpencodeEvent): void {
+    if (event.type === "message.updated") return this.noteMessage(event);
+    if (event.type === "message.part.delta") return this.appendDelta(event);
     if (event.type !== "message.part.updated") return;
     const part = event.properties?.part as PartLike | undefined;
     const sessionId = part?.sessionID;
@@ -446,6 +451,32 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
     }
   }
 
+  /* A message the runtime reports as the user's: its parts are the prompt the turn was sent. */
+  private noteMessage(event: RawOpencodeEvent): void {
+    const info = event.properties?.info as { id?: unknown; role?: unknown; sessionID?: unknown } | undefined;
+    const sessionId = info?.sessionID ?? event.properties?.sessionID;
+    if (typeof sessionId !== "string" || typeof info?.id !== "string" || info.role !== "user") return;
+    this.sessions.get(sessionId)?.userMessages.add(info.id);
+  }
+
+  /* What a part that is still streaming has added: OpenCode sends a text part empty when it opens, its text as deltas, and whole only when it ends. */
+  private appendDelta(event: RawOpencodeEvent): void {
+    const props = event.properties as { sessionID?: unknown; partID?: unknown; field?: unknown; delta?: unknown } | undefined;
+    if (typeof props?.sessionID !== "string" || typeof props.partID !== "string" || props.field !== "text" || typeof props.delta !== "string") return;
+    const session = this.sessions.get(props.sessionID);
+    if (!session || session.poisoned || session.streamedFaulted) return;
+    const known = session.streamed.get(props.partID);
+    if (!known) return;
+    try {
+      known.text = (known.text + props.delta).slice(-STREAMED_TEXT_MAX_CHARS);
+      boundStreamed(session);
+    } catch (err) {
+      session.streamedFaulted = true;
+      session.streamed = new Map();
+      engineLog.error(`[qa] streamed-text tracking failed for session ${props.sessionID}; the turn's streamed text is dropped: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   /* A fault here drops the turn's streamed text only; the session's metrics are untouched. */
   private keepStreamed(session: SessionState, sessionId: string, part: PartLike, type: StreamedPart["type"]): void {
     if (session.streamedFaulted) return;
@@ -453,6 +484,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
       const id = part.id;
       const text = part.text;
       if (typeof id !== "string" || typeof text !== "string" || session.droppedStreamed.has(id)) return;
+      if (typeof part.messageID === "string" && session.userMessages.has(part.messageID)) return;
       session.streamed.set(id, { type, text: text.slice(-STREAMED_TEXT_MAX_CHARS) });
       boundStreamed(session);
     } catch (err) {

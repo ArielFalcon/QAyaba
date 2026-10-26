@@ -1432,3 +1432,36 @@ test("a fault while keeping streamed text drops only the text: the turn's call m
   assert.equal(metrics?.totalCalls, 2);
   assert.equal(metrics?.streamedText, undefined);
 });
+
+/* The recorded 1.17.7 turn: the prompt arrives as a text part of the user's message, and the assistant's text first as an empty part, then as deltas, then whole. */
+function recordedTurn(): { sessionID: string; events: RawOpencodeEvent[] } {
+  const events = JSON.parse(readFileSync(fileURLToPath(new URL("./fixtures/opencode-1.17.7-step-parts.json", import.meta.url)), "utf8")) as RawOpencodeEvent[];
+  return { sessionID: (events.find((e) => e.properties?.sessionID)?.properties?.sessionID ?? "") as string, events };
+}
+
+test("on the recorded turn, the prompt the user's message carries is not streamed text; what the assistant wrote is", async () => {
+  const { sessionID, events } = recordedTurn();
+  const tracker = tracked(sessionID);
+  await tracker.prepareAttempt(sessionID, 0);
+  for (const event of events) tracker.record(event);
+  assert.equal(tracker.take(sessionID, "")?.streamedText, "[text] ack");
+});
+
+test("on the recorded turn cut while the assistant's part was still streaming, the deltas it had sent are kept", async () => {
+  const { sessionID, events } = recordedTurn();
+  const tracker = tracked(sessionID);
+  await tracker.prepareAttempt(sessionID, 0);
+  const lastDelta = events.findIndex((e) => e.type === "message.part.delta");
+  assert.ok(lastDelta > 0, "the recording streams a delta");
+  for (const event of events.slice(0, lastDelta + 1)) tracker.record(event);
+  assert.equal(tracker.take(sessionID, "")?.streamedText, "[text] ack");
+});
+
+test("a turn that streamed nothing but its prompt carries no streamed text", async () => {
+  const { sessionID, events } = recordedTurn();
+  const tracker = tracked(sessionID);
+  await tracker.prepareAttempt(sessionID, 0);
+  const assistantText = events.findIndex((e) => e.type === "message.part.updated" && (e.properties?.part as { type?: string; messageID?: string } | undefined)?.type === "step-start");
+  for (const event of events.slice(0, assistantText + 1)) tracker.record(event);
+  assert.equal(tracker.take(sessionID, "")?.streamedText, undefined);
+});
