@@ -850,6 +850,29 @@ test("PUT /api/agent/config applies runtime config without echoing api keys", as
   assert.doesNotMatch(res.body, /sk-opencode-secret/);
 });
 
+test("PUT /api/agent/config refuses a field the runtime no longer reads instead of ignoring it", async () => {
+  const res = mkRes();
+  let applied = false;
+  await handleApi(
+    mkReq("PUT", "/api/agent/config", JSON.stringify({ mode: "dual" })),
+    res,
+    deps({
+      agentRuntime: {
+        getConfig: async () => publicAgentConfig,
+        applyConfig: async () => {
+          applied = true;
+          return { config: publicAgentConfig, restarted: [] };
+        },
+        listModels: async () => [],
+        restart: async () => ({ provider: "opencode", status: "healthy", configured: true }),
+      },
+    }),
+  );
+  assert.equal(res.status, 400);
+  assert.equal(applied, false);
+  assert.match(res.body, /mode/);
+});
+
 test("PUT /api/agent/config blocks while a run is active", async () => {
   const res = mkRes();
   let applied = false;

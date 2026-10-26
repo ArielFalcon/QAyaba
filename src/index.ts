@@ -50,7 +50,7 @@ import { installHttpDispatcher } from "./util/net";
 import { resolveRef, defaultMirrorDeps, ensureMirrorAtBranch, getHeadSha } from "./integrations/repo-mirror";
 import { askAssistant, AgentDeps, getOpenSessionCount, defaultAgentDeps, setAgentBrowserGrantLookup, setCodeGraphGrantLookup, setGeolocationGrantLookup } from "./integrations/opencode-client";
 import { createAgentRuntimeManager, logAgentConfigWarnings } from "./server/agent-runtime";
-import { keyPresence, validateAgentRuntimeConfig } from "./agent-runtime/config";
+import { keyPresence, retiredSelectorWarnings, validateAgentRuntimeConfig } from "./agent-runtime/config";
 import { OpenCodeRuntimeStrategy } from "./agent-runtime";
 import { appendLog, appendActivity, deleteAppHistory, runVerdictCounts } from "./server/history";
 import { type RunMode, type TestTarget } from "./types";
@@ -218,7 +218,10 @@ const agentRuntime = createAgentRuntimeManager({
   hasOpenSessions: () => getOpenSessionCount() > 0,
 });
 
-logAgentConfigWarnings(validateAgentRuntimeConfig(agentRuntime.current(), keyPresence(process.env)).warnings);
+logAgentConfigWarnings([
+  ...validateAgentRuntimeConfig(agentRuntime.current(), keyPresence(process.env)).warnings,
+  ...retiredSelectorWarnings(process.env),
+]);
 
 function currentAgentDeps(): AgentDeps {
   return agentRuntime.facade().deps();

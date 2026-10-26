@@ -94,6 +94,25 @@ func TestInfoFlagsExitZeroWithoutATerminal(t *testing.T) {
 	}
 }
 
+// A flag or command the client does not know (a removed runtime selector among them) fails with
+// exit 2 and the usage, instead of opening the UI as if it had been understood.
+func TestUnknownArgumentExitsTwoWithoutATerminal(t *testing.T) {
+	for _, arg := range []string{"--dual", "status"} {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestRunMainAsHelperProcess$")
+		cmd.Env = append(os.Environ(), "QAYABA_HELPER_ARGS="+arg)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+		exit, ok := err.(*exec.ExitError)
+		if !ok || exit.ExitCode() != 2 {
+			t.Fatalf("%s: want exit 2, got %v", arg, err)
+		}
+		if !strings.Contains(stderr.String(), arg) || !strings.Contains(stderr.String(), "Usage:") {
+			t.Fatalf("%s: stderr must name the argument and print the usage: %q", arg, stderr.String())
+		}
+	}
+}
+
 func TestRunMainAsHelperProcess(t *testing.T) {
 	args := os.Getenv("QAYABA_HELPER_ARGS")
 	if args == "" {

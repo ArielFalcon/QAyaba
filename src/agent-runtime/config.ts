@@ -45,6 +45,22 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
   return providerConfig("opencode", env);
 }
 
+/* Variables that selected a runtime mode or a provider per role; one runtime remains, so a set one is
+   reported instead of being silently ignored. */
+const RETIRED_RUNTIME_SELECTORS = [
+  "AGENT_RUNTIME_MODE",
+  "AGENT_SINGLE_PROVIDER",
+  "AGENT_PRIMARY_PROVIDER",
+  "AGENT_REVIEWER_PROVIDER",
+  "AGENT_CHAT_PROVIDER",
+] as const;
+
+export function retiredSelectorWarnings(env: Record<string, string | undefined> = process.env): string[] {
+  return RETIRED_RUNTIME_SELECTORS.filter((name) => env[name] !== undefined && env[name] !== "").map(
+    (name) => `${name} is set but no longer read: every role runs on the one agent runtime; remove it from the environment`,
+  );
+}
+
 export function keyPresence(env: Record<string, string | undefined> = process.env): KeyPresence {
   return { opencode: Boolean(env.OPENCODE_API_KEY) };
 }

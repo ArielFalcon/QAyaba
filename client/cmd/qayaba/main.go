@@ -33,6 +33,10 @@ func main() {
 		}
 		return
 	}
+	if len(args) > 0 {
+		fmt.Fprintf(os.Stderr, "qayaba: unknown argument %q\n\n%s", args[0], usage())
+		os.Exit(2)
+	}
 
 	p := tea.NewProgram(ui.New(), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {

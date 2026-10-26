@@ -454,8 +454,8 @@ export const AgentConfigUpdateSchema = z.object({
   assignments: AgentAssignmentsSchema.partial().optional(),
   apiKeys: z.object({
     opencode: z.string().optional(),
-  }).optional(),
-});
+  }).strict().optional(),
+}).strict();
 
 export const AgentModelInfoSchema = z.object({
   id: z.string(),

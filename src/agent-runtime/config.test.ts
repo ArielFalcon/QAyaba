@@ -5,6 +5,7 @@ import {
   validateAgentRuntimeConfig,
   publicAgentConfig,
   reviewerIndependence,
+  retiredSelectorWarnings,
 } from "./config";
 
 test("configFromEnv assigns every role to the one runtime", () => {
@@ -26,6 +27,14 @@ test("configFromEnv ignores runtime mode and provider selection variables and yi
   });
   assert.deepEqual(withSelectors, plain);
   assert.deepEqual(Object.keys(withSelectors), ["assignments"]);
+});
+
+test("a retired runtime selector in the environment is reported, one warning per variable", () => {
+  assert.deepEqual(retiredSelectorWarnings({ OPENCODE_API_KEY: "ok" }), []);
+  const warnings = retiredSelectorWarnings({ AGENT_RUNTIME_MODE: "dual", AGENT_REVIEWER_PROVIDER: "other", AGENT_REVIEWER_MODEL: "m" });
+  assert.equal(warnings.length, 2);
+  assert.match(warnings[0], /AGENT_RUNTIME_MODE/);
+  assert.match(warnings[1], /AGENT_REVIEWER_PROVIDER/);
 });
 
 test("a role's model comes from AGENT_<ROLE>_MODEL when set", () => {
