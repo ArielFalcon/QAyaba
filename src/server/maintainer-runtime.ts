@@ -1,5 +1,6 @@
 
 
+import { appLogger } from "../integrations/redacting-logger";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { recordIncident, setMaintainerStatus, getIncidents, updateIncident } from "./maintainer";
@@ -199,7 +200,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
           for (const inc of pending) {
             updateIncident(inc.id, { status: "diagnosing" });
           }
-          console.log("[maintainer] agent did not produce fixes; incidents marked for diagnosis.");
+          appLogger.info("[maintainer] agent did not produce fixes; incidents marked for diagnosis.");
           return;
         }
 
@@ -213,7 +214,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
         const status = await mirrorDeps.git(["status", "--porcelain"], maintainerWorkDir);
         if (!status.trim()) {
           setMaintainerStatus("idle");
-          console.log("[maintainer] agent made no file changes; nothing to commit.");
+          appLogger.info("[maintainer] agent made no file changes; nothing to commit.");
           return;
         }
 
@@ -255,7 +256,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
         });
 
         for (const inc of pending) updateIncident(inc.id, { status: "fixed", prUrl: pr.url });
-        console.log(`[maintainer] fix PR opened: ${pr.url}`);
+        appLogger.info(`[maintainer] fix PR opened: ${pr.url}`);
 
 
         const leaveForHuman = (why: string, severity: "warn" | "critical" = "warn") => {
@@ -263,7 +264,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
           if (severity === "critical") {
             recordIncident({ source: "health-check", severity, summary: `maintainer fix NOT auto-deployed: ${why}`, detail: pr.url });
           }
-          console.warn(`[maintainer] NOT auto-deploying (${why}) — PR left for a human: ${pr.url}`);
+          appLogger.warn(`[maintainer] NOT auto-deploying (${why}) — PR left for a human: ${pr.url}`);
         };
 
         /* Layer 1 — a valid necessity/minimality justification is MANDATORY. */
@@ -313,7 +314,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
          * src/ rewrite (reading a half-swapped tree) or gets SIGKILLed mid-flight on exit.
          */
         cfg.setShuttingDown(true);
-        console.log("[maintainer] all safety gates green — no longer accepting runs; waiting for the queue to drain before canary swap...");
+        appLogger.info("[maintainer] all safety gates green — no longer accepting runs; waiting for the queue to drain before canary swap...");
         await cfg.queue.drain();
 
         /*
@@ -347,19 +348,19 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
            */
           fx.exec("npm install --no-audit --no-fund", { cwd: process.cwd(), stdio: "inherit", env: scrubEnv() });
         } catch (installErr) {
-          console.error(`[maintainer] post-swap npm install failed (${redactionPort.redactError(installErr)}) — restarting anyway; boot-guard is the backstop.`);
+          appLogger.error(`[maintainer] post-swap npm install failed (${redactionPort.redactError(installErr)}) — restarting anyway; boot-guard is the backstop.`);
         }
-        console.log("[maintainer] canary swap staged with rollback guard — restarting to verify, then promote.");
+        appLogger.info("[maintainer] canary swap staged with rollback guard — restarting to verify, then promote.");
         fx.exit(0);
 
       } finally {
         await session.dispose().catch((err) => {
-          console.warn(`[qa] session dispose failed: ${err instanceof Error ? err.message : String(err)}`);
+          appLogger.warn(`[qa] session dispose failed: ${err instanceof Error ? err.message : String(err)}`);
         });
       }
     } catch (err) {
       setMaintainerStatus("idle");
-      console.error(`[maintainer] session failed: ${redactionPort.redactError(err)}`);
+      appLogger.error(`[maintainer] session failed: ${redactionPort.redactError(err)}`);
       /* Mark incidents as needing manual attention */
       for (const inc of pending) {
         updateIncident(inc.id, { status: "diagnosing" });
@@ -404,7 +405,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
       }
       return;
     }
-    console.log(`[maintainer] a canary swap is pending verification (attempt ${marker.attempt}) — checking health...`);
+    appLogger.info(`[maintainer] a canary swap is pending verification (attempt ${marker.attempt}) — checking health...`);
     setTimeout(async () => {
       const healthy = await canaryHealthy();
       if (!healthy) {
@@ -594,7 +595,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
         summary: "a maintainer fix crash-looped and was rolled back by the boot-guard",
         detail: m.prUrl,
       });
-      console.error(`[maintainer] recovered from a boot-guard rollback — recorded to failure memory.${m.prUrl ? ` (${m.prUrl})` : ""}`);
+      appLogger.error(`[maintainer] recovered from a boot-guard rollback — recorded to failure memory.${m.prUrl ? ` (${m.prUrl})` : ""}`);
     } catch {
       /* corrupt bridge — ignore */
     }

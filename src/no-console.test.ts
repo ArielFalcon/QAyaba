@@ -121,7 +121,6 @@ const NOT_MIGRATED: readonly string[] = [
   "qa-engine/src/shared-infrastructure/run-output-reader.ts",
   "qa-engine/src/shared-infrastructure/telemetry/run-spans.ts",
   "qa-engine/src/shared-kernel/telemetry/guarded-telemetry.ts",
-  "src/server/maintainer-runtime.ts",
 ];
 
 function productionSources(dir: string): string[] {
