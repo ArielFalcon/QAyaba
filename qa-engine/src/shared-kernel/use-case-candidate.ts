@@ -23,9 +23,9 @@ export interface UseCaseCandidate {
   label?: string;
 }
 
-/* The routes of the candidates that are pages, in the order given. */
+/* The pages through which a browser reaches the candidates: each page candidate's route and the pages that reach an operation, once each, in the order given. */
 export function pageRoutesOf(candidates: readonly UseCaseCandidate[]): string[] {
-  return candidates.flatMap((c) => (c.entry.kind === "page" ? [c.entry.route] : []));
+  return [...new Set(candidates.flatMap(candidatePagesOf))];
 }
 
 /* The pages through which a browser reaches the candidate: its own route for a page, the pages that reach it for an operation. */

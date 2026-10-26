@@ -3,6 +3,7 @@ import { PLAN_DOWNGRADE } from "@contexts/coordination/application/lead-plan.ts"
 import { AUTHORING_REFUSAL } from "@kernel/coordination.ts";
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/lead-correction.ts";
 import { test } from "node:test";
+import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import assert from "node:assert/strict";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { DEFAULT_COORDINATION_SETTINGS, type PlanningLimits } from "@kernel/coordination.ts";
@@ -261,6 +262,22 @@ test("the planning turn is told the use cases the change makes testable, and tho
   assert.equal(reported.length, 1);
   assert.match(reported[0]!.reason, /1 use case.*uc-\/orders/);
   assert.doesNotMatch(reported[0]!.reason, /shops/, "a template a flow visits a page of counts as covered");
+});
+
+test("a page the change reaches only through an operation it changed is a change page of the plan", async () => {
+  const r = rig({ hasFile: new Set(["cart"]) });
+  const operation: UseCaseCandidate = {
+    id: "uc-GET /api/orders",
+    entry: { kind: "operation", repo: "org/api", verb: "GET", path: "/api/orders" },
+    tier: "direct", basis: "contract", evidence: ["org/api: GET /api/orders"], seeds: [], confidence: 1,
+    reachability: "via-page", pages: ["/orders"], existingSpecs: [],
+  };
+  const plan = { kind: "fanout", flows: [{ id: "cart", objective: "the cart total", routes: ["/cart"] }] };
+  const outcome = await r.coordinator.coordinate(input(r, { candidates: [...pageCandidates(["/cart"]), operation], plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  const last = r.plans.at(-1)!;
+  assert.deepEqual(last.changeRoutes, ["/cart", "/orders"]);
+  assert.deepEqual(last.unvisited, ["/orders"]);
 });
 
 test("the run keeps the plan it admitted, the change pages each flow visits and how each flow ended", async () => {
