@@ -9,6 +9,7 @@ import { GenerateTestsUseCase } from "@contexts/generation/application/index.ts"
 import type { OpencodeRunInput, StepLimitFor, CommitIntent as GenerationCommitIntent } from "@contexts/generation/application/index.ts";
 import { isReGenTurn } from "@contexts/generation/application/index.ts";
 import { suiteEntryFile } from "@contexts/generation/application/index.ts";
+import { GENERATION_END } from "@kernel/generation-end.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import { resolveConfinedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 
@@ -26,6 +27,8 @@ export interface GenerationPortStaticContext {
   target: TestTarget;
   mode: RunMode;
   diff: string;
+  /* The run has an independent review (its app asks for one and its product is tests): only then does a generation publish the manifest's flow and objective, for the review's "tested" section. Absent: false. */
+  reviewRequired?: boolean;
   guidance?: string;
   /* Live DEV URL the agent must navigate to (Playwright MCP). Absent → the agent has no URL to ground selectors against and must not invent them. */
   baseUrl?: string;
@@ -86,7 +89,7 @@ export class GenerationPortAdapter implements GenerationPort {
       /* mutation-scope:end note-and-parsed-passthrough */
       ...(generated.parsed !== undefined ? { parsed: generated.parsed } : {}),
       ...(generated.turn ? { turn: generated.turn } : {}),
-      ...(generated.specMetas?.length
+      ...(this.publishesSpecMetas(generated.end) && generated.specMetas?.length
         ? { specMetas: generated.specMetas.map((m) => ({ flow: m.flow, objective: m.objective })) }
         : {}),
       ...(generated.declaredSpecs?.length ? { declaredSpecs: generated.declaredSpecs.map((declared) => ({ ...declared })) } : {}),
@@ -100,6 +103,11 @@ export class GenerationPortAdapter implements GenerationPort {
 
     return result;
   /* mutation-scope:begin generate-return-tail */
+  }
+
+  /* A generation that ends on its time budget or a declared no-op publishes nothing of its manifest, as does a run with no review. */
+  private publishesSpecMetas(end: GenerationOutput["end"]): boolean {
+    return this.ctx.reviewRequired === true && this.ctx.mode !== "context" && end !== GENERATION_END.TIME_BUDGET && end !== GENERATION_END.DECLARED_NOOP;
   }
 
   /* The run input of one turn, from the run's static context and the enrichment the caller hands. */

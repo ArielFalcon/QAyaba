@@ -91,6 +91,25 @@ const STATIC_CONTEXT = {
   namespace: "qa-bot-abc1234", target: "e2e" as TestTarget, mode: "diff" as const, diff: "",
 };
 
+const TESTED_METAS = { specs: ["flows/checkout.spec.ts"], parsed: true, specMetas: [{ file: "flows/checkout.spec.ts", flow: "checkout", objective: "the user pays", targets: [] }] };
+
+test("generate() publishes no specMetas unless the run requires a review", async () => {
+  const ports = fakeGenerationPorts();
+  ports.verdicts.parseGenerator = () => TESTED_METAS;
+  const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(ports), { ...STATIC_CONTEXT });
+  const result = await adapter.generate("/mirrors/org/app/e2e");
+  assert.equal("specMetas" in result, false);
+  assert.deepEqual(result.specs, TESTED_METAS.specs);
+});
+
+test("generate() publishes the manifest's flow and objective when the run requires a review", async () => {
+  const ports = fakeGenerationPorts();
+  ports.verdicts.parseGenerator = () => TESTED_METAS;
+  const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(ports), { ...STATIC_CONTEXT, reviewRequired: true });
+  const result = await adapter.generate("/mirrors/org/app/e2e");
+  assert.deepEqual(result.specMetas, [{ flow: "checkout", objective: "the user pays" }]);
+});
+
 test("generate() forwards how the generation ended", async () => {
   const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(fakeGenerationPorts()), { ...STATIC_CONTEXT});
   const result = await adapter.generate("/mirrors/org/app/e2e");
