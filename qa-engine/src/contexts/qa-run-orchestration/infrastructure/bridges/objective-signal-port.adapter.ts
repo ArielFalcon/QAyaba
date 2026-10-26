@@ -1,9 +1,9 @@
-/* ObjectiveSignalPort: change-coverage measure + blocks. unknown never blocks. */
+/* ObjectiveSignalPort: change-coverage measure, recount + blocks. unknown never blocks. */
 
 import type { BlastRadius } from "@kernel/blast-radius.ts";
-import type { CoverageMeasurement, ObjectiveSignalPort } from "../../application/ports/index.ts";
+import type { CoverageMeasurement, CoverageRecount, CoverageRerun, ObjectiveSignalPort } from "../../application/ports/index.ts";
 import { DecideCoverageService, type ChangeCoverage, type CoveragePolicy } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
-import type { BundleMutationPort, BundleMutationResult, CoverageCollectorPort, CoverageReport, ValueOraclePort } from "@contexts/objective-signal/application/ports/index.ts";
+import type { BundleMutationPort, BundleMutationResult, CoverageCollectorPort, CoverageReport, DumpSource, ValueOraclePort } from "@contexts/objective-signal/application/ports/index.ts";
 import { parseDiffHunks } from "@contexts/objective-signal/domain/assemble-change-coverage.ts";
 import { selectMutants } from "@contexts/objective-signal/domain/select-mutants.ts";
 import { diffWithoutTestFiles } from "@contexts/generation/domain/diff-without-test-files.ts";
@@ -91,5 +91,22 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
 
   blocks(status: "pass" | "fail" | "unknown"): boolean {
     return this.deps.decide.blocks(status, this.ctx.policy);
+  }
+
+  async recount(br: BlastRadius, specDir: string, diff: string | undefined, reruns: readonly CoverageRerun[], opts?: { namespace?: string }): Promise<CoverageRecount | null> {
+    const { recollect } = this.deps.collector;
+    if (this.ctx.policy.mode === "off" || !diff || !this.ctx.assembleChangeCoverage || !recollect) return null;
+    const changeDiff = diffWithoutTestFiles(diff).diff;
+    const base = opts?.namespace ?? this.ctx.namespace ?? br.sha.toString();
+    const sources: DumpSource[] = [{ namespace: base, exceptSpecFiles: [...new Set(reruns.flatMap((r) => r.specFiles))] }, ...reruns.map((r) => ({ namespace: r.namespace }))];
+    const report = await recollect.call(this.deps.collector, specDir, sources, [...parseDiffHunks(changeDiff).keys()]);
+    const cc = this.ctx.assembleChangeCoverage(changeDiff, report);
+    return {
+      status: this.deps.decide.decide(cc, this.ctx.policy),
+      ratio: cc.measured ? cc.overall.ratio : null,
+      uncovered: cc.uncovered,
+      untakenArms: cc.untakenArms ?? [],
+      measurement: measurementOf(cc, undefined, report.scripts),
+    };
   }
 }

@@ -21,8 +21,12 @@ export interface MutationSite {
 }
 /* `branches` and `mutationSites` are absent when the collector does not see decisions, or could not read them within its bounds. */
 export interface CoverageReport { covered: CoveredLines[]; scripts?: CoverageScripts; branches?: BranchHit[]; mutationSites?: MutationSite[]; }
+/* The dumps of one namespace a recollection adds, without those the tests of `exceptSpecFiles` wrote. */
+export interface DumpSource { namespace: string; exceptSpecFiles?: readonly string[]; }
 export interface CoverageCollectorPort {
   collect(specDir: string, namespace: string, changedFiles?: string[]): Promise<CoverageReport>;
+  /* One report over the dumps of several namespaces, as a collection of them all would be; absent for a collector that reads reports a run writes whole. */
+  recollect?(specDir: string, sources: readonly DumpSource[], changedFiles?: string[]): Promise<CoverageReport>;
 }
 export interface ValueOracleResult {
   valueScore: number | null;

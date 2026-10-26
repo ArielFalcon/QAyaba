@@ -676,6 +676,26 @@ export interface ObjectiveSignalPort {
    * Only "enforce" + "fail" blocks; "unknown" never blocks regardless of mode.
    */
   blocks(status: "pass" | "fail" | "unknown"): boolean;
+  /**
+   * The change-coverage counted again over dumps a run already holds, re-running nothing (no oracle, no mutant): the first
+   * measurement's namespace without the dumps of each re-run's spec files, plus every re-run's own dumps. Null when nothing can
+   * be counted that way (coverage off, no diff, or a collector that reads reports a run writes whole). Absent on a port that
+   * cannot recount.
+   */
+  recount?(br: BlastRadius, specDir: string, diff: string | undefined, reruns: readonly CoverageRerun[], opts?: { namespace?: string }): Promise<CoverageRecount | null>;
+}
+/** The dumps a re-run of some spec files wrote, under its own namespace. */
+export interface CoverageRerun {
+  namespace: string;
+  specFiles: readonly string[];
+}
+/** A change-coverage counted again: the same status, ratio, lines and arms a measurement reports. */
+export interface CoverageRecount {
+  status: "pass" | "fail" | "unknown";
+  ratio: number | null;
+  uncovered: { file: string; lines: number[] }[];
+  untakenArms: UntakenArm[];
+  measurement: CoverageMeasurement;
 }
 export interface PublicationPort {
   /**

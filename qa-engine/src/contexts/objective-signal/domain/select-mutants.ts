@@ -1,28 +1,20 @@
 /* Which mutants of the served script a run re-runs, and which tests each one re-runs. Pure; no I/O.
    A mutant is made only where the change is (a site on a changed line) and only where a test reached (a site that ran), one per changed line, taken across the changed files in turn, so a few mutants speak of as much of the change as they can. Each re-runs the spec files whose tests ran its site: a dump is named after its test's title path, which starts with the spec file's path, and when no spec file can be told from the names every spec file that passed is re-run. */
 import type { MutationSite } from "../application/ports/index.ts";
+import { isDumpOfSpecFile } from "./dump-names.ts";
 
 /* How many mutants a run re-runs: each costs a re-run of the tests that reach it against DEV. */
 export const MAX_MUTANTS = 3;
-
-/* The seed's coverage fixture names a dump `${titlePath.join("-")}` with every run of other characters made one dash, cut at this many characters. */
-const DUMP_TITLE_CHARS = 60;
 
 export interface SelectedMutant {
   site: MutationSite;
   specFiles: string[];
 }
 
-const dashed = (text: string): string => text.replace(/[^a-z0-9]+/gi, "-");
-
 /* The spec files among `caseFiles` whose tests wrote the dumps `ranIn` names; every case file when none can be told. */
 export function specFilesOf(ranIn: readonly string[], caseFiles: readonly string[]): string[] {
   const files = [...new Set(caseFiles)].sort();
-  const matched = files.filter((file) => {
-    const key = dashed(file);
-    const prefix = key.slice(0, DUMP_TITLE_CHARS);
-    return ranIn.some((dump) => dump.startsWith(prefix) && (key.length >= DUMP_TITLE_CHARS || dump.charAt(key.length) === "-"));
-  });
+  const matched = files.filter((file) => ranIn.some((dump) => isDumpOfSpecFile(dump, file)));
   return matched.length > 0 ? matched : files;
 }
 

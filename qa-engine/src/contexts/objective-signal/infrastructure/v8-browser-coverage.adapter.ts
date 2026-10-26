@@ -1,6 +1,7 @@
 /* src/contexts/objective-signal/infrastructure/v8-browser-coverage.adapter.ts CoverageCollectorPort over V8/Chromium browser coverage dumps (.json files in .qa/coverage/<ns>/). The missing DI seam: the read of the dumps is injected (no hard-coded readdirSync/readFileSync), so this is unit-testable without disk and fail-open by contract (no dumps → empty report, never a throw). The injected read hands back what each dump covers (the lines of the changed files), not the dump: a dump holds every script a page loaded with its source map, megabytes of it, and the dumps of a suite are many, so each is reduced as it is read and none is kept.
    A dump is written by code the agent wrote, so what decoding it costs is bounded by its size and never by how its numbers are chosen: ranges that each cover the whole script, a script of nothing but line breaks or a source map of a million segments cost the script's length or the dump's size, once, and a dump past a bound is not decoded at all. How fast the segments of a source map decode still varies with their shape (a fifth of the usual speed on a map made to be slow), so the decoding is also asked, as it goes, whether the time it was given is spent (`TimeSpent`), and stops when it is. */
-import type { CoverageCollectorPort, CoverageReport, CoverageScripts } from "../application/ports/index.ts";
+import type { CoverageCollectorPort, CoverageReport, CoverageScripts, DumpSource } from "../application/ports/index.ts";
+import { isDumpOfSpecFile } from "../domain/dump-names.ts";
 import { BranchSink } from "./v8-branch-coverage.ts";
 
 interface RawSourceMap {
@@ -27,8 +28,8 @@ export interface V8Entry {
 /* What one dump covers: the lines (1-based) of each changed file that a script of the dump ran. */
 export type CoveredLines = Map<string, Set<number>>;
 
-/* Reads the dumps of a namespace and reduces each to the lines of `changedFiles` it covers, one dump at a time; `branches`, when given, is added the decisions of the changed files each dump ran. */
-export type ReadV8Coverage = (specDir: string, namespace: string, changedFiles: string[], scripts?: CoverageScripts, branches?: BranchSink) => Promise<CoveredLines[]>;
+/* Reads the dumps of a namespace (those `keep` accepts by name, when given) and reduces each to the lines of `changedFiles` it covers, one dump at a time; `branches`, when given, is added the decisions of the changed files each dump ran. */
+export type ReadV8Coverage = (specDir: string, namespace: string, changedFiles: string[], scripts?: CoverageScripts, branches?: BranchSink, keep?: (name: string) => boolean) => Promise<CoveredLines[]>;
 
 export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
   constructor(
@@ -37,9 +38,18 @@ export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
   ) {}
 
   async collect(specDir: string, namespace: string, changedFiles?: string[]): Promise<CoverageReport> {
+    return this.recollect(specDir, [{ namespace }], changedFiles);
+  }
+
+  /* The dumps of each source, read into one sink as one collection: an arm taken in any of them is taken. */
+  async recollect(specDir: string, sources: readonly DumpSource[], changedFiles?: string[]): Promise<CoverageReport> {
     const scripts: CoverageScripts = { total: 0, withSourceMap: 0 };
     const branches = new BranchSink();
-    const dumps = await this.readCoverage(specDir, namespace, changedFiles ?? this.changedFiles, scripts, branches);
+    const dumps: CoveredLines[] = [];
+    for (const { namespace, exceptSpecFiles = [] } of sources) {
+      const keep = exceptSpecFiles.length === 0 ? undefined : (name: string) => !exceptSpecFiles.some((file) => isDumpOfSpecFile(name, file));
+      dumps.push(...(await this.readCoverage(specDir, namespace, changedFiles ?? this.changedFiles, scripts, branches, keep)));
+    }
     const merged = new Map<string, Set<number>>();
     for (const covered of dumps) {
       for (const [file, lines] of covered) {

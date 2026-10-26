@@ -539,3 +539,40 @@ test("measure() asks no mutation when no site is on a changed line, coverage mea
   assert.equal(asked, 0);
   for (const r of [offChanged, unmeasured, unwired]) assert.equal("bundleMutation" in r, false);
 });
+
+test("recount() measures the change again over the dumps on disk: the first run's without those of the re-run spec files, plus each re-run's, with no oracle and no mutant", async () => {
+  const asked: unknown[] = [];
+  let oracleCalls = 0;
+  const collector: CoverageCollectorPort = {
+    collect: async () => ({ covered: [] }),
+    recollect: async (specDir, sources) => {
+      asked.push([specDir, sources]);
+      return { covered: [{ file: "src/checkout.ts", lines: [1, 2] }], branches: [{ file: "src/checkout.ts", line: 2, column: 0, kind: "if", arms: [{ label: "then", taken: true }, { label: "else", taken: false }] }] };
+    },
+  };
+  const oracle: ValueOraclePort = { measure: async () => { oracleCalls++; return { valueScore: 1, mutantCount: 1, killedCount: 1, details: "" }; } };
+  const adapter = new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService(), oracle }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage });
+  const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
+
+  const result = await adapter.recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "run-acc0", specFiles: ["flows/a.spec.ts"] }, { namespace: "run-acc1", specFiles: ["flows/b.spec.ts"] }], { namespace: "run-ns" });
+
+  assert.deepEqual(asked, [["/e2e", [{ namespace: "run-ns", exceptSpecFiles: ["flows/a.spec.ts", "flows/b.spec.ts"] }, { namespace: "run-acc0" }, { namespace: "run-acc1" }]]]);
+  assert.equal(result?.status, "pass");
+  assert.equal(result?.ratio, 1);
+  assert.deepEqual(result?.uncovered, []);
+  assert.deepEqual(result?.untakenArms, [{ file: "src/checkout.ts", line: 2, kind: "if", arm: "else" }]);
+  assert.equal(result?.measurement?.changedBranches, 2);
+  assert.equal(oracleCalls, 0, "a recount re-runs nothing");
+});
+
+test("recount() has nothing to say with coverage off, without a diff, or with a collector that cannot add namespaces", async () => {
+  const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
+  const oracle = fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" });
+  const recollecting: CoverageCollectorPort = { collect: async () => ({ covered: [] }), recollect: async () => ({ covered: [{ file: "src/checkout.ts", lines: [1] }] }) };
+  const make = (collector: CoverageCollectorPort, mode: "off" | "signal") => new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService(), oracle }, { policy: { mode, minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage });
+  const rerun = [{ namespace: "acc", specFiles: ["flows/a.spec.ts"] }];
+
+  assert.equal(await make(recollecting, "off").recount!(br, "/e2e", SAMPLE_DIFF, rerun), null);
+  assert.equal(await make(recollecting, "signal").recount!(br, "/e2e", undefined, rerun), null);
+  assert.equal(await make(fakeCollector({ covered: [] }), "signal").recount!(br, "/e2e", SAMPLE_DIFF, rerun), null);
+});

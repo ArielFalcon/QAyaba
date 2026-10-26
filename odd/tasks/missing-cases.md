@@ -40,7 +40,7 @@ Branch: `main`, as the owner asked ("directo en esta rama"), one commit per task
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
 | T1 | S1 | inline | done (RED→GREEN scope-guard; prompt-sync, matrix, generation + coordination suites 2321 green after the recorded baseline raise) | see git log |
-| T2 | S3 recount port (collector over several namespaces, dump exclusion, `recount` on the port and its traced wrapper) | inline | pending | |
+| T2 | S3 recount port (collector over several namespaces, dump exclusion, `recount` on the port and its traced wrapper) | inline | done (RED→GREEN: dump names, reader filter, recollect, bridge recount, trace span; objective-signal 274 + orchestration infra 917 green, arch ok) | see git log |
 | T3 | S2, S3 regeneration step, config key, gate signal, persistence | inline | pending | |
 | T4 | S4 | inline | pending | |
 | T5 | S5 | inline | pending | |
