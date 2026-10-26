@@ -2,16 +2,14 @@
  * Persistent run history (SQLite via better-sqlite3). Survives process restarts so
  * the TUI/continue/chat can address past runs. Persisted to disk at HISTORY_DB_PATH
  * (a docker-compose volume in production — see the `qa-data` volume).
- * Initialization is LAZY: the database is opened (and the schema created) on first
+ * Initialization is LAZY: the database is opened (and migrated to the latest schema) on first
  * use, not at import time. This keeps a bare `import` side-effect-free — importing a
  * module that re-exports from here (e.g. the CLI) does not touch the filesystem until
  * a record is actually read or written.
  */
 
 import Database from "better-sqlite3";
-import { dirname, join } from "node:path";
-import { qayabaDataDir } from "../paths";
-import { mkdirSync, readdirSync, unlinkSync } from "node:fs";
+import { getHistoryDatabase } from "./persistence/index";
 import { randomBytes } from "node:crypto";
 import { RunRecord, RunMode, TestTarget, QaCase, RunVerdict, SpecRecord, RunOutcome, AgentActivity, type RunChangeEntry } from "../types";
 import { applyOutcome as foldApplyOutcome } from "@contexts/cross-run-learning/application/index";
@@ -23,7 +21,6 @@ import { updateScorecard, type Scorecard, type ScorecardEntry } from "../qa/lear
 import { logJson } from "../integrations/logger";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
-import { parseRetentionDays, parseCampaignRetentionDays, DEFAULT_SPAN_RETENTION_DAYS, DEFAULT_CAMPAIGN_RETENTION_DAYS } from "../telemetry/config";
 import type { CampaignIdentity } from "../contract/campaign";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import { RUN_PHASES } from "@kernel/run-step";
@@ -103,52 +100,6 @@ export interface AgentTurnRecord {
   limitFired?: string | null;
 }
 
-/*
- * The nullable per-turn efficiency columns: call counts, step budget,
- * redundancy and prompt-provided read counts, and call_buckets (a JSON-encoded
- * Record<CallBucket, number> TEXT blob, like run_outcomes.gate_signals).
- * `exhausted` is a nullable 0/1: NULL means "unknown", never false.
- */
-export const AGENT_TURN_EFFICIENCY_COLUMNS: ReadonlyArray<{ name: string; type: "INTEGER" | "TEXT" }> = [
-  { name: "total_calls", type: "INTEGER" },
-  { name: "steps_used", type: "INTEGER" },
-  { name: "max_steps", type: "INTEGER" },
-  { name: "calls_before_first_write", type: "INTEGER" },
-  { name: "write_count", type: "INTEGER" },
-  { name: "redundant_read_count", type: "INTEGER" },
-  { name: "duplicate_call_count", type: "INTEGER" },
-  { name: "prompt_provided_read_count", type: "INTEGER" },
-  { name: "exhausted", type: "INTEGER" },
-  { name: "call_buckets", type: "TEXT" },
-  { name: "path_provided_read_count", type: "INTEGER" },
-  { name: "ended", type: "TEXT" },
-  { name: "duration_ms", type: "INTEGER" },
-  { name: "time_to_first_call_ms", type: "INTEGER" },
-  { name: "time_to_first_write_ms", type: "INTEGER" },
-  { name: "denied_call_count", type: "INTEGER" },
-  /* A JSON-encoded ToolSequenceEntry[], like call_buckets. */
-  { name: "tool_sequence", type: "TEXT" },
-  /* A JSON-encoded TurnUsage. */
-  { name: "usage_total", type: "TEXT" },
-  /* What the turn's trace mirrors (these columns are the record; the spans copy them): the model asked for and the one that answered, the attempt, the error class, the prompt's sizes and hashes and the limits. */
-  { name: "model_requested", type: "TEXT" },
-  { name: "model_answered", type: "TEXT" },
-  { name: "provider", type: "TEXT" },
-  { name: "attempt", type: "INTEGER" },
-  { name: "fallback_used", type: "INTEGER" },
-  { name: "error_type", type: "TEXT" },
-  /* JSON objects keyed by section id: byte sizes, and sha256 of each section as sent. */
-  { name: "section_sizes", type: "TEXT" },
-  { name: "section_hashes", type: "TEXT" },
-  { name: "prompt_hash", type: "TEXT" },
-  { name: "limit_applied", type: "TEXT" },
-  { name: "limit_fired", type: "TEXT" },
-  { name: "same_file_read_count", type: "INTEGER" },
-  { name: "graph_provided_read_count", type: "INTEGER" },
-];
-
-const DELETE_MAX_AGE_DAYS = 30;
-
 let db!: Database.Database;
 let insertRun!: Database.Statement;
 let getRunStmt!: Database.Statement;
@@ -187,397 +138,7 @@ let initialized = false;
 
 function ensureDb(): void {
   if (initialized) return;
-
-  const dbPath =
-    process.env.HISTORY_DB_PATH ?? join(qayabaDataDir(), "qayaba.db");
-  /* Only the directory the database lives in: a HISTORY_DB_PATH elsewhere leaves the root's data dir alone. */
-  mkdirSync(dirname(dbPath), { recursive: true });
-
-  db = new Database(dbPath);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-  /*
-   * Wait up to 5s for a held lock instead of throwing SQLITE_BUSY immediately. WAL allows
-   * concurrent readers, but the 24h online backup and any external reader (CLI, inspection)
-   * can still briefly contend with a writer; without this a contended write throws.
-   */
-  db.pragma("busy_timeout = 5000");
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS runs (
-      id TEXT PRIMARY KEY,
-      app TEXT NOT NULL,
-      sha TEXT NOT NULL,
-      ref TEXT,
-      target TEXT NOT NULL DEFAULT 'e2e',
-      mode TEXT NOT NULL DEFAULT 'diff',
-      status TEXT NOT NULL DEFAULT 'enqueued',
-      step TEXT,
-      step_detail TEXT,
-      verdict TEXT,
-      passed INTEGER DEFAULT 0,
-      failed INTEGER DEFAULT 0,
-      note TEXT,
-      retrying INTEGER DEFAULT 0,
-      parent_run_id TEXT,
-      trigger_repo TEXT,
-      at TEXT NOT NULL,
-      step_started_at TEXT,
-      logs TEXT DEFAULT '',
-      furthest_phase TEXT,
-      phase_timings TEXT,
-      trace_id TEXT,
-      decision TEXT,
-      limit_fired TEXT,
-      limit_role TEXT,
-      review_required INTEGER,
-      coverage_status TEXT,
-      coverage_mode TEXT,
-      coverage_min_ratio REAL,
-      cancelled INTEGER
-    );
-
-    CREATE TABLE IF NOT EXISTS cases (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      status TEXT NOT NULL,
-      detail TEXT,
-      file TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS specs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      objective TEXT,
-      flow TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS run_activity (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-      ts TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      status TEXT,
-      text TEXT NOT NULL
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_runs_app ON runs(app);
-    CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
-    CREATE INDEX IF NOT EXISTS idx_cases_run_id ON cases(run_id);
-    CREATE INDEX IF NOT EXISTS idx_specs_run_id ON specs(run_id);
-    CREATE INDEX IF NOT EXISTS idx_activity_run_id ON run_activity(run_id);
-
-    CREATE TABLE IF NOT EXISTS run_outcomes (
-      id TEXT PRIMARY KEY,
-      app TEXT NOT NULL,
-      sha TEXT NOT NULL,
-      mode TEXT NOT NULL,
-      target TEXT NOT NULL DEFAULT 'e2e',
-      verdict TEXT NOT NULL,
-      error_class TEXT,
-      gate_signals TEXT NOT NULL DEFAULT '{}',
-      rules_retrieved TEXT NOT NULL DEFAULT '[]',
-      reflection TEXT,
-      at TEXT NOT NULL
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_outcomes_app ON run_outcomes(app);
-    CREATE INDEX IF NOT EXISTS idx_outcomes_error_class ON run_outcomes(error_class);
-
-    -- Durable backing for the live RunEvent (SSE) stream. The in-memory store keeps a
-    -- bounded replay buffer; persisting here lets replay survive a restart (e.g. the maintainer
-    -- hot-swap's process.exit) and eviction of an old run from the 200-run ring.
-    CREATE TABLE IF NOT EXISTS run_events (
-      run_id TEXT NOT NULL,
-      seq INTEGER NOT NULL,
-      ts INTEGER NOT NULL,
-      body TEXT NOT NULL,
-      PRIMARY KEY (run_id, seq)
-    );
-    CREATE INDEX IF NOT EXISTS idx_run_events_run_id ON run_events(run_id);
-
-    -- The span ledger (docs/observability-design.md §3.3): every span of every run, metadata only. A row is
-    -- written when the span starts (end_ns NULL) and updated when it ends, so a hung or crashed run leaves its
-    -- open spans behind as evidence. Times are epoch nanoseconds, bound as BigInt (they exceed 2^53).
-    CREATE TABLE IF NOT EXISTS run_spans (
-      trace_id TEXT NOT NULL,
-      span_id TEXT NOT NULL,
-      parent_span_id TEXT,
-      run_id TEXT,
-      name TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      start_ns INTEGER NOT NULL,
-      end_ns INTEGER,
-      status TEXT NOT NULL DEFAULT 'unset',
-      status_message TEXT,
-      attrs TEXT NOT NULL DEFAULT '{}',
-      events TEXT NOT NULL DEFAULT '[]',
-      links TEXT NOT NULL DEFAULT '[]',
-      PRIMARY KEY (trace_id, span_id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_run_spans_run_id ON run_spans(run_id);
-    CREATE INDEX IF NOT EXISTS idx_run_spans_trace_id ON run_spans(trace_id);
-    CREATE INDEX IF NOT EXISTS idx_run_spans_start_ns ON run_spans(start_ns);
-
-    -- Evaluation scores (docs/observability-design.md section 11): one row per (run, score name, grader version), replaced on a regrade.
-    -- Never pruned: they are tiny, and a campaign compares them long after the run's spans are gone. No foreign key to runs, for the same reason.
-    CREATE TABLE IF NOT EXISTS run_scores (
-      run_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      grader_version TEXT NOT NULL,
-      data_type TEXT NOT NULL,
-      polarity TEXT NOT NULL,
-      source TEXT NOT NULL,
-      value TEXT NOT NULL,
-      comment TEXT,
-      observation_id TEXT,
-      graded_at TEXT NOT NULL,
-      PRIMARY KEY (run_id, name, grader_version)
-    );
-    CREATE INDEX IF NOT EXISTS idx_run_scores_name ON run_scores(name);
-
-    -- Whether a run's evaluation is pending, complete or failed. A run with no row was never graded: pending.
-    CREATE TABLE IF NOT EXISTS run_evaluations (
-      run_id TEXT PRIMARY KEY,
-      status TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    -- Regrade jobs (POST /evaluations/regrade): the request's runs, progress and the runs that failed.
-    CREATE TABLE IF NOT EXISTS regrade_jobs (
-      job_id TEXT PRIMARY KEY,
-      status TEXT NOT NULL,
-      run_ids TEXT NOT NULL,
-      graders TEXT,
-      runs INTEGER NOT NULL,
-      graded INTEGER NOT NULL DEFAULT 0,
-      failed TEXT NOT NULL DEFAULT '[]',
-      started_at TEXT NOT NULL,
-      finished_at TEXT
-    );
-
-    -- The text of the specs a run held when it validated them (docs/observability-design.md §11.1), redacted and capped, so
-    -- a run can be graded after its working copy is gone. One row per (run, path, bytes): a spec rewritten during the run is
-    -- kept in each version. Same retention as run_spans.
-    CREATE TABLE IF NOT EXISTS run_spec_snapshots (
-      run_id TEXT NOT NULL,
-      path TEXT NOT NULL,
-      sha256 TEXT NOT NULL,
-      text TEXT NOT NULL,
-      bytes INTEGER NOT NULL,
-      captured_at INTEGER NOT NULL,
-      delivered INTEGER NOT NULL DEFAULT 1,
-      PRIMARY KEY (run_id, path, sha256)
-    );
-    CREATE INDEX IF NOT EXISTS idx_run_spec_snapshots_captured_at ON run_spec_snapshots(captured_at);
-
-    -- What the lead planned for a run (the admitted plan, the change pages each flow visits, how each flow ended), sanitized, so a run
-    -- can be graded against its change after the fact. One row per run: the last record wins. Same retention as run_spec_snapshots.
-    CREATE TABLE IF NOT EXISTS run_plans (
-      run_id TEXT PRIMARY KEY,
-      plan TEXT NOT NULL,
-      recorded_at INTEGER NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_run_plans_recorded_at ON run_plans(recorded_at);
-
-    -- LLM-judge bookkeeping (docs/observability-design.md section 11.3). One row per judge attempt: what was asked, how it ended and the
-    -- tokens it spent (the day's budget is the sum of a day's rows). Never pruned, like run_scores: they are tiny.
-    CREATE TABLE IF NOT EXISTS judge_attempts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id TEXT NOT NULL,
-      judge TEXT NOT NULL,
-      prompt_version TEXT NOT NULL,
-      model TEXT,
-      outcome TEXT NOT NULL,
-      tokens INTEGER NOT NULL DEFAULT 0,
-      detail TEXT,
-      at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_judge_attempts_run ON judge_attempts(run_id, judge, prompt_version);
-    CREATE INDEX IF NOT EXISTS idx_judge_attempts_at ON judge_attempts(at);
-
-    -- Calibration reports of a judge against human labels: one row per computation, the newest of a (judge, prompt version) is in force.
-    CREATE TABLE IF NOT EXISTS judge_calibrations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      judge TEXT NOT NULL,
-      prompt_version TEXT NOT NULL,
-      model TEXT NOT NULL,
-      train_n INTEGER NOT NULL,
-      dev_n INTEGER NOT NULL,
-      test_n INTEGER NOT NULL,
-      tpr REAL,
-      tnr REAL,
-      agreement REAL,
-      status TEXT NOT NULL,
-      report TEXT NOT NULL,
-      computed_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_judge_calibrations_judge ON judge_calibrations(judge, prompt_version);
-
-    CREATE TABLE IF NOT EXISTS learning_rules (
-      id TEXT PRIMARY KEY,
-      app TEXT NOT NULL,
-      trigger_text TEXT NOT NULL,
-      action_text TEXT NOT NULL,
-      error_class TEXT NOT NULL,
-      confidence TEXT NOT NULL DEFAULT 'low',
-      usage_count INTEGER NOT NULL DEFAULT 0,
-      outcome_count INTEGER NOT NULL DEFAULT 0,
-      oracle_outcome_count INTEGER NOT NULL DEFAULT 0,
-      success_rate REAL,
-      last_verified TEXT,
-      source TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'candidate',
-      archetype TEXT,
-      at TEXT NOT NULL,
-      quarantined_at TEXT
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_rules_app ON learning_rules(app);
-    CREATE INDEX IF NOT EXISTS idx_rules_status ON learning_rules(status);
-
-    CREATE TABLE IF NOT EXISTS curriculum (
-      app TEXT PRIMARY KEY,
-      data TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS scorecard (
-      app TEXT PRIMARY KEY,
-      data TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    -- A one-shot "rebuild the architecture map next run" flag, set by the process-audit context-heal.
-    -- DB-backed because the mirror's e2e/.qa/context.json is wiped/restored by git checkout -f +
-    -- git clean -fd on every run, so a file-level invalidation never survives to the next run. This
-    -- flag does, and is CONSUMED (cleared) by the next generating run for the app.
-    CREATE TABLE IF NOT EXISTS context_stale (
-      app TEXT PRIMARY KEY,
-      at TEXT NOT NULL
-    );
-
-    -- When an off-path context-map rebuild was last requested, so a SHA/age-stale map does not
-    -- enqueue one on every run. The context_stale flag is cleared when the queue accepts a rebuild;
-    -- this timestamp survives that and is the 6h dedupe bound.
-    CREATE TABLE IF NOT EXISTS context_heal_requests (
-      app TEXT PRIMARY KEY,
-      at TEXT NOT NULL
-    );
-
-    -- The FE<->BE architecture map (e2e/.qa/context.json) produced by a successful mode:context
-    -- run, per app (latest wins — not append-only, same as curriculum/scorecard). DB-backed for the
-    -- same reason context_stale is: the mirror's e2e/.qa/context.json is wiped/restored by git
-    -- checkout -f + git clean -fd every run, so a shadow app (which never opens the context.json PR)
-    -- would otherwise lose the map after every run. This table is the engine's source of truth for
-    -- the map regardless of shadow; the repo file (when a non-shadow PR has landed) is only a fallback.
-    CREATE TABLE IF NOT EXISTS context_maps (
-      app TEXT PRIMARY KEY,
-      built_at_sha TEXT NOT NULL,
-      data TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    -- Per-turn telemetry for every agent prompt/response cycle.
-    -- Mirrors the run_events 30-day retention. Token columns are nullable because a
-    -- run may return no token info. output_text is sanitized before persist (sanitizer.ts).
-    CREATE TABLE IF NOT EXISTS agent_turns (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id TEXT,
-      session_id TEXT NOT NULL,
-      role TEXT NOT NULL,
-      round INTEGER NOT NULL DEFAULT 0,
-      is_repair INTEGER NOT NULL DEFAULT 0,
-      ts TEXT NOT NULL,
-      objective TEXT,
-      prompt_text TEXT NOT NULL,
-      output_text TEXT NOT NULL,
-      prompt_bytes INTEGER NOT NULL DEFAULT 0,
-      tokens_input INTEGER,
-      tokens_output INTEGER,
-      tokens_reasoning INTEGER,
-      tokens_cache_read INTEGER,
-      tokens_cache_write INTEGER,
-      cost REAL
-    );
-    CREATE INDEX IF NOT EXISTS idx_agent_turns_run_id ON agent_turns(run_id);
-    CREATE INDEX IF NOT EXISTS idx_agent_turns_role ON agent_turns(role);
-  `);
-
-  /* ALTER TABLE for existing DBs — CREATE TABLE IF NOT EXISTS does not add columns. */
-  if (!columnExists("runs", "step_started_at")) {
-    db.exec("ALTER TABLE runs ADD COLUMN step_started_at TEXT");
-  }
-  if (!columnExists("learning_rules", "outcome_count")) {
-    db.exec("ALTER TABLE learning_rules ADD COLUMN outcome_count INTEGER NOT NULL DEFAULT 0");
-  }
-  if (!columnExists("learning_rules", "archetype")) {
-    db.exec("ALTER TABLE learning_rules ADD COLUMN archetype TEXT");
-  }
-  /* Existing rows get oracle_outcome_count 0; that does not demote an already-active rule. */
-  if (!columnExists("learning_rules", "oracle_outcome_count")) {
-    db.exec("ALTER TABLE learning_rules ADD COLUMN oracle_outcome_count INTEGER NOT NULL DEFAULT 0");
-  }
-  /* A rule an operator set aside (learning:quarantine): NULL while in force. Existing rows stay in force. */
-  if (!columnExists("learning_rules", "quarantined_at")) {
-    db.exec("ALTER TABLE learning_rules ADD COLUMN quarantined_at TEXT");
-  }
-  if (!columnExists("runs", "trigger_repo")) {
-    db.exec("ALTER TABLE runs ADD COLUMN trigger_repo TEXT");
-  }
-  /* Where the run got in the pipeline and the JSON of its time per phase: NULL for a run that recorded none (an older run, a cancelled one). */
-  if (!columnExists("runs", "furthest_phase")) {
-    db.exec("ALTER TABLE runs ADD COLUMN furthest_phase TEXT");
-  }
-  /* The first build of the snapshot table had no flag; every row it kept is a delivered spec or an unmarked suite spec, and stays visible. */
-  if (!columnExists("run_spec_snapshots", "delivered")) {
-    db.exec("ALTER TABLE run_spec_snapshots ADD COLUMN delivered INTEGER NOT NULL DEFAULT 1");
-  }
-  if (!columnExists("runs", "phase_timings")) {
-    db.exec("ALTER TABLE runs ADD COLUMN phase_timings TEXT");
-  }
-  /* The spec file a case ran from, as the parsed report named it (NULL for a case recorded before the column, or one the report gave no file). */
-  if (!columnExists("cases", "file")) {
-    db.exec("ALTER TABLE cases ADD COLUMN file TEXT");
-  }
-  /* What the run's trace and decision said about how it ended (NULL for a run that recorded none): the trace id, the publication decision, the limit that stopped it and the role it stopped. */
-  for (const name of ["trace_id", "decision", "limit_fired", "limit_role", "coverage_status", "coverage_mode"]) {
-    if (!columnExists("runs", name)) db.exec(`ALTER TABLE runs ADD COLUMN ${name} TEXT`);
-  }
-  /* A Langfuse score finds its run by trace id (getRunIdByTraceId). */
-  db.exec("CREATE INDEX IF NOT EXISTS idx_runs_trace_id ON runs(trace_id)");
-  /* Facts the engine decided at run time and grading must not recompute: whether a reviewer ran, the coverage decision and its policy, and whether an operator cancelled the run. */
-  for (const [name, type] of [["review_required", "INTEGER"], ["coverage_min_ratio", "REAL"], ["cancelled", "INTEGER"]] as const) {
-    if (!columnExists("runs", name)) db.exec(`ALTER TABLE runs ADD COLUMN ${name} ${type}`);
-  }
-  /*
-   * The campaign a run is a replicate of, how much content its trace may carry, and what it actually ran with (section 14). Stored as the
-   * request named them and as the run resolved them; nothing reads the labels to decide what a run does. NULL for an ordinary run.
-   */
-  for (const [name, type] of [["campaign_id", "TEXT"], ["campaign_variant", "TEXT"], ["campaign_replicate", "INTEGER"], ["capture_mode", "TEXT"], ["effective_config", "TEXT"]] as const) {
-    if (!columnExists("runs", name)) db.exec(`ALTER TABLE runs ADD COLUMN ${name} ${type}`);
-  }
-  db.exec("CREATE INDEX IF NOT EXISTS idx_runs_campaign_id ON runs(campaign_id)");
-  /* Every repo's change a run reads, as JSON, when other pushes joined it before it started (NULL for a run of its own request). */
-  if (!columnExists("runs", "change_set")) db.exec("ALTER TABLE runs ADD COLUMN change_set TEXT");
-  /* The parent-linked child runs (a context heal, a /continue) of a run: childrenOf(parentRunId) reads this. */
-  db.exec("CREATE INDEX IF NOT EXISTS idx_runs_parent_run_id ON runs(parent_run_id)");
-  /* The model an LLM judge answered with, beside the prompt version in grader_version (NULL for every other score). */
-  if (!columnExists("run_scores", "judge_model")) db.exec("ALTER TABLE run_scores ADD COLUMN judge_model TEXT");
-  /*
-   * Every agent_turns efficiency column
-   * is added by this guarded ALTER (fresh and pre-existing DBs alike), so the
-   * column list has a single source of truth. All are nullable: they stay NULL
-   * for a pre-existing row and for any runtime that cannot supply them
-   * (steps_used/max_steps/exhausted stay NULL) — never a fabricated value.
-   */
-  for (const { name, type } of AGENT_TURN_EFFICIENCY_COLUMNS) {
-    if (!columnExists("agent_turns", name)) {
-      db.exec(`ALTER TABLE agent_turns ADD COLUMN ${name} ${type}`);
-    }
-  }
+  db = getHistoryDatabase().raw;
 
   insertRun = db.prepare(`
     INSERT INTO runs (id, app, sha, ref, target, mode, status, step, step_detail, verdict, passed, failed, note, retrying, parent_run_id, trigger_repo, at, logs, campaign_id, campaign_variant, campaign_replicate, capture_mode)
@@ -672,41 +233,7 @@ function ensureDb(): void {
   `);
   getAgentTurnsStmt = db.prepare("SELECT * FROM agent_turns WHERE run_id = ? ORDER BY id ASC");
 
-  /* Prune old runs once on first use. */
-  /*
-   * Campaign-tagged runs are the baselines later graders and judges re-score (R4): they keep the run row, its agent turns and its spans
-   * for the campaign window (QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS, default 180) instead of the ordinary one.
-   */
-  const campaignDays = campaignRetentionDays();
-  db.prepare(`DELETE FROM runs WHERE at < datetime('now', '-${DELETE_MAX_AGE_DAYS} days') AND (campaign_id IS NULL OR datetime(at) < datetime('now', '-' || ? || ' days'))`).run(campaignDays);
-  /* Bound the durable event log: drop events older than the run retention window (ts is epoch ms). */
-  db.prepare("DELETE FROM run_events WHERE ts < ?").run(Date.now() - DELETE_MAX_AGE_DAYS * 24 * 60 * 60 * 1000);
-  /*
-   * Prune agent_turns older than the retention window. agent_turns.ts is ISO-8601 (…T…Z) TEXT, but
-   * datetime('now', …) yields the space-separated 'YYYY-MM-DD HH:MM:SS' form — a raw string compare
-   * would mis-sort (the 'T' > ' ' at index 10 makes every ISO value sort GREATER, so nothing prunes).
-   * Wrap ts in datetime() so BOTH sides are SQLite's canonical datetime form: a correct boundary
-   * compare, consistent with run_events (which prunes correctly via its own typed epoch-ms compare).
-   */
-  db.prepare(
-    `DELETE FROM agent_turns WHERE datetime(ts) < datetime('now', '-${DELETE_MAX_AGE_DAYS} days')
-       AND (run_id IS NULL OR run_id NOT IN (SELECT id FROM runs WHERE campaign_id IS NOT NULL AND datetime(at) >= datetime('now', '-' || ? || ' days')))`,
-  ).run(campaignDays);
-  /* The span ledger keeps its own window (QA_TELEMETRY_RETENTION_DAYS, default 30). A malformed value is reported loudly by the telemetry bootstrap; here it must not stop the history from opening. */
-  try {
-    pruneRunSpans(spanRetentionDays(), Date.now(), RUN_SPAN_PRUNE_CHUNK, campaignDays);
-    pruneSpecSnapshots(spanRetentionDays(), Date.now(), RUN_SPAN_PRUNE_CHUNK, campaignDays);
-    pruneRunPlans(spanRetentionDays(), Date.now(), RUN_SPAN_PRUNE_CHUNK, campaignDays);
-  } catch (error) {
-    console.error(`[telemetry] span ledger prune failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
-
   initialized = true;
-}
-
-function columnExists(table: string, column: string): boolean {
-  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
-  return cols.some((c) => c.name === column);
 }
 
 function recalcCounts(runId: string): { passed: number; failed: number } {
@@ -1522,24 +1049,6 @@ export interface RunSpanRow {
   links: string;
 }
 
-function campaignRetentionDays(): number {
-  try {
-    return parseCampaignRetentionDays(process.env.QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS);
-  } catch (error) {
-    console.error(`[telemetry] ${error instanceof Error ? error.message : String(error)}; keeping ${DEFAULT_CAMPAIGN_RETENTION_DAYS} days`);
-    return DEFAULT_CAMPAIGN_RETENTION_DAYS;
-  }
-}
-
-function spanRetentionDays(): number {
-  try {
-    return parseRetentionDays(process.env.QA_TELEMETRY_RETENTION_DAYS);
-  } catch (error) {
-    console.error(`[telemetry] ${error instanceof Error ? error.message : String(error)}; keeping ${DEFAULT_SPAN_RETENTION_DAYS} days`);
-    return DEFAULT_SPAN_RETENTION_DAYS;
-  }
-}
-
 /*
  * Upserts a batch of ledger rows in ONE transaction. A row carries every column, so an update of a span whose
  * start row was lost (a failed earlier batch) still lands complete.
@@ -1855,28 +1364,6 @@ export function failInterruptedRegradeJobs(at: string): number {
 }
 
 
-/* Rows one prune pass may delete, so a large backlog never holds the write lock for long. */
-export const RUN_SPAN_PRUNE_CHUNK = 5000;
-
-/* Drops up to `limit` ledger spans that started more than `days` before `nowMs`, and returns how many. A non-finite cutoff prunes nothing. */
-export function pruneRunSpans(days: number, nowMs: number, limit: number = RUN_SPAN_PRUNE_CHUNK, campaignDays?: number): number {
-  const cutoffMs = nowMs - days * 24 * 60 * 60 * 1000;
-  if (!Number.isFinite(cutoffMs)) return 0;
-  const keep = campaignKeepClause("run_id", nowMs, campaignDays);
-  return db
-    .prepare(`DELETE FROM run_spans WHERE rowid IN (SELECT rowid FROM run_spans WHERE start_ns < ? ${keep.sql} LIMIT ?)`)
-    .run(BigInt(Math.floor(cutoffMs)) * 1_000_000n, ...keep.params, limit).changes;
-}
-
-/* The rows of a campaign run younger than the campaign window are exempt from the ordinary window (R4). */
-function campaignKeepClause(column: string, nowMs: number, campaignDays: number | undefined): { sql: string; params: string[] } {
-  if (campaignDays === undefined || !Number.isFinite(nowMs - campaignDays * 86_400_000)) return { sql: "", params: [] };
-  return {
-    sql: `AND (${column} IS NULL OR ${column} NOT IN (SELECT id FROM runs WHERE campaign_id IS NOT NULL AND at >= ?))`,
-    params: [new Date(nowMs - campaignDays * 86_400_000).toISOString()],
-  };
-}
-
 export interface SpecSnapshotRow {
   runId: string;
   path: string;
@@ -1914,16 +1401,6 @@ export function listSpecSnapshots(runId: string): SpecSnapshotRow[] {
   }));
 }
 
-/* Drops up to `limit` snapshots kept more than `days` before `nowMs`, and returns how many: the window of the span ledger. */
-export function pruneSpecSnapshots(days: number, nowMs: number, limit: number = RUN_SPAN_PRUNE_CHUNK, campaignDays?: number): number {
-  const cutoffMs = nowMs - days * 24 * 60 * 60 * 1000;
-  if (!Number.isFinite(cutoffMs)) return 0;
-  const keep = campaignKeepClause("run_id", nowMs, campaignDays);
-  return db
-    .prepare(`DELETE FROM run_spec_snapshots WHERE rowid IN (SELECT rowid FROM run_spec_snapshots WHERE captured_at < ? ${keep.sql} LIMIT ?)`)
-    .run(Math.floor(cutoffMs), ...keep.params, limit).changes;
-}
-
 /* Keeps a run's plan, replacing the one kept before: the plan recorded when its flows end carries their outcomes. `plan` is JSON. */
 export function commitRunPlan(runId: string, plan: string, recordedAt: number): void {
   ensureDb();
@@ -1935,16 +1412,6 @@ export function getRunPlan(runId: string): string | undefined {
   ensureDb();
   const row = db.prepare("SELECT plan FROM run_plans WHERE run_id = ?").get(runId) as { plan: string } | undefined;
   return row?.plan;
-}
-
-/* Drops up to `limit` plans kept more than `days` before `nowMs`, and returns how many: the window of the spec snapshots. */
-export function pruneRunPlans(days: number, nowMs: number, limit: number = RUN_SPAN_PRUNE_CHUNK, campaignDays?: number): number {
-  const cutoffMs = nowMs - days * 24 * 60 * 60 * 1000;
-  if (!Number.isFinite(cutoffMs)) return 0;
-  const keep = campaignKeepClause("run_id", nowMs, campaignDays);
-  return db
-    .prepare(`DELETE FROM run_plans WHERE rowid IN (SELECT rowid FROM run_plans WHERE recorded_at < ? ${keep.sql} LIMIT ?)`)
-    .run(Math.floor(cutoffMs), ...keep.params, limit).changes;
 }
 
 export function loadRunEvents(runId: string, afterSeq = -1): Array<{ runId: string; seq: number; ts: number; body: unknown }> {
@@ -2266,11 +1733,6 @@ export function loadContextMap(app: string): StoredContextMap | undefined {
   }
 }
 
-process.on("exit", () => {
-  if (initialized) db.close();
-});
-
-
 export interface TelemetryRoleStat {
   role: string;
   medianPromptBytes: number | null;
@@ -2462,34 +1924,4 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
     p95WallClockSec,
     efficiency: efficiencyOf(turnRows),
   };
-}
-
-/*
- * ── SQLite backup (cron-like) ───────────────────────────────────────────────
- * Writes a consistent snapshot of the DB to a backup directory with a timestamp,
- * using better-sqlite3's native online backup API — WAL-safe, unlike a raw file
- * copy which can miss the -wal tail and produce a torn backup. Keeps the last
- * N backups. Called from the health poller in index.ts every 24h.
- */
-
-export async function backupDatabase(): Promise<{ backedUp: boolean; path?: string; error?: string }> {
-  if (!initialized) return { backedUp: false, error: "db not initialized" };
-  const backupDir = join(qayabaDataDir(), "backups");
-  try {
-    mkdirSync(backupDir, { recursive: true });
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const backupPath = join(backupDir, `qayaba-${timestamp}.db`);
-    await db.backup(backupPath);
-    /* Prune old backups: keep only the last 7 */
-    const files = readdirSync(backupDir)
-      .filter((f: string) => f.startsWith("qayaba-") && f.endsWith(".db"))
-      .sort();
-    while (files.length > 7) {
-      const old = files.shift();
-      if (old) unlinkSync(join(backupDir, old));
-    }
-    return { backedUp: true, path: backupPath };
-  } catch (err) {
-    return { backedUp: false, error: err instanceof Error ? err.message : String(err) };
-  }
 }

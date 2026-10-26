@@ -56,6 +56,9 @@ import { createAgentRuntimeManager, logAgentConfigWarnings } from "./server/agen
 import { keyPresence, retiredSelectorWarnings, validateAgentRuntimeConfig } from "./agent-runtime/config";
 import { OpenCodeRuntimeStrategy } from "./agent-runtime";
 import { appendLog, appendActivity, deleteAppHistory, runVerdictCounts } from "./server/history";
+import { getHistoryDatabase } from "./server/persistence/index";
+import { pruneHistory, retentionPolicyFrom } from "./server/persistence/retention";
+import { backupDatabase } from "./server/persistence/backup";
 import { type RunMode, type TestTarget } from "./types";
 import { github } from "./integrations/github";
 import { createApp as adminCreateApp, updateApp as adminUpdateApp, deleteApp as adminDeleteApp, type AppAdminDeps } from "./server/app-admin";
@@ -483,6 +486,16 @@ function generatePrometheusMetrics(queue: JobQueue, openSessions: number): strin
 
 let backupTick = 0;
 let pruneTick = 0;
+
+/* Deletes the history the retention windows no longer keep. A failure is logged and never stops the process. */
+function runHistoryRetention(): void {
+  try {
+    const report = pruneHistory(getHistoryDatabase(), retentionPolicyFrom(process.env), Date.now());
+    logJson("info", "history retention pruned", { report });
+  } catch (err) {
+    logJson("error", "history retention failed", { error: redactionPort.redactError(err) });
+  }
+}
 const PRUNE_INTERVAL_TICKS = 360;  /* 6 hours (360 × 60 s) */
 
 function startHealthPoller(): void {
@@ -518,8 +531,8 @@ function startHealthPoller(): void {
     backupTick++;
     if (backupTick >= 1440) {
       backupTick = 0;
-      const { backupDatabase } = await import("./server/history");
-      const r = await backupDatabase();
+      runHistoryRetention();
+      const r = await backupDatabase(getHistoryDatabase());
       if (r.backedUp) {
         logJson("info", "SQLite backup created", { path: r.path });
       } else if (r.error) {
@@ -969,6 +982,7 @@ const server = createServer(guardRequestHandler(async (req, res) => {
  * landing during boot creates a legitimate `enqueued` record that a late sweep would
  * wrongly finalize as infra-error.
  */
+runHistoryRetention();
 finalizeInterruptedRuns({ runEvents, afterRun });
 
 server.on(

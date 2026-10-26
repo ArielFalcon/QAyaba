@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
 import { SpanStatusCode, ROOT_CONTEXT, trace } from "@opentelemetry/api";
 import { LedgerSpanProcessor, type RunSpanStore } from "./ledger";
-import { commitRunSpans, listRunSpans, pruneRunSpans, createRecord, type RunSpanRow } from "../server/history";
+import { commitRunSpans, listRunSpans, createRecord, type RunSpanRow } from "../server/history";
+import { getHistoryDatabase } from "../server/persistence/index";
+import { pruneRunSpans } from "../server/persistence/retention";
 
 function fakeStore(): RunSpanStore & { commits: RunSpanRow[][]; failNext: boolean } {
   const store = {
@@ -149,7 +151,7 @@ test("pruning removes spans older than the retention window and keeps newer ones
   const day = 24 * 60 * 60 * 1000;
   const row = (spanId: string, startMs: number): RunSpanRow => ({ traceId: "t".padEnd(32, "0"), spanId, parentSpanId: null, runId: "prune-run", name: spanId, kind: "internal", startNs: BigInt(startMs) * 1_000_000n, endNs: null, status: "unset", statusMessage: null, attrs: "{}", events: "[]", links: "[]" });
   commitRunSpans([row("old", now - 31 * day), row("fresh", now - 1 * day)]);
-  pruneRunSpans(30, now);
+  pruneRunSpans(getHistoryDatabase(), 30, now);
   assert.deepEqual(listRunSpans("prune-run").map((r) => r.spanId), ["fresh"]);
 });
 
@@ -259,14 +261,14 @@ test("pruning deletes in bounded chunks", () => {
   const day = 24 * 60 * 60 * 1000;
   const row = (spanId: string): RunSpanRow => ({ traceId: "c".padEnd(32, "0"), spanId, parentSpanId: null, runId: "chunk-run", name: spanId, kind: "internal", startNs: BigInt(now - 40 * day) * 1_000_000n, endNs: null, status: "unset", statusMessage: null, attrs: "{}", events: "[]", links: "[]" });
   commitRunSpans([row("a"), row("b"), row("c")]);
-  assert.equal(pruneRunSpans(30, now, 2), 2);
+  assert.equal(pruneRunSpans(getHistoryDatabase(), 30, now, 2), 2);
   assert.equal(listRunSpans("chunk-run").length, 1);
-  assert.equal(pruneRunSpans(30, now, 2), 1);
+  assert.equal(pruneRunSpans(getHistoryDatabase(), 30, now, 2), 1);
 });
 
 test("a non-finite cutoff prunes nothing", () => {
-  assert.equal(pruneRunSpans(Number.NaN, Date.now()), 0);
-  assert.equal(pruneRunSpans(30, Number.POSITIVE_INFINITY), 0);
+  assert.equal(pruneRunSpans(getHistoryDatabase(), Number.NaN, Date.now()), 0);
+  assert.equal(pruneRunSpans(getHistoryDatabase(), 30, Number.POSITIVE_INFINITY), 0);
 });
 
 test("the spans of a campaign run outlive the ordinary window and go with the campaign window", () => {
@@ -277,12 +279,12 @@ test("the spans of a campaign run outlive the ordinary window and go with the ca
 
   const early = Date.now() + 100 * day;
   commitRunSpans([stale(campaign.id, early), stale(ordinary.id, early)]);
-  pruneRunSpans(30, early, 100, 180);
+  pruneRunSpans(getHistoryDatabase(), 30, early, 100, 180);
   assert.equal(listRunSpans(campaign.id).length, 1, "a campaign run within its window keeps its spans");
   assert.equal(listRunSpans(ordinary.id).length, 0);
 
   const late = Date.now() + 200 * day;
   commitRunSpans([stale(campaign.id, late)]);
-  pruneRunSpans(30, late, 100, 180);
+  pruneRunSpans(getHistoryDatabase(), 30, late, 100, 180);
   assert.equal(listRunSpans(campaign.id).length, 0, "past the campaign window the spans go too");
 });

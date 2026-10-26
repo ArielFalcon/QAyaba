@@ -17,7 +17,9 @@ import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
 import type { TelemetryHealth } from "./telemetry-health";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { resolveCampaignFreeze } from "../server/campaign-freeze";
-import { commitRunSpans, pruneRunPlans, pruneRunSpans, pruneSpecSnapshots } from "../server/history";
+import { commitRunSpans } from "../server/history";
+import { getHistoryDatabase } from "../server/persistence/index";
+import { pruneRunPlans, pruneRunSpans, pruneSpecSnapshots } from "../server/persistence/retention";
 import { sanitizeText } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
 import { resolveTelemetryConfig, type TelemetryConfig } from "./config";
 import { LedgerSpanProcessor, type RunSpanStore } from "./ledger";
@@ -123,14 +125,23 @@ function offHandle(freeze: boolean, clock: TelemetryClock): TelemetryHandle {
   return { telemetry: new NoopTelemetry(), clock, health: () => health, stopConsoleTap: () => {}, shutdown: async () => {} };
 }
 
+type PruneFn = (days: number, nowMs: number, limit?: number, campaignDays?: number) => number;
+
 export interface PruneFns {
-  pruneRunSpans: typeof pruneRunSpans;
-  pruneSpecSnapshots: typeof pruneSpecSnapshots;
-  pruneRunPlans: typeof pruneRunPlans;
+  pruneRunSpans: PruneFn;
+  pruneSpecSnapshots: PruneFn;
+  pruneRunPlans: PruneFn;
 }
 
+/* The ledger tables of the process's history database, opened on first use. */
+const historyPruneFns: PruneFns = {
+  pruneRunSpans: (...args) => pruneRunSpans(getHistoryDatabase(), ...args),
+  pruneSpecSnapshots: (...args) => pruneSpecSnapshots(getHistoryDatabase(), ...args),
+  pruneRunPlans: (...args) => pruneRunPlans(getHistoryDatabase(), ...args),
+};
+
 /* The ledger's periodic prune: the ordinary window, with a campaign run's records kept for the campaign window (R4). */
-export function retentionPrune(config: Pick<TelemetryConfig, "retentionDays" | "campaignRetentionDays">, fns: PruneFns = { pruneRunSpans, pruneSpecSnapshots, pruneRunPlans }): (nowMs: number) => void {
+export function retentionPrune(config: Pick<TelemetryConfig, "retentionDays" | "campaignRetentionDays">, fns: PruneFns = historyPruneFns): (nowMs: number) => void {
   return (nowMs) => {
     fns.pruneRunSpans(config.retentionDays, nowMs, undefined, config.campaignRetentionDays);
     fns.pruneSpecSnapshots(config.retentionDays, nowMs, undefined, config.campaignRetentionDays);

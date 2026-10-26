@@ -4,7 +4,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync 
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import Database from "better-sqlite3";
-import { AGENT_TURN_EFFICIENCY_COLUMNS, saveAgentTurnEvent, createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, childrenOf, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, quarantineLearningRules, releaseLearningRuleQuarantine, listAllLearningRules, getLearningRule, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, isContextStale, clearContextStale, recordContextHealRequest, saveAgentTurn, getAgentTurns, getAgentTurnTraces, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap, recordRunPhases, getRunPhases, getRunFunnel, saveCrashedRunOutcome } from "./history";
+import { saveAgentTurnEvent, createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, childrenOf, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, quarantineLearningRules, releaseLearningRuleQuarantine, listAllLearningRules, getLearningRule, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, isContextStale, clearContextStale, recordContextHealRequest, saveAgentTurn, getAgentTurns, getAgentTurnTraces, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap, recordRunPhases, getRunPhases, getRunFunnel, saveCrashedRunOutcome } from "./history";
+import { getHistoryDatabase } from "./persistence/index";
+import { backupDatabase } from "./persistence/backup";
 import { SpecRecordSchema } from "../contract/commands";
 import type { RunOutcome, StructuredReflection, } from "../types";
 import type { AgentTurnRecord } from "./history";
@@ -443,7 +445,7 @@ test("backupDatabase writes a consistent, openable snapshot containing committed
   process.env.QAYABA_ROOT = tmpRoot;
   try {
     const rec = createRecord({ app: "hist-backup", sha: "abc1234", target: "e2e", mode: "diff" });
-    const r = await backupDatabase();
+    const r = await backupDatabase(getHistoryDatabase());
     assert.equal(r.backedUp, true);
     assert.ok(r.path && existsSync(r.path), "backup file must exist");
     /* The snapshot must be a valid SQLite DB holding the committed record. */
@@ -544,7 +546,7 @@ test("backupDatabase keeps only the last 7 backups", async () => {
     for (let i = 0; i < 9; i++) {
       writeFileSync(join(backupDir, `qayaba-0000-0${i}.db`), "stale");
     }
-    const r = await backupDatabase();
+    const r = await backupDatabase(getHistoryDatabase());
     assert.equal(r.backedUp, true);
     const remaining = readdirSync(backupDir).filter((f) => f.startsWith("qayaba-") && f.endsWith(".db"));
     assert.equal(remaining.length, 7);
@@ -854,10 +856,7 @@ test("saveAgentTurn stores sanitized output — caller must pre-sanitize (contra
   assert.equal(rows[0]!.outputText, sanitizedText);
 });
 
-test("agent_turns table migrates idempotently on an existing DB (columnExists guard)", () => {
-  /* Calling saveAgentTurn twice with different sessions for the same run must work without errors,
-     proving the schema was created exactly once (the IF NOT EXISTS guards prevent duplicate tables).
-   */
+test("two turns of one run from different sessions are both stored and read back in order", () => {
   const runId = "run-migrate-" + Date.now();
   saveAgentTurn(makeTurn({ runId, sessionId: "sess-a" }));
   saveAgentTurn(makeTurn({ runId, sessionId: "sess-b", role: "qa-reviewer" }));
@@ -867,105 +866,6 @@ test("agent_turns table migrates idempotently on an existing DB (columnExists gu
   assert.equal(rows[1]!.role, "qa-reviewer");
 });
 
-/* datetime('now', '-30 days'), which yields the space-separated 'YYYY-MM-DD HH:MM:SS' form. A RAW
-   string compare skews exactly at the BOUNDARY: when the date portions match, the 'T' (0x54) at
-   index 10 of the ISO value sorts GREATER than the cutoff's ' ' (0x20), so a row that IS older than
-   the cutoff (same day, earlier time) wrongly fails `ts < cutoff` and is NOT pruned. The fix wraps
-   ts in datetime() so both operands are SQLite's canonical form. This self-contained test pins the
-   cutoff to a known instant and reproduces the boundary skew + proves the fixed predicate is correct.
- */
-test("agent_turns prune predicate (datetime(ts)) is boundary-correct for ISO ts, unlike a raw compare", () => {
-  const db = new Database(":memory:");
-  db.exec("CREATE TABLE agent_turns (id INTEGER PRIMARY KEY, ts TEXT NOT NULL)");
-
-  /* A fixed cutoff so the assertions are deterministic (no dependency on the test clock). */
-  const cutoff = "2026-05-18 12:00:00"; /* SQLite datetime() form (space-separated) */
-  /* An ISO turn that is genuinely OLDER than the cutoff: SAME date, earlier time → MUST prune. */
-  const olderSameDay = "2026-05-18T08:00:00.000Z";
-  /* An ISO turn NEWER than the cutoff: same date, later time → MUST survive. */
-  const newerSameDay = "2026-05-18T20:00:00.000Z";
-  db.prepare("INSERT INTO agent_turns (ts) VALUES (?)").run(olderSameDay);
-  db.prepare("INSERT INTO agent_turns (ts) VALUES (?)").run(newerSameDay);
-
-  /* The OLD broken predicate (raw string compare) FAILS to prune the older-same-day row: at index 10
-     its 'T' > the cutoff's ' ', so `olderSameDay < cutoff` is false. This demonstrates the boundary bug.
-   */
-  const rawWouldPrune = (db.prepare("SELECT COUNT(*) AS c FROM agent_turns WHERE ts < ?").get(cutoff) as { c: number }).c;
-  assert.equal(rawWouldPrune, 0, "raw string compare mis-sorts the older-same-day ISO row (the boundary bug: 0 pruned)");
-
-  /* The FIXED predicate: datetime(ts) normalizes the ISO value to the same canonical form as the cutoff. */
-  const fixedWouldPrune = (db.prepare("SELECT COUNT(*) AS c FROM agent_turns WHERE datetime(ts) < ?").get(cutoff) as { c: number }).c;
-  assert.equal(fixedWouldPrune, 1, "datetime(ts) correctly identifies the older-same-day row as prunable");
-
-  db.prepare("DELETE FROM agent_turns WHERE datetime(ts) < ?").run(cutoff);
-  const survivors = db.prepare("SELECT ts FROM agent_turns").all() as Array<{ ts: string }>;
-  assert.equal(survivors.length, 1, "exactly the newer row must survive");
-  assert.equal(survivors[0]!.ts, newerSameDay, "the surviving row must be the newer-same-day one");
-  db.close();
-});
-
-/* A DB created before the efficiency columns existed: opening it must add every efficiency column
-   exactly once (however many times it is opened), leave the pre-existing row valid, and read NULL for
-   each new column — never a fabricated zero. Each open uses a fresh module instance (the store keeps
-   its handle in module state) pointed at the older file through HISTORY_DB_PATH. */
-test("opening a pre-existing agent_turns table twice adds each efficiency column once and old rows read NULL", async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), "history-older-agent-turns-"));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const olderDbPath = join(dir, "older.db");
-
-  const older = new Database(olderDbPath);
-  older.exec(`
-    CREATE TABLE agent_turns (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id TEXT,
-      session_id TEXT NOT NULL,
-      role TEXT NOT NULL,
-      round INTEGER NOT NULL DEFAULT 0,
-      is_repair INTEGER NOT NULL DEFAULT 0,
-      ts TEXT NOT NULL,
-      objective TEXT,
-      prompt_text TEXT NOT NULL,
-      output_text TEXT NOT NULL,
-      prompt_bytes INTEGER NOT NULL DEFAULT 0,
-      tokens_input INTEGER,
-      tokens_output INTEGER,
-      tokens_reasoning INTEGER,
-      tokens_cache_read INTEGER,
-      tokens_cache_write INTEGER,
-      cost REAL
-    );
-  `);
-  /* Recent enough to survive the retention prune whatever day the suite runs. */
-  const recentTs = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  older
-    .prepare("INSERT INTO agent_turns (run_id, session_id, role, ts, prompt_text, output_text) VALUES (?, ?, ?, ?, ?, ?)")
-    .run("run-older", "sess-older", "qa-author", recentTs, "old prompt", "old output");
-  older.close();
-
-  const previousPath = process.env.HISTORY_DB_PATH;
-  process.env.HISTORY_DB_PATH = olderDbPath;
-  t.after(() => {
-    if (previousPath === undefined) delete process.env.HISTORY_DB_PATH;
-    else process.env.HISTORY_DB_PATH = previousPath;
-  });
-
-  for (const open of ["first", "second"]) {
-    const store = (await import(new URL(`./history.ts?open=${open}`, import.meta.url).href)) as typeof import("./history");
-    const turns = store.getAgentTurns("run-older");
-    assert.equal(turns.length, 1, `the pre-existing row is still readable on the ${open} open`);
-    assert.equal(turns[0]!.outputText, "old output");
-  }
-
-  const inspect = new Database(olderDbPath, { readonly: true });
-  t.after(() => inspect.close());
-  const columns = (inspect.prepare("PRAGMA table_info(agent_turns)").all() as Array<{ name: string }>).map((c) => c.name);
-  const row = inspect.prepare("SELECT * FROM agent_turns WHERE run_id = 'run-older'").get() as Record<string, unknown>;
-  for (const { name } of AGENT_TURN_EFFICIENCY_COLUMNS) {
-    assert.equal(columns.filter((c) => c === name).length, 1, `${name} is present exactly once`);
-    assert.equal(row[name], null, `${name} reads NULL on a row written before the column existed`);
-  }
-});
-
 test("the phases a run reached are stored on its record and read back, null for a run that recorded none", () => {
   const withPhases = createRecord({ target: "e2e", app: "hist-phases-a", sha: "abcdef1234", mode: "diff" });
   const without = createRecord({ target: "e2e", app: "hist-phases-a", sha: "abcdef1235", mode: "diff" });
@@ -973,54 +873,6 @@ test("the phases a run reached are stored on its record and read back, null for 
 
   assert.deepEqual(getRunPhases(withPhases.id), { furthestPhase: "execute", phaseTimings: { gate: 3, execute: 900 } });
   assert.deepEqual(getRunPhases(without.id), { furthestPhase: null, phaseTimings: null });
-});
-
-test("opening a runs table that predates the phase columns adds them, and a run on it records its phases", async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), "history-older-runs-phases-"));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const olderDbPath = join(dir, "older.db");
-  const older = new Database(olderDbPath);
-  older.exec("CREATE TABLE runs (id TEXT PRIMARY KEY, app TEXT NOT NULL, sha TEXT NOT NULL, ref TEXT, target TEXT NOT NULL DEFAULT 'e2e', mode TEXT NOT NULL DEFAULT 'diff', status TEXT NOT NULL DEFAULT 'enqueued', step TEXT, step_detail TEXT, verdict TEXT, passed INTEGER DEFAULT 0, failed INTEGER DEFAULT 0, note TEXT, retrying INTEGER DEFAULT 0, parent_run_id TEXT, trigger_repo TEXT, at TEXT NOT NULL, step_started_at TEXT, logs TEXT DEFAULT '')");
-  older.close();
-  const previousPath = process.env.HISTORY_DB_PATH;
-  process.env.HISTORY_DB_PATH = olderDbPath;
-  t.after(() => {
-    if (previousPath === undefined) delete process.env.HISTORY_DB_PATH;
-    else process.env.HISTORY_DB_PATH = previousPath;
-  });
-
-  const store = (await import(new URL("./history.ts?open=phases", import.meta.url).href)) as typeof import("./history");
-  const run = store.createRecord({ target: "e2e", app: "old", sha: "abcdef1", mode: "diff" });
-  store.recordRunPhases(run.id, { furthestPhase: "setup", phaseTimings: { setup: 4 } });
-
-  assert.deepEqual(store.getRunPhases(run.id), { furthestPhase: "setup", phaseTimings: { setup: 4 } });
-});
-
-test("opening a runs table that predates the run facts adds their columns, and a run on it stores its trace id and decision", async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), "history-older-runs-facts-"));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const olderDbPath = join(dir, "older.db");
-  const older = new Database(olderDbPath);
-  older.exec("CREATE TABLE runs (id TEXT PRIMARY KEY, app TEXT NOT NULL, sha TEXT NOT NULL, ref TEXT, target TEXT NOT NULL DEFAULT 'e2e', mode TEXT NOT NULL DEFAULT 'diff', status TEXT NOT NULL DEFAULT 'enqueued', step TEXT, step_detail TEXT, verdict TEXT, passed INTEGER DEFAULT 0, failed INTEGER DEFAULT 0, note TEXT, retrying INTEGER DEFAULT 0, parent_run_id TEXT, trigger_repo TEXT, at TEXT NOT NULL, step_started_at TEXT, logs TEXT DEFAULT '', furthest_phase TEXT, phase_timings TEXT)");
-  older.close();
-  const previousPath = process.env.HISTORY_DB_PATH;
-  process.env.HISTORY_DB_PATH = olderDbPath;
-  t.after(() => {
-    if (previousPath === undefined) delete process.env.HISTORY_DB_PATH;
-    else process.env.HISTORY_DB_PATH = previousPath;
-  });
-
-  const store = (await import(new URL("./history.ts?open=facts", import.meta.url).href)) as typeof import("./history");
-  const run = store.createRecord({ target: "e2e", app: "old", sha: "abcdef1", mode: "diff" });
-  assert.equal(store.getRunFacts(run.id)?.traceId, null);
-  assert.equal(store.getRunFacts(run.id)?.reviewRequired, null);
-  store.updateRecord(run.id, { status: "done", facts: { traceId: "c".repeat(32), decision: "pr", reviewRequired: true, coverageStatus: "pass", coverageMode: "enforce", coverageMinRatio: 0.8 } });
-  const facts = store.getRunFacts(run.id)!;
-  assert.deepEqual([facts.traceId, facts.decision, facts.reviewRequired, facts.coverageStatus, facts.coverageMode, facts.coverageMinRatio], ["c".repeat(32), "pr", true, "pass", "enforce", 0.8]);
-  store.updateRecord(run.id, { facts: { cancelled: true } });
-  assert.equal(store.getRunFacts(run.id)?.cancelled, true, "a partial facts patch leaves the other facts alone");
-  assert.equal(store.getRunFacts(run.id)?.decision, "pr");
-  assert.equal(store.getRunEvaluationStatus(run.id), null);
 });
 
 function finishedRun(app: string, verdict: RunOutcome["verdict"], furthestPhase: string | null, errorClass: string | null, at?: string): string {

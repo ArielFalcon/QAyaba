@@ -12,7 +12,9 @@ import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/sh
 import { MAX_SPEC_SNAPSHOT_BYTES_PER_RUN, MAX_SPEC_SNAPSHOT_TEXT_BYTES, type SpecSnapshot, type SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port";
 import type { ValidationPort } from "@contexts/test-execution/application/index.ts";
 import { SqliteSpecSnapshotAdapter } from "./spec-snapshot-sqlite.adapter";
-import { listSpecSnapshots, pruneSpecSnapshots, commitSpecSnapshots, createRecord } from "./history";
+import { listSpecSnapshots, commitSpecSnapshots, createRecord } from "./history";
+import { getHistoryDatabase } from "./persistence/index";
+import { pruneSpecSnapshots } from "./persistence/retention";
 
 const SECRET = "s3cr3t-account-pass-value";
 const RESULT = { ok: false, errors: ["[lint] nope"], infra: false };
@@ -145,7 +147,7 @@ test("snapshots older than the retention window are pruned with the same chunkin
   const now = 1_760_000_000_000;
   const row = (runId: string, ageDays: number) => ({ runId, path: "flows/a.spec.ts", sha256: runId, text: "t", bytes: 1, capturedAt: now - ageDays * day, delivered: 1 });
   commitSpecSnapshots([row("old-run", 40), row("fresh-run", 1)]);
-  assert.equal(pruneSpecSnapshots(30, now), 1);
+  assert.equal(pruneSpecSnapshots(getHistoryDatabase(), 30, now), 1);
   assert.equal(listSpecSnapshots("old-run").length, 0);
   assert.equal(listSpecSnapshots("fresh-run").length, 1);
 });
@@ -157,12 +159,12 @@ test("snapshots of a campaign run inside the campaign window survive the ordinar
   const early = Date.now() + 100 * day;
   const row = (runId: string, capturedAt: number) => ({ runId, path: "a.spec.ts", sha256: runId, text: "t", bytes: 1, capturedAt, delivered: 1 });
   commitSpecSnapshots([row(campaign.id, early - 40 * day), row(ordinary.id, early - 40 * day)]);
-  pruneSpecSnapshots(30, early, 100, 180);
+  pruneSpecSnapshots(getHistoryDatabase(), 30, early, 100, 180);
   assert.equal(listSpecSnapshots(campaign.id).length, 1);
   assert.equal(listSpecSnapshots(ordinary.id).length, 0);
   const late = Date.now() + 200 * day;
   commitSpecSnapshots([row(campaign.id, late - 40 * day)]);
-  pruneSpecSnapshots(30, late, 100, 180);
+  pruneSpecSnapshots(getHistoryDatabase(), 30, late, 100, 180);
   assert.equal(listSpecSnapshots(campaign.id).length, 0);
 });
 
