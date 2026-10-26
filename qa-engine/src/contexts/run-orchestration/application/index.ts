@@ -11,3 +11,7 @@ export type { WorkspacePort } from "./ports/workspace.port.ts";
 export type { RunInput } from "../domain/run-input.ts";
 export type { WorkspaceHandle, WorkspaceKind } from "../domain/workspace-handle.ts";
 export type { ConfinementResult } from "../domain/confinement-result.ts";
+export { RequestContextHeal } from "./request-context-heal.use-case.ts";
+export type { ContextStaleFlagPort } from "./ports/context-stale-flag.port.ts";
+export type { EnqueueContextRun } from "./ports/enqueue-context-run.port.ts";
+export type { ContextHealRunRequest } from "../domain/context-heal-run-request.ts";

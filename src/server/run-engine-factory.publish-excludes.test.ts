@@ -1,4 +1,4 @@
-/* REAL git-status fixture tests for E2E_PUBLISH_EXCLUDES / CODE_PUBLISH_EXCLUDES. The existing
+/* REAL git-status fixture tests for the e2e and code publish excludes. The existing
    the publish step tests in run-engine-factory.test.ts use a fake `git` fn that only records
    argv — that style is deliberately insufficient here: an array-membership assertion on the exclude
    config would have PASSED on the anchoring bug (the string ".qa/coverage/" WAS already in the
@@ -398,11 +398,11 @@ test("code target: .env* files remain excluded (regression guard — unrelated t
 
 /* ── tracked-file gap (SECURITY CRITICAL): gitignore-style excludes only suppress UNTRACKED paths —
    a denylisted file that is ALREADY TRACKED (every real Dockerfile/.github/workflows/* in a watched
-   repo IS tracked) and gets agent-MODIFIED is invisible to CODE_PUBLISH_EXCLUDES/.git/info/exclude.
+   repo IS tracked) and gets agent-MODIFIED is invisible to the code publish excludes/.git/info/exclude.
    The only other guard was the runtime WriteConfinementAdapter.enforce() call, which RunQaUseCase
    wraps in a documented FAIL-OPEN try/catch — if it throws for any reason (e.g. an
    unrecognized git path-quoting escape sequence), the tampered tracked file survives to this
-   publish step untouched and CODE_PUBLISH_ADD=["."] stages/commits it into the watched repo's PR.
+   publish step untouched and the code pathspec "." stages/commits it into the watched repo's PR.
    This is a SECOND, independent, deterministic guard at commit time — it does not depend on
    enforce() having run or succeeded at all. ──────────────────────────────────────────────────────
  */
@@ -544,8 +544,8 @@ test("code target: a TRACKED workflow file TYPECHANGED into a symlink is never p
 });
 
 /* Note: a "rename INTO a denylisted destination" fixture at THIS (integration) level would be a
-   false test for the code target specifically — CODE_PUBLISH_EXCLUDES already spreads the WHOLE
-   CONFINEMENT_DENYLIST into .git/info/exclude (see this file's own CODE_PUBLISH_EXCLUDES doc), so a
+   false test for the code target specifically — the code publish excludes already spreads the WHOLE
+   CONFINEMENT_DENYLIST into .git/info/exclude (see the publish policy's code excludes), so a
    brand-new path named e.g. "Dockerfile" is already invisible to `git add`/`git status` as a
    gitignored untracked file — defense #1 (the exclude file) already blocks it, and git therefore
    never even reports an "R" status for the pairing (only a plain "D" for the origin — the
@@ -603,7 +603,7 @@ for (const { path: denyPath, original, tampered } of DENYLIST_TRACKED_MODIFY_CAS
 
 /* publishStep(isCode) must not dispatch ONLY on isCode. Context-mode runs are never isCode
    (they are e2e-shaped), so a context-mode run reaching "pr" must not fall through to
-   E2E_PUBLISH_ADD (["e2e"]), staging the WHOLE e2e/ tree — seed fixtures, specs, everything —
+   the e2e pathspec ("e2e"), staging the WHOLE e2e/ tree — seed fixtures, specs, everything —
    instead of just the FE<->BE architecture map. See src/integrations/publish.ts's
    publishContext, whose CONTEXT_ADD = ["e2e/.qa/context.json"] stages ONLY that one file.
  */

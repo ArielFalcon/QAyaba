@@ -25,6 +25,7 @@ import {
   stallMs,
 } from "../integrations/opencode-client";
 import type { RunPipelinePort, ObserverPort } from "@contexts/run-orchestration/application/index.ts";
+import { RequestContextHeal, type EnqueueContextRun } from "@contexts/run-orchestration/application/index";
 import { buildEngine, type EngineRootDeps } from "./engine-root";
 import type { PublishDeps } from "../../qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication";
 import { createDiscoverLogin } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner";
@@ -427,10 +428,10 @@ export interface RunEngineFactoryDeps {
   /*
    * The process-audit context-heal's REBUILD side: enqueue a `mode: context` run of `app` at `sha`
    * and return its run id, or "" when the queue refuses new work. Called when a run sees the
-   * context_stale flag (see requestContextHeal below). A failure to enqueue never blocks or fails
+   * context_stale flag (see RequestContextHeal). A failure to enqueue never blocks or fails
    * the run that triggered it.
    */
-  enqueueContextRun?: (input: ContextHealRunRequest) => string | Promise<string>;
+  enqueueContextRun?: EnqueueContextRun;
   /*
    * How the files differ between the commit a stored context map was built at and the run's commit, read in the primary
    * mirror; undefined when they cannot be compared. Test seam: the default asks git.
@@ -454,14 +455,6 @@ export function gitChangedFiles(repoDir: string, fromSha: string, toSha: string)
   }
 }
 
-export interface ContextHealRunRequest {
-  app: string;
-  /* The triggering run's own sha: the one DEV serves for a gated app that got this far. */
-  sha: string;
-  /* The run whose stale map asked for this rebuild. Optional: onboarding/tests may enqueue an unlinked heal. */
-  parentRunId?: string;
-}
-
 /* The app commits a run has already asked a context-map rebuild for, in this process: the next run at the same commit does not ask again. */
 const contextHealRequested = new Set<string>();
 
@@ -477,38 +470,6 @@ const contextMapWrittenThisRun: ContextMapWrittenThisRun = (specDir) =>
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   }).trim() !== "";
-
-/*
- * Ask for a context-map rebuild and disarm the stale flag only once the queue has accepted it. A
- * refused (""), rejected, thrown or unwired enqueue — or a run with no sha — keeps the flag armed,
- * so the next qualifying run retries instead of the heal being lost.
- */
-    /* mutation-scope:end context-map-compare-fallback */
-function requestContextHeal(
-  app: string,
-  sha: string | undefined,
-  enqueue: RunEngineFactoryDeps["enqueueContextRun"],
-  parentRunId?: string,
-): void {
-  const keepArmed = (why: string): void => {
-    console.warn(`[qa] WARNING: context-map rebuild for ${app} not enqueued (${why}); the stale flag stays armed for the next run.`);
-  };
-  if (!enqueue) return keepArmed("no rebuild trigger is wired");
-  if (!sha) return keepArmed("the run has no sha to rebuild at");
-  let pending: Promise<string>;
-  try {
-    pending = Promise.resolve(enqueue({ app, sha, ...(parentRunId ? { parentRunId } : {}) }));
-  } catch (err) {
-    return keepArmed(err instanceof Error ? err.message : String(err));
-  }
-  pending.then(
-    (runId) => {
-      if (runId) clearContextStale(app);
-      else keepArmed("the queue refused new work");
-    },
-    (err: unknown) => keepArmed(err instanceof Error ? err.message : String(err)),
-  );
-}
 
 /*
  * How long a run waits for the agent runtime to answer the step-limit read. The first read of a directory
@@ -804,13 +765,14 @@ export function buildEngineRootDeps(
    * (context maps are e2e-only), `run.mode !== "context"` (a context-mode run IS the rebuild) and
    * `!triggerService` (a service-triggered run's sha belongs to the service repo, not the primary).
    */
+  const contextHeal = new RequestContextHeal(deps.enqueueContextRun, { clear: clearContextStale });
   const contextStale = !isCode && run.mode !== "context" && !triggerService && isContextStale(app.name);
   if (contextStale && campaignFrozen) {
     /* A campaign's queue holds only its own runs: the rebuild is left for after it, and the flag stays as the campaign found it. */
     console.log(`[qa] context map for ${app.name} was marked stale by the process audit — skipping the stored/disk map this run; the campaign freeze requests no rebuild.`);
   } else if (contextStale) {
     console.log(`[qa] context map for ${app.name} was marked stale by the process audit — skipping the stored/disk map this run and requesting a rebuild.`);
-    requestContextHeal(app.name, run.sha, deps.enqueueContextRun, run.runId);
+    contextHeal.execute(app.name, run.sha, run.runId);
   }
 
   /* Where the map the run actually used came from, and how fresh it was (observe-only). */
@@ -827,7 +789,7 @@ export function buildEngineRootDeps(
     contextHealRequested.add(key);
     recordContextHealRequest(app.name);
     mapProvenance = { ...mapProvenance, recapture: "requested" };
-    requestContextHeal(app.name, run.sha, deps.enqueueContextRun, run.runId);
+    contextHeal.execute(app.name, run.sha, run.runId);
   };
 
   /*

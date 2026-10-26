@@ -1,4 +1,5 @@
 import { test, mock } from "node:test";
+import type { ContextHealRunRequest } from "@contexts/run-orchestration/application/index";
 import { FoldRunOutcome, type LearningStore } from "@contexts/cross-run-learning/application/index";
 import type { RunOutcome } from "@kernel/run-outcome";
 import { buildAppCatalog } from "../../qa-engine/src/contexts/app-catalog/composition/build-app-catalog";
@@ -8,7 +9,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appSuiteStoreDir, createRunEngineFactory, engineAgentDeps, buildEngineRootDeps, resolveCodeSandbox, type ContextHealRunRequest, publishWiring } from "./run-engine-factory";
+import { appSuiteStoreDir, createRunEngineFactory, engineAgentDeps, buildEngineRootDeps, resolveCodeSandbox, publishWiring } from "./run-engine-factory";
 import { AppConfig } from "../orchestrator/config-loader";
 import { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry";
 import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-infrastructure/redaction/run-secret-redaction";

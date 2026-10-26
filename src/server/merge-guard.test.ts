@@ -161,7 +161,7 @@ test("isProtectedPath flags the secret boundary (a fix must never weaken what sc
    */
   assert.equal(isProtectedPath("qa-engine/src/contexts/workspace-and-publication/domain/write-confinement.service.ts"), true);
   /* the composition root — wires RedactionPortAdapter, WriteConfinementAdapter, VcsWriteAdapter,
-     CODE_PUBLISH_EXCLUDES, and every GitHub adapter. An autonomous edit here can rewire ANY
+     the code publish excludes, and every GitHub adapter. An autonomous edit here can rewire ANY
      security port to a weaker (or fake) implementation without touching the port/adapter files
      themselves.
    */

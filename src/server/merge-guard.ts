@@ -176,7 +176,7 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts",
   /*
    * The composition root — wires RedactionPortAdapter, WriteConfinementAdapter, VcsWriteAdapter,
-   * CODE_PUBLISH_EXCLUDES, and every GitHub adapter. An autonomous edit here can rewire ANY security
+   * the code publish excludes, and every GitHub adapter. An autonomous edit here can rewire ANY security
    * port to a weaker (or fake) implementation without ever touching the port/adapter files
    * themselves — the single widest-blast-radius file in the whole security surface.
    */
