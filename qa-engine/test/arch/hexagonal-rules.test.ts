@@ -94,10 +94,10 @@ test("a module importing the internals of another context is reported by cross-c
   }
 });
 
-test("another context's ports barrel and a composition root's wiring are public surface, not a cross-context violation", () => {
+test("another context's application index and a composition root's wiring are public surface, not a cross-context violation", () => {
   const root = treeWith({
-    [`${CTX}/alpha/application/use-case.ts`]: 'import type { Port } from "../../beta/application/ports/index.ts";\nexport type X = Port;\n',
-    [`${CTX}/beta/application/ports/index.ts`]: "export type Port = string;\n",
+    [`${CTX}/alpha/application/use-case.ts`]: 'import type { Port } from "../../beta/application/index.ts";\nexport type X = Port;\n',
+    [`${CTX}/beta/application/index.ts`]: "export type Port = string;\n",
     [`${CTX}/alpha/composition/root.ts`]: 'import { rule } from "../../beta/domain/rule.ts";\nexport const x = rule;\n',
     [`${CTX}/beta/domain/rule.ts`]: "export const rule = 1;\n",
   });

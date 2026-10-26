@@ -8,7 +8,7 @@
  * Pure: no clock, no file, no model.
  */
 
-import { namesTemplatePage } from "@contexts/generation/domain/route-instantiation.ts";
+import { namesTemplatePage } from "@contexts/generation/application/index.ts";
 import { FLOW_OUTCOME, type FlowOutcome } from "./flow-outcomes.ts";
 import { scrub } from "./scrub.ts";
 

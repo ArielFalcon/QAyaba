@@ -3,7 +3,7 @@
 import type { CrossRepoImpactPort, CrossRepoImpact, ServiceLink } from "../../application/ports/index.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { SandboxedBinaryRunner } from "../../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
-import { ResolveCrossRepoImpactUseCase, type CrossRepoVcsRead, type MirrorRegistryLike } from "@contexts/service-topology/application/resolve-cross-repo-impact.use-case.ts";
+import { ResolveCrossRepoImpactUseCase, type CrossRepoVcsRead, type MirrorRegistryLike } from "@contexts/service-topology/application/index.ts";
 
 export interface CrossRepoImpactPortAdapterDeps {
   mirrors: MirrorRegistryLike;

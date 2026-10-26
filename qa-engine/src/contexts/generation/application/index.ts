@@ -1,0 +1,20 @@
+/* Public surface of this context: other contexts import only from this file. It declares nothing. */
+export { GenerateTestsUseCase } from "./generate-tests.use-case.ts";
+export type { ArchitectureContext, CommitIntent, OpencodeRunInput, ReviewInput, StepLimitFor } from "./ports/generation-ports.ts";
+export type { PromptRenderingPort, VerdictParserPort } from "./ports/index.ts";
+export { advisoryLineIds, contextMapItemIds, itemId } from "./../domain/context-item-ids.ts";
+export { declaredRelativeFiles } from "./../domain/declared-resources.ts";
+export { GENERATION_NOTE_MAX_CHARS } from "./../domain/generation-end.ts";
+export { generationRunsReviewer } from "./../domain/generation-review.ts";
+export { extractExportedNames, isSafeAttributeName } from "./../domain/harness-facts.ts";
+export { packPagesFor } from "./../domain/pack-pages.ts";
+export { promptFactsOpts } from "./../domain/prompt-facts.ts";
+export { PROMPT_HEADINGS } from "./../domain/prompt-headings.ts";
+export { isReGenTurn } from "./../domain/regen-turn.ts";
+export { renderSpecChanges, sameReviewedSpecs } from "./../domain/review-fingerprint.ts";
+export type { ReviewSpecText } from "./../domain/review-fingerprint.ts";
+export { correctionClassOf } from "./../domain/review-output.ts";
+export { namesTemplatePage } from "./../domain/route-instantiation.ts";
+export { filesLinkedToPages, rankRoutesWithRelevance } from "./../domain/route-ranking.ts";
+export { formatSuiteEntry, suiteEntryFile } from "./../domain/suite-entry.ts";
+export type { ToolAttemptDirectory } from "./../domain/tool-link.ts";

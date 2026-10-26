@@ -2,9 +2,9 @@
 
 import type { BlastRadius } from "@kernel/blast-radius.ts";
 import type { CoverageMeasurement, ObjectiveSignalPort } from "../../application/ports/index.ts";
-import { DecideCoverageService, type ChangeCoverage, type CoveragePolicy } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
-import type { CoverageCollectorPort, CoverageReport, ValueOraclePort } from "@contexts/objective-signal/application/ports/index.ts";
-import { parseDiffHunks } from "@contexts/objective-signal/domain/assemble-change-coverage.ts";
+import { DecideCoverageService, type ChangeCoverage, type CoveragePolicy } from "@contexts/objective-signal/application/index.ts";
+import type { CoverageCollectorPort, CoverageReport, ValueOraclePort } from "@contexts/objective-signal/application/index.ts";
+import { parseDiffHunks } from "@contexts/objective-signal/application/index.ts";
 
 export interface ObjectiveSignalPortCollaborators {
   collector: CoverageCollectorPort;

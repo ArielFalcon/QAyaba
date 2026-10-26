@@ -2,8 +2,8 @@
 
 import type { Sha } from "@kernel/sha.ts";
 import type { ChangeAnalysisPort, CommitIntent } from "../../application/ports/index.ts";
-import type { VcsReadPort } from "@contexts/change-analysis/application/ports/index.ts";
-import { classifyRange } from "@contexts/change-analysis/domain/commit-classification.ts";
+import type { VcsReadPort } from "@contexts/change-analysis/application/index.ts";
+import { classifyRange } from "@contexts/change-analysis/application/index.ts";
 
 export class ChangeAnalysisPortAdapter implements ChangeAnalysisPort {
   constructor(private readonly vcs: VcsReadPort) {}

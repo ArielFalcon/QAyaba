@@ -6,8 +6,8 @@
  * not author, finds nothing.
  */
 
-import { AGENT_BROWSER_AGENTS } from "@contexts/test-execution/domain/agent-browser-capability.ts";
-import { RUN_SPEC_AGENT, RUN_SPEC_FLOW_AGENT } from "@contexts/test-execution/domain/run-spec-capability.ts";
+import { AGENT_BROWSER_AGENTS } from "@contexts/test-execution/application/index.ts";
+import { RUN_SPEC_AGENT, RUN_SPEC_FLOW_AGENT } from "@contexts/test-execution/application/index.ts";
 import type { GeolocationInput } from "@kernel/geolocation.ts";
 import type { GeolocationResult, RunGeolocation } from "../domain/run-geolocation.ts";
 import type { OpenedSession } from "./closed-loop-registry.ts";

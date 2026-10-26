@@ -9,7 +9,7 @@ import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { GeolocationFacts } from "@kernel/geolocation.ts";
-import { PROBE_REL_DIR } from "@contexts/test-execution/domain/run-spec-capability.ts";
+import { PROBE_REL_DIR } from "@contexts/test-execution/application/index.ts";
 import type { GenerationEnrichment, GenerationOutput } from "../../ports/index.ts";
 import type { CoordinatedPass } from "../../coordination/lead-sidekicks.ts";
 import { CORRECTION_ORIGIN, type CorrectionOrigin, type CorrectionFinding } from "../../coordination/lead-correction.ts";

@@ -16,7 +16,7 @@ import { createHash } from "node:crypto";
 import { lstatSync, mkdirSync, readdirSync, rmdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { removeTreeBounded } from "../../../shared-infrastructure/bounded-tree-removal.ts";
-import { PROBE_REL_DIR } from "@contexts/test-execution/domain/run-spec-capability.ts";
+import { PROBE_REL_DIR } from "@contexts/test-execution/application/index.ts";
 import {
   MAX_SPEC_SOURCE_BYTES,
   readConfinedSpecBytes,

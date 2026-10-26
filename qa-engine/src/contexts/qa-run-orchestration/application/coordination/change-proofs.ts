@@ -1,6 +1,6 @@
 /* How the change reaches a flow's pages, for its sidekick's brief (S15): the proof the call graph found for each change page the flow visits, symbol and file names only, so the flow's assertions aim at the changed behaviour. Bounded per brief and per proof. Pure. */
 import type { GraphPage } from "@kernel/change-pages.ts";
-import { namesTemplatePage } from "@contexts/generation/domain/route-instantiation.ts";
+import { namesTemplatePage } from "@contexts/generation/application/index.ts";
 
 export const MAX_BRIEF_PROOFS = 3;
 export const MAX_PROOF_STEPS = 8;

@@ -4,7 +4,7 @@ import { CORRECTION_ORIGIN } from "../../coordination/lead-correction.ts";
 import { stripAnsi } from "@kernel/ansi.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { isOk } from "@kernel/result.ts";
-import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rule.ts";
+import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "../../../domain/helpers/derive-cycle-backstop.ts";
 import { staticFixAction } from "../../../domain/static-fix.ts";
 import { reviewerApprovalOf } from "../../ports/index.ts";

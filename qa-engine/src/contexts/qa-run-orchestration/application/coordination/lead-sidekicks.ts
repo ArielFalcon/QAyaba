@@ -11,7 +11,7 @@
 
 import type { AgentProvider } from "@kernel/agent-role.ts";
 import { posix } from "node:path";
-import { PROBE_REL_DIR } from "@contexts/test-execution/domain/run-spec-capability.ts";
+import { PROBE_REL_DIR } from "@contexts/test-execution/application/index.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import type { CoordinationGateSignal, CoordinationSettings, PlanningLimits } from "@kernel/coordination.ts";
 import { formatGeoLocation, type GeoLocation } from "@kernel/geolocation.ts";
@@ -37,8 +37,8 @@ import { admitLeadPlan, LEAD_PLAN_KIND, type AdmittedFlow, type AdmittedPlan } f
 import { resolveSidekickModel } from "./resolve-sidekick-model.ts";
 import { SIDEKICK_AUTHORING, sidekickAuthoring, sidekickDeniedTools, type SidekickAuthoringMode } from "./sidekick-authoring.ts";
 import type { SidekickExecutor, SidekickSession } from "./sidekick-executor.ts";
-import { packPagesFor } from "@contexts/generation/domain/pack-pages.ts";
-import { namesTemplatePage } from "@contexts/generation/domain/route-instantiation.ts";
+import { packPagesFor } from "@contexts/generation/application/index.ts";
+import { namesTemplatePage } from "@contexts/generation/application/index.ts";
 import { scrub } from "./scrub.ts";
 import { CORRECTION_ORIGIN, admitLeadCorrection, correctionPreamble, renderLeadCorrection, type CorrectionOrigin, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type CorrectionFinding } from "./lead-correction.ts";
 

@@ -24,7 +24,7 @@ import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { PreconditionKind } from "../../domain/auth-precondition.ts";
 import type { CoordinationTelemetryPort } from "../coordination/coordination-telemetry.ts";
 import type { IntentContractPort } from "../ports/intent-contract.port.ts";
-import type { ReflectorPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/ports/index.ts";
+import type { ReflectorPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/index.ts";
 
 /** A login the run could not complete: the kind, a note already scrubbed of credentials, and the attempt's duration. */
 export interface PreconditionFailure {

@@ -6,19 +6,19 @@ import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "
 import { join } from "node:path";
 import { buildContextPack, defaultContextPackDeps, packDeliveredItemIds } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { ContextPackAssembly, ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
-import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance.ts";
 import { readManifest } from "@contexts/generation/infrastructure/manifest-fs.ts";
 import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
-import { extractExportedNames, isSafeAttributeName } from "@contexts/generation/domain/harness-facts.ts";
-import { formatSuiteEntry } from "@contexts/generation/domain/suite-entry.ts";
+import { extractExportedNames, isSafeAttributeName } from "@contexts/generation/application/index.ts";
+import { formatSuiteEntry } from "@contexts/generation/application/index.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import { listSpecFiles, readFailureReason, readOwnedSpecFile } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { raceWithAbort, isAbortError } from "../../domain/abort-race.ts";
 import { withDeclaredResources } from "./implementation-resources.ts";
 import { withChangedElementScopes } from "./changed-element-scope.ts";
 import { withUnchangedLines, type MeasuredLabels } from "./changed-label-lines.ts";
-import { filesLinkedToPages, rankRoutesWithRelevance } from "@contexts/generation/domain/route-ranking.ts";
+import { filesLinkedToPages, rankRoutesWithRelevance } from "@contexts/generation/application/index.ts";
 const diffParser = new DiffParserService();
 
 export interface PreGenerationGroundingStaticContext {

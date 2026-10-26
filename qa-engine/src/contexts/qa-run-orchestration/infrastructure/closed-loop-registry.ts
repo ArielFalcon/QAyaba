@@ -7,8 +7,8 @@
  * the flow's own.
  */
 
-import { RUN_SPEC_AGENT, RUN_SPEC_FLOW_AGENT, type RunSpecCapability } from "@contexts/test-execution/domain/run-spec-capability.ts";
-import type { RunSpecRequest, RunSpecResponse } from "@contexts/test-execution/application/run-spec.use-case.ts";
+import { RUN_SPEC_AGENT, RUN_SPEC_FLOW_AGENT, type RunSpecCapability } from "@contexts/test-execution/application/index.ts";
+import type { RunSpecRequest, RunSpecResponse } from "@contexts/test-execution/application/index.ts";
 
 export interface LiveLoop {
   runId: string;

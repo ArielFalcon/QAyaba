@@ -2,7 +2,7 @@
 
 import { CORRECTION_ORIGIN } from "../../coordination/lead-correction.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
-import { renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
+import { renderCoverageGap } from "@contexts/objective-signal/application/index.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import { runOf, type RunState } from "../run-state.ts";

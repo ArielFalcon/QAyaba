@@ -135,11 +135,11 @@ module.exports = {
     {
       name: "cross-context-internals",
       severity: "error",
-      comment: "A context reaches another context only through its public surface, the application ports barrel (application/index.ts or application/ports/index.ts). Composition roots wire contexts together by design and are exempt. Everything else of another context (domain, infrastructure, other application files) is internal.",
+      comment: "A context reaches another context only through its public surface, application/index.ts. Composition roots wire contexts together by design and are exempt. Everything else of another context (domain, infrastructure, other application files) is internal.",
       from: { path: "^qa-engine/src/contexts/([^/]+)/", pathNot: "composition/" },
       to: {
         path: "^qa-engine/src/contexts/",
-        pathNot: ["^qa-engine/src/contexts/$1/", "^qa-engine/src/contexts/[^/]+/application/(ports/)?index\\.ts$"],
+        pathNot: ["^qa-engine/src/contexts/$1/", "^qa-engine/src/contexts/[^/]+/application/index\\.ts$"],
       },
     },
     {

@@ -8,7 +8,7 @@ import { NOOP_KIND } from "@kernel/noop-kind.ts";
 import { attributeContradictions } from "../../../domain/helpers/contradiction-attribution.ts";
 import { engineSideCauseOf, terminalForGenerationEnd } from "../../../domain/helpers/generation-end-terminal.ts";
 import { checkPreExecGrounding } from "../../../domain/pre-exec-grounding.service.ts";
-import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rule.ts";
+import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
 import { reviewerApprovalOf } from "../../ports/index.ts";
 import type { GenerationOutput } from "../../ports/index.ts";
 import type { CoordinateResult } from "../../coordination/lead-sidekicks.ts";

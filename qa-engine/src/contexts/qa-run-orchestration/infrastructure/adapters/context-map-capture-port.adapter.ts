@@ -2,7 +2,7 @@
 
 import { rethrowIfUntrusted } from "@kernel/domain-error.ts";
 import type { ContextMapCapturePort } from "../../application/ports/index.ts";
-import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
 import { loadContextMapFromDisk } from "./pre-generation-grounding-port.adapter.ts";
 
 /*

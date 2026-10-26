@@ -36,7 +36,7 @@ import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { RedactionScope } from "@kernel/telemetry/telemetry.port.ts";
 import { attachTraceFacts, type RunTraceFacts } from "@kernel/run-trace-facts.ts";
-import { generationRunsReviewer } from "@contexts/generation/domain/generation-review.ts";
+import { generationRunsReviewer } from "@contexts/generation/application/index.ts";
 import { AuthPreconditionError } from "../domain/auth-precondition.ts";
 import { CycleBudget } from "../domain/cycle-budget.ts";
 import { WallClockBudget } from "../domain/wall-clock-budget.ts";

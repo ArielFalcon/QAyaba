@@ -11,8 +11,8 @@ import { specSnapshotPort } from "../../infrastructure/adapters/spec-snapshot.ad
 import { RegenerationAcceptance } from "../regeneration-acceptance.ts";
 import type { SpecSnapshot } from "../ports/spec-snapshot.port.ts";
 import type { ContractFeedback } from "../../domain/contract-feedback.ts";
-import { EMPTY_TOKEN_SET, type ChangeTokenSet } from "@contexts/objective-signal/domain/change-tokens.ts";
-import { diffContracts, type IntentViolation } from "@contexts/objective-signal/domain/test-intent-contract.ts";
+import { EMPTY_TOKEN_SET, type ChangeTokenSet } from "@contexts/objective-signal/application/index.ts";
+import { diffContracts, type IntentViolation } from "@contexts/objective-signal/application/index.ts";
 import type { SpecIntentView } from "../ports/intent-contract.port.ts";
 import type { RunQaConfig, RunQaUseCaseDeps } from "./run-types.ts";
 import { carryOn } from "./failure-policy.ts";

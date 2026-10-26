@@ -1,8 +1,8 @@
 /* Adds to each route of the architecture map the files its implementation files declare: a page whose template and style sheets are separate files is changed through those, so a change to one of them has to reach the route. Only what an implementation file says counts (the relative path literals of `declaredRelativeFiles`), and only a regular file that is there, below the working copy, with no link anywhere on the way. A sibling is never guessed from a name. The working copy is a directory the agent can write into and the map came from it, so every read and probe goes through the strict calls of the confinement module. Fail-open and bounded: a file that cannot be read or found adds nothing, and nothing it holds is ever quoted. */
 
-import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
-import { declaredRelativeFiles } from "@contexts/generation/domain/declared-resources.ts";
-import { LanguageRegistry } from "@contexts/change-analysis/domain/language-id.ts";
+import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
+import { declaredRelativeFiles } from "@contexts/generation/application/index.ts";
+import { LanguageRegistry } from "@contexts/change-analysis/application/index.ts";
 import { MAX_SPEC_SOURCE_BYTES, probeOwnedSpecFile, readOwnedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 
 /* An implementation file larger than this is not read: a page is a few hundred lines. */

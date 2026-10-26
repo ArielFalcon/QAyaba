@@ -2,9 +2,9 @@
 
 import type { QaCase } from "@kernel/qa-case.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
-import { correctionClassOf } from "@contexts/generation/domain/review-output.ts";
-import { renderSpecChanges, sameReviewedSpecs, type ReviewSpecText } from "@contexts/generation/domain/review-fingerprint.ts";
-import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rule.ts";
+import { correctionClassOf } from "@contexts/generation/application/index.ts";
+import { renderSpecChanges, sameReviewedSpecs, type ReviewSpecText } from "@contexts/generation/application/index.ts";
+import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
 import type { SpecRoot } from "../../../../../shared-infrastructure/spec-path-confinement.ts";
 import { precheckSpecsAgainstDom } from "../../../domain/deterministic-review-precheck.ts";
 import { citedSpec, filterReviewFindings } from "../../../domain/review-finding-filter.service.ts";

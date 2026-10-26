@@ -5,8 +5,8 @@
  * of a role that does not author, finds nothing. Sessions of the same run share the run's browser, each with a page of its own.
  */
 
-import { AGENT_BROWSER_AGENTS, type AgentBrowserCapability } from "@contexts/test-execution/domain/agent-browser-capability.ts";
-import type { AgentBrowserRequest, AgentBrowserResponse } from "@contexts/test-execution/application/agent-browser.use-case.ts";
+import { AGENT_BROWSER_AGENTS, type AgentBrowserCapability } from "@contexts/test-execution/application/index.ts";
+import type { AgentBrowserRequest, AgentBrowserResponse } from "@contexts/test-execution/application/index.ts";
 import type { OpenedSession } from "./closed-loop-registry.ts";
 
 export interface LiveBrowser {

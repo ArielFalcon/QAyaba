@@ -1,7 +1,7 @@
 /* The opening of a run: the deploy gate, then (in the prepared working copy) the change's classification, the run deadline and the code index. */
 
 import { isOk } from "@kernel/result.ts";
-import { changeTokens } from "@contexts/objective-signal/domain/change-tokens.ts";
+import { changeTokens } from "@contexts/objective-signal/application/index.ts";
 import { end, type StepOutcome } from "../run-flow.ts";
 import type { RunContext, WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";

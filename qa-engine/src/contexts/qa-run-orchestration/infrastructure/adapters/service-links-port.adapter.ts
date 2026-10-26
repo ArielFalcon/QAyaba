@@ -2,8 +2,8 @@
 
 import { existsSync } from "node:fs";
 import type { ServiceLinksPort, ServiceLink, ContractDrift } from "../../application/ports/index.ts";
-import type { RepoRef, BoundaryProfile } from "@contexts/service-topology/domain/index.ts";
-import type { BoundaryProfileProviderPort } from "@contexts/service-topology/application/ports/index.ts";
+import type { RepoRef, BoundaryProfile } from "@contexts/service-topology/application/index.ts";
+import type { BoundaryProfileProviderPort } from "@contexts/service-topology/application/index.ts";
 import type { MirrorRegistryPort } from "@kernel/ports/mirror-registry.port.ts";
 import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrastructure/resolver-factory.ts";
 

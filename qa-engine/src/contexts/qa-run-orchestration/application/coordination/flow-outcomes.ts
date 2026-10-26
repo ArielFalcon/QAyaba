@@ -6,7 +6,7 @@
  */
 
 import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
-import { GENERATION_NOTE_MAX_CHARS } from "@contexts/generation/domain/generation-end.ts";
+import { GENERATION_NOTE_MAX_CHARS } from "@contexts/generation/application/index.ts";
 
 export const FLOW_OUTCOME = {
   DELIVERED: "delivered",

@@ -7,7 +7,7 @@ import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import type { AgentBrowserLimits } from "@kernel/agent-browser.ts";
 import type { GeolocationFacts } from "@kernel/geolocation.ts";
 import type { PlanningLimits } from "@kernel/coordination.ts";
-import type { ServiceLink, ContractDrift } from "@contexts/service-topology/domain/index.ts";
+import type { ServiceLink, ContractDrift } from "@contexts/service-topology/application/index.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 import type { Omission } from "@kernel/telemetry/section-meta.ts";
 

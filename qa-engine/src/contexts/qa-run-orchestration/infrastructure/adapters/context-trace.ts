@@ -7,7 +7,7 @@
  */
 
 import { recordContextSpan } from "../../../../shared-infrastructure/telemetry/run-spans.ts";
-import { advisoryLineIds, contextMapItemIds, itemId } from "@contexts/generation/domain/context-item-ids.ts";
+import { advisoryLineIds, contextMapItemIds, itemId } from "@contexts/generation/application/index.ts";
 import { packProducedItemIds } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance.ts";

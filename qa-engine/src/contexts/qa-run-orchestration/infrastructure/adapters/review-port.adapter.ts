@@ -4,11 +4,11 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import type { ReviewPort, ReviewEnrichment, ReviewStats } from "../../application/ports/index.ts";
 import { REVIEWER_UNAVAILABLE_MARKER } from "../../application/ports/index.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
-import type { PromptRenderingPort, VerdictParserPort } from "@contexts/generation/application/ports/index.ts";
-import type { ReviewInput, StepLimitFor } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { PromptRenderingPort, VerdictParserPort } from "@contexts/generation/application/index.ts";
+import type { ReviewInput, StepLimitFor } from "@contexts/generation/application/index.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import { renderLearnedRulesForReviewer } from "./generation-port.adapter.ts";
-import { promptFactsOpts } from "@contexts/generation/domain/prompt-facts.ts";
+import { promptFactsOpts } from "@contexts/generation/application/index.ts";
 import { renderExecutionResult, type ExecutionResultCase } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { rethrowIfRunDeadline } from "@kernel/run-deadline.ts";
 

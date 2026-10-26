@@ -6,7 +6,7 @@
  * a decided run does is read in one place.
  */
 
-import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rule.ts";
+import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
 import { isAccepted } from "../../domain/run-decision.service.ts";
 import { learningGates } from "../../domain/helpers/learning-gates.ts";
 import { reviewsTests } from "./phases/review.steps.ts";
