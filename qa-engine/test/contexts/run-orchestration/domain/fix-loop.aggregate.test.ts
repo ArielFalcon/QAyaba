@@ -13,7 +13,7 @@ import {
   type FixLoopIntegrity,
   type FixLoopRun,
 } from "@contexts/run-orchestration/domain/fix-loop.aggregate.ts";
-import type { ContradictionOrigin, SpecSelectorFindings } from "@contexts/generation/domain/selector-check.ts";
+import type { ContradictionOrigin, SpecSelectorFindings } from "@kernel/selector-findings.ts";
 import { CycleBudget } from "@kernel/cycle-budget.ts";
 import { WallClockBudget } from "@kernel/wall-clock-budget.ts";
 import type { QaCase } from "@kernel/qa-case.ts";

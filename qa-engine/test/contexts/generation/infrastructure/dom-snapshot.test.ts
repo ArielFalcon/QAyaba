@@ -4,13 +4,9 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  extractTargetRoutes, formatDomSnapshot, parseAriaSnapshot, captureDom, captureDomByRoute, captureDomForRoutes,
-  captureRouteTrees, normalizeRoutes, capDomLines, isPriorityNode, mergeAttrs, normalizeKey, parseAriaSnapshotWithState,
-  buildCaptureScript, createCaptureDomDeps, defaultCaptureDomDeps, DEGRADED_ROUTE_LABEL, MAX_NODES_PER_ROUTE,
-  formatDomCapture, formatRedirectAdvisory, dataStateUnconfirmed, captureTimeoutMs, CAPTURE_ROUTE_READ_MS,
-  type CapturedPage, type CaptureDataState, type CaptureDomDeps, type NodeAttr, type RouteSnapshot,
-} from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { extractTargetRoutes, formatDomSnapshot, captureDom, captureDomByRoute, captureDomForRoutes, captureRouteTrees, normalizeRoutes, capDomLines, isPriorityNode, mergeAttrs, normalizeKey, buildCaptureScript, createCaptureDomDeps, defaultCaptureDomDeps, DEGRADED_ROUTE_LABEL, MAX_NODES_PER_ROUTE, formatDomCapture, formatRedirectAdvisory, dataStateUnconfirmed, captureTimeoutMs, CAPTURE_ROUTE_READ_MS, type CapturedPage, type CaptureDataState, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { parseAriaSnapshot, parseAriaSnapshotWithState } from "@contexts/generation/domain/aria-snapshot.ts";
+import { type NodeAttr, type RouteSnapshot } from "@contexts/generation/domain/route-snapshot.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { countDirectives, hasTrustLanguage } from "@contexts/generation/domain/prompt-contract-lint.ts";
 

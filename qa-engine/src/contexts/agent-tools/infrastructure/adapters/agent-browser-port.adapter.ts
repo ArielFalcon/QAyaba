@@ -19,8 +19,7 @@ import { AgentBrowserCapability } from "@contexts/test-execution/application/ind
 import { createRouteGuard } from "@contexts/test-execution/application/index.ts";
 import { AgentBrowserUseCase } from "@contexts/test-execution/application/index.ts";
 import type { AgentBrowserHostPort } from "@contexts/test-execution/application/index.ts";
-import { PlaywrightAgentBrowserHost } from "@contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts";
-import type { BrowserLauncherPort, SessionMaterial } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
+import type { BrowserLauncherPort, SessionMaterial } from "@contexts/test-execution/application/index.ts";
 import type { AuthSessionContext, AuthSessionPort } from "@contexts/app-catalog/application/index.ts";
 import type { AgentBrowserHandle, AgentBrowserOpenInput } from "../../domain/agent-browser.ts";
 import type { AgentBrowserPort } from "../../application/ports/agent-browser.port.ts";
@@ -42,8 +41,8 @@ export interface AgentBrowserPortAdapterDeps {
   /* The run's saved session, read into memory; called inside the run's scope. */
   material: () => SessionMaterial;
   launcher: BrowserLauncherPort;
-  /* Test seam: the host the calls are served by. Absent: the Playwright host over `launcher`. */
-  createHost?: (parts: { launcher: BrowserLauncherPort; material: () => Promise<SessionMaterial>; guard: ReturnType<typeof createRouteGuard>; geolocation?: GeoLocation }) => AgentBrowserHostPort;
+  /* The host the calls are served by, built over the run's launcher and session: the shell supplies the Playwright host, a test its own. */
+  createHost: (parts: { launcher: BrowserLauncherPort; material: () => Promise<SessionMaterial>; guard: ReturnType<typeof createRouteGuard>; geolocation?: GeoLocation }) => AgentBrowserHostPort;
   /* With the context: signs in again when a call finds the session gone. Absent: a lost session is only reported. */
   authSession?: AuthSessionPort;
   authContext?: AuthSessionContext;
@@ -100,7 +99,7 @@ export class AgentBrowserPortAdapter implements AgentBrowserPort {
       guard,
       ...(input.geolocation ? { geolocation: input.geolocation.default } : {}),
     };
-    const host = this.deps.createHost ? this.deps.createHost(hostParts) : new PlaywrightAgentBrowserHost(hostParts);
+    const host = this.deps.createHost(hostParts);
     const useCase = new AgentBrowserUseCase({
       capability,
       host,

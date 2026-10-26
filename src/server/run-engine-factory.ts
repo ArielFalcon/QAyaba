@@ -46,6 +46,7 @@ import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-
 import type { AgentBrowserRegistry } from "@contexts/agent-tools/infrastructure/agent-browser-registry";
 import type { GeolocationRegistry } from "@contexts/agent-tools/infrastructure/geolocation-registry";
 import type { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry";
+import { PlaywrightAgentBrowserHost } from "@contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host";
 import { SandboxedChromiumLauncher } from "@contexts/test-execution/infrastructure/agent-browser/chromium-sandbox.launcher";
 import { loadPlaywrightChromium } from "@contexts/test-execution/infrastructure/agent-browser/playwright-core.loader";
 import { redactByValue } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
@@ -1236,6 +1237,7 @@ export function buildEngineRootDeps(
               allowMutating: app.qa.agentBrowser?.allowMutating ?? [],
             },
             generatorRuntimeCanCall: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "primary").provider === "opencode" : false),
+            createHost: (parts) => new PlaywrightAgentBrowserHost(parts),
             launcher: new SandboxedChromiumLauncher({
               exec: execWiring.exec,
               chromium: loadPlaywrightChromium,

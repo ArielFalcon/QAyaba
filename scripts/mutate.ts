@@ -514,6 +514,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${OS_INFRA}/coverage-dump-reader.ts`,
       `${OS_INFRA}/target-coverage-collector.ts`,
       `${OS_INFRA}/fault-injection-counter-reader.ts`,
+      `${OS}/dump-sanitizers.ts`,
       /* The oracle's reading of the count of corrupted responses: unknown, none, or some. */
       `${OS_INFRA}/fault-injection-oracle.adapter.ts@injected-count-read`,
     ],
@@ -525,7 +526,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${OS_INFRA_TEST}/fault-injection-counter-reader.test.ts`,
       `${OS_INFRA_TEST}/fault-injection-oracle.adapter.test.ts`,
       /* What a dump and a counter are rebuilt as before they reach the mirror the readers read. */
-      `${OS_INFRA_TEST}/dump-sanitizers.test.ts`,
+      `${OS_TEST}/dump-sanitizers.test.ts`,
       /* The real readers behind the collector the factory builds. */
       `${OS_INFRA_TEST}/target-coverage-collector.test.ts`,
       /* Apart from run-engine-factory.test.ts, whose many tests would all run once per mutant. */

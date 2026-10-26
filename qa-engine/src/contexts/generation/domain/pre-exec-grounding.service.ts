@@ -5,8 +5,8 @@ import {
   confidentWindowEnd,
   extractTestIdSelectorsWithIndex,
   firstGotoRoute,
-  type ContradictionOrigin,
 } from "./selector-check.ts";
+import type { ContradictionOrigin } from "@kernel/selector-findings.ts";
 
 /* Domain-local mirror of generation/infrastructure's RouteSnapshot ∩ RouteCatalog — only the fields this service reads. `nodes` mirrors RouteSnapshot.nodes (the "role: name" a11y tree, used by the ambiguity check). `status`/`settled`/`testIds` mirror RouteCatalog (the Pillar-2 catalog gate's own confidence fields) — all optional, defaulting to the SAME conservative posture buildRouteCatalog applies to a degraded/uncaptured route: status "degraded" (untrusted), settled false, testIds empty — so a caller that only ever captures `nodes` (ambiguity-only, no catalog work) never needs to fabricate catalog fields, and the gate correctly stays advisory-only for it. */
 export interface RouteTree {

@@ -1,4 +1,4 @@
-/* The layering rules of qa-engine/.dependency-cruiser.cjs, each proved on a throwaway tree under os.tmpdir() that carries a copy of the real config and of the real known-violations baseline: a planted violation (a path the baseline does not name) is reported, and the baseline never suppresses it. */
+/* The layering rules of qa-engine/.dependency-cruiser.cjs, each proved on a throwaway tree under os.tmpdir() that carries a copy of the real config: a planted violation is reported. The real tree holds no violation at all. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -9,7 +9,6 @@ import { dirname, join } from "node:path";
 const repoRoot = join(import.meta.dirname, "..", "..", "..");
 const DEPCRUISE = join(repoRoot, "node_modules", ".bin", "depcruise");
 const CONFIG_REL = join("qa-engine", ".dependency-cruiser.cjs");
-const BASELINE_REL = join("qa-engine", ".dependency-cruiser-known-violations.json");
 
 const TSCONFIG = JSON.stringify({ compilerOptions: { strict: true, noEmit: true, module: "ESNext", moduleResolution: "bundler", allowImportingTsExtensions: true } });
 
@@ -21,14 +20,13 @@ function treeWith(files: Record<string, string>): string {
     writeFileSync(join(treeRoot, rel), content);
   }
   copyFileSync(join(repoRoot, CONFIG_REL), join(treeRoot, CONFIG_REL));
-  copyFileSync(join(repoRoot, BASELINE_REL), join(treeRoot, BASELINE_REL));
   return treeRoot;
 }
 
-/* The command `npm run arch:check` runs, against a tree: the baseline is applied. */
+/* The command `npm run arch:check` runs, against a tree. */
 function archCheck(treeRoot: string): { ok: boolean; output: string } {
   try {
-    const output = execFileSync(DEPCRUISE, ["--config", join(treeRoot, CONFIG_REL), "--ignore-known", join(treeRoot, BASELINE_REL), "qa-engine/src"], { cwd: treeRoot, encoding: "utf8" });
+    const output = execFileSync(DEPCRUISE, ["--config", join(treeRoot, CONFIG_REL), "qa-engine/src"], { cwd: treeRoot, encoding: "utf8" });
     return { ok: true, output };
   } catch (e) {
     const err = e as { stdout?: string; stderr?: string };

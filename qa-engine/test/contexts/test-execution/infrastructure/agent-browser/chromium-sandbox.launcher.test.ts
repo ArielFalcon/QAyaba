@@ -5,7 +5,7 @@ import { PassThrough } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import type { ExecSandboxPort, ExecSpawnOptions } from "../../../../../src/shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { SandboxedChromiumLauncher, type PlaywrightChromium } from "@contexts/test-execution/infrastructure/agent-browser/chromium-sandbox.launcher.ts";
-import type { PwBrowser } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
+import type { PwBrowser } from "@contexts/test-execution/domain/playwright-types.ts";
 
 class FakeChild extends EventEmitter {
   readonly stderr = new PassThrough();

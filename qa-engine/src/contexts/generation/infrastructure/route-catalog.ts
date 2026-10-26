@@ -1,6 +1,6 @@
 /* Route catalog: the single grounding artifact the agent transcribes from and the pre-execution gate verifies against. Pure construction — no browser. */
 
-import type { RouteSnapshot } from "./dom-snapshot.ts";
+import type { RouteSnapshot } from "../domain/route-snapshot.ts";
 import { loggableRoute, loggableRoutes } from "./loggable-route.ts";
 
 /** Single source of truth for the route capture status values. A const object keeps runtime values alongside the type and avoids string-literal / type divergence. */

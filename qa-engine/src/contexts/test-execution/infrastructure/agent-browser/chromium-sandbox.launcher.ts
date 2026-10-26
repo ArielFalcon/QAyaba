@@ -14,7 +14,7 @@ import type { Readable, Writable } from "node:stream";
 import type { ExecSandboxPort } from "../../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import type { ProcessKillPort } from "../../../../shared-kernel/process-sandbox/process-kill.port.ts";
 import { startCdpPipeBridge, type CdpPipe, type CdpPipeBridge } from "./cdp-pipe-bridge.ts";
-import type { BrowserLauncherPort, LaunchedBrowser, PwBrowser } from "./playwright-types.ts";
+import type { BrowserLauncherPort, LaunchedBrowser, PwBrowser } from "../../domain/playwright-types.ts";
 
 /* The part of playwright-core's `chromium` the launcher uses. */
 export interface PlaywrightChromium {

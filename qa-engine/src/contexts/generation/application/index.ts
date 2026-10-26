@@ -59,3 +59,4 @@ export { CALL_BUCKETS, SERENA_WRITE_TOOL_NAMES } from "../domain/tool-call-taxon
 export type { ToolSequenceEntry } from "../domain/tool-sequence.ts";
 export { buildTurnStepBudget } from "../domain/turn-efficiency-summary.ts";
 export type { TurnCallMetrics, TurnUsage } from "../domain/turn-efficiency-summary.ts";
+export { parseAriaSnapshot, parseAriaSnapshotWithState } from "../domain/aria-snapshot.ts";

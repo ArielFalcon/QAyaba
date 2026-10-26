@@ -5,8 +5,8 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { MAX_FAULT_INJECTION_COUNTER_BYTES } from "@contexts/objective-signal/domain/dump-sanitizers.ts";
 import {
-  MAX_FAULT_INJECTION_COUNTER_BYTES,
   countInjectedResponses,
 } from "@contexts/objective-signal/infrastructure/fault-injection-counter-reader.ts";
 import { withoutWaitingOnNamedPipe } from "../../../support/named-pipe-watch.ts";

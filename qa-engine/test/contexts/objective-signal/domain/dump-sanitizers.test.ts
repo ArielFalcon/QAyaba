@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sanitizeV8Dump } from "@contexts/objective-signal/infrastructure/coverage-dump-reader.ts";
-import { sanitizeFaultCounter } from "@contexts/objective-signal/infrastructure/fault-injection-counter-reader.ts";
+import { sanitizeFaultCounter, sanitizeV8Dump } from "@contexts/objective-signal/domain/dump-sanitizers.ts";
 
 const bytes = (value: unknown): Buffer => Buffer.from(JSON.stringify(value));
 const parse = (buffer: Buffer): unknown => JSON.parse(buffer.toString("utf8"));

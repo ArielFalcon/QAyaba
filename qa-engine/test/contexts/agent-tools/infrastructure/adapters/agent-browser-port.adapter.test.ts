@@ -10,7 +10,7 @@ import { BrowserActionError, type AgentBrowserHostPort, type BrowserAction, type
 import { newSandboxReport, withExecScope } from "../../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../../../src/shared-kernel/run-secret-redaction.ts";
 import type { AgentBrowserOpenInput } from "@contexts/agent-tools/application/index.ts";
-import type { SessionMaterial } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
+import type { SessionMaterial } from "@contexts/test-execution/domain/playwright-types.ts";
 
 const BASE = "https://dev.example.com";
 const OPEN: AgentBrowserOpenInput = { runId: "run-9", app: "demo", mode: "diff", specDir: "/mirror/e2e" };

@@ -27,7 +27,8 @@ import {
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { buildContextPack, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
-import { formatDomCapture, formatDomSnapshot, type RouteSnapshot } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { formatDomCapture, formatDomSnapshot } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { type RouteSnapshot } from "@contexts/generation/domain/route-snapshot.ts";
 import { hasSymbolBlocks, renderBlastRadiusSignal } from "@contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts";
 import {
   countDirectives,

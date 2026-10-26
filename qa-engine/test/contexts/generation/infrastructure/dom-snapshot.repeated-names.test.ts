@@ -5,7 +5,8 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createCaptureDomDeps, formatDomSnapshot, type RouteSnapshot } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { createCaptureDomDeps, formatDomSnapshot } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { type RouteSnapshot } from "@contexts/generation/domain/route-snapshot.ts";
 
 interface FakeEl { tag: string; attrs?: Record<string, string>; role?: string; name?: string; children?: FakeEl[] }
 

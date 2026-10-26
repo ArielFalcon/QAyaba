@@ -1,17 +1,13 @@
 /* Coverage dump readers. Fail-open: an absent, unusable or corrupt dump or report degrades to an empty result — never throws, never waits, never leaves the mirror. An empty report is unmeasured → unknown → never blocks publish. What a run of the tests leaves is the agent's to shape, so every read goes through run-output-reader (the strict read under a cap; what cannot be used is said aloud, quoting nothing of it). The dumps of a run, and the reports of a run, are each used whole or not at all: the coverage of some of them is a ratio of a part of what the run did, lower than the real one, and under enforce it would block a valid change, so when any of them cannot be used none of them is used and the result is empty. */
 import { join } from "node:path";
 import type { CoverageScripts } from "../domain/coverage-collector.ts";
+import { MAX_V8_DUMP_BYTES, MAX_V8_DUMP_FILES, MAX_V8_DUMPS_TOTAL_BYTES } from "../domain/dump-sanitizers.ts";
 import { defaultParseV8Coverage, type CoveredLines, type TimeSpent, type V8Entry } from "./v8-browser-coverage.adapter.ts";
 import type { CoverageFile } from "./lcov-coverage.adapter.ts";
 import type { IstanbulFile } from "./c8-coverage.adapter.ts";
 import type { JacocoFile } from "./jacoco-coverage.adapter.ts";
 import { readFirstReport, readRunOutputDir, type RunOutputLimits } from "../../../shared-infrastructure/run-output-reader.ts";
 
-/* A V8 dump carries every script a page loaded, with its source map: about 3 MiB for a 0.6 MiB bundle and 19 MiB for a 3.4 MiB one (measured with esbuild bundles and V8's own precise coverage), and the fixture writes one per test. Each dump is reduced to the lines of the changed files as it is read and none is kept, so a suite of any size costs the memory of one dump.
-   What is bounded is the cost of one dump and the time of all of them. A dump is parsed in the orchestrator's one thread, and one made of nothing but empty arrays costs some fifteen times its size in heap and a second of parse for every 12 MiB (64 MiB took 2 s and 917 MiB of heap), so the cap on a dump is what a freeze and an out-of-memory can cost: 32 MiB is a second and half a gigabyte, and holds a bundle of 5 MiB of script. Decoding runs at some 100 MiB a second on the largest shape measured (114 MiB in a second) and at a fifth of that on a source map made to be slow, so the bytes allowed say nothing sure of the time; the time is bounded by a clock, which the dumps of a run are given together (V8_DECODE_BUDGET_MS) and which the decoding asks as it goes. A dump past the cap, the dumps of one run together past the byte budget or the time, and a directory past the entry cap are far beyond any suite, and leave the whole set unused: unknown, which never blocks. */
-export const MAX_V8_DUMP_BYTES = 32 * 1024 * 1024;
-export const MAX_V8_DUMPS_TOTAL_BYTES = 1024 * 1024 * 1024;
-export const MAX_V8_DUMP_FILES = 2_048;
 export const V8_DUMP_LIMITS: RunOutputLimits = { maxFileBytes: MAX_V8_DUMP_BYTES, maxTotalBytes: MAX_V8_DUMPS_TOTAL_BYTES, maxFiles: MAX_V8_DUMP_FILES };
 
 /* The time all the dumps of a run are given to be parsed and decoded, together: a suite of fifty dumps of the largest size measured is some ten seconds at the speed it ran at, and a hundred megabytes of the slowest map is five. Past it the set is unused. */
@@ -79,59 +75,4 @@ export async function readNativeReports(repoDir: string): Promise<NativeReports>
   const jacoco = readFirstReport(root, JACOCO_REPORTS, MAX_COVERAGE_REPORT_BYTES, text);
   if (lcov === undefined || istanbul === undefined || jacoco === undefined) return { lcov: [], istanbul: [], jacoco: [] };
   return { lcov, istanbul, jacoco };
-}
-
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
-const isCount = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-
-/* A dump as the orchestrator keeps it for the reader: only what the reduction to the lines of the changed files uses (a script's url and source, the ranges V8 says ran, and the source map's sources, root and mappings), rebuilt field by field. The dump is written by the suite's fixtures, which is agent-editable code in a process with the session in reach, and what reaches the mirror can be read by the agent; so nothing is copied that the reader does not use (a key it adds, a map's embedded sources, a name) and a dump of another shape is refused. The strings the reader does use remain strings the writer chose: a payload hidden in a script's source survives this, which is why a dump reaches the mirror only through this function and in bounded size. Throws RangeError on a dump that is not that shape. */
-export function sanitizeV8Dump(bytes: Buffer): Buffer {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(bytes.toString("utf8"));
-  } catch {
-    throw new RangeError("not JSON");
-  }
-  if (!Array.isArray(parsed)) throw new RangeError("not a list of scripts");
-  return Buffer.from(JSON.stringify(parsed.map(sanitizeV8Entry)));
-}
-
-function sanitizeV8Entry(raw: unknown): Record<string, unknown> {
-  if (!isRecord(raw)) throw new RangeError("a script is not an object");
-  const entry: Record<string, unknown> = {};
-  if (raw.url !== undefined) {
-    if (typeof raw.url !== "string") throw new RangeError("url is not a string");
-    entry.url = raw.url;
-  }
-  if (raw.source !== undefined) {
-    if (typeof raw.source !== "string") throw new RangeError("source is not a string");
-    entry.source = raw.source;
-  }
-  if (raw.functions !== undefined) {
-    if (!Array.isArray(raw.functions)) throw new RangeError("functions is not a list");
-    entry.functions = raw.functions.map((fn: unknown) => {
-      if (!isRecord(fn)) throw new RangeError("a function is not an object");
-      if (fn.ranges === undefined) return {};
-      if (!Array.isArray(fn.ranges)) throw new RangeError("ranges is not a list");
-      return {
-        ranges: fn.ranges.map((range: unknown) => {
-          if (!isRecord(range) || !isCount(range.startOffset) || !isCount(range.endOffset) || !isCount(range.count)) throw new RangeError("a range is not three counts");
-          return { startOffset: range.startOffset, endOffset: range.endOffset, count: range.count };
-        }),
-      };
-    });
-  }
-  if (raw.map !== undefined) {
-    const map = raw.map;
-    if (!isRecord(map) || !Array.isArray(map.sources) || !map.sources.every((source: unknown) => typeof source === "string") || typeof map.mappings !== "string") throw new RangeError("the source map is not sources and mappings");
-    if (map.sourceRoot !== undefined && typeof map.sourceRoot !== "string") throw new RangeError("sourceRoot is not a string");
-    if (map.version !== undefined && !isCount(map.version)) throw new RangeError("version is not a count");
-    entry.map = {
-      ...(map.version !== undefined ? { version: map.version } : {}),
-      sources: map.sources,
-      ...(map.sourceRoot !== undefined ? { sourceRoot: map.sourceRoot } : {}),
-      mappings: map.mappings,
-    };
-  }
-  return entry;
 }

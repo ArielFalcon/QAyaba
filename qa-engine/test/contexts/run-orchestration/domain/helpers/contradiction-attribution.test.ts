@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { attributeContradictions } from "@contexts/run-orchestration/domain/helpers/contradiction-attribution.ts";
-import { checkSpecSelectors, contradictionOrigins, type ContradictionOrigin } from "@contexts/generation/domain/selector-check.ts";
+import { checkSpecSelectors, contradictionOrigins } from "@contexts/generation/domain/selector-check.ts";
+import type { ContradictionOrigin } from "@kernel/selector-findings.ts";
 import { checkPreExecGrounding, type RouteTree } from "@contexts/generation/domain/pre-exec-grounding.service.ts";
 
 /* A contradiction names a selector, never the spec, and the checks know which spec raised it. Attribution reads that: the real checks' own output goes through it, so a spec that holds the same selector but raised nothing (on a page that has it, or a Lever-2 selector it scopes) is never named. */

@@ -3,7 +3,7 @@
 import { join, relative, sep } from "node:path";
 import type { ChangePagesPort } from "@contexts/service-topology/application/index.ts";
 import type { CurriculumPort, LearningPort } from "@contexts/cross-run-learning/application/index.ts";
-import type { StructuralSignalPort } from "@contexts/change-analysis/application/index.ts";
+import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
 import type { CrossRepoImpactPort, ServiceLinksPort } from "@contexts/service-topology/application/index.ts";
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";

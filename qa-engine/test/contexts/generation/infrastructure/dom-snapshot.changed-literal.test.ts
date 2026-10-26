@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildChangedMarker, formatDomSnapshot, type RouteSnapshot } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { buildChangedMarker, formatDomSnapshot } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { type RouteSnapshot } from "@contexts/generation/domain/route-snapshot.ts";
 import type { ChangedElement } from "@kernel/diff-parser/changed-element.ts";
 
 const textOnly = (text: string, unchangedLines?: number): ChangedElement => ({

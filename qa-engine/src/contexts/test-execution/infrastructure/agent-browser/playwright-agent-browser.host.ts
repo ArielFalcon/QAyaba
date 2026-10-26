@@ -13,7 +13,7 @@ import type { GeoLocation } from "@kernel/geolocation.ts";
 import { BrowserActionError, type BlockedRequest, type BrowserAction, type BrowserCallOptions, type PageState } from "../../domain/agent-browser-host.ts";
 import { type AgentBrowserHostPort } from "../../application/ports/agent-browser-host.port.ts";
 import type { RouteGuard } from "../../domain/agent-browser-route-guard.ts";
-import type { BrowserLauncherPort, LaunchedBrowser, PwContext, PwContextOptions, PwPage, PwRequest, SessionMaterial } from "./playwright-types.ts";
+import type { BrowserLauncherPort, LaunchedBrowser, PwContext, PwContextOptions, PwPage, PwRequest, SessionMaterial } from "../../domain/playwright-types.ts";
 
 const VIEWPORT = { width: 1280, height: 800 } as const;
 /* The longest the browser waits for a page to go quiet after a click or a keypress; a page that never does is reported as it is. */

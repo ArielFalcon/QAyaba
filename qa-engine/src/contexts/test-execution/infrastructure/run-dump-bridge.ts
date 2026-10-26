@@ -13,8 +13,7 @@
 
 import { chmodSync, chownSync, lstatSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { MAX_V8_DUMP_FILES, MAX_V8_DUMP_BYTES, MAX_V8_DUMPS_TOTAL_BYTES, sanitizeV8Dump } from "@contexts/objective-signal/infrastructure/coverage-dump-reader.ts";
-import { MAX_FAULT_INJECTION_COUNTER_BYTES, MAX_FAULT_INJECTION_COUNTER_FILES, sanitizeFaultCounter } from "@contexts/objective-signal/infrastructure/fault-injection-counter-reader.ts";
+import { MAX_V8_DUMP_FILES, MAX_V8_DUMP_BYTES, MAX_V8_DUMPS_TOTAL_BYTES, sanitizeV8Dump, MAX_FAULT_INJECTION_COUNTER_BYTES, MAX_FAULT_INJECTION_COUNTER_FILES, sanitizeFaultCounter } from "@contexts/objective-signal/application/index.ts";
 import { describeReasons, scanRunOutputDir, type RunOutputLimits } from "../../../shared-infrastructure/run-output-reader.ts";
 import { ensureOwnedSpecDir, purgeRefusedDirectory, writeOwnedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
 

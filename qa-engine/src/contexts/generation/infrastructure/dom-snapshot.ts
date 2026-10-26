@@ -14,21 +14,15 @@ import { partitionRoutes } from "../../../shared-kernel/route-capturability.ts";
 import { MAX_LINK_LENGTH, MAX_LINKS_PER_PAGE, sameOriginPathnames } from "../domain/route-instantiation.ts";
 import { loggableRoutes } from "./loggable-route.ts";
 import { dataStateRouteFor } from "../domain/data-state-route.ts";
+import { parseAriaSnapshot, parseAriaSnapshotWithState } from "../domain/aria-snapshot.ts";
+import type { NodeAttr, RepeatedName, RouteSnapshot } from "../domain/route-snapshot.ts";
 
 const processKill = new ProcessKillAdapter();
 
 /* The most a DOM capture run may print (one JSON document of every route's snapshot). The page content it reports is not under the orchestrator's control; a run that passes this is killed rather than held in memory and parsed truncated. */
 export const MAX_CAPTURE_OUTPUT_CHARS = 32 * 1024 * 1024;
 
-export interface NodeAttr {
-  key: string;
-  testId?: string;
-  id?: string;
-  name?: string;
-  href?: string;
-  inputType?: string;
-  nameFallback?: string;
-}
+
 
 export interface RawAttr {
   key: string;
@@ -40,47 +34,9 @@ export interface RawAttr {
   nameFallback?: string;
 }
 
-export interface RouteSnapshot {
-  route: string;
-  nodes?: string[];
-  attrs?: NodeAttr[];
-  states?: Map<string, string[]>;
-  testIdAttrName?: string;
-  testIds?: Map<string, number>;
-  settled?: boolean; /* Absent/false ⇒ possibly pre-hydration ⇒ advisory only. */
-  error?: string; /* capture failed for this route (degrade — never blocks review) */
-  runtimeErrors?: { type: string; text: string }[];
-  finalUrl?: string;
-  /* The pathnames of the same-origin links the page showed, in page order and once each: the real addresses a route template is filled from. */
-  links?: string[];
-  /* Set on a page opened from a route template of the map: the template `route` is an instance of. */
-  template?: string;
-  /* Milliseconds the capture script spent on this route (navigation, settling and reading), as the script measured them. */
-  ms?: number;
-  /* One entry per occurrence, in page order, of each name the page shows more than once for the same role. */
-  repeated?: RepeatedName[];
-  /* The containers the capture was asked about that this page shows none of (see CaptureDomDeps.render's probe). */
-  absent?: string[];
-  /* A config-declared data state matched this route (dev.dataState), so its readiness/result/location were read at capture time. */
-  dataState?: boolean;
-  /* The route's readiness selector was found within the timeout. Absent when no data state matched. */
-  ready?: boolean;
-  /* A result selector/text was configured for the route, so `resultCount` is what the capture counted. */
-  resultExpected?: boolean;
-  /* Results counted on the route (the first integer of the result text, or the result selector's count). */
-  resultCount?: number;
-  /* The route's effective location, read from its configured location selector (trim/collapse/200 chars). */
-  effectiveLocation?: string;
-  /* How many times the route's data state was read (1, or 2 after the one retry). Set only when a data state matched. */
-  captureAttempts?: number;
-}
 
-/* An occurrence, in page order, of a name its page repeats. `group` is the role and the name's words (`button|cambiar filtros`: case, punctuation and icon glyphs aside, as a locator matches it); `of` occurrences share it; `scope` lists the containers (nearest first) this one is in and some other one is not, each written as a locator names it: `[test-id="v"]`, `#id` or a custom element's tag. Empty when nothing on the way up tells it apart. */
-export interface RepeatedName {
-  group: string;
-  of: number;
-  scope: string[];
-}
+
+
 
 /* The most containers reported for one occurrence, the most occurrences reported for a page, the longest container name kept, and the most names a page has resolved: the page decides all of them. */
 export const MAX_SCOPE_DEPTH = 3;
@@ -606,105 +562,9 @@ export async function captureRouteTrees(input: CaptureDomInput, deps: CaptureDom
   return snaps.filter((s) => !s.error && ((s.nodes?.length ?? 0) > 0 || (s.testIds?.size ?? 0) > 0));
 }
 
-export function parseAriaSnapshot(yaml: string): string[] {
-  const out: string[] = [];
 
-  const keep = new Set([
-    "link", "button", "heading", "textbox", "combobox", "checkbox", "radio", "tab", "menuitem", "option",
-    "columnheader", "rowheader", "cell", "gridcell", "listitem", "row", "table", "grid", "list",
-    "text",
-    /* These were absent from grounding, making the reviewer blind to modal presence, form context, and navigation structure. alert/status/progressbar are live-regions (name = the message); switch is a valued toggle widget (name = its label). All kept; structural designation is per-role below. */
-    "dialog", "alertdialog", "alert", "status", "form", "navigation", "banner", "main", "switch", "progressbar",
-  ]);
-  /* Roles whose mere PRESENCE is informative even WITHOUT an accessible name, so we emit a bare "(present)" marker instead of dropping them: • landmarks (table/grid/list/row) — lets the author see "there is a table here" and reason about which roles it actually exposes (e.g. cells but no columnheader) vs assuming HTML-implied roles. • form inputs (textbox/combobox/checkbox/radio) — a form whose <label> is NOT associated (no for/id, common in apps like PetClinic) leaves the input UNNAMED; without this it is DROPPED and the whole form goes INVISIBLE to grounding, so the reviewer can't confirm the author's selectors and falsely REJECTS them. */
-  const structural = new Set(["table", "grid", "list", "row", "textbox", "combobox", "checkbox", "radio",
-    "dialog", "alertdialog", "form", "navigation", "banner", "main", "switch"]);
 
-  for (const rawLine of yaml.split("\n")) {
-    const trimmed = rawLine.trimStart();
-    if (!trimmed.startsWith("- ")) continue;
-    const rest = trimmed.slice(2).trim();
 
-    if (rest.startsWith("/")) continue;
-
-    const roleMatch = /^([a-z][a-z0-9-]*)/.exec(rest);
-    if (!roleMatch) continue;
-    const role = roleMatch[1]!;
-    if (!keep.has(role)) continue;
-
-    const afterRole = rest.slice(role.length);
-
-    const quotedMatch = /"((?:\\.|[^"\\])*)"/.exec(afterRole);
-    if (quotedMatch) {
-      const name = quotedMatch[1]!.replace(/\\(["\\])/g, "$1").trim();
-      out.push(name ? `${role}: ${name}` : structural.has(role) ? `${role}: (present)` : "");
-      if (out[out.length - 1] === "") out.pop();
-      continue;
-    }
-
-    const colonIdx = afterRole.indexOf(":");
-    if (colonIdx !== -1) {
-      const afterColon = afterRole.slice(colonIdx + 1).trim();
-      if (afterColon) {
-        const name = afterColon.replace(/\s*\[[^\]]*\]\s*$/g, "").trim();
-        out.push(name ? `${role}: ${name}` : structural.has(role) ? `${role}: (present)` : "");
-        if (out[out.length - 1] === "") out.pop();
-      } else if (structural.has(role)) {
-        out.push(`${role}: (present)`);
-      }
-      continue;
-    }
-
-    const strippedStates = afterRole.replace(/\s*\[[^\]]*\]/g, "").trim();
-    if (!strippedStates && structural.has(role)) {
-      out.push(`${role}: (present)`);
-    }
-  }
-
-  return out;
-}
-
-export function parseAriaSnapshotWithState(yaml: string): { nodes: string[]; states: Map<string, string[]> } {
-  const nodes = parseAriaSnapshot(yaml);
-  const states = new Map<string, string[]>();
-  const STATE_RE = /\[(disabled|expanded|checked|required|selected)\]/g;
-  for (const rawLine of yaml.split("\n")) {
-    const trimmed = rawLine.trimStart();
-    if (!trimmed.startsWith("- ")) continue;
-    const rest = trimmed.slice(2).trim();
-    if (rest.startsWith("/")) continue;
-    const roleMatch = /^([a-z][a-z0-9-]*)/.exec(rest);
-    if (!roleMatch) continue;
-    const role = roleMatch[1]!;
-    const afterRole = rest.slice(role.length);
-    let bareName: string | null = null;
-    const quotedMatch = /"((?:\\.|[^"\\])*)"/.exec(afterRole);
-    if (quotedMatch) {
-      const name = quotedMatch[1]!.replace(/\\(["\\])/g, "$1").trim();
-      if (name) bareName = name;
-    } else {
-      const colonIdx = afterRole.indexOf(":");
-      if (colonIdx !== -1) {
-        const afterColon = afterRole.slice(colonIdx + 1).trim();
-        if (afterColon) {
-          const name = afterColon.replace(/\s*\[[^\]]*\]\s*$/g, "").trim();
-          if (name) bareName = name;
-        }
-      }
-    }
-    if (!bareName) continue;
-    const bareKey = `${role}: ${bareName}`;
-    if (!nodes.includes(bareKey)) continue;
-    STATE_RE.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    const tokens: string[] = [];
-    while ((m = STATE_RE.exec(afterRole)) !== null) {
-      tokens.push(m[1]!);
-    }
-    if (tokens.length > 0) states.set(bareKey, tokens);
-  }
-  return { nodes, states };
-}
 
 export function mergeAttrs(nodes: string[], rawAttrs: RawAttr[]): NodeAttr[] {
   if (rawAttrs.length === 0) return [];

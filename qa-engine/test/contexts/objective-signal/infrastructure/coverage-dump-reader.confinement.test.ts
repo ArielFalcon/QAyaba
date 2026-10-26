@@ -5,11 +5,9 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, closeSync, mkdirSync, mkdtempSync, openSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { MAX_V8_DUMP_BYTES, MAX_V8_DUMP_FILES, MAX_V8_DUMPS_TOTAL_BYTES } from "@contexts/objective-signal/domain/dump-sanitizers.ts";
 import {
   MAX_COVERAGE_REPORT_BYTES,
-  MAX_V8_DUMP_BYTES,
-  MAX_V8_DUMP_FILES,
-  MAX_V8_DUMPS_TOTAL_BYTES,
   V8_DECODE_BUDGET_MS,
   readNativeReports,
   readV8Coverage,

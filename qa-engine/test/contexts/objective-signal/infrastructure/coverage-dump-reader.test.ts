@@ -10,7 +10,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MAX_V8_DUMPS_TOTAL_BYTES, V8_DUMP_LIMITS, readV8Coverage, readNativeReports } from "@contexts/objective-signal/infrastructure/coverage-dump-reader.ts";
+import { MAX_V8_DUMPS_TOTAL_BYTES } from "@contexts/objective-signal/domain/dump-sanitizers.ts";
+import { V8_DUMP_LIMITS, readV8Coverage, readNativeReports } from "@contexts/objective-signal/infrastructure/coverage-dump-reader.ts";
 
 async function withTmpDir<T>(fn: (dir: string) => T | Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), "qa-engine-coverage-dump-reader-"));

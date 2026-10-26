@@ -23,7 +23,8 @@ import { CoordinationTelemetryRecorder } from "@contexts/coordination/applicatio
 import type { CoordinateInput } from "@contexts/coordination/application/lead-sidekicks.ts";
 import { Sha } from "@kernel/sha.ts";
 import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
-import type { ChangeAnalysisPort, StructuralSignalPort } from "@contexts/change-analysis/application/index.ts";
+import type { ChangeAnalysisPort } from "@contexts/change-analysis/application/index.ts";
+import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
 import type { GenerationPort, ReviewPort, PreExecGroundingPort, PreGenerationGroundingPort, ReviewDomGroundingPort, ContextMapCapturePort, GenerationEnrichment } from "@contexts/generation/application/index.ts";
 import type { ValidationPort, ExecutionPort } from "@contexts/test-execution/application/index.ts";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index.ts";

@@ -17,7 +17,7 @@ import {
 import { PreGenerationGroundingPortAdapter } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter";
 import type { ChangePagesPort, ServiceLinksPort } from "@contexts/service-topology/application/index.ts";
 import type { CurriculumPort, LearningPort } from "@contexts/cross-run-learning/application/index.ts";
-import type { StructuralSignalPort } from "@contexts/change-analysis/application/index.ts";
+import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
 import { buildContextPack, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack";
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { domCaptureObserver, recordDomCapture } from "@contexts/generation/infrastructure/dom-capture-trace";

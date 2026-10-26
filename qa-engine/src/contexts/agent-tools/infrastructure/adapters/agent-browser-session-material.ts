@@ -9,7 +9,7 @@ import { activeExecScope } from "../../../../shared-infrastructure/process-sandb
 import { AUTH_MATERIAL_FILES } from "../../../../shared-infrastructure/process-sandbox/auth-session-env.ts";
 import { readOwnedSpecFile } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { originOf } from "../../../../shared-kernel/egress-policy.ts";
-import type { SessionMaterial } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
+import type { SessionMaterial } from "@contexts/test-execution/application/index.ts";
 
 const MAX_STORAGE_STATE_BYTES = 4 * 1024 * 1024;
 const MAX_CLIENT_CERT_BYTES = 1024 * 1024;

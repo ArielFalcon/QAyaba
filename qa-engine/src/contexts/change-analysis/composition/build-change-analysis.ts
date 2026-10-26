@@ -13,7 +13,8 @@ import { CodegraphEngine } from "../../../shared-infrastructure/code-graph/codeg
 import { CodegraphStoreCache } from "../../../shared-infrastructure/code-graph/codegraph-store-cache.ts";
 import { LanguageRegistry } from "../../../shared-kernel/language-id.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
-import type { ChangeAnalysisPort, StructuralSignalPort, VcsReadPort } from "../application/index.ts";
+import type { ChangeAnalysisPort, VcsReadPort } from "../application/index.ts";
+import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
 import { ChangeAnalysisPortAdapter } from "../infrastructure/adapters/change-analysis-port.adapter.ts";
 import { ADVISORY_BUDGET, StructuralSignalPortAdapter } from "../infrastructure/adapters/structural-signal-port.adapter.ts";
 import { GitMirrorReadAdapter } from "../infrastructure/git-mirror-read.adapter.ts";

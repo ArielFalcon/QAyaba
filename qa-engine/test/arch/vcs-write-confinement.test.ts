@@ -16,7 +16,7 @@ test("no context other than workspace-and-publication imports the VCS write seam
   try {
     execFileSync(
       "npx",
-      ["depcruise", "--config", "qa-engine/.dependency-cruiser.cjs", "--ignore-known", "qa-engine/.dependency-cruiser-known-violations.json", "qa-engine/src/contexts"],
+      ["depcruise", "--config", "qa-engine/.dependency-cruiser.cjs", "qa-engine/src/contexts"],
       { cwd: root, encoding: "utf8" },
     );
   } catch (e) {

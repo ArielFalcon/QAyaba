@@ -55,8 +55,3 @@ test("no application, domain or kernel file imports the confined reader", () => 
   const offenders = listed.filter((f) => INNER_LAYER.test(f) && CONFINEMENT.test(readFileSync(join(repoRoot, f), "utf8")));
   assert.deepEqual(offenders, []);
 });
-
-test("the known-violations baseline holds no entry that reaches the confined reader", () => {
-  const baseline = JSON.parse(readFileSync(join(repoRoot, "qa-engine", ".dependency-cruiser-known-violations.json"), "utf8")) as { to: string }[];
-  assert.deepEqual(baseline.filter((v) => v.to.endsWith("shared-infrastructure/spec-path-confinement.ts")), []);
-});

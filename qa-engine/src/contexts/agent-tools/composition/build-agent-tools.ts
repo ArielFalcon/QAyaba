@@ -15,7 +15,7 @@ import type { ToolTraceWiring } from "../infrastructure/adapters/tool-call-trace
 export type ClosedLoopWiring = Omit<ClosedLoopPortAdapterDeps, "execution" | "cleanup" | "authSession" | "authContext" | "specRelDir" | "trace" | "now">;
 
 /* What the shell hands the builder to let a run grant its authoring agents the authenticated browser. */
-export type AgentBrowserWiring = Omit<AgentBrowserPortAdapterDeps, "baseUrl" | "material" | "authSession" | "authContext" | "trace" | "now" | "createHost">;
+export type AgentBrowserWiring = Omit<AgentBrowserPortAdapterDeps, "baseUrl" | "material" | "authSession" | "authContext" | "trace" | "now">;
 
 /* What the shell hands the builder to let a run grant the lead the code-graph tools. */
 export type CodeGraphToolsWiring = Omit<CodeGraphToolsPortAdapterDeps, "explore" | "repoDir" | "trace">;

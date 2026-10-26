@@ -9,6 +9,7 @@ import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { sanitizeText, type SecretDetection } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
 import { TestRunEvidence, outputShowsTestsRan } from "./test-run-evidence.ts";
+import type { Ecosystem } from "../domain/ecosystem.ts";
 import { hardenGitArgs } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
 import { rethrowIfUntrusted } from "../../../shared-kernel/domain-error.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
@@ -25,7 +26,6 @@ export interface CodeRunResult {
   logs: string;
 }
 
-export type Ecosystem = "node" | "python" | "go" | "rust" | "maven" | "gradle" | "unknown";
 
 export interface Command {
   cmd: string;

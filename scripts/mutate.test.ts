@@ -278,6 +278,7 @@ test("the run-output-readers preset mutates the strict capped readers of what a 
     "qa-engine/src/contexts/objective-signal/infrastructure/coverage-dump-reader.ts",
     "qa-engine/src/contexts/objective-signal/infrastructure/target-coverage-collector.ts",
     "qa-engine/src/contexts/objective-signal/infrastructure/fault-injection-counter-reader.ts",
+    "qa-engine/src/contexts/objective-signal/domain/dump-sanitizers.ts",
     "qa-engine/src/contexts/objective-signal/infrastructure/fault-injection-oracle.adapter.ts",
   ]);
   for (const tests of [

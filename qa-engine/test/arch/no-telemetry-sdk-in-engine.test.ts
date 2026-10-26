@@ -10,15 +10,9 @@ const repoRoot = join(import.meta.dirname, "..", "..", "..");
 const DEPCRUISE = join(repoRoot, "node_modules", ".bin", "depcruise");
 const CONFIG_REL = join("qa-engine", ".dependency-cruiser.cjs");
 
-/* The layering violations frozen at the time the rules were added are applied the way `npm run arch:check` applies them; a throwaway tree has no such file. */
-function knownViolationsArgs(treeRoot: string): string[] {
-  const file = join(treeRoot, "qa-engine", ".dependency-cruiser-known-violations.json");
-  return existsSync(file) ? ["--ignore-known", file] : [];
-}
-
 function runDepcruise(treeRoot: string): { ok: boolean; output: string } {
   try {
-    const output = execFileSync(DEPCRUISE, ["--config", join(treeRoot, CONFIG_REL), ...knownViolationsArgs(treeRoot), "qa-engine/src"], { cwd: treeRoot, encoding: "utf8" });
+    const output = execFileSync(DEPCRUISE, ["--config", join(treeRoot, CONFIG_REL), "qa-engine/src"], { cwd: treeRoot, encoding: "utf8" });
     return { ok: true, output };
   } catch (e) {
     const err = e as { stdout?: string; stderr?: string };

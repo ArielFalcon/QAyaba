@@ -1504,6 +1504,7 @@ test("wireEngine builds the agent browser port from cfg.agentBrowser and omits i
     setting: { enabled: true, denyRoutes: [], allowMutating: [] },
     generatorRuntimeCanCall: () => false,
     launcher: { launch: async () => { throw new Error("unused"); } },
+    createHost: () => { throw new Error("unused"); },
     account: "app/user",
     lock: new AccountLock(),
     redact: (text: string) => text,

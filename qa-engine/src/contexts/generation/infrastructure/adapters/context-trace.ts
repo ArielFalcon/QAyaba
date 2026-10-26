@@ -15,7 +15,7 @@ import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance.ts";
 import type { CrossRepoImpactPort, ServiceLinksPort } from "@contexts/service-topology/application/index.ts";
 import type { CurriculumFoldInput, CurriculumPort, LearningPort, RelevanceBias } from "@contexts/cross-run-learning/application/index.ts";
-import type { StructuralSignalPort, StructuralSignalResult } from "@contexts/change-analysis/application/index.ts";
+import type { StructuralSignalPort, StructuralSignalResult } from "@kernel/ports/structural-signal.port.ts";
 import type { GroundingTrace } from "./pre-generation-grounding-port.adapter.ts";
 
 const bytesOf = (text: string): number => Buffer.byteLength(text, "utf8");

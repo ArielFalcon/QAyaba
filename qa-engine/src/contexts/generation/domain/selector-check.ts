@@ -1,6 +1,8 @@
 /* Lever-2 selector check plus catalog-gate extractors. Pure: no browser, no FS I/O.
 unscopedMultipleContradictions suppresses false-block idioms: (1) a selector immediately followed by .first(/.nth(/.filter( — the author already disambiguated it; (2) the page-rooted check applies unconditionally (not gated on anyNonExtractable). Suppression only narrows blocking — MULTIPLE contradictions feed the one-shot corrective regen, never a bare pass/fail. */
 
+import type { ContradictionOrigin, SpecSelectorFindings } from "@kernel/selector-findings.ts";
+
 export interface ProposedSelector {
   kind: "role" | "text" | "label";
   role?: string;
@@ -312,15 +314,6 @@ export function selectorKey(sel: ProposedSelector): string {
   return `${sel.kind}|${sel.role ?? ""}|${sel.name ?? ""}|${sel.exact ? "1" : "0"}|${sel.isRegex ? "1" : "0"}`;
 }
 
-export interface SpecSelectorFindings {
-  contradictions: string[];
-  absentKeys: Set<string>;
-  anyVerifiedPresent: boolean;
-  /* Locator family Lever-2 cannot extract — uniqueness is then indeterminate. */
-  anyNonExtractable: boolean;
-  /* Extracted selector neither present nor verifiable-absent — uniqueness cannot be trusted. */
-  anyUnverifiable: boolean;
-}
 
 /* Check extractable selectors against a11y trees. Agnostic to tree source. Per-tree, never fused: non-unique only within a single tree; absent only when absent in every tree. Empty trees → empty findings. treeLabel only names the absent message. */
 export function checkSpecSelectors(
@@ -367,10 +360,6 @@ export function checkSpecSelectors(
 }
 
 /* A contradiction and the spec that raised it: the index of that spec among the sources that were checked. */
-export interface ContradictionOrigin {
-  contradiction: string;
-  specIndex: number;
-}
 
 /* The contradictions checkSpecSelectors finds, each with the spec that raised it. What a spec raises depends on its own selectors and on the trees alone, so each spec checked on its own, in the order given, makes checkSpecSelectors' list entry for entry; a contradiction two specs raise is two origins. */
 export function contradictionOrigins(specSources: string[], trees: string[][], treeLabel = "failure-point"): ContradictionOrigin[] {

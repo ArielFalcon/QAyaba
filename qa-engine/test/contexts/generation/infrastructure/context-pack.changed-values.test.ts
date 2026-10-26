@@ -2,7 +2,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildContextPack, deriveClaimsFromPackText, PACK_HEADINGS, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
-import { captureDomForRoutes, type CapturedPage, type CaptureDomDeps, type RouteSnapshot } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { captureDomForRoutes, type CapturedPage, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { type RouteSnapshot } from "@contexts/generation/domain/route-snapshot.ts";
 import { WORDING } from "@contexts/generation/domain/changed-values.ts";
 import { countDirectives, lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";

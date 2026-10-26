@@ -15,3 +15,4 @@ export type { CoverageReport } from "../domain/coverage-collector.ts";
 export type { CoverageMeasurement } from "../domain/objective-signal.ts";
 export { assembleChangeCoverage } from "../domain/assemble-change-coverage.ts";
 export type { CoverageStatus } from "../domain/decide-coverage.service.ts";
+export { MAX_FAULT_INJECTION_COUNTER_BYTES, MAX_FAULT_INJECTION_COUNTER_FILES, MAX_V8_DUMP_BYTES, MAX_V8_DUMP_FILES, MAX_V8_DUMPS_TOTAL_BYTES, sanitizeFaultCounter, sanitizeV8Dump } from "../domain/dump-sanitizers.ts";

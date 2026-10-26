@@ -43,7 +43,7 @@ test("a code run is granted no tool whatever the wiring says", () => {
     deps(
       {
         closedLoop: closedLoop(),
-        agentBrowser: { registry: new AgentBrowserRegistry(), setting: { enabled: true, denyRoutes: [], allowMutating: [] }, generatorRuntimeCanCall: () => true, launcher: {} as never, account: "a", lock: new AccountLock(), redact: (t) => t },
+        agentBrowser: { registry: new AgentBrowserRegistry(), setting: { enabled: true, denyRoutes: [], allowMutating: [] }, generatorRuntimeCanCall: () => true, launcher: {} as never, createHost: () => ({}) as never, account: "a", lock: new AccountLock(), redact: (t) => t },
         codeGraphTools: { registry: new CodeGraphToolRegistry(), generatorRuntimeCanCall: () => true },
         codeExplore: explore,
         geolocation: { registry: new GeolocationRegistry(), setting: { default: { latitude: 1, longitude: 2 }, places: {} } },
@@ -56,7 +56,7 @@ test("a code run is granted no tool whatever the wiring says", () => {
 });
 
 test("the authenticated browser needs the run's DEV url, and the code-graph tool needs the explore port", () => {
-  const browser = { registry: new AgentBrowserRegistry(), setting: { enabled: true, denyRoutes: [], allowMutating: [] }, generatorRuntimeCanCall: () => true, launcher: {} as never, account: "a", lock: new AccountLock(), redact: (t: string) => t };
+  const browser = { registry: new AgentBrowserRegistry(), setting: { enabled: true, denyRoutes: [], allowMutating: [] }, generatorRuntimeCanCall: () => true, launcher: {} as never, createHost: () => ({}) as never, account: "a", lock: new AccountLock(), redact: (t: string) => t };
   const graph = { registry: new CodeGraphToolRegistry(), generatorRuntimeCanCall: () => true };
   const explore = { explore: async () => ok({ text: "x", indexedSha: "abc1234" }) };
 

@@ -10,7 +10,8 @@ import type { Attrs } from "../../../shared-kernel/telemetry/attribute-registry.
 import type { TelemetryPort } from "../../../shared-kernel/telemetry/telemetry.port.ts";
 import { domItemIdsBudgeted, type DomPageLike } from "../../../shared-kernel/context-item-ids.ts";
 import { buildRouteCatalog, ROUTE_STATUS } from "./route-catalog.ts";
-import { dataStateUnconfirmed, pageDeliveryOf, type DomCaptureObserver, type DomCaptureReport, type RouteSnapshot } from "./dom-snapshot.ts";
+import { dataStateUnconfirmed, pageDeliveryOf, type DomCaptureObserver, type DomCaptureReport } from "./dom-snapshot.ts";
+import { type RouteSnapshot } from "../domain/route-snapshot.ts";
 
 /* What the agent is shown of one route, as the ids' input: the nodes within the per-route bound, the test ids within it, and how many of each were left out. */
 export function pageOf(snap: RouteSnapshot): { page: DomPageLike; leftOut: number } {
