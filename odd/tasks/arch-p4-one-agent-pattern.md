@@ -171,7 +171,7 @@ Branch: `fix/failure-observation-conflict` (owner rule: one branch, no PR split)
 - [x] T0 — S0 — inline — Re-verify every `path:line`, count and symbol in this document against HEAD; rewrite only the S# whose evidence moved and log the drift. Check the three preconditions (P1.5 landed; `use-case-coverage-eval` parked and `git status` clean under `coordination/`; P2.4's table exists) — commit: n/a
 - [x] T1 — S1a — inline — `qa-lead` role, prompt file and tool-grant move (governance commit, alone, independent verifier) — commit: `d72d08f3` (role, roster, constants, fixtures); `74f6907e` (the answer shapes move into `qa-lead.md`, matrix and baseline); independent verifier pending; live steps pending (L10)
 - [x] T2 — S1b — inline — Remove plan kind `lead` and `ONE_FLOW`; the lead protocols move into `qa-lead.md` — commit: `c5188571`
-- [x] T3 — S2 — inline — `SidekickKind` registry and the author entry; delete `AgentCapability` — commit: see L12
+- [x] T3 — S2 — inline — `SidekickKind` registry and the author entry; delete `AgentCapability` — commit: `8469b8d2`
 - [ ] T4 — S3 — inline — Reviewer becomes the `review` kind; delete the inline reviewer and the `decide.steps.ts` fallback; P0.4 rows named (independent verifier) — commit: pending
 - [ ] T5 — S4a — inline — `qa-explore` role and widened browser and graph holders (governance commit, alone, independent verifier) — commit: pending
 - [ ] T6 — S4b — inline — `explore` kind: request, dispatch, evidence verification (independent verifier) — commit: pending
