@@ -14,21 +14,8 @@ import type { ValidationPort } from "@contexts/test-execution/application/index"
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index";
 import type { RunDeadlineView } from "@kernel/run-deadline";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
-import type { ClosedLoopLimits } from "@kernel/closed-loop";
 import type { CoordinationSettings } from "@kernel/coordination";
 import type { ToolAttemptDirectory } from "@contexts/generation/domain/tool-link";
-import { ClosedLoopPortAdapter } from "../../qa-engine/src/contexts/agent-tools/infrastructure/adapters/closed-loop-port.adapter";
-import type { ClosedLoopRegistry } from "../../qa-engine/src/contexts/agent-tools/infrastructure/closed-loop-registry";
-import type { AccountLock } from "@contexts/test-execution/domain/account-lock";
-import { AgentBrowserPortAdapter } from "../../qa-engine/src/contexts/agent-tools/infrastructure/adapters/agent-browser-port.adapter";
-import { CodeGraphToolsPortAdapter } from "../../qa-engine/src/contexts/agent-tools/infrastructure/adapters/code-graph-tools-port.adapter";
-import { GeolocationPortAdapter } from "../../qa-engine/src/contexts/agent-tools/infrastructure/adapters/geolocation-port.adapter";
-import type { GeolocationRegistry } from "../../qa-engine/src/contexts/agent-tools/infrastructure/geolocation-registry";
-import type { GeoLocation } from "@kernel/geolocation";
-import { readAgentBrowserSession } from "../../qa-engine/src/contexts/agent-tools/infrastructure/adapters/agent-browser-session-material";
-import type { AgentBrowserRegistry } from "../../qa-engine/src/contexts/agent-tools/infrastructure/agent-browser-registry";
-import type { CodeGraphToolRegistry } from "../../qa-engine/src/contexts/agent-tools/infrastructure/code-graph-tool-registry";
-import type { BrowserLauncherPort } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types";
 import type { AuthDeclaration, AuthSessionPort } from "@contexts/app-catalog/application/index";
 import { RunPipelineAdapter, type RunPipelineAdapterDeps } from "../../qa-engine/src/contexts/run-orchestration/infrastructure/run-pipeline.adapter";
 import { SidekickExecutor } from "../../qa-engine/src/contexts/coordination/application/sidekick-executor";
@@ -37,9 +24,7 @@ import { systemTimers } from "../../qa-engine/src/contexts/coordination/applicat
 import { FsDelegationWorkspaceAdapter } from "../../qa-engine/src/contexts/coordination/infrastructure/adapters/delegation-workspace.adapter";
 import { specFileForFlow } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { getSharedCoordinationTelemetry } from "../../qa-engine/src/contexts/coordination/infrastructure/adapters/coordination-telemetry-port.adapter";
-import { SpecSnapshotValidationPort } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/spec-snapshot-validation.adapter";
 import { TracedCrossRepoImpactPort, TracedCurriculumPort, TracedLearningPort, TracedServiceLinksPort, TracedStructuralSignalPort, telemetryGroundingTrace } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/context-trace";
-import { TracedSuiteStore } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/suite-store-trace";
 import { TracedCoordinationTelemetry } from "../../qa-engine/src/contexts/coordination/infrastructure/adapters/coordination-telemetry-trace";
 import { TracedObjectiveSignalPort } from "../../qa-engine/src/contexts/objective-signal/infrastructure/adapters/objective-signal-trace";
 import type { SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port";
@@ -47,15 +32,14 @@ import { sanitizedPlanSnapshots, type PlanSnapshotPort } from "@kernel/ports/pla
 
 import { GenerationPortAdapter, type GenerationPortCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/generation-port.adapter";
 import { ReviewPortAdapter, type ReviewPortRuntime } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/review-port.adapter";
-import { PublicationPortAdapter, type GitHubPrCollaborator, type GitHubIssueCollaborator, type VcsPublishCollaborator } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter";
-import { WorkspaceRegistry } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/workspace-registry";
-import { ConfinementPortAdapter, type PathConfinementCollaborator } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/confinement-port.adapter";
-import { MirrorGcPortAdapter, type PathMirrorGcCollaborator } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/mirror-gc-port.adapter";
-import { WorkspacePortAdapter, type CheckoutFn } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/workspace-port.adapter";
+import type { GitHubPrCollaborator, GitHubIssueCollaborator, VcsPublishCollaborator } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter";
+import type { PathConfinementCollaborator } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/confinement-port.adapter";
+import type { PathMirrorGcCollaborator } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/mirror-gc-port.adapter";
+import type { SetupPortCollaborators } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/setup-port.adapter";
+import type { CleanupPortCollaborators } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/cleanup-port.adapter";
+import type { CheckoutFn } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/workspace-port.adapter";
 import { DeployGatePortAdapter, NullDeployGateAdapter, type VersionPollFn } from "../../qa-engine/src/contexts/run-orchestration/infrastructure/adapters/deploy-gate-port.adapter";
 import { InMemoryRunHistoryAdapter, FileRunHistoryAdapter } from "../../qa-engine/src/contexts/run-orchestration/infrastructure/adapters/run-history-port.adapter";
-import { SetupPortAdapter, type SetupPortCollaborators } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/setup-port.adapter";
-import { CleanupPortAdapter, type CleanupPortCollaborators } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/cleanup-port.adapter";
 import { PreGenerationGroundingPortAdapter, type PreGenerationGroundingCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter";
 import { ReviewDomGroundingPortAdapter, type ReviewDomGroundingCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/review-dom-grounding-port.adapter";
 import { PreExecGroundingPortAdapter, type PreExecGroundingCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/pre-exec-grounding-port.adapter";
@@ -72,6 +56,8 @@ import { confinedSpecFiles } from "../../qa-engine/src/shared-infrastructure/spe
 import { buildChangeAnalysis } from "../../qa-engine/src/contexts/change-analysis/composition/build-change-analysis";
 import { buildServiceTopology } from "../../qa-engine/src/contexts/service-topology/composition/build-service-topology";
 import { buildObjectiveSignal } from "../../qa-engine/src/contexts/objective-signal/composition/build-objective-signal";
+import { buildWorkspaceAndPublication } from "../../qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication";
+import { buildAgentTools, type AgentBrowserWiring, type ClosedLoopWiring, type CodeGraphToolsWiring, type GeolocationWiring } from "../../qa-engine/src/contexts/agent-tools/composition/build-agent-tools";
 import { buildTestExecution } from "../../qa-engine/src/contexts/test-execution/composition/build-test-execution";
 import { buildCrossRunLearning } from "../../qa-engine/src/contexts/cross-run-learning/composition/build-cross-run-learning";
 import { GenerateTestsUseCase, type GenerationResult, type GenerateOpts } from "@contexts/generation/application/generate-tests.use-case";
@@ -85,28 +71,8 @@ import type { CodeExecutionStrategy } from "@contexts/test-execution/infrastruct
 import type { CodeValidationStrategy } from "@contexts/test-execution/infrastructure/code-validation.strategy";
 import type { CoveragePolicy, ChangeCoverage } from "@contexts/objective-signal/domain/decide-coverage.service";
 import type { CoverageCollectorPort, ValueOraclePort } from "@contexts/objective-signal/application/index";
-import { PublishDecisionService } from "@contexts/workspace-and-publication/domain/publish-decision.service";
-import { ShadowLogAdapter } from "@contexts/workspace-and-publication/infrastructure/shadow-log.adapter";
-import { renderIssue, renderPrBody } from "@contexts/workspace-and-publication/domain/render-publication";
 import type { VcsReadPort } from "@contexts/change-analysis/application/index";
 import type { LearningRepositoryPort, ReflectorPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/index";
-
-/* What the shell hands the root to let a run grant its generator the run_spec tool. Absent: the run never does. */
-export interface ClosedLoopWiring {
-  /* Where the generator's session finds the run's loop (shared with the tools endpoint and the session transport). */
-  registry: ClosedLoopRegistry;
-  /* The app's own setting, with the limits already defaulted. */
-  setting: { enabled: boolean; limits: ClosedLoopLimits };
-  /* Whether the generator role is assigned to a runtime that can call the tool (OpenCode). */
-  generatorRuntimeCanCall: () => boolean;
-  /* The key two users of the test account contend on, and the process-wide lock they contend through. */
-  account: string;
-  lock: AccountLock;
-  /* The run's deadline, as the calls read it. */
-  deadline?: RunDeadlineView;
-  /* Takes the run's secrets out of any text that leaves; called inside the run's scope. */
-  redact: (text: string) => string;
-}
 
 /* What the shell hands the root to let a run author its flows with sidekicks. */
 export interface DelegationWiring {
@@ -118,44 +84,6 @@ export interface DelegationWiring {
   plannerProvider: () => AgentProvider | undefined;
   /* The run's deadline, as the agents' turns read it. */
   deadline?: RunDeadlineView;
-}
-
-/* What the shell hands the root to let a run grant its authoring agents the authenticated browser. Absent: the run never does. */
-export interface AgentBrowserWiring {
-  /* Where the authoring agents' sessions find the run's browser (shared with the tools endpoint and the session transport). */
-  registry: AgentBrowserRegistry;
-  /* The app's own setting (qa.agentBrowser). */
-  setting: { enabled: boolean; denyRoutes: readonly string[]; allowMutating: readonly string[] };
-  /* Whether the generator role is assigned to a runtime that can call a custom tool (OpenCode). */
-  generatorRuntimeCanCall: () => boolean;
-  /* Starts the browser in the execution sandbox. */
-  launcher: BrowserLauncherPort;
-  /* The key two users of the test account contend on, and the process-wide lock they contend through. */
-  account: string;
-  lock: AccountLock;
-  /* The app's login path (auth.loginPath), when it declares one. */
-  loginPath?: string;
-  deadline?: RunDeadlineView;
-  /* Takes the run's secrets out of any text that leaves; called inside the run's scope. */
-  redact: (text: string) => string;
-}
-
-/* What the shell hands the root to let a run grant the lead the code-graph tools. Absent: no run does. */
-export interface CodeGraphToolsWiring {
-  /* Where the lead's sessions find the run's graph (shared with the tools endpoint and the session transport). */
-  registry: CodeGraphToolRegistry;
-  /* Whether the generator role is assigned to a runtime that can call a custom tool (OpenCode). */
-  generatorRuntimeCanCall: () => boolean;
-  /* Takes the run's secrets out of any text that leaves; called inside the run's scope. */
-  redact: (text: string) => string;
-}
-
-/* What the shell hands the root to let a run carry its authoring location. Absent: the app declares no location and no run has one. */
-export interface GeolocationWiring {
-  /* Where the authoring agents' sessions find the run's location (shared with the tools endpoint and the session transport). */
-  registry: GeolocationRegistry;
-  /* The app's declared position and the places it names (dev.geolocation). */
-  setting: { default: GeoLocation; places: Readonly<Record<string, GeoLocation>> };
 }
 
 export interface CompositionConfig {
@@ -446,57 +374,49 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
     ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}),
     ...(cfg.testIdAttribute !== undefined ? { testIdAttribute: cfg.testIdAttribute } : {}),
   });
-  const staticValidation = testExecution.validation;
-  /* The specs a run holds are kept as they stand at each validation (e2e only: a code run's spec directory is the whole repo). Requires the outbound sanitizer, which wireAdapters demands below anyway. */
-  const validation: ValidationPort = cfg.specSnapshots && !cfg.isCode && cfg.sanitize
-    ? new SpecSnapshotValidationPort(staticValidation, { port: cfg.specSnapshots, sanitize: cfg.sanitize })
-    : staticValidation;
-
   const execution = testExecution.execution;
 
-  /* Optional: absent → setup stays undefined and the use-case setup phase is a no-op. */
-  const setup = cfg.setupCollaborators ? new SetupPortAdapter(cfg.setupCollaborators, { target: cfg.target }) : undefined;
+  const workspaceAndPublication = buildWorkspaceAndPublication({
+    run: { repo: cfg.repo, branch: cfg.branch, target: cfg.target, isCode: cfg.isCode, e2eRelDir: cfg.e2eRelDir, shadow: cfg.shadow, ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}), ...(cfg.testIdAttribute !== undefined ? { testIdAttribute: cfg.testIdAttribute } : {}) },
+    checkout: cfg.checkout,
+    ...(cfg.setupCollaborators ? { setup: cfg.setupCollaborators } : {}),
+    ...(cfg.cleanupCollaborators ? { cleanup: cfg.cleanupCollaborators } : {}),
+    ...(cfg.confinement ? { confinement: cfg.confinement } : {}),
+    ...(cfg.mirrorGc ? { mirrorGc: cfg.mirrorGc } : {}),
+    publication: {
+      githubPr: cfg.githubPr,
+      githubIssue: cfg.githubIssue,
+      /* Required: the build throws without it, there is no identity default. */
+      sanitize: cfg.sanitize as (text: string) => string,
+      ...(cfg.vcsWrite ? { vcsWrite: cfg.vcsWrite } : {}),
+      ...(cfg.containsSecret ? { containsSecret: cfg.containsSecret } : {}),
+      ...(cfg.reviewerApprovedForPublish !== undefined ? { reviewerApproved: cfg.reviewerApprovedForPublish } : {}),
+      ...(cfg.coverageBlocksForPublish !== undefined ? { coverageBlocks: cfg.coverageBlocksForPublish } : {}),
+      ...(cfg.e2eChangedForPublish !== undefined ? { e2eChanged: cfg.e2eChangedForPublish } : {}),
+    },
+    ...(cfg.suiteStore ? { suiteStore: cfg.suiteStore } : {}),
+    ...(cfg.specSnapshots ? { specSnapshots: cfg.specSnapshots } : {}),
+    ...(cfg.telemetry ? { telemetry: cfg.telemetry } : {}),
+  });
+  /* The specs a run holds are kept as they stand at each validation (e2e only: a code run's spec directory is the whole repo). */
+  const validation: ValidationPort = workspaceAndPublication.snapshotValidation(testExecution.validation);
+  const { workspace, setup, cleanup, publication } = workspaceAndPublication;
 
-  const cleanup = !cfg.isCode && cfg.cleanupCollaborators
-    ? new CleanupPortAdapter(cfg.cleanupCollaborators, { baseUrl: cfg.baseUrl, testIdAttribute: cfg.testIdAttribute })
-    : undefined;
-
-  /* The loop executes through the run's own execution and cleanup ports, so a spec it runs is run exactly as the suite's are. */
-  const toolTrace = cfg.telemetry ? { telemetry: cfg.telemetry, clock: cfg.clock ?? { now: () => Date.now() }, ...(cfg.toolAttempts ? { attempts: cfg.toolAttempts } : {}) } : undefined;
-  const closedLoop = cfg.closedLoop && !cfg.isCode
-    ? new ClosedLoopPortAdapter({
-        ...cfg.closedLoop,
-        ...(toolTrace ? { trace: toolTrace } : {}),
-        execution,
-        ...(cleanup ? { cleanup } : {}),
-        ...(cfg.authSession && cfg.baseUrl ? { authSession: cfg.authSession, authContext: { baseUrl: cfg.baseUrl, ...(cfg.auth ? { auth: cfg.auth } : {}) } } : {}),
-        specRelDir: cfg.e2eRelDir,
-      })
-    : undefined;
-
-  /* The browser reads DEV through the run's own session and origins; a spec is never run by it. */
-  const agentBrowser = cfg.agentBrowser && !cfg.isCode && cfg.baseUrl
-    ? new AgentBrowserPortAdapter({
-        ...cfg.agentBrowser,
-        ...(toolTrace ? { trace: toolTrace } : {}),
-        baseUrl: cfg.baseUrl,
-        material: () => readAgentBrowserSession(cfg.baseUrl!),
-        ...(cfg.authSession ? { authSession: cfg.authSession, authContext: { baseUrl: cfg.baseUrl, ...(cfg.auth ? { auth: cfg.auth } : {}) } } : {}),
-      })
-    : undefined;
-
-  /* The lead explores the index the index phase built for the run's repo; it names terms, never the repo, the workspace or the engine's options. */
-  const codeGraphTools = cfg.codeGraphTools && cfg.codeExplore && !cfg.isCode
-    ? new CodeGraphToolsPortAdapter({
-        ...cfg.codeGraphTools,
-        explore: cfg.codeExplore,
-        repoDir: cfg.codeGraphRepoDir ?? cfg.mirrorDir,
-        ...(toolTrace ? { trace: toolTrace } : {}),
-      })
-    : undefined;
-
-  /* The app's declared position, the lead's value and one per flow: authoring context, never an input to the delivered suite. */
-  const geolocation = cfg.geolocation && !cfg.isCode ? new GeolocationPortAdapter(cfg.geolocation) : undefined;
+  /* The tools run through the run's own execution and cleanup ports, so a spec they run is run exactly as the suite's are. */
+  const agentTools = buildAgentTools({
+    run: { isCode: cfg.isCode, specRelDir: cfg.e2eRelDir, codeGraphRepoDir: cfg.codeGraphRepoDir ?? cfg.mirrorDir, ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}), ...(cfg.auth ? { auth: cfg.auth } : {}) },
+    execution,
+    ...(cleanup ? { cleanup } : {}),
+    ...(cfg.authSession ? { authSession: cfg.authSession } : {}),
+    ...(cfg.codeExplore ? { codeExplore: cfg.codeExplore } : {}),
+    ...(cfg.closedLoop ? { closedLoop: cfg.closedLoop } : {}),
+    ...(cfg.agentBrowser ? { agentBrowser: cfg.agentBrowser } : {}),
+    ...(cfg.codeGraphTools ? { codeGraphTools: cfg.codeGraphTools } : {}),
+    ...(cfg.geolocation ? { geolocation: cfg.geolocation } : {}),
+    ...(cfg.telemetry ? { telemetry: cfg.telemetry } : {}),
+    ...(cfg.clock ? { clock: cfg.clock } : {}),
+    ...(cfg.toolAttempts ? { toolAttempts: cfg.toolAttempts } : {}),
+  });
 
   /* The change's pages over the run's call graph: the index the index phase built (the change's repo, and on a service run the app's own). */
   const topology = buildServiceTopology({
@@ -595,10 +515,6 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
   const plainLearning = learningApi.learning;
   const learning: LearningPort = cfg.telemetry ? new TracedLearningPort(plainLearning, cfg.telemetry) : plainLearning;
 
-  /* One registry per composition: the handle WorkspacePortAdapter issues is the only key the publication, confinement and gc adapters accept. */
-  const workspaceRegistry = new WorkspaceRegistry();
-  const workspace = new WorkspacePortAdapter(cfg.checkout, { specRelDir: cfg.isCode ? "" : cfg.e2eRelDir, isCode: cfg.isCode }, workspaceRegistry);
-
   const deployGate = cfg.versionUrl
     ? new DeployGatePortAdapter(
         cfg.versionPoll ?? (async () => ({ serving: true })),
@@ -609,38 +525,6 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
         },
       )
     : new NullDeployGateAdapter();
-
-  /* Production publication: real decide + GitHub collaborators. ShadowLogAdapter is wired here too because decide() routes to "shadow" when cfg.shadow is true. cfg.sanitize is required — throw rather than default to identity (same fail-closed guard as PublicationPortAdapter). */
-  if (!cfg.sanitize) {
-    throw new Error(
-      "composition-root.ts: cfg.sanitize is required to wire PublicationPortAdapter — " +
-        "the composition (run-engine-factory.ts's buildCompositionConfig, or the test fixture) must supply the real sanitizeText.",
-    );
-  }
-  const publication = new PublicationPortAdapter(
-    {
-      decide: new PublishDecisionService(),
-      pr: cfg.githubPr,
-      issue: cfg.githubIssue,
-      shadowLog: new ShadowLogAdapter(),
-      sanitize: cfg.sanitize,
-      /* Pure Issue/PR renderers — not app-specific, so every composition (including shadow) gets them unconditionally. */
-      render: { issue: renderIssue, prBody: renderPrBody },
-      /* Git-write collaborator, spread only when present so shadow/issue compositions omit the key. */
-      ...(cfg.vcsWrite ? { vcsWrite: cfg.vcsWrite } : {}),
-      ...(cfg.containsSecret ? { containsSecret: cfg.containsSecret } : {}),
-    },
-    {
-      repo: cfg.repo,
-      branch: cfg.branch,
-      reviewerApproved: cfg.reviewerApprovedForPublish ?? true,
-      coverageBlocks: cfg.coverageBlocksForPublish ?? false,
-      shadow: cfg.shadow,
-      e2eChanged: cfg.e2eChangedForPublish ?? true,
-      isCode: cfg.isCode,
-    },
-    workspaceRegistry,
-  );
 
   /* Explicit runHistory wins over historyFilePath; file/in-memory adapters are the fallback when neither is a durable store supplied by the factory. */
   const runHistory = cfg.runHistory ?? (cfg.historyFilePath ? new FileRunHistoryAdapter(cfg.historyFilePath) : new InMemoryRunHistoryAdapter());
@@ -661,10 +545,7 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
     /* The intent lock's parser: pure, no I/O, so one instance serves every run. */
     intentContract: objectiveSignalApi.intentContract,
     ...(cfg.execScope ? { execScope: cfg.execScope } : {}),
-    ...(closedLoop ? { closedLoop } : {}),
-    ...(agentBrowser ? { agentBrowser } : {}),
-    ...(codeGraphTools ? { codeGraphTools } : {}),
-    ...(geolocation ? { geolocation } : {}),
+    ...agentTools,
     ...(setup ? { setup } : {}),
     ...(cfg.authSession && cfg.baseUrl
       ? {
@@ -687,10 +568,9 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
     ...(crossRepoImpact ? { crossRepoImpact } : {}),
     ...(cfg.observer ? { observer: cfg.observer } : {}),
     ...(learningApi.reflector ? { reflector: learningApi.reflector } : {}),
-    /* Absent confinement is omitted entirely — never a fabricated no-op stub. */
-    ...(cfg.confinement ? { confinement: new ConfinementPortAdapter(workspaceRegistry, cfg.confinement) } : {}),
-    /* Absent mirrorGc is omitted entirely — never a fabricated no-op stub. */
-    ...(cfg.mirrorGc ? { mirrorGc: new MirrorGcPortAdapter(workspaceRegistry, cfg.mirrorGc) } : {}),
+    /* Absent confinement and mirror gc are omitted entirely: never a fabricated no-op stub. */
+    ...(workspaceAndPublication.confinement ? { confinement: workspaceAndPublication.confinement } : {}),
+    ...(workspaceAndPublication.mirrorGc ? { mirrorGc: workspaceAndPublication.mirrorGc } : {}),
     /* Absent processAudit is omitted entirely — never a fabricated no-op stub. */
     ...(learningApi.processAudit ? { processAudit: learningApi.processAudit } : {}),
     /* Absent runDeadline is omitted entirely — never a fabricated deadline that bounds nothing. */
@@ -702,7 +582,7 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
     /* Absent contextMapCapture is omitted entirely — never a fabricated no-op stub. */
     ...(cfg.contextMapCapture ? { contextMapCapture: cfg.contextMapCapture } : {}),
     /* Absent suiteStore is omitted entirely — never a fabricated no-op stub (a stub that restores nothing would hide that no suite persists). */
-    ...(cfg.suiteStore ? { suiteStore: cfg.telemetry ? new TracedSuiteStore(cfg.suiteStore, cfg.telemetry) : cfg.suiteStore } : {}),
+    ...(workspaceAndPublication.suiteStore ? { suiteStore: workspaceAndPublication.suiteStore } : {}),
     /* Absent coordination settings are omitted entirely: the coordinator uses its defaults. */
     ...(cfg.coordinationSettings ? { coordinationSettings: cfg.coordinationSettings } : {}),
     /* Lead and sidekicks: wired for an e2e run whose shell gave it a place for the sidekicks' workspaces. The sidekicks share the reviewer's runtime, each with a session of its own. A run with no coordinator wired is authored by its lead alone. */
