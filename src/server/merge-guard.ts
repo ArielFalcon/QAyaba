@@ -315,10 +315,10 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep.ts",
   "qa-engine/src/shared-kernel/agent-browser.ts",
   /* Which session holds the browser (the registry), the adapter that serves the calls and the one place a session is renewed: the adapters/ prefix covers the last two, and they are listed so that narrowing it cannot unprotect them, like the closed-loop twins below. */
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/agent-browser-registry.ts",
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-port.adapter.ts",
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-session-material.ts",
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/trusted-session-renewal.ts",
+  "qa-engine/src/contexts/agent-tools/infrastructure/agent-browser-registry.ts",
+  "qa-engine/src/contexts/agent-tools/infrastructure/adapters/agent-browser-port.adapter.ts",
+  "qa-engine/src/contexts/agent-tools/infrastructure/adapters/agent-browser-session-material.ts",
+  "qa-engine/src/contexts/agent-tools/infrastructure/adapters/trusted-session-renewal.ts",
   /* The one place a prompt's tools are decided for the runtime: the denial of writes for a read-only turn, the tools a session's run denied it, and which sessions are granted the browser. A fix that loosened it would hand a planning turn or a sidekick tools its run withheld. */
   "src/integrations/opencode-client.ts",
   "src/server/tools-endpoint.ts",
@@ -329,8 +329,8 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/contexts/test-execution/domain/account-lock.ts",
   "qa-engine/src/contexts/test-execution/domain/run-spec-capability.ts",
   "qa-engine/src/contexts/test-execution/application/run-spec.use-case.ts",
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/closed-loop-registry.ts",
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/closed-loop-port.adapter.ts",
+  "qa-engine/src/contexts/agent-tools/infrastructure/closed-loop-registry.ts",
+  "qa-engine/src/contexts/agent-tools/infrastructure/adapters/closed-loop-port.adapter.ts",
   "qa-engine/src/contexts/qa-run-orchestration/application/ports/delegation-workspace.port.ts",
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/delegation-workspace.adapter.ts",
   "agents/tool/run_spec.ts",
@@ -344,14 +344,17 @@ export const PROTECTED_PATHS: string[] = [
   "agents/lib/run-spec-client.mjs",
   /* What the lead may ask of the code graph and on which project: the admitted queries, the registry that binds a session, the adapter that runs the CLI on the run's project, the tool and its client. A fix that loosened them could let an agent query another app's code or run a free graph query. */
   "qa-engine/src/shared-kernel/code-graph-tools.ts",
-  "qa-engine/src/contexts/qa-run-orchestration/domain/code-graph-query.ts",
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/code-graph-tool-registry.ts",
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/code-graph-tools-port.adapter.ts",
+  "qa-engine/src/contexts/agent-tools/domain/code-graph-query.ts",
+  "qa-engine/src/contexts/agent-tools/infrastructure/code-graph-tool-registry.ts",
+  "qa-engine/src/contexts/agent-tools/infrastructure/adapters/code-graph-tools-port.adapter.ts",
+  /* Redacts the engine answer string by string and cuts it by its structure: weakening it leaks what the graph holds into the lead's prompt. */
+  "qa-engine/src/contexts/agent-tools/domain/explore-answer.ts",
   "agents/tool/codegraph.ts",
   "agents/lib/codegraph-client.mjs",
   /* The spans a served call runs under and how its outcome is told: adapters/ covers them, and they are listed so that narrowing that prefix cannot unprotect them. */
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/tool-call-trace.ts",
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/tool-call-outcome.ts",
+  "qa-engine/src/contexts/agent-tools/infrastructure/adapters/tool-call-trace.ts",
+  "qa-engine/src/contexts/agent-tools/infrastructure/adapters/tool-call-outcome.ts",
+  "qa-engine/src/contexts/agent-tools/infrastructure/adapters/geolocation-port.adapter.ts",
   /* 4. build/topology the canary cannot verify (image rebuild only) */
   ".github/",
   "Dockerfile",
@@ -403,6 +406,7 @@ export const SECURITY_SENSITIVE_SURFACE_ROOTS: string[] = [
   "qa-engine/src/contexts/generation/infrastructure/",
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/",
   "qa-engine/src/contexts/app-catalog/infrastructure/",
+  "qa-engine/src/contexts/agent-tools/infrastructure/",
 ];
 
 /*
@@ -426,6 +430,12 @@ export const NOT_SECURITY_SENSITIVE: string[] = [
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/github-pr.adapter.ts",
   /* `git gc --auto` only — no credential, no write-confinement/publish interaction. */
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/mirror-gc.adapter.ts",
+  /*
+   * Holds the authoring location of one run (a latitude/longitude pair per scope) for the prompts and the
+   * browser tool: no credential, no write, no process. The tool exposure itself is the protected
+   * geolocation-port.adapter.ts.
+   */
+  "qa-engine/src/contexts/agent-tools/infrastructure/geolocation-registry.ts",
 ];
 
 export function isSecuritySensitiveSurface(file: string): boolean {

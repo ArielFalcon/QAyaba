@@ -14,12 +14,12 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import os from "node:os";
-import type { ClosedLoopRegistry } from "@contexts/qa-run-orchestration/infrastructure/closed-loop-registry";
-import type { AgentBrowserRegistry } from "@contexts/qa-run-orchestration/infrastructure/agent-browser-registry";
-import type { GeolocationRegistry } from "@contexts/qa-run-orchestration/infrastructure/geolocation-registry";
-import type { CodeGraphToolRegistry } from "@contexts/qa-run-orchestration/infrastructure/code-graph-tool-registry";
-import { admitCodeGraphQuery, type CodeGraphRefusalCode, type CodeGraphToolRequest } from "@contexts/qa-run-orchestration/domain/code-graph-query";
-import type { GeolocationRefusalCode } from "@contexts/qa-run-orchestration/domain/run-geolocation";
+import type { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-loop-registry";
+import type { AgentBrowserRegistry } from "@contexts/agent-tools/infrastructure/agent-browser-registry";
+import type { GeolocationRegistry } from "@contexts/agent-tools/infrastructure/geolocation-registry";
+import type { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry";
+import { admitCodeGraphQuery, type CodeGraphRefusalCode, type CodeGraphToolRequest } from "@contexts/agent-tools/domain/code-graph-query";
+import type { GeolocationRefusalCode } from "@contexts/agent-tools/domain/run-geolocation";
 import { MAX_PLACE_NAME_CHARS, type GeolocationInput } from "@kernel/geolocation";
 import type { AgentBrowserRefusalCode } from "@contexts/test-execution/domain/agent-browser-capability";
 import type { AgentBrowserRequest } from "@contexts/test-execution/application/agent-browser.use-case";

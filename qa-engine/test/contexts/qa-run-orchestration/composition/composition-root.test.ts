@@ -1459,7 +1459,7 @@ test("buildProduction still indexes without the co-change history, but builds no
 
 /* The run_spec loop is wired only when the shell hands the root its registry; the adapter it builds executes through the run's own execution and cleanup ports. */
 test("wireAdapters builds the run_spec loop port from cfg.closedLoop and omits it when the config has none", async () => {
-  const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry.ts");
+  const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry.ts");
   const { AccountLock } = await import("@contexts/test-execution/domain/account-lock.ts");
   const without = wireAdapters(fakeConfig());
   assert.equal("closedLoop" in without, false);
@@ -1482,7 +1482,7 @@ test("wireAdapters builds the run_spec loop port from cfg.closedLoop and omits i
 });
 
 test("a code-target composition never gets the run_spec loop, whatever the config says", async () => {
-  const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry.ts");
+  const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry.ts");
   const { AccountLock } = await import("@contexts/test-execution/domain/account-lock.ts");
   const wired = wireAdapters(fakeConfig({
     isCode: true,
@@ -1494,7 +1494,7 @@ test("a code-target composition never gets the run_spec loop, whatever the confi
 
 /* The authenticated agent browser is wired only when the shell hands the root its registry, and only for an e2e app with a DEV url. */
 test("wireAdapters builds the agent browser port from cfg.agentBrowser and omits it when the config has none", async () => {
-  const { AgentBrowserRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/agent-browser-registry.ts");
+  const { AgentBrowserRegistry } = await import("@contexts/agent-tools/infrastructure/agent-browser-registry.ts");
   const { AccountLock } = await import("@contexts/test-execution/domain/account-lock.ts");
   const without = wireAdapters(fakeConfig({ baseUrl: "https://dev.example.com" }));
   assert.equal("agentBrowser" in without, false);
@@ -1517,7 +1517,7 @@ test("wireAdapters builds the agent browser port from cfg.agentBrowser and omits
 
 /* The lead's code-graph tool is wired from the run's explore port and the shell's registry, for an e2e app only. */
 test("wireAdapters builds the lead's code-graph tool over cfg.codeExplore and omits it without the explore, the wiring or for a code target", async () => {
-  const { CodeGraphToolRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/code-graph-tool-registry.ts");
+  const { CodeGraphToolRegistry } = await import("@contexts/agent-tools/infrastructure/code-graph-tool-registry.ts");
   const explore = { explore: async () => ok({ text: "**Exploration: x**", indexedSha: "abc1234" }) };
   const wiring = { registry: new CodeGraphToolRegistry(), generatorRuntimeCanCall: () => true, redact: (text: string) => text };
   assert.equal("codeGraphTools" in wireAdapters(fakeConfig({ codeGraphTools: wiring })), false, "no explore, no tool");

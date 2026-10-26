@@ -7,7 +7,7 @@
  */
 
 import type { GeoLocation, GeolocationFacts } from "@kernel/geolocation.ts";
-import type { FlowGeolocationHandle, GeolocationHandle, GeolocationOpenInput, GeolocationPort } from "../../application/ports/index.ts";
+import type { FlowGeolocationHandle, GeolocationHandle, GeolocationOpenInput, GeolocationPort } from "../../application/ports/geolocation.port.ts";
 import { RunGeolocation } from "../../domain/run-geolocation.ts";
 import type { GeolocationRegistry, LiveGeolocation } from "../geolocation-registry.ts";
 

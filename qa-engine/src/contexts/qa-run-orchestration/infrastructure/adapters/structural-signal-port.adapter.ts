@@ -7,8 +7,8 @@ import type { CoupledFile, ImpactBudget, ImpactedSymbol } from "@kernel/code/ind
 import type { CodeExplorePort } from "@kernel/ports/code-explore.port.ts";
 import type { StructuralSignalPort, StructuralSignalResult } from "../../application/ports/index.ts";
 import { DOSSIER_HEADING, MAX_DOSSIER_BYTES, hasSymbolBlocks, renderBlastRadiusSignal } from "./blast-radius-signal.ts";
-import { shapeExploreAnswer } from "./code-graph-tools-port.adapter.ts";
-import { isExploreTerm } from "../../domain/code-graph-query.ts";
+import { shapeExploreAnswer } from "@contexts/agent-tools/application/index.ts";
+import { isExploreTerm } from "@contexts/agent-tools/application/index.ts";
 import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
 import { activeExecScope } from "../../../../shared-infrastructure/process-sandbox/exec-scope.ts";

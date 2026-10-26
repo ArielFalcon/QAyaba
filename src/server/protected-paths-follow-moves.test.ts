@@ -16,6 +16,14 @@ const SECURITY_RELEVANT_MODULES = [
   `${CONTEXTS}/app-catalog/domain/helpers/login-evidence.ts`,
   `${CONTEXTS}/app-catalog/infrastructure/login-discovery/login-discovery.script.ts`,
   `${CONTEXTS}/app-catalog/infrastructure/login-discovery/login-discovery.runner.ts`,
+  `${CONTEXTS}/agent-tools/infrastructure/agent-browser-registry.ts`,
+  `${CONTEXTS}/agent-tools/infrastructure/closed-loop-registry.ts`,
+  `${CONTEXTS}/agent-tools/infrastructure/code-graph-tool-registry.ts`,
+  `${CONTEXTS}/agent-tools/infrastructure/adapters/agent-browser-port.adapter.ts`,
+  `${CONTEXTS}/agent-tools/infrastructure/adapters/closed-loop-port.adapter.ts`,
+  `${CONTEXTS}/agent-tools/infrastructure/adapters/code-graph-tools-port.adapter.ts`,
+  `${CONTEXTS}/agent-tools/domain/code-graph-query.ts`,
+  `${CONTEXTS}/agent-tools/domain/explore-answer.ts`,
 ];
 
 test("every security-relevant module exists at its path and is protected there", () => {

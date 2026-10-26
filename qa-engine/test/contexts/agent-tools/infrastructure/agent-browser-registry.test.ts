@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AgentBrowserRegistry, type LiveBrowser } from "@contexts/qa-run-orchestration/infrastructure/agent-browser-registry.ts";
+import { AgentBrowserRegistry, type LiveBrowser } from "@contexts/agent-tools/infrastructure/agent-browser-registry.ts";
 import { AgentBrowserCapability } from "@contexts/test-execution/domain/agent-browser-capability.ts";
 
 function live(runId: string) {

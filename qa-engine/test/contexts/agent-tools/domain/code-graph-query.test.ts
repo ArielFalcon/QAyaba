@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { admitCodeGraphQuery, CODE_GRAPH_ACTION, MAX_EXPLORE_TERMS, MAX_TERM_CHARS } from "@contexts/qa-run-orchestration/domain/code-graph-query.ts";
+import { admitCodeGraphQuery, CODE_GRAPH_ACTION, MAX_EXPLORE_TERMS, MAX_TERM_CHARS } from "@contexts/agent-tools/domain/code-graph-query.ts";
 
 test("explore names one to N terms and admits nothing but them: the project, the file cap and any extra key are not the caller's", () => {
   assert.deepEqual(admitCodeGraphQuery({ action: "explore", terms: ["formatMoney"] }), { action: CODE_GRAPH_ACTION.EXPLORE, terms: ["formatMoney"] });

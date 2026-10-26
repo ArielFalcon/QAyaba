@@ -71,10 +71,10 @@ import { BackendHealthMonitor, resolveBackendHealthConfig, systemBackendFetch } 
 import { resolveSandbox } from "../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
 import { resolvePort, resolveListenHost, describeListenAddress, serverErrorListener } from "./server/port";
 import { createToolsServer, resolveToolsListenHost, resolveToolsPort, resolveToolsToken } from "./server/tools-endpoint";
-import { ClosedLoopRegistry } from "@contexts/qa-run-orchestration/infrastructure/closed-loop-registry";
-import { AgentBrowserRegistry } from "@contexts/qa-run-orchestration/infrastructure/agent-browser-registry";
-import { GeolocationRegistry } from "@contexts/qa-run-orchestration/infrastructure/geolocation-registry";
-import { CodeGraphToolRegistry } from "@contexts/qa-run-orchestration/infrastructure/code-graph-tool-registry";
+import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-loop-registry";
+import { AgentBrowserRegistry } from "@contexts/agent-tools/infrastructure/agent-browser-registry";
+import { GeolocationRegistry } from "@contexts/agent-tools/infrastructure/geolocation-registry";
+import { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry";
 import { FsDelegationWorkspaceAdapter } from "@contexts/qa-run-orchestration/infrastructure/delegation-workspace.adapter";
 import { DELEGATIONS_DIR } from "./paths";
 import { workdirRoot } from "./integrations/repo-mirror";

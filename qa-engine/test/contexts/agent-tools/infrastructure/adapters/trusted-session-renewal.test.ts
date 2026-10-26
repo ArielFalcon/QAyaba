@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { trustedSessionRenewal } from "@contexts/qa-run-orchestration/infrastructure/adapters/trusted-session-renewal.ts";
+import { trustedSessionRenewal } from "@contexts/agent-tools/infrastructure/adapters/trusted-session-renewal.ts";
 import type { AuthSessionPort, AuthSessionRequest } from "@contexts/app-catalog/application/ports/auth-session.port.ts";
 
 const LOGIN = 'import { test as setup } from "@playwright/test";\nsetup("login", async ({ page }) => { await page.goto("/"); });\n';

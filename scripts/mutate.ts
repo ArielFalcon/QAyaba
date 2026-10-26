@@ -62,6 +62,8 @@ const LEARN = "qa-engine/src/contexts/cross-run-learning/domain";
 const LEARN_TEST = "qa-engine/test/contexts/cross-run-learning/domain";
 const ORCH = "qa-engine/src/contexts/qa-run-orchestration";
 const ORCH_TEST = "qa-engine/test/contexts/qa-run-orchestration";
+const AGENT_TOOLS_CTX = "qa-engine/src/contexts/agent-tools";
+const AGENT_TOOLS_CTX_TEST = "qa-engine/test/contexts/agent-tools";
 const APP_CATALOG_CTX = "qa-engine/src/contexts/app-catalog";
 const APP_CATALOG_CTX_TEST = "qa-engine/test/contexts/app-catalog";
 const GEN = "qa-engine/src/contexts/generation";
@@ -378,8 +380,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${TE_TEST}/domain/agent-browser-route-guard.test.ts`,
       `${TE_TEST}/domain/agent-browser-session-invalidation.test.ts`,
       `${TE_TEST}/application/agent-browser.use-case.test.ts`,
-      `${ORCH_TEST}/infrastructure/agent-browser-registry.test.ts`,
-      `${ORCH_TEST}/infrastructure/adapters/agent-browser-port.adapter.test.ts`,
+      `${AGENT_TOOLS_CTX_TEST}/infrastructure/agent-browser-registry.test.ts`,
+      `${AGENT_TOOLS_CTX_TEST}/infrastructure/adapters/agent-browser-port.adapter.test.ts`,
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },

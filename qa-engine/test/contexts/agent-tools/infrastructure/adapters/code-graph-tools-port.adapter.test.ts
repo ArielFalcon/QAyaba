@@ -7,9 +7,9 @@ import type { CodeGraphUnavailable } from "@kernel/code/index.ts";
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
 import type { SpanHandle, StartSpanOptions } from "@kernel/telemetry/telemetry.port.ts";
-import { CodeGraphToolsPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/code-graph-tools-port.adapter.ts";
-import { CodeGraphToolRegistry } from "@contexts/qa-run-orchestration/infrastructure/code-graph-tool-registry.ts";
-import { admitCodeGraphQuery } from "@contexts/qa-run-orchestration/domain/code-graph-query.ts";
+import { CodeGraphToolsPortAdapter } from "@contexts/agent-tools/infrastructure/adapters/code-graph-tools-port.adapter.ts";
+import { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry.ts";
+import { admitCodeGraphQuery } from "@contexts/agent-tools/domain/code-graph-query.ts";
 
 /* The engine's own text for `explore formatMoney OrdersPage`, as recorded: three files, a blast radius and a list of names not shown. */
 const ENGINE_TEXT = readFileSync(new URL("../../../../shared-infrastructure/code-graph/__fixtures__/codegraph/explore.txt", import.meta.url), "utf8");

@@ -280,156 +280,8 @@ export function reviewerApprovalOf(generation: Pick<GenerationOutput, "reviewed"
   return generation.reviewed ? generation.approved : undefined;
 }
 
-/**
- * The run_spec loop of one run, as the use case sees it: the right to execute a spec while authoring, granted to the
- * generator's own sessions. The run opens it after the login and closes it when it ends, however it ends.
- */
-export interface ClosedLoopOpenInput {
-  runId: string;
-  app: string;
-  mode: RunMode;
-  purpose?: RunPurpose;
-  mirrorDir: string;
-  specDir: string;
-  /** The run's own choice, when it makes one (an A/B arm): overrides the app's setting. Absent: the app's setting decides. */
-  enabled?: boolean;
-  /** The run's cancellation: a call in flight when it fires is stopped. */
-  signal?: AbortSignal;
-}
-export interface ClosedLoopSignals {
-  /** run_spec calls that started. */
-  calls: number;
-  /** Mutating requests the executed specs sent to DEV. */
-  devWrites: number;
-}
-/** What a flow's loop is opened with: its own share of the run's calls and writes, the sidekick's workspace its spec is read from, and the one spec it may run. */
-export interface FlowLoopOpenInput {
-  delegationId: string;
-  /** The flow's slug: it names the namespace of the flow's calls. */
-  flowId: string;
-  limits: { maxCalls: number; maxDevWrites: number };
-  /** The sidekick's workspace: where its spec is written and read. */
-  workspace: { dir: string; specDir: string };
-  /** The one spec the flow may run, relative to the spec directory. */
-  specFile: string;
-  /** Puts the spec in the working copy where the suite runs it, and says where (relative to the spec directory), or undefined when the workspace has no such spec. Called inside the lease of each call. */
-  stage(): Promise<string | undefined>;
-}
-/** One call of a flow's loop that ran: the bytes of the spec it ran (their sha256), and how it ended. */
-export interface FlowLedgerEntry {
-  path: string;
-  sha256: string;
-  status: string;
-  devWrites: number;
-  /** The facts of the call's failing tests: error, page by pathname, results read, server status, runtime errors, whether the page was still changing. */
-  failures?: readonly FlowFailureFact[];
-}
-/** One failing test of a flow's run_spec call, as the orchestrator kept it. */
-export interface FlowFailureFact {
-  detail?: string;
-  path?: string;
-  resultCount?: number;
-  httpStatus?: number;
-  runtimeErrors?: readonly { type: string; text: string }[];
-  unsettled?: true;
-}
-export interface FlowLoopHandle {
-  /** What the flow's prompt states about the tool: its own share. */
-  limits: ClosedLoopLimits;
-  signals(): ClosedLoopSignals;
-  /** What the orchestrator saw the flow's calls do, oldest first. */
-  ledger(): readonly FlowLedgerEntry[];
-  /** Whether the spec the sidekick holds now is the one whose last call passed. */
-  isClosed(): Promise<boolean>;
-  /** Revokes the flow's right and cleans the data of a call that was in flight. Never throws. */
-  close(): Promise<void>;
-}
-export interface ClosedLoopHandle {
-  /** What the generator's prompt states about the tool. */
-  limits: ClosedLoopLimits;
-  /** Opens the loop of one flow of a plan, for the sidekick that authors it; undefined once the run's loop is closed. Throws when the flow is already open. */
-  openFlow(input: FlowLoopOpenInput): FlowLoopHandle | undefined;
-  /** Removes the probe specs a generator session left in the spec directory. Idempotent. */
-  sweepProbes(): Promise<void>;
-  /** Whether every one of these delivered specs holds the bytes whose last call passed. */
-  isClosed(deliveredSpecs: readonly string[]): Promise<boolean>;
-  signals(): ClosedLoopSignals;
-  /** Revokes the right, removes the probes and the data the calls left. Never throws. */
-  close(): Promise<void>;
-}
-export interface ClosedLoopPort {
-  /** Resolves undefined when this run is not granted the loop (disabled, another runtime, nothing to run it with). */
-  open(input: ClosedLoopOpenInput): Promise<ClosedLoopHandle | undefined>;
-}
 
-/**
- * The authenticated browser of one run, as the use case sees it: the right of the authoring agents to read DEV through the
- * session the run signed in with, without ever holding it. The run opens it after the login and closes it when it ends,
- * however it ends.
- */
-export interface AgentBrowserOpenInput {
-  runId: string;
-  app: string;
-  mode: RunMode;
-  purpose?: RunPurpose;
-  /** The suite directory of the run's working copy: where a renewed login is prepared for. */
-  specDir: string;
-  /** The run's own choice, when it makes one (an A/B arm): overrides the app's setting. */
-  enabled?: boolean;
-  /** The run's cancellation: a call in flight when it fires is stopped. */
-  signal?: AbortSignal;
-  /** The app's declared location, when it declares one: the browser opens at it, and each session's own scope may move it. Absent: the browser is not given a location. */
-  geolocation?: { default: GeoLocation; forSession(sessionId: string): GeoLocation | undefined };
-}
-export interface AgentBrowserHandle {
-  /** What the generator's prompt states about the tools. */
-  limits: AgentBrowserLimits;
-  /** Gives a flow of a plan the calls its sidekick may make out of the run's, before the sidekick's session opens. */
-  grantShare(delegationId: string, calls: number): void;
-  signals(): AgentBrowserGateSignal;
-  /** Revokes the right, stops the browser. Never throws. */
-  close(): Promise<void>;
-}
-export interface AgentBrowserPort {
-  /** Resolves undefined when this run is not granted the browser (disabled, another runtime, no saved session to use). */
-  open(input: AgentBrowserOpenInput): Promise<AgentBrowserHandle | undefined>;
-}
 
-/**
- * The device location of one run, as the use case sees it: the app's declared default and places, the lead's own value,
- * and one value per flow of a plan. The run opens it after the login and closes it when it ends, however it ends. It is
- * authoring context: the authenticated browser uses it, and a delivered spec pins its own location with setLocation().
- */
-export interface GeolocationOpenInput {
-  runId: string;
-  app: string;
-  mode: RunMode;
-  /** The run's cancellation: no change is accepted once it fires. */
-  signal?: AbortSignal;
-}
-export interface FlowGeolocationHandle {
-  facts(): GeolocationFacts;
-  current(): GeoLocation;
-  /** Forgets the flow's value; a change from one of its sessions is refused afterwards. */
-  close(): void;
-}
-export interface GeolocationHandle {
-  /** The app's declared default: what the suite runs with when a spec sets none. */
-  readonly default: GeoLocation;
-  /** The lead's scope: the app default until the lead moves it. */
-  facts(): GeolocationFacts;
-  placeNames(): readonly string[];
-  /** Where a session's own scope is now (its flow, or the run's lead), or undefined when the session is not bound to this run. */
-  forSession(sessionId: string): GeoLocation | undefined;
-  /** Opens a flow's own value, starting where the plan says or where the lead is. Undefined once the run's location is closed. */
-  openFlow(delegationId: string, initial?: GeoLocation): FlowGeolocationHandle | undefined;
-  /** Revokes every scope and forgets the flows. Never throws. */
-  close(): void;
-}
-export interface GeolocationPort {
-  /** Resolves undefined when the app declares no location: no tool, no section and no value to inject. */
-  open(input: GeolocationOpenInput): Promise<GeolocationHandle | undefined>;
-}
 
 export interface GenerationPort {
   /**
@@ -459,21 +311,6 @@ export interface PlanOutput {
   turn?: AgentTurnStats;
   /** The lead's planning session, held open when the turn came back with a plan, for the lead's review of the flows. The caller disposes it. */
   lead?: LeadSessionHandle;
-}
-/** What a run is asked when it opens the lead's code-graph tools. */
-export interface CodeGraphToolsOpenInput {
-  runId: string;
-}
-/** The lead's code-graph right for one run: its limits, what was used of it, and its end. */
-export interface CodeGraphToolsHandle {
-  limits: { maxCalls: number; maxFiles: number; maxAnswerChars: number };
-  signals(): { calls: number; refused: number; failed: number };
-  /** Revokes the right. Never throws. */
-  close(): void;
-}
-/** Grants the lead the read-only `explore` of the run's own code-graph index. `open` answers nothing when the run cannot be granted it. */
-export interface CodeGraphToolsPort {
-  open(input: CodeGraphToolsOpenInput): Promise<CodeGraphToolsHandle | undefined>;
 }
 /** The lead's planning session, held open for its next turn: asked read-only, a turn out of its time answers `timedOut`. */
 export interface LeadSessionHandle {
@@ -1057,3 +894,5 @@ export interface MirrorGcPort {
  * See ./coordination.port.ts.
  */
 
+/* The tool-grant ports are declared by agent-tools; the flow reads them through its public surface. */
+export type { AgentBrowserHandle, AgentBrowserOpenInput, AgentBrowserPort, ClosedLoopHandle, ClosedLoopOpenInput, ClosedLoopPort, ClosedLoopSignals, CodeGraphToolsHandle, CodeGraphToolsOpenInput, CodeGraphToolsPort, FlowFailureFact, FlowGeolocationHandle, FlowLedgerEntry, FlowLoopHandle, FlowLoopOpenInput, GeolocationHandle, GeolocationOpenInput, GeolocationPort } from "@contexts/agent-tools/application/index.ts";

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CodeGraphToolRegistry, type LiveCodeGraph } from "@contexts/qa-run-orchestration/infrastructure/code-graph-tool-registry.ts";
+import { CodeGraphToolRegistry, type LiveCodeGraph } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry.ts";
 
 const live = (runId: string): LiveCodeGraph => ({ runId, call: async () => ({ ok: true, result: "", truncated: false, indexedSha: "abc1234", callsLeft: 1 }) });
 

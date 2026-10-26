@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readAgentBrowserSession } from "@contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-session-material.ts";
-import { newSandboxReport, withExecScope, type RunScope } from "../../../../../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope.ts";
-import { AUTH_MATERIAL_FILES } from "../../../../../../qa-engine/src/shared-infrastructure/process-sandbox/auth-session-env.ts";
+import { readAgentBrowserSession } from "@contexts/agent-tools/infrastructure/adapters/agent-browser-session-material.ts";
+import { newSandboxReport, withExecScope, type RunScope } from "../../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
+import { AUTH_MATERIAL_FILES } from "../../../../../src/shared-infrastructure/process-sandbox/auth-session-env.ts";
 
 function scopeWith(t: TestContext, files: Record<string, string | Buffer>, over: Partial<RunScope> = {}): RunScope {
   const authDir = mkdtempSync(join(tmpdir(), "agent-browser-auth-"));

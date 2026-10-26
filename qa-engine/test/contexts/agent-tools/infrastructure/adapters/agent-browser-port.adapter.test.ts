@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AgentBrowserPortAdapter, type AgentBrowserPortAdapterDeps } from "@contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-port.adapter.ts";
-import { AgentBrowserRegistry } from "@contexts/qa-run-orchestration/infrastructure/agent-browser-registry.ts";
+import { AgentBrowserPortAdapter, type AgentBrowserPortAdapterDeps } from "@contexts/agent-tools/infrastructure/adapters/agent-browser-port.adapter.ts";
+import { AgentBrowserRegistry } from "@contexts/agent-tools/infrastructure/agent-browser-registry.ts";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
 import { BrowserActionError, type AgentBrowserHostPort, type BrowserAction, type BrowserCallOptions, type PageState } from "@contexts/test-execution/application/ports/agent-browser.ports.ts";
-import { newSandboxReport, withExecScope } from "../../../../../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope.ts";
-import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../../../../qa-engine/src/shared-infrastructure/run-secret-redaction.ts";
+import { newSandboxReport, withExecScope } from "../../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
+import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../../../src/shared-infrastructure/run-secret-redaction.ts";
 import type { AgentBrowserOpenInput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import type { SessionMaterial } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
 

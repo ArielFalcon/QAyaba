@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appSuiteStoreDir, createRunEngineFactory, engineAgentDeps, buildCompositionConfig, buildVcsPublish, resolveCodeSandbox, type ContextHealRunRequest } from "./run-engine-factory";
 import { AppConfig } from "../orchestrator/config-loader";
-import { CodeGraphToolRegistry } from "@contexts/qa-run-orchestration/infrastructure/code-graph-tool-registry";
+import { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry";
 import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun } from "./runner";
@@ -3717,7 +3717,7 @@ function agentFacadeFor(provider: FacadeProvider) {
 }
 
 test("an e2e app composes the run_spec loop only when the host has a registry, defaulting what the app leaves out", async () => {
-  const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry");
+  const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry");
   const app: AppConfig = { ...cfg("loop-app"), qa: { needsReview: true, testDataPrefix: "qa-bot", closedLoop: { enabled: true, maxCalls: 3 } }, auth: { kind: "form", usernameEnv: "LOOP_USER", passwordEnv: "LOOP_PASS" } };
 
   const without = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "ns", { mode: "diff" });
@@ -3732,7 +3732,7 @@ test("an e2e app composes the run_spec loop only when the host has a registry, d
 });
 
 test("the loop is off for an app that does not turn it on, and never composed for a code app", async () => {
-  const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry");
+  const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry");
   const registry = new ClosedLoopRegistry();
   const off = buildCompositionConfig(cfg("loop-off"), { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff" });
   assert.equal(off.closedLoop?.setting.enabled, false);
@@ -3743,7 +3743,7 @@ test("the loop is off for an app that does not turn it on, and never composed fo
 });
 
 test("only an OpenCode generator, as the facade assigns it now, can call the tool", async () => {
-  const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry");
+  const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry");
   const app: AppConfig = { ...cfg("loop-runtime"), qa: { needsReview: true, testDataPrefix: "qa-bot", closedLoop: { enabled: true } } };
   const registry = new ClosedLoopRegistry();
   const other = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("fixture-runtime") }, "ns", { mode: "diff" });
@@ -3753,7 +3753,7 @@ test("only an OpenCode generator, as the facade assigns it now, can call the too
 });
 
 test("the factory tells the registry about the generator's sessions through the transport", async () => {
-  const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry");
+  const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry");
   const { RunSpecCapability } = await import("@contexts/test-execution/domain/run-spec-capability");
   const registry = new ClosedLoopRegistry();
   const capability = new RunSpecCapability({ runId: "run-loop", limits: { maxCalls: 1, perCallMs: 60_000, maxDevWrites: 1 }, expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0 });
@@ -3770,7 +3770,7 @@ test("the factory tells the registry about the generator's sessions through the 
 /* ── The authenticated agent browser ───────────────────────────────────────────────────────────── */
 
 test("an e2e app composes the agent browser only when the host has a registry, with the app's lists", async () => {
-  const { AgentBrowserRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/agent-browser-registry");
+  const { AgentBrowserRegistry } = await import("@contexts/agent-tools/infrastructure/agent-browser-registry");
   const app: AppConfig = {
     ...cfg("browser-app"),
     qa: { needsReview: true, testDataPrefix: "qa-bot", agentBrowser: { enabled: true, denyRoutes: ["/admin/**"], allowMutating: ["POST /api/search"] } },
@@ -3791,7 +3791,7 @@ test("an e2e app composes the agent browser only when the host has a registry, w
 });
 
 test("the agent browser is off for an app that does not turn it on, and never composed for a code app", async () => {
-  const { AgentBrowserRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/agent-browser-registry");
+  const { AgentBrowserRegistry } = await import("@contexts/agent-tools/infrastructure/agent-browser-registry");
   const registry = new AgentBrowserRegistry();
   const host = { getAgentDeps: stubAgentDeps, agentBrowserRegistry: registry, getAgentFacade: agentFacadeFor("opencode") };
   const off = buildCompositionConfig({ ...cfg("browser-off"), dev: { baseUrl: "https://dev.example.com" } }, host, "ns", { mode: "diff" });
@@ -3803,7 +3803,7 @@ test("the agent browser is off for an app that does not turn it on, and never co
 });
 
 test("only an OpenCode generator, as the facade assigns it now, is granted the browser", async () => {
-  const { AgentBrowserRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/agent-browser-registry");
+  const { AgentBrowserRegistry } = await import("@contexts/agent-tools/infrastructure/agent-browser-registry");
   const app: AppConfig = { ...cfg("browser-runtime"), qa: { needsReview: true, testDataPrefix: "qa-bot", agentBrowser: { enabled: true } }, dev: { baseUrl: "https://dev.example.com" } };
   const registry = new AgentBrowserRegistry();
   const other = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, agentBrowserRegistry: registry, getAgentFacade: agentFacadeFor("fixture-runtime") }, "ns", { mode: "diff" });
@@ -3813,7 +3813,7 @@ test("only an OpenCode generator, as the facade assigns it now, is granted the b
 });
 
 test("the factory tells the browser registry about the authoring sessions through the transport", async () => {
-  const { AgentBrowserRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/agent-browser-registry");
+  const { AgentBrowserRegistry } = await import("@contexts/agent-tools/infrastructure/agent-browser-registry");
   const { AgentBrowserCapability } = await import("@contexts/test-execution/domain/agent-browser-capability");
   const registry = new AgentBrowserRegistry();
   const capability = new AgentBrowserCapability({ runId: "run-browser", expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0 });
@@ -3833,7 +3833,7 @@ test("the factory tells the browser registry about the authoring sessions throug
 });
 
 test("a sidekick session opened for a flow is told to the run_spec registry with its flow, and the tools its run denied it are denied its prompts until it ends", async () => {
-  const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry");
+  const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry");
   const { RunSpecCapability } = await import("@contexts/test-execution/domain/run-spec-capability");
   const { sessionToolDeny } = await import("../integrations/opencode-client");
   const registry = new ClosedLoopRegistry();
@@ -3921,8 +3921,8 @@ test("the composition carries the app's qa.coordination with every limit it left
 });
 
 test("the run_spec loop and the agent browser take DEV through the same lease, which holds it alone for an action that may write", async () => {
-  const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry");
-  const { AgentBrowserRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/agent-browser-registry");
+  const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry");
+  const { AgentBrowserRegistry } = await import("@contexts/agent-tools/infrastructure/agent-browser-registry");
   const { DevLease } = await import("@contexts/test-execution/domain/dev-lease");
   const app: AppConfig = {
     ...cfg("lease-app"),
@@ -3961,7 +3961,7 @@ test("the sidekick role's runtime is read from the facade as it is now, not as i
 
 
 test("the authoring location is composed from the app's declared position and places, and never for a code app", async () => {
-  const { GeolocationRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/geolocation-registry");
+  const { GeolocationRegistry } = await import("@contexts/agent-tools/infrastructure/geolocation-registry");
   const barcelona = { latitude: 41.3874, longitude: 2.1686 };
   const app: AppConfig = {
     ...cfg("geo-app"),
@@ -3980,8 +3980,8 @@ test("the authoring location is composed from the app's declared position and pl
 });
 
 test("the factory tells the geolocation registry about the authoring sessions through the transport", async () => {
-  const { GeolocationRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/geolocation-registry");
-  const { RunGeolocation } = await import("@contexts/qa-run-orchestration/domain/run-geolocation");
+  const { GeolocationRegistry } = await import("@contexts/agent-tools/infrastructure/geolocation-registry");
+  const { RunGeolocation } = await import("@contexts/agent-tools/domain/run-geolocation");
   const registry = new GeolocationRegistry();
   const state = new RunGeolocation({ default: { latitude: 40.4168, longitude: -3.7038 } });
   registry.register({ runId: "run-geo", state, set: (delegationId, change) => state.set(delegationId, change) });
@@ -4004,7 +4004,7 @@ test("buildCompositionConfig grants the review-loop integrity slice unless the a
 });
 
 test("the lead's sessions of a run are told to the code-graph registry and lose the right when they end; a sidekick's never gets it", async () => {
-  const { CodeGraphToolRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/code-graph-tool-registry");
+  const { CodeGraphToolRegistry } = await import("@contexts/agent-tools/infrastructure/code-graph-tool-registry");
   const registry = new CodeGraphToolRegistry();
   registry.register({ runId: "run-graph", call: async () => { throw new Error("not called"); } });
   let n = 0;

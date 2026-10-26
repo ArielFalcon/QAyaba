@@ -361,10 +361,10 @@ test("isProtectedPath flags the authenticated agent browser: its guard, host, la
     "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-core.loader.ts",
     "qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep.ts",
     "qa-engine/src/shared-kernel/agent-browser.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-port.adapter.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-session-material.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/trusted-session-renewal.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/agent-browser-registry.ts",
+    "qa-engine/src/contexts/agent-tools/infrastructure/adapters/agent-browser-port.adapter.ts",
+    "qa-engine/src/contexts/agent-tools/infrastructure/adapters/agent-browser-session-material.ts",
+    "qa-engine/src/contexts/agent-tools/infrastructure/adapters/trusted-session-renewal.ts",
+    "qa-engine/src/contexts/agent-tools/infrastructure/agent-browser-registry.ts",
     "src/integrations/opencode-client.ts",
     "src/server/tools-endpoint.ts",
     "agents/tool/authbrowser.ts",
@@ -382,8 +382,8 @@ test("isProtectedPath flags what a sidekick may do against DEV and in the workin
     "qa-engine/src/contexts/test-execution/domain/account-lock.ts",
     "qa-engine/src/contexts/test-execution/domain/run-spec-capability.ts",
     "qa-engine/src/contexts/test-execution/application/run-spec.use-case.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/closed-loop-registry.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/closed-loop-port.adapter.ts",
+    "qa-engine/src/contexts/agent-tools/infrastructure/closed-loop-registry.ts",
+    "qa-engine/src/contexts/agent-tools/infrastructure/adapters/closed-loop-port.adapter.ts",
     "qa-engine/src/contexts/qa-run-orchestration/application/ports/delegation-workspace.port.ts",
     "qa-engine/src/contexts/qa-run-orchestration/infrastructure/delegation-workspace.adapter.ts",
     "agents/tool/run_spec.ts",
@@ -882,8 +882,8 @@ test("the real ledger store persists deploys on disk across reads, creating its 
 
 test("isProtectedPath flags the tool-call trace modules, the supervisor that holds the agent runtime's env allowlist, and the compose file that holds the telemetry stack", () => {
   for (const file of [
-    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/tool-call-trace.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/tool-call-outcome.ts",
+    "qa-engine/src/contexts/agent-tools/infrastructure/adapters/tool-call-trace.ts",
+    "qa-engine/src/contexts/agent-tools/infrastructure/adapters/tool-call-outcome.ts",
     "agents/agent-supervisor.mjs",
     "docker-compose.yml",
   ]) {

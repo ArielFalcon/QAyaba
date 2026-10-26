@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ClosedLoopRegistry, type LiveLoop } from "@contexts/qa-run-orchestration/infrastructure/closed-loop-registry.ts";
+import { ClosedLoopRegistry, type LiveLoop } from "@contexts/agent-tools/infrastructure/closed-loop-registry.ts";
 import { RUN_SPEC_AGENT, RUN_SPEC_FLOW_AGENT, RunSpecCapability } from "@contexts/test-execution/domain/run-spec-capability.ts";
 
 const LIMITS = { maxCalls: 4, perCallMs: 60_000, maxDevWrites: 4 };

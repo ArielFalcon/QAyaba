@@ -274,6 +274,59 @@
   },
   {
     "type": "dependency",
+    "from": "qa-engine/src/contexts/agent-tools/infrastructure/adapters/agent-browser-port.adapter.ts",
+    "to": "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts",
+    "unresolvedTo": "@contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "cross-context-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "qa-engine/src/contexts/agent-tools/infrastructure/adapters/agent-browser-port.adapter.ts",
+    "to": "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-types.ts",
+    "unresolvedTo": "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "cross-context-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "qa-engine/src/contexts/agent-tools/infrastructure/adapters/agent-browser-session-material.ts",
+    "to": "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-types.ts",
+    "unresolvedTo": "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "cross-context-internals"
+    }
+  },
+  {
+    "type": "dependency",
     "from": "qa-engine/src/contexts/cross-run-learning/infrastructure/reflector-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
     "unresolvedTo": "@contexts/generation/infrastructure/sanitize-text.ts",
@@ -452,59 +505,6 @@
       "aliased-tsconfig",
       "aliased-tsconfig-paths",
       "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-port.adapter.ts",
-    "to": "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts",
-    "unresolvedTo": "@contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-port.adapter.ts",
-    "to": "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-types.ts",
-    "unresolvedTo": "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-session-material.ts",
-    "to": "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-types.ts",
-    "unresolvedTo": "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "type-only",
       "import"
     ],
     "rule": {

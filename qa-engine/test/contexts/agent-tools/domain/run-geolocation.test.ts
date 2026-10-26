@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { RunGeolocation } from "@contexts/qa-run-orchestration/domain/run-geolocation.ts";
+import { RunGeolocation } from "@contexts/agent-tools/domain/run-geolocation.ts";
 
 const MADRID = { latitude: 40.4168, longitude: -3.7038 };
 const BARCELONA = { latitude: 41.3874, longitude: 2.1686 };
