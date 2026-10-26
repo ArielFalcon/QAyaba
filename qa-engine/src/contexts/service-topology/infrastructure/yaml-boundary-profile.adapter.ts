@@ -1,4 +1,5 @@
 /* Reads `boundaries[]` from app YAML into BoundaryProfile[]. App-specific patterns are config strings, never literals in engine core. The reader is injected — this module never touches the filesystem. Per-entry validation is fail-closed (warn + skip). Malformed YAML, a non-array `boundaries`, or a throwing reader degrade to [] (fail-open). */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { parse as parseYaml } from "yaml";
 import type { BoundaryProfileProviderPort } from "../application/ports/boundary-profile-provider.port.ts";
 import type {
@@ -138,9 +139,9 @@ export class YamlBoundaryProfileAdapter implements BoundaryProfileProviderPort {
     try {
       content = this.readAppYaml(appName);
     } catch (err) {
-      console.warn(
+      engineLog.warn(
         `[YamlBoundaryProfileAdapter] failed to read config for app "${appName}":`,
-        err instanceof Error ? err.message : String(err),
+        { error: err },
       );
       return [];
     }
@@ -149,9 +150,9 @@ export class YamlBoundaryProfileAdapter implements BoundaryProfileProviderPort {
     try {
       doc = parseYaml(content);
     } catch (err) {
-      console.warn(
+      engineLog.warn(
         `[YamlBoundaryProfileAdapter] failed to parse YAML for app "${appName}":`,
-        err instanceof Error ? err.message : String(err),
+        { error: err },
       );
       return [];
     }
@@ -160,7 +161,7 @@ export class YamlBoundaryProfileAdapter implements BoundaryProfileProviderPort {
     const rawBoundaries = doc["boundaries"];
     if (rawBoundaries === undefined) return [];
     if (!Array.isArray(rawBoundaries)) {
-      console.warn(`[YamlBoundaryProfileAdapter] app "${appName}": "boundaries" is not an array — ignoring`);
+      engineLog.warn(`[YamlBoundaryProfileAdapter] app "${appName}": "boundaries" is not an array — ignoring`);
       return [];
     }
 
@@ -168,7 +169,7 @@ export class YamlBoundaryProfileAdapter implements BoundaryProfileProviderPort {
     rawBoundaries.forEach((entry, index) => {
       const profile = parseBoundaryProfile(entry);
       if (profile === null) {
-        console.warn(
+        engineLog.warn(
           `[YamlBoundaryProfileAdapter] app "${appName}": boundaries[${index}] is malformed or declares an unsupported transport — skipping`,
         );
         return;

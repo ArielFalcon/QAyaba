@@ -1,4 +1,5 @@
 /* Cross-repo impact for a triggering service: per-service VCS read plus a repo-agnostic code graph. resolve() fails open (→ null) on any error but one: UntrustedGitTreeError means untrusted code replaced the mirror's git dir, so it is rethrown, never turned into "no impact". Cheap pre-filter when no link targets the trigger repo. Best-effort git fetch before the diff; its result is unread. */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { ServiceLink } from "@kernel/service-links.ts";
 import { MATCH_TIER, type CrossRepoImpact, type ImpactedLink } from "@kernel/service-links.ts";
 import { existsSync } from "node:fs";
@@ -77,8 +78,8 @@ export class ResolveCrossRepoImpactUseCase {
        * the method after it. The handler's verb and path: a hand-written controller's route node names them.
        */
       const impactedRes = this.codeGraph ? await this.codeGraph.impactedSymbols(mirrorDir, blast, IMPACT_BUDGET) : undefined;
-      if (impactedRes && !impactedRes.ok) console.warn(`[qa] WARNING: the index did not answer the cross-repo impact walk of ${triggerRepo}, so only the contract-file tier applies (non-blocking): ${impactedRes.error.reason}`);
-      if (impactedRes?.ok && impactedRes.value.truncated) console.warn(`[qa] WARNING: the cross-repo impact walk of ${triggerRepo} was cut by its budget; a link it would reach may be missing (non-blocking).`);
+      if (impactedRes && !impactedRes.ok) engineLog.warn(`[qa] WARNING: the index did not answer the cross-repo impact walk of ${triggerRepo}, so only the contract-file tier applies (non-blocking): ${impactedRes.error.reason}`);
+      if (impactedRes?.ok && impactedRes.value.truncated) engineLog.warn(`[qa] WARNING: the cross-repo impact walk of ${triggerRepo} was cut by its budget; a link it would reach may be missing (non-blocking).`);
       const reached = impactedRes?.ok ? impactedRes.value.symbols : [];
       const reachedNames = new Set(reached.map((s) => s.symbol));
       const reachedRefs = new Set(reached.map((s) => `${s.file}::${s.symbol}`));
@@ -101,7 +102,7 @@ export class ResolveCrossRepoImpactUseCase {
       return { impactedLinks };
     } catch (err) {
       rethrowIfUntrusted(err);
-      console.error("[qa] WARNING: cross-repo impact resolution failed (non-fatal, advisory-only):", err);
+      engineLog.error("[qa] WARNING: cross-repo impact resolution failed (non-fatal, advisory-only):", { error: err });
       return null;
     }
   }
@@ -115,7 +116,7 @@ export class ResolveCrossRepoImpactUseCase {
       return diffOperations(parseYaml(before), parseYaml(after));
     } catch (err) {
       rethrowIfUntrusted(err);
-      console.warn(`[qa] WARNING: the two versions of ${file} could not be compared, so every link on it is impacted (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.warn(`[qa] WARNING: the two versions of ${file} could not be compared, so every link on it is impacted (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
       return undefined;
     }
   }
@@ -124,7 +125,7 @@ export class ResolveCrossRepoImpactUseCase {
   private async reachedHandlerRoutes(codeGraph: CodeGraphPort, mirrorDir: string, reachedRefs: ReadonlySet<string>): Promise<{ method: string; path: string }[]> {
     const routes = await codeGraph.routes(mirrorDir);
     if (!routes.ok) {
-      console.warn(`[qa] WARNING: the routes of ${mirrorDir} could not be listed, so no link is matched by handler route (non-blocking): ${routes.error.reason}`);
+      engineLog.warn(`[qa] WARNING: the routes of ${mirrorDir} could not be listed, so no link is matched by handler route (non-blocking): ${routes.error.reason}`);
       return [];
     }
     return routes.value.flatMap((r) => (r.method !== undefined && r.target && reachedRefs.has(`${r.target.file}::${r.target.symbol}`) ? [{ method: r.method, path: r.path }] : []));

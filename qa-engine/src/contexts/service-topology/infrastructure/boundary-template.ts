@@ -1,3 +1,5 @@
+import { engineLog } from "@kernel/ports/process-logger.ts";
+
 
 const PLACEHOLDER = "{service}";
 const SERVICE_CHARSET = "[A-Za-z0-9_-]+";
@@ -30,7 +32,7 @@ export interface PrefixMatch {
 export function compilePrefixTemplate(template: string): (path: string) => PrefixMatch | null {
   const split = splitTemplate(template);
   if (!split) {
-    console.warn(
+    engineLog.warn(
       `[compilePrefixTemplate] unsupported servicePrefixTemplate "${template}" — expected ` +
         `exactly one "{service}" token. Failing closed: this matcher will never match.`,
     );
@@ -53,7 +55,7 @@ export function compilePrefixTemplate(template: string): (path: string) => Prefi
 export function compileRepoTemplate(template: string): (slug: string) => string {
   const split = splitTemplate(template);
   if (!split) {
-    console.warn(
+    engineLog.warn(
       `[compileRepoTemplate] unsupported serviceRepoTemplate "${template}" — expected exactly ` +
         `one "{service}" token. Failing closed: this extractor will always return the raw slug.`,
     );

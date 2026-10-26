@@ -1,3 +1,4 @@
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { ServiceBoundaryResolverPort } from "../application/ports/service-boundary-resolver.port.ts";
 import type { BoundaryProfile, HttpBoundaryProfile, EventBoundaryProfile, HttpBackendBoundaryProfile } from "../domain/index.ts";
 import { CompositeServiceBoundaryResolver } from "./composite-resolver.adapter.ts";
@@ -19,7 +20,7 @@ export function buildServiceBoundaryResolver(profiles: readonly BoundaryProfile[
   for (const profile of profiles) {
     const build = RESOLVER_REGISTRY[profile.transport];
     if (!build) {
-      console.warn(
+      engineLog.warn(
         `[buildServiceBoundaryResolver] no resolver registered for transport "${profile.transport}" — skipping profile`,
       );
       continue;

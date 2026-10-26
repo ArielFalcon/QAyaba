@@ -1,4 +1,5 @@
 /* service-topology/infrastructure/composite-resolver.adapter.ts Composite ServiceBoundaryResolverPort: per-resolver timeout + error isolation + link dedup. Mirrors CoverageCollectorAdapter's fail-open pattern (coverage-collector.adapter.ts). */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { ServiceLink, ContractDrift } from "@kernel/service-links.ts";
 import type { ServiceBoundaryResolverPort } from "../application/ports/service-boundary-resolver.port.ts";
 import type { ResolveLinksResult } from "../domain/service-boundary-resolver.ts";
@@ -23,7 +24,7 @@ async function resolveWithTimeout(
         (err) => {
           clearTimeout(timer);
           /* Surface error loudly; degrade to empty (fail-open, never blocks). */
-          console.error("[CompositeServiceBoundaryResolver] resolver failed:", err instanceof Error ? err.message : String(err));
+          engineLog.error("[CompositeServiceBoundaryResolver] resolver failed:", { error: err });
           resolve(empty);
         },
       );

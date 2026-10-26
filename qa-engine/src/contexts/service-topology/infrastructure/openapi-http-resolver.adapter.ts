@@ -1,4 +1,5 @@
 /* OpenAPI-anchored FE↔BE HTTP link resolver. App-specific patterns come from the injected HttpBoundaryProfile. Per-repo errors degrade to an empty result for that repo — never throws. from.symbol walks the AST to the enclosing method; falls back to a backward-scan heuristic if tree-sitter fails to load. The OpenAPI documents and the front's sources are read through one RepoReader for each repository (see repo-walk.ts): a mirror is a directory the agent writes into, so no link is followed, no named pipe is opened and neither the entries looked at nor the size of a file is unbounded; what could not be used is skipped, and said once for the repository. */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { ServiceLink, ServiceSymbolRef, ContractDrift } from "@kernel/service-links.ts";
 import { resolve, dirname } from "node:path";
 import { createRequire } from "node:module";
@@ -94,9 +95,9 @@ function getTsParser(): Promise<TsParser | null> {
         const pkgJson = _require.resolve("tree-sitter-wasms/package.json");
         wasmPath = resolve(dirname(pkgJson), "out", "tree-sitter-typescript.wasm");
       } catch (err) {
-        console.warn(
+        engineLog.warn(
           "[OpenApiHttpResolver] tree-sitter-wasms not installed — enclosing-method extraction will use fallback backward scan. Install tree-sitter-wasms@0.1.13 for accurate results.",
-          err instanceof Error ? err.message : String(err),
+          { error: err },
         );
         return null; /* tree-sitter-wasms not installed — fail-open */
       }
@@ -108,9 +109,9 @@ function getTsParser(): Promise<TsParser | null> {
       parser.setLanguage(language);
       return parser as TsParser;
     } catch (err) {
-      console.warn(
+      engineLog.warn(
         "[OpenApiHttpResolver] web-tree-sitter failed to load — enclosing-method extraction will use fallback backward scan. Install web-tree-sitter@0.20.8 for accurate results.",
-        err instanceof Error ? err.message : String(err),
+        { error: err },
       );
       return null;
     }

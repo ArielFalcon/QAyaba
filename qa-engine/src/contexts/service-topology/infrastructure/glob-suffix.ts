@@ -1,10 +1,12 @@
+import { engineLog } from "@kernel/ports/process-logger.ts";
+
 /* Filename-suffix glob compiler. Only two shapes; anything else fails closed (matches nothing). */
 
 /** Compile a filename-suffix glob into a predicate over a bare filename (no directory segments required — callers pass the entry name from their own directory walk). */
 export function compileFileGlob(glob: string): (filename: string) => boolean {
   const match = /^(?:\*\*\/)?\*(\.[^*/]+)$/.exec(glob);
   if (!match) {
-    console.warn(
+    engineLog.warn(
       `[compileFileGlob] unsupported frontFiles glob "${glob}" — only "**/*.<ext>" or "*.<ext>" ` +
         `(filename-suffix) shapes are supported. Failing closed: this predicate will match no files.`,
     );
