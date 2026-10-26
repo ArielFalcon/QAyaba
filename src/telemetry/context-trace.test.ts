@@ -15,7 +15,8 @@ import {
   telemetryGroundingTrace,
 } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/context-trace";
 import { PreGenerationGroundingPortAdapter } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter";
-import type { ChangePagesPort, ServiceLinksPort } from "@contexts/service-topology/application/index.ts";
+import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import type { ServiceLinksPort } from "@contexts/service-topology/application/index.ts";
 import type { CurriculumPort, LearningPort } from "@contexts/cross-run-learning/application/index.ts";
 import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
 import { buildContextPack, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack";
@@ -238,7 +239,7 @@ const DIFF = [
   "",
 ].join("\n");
 
-function groundingFixture(telemetry: TelemetryPort, opts: { trace?: boolean; changePages?: ChangePagesPort } = {}) {
+function groundingFixture(telemetry: TelemetryPort, opts: { trace?: boolean } = {}) {
   const e2eDir = mkdtempSync(join(tmpdir(), "ground-trace-"));
   const packDeps: ContextPackDeps = {
     captureDomForRoutes: async (routes, input) => {
@@ -254,7 +255,6 @@ function groundingFixture(telemetry: TelemetryPort, opts: { trace?: boolean; cha
       loadContextMap: () => MAP as never,
       contextPackDeps: packDeps,
       buildContextPack,
-      ...(opts.changePages ? { changePages: opts.changePages } : {}),
       ...(opts.trace === false ? {} : { trace: telemetryGroundingTrace(telemetry) }),
     },
   );
@@ -282,28 +282,15 @@ test("grounding names the context map, the route ranking and the pack by their i
   }
 });
 
-test("the pages the call graph proved are on the record: their basis on the route ranking and the join's proofs, hubs and disagreements on its own span", async () => {
+test("the candidate pages are on the record: their basis on the route ranking", async () => {
   const h = traceHarness();
-  const changePages: ChangePagesPort = {
-    resolve: async () => ({
-      pages: [{ route: "/b", proof: ["src/orders/list.ts::save", "src/b/page.ts::B", "page /b"] }],
-      hubs: [{ symbol: "src/http.ts::request", pages: 9 }],
-      disagreements: [{ route: "/orders", mapFiles: ["src/orders/list.ts"], engineFile: "src/orders/older.ts" }],
-      omitted: 1,
-    }),
-  };
-  const g = groundingFixture(h.telemetry, { changePages });
+  const candidates: UseCaseCandidate[] = [{ id: "uc-1", entry: { kind: "page", repo: "org/web", route: "/b" }, tier: "indirect", basis: "graph", evidence: ["src/orders/list.ts::save", "src/b/page.ts::B", "page /b"], seeds: [], confidence: 1, reachability: "page", pages: [], existingSpecs: [] }];
+  const g = groundingFixture(h.telemetry);
   try {
-    await inPhase(h, () => g.adapter.ground(g.e2eDir, undefined, DIFF, { sha: "abc1234" }));
+    await inPhase(h, () => g.adapter.ground(g.e2eDir, undefined, DIFF, { sha: "abc1234", candidates }));
     const ranking = contextSpan(h, "route-ranking");
     assert.deepEqual(ranking.attributes["qayaba.context.relevant_ids"], ["route:/orders", "route:/b"]);
     assert.deepEqual(ranking.attributes["qayaba.context.relevant_basis"], ["implementation", "graph"]);
-    const join = h.only("qayaba.code_graph.change_pages");
-    assert.deepEqual(join.attributes["qayaba.code_graph.pages"], ["route:/b"]);
-    assert.deepEqual(join.attributes["qayaba.code_graph.proofs"], ["/b: src/orders/list.ts::save > src/b/page.ts::B > page /b"]);
-    assert.deepEqual(join.attributes["qayaba.code_graph.hubs"], ["src/http.ts::request: 9"]);
-    assert.deepEqual(join.attributes["qayaba.code_graph.disagreements"], ["/orders: src/orders/older.ts"]);
-    assert.equal(join.attributes["qayaba.code_graph.pages_omitted"], 1);
   } finally {
     g.dispose();
   }

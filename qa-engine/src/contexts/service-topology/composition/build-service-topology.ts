@@ -1,9 +1,8 @@
-/* Builds the service-topology context: the service links of an app, the cross-repo impact over the declared mirrors, and the pages a change reaches over the run's call graph. */
+/* Builds the service-topology context: the service links of an app, the cross-repo impact over the declared mirrors. */
 
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
-import type { BoundaryProfileProviderPort, ChangePagesPort, CrossRepoImpactPort, CrossRepoVcsRead, ServiceLinksPort } from "../application/index.ts";
-import { ChangePagesPortAdapter, type ChangePagesPortAdapterDeps } from "../infrastructure/adapters/change-pages-port.adapter.ts";
+import type { BoundaryProfileProviderPort, CrossRepoImpactPort, CrossRepoVcsRead, ServiceLinksPort } from "../application/index.ts";
 import { CrossRepoImpactPortAdapter } from "../infrastructure/adapters/cross-repo-impact-port.adapter.ts";
 import { ServiceLinksPortAdapter } from "../infrastructure/adapters/service-links-port.adapter.ts";
 import { MirrorRegistryAdapter } from "../infrastructure/mirror-registry.adapter.ts";
@@ -26,18 +25,15 @@ export interface ServiceTopologyDeps {
     /* The tier that reads the call graph. Absent: the graph answers nothing. */
     codeGraph?: CodeGraphPort;
   };
-  /* The change's pages over the run's call graph. Absent: none are found. */
-  pages?: ChangePagesPortAdapterDeps;
 }
 
 export interface ServiceTopologyApi {
   serviceLinks?: ServiceLinksPort;
   crossRepoImpact?: CrossRepoImpactPort;
-  changePages?: ChangePagesPort;
 }
 
 export function buildServiceTopology(deps: ServiceTopologyDeps): ServiceTopologyApi {
-  const { links, impact, pages } = deps;
+  const { links, impact } = deps;
   return {
     ...(links
       ? {
@@ -59,6 +55,5 @@ export function buildServiceTopology(deps: ServiceTopologyDeps): ServiceTopology
           }),
         }
       : {}),
-    ...(pages ? { changePages: new ChangePagesPortAdapter(pages) } : {}),
   };
 }

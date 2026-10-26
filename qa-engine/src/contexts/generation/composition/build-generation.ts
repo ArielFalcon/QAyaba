@@ -1,7 +1,6 @@
 /* Builds the generation context: the generation and review ports over the run's agent runtime, the three groundings (before generation, before execution, before review) and the spans that tell what each grounding source supplied. */
 
 import { join, relative, sep } from "node:path";
-import type { ChangePagesPort } from "@contexts/service-topology/application/index.ts";
 import type { CurriculumPort, LearningPort } from "@contexts/cross-run-learning/application/index.ts";
 import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
 import type { CrossRepoImpactPort, ServiceLinksPort } from "@contexts/service-topology/application/index.ts";
@@ -64,8 +63,6 @@ export interface GenerationDeps {
     collaborators?: PreGenerationGroundingCollaborators;
     reviewDomCollaborators?: ReviewDomGroundingCollaborators;
     preExecCollaborators?: PreExecGroundingCollaborators;
-    /* The pages the run's call graph proves the change reaches. */
-    changePages?: ChangePagesPort;
   };
   /* With telemetry, the grounding reports what each source supplied and `traced` wraps the ports the run consumes. */
   telemetry?: TelemetryPort;
@@ -136,7 +133,7 @@ export function buildGeneration(deps: GenerationDeps): GenerationApi {
 
   const e2eDir = join(run.mirrorDir, run.e2eRelDir);
   const location = { e2eDir, mirrorDir: run.mirrorDir, baseUrl: run.baseUrl, testIdAttribute: run.testIdAttribute };
-  const groundingCollaborators: PreGenerationGroundingCollaborators = { ...(grounding.changePages ? { changePages: grounding.changePages } : {}), ...grounding.collaborators };
+  const groundingCollaborators: PreGenerationGroundingCollaborators = { ...grounding.collaborators };
   const preGenerationGrounding = !run.isCode
     ? new PreGenerationGroundingPortAdapter(
         {

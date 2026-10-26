@@ -87,17 +87,6 @@ export function telemetryGroundingTrace(telemetry: TelemetryPort, mapProvenance?
         freshness: provenanceOf("live:dev", trace?.pages.length ?? 0),
       });
     }),
-    changePages: (join) => safely(() => {
-      telemetry.startSpan("qayaba.code_graph.change_pages", {
-        attrs: {
-          "qayaba.code_graph.pages": join.pages.map((page) => itemId.route(page.route)),
-          "qayaba.code_graph.proofs": join.pages.map((page) => `${page.route}: ${page.proof.join(" > ")}`),
-          "qayaba.code_graph.hubs": join.hubs.map((hub) => `${hub.symbol}: ${hub.pages}`),
-          "qayaba.code_graph.disagreements": join.disagreements.map((d) => `${d.route}: ${d.engineFile}`),
-          "qayaba.code_graph.pages_omitted": join.omitted,
-        },
-      }).end();
-    }),
   };
 }
 

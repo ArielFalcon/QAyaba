@@ -2,7 +2,7 @@
  * Across repos, a walk that starts at the frontend call site of a contract link the stitcher found reached: the page proof
  * applies from there, the link's own description opening the evidence. A link without a call-site symbol claims nothing. Pure.
  */
-import { pageFiles } from "@kernel/page-files.ts";
+import { pageFiles } from "../page-files.ts";
 import { pageHitsOfWalk } from "./file-implements-page.ts";
 import type { ProofInput, ReachHit, ReachProof } from "../reach-proof.ts";
 

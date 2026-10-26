@@ -22,7 +22,7 @@ import type { DelegationWorkspace, DelegationWorkspaceRequest, WorkspaceChange }
 import type { DelegationWorkspacePort } from "./ports/delegation-workspace.port.ts";
 import { createDelegationBrief } from "./delegation-brief.ts";
 import { proofsFor } from "./change-proofs.ts";
-import type { GraphPage } from "@kernel/change-pages.ts";
+import { pageRoutesOf, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import type { DelegationResult } from "./delegation-result.ts";
 import { classifyDelegationFailure } from "./delegation-failure-class.ts";
 import { admitLeadReview, changePagesOf, MAX_REVIEW_TURNS, renderLeadReview, unvisitedBy, REVIEW_ACTION, type FlowUnderReview, type ReviewOrder } from "./lead-review.ts";
@@ -53,10 +53,13 @@ const pagesOf = (pack: string | undefined, routes: readonly string[]): { pages: 
   return pages === undefined ? undefined : { pages };
 };
 
-const proofsOf = (proofs: readonly GraphPage[] | undefined, routes: readonly string[]): { proofs: string[] } | undefined => {
+const proofsOf = (proofs: readonly UseCaseCandidate[] | undefined, routes: readonly string[]): { proofs: string[] } | undefined => {
   const lines = proofsFor(proofs, routes);
   return lines === undefined ? undefined : { proofs: lines };
 };
+
+/* The pages of the change's candidates, in the order they are offered. */
+const changeRoutesOf = (input: { candidates?: readonly UseCaseCandidate[] }): string[] => pageRoutesOf(input.candidates ?? []);
 
 /* Less than this of a flow's time left and a second attempt is not started; less than this of the run and a plan is not asked for. */
 export const MIN_FLOW_MS = 60_000;
@@ -108,10 +111,8 @@ export interface CoordinateInput {
   confirmedDataRoutes?: readonly { path: string; resultCount: number }[];
   /* The run's Context Pack: each flow's brief carries the Live DOM of the pages that flow visits. */
   contextPack?: string;
-  /* The pages of the app's map the change is linked to: the planning turn is told them, and those no admitted flow visits are reported. */
-  changeRoutes?: readonly string[];
-  /* The proof the call graph found for each change page it added: each flow's brief carries those of the pages it visits. */
-  changeProofs?: readonly GraphPage[];
+  /* The use cases the change makes testable: the planning turn is told their pages, those no admitted flow visits are reported, and each flow's brief carries the evidence of the pages it visits. */
+  candidates?: readonly UseCaseCandidate[];
   /* The run's deadline, when one is armed. */
   deadline?: { remainingMs(): number | undefined };
   /* The planning turn, asked for with the limits the plan will be held to. Absent: this run's generation cannot plan. */
@@ -257,7 +258,7 @@ export class LeadSidekicks {
       maxParallel: parallel,
       budgetMs: settings.planBudgetMs,
       ...(locations.length > 0 ? { locations } : {}),
-      ...(input.changeRoutes?.length ? { changeRoutes: input.changeRoutes } : {}),
+      ...(changeRoutesOf(input).length ? { changeRoutes: changeRoutesOf(input) } : {}),
     });
     /* The lead's planning session, when the plan kept it: its review of the flows is asked there, and it ends with the pass. */
     let leadHanded = false;
@@ -503,7 +504,7 @@ export class LeadSidekicks {
       scope: { readablePaths: ["."], writablePaths: flow.writablePaths, allowedCommands: [] },
       knownFacts: knownFactsOf(this.deps.redaction, input),
       ...(pagesOf(input.contextPack, flow.routes) ?? {}),
-      ...(proofsOf(input.changeProofs, flow.routes) ?? {}),
+      ...(proofsOf(input.candidates, flow.routes) ?? {}),
       ...(input.devBaseUrl ? { artifactRefs: [{ id: "dev-base-url", path: input.devBaseUrl }] } : {}),
     });
   }
@@ -588,7 +589,7 @@ export class LeadSidekicks {
       const room = this.room(input);
       if (room !== undefined && room < MIN_FLOW_MS) break;
       const underReview = await Promise.all(flows.map((flow) => this.underReview(flow, live.get(flow.id), reports.get(flow.id)!, input)));
-      const changePages = changePagesOf(input.changeRoutes ?? [], flows.map((flow, i) => ({ routes: flow.routes, review: underReview[i]! })));
+      const changePages = changePagesOf(changeRoutesOf(input), flows.map((flow, i) => ({ routes: flow.routes, review: underReview[i]! })));
       let answer: { output: string; timedOut: boolean };
       try {
         answer = await lead.ask(renderLeadReview(this.deps.redaction, underReview, { turn, maxTurns: MAX_REVIEW_TURNS }, changePages), { timeoutMs: Math.min(input.settings.planBudgetMs, room ?? input.settings.planBudgetMs) });
@@ -828,7 +829,7 @@ export class LeadSidekicks {
 
   /* Keeps what the run planned, and returns the change pages no flow visits. A flow visits a change page when one of its routes names it (`namesTemplatePage`). */
   private snapshotPlan(input: CoordinateInput, kind: PlanSnapshotKind, flows: readonly AdmittedFlow[], reason?: string, outcomes?: readonly FlowOutcome[]): string[] {
-    const changeRoutes = [...(input.changeRoutes ?? [])];
+    const changeRoutes = changeRoutesOf(input);
     const snapshotFlows: PlanSnapshotFlow[] = flows.map((flow) => {
       const outcome = outcomes?.find((o) => o.id === flow.id);
       return {
@@ -851,7 +852,7 @@ export class LeadSidekicks {
   }
 
   private reportUnvisited(input: CoordinateInput, unvisited: readonly string[]): void {
-    if (unvisited.length > 0) this.record(input, { kind: "lead-decision", reason: `plan: ${unvisited.length} of ${input.changeRoutes!.length} change page(s) no flow visits: ${unvisited.join(", ")}` });
+    if (unvisited.length > 0) this.record(input, { kind: "lead-decision", reason: `plan: ${unvisited.length} of ${changeRoutesOf(input).length} change page(s) no flow visits: ${unvisited.join(", ")}` });
   }
 
   private record(input: CoordinateInput, event: { kind: "proposal" | "delegation" | "escalation" | "lead-decision"; action?: "direct" | "delegate" | "escalate-sidekick" | "abort-human"; sidekickKind?: SidekickKind; tier?: SidekickTier; reason: string; delegationId?: string; attempt?: number; durationMs?: number; failureClass?: string; progressFingerprint?: string; sidekickStatus?: string; lastRunSpec?: string }): void {

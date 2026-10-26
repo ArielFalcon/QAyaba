@@ -5,7 +5,7 @@
  */
 import { sha256Hex } from "@kernel/content-hash.ts";
 import { entryKey, type EntryPoint, type ReachBasis, type ReachTier } from "@kernel/change-reach.ts";
-import { normalizeRoute, type PageMap } from "@kernel/page-files.ts";
+import { normalizeRoute, type PageMap } from "./page-files.ts";
 import type { Reachability, UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import type { ChangeScope, ReachEntry } from "./change-scope.ts";
 

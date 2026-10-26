@@ -91,8 +91,6 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
   let groundingHarnessFacts: RunState["grounding"]["harnessFacts"];
   /* The added labels whose changed-value line in the pack said more nodes than unchanged lines: what an unobservable no-op is set beside. */
   let groundingMoreNodes: readonly string[] = [];
-  let groundingChangeRoutes: readonly string[] = [];
-  let groundingChangeProofs: RunState["grounding"]["changeProofs"] = [];
   let groundingConfirmedDataRoutes: RunState["grounding"]["confirmedDataRoutes"];
   if (deps.preGenerationGrounding) {
     deps.observer?.onStep("generate", PRE_GENERATION_GROUNDING_STEP_DETAIL);
@@ -101,6 +99,8 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
         sha: input.sha.toString(),
         serviceLinks: state.grounding.serviceLinks,
         crossRepoImpact: state.grounding.crossRepoImpact,
+        candidates: state.grounding.candidates,
+        hubPages: hubPagesOf(state.grounding.changeScope),
       });
       groundingContextPack = grounding.contextPack;
       groundingContextPackItemIds = grounding.contextPackItemIds;
@@ -109,8 +109,6 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
       groundingContextMap = grounding.contextMap;
       groundingHarnessFacts = grounding.harnessFacts;
       groundingMoreNodes = grounding.changedValuesWithMoreNodes ?? [];
-      groundingChangeRoutes = grounding.changeRoutes ?? [];
-      groundingChangeProofs = grounding.changePages?.pages ?? [];
       groundingConfirmedDataRoutes = grounding.packConfirmedDataRoutes;
     } catch (err) {
       carryOn(err);
@@ -130,8 +128,6 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
         contextMap: groundingContextMap,
         harnessFacts: groundingHarnessFacts,
         moreNodes: groundingMoreNodes,
-        changeRoutes: groundingChangeRoutes,
-        changeProofs: groundingChangeProofs,
         confirmedDataRoutes: groundingConfirmedDataRoutes,
       },
     },
@@ -302,6 +298,12 @@ function recordScope(ctx: WorkspaceRunContext, scope: ChangeScope): void {
   } catch (err) {
     console.error(`[telemetry] the change-scope span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
   }
+}
+
+/* The pages the hubs of the change reach: too many for any to be a candidate, so they only order the capture. */
+function hubPagesOf(scope: ChangeScope | undefined): string[] {
+  const PAGE = "page ";
+  return [...new Set((scope?.hubs ?? []).flatMap((hub) => hub.keys.filter((key) => key.startsWith(PAGE)).map((key) => key.slice(PAGE.length))))].sort();
 }
 
 function recordCandidates(ctx: WorkspaceRunContext, candidates: readonly UseCaseCandidate[]): void {

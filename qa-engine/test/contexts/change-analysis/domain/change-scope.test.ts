@@ -2,7 +2,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildChangeScope, CHANGE_SCOPE_LIMITS, crossRepoCallSite, fileImplementsPage, handlerServesOperation, tierOf, type ProofWalk, type ReachHit, type ReachProof, type ScopeInput } from "@contexts/change-analysis/application/index.ts";
-import { joinChangePages, type PageWalk } from "@contexts/service-topology/domain/change-pages.ts";
 import { routeServesOperation } from "@contexts/service-topology/domain/cross-repo-impact.ts";
 import type { GraphRoute, ImpactedSymbol } from "@kernel/code/index.ts";
 
@@ -25,22 +24,21 @@ const scope = (walks: ProofWalk[], over: Partial<ScopeInput> = {}, extra: { page
   buildChangeScope({ proofs: { map: extra.map ?? MAP, walks, pageRoutes: extra.pageRoutes ?? [], handlerRoutes: extra.handlerRoutes ?? [] }, repos: [], degraded: [], linked: new Set(), ...over }, proofs);
 const pagesOf = (s: ReturnType<typeof scope>) => s.reach.filter((r) => r.entry.kind === "page").map((r) => ({ route: (r.entry as { route: string }).route, proof: r.evidence })).sort((a, b) => a.route.localeCompare(b.route));
 
-test("page reach and its evidence equal the pages the join proves, hubs and disagreements included", () => {
-  const cases: Array<{ walks: ProofWalk[]; pageRoutes?: GraphRoute[]; linked?: Set<string> }> = [
-    { walks: [walkOf([sym(FORMAT, "formatMoney", 0), sym(ORDERS, "total", 1, FORMAT_SEED)])] },
-    { walks: [walkOf([sym(FORMAT, "formatMoney", 0), sym(ORDERS, "total", 1, FORMAT_SEED), sym(PROFILE, "balance", 1, FORMAT_SEED)])], linked: new Set(["/orders"]) },
-    { walks: [walkOf([sym(FORMAT, "formatMoney", 0), sym(ORDERS, "total", 1, FORMAT_SEED), sym(PROFILE, "balance", 1, FORMAT_SEED)], { truncated: true })] },
-    { walks: [walkOf([sym(FORMAT, "formatMoney", 0), sym("web/src/app/orders/classic.page.ts", "Classic", 1, FORMAT_SEED)])], pageRoutes: [{ file: "web/src/app/app.routes.ts", line: 3, path: "/orders", target: { file: "web/src/app/orders/classic.page.ts", symbol: "Classic", kind: "class" } }] },
+test("page reach, its evidence, hubs and disagreements over the characterised fixtures", () => {
+  type Expected = { pages: Array<{ route: string; proof: string[] }>; hubs: unknown[]; disagreements: unknown[] };
+  const cases: Array<{ walks: ProofWalk[]; pageRoutes?: GraphRoute[]; linked?: Set<string>; expected: Expected }> = [
+    { walks: [walkOf([sym(FORMAT, "formatMoney", 0), sym(ORDERS, "total", 1, FORMAT_SEED)])], expected: { pages: [{ route: "/orders", proof: [`${FORMAT}::formatMoney`, `${ORDERS}::total`, "page /orders"] }], hubs: [], disagreements: [] } },
+    { walks: [walkOf([sym(FORMAT, "formatMoney", 0), sym(ORDERS, "total", 1, FORMAT_SEED), sym(PROFILE, "balance", 1, FORMAT_SEED)])], linked: new Set(["/orders"]), expected: { pages: [{ route: "/profile", proof: [`${FORMAT}::formatMoney`, `${PROFILE}::balance`, "page /profile"] }], hubs: [], disagreements: [] } },
+    { walks: [walkOf([sym(FORMAT, "formatMoney", 0), sym(ORDERS, "total", 1, FORMAT_SEED), sym(PROFILE, "balance", 1, FORMAT_SEED)], { truncated: true })], expected: { pages: [], hubs: [[`${FORMAT}::formatMoney`, 2, true]], disagreements: [] } },
+    { walks: [walkOf([sym(FORMAT, "formatMoney", 0), sym("web/src/app/orders/classic.page.ts", "Classic", 1, FORMAT_SEED)])], pageRoutes: [{ file: "web/src/app/app.routes.ts", line: 3, path: "/orders", target: { file: "web/src/app/orders/classic.page.ts", symbol: "Classic", kind: "class" } }], expected: { pages: [], hubs: [], disagreements: [{ route: "/orders", mapFiles: [ORDERS], engineFile: "web/src/app/orders/classic.page.ts" }] } },
   ];
   for (const c of cases) {
-    const pageWalks: PageWalk[] = c.walks.map((w) => ({ reached: w.reached, handlers: w.handlers, ...(w.truncated ? { truncated: true } : {}) }));
-    const join = joinChangePages({ map: MAP, walks: pageWalks, pageRoutes: c.pageRoutes ?? [], handlerRoutes: [], linked: c.linked ?? new Set() });
 
     const built = scope(c.walks, { linked: c.linked ?? new Set() }, { ...(c.pageRoutes ? { pageRoutes: c.pageRoutes } : {}) });
 
-    assert.deepEqual(pagesOf(built), [...join.pages].sort((a, b) => a.route.localeCompare(b.route)));
-    assert.deepEqual(built.hubs.map((h) => [h.symbol, h.entries, h.truncated]), join.hubs.map((h) => [h.symbol, h.pages, h.truncated]));
-    assert.deepEqual(built.disagreements, join.disagreements);
+    assert.deepEqual(pagesOf(built), c.expected.pages);
+    assert.deepEqual(built.hubs.map((h) => [h.symbol, h.entries, h.truncated]), c.expected.hubs);
+    assert.deepEqual(built.disagreements, c.expected.disagreements);
   }
 });
 
@@ -96,4 +94,20 @@ test("the repos and the degraded repos of the input are carried unchanged", () =
 
   assert.deepEqual(built.degraded, [{ repo: "org/api", reason: "the index did not answer" }]);
   assert.deepEqual(built.reach, []);
+});
+
+test("a reached symbol named for an operationId proves the pages feBe joins to it with no route node, and a generated contract interface yields none", () => {
+  const impl = "api/src/main/java/demo/web/OrdersApiImpl.java";
+
+  const built = scope([walkOf([sym(impl, "listOrders", 0)], { repo: "org/api", handlers: true })]);
+
+  assert.deepEqual(pagesOf(built), [{ route: "/orders", proof: [`${impl}::listOrders`, "GET /api/orders (listOrders)", "page /orders"] }]);
+});
+
+test("a map that is not what its type says is read field by field and never thrown on", () => {
+  const map = { routes: [{ path: 3, implementationFiles: "x" }, null as never, { path: "/ok", implementationFiles: [7 as never, ORDERS] }], api: [{ operationId: 1 as never }], feBe: [{}] };
+
+  const built = scope([walkOf([sym(ORDERS, "total", 0)], { handlers: true })], {}, { map: map as never });
+
+  assert.deepEqual(pagesOf(built).map((p) => p.route), ["/ok"]);
 });

@@ -1,6 +1,9 @@
-/* Which of the map's routes the run's changed files point at, so the pack offers those to the capture first. Only declared paths count: the files that implement a route, the file that declares it, and the spec of an operation it joins; after them, the pages the run's call graph proved the change reaches (`graphPages`, computed outside and passed in), and last before the rest the pages a hub of the change reaches (`hubPages`), which are never change pages. Nothing is inferred from a name, a substring or a service label, and a map that declares none of them, or none that changed, leaves the order as the file has it. The map is data read from a file: every field is checked where it is read, and one that is not what it should be is skipped, never thrown on. */
+/* Which of the map's routes the run's changed files point at, so the pack offers those to the capture first. Only declared paths count: the files that implement a route, the file that declares it, and the spec of an operation it joins; after them, the pages of the change's use-case candidates (`candidates`, derived outside and passed in) by how directly the change reaches them, and last before the rest the pages a hub of the change reaches (`hubPages`), which are never change pages. Nothing is inferred from a name, a substring or a service label, and a map that declares none of them, or none that changed, leaves the order as the file has it. The map is data read from a file: every field is checked where it is read, and one that is not what it should be is skipped, never thrown on. */
 
-import type { ChangePageBasis } from "@kernel/change-pages.ts";
+import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+
+/* Why a page of the app's map is one of the change's pages: the map links it (a changed file implements it, declares it, or is the spec of an operation it joins), or the call graph reaches it. */
+export type ChangePageBasis = "implementation" | "source" | "spec" | "graph";
 
 /* The map fields this module reads, named once so the skill that teaches the map and its reader cannot drift apart. */
 export const ROUTE_LINK_FIELDS = { implementationFiles: "implementationFiles", source: "source", spec: "spec" } as const;
@@ -17,8 +20,8 @@ export interface RankingChange {
   changedFiles: readonly string[];
   /* Present on a cross-repo run only: where the triggering service's snapshot was staged, as a map may name that place. The changed files are then the service's own, and only the spec of an operation, under one of these roots, can link a route to them (by its path inside the snapshot): a route's own files and the file that declares it belong to the other repo. An empty list is still a cross-repo run: nothing can be attributed to the service. */
   stagedRoots?: readonly string[];
-  /* Pages of the map the call graph proved the change reaches. They rank after every page the map links, and a page the map links keeps the map's basis. */
-  graphPages?: readonly string[];
+  /* The use cases the change makes testable. Their pages rank after every page the map links, direct before indirect before cross-repo, and a page the map links keeps the map's basis. */
+  candidates?: readonly UseCaseCandidate[];
   /* Pages a hub of the change reaches: too many for the graph to name any as a change page, so none is relevant, but they rank after every change page and before the rest, so the capture shows pages the change does reach. */
   hubPages?: readonly string[];
 }
@@ -29,8 +32,10 @@ const MIN_SEGMENTS_ACROSS_REPOS = 2;
 const MIN_SEGMENTS_IN_A_SINGLE_REPO = 1;
 
 /* The smaller the rank, the earlier the route. */
-const RANK = { implementation: 0, source: 1, spec: 2, graph: 3, hub: 4, rest: 5 } as const;
-const BASIS_OF_RANK: Record<number, ChangePageBasis> = { [RANK.implementation]: "implementation", [RANK.source]: "source", [RANK.spec]: "spec", [RANK.graph]: "graph" };
+const RANK = { implementation: 0, source: 1, spec: 2, direct: 3, indirect: 4, "cross-repo": 5, hub: 6, rest: 7 } as const;
+const BASIS_OF_RANK: Record<number, ChangePageBasis> = { [RANK.implementation]: "implementation", [RANK.source]: "source", [RANK.spec]: "spec", [RANK.direct]: "graph", [RANK.indirect]: "graph", [RANK["cross-repo"]]: "graph" };
+/* The bases a candidate page can share with the map's own links; any other basis is the call graph's. */
+const MAP_BASES: ReadonlySet<string> = new Set<ChangePageBasis>(["implementation", "source", "spec"]);
 
 const isText = (value: unknown): value is string => typeof value === "string";
 /* The entries of a section of the map that is a list. Each entry is read property by property and checked where it is used, so an entry that is not an object only ever reads as having nothing; a missing one has nothing to read at all. */
@@ -104,21 +109,30 @@ export function rankRoutesWithRelevance(routes: readonly string[], map: Rankable
     return isChanged(entry[ROUTE_LINK_FIELDS.source]) ? RANK.source : RANK.rest;
   };
   const routeEntries = entriesOf(map?.routes);
-  const proven = new Set(change.graphPages ?? []);
+  /* The best place a candidate page earns by its tier, with the basis it was reached by. */
+  const candidatePlace = new Map<string, { rank: number; basis?: ChangePageBasis }>();
+  for (const c of change.candidates ?? []) {
+    if (c.entry.kind !== "page") continue;
+    const rank = RANK[c.tier];
+    const held = candidatePlace.get(c.entry.route);
+    if (held === undefined || rank < held.rank) candidatePlace.set(c.entry.route, { rank, ...(MAP_BASES.has(c.basis) ? { basis: c.basis as ChangePageBasis } : {}) });
+  }
   const reachedByHub = new Set(change.hubPages ?? []);
   const rankOf = (route: string): number =>
     Math.min(
       routesJoiningThem.has(route) ? RANK.spec : RANK.rest,
-      proven.has(route) ? RANK.graph : RANK.rest,
+      candidatePlace.get(route)?.rank ?? RANK.rest,
       reachedByHub.has(route) ? RANK.hub : RANK.rest,
       ...routeEntries.filter((entry) => !crossRepo && entry.path === route).map(ownRank),
     );
-  const all = [...new Set([...routes, ...proven])];
+  const all = [...new Set([...routes, ...candidatePlace.keys()])];
   return all
     .map((route) => {
       const rank = rankOf(route);
       const relevant = rank < RANK.hub;
-      return { route, rank, relevant, ...(relevant ? { basis: BASIS_OF_RANK[rank]! } : {}) };
+      const place = candidatePlace.get(route);
+      const basis = place !== undefined && place.rank === rank && place.basis !== undefined ? place.basis : BASIS_OF_RANK[rank];
+      return { route, rank, relevant, ...(relevant ? { basis: basis! } : {}) };
     })
     .sort((a, b) => a.rank - b.rank);
 }

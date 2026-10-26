@@ -2,7 +2,7 @@
  * What a map and the engine's routes say about the pages of an app: which files implement each page, and which pages the map
  * joins to each operation. Shared by the reach proofs that start from a page. Pure.
  */
-import type { GraphRoute } from "./code/index.ts";
+import type { GraphRoute } from "@kernel/code/index.ts";
 
 export interface PageFilesDisagreement {
   route: string;

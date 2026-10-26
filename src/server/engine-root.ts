@@ -369,7 +369,6 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
     ...(cfg.toolAttempts ? { toolAttempts: cfg.toolAttempts } : {}),
   });
 
-  /* The change's pages over the run's call graph: the index the index phase built (the change's repo, and on a service run the app's own). */
   const topology = buildServiceTopology({
     ...(cfg.serviceTopology ? { links: { ...cfg.serviceTopology } } : {}),
     ...(cfg.crossRepoImpact
@@ -382,18 +381,7 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
           },
         }
       : {}),
-    ...(cfg.codeGraph && !cfg.isCode
-      ? {
-          pages: {
-            codeGraph: cfg.codeGraph,
-            repoDir: cfg.codeGraphRepoDir ?? cfg.mirrorDir,
-            ...(cfg.codeGraphPrimary ? { pagesRepoDir: cfg.codeGraphPrimary.repoDir } : {}),
-            budget: changeAnalysisApi.advisoryBudget,
-          },
-        }
-      : {}),
   });
-  const changePages = topology.changePages;
   const generationApi = buildGeneration({
     run: {
       repo: cfg.repo,
@@ -426,7 +414,6 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
       ...(cfg.groundingCollaborators ? { collaborators: cfg.groundingCollaborators } : {}),
       ...(cfg.reviewDomGroundingCollaborators ? { reviewDomCollaborators: cfg.reviewDomGroundingCollaborators } : {}),
       ...(cfg.preExecGroundingCollaborators ? { preExecCollaborators: cfg.preExecGroundingCollaborators } : {}),
-      ...(changePages ? { changePages } : {}),
     },
     ...(cfg.telemetry ? { telemetry: cfg.telemetry } : {}),
   });

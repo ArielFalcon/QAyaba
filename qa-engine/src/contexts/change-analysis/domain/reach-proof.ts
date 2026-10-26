@@ -5,7 +5,7 @@
  * edit here. Nothing here resolves a contract or creates a link. Pure.
  */
 import type { GraphRoute, ImpactedSymbol } from "@kernel/code/index.ts";
-import { keyOf, pageFiles, type PageMap } from "@kernel/page-files.ts";
+import { keyOf, pageFiles, type PageMap } from "./page-files.ts";
 import { entryKey, type ChangedSymbol, type ChangeScope, type EntryPoint, type ReachBasis, type ReachEntry, type ReachTier, type RepoScope } from "./change-scope.ts";
 
 export const CHANGE_SCOPE_LIMITS = { maxReach: 6, hubEntries: 4 } as const;

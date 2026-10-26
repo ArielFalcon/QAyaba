@@ -3,7 +3,7 @@
  * route, the file of the symbol the engine's route node for the same path points at. Walks that start at a frontend call site
  * are the call-site proof's. Pure.
  */
-import { normalizeFile, pageFiles, sameFile } from "@kernel/page-files.ts";
+import { normalizeFile, pageFiles, sameFile } from "../page-files.ts";
 import { changedSymbolOf, walkChains, type ProofInput, type ProofWalk, type ReachHit, type ReachProof } from "../reach-proof.ts";
 import type { ReachBasis } from "../change-scope.ts";
 

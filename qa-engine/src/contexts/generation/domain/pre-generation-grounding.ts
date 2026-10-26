@@ -1,5 +1,4 @@
 import type { GroundingOmission, ArchitectureContext, HarnessFacts } from "@kernel/grounding.ts";
-import type { ChangePageBasis, ChangePagesJoin } from "@kernel/change-pages.ts";
 
 export interface GroundingResult {
   /** Assembled context-pack text. Absent when the pack build failed or produced nothing. */
@@ -20,10 +19,4 @@ export interface GroundingResult {
   changedValuesWithMoreNodes?: string[];
   /** The pages the pack read with results (> 0) under the app's declared data state, by pathname. Absent when it read none. */
   packConfirmedDataRoutes?: { path: string; resultCount: number }[];
-  /** The pages of the app's map the change is linked to, in rank order: the map's own links, then the pages the call graph proved. Absent when none is. */
-  changeRoutes?: string[];
-  /** Why each change page is one, parallel to `changeRoutes`. */
-  changeRouteBasis?: ChangePageBasis[];
-  /** What the change-page join over the call graph found (its proofs, hubs and disagreements). Absent when no index answered. */
-  changePages?: ChangePagesJoin;
 }

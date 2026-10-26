@@ -16,15 +16,12 @@ test("service links are built from the declared services", () => {
 
   assert.equal(typeof api.serviceLinks?.resolve, "function");
   assert.equal(api.crossRepoImpact, undefined);
-  assert.equal(api.changePages, undefined);
 });
 
-test("cross-repo impact and change pages are built when their dependencies are supplied", () => {
+test("cross-repo impact is built when its dependencies are supplied", () => {
   const api = buildServiceTopology({
     impact: { mirrorRoot: "/mirrors", runner, makeVcs: () => ({}) as never },
-    pages: { codeGraph: {} as never, repoDir: "/repo", budget: { depth: 1, maxSymbols: 1 } },
   });
 
   assert.ok(api.crossRepoImpact);
-  assert.ok(api.changePages);
 });

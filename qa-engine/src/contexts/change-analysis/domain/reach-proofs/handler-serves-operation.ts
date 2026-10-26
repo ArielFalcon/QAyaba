@@ -3,7 +3,7 @@
  * (a generated contract interface yields no route node). The operation is an entry point; so is each page the map's feBe joins
  * to it. How a route serves an operation is the caller's rule, handed in, so this domain imports no other context. Pure.
  */
-import { isText, keyOf, pagesByOperation } from "@kernel/page-files.ts";
+import { isText, keyOf, pagesByOperation } from "../page-files.ts";
 import { changedSymbolOf, walkChains, type ProofInput, type ReachHit, type ReachProof } from "../reach-proof.ts";
 
 export type ServesOperation = (route: { method: string; path: string }, operation: { verb: string; path: string }) => boolean;

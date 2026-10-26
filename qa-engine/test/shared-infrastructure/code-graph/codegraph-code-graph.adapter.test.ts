@@ -19,7 +19,9 @@ import { LanguageRegistry } from "../../../src/shared-kernel/language-id.ts";
 import { BlastRadius } from "../../../src/shared-kernel/blast-radius.ts";
 import { Sha } from "../../../src/shared-kernel/sha.ts";
 import { closeGitDir, git } from "../process-sandbox/git-fixtures.ts";
-import { ChangePagesPortAdapter } from "../../../src/contexts/service-topology/infrastructure/adapters/change-pages-port.adapter.ts";
+import { ChangeScopePortAdapter } from "../../../src/contexts/change-analysis/infrastructure/adapters/change-scope-port.adapter.ts";
+import { fileImplementsPage, handlerServesOperation } from "../../../src/contexts/change-analysis/application/index.ts";
+import { routeServesOperation } from "../../../src/contexts/service-topology/domain/cross-repo-impact.ts";
 
 const FIXTURES = join(import.meta.dirname, "__fixtures__", "codegraph");
 const STORE = join(FIXTURES, "store.db");
@@ -504,20 +506,22 @@ test("over the recorded store the change's pages are proved through the engine's
   const h = harness();
   try {
     await h.adapter.syncTo(h.mirror, h.sha);
-    const pages = new ChangePagesPortAdapter({ codeGraph: h.adapter, repoDir: h.mirror, budget: BUDGET });
     const map = {
       builtAtSha: h.sha,
       routes: [{ path: "/orders" }, { path: "/profile" }],
       api: [{ operationId: "listOrders", method: "GET", path: "/api/orders" }],
       feBe: [{ route: "/orders", operationId: "listOrders" }],
     };
+    const scopes = new ChangeScopePortAdapter({ codeGraph: h.adapter, budget: BUDGET, proofs: [fileImplementsPage, handlerServesOperation(routeServesOperation)], loadMap: () => map });
+    const repoOf = (file: string, line: number) => ({ repo: "org/app", role: "primary" as const, repoDir: h.mirror, headSha: h.sha, changedFiles: [file], touchedLines: new Map([[file, new Set([line])]]) });
+    const pagesOf = (scope: Awaited<ReturnType<typeof scopes.resolve>>) => scope.reach.filter((r) => r.entry.kind === "page").map((r) => ({ route: (r.entry as { route: string }).route, proof: r.evidence }));
 
-    const fromHelper = await pages.resolve({ map, sha: h.sha, changedFiles: [FORMAT], touchedLines: new Map([[FORMAT, new Set([2])]]), linked: new Set() });
-    assert.deepEqual(fromHelper?.pages.map((p) => [p.route, p.proof.length]), [["/orders", 3], ["/profile", 3]]);
+    const fromHelper = await scopes.resolve({ specDir: "/s", repos: [repoOf(FORMAT, 2)] });
+    assert.deepEqual(pagesOf(fromHelper).map((p) => [p.route, p.proof.length]).sort(), [["/orders", 3], ["/profile", 3]]);
 
     const repository = "api/src/main/java/demo/repo/OrderRepository.java";
-    const fromBackend = await pages.resolve({ map, sha: h.sha, changedFiles: [repository], touchedLines: new Map([[repository, new Set([7])]]), linked: new Set() });
-    assert.deepEqual(fromBackend?.pages, [{
+    const fromBackend = await scopes.resolve({ specDir: "/s", repos: [repoOf(repository, 7)] });
+    assert.deepEqual(pagesOf(fromBackend), [{
       route: "/orders",
       proof: [`${repository}::loadAll`, "api/src/main/java/demo/service/OrderService.java::findAll", "api/src/main/java/demo/web/OrderController.java::listOrders", "GET /api/orders (listOrders)", "page /orders"],
     }]);

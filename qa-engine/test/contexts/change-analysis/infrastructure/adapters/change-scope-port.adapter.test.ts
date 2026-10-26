@@ -5,7 +5,7 @@ import { ChangeScopePortAdapter, entryPointsOf } from "@contexts/change-analysis
 import { MAX_KNOWN_ENTRY_POINTS, crossRepoCallSite, fileImplementsPage, handlerServesOperation, openapiOperationDiff } from "@contexts/change-analysis/application/index.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { GraphRoute, ImpactedSymbol, LocalSymbolRef } from "@kernel/code/index.ts";
-import type { PageMap } from "@kernel/page-files.ts";
+import type { PageMap } from "@contexts/change-analysis/domain/page-files.ts";
 import type { ServiceLink } from "@kernel/service-links.ts";
 import { err, ok } from "@kernel/result.ts";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";

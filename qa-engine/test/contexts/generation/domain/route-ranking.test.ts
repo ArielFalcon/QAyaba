@@ -3,6 +3,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ROUTE_LINK_FIELDS, rankRoutesWithRelevance } from "@contexts/generation/domain/route-ranking.ts";
 import type { ArchitectureContext } from "@contexts/generation/domain/generation-input.ts";
+import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import type { ReachBasis, ReachTier } from "@kernel/change-reach.ts";
 
 /* The routes in rank order, without their relevance. */
 const routesOf = (...args: Parameters<typeof rankRoutesWithRelevance>): string[] => rankRoutesWithRelevance(...args).map((entry) => entry.route);
@@ -15,6 +17,12 @@ const mapOf = (routes: unknown, api: unknown = [], feBe: unknown = []): Architec
 const route = (path: string, links: Entry = {}): Entry => ({ path, ...links });
 const operation = (operationId: string, links: Entry = {}): Entry => ({ operationId, method: "GET", path: `/${operationId}`, ...links });
 const joins = (routePath: string, operationId: string): Entry => ({ route: routePath, operationId });
+
+/* A page candidate of the change at the given tier, as the scope derives it. */
+const pageCandidate = (route: string, tier: ReachTier = "indirect", basis: ReachBasis = "graph"): UseCaseCandidate =>
+  ({ id: `uc-${route}`, entry: { kind: "page", repo: "org/web", route }, tier, basis, evidence: [`page ${route}`], seeds: [], confidence: 1, reachability: "page", pages: [], existingSpecs: [] });
+const operationCandidate = (path: string): UseCaseCandidate =>
+  ({ id: `uc-${path}`, entry: { kind: "operation", repo: "org/api", verb: "GET", path }, tier: "cross-repo", basis: "contract", evidence: [], seeds: [], confidence: 1, reachability: "backend-only", pages: [], existingSpecs: [] });
 
 /* An order no sort would produce, so a route that keeps its place did not get there by accident. */
 const FILE_ORDER = ["/m", "/z", "/b", "/y", "/a"];
@@ -373,10 +381,10 @@ test("ranking leaves the list it was given as it was", () => {
   assert.deepEqual(given, FILE_ORDER);
 });
 
-test("a page the call graph proved ranks after every page the map links and before the rest, and a page the map links keeps the map's basis", () => {
+test("a page candidate of the change ranks after every page the map links and before the rest, and a page the map links keeps the map's basis", () => {
   const map = mapOf([route("/plain"), route("/proven"), route("/both", { [IMPLEMENTATION]: ["src/pages/both.ts"] }), route("/by-source", { [SOURCE]: "src/pages/orders.ts" })]);
 
-  const ranked = rankRoutesWithRelevance(["/plain", "/proven", "/both", "/by-source"], map, { changedFiles: ["src/pages/both.ts", "src/pages/orders.ts"], graphPages: ["/proven", "/both"] });
+  const ranked = rankRoutesWithRelevance(["/plain", "/proven", "/both", "/by-source"], map, { changedFiles: ["src/pages/both.ts", "src/pages/orders.ts"], candidates: [pageCandidate("/proven"), pageCandidate("/both", "direct", "implementation")] });
 
   assert.deepEqual(
     ranked.map((r) => [r.route, r.relevant, r.basis]),
@@ -384,18 +392,38 @@ test("a page the call graph proved ranks after every page the map links and befo
   );
 });
 
-test("a proven page the derived routes did not list is still offered, once", () => {
-  const ranked = routesOf(["/a"], mapOf([route("/a"), route("/b")]), { changedFiles: ["x.ts"], graphPages: ["/b", "/b"] });
+test("a candidate page the derived routes did not list is still offered, once", () => {
+  const ranked = routesOf(["/a"], mapOf([route("/a"), route("/b")]), { changedFiles: ["x.ts"], candidates: [pageCandidate("/b"), pageCandidate("/b")] });
   assert.deepEqual(ranked, ["/b", "/a"]);
 });
 
 test("the pages a hub of the change reaches rank after every change page and before the rest, and are never change pages", () => {
   const map = mapOf([route("/plain"), route("/hub-a"), route("/linked", { [IMPLEMENTATION]: ["src/pages/linked.ts"] }), route("/hub-b"), route("/proven")]);
 
-  const ranked = rankRoutesWithRelevance(["/plain", "/hub-a", "/linked", "/hub-b", "/proven"], map, { changedFiles: ["src/pages/linked.ts"], graphPages: ["/proven"], hubPages: ["/hub-a", "/hub-b", "/linked"] });
+  const ranked = rankRoutesWithRelevance(["/plain", "/hub-a", "/linked", "/hub-b", "/proven"], map, { changedFiles: ["src/pages/linked.ts"], candidates: [pageCandidate("/proven")], hubPages: ["/hub-a", "/hub-b", "/linked"] });
 
   assert.deepEqual(
     ranked.map((r) => [r.route, r.relevant, r.basis]),
     [["/linked", true, "implementation"], ["/proven", true, "graph"], ["/hub-a", false, undefined], ["/hub-b", false, undefined], ["/plain", false, undefined]],
   );
+});
+
+test("candidate pages rank by tier, direct before indirect before cross-repo, and ahead of the rest; an operation candidate ranks no page", () => {
+  const map = mapOf([route("/plain"), route("/far"), route("/near"), route("/deep")]);
+
+  const ranked = rankRoutesWithRelevance(["/plain", "/far", "/near", "/deep"], map, {
+    changedFiles: ["x.ts"],
+    candidates: [pageCandidate("/far", "cross-repo", "call-site"), pageCandidate("/deep", "indirect"), pageCandidate("/near", "direct", "graph"), operationCandidate("/api/orders")],
+  });
+
+  assert.deepEqual(
+    ranked.map((r) => [r.route, r.relevant, r.basis]),
+    [["/near", true, "graph"], ["/deep", true, "graph"], ["/far", true, "graph"], ["/plain", false, undefined]],
+  );
+});
+
+test("a candidate page the engine reached through a map-less link keeps that basis", () => {
+  const ranked = rankRoutesWithRelevance([], undefined, { changedFiles: ["x.ts"], candidates: [pageCandidate("/shop", "direct", "implementation")] });
+
+  assert.deepEqual(ranked.map((r) => [r.route, r.relevant, r.basis]), [["/shop", true, "implementation"]]);
 });

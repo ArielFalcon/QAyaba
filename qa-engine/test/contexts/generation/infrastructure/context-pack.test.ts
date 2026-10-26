@@ -1,4 +1,5 @@
 /* buildContextPack itself — prompt-assembly wiring lives in prompts.test.ts. */
+import { pageCandidate } from "../../../support/use-case-candidate.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildContextPack, deriveClaimsFromPackText, withoutPackSection, MAX_LISTED_UNCAPTURABLE, PACK_HEADINGS, TEMPLATE_LEFT_OUT, packDeliveredItemIds, packProducedItemIds, type ContextPackAssembly, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
@@ -463,6 +464,15 @@ test("buildContextPack: a change linked to more pages than the default cut captu
     await buildContextPack({ contextMap, routes, prChangedFiles: [CHANGED_FILE], ...PACK_INPUT }, capturingDeps(captured));
     assert.deepEqual(captured[0], routes.slice(0, Math.min(linked, MAX_ROUTES_PER_CHANGE)), `${linked} linked pages`);
   }
+});
+
+test("buildContextPack: a page the change reaches only through the call graph is captured though the map links nothing and the cut would leave it out", async () => {
+  const captured: string[][] = [];
+  const reached = pageCandidate(LAST_ROUTE, ["src/util.ts::fmt", `page ${LAST_ROUTE}`], { tier: "indirect", basis: "graph" });
+
+  await buildContextPack({ contextMap: mapWith(entriesOf(BEHIND_THE_CUT)), routes: BEHIND_THE_CUT, prChangedFiles: [CHANGED_FILE], candidates: [reached], ...PACK_INPUT }, capturingDeps(captured));
+
+  assert.equal(captured[0]?.[0], LAST_ROUTE);
 });
 
 test("buildContextPack: with no changed file the map's links rank nothing and the capture follows the file", async () => {

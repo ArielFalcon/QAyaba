@@ -14,7 +14,7 @@ import { CodegraphStoreCache } from "../../../shared-infrastructure/code-graph/c
 import { LanguageRegistry } from "../../../shared-kernel/language-id.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import type { ChangeAnalysisPort, ChangeScopePort, VcsReadPort } from "../application/index.ts";
-import type { PageMap } from "@kernel/page-files.ts";
+import type { PageMap } from "../domain/page-files.ts";
 import type { ServesOperation } from "../domain/reach-proofs/handler-serves-operation.ts";
 import { crossRepoCallSite } from "../domain/reach-proofs/cross-repo-call-site.ts";
 import { fileImplementsPage } from "../domain/reach-proofs/file-implements-page.ts";

@@ -1,5 +1,6 @@
 /* A run that generates asks its lead for a plan and the coordinator authors the flows; what it hands back is read like any generation. A run the coordinator hands back to the lead, or one with no coordinator wired, is authored by the lead alone. */
 
+import { pageCandidate } from "../../../support/use-case-candidate.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Sha } from "@kernel/sha.ts";
@@ -144,25 +145,15 @@ test("a coordinated run hands the coordinator what the run knows: its identity, 
   assert.ok(r.planned[0]!.closedLoop && r.planned[0]!.agentBrowser, "the plan turn is told the tool budgets like any generation");
 });
 
-test("the pages the grounding linked to the change reach the coordinator, and a run that linked none passes none", async () => {
-  const grounded = rig();
-  const preGenerationGrounding = { ground: async () => ({ changeRoutes: ["/order", "/upload-menu"] }) };
-  await new RunQaUseCase(grounded.deps({ preGenerationGrounding })).run(INPUT);
-  assert.deepEqual(grounded.coordinated[0]!.changeRoutes, ["/order", "/upload-menu"]);
+test("the change's candidates reach the coordinator, and a run that derived none passes none", async () => {
+  const candidates = [pageCandidate("/order", ["src/order.ts::place", "page /order"]), pageCandidate("/upload-menu")];
+  const withScope = rig();
+  const changeScope = { resolve: async () => ({ repos: [], reach: [], hubs: [], disagreements: [], omitted: 0, degraded: [] }), candidates: async () => candidates };
+  await new RunQaUseCase(withScope.deps({ changeScope })).run(INPUT);
+  assert.deepEqual(withScope.coordinated[0]!.candidates, candidates);
   const plain = rig();
-  await new RunQaUseCase(plain.deps({ preGenerationGrounding: { ground: async () => ({}) } })).run(INPUT);
-  assert.equal(plain.coordinated[0]!.changeRoutes, undefined);
-});
-
-test("the proofs of the pages the call graph added reach the coordinator, and a run whose graph added none passes none", async () => {
-  const proven = rig();
-  const pages = [{ route: "/upload-menu", proof: ["src/menu.ts::upload", "page /upload-menu"] }];
-  const preGenerationGrounding = { ground: async () => ({ changeRoutes: ["/order", "/upload-menu"], changePages: { pages, hubs: [], disagreements: [], omitted: 0 } }) };
-  await new RunQaUseCase(proven.deps({ preGenerationGrounding })).run(INPUT);
-  assert.deepEqual(proven.coordinated[0]!.changeProofs, pages);
-  const plain = rig();
-  await new RunQaUseCase(plain.deps({ preGenerationGrounding: { ground: async () => ({ changeRoutes: ["/order"] }) } })).run(INPUT);
-  assert.equal(plain.coordinated[0]!.changeProofs, undefined);
+  await new RunQaUseCase(plain.deps({ changeScope: { ...changeScope, candidates: async () => [] } })).run(INPUT);
+  assert.equal(plain.coordinated[0]!.candidates, undefined);
 });
 
 test("a generation that cannot plan is told to the coordinator as no planning turn", async () => {

@@ -170,15 +170,3 @@ test("ground() hands the run the pages the pack read with results under the decl
   const none = await withPages([pages[1], pages[2]]).ground("/tmp/qa-golden/e2e", undefined, labelDiff);
   assert.equal("packConfirmedDataRoutes" in none, false);
 });
-
-test("ground() hands the run the pages of the map the change is linked to, in the pack's order, and nothing when it linked none", async () => {
-  const withRelevant = (relevantRoutes: string[]): PreGenerationGroundingPortAdapter =>
-    new PreGenerationGroundingPortAdapter(
-      { e2eDir: "/mirrors/org/app/e2e" },
-      { buildContextPack: async () => ({ text: "## Context Pack", domBytes: 1, contractBytes: 0, trace: { rankedRoutes: [], relevantRoutes, capturablePages: 0, pages: [], pageDeliveries: [], changedTestIds: [], contractIds: [], omittedLines: 0 } as never }) },
-    );
-  const grounded = await withRelevant(["/order", "/upload-menu/:step"]).ground("/tmp/qa-golden/e2e", undefined, labelDiff);
-  assert.deepEqual(grounded.changeRoutes, ["/order", "/upload-menu/:step"]);
-  const none = await withRelevant([]).ground("/tmp/qa-golden/e2e", undefined, labelDiff);
-  assert.equal("changeRoutes" in none, false);
-});

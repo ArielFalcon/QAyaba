@@ -1,3 +1,4 @@
+import { pageCandidate, pageCandidates } from "../../../support/use-case-candidate.ts";
 import { PLAN_DOWNGRADE } from "@contexts/coordination/application/lead-plan.ts";
 import { AUTHORING_REFUSAL } from "@kernel/coordination.ts";
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/lead-correction.ts";
@@ -253,7 +254,7 @@ test("the planning turn is told the pages the change is linked to, and the pages
   const r = rig();
   const seen: PlanningLimits[] = [];
   const plan = { kind: "fanout", flows: [{ id: "cart", objective: "the cart total", routes: ["/cart"] }, { id: "login", objective: "sign in works", routes: ["/shops/madrid"] }] };
-  const outcome = await r.coordinator.coordinate(input(r, { changeRoutes: ["/cart", "/shops/:city", "/orders"], plan: async (p) => (seen.push(p), { plan, parsed: true, timedOut: false }) }));
+  const outcome = await r.coordinator.coordinate(input(r, { candidates: pageCandidates(["/cart", "/shops/:city", "/orders"]), plan: async (p) => (seen.push(p), { plan, parsed: true, timedOut: false }) }));
   if (outcome.action === "fanout") await outcome.pass?.release();
   assert.deepEqual(seen[0]?.changeRoutes, ["/cart", "/shops/:city", "/orders"]);
   const reported = r.events.filter((e) => /change page/.test(e.reason ?? ""));
@@ -265,7 +266,7 @@ test("the planning turn is told the pages the change is linked to, and the pages
 test("the run keeps the plan it admitted, the change pages each flow visits and how each flow ended", async () => {
   const r = rig({ hasFile: new Set(["cart"]) });
   const plan = { kind: "fanout", flows: [{ id: "cart", objective: "the cart total", acceptance: ["the total adds the lines"], routes: ["/cart"] }, { id: "login", objective: "sign in works", routes: ["/login"] }] };
-  const outcome = await r.coordinator.coordinate(input(r, { changeRoutes: ["/cart", "/orders"], plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  const outcome = await r.coordinator.coordinate(input(r, { candidates: pageCandidates(["/cart", "/orders"]), plan: async () => ({ plan, parsed: true, timedOut: false }) }));
   if (outcome.action === "fanout") await outcome.pass?.release();
   const last = r.plans.at(-1)!;
   assert.equal(last.runId, "run-1");
@@ -283,7 +284,7 @@ test("the run keeps the plan it admitted, the change pages each flow visits and 
 
 test("a plan that is a no-op or is rejected is kept with why", async () => {
   const noop = rig();
-  await noop.coordinator.coordinate(input(noop, { changeRoutes: ["/cart"], plan: async () => ({ parsed: true, timedOut: false, noopReason: "only a comment changed" }) }));
+  await noop.coordinator.coordinate(input(noop, { candidates: pageCandidates(["/cart"]), plan: async () => ({ parsed: true, timedOut: false, noopReason: "only a comment changed" }) }));
   assert.deepEqual(noop.plans.map((p) => [p.kind, p.reason, p.flows.length, p.unvisited]), [["noop", "only a comment changed", 0, ["/cart"]]]);
   const lead = rig();
   await lead.coordinator.coordinate(input(lead, { plan: async () => ({ plan: { kind: "lead" }, parsed: true, timedOut: false }) }));
@@ -294,7 +295,7 @@ test("a plan of one flow opens exactly one sidekick session and the lead reviews
   const r = rig({ hasFile: new Set(["detail"]) });
   const plan = { kind: "fanout", flows: [{ id: "detail", objective: "the detail page", routes: ["/shops/madrid/:slug"] }] };
   const lead = leadWith([[{ flow: "detail", action: "accept" }]], plan);
-  const outcome = await r.coordinator.coordinate(input(r, { changeRoutes: ["/shops/:province/:slug", "/shops/:province/:slug/menu"], plan: lead.plan }));
+  const outcome = await r.coordinator.coordinate(input(r, { candidates: pageCandidates(["/shops/:province/:slug", "/shops/:province/:slug/menu"]), plan: lead.plan }));
   if (outcome.action === "fanout") await outcome.pass?.release();
   assert.equal(outcome.action, "fanout");
   assert.equal(r.sessionsOpened, 1);
@@ -308,7 +309,7 @@ test("a plan of one flow opens exactly one sidekick session and the lead reviews
 
 test("a plan of kind lead is rejected as malformed and names no change page", async () => {
   const lead = rig();
-  const outcome = await lead.coordinator.coordinate(input(lead, { changeRoutes: ["/cart"], plan: async () => ({ plan: { kind: "lead" }, parsed: true, timedOut: false }) }));
+  const outcome = await lead.coordinator.coordinate(input(lead, { candidates: pageCandidates(["/cart"]), plan: async () => ({ plan: { kind: "lead" }, parsed: true, timedOut: false }) }));
   assert.equal(outcome.action === "refused" ? outcome.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.MALFORMED}`);
   assert.equal(lead.events.filter((e) => /change page/.test(e.reason ?? "")).length, 0);
 });
@@ -322,7 +323,7 @@ test("the lead's review names the change pages no flow visits and those no flow 
     r.flowLoops.at(-1)!.ledger.push({ path: flowInput.specFile, sha256: "b", status: flowInput.flowId === "cart" ? "passed" : "failed", devWrites: 0 });
     return { ...handle, isClosed: async () => flowInput.flowId === "cart" };
   })(r.closedLoop.openFlow);
-  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { changeRoutes: ["/cart", "/login", "/orders"], plan: lead.plan }));
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { candidates: pageCandidates(["/cart", "/login", "/orders"]), plan: lead.plan }));
   if (outcome.action === "fanout") await outcome.pass?.release();
   /* The flow blocks name no route: every change page is listed once, and a page the review flags is named a second time. */
   const first = lead.asked[0]!;
@@ -335,7 +336,7 @@ test("the lead's review names the change pages no flow visits and those no flow 
 test("a flow that names a change page by its template, whatever its parameters are called, visits it", async () => {
   const r = rig();
   const plan = { kind: "fanout", flows: [{ id: "detail", objective: "the detail page", routes: ["/shops/:province/:shopSlug"] }, { id: "menu", objective: "the menu page", routes: ["/shops/[province]/[slug]/menu"] }] };
-  const outcome = await r.coordinator.coordinate(input(r, { changeRoutes: ["/shops/:province/:slug", "/shops/:province/:slug/menu", "/shops/:province"], plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  const outcome = await r.coordinator.coordinate(input(r, { candidates: pageCandidates(["/shops/:province/:slug", "/shops/:province/:slug/menu", "/shops/:province"]), plan: async () => ({ plan, parsed: true, timedOut: false }) }));
   if (outcome.action === "fanout") await outcome.pass?.release();
   const reported = r.events.filter((e) => /change page/.test(e.reason ?? ""));
   assert.equal(reported.length, 1);
@@ -902,14 +903,14 @@ test("each sidekick's brief carries the Live DOM of its own flow's pages from th
   assert.equal(brief("login").pages, undefined, "a flow whose pages the pack did not read gets no slice");
 });
 
-test("each sidekick's brief carries the call graph's proof for the change pages its flow visits, and none of another flow's", async () => {
+test("each sidekick's brief carries the evidence for the candidate pages its flow visits, and none of another flow's", async () => {
   const r = rig();
-  const changeProofs = [
-    { route: "/shops/:city", proof: ["src/util/format.ts::formatMoney", "src/shops/list.page.ts::ShopList", "page /shops/:city"] },
-    { route: "/orders", proof: ["src/util/format.ts::formatMoney", "src/orders/orders.page.ts::Orders", "page /orders"] },
+  const candidates = [
+    pageCandidate("/shops/:city", ["src/util/format.ts::formatMoney", "src/shops/list.page.ts::ShopList", "page /shops/:city"]),
+    pageCandidate("/orders", ["src/util/format.ts::formatMoney", "src/orders/orders.page.ts::Orders", "page /orders"]),
   ];
   const plan = { kind: "fanout", flows: [{ id: "shops", objective: "the shop list", routes: ["/shops/madrid"] }, { id: "login", objective: "sign in works", routes: ["/login"] }] };
-  await r.coordinator.coordinate(input(r, { changeProofs, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  await r.coordinator.coordinate(input(r, { candidates, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
   const brief = (flow: string) => r.executed.find((e) => e.brief.delegationId === `run-1-flow-${flow}`)!.brief;
   assert.deepEqual(brief("shops").proofs, ["/shops/:city: src/util/format.ts::formatMoney > src/shops/list.page.ts::ShopList > page /shops/:city"]);
   assert.equal(brief("login").proofs, undefined, "a flow that visits no proven page carries no proof");

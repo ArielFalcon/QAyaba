@@ -9,7 +9,7 @@ import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { GraphRoute, ImpactBudget, LocalSymbolRef } from "@kernel/code/index.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { Sha } from "@kernel/sha.ts";
-import type { PageMap } from "@kernel/page-files.ts";
+import type { PageMap } from "../../domain/page-files.ts";
 import { buildChangeScope, changedSymbolOf, type ProofWalk, type ReachLink, type ReachProof } from "../../domain/reach-proof.ts";
 import { entryKey, MAX_KNOWN_ENTRY_POINTS, type ChangeScope, type EntryPoint, type RepoScope } from "../../domain/change-scope.ts";
 import { rankRoutesWithRelevance } from "@contexts/generation/application/index.ts";

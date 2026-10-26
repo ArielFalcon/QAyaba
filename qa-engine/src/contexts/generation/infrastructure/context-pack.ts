@@ -9,8 +9,8 @@ import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-
 import { classifyRoutes, ROUTE_REASON } from "../../../shared-kernel/route-capturability.ts";
 import { claim, type FactId, type PromptClaim } from "../domain/prompt-contract-lint.ts";
 import { PACK_HEADINGS } from "../domain/prompt-headings.ts";
-import { rankRoutesWithRelevance, type RankedRoute } from "../domain/route-ranking.ts";
-import type { ChangePageBasis } from "@kernel/change-pages.ts";
+import { rankRoutesWithRelevance, type ChangePageBasis, type RankedRoute } from "../domain/route-ranking.ts";
+import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { instantiableTemplate, instantiateRoute, isPageOfTemplate, missingSibling } from "../domain/route-instantiation.ts";
 import { changedValueFactIds, domItemIds, itemId } from "../../../shared-kernel/context-item-ids.ts";
 import type { Omission } from "@kernel/telemetry/section-meta.ts";
@@ -62,8 +62,8 @@ export interface ContextPackInput {
   /* Cross-repo runs only: where the triggering service's snapshot was staged, as the map may name it. Present (even empty) means prChangedFiles are the service's own files, so a route is ranked only by the spec of an operation it joins, under these roots. */
   stagedRoots?: string[];
 
-  /* Pages of the map the run's call graph proved the change reaches; they rank after the pages the map links (route ranking). Absent → the map's links alone. */
-  graphPages?: string[];
+  /* The use cases the change makes testable; their pages rank after the pages the map links, by tier (route ranking). Absent → the map's links alone. */
+  candidates?: readonly UseCaseCandidate[];
 
   /* Pages a hub of the change reaches; they rank after every change page and before the rest, and are never change pages (route ranking). */
   hubPages?: string[];
@@ -387,7 +387,7 @@ export async function buildContextPack(
   /* The derived routes are ranked by the change. With no changed file there is nothing to rank by. */
   const derivedRoutes = [...new Set(input.routes ?? [])];
   const ranked: RankedRoute[] = input.prChangedFiles
-    ? rankRoutesWithRelevance(derivedRoutes, input.contextMap, { changedFiles: input.prChangedFiles, ...(input.stagedRoots ? { stagedRoots: input.stagedRoots } : {}), ...(input.graphPages?.length ? { graphPages: input.graphPages } : {}), ...(input.hubPages?.length ? { hubPages: input.hubPages } : {}) })
+    ? rankRoutesWithRelevance(derivedRoutes, input.contextMap, { changedFiles: input.prChangedFiles, ...(input.stagedRoots ? { stagedRoots: input.stagedRoots } : {}), ...(input.candidates?.length ? { candidates: input.candidates } : {}), ...(input.hubPages?.length ? { hubPages: input.hubPages } : {}) })
     : derivedRoutes.map((route) => ({ route, rank: 0, relevant: false }));
   const deterministicRoutes = ranked.map((entry) => entry.route);
   const relevantRanked = ranked.flatMap((entry) => (entry.relevant && entry.basis !== undefined ? [{ route: entry.route, basis: entry.basis }] : []));

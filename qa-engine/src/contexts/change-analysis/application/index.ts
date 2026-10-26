@@ -11,7 +11,7 @@ export { entryKey, MAX_KNOWN_ENTRY_POINTS } from "../domain/change-scope.ts";
 export type { ChangedSymbol, ChangeScope, EntryPoint, ReachBasis, ReachEntry, ReachTier, RepoScope, ScopeDisagreement, ScopeHub } from "../domain/change-scope.ts";
 export { candidateId, deriveCandidates } from "../domain/use-case-candidate.ts";
 export type { CandidateEnrichment, MapLink, Reachability, UseCaseCandidate } from "../domain/use-case-candidate.ts";
-export type { PageMap } from "@kernel/page-files.ts";
+export type { PageMap } from "../domain/page-files.ts";
 export { fileImplementsPage } from "../domain/reach-proofs/file-implements-page.ts";
 export { crossRepoCallSite } from "../domain/reach-proofs/cross-repo-call-site.ts";
 export { openapiOperationDiff } from "../domain/reach-proofs/openapi-operation-diff.ts";

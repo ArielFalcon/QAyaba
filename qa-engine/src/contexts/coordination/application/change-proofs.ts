@@ -1,5 +1,5 @@
-/* How the change reaches a flow's pages, for its sidekick's brief (S15): the proof the call graph found for each change page the flow visits, symbol and file names only, so the flow's assertions aim at the changed behaviour. Bounded per brief and per proof. Pure. */
-import type { GraphPage } from "@kernel/change-pages.ts";
+/* How the change reaches a flow's pages, for its sidekick's brief (S15): the evidence found for each candidate page the flow visits, symbol and file names only, so the flow's assertions aim at the changed behaviour. Bounded per brief and per proof. Pure. */
+import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { namesTemplatePage } from "@contexts/generation/application/index.ts";
 
 export const MAX_BRIEF_PROOFS = 3;
@@ -14,8 +14,9 @@ function boundedSteps(proof: readonly string[]): string[] {
 }
 
 /* The proofs of the change pages the flow's routes name, one line each (`route: step > step > ...`); nothing when none. */
-export function proofsFor(proofs: readonly GraphPage[] | undefined, routes: readonly string[]): string[] | undefined {
-  const lines = (proofs ?? [])
+export function proofsFor(candidates: readonly UseCaseCandidate[] | undefined, routes: readonly string[]): string[] | undefined {
+  const lines = (candidates ?? [])
+    .flatMap((c) => (c.entry.kind === "page" && c.evidence.length > 0 ? [{ route: c.entry.route, proof: c.evidence }] : []))
     .filter((page) => routes.some((route) => namesTemplatePage(page.route, route)))
     .slice(0, MAX_BRIEF_PROOFS)
     .map((page) => `${page.route}: ${boundedSteps(page.proof).join(" > ")}`);

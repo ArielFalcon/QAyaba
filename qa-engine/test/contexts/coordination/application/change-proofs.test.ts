@@ -1,9 +1,10 @@
-/* A flow's brief carries the proofs of the change pages its routes name, bounded per brief and per proof. */
+/* A flow's brief carries the evidence of the candidate pages its routes name, bounded per brief and per proof. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { pageCandidate } from "../../../support/use-case-candidate.ts";
 import { MAX_BRIEF_PROOFS, MAX_PROOF_STEPS, proofsFor } from "@contexts/coordination/application/change-proofs.ts";
 
-const page = (route: string, steps: number) => ({ route, proof: [...Array.from({ length: steps - 1 }, (_, i) => `f${i}.ts::s${i}`), `page ${route}`] });
+const page = (route: string, steps: number) => pageCandidate(route, [...Array.from({ length: steps - 1 }, (_, i) => `f${i}.ts::s${i}`), `page ${route}`]);
 
 test("a route names a template page with any parameter values, and a page no route names is left out", () => {
   assert.deepEqual(proofsFor([page("/shops/:city", 3), page("/orders", 3)], ["/shops/madrid"]), ["/shops/:city: f0.ts::s0 > f1.ts::s1 > page /shops/:city"]);
@@ -13,7 +14,7 @@ test("a route names a template page with any parameter values, and a page no rou
 
 test("a brief carries at most the declared number of proofs, in the order they came", () => {
   const pages = Array.from({ length: MAX_BRIEF_PROOFS + 2 }, (_, i) => page(`/p${i}`, 2));
-  const lines = proofsFor(pages, pages.map((p) => p.route))!;
+  const lines = proofsFor(pages, pages.map((p) => (p.entry as { route: string }).route))!;
   assert.equal(lines.length, MAX_BRIEF_PROOFS);
   assert.ok(lines[0]!.startsWith("/p0:"));
 });
