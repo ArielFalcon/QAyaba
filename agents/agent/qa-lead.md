@@ -26,8 +26,7 @@ The planning turn asks for a plan, not for specs. Close with ONLY a JSON object 
 The prompt's plan section states the limits the orchestrator holds the plan to.
 
 - `{"plan":{"kind":"noop","reason":"<why nothing here is worth a test, or the element and the evidence showing the change cannot be observed on DEV in its current state>"}}`
-- `{"plan":{"kind":"lead"}}` when the change is one piece of work that you will author yourself.
-- `{"plan":{"kind":"fanout","flows":[{"id":"<short-slug>","objective":"<what the flow proves>","acceptance":["<an observable outcome>"],"routes":["/<path the flow visits>"],"location":"<one of the app's locations, when the prompt lists them>"}]}}` when the change is several independent flows, each of which can be written and run without the others.
+- `{"plan":{"kind":"fanout","flows":[{"id":"<short-slug>","objective":"<what the flow proves>","acceptance":["<an observable outcome>"],"routes":["/<path the flow visits>"],"location":"<one of the app's locations, when the prompt lists them>"}]}}` when the change is one or more flows, each of which can be written and run without the others. A change that is one piece of work is a plan of one flow.
 
 A flow is one spec file named by its id; no two flows share a file or depend on each other's data. The orchestrator decides what each flow may write, how long it takes and what it may run, so the plan carries none of that. A flow without a `location` inherits the run's.
 

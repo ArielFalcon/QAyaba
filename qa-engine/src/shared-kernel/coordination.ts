@@ -4,8 +4,6 @@
 export const LEAD_PLAN_KIND = {
   /* Nothing is worth a test; the lead says why. */
   NOOP: "noop",
-  /* The change is one piece of work: the lead authors it itself. */
-  LEAD: "lead",
   /* The change is several independent flows, each authored by a sidekick. */
   FANOUT: "fanout",
 } as const;
@@ -49,7 +47,7 @@ export const DEFAULT_COORDINATION_SETTINGS: CoordinationSettings = {
 
 /* What a run records about its coordination. Persist-only: no verdict, gate or retirement reads it back. */
 export interface CoordinationGateSignal {
-  /* What the lead's plan came to once admitted ("noop", "lead" or "fanout"); absent when the run asked for no plan. */
+  /* What the lead's plan came to once admitted ("noop" or "fanout"); absent when the run asked for no plan. */
   plan?: string;
   /* Why a plan that asked for a fan-out went back to the lead as one piece of work. */
   downgrade?: string;

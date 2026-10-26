@@ -3,7 +3,7 @@
  * must check, and that is all of it that is kept. Where a sidekick may write, what each flow may take of the run's time and tool
  * calls, and how many flows run at once are decided here from the plan's shape and the run's limits, never from anything the
  * plan says about them (a "readOnly" or "mutates" tag, a path list, a scope). A plan that cannot be admitted as it stands is not
- * guessed at: the work goes back to the lead as one piece, and the reason is returned for the run to record.
+ * guessed at: the plan is rejected and the reason is returned for the run to record.
  * Pure: no clock, no file, no model.
  */
 
@@ -13,12 +13,11 @@ import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 
 export { LEAD_PLAN_KIND, type LeadPlanKind };
 
-/* Why a plan that asked for a fan-out became one piece of work for the lead. */
+/* Why a plan could not be admitted. */
 export const PLAN_DOWNGRADE = {
   NO_PLAN: "no-plan",
   MALFORMED: "malformed",
   EMPTY: "empty",
-  ONE_FLOW: "one-flow",
   OVER_LIMIT: "over-limit",
   DUPLICATE: "duplicate-flow",
   NO_TIME: "no-time",
@@ -83,14 +82,16 @@ export interface AdmittedFlow {
   location?: GeoLocation;
 }
 
+/* An admitted plan that names the flows to author, or declares that nothing is worth a test, or is rejected with the reason. */
+export const PLAN_REJECTED = "rejected" as const;
+
 export type AdmittedPlan =
   | { kind: typeof LEAD_PLAN_KIND.NOOP; reason: string }
-  /* `routes`: the pages the plan's only flow named, when a plan of one flow was left to the lead. */
-  | { kind: typeof LEAD_PLAN_KIND.LEAD; downgrade?: PlanDowngrade; routes?: string[] }
+  | { kind: typeof PLAN_REJECTED; downgrade: PlanDowngrade }
   | { kind: typeof LEAD_PLAN_KIND.FANOUT; flows: AdmittedFlow[]; parallel: number };
 
-function leadAlone(downgrade?: PlanDowngrade): AdmittedPlan {
-  return downgrade === undefined ? { kind: LEAD_PLAN_KIND.LEAD } : { kind: LEAD_PLAN_KIND.LEAD, downgrade };
+function leadAlone(downgrade: PlanDowngrade): AdmittedPlan {
+  return { kind: PLAN_REJECTED, downgrade };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -176,7 +177,6 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
     const reason = text(deps.redaction, raw.reason, MAX_NOOP_REASON_CHARS);
     return reason === "" ? leadAlone(PLAN_DOWNGRADE.MALFORMED) : { kind: LEAD_PLAN_KIND.NOOP, reason };
   }
-  if (raw.kind === LEAD_PLAN_KIND.LEAD) return leadAlone();
   if (raw.kind !== LEAD_PLAN_KIND.FANOUT || !Array.isArray(raw.flows)) return leadAlone(PLAN_DOWNGRADE.MALFORMED);
 
   if (raw.flows.length === 0) return leadAlone(PLAN_DOWNGRADE.EMPTY);
@@ -188,7 +188,6 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
     flows.push(flow);
   }
   if (new Set(flows.map((flow) => flow.id)).size !== flows.length) return leadAlone(PLAN_DOWNGRADE.DUPLICATE);
-  if (flows.length < 2) return { kind: LEAD_PLAN_KIND.LEAD, downgrade: PLAN_DOWNGRADE.ONE_FLOW, routes: flows[0]!.routes };
 
   const count = flows.length;
   const parallel = Math.min(limits.maxParallel, count);

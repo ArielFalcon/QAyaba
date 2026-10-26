@@ -50,7 +50,6 @@ function renderHarnessFacts(facts: HarnessFacts, e2eRelDir: string): string {
 }
 
 export { AGENT_BROWSER_SECTION_ID, CLOSED_LOOP_SECTION_ID, GEOLOCATION_SECTION_ID, LEAD_PLAN_SECTION_ID };
-export const CHANGE_PAGES_SECTION_ID = "change-pages";
 
 /* The authenticated browser a run granted the authoring agents, as facts: how many calls and how long each may take, and what its answers report. Numbers and a description only; how to use the tools is the role prompt's. */
 function renderAgentBrowser(limits: AgentBrowserLimits): string {
@@ -699,17 +698,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ].join("\n")
       : "";
 
-  /* The lead authors the change alone after a plan that left change pages unvisited: it is told them, on its first pass. */
-  const changePagesContent =
-    input.unvisitedChangePages?.length && isGenerationMode && !isCode && !input.planning && !isReGenTurn(input)
-      ? [
-          `## Change pages no plan visits`,
-          `The change is linked to these pages of the app's map, and your plan visited none of them: ${input.unvisitedChangePages.map((page) => sanitizeText(page).text).join(", ")}.`,
-          `Cover each one whose behaviour the change alters, or say in your verdict why it needs no test.`,
-          ``,
-        ].join("\n")
-      : "";
-
   /* Local sanitize wrapper (this function's own scope — NOT the DIFFERENT s() declared inside renderArchitectureContext further down this file) so untrusted cross-repo strings (data leaving/entering the model boundary) are redacted before reaching the prompt. */
   const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
   const MAX_LINKS = 40;
@@ -792,7 +780,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ...(staticSignalContent ? [section("static-signal", "semi-stable", staticSignalContent, { priority: 3, claims: staticSignalClaims, itemIds: advisoryLineIds(staticSignalContent) })] : []),
       ...(serviceLinksContent ? [section("service-links", "semi-stable", serviceLinksContent, { priority: 3, claims: serviceLinksClaims, ...(hasServiceLinks ? { itemIds: orderedLinks.slice(0, MAX_LINKS).map((l) => itemId.svcLink(l)), ...(omittedLinkCount > 0 ? { omissions: [{ class: "selection", reason: "link-selection", count: omittedLinkCount }] } : {}) } : {}) })] : []),
       ...(skillExemplarsContent ? [section("skill-exemplars", "semi-stable", skillExemplarsContent, { priority: 3, maxBytes: 1536, claims: [claim.provides("exemplars")] })] : []),
-      ...(changePagesContent ? [section(CHANGE_PAGES_SECTION_ID, "volatile", changePagesContent, { priority: 0, shedAs: "critical-recap" })] : []),
       ...(appLoginContent ? [section(APP_LOGIN_SECTION_ID, "volatile", appLoginContent, { priority: 0, shedAs: "critical-recap" })] : []),
       ...(contextPackContent ? [section("context-pack", "volatile", contextPackContent, { priority: 0, shedAs: "critical-recap", claims: contextPackClaims, ...(input.contextPackItemIds ? { itemIds: input.contextPackItemIds } : {}), ...(input.contextPackOmissions ? { omissions: input.contextPackOmissions } : {}) })] : []),
       /* VOLATILE: grounding (DOM snapshot — priority 1 within VOLATILE so it's first and the selectorContradictions section can reference "the tree above" correctly). */

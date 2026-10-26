@@ -28,10 +28,9 @@ type Result = Promise<StepOutcome<RunState>>;
  * workspace of its own. What comes back is a generation like any other: the specs of the flows that delivered, a declared no-op, or
  * an end that names why nothing was finished. No generation: the lead authors the change in one turn, because no coordinator is wired,
  * the plan was not admitted as a fan-out, no sidekick can author, or coordination failed (the recorded signal says which).
- * A code run, a context run and a login still to be written never coordinate. `unvisitedChangePages`: the change pages an admitted plan
- * left to the lead did not visit, which the lead's own turn is told.
+ * A code run, a context run and a login still to be written never coordinate.
  */
-async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<{ generated?: GenerationOutput; unvisitedChangePages?: readonly string[]; leadReviewTurns?: number }> {
+async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<{ generated?: GenerationOutput; leadReviewTurns?: number }> {
   const { deps, input, cfg, workspace, signal } = ctx;
   const { closedLoop, agentBrowser, geolocation } = ctx.trail;
   const { generating, intent: classificationIntent, diff: classificationDiff } = state.classification;
@@ -73,7 +72,7 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
   ctx.host.recordCoordination(result.signal);
   /* The turns the lead spent reviewing the flows, counted from the signal the coordination records. */
   const leadReviewTurns = result.signal.review?.turns ?? 0;
-  if (result.action === "lead") return { ...(result.unvisited ? { unvisitedChangePages: result.unvisited } : {}), leadReviewTurns };
+  if (result.action === "lead") return { leadReviewTurns };
   if (result.action === "noop") {
     /* A plan names no kind of no-op. */
     return { leadReviewTurns, generated: { specs: [], end: GENERATION_END.DECLARED_NOOP, noopKind: NOOP_KIND.UNSPECIFIED, reviewed: false, approved: true, parsed: true, note: result.reason } };
@@ -126,7 +125,6 @@ export async function generateFirstPass(state: Readonly<RunState>, ctx: Workspac
         ...baseEnrichment,
         ...geolocationEnrichment(ctx),
         ...(authSeedUnauthored ? { authSeedUnauthored: true } : {}),
-        ...(coordinated.unvisitedChangePages ? { unvisitedChangePages: coordinated.unvisitedChangePages } : {}),
       })));
     mergeDelivered(state, generated, coordinatedFirstPass ? "sidekick" : "lead");
   }

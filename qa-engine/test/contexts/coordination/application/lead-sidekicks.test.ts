@@ -1,3 +1,4 @@
+import { PLAN_DOWNGRADE } from "@contexts/coordination/application/lead-plan.ts";
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/lead-correction.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -287,33 +288,37 @@ test("the run keeps the plan it admitted, the change pages each flow visits and 
   assert.ok(login.outcome && login.outcome.kind !== "delivered", "a flow that wrote nothing did not deliver");
 });
 
-test("a plan that is a no-op or one piece of work is kept with why", async () => {
+test("a plan that is a no-op or is rejected is kept with why", async () => {
   const noop = rig();
   await noop.coordinator.coordinate(input(noop, { changeRoutes: ["/cart"], plan: async () => ({ parsed: true, timedOut: false, noopReason: "only a comment changed" }) }));
   assert.deepEqual(noop.plans.map((p) => [p.kind, p.reason, p.flows.length, p.unvisited]), [["noop", "only a comment changed", 0, ["/cart"]]]);
   const lead = rig();
   await lead.coordinator.coordinate(input(lead, { plan: async () => ({ plan: { kind: "lead" }, parsed: true, timedOut: false }) }));
-  assert.deepEqual(lead.plans.map((p) => p.kind), ["lead"]);
+  assert.deepEqual(lead.plans.map((p) => [p.kind, p.reason]), [["lead", PLAN_DOWNGRADE.MALFORMED]]);
 });
 
-test("a plan of one flow leaves the change to the lead with the change pages that flow does not visit", async () => {
-  const r = rig();
+test("a plan of one flow opens exactly one sidekick session and the lead reviews it", async () => {
+  const r = rig({ hasFile: new Set(["detail"]) });
   const plan = { kind: "fanout", flows: [{ id: "detail", objective: "the detail page", routes: ["/shops/madrid/:slug"] }] };
-  const outcome = await r.coordinator.coordinate(input(r, { changeRoutes: ["/shops/:province/:slug", "/shops/:province/:slug/menu"], plan: async () => ({ plan, parsed: true, timedOut: false }) }));
-  assert.equal(outcome.action, "lead");
-  assert.deepEqual(outcome.action === "lead" ? outcome.unvisited : undefined, ["/shops/:province/:slug/menu"]);
+  const lead = leadWith([[{ flow: "detail", action: "accept" }]], plan);
+  const outcome = await r.coordinator.coordinate(input(r, { changeRoutes: ["/shops/:province/:slug", "/shops/:province/:slug/menu"], plan: lead.plan }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  assert.equal(outcome.action, "fanout");
+  assert.equal(r.sessionsOpened, 1);
+  assert.ok(lead.asked.length >= 1, "the lead reviewed the flow");
+  assert.equal(outcome.signal.flows, 1);
+  assert.equal(outcome.signal.delivered, 1);
   const reported = r.events.filter((e) => /change page/.test(e.reason ?? ""));
   assert.equal(reported.length, 1);
   assert.match(reported[0]!.reason, /1 of 2 change page\(s\) no flow visits: \/shops\/:province\/:slug\/menu$/);
 });
 
-test("a plan the lead authors alone leaves it every change page to visit, and a run with no change pages names none", async () => {
+test("a plan of kind lead is rejected as malformed and names no change page for the lead to author", async () => {
   const lead = rig();
-  const alone = await lead.coordinator.coordinate(input(lead, { changeRoutes: ["/cart"], plan: async () => ({ plan: { kind: "lead" }, parsed: true, timedOut: false }) }));
-  assert.deepEqual(alone.action === "lead" ? alone.unvisited : null, ["/cart"]);
-  const bare = rig();
-  const none = await bare.coordinator.coordinate(input(bare, { plan: async () => ({ plan: { kind: "lead" }, parsed: true, timedOut: false }) }));
-  assert.equal(none.action === "lead" ? none.unvisited : null, undefined);
+  const outcome = await lead.coordinator.coordinate(input(lead, { changeRoutes: ["/cart"], plan: async () => ({ plan: { kind: "lead" }, parsed: true, timedOut: false }) }));
+  assert.equal(outcome.action, "lead");
+  assert.equal(outcome.action === "lead" ? outcome.signal.downgrade : undefined, PLAN_DOWNGRADE.MALFORMED);
+  assert.equal(lead.events.filter((e) => /change page/.test(e.reason ?? "")).length, 0);
 });
 
 test("the lead's review names the change pages no flow visits and those no flow covers with a spec that passed run_spec", async () => {
@@ -366,11 +371,11 @@ test("a lead that declares a no-op, in the plan or beside it, ends the coordinat
   assert.equal(r.created.length, 0);
 });
 
-test("a plan that is one piece of work, or that cannot be admitted, goes back to the lead with its reason on the signal", async () => {
+test("a plan that cannot be admitted goes back to the lead with its reason on the signal", async () => {
   const r = rig();
   const alone = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: { kind: "lead" }, parsed: true, timedOut: false }) }));
   assert.equal(alone.action, "lead");
-  assert.equal(alone.signal.plan, "lead");
+  assert.equal(alone.signal.downgrade, PLAN_DOWNGRADE.MALFORMED);
   const over = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: { kind: "fanout", flows: [] }, parsed: true, timedOut: false }) }));
   assert.equal(over.action, "lead");
   assert.equal(over.signal.downgrade, "empty");

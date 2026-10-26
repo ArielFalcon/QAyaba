@@ -35,7 +35,7 @@ import { observationConflictIn } from "./evidence-precedence.ts";
 import { AUTHORING_FAILURE, authoringFailureFeedback, classifyAuthoringFailure, type AuthoringFailure } from "./authoring-failure.ts";
 import { FanOutDispatcher, FLOW_RESULT, type TimerPort } from "./fan-out-dispatcher.ts";
 import { aggregateFlowOutcomes, FLOW_OUTCOME, type AggregatedFlows, type FlowOutcome } from "./flow-outcomes.ts";
-import { admitLeadPlan, LEAD_PLAN_KIND, type AdmittedFlow, type AdmittedPlan } from "./lead-plan.ts";
+import { admitLeadPlan, LEAD_PLAN_KIND, PLAN_REJECTED, type AdmittedFlow, type AdmittedPlan } from "./lead-plan.ts";
 import { resolveSidekickModel } from "./resolve-sidekick-model.ts";
 import { SIDEKICK_AUTHORING, sidekickAuthoring, sidekickDeniedTools, type SidekickAuthoringMode } from "./sidekick-authoring.ts";
 import type { SidekickExecutor, SidekickSession } from "./sidekick-executor.ts";
@@ -119,8 +119,8 @@ export interface FlowProposals {
 }
 
 export type CoordinateResult =
-  /* The change is authored by the lead as one piece of work. `unvisited`: the change pages the admitted plan left unvisited, which the lead's authoring turn is told. */
-  | { action: "lead"; signal: CoordinationGateSignal; unvisited?: string[] }
+  /* The change is authored by the lead as one piece of work. */
+  | { action: "lead"; signal: CoordinationGateSignal }
   /* The lead declared that nothing is worth a test. */
   | { action: "noop"; reason: string; signal: CoordinationGateSignal }
   /* The flows were authored; `aggregated` says how it ended, as a generation would. */
@@ -222,9 +222,9 @@ export class LeadSidekicks {
 
   async coordinate(input: CoordinateInput): Promise<CoordinateResult> {
     const base = { flows: 0, delivered: 0, incomplete: 0, takeover: false } as const;
-    const leadAlone = (downgrade: string, extra: Partial<CoordinationGateSignal> = {}, unvisited?: string[]): CoordinateResult => {
+    const leadAlone = (downgrade: string, extra: Partial<CoordinationGateSignal> = {}): CoordinateResult => {
       this.deps.log?.(`coordination: the change is authored by the lead as one piece of work (${downgrade})`);
-      return { action: "lead", signal: { ...base, downgrade, ...extra }, ...(unvisited?.length ? { unvisited } : {}) };
+      return { action: "lead", signal: { ...base, downgrade, ...extra } };
     };
 
     if (!input.plan) return leadAlone("the generation cannot plan");
@@ -293,12 +293,9 @@ export class LeadSidekicks {
         this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.NOOP, [], admitted.reason);
         return { action: "noop", reason: admitted.reason, signal: { ...base, plan: LEAD_PLAN_KIND.NOOP, authoring: authoringName } };
       }
-      if (admitted.kind === LEAD_PLAN_KIND.LEAD) {
+      if (admitted.kind === PLAN_REJECTED) {
         this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.LEAD, [], admitted.downgrade);
-        /* The lead authors in a turn of its own: it is told the change pages its plan did not visit, as a fan-out's review is. */
-        const unvisited = unvisitedBy(input.changeRoutes ?? [], admitted.routes ?? []);
-        this.reportUnvisited(input, unvisited);
-        return leadAlone(admitted.downgrade ?? "the plan is one piece of work", { plan: LEAD_PLAN_KIND.LEAD, authoring: authoringName }, unvisited);
+        return leadAlone(admitted.downgrade, { authoring: authoringName });
       }
       this.reportUnvisited(input, this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.FANOUT, admitted.flows));
       const result = await this.fanOut(input, admitted.flows, admitted.parallel, { mode: authoring.mode, ...(planned.lead ? { lead: planned.lead } : {}) }, { ...base, plan: LEAD_PLAN_KIND.FANOUT, authoring: authoringName });
@@ -812,7 +809,7 @@ export class LeadSidekicks {
 function describePlan(plan: AdmittedPlan): string {
   if (plan.kind === LEAD_PLAN_KIND.FANOUT) return `plan: fanout of ${plan.flows.length} flow(s), ${plan.parallel} at a time`;
   if (plan.kind === LEAD_PLAN_KIND.NOOP) return `plan: noop (${plan.reason})`;
-  return `plan: lead${plan.downgrade ? ` (downgraded: ${plan.downgrade})` : ""}`;
+  return `plan: rejected (${plan.downgrade})`;
 }
 
 /* What a sidekick is told to do for one flow. The facts about its tools are the orchestrator's; the rest is the flow's own. */
