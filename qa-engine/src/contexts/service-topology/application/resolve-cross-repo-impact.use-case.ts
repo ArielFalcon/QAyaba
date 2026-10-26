@@ -8,10 +8,14 @@ import type { CodeGraphPort } from "../../../shared-kernel/ports/code-graph.port
 import { rethrowIfUntrusted } from "../../../shared-kernel/domain-error.ts";
 import type { MirrorRefreshPort } from "./ports/mirror-refresh.port.ts";
 import { routeServesOperation } from "../domain/cross-repo-impact.ts";
+import { diffOperations, type OperationChange } from "../domain/operation-diff.ts";
+import { parse as parseYaml } from "yaml";
 
 /** Minimal read-side VCS surface — structural match to VcsReadPort.blastRadius without importing that context. */
 export interface CrossRepoVcsRead {
   blastRadius(sha: Sha): Promise<BlastRadius>;
+  /* A file as it was at a commit; undefined when it did not exist or cannot be read. Absent: contract files are compared as whole files. */
+  fileAt?(ref: string, path: string): Promise<string | undefined>;
 }
 
 export interface MirrorRegistryLike {
@@ -30,7 +34,7 @@ export class ResolveCrossRepoImpactUseCase {
     private readonly mirrorRefresh: MirrorRefreshPort,
   ) {}
 
-  async resolve(triggerRepo: string, triggerSha: string, resolvedLinks: readonly ServiceLink[]): Promise<CrossRepoImpact | null> {
+  async resolve(triggerRepo: string, triggerSha: string, resolvedLinks: readonly ServiceLink[], baseRef?: string): Promise<CrossRepoImpact | null> {
     try {
       const candidateLinks = resolvedLinks.filter((l) => l.to.repo === triggerRepo);
       if (candidateLinks.length === 0) return null;
@@ -48,9 +52,21 @@ export class ResolveCrossRepoImpactUseCase {
       const impactedLinks: ImpactedLink[] = [];
       const matchedKeys = new Set<string>();
 
+      /* A changed contract file impacts only the links whose operation changed in it; a file whose two versions cannot be compared impacts every link on it, said on the link. */
+      const diffs = new Map<string, OperationChange[] | undefined>();
       for (const link of candidateLinks) {
-        if (blast.changedFiles.includes(link.to.file)) {
-          impactedLinks.push({ link, tier: MATCH_TIER.CONTRACT_FILE });
+        if (!blast.changedFiles.includes(link.to.file)) continue;
+        if (!diffs.has(link.to.file)) diffs.set(link.to.file, await this.operationsChanged(vcs, link.to.file, triggerSha, baseRef));
+        const changes = diffs.get(link.to.file);
+        const operation = link.operation;
+        if (changes === undefined || operation === undefined) {
+          impactedLinks.push({ link, tier: MATCH_TIER.CONTRACT_FILE, basis: "contract-file" });
+          matchedKeys.add(this.linkKey(link));
+          continue;
+        }
+        const change = changes.find((c) => c.verb === operation.verb.toUpperCase() && samePath(c.path, operation.path));
+        if (change) {
+          impactedLinks.push({ link, tier: MATCH_TIER.CONTRACT_FILE, operationChange: change.change });
           matchedKeys.add(this.linkKey(link));
         }
       }
@@ -90,6 +106,20 @@ export class ResolveCrossRepoImpactUseCase {
     }
   }
 
+  /* The operations of a contract file that changed between the change's base and head; undefined when the file's two versions cannot be read and parsed. */
+  private async operationsChanged(vcs: CrossRepoVcsRead, file: string, headSha: string, baseRef: string | undefined): Promise<OperationChange[] | undefined> {
+    if (!vcs.fileAt) return undefined;
+    try {
+      const [before, after] = await Promise.all([vcs.fileAt(baseRef ?? `${headSha}^`, file), vcs.fileAt(headSha, file)]);
+      if (before === undefined || after === undefined) return undefined;
+      return diffOperations(parseYaml(before), parseYaml(after));
+    } catch (err) {
+      rethrowIfUntrusted(err);
+      console.warn(`[qa] WARNING: the two versions of ${file} could not be compared, so every link on it is impacted (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+      return undefined;
+    }
+  }
+
   /* The backend routes whose handler the walk reached. An unavailable route list matches nothing. */
   private async reachedHandlerRoutes(codeGraph: CodeGraphPort, mirrorDir: string, reachedRefs: ReadonlySet<string>): Promise<{ method: string; path: string }[]> {
     const routes = await codeGraph.routes(mirrorDir);
@@ -103,4 +133,12 @@ export class ResolveCrossRepoImpactUseCase {
   private linkKey(link: ServiceLink): string {
     return `${link.from.repo}/${link.from.file}#${link.from.symbol}->${link.to.repo}`;
   }
+}
+
+/* Two OpenAPI paths name one operation when they match segment by segment, a parameter standing for any parameter. */
+function samePath(a: string, b: string): boolean {
+  const segs = (p: string): string[] => p.split("/").filter(Boolean).map((s) => (/^\{.*\}$/.test(s) ? "{}" : s));
+  const x = segs(a);
+  const y = segs(b);
+  return x.length === y.length && x.every((s, i) => s === y[i]);
 }

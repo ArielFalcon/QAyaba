@@ -22,7 +22,7 @@ export class CrossRepoImpactPortAdapter implements CrossRepoImpactPort {
     this.useCase = new ResolveCrossRepoImpactUseCase(deps.mirrors, deps.makeVcs, deps.codeGraph, new GitMirrorRefreshAdapter(deps.runner));
   }
 
-  async resolve(triggerRepo: string, triggerSha: string, resolvedLinks: readonly ServiceLink[]): Promise<CrossRepoImpact | null> {
-    return this.useCase.resolve(triggerRepo, triggerSha, resolvedLinks);
+  async resolve(triggerRepo: string, triggerSha: string, resolvedLinks: readonly ServiceLink[], baseRef?: string): Promise<CrossRepoImpact | null> {
+    return this.useCase.resolve(triggerRepo, triggerSha, resolvedLinks, baseRef);
   }
 }

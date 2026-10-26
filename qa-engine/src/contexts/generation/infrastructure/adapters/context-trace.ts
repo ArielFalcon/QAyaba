@@ -171,8 +171,8 @@ export class TracedCrossRepoImpactPort implements CrossRepoImpactPort {
     private readonly telemetry: TelemetryPort,
   ) {}
 
-  async resolve(triggerRepo: string, triggerSha: string, resolvedLinks: readonly ServiceLink[]): Promise<CrossRepoImpact | null> {
-    const impact = await this.inner.resolve(triggerRepo, triggerSha, resolvedLinks);
+  async resolve(triggerRepo: string, triggerSha: string, resolvedLinks: readonly ServiceLink[], baseRef?: string): Promise<CrossRepoImpact | null> {
+    const impact = await this.inner.resolve(triggerRepo, triggerSha, resolvedLinks, baseRef);
     const links = impact?.impactedLinks ?? [];
     safely(() => recordContextSpan(this.telemetry, { source: "cross-repo-impact", ids: links.map((l) => itemId.impact(l.tier, l.link)), bytes: jsonBytes(links), freshness: provenanceOf("mirror:stitcher", links.length) }));
     return impact;

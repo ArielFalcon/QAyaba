@@ -36,6 +36,10 @@ export type MatchTier = (typeof MATCH_TIER)[keyof typeof MATCH_TIER];
 export interface ImpactedLink {
   link: ServiceLink;
   tier: MatchTier;
+  /* How the link's operation changed in the contract file, when the file's two versions could be compared. */
+  operationChange?: "added" | "removed" | "changed";
+  /* `contract-file`: the contract file changed and its two versions could not be compared, so the link is impacted on the file alone. */
+  basis?: "contract-file";
 }
 
 export interface CrossRepoImpact {

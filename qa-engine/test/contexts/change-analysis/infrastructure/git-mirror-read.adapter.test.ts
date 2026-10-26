@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GitMirrorReadAdapter } from "@contexts/change-analysis/infrastructure/git-mirror-read.adapter.ts";
+import { GitMirrorReadAdapter, MAX_FILE_AT_CHARS } from "@contexts/change-analysis/infrastructure/git-mirror-read.adapter.ts";
 import type { SandboxedBinaryRunner, SandboxedRunRequest } from "../../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import { Sha } from "@kernel/sha.ts";
 import { closeGitDir } from "../../../shared-infrastructure/process-sandbox/git-fixtures.ts";
@@ -259,4 +259,39 @@ test("ancestor() names the commit n steps behind sha through rev-parse", async (
 test("ancestor() throws when git cannot name the commit", async () => {
   const adapter = new GitMirrorReadAdapter("/repo", { run: async () => ({ stdout: "", stderr: "bad revision", exitCode: 128, timedOut: false }) } as unknown as SandboxedBinaryRunner);
   await assert.rejects(() => adapter.ancestor(Sha.of("deadbee1"), 30), /rev-parse failed/);
+});
+
+test("REAL repo: fileAt() reads a file as it was at a commit, and answers undefined for a missing file or a ref outside its grammar", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "qa-fileat-"));
+  try {
+    const git = (...args: string[]): string =>
+      execFileSync("git", args, { cwd: repo, encoding: "utf8", env: { ...process.env, LC_ALL: "C", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" } }).trim();
+    git("init", "-q");
+    closeGitDir(repo);
+    writeFileSync(join(repo, "api.yaml"), "v: 1\n");
+    git("add", ".");
+    git("commit", "-qm", "chore: one");
+    writeFileSync(join(repo, "api.yaml"), "v: 2\n");
+    git("commit", "-qam", "chore: two");
+    const head = git("rev-parse", "HEAD");
+    const adapter = new GitMirrorReadAdapter(repo, realGitRunner);
+
+    assert.equal(await adapter.fileAt(head, "api.yaml"), "v: 2\n");
+    assert.equal(await adapter.fileAt(`${head}^`, "api.yaml"), "v: 1\n");
+    assert.equal(await adapter.fileAt(`${head}~1`, "api.yaml"), "v: 1\n");
+    assert.equal(await adapter.fileAt(head, "missing.yaml"), undefined);
+    assert.equal(await adapter.fileAt("--output=/tmp/x", "api.yaml"), undefined);
+    assert.equal(await adapter.fileAt("HEAD", "api.yaml"), undefined);
+    assert.equal(await adapter.fileAt(head, "-p"), undefined);
+    assert.equal(await adapter.fileAt(head, "../api.yaml"), undefined);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("fileAt() answers undefined for a timed-out read and for a file larger than a contract file can be", async () => {
+  const timedOut = new GitMirrorReadAdapter("/repo", { run: async () => ({ stdout: "x", stderr: "", exitCode: null, timedOut: true }) } as unknown as SandboxedBinaryRunner);
+  assert.equal(await timedOut.fileAt("deadbee1", "api.yaml"), undefined);
+  const huge = new GitMirrorReadAdapter("/repo", runnerReturning("x".repeat(MAX_FILE_AT_CHARS + 1)));
+  assert.equal(await huge.fileAt("deadbee1", "api.yaml"), undefined);
 });

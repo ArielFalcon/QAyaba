@@ -7,5 +7,6 @@ import type { ServiceLink, CrossRepoImpact } from "@kernel/service-links.ts";
  * code replaced the mirror's git dir), which is thrown and fails the run.
  */
 export interface CrossRepoImpactPort {
-  resolve(triggerRepo: string, triggerSha: string, resolvedLinks: readonly ServiceLink[]): Promise<CrossRepoImpact | null>;
+  /* `baseRef` is the commit the change starts from (a sha, or `<sha>~n`); absent, the commit before `triggerSha`. */
+  resolve(triggerRepo: string, triggerSha: string, resolvedLinks: readonly ServiceLink[], baseRef?: string): Promise<CrossRepoImpact | null>;
 }

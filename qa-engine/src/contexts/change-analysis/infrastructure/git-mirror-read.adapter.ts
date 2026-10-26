@@ -6,6 +6,9 @@ import { hardenGitArgs } from "../../../shared-infrastructure/process-sandbox/gi
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import type { VcsReadPort } from "../application/ports/vcs-read.port.ts";
 
+/* The largest file `fileAt` returns: a contract file is far smaller; more is not one. */
+export const MAX_FILE_AT_CHARS = 5 * 1024 * 1024;
+
 /** Typed read side over a git mirror. Argv lives here; callers pass Sha and receive typed results. Read-only: this adapter never runs a git write (writes live only in workspace-and-publication). */
 export class GitMirrorReadAdapter implements VcsReadPort {
   private readonly parser = new DiffParserService();
@@ -45,6 +48,18 @@ export class GitMirrorReadAdapter implements VcsReadPort {
     if (r.timedOut) throw new Error(`git rev-parse timed out for ${sha.value}~${n}`);
     if (r.exitCode !== 0) throw new Error(`git rev-parse failed (exit ${r.exitCode}): ${r.stderr.trim()}`);
     return Sha.of(r.stdout.trim());
+  }
+
+  /*
+   * One file as it was at `ref` (a commit, or a commit with `^` or `~n`); undefined when the file does not exist there, git cannot
+   * name the ref, or the file is larger than a contract file can be. The ref is checked against a closed grammar and the path
+   * against option-like and NUL input before they reach git's `<ref>:<path>` argument.
+   */
+  async fileAt(ref: string, path: string): Promise<string | undefined> {
+    if (!/^[0-9a-f]{4,64}([~^][0-9]*)?$/i.test(ref) || path === "" || path.startsWith("-") || path.includes("\0") || path.includes("..")) return undefined;
+    const r = await this.runner.run({ command: "git", args: hardenGitArgs(["show", `${ref}:${path}`], this.repoDir), cwd: this.repoDir, env: scrubEnv() });
+    if (r.timedOut || r.exitCode !== 0 || r.stdout.length > MAX_FILE_AT_CHARS) return undefined;
+    return r.stdout;
   }
 
   async blastRadius(sha: Sha, opts?: { baseSha?: Sha; commits?: number }): Promise<BlastRadius> {

@@ -76,3 +76,59 @@ test("a walk the budget cut is logged; a complete one logs nothing", async () =>
   const whole = await resolve(graph({ routes: [handler("ANY")] }));
   assert.deepEqual(whole.warnings, []);
 });
+
+const TWO_OPS = (extra: string): string => `
+paths:
+  /api/orders:
+    get:
+      operationId: listOrders
+      responses:
+        "200": { description: ok }
+  /api/orders/{id}:
+    delete:
+      operationId: deleteOrder
+      responses:
+        "204": { description: gone }${extra}
+`;
+const listLink: ServiceLink = { ...link, to: { ...link.to, symbol: "listOrders" }, operation: { verb: "GET", path: "/api/orders" }, from: { ...link.from, symbol: "list" } };
+
+async function resolveContract(files: { base?: string; head?: string }, fileAt: boolean = true) {
+  const asked: string[] = [];
+  const useCase = new ResolveCrossRepoImpactUseCase(
+    { mirrorDir: async () => dir },
+    () => ({
+      blastRadius: async () => BlastRadius.of(Sha.of(SHA), [link.to.file]),
+      ...(fileAt ? { fileAt: async (ref: string) => { asked.push(ref); return ref === SHA ? files.head : files.base; } } : {}),
+    }),
+    undefined,
+    runner,
+  );
+  return { impact: await useCase.resolve(REPO, SHA, [link, listLink], "b".repeat(40)), asked };
+}
+
+test("a changed contract file impacts only the links whose operation changed in it", async () => {
+  const { impact, asked } = await resolveContract({ base: TWO_OPS(""), head: TWO_OPS("\n        \"404\": { description: missing }") });
+  assert.deepEqual(impact?.impactedLinks.map((l) => [l.link.operation?.verb, l.operationChange, l.basis]), [["DELETE", "changed", undefined]]);
+  assert.deepEqual(asked.sort(), ["b".repeat(40), SHA].sort(), "the contract is read at the change's base and head");
+});
+
+test("a contract file whose two versions cannot be compared impacts every link on it and says so", async () => {
+  const unparsable = await resolveContract({ base: TWO_OPS(""), head: ": : not yaml [" });
+  assert.deepEqual(unparsable.impact?.impactedLinks.map((l) => l.basis), ["contract-file", "contract-file"]);
+  const absent = await resolveContract({ base: undefined, head: TWO_OPS("") });
+  assert.equal(absent.impact?.impactedLinks.length, 2);
+  const noReader = await resolveContract({}, false);
+  assert.deepEqual(noReader.impact?.impactedLinks.map((l) => [l.tier, l.basis, l.operationChange]), [["contract-file", "contract-file", undefined], ["contract-file", "contract-file", undefined]]);
+});
+
+test("a contract file changed only in prose impacts no link by its file", async () => {
+  const { impact } = await resolveContract({ base: TWO_OPS(""), head: TWO_OPS("").replace("operationId: listOrders", "operationId: listOrders\n      description: all orders") });
+  assert.equal(impact, null);
+});
+
+test("a base ref defaults to the commit before the head", async () => {
+  const asked: string[] = [];
+  const useCase = new ResolveCrossRepoImpactUseCase({ mirrorDir: async () => dir }, () => ({ blastRadius: async () => BlastRadius.of(Sha.of(SHA), [link.to.file]), fileAt: async (ref: string) => { asked.push(ref); return TWO_OPS(""); } }), undefined, runner);
+  await useCase.resolve(REPO, SHA, [link]);
+  assert.ok(asked.includes(`${SHA}^`));
+});
