@@ -8,6 +8,7 @@
  * can call a custom tool, and the run has a saved session to use. The browser is started by the first call, not by the grant.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import { DEFAULT_AGENT_BROWSER_LIMITS } from "@kernel/agent-browser.ts";
@@ -68,12 +69,12 @@ export class AgentBrowserPortAdapter implements AgentBrowserPort {
     const enabled = input.enabled ?? this.deps.setting.enabled;
     if (!enabled) return undefined;
     if (!this.deps.generatorRuntimeCanCall()) {
-      console.warn(`[qa] the authenticated browser is enabled for run ${input.runId} but the generator's runtime cannot call a custom tool (only OpenCode can); the run goes on with run_spec alone, if it has it`);
+      engineLog.warn(`[qa] the authenticated browser is enabled for run ${input.runId} but the generator's runtime cannot call a custom tool (only OpenCode can); the run goes on with run_spec alone, if it has it`);
       return undefined;
     }
     const probe = this.deps.material();
     if (probe.storageState === undefined && probe.clientCertificate === undefined) {
-      console.warn(`[qa] the authenticated browser is enabled for run ${input.runId} but the run has no saved session to use (a public app, or a login that did not complete); the run goes on without it`);
+      engineLog.warn(`[qa] the authenticated browser is enabled for run ${input.runId} but the run has no saved session to use (a public app, or a login that did not complete); the run goes on without it`);
       return undefined;
     }
 
@@ -126,7 +127,7 @@ export class AgentBrowserPortAdapter implements AgentBrowserPort {
       this.deps.registry.unregister(input.runId);
       for (const controllers of running.values()) for (const controller of controllers) controller.abort();
       await inRunContext(() => host.close()).catch((err: unknown) => {
-        console.error(`[qa] closing the agent browser failed: ${err instanceof Error ? err.message : String(err)}`);
+        engineLog.error(`[qa] closing the agent browser failed: ${err instanceof Error ? err.message : String(err)}`);
       });
     };
     this.deps.registry.register({

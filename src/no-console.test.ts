@@ -23,11 +23,6 @@ const ALLOWED: readonly string[] = [
 
 /* Files not migrated yet. The list only shrinks: a file that no longer calls console must leave it. */
 const NOT_MIGRATED: readonly string[] = [
-  "qa-engine/src/contexts/agent-tools/infrastructure/adapters/agent-browser-port.adapter.ts",
-  "qa-engine/src/contexts/agent-tools/infrastructure/adapters/closed-loop-port.adapter.ts",
-  "qa-engine/src/contexts/agent-tools/infrastructure/adapters/code-graph-tools-port.adapter.ts",
-  "qa-engine/src/contexts/agent-tools/infrastructure/adapters/tool-call-trace.ts",
-  "qa-engine/src/contexts/agent-tools/infrastructure/adapters/trusted-session-renewal.ts",
   "qa-engine/src/contexts/app-catalog/infrastructure/auth-session.adapter.ts",
   "qa-engine/src/contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner.ts",
   "qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter.ts",

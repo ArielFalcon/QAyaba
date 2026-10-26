@@ -8,6 +8,7 @@
  * through isClosed (every delivered spec seen passing in its current bytes).
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
@@ -70,7 +71,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
     const enabled = input.enabled ?? this.deps.setting.enabled;
     if (!enabled) return undefined;
     if (!this.deps.generatorRuntimeCanCall()) {
-      console.warn(`[qa] run_spec is enabled for run ${input.runId} but the generator's runtime cannot call it (only OpenCode can); the run goes on without the loop`);
+      engineLog.warn(`[qa] run_spec is enabled for run ${input.runId} but the generator's runtime cannot call it (only OpenCode can); the run goes on without the loop`);
       return undefined;
     }
     const now = this.deps.now ?? Date.now;
@@ -164,7 +165,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
         try {
           sweepProbeDir(root);
         } catch (err) {
-          console.error(`[qa] removing the run_spec probes failed: ${err instanceof Error ? err.message : String(err)}`);
+          engineLog.error(`[qa] removing the run_spec probes failed: ${err instanceof Error ? err.message : String(err)}`);
         }
         for (const namespace of pending) await inRunContext(() => this.cleaner(input).cleanup(namespace));
       },

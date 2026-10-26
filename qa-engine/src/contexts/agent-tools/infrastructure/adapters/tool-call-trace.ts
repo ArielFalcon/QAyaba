@@ -8,6 +8,7 @@
  * Observability never changes how a call ends: the call's result or exception is the caller's own, and every fault in the
  * trace is logged and dropped. A call is also recorded with its session, so the agent's own `execute_tool` span can link to it.
  */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
 import { GENAI } from "@kernel/telemetry/genai-semconv.ts";
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry.ts";
@@ -44,7 +45,7 @@ function quietly<T>(label: string, fallback: T, fn: () => T): T {
   try {
     return fn();
   } catch (err) {
-    console.error(`[qa] tool call telemetry (${label}) failed and was dropped: ${err instanceof Error ? err.message : String(err)}`);
+    engineLog.error(`[qa] tool call telemetry (${label}) failed and was dropped: ${err instanceof Error ? err.message : String(err)}`);
     return fallback;
   }
 }

@@ -11,6 +11,7 @@
  * call's span for the operator).
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { CODE_GRAPH_EXPLORE_AGENT, CODE_GRAPH_LEAD_AGENT, DEFAULT_CODE_GRAPH_TOOL_LIMITS, type CodeGraphToolLimits } from "@kernel/code-graph-tools.ts";
 import { err } from "@kernel/result.ts";
@@ -83,7 +84,7 @@ export class CodeGraphToolsPortAdapter implements CodeGraphToolsPort {
       for (const { repo, answer } of answers) {
         if (answer.ok) continue;
         const reason = failureReason(answer.error.reason, this.deps.redact);
-        console.error(`[qa] code-graph explore failed for run ${input.runId}${repos.length > 1 ? ` in ${repo}` : ""}: ${reason}`);
+        engineLog.error(`[qa] code-graph explore failed for run ${input.runId}${repos.length > 1 ? ` in ${repo}` : ""}: ${reason}`);
         observer.setAttrs({ "qayaba.code_graph.reason": reason });
       }
       if (answered.length === 0) {

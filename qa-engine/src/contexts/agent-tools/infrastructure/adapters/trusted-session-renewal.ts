@@ -8,6 +8,7 @@
  * the loop. The comparison is by the sha256 of the bytes read strictly, so a link, a pipe or an oversized file is never a login.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { createHash } from "node:crypto";
 import { MAX_SPEC_SOURCE_BYTES, readOwnedSpecFile } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import type { SessionRenewalPort } from "@contexts/test-execution/application/index.ts";
@@ -33,11 +34,11 @@ export function trustedSessionRenewal(authSession: AuthSessionPort, context: Aut
   return {
     renew: async (signal) => {
       if (renewals >= maxRenewals) {
-        console.warn(`[qa] the saved session was lost again and was not renewed: this run already renewed it ${renewals} time(s) from inside the authoring loop`);
+        engineLog.warn(`[qa] the saved session was lost again and was not renewed: this run already renewed it ${renewals} time(s) from inside the authoring loop`);
         return false;
       }
       if (trusted === undefined || loginScriptState(specDir) !== trusted) {
-        console.warn("[qa] the saved session was lost and was not renewed: the login script is not the one the loop opened with, and a login the agent may have written is never run while it authors");
+        engineLog.warn("[qa] the saved session was lost and was not renewed: the login script is not the one the loop opened with, and a login the agent may have written is never run while it authors");
         return false;
       }
       renewals += 1;
@@ -45,7 +46,7 @@ export function trustedSessionRenewal(authSession: AuthSessionPort, context: Aut
         await authSession.prepare({ specDir, baseUrl: context.baseUrl, ...(context.auth ? { auth: context.auth } : {}), phase: "pre-execute" }, signal);
         return true;
       } catch (err) {
-        console.error(`[qa] renewing the saved session from the authoring loop failed: ${err instanceof Error ? err.message : String(err)}`);
+        engineLog.error(`[qa] renewing the saved session from the authoring loop failed: ${err instanceof Error ? err.message : String(err)}`);
         return false;
       }
     },
