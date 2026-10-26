@@ -42,7 +42,7 @@ import { observationConflictIn } from "./evidence-precedence.ts";
 import { AUTHORING_FAILURE, authoringFailureFeedback, classifyAuthoringFailure, type AuthoringFailure } from "./authoring-failure.ts";
 import { FanOutDispatcher, FLOW_RESULT, type TimerPort } from "./fan-out-dispatcher.ts";
 import { aggregateFlowOutcomes, FLOW_OUTCOME, type AggregatedFlows, type FlowOutcome } from "./flow-outcomes.ts";
-import { admitLeadPlan, LEAD_PLAN_KIND, PLAN_DOWNGRADE, PLAN_REJECTED, type AdmittedFlow, type AdmittedPlan } from "./lead-plan.ts";
+import { admitLeadPlan, LEAD_PLAN_KIND, PLAN_DOWNGRADE, PLAN_REJECTED, renderRejectedPlanRequest, type AdmittedFlow, type AdmittedPlan } from "./lead-plan.ts";
 import { resolveSidekickModel } from "./resolve-sidekick-model.ts";
 import { SIDEKICK_AUTHORING, sidekickAuthoring, sidekickDeniedTools, type SidekickAuthoringMode } from "./sidekick-authoring.ts";
 import type { SidekickExecutor, SidekickSession } from "./sidekick-executor.ts";
@@ -308,6 +308,15 @@ export class LeadSidekicks {
       }
 
       let admitted = this.admit(input, planned.plan, parallel);
+      if (admitted.kind === PLAN_REJECTED) {
+        const corrected = await this.reask(input, planned.lead, admitted.downgrade, parallel);
+        if (corrected.noopReason !== undefined) {
+          this.record(input, { kind: "proposal", action: "direct", reason: `plan: noop (${corrected.noopReason})` });
+          this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.NOOP, [], corrected.noopReason);
+          return { action: "noop", reason: corrected.noopReason, signal: { ...base, plan: LEAD_PLAN_KIND.NOOP, authoring: authoringName } };
+        }
+        if (corrected.plan) admitted = corrected.plan;
+      }
       let coverage: PlanCoverage = { covered: [], dropped: [], unresolved: [] };
       if (admitted.kind === LEAD_PLAN_KIND.FANOUT) {
         coverage = planCoverage(admitted, admission.required);
@@ -359,6 +368,38 @@ export class LeadSidekicks {
         ...(input.geolocation ? { places: input.geolocation.facts().places } : {}),
       },
     );
+  }
+
+  /*
+   * A plan the run cannot admit goes back to the lead in its open session, once, with the reason, the way a plan that leaves use
+   * cases unresolved does: the lead's answer is untrusted text and a wrong shape is a correctable slip, not a decision. A no-op or
+   * an admitted plan replaces it; anything else, a failed turn, or no session or time left keeps the first refusal. Never twice.
+   */
+  private async reask(input: CoordinateInput, lead: LeadSessionHandle | undefined, downgrade: string, parallel: number): Promise<{ plan?: AdmittedPlan; noopReason?: string }> {
+    if (!lead || input.signal?.aborted) return {};
+    const { settings } = input;
+    const left = this.remaining(input);
+    if (left !== undefined && left < settings.planBudgetMs + MIN_RESERVE_MS + MIN_FLOW_MS) {
+      this.record(input, { kind: "lead-decision", reason: `plan: not admitted (${downgrade}) and too little of the run is left to ask the lead again` });
+      return {};
+    }
+    this.record(input, { kind: "lead-decision", reason: `plan: not admitted (${downgrade}); asking the lead once more with the reason` });
+    let answered: Awaited<ReturnType<LeadSessionHandle["askForPlan"]>>;
+    try {
+      answered = await lead.askForPlan(renderRejectedPlanRequest(downgrade, settings.maxFlows), { timeoutMs: Math.max(1, left === undefined ? settings.planBudgetMs : Math.min(settings.planBudgetMs, left)) });
+    } catch (err) {
+      if (isRunDeadlineError(err)) throw err;
+      this.record(input, { kind: "lead-decision", reason: `plan: the lead's corrected plan turn failed (${err instanceof Error ? err.message : String(err)}); the refusal stands` });
+      return {};
+    }
+    if (input.signal?.aborted) return {};
+    if (answered.noopReason !== undefined) return { noopReason: answered.noopReason };
+    const second = answered.plan !== undefined ? this.admit(input, answered.plan, parallel) : undefined;
+    if (second === undefined || second.kind === PLAN_REJECTED) {
+      this.record(input, { kind: "lead-decision", reason: `plan: the lead's corrected answer was not admitted (${second?.downgrade ?? PLAN_DOWNGRADE.NO_PLAN}); the refusal stands` });
+      return {};
+    }
+    return { plan: second };
   }
 
   /*

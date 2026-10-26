@@ -26,6 +26,27 @@ export const PLAN_DOWNGRADE = {
 } as const;
 export type PlanDowngrade = (typeof PLAN_DOWNGRADE)[keyof typeof PLAN_DOWNGRADE];
 
+/* What each refusal tells the lead it got wrong, as facts; the plan contract it already holds says the shapes. */
+const DOWNGRADE_FACTS: Readonly<Record<PlanDowngrade, (maxFlows: number) => string>> = {
+  [PLAN_DOWNGRADE.NO_PLAN]: () => "the answer held no plan JSON object",
+  [PLAN_DOWNGRADE.MALFORMED]: () => "it is not one of the plan shapes: a kind, a field or a field's type is not the contract's",
+  [PLAN_DOWNGRADE.EMPTY]: () => "it is a fan-out with no flow and no use case dropped with a reason; a change that needs no test is a noop with its reason",
+  [PLAN_DOWNGRADE.OVER_LIMIT]: (maxFlows) => `it names more than ${maxFlows} flows`,
+  [PLAN_DOWNGRADE.DUPLICATE]: () => "two of its flows have the same id",
+  [PLAN_DOWNGRADE.NO_TIME]: () => "the run has too little time left for that many flows",
+  [PLAN_DOWNGRADE.NO_CALLS]: () => "the run has too few run_spec calls left for that many flows",
+};
+
+/* The one request that sends a refused plan back to the lead: why it was refused (by its code and in words), and what to answer. */
+export function renderRejectedPlanRequest(downgrade: string, maxFlows: number): string {
+  const fact = (DOWNGRADE_FACTS as Record<string, ((n: number) => string) | undefined>)[downgrade]?.(maxFlows) ?? "it could not be admitted";
+  return [
+    "## Your plan was not admitted",
+    `The orchestrator refused the plan (${downgrade}): ${fact}.`,
+    "Answer with ONLY the corrected plan JSON object, in one of the shapes of the plan contract. This is the only other plan turn of this run.",
+  ].join("\n");
+}
+
 export const MAX_FLOW_ID_CHARS = 48;
 export const MAX_OBJECTIVE_CHARS = 400;
 export const MAX_ACCEPTANCE_ITEMS = 12;

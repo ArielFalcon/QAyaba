@@ -1381,3 +1381,33 @@ test("a flow's briefs carry no candidates when the run derived none", async () =
   await r.coordinator.coordinate(input(r));
   assert.ok(r.executed.every((e) => !("candidates" in e.brief)));
 });
+
+test("a plan that cannot be admitted goes back to the lead once with the reason; an admissible answer is planned, another is refused with the first reason", async () => {
+  const leadAnswering = (second: Record<string, unknown>) => {
+    const asked: string[] = [];
+    const lead = {
+      ask: async () => ({ output: "", timedOut: false }),
+      askForPlan: async (text: string) => { asked.push(text); return { ...second, parsed: true, timedOut: false }; },
+      dispose: async () => {},
+    };
+    return { asked, plan: async (): Promise<PlanOutput> => ({ plan: { kind: "fanout", flows: [] }, parsed: true, timedOut: false, lead }) };
+  };
+
+  const fixed = leadAnswering({ plan: FANOUT_PLAN });
+  const r = rig();
+  const planned = await r.coordinator.coordinate(input(r, { plan: fixed.plan }));
+  assert.equal(planned.action, "fanout");
+  if (planned.action === "fanout") await planned.pass?.release();
+  assert.equal(fixed.asked.length, 1);
+  assert.ok(fixed.asked[0]!.includes(PLAN_DOWNGRADE.EMPTY), "the lead is told why its plan was not admitted");
+
+  const declined = leadAnswering({ noopReason: "the suite already proves it" });
+  const noop = await rig().coordinator.coordinate(input(rig(), { plan: declined.plan }));
+  assert.deepEqual([noop.action, noop.action === "noop" ? noop.reason : ""], ["noop", "the suite already proves it"]);
+
+  const again = leadAnswering({ plan: { kind: "lead" } });
+  const r3 = rig();
+  const refused = await r3.coordinator.coordinate(input(r3, { plan: again.plan }));
+  assert.equal(refused.action === "refused" ? refused.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.EMPTY}`);
+  assert.equal(again.asked.length, 1, "once, never twice");
+});

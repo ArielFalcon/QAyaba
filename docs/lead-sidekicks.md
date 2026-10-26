@@ -40,8 +40,9 @@ signed-in app (see below); without either, no sidekick can author and the run en
    planning session, review included, is denied Playwright: DEV is read by the sidekicks.
 2. **Admit.** `admitLeadPlan` treats the plan as untrusted. It slugs the ids, assigns each flow the spec path
    `e2e/flows/<slug>.spec.ts` itself (any write list the lead names is ignored), caps the sizes, and refuses
-   duplicates and more than `maxFlows`. A plan that cannot be admitted ends the run `E-NO-AUTHOR` with the reason recorded
-   (`refusal: plan-rejected:<reason>`); a plan of one flow is a fan-out of one, and a fan-out of no flow whose use cases are dropped
+   duplicates and more than `maxFlows`. A plan that cannot be admitted goes back to the lead once, in its open session, with the
+   reason (`renderRejectedPlanRequest`); a no-op or an admitted answer replaces it, and anything else ends the run `E-NO-AUTHOR` with
+   the first reason recorded (`refusal: plan-rejected:<reason>`); a plan of one flow is a fan-out of one, and a fan-out of no flow whose use cases are dropped
    with a reason is the lead's declared no-op (the run is `skipped` with those reasons); with no reasoned drop it is refused `empty`. The plan must answer for each direct
    use-case candidate of the change that a browser can reach (the admission set, at most `MAX_ADMISSION_CANDIDATES`): a
    flow covers a candidate when it cites its id (`candidates`) or visits one of its pages, and the lead may drop one with a
