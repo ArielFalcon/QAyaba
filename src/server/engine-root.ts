@@ -47,10 +47,7 @@ import { sanitizedPlanSnapshots, type PlanSnapshotPort } from "@kernel/ports/pla
 
 import { GenerationPortAdapter, type GenerationPortCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/generation-port.adapter";
 import { ReviewPortAdapter, type ReviewPortRuntime } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/review-port.adapter";
-import { ValidationPortAdapter } from "../../qa-engine/src/contexts/test-execution/infrastructure/adapters/validation-port.adapter";
-import { ExecutionPortAdapter } from "../../qa-engine/src/contexts/test-execution/infrastructure/adapters/execution-port.adapter";
 import { PublicationPortAdapter, type GitHubPrCollaborator, type GitHubIssueCollaborator, type VcsPublishCollaborator } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter";
-import { LearningPortAdapter } from "../../qa-engine/src/contexts/cross-run-learning/infrastructure/adapters/learning-port.adapter";
 import { WorkspaceRegistry } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/workspace-registry";
 import { ConfinementPortAdapter, type PathConfinementCollaborator } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/confinement-port.adapter";
 import { MirrorGcPortAdapter, type PathMirrorGcCollaborator } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/mirror-gc-port.adapter";
@@ -75,6 +72,8 @@ import { confinedSpecFiles } from "../../qa-engine/src/shared-infrastructure/spe
 import { buildChangeAnalysis } from "../../qa-engine/src/contexts/change-analysis/composition/build-change-analysis";
 import { buildServiceTopology } from "../../qa-engine/src/contexts/service-topology/composition/build-service-topology";
 import { buildObjectiveSignal } from "../../qa-engine/src/contexts/objective-signal/composition/build-objective-signal";
+import { buildTestExecution } from "../../qa-engine/src/contexts/test-execution/composition/build-test-execution";
+import { buildCrossRunLearning } from "../../qa-engine/src/contexts/cross-run-learning/composition/build-cross-run-learning";
 import { GenerateTestsUseCase, type GenerationResult, type GenerateOpts } from "@contexts/generation/application/generate-tests.use-case";
 import type { OpencodeRunInput, ArchitectureContext, StepLimitFor } from "@contexts/generation/application/index";
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance";
@@ -91,7 +90,6 @@ import { ShadowLogAdapter } from "@contexts/workspace-and-publication/infrastruc
 import { renderIssue, renderPrBody } from "@contexts/workspace-and-publication/domain/render-publication";
 import type { VcsReadPort } from "@contexts/change-analysis/application/index";
 import type { LearningRepositoryPort, ReflectorPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/index";
-import { StubLearningRepository } from "@contexts/cross-run-learning/infrastructure/stub-learning-repository.adapter";
 
 /* What the shell hands the root to let a run grant its generator the run_spec tool. Absent: the run never does. */
 export interface ClosedLoopWiring {
@@ -440,27 +438,21 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
     ...(cfg.reviewTimeoutMs !== undefined ? { timeoutMs: cfg.reviewTimeoutMs } : {}),
   }, { stepLimitFor: cfg.stepLimitFor });
 
-  const staticValidation = new ValidationPortAdapter(
-    {
-      e2e: cfg.validationStrategies.e2e,
-      code: cfg.validationStrategies.code as CodeValidationStrategy,
-    },
-    { target: cfg.target },
-  );
+  const testExecution = buildTestExecution({
+    target: cfg.target,
+    validationStrategies: cfg.validationStrategies,
+    executionStrategies: cfg.executionStrategies,
+    namespace: cfg.branch,
+    ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}),
+    ...(cfg.testIdAttribute !== undefined ? { testIdAttribute: cfg.testIdAttribute } : {}),
+  });
+  const staticValidation = testExecution.validation;
   /* The specs a run holds are kept as they stand at each validation (e2e only: a code run's spec directory is the whole repo). Requires the outbound sanitizer, which wireAdapters demands below anyway. */
   const validation: ValidationPort = cfg.specSnapshots && !cfg.isCode && cfg.sanitize
     ? new SpecSnapshotValidationPort(staticValidation, { port: cfg.specSnapshots, sanitize: cfg.sanitize })
     : staticValidation;
 
-  const execution = new ExecutionPortAdapter(
-    { e2e: cfg.executionStrategies.e2e as E2eExecutionStrategy, code: cfg.executionStrategies.code as CodeExecutionStrategy },
-    {
-      target: cfg.target,
-      namespace: cfg.branch,
-      ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}),
-      ...(cfg.testIdAttribute !== undefined ? { testIdAttribute: cfg.testIdAttribute } : {}),
-    },
-  );
+  const execution = testExecution.execution;
 
   /* Optional: absent → setup stays undefined and the use-case setup phase is a no-op. */
   const setup = cfg.setupCollaborators ? new SetupPortAdapter(cfg.setupCollaborators, { target: cfg.target }) : undefined;
@@ -593,7 +585,14 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
   const plainObjectiveSignal = objectiveSignalApi.objectiveSignal;
   const objectiveSignal: ObjectiveSignalPort = cfg.telemetry ? new TracedObjectiveSignalPort(plainObjectiveSignal, cfg.telemetry) : plainObjectiveSignal;
 
-  const plainLearning = new LearningPortAdapter(cfg.learningRepo ?? new StubLearningRepository(), cfg.appName);
+  const learningApi = buildCrossRunLearning({
+    appName: cfg.appName,
+    ...(cfg.learningRepo ? { learningRepo: cfg.learningRepo } : {}),
+    ...(cfg.reflectorPort ? { reflector: cfg.reflectorPort } : {}),
+    ...(cfg.curriculumPort ? { curriculum: cfg.curriculumPort } : {}),
+    ...(cfg.processAudit ? { processAudit: cfg.processAudit } : {}),
+  });
+  const plainLearning = learningApi.learning;
   const learning: LearningPort = cfg.telemetry ? new TracedLearningPort(plainLearning, cfg.telemetry) : plainLearning;
 
   /* One registry per composition: the handle WorkspacePortAdapter issues is the only key the publication, confinement and gc adapters accept. */
@@ -687,19 +686,19 @@ export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDep
     ...(serviceLinks ? { serviceLinks } : {}),
     ...(crossRepoImpact ? { crossRepoImpact } : {}),
     ...(cfg.observer ? { observer: cfg.observer } : {}),
-    ...(cfg.reflectorPort ? { reflector: cfg.reflectorPort } : {}),
+    ...(learningApi.reflector ? { reflector: learningApi.reflector } : {}),
     /* Absent confinement is omitted entirely — never a fabricated no-op stub. */
     ...(cfg.confinement ? { confinement: new ConfinementPortAdapter(workspaceRegistry, cfg.confinement) } : {}),
     /* Absent mirrorGc is omitted entirely — never a fabricated no-op stub. */
     ...(cfg.mirrorGc ? { mirrorGc: new MirrorGcPortAdapter(workspaceRegistry, cfg.mirrorGc) } : {}),
     /* Absent processAudit is omitted entirely — never a fabricated no-op stub. */
-    ...(cfg.processAudit ? { processAudit: cfg.processAudit } : {}),
+    ...(learningApi.processAudit ? { processAudit: learningApi.processAudit } : {}),
     /* Absent runDeadline is omitted entirely — never a fabricated deadline that bounds nothing. */
     ...(cfg.runDeadline ? { runDeadline: cfg.runDeadline } : {}),
     ...(cfg.telemetry ? { telemetry: cfg.telemetry } : {}),
     ...(cfg.clock ? { phaseClock: cfg.clock } : {}),
     /* Absent curriculumPort is omitted entirely — never a fabricated no-op stub (select() returns nothing; the fold never fires). */
-    ...(cfg.curriculumPort ? { curriculum: cfg.telemetry ? new TracedCurriculumPort(cfg.curriculumPort, cfg.telemetry) : cfg.curriculumPort } : {}),
+    ...(learningApi.curriculum ? { curriculum: cfg.telemetry ? new TracedCurriculumPort(learningApi.curriculum, cfg.telemetry) : learningApi.curriculum } : {}),
     /* Absent contextMapCapture is omitted entirely — never a fabricated no-op stub. */
     ...(cfg.contextMapCapture ? { contextMapCapture: cfg.contextMapCapture } : {}),
     /* Absent suiteStore is omitted entirely — never a fabricated no-op stub (a stub that restores nothing would hide that no suite persists). */
