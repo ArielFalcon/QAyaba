@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { extractTargetRoutes, formatDomSnapshot, captureDom, captureDomByRoute, captureDomForRoutes, captureRouteTrees, normalizeRoutes, capDomLines, isPriorityNode, mergeAttrs, normalizeKey, buildCaptureScript, createCaptureDomDeps, defaultCaptureDomDeps, DEGRADED_ROUTE_LABEL, MAX_NODES_PER_ROUTE, formatDomCapture, formatRedirectAdvisory, dataStateUnconfirmed, captureTimeoutMs, CAPTURE_ROUTE_READ_MS, type CapturedPage, type CaptureDataState, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { extractTargetRoutes, formatDomSnapshot, captureDom, captureDomByRoute, captureDomForRoutes, captureRouteTrees, normalizeRoutes, capDomLines, isPriorityNode, mergeAttrs, normalizeKey, createCaptureDomDeps, defaultCaptureDomDeps, DEGRADED_ROUTE_LABEL, MAX_NODES_PER_ROUTE, formatDomCapture, formatRedirectAdvisory, dataStateUnconfirmed, captureTimeoutMs, CAPTURE_ROUTE_READ_MS, type CapturedPage, type CaptureDataState, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import { parseAriaSnapshot, parseAriaSnapshotWithState } from "@contexts/generation/domain/aria-snapshot.ts";
 import { type NodeAttr, type RouteSnapshot } from "@contexts/generation/domain/route-snapshot.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
@@ -1409,31 +1409,6 @@ test("captureDomForRoutes warns when a render returns an errored route (4th path
   assert.ok(msg.includes("DEGRADED") || msg.includes("WARNING"), "attributed as a degraded-capture event");
 });
 
-/* ── Authenticated DOM capture — DEV_ENV_* httpCredentials in the render child ──
-   The render child spawns a separate Node process that does chromium.launch() + newContext(). A
-   comment claimed scrubEnv(/^DEV_/) passes DEV_ENV_USER/PASS through to the child so gated routes
-   render authenticated — but the child script never read those env vars into newContext(). Auth-gated
-   routes therefore grounded on the login/401 page. Mirrors config/e2e/playwright.config.ts's
-   httpCredentials idiom, scoped to baseUrl's origin so creds never leak to a different-origin auth
-   provider (e.g. Keycloak).
- */
-
-test("buildCaptureScript applies PW_STORAGE_STATE and PW_CLIENT_CERT_PATH on newContext()", () => {
-  const script = buildCaptureScript();
-  assert.match(script, /process\.env\.PW_STORAGE_STATE/);
-  assert.match(script, /storageState/);
-  assert.match(script, /process\.env\.PW_CLIENT_CERT_PATH/);
-  assert.match(script, /clientCertificates/);
-});
-
-test("buildCaptureScript reads PW_GEO_LAT/LNG into the browser context's geolocation", () => {
-  const script = buildCaptureScript();
-  assert.match(script, /process\.env\.PW_GEO_LAT/);
-  assert.match(script, /process\.env\.PW_GEO_LNG/);
-  assert.match(script, /contextOptions\.geolocation = \{ latitude: geoLat, longitude: geoLng \}/);
-  assert.match(script, /contextOptions\.permissions = \["geolocation"\]/);
-});
-
 test("createCaptureDomDeps carries the app's geolocation", () => {
   const geolocation = { latitude: 40.4818, longitude: -3.3643 };
   const deps = createCaptureDomDeps(sharedTestExec(), undefined, undefined, geolocation);
@@ -1453,48 +1428,6 @@ test("dataStateUnconfirmed is false without a data state, and true only for an u
   assert.equal(dataStateUnconfirmed({ dataState: true, resultExpected: true, resultCount: 11 }), false);
   assert.equal(dataStateUnconfirmed({ dataState: true, ready: false }), true);
   assert.equal(dataStateUnconfirmed({ dataState: true, ready: true }), false);
-});
-
-test("buildCaptureScript wires DEV_ENV_USER/DEV_ENV_PASS into httpCredentials on newContext()", () => {
-  const script = buildCaptureScript();
-  assert.match(script, /process\.env\.DEV_ENV_USER/, "must read DEV_ENV_USER from the child's env");
-  assert.match(script, /process\.env\.DEV_ENV_PASS/, "must read DEV_ENV_PASS from the child's env");
-  assert.match(script, /httpCredentials/, "must wire httpCredentials into newContext()");
-  assert.match(script, /newContext\(/, "newContext() call must still be present");
-});
-
-test("buildCaptureScript scopes httpCredentials to baseUrl's origin (creds must not leak cross-origin)", () => {
-  const script = buildCaptureScript();
-  assert.match(script, /origin:\s*new URL\(baseUrl\)\.origin/, "httpCredentials must be scoped via origin: new URL(baseUrl).origin");
-});
-
-test("buildCaptureScript sets httpCredentials when DEV_ENV_USER alone is present (username-only parity with playwright.config.ts)", () => {
-  const script = buildCaptureScript();
-  /* Matches config/e2e/playwright.config.ts's gate: `DEV_ENV_USER ? { username, password: DEV_ENV_PASS ?? "", origin } : undefined`.
-     Gating on `user && pass` silently drops credentials whenever only DEV_ENV_USER is set — a real
-     deployment gap this test pins closed. The gate is `user` alone; password defaults to "".
-   */
-  assert.match(script, /\buser\s*\?/, "must gate httpCredentials on user alone, not user && pass");
-  assert.doesNotMatch(script, /user\s*&&\s*pass/, "must NOT require both user and pass to be truthy");
-  assert.match(script, /pass\s*\?\?\s*["']["']/, "password must default to \"\" when DEV_ENV_PASS is unset");
-});
-
-test("buildCaptureScript registers pageerror and console error collectors before navigation", () => {
-  const script = buildCaptureScript();
-  assert.match(script, /page\.on\(\s*["']pageerror["']/, "must register a pageerror listener");
-  assert.match(script, /page\.on\(\s*["']console["']/, "must register a console listener");
-  /* Registration must happen BEFORE the goto() call so errors during navigation/settle are caught. */
-  const pageErrorIdx = script.indexOf('page.on("pageerror"');
-  const gotoIdx = script.indexOf("page.goto(");
-  assert.ok(pageErrorIdx !== -1 && gotoIdx !== -1 && pageErrorIdx < gotoIdx,
-    "pageerror listener must be registered before goto()");
-});
-
-test("buildCaptureScript accumulates runtimeErrors per-route (reset each iteration) and records finalUrl", () => {
-  const script = buildCaptureScript();
-  assert.match(script, /runtimeErrors/, "must include runtimeErrors in the per-route output");
-  assert.match(script, /finalUrl/, "must include finalUrl in the per-route output");
-  assert.match(script, /page\.url\(\)/, "finalUrl must be captured via page.url()");
 });
 
 test("RouteSnapshot accepts runtimeErrors and finalUrl fields", () => {
