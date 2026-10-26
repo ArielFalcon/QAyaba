@@ -9,7 +9,8 @@ import { JobQueue } from "./queue";
 import { describeAppLoadFailure, loadAppConfig, listAppConfigs } from "../orchestrator/config-loader";
 
 import { YamlAppConfigAdapter } from "../../qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter";
-import { handleApi, ApiDeps, type RunObservabilityRequest } from "./api";
+import { routeApi } from "./api";
+import type { ApiDeps, RunObservabilityRequest } from "./api/deps";
 import { authorizeBearer, createLocalConsoleLogin, issueSession } from "./auth";
 import { verifyGithubIdentity, authorizeUser } from "./github-auth";
 import { createFixedWindowLimiter } from "./rate-limit";
@@ -747,37 +748,24 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
      * protects an innocent successor (it aborts only when the id matches the active run).
      */
     cancelRun: (id) => cancelTrackedRun(queue, id, { runEvents, afterRun }),
-    continueRun: (parentId, cases, guidance) => {
-      if (lifecycle.shuttingDown()) return "";
-      const parent = getHistory().runs.getRecord(parentId);
-      if (!parent) return "";
-      /*
-       * Cap the continuation chain: an operator can chain continue→continue→continue
-       * indefinitely, each carrying fresh guidance to nudge the suite toward green.
-       * After MAX_CONTINUATION_DEPTH rounds, refuse — the suite needs a fresh run.
-       */
-      const depth = getHistory().runs.continuationDepth(parent);
-      if (depth >= MAX_CONTINUATION_DEPTH) {
-        console.warn(`[qa] rejecting continuation of ${parentId}: depth ${depth} >= ${MAX_CONTINUATION_DEPTH} (max)`);
-        return "";
-      }
-      let failed = parent.cases.filter((c) => c.status === "fail");
-      if (cases && cases.length > 0) {
-        const want = new Set(cases);
-        failed = failed.filter((c) => want.has(c.name));
-      }
-      return enqueueTrackedRun(queue, {
-        app: parent.app,
-        sha: parent.sha,
-        target: parent.target,
-        mode: parent.mode,
-        guidance,
-        fixCases: failed,
-        parentRunId: parentId,
-        source: "manual",
-        trigger: "continuation",
-        /* Continuations run on the active agent runtime, exactly like the webhook path above. */
-      }, runnerDeps());
+    /* Continuations run on the active agent runtime, exactly like the webhook path above. */
+    continuation: {
+      maxDepth: MAX_CONTINUATION_DEPTH,
+      depth: (parent) => getHistory().runs.continuationDepth(parent),
+      enqueue: ({ parent, fixCases, guidance }) => {
+        if (lifecycle.shuttingDown()) return "";
+        return enqueueTrackedRun(queue, {
+          app: parent.app,
+          sha: parent.sha,
+          target: parent.target,
+          mode: parent.mode,
+          guidance,
+          fixCases,
+          parentRunId: parent.id,
+          source: "manual",
+          trigger: "continuation",
+        }, runnerDeps());
+      },
     },
   };
 
@@ -789,7 +777,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
       authorize: authorized,
       metrics: () => generatePrometheusMetrics(queue, getOpenSessionCount()),
       maintainer: (req, res) => handleMaintainerApi(req, res, triggerMaintainer),
-      api: (req, res) => handleApi(req, res, apiDeps),
+      api: (req, res) => routeApi(req, res, apiDeps),
       dashboard: (req, res) => serveDashboard(req, res, { dir: resolveDashboardDir(ROOT) }),
       shouldLogApiRequest,
       log: logJson,

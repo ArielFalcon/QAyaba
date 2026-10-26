@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
-import { handleApi, type ApiDeps } from "./api";
+import { routeApi } from "./api";
+import type { ApiDeps } from "./api/deps";
 import { AppNotFoundError } from "../orchestrator/config-loader";
 import { RegradeRequestError } from "@contexts/evaluation/application/index";
 import { GRADER_CATALOG } from "@contexts/evaluation/application/index";
@@ -111,7 +112,7 @@ function deps(over: Partial<ApiDeps> = {}): ApiDeps {
 
 async function call(method: string, url: string, body?: string, d: ApiDeps = deps()) {
   const res = mkRes();
-  await handleApi(mkReq(method, url, body), res, d);
+  await routeApi(mkReq(method, url, body), res, d);
   return { status: res.status as number, json: JSON.parse(res.body) as Record<string, any> };
 }
 

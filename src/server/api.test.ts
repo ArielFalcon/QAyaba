@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
-import { handleApi, ApiDeps } from "./api";
+import { routeApi } from "./api";
+import type { ApiDeps } from "./api/deps";
 import { AppConfigInvalidError, AppNotFoundError } from "../orchestrator/config-loader";
 import { createLocalConsoleLogin, LOCAL_CONSOLE_PRINCIPAL, validateSession } from "./auth";
 import { toTrendsView } from "./trends-view";
@@ -98,11 +99,11 @@ const parentRec: RunRecord = {
 };
 
 test("GET /api/v1/version returns the handshake and judges client compatibility", async () => {
-  const ok = await handleApi(mkReq("GET", "/api/v1/version?client=0.0.1"), mkRes(), deps());
+  const ok = await routeApi(mkReq("GET", "/api/v1/version?client=0.0.1"), mkRes(), deps());
   assert.equal(ok, true);
 
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/version?client=0.1.0"), res, deps());
+  await routeApi(mkReq("GET", "/api/v1/version?client=0.1.0"), res, deps());
   assert.equal(res.status, 200);
   const info = JSON.parse(res.body);
   assert.equal(info.serverVersion, "0.1.0");
@@ -111,27 +112,27 @@ test("GET /api/v1/version returns the handshake and judges client compatibility"
   assert.ok(Array.isArray(info.capabilities) && info.capabilities.includes("agent-runtime"));
 
   const old = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/version?client=0.0.1"), old, deps());
+  await routeApi(mkReq("GET", "/api/v1/version?client=0.0.1"), old, deps());
   assert.equal(JSON.parse(old.body).compatible, false);
 });
 
 test("GET /api/version advertises the configured GitHub OAuth client id (and omits it otherwise)", async () => {
   const withId = mkRes();
-  await handleApi(mkReq("GET", "/api/version"), withId, deps({ githubClientId: "Ov23cid" }));
+  await routeApi(mkReq("GET", "/api/version"), withId, deps({ githubClientId: "Ov23cid" }));
   assert.equal(JSON.parse(withId.body).githubClientId, "Ov23cid");
 
   const without = mkRes();
-  await handleApi(mkReq("GET", "/api/version"), without, deps());
+  await routeApi(mkReq("GET", "/api/version"), without, deps());
   assert.equal(JSON.parse(without.body).githubClientId, undefined);
 });
 
 test("GET /api/signals returns the fleet integrity view, or 501 when not wired", async () => {
   const notWired = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/signals"), notWired, deps());
+  await routeApi(mkReq("GET", "/api/v1/signals"), notWired, deps());
   assert.equal(notWired.status, 501);
 
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/signals"), res, deps({
+  await routeApi(mkReq("GET", "/api/v1/signals"), res, deps({
     signals: () => ({
       valueOracle: { measured: true, avgScore: 0.8, measuredRuns: 10, totalRuns: 20 },
       reviewer: { passRate: 0.5, runs: 4 },
@@ -146,7 +147,7 @@ test("GET /api/signals returns the fleet integrity view, or 501 when not wired",
 
 test("GET /api/signals returns 500 (not a hang or a fabricated empty view) when the ledger read throws a real I/O error", async () => {
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/signals"), res, deps({
+  await routeApi(mkReq("GET", "/api/signals"), res, deps({
     signals: () => {
       throw new Error("EACCES: permission denied, open 'data/coordination-events.jsonl'");
     },
@@ -157,7 +158,7 @@ test("GET /api/signals returns 500 (not a hang or a fabricated empty view) when 
 
 test("GET /api/coordination-events returns 500 when the ledger read throws a real I/O error", async () => {
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/coordination-events"), res, deps({
+  await routeApi(mkReq("GET", "/api/coordination-events"), res, deps({
     coordinationEvents: () => {
       throw new Error("EACCES: permission denied");
     },
@@ -168,10 +169,10 @@ test("GET /api/coordination-events returns 500 when the ledger read throws a rea
 
 test("GET /api/apps/:name/trends and /api/apps/:name/report return 501 when not wired", async () => {
   const t = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/apps/demo/trends"), t, deps());
+  await routeApi(mkReq("GET", "/api/v1/apps/demo/trends"), t, deps());
   assert.equal(t.status, 501);
   const r = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/apps/demo/report"), r, deps());
+  await routeApi(mkReq("GET", "/api/v1/apps/demo/report"), r, deps());
   assert.equal(r.status, 501);
 });
 
@@ -192,7 +193,7 @@ test("GET /api/apps/:name/trends and /report return 200 and pass contractJson eg
   const trends = (app: string) => toTrendsView({ app, outcomes, now: "2026-06-14T00:00:00Z" });
 
   const t = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("GET", "/api/v1/apps/demo/trends"),
     t,
     deps({ trends }),
@@ -201,7 +202,7 @@ test("GET /api/apps/:name/trends and /report return 200 and pass contractJson eg
   assert.equal(JSON.parse(t.body).app, "demo");
 
   const r = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("GET", "/api/v1/apps/demo/report"),
     r,
     deps({ trends, report: (app) => toReportView(trends(app)) }),
@@ -225,7 +226,7 @@ test("GET /report?format=csv returns CSV and ?window= is threaded to the dep", a
     return toTrendsView({ app, outcomes, now: "2026-06-14T00:00:00Z", window });
   };
   const r = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("GET", "/api/v1/apps/demo/report?format=csv&window=5"),
     r,
     deps({ trends, report: (app, window) => toReportView(trends(app, window)) }),
@@ -240,32 +241,32 @@ test("GET /runs/:id/report returns {current, evolution}; CSV exports current; 40
   const runReport = { current: rep, evolution: null };
 
   const ok = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/runs/r1/report"), ok, deps({ reportForRun: () => runReport }));
+  await routeApi(mkReq("GET", "/api/v1/runs/r1/report"), ok, deps({ reportForRun: () => runReport }));
   assert.equal(ok.status, 200);
   const body = JSON.parse(ok.body);
   assert.equal(body.current.app, "demo"); /* the current-execution analysis */
   assert.equal(body.evolution, null); /* no history yet ⇒ evolution withheld */
 
   const csv = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/runs/r1/report?format=csv"), csv, deps({ reportForRun: () => runReport }));
+  await routeApi(mkReq("GET", "/api/v1/runs/r1/report?format=csv"), csv, deps({ reportForRun: () => runReport }));
   assert.equal(csv.status, 200);
   assert.match(csv.body, /^id,title,intent,chart,value/);
 
   const missing = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/runs/nope/report"), missing, deps({ reportForRun: () => null }));
+  await routeApi(mkReq("GET", "/api/v1/runs/nope/report"), missing, deps({ reportForRun: () => null }));
   assert.equal(missing.status, 404);
 });
 
 test("GET /api/apps/:name/context-map returns 501 when not wired", async () => {
   const r = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/apps/demo/context-map"), r, deps());
+  await routeApi(mkReq("GET", "/api/v1/apps/demo/context-map"), r, deps());
   assert.equal(r.status, 501);
 });
 
 test("GET /api/apps/:name/context-map returns 404 for an unconfigured app, even when contextMap is wired", async () => {
   let called = false;
   const r = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("GET", "/api/v1/apps/ghost/context-map"),
     r,
     deps({ contextMap: () => { called = true; return null; } }),
@@ -277,7 +278,7 @@ test("GET /api/apps/:name/context-map returns 404 for an unconfigured app, even 
 
 test("GET /api/apps/:name/context-map returns 404 when the app is configured but has no stored map yet", async () => {
   const r = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/apps/demo/context-map"), r, deps({ contextMap: () => null }));
+  await routeApi(mkReq("GET", "/api/v1/apps/demo/context-map"), r, deps({ contextMap: () => null }));
   assert.equal(r.status, 404);
   assert.match(JSON.parse(r.body).error, /no stored architecture map/);
 });
@@ -295,7 +296,7 @@ test("GET /api/apps/:name/context-map returns 200 with the stored map and passes
     updatedAt: "2026-09-20T10:15:00Z",
   };
   const r = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/apps/demo/context-map"), r, deps({ contextMap: () => view }));
+  await routeApi(mkReq("GET", "/api/v1/apps/demo/context-map"), r, deps({ contextMap: () => view }));
   assert.equal(r.status, 200);
   const body = JSON.parse(r.body);
   assert.equal(body.app, "demo");
@@ -316,7 +317,7 @@ test("GET /api/apps/:name/context-map keeps the files that implement each route"
     updatedAt: "2026-09-20T10:15:00Z",
   };
   const r = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/apps/demo/context-map"), r, deps({ contextMap: () => view }));
+  await routeApi(mkReq("GET", "/api/v1/apps/demo/context-map"), r, deps({ contextMap: () => view }));
   assert.equal(r.status, 200);
   assert.deepEqual(JSON.parse(r.body).map.routes[0].implementationFiles, ["src/pages/owners/OwnersPage.tsx"]);
 });
@@ -341,7 +342,7 @@ test("GET /api/v1/runs/:id/turns returns each turn with its efficiency fields, n
     durationMs: null, timeToFirstCallMs: null, timeToFirstWriteMs: null, deniedCallCount: null, toolSequence: null, usageTotal: null,
   };
   const r = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("GET", "/api/v1/runs/p1/turns"),
     r,
     deps({ getRecord: () => parentRec, getAgentTurns: () => [measuredTurn, unmeasured] }),
@@ -378,7 +379,7 @@ test("GET /api/v1/apps/:name/telemetry returns the efficiency aggregates alongsi
     efficiency: { turnsMeasured: 3, medianCallsBeforeFirstWrite: 8, exhaustedRate: 1 / 3, redundantReadRatio: 0.15, duplicateRatio: 0.1 },
   };
   const r = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/apps/demo/telemetry"), r, deps({ telemetryAnalysis: () => analysis }));
+  await routeApi(mkReq("GET", "/api/v1/apps/demo/telemetry"), r, deps({ telemetryAnalysis: () => analysis }));
   assert.equal(r.status, 200);
   const body = JSON.parse(r.body);
   assert.equal(body.efficiency.medianCallsBeforeFirstWrite, 8);
@@ -393,7 +394,7 @@ test("GET /api/v1/apps/:name/telemetry answers 500, never a partial body, when t
   const originalError = console.error;
   console.error = () => {};
   try {
-    await handleApi(mkReq("GET", "/api/v1/apps/demo/telemetry"), r, deps({ telemetryAnalysis: () => drifted }));
+    await routeApi(mkReq("GET", "/api/v1/apps/demo/telemetry"), r, deps({ telemetryAnalysis: () => drifted }));
   } finally {
     console.error = originalError;
   }
@@ -403,7 +404,7 @@ test("GET /api/v1/apps/:name/telemetry answers 500, never a partial body, when t
 test("GET /trends?format=csv returns a flat CSV", async () => {
   const trends = (app: string) => toTrendsView({ app, outcomes: [], now: "2026-06-14T00:00:00Z" });
   const r = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/apps/demo/trends?format=csv"), r, deps({ trends }));
+  await routeApi(mkReq("GET", "/api/v1/apps/demo/trends?format=csv"), r, deps({ trends }));
   assert.equal(r.status, 200);
   assert.match(r.body, /^metric,current,previous/);
 });
@@ -422,7 +423,7 @@ test("GET /api/runs/:id sanitizes logs/cases/note before egress", async () => {
     at: "t",
   };
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/runs/r1"), res, deps({ getRecord: () => leaky }));
+  await routeApi(mkReq("GET", "/api/runs/r1"), res, deps({ getRecord: () => leaky }));
   assert.equal(res.status, 200);
   assert.doesNotMatch(res.body, /ghp_AAAA|ghp_BBBB|ghp_CCCC|ghp_DDDD/, "logs/cases/note/network errors must be redacted on egress");
 });
@@ -437,14 +438,14 @@ test("GET /api/runs/:id: a null/absent case detail does not 500 the contract (eg
     logs: [], at: "t",
   } as unknown as RunRecord;
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/runs/r1"), res, deps({ getRecord: () => record }));
+  await routeApi(mkReq("GET", "/api/runs/r1"), res, deps({ getRecord: () => record }));
   assert.equal(res.status, 200, "a null-detail case must not 500 the contract");
   assert.doesNotMatch(res.body, /"detail":\s*null/, "null detail must be omitted, not serialized");
 });
 
 test("POST /api/runs with a sha enqueues and returns 202", async () => {
   const res = mkRes();
-  const ok = await handleApi(mkReq("POST", "/api/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff" })), res, deps());
+  const ok = await routeApi(mkReq("POST", "/api/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff" })), res, deps());
   assert.equal(ok, true);
   assert.equal(res.status, 202);
   assert.match(res.body, /run-xyz/);
@@ -452,7 +453,7 @@ test("POST /api/runs with a sha enqueues and returns 202", async () => {
 
 test("POST /api/v1/runs is served and its response validates against the contract", async () => {
   const res = mkRes();
-  const ok = await handleApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e" })), res, deps());
+  const ok = await routeApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e" })), res, deps());
   assert.equal(ok, true);
   assert.equal(res.status, 202);
   CreateRunResultSchema.parse(JSON.parse(res.body));
@@ -461,7 +462,7 @@ test("POST /api/v1/runs is served and its response validates against the contrac
 test("POST /api/v1/runs forwards a baseSha to the enqueue so the run's diff spans baseSha..sha", async () => {
   let seenBaseSha: string | undefined;
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", baseSha: "def5678", mode: "diff", target: "e2e" })),
     res,
     deps({ enqueue: (_app, _sha, _target, _mode, _guidance, _shadow, _commits, _triggerRepo, baseSha) => { seenBaseSha = baseSha; return "run-range"; } }),
@@ -473,7 +474,7 @@ test("POST /api/v1/runs forwards a baseSha to the enqueue so the run's diff span
 test("POST /api/v1/runs without a baseSha enqueues a plain single-commit run", async () => {
   let seenBaseSha: string | undefined = "sentinel";
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e" })),
     res,
     deps({ enqueue: (_app, _sha, _target, _mode, _guidance, _shadow, _commits, _triggerRepo, baseSha) => { seenBaseSha = baseSha; return "run-plain"; } }),
@@ -485,7 +486,7 @@ test("POST /api/v1/runs without a baseSha enqueues a plain single-commit run", a
 test("POST /api/v1/runs rejects a baseSha that is not 7-40 hex characters (nothing is enqueued)", async () => {
   let enqueued = false;
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", baseSha: "--upload-pack=evil", mode: "diff", target: "e2e" })),
     res,
     deps({ enqueue: () => { enqueued = true; return "run-bad"; } }),
@@ -498,7 +499,7 @@ test("POST /api/v1/runs rejects a baseSha that is not 7-40 hex characters (nothi
 test("POST /api/runs accepts context mode", async () => {
   let seenMode = "";
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("POST", "/api/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "context" })),
     res,
     deps({ enqueue: (_app, _sha, _target, mode) => { seenMode = mode; return "run-context"; } }),
@@ -510,7 +511,7 @@ test("POST /api/runs accepts context mode", async () => {
 test("POST /api/runs with a ref resolves it to a sha", async () => {
   let seen = "";
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("POST", "/api/runs", JSON.stringify({ app: "demo", ref: "main" })),
     res,
     deps({
@@ -526,20 +527,20 @@ test("POST /api/runs with a ref resolves it to a sha", async () => {
 
 test("POST /api/runs without 'app' → 400", async () => {
   const res = mkRes();
-  await handleApi(mkReq("POST", "/api/runs", JSON.stringify({ sha: "abc1234" })), res, deps());
+  await routeApi(mkReq("POST", "/api/runs", JSON.stringify({ sha: "abc1234" })), res, deps());
   assert.equal(res.status, 400);
 });
 
 test("POST /api/runs for an unknown app → 404", async () => {
   const res = mkRes();
-  await handleApi(mkReq("POST", "/api/runs", JSON.stringify({ app: "ghost", sha: "abc1234" })), res, deps());
+  await routeApi(mkReq("POST", "/api/runs", JSON.stringify({ app: "ghost", sha: "abc1234" })), res, deps());
   assert.equal(res.status, 404);
 });
 
 test("POST /api/runs without sha or ref defaults to the app base branch (TUI launch)", async () => {
   let seen = "";
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("POST", "/api/runs", JSON.stringify({ app: "demo" })),
     res,
     deps({
@@ -556,7 +557,7 @@ test("POST /api/runs without sha or ref defaults to the app base branch (TUI lau
 test("POST /api/runs honors a configured baseBranch when no sha/ref is given", async () => {
   let seen = "";
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("POST", "/api/runs", JSON.stringify({ app: "demo" })),
     res,
     deps({
@@ -573,7 +574,7 @@ test("POST /api/runs honors a configured baseBranch when no sha/ref is given", a
 
 test("a failing resolveRef surfaces a 400 with the reason", async () => {
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("POST", "/api/runs", JSON.stringify({ app: "demo", ref: "ghost" })),
     res,
     deps({ resolveRef: async () => { throw new Error("cannot resolve ref 'ghost'"); } }),
@@ -584,13 +585,13 @@ test("a failing resolveRef surfaces a 400 with the reason", async () => {
 
 test("GET /api/runs requires ?app", async () => {
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/runs"), res, deps());
+  await routeApi(mkReq("GET", "/api/runs"), res, deps());
   assert.equal(res.status, 400);
 });
 
 test("GET /api/runs/:id → 404 when missing", async () => {
   const res = mkRes();
-  const ok = await handleApi(mkReq("GET", "/api/runs/none"), res, deps());
+  const ok = await routeApi(mkReq("GET", "/api/runs/none"), res, deps());
   assert.equal(ok, true);
   assert.equal(res.status, 404);
 });
@@ -598,7 +599,7 @@ test("GET /api/runs/:id → 404 when missing", async () => {
 test("GET /api/v1/runs/:id is served and validates RunRecord output", async () => {
   const record: RunRecord = { id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status: "done", verdict: "pass", cases: [], logs: [], at: "t" };
   const res = mkRes();
-  const ok = await handleApi(mkReq("GET", "/api/v1/runs/r1"), res, deps({ getRecord: () => record }));
+  const ok = await routeApi(mkReq("GET", "/api/v1/runs/r1"), res, deps({ getRecord: () => record }));
   assert.equal(ok, true);
   assert.equal(res.status, 200);
   RunRecordSchema.parse(JSON.parse(res.body));
@@ -613,7 +614,7 @@ test("GET /api/v1/runs/:id/events replays RunEvents after Last-Event-ID as SSE",
   const req = mkReq("GET", "/api/v1/runs/r1/events");
   req.headers["last-event-id"] = "0";
 
-  const ok = await handleApi(req, res, deps({ getRecord: () => record, runEvents: events }));
+  const ok = await routeApi(req, res, deps({ getRecord: () => record, runEvents: events }));
 
   assert.equal(ok, true);
   assert.equal(res.status, 200);
@@ -628,14 +629,14 @@ test("GET /api/v1/runs/:id/events replays RunEvents after Last-Event-ID as SSE",
 
 test("GET /api/apps lists configured apps", async () => {
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/apps"), res, deps());
+  await routeApi(mkReq("GET", "/api/apps"), res, deps());
   assert.equal(res.status, 200);
   assert.match(res.body, /demo/);
 });
 
 test("GET /api/v1/apps validates AppView output against the contract", async () => {
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/apps"), res, deps());
+  await routeApi(mkReq("GET", "/api/v1/apps"), res, deps());
   assert.equal(res.status, 200);
   const body = JSON.parse(res.body);
   assert.deepEqual(body.map((app: unknown) => AppViewSchema.parse(app).name), ["demo"]);
@@ -644,7 +645,7 @@ test("GET /api/v1/apps validates AppView output against the contract", async () 
 test("GET /api/queue reports pending count and the running id", async () => {
   const running: RunRecord = { id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status: "running", cases: [], logs: [], at: "t" };
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/queue"), res, deps({ currentRun: () => running }));
+  await routeApi(mkReq("GET", "/api/queue"), res, deps({ currentRun: () => running }));
   assert.equal(res.status, 200);
   assert.match(res.body, /"pending":2/);
   assert.match(res.body, /"id":"r1"/);
@@ -653,14 +654,14 @@ test("GET /api/queue reports pending count and the running id", async () => {
 test("GET /api/v1/queue validates QueueStatus output against the contract", async () => {
   const running: RunRecord = { id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status: "running", cases: [], logs: [], at: "t" };
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/queue"), res, deps({ currentRun: () => running }));
+  await routeApi(mkReq("GET", "/api/v1/queue"), res, deps({ currentRun: () => running }));
   assert.equal(res.status, 200);
   QueueStatusSchema.parse(JSON.parse(res.body));
 });
 
 test("GET /api/health → 200", async () => {
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/health"), res, deps());
+  await routeApi(mkReq("GET", "/api/health"), res, deps());
   assert.equal(res.status, 200);
 });
 
@@ -675,7 +676,7 @@ const telemetryHealth: TelemetryHealth = {
 
 test("GET /api/v1/telemetry/health returns the health with schemaVersion 1, validated by the contract schema", async () => {
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth }));
+  await routeApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth }));
   assert.equal(res.status, 200);
   const body = TelemetryHealthSchema.parse(JSON.parse(res.body));
   assert.equal(body.schemaVersion, 1);
@@ -685,7 +686,7 @@ test("GET /api/v1/telemetry/health returns the health with schemaVersion 1, vali
 test("GET /api/v1/telemetry/health serves the score sink's faults and last export, and the otlp block advertises no faults", async () => {
   const sink = { configured: true, faults: 4, lastExportAt: "2026-10-17T10:05:00.000Z", lastError: "score configs are not ensured" };
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => ({ ...telemetryHealth, scoreSink: sink }) }));
+  await routeApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => ({ ...telemetryHealth, scoreSink: sink }) }));
   const raw = JSON.parse(res.body) as { scoreSink: Record<string, unknown>; otlp: Record<string, unknown> };
   assert.deepEqual(raw.scoreSink, sink);
   assert.equal("faults" in raw.otlp, false);
@@ -694,45 +695,45 @@ test("GET /api/v1/telemetry/health serves the score sink's faults and last expor
 test("GET /api/v1/telemetry/health carries the host block when host health is wired, and omits it otherwise", async () => {
   const host = { suspends: 2, lastSuspendAt: "2026-10-17T09:00:00.000Z", lastSuspendMs: 1_920_000, blockedLoops: 1, eventLoopP99Ms: 42.5, zombies: 0 };
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth, hostHealth: () => host }));
+  await routeApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth, hostHealth: () => host }));
   assert.equal(res.status, 200);
   assert.deepEqual(TelemetryHealthSchema.parse(JSON.parse(res.body)).host, host);
   const bare = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), bare, deps({ telemetryHealth: () => telemetryHealth }));
+  await routeApi(mkReq("GET", "/api/v1/telemetry/health"), bare, deps({ telemetryHealth: () => telemetryHealth }));
   assert.equal(JSON.parse(bare.body).host, undefined);
   const minimal = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), minimal, deps({ telemetryHealth: () => telemetryHealth, hostHealth: () => ({ suspends: 0, blockedLoops: 0 }) }));
+  await routeApi(mkReq("GET", "/api/v1/telemetry/health"), minimal, deps({ telemetryHealth: () => telemetryHealth, hostHealth: () => ({ suspends: 0, blockedLoops: 0 }) }));
   assert.deepEqual(JSON.parse(minimal.body).host, { suspends: 0, blockedLoops: 0 });
 });
 
 test("a host health that throws does not take the telemetry health down", async () => {
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth, hostHealth: () => { throw new Error("boom"); } }));
+  await routeApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth, hostHealth: () => { throw new Error("boom"); } }));
   assert.equal(res.status, 200);
   assert.equal(JSON.parse(res.body).host, undefined);
 });
 
 test("GET /api/telemetry/health answers on the unversioned path too", async () => {
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth }));
+  await routeApi(mkReq("GET", "/api/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth }));
   assert.equal(res.status, 200);
 });
 
 test("GET /api/v1/telemetry/health is 501 with schemaVersion when telemetry is not wired", async () => {
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps());
+  await routeApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps());
   assert.equal(res.status, 501);
   assert.equal(JSON.parse(res.body).schemaVersion, 1);
 });
 
 test("GET /api/health carries a telemetry summary without secrets, and omits it when not wired", async () => {
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/health"), res, deps({ telemetryHealth: () => ({ ...telemetryHealth, otlp: { configured: true, lastError: "ECONNREFUSED http://internal:4318", dropped: 3 } }) }));
+  await routeApi(mkReq("GET", "/api/health"), res, deps({ telemetryHealth: () => ({ ...telemetryHealth, otlp: { configured: true, lastError: "ECONNREFUSED http://internal:4318", dropped: 3 } }) }));
   const body = JSON.parse(res.body);
   assert.deepEqual(body.telemetry, { mode: "local", ledgerOk: true, otlpConfigured: true });
   assert.ok(!res.body.includes("internal:4318"));
   const bare = mkRes();
-  await handleApi(mkReq("GET", "/api/health"), bare, deps());
+  await routeApi(mkReq("GET", "/api/health"), bare, deps());
   assert.equal(JSON.parse(bare.body).telemetry, undefined);
 });
 
@@ -746,33 +747,33 @@ const downBackends = {
 
 test("GET /api/v1/telemetry/health carries the verified backends, and still answers 200 when one is down", async () => {
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth, backendHealth: { get: async () => downBackends, peek: () => downBackends } }));
+  await routeApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth, backendHealth: { get: async () => downBackends, peek: () => downBackends } }));
   assert.equal(res.status, 200);
   const body = TelemetryHealthSchema.parse(JSON.parse(res.body));
   assert.equal(body.backends?.ok, false);
   assert.equal(body.backends?.loki.status, "down");
   assert.match(body.backends?.loki.reason ?? "", /Ingester is shutting down/);
   const bare = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), bare, deps({ telemetryHealth: () => telemetryHealth }));
+  await routeApi(mkReq("GET", "/api/v1/telemetry/health"), bare, deps({ telemetryHealth: () => telemetryHealth }));
   assert.equal(JSON.parse(bare.body).backends, undefined);
 });
 
 test("a backend probe that throws does not take the telemetry health down", async () => {
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth, backendHealth: { get: async () => { throw new Error("boom"); }, peek: () => undefined } }));
+  await routeApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth, backendHealth: { get: async () => { throw new Error("boom"); }, peek: () => undefined } }));
   assert.equal(res.status, 200);
   assert.equal(JSON.parse(res.body).backends, undefined);
 });
 
 test("GET /api/health surfaces a degraded backend as a flag without its reason, and stays 200", async () => {
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/health"), res, deps({ telemetryHealth: () => telemetryHealth, backendHealth: { get: async () => downBackends, peek: () => downBackends } }));
+  await routeApi(mkReq("GET", "/api/health"), res, deps({ telemetryHealth: () => telemetryHealth, backendHealth: { get: async () => downBackends, peek: () => downBackends } }));
   assert.equal(res.status, 200);
   const body = JSON.parse(res.body);
   assert.equal(body.telemetry.backendsOk, false);
   assert.ok(!res.body.includes("Ingester"));
   const before = mkRes();
-  await handleApi(mkReq("GET", "/api/health"), before, deps({ telemetryHealth: () => telemetryHealth, backendHealth: { get: async () => downBackends, peek: () => undefined } }));
+  await routeApi(mkReq("GET", "/api/health"), before, deps({ telemetryHealth: () => telemetryHealth, backendHealth: { get: async () => downBackends, peek: () => undefined } }));
   assert.equal("backendsOk" in JSON.parse(before.body).telemetry, false);
 });
 
@@ -796,7 +797,7 @@ const publicAgentConfig = {
 
 test("GET /api/agent/config returns sanitized runtime config", async () => {
   const res = mkRes();
-  const ok = await handleApi(mkReq("GET", "/api/agent/config"), res, deps({
+  const ok = await routeApi(mkReq("GET", "/api/agent/config"), res, deps({
     agentRuntime: {
       getConfig: async () => publicAgentConfig,
       applyConfig: async () => ({ config: publicAgentConfig, restarted: [] }),
@@ -815,7 +816,7 @@ test("GET /api/agent/config returns sanitized runtime config", async () => {
 
 test("GET /api/agent/models returns models for one provider", async () => {
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/agent/models?provider=opencode"), res, deps({
+  await routeApi(mkReq("GET", "/api/agent/models?provider=opencode"), res, deps({
     agentRuntime: {
       getConfig: async () => publicAgentConfig,
       applyConfig: async () => ({ config: publicAgentConfig, restarted: [] }),
@@ -830,7 +831,7 @@ test("GET /api/agent/models returns models for one provider", async () => {
 test("PUT /api/agent/config applies runtime config without echoing api keys", async () => {
   const res = mkRes();
   let seen: unknown;
-  await handleApi(
+  await routeApi(
     mkReq("PUT", "/api/agent/config", JSON.stringify({ apiKeys: { opencode: "sk-opencode-secret" } })),
     res,
     deps({
@@ -854,7 +855,7 @@ test("PUT /api/agent/config applies runtime config without echoing api keys", as
 test("PUT /api/agent/config refuses a field the runtime no longer reads instead of ignoring it", async () => {
   const res = mkRes();
   let applied = false;
-  await handleApi(
+  await routeApi(
     mkReq("PUT", "/api/agent/config", JSON.stringify({ mode: "dual" })),
     res,
     deps({
@@ -878,7 +879,7 @@ test("PUT /api/agent/config blocks while a run is active", async () => {
   const res = mkRes();
   let applied = false;
   const running: RunRecord = { id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status: "running", cases: [], logs: [], at: "t" };
-  await handleApi(
+  await routeApi(
     mkReq("PUT", "/api/agent/config", JSON.stringify({ assignments: {} })),
     res,
     deps({
@@ -900,7 +901,7 @@ test("PUT /api/agent/config blocks while a run is active", async () => {
 
 test("POST /api/agent/restart restarts one provider", async () => {
   const res = mkRes();
-  await handleApi(mkReq("POST", "/api/agent/restart", JSON.stringify({ provider: "opencode" })), res, deps({
+  await routeApi(mkReq("POST", "/api/agent/restart", JSON.stringify({ provider: "opencode" })), res, deps({
     agentRuntime: {
       getConfig: async () => publicAgentConfig,
       applyConfig: async () => ({ config: publicAgentConfig, restarted: [] }),
@@ -919,7 +920,7 @@ test("POST /api/runs/:id/ask returns the assistant answer", async () => {
     assert.equal(input.question, "why?");
     return "the checkout timed out";
   };
-  const ok = await handleApi(
+  const ok = await routeApi(
     mkReq("POST", "/api/runs/p1/ask", JSON.stringify({ question: "why?" })),
     res,
     deps({ getRecord: () => parentRec, ask }),
@@ -931,7 +932,7 @@ test("POST /api/runs/:id/ask returns the assistant answer", async () => {
 
 test("POST /api/runs/:id/ask for a missing run → 404", async () => {
   const res = mkRes();
-  const ok = await handleApi(mkReq("POST", "/api/runs/none/ask", JSON.stringify({ question: "why?" })), res, deps());
+  const ok = await routeApi(mkReq("POST", "/api/runs/none/ask", JSON.stringify({ question: "why?" })), res, deps());
   assert.equal(ok, true);
   assert.equal(res.status, 404);
 });
@@ -939,7 +940,7 @@ test("POST /api/runs/:id/ask for a missing run → 404", async () => {
 test("POST /api/runs/:id/ask without 'question' → 400", async () => {
   const res = mkRes();
   const ask = async () => "unreachable";
-  const ok = await handleApi(
+  const ok = await routeApi(
     mkReq("POST", "/api/runs/p1/ask", JSON.stringify({})),
     res,
     deps({ getRecord: () => parentRec, ask }),
@@ -950,7 +951,7 @@ test("POST /api/runs/:id/ask without 'question' → 400", async () => {
 
 test("POST /api/runs/:id/ask when ask is not wired → 501", async () => {
   const res = mkRes();
-  const ok = await handleApi(
+  const ok = await routeApi(
     mkReq("POST", "/api/runs/p1/ask", JSON.stringify({ question: "why?" })),
     res,
     deps({ getRecord: () => parentRec, ask: undefined }),
@@ -962,7 +963,7 @@ test("POST /api/runs/:id/ask when ask is not wired → 501", async () => {
 test("POST /api/runs/:id/ask with assistant failure → 502", async () => {
   const res = mkRes();
   const ask = async () => { throw new Error("model unavailable"); };
-  const ok = await handleApi(
+  const ok = await routeApi(
     mkReq("POST", "/api/runs/p1/ask", JSON.stringify({ question: "why?" })),
     res,
     deps({ getRecord: () => parentRec, ask }),
@@ -974,14 +975,14 @@ test("POST /api/runs/:id/ask with assistant failure → 502", async () => {
 
 test("an unmatched route returns false (left for the webhook/404 path)", async () => {
   const res = mkRes();
-  const ok = await handleApi(mkReq("GET", "/nope"), res, deps());
+  const ok = await routeApi(mkReq("GET", "/nope"), res, deps());
   assert.equal(ok, false);
 });
 
 test("DELETE /api/runs/:id cancels a running run", async () => {
   const running: RunRecord = { id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status: "running", cases: [], logs: [], at: "t" };
   const res = mkRes();
-  const ok = await handleApi(
+  const ok = await routeApi(
     mkReq("DELETE", "/api/runs/r1"),
     res,
     deps({ getRecord: () => running, cancelRun: () => true }),
@@ -993,7 +994,7 @@ test("DELETE /api/runs/:id cancels a running run", async () => {
 
 test("DELETE /api/runs/:id for a missing run → 404", async () => {
   const res = mkRes();
-  const ok = await handleApi(
+  const ok = await routeApi(
     mkReq("DELETE", "/api/runs/none"),
     res,
     deps({ cancelRun: () => false }),
@@ -1005,7 +1006,7 @@ test("DELETE /api/runs/:id for a missing run → 404", async () => {
 test("DELETE /api/runs/:id when cancel is not wired → 501", async () => {
   const running: RunRecord = { id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status: "running", cases: [], logs: [], at: "t" };
   const res = mkRes();
-  const ok = await handleApi(
+  const ok = await routeApi(
     mkReq("DELETE", "/api/runs/r1"),
     res,
     deps({ getRecord: () => running, cancelRun: undefined }),
@@ -1017,7 +1018,7 @@ test("DELETE /api/runs/:id when cancel is not wired → 501", async () => {
 test("DELETE /api/runs/:id for a non-running run → 409", async () => {
   const done: RunRecord = { id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status: "done", verdict: "pass", cases: [], logs: [], at: "t" };
   const res = mkRes();
-  const ok = await handleApi(
+  const ok = await routeApi(
     mkReq("DELETE", "/api/runs/r1"),
     res,
     deps({ getRecord: () => done, cancelRun: () => false }),
@@ -1029,14 +1030,18 @@ test("DELETE /api/runs/:id for a non-running run → 409", async () => {
 test("POST /api/runs/:id/continue enqueues a continuation of the failed cases → 202", async () => {
   let received: { parent: string; cases?: string[] } | null = null;
   const res = mkRes();
-  const ok = await handleApi(
+  const ok = await routeApi(
     mkReq("POST", "/api/runs/p1/continue", JSON.stringify({ cases: ["checkout"], guidance: "fix the selector" })),
     res,
     deps({
       getRecord: () => parentRec,
-      continueRun: (parent, cases) => {
-        received = { parent, cases };
-        return "run-cont";
+      continuation: {
+        maxDepth: 5,
+        depth: () => 0,
+        enqueue: ({ parent, fixCases }) => {
+          received = { parent: parent.id, cases: fixCases.map((c) => c.name) };
+          return "run-cont";
+        },
       },
     }),
   );
@@ -1048,20 +1053,20 @@ test("POST /api/runs/:id/continue enqueues a continuation of the failed cases �
 
 test("POST /api/runs/:id/continue with a non-failed case → 409", async () => {
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("POST", "/api/runs/p1/continue", JSON.stringify({ cases: ["login"] })),
     res,
-    deps({ getRecord: () => parentRec, continueRun: () => "x" }),
+    deps({ getRecord: () => parentRec, continuation: { maxDepth: 5, depth: () => 0, enqueue: () => "x" } }),
   );
   assert.equal(res.status, 409);
 });
 
 test("POST /api/runs/:id/continue when continue is unavailable → 501", async () => {
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("POST", "/api/runs/p1/continue", "{}"),
     res,
-    deps({ getRecord: () => parentRec, continueRun: undefined }),
+    deps({ getRecord: () => parentRec, continuation: undefined }),
   );
   assert.equal(res.status, 501);
 });
@@ -1069,17 +1074,44 @@ test("POST /api/runs/:id/continue when continue is unavailable → 501", async (
 test("POST /api/runs/:id/continue on a run with no failures → 409", async () => {
   const green: RunRecord = { ...parentRec, cases: [{ name: "login", status: "pass" }] };
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("POST", "/api/runs/p1/continue", "{}"),
     res,
-    deps({ getRecord: () => green, continueRun: () => "x" }),
+    deps({ getRecord: () => green, continuation: { maxDepth: 5, depth: () => 0, enqueue: () => "x" } }),
   );
   assert.equal(res.status, 409);
 });
 
+test("POST /api/runs/:id/continue past the depth cap is refused without enqueueing", async () => {
+  let enqueued = 0;
+  const res = mkRes();
+  await routeApi(
+    mkReq("POST", "/api/runs/p1/continue", "{}"),
+    res,
+    deps({ getRecord: () => parentRec, continuation: { maxDepth: 2, depth: () => 2, enqueue: () => { enqueued++; return "x"; } } }),
+  );
+  assert.equal(res.status, 503);
+  assert.equal(enqueued, 0);
+});
+
+test("a JSON null body is a request with no fields, not a server fault", async () => {
+  for (const path of ["/api/runs", "/api/runs/p1/ask", "/api/help"]) {
+    const res = mkRes();
+    await routeApi(mkReq("POST", path, "null"), res, deps({ getRecord: () => parentRec, ask: async () => "a" }));
+    assert.equal(res.status, 400, path);
+  }
+});
+
+test("POST /api/runs/:id/continue with a JSON null body is invalid JSON", async () => {
+  const res = mkRes();
+  await routeApi(mkReq("POST", "/api/runs/p1/continue", "null"), res, deps({ getRecord: () => parentRec, continuation: { maxDepth: 5, depth: () => 0, enqueue: () => "x" } }));
+  assert.equal(res.status, 400);
+  assert.equal(JSON.parse(res.body).error, "invalid JSON");
+});
+
 test("POST /api/apps delegates to createApp and 201s on success", async () => {
   const res = mkRes();
-  const ok = await handleApi(
+  const ok = await routeApi(
     mkReq("POST", "/api/apps", JSON.stringify({ repo: "org/shop-front", name: "shop" })),
     res,
     deps({ createApp: async (input) => ({ ok: true, name: input.name, path: "/x/shop.yaml", envApplied: ["K"] }) }),
@@ -1093,14 +1125,14 @@ test("POST /api/apps delegates to createApp and 201s on success", async () => {
 
 test("GET /api/v1/apps/:name validates AppView output against the contract", async () => {
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/apps/demo"), res, deps());
+  await routeApi(mkReq("GET", "/api/v1/apps/demo"), res, deps());
   assert.equal(res.status, 200);
   assert.equal(AppViewSchema.parse(JSON.parse(res.body)).name, "demo");
 });
 
 test("POST /api/apps maps a validation failure to 422", async () => {
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("POST", "/api/apps", JSON.stringify({ repo: "org/x" })),
     res,
     deps({ createApp: async () => ({ ok: false, errors: ["bad url"] }) }),
@@ -1112,13 +1144,13 @@ test("POST /api/apps maps a validation failure to 422", async () => {
 
 test("POST /api/apps without the dep returns 501", async () => {
   const res = mkRes();
-  await handleApi(mkReq("POST", "/api/apps", JSON.stringify({ repo: "org/x" })), res, deps({}));
+  await routeApi(mkReq("POST", "/api/apps", JSON.stringify({ repo: "org/x" })), res, deps({}));
   assert.equal(res.status, 501);
 });
 
 test("app onboarding error responses redact credentials from thrown errors", async () => {
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("POST", "/api/apps", JSON.stringify({ repo: "org/x" })),
     res,
     deps({ createApp: async () => { throw new Error("upstream failed: Authorization: Bearer secret-token"); } }),
@@ -1131,7 +1163,7 @@ test("app onboarding error responses redact credentials from thrown errors", asy
 
 test("POST /api/apps with dryRun or validateOnly returns 200 (not 201)", async () => {
   const dry = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("POST", "/api/apps", JSON.stringify({ repo: "org/x", dryRun: true })),
     dry,
     deps({ createApp: async () => ({ ok: true, yaml: "name: x" }) }),
@@ -1139,7 +1171,7 @@ test("POST /api/apps with dryRun or validateOnly returns 200 (not 201)", async (
   assert.equal(dry.status, 200);
 
   const va = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("POST", "/api/apps", JSON.stringify({ repo: "org/x", validateOnly: true })),
     va,
     deps({ createApp: async () => ({ ok: true, repoInfo: { name: "x", fullName: "org/x", private: false, defaultBranch: "main", description: null } }) }),
@@ -1150,7 +1182,7 @@ test("POST /api/apps with dryRun or validateOnly returns 200 (not 201)", async (
 test("DELETE /api/apps/:name passes purge and 200s", async () => {
   let got: { name: string; purge: boolean } | undefined;
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("DELETE", "/api/apps/shop?purge=1"),
     res,
     deps({ deleteApp: (name, purge) => { got = { name, purge }; return { removed: [`config:${name}`] }; } }),
@@ -1163,7 +1195,7 @@ test("DELETE /api/apps/:name passes purge and 200s", async () => {
 test("DELETE /api/apps/:name without purge passes purge=false", async () => {
   let got: { name: string; purge: boolean } | undefined;
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("DELETE", "/api/apps/shop"),
     res,
     deps({ deleteApp: (name, purge) => { got = { name, purge }; return { removed: [`config:${name}`] }; } }),
@@ -1174,7 +1206,7 @@ test("DELETE /api/apps/:name without purge passes purge=false", async () => {
 
 test("DELETE /api/apps/:name on a missing app returns 404", async () => {
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("DELETE", "/api/apps/shop"),
     res,
     deps({ deleteApp: () => { throw new AppNotFoundError("shop"); } }),
@@ -1184,14 +1216,14 @@ test("DELETE /api/apps/:name on a missing app returns 404", async () => {
 
 test("DELETE /api/apps/:name without the dep returns 501", async () => {
   const res = mkRes();
-  await handleApi(mkReq("DELETE", "/api/apps/shop"), res, deps({}));
+  await routeApi(mkReq("DELETE", "/api/apps/shop"), res, deps({}));
   assert.equal(res.status, 501);
 });
 
 test("PUT /api/apps/:name delegates to updateApp and 200s", async () => {
   let got: { name: string; body: unknown } | undefined;
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("PUT", "/api/apps/shop", JSON.stringify({ baseUrl: "https://new.dev.io" })),
     res,
     deps({
@@ -1208,7 +1240,7 @@ test("PUT /api/apps/:name delegates to updateApp and 200s", async () => {
 
 test("GET /api/v1/repos validates repo list output against the contract", async () => {
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("GET", "/api/v1/repos?owner=org&page=2"),
     res,
     deps({ listRepos: async (owner, page) => ({
@@ -1222,7 +1254,7 @@ test("GET /api/v1/repos validates repo list output against the contract", async 
 
 test("PUT /api/apps/:name maps validation failure to 422", async () => {
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("PUT", "/api/apps/shop", JSON.stringify({ baseUrl: "bad" })),
     res,
     deps({
@@ -1236,13 +1268,13 @@ test("PUT /api/apps/:name maps validation failure to 422", async () => {
 
 test("PUT /api/apps/:name without the dep returns 501", async () => {
   const res = mkRes();
-  await handleApi(mkReq("PUT", "/api/apps/shop", JSON.stringify({ baseUrl: "https://x" })), res, deps({}));
+  await routeApi(mkReq("PUT", "/api/apps/shop", JSON.stringify({ baseUrl: "https://x" })), res, deps({}));
   assert.equal(res.status, 501);
 });
 
 test("POST /api/auth/login exchanges a GitHub token for a session", async () => {
   const res = mkRes();
-  const ok = await handleApi(
+  const ok = await routeApi(
     mkReq("POST", "/api/v1/auth/login", JSON.stringify({ githubToken: "gho_x" })),
     res,
     deps({ login: async () => ({ ok: true, token: "sess.jwt.sig", username: "alice", expiresAt: "2026-06-15T00:00:00Z" }) }),
@@ -1257,7 +1289,7 @@ test("POST /api/auth/login exchanges a GitHub token for a session", async () => 
 
 test("POST /api/auth/login maps a rejected GitHub token to 401", async () => {
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("POST", "/api/auth/login", JSON.stringify({ githubToken: "bad" })),
     res,
     deps({ login: async () => ({ ok: false, reason: "identity" }) }),
@@ -1267,7 +1299,7 @@ test("POST /api/auth/login maps a rejected GitHub token to 401", async () => {
 
 test("POST /api/auth/login maps a non-collaborator to 403", async () => {
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("POST", "/api/auth/login", JSON.stringify({ githubToken: "gho_x" })),
     res,
     deps({ login: async () => ({ ok: false, reason: "forbidden" }) }),
@@ -1277,7 +1309,7 @@ test("POST /api/auth/login maps a non-collaborator to 403", async () => {
 
 test("POST /api/auth/login without a githubToken is 400", async () => {
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("POST", "/api/auth/login", JSON.stringify({})),
     res,
     deps({ login: async () => ({ ok: true, token: "x", username: "y", expiresAt: "z" }) }),
@@ -1287,13 +1319,13 @@ test("POST /api/auth/login without a githubToken is 400", async () => {
 
 test("POST /api/auth/login without the dep wired returns 501", async () => {
   const res = mkRes();
-  await handleApi(mkReq("POST", "/api/auth/login", JSON.stringify({ githubToken: "gho_x" })), res, deps({}));
+  await routeApi(mkReq("POST", "/api/auth/login", JSON.stringify({ githubToken: "gho_x" })), res, deps({}));
   assert.equal(res.status, 501);
 });
 
 test("GET /api/auth/local mints a session when the dep returns one", async () => {
   const res = mkRes();
-  const ok = await handleApi(
+  const ok = await routeApi(
     mkReq("GET", "/api/v1/auth/local"),
     res,
     deps({
@@ -1314,7 +1346,7 @@ test("GET /api/auth/local mints a session when the dep returns one", async () =>
 
 test("GET /api/auth/local returns 404 when the dep refuses (not trusted)", async () => {
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/auth/local"), res, deps({ localLogin: () => null }));
+  await routeApi(mkReq("GET", "/api/v1/auth/local"), res, deps({ localLogin: () => null }));
   assert.equal(res.status, 404);
 });
 
@@ -1327,7 +1359,7 @@ async function localLoginFromLoopbackPeer(host: string): Promise<{ status: numbe
   const req = mkReq("GET", "/api/v1/auth/local", undefined, { host });
   req.socket = { remoteAddress: "127.0.0.1" };
   const res = mkRes();
-  await handleApi(req, res, deps({ localLogin: createLocalConsoleLogin({}, LOCAL_LOGIN_SECRET, 3600) }));
+  await routeApi(req, res, deps({ localLogin: createLocalConsoleLogin({}, LOCAL_LOGIN_SECRET, 3600) }));
   return { status: res.status, body: res.body };
 }
 
@@ -1347,7 +1379,7 @@ test("GET /api/auth/local refuses a loopback peer asking with a foreign Host (DN
 
 test("GET /api/auth/local returns 404 when the dep is not wired", async () => {
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/auth/local"), res, deps({}));
+  await routeApi(mkReq("GET", "/api/v1/auth/local"), res, deps({}));
   assert.equal(res.status, 404);
 });
 
@@ -1400,7 +1432,7 @@ test("the SSE stream ends when the run goes terminal even without a run.verdict 
   const res = mkRes();
   const ended = endOf(res);
 
-  await handleApi(req, res, deps({ getRecord: () => record(), runEvents: outOfProcessStore([]), ssePollMs: 5 }));
+  await routeApi(req, res, deps({ getRecord: () => record(), runEvents: outOfProcessStore([]), ssePollMs: 5 }));
   assert.notEqual(res.writableEnded, true); /* still running → the stream stays open */
 
   status = "done"; /* the run is finalized by the other process in the shared record store */
@@ -1415,7 +1447,7 @@ test("the SSE poll flushes events persisted by another process (the in-process b
   const res = mkRes();
   const flushed = writeOf(res, "step.changed");
 
-  await handleApi(req, res, deps({ getRecord: () => record, runEvents: outOfProcessStore(persisted), ssePollMs: 5 }));
+  await routeApi(req, res, deps({ getRecord: () => record, runEvents: outOfProcessStore(persisted), ssePollMs: 5 }));
 
   /* Another process persists an event AFTER we connected; only the durable poll can surface it. */
   persisted.push({ seq: 0, runId: "r1", ts: 1, body: { type: "step.changed", step: "execute" } } as RunEvent);
@@ -1427,14 +1459,14 @@ test("the SSE poll flushes events persisted by another process (the in-process b
 test("phase-0b: GET /api/runs/:id/turns returns 501 when getAgentTurns is not wired", async () => {
   const record: RunRecord = { id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status: "done", cases: [], logs: [], at: "t" };
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/v1/runs/r1/turns"), res, deps({ getRecord: () => record }));
+  await routeApi(mkReq("GET", "/api/v1/runs/r1/turns"), res, deps({ getRecord: () => record }));
   assert.equal(res.status, 501);
   assert.match(res.body, /not available/i);
 });
 
 test("phase-0b: GET /api/runs/:id/turns returns 404 when the run is not found", async () => {
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("GET", "/api/v1/runs/missing-run/turns"),
     res,
     deps({ getAgentTurns: () => [], getRecord: () => undefined }),
@@ -1471,7 +1503,7 @@ test("phase-0b: GET /api/runs/:id/turns returns the saved turns for the run as a
     },
   ];
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("GET", "/api/v1/runs/r1/turns"),
     res,
     deps({ getRecord: () => record, getAgentTurns: () => stubTurns as any }),
@@ -1506,7 +1538,7 @@ test("phase-0b: GET /api/runs/:id/turns sanitizes prompt_text and output_text be
     },
   ];
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("GET", "/api/v1/runs/r1/turns"),
     res,
     deps({ getRecord: () => record, getAgentTurns: () => stubTurns as any }),
@@ -1525,7 +1557,7 @@ test("phase-0b: GET /api/runs/:id/turns sanitizes prompt_text and output_text be
 test("phase-0b: GET /api/runs/:id/turns returns an empty array when no turns exist for the run", async () => {
   const record: RunRecord = { id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status: "done", cases: [], logs: [], at: "t" };
   const res = mkRes();
-  await handleApi(
+  await routeApi(
     mkReq("GET", "/api/v1/runs/r1/turns"),
     res,
     deps({ getRecord: () => record, getAgentTurns: () => [] }),
@@ -1562,7 +1594,7 @@ function captureBoundariesFake() {
 test("POST /api/apps/:name/boundaries/propose forwards :name into deps.boundaries.propose AND the immediately-following status() poll", async () => {
   const { calls, boundaries } = captureBoundariesFake();
   const res = mkRes();
-  await handleApi(mkReq("POST", "/api/apps/shop/boundaries/propose", "{}"), res, deps({ boundaries }));
+  await routeApi(mkReq("POST", "/api/apps/shop/boundaries/propose", "{}"), res, deps({ boundaries }));
   assert.equal(res.status, 202);
   assert.deepEqual(calls.propose, ["shop"]);
   /* The 202 response body comes from a status() call the handler makes right after propose() —
@@ -1574,7 +1606,7 @@ test("POST /api/apps/:name/boundaries/propose forwards :name into deps.boundarie
 test("GET /api/apps/:name/boundaries/propose/status forwards :name into deps.boundaries.status — proves the handler-to-deps contract is name-scoped, not a shared zero-arg poll", async () => {
   const { calls, boundaries } = captureBoundariesFake();
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/apps/shop/boundaries/propose/status"), res, deps({ boundaries }));
+  await routeApi(mkReq("GET", "/api/apps/shop/boundaries/propose/status"), res, deps({ boundaries }));
   assert.equal(res.status, 200);
   assert.deepEqual(calls.status, ["shop"]);
   const body = JSON.parse(res.body);
@@ -1584,9 +1616,9 @@ test("GET /api/apps/:name/boundaries/propose/status forwards :name into deps.bou
 test("GET /api/apps/:otherName/boundaries/propose/status with a DIFFERENT app name forwards THAT name, not a stale one from a prior call", async () => {
   const { calls, boundaries } = captureBoundariesFake();
   const first = mkRes();
-  await handleApi(mkReq("GET", "/api/apps/shop/boundaries/propose/status"), first, deps({ boundaries }));
+  await routeApi(mkReq("GET", "/api/apps/shop/boundaries/propose/status"), first, deps({ boundaries }));
   const second = mkRes();
-  await handleApi(mkReq("GET", "/api/apps/checkout/boundaries/propose/status"), second, deps({ boundaries }));
+  await routeApi(mkReq("GET", "/api/apps/checkout/boundaries/propose/status"), second, deps({ boundaries }));
 
   assert.deepEqual(calls.status, ["shop", "checkout"]);
   assert.equal(JSON.parse(second.body).app, "checkout");
@@ -1595,7 +1627,7 @@ test("GET /api/apps/:otherName/boundaries/propose/status with a DIFFERENT app na
 test("POST /api/apps/:name/boundaries/confirm forwards :name into deps.boundaries.confirm — the write step must be scoped to the app in the URL", async () => {
   const { calls, boundaries } = captureBoundariesFake();
   const res = mkRes();
-  await handleApi(mkReq("POST", "/api/apps/shop/boundaries/confirm", JSON.stringify({ confirm: true })), res, deps({ boundaries }));
+  await routeApi(mkReq("POST", "/api/apps/shop/boundaries/confirm", JSON.stringify({ confirm: true })), res, deps({ boundaries }));
   assert.equal(res.status, 200);
   assert.deepEqual(calls.confirm, ["shop"]);
 });
@@ -1611,7 +1643,7 @@ test("POST /api/apps/:name/login-bootstrap enqueues the login run at the base br
   const resolved: string[][] = [];
   const bootstrapped: string[][] = [];
   const res = mkRes();
-  await handleApi(mkReq("POST", "/api/apps/demo/login-bootstrap"), res, loginDeps({
+  await routeApi(mkReq("POST", "/api/apps/demo/login-bootstrap"), res, loginDeps({
     resolveRef: async (repo, ref) => { resolved.push([repo, ref]); return "a".repeat(40); },
     bootstrapLogin: (app, sha) => { bootstrapped.push([app, sha]); return "run-login-1"; },
   }));
@@ -1625,39 +1657,39 @@ test("login-bootstrap refuses what has no login to bootstrap: an unknown app (40
   let enqueued = 0;
   const over = { bootstrapLogin: () => { enqueued += 1; return "run-login-1"; } };
   const unknown = mkRes();
-  await handleApi(mkReq("POST", "/api/apps/nope/login-bootstrap"), unknown, loginDeps(over));
+  await routeApi(mkReq("POST", "/api/apps/nope/login-bootstrap"), unknown, loginDeps(over));
   assert.equal(unknown.status, 404);
   const pub = mkRes();
-  await handleApi(mkReq("POST", "/api/apps/pub/login-bootstrap"), pub, loginDeps(over));
+  await routeApi(mkReq("POST", "/api/apps/pub/login-bootstrap"), pub, loginDeps(over));
   assert.equal(pub.status, 409);
   assert.match(JSON.parse(pub.body).error, /form login/);
   const code = mkRes();
-  await handleApi(mkReq("POST", "/api/apps/cli/login-bootstrap"), code, loginDeps(over));
+  await routeApi(mkReq("POST", "/api/apps/cli/login-bootstrap"), code, loginDeps(over));
   assert.equal(code.status, 409);
   assert.equal(enqueued, 0);
 });
 
 test("login-bootstrap answers 501 when the capability is not wired, 503 while shutting down, 400 for a ref that does not resolve and 500 for an enqueue that throws", async () => {
   const none = mkRes();
-  await handleApi(mkReq("POST", "/api/apps/demo/login-bootstrap"), none, loginDeps());
+  await routeApi(mkReq("POST", "/api/apps/demo/login-bootstrap"), none, loginDeps());
   assert.equal(none.status, 501);
 
   const draining = mkRes();
-  await handleApi(mkReq("POST", "/api/apps/demo/login-bootstrap"), draining, loginDeps({ bootstrapLogin: () => "" }));
+  await routeApi(mkReq("POST", "/api/apps/demo/login-bootstrap"), draining, loginDeps({ bootstrapLogin: () => "" }));
   assert.equal(draining.status, 503);
 
   const badRef = mkRes();
-  await handleApi(mkReq("POST", "/api/apps/demo/login-bootstrap"), badRef, loginDeps({ bootstrapLogin: () => "x", resolveRef: async () => { throw new Error("ls-remote failed"); } }));
+  await routeApi(mkReq("POST", "/api/apps/demo/login-bootstrap"), badRef, loginDeps({ bootstrapLogin: () => "x", resolveRef: async () => { throw new Error("ls-remote failed"); } }));
   assert.equal(badRef.status, 400);
 
   const boom = mkRes();
-  await handleApi(mkReq("POST", "/api/apps/demo/login-bootstrap"), boom, loginDeps({ bootstrapLogin: () => { throw new Error("queue exploded"); } }));
+  await routeApi(mkReq("POST", "/api/apps/demo/login-bootstrap"), boom, loginDeps({ bootstrapLogin: () => { throw new Error("queue exploded"); } }));
   assert.equal(boom.status, 500);
 });
 
 test("login-bootstrap is a POST only: a GET on the path is not the route", async () => {
   const res = mkRes();
-  const handled = await handleApi(mkReq("GET", "/api/apps/demo/login-bootstrap"), res, loginDeps({ bootstrapLogin: () => "run-login-1" }));
+  const handled = await routeApi(mkReq("GET", "/api/apps/demo/login-bootstrap"), res, loginDeps({ bootstrapLogin: () => "run-login-1" }));
   assert.equal(handled === true && res.status === 202, false);
 });
 
@@ -1666,7 +1698,7 @@ test("POST /api/v1/runs forwards a run's own choice about the run_spec loop, and
   const enqueue: ApiDeps["enqueue"] = (_app, _sha, _target, _mode, _guidance, _shadow, _commits, _triggerRepo, _baseSha, closedLoop) => { seen.push(closedLoop); return "run-loop"; };
   for (const body of [{ closedLoop: true }, { closedLoop: false }, {}]) {
     const res = mkRes();
-    await handleApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e", ...body })), res, deps({ enqueue }));
+    await routeApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e", ...body })), res, deps({ enqueue }));
     assert.equal(res.status, 202);
   }
   assert.deepEqual(seen, [true, false, undefined]);
@@ -1675,7 +1707,7 @@ test("POST /api/v1/runs forwards a run's own choice about the run_spec loop, and
 test("POST /api/v1/runs rejects a closedLoop that is not a boolean (nothing is enqueued)", async () => {
   let enqueued = false;
   const res = mkRes();
-  await handleApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e", closedLoop: "yes" })), res, deps({ enqueue: () => { enqueued = true; return "x"; } }));
+  await routeApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e", closedLoop: "yes" })), res, deps({ enqueue: () => { enqueued = true; return "x"; } }));
   assert.equal(res.status, 400);
   assert.match(res.body, /closedLoop/);
   assert.equal(enqueued, false);
@@ -1686,7 +1718,7 @@ test("POST /api/v1/runs forwards a run's own choice about the agent browser, and
   const enqueue: ApiDeps["enqueue"] = (_app, _sha, _target, _mode, _guidance, _shadow, _commits, _triggerRepo, _baseSha, _closedLoop, agentBrowser) => { seen.push(agentBrowser); return "run-browser"; };
   for (const body of [{ agentBrowser: true }, { agentBrowser: false }, {}]) {
     const res = mkRes();
-    await handleApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e", ...body })), res, deps({ enqueue }));
+    await routeApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e", ...body })), res, deps({ enqueue }));
     assert.equal(res.status, 202);
   }
   assert.deepEqual(seen, [true, false, undefined]);
@@ -1695,7 +1727,7 @@ test("POST /api/v1/runs forwards a run's own choice about the agent browser, and
 test("POST /api/v1/runs rejects an agentBrowser that is not a boolean (nothing is enqueued)", async () => {
   let enqueued = false;
   const res = mkRes();
-  await handleApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e", agentBrowser: "yes" })), res, deps({ enqueue: () => { enqueued = true; return "x"; } }));
+  await routeApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e", agentBrowser: "yes" })), res, deps({ enqueue: () => { enqueued = true; return "x"; } }));
   assert.equal(res.status, 400);
   assert.match(res.body, /agentBrowser/);
   assert.equal(enqueued, false);
@@ -1718,14 +1750,14 @@ const APP_ROUTES: ReadonlyArray<{ route: string; method: string; path: string; b
 for (const { route, method, path, body, over } of APP_ROUTES) {
   test(`${route}: an unknown app answers 404 'app not found' as an API error with schemaVersion`, async () => {
     const res = mkRes();
-    await handleApi(mkReq(method, path, body), res, deps({ ...over, loadApp: (n) => { throw new AppNotFoundError(n); } }));
+    await routeApi(mkReq(method, path, body), res, deps({ ...over, loadApp: (n) => { throw new AppNotFoundError(n); } }));
     assert.equal(res.status, 404);
     assert.deepEqual(JSON.parse(res.body), { schemaVersion: 1, error: "app not found: 'ghost'" });
   });
 
   test(`${route}: an app whose config is invalid answers 422 with the reason, not 404`, async () => {
     const res = mkRes();
-    await handleApi(mkReq(method, path, body), res, deps({ ...over, loadApp: (n) => { throw new AppConfigInvalidError(n, "config references unset env var ${GITHUB_TOKEN}"); } }));
+    await routeApi(mkReq(method, path, body), res, deps({ ...over, loadApp: (n) => { throw new AppConfigInvalidError(n, "config references unset env var ${GITHUB_TOKEN}"); } }));
     assert.equal(res.status, 422);
     const parsed = JSON.parse(res.body);
     assert.equal(parsed.schemaVersion, 1);
@@ -1736,32 +1768,32 @@ for (const { route, method, path, body, over } of APP_ROUTES) {
   test(`${route}: an unexpected error from loadApp is not turned into a 404`, async () => {
     const res = mkRes();
     const failure = new Error("disk unreachable");
-    await assert.rejects(handleApi(mkReq(method, path, body), res, deps({ ...over, loadApp: () => { throw failure; } })), failure);
+    await assert.rejects(routeApi(mkReq(method, path, body), res, deps({ ...over, loadApp: () => { throw failure; } })), failure);
     assert.notEqual(res.status, 404);
   });
 }
 
 test("DELETE /api/v1/apps/:name answers 404 for an unknown app and 422 for an app whose config is invalid", async () => {
   const notFound = mkRes();
-  await handleApi(mkReq("DELETE", "/api/v1/apps/ghost"), notFound, deps({ deleteApp: (name) => { throw new AppNotFoundError(name); } }));
+  await routeApi(mkReq("DELETE", "/api/v1/apps/ghost"), notFound, deps({ deleteApp: (name) => { throw new AppNotFoundError(name); } }));
   assert.equal(notFound.status, 404);
   assert.match(JSON.parse(notFound.body).error, /ghost\.yaml not found/);
   const invalid = mkRes();
-  await handleApi(mkReq("DELETE", "/api/v1/apps/ghost"), invalid, deps({ deleteApp: (name) => { throw new AppConfigInvalidError(name, "bad yaml"); } }));
+  await routeApi(mkReq("DELETE", "/api/v1/apps/ghost"), invalid, deps({ deleteApp: (name) => { throw new AppConfigInvalidError(name, "bad yaml"); } }));
   assert.equal(invalid.status, 422);
   assert.match(JSON.parse(invalid.body).error, /bad yaml/);
 });
 
 test("DELETE /api/v1/apps/:name keeps a failure that merely mentions 'not found' a server error", async () => {
   const res = mkRes();
-  await handleApi(mkReq("DELETE", "/api/v1/apps/demo"), res, deps({ deleteApp: () => { throw new Error("mirror directory not found"); } }));
+  await routeApi(mkReq("DELETE", "/api/v1/apps/demo"), res, deps({ deleteApp: () => { throw new Error("mirror directory not found"); } }));
   assert.equal(res.status, 500);
 });
 
 test("the assistant keeps answering when the run's app cannot be loaded", async () => {
   const res = mkRes();
   const record: any = parentRec;
-  await handleApi(
+  await routeApi(
     mkReq("POST", "/api/v1/runs/p1/ask", JSON.stringify({ question: "why?" })),
     res,
     deps({ getRecord: () => record, ask: async () => "because", loadApp: () => { throw new AppConfigInvalidError("demo", "bad yaml"); } }),

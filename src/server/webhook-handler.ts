@@ -2,7 +2,7 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AppRepositoryPort } from "@contexts/app-catalog/application/index.ts";
-import type { ApiDeps } from "./api";
+import type { ApiDeps } from "./api/deps";
 import { guardResponse } from "./guarded-handler";
 import { handleWebhook } from "./webhook";
 import { resolveWebhookDispatch, type WebhookDispatch } from "./webhook-routing";
