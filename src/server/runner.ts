@@ -255,6 +255,7 @@ async function runViaEngine(
     furthestPhase: outcome.gateSignals.furthestPhase,
     decision: traceFacts?.decision,
     generationEnd: traceFacts?.generationEnd,
+    endReason: traceFacts?.endReason,
     limitFired: traceFacts?.limitFired,
     limitRole: traceFacts?.limitRole,
     reviewRequired: traceFacts?.reviewRequired,

@@ -12,16 +12,34 @@ import { generationOnDisk, runWorkspace } from "../../../../support/run-workspac
 
 const PHASE_SPAN_PREFIX = "qayaba.phase.";
 
-/* Each phase the run opens is a span named after it, so the spans are the phases in the order they were entered. */
+/* A step of the run, as the trace reports it: its id, what became of it, and the phase it was reported in. */
+interface StepReport {
+  id: string;
+  outcome: string;
+  phase: string;
+  reason?: string;
+}
+
+/* Each phase the run opens is a span named after it, so the spans are the phases in the order they were entered; the `step` events on them are the run's steps. */
 class PhaseRecorder extends NoopTelemetry {
   readonly entered: string[] = [];
+  readonly steps: StepReport[] = [];
   override startSpan(name?: string, opts?: StartSpanOptions): SpanHandle {
-    if (name?.startsWith(PHASE_SPAN_PREFIX)) this.entered.push(name.slice(PHASE_SPAN_PREFIX.length));
-    return super.startSpan(name, opts);
+    if (!name?.startsWith(PHASE_SPAN_PREFIX)) return super.startSpan(name, opts);
+    const phase = name.slice(PHASE_SPAN_PREFIX.length);
+    this.entered.push(phase);
+    const span = super.startSpan(name, opts);
+    return {
+      ...span,
+      addEvent: (event, attrs, time) => {
+        if (event === "step") this.steps.push({ id: String(attrs?.["qayaba.run_step.id"]), outcome: String(attrs?.["qayaba.run_step.outcome"]), phase, ...(attrs?.["qayaba.run_step.reason"] ? { reason: String(attrs["qayaba.run_step.reason"]) } : {}) });
+        span.addEvent(event, attrs, time);
+      },
+    };
   }
 }
 
-async function phasesOf(input: RunQaInput): Promise<string[]> {
+async function runOf(input: RunQaInput): Promise<PhaseRecorder> {
   const ws = runWorkspace("qa-phase-sequence-");
   const telemetry = new PhaseRecorder();
   const deps: RunQaUseCaseDeps = {
@@ -43,8 +61,11 @@ async function phasesOf(input: RunQaInput): Promise<string[]> {
   };
   const out = await new RunQaUseCase(deps).run(input);
   assert.equal(out.decision.verdict, "pass");
-  return telemetry.entered;
+  return telemetry;
 }
+
+const phasesOf = async (input: RunQaInput): Promise<string[]> => (await runOf(input)).entered;
+const idsOf = async (input: RunQaInput, outcome: string): Promise<string[]> => (await runOf(input)).steps.filter((step) => step.outcome === outcome).map((step) => step.id);
 
 const base = { app: "demo", sha: Sha.of("abc1234"), source: "manual" as const, target: "e2e" as const };
 
@@ -56,4 +77,30 @@ test("a green diff run opens every phase but the fix loop, in pipeline order", a
 test("a green manual run opens the same phases without classify and coverage, which only a per-commit diff run has", async () => {
   const entered = await phasesOf({ ...base, mode: "manual", guidance: "test the contact form", runId: "sequence-manual" });
   assert.deepEqual(entered, ["gate", "workspace", "setup", "ground", "generate", "validate", "health", "execute", "review", "decide", "publish", "learn"]);
+});
+
+test("a green diff run reports the steps it ran, and the ones it passed over, by id and in table order", async () => {
+  const input: RunQaInput = { ...base, mode: "diff", runId: "sequence-ids-diff" };
+  assert.deepEqual(await idsOf(input, "ran"), [
+    "stop-if-aborted-before-gate", "wait-for-deploy", "classify-change", "arm-run-deadline", "index-mirror", "restore-accepted-suite", "set-up-project", "prepare-login", "clean-prior-run",
+    "open-authoring-handles", "read-diff-shapes", "retrieve-rules", "select-exemplars", "resolve-blast-radius", "resolve-service-links", "resolve-cross-repo-impact", "ground-repository",
+    "assemble-enrichment", "generate-first-pass", "settle-generation-end", "ground-before-execution", "validate-statically", "check-health", "prepare-execute-auth", "announce-execution",
+    "execute-specs", "fingerprint-green-suite", "announce-coverage", "measure-coverage", "review-tests", "release-coordinated-pass", "guard-final-proof", "decide-run",
+    "record-coordination-outcome", "enforce-confinement", "capture-context-map", "keep-accepted-suite", "publish-decision", "prune-after-publish", "persist-outcome", "learn-from-outcome",
+  ]);
+  assert.deepEqual(await idsOf(input, "skipped"), ["run-fix-loop", "regenerate-for-coverage", "remeasure-stale-coverage"]);
+  assert.deepEqual((await runOf(input)).steps.filter((step) => step.outcome === "ended"), [{ id: "finish-run", outcome: "ended", phase: "learn", reason: "decided" }]);
+});
+
+test("a green manual run reports the same steps except the ones only a per-commit diff run has", async () => {
+  const input: RunQaInput = { ...base, mode: "manual", guidance: "test the contact form", runId: "sequence-ids-manual" };
+  const ran = await idsOf(input, "ran");
+  assert.equal(ran.includes("classify-change"), false);
+  assert.equal(ran.includes("announce-coverage"), false);
+  assert.deepEqual(await idsOf(input, "skipped"), ["classify-change", "run-fix-loop", "announce-coverage", "regenerate-for-coverage", "remeasure-stale-coverage"]);
+});
+
+test("a step passed over before any phase opens is reported in the first phase that opens", async () => {
+  const recorder = await runOf({ ...base, mode: "diff", runId: "sequence-first-phase" });
+  assert.deepEqual(recorder.steps[0], { id: "stop-if-aborted-before-gate", outcome: "ran", phase: "gate" });
 });

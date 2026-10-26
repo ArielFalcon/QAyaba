@@ -75,6 +75,7 @@ export interface RunFacts {
   furthestPhase?: string | undefined;
   decision?: string | undefined;
   generationEnd?: string | undefined;
+  endReason?: string | undefined;
   limitFired?: string | undefined;
   limitRole?: string | undefined;
   reviewRequired?: boolean | undefined;
@@ -230,6 +231,7 @@ export class RunTrace {
       "qayaba.verdict": f.verdict,
       ...(f.errorClass ? { "qayaba.error_class": f.errorClass } : {}),
       ...(f.generationEnd ? { "qayaba.generation.end": f.generationEnd } : {}),
+      ...(f.endReason ? { "qayaba.run.end_reason": f.endReason } : {}),
       ...(f.decision ? { "qayaba.decision": DECISION_NAMES[f.decision] ?? f.decision } : {}),
       ...(f.furthestPhase ? { "qayaba.furthest_phase": f.furthestPhase } : {}),
       ...(f.limitFired ? { "qayaba.limit.fired": f.limitFired } : {}),

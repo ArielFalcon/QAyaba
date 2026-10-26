@@ -1,41 +1,68 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runFlow, type FlowStep } from "@contexts/qa-run-orchestration/application/run-flow/run-flow.ts";
+import { runFlow, type FlowHooks, type FlowStep, type StepEvent } from "@contexts/qa-run-orchestration/application/run-flow/run-flow.ts";
 import type { RunPhase } from "@contexts/qa-run-orchestration/domain/run-phase-cursor.ts";
 
 interface S { trace: string[]; n: number }
-type Step = FlowStep<S, { skipB: boolean }, string>;
+type Id = "a" | "b" | "c" | "end" | "quiet" | "never";
+type Step = FlowStep<S, { skipB: boolean }, string, Id>;
 
-const recording = (name: string, phase?: RunPhase, extra: Partial<Step> = {}): Step => ({
-  name,
+const recording = (id: Id, phase?: RunPhase, extra: Partial<Step> = {}): Step => ({
+  id,
   ...(phase ? { phase } : {}),
-  run: async (state) => ({ update: { trace: [...state.trace, name], n: state.n + 1 } }),
+  run: async (state) => ({ update: { trace: [...state.trace, id], n: state.n + 1 } }),
   ...extra,
 });
 
-test("steps run in table order, each update reaching the next step, and the final state comes back", async () => {
+/* A recorder standing in for the run's trace: the phases entered and the step events, in the order the runner reported them. */
+function recorder() {
   const entered: RunPhase[] = [];
-  const out = await runFlow([recording("a", "gate"), recording("b"), recording("c", "setup")], { trace: [], n: 0 }, { skipB: false }, (p) => entered.push(p));
+  const events: StepEvent<Id>[] = [];
+  const hooks: FlowHooks<Id> = { enter: (phase) => entered.push(phase), record: (event) => events.push(event) };
+  return { entered, events, hooks };
+}
+
+test("steps run in table order, each update reaching the next step, and the final state comes back", async () => {
+  const { entered, hooks } = recorder();
+  const out = await runFlow([recording("a", "gate"), recording("b"), recording("c", "setup")], { trace: [], n: 0 }, { skipB: false }, hooks);
   assert.deepEqual(out, { state: { trace: ["a", "b", "c"], n: 3 } });
   assert.deepEqual(entered, ["gate", "setup"], "only a step that names a phase opens one");
 });
 
 test("a step whose condition says no is passed over without opening its phase", async () => {
-  const entered: RunPhase[] = [];
-  const out = await runFlow([recording("a"), recording("b", "classify", { runs: (_s, ctx) => !ctx.skipB }), recording("c")], { trace: [], n: 0 }, { skipB: true }, (p) => entered.push(p));
+  const { entered, hooks } = recorder();
+  const out = await runFlow([recording("a"), recording("b", "classify", { runs: (_s, ctx) => !ctx.skipB }), recording("c")], { trace: [], n: 0 }, { skipB: true }, hooks);
   assert.deepEqual(out, { state: { trace: ["a", "c"], n: 2 } });
   assert.deepEqual(entered, []);
 });
 
-test("the first step that ends the run stops the walk and its result is returned", async () => {
-  const ending: Step = { name: "end", phase: "validate", run: async () => ({ end: "invalid" }) };
-  const entered: RunPhase[] = [];
-  const out = await runFlow([recording("a"), ending, recording("never", "execute")], { trace: [], n: 0 }, { skipB: false }, (p) => entered.push(p));
-  assert.deepEqual(out, { end: "invalid" });
+test("the first step that ends the run stops the walk and its result and reason are returned", async () => {
+  const ending: Step = { id: "end", phase: "validate", run: async () => ({ end: "invalid", reason: "static-gate-failed" }) };
+  const { entered, hooks } = recorder();
+  const out = await runFlow([recording("a"), ending, recording("never", "execute")], { trace: [], n: 0 }, { skipB: false }, hooks);
+  assert.deepEqual(out, { end: "invalid", reason: "static-gate-failed" });
   assert.deepEqual(entered, ["validate"]);
 });
 
 test("a step that returns nothing leaves the state as it was", async () => {
-  const quiet: Step = { name: "quiet", run: async () => undefined };
-  assert.deepEqual(await runFlow([quiet], { trace: ["x"], n: 1 }, { skipB: false }, () => {}), { state: { trace: ["x"], n: 1 } });
+  const quiet: Step = { id: "quiet", run: async () => undefined };
+  assert.deepEqual(await runFlow([quiet], { trace: ["x"], n: 1 }, { skipB: false }, recorder().hooks), { state: { trace: ["x"], n: 1 } });
+});
+
+test("every step is reported in table order as ran, skipped or ended, and the ending step carries the reason", async () => {
+  const ending: Step = { id: "end", run: async () => ({ end: "stopped", reason: "aborted" }) };
+  const { events, hooks } = recorder();
+  await runFlow([recording("a"), recording("b", undefined, { runs: () => false }), ending, recording("never")], { trace: [], n: 0 }, { skipB: false }, hooks);
+  assert.deepEqual(events, [
+    { id: "a", outcome: "ran" },
+    { id: "b", outcome: "skipped" },
+    { id: "end", outcome: "ended", reason: "aborted" },
+  ]);
+});
+
+test("a step is reported after its phase is entered, so the report lands in the phase the step opens", async () => {
+  const order: string[] = [];
+  const hooks: FlowHooks<Id> = { enter: (phase) => order.push(`enter ${phase}`), record: (event) => order.push(`${event.outcome} ${event.id}`) };
+  await runFlow([recording("a", "gate"), recording("b", "setup", { runs: () => false }), recording("c", "execute")], { trace: [], n: 0 }, { skipB: false }, hooks);
+  assert.deepEqual(order, ["enter gate", "ran a", "skipped b", "enter execute", "ran c"]);
 });

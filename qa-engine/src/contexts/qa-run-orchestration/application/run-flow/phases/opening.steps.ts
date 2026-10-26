@@ -13,7 +13,7 @@ type Result = Promise<StepResult<RunState, RunQaResult>>;
 
 /* Already-aborted signal short-circuits before the entry gate. */
 export async function stopIfAbortedBeforeGate(_state: Readonly<RunState>, ctx: RunContext): Result {
-  if (ctx.signal?.aborted) return { end: await ctx.ends.aborted() };
+  if (ctx.signal?.aborted) return { end: await ctx.ends.aborted(), reason: "aborted" };
 }
 
 export async function waitForDeploy(_state: Readonly<RunState>, ctx: RunContext): Result {
@@ -22,10 +22,10 @@ export async function waitForDeploy(_state: Readonly<RunState>, ctx: RunContext)
     const gateResult = await ctx.deps.deployGate.waitUntilServing(ctx.input.sha);
     if (!isOk(gateResult)) {
       /* Thread the deploy-gate InfraError message as the diagnostic note — never drop it. */
-      return { end: await ctx.ends.infraError(gateResult.error.message) };
+      return { end: await ctx.ends.infraError(gateResult.error.message), reason: "deploy-gate-failed" };
     }
   }
-  if (ctx.signal?.aborted) return { end: await ctx.ends.aborted() };
+  if (ctx.signal?.aborted) return { end: await ctx.ends.aborted(), reason: "aborted" };
 }
 
 /*
@@ -43,7 +43,7 @@ export async function classifyChange(_state: Readonly<RunState>, ctx: WorkspaceR
      * the working copy was touched and must still be pruned.
      */
     await ctx.ends.pruneMirror(ctx.workspace.mirrorDir);
-    return { end: ctx.ends.skipped() };
+    return { end: ctx.ends.skipped(), reason: "classify-skipped" };
   }
   return {
     update: {
@@ -88,7 +88,7 @@ export async function indexMirror(_state: Readonly<RunState>, ctx: WorkspaceRunC
       }
     }
   }
-  if (ctx.signal?.aborted) return { end: await ctx.ends.aborted(workspace.mirrorDir) };
+  if (ctx.signal?.aborted) return { end: await ctx.ends.aborted(workspace.mirrorDir), reason: "aborted" };
 }
 
 async function indexOne(ctx: WorkspaceRunContext, codeGraph: CodeGraphPort, repoDir: string, sha: string): Promise<void> {

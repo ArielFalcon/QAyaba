@@ -112,7 +112,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
     } catch (err) {
       rethrowIfRunDeadline(err);
       /* Abort during grounding takes the abort route, not ungrounded continue. */
-      if (signal?.aborted) return { end: await ctx.ends.aborted(workspace.mirrorDir) };
+      if (signal?.aborted) return { end: await ctx.ends.aborted(workspace.mirrorDir), reason: "aborted" };
       console.error("[qa] WARNING: pre-generation grounding failed (non-fatal, generation continues ungrounded):", err);
     }
   }
@@ -120,7 +120,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
    * The adapter may resolve a partial GroundingResult on abort instead of
    * throwing — this check is what actually routes abort vs continue.
    */
-  if (signal?.aborted) return { end: await ctx.ends.aborted(workspace.mirrorDir) };
+  if (signal?.aborted) return { end: await ctx.ends.aborted(workspace.mirrorDir), reason: "aborted" };
   return {
     update: {
       grounding: {

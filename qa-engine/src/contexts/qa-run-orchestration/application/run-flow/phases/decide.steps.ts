@@ -44,6 +44,7 @@ export async function guardFinalProof(_state: Readonly<RunState>, ctx: Workspace
           `the final proof guard could not fingerprint the delivered specs: ${err instanceof Error ? err.message : String(err)}`,
           workspace.mirrorDir,
         ),
+        reason: "final-proof-guard",
       };
     }
   }
@@ -56,6 +57,7 @@ export async function guardFinalProof(_state: Readonly<RunState>, ctx: Workspace
           `the final proof guard found no proof for ${file}: the run cannot publish bytes that never executed green`,
           workspace.mirrorDir,
         ),
+        reason: "final-proof-guard",
       };
     }
     if (proof.bytes === undefined) {
@@ -64,6 +66,7 @@ export async function guardFinalProof(_state: Readonly<RunState>, ctx: Workspace
           `the final proof guard found ${file} changed after it executed green, but holds no proven bytes to restore`,
           workspace.mirrorDir,
         ),
+        reason: "final-proof-guard",
       };
     }
     try {
@@ -74,6 +77,7 @@ export async function guardFinalProof(_state: Readonly<RunState>, ctx: Workspace
           `the final proof guard could not restore ${file}: ${err instanceof Error ? err.message : String(err)}`,
           workspace.mirrorDir,
         ),
+        reason: "final-proof-guard",
       };
     }
     if (!deps.suiteStore) {
@@ -82,6 +86,7 @@ export async function guardFinalProof(_state: Readonly<RunState>, ctx: Workspace
           `the final proof guard cannot verify the restored ${file}: no suite store is composed`,
           workspace.mirrorDir,
         ),
+        reason: "final-proof-guard",
       };
     }
     let restored: ReadonlyMap<string, string>;
@@ -93,6 +98,7 @@ export async function guardFinalProof(_state: Readonly<RunState>, ctx: Workspace
           `the final proof guard could not verify the restored ${file}: ${err instanceof Error ? err.message : String(err)}`,
           workspace.mirrorDir,
         ),
+        reason: "final-proof-guard",
       };
     }
     if (restored.get(file) !== proof.sha256) {
@@ -101,6 +107,7 @@ export async function guardFinalProof(_state: Readonly<RunState>, ctx: Workspace
           `the final proof guard restored ${file} but its bytes still differ from the proven ones`,
           workspace.mirrorDir,
         ),
+        reason: "final-proof-guard",
       };
     }
   }

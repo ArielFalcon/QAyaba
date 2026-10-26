@@ -113,6 +113,7 @@ export async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceR
         `publication failed after verdict was decided (decided: ${run.verdict}, reviewerApproved: ${reviewerApproved}): ${pubErr instanceof Error ? pubErr.message : String(pubErr)}`,
         workspace.mirrorDir,
       ),
+      reason: "publication-failed",
     };
   }
   /*

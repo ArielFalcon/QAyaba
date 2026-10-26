@@ -130,7 +130,7 @@ export async function validateStatically(state: Readonly<RunState>, ctx: Workspa
   while (!staticFixRetired && !validation.ok && !validation.infra && generating && hasDelivered() && staticFixRounds < MAX_STATIC_FIX_ROUNDS) {
     /* Cancel mid-repair must stop before burning another generate()+validate() round-trip. */
     if (signal?.aborted) {
-      return { end: await ctx.ends.aborted(workspace.mirrorDir) };
+      return { end: await ctx.ends.aborted(workspace.mirrorDir), reason: "aborted" };
     }
     staticFixRounds++;
     /* mutation-scope:begin static-fix-round */
@@ -162,6 +162,7 @@ export async function validateStatically(state: Readonly<RunState>, ctx: Workspa
         skipPersist: !validation.infra && input.mode === "context",
         note: staticGateNote,
       }),
+      reason: validation.infra ? "pre-execute-infra" : "static-gate-failed",
     };
   }
   return { update: { execution } };
@@ -186,10 +187,10 @@ export async function checkHealth(state: Readonly<RunState>, ctx: WorkspaceRunCo
   if (!health.healthy) {
     const healthReason = health.reason;
     console.error("[qa] health pre-flight failed before execute:", healthReason);
-    return { end: await preExecuteInfraError(state, ctx, healthReason) };
+    return { end: await preExecuteInfraError(state, ctx, healthReason), reason: "pre-execute-infra" };
   }
   if (signal?.aborted) {
-    return { end: await ctx.ends.aborted(workspace.mirrorDir) };
+    return { end: await ctx.ends.aborted(workspace.mirrorDir), reason: "aborted" };
   }
 }
 
@@ -200,12 +201,12 @@ export async function checkHealth(state: Readonly<RunState>, ctx: WorkspaceRunCo
 export async function prepareExecuteAuth(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { workspace, signal } = ctx;
   const auth = await ctx.ends.prepareAuth(workspace.specDir, "pre-execute", signal);
-  if ("failed" in auth) return { end: await preExecuteInfraError(state, ctx, auth.failed) };
+  if ("failed" in auth) return { end: await preExecuteInfraError(state, ctx, auth.failed), reason: "pre-execute-infra" };
   if ("precondition" in auth) {
-    if (signal?.aborted) return { end: await ctx.ends.aborted(workspace.mirrorDir) };
+    if (signal?.aborted) return { end: await ctx.ends.aborted(workspace.mirrorDir), reason: "aborted" };
     /* Reached only by a run that generates tests (the guard above), which a failed login always ends. */
     ctx.ends.announcePrecondition(auth.precondition, true);
-    return { end: await preExecuteInfraError(state, ctx, ctx.ends.preconditionNote(auth.precondition), { preconditionFailed: true }) };
+    return { end: await preExecuteInfraError(state, ctx, ctx.ends.preconditionNote(auth.precondition), { preconditionFailed: true }), reason: "pre-execute-infra" };
   }
   return { update: { execution: { ...state.execution, authVerifiedSha256: auth.setupSha256 } } };
 }
@@ -223,7 +224,7 @@ export async function executeSpecs(state: Readonly<RunState>, ctx: WorkspaceRunC
   /* The primary pass just ran: its bytes fix the contract every later regeneration is measured against (A5). */
   await services.primeIntentBaseline();
   if (signal?.aborted) {
-    return { end: await ctx.ends.aborted(workspace.mirrorDir) };
+    return { end: await ctx.ends.aborted(workspace.mirrorDir), reason: "aborted" };
   }
   return { update: { execution: { ...state.execution, run } } };
 }

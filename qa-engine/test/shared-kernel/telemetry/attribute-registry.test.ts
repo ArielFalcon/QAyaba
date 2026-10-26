@@ -100,3 +100,13 @@ test("an unregistered literal key fails to compile, a registered and a template 
   const bad: Attrs = { "qayaba.not.a.key": "x" };
   assert.ok(ok && bad);
 });
+
+test("the run-step and end-reason keys are closed-set, low-cardinality strings", () => {
+  for (const key of ["qayaba.run.end_reason", "qayaba.run_step.id", "qayaba.run_step.outcome", "qayaba.run_step.reason"] as const) {
+    const spec = lookupAttribute(key);
+    assert.ok(spec, key);
+    assert.equal(spec.cardinality, "low", key);
+    assert.equal(spec.content, "none", key);
+    assert.equal(spec.type, "string", key);
+  }
+});

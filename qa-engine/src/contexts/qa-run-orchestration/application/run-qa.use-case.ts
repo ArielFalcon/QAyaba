@@ -117,7 +117,8 @@ import { decide } from "../domain/run-decision.service.ts";
 import { RunDecision } from "../domain/run-decision.ts";
 import { RunPhaseCursor, recordPhaseSnapshot, type PhaseClock, type RunPhase } from "../domain/run-phase-cursor.ts";
 import { PhaseSpans } from "./run-phase-spans.ts";
-import { runFlow } from "./run-flow/run-flow.ts";
+import { runFlow, type FlowHooks } from "./run-flow/run-flow.ts";
+import type { EndReason } from "./run-flow/run-end.ts";
 import { initialRunState } from "./run-flow/run-state.ts";
 import { createRunServices } from "./run-flow/run-services.ts";
 import type { RunContext, RunEnds, WorkspaceRunContext } from "./run-flow/run-context.ts";
@@ -477,6 +478,8 @@ export interface RunTrail {
   phases: RunPhaseCursor;
   /** How generation ended, once it did. */
   generationEnd?: string;
+  /** Why the run ended, once it did. */
+  endReason?: EndReason;
   /** What the engine decided about change-coverage, once it measured. */
   coverageStatus?: "pass" | "fail" | "unknown";
   /** Whether a reviewer was due for the run, as the generation decides it. */
@@ -571,7 +574,9 @@ export class RunQaUseCase {
     } catch (err) {
       /* The scope could not be made because the sandbox is not safe to run in (a process of an earlier run still holds the sandbox uid): the run ends E-SANDBOX without executing anything. */
       if (!isSandboxUnavailable(err)) throw err;
-      return await withRunSecretScope(createRunSecretScope(), () => withExecScope(refusedScope(input.runId, err.reason === "scope" ? "uid" : err.reason), () => this.sandboxUnavailableResult(input, err, {})));
+      return await withRunSecretScope(createRunSecretScope(), () =>
+        withExecScope(refusedScope(input.runId, err.reason === "scope" ? "uid" : err.reason), async () => attachTraceFacts(await this.sandboxUnavailableResult(input, err, {}), { endReason: "sandbox-unavailable" })),
+      );
     }
     try {
       const secrets = createRunSecretScope();
@@ -624,6 +629,7 @@ export class RunQaUseCase {
       ...(trail.reviewRequired !== undefined ? { reviewRequired: trail.reviewRequired } : {}),
       coverage: { ...(trail.coverageStatus ? { status: trail.coverageStatus } : {}), mode: cfg.coveragePolicyMode, ...(cfg.coverageMinRatio !== undefined ? { minRatio: cfg.coverageMinRatio } : {}) },
       ...(end !== undefined ? { generationEnd: end } : {}),
+      ...(trail.endReason !== undefined ? { endReason: trail.endReason } : {}),
       ...(limit ? { limitFired: limit.fired, limitRole: limit.role } : {}),
     };
   }
@@ -662,12 +668,19 @@ export class RunQaUseCase {
     try {
       return await this.execute(input, signal, trail);
     } catch (err) {
-      if (isSandboxUnavailable(err) && err.reason !== "scope") return await this.sandboxUnavailableResult(input, err, trail);
-      if (err instanceof ProbeSweepError) return await this.probeSweepResult(input, err, trail);
+      if (isSandboxUnavailable(err) && err.reason !== "scope") {
+        trail.endReason = "sandbox-unavailable";
+        return await this.sandboxUnavailableResult(input, err, trail);
+      }
+      if (err instanceof ProbeSweepError) {
+        trail.endReason = "probe-sweep-failed";
+        return await this.probeSweepResult(input, err, trail);
+      }
       if (!isRunDeadlineError(err)) {
         await this.keepSandboxEvidence(input, err, trail, signal);
         throw err;
       }
+      trail.endReason = "run-deadline";
       return await this.deadlineResult(input, err, trail);
     }
   }
@@ -915,22 +928,36 @@ export class RunQaUseCase {
       reviewDisputed: (disputed, passedCases, exit) => this.reviewDisputedResult(cfg, input, disputed, passedCases, exit),
     };
     const baseCtx: RunContext = { input, signal, trail, deps: this.deps, telemetry: this.telemetry, cfg, startedAt, cycleBudget, wallClockBudget, ends };
-    const enter = (phase: RunPhase): void => trail.phases.enter(phase);
+    const hooks: FlowHooks = {
+      enter: (phase: RunPhase) => trail.phases.enter(phase),
+      record: (event) =>
+        trail.spans.step({
+          "qayaba.run_step.id": event.id,
+          "qayaba.run_step.outcome": event.outcome,
+          ...(event.outcome === "ended" ? { "qayaba.run_step.reason": event.reason } : {}),
+        }),
+    };
     const state = initialRunState();
 
-    const opening = await runFlow(BEFORE_WORKSPACE, state, baseCtx, enter);
-    if ("end" in opening) return opening.end;
+    const opening = await runFlow(BEFORE_WORKSPACE, state, baseCtx, hooks);
+    if ("end" in opening) return this.endedBy(opening.reason, opening.end, trail);
 
     trail.phases.enter("workspace");
     const workspace = await this.deps.workspace.prepare(input.sha);
     trail.mirrorDir = workspace.mirrorDir;
     const services = createRunServices(this.deps, cfg, workspace, signal);
     const ctx: WorkspaceRunContext = { ...baseCtx, workspace, services, generation: { delivered: [] } };
-    const flow = await runFlow(IN_WORKSPACE, state, ctx, enter);
-    if ("end" in flow) return flow.end;
+    const flow = await runFlow(IN_WORKSPACE, state, ctx, hooks);
+    if ("end" in flow) return this.endedBy(flow.reason, flow.end, trail);
 
     /* The table's last step ends the run, so a walk that finishes without an end is a defect in the table. */
     throw new Error("the run's steps ended without a result");
+  }
+
+  /* The result a step ended the run with, after the run's trail has the reason. */
+  private endedBy(reason: EndReason, result: RunQaResult, trail: RunTrail): RunQaResult {
+    trail.endReason = reason;
+    return result;
   }
 
   /*

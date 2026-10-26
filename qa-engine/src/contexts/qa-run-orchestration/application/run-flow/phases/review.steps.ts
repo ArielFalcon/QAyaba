@@ -116,13 +116,13 @@ export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunCo
           reviewDomSnapshot = await deps.reviewDomGrounding.capture(workspace.specDir, specsForReview, signal);
         } catch (err) {
           /* Abort during capture stops the run, not an ungrounded review round. */
-          if (signal?.aborted) return { end: await ends.aborted(workspace.mirrorDir) };
+          if (signal?.aborted) return { end: await ends.aborted(workspace.mirrorDir), reason: "aborted" };
           console.error("[qa] WARNING: reviewer DOM grounding failed (non-fatal, review continues ungrounded):", err);
           reviewDomSnapshot = undefined;
         }
         lastReviewSpecsKey = specsKey;
       }
-      if (signal?.aborted) return { end: await ends.aborted(workspace.mirrorDir) };
+      if (signal?.aborted) return { end: await ends.aborted(workspace.mirrorDir), reason: "aborted" };
     }
 
     const reviewedSpecs = readReviewedSpecs(specRoot, reviewCases);
@@ -269,7 +269,7 @@ export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunCo
      */
     if (reviewResult.unavailable) {
       annotateReviewPhase(ctx, reviewStats, lastCorrectionClass, "unavailable");
-      return { end: await ends.reviewerUnavailable(reviewResult.rationale, reviewCases.length, await exitFacts()) };
+      return { end: await ends.reviewerUnavailable(reviewResult.rationale, reviewCases.length, await exitFacts()), reason: "reviewer-unavailable" };
     }
     /* parsed:false fails closed immediately, without burning a regeneration round. */
     if (reviewResult.parsed === false) {
@@ -396,7 +396,7 @@ export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunCo
        * justified, and publishing would ignore the finding: the engine reports that it could not settle it.
        */
       if (settled.disputed.length > 0) {
-        return { end: await ends.reviewDisputed(settled.disputed, reviewCases.filter((c) => c.status === "pass").length, await exitFacts()) };
+        return { end: await ends.reviewDisputed(settled.disputed, reviewCases.filter((c) => c.status === "pass").length, await exitFacts()), reason: "review-disputed" };
       }
       reviewerApproved = false;
       break;

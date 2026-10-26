@@ -24,6 +24,8 @@ export interface PhaseSpansDeps {
 export class PhaseSpans implements PhaseObserver {
   private open: { phase: RunPhase; span: SpanHandle; since: number } | undefined;
   private entered = 0;
+  /* Step events that came while no phase was open; the next phase to open carries them. */
+  private pendingSteps: Array<Parameters<SpanHandle["addEvent"]>[1]> = [];
 
   constructor(private readonly deps: PhaseSpansDeps) {}
 
@@ -34,6 +36,7 @@ export class PhaseSpans implements PhaseObserver {
     this.entered += 1;
     const span = telemetry.startSpan(`qayaba.phase.${phase}`, { kind: "internal", startTime: at, secrets, attrs: { "qayaba.phase": phase, ...traceLevel } });
     this.open = { phase, span, since: at };
+    for (const attrs of this.pendingSteps.splice(0)) span.addEvent("step", attrs);
     telemetry.flush();
   }
 
@@ -64,6 +67,12 @@ export class PhaseSpans implements PhaseObserver {
   /** A point occurrence in the phase that is open now. */
   event(name: string, attrs?: Parameters<SpanHandle["addEvent"]>[1]): void {
     this.open?.span.addEvent(name, attrs);
+  }
+
+  /** What became of one step of the run, in the phase that is open now; when none is, in the next phase to open. */
+  step(attrs: Parameters<SpanHandle["addEvent"]>[1]): void {
+    if (this.open) this.open.span.addEvent("step", attrs);
+    else this.pendingSteps.push(attrs);
   }
 
   /** An error nothing handled, recorded on the phase it happened in. */

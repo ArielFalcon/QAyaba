@@ -187,6 +187,7 @@ export async function finishRun(state: Readonly<RunState>, ctx: WorkspaceRunCont
   const reviewerApprovedForOutcome = reviewerApprovedForOutcomeOf(state);
   deps.observer?.onStep("done");
   return {
+    reason: isContextCleanPass ? "context-pass" : "decided",
     end: {
       decision,
       errorClass,

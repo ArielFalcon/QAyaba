@@ -1,0 +1,55 @@
+/*
+ * The identity of every step of the run, in the order the step tables run them. A step cannot be added to a table without an id
+ * here, and a transition can only name a step that exists. An id is a stable kebab-case name: telemetry, tests and the failure
+ * policy refer to a step by it.
+ */
+
+export const STEP_IDS = [
+  "stop-if-aborted-before-gate",
+  "wait-for-deploy",
+  "classify-change",
+  "arm-run-deadline",
+  "index-mirror",
+  "restore-accepted-suite",
+  "set-up-project",
+  "prepare-login",
+  "clean-prior-run",
+  "open-authoring-handles",
+  "read-diff-shapes",
+  "retrieve-rules",
+  "select-exemplars",
+  "resolve-blast-radius",
+  "resolve-service-links",
+  "resolve-cross-repo-impact",
+  "ground-repository",
+  "assemble-enrichment",
+  "generate-first-pass",
+  "settle-generation-end",
+  "ground-before-execution",
+  "validate-statically",
+  "check-health",
+  "prepare-execute-auth",
+  "announce-execution",
+  "execute-specs",
+  "run-fix-loop",
+  "fingerprint-green-suite",
+  "announce-coverage",
+  "measure-coverage",
+  "regenerate-for-coverage",
+  "review-tests",
+  "release-coordinated-pass",
+  "remeasure-stale-coverage",
+  "guard-final-proof",
+  "decide-run",
+  "record-coordination-outcome",
+  "enforce-confinement",
+  "capture-context-map",
+  "keep-accepted-suite",
+  "publish-decision",
+  "prune-after-publish",
+  "persist-outcome",
+  "learn-from-outcome",
+  "finish-run",
+] as const;
+
+export type StepId = (typeof STEP_IDS)[number];

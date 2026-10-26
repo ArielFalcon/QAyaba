@@ -41,6 +41,7 @@ export const ATTRIBUTES = {
   "qayaba.queue.wait_ms": int("Milliseconds between enqueue and dequeue."),
   "qayaba.onboarding.wait_ms": int("Milliseconds spent waiting for onboarding before the run started."),
   "qayaba.run.cancelled": bool("The run was cancelled by an operator (never an error)."),
+  "qayaba.run.end_reason": str("Why the run ended, from the closed set of end reasons; absent for a run that ended on an error nothing handled."),
 
   /* Host health (design §7): what the machine did to the process while a run was active. */
   "qayaba.host.suspend_ms": int("Milliseconds the process was frozen while wall time moved (VM paused, laptop asleep); on a host_suspended event."),
@@ -119,6 +120,9 @@ export const ATTRIBUTES = {
   /* Phases. */
   "qayaba.phase": str("The phase name, from the canonical phase list."),
   "qayaba.phase.outcome": str("How the phase ended."),
+  "qayaba.run_step.id": str("The id of a step of the run's step table, on a step event."),
+  "qayaba.run_step.outcome": str("What became of a step: ran, skipped or ended (it ended the run)."),
+  "qayaba.run_step.reason": str("Why the run ended, on the step event of the step that ended it."),
 
   /* Fix-loop phase outcomes. */
   "qayaba.fix_loop.rounds": int("Regeneration rounds the fix loop ran."),

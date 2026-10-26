@@ -4,6 +4,8 @@ export interface RunTraceFacts {
   /* "pr" | "issue" | "shadow-log" | "quarantine" | "none"; absent when the run ended before it had a decision (an unhandled error). */
   decision?: string;
   generationEnd?: string;
+  /* Why the run ended (a value of the engine's closed set of end reasons); absent when it ended on an error nothing handled. */
+  endReason?: string;
   /* A value of the limit vocabulary: "tier-budget" | "run-deadline" | "step-cap". */
   limitFired?: string;
   limitRole?: string;

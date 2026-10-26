@@ -117,7 +117,7 @@ export async function generateFirstPass(state: Readonly<RunState>, ctx: Workspac
      */
     const coordinated = await coordinateFirstPass(state, ctx);
     const coordinatedFirstPass = coordinated.generated;
-    if (signal?.aborted) return { end: await ctx.ends.aborted(workspace.mirrorDir) };
+    if (signal?.aborted) return { end: await ctx.ends.aborted(workspace.mirrorDir), reason: "aborted" };
     generated = coordinatedFirstPass
       ?? (await afterGeneration(ctx, await deps.generation.generate(workspace.specDir, signal, classificationDiff, {
         ...baseEnrichment,
@@ -177,6 +177,7 @@ export async function settleGenerationEnd(state: Readonly<RunState>, ctx: Worksp
           ...(skipLoopSignal ? { closedLoop: skipLoopSignal } : {}),
           ...(agentBrowserSignal() ? { agentBrowser: agentBrowserSignal() } : {}),
         }),
+        reason: "generation-noop",
       };
     } else if (terminal.persisted) {
       const endNote = generated.note ?? `generation ended without specs (${generated.end})`;
@@ -200,6 +201,7 @@ export async function settleGenerationEnd(state: Readonly<RunState>, ctx: Worksp
           closedLoop: await closedLoopSignal(ctx),
           agentBrowser: agentBrowserSignal(),
         }),
+        reason: "generation-ended-without-specs",
       };
     } else {
       const emptyNote =
@@ -208,7 +210,7 @@ export async function settleGenerationEnd(state: Readonly<RunState>, ctx: Worksp
           "(provider unavailable, quota exhausted, timeout, or model refusal). Not a code defect and not a " +
           "no-op decision; surfaced as infra-error so it is diagnosable rather than a silent skip.";
       console.error(`[qa] generation runtime failure (empty, unparseable output): ${emptyNote}`);
-      return { end: await ctx.ends.infraError(emptyNote, workspace.mirrorDir) };
+      return { end: await ctx.ends.infraError(emptyNote, workspace.mirrorDir), reason: "generation-empty-output" };
     }
   }
 }

@@ -52,7 +52,7 @@ export async function setUpProject(_state: Readonly<RunState>, ctx: WorkspaceRun
       /* Never swallow an integration error into an empty result. */
       const msg = err instanceof Error ? err.message : String(err);
       console.error("[qa] setup phase failed:", err);
-      return { end: await ctx.ends.infraError(`setup failed: ${msg}`, workspace.mirrorDir) };
+      return { end: await ctx.ends.infraError(`setup failed: ${msg}`, workspace.mirrorDir), reason: "setup-failed" };
     }
   }
 }
@@ -66,13 +66,13 @@ export async function prepareLogin(state: Readonly<RunState>, ctx: WorkspaceRunC
     if ("failed" in auth && state.setup.storeRestoredLogin) {
       /* The login the store brought back no longer signs in (the app changed since): the stock seed takes its place and the login is tried once more, which falls into discovery or the unauthored path. */
       const healed = await ctx.ends.replaceRestoredLogin(workspace, signal);
-      if (healed === "setup-failed") return { end: await ctx.ends.infraError("setup failed while the app's stored login was replaced by the stock one", workspace.mirrorDir) };
+      if (healed === "setup-failed") return { end: await ctx.ends.infraError("setup failed while the app's stored login was replaced by the stock one", workspace.mirrorDir), reason: "auth-failed" };
       if (healed === "replaced") auth = await ctx.ends.prepareAuth(workspace.specDir, "pre-generate", signal);
     }
-    if ("failed" in auth) return { end: await ctx.ends.infraError(auth.failed, workspace.mirrorDir) };
+    if ("failed" in auth) return { end: await ctx.ends.infraError(auth.failed, workspace.mirrorDir), reason: "auth-failed" };
     if ("precondition" in auth) {
       /* A cancelled run is not a failed login: whatever the killed attempt saw, the abort wins. */
-      if (signal?.aborted) return { end: await ctx.ends.aborted(workspace.mirrorDir) };
+      if (signal?.aborted) return { end: await ctx.ends.aborted(workspace.mirrorDir), reason: "aborted" };
       const terminal = terminalForPrecondition(input.mode);
       ctx.ends.announcePrecondition(auth.precondition, terminal.action === "end");
       if (terminal.action === "end") {
@@ -82,6 +82,7 @@ export async function prepareLogin(state: Readonly<RunState>, ctx: WorkspaceRunC
             note: ctx.ends.preconditionNote(auth.precondition),
             mirrorDir: workspace.mirrorDir,
           }),
+          reason: "login-precondition",
         };
       }
     } else {
@@ -89,7 +90,7 @@ export async function prepareLogin(state: Readonly<RunState>, ctx: WorkspaceRunC
     }
   }
   if (signal?.aborted) {
-    return { end: await ctx.ends.aborted(workspace.mirrorDir) };
+    return { end: await ctx.ends.aborted(workspace.mirrorDir), reason: "aborted" };
   }
   return { update: { setup: { ...state.setup, authSeedUnauthored } } };
 }
@@ -112,7 +113,7 @@ export async function cleanPriorRun(_state: Readonly<RunState>, ctx: WorkspaceRu
     }
   }
   if (signal?.aborted) {
-    return { end: await ctx.ends.aborted(workspace.mirrorDir) };
+    return { end: await ctx.ends.aborted(workspace.mirrorDir), reason: "aborted" };
   }
 }
 

@@ -157,7 +157,7 @@ test("a finished run records what it came to on the root and counts as one run",
       errorClass: "E-EXEC-FAIL",
       gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0, furthestPhase: "decide" },
     },
-    { decision: "issue", generationEnd: "delivered" },
+    { decision: "issue", generationEnd: "delivered", endReason: "decided" },
   );
   enqueueTrackedRun(queue, request(app), deps(h, port));
   await queue.drain();
@@ -167,6 +167,7 @@ test("a finished run records what it came to on the root and counts as one run",
   assert.equal(attr(root, "qayaba.error_class"), "E-EXEC-FAIL");
   assert.equal(attr(root, "qayaba.decision"), "issue");
   assert.equal(attr(root, "qayaba.generation.end"), "delivered");
+  assert.equal(attr(root, "qayaba.run.end_reason"), "decided");
   assert.equal(attr(root, "qayaba.furthest_phase"), "decide");
   assert.equal(root.status.code, SpanStatusCode.UNSET);
   const runs = h.measurements.filter((m) => m.name === "qayaba.runs");
