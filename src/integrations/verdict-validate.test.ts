@@ -528,3 +528,17 @@ test("the correction cap never hides a blocking finding behind six advisory ones
   assert.match(j.corrections[0] ?? "", /^\[false-positive\]/, "the blocking correction survives the count cap, first");
   assert.ok(j.corrections.slice(1).every((c) => c.startsWith("[fragile-selector]")));
 });
+
+test("an explore request is a decision for the parser: it needs no specs, no plan and no no-op, and is read as the list it is", () => {
+  const text = 'I need to look first.\n{"explore":[{"id":"cart","question":"what does the cart show?","routes":["/cart"]}]}';
+  const parsed = parseVerdict(text);
+  assert.equal(parsed.parsed, true);
+  assert.deepEqual(parsed.specs, []);
+  assert.equal((parsed.explore as unknown[]).length, 1);
+  assert.equal(parsed.plan, undefined);
+  assert.equal(parsed.noopReason, undefined);
+});
+
+test("an explore key that is not a list is no request", () => {
+  assert.equal(parseVerdict('{"explore":{"question":"x"},"specs":["a.spec.ts"]}').explore, undefined);
+});

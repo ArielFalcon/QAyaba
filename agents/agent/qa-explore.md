@@ -22,6 +22,6 @@ Close with ONLY a JSON object, one per question:
 
 `{"id":"<the question id>","status":"answered"|"unanswered","findings":[{"claim":"<one observation>","kind":"page"|"element"|"symbol"|"data-state","ref":"<the route, element ref or symbol the claim is about>","evidence":"<what you read or saw that shows it>"}]}`
 
-At most 12 findings. Every finding names what you read or saw in `evidence`: the orchestrator checks the `ref` against what the run
+At most 12 findings. A `symbol` ref is `<repo-relative file>#<symbol>`; a `page` or `data-state` ref is the site-relative path. Every finding names what you read or saw in `evidence`: the orchestrator checks the `ref` against what the run
 read, and a claim it cannot confirm reaches the lead labelled as a claim. Answer `unanswered` when you could not find out, and say
 nothing you did not observe.

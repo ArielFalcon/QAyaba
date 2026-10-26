@@ -61,6 +61,7 @@ export class GenerationPortAdapter implements GenerationPort {
     const planned = await this.useCase.plan(input, { ...(signal ? { signal } : {}) });
     return {
       ...(planned.plan ? { plan: planned.plan } : {}),
+      ...(planned.explore ? { explore: planned.explore } : {}),
       ...(planned.noopReason ? { noopReason: planned.noopReason } : {}),
       parsed: planned.parsed,
       timedOut: planned.timedOut,

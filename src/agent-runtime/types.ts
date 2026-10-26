@@ -102,6 +102,7 @@ export interface AgentFacade {
 export const AGENT_NAME_FOR_ROLE: Readonly<Record<AgentRole, string>> = {
   primary: "qa-generator",
   lead: "qa-lead",
+  explore: "qa-explore",
   reviewer: "qa-reviewer",
   chat: "qa-assistant",
   sidekick: "qa-sidekick",

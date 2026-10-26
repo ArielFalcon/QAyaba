@@ -23,6 +23,7 @@ import type { DelegationCollection, DelegationWorkspace, DelegationWorkspaceRequ
 import type { DelegationWorkspacePort } from "@contexts/coordination/application/ports/delegation-workspace.port.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle, FlowLedgerEntry, FlowLoopHandle, FlowLoopOpenInput, GeolocationHandle } from "@contexts/agent-tools/application/index.ts";
 import type { PlanOutput } from "@kernel/plan-output.ts";
+import { AGENT_TOOL, SIDEKICK_KIND, sidekickKindSpec } from "@contexts/coordination/application/sidekick-kinds.ts";
 import type { GeoLocation } from "@kernel/geolocation.ts";
 
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
@@ -41,6 +42,9 @@ class FakeTimers implements TimerPort {
     for (const [id, t] of [...this.pending]) if (t.at <= this.now) { this.pending.delete(id); t.fire(); }
   }
 }
+
+/* A lead that cannot be asked for a plan again: no test here asks it to explore. */
+const noPlanAnswer = async (): Promise<{ parsed: boolean; timedOut: boolean }> => ({ parsed: false, timedOut: false });
 
 const settle = (): Promise<void> => new Promise((r) => setImmediate(r));
 
@@ -172,6 +176,7 @@ function rig(scriptOver: Partial<Script> = {}): Rig {
   r.agentBrowser = {
     limits: { maxCalls: 60, perCallMs: 30_000, leaseWaitMs: 15_000 },
     grantShare: (id, calls) => void r.shares.push([id, calls]),
+    readsOf: () => [],
     signals: () => ({ calls: 0, blocks: 0, invalidations: 0, renewals: 0 }),
     close: async () => {},
   };
@@ -202,6 +207,7 @@ function leadWith(answers: unknown[][], plan: Record<string, unknown> = FANOUT_P
       parsed: true,
       timedOut: false,
       lead: {
+        askForPlan: noPlanAnswer,
         ask: async (text: string) => {
           asked.push(text);
           const review = answers[Math.min(asked.length - 1, answers.length - 1)]!;
@@ -596,7 +602,7 @@ test("a flow that delivered nothing may be dropped by the lead with its reason, 
 test("a review that cannot be read, or that runs out of its time, leaves the flows as they are", async () => {
   for (const answer of [{ output: "looks fine to me", timedOut: false }, { output: "", timedOut: true }]) {
     const r = rig({ answers: { cart: [{ status: "failed", summary: "x", filesChanged: [] }] }, hasFile: new Set(["login"]) });
-    const plan = async (): Promise<PlanOutput> => ({ plan: FANOUT_PLAN, parsed: true, timedOut: false, lead: { ask: async () => answer, dispose: async () => {} } });
+    const plan = async (): Promise<PlanOutput> => ({ plan: FANOUT_PLAN, parsed: true, timedOut: false, lead: { askForPlan: noPlanAnswer, ask: async () => answer, dispose: async () => {} } });
     const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan }));
     assert.equal(outcome.action === "fanout" ? outcome.aggregated.incompleteFlows.length : -1, 1);
     assert.equal(r.executed.length, 2, "nothing was asked again");
@@ -606,7 +612,7 @@ test("a review that cannot be read, or that runs out of its time, leaves the flo
 
 test("a review turn that fails leaves the flows as they are: what was delivered stays delivered", async () => {
   const r = rig();
-  const plan = async (): Promise<PlanOutput> => ({ plan: FANOUT_PLAN, parsed: true, timedOut: false, lead: { ask: async () => { throw new Error("provider down"); }, dispose: async () => {} } });
+  const plan = async (): Promise<PlanOutput> => ({ plan: FANOUT_PLAN, parsed: true, timedOut: false, lead: { askForPlan: noPlanAnswer, ask: async () => { throw new Error("provider down"); }, dispose: async () => {} } });
   const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan }));
   if (outcome.action === "fanout") await outcome.pass?.release();
   assert.equal(outcome.action, "fanout");
@@ -649,7 +655,7 @@ test("the lead's session ends however the plan comes out: a no-op, one piece of 
   for (const planned of [{ kind: "noop", reason: "nothing" }, { kind: "lead" }, { kind: "fanout", flows: [] }]) {
     let disposed = 0;
     const r = rig();
-    const plan = async (): Promise<PlanOutput> => ({ plan: planned, parsed: true, timedOut: false, lead: { ask: async () => ({ output: "", timedOut: false }), dispose: async () => { disposed += 1; } } });
+    const plan = async (): Promise<PlanOutput> => ({ plan: planned, parsed: true, timedOut: false, lead: { askForPlan: noPlanAnswer, ask: async () => ({ output: "", timedOut: false }), dispose: async () => { disposed += 1; } } });
     await new LeadSidekicks(r.deps).coordinate(input(r, { plan }));
     assert.equal(disposed, 1, JSON.stringify(planned));
   }
@@ -938,6 +944,7 @@ function leadAnswering(outputs: string[]): { plan: CoordinateInput["plan"]; aske
       parsed: true,
       timedOut: false,
       lead: {
+        askForPlan: noPlanAnswer,
         ask: async (text: string) => {
           asked.push(text);
           return { output: outputs[Math.min(asked.length - 1, outputs.length - 1)]!, timedOut: false };
@@ -1042,6 +1049,7 @@ test("findings the lead sends to a flow when too little of the run is left for i
   const plan: CoordinateInput["plan"] = async () => ({
     plan: FANOUT_PLAN, parsed: true, timedOut: false,
     lead: {
+      askForPlan: noPlanAnswer,
       ask: async () => {
         const output = outputs[Math.min(turn++, outputs.length - 1)]!;
         if (turn === 2) left = MIN_FLOW_MS - 1;
@@ -1093,4 +1101,132 @@ test("a correction hands back the source of every spec it took, as the working c
   assert.deepEqual(corrected.specs, ["flows/cart.spec.ts"]);
   assert.deepEqual(corrected.specSources, ["// flows/cart.spec.ts as corrected"]);
   await outcome.pass!.release();
+});
+
+/* ---- exploration: the lead asks read-only sidekicks before it plans ---- */
+
+interface ExploreRig {
+  /* The explore sessions opened, with the brief and options each was opened with. */
+  opened: Array<{ brief: DelegationBrief; opts: SidekickExecuteOpts }>;
+  graphShares: Array<[string, number]>;
+  /* What the lead was asked in the same session after the exploration. */
+  askedForPlan: string[];
+  disposedLead: () => number;
+  plan: CoordinateInput["plan"];
+  input(over?: Partial<CoordinateInput>): CoordinateInput;
+}
+
+const finding = (kind: string, ref: string, claim: string) => ({ claim, kind, ref, evidence: "read it" });
+
+/* A rig whose explore sidekicks answer with `answers` (by question id) and whose lead asks to explore first, then answers `after` in its own session. */
+function exploring(r: Rig, request: unknown[], answers: Record<string, unknown>, after: { plan?: Record<string, unknown>; explore?: unknown[]; noopReason?: string } = { plan: FANOUT_PLAN }): ExploreRig {
+  const opened: ExploreRig["opened"] = [];
+  const author = r.deps.sidekick;
+  r.deps.sidekick = {
+    open: async (brief, opts) => {
+      if (opts.kind !== "explore") return author.open(brief, opts);
+      opened.push({ brief, opts });
+      const id = brief.delegationId.replace(/^.*-explore-/, "");
+      return {
+        first: { ...result(brief, { filesChanged: [] }), exploration: answers[id] as never },
+        ask: async () => result(brief),
+        dispose: async () => {},
+      };
+    },
+  };
+  const askedForPlan: string[] = [];
+  let disposed = 0;
+  const graphShares: Array<[string, number]> = [];
+  const lead = {
+    ask: async () => ({ output: "", timedOut: false }),
+    askForPlan: async (text: string) => { askedForPlan.push(text); return { ...after, parsed: true, timedOut: false }; },
+    dispose: async () => { disposed += 1; },
+  };
+  const plan: CoordinateInput["plan"] = async () => ({ explore: request, parsed: true, timedOut: false, lead });
+  const codeGraph = { limits: { maxCalls: 40, maxFiles: 8, maxAnswerChars: 8000 }, signals: () => ({ calls: 0, refused: 0, failed: 0 }), grantShare: (id: string, calls: number) => void graphShares.push([id, calls]), close: () => {} };
+  const contextPack = [`### ${PACK_HEADINGS.liveDom}`, "route /cart:", "  button \"Checkout\""].join("\n");
+  return { opened, graphShares, askedForPlan, disposedLead: () => disposed, plan, input: (over = {}) => input(r, { plan, codeGraph, contextPack, closedLoop: undefined, ...over }) };
+}
+
+const CART_QUESTION = { id: "cart", question: "what does the cart page show?", routes: ["/cart"] };
+
+test("an explore request runs read-only sidekicks, returns verified findings to the same lead session and then admits the plan", async () => {
+  const r = rig();
+  r.agentBrowser.readsOf = (id) => (id === "run-1-explore-profile" ? ["/profile"] : []);
+  const x = exploring(
+    r,
+    [CART_QUESTION, { id: "profile", question: "is there a profile page?" }],
+    {
+      cart: { id: "cart", status: "answered", findings: [finding("page", "/cart", "the cart lists a checkout button"), finding("page", "/admin", "an admin page exists")] },
+      profile: { id: "profile", status: "answered", findings: [finding("page", "/profile", "the profile page opens")] },
+    },
+  );
+  const outcome = await new LeadSidekicks(r.deps).coordinate(x.input());
+  assert.equal(outcome.action, "fanout", "the plan the lead gave after the exploration is admitted");
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  assert.deepEqual(x.opened.map((o) => o.brief.delegationId).sort(), ["run-1-explore-cart", "run-1-explore-profile"]);
+  assert.ok(x.opened.every((o) => o.opts.kind === "explore" && o.opts.cwd === "/m"), "explore sessions work in the run's working copy, not in a workspace of their own");
+  assert.equal(x.askedForPlan.length, 1, "the same lead session is asked once");
+  const told = x.askedForPlan[0]!;
+  assert.match(told, /\[verified by the orchestrator\][^\n]*the cart lists a checkout button/);
+  assert.match(told, /\[CLAIM, not verified\][^\n]*an admin page exists/);
+  assert.match(told, /\[verified by the orchestrator\][^\n]*the profile page opens/, "a page the sidekick's own browser showed is verified");
+  assert.deepEqual(r.shares.filter(([id]) => id.includes("-explore-")).map(([id]) => id).sort(), ["run-1-explore-cart", "run-1-explore-profile"]);
+  assert.deepEqual(x.graphShares.map(([id]) => id).sort(), ["run-1-explore-cart", "run-1-explore-profile"]);
+  const spent = r.shares.filter(([id]) => id.includes("-explore-")).reduce((sum, [, calls]) => sum + calls, 0);
+  assert.ok(spent <= r.agentBrowser.limits.maxCalls / 2, "exploration leaves most of the run's browser calls to the authors");
+  const explores = r.events.filter((e) => e.sidekickKind === "explore" && e.kind === "delegation");
+  assert.equal(explores.length, 2, "each explore session is counted in the telemetry");
+});
+
+test("a second explore request is not admitted: the change is handed back with the reason and no author is started", async () => {
+  const r = rig();
+  const x = exploring(r, [CART_QUESTION], { cart: { id: "cart", status: "answered", findings: [] } }, { explore: [CART_QUESTION] });
+  const outcome = await new LeadSidekicks(r.deps).coordinate(x.input());
+  assert.equal(outcome.action, "lead");
+  assert.equal(outcome.signal.downgrade, PLAN_DOWNGRADE.MALFORMED);
+  assert.equal(x.opened.length, 1, "one round only");
+  assert.equal(r.sessionsOpened, 0);
+  assert.equal(x.disposedLead(), 1, "the lead's session is closed");
+});
+
+test("a request that is not admitted runs no explorer and is handed back as malformed", async () => {
+  const r = rig();
+  const x = exploring(r, Array.from({ length: 4 }, (_, i) => ({ id: `q${i}`, question: "what?" })), {});
+  const outcome = await new LeadSidekicks(r.deps).coordinate(x.input());
+  assert.equal(outcome.action, "lead");
+  assert.equal(outcome.signal.downgrade, PLAN_DOWNGRADE.MALFORMED);
+  assert.equal(x.opened.length, 0);
+  assert.equal(x.askedForPlan.length, 0);
+});
+
+test("explore sidekicks never receive a writable path, a run_spec loop or a workspace of their own", async () => {
+  const r = rig();
+  const x = exploring(r, [CART_QUESTION], { cart: { id: "cart", status: "answered", findings: [] } });
+  const outcome = await new LeadSidekicks(r.deps).coordinate(x.input({ closedLoop: r.closedLoop }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  const explore = x.opened[0]!;
+  assert.deepEqual(explore.brief.scope.writablePaths, []);
+  assert.ok(!r.created.some((id) => id.includes("-explore-")), "no delegation workspace was made for it");
+  assert.ok(!r.flowLoops.some((l) => l.input.delegationId.includes("-explore-")), "no run_spec loop was opened for it");
+  assert.equal(explore.opts.denyTools, undefined);
+  assert.ok(!sidekickKindSpec(SIDEKICK_KIND.EXPLORE).tools.some((tool) => tool === AGENT_TOOL.WRITE || tool === AGENT_TOOL.RUN_SPEC));
+});
+
+test("a plan answered directly runs exactly as before: no explorer, no extra ask, no exploration time", async () => {
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { closedLoop: undefined }));
+  assert.equal(outcome.action, "fanout");
+  assert.ok(r.executed.every((e) => e.opts.kind === "author"));
+  assert.equal(r.events.filter((e) => e.sidekickKind === "explore").length, 0);
+});
+
+test("an exploration that has no time left is not run, and the lead is told so and must plan", async () => {
+  const r = rig();
+  const x = exploring(r, [CART_QUESTION], {});
+  let calls = 0;
+  const deadline = { remainingMs: () => (calls++ === 0 ? 3_600_000 : 140_000) };
+  await new LeadSidekicks(r.deps).coordinate(x.input({ deadline }));
+  assert.equal(x.opened.length, 0);
+  assert.match(x.askedForPlan[0]!, /No exploration ran: too little of the run is left to explore/);
 });

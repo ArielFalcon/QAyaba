@@ -35,7 +35,7 @@ export const MAX_ROUTE_CHARS = 200;
 export const MAX_NOOP_REASON_CHARS = 400;
 
 /* A site-relative path, as the app's own links are: no scheme, no host, no whitespace. */
-const ROUTE = /^\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]*$/;
+export const ROUTE = /^\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]*$/;
 
 export interface PlanLimits {
   /* The most flows a plan may name. */
@@ -97,16 +97,16 @@ function leadAlone(downgrade: PlanDowngrade): AdmittedPlan {
   return { kind: PLAN_REJECTED, downgrade };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function text(redaction: RedactionPort, value: unknown, max: number): string {
+export function text(redaction: RedactionPort, value: unknown, max: number): string {
   return typeof value === "string" ? redaction.redact(value).replace(/\s+/g, " ").trim().slice(0, max) : "";
 }
 
 /* The id as a file-safe slug. An id that is nothing once cleaned is still a name, so two such flows are a duplicate and not a blank. */
-function slugOf(value: unknown): string {
+export function slugOf(value: unknown): string {
   const raw = typeof value === "string" ? value : "";
   return raw.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, MAX_FLOW_ID_CHARS).replace(/-+$/g, "") || "flow";
 }

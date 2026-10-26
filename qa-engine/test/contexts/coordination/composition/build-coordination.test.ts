@@ -3,7 +3,9 @@ import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { resetSharedCoordinationTelemetryForTests } from "@contexts/coordination/infrastructure/adapters/coordination-telemetry-port.adapter.ts";
-import { buildCoordination, type CoordinationDeps } from "@contexts/coordination/composition/build-coordination.ts";
+import { ok, err } from "@kernel/result.ts";
+import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
+import { buildCoordination, graphHoldsSymbol, type CoordinationDeps } from "@contexts/coordination/composition/build-coordination.ts";
 
 afterEach(() => resetSharedCoordinationTelemetryForTests());
 
@@ -44,4 +46,26 @@ test("a code run never coordinates, whatever the shell offers", () => {
 
 test("the ledger is one per process, so decisions outlive a run", () => {
   assert.equal(buildCoordination(deps()).coordinationTelemetry, buildCoordination(deps()).coordinationTelemetry);
+});
+
+function graph(over: Partial<CodeGraphPort>): CodeGraphPort {
+  return { syncTo: async () => { throw new Error("unused"); }, impactedSymbols: async () => { throw new Error("unused"); }, callersOf: async () => ok({ indexedSha: "s", symbols: [], truncated: false }), routes: async () => ok([]), ...over };
+}
+
+test("a symbol ref names a file and a symbol, and the graph holds it only when it finds exactly that symbol in that file", async () => {
+  const seen: unknown[] = [];
+  const held = graph({ callersOf: async (_dir, symbols) => { seen.push(symbols); return ok({ indexedSha: "s", symbols: [{ file: "src/cart.ts", symbol: "totalOf", kind: "function", depth: 0 }], truncated: false }); } });
+  assert.equal(await graphHoldsSymbol(held, "/m", "src/cart.ts#totalOf"), true);
+  assert.deepEqual(seen, [[{ file: "src/cart.ts", symbol: "totalOf" }]]);
+  assert.equal(await graphHoldsSymbol(held, "/m", "src/other.ts#totalOf"), false, "another file's symbol is not the one named");
+  assert.equal(await graphHoldsSymbol(graph({}), "/m", "src/cart.ts#ghost"), false);
+});
+
+test("a bare name is held when a route points at a symbol of that name, and any answer but a clear yes is no", async () => {
+  const routed = graph({ routes: async () => ok([{ file: "src/routes.ts", line: 3, path: "/cart", target: { file: "src/cart.ts", symbol: "CartPage", kind: "class" } }]) });
+  assert.equal(await graphHoldsSymbol(routed, "/m", "CartPage"), true);
+  assert.equal(await graphHoldsSymbol(routed, "/m", "Missing"), false);
+  const down = graph({ callersOf: async () => err({ reason: "not indexed" }), routes: async () => err({ reason: "not indexed" }) });
+  assert.equal(await graphHoldsSymbol(down, "/m", "src/cart.ts#totalOf"), false);
+  assert.equal(await graphHoldsSymbol(down, "/m", "CartPage"), false);
 });

@@ -177,3 +177,25 @@ test("the planning session is opened for the lead role, which the roster makes r
   assert.equal(seen.opened[0]!.opts?.descriptor?.role, "qa-lead");
   assert.equal("denyTools" in (seen.opened[0]!.opts?.descriptor ?? {}), false);
 });
+
+test("a turn that asks to explore keeps its session open and the lead's answer to the findings is read as a planning turn", async () => {
+  const { ports, seen } = build({ output: "the answer" }, { specs: [], parsed: true });
+  const deliverables: GeneratorDeliverable[] = [{ specs: [], parsed: true, explore: [{ id: "cart", question: "what shows?" }] }, { specs: [], parsed: true, plan: FANOUT }, { specs: [], parsed: true, explore: [{ id: "again", question: "more?" }] }, { specs: [], parsed: false }];
+  let read = 0;
+  ports.verdicts.parseGenerator = (text, specDir) => { seen.parsedWith.push({ text, specDir }); return deliverables[read++]!; };
+  const result = await new GenerateTestsUseCase(ports).plan(planInput());
+  assert.deepEqual(result.explore, [{ id: "cart", question: "what shows?" }]);
+  assert.equal("plan" in result, false);
+  assert.equal(seen.disposed, 0, "the session outlives the request: the lead is asked again in it");
+  const second = await result.lead!.askForPlan("findings", { timeoutMs: 5_000 });
+  assert.deepEqual(second, { plan: FANOUT, parsed: true, timedOut: false });
+  assert.equal(seen.opened.length, 1, "asked in the same session");
+  assert.equal(seen.prompts[1]!.text, "findings");
+  assert.equal(seen.prompts[1]!.opts?.withoutWrites, true);
+  const again = await result.lead!.askForPlan("findings", { timeoutMs: 5_000 });
+  assert.equal(again.explore?.length, 1, "a second request is reported as one, for the orchestrator to refuse");
+  const unreadable = await result.lead!.askForPlan("findings", { timeoutMs: 5_000 });
+  assert.equal(unreadable.parsed, false);
+  await result.lead!.dispose();
+  assert.equal(seen.disposed, 1);
+});

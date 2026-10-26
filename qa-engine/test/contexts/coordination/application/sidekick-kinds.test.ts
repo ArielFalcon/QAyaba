@@ -65,7 +65,16 @@ test("an escalated tier resolves the escalated model and a standard tier none", 
 });
 
 test("a kind that is not registered is refused loudly", () => {
-  assert.throws(() => sidekickKindSpec(SIDEKICK_KIND.EXPLORE), /no sidekick kind/);
+  assert.throws(() => sidekickKindSpec("unknown" as never), /no sidekick kind/);
+});
+
+test("the explore kind is the read-only explore agent, with the code graph and the browser, working in the working copy under the exploration budget", () => {
+  const spec = sidekickKindSpec(SIDEKICK_KIND.EXPLORE);
+  assert.equal(spec.agent, CODE_GRAPH_EXPLORE_AGENT);
+  assert.deepEqual([...spec.tools].sort(), [AGENT_TOOL.AUTHBROWSER, AGENT_TOOL.CODEGRAPH, AGENT_TOOL.READ].sort());
+  assert.equal(spec.workspace, "working-copy");
+  assert.equal(spec.budget, "explore-budget");
+  assert.deepEqual([...spec.tiers], [SIDEKICK_TIER.STANDARD]);
 });
 
 test("the review kind is the read-only reviewer agent working in the working copy under the reviewer's session timeout", () => {

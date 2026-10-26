@@ -14,6 +14,8 @@ export interface FinalVerdict {
   noopKind?: NoopKind;
   /** The plan a lead emitted when its turn asked for one: the raw object, untrusted and read by the orchestrator's admission alone. Absent unless the verdict carried a `plan` object. */
   plan?: Record<string, unknown>;
+  /** The questions a lead asked the explore sidekicks instead of planning: the raw array, untrusted and read by the orchestrator's admission alone. Absent unless the verdict carried an `explore` array. */
+  explore?: unknown[];
   /** The generator's typed claim that the test is correct; a claim, never evidence. Absent unless it carried a valid cause and a non-blank reason. */
   testCorrect?: { cause: "env" | "app"; reason: string };
   /** The findings the generator disputes instead of correcting, each with the basis the orchestrator must check. Absent unless it carried at least one well-formed entry. */
@@ -73,9 +75,9 @@ export function lastJsonMatching<T = Record<string, unknown>>(text: string, pred
   return undefined;
 }
 
-/* Discriminator: the generator's closing JSON carries a `specs` array, a `noop` decision, a `testCorrect` claim, `rebuttals`, a `plan` or a boolean `approved`. */
+/* Discriminator: the generator's closing JSON carries a `specs` array, a `noop` decision, a `testCorrect` claim, `rebuttals`, a `plan`, an `explore` request or a boolean `approved`. */
 export function isClosingVerdict(o: Record<string, unknown>): boolean {
-  return Array.isArray(o.specs) || "noop" in o || "testCorrect" in o || "rebuttals" in o || "plan" in o || typeof o.approved === "boolean";
+  return Array.isArray(o.specs) || "noop" in o || "testCorrect" in o || "rebuttals" in o || "plan" in o || "explore" in o || typeof o.approved === "boolean";
 }
 
 /* A plan is an object; anything else under the key is no plan. */
@@ -147,6 +149,7 @@ export function parseVerdict(text: string): FinalVerdict {
       ...(testCorrect ? { testCorrect } : {}),
       ...(rebuttals ? { rebuttals } : {}),
       ...(planOf(o.plan) ? { plan: planOf(o.plan) } : {}),
+      ...(Array.isArray(o.explore) ? { explore: o.explore } : {}),
       parsed: true,
     };
   }

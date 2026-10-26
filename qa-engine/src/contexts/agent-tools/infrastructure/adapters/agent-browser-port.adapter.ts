@@ -152,6 +152,6 @@ export class AgentBrowserPortAdapter implements AgentBrowserPort {
       },
       close,
     });
-    return { limits: capability.limits, grantShare: (delegationId, calls) => capability.setShare(delegationId, calls), signals: () => capability.signal, close };
+    return { limits: capability.limits, grantShare: (delegationId, calls) => capability.setShare(delegationId, calls), readsOf: (delegationId) => capability.readsOf(delegationId), signals: () => capability.signal, close };
   }
 }

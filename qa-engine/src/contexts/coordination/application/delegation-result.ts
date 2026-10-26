@@ -1,5 +1,6 @@
 import type { AcceptanceReportDefect, AcceptanceReportEntry } from "./acceptance-report.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
+import type { Exploration } from "./exploration.ts";
 
 export const DELEGATION_STATUSES = [
   "completed",
@@ -34,6 +35,8 @@ export interface DelegationResult {
   /** Set when the report is absent or malformed: every criterion without a kept entry is unverified. */
   readonly acceptanceReportDefect?: AcceptanceReportDefect;
   /** The sidekick's claim, on a correction of a failing execution, that its test is right and the app or the environment is not. */
+  /** An explore sidekick's findings, as it reported them: the orchestrator verifies each before the lead sees it. */
+  readonly exploration?: Exploration;
   readonly testCorrect?: { readonly cause: "env" | "app"; readonly reason: string };
 }
 

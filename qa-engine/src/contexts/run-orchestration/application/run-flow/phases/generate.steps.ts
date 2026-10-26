@@ -31,7 +31,7 @@ type Result = Promise<StepOutcome<RunState>>;
  */
 async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<{ generated?: GenerationOutput; leadReviewTurns?: number }> {
   const { deps, input, cfg, workspace, signal } = ctx;
-  const { closedLoop, agentBrowser, geolocation } = ctx.trail;
+  const { closedLoop, agentBrowser, geolocation, codeGraphTools } = ctx.trail;
   const { generating, intent: classificationIntent, diff: classificationDiff } = state.classification;
   const { authSeedUnauthored } = state.setup;
   const { baseEnrichment } = state.grounding;
@@ -51,6 +51,7 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
       facts: { hasLogin: Boolean(deps.authContext?.auth), provider: deps.sidekickProvider?.(), plannerProvider: deps.plannerProvider?.() },
       ...(closedLoop ? { closedLoop } : {}),
       ...(agentBrowser ? { agentBrowser } : {}),
+      ...(codeGraphTools ? { codeGraph: codeGraphTools } : {}),
       ...(geolocation ? { geolocation } : {}),
       ...(deps.sidekickDevBaseUrl ? { devBaseUrl: deps.sidekickDevBaseUrl } : {}),
       ...(state.grounding.confirmedDataRoutes?.length ? { confirmedDataRoutes: state.grounding.confirmedDataRoutes } : {}),

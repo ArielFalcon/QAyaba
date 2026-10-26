@@ -30,6 +30,16 @@ The prompt's plan section states the limits the orchestrator holds the plan to.
 
 A flow is one spec file named by its id; no two flows share a file or depend on each other's data. The orchestrator decides what each flow may write, how long it takes and what it may run, so the plan carries none of that. A flow without a `location` inherits the run's.
 
+## Exploration
+
+Before you plan you may ask once for exploration: read-only explore sidekicks that walk the code graph and look at DEV through
+the authenticated browser, one per question. Ask only for what the prompt does not already give you (a page, a data state or a symbol the
+change reaches that the prompt does not show). Instead of a plan, close with ONLY
+`{"explore":[{"id":"<short-slug>","question":"<one question, at most 400 characters>","routes":["/<path to look at>"]}]}`: at most 3
+questions, site-relative routes only. You then get the findings in the same session and must answer with your plan: a second
+request to explore is refused. Findings the orchestrator verified are facts; a claim it could not confirm is only the sidekick's
+word, and where a finding is contradicted the orchestrator's read stands.
+
 ## Review of the flows
 
 Your sidekicks authored the flows of your plan. Judge each one against the change you planned for: does its spec

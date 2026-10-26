@@ -455,6 +455,7 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
     runtime: cfg.reviewRuntime.runtime,
     redaction: patternRedaction,
     specFileFor: specFileForFlow,
+    ...(codeGraphPort ? { codeGraph: codeGraphPort, codeGraphRepoDir: cfg.codeGraphRepoDir ?? cfg.mirrorDir } : {}),
     ...(cfg.sanitize ? { sanitize: cfg.sanitize } : {}),
     ...(cfg.planSnapshots ? { planSnapshots: cfg.planSnapshots } : {}),
     ...(cfg.sidekickEscalatedModel ? { escalatedModel: cfg.sidekickEscalatedModel } : {}),

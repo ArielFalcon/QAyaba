@@ -8,6 +8,7 @@ import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import { readDelegationResult } from "./delegation-reading.ts";
 import type { DelegationResult } from "./delegation-result.ts";
+import { readExploreResult, renderExploreBrief } from "./explore-kind.ts";
 import { renderSidekickBrief } from "./sidekick-prompt.ts";
 import { REVIEW_SIDEKICK } from "@kernel/sidekick-session.ts";
 
@@ -76,6 +77,18 @@ const AUTHOR: DelegatingKindSpec = {
   parse: (redaction, output, brief) => readDelegationResult(output, brief, redaction),
 };
 
+const EXPLORE: DelegatingKindSpec = {
+  id: SIDEKICK_KIND.EXPLORE,
+  agent: "qa-explore",
+  role: "explore",
+  tools: [AGENT_TOOL.READ, AGENT_TOOL.CODEGRAPH, AGENT_TOOL.AUTHBROWSER],
+  tiers: [SIDEKICK_TIER.STANDARD],
+  workspace: SIDEKICK_WORKSPACE.WORKING_COPY,
+  budget: SIDEKICK_BUDGET.EXPLORE,
+  render: (redaction, brief) => renderExploreBrief(redaction, brief),
+  parse: (redaction, output, brief) => readExploreResult(redaction, output, brief),
+};
+
 const REVIEW: ReviewKindSpec = {
   id: SIDEKICK_KIND.REVIEW,
   ...REVIEW_SIDEKICK,
@@ -85,7 +98,7 @@ const REVIEW: ReviewKindSpec = {
   budget: SIDEKICK_BUDGET.REVIEW,
 };
 
-const KINDS: Readonly<Partial<Record<SidekickKind, SidekickKindSpec>>> = { [SIDEKICK_KIND.AUTHOR]: AUTHOR, [SIDEKICK_KIND.REVIEW]: REVIEW };
+const KINDS: Readonly<Partial<Record<SidekickKind, SidekickKindSpec>>> = { [SIDEKICK_KIND.AUTHOR]: AUTHOR, [SIDEKICK_KIND.EXPLORE]: EXPLORE, [SIDEKICK_KIND.REVIEW]: REVIEW };
 
 /* Every kind the registry holds. */
 export const REGISTERED_SIDEKICK_KINDS = (): SidekickKindSpec[] => Object.values(KINDS);

@@ -87,6 +87,16 @@ test("an explore session's call reaches the host read-only and an authoring sess
   assert.deepEqual(host.readOnly, [true, undefined]);
 });
 
+test("the pages a flow's sessions were shown are the capability's ledger of reads, by path, and a refused call leaves none", async () => {
+  const { host, capability, useCase } = setup();
+  host.next = () => page({ url: `${BASE}/orders?page=2#top`, requestedPath: "/orders" });
+  await useCase.call({ ...nav("/orders"), sessionId: "explore", agent: "qa-explore" });
+  await useCase.call({ ...nav("/admin/users"), sessionId: "explore", agent: "qa-explore" });
+  await useCase.call(nav("/orders"));
+  assert.deepEqual(capability.readsOf("r1-explore-0"), ["/orders"], "the path alone, once; a session bound to no flow leaves none and a blocked route is not read");
+  assert.deepEqual(capability.readsOf("r1-explore-1"), []);
+});
+
 test("a navigation resolves a path against the app's base address and returns the page", async () => {
   const { host, useCase } = setup();
   const res = await useCase.call(nav("/orders?page=2"));

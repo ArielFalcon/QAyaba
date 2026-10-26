@@ -21,6 +21,7 @@ import type { ReviewInput } from "@contexts/generation/application/index.ts";
 import { createDelegationBrief } from "@contexts/coordination/application/index.ts";
 import { SidekickExecutor } from "@contexts/coordination/application/index.ts";
 import { renderLeadCorrection } from "@contexts/coordination/application/lead-correction.ts";
+import { renderExploreOutcome } from "@contexts/coordination/application/explore-round.ts";
 import { ReflectorPortAdapter } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter.ts";
 import type { ReflectionInput } from "@contexts/cross-run-learning/application/index.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
@@ -534,11 +535,29 @@ async function sidekickPrompts(subject: string): Promise<PromptText[]> {
   return promptsSent("sidekick", sent);
 }
 
+/* The explore sidekick's brief and the findings turn the lead is asked for its plan with, as the orchestrator sends them. */
+async function explorePrompts(subject: string): Promise<PromptText[]> {
+  const sent: string[] = [];
+  const brief = createDelegationBrief({ redaction,
+    delegationId: "r1-explore-cart",
+    runId: "r1",
+    objective: `what does the ${subject} cart page show?`,
+    task: "answer one question, read-only",
+    scope: { readablePaths: ["."], writablePaths: [], allowedCommands: [] },
+  });
+  await new SidekickExecutor({ redaction, runtime: recordingRuntime(sent) }).execute(brief, { cwd: "/m", kind: "explore" });
+  return promptsSent("explore", sent);
+}
+
 /* The correction turn that routes a finding to the flow of the subject: the lead's role prompt is static text, scanned with the other role prompts. */
 async function leadPrompts(subject: string): Promise<PromptText[]> {
   const flows = [{ id: "cart", specFile: "e2e/flows/cart.spec.ts", objective: `the ${subject} total`, sessionOpen: true, spec: "test('total', async () => {});" }];
   return [
     { source: "lead correction turn", text: renderLeadCorrection(redaction, flows, [{ text: `e2e/flows/cart.spec.ts: the ${subject} total is not asserted` }]) },
+    {
+      source: "lead exploration findings turn",
+      text: renderExploreOutcome(redaction, { ran: true, questions: [{ id: "cart", question: `what does the ${subject} cart page show?`, status: "answered", findings: [{ claim: "the page lists the items", kind: "page", ref: "/cart", evidence: "saw it", verification: "verified" }] }] }),
+    },
   ];
 }
 
@@ -655,6 +674,7 @@ const PROMPT_KINDS: readonly PromptKind[] = [
   { kind: "verdict repair", roles: ["primary", "reviewer"], prompts: repairPrompts },
   { kind: "lead", roles: ["lead"], prompts: leadPrompts },
   { kind: "sidekick", roles: ["sidekick"], prompts: sidekickPrompts },
+  { kind: "explore", roles: ["explore"], prompts: explorePrompts },
   { kind: "maintainer", roles: ["maintainer"], prompts: maintainerPrompts },
   { kind: "assistant", roles: ["chat"], prompts: assistantPrompts },
   { kind: "reflector", roles: ["reflector"], prompts: reflectorPrompts },

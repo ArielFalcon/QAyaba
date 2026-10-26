@@ -66,6 +66,20 @@ of the app's map the change is linked to and asked to give a flow to each page w
 pages no admitted flow visits are recorded as a `lead-decision` event. The Context Pack captures as many of those pages as the
 change is linked to, up to `MAX_ROUTES_PER_CHANGE`.
 
+### Asking to explore
+
+Instead of a plan the lead may ask once for exploration: `{"explore":[{"id","question","routes"?}]}`, at most 3 questions of at most
+400 characters, with site-relative routes. The orchestrator runs one read-only `explore` sidekick (`qa-explore`) per question in the
+run's working copy, in parallel, each bounded by `EXPLORE_BUDGET_MS` (120 s) and by the time the run can spare after its reserve.
+An explore sidekick holds the code graph and the authenticated browser, never a write, `run_spec` or location tool; the
+exploration spends at most a quarter of the run's browser and code-graph calls, split between the questions
+(`EXPLORE_CALL_SHARE`). Its answer is `{id, status, findings:[{claim, kind, ref, evidence}]}` (at most 12 findings). Before the lead
+sees a finding the orchestrator labels it: `verified` when the Context Pack read the page, the pack read the data route with
+results, the orchestrator's browser showed that sidekick the page, or the code graph holds the symbol (`<file>#<symbol>`);
+`contradicted` when it claims an empty data state the pack read with results (the pack's read stands); `unverified` otherwise,
+shown to the lead as a claim. The lead is then asked in the same session and that answer must be a plan: a second request is
+refused as malformed, and the change goes back to the lead as one piece of work. A plan answered directly spends no exploration time.
+
 ## What a sidekick may author with
 
 `sidekickAuthoring` picks one mode per run:

@@ -61,6 +61,8 @@ export class AgentBrowserCapability {
   private readonly shares = new Map<string, { share: number; used: number }>();
   private readonly flowOfSession = new Map<string, string>();
   private readonly readOnlySessions = new Set<string>();
+  /* The pages each flow's sessions were shown, by path: what the orchestrator saw the browser read, never what an agent says it read. */
+  private readonly readPaths = new Map<string, Set<string>>();
 
   constructor(private readonly init: AgentBrowserCapabilityInit) {}
 
@@ -91,6 +93,20 @@ export class AgentBrowserCapability {
     this.sessions.delete(sessionId);
     this.flowOfSession.delete(sessionId);
     this.readOnlySessions.delete(sessionId);
+  }
+
+  /* Notes that the session's browser showed the page at this path. A session bound to no flow leaves no ledger. */
+  recordRead(sessionId: string, path: string): void {
+    const flow = this.flowOfSession.get(sessionId);
+    if (flow === undefined) return;
+    const paths = this.readPaths.get(flow) ?? new Set<string>();
+    paths.add(path);
+    this.readPaths.set(flow, paths);
+  }
+
+  /* The paths the flow's sessions were shown, in the order they were first read. */
+  readsOf(delegationId: string): readonly string[] {
+    return [...(this.readPaths.get(delegationId) ?? [])];
   }
 
   /* Whether the session's role never writes to DEV: its requests are judged without the app's allowMutating entries. */

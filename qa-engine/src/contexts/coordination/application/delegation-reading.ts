@@ -8,7 +8,7 @@ import { applyPushback } from "./pushback.ts";
 import { isPathWithinWritableRoots } from "./path-scope.ts";
 
 /* Brace-balanced first-object scan (string/escape aware). lastIndexOf("{") false-fails on valid DelegationResults with nested objects followed by a trailing fence. */
-function extractJsonObject(text: string): unknown {
+export function extractJsonObject(text: string): unknown {
   const trimmed = text.trim();
   const start = trimmed.indexOf("{");
   if (start < 0) return undefined;

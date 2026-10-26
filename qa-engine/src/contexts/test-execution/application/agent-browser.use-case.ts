@@ -183,6 +183,7 @@ export class AgentBrowserUseCase {
       { ...(this.deps.loginPath !== undefined ? { loginPath: this.deps.loginPath } : {}) },
     );
     if (lost) return this.invalidated(lost.detail, signal, tell);
+    this.noteRead(sessionId, state.url);
     return this.report(state);
   }
 
@@ -204,6 +205,15 @@ export class AgentBrowserUseCase {
       ? "The session was renewed; navigate again to continue."
       : "The session could not be renewed; do not rely on this browser for the rest of the run and use what the task supplies.";
     return this.refusal(AGENT_BROWSER_REFUSAL.SESSION_INVALIDATED, `session invalidated: ${this.deps.redact(detail)}. ${next}`);
+  }
+
+  /* The page the browser showed, by its path, goes to the session's ledger; an address that cannot be read as one leaves no entry. */
+  private noteRead(sessionId: string, url: string): void {
+    try {
+      this.deps.capability.recordRead(sessionId, new URL(url).pathname);
+    } catch {
+      /* nothing was shown at an address that is not one */
+    }
   }
 
   private report(state: PageState): AgentBrowserResponse {

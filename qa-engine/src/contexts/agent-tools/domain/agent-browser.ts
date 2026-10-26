@@ -27,6 +27,8 @@ export interface AgentBrowserHandle {
   limits: AgentBrowserLimits;
   /** Gives a flow of a plan the calls its sidekick may make out of the run's, before the sidekick's session opens. */
   grantShare(delegationId: string, calls: number): void;
+  /** The paths the flow's sessions were shown, as the orchestrator's browser saw them; an agent's account of what it read is not in it. */
+  readsOf(delegationId: string): readonly string[];
   signals(): AgentBrowserGateSignal;
   /** Revokes the right, stops the browser. Never throws. */
   close(): Promise<void>;

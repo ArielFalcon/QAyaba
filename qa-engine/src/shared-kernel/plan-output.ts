@@ -7,15 +7,19 @@ import type { AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
  */
 export interface PlanOutput {
   plan?: Record<string, unknown>;
+  /** The questions the lead asked the explore sidekicks instead of planning, untrusted: only the orchestrator's admission reads them. */
+  explore?: unknown[];
   noopReason?: string;
   parsed: boolean;
   timedOut: boolean;
   turn?: AgentTurnStats;
-  /** The lead's planning session, held open when the turn came back with a plan, for the lead's review of the flows. The caller disposes it. */
+  /** The lead's planning session, held open when the turn came back with a plan, for the lead's review of the flows. The caller disposes it. Also held when the turn asked to explore. */
   lead?: LeadSessionHandle;
 }
 /** The lead's planning session, held open for its next turn: asked read-only, a turn out of its time answers `timedOut`. */
 export interface LeadSessionHandle {
   ask(text: string, opts: { timeoutMs: number }): Promise<{ output: string; timedOut: boolean }>;
+  /** Asks the lead for its plan after the exploration it requested, read as a planning turn is read. */
+  askForPlan(text: string, opts: { timeoutMs: number }): Promise<Pick<PlanOutput, "plan" | "explore" | "noopReason" | "parsed" | "timedOut">>;
   dispose(): Promise<void>;
 }

@@ -48,7 +48,7 @@ function rig(result: () => Promise<CoordinateResult> | CoordinateResult = () => 
     signals: () => ({ calls: 0, devWrites: 0 }),
     close: async () => void calls.push("close-loop"),
   };
-  const agentBrowser: AgentBrowserHandle = { limits: { maxCalls: 60, perCallMs: 30_000, leaseWaitMs: 15_000 }, grantShare: () => {}, signals: () => ({ calls: 0, blocks: 0, invalidations: 0, renewals: 0 }), close: async () => {} };
+  const agentBrowser: AgentBrowserHandle = { limits: { maxCalls: 60, perCallMs: 30_000, leaseWaitMs: 15_000 }, grantShare: () => {}, readsOf: () => [], signals: () => ({ calls: 0, blocks: 0, invalidations: 0, renewals: 0 }), close: async () => {} };
   r.deps = (over = {}) => {
     const { generation: generationOver, ...rest } = over;
     return {

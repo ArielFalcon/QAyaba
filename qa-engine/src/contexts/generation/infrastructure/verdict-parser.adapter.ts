@@ -42,6 +42,8 @@ interface ParsedVerdict {
   noopKind?: NoopKind;
   /* The plan the verdict carries, forwarded untouched: it is the orchestrator's admission that judges it. */
   plan?: Record<string, unknown>;
+  /* The exploration questions the verdict carries instead of a plan, forwarded untouched for the orchestrator's admission. */
+  explore?: unknown[];
   /* The generator's typed test-correct claim, forwarded after sanitizing/bounding its reason. */
   testCorrect?: { cause: "env" | "app"; reason: string };
   /* The findings the generator disputes, forwarded so the run can check each one's basis. */
@@ -100,6 +102,7 @@ export class VerdictParserAdapter implements VerdictParserPort {
       ...(noopReason ? { noopReason, ...(v.noopKind ? { noopKind: v.noopKind } : {}) } : {}),
       ...(outputTail ? { outputTail } : {}),
       ...(v.plan ? { plan: v.plan } : {}),
+      ...(v.explore ? { explore: v.explore } : {}),
       ...(v.testCorrect && testCorrectReason ? { testCorrect: { cause: v.testCorrect.cause, reason: testCorrectReason } } : {}),
       ...(bounded.length ? { rebuttals: bounded } : {}),
       ...(v.specMetas ? { specMetas: v.specMetas.map((meta) => ({ ...meta, file: resolve(meta.file) })) } : {}),
