@@ -16,7 +16,6 @@ import { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code
 import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-kernel/run-secret-redaction";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun } from "./runner";
-import { getRecord } from "./history";
 import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
 import type { AgentDeps } from "../integrations/opencode-client";
 import { CAMPAIGN_FREEZE_ENV } from "./campaign-freeze";
@@ -343,7 +342,7 @@ test("a code-mode app composes no auth session at all", () => {
   assert.equal(config.authSession, undefined);
 });
 
-/* ── Curriculum wiring: the per-app scenario-archetype prior, backed by history.ts's store ────────
+/* ── Curriculum wiring: the per-app scenario-archetype prior, backed by the learning repository's store ────────
    Wired UNCONDITIONALLY (no config flag): the port is measure-and-rank only — it never gates a
    verdict, a publish decision or a coverage decision, so there is no risk surface a flag would
    protect. Without this wiring loadCurriculum returns null forever, which is exactly the dead-module
@@ -2174,7 +2173,7 @@ test("engineFactory (real production factory) is invoked and drives the run to c
     },
   );
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.status, "done");
   assert.equal(factoryInvoked, true, "the real engineFactory must be invoked — it is the only engine");
 });
@@ -2239,7 +2238,7 @@ test("the runner reaches the real factory and never bypasses it", async () => {
     },
   );
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   /* stubAgentDeps.open() always throws, so a REAL run through the real factory genuinely fails —
      the assertion of interest is that the factory was reached at all (never bypassed), not the
      verdict shape of a deliberately-broken agent stub.
@@ -2318,10 +2317,10 @@ test("historyLearningStore(appName).upsert() persists the REAL app name, not the
 });
 
 /* historyLearningStore(appName).incrementUsage() bridges onto incrementRuleUsage
-   (src/server/history.ts) — the SAME usage_count column LearningPortAdapter.retrieve() increments
+   (LearningRepository) — the SAME usage_count column LearningPortAdapter.retrieve() increments
    through this store.
  */
-test("historyLearningStore(appName).incrementUsage() bridges onto history.ts's incrementRuleUsage", async () => {
+test("historyLearningStore(appName).incrementUsage() bridges onto LearningRepository.incrementRuleUsage", async () => {
   const { historyLearningStore } = await import("./run-engine-factory");
   const app = `factory-learning-usage-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const ruleId = `rule-usage-${app}`;
@@ -2476,7 +2475,7 @@ test("integration: upsert -> retrieve (real LearningPortAdapter) -> derive rules
   } as never;
 
   /* Fold via the REAL LearningPort.fold() -> LearningRepositoryPort.applyOutcome() ->
-     foldRunOutcome(historyLearningStore(app), ) -> history.ts's getHistory().learning.recordRuleOutcome(id, ...) chain —
+     foldRunOutcome(historyLearningStore(app), ) -> getHistory().learning.recordRuleOutcome(id, ...) chain —
      the exact production path, not a hand-rolled call to recordOutcome/recordRuleOutcome directly.
    */
   await adapter.fold(outcome);
@@ -2836,7 +2835,7 @@ test("historyLearningStore(appName).selectAllRules wiring — SqliteLearningRepo
     action: "use getbyrole('button', { name: ... })",
     errorClass: "E-FRAGILE-SELECTOR",
     archetype: null,
-    status: "candidate", /* upsertLearningRule always inserts as candidate (see history.ts's own doc) */
+    status: "candidate", /* upsertLearningRule always inserts as candidate (see LearningRepository) */
     confidence: "low",
     usageCount: 0,
     outcomeCount: 0,
@@ -2847,7 +2846,7 @@ test("historyLearningStore(appName).selectAllRules wiring — SqliteLearningRepo
     at: new Date().toISOString(),
   });
   /* Force it to deprecated the SAME way a real demotion would (via the human-override path in
-     history.ts) — proving the dedup guard sees it EVEN THOUGH it is excluded from normal retrieval.
+     LearningRepository) — proving the dedup guard sees it EVEN THOUGH it is excluded from normal retrieval.
    */
   getHistory().learning.setRuleStatusByHuman(deprecatedRuleId, "deprecated");
 

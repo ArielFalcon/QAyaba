@@ -325,7 +325,7 @@ export interface EfficiencySnapshot {
   cases: Record<string, SnapshotEntry>;
 }
 
-/** Where a run's recorded data is read from — history.ts in the orchestrator container, a fake in tests. */
+/** Where a run's recorded data is read from — the run history in the orchestrator container, a fake in tests. */
 export interface RunDataSource {
   events(runId: string): RunEventBody[];
   outcome(runId: string): RunOutcome | undefined;
@@ -664,12 +664,12 @@ export async function defaultService(env: Record<string, string | undefined>): P
 
 /* The orchestrator's own history store, imported lazily so the commands that never read it do not open it. */
 async function historySource(): Promise<(runId: string) => RunDataSource> {
-  const history = await import("../src/server/history.ts");
   const { getHistory } = await import("../src/server/persistence/index.ts");
+  const { runs } = getHistory();
   const source: RunDataSource = {
-    events: (runId) => history.loadRunEvents(runId).map((e) => e.body as RunEventBody),
+    events: (runId) => runs.loadRunEvents(runId).map((e) => e.body as RunEventBody),
     outcome: (runId) => getHistory().learning.getRunOutcome(runId),
-    record: (runId) => history.getRecord(runId),
+    record: (runId) => runs.getRecord(runId),
     turns: (runId) => getHistory().telemetry.getAgentTurns(runId),
   };
   return () => source;

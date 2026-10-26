@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { DETERMINISTIC_RULE_SOURCE_PREFIX, RuleGovernanceService } from "@contexts/cross-run-learning/domain/rule-governance.service.ts";
 import type { LearningRule } from "@contexts/cross-run-learning/domain/learning-repository.ts";
 
-/* `at` is required: LearningRule includes it (history.ts ORDER BY ... at DESC). */
+/* `at` is required: LearningRule includes it (LearningRepository orders by `at` DESC). */
 const rule = (status: LearningRule["status"], successRate: number | null, trigger: string, at = "2026-01-01T00:00:00.000Z"): LearningRule =>
   ({ id: trigger, trigger, action: "a", errorClass: "E-X", archetype: null, status, confidence: "medium", usageCount: 0, outcomeCount: 0, oracleOutcomeCount: 0, successRate, lastVerified: null, source: "oracle", at });
 

@@ -1,10 +1,11 @@
 /* The shell's side of SpecSnapshotPort: the snapshots go into the run history's run_spec_snapshots table. Total: a fault is logged and the run goes on. */
 
 import type { SpecSnapshot, SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port";
-import { commitSpecSnapshots } from "./history";
+import { getHistory } from "./persistence/index";
+import type { SpecSnapshotRow } from "./persistence/repositories/run.repository";
 
 export class SqliteSpecSnapshotAdapter implements SpecSnapshotPort {
-  constructor(private readonly commit: typeof commitSpecSnapshots = commitSpecSnapshots) {}
+  constructor(private readonly commit: (rows: readonly SpecSnapshotRow[]) => void = (rows) => getHistory().runs.commitSpecSnapshots(rows)) {}
 
   record(snapshots: readonly SpecSnapshot[]): void {
     try {

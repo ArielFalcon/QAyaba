@@ -5,7 +5,7 @@ import { GradeRunUseCase } from "@contexts/evaluation/application/index";
 import type { ScoreStorePort } from "@contexts/evaluation/application/index.ts";
 import { gradeEvidence } from "@contexts/evaluation/application/index";
 import type { RunRecord } from "../types";
-import type { SpecSnapshotRow } from "./history";
+import type { SpecSnapshotRow } from "./persistence/repositories/run.repository";
 import { HistoryEvidenceAdapter, type EvidenceDeps } from "./evaluation-evidence";
 
 function record(over: Partial<RunRecord> = {}): RunRecord {

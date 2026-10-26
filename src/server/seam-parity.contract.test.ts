@@ -249,12 +249,12 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
        sanitize/learningRepo/assembleChangeCoverage immediately above.
      */
     confinement: "IS supplied (WriteConfinementAdapter wrapping realGit + realpathSync/lstatSync) — asserted below as a present case.",
-    /* (a ProcessAuditPortAdapter wrapping history.ts's listRunOutcomes/listLearningRules reads + the
+    /* (a ProcessAuditPortAdapter wrapping the learning repository's listRunOutcomes/listLearningRules reads + the
        3 sinks recordIncident/setRuleStatusByHuman/markContextStale) — wired UNCONDITIONALLY (fail-open
        fault isolation, not app-config gated), the SAME "IS supplied" precedent confinement/
        reflectorPort establish immediately above. Asserted below as a present case.
      */
-    processAudit: "IS supplied (ProcessAuditPortAdapter wrapping history.ts reads + recordIncident/setRuleStatusByHuman/markContextStale sinks) — asserted below as a present case.",
+    processAudit: "IS supplied (ProcessAuditPortAdapter wrapping learning repository reads + recordIncident/setRuleStatusByHuman/markContextStale sinks) — asserted below as a present case.",
     /* wrapping realGit's own local `git gc --auto --quiet`, no auth decoration) — wired
        UNCONDITIONALLY (fail-open fault isolation, not app-config gated), the SAME "IS supplied"
        precedent confinement/processAudit establish immediately above. Asserted below as a present case.
@@ -265,7 +265,7 @@ describe("seam-parity: COMPOSITION (EngineRootDeps vs buildEngineRootDeps)", () 
        flag would protect), the SAME "IS supplied" precedent processAudit/mirrorGc establish
        immediately above. Asserted below as a present case.
      */
-    curriculumPort: "IS supplied (CurriculumPortAdapter over history.ts's loadCurriculum/saveCurriculum) — asserted below as a present case.",
+    curriculumPort: "IS supplied (CurriculumPortAdapter over the learning repository's loadCurriculum/saveCurriculum) — asserted below as a present case.",
     codeGraph: "IS supplied when qa.structuralSignals.mode is not 'off' (factory default 'signal') — the run's one code-graph adapter, indexed by the index phase and read by the structural signal and the cross-repo impact. Asserted below as a present-when-default case.",
     codeExplore: "IS supplied with codeGraph (the same code-graph adapter instance, so it reads the index the run built) — the lead's code-graph tool and the change dossier read it. Asserted below as a present-when-default case.",
     coChange: "IS supplied with codeGraph (GitCoChangeAdapter over the trusted git runner). Asserted below as a present-when-default case.",

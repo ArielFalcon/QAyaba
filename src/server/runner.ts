@@ -10,7 +10,7 @@
 import { JobQueue } from "./queue";
 import { loadAppConfig, AppConfig } from "../orchestrator/config-loader";
 import { assertUniformCapture } from "./campaign-capture";
-import { createRecord, updateRecord, recordEffectiveConfig, getCampaignCaptureMode, addCase, getRecord, appendActivity, listRecords, interruptedRecords, serializablePhases, listSpecSnapshots } from "./history";
+import { serializablePhases } from "./persistence/repositories/run.repository";
 import { traceFactsOf } from "@kernel/run-trace-facts";
 import { phaseSnapshotOf } from "@contexts/run-orchestration/application/index";
 import { specCountsOf } from "./evaluation-evidence";
@@ -143,7 +143,7 @@ function buildRunObserver(runId: string, runEvents: RunEventStore | undefined, l
   return {
     onStep(step: RunStep, detail?: string): void {
       try {
-        updateRecord(runId, { step, stepDetail: detail ?? null, retrying: step === "retry" });
+        getHistory().runs.updateRecord(runId, { step, stepDetail: detail ?? null, retrying: step === "retry" });
         runEvents?.publish(runId, { type: "step.changed", step, detail });
       } catch (err) {
         console.error("[qa] observer onStep failed (non-fatal, run continues):", err);
@@ -187,8 +187,8 @@ function assertTriggerRepoDeclared(appConfig: AppConfig, triggerRepo: string | u
 
 
 function recordCase(runId: string, c: QaCase, runEvents: RunEventStore | undefined, liveAnnounced?: Map<string, LiveAnnouncedStatus>): void {
-  addCase(runId, c);
-  appendActivity(runId, { kind: "todo", text: c.name, status: "completed" });
+  getHistory().runs.addCase(runId, c);
+  getHistory().runs.appendActivity(runId, { kind: "todo", text: c.name, status: "completed" });
   const lastAnnounced = liveAnnounced?.get(c.name);
   if (lastAnnounced !== undefined && lastAnnounced === finalStatusAsAnnounced(c.status)) return;
   runEvents?.publish(runId, c.status === "pass"
@@ -201,9 +201,9 @@ function recordCase(runId: string, c: QaCase, runEvents: RunEventStore | undefin
 /* What the run delivered, for the root span: the same counts the run view and the graders read. Fail-open: observability never changes how a run ends. */
 function specCountsForTrace(runId: string, furthestPhase: string | null): RunFacts["specs"] {
   try {
-    const current = getRecord(runId);
+    const current = getHistory().runs.getRecord(runId);
     if (!current) return undefined;
-    return specCountsOf(current, listSpecSnapshots(runId), furthestPhase);
+    return specCountsOf(current, getHistory().runs.listSpecSnapshots(runId), furthestPhase);
   } catch (err) {
     console.error(`[qa] the spec counts of run ${runId} could not be read for its trace (the run is unaffected): ${err instanceof Error ? err.message : String(err)}`);
     return undefined;
@@ -354,7 +354,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
   const runConfigEnv = deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENV;
   const captureMode = capCaptureMode(req.captureMode, runConfigEnv.maxCapture);
   /* A run joins a campaign only with the capture mode its siblings have; refused before anything is queued or marked. */
-  if (req.campaign) assertUniformCapture(req.campaign.id, captureMode, getCampaignCaptureMode(req.campaign.id));
+  if (req.campaign) assertUniformCapture(req.campaign.id, captureMode, getHistory().runs.getCampaignCaptureMode(req.campaign.id));
   /* A push that can join a run still waiting for its turn does: that run reads it, and it needs no run, record or bootstrap of its own. */
   const declared = declaredRepos(req, deps);
   const joined = declared ? coalesceInto(req, declared, deps) : undefined;
@@ -390,12 +390,12 @@ function recordedEntry(entry: ChangeEntry): RunChangeEntry {
 }
 
 function coalesceInto(req: RunRequest, declared: DeclaredRepos, deps: RunnerDeps): string | undefined {
-  const runId = deps.pendingChangeSets!.offer(req, declared, (id) => getRecord(id)?.status === "enqueued");
+  const runId = deps.pendingChangeSets!.offer(req, declared, (id) => getHistory().runs.getRecord(id)?.status === "enqueued");
   if (!runId) return undefined;
   const repo = req.triggerRepo ?? declared.primary;
   console.log(`[qa] coalesced ${repo}@${req.sha} into ${runId}`);
   const set = deps.pendingChangeSets!.joinedSet(runId);
-  if (set) updateRecord(runId, { changeSet: set.entries.map(recordedEntry) });
+  if (set) getHistory().runs.updateRecord(runId, { changeSet: set.entries.map(recordedEntry) });
   deps.runEvents?.publish(runId, { type: "log.line", level: "info", text: `${repo}@${req.sha} joined this run before it started` });
   return runId;
 }
@@ -416,7 +416,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
   let previousNamespace = req.previousNamespace;
   if (previousNamespace === undefined) {
     try {
-      const prev = listRecords(req.app, 1)[0];
+      const prev = getHistory().runs.listRecords(req.app, 1)[0];
       const wasInterrupted = prev && (prev.status === "running" || prev.status === "enqueued" || prev.verdict === "infra-error");
       if (wasInterrupted) {
         previousNamespace = testDataNamespace(loadApp(req.app).qa.testDataPrefix, prev.sha, prev.id);
@@ -426,7 +426,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
     }
   }
 
-  const record = createRecord({
+  const record = getHistory().runs.createRecord({
     app: req.app, sha: req.sha, target: req.target, mode: req.mode, parentRunId: req.parentRunId, triggerRepo: req.triggerRepo,
     ...(req.campaign ? { campaign: req.campaign } : {}),
     captureMode,
@@ -460,7 +460,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
        * If the run was cancelled while still enqueued, the record is already finalized
        * (status "done"). Skip it — do NOT resurrect a cancelled run into execution.
        */
-      if (getRecord(record.id)?.status === "done") {
+      if (getHistory().runs.getRecord(record.id)?.status === "done") {
         console.log(`[qa] skipping ${req.app}@${req.sha} — cancelled before it started`);
         /* The pushes that joined it were acknowledged into this run; the cancel drops them with it, and says which. */
         if (joined) {
@@ -478,7 +478,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
        * poll wait actually reach queue.cancel()/this callback's own AbortSignal, instead of falling
        * into the "still enqueued" finalize-without-abort branch.
        */
-      updateRecord(record.id, { status: "running" });
+      getHistory().runs.updateRecord(record.id, { status: "running" });
 
 
       const isOnboardingActive = deps.isOnboardingActive ?? (() => false);
@@ -577,7 +577,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
         joined,
       );
 
-      if (getRecord(record.id)?.status === "done") {
+      if (getHistory().runs.getRecord(record.id)?.status === "done") {
         console.log(`[qa] discarding stale late resolution for ${req.app}@${req.sha} — record already finalized (cancelled)`);
         cancelledTrace(record.id, trace);
         return;
@@ -594,7 +594,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
          */
         ...(run.outcome || run.note ? { outcome: run.outcome ?? run.note } : {}),
       });
-      updateRecord(record.id, {
+      getHistory().runs.updateRecord(record.id, {
         status: "done",
         verdict: run.verdict,
         step: "done",
@@ -624,7 +624,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
       console.log(`[qa] run finished ${req.app}@${req.sha}: verdict=${run.verdict}`);
     } catch (err) {
 
-      if (getRecord(record.id)?.status === "done") {
+      if (getHistory().runs.getRecord(record.id)?.status === "done") {
         console.log(`[qa] discarding post-cancel crash for ${req.app}@${req.sha} — record already finalized`);
         cancelledTrace(record.id, trace);
         return;
@@ -673,7 +673,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
           : `unexpected internal error (not infrastructure — investigate): ${msg}`;
       /* Where the run stood, stored with the final status, never apart from it. */
       const phases = reached?.furthestPhase ? serializablePhases({ furthestPhase: reached.furthestPhase, phaseTimings: reached.phaseTimings as Record<string, number> }) : undefined;
-      updateRecord(record.id, { status: "done", step: "done", verdict: "infra-error", note, phases, facts: { traceId: trace.traceId() } });
+      getHistory().runs.updateRecord(record.id, { status: "done", step: "done", verdict: "infra-error", note, phases, facts: { traceId: trace.traceId() } });
       deps.runEvents?.publish(record.id, { type: "agent.error", detail: note });
       deps.runEvents?.publish(record.id, { type: "run.verdict", verdict: "infra-error", engineStatus: engineStatus("infra-error") });
       console.error(`[qa] run ${refusal ? "REFUSED (security refusal: untrusted git tree)" : infra ? "infra-error" : "CRASHED (internal error)"} ${req.app}@${req.sha}: ${msg}`);
@@ -739,7 +739,7 @@ async function rebuildContextMapFirst(req: RunRequest, runId: string, deps: Runn
 function recordRunConfig(runId: string, app: AppConfig, req: RunRequest, captureMode: CaptureMode, env: RunConfigEnvironment, trace: RunTrace): StoredRunConfig | undefined {
   try {
     const config = resolveRunConfig(app, req.target, req, captureMode, env);
-    recordEffectiveConfig(runId, JSON.stringify(config));
+    getHistory().runs.recordEffectiveConfig(runId, JSON.stringify(config));
     trace.configInEffect(configInEffect(config));
     return config;
   } catch (err) {
@@ -753,7 +753,7 @@ function cancelledTrace(runId: string, trace: RunTrace): void {
   trace.cancelled();
   try {
     const traceId = trace.traceId();
-    if (traceId !== null) updateRecord(runId, { facts: { traceId } });
+    if (traceId !== null) getHistory().runs.updateRecord(runId, { facts: { traceId } });
   } catch (err) {
     console.error(`[qa] the trace id of cancelled run ${runId} could not be stored: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -788,7 +788,7 @@ function notifyRunFinished(deps: Pick<RunnerDeps, "afterRun">, runId: string): v
  * handleCancelRun answer 200 vs 409 accurately.
  */
 export function cancelTrackedRun(queue: JobQueue, id: string, deps: Pick<RunnerDeps, "runEvents" | "afterRun"> = {}): boolean {
-  const record = getRecord(id);
+  const record = getHistory().runs.getRecord(id);
   if (!record) return false;
   if (record.status !== "running" && record.status !== "enqueued") return false;
 
@@ -817,7 +817,7 @@ export function cancelTrackedRun(queue: JobQueue, id: string, deps: Pick<RunnerD
  */
 function finalizeUnfinished(id: string, note: string, deps: Pick<RunnerDeps, "runEvents" | "afterRun">, cancelled: boolean): void {
   /* An operator's cancel is recorded as such, so grading says "cancelled" and nothing else about a run that never ran its pipeline. */
-  updateRecord(id, { status: "done", step: "done", verdict: "infra-error", note, ...(cancelled ? { facts: { cancelled: true } } : {}) });
+  getHistory().runs.updateRecord(id, { status: "done", step: "done", verdict: "infra-error", note, ...(cancelled ? { facts: { cancelled: true } } : {}) });
   deps.runEvents?.publish(id, { type: "run.verdict", verdict: "infra-error", engineStatus: engineStatus("infra-error"), outcome: note });
   notifyRunFinished(deps, id);
 }
@@ -828,7 +828,7 @@ function finalizeUnfinished(id: string, note: string, deps: Pick<RunnerDeps, "ru
  * would wrongly finalize.
  */
 export function finalizeInterruptedRuns(deps: Pick<RunnerDeps, "runEvents" | "afterRun"> = {}): void {
-  const zombies = interruptedRecords();
+  const zombies = getHistory().runs.interruptedRecords();
   if (zombies.length === 0) {
     console.log("[qa] no interrupted runs from previous process — queue is clean");
     return;

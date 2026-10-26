@@ -59,11 +59,11 @@ Reuse this before adding anything.
 | Asset | Where | Useful for | Gap |
 |---|---|---|---|
 | `ObserverPort.onStep/onEvent` | `run-orchestration/application/ports/index.ts:627` | Coarse phase transitions | `RunStep` has no `ground`, `review` or `publish` |
-| `run_events` table | `src/server/history.ts:241` | Ingest-time `ts` per event; probe-report derives phases from it | Unstructured for tracing |
+| `run_events` table | `RunRepository.saveRunEvent` | Ingest-time `ts` per event; probe-report derives phases from it | Unstructured for tracing |
 | `gateSignals.phaseTimings` | `run-outcome.ts:35` | A slot for phase durations | **Declared and persisted, never written** |
 | `AgentTurnEvent` | `agent-transport-policy.ts:24-50` | Session id, role, round, repair, tokens (incl. reasoning and cache), cost, `sectionSizes`, call metrics, `ended`, duration | No requested or answered model, no provider, attempt, fallback flag or error class. `sectionSizes` is dropped before persistence |
 | `CallEfficiencyTracker` | `generation/infrastructure/sse/call-efficiency-tracker.ts` | Per-step tokens, tool calls, buckets, time to first call and first write | Ignores `part.state.time`. Per-step tokens are summed and discarded. A session registered with `liveObservation:false` (the judge's) is excluded |
-| `agent_turns` table | `history.ts:309` | Redacted prompt and output text, turn metrics | 30-day retention. No model or attempt columns |
+| `agent_turns` table | `TelemetryRepository.saveAgentTurn` | Redacted prompt and output text, turn metrics | 30-day retention. No model or attempt columns |
 | Section abstraction | `context-assembler.ts:11-49` | `AssembledPrompt.sectionSizes` per section id | No section or prompt hash |
 | `SandboxReport` / exec scope (ALS) | `process-sandbox/exec-scope.ts` | Denied hosts per run, `openDeniedWindow` per login attempt, refusal reason | Denials keep the host but drop the port. Not per child |
 | `RunDeadlineExceededError` | `shared-kernel/run-deadline.ts:20` | `budgetMs`, `label`, `role`, `stop` | Only on the deadline path. Other limits are implicit |
@@ -792,7 +792,7 @@ qa-engine/src/contexts/evaluation/
 - The read model is named `RunEvaluationEvidence`, because `RunEvidence` already exists in
   `run-decision.service.ts`.
 - **Spec snapshots make retroactive grading possible.**
-  - The `specs` table stores only `name`, `objective` and `flow` (`history.ts:198`). The mirror is
+  - The `specs` table stores only `name`, `objective` and `flow` (`RunRepository.updateRecord`). The mirror is
     wiped on every checkout, and the suite store keeps only accepted suites.
   - So the validate phase writes a **per-run snapshot of every delivered spec**: path, sha256 and
     the redacted text, capped at 64 KB per spec, into `run_spec_snapshots`.
@@ -1203,7 +1203,7 @@ findings, 16 warnings and 11 suggestions. The load-bearing claims were re-verifi
 | W1 queue inherits the enqueue context | Root on `ROOT_CONTEXT` | §4.1 |
 | W2 phase closures, crash-lost funnel, hung runs invisible | Phase cursor, persisted on `run_outcomes`, ledger rows on start | §4.2, §3.3 |
 | W3 synchronous ledger cost | Buffered transactions, `synchronous=NORMAL` | §3.3 |
-| W4 duplicate stores, retention | Agent-turn fields: **columns on `agent_turns` are the record**; spans mirror them. The prune at `history.ts:462-472` becomes campaign-aware per R4 | §5.4, §17 |
+| W4 duplicate stores, retention | Agent-turn fields: **columns on `agent_turns` are the record**; spans mirror them. The prune at `pruneHistory` (`src/server/persistence/retention.ts`) becomes campaign-aware per R4 | §5.4, §17 |
 | W5 abandoned fan-out flows | The flow span ends on `TIMED_OUT`; added to the ended-span matrix | §15 |
 | W6 egress attribution | Renamed co-temporal | §6.1 |
 | W7 context utilization validity | Extractable vs n/a per source; recall over change-relevant items; no self-report | §11.1 |

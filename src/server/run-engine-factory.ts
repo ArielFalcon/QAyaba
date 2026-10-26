@@ -300,7 +300,7 @@ export function historyLearningStore(appName: string): LearningStorePort {
      * Dedicated governance-path read, NOT listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT) —
      * that shared-limit, actives-first-ranked query could exhaust its LIMIT on active rows alone,
      * never even fetching a fresh candidate into memory for RuleGovernanceService.topRules (the
-     * single ranking truth) to rank. See listLearningRulesForGovernance's own header in history.ts.
+     * single ranking truth) to rank. See listLearningRulesForGovernance's own header in LearningRepository.
      */
     selectRules: (app) =>
       getHistory().learning.listLearningRulesForGovernance(app).map((r) => ({
@@ -345,7 +345,7 @@ export function historyLearningStore(appName: string): LearningStorePort {
         app: appName,
         trigger: rule.trigger,
         action: rule.action,
-        /* history.ts stores ErrorClass; the port types it as string. Taxonomy is the producer. */
+        /* LearningRepository stores ErrorClass; the port types it as string. Taxonomy is the producer. */
         errorClass: rule.errorClass as import("@kernel/error-class").ErrorClass,
         archetype: rule.archetype ?? null,
         source: rule.source,
@@ -1090,7 +1090,7 @@ export function buildEngineRootDeps(
     groundingCollaborators: {
       contextPackDeps: { ...defaultContextPackDeps, domDeps: captureDomDeps, ...(app.dev?.routeSamples ? { routeSamples: app.dev.routeSamples } : {}) },
       /*
-       * The DB (history.ts's context_maps table) is the engine's source of truth for the
+       * The DB (the context_maps table) is the engine's source of truth for the
        * FE<->BE architecture map — it survives regardless of shadow. The repo file on disk is only a
        * fallback (e.g. before any context run has ever completed for this app, or a fresh clone).
        * A `contextStale` flag seen above means the process audit already judged the stored (and
@@ -1463,13 +1463,13 @@ export function buildEngineRootDeps(
     }) }),
     /*
      * CurriculumPort — per-app scenario-archetype prior. Constructed here because its store is
-     * history.ts (src-only; qa-engine may never import it). Wired unconditionally: measure-and-rank
+     * the history repositories (src-only; qa-engine may never import them). Wired unconditionally: measure-and-rank
      * only, never gates a verdict, publish, or coverage decision. Left out under QA_CAMPAIGN_FREEZE.
      */
     ...(campaignFrozen || grounding?.curriculum === false || grounding?.curriculum === "off" ? {} : { curriculumPort: new CurriculumPortAdapter(app.name, (name) => getHistory().learning.loadCurriculum(name), (curriculum) => getHistory().learning.saveCurriculum(curriculum)) }),
     /*
      * ContextMapCapturePort — write side of the FE<->BE architecture map. Constructed here for the
-     * same reason curriculumPort is: its store is history.ts (src-only; qa-engine may never import
+     * same reason curriculumPort is: its store is the history repositories (src-only; qa-engine may never import
      * it). Wired unconditionally: a clean context-mode pass is the only run that ever invokes it.
      * Storing a fresh map disarms the process audit's stale flag, whoever started the context run
      * (a heal, a manual or onboarding run, the server or the CLI). Only a map the run wrote is

@@ -1,6 +1,6 @@
 /* These tests verify that computeTelemetryAnalysis correctly aggregates agent_turns + run_outcomes
    for an app into the metrics exposed by GET /api/apps/:app/telemetry.
-   The tests use the real SQLite history layer (same pattern as history.test.ts).
+   The tests use the real SQLite history layer (same pattern as run.repository.test.ts).
  */
 
 import { describe, it } from "node:test";

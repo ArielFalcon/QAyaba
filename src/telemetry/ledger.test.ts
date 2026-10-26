@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
 import { SpanStatusCode, ROOT_CONTEXT, trace } from "@opentelemetry/api";
 import { LedgerSpanProcessor, type RunSpanStore } from "./ledger";
-import { createRecord } from "../server/history";
 import type { RunSpanRow } from "../server/persistence/repositories/telemetry.repository";
 import { getHistoryDatabase } from "../server/persistence/index";
 import { pruneRunSpans } from "../server/persistence/retention";
@@ -275,8 +274,8 @@ test("a non-finite cutoff prunes nothing", () => {
 
 test("the spans of a campaign run outlive the ordinary window and go with the campaign window", () => {
   const day = 24 * 60 * 60 * 1000;
-  const campaign = createRecord({ target: "e2e", app: "retention-app", sha: "abcdef1234", mode: "diff", campaign: { id: "retention-camp", variant: {}, replicate: 1 } });
-  const ordinary = createRecord({ target: "e2e", app: "retention-app", sha: "abcdef1234", mode: "diff" });
+  const campaign = getHistory().runs.createRecord({ target: "e2e", app: "retention-app", sha: "abcdef1234", mode: "diff", campaign: { id: "retention-camp", variant: {}, replicate: 1 } });
+  const ordinary = getHistory().runs.createRecord({ target: "e2e", app: "retention-app", sha: "abcdef1234", mode: "diff" });
   const stale = (runId: string, now: number): RunSpanRow => ({ traceId: runId.padEnd(32, "0").slice(0, 32), spanId: "s1", parentSpanId: null, runId, name: "x", kind: "internal", startNs: BigInt(now - 40 * day) * 1_000_000n, endNs: null, status: "unset", statusMessage: null, attrs: "{}", events: "[]", links: "[]" });
 
   const early = Date.now() + 100 * day;

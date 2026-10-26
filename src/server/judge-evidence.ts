@@ -9,7 +9,7 @@ import type { JudgeEvidencePort } from "@contexts/evaluation/application/index.t
 import type { JudgeEvidence } from "@contexts/evaluation/application/index";
 import { COMMIT_DIFF_HEADING } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
-import { getRecord, getRunFacts, getRunPhases, getRunPlan, listSpecSnapshots, type SpecSnapshotRow } from "./history";
+import type { SpecSnapshotRow } from "./persistence/repositories/run.repository";
 import type { AgentTurnRecord } from "./persistence/repositories/telemetry.repository";
 import type { RunRecord } from "../types";
 import { getHistory } from "./persistence/index";
@@ -26,16 +26,16 @@ export interface JudgeEvidenceDeps {
 }
 
 export const defaultJudgeEvidenceDeps: JudgeEvidenceDeps = {
-  getRecord,
+  getRecord: (id) => getHistory().runs.getRecord(id),
   getRunFacts: (id) => {
-    const facts = getRunFacts(id);
+    const facts = getHistory().runs.getRunFacts(id);
     return facts ? { cancelled: facts.cancelled === true } : undefined;
   },
-  getRunPhases,
+  getRunPhases: (id) => getHistory().runs.getRunPhases(id),
   getRunOutcome: (id) => getHistory().learning.getRunOutcome(id),
   getAgentTurns: (id) => getHistory().telemetry.getAgentTurns(id),
-  listSpecSnapshots,
-  getRunPlan,
+  listSpecSnapshots: (id) => getHistory().runs.listSpecSnapshots(id),
+  getRunPlan: (id) => getHistory().runs.getRunPlan(id),
 };
 
 const FENCE_OPEN = "```diff\n";

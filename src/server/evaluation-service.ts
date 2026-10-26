@@ -13,7 +13,6 @@ import type { JudgeCatalogEntry } from "@contexts/evaluation/application/index";
 import type { JudgeRegradePort } from "@contexts/evaluation/application/index.ts";
 import type { Score, ScoreDataType, ScorePolarity, ScoreSource } from "@contexts/evaluation/application/index";
 import { RUN_PHASES } from "@kernel/run-step";
-import { getRunFacts, listCampaignRuns, listFinishedCampaignRunIds, listFinishedRunIdsSince, runExists } from "./history";
 import { HistoryEvidenceAdapter } from "./evaluation-evidence";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import { getHistory } from "./persistence/index";
@@ -98,12 +97,12 @@ export class SqliteRegradeJobStore implements RegradeJobStorePort {
 
 export class HistoryRunSelector implements RunSelectorPort {
   finishedSince(sinceIso: string): string[] {
-    return listFinishedRunIdsSince(sinceIso);
+    return getHistory().runs.listFinishedRunIdsSince(sinceIso);
   }
 
   /* The campaign's finished runs. One more than a regrade may cover is returned at most, so the use case can refuse an oversized campaign instead of silently grading part of it. */
   ofCampaign(campaignId: string): string[] {
-    return listFinishedCampaignRunIds(campaignId, MAX_REGRADE_RUNS);
+    return getHistory().runs.listFinishedCampaignRunIds(campaignId, MAX_REGRADE_RUNS);
   }
 }
 
@@ -239,10 +238,10 @@ export function createEvaluationService(deps: EvaluationServiceDeps = {}): Evalu
       }
     },
     evaluation(runId, allVersions) {
-      if (!runExists(runId)) return undefined;
+      if (!getHistory().runs.runExists(runId)) return undefined;
       return {
         runId,
-        traceId: getRunFacts(runId)?.traceId ?? null,
+        traceId: getHistory().runs.getRunFacts(runId)?.traceId ?? null,
         status: store.status(runId),
         scores: store.list(runId, { allVersions }),
       };
@@ -268,7 +267,7 @@ export function createEvaluationService(deps: EvaluationServiceDeps = {}): Evalu
       };
     },
     campaignRuns(campaignId, variant) {
-      return { campaignId, ...campaignRunsView((deps.campaignRows ?? listCampaignRuns)(campaignId), variant) };
+      return { campaignId, ...campaignRunsView((deps.campaignRows ?? ((id) => getHistory().runs.listCampaignRuns(id)))(campaignId), variant) };
     },
     recoverInterrupted() {
       return getHistory().evaluations.failInterruptedRegradeJobs(now());

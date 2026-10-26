@@ -52,7 +52,7 @@ test("SqliteRunHistoryAdapter.save() delegates to the injected saveOutcome", asy
 test("SqliteRunHistoryAdapter uses the real saveRunOutcome by default (no explicit deps)", () => {
   /* Construction alone must not touch the DB (saveRunOutcome is only called from save()). */
   const adapter = new SqliteRunHistoryAdapter();
-  assert.ok(adapter, "constructs without touching the DB (lazy init, per history.ts's own doc)");
+  assert.ok(adapter, "constructs without touching the DB (lazy init, lazily opened history)");
 });
 
 /* ── toStoredRunOutcome — the field mapping itself ────────────────────────────────────────────── */

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listRecords } from "./history";
+import { getHistory } from "./persistence/index";
 
 /* The history store opens lazily on first use and resolves its location then, so this file (its own
    process) points HISTORY_DB_PATH into a directory that does not exist yet, and QAYABA_ROOT at an
@@ -19,7 +19,7 @@ after(() => {
 });
 
 test("the history store opens at HISTORY_DB_PATH, creating its directory, and leaves the root's data dir alone", () => {
-  listRecords("history-location-app", 1);
+  getHistory().runs.listRecords("history-location-app", 1);
 
   assert.equal(existsSync(dbPath), true);
   assert.equal(existsSync(join(root, "data")), false);

@@ -8,7 +8,7 @@ import { loadContextMapFromDisk } from "./pre-generation-grounding-port.adapter.
 /*
  * Persists the validated map for `app`, keyed by the deterministic run `sha` the caller supplies
  * (never the agent's own self-reported `data.builtAtSha` field, which is left untouched inside the
- * stored blob). Shell-side sink — production wires history.ts's saveContextMap here.
+ * stored blob). Shell-side sink — production wires ContextRepository.saveContextMap here.
  */
 export type ContextMapSave = (app: string, sha: string, data: ArchitectureContext) => void;
 

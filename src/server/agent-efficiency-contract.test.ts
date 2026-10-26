@@ -1,4 +1,4 @@
-/* Drift guard: what history.ts really returns for agent turns and app telemetry must be
+/* Drift guard: what the telemetry repository really returns for agent turns and app telemetry must be
    exactly what the published contract documents — a column added to a turn or an aggregate
    added to the telemetry without a matching schema change fails here, not in a client. */
 import { test } from "node:test";

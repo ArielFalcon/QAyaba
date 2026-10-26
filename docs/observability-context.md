@@ -202,7 +202,7 @@ Every piece of agent-influenced code runs through the exec launcher (`qa-engine/
 
 | Store | What | Gaps |
 |---|---|---|
-| SQLite `/app/data/qayaba.db` (`src/server/history.ts`) | `runs`, `run_outcomes`, `run_events`, `agent_turns` (toolSequence, callBuckets, tokens, timeToFirstCall, steps, writes, redundant and same-file reads, each read's window in toolSequence, promptBytes), `learning_rules`, `context_maps`, … | No reviewer or sidekick per-call data in recent runs. No OpenCode retries, title calls, provider error classes or event-loop health |
+| SQLite `/app/data/qayaba.db` (`src/server/persistence/`) | `runs`, `run_outcomes`, `run_events`, `agent_turns` (toolSequence, callBuckets, tokens, timeToFirstCall, steps, writes, redundant and same-file reads, each read's window in toolSequence, promptBytes), `learning_rules`, `context_maps`, … | No reviewer or sidekick per-call data in recent runs. No OpenCode retries, title calls, provider error classes or event-loop health |
 | `gateSignals` on the run outcome (`qa-engine/src/shared-kernel/run-outcome.ts`) | sandbox (egress mode, denied), closedLoop, agentBrowser, coordination, noop kind, coverage… | On an unhandled error before an outcome existed, only a minimal sandbox-only outcome is now persisted |
 | `npm run probe-report -- <runId>` (`scripts/probe-report.ts`) | A per-run table of phases, turns, tools, tokens, cost, stitcher signals; JSON under `config/benchmarks/probe-results/` | A batch tool run after the fact |
 | `npm run efficiency-benchmark` | Step and call telemetry across runs | Never a gate |

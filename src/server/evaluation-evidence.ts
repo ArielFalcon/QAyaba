@@ -10,7 +10,7 @@ import { RUN_PHASES } from "@kernel/run-step";
 import type { EvidencePort } from "@contexts/evaluation/application/index.ts";
 import type { ContextEvidence, ContextFreshness, DeliveredContextSource, DeliveredOmission, DeliveredSpecEvidence, PlanEvidence, ReferenceEvidence, RunEvaluationEvidence, RunSpecCallEvidence, SidekickReportEvidence } from "@contexts/evaluation/application/index";
 import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
-import { getRecord, getRunFacts, getRunPhases, getRunPlan, listSpecSnapshots, type RunFactsPatch, type RunPhases, type SpecSnapshotRow } from "./history";
+import type { RunFactsPatch, RunPhases, SpecSnapshotRow } from "./persistence/repositories/run.repository";
 import type { AgentTurnRecord } from "./persistence/repositories/telemetry.repository";
 import type { RunOutcome, RunRecord } from "../types";
 import { namesTemplatePage } from "@contexts/generation/application/index";
@@ -40,14 +40,14 @@ export interface EvidenceDeps {
 }
 
 export const defaultEvidenceDeps: EvidenceDeps = {
-  getRecord,
-  getRunPhases,
-  getRunFacts,
+  getRecord: (id) => getHistory().runs.getRecord(id),
+  getRunPhases: (id) => getHistory().runs.getRunPhases(id),
+  getRunFacts: (id) => getHistory().runs.getRunFacts(id),
   getRunOutcome: (id) => getHistory().learning.getRunOutcome(id),
   getAgentTurns: (id) => getHistory().telemetry.getAgentTurns(id),
   runSpans: (id) => getHistory().telemetry.listRunSpans(id).map((s) => ({ name: s.name, spanId: s.spanId, parentSpanId: s.parentSpanId, attrs: s.attrs })),
-  listSpecSnapshots,
-  getRunPlan,
+  listSpecSnapshots: (id) => getHistory().runs.listSpecSnapshots(id),
+  getRunPlan: (id) => getHistory().runs.getRunPlan(id),
 };
 
 const STEP_INTENT_ATTR = "qayaba.step.intent";

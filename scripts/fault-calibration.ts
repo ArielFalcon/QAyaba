@@ -90,10 +90,9 @@ export function main(argv: readonly string[], deps: FaultCalibrationDeps): numbe
 
 /** The run history of the orchestrator container, imported lazily so a test that injects its own never opens it. */
 export async function defaultDeps(): Promise<FaultCalibrationDeps> {
-  const history = await import("../src/server/history.ts");
   const { getHistory } = await import("../src/server/persistence/index.ts");
   return {
-    listRuns: (id) => history.listCampaignRuns(id),
+    listRuns: (id) => getHistory().runs.listCampaignRuns(id),
     outcomeOf: (id) => getHistory().learning.getRunOutcome(id),
     out: (line) => console.log(line),
     writeText: (path, text) => {

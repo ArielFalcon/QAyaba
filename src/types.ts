@@ -99,7 +99,7 @@ export interface AgentActivity {
   ts: string;                /* ISO timestamp — for ordering and elapsed */
 }
 
-/* Full run history record persisted in SQLite (src/server/history.ts). */
+/* Full run history record persisted in SQLite (src/server/persistence/repositories/run.repository.ts). */
 export type RunChangeEntry = z.infer<typeof RunChangeEntrySchema>;
 
 export interface RunRecord {

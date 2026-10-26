@@ -27,7 +27,7 @@ import { toRunReportView } from "./server/run-report-view";
 import { createDurableRunEventStore } from "./server/durable-run-events";
 import { serveDashboard, resolveDashboardDir } from "./server/static";
 import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents } from "./server/maintainer";
-import { getRecord, listRecords, currentRun, continuationDepth, MAX_CONTINUATION_DEPTH, getRunFacts } from "./server/history";
+import { MAX_CONTINUATION_DEPTH } from "./server/persistence/repositories/run.repository";
 import { createEvaluationService } from "./server/evaluation-service";
 import { composeJudges } from "./server/judges-composition";
 import { LangfuseScoreSink, resolveLangfuseConfig, scoreSinkHealthOf } from "./telemetry/langfuse-score-sink";
@@ -55,7 +55,6 @@ import { askAssistant, AgentDeps, getOpenSessionCount, defaultAgentDeps, setAgen
 import { createAgentRuntimeManager, logAgentConfigWarnings } from "./server/agent-runtime";
 import { keyPresence, retiredSelectorWarnings, validateAgentRuntimeConfig } from "./agent-runtime/config";
 import { OpenCodeRuntimeStrategy } from "./agent-runtime";
-import { appendLog, appendActivity, deleteAppHistory, runVerdictCounts } from "./server/history";
 import { getHistoryDatabase } from "./server/persistence/index";
 import { pruneHistory, retentionPolicyFrom } from "./server/persistence/retention";
 import { backupDatabase } from "./server/persistence/backup";
@@ -118,7 +117,7 @@ const queue = new JobQueue((e) => {
 /* The Langfuse mirror of the scores: built only when LANGFUSE_BASE_URL and both keys are set (docker-compose.langfuse.yml). Fail-open: stored scores never depend on it. */
 const langfuseConfig = resolveLangfuseConfig(process.env);
 const langfuseSink = langfuseConfig
-  ? new LangfuseScoreSink({ config: langfuseConfig, traceIdOf: (runId) => getRunFacts(runId)?.traceId ?? null, sanitize: (text) => redactionPort.redact(text) })
+  ? new LangfuseScoreSink({ config: langfuseConfig, traceIdOf: (runId) => getHistory().runs.getRunFacts(runId)?.traceId ?? null, sanitize: (text) => redactionPort.redact(text) })
   : undefined;
 /*
  * The LLM judges (docs/observability-design.md section 11.3): off unless QA_JUDGES_ENABLED=true. They run as low-priority work on the same
@@ -128,8 +127,8 @@ const judges = composeJudges({ env: process.env, root: ROOT, queue, mirrorsRoot:
 /* The score metrics sink makes the grades visible in Grafana; the Langfuse mirror stays optional and human-facing. */
 const scoreMetricsSink = new ScoreMetricsSink({
   telemetry: telemetry.telemetry,
-  appOf: (runId) => getRecord(runId)?.app,
-  verdictOf: (runId) => getHistory().learning.getRunOutcome(runId)?.verdict ?? getRecord(runId)?.verdict,
+  appOf: (runId) => getHistory().runs.getRecord(runId)?.app,
+  verdictOf: (runId) => getHistory().learning.getRunOutcome(runId)?.verdict ?? getHistory().runs.getRecord(runId)?.verdict,
 });
 const evaluation = createEvaluationService({
   judges: judges.service,
@@ -458,7 +457,7 @@ function generatePrometheusMetrics(queue: JobQueue, openSessions: number): strin
    */
   let counts: Record<string, number> = {};
   try {
-    counts = runVerdictCounts();
+    counts = getHistory().runs.runVerdictCounts();
   } catch (err) {
     console.warn(`[qa] metrics: verdict counts unavailable: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -572,7 +571,7 @@ const appAdminDeps: AppAdminDeps = {
   writeConfig: (name, yaml) => writeConfig(name, yaml, ROOT),
   deleteConfig: (name) => unlinkSync(join(ROOT, "config", "apps", `${name}.yaml`)),
   deleteMirror: (repo) => rmSync(join(process.env.MIRROR_DIR ?? join(ROOT, ".mirrors"), repo.replaceAll("/", "__")), { recursive: true, force: true }),
-  deleteHistory: (app) => deleteAppHistory(app),
+  deleteHistory: (app) => getHistory().purgeApp(app),
   deleteAuthMaterial: (app) => rmSync(appAuthDir(ROOT, app), { recursive: true, force: true }),
   deleteSuiteStore: (app) => deleteSuiteStoreDir(appSuiteStoreDir(ROOT, app)),
   deleteCodeGraphCache: (app) => rmSync(join(qayabaDataDir(), "code-graph", app), { recursive: true, force: true }),
@@ -589,7 +588,7 @@ const appAdminDeps: AppAdminDeps = {
  * separate HTTP requests, so there is no cross-request reuse).
  */
 const buildTrends = (app: string, window?: number) =>
-  toTrendsView({ app, outcomes: getHistory().learning.listRunOutcomes(app, 100), records: listRecords(app, 100), now: new Date().toISOString(), window });
+  toTrendsView({ app, outcomes: getHistory().learning.listRunOutcomes(app, 100), records: getHistory().runs.listRecords(app, 100), now: new Date().toISOString(), window });
 
 
 function opencodeConfigPath(): string {
@@ -643,7 +642,7 @@ async function indexRepoForOnboarding(repo: string, mirrorDir: string, app: stri
 
 const onboardingJob = createOnboardingJob({
   isRunnerBusy: () => {
-    const running = currentRun();
+    const running = getHistory().runs.currentRun();
     return queue.size > 0 || (running !== undefined && running.status === "running");
   },
   ensureMirrorAtBranch: (repo, baseBranch) =>
@@ -667,14 +666,14 @@ const onboardingJob = createOnboardingJob({
     if (shuttingDown) return "";
     const sha = await getHeadSha(mirrorDir, defaultMirrorDeps);
     /*
-     * The SQLite context_maps store (history.ts, wired via ContextMapCapturePort) is the map's
+     * The SQLite context_maps store (ContextRepository, wired via ContextMapCapturePort) is the map's
      * durability mechanism — it captures the validated map on every clean context-mode pass
      * regardless of shadow, so the map survives the next mirror wipe without a context.json PR.
      */
     return enqueueContextMapRun(queue, app, sha, runnerDeps());
   },
   getContextRun: (runId) => {
-    const rec = getRecord(runId);
+    const rec = getHistory().runs.getRecord(runId);
     if (!rec) return undefined;
     return { runId: rec.id, status: rec.status, step: rec.step, verdict: rec.verdict };
   },
@@ -730,9 +729,9 @@ const apiDeps: ApiDeps = {
 
   telemetryAnalysis: (app, windowDays) => getHistory().telemetry.computeTelemetryAnalysis(app, windowDays),
   resolveRef: (repo, ref) => resolveRef(repo, ref, defaultMirrorDeps),
-  getRecord,
-  listRecords,
-  currentRun,
+  getRecord: (id) => getHistory().runs.getRecord(id),
+  listRecords: (app, limit) => getHistory().runs.listRecords(app, limit),
+  currentRun: () => getHistory().runs.currentRun(),
   intelligence: loadIntelligenceView,
   /* Read-only stored FE<->BE architecture map. null (no row yet) -> the route 404s. */
   contextMap: (app) => {
@@ -741,7 +740,7 @@ const apiDeps: ApiDeps = {
     return { app, map: stored.data, builtAtSha: stored.builtAtSha, updatedAt: stored.updatedAt };
   },
   signals: () => toSignalsView(
-    listAppConfigs().map((a) => ({ scorecard: getHistory().learning.loadScorecard(a.name), runs: listRecords(a.name, 50), outcomes: getHistory().learning.listRunOutcomes(a.name, 50) })),
+    listAppConfigs().map((a) => ({ scorecard: getHistory().learning.loadScorecard(a.name), runs: getHistory().runs.listRecords(a.name, 50), outcomes: getHistory().learning.listRunOutcomes(a.name, 50) })),
     toCoordinationSignals(readRecentCoordinationEvents({ limit: 1000 }).events),
   ),
   /*
@@ -765,7 +764,7 @@ const apiDeps: ApiDeps = {
    * Outer null ⇒ 404 (no such run).
    */
   reportForRun: (runId, window) => {
-    const rec = getRecord(runId);
+    const rec = getHistory().runs.getRecord(runId);
     if (!rec) return null;
     let weights: Record<string, number> | undefined;
     let minRatio: number | undefined;
@@ -778,7 +777,7 @@ const apiDeps: ApiDeps = {
     }
     const current = toRunReportView({ record: rec, outcome: getHistory().learning.getRunOutcome(runId) ?? null, minRatio, weights });
     const outcomes = getHistory().learning.listRunOutcomes(rec.app, 200).filter((o) => o.at <= rec.at);
-    const records = listRecords(rec.app, 200).filter((r) => r.at <= rec.at);
+    const records = getHistory().runs.listRecords(rec.app, 200).filter((r) => r.at <= rec.at);
     const evolution =
       outcomes.length >= 2
         ? toReportView(toTrendsView({ app: rec.app, outcomes, records, now: rec.at, window }), { weights })
@@ -816,14 +815,14 @@ const apiDeps: ApiDeps = {
   cancelRun: (id) => cancelTrackedRun(queue, id, { runEvents, afterRun }),
   continueRun: (parentId, cases, guidance) => {
     if (shuttingDown) return "";
-    const parent = getRecord(parentId);
+    const parent = getHistory().runs.getRecord(parentId);
     if (!parent) return "";
     /*
      * Cap the continuation chain: an operator can chain continue→continue→continue
      * indefinitely, each carrying fresh guidance to nudge the suite toward green.
      * After MAX_CONTINUATION_DEPTH rounds, refuse — the suite needs a fresh run.
      */
-    const depth = continuationDepth(parent);
+    const depth = getHistory().runs.continuationDepth(parent);
     if (depth >= MAX_CONTINUATION_DEPTH) {
       console.warn(`[qa] rejecting continuation of ${parentId}: depth ${depth} >= ${MAX_CONTINUATION_DEPTH} (max)`);
       return "";
@@ -1014,8 +1013,8 @@ server.listen(port, listenHost, () => {
   agentRuntime.facade().startEventStream?.(
     (a) => {
       /* Structured event → the live TUI panel; display line → the human log feed. */
-      appendActivity(a.runId, { kind: a.kind, text: a.text, status: a.status });
-      appendLog(a.runId, a.display);
+      getHistory().runs.appendActivity(a.runId, { kind: a.kind, text: a.text, status: a.status });
+      getHistory().runs.appendLog(a.runId, a.display);
     },
     eventStreamController.signal,
     (runId, body) => {
@@ -1035,7 +1034,7 @@ server.listen(port, listenHost, () => {
 /*
  * NOTE: SIGTERM/SIGINT are handled by the single pair of handlers registered near the
  * top of this file (they cancel the in-flight run via queue.cancel(), drain, then exit).
- * The database is closed via process.on("exit") in history.ts. There is intentionally no
+ * The database is closed by the process-exit hook that openHistoryDatabase registers. There is intentionally no
  * second shutdown path here — two handlers for one signal raced (two drain timers, two
  * exits) and made `docker stop` behavior non-deterministic.
  */

@@ -3,7 +3,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun, type RunnerDeps, type RunRequest } from "./runner";
-import { getRecord, getRunCampaign, getStoredEffectiveConfig, listCampaignRuns } from "./history";
 import { buildRunViewExtras, defaultRunViewDeps } from "./run-view";
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { RunPipelinePort, RunInput } from "@contexts/run-orchestration/application/index.ts";
@@ -59,10 +58,10 @@ test("a campaign replicate is stored on the run with its labels, and the run vie
   const app = uniqueApp();
   const id = enqueueTrackedRun(queue, request(app, { campaign: campaign({ arm: "treatment", model: "m.1" }, 3) }), deps(h, { run: async (i) => outcomeOf(i) }));
   await queue.drain();
-  assert.deepEqual(getRunCampaign(id), { id: "ab-1", variant: { arm: "treatment", model: "m.1" }, replicate: 3 });
+  assert.deepEqual(getHistory().runs.getRunCampaign(id), { id: "ab-1", variant: { arm: "treatment", model: "m.1" }, replicate: 3 });
   const view = buildRunViewExtras(id, defaultRunViewDeps(() => true, {}))!;
   assert.deepEqual(view.campaign, { id: "ab-1", variant: { arm: "treatment", model: "m.1" }, replicate: 3 });
-  assert.equal(listCampaignRuns("ab-1").some((r) => r.id === id), true);
+  assert.equal(getHistory().runs.listCampaignRuns("ab-1").some((r) => r.id === id), true);
 });
 
 test("an ordinary run has no campaign", async () => {
@@ -70,7 +69,7 @@ test("an ordinary run has no campaign", async () => {
   const queue = new JobQueue();
   const id = enqueueTrackedRun(queue, request(uniqueApp()), deps(h, { run: async (i) => outcomeOf(i) }));
   await queue.drain();
-  assert.equal(getRunCampaign(id), undefined);
+  assert.equal(getHistory().runs.getRunCampaign(id), undefined);
   assert.equal("campaign" in buildRunViewExtras(id, defaultRunViewDeps(() => true, {}))!, false);
 });
 
@@ -123,10 +122,10 @@ test("a requested capture mode is capped at the server ceiling and the applied v
   const unasked = enqueueTrackedRun(queue, request(uniqueApp()), deps(h, { run: async (i) => outcomeOf(i) }));
   const off = enqueueTrackedRun(queue, request(uniqueApp(), { captureMode: "metadata" }), deps(h, { run: async (i) => outcomeOf(i) }, { runConfig: { ...env, maxCapture: "off" } }));
   await queue.drain();
-  assert.equal(getStoredEffectiveConfig(capped)?.captureMode, "metadata");
-  assert.equal(getStoredEffectiveConfig(allowed)?.captureMode, "full");
-  assert.equal(getStoredEffectiveConfig(unasked)?.captureMode, "metadata");
-  assert.equal(getStoredEffectiveConfig(off)?.captureMode, "off");
+  assert.equal(getHistory().runs.getStoredEffectiveConfig(capped)?.captureMode, "metadata");
+  assert.equal(getHistory().runs.getStoredEffectiveConfig(allowed)?.captureMode, "full");
+  assert.equal(getHistory().runs.getStoredEffectiveConfig(unasked)?.captureMode, "metadata");
+  assert.equal(getHistory().runs.getStoredEffectiveConfig(off)?.captureMode, "off");
   const view = (id: string) => buildRunViewExtras(id, defaultRunViewDeps(() => true, {}))!.effectiveConfig.levers.captureMode;
   assert.deepEqual([capped, allowed, unasked, off].map(view), ["metadata", "full", "metadata", "off"]);
 });
@@ -207,7 +206,7 @@ test("a run that recorded no configuration answers every key as null", async () 
   const queue = new JobQueue();
   const id = enqueueTrackedRun(queue, request(uniqueApp()), deps(h, { run: async (i) => outcomeOf(i) }, { loadApp: () => { throw new Error("boom"); } }));
   await queue.drain();
-  assert.equal(getRecord(id)?.verdict, "infra-error");
+  assert.equal(getHistory().runs.getRecord(id)?.verdict, "infra-error");
   const detail = buildRunViewExtras(id, defaultRunViewDeps(() => true, {}))!.effectiveConfig;
   assert.deepEqual(detail.levers, { closedLoop: null, agentBrowser: null, captureMode: "metadata" });
   assert.deepEqual([detail.campaignFreeze, detail.runtime, detail.prompt.staticHash, detail.reflector], [null, null, null, null]);
@@ -221,10 +220,10 @@ test("a run joins a campaign only with the capture mode its siblings have, and a
   const joined = (extra: Partial<RunRequest>, e: RunConfigEnvironment = env) =>
     enqueueTrackedRun(queue, request(uniqueApp(), { campaign: { id, variant: { arm: "x" }, replicate: 1 }, ...extra }), deps(h, { run: async (i) => outcomeOf(i) }, { runConfig: e }));
   const first = joined({});
-  assert.equal(getStoredEffectiveConfig(first)?.captureMode, "metadata");
-  const before = listCampaignRuns(id).length;
+  assert.equal(getHistory().runs.getStoredEffectiveConfig(first)?.captureMode, "metadata");
+  const before = getHistory().runs.listCampaignRuns(id).length;
   assert.throws(() => joined({ captureMode: "full" }, { ...env, maxCapture: "full" }), (err: unknown) => err instanceof CampaignCaptureMismatchError && err.expected === "metadata" && err.applied === "full" && /metadata/.test(err.message));
-  assert.equal(listCampaignRuns(id).length, before);
+  assert.equal(getHistory().runs.listCampaignRuns(id).length, before);
   assert.doesNotThrow(() => joined({ captureMode: "metadata" }));
   /* The ceiling counts: a request for full that the ceiling caps to metadata is the same applied mode. */
   assert.doesNotThrow(() => joined({ captureMode: "full" }));

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { HistoryJudgeEvidence, extractCommitDiff, type JudgeEvidenceDeps } from "./judge-evidence";
 import { COMMIT_DIFF_HEADING } from "@contexts/generation/infrastructure/prompt-builders/prompts";
-import type { SpecSnapshotRow } from "./history";
+import type { SpecSnapshotRow } from "./persistence/repositories/run.repository";
 import type { AgentTurnRecord } from "./persistence/repositories/telemetry.repository";
 import type { RunRecord } from "../types";
 

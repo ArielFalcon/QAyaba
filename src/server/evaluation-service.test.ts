@@ -6,7 +6,6 @@ import { HistoryEvidenceAdapter, countPassedSpecs, defaultEvidenceDeps } from ".
 import { buildRunViewExtras, type RunViewDeps } from "./run-view";
 import Database from "better-sqlite3";
 import { RegradeRequestError } from "@contexts/evaluation/application/index";
-import { createRecord, updateRecord, addCase, getRunFacts, getRunIdByTraceId, getRecord } from "./history";
 import { traceHarness } from "../telemetry/trace-harness";
 import { ScoreMetricsSink, composeScoreSinks } from "../telemetry/score-metrics-sink";
 import type { RunOutcome } from "../types";
@@ -29,10 +28,10 @@ function manualScheduler() {
 
 type TestCase = { name: string; status: "pass" | "fail"; file?: string };
 
-function finishedRun(app: string, over: { verdict?: RunOutcome["verdict"]; decision?: string | null; specs?: string[]; cases?: TestCase[]; furthest?: string; traceId?: string | null; facts?: NonNullable<Parameters<typeof updateRecord>[1]["facts"]>; reviewerTurn?: boolean } = {}): string {
-  const r = createRecord({ target: "e2e", app, sha: "abcdef1234", mode: "diff" });
+function finishedRun(app: string, over: { verdict?: RunOutcome["verdict"]; decision?: string | null; specs?: string[]; cases?: TestCase[]; furthest?: string; traceId?: string | null; facts?: NonNullable<Parameters<RunRepository["updateRecord"]>[1]["facts"]>; reviewerTurn?: boolean } = {}): string {
+  const r = getHistory().runs.createRecord({ target: "e2e", app, sha: "abcdef1234", mode: "diff" });
   const verdict = over.verdict ?? "pass";
-  updateRecord(r.id, {
+  getHistory().runs.updateRecord(r.id, {
     status: "done",
     verdict,
     step: "done",
@@ -50,7 +49,7 @@ function finishedRun(app: string, over: { verdict?: RunOutcome["verdict"]; decis
     },
     specs: (over.specs ?? ["e2e/login.spec.ts", "e2e/cart.spec.ts"]).map((name) => ({ name })),
   });
-  for (const c of over.cases ?? [{ name: "login works", status: "pass", file: "login.spec.ts" }, { name: "cart totals", status: "pass", file: "cart.spec.ts" }]) addCase(r.id, c);
+  for (const c of over.cases ?? [{ name: "login works", status: "pass", file: "login.spec.ts" }, { name: "cart totals", status: "pass", file: "cart.spec.ts" }]) getHistory().runs.addCase(r.id, c);
   const outcome: RunOutcome = {
     runId: r.id, app, sha: "abcdef1234", mode: "diff", target: "e2e", verdict, errorClass: verdict === "infra-error" ? "E-TIME-BUDGET" : null,
     gateSignals: { static: true, coverageRatio: 0.9, valueScore: null, reviewerCorrections: [], reviewerApproved: true, flaky: false, retries: 0 },
@@ -149,7 +148,7 @@ test("a regrade by date covers finished runs only", () => {
   const sched = manualScheduler();
   const service = createEvaluationService({ schedule: sched.schedule, log: quiet, newId: () => "job-f" });
   finishedRun("eval-f");
-  const queued = createRecord({ target: "e2e", app: "eval-f", sha: "abcdef1234", mode: "diff" });
+  const queued = getHistory().runs.createRecord({ target: "e2e", app: "eval-f", sha: "abcdef1234", mode: "diff" });
   assert.ok(service.startRegrade({ since: "2020-01-01" }).runs >= 1);
   assert.equal(service.startRegrade({ campaignId: "nope" }).runs, 0);
   assert.equal(queued.status, "enqueued");
@@ -210,8 +209,8 @@ test("what the engine decided at run time is read back from the run, whatever th
 });
 
 test("a run that recorded no run-time facts reports them unknown", async () => {
-  const r = createRecord({ target: "e2e", app: "eval-old", sha: "abcdef1234", mode: "diff" });
-  updateRecord(r.id, { status: "done", verdict: "pass" });
+  const r = getHistory().runs.createRecord({ target: "e2e", app: "eval-old", sha: "abcdef1234", mode: "diff" });
+  getHistory().runs.updateRecord(r.id, { status: "done", verdict: "pass" });
   const e = await evidenceOf(r.id);
   assert.equal(e?.reviewRequired, undefined);
   assert.equal(e?.reviewerTurns, undefined);
@@ -224,8 +223,8 @@ test("the reviewer turn is told by the reviewer agent's name", async () => {
 });
 
 test("a cancelled run is graded as cancelled and for nothing else", async () => {
-  const r = createRecord({ target: "e2e", app: "eval-cx", sha: "abcdef1234", mode: "diff" });
-  updateRecord(r.id, { status: "done", verdict: "infra-error", facts: { cancelled: true } });
+  const r = getHistory().runs.createRecord({ target: "e2e", app: "eval-cx", sha: "abcdef1234", mode: "diff" });
+  getHistory().runs.updateRecord(r.id, { status: "done", verdict: "infra-error", facts: { cancelled: true } });
   assert.equal((await evidenceOf(r.id))?.cancelled, true);
   const sched = manualScheduler();
   const service = createEvaluationService({ schedule: sched.schedule, log: quiet });
@@ -309,14 +308,14 @@ test("a regrade lists an unknown run id as an unknown run", async () => {
 });
 
 test("a case stored with its file keeps it", () => {
-  const r = createRecord({ target: "e2e", app: "eval-file", sha: "abcdef1234", mode: "diff" });
-  addCase(r.id, { name: "t", status: "pass", file: "a.spec.ts" });
-  assert.equal(getRecord(r.id)?.cases[0]?.file, "a.spec.ts");
+  const r = getHistory().runs.createRecord({ target: "e2e", app: "eval-file", sha: "abcdef1234", mode: "diff" });
+  getHistory().runs.addCase(r.id, { name: "t", status: "pass", file: "a.spec.ts" });
+  assert.equal(getHistory().runs.getRecord(r.id)?.cases[0]?.file, "a.spec.ts");
 });
 
 test("a run still running is not finished", async () => {
-  const r = createRecord({ target: "e2e", app: "eval-i", sha: "abcdef1234", mode: "diff" });
-  updateRecord(r.id, { status: "running" });
+  const r = getHistory().runs.createRecord({ target: "e2e", app: "eval-i", sha: "abcdef1234", mode: "diff" });
+  getHistory().runs.updateRecord(r.id, { status: "running" });
   assert.equal((await new HistoryEvidenceAdapter(defaultEvidenceDeps).load(r.id))?.finished, false);
 });
 
@@ -343,16 +342,16 @@ test("the run view links the trace through the template and is null when telemet
 });
 
 test("a run that a limit ended reports which", () => {
-  const r = createRecord({ target: "e2e", app: "eval-l", sha: "abcdef1234", mode: "diff" });
-  updateRecord(r.id, { status: "done", verdict: "infra-error", facts: { traceId: null, decision: "none", limitFired: "run-deadline", limitRole: "qa-author" } });
-  const { limitFired, limitRole, decision } = getRunFacts(r.id)!;
+  const r = getHistory().runs.createRecord({ target: "e2e", app: "eval-l", sha: "abcdef1234", mode: "diff" });
+  getHistory().runs.updateRecord(r.id, { status: "done", verdict: "infra-error", facts: { traceId: null, decision: "none", limitFired: "run-deadline", limitRole: "qa-author" } });
+  const { limitFired, limitRole, decision } = getHistory().runs.getRunFacts(r.id)!;
   assert.deepEqual({ limitFired, limitRole, decision }, { limitFired: "run-deadline", limitRole: "qa-author", decision: "none" });
   assert.deepEqual(buildRunViewExtras(r.id, viewDeps(true))?.budgets, { exhausted: true, limit: "run-deadline", role: "qa-author" });
 });
 
 function viewDeps(on: boolean, template?: string): RunViewDeps {
   return {
-    getRunFacts: (id) => getRunFacts(id),
+    getRunFacts: (id) => getHistory().runs.getRunFacts(id),
     getRunPhases: (id) => defaultViewDeps.getRunPhases(id),
     getRunCampaign: (id) => defaultViewDeps.getRunCampaign(id),
     getStoredEffectiveConfig: (id) => defaultViewDeps.getStoredEffectiveConfig(id),
@@ -366,6 +365,7 @@ function viewDeps(on: boolean, template?: string): RunViewDeps {
 
 import { defaultRunViewDeps } from "./run-view";
 import { getHistory } from "./persistence/index";
+import type { RunRepository } from "./persistence/repositories/run.repository";
 const defaultViewDeps = defaultRunViewDeps(() => true, {});
 
 test("by default only grader rows are returned, one per name; human labels appear with versions=all", () => {
@@ -388,8 +388,8 @@ test("a name only a human labelled is not in the default view", () => {
 
 test("a run is found by its trace id, and an unknown trace is not guessed at", () => {
   const id = finishedRun("trace-lookup", { traceId: "c".repeat(32) });
-  assert.equal(getRunIdByTraceId("c".repeat(32)), id);
-  assert.equal(getRunIdByTraceId("d".repeat(32)), undefined);
+  assert.equal(getHistory().runs.getRunIdByTraceId("c".repeat(32)), id);
+  assert.equal(getHistory().runs.getRunIdByTraceId("d".repeat(32)), undefined);
 });
 
 test("the trace-id lookup is served by an index on runs", () => {
@@ -404,8 +404,8 @@ test("the trace-id lookup is served by an index on runs", () => {
 });
 
 function campaignRun(campaignId: string, variant: Record<string, string>, replicate: number, done = true): string {
-  const r = createRecord({ target: "e2e", app: "eval-campaign", sha: "abcdef1234", mode: "diff", campaign: { id: campaignId, variant, replicate } });
-  if (done) updateRecord(r.id, { status: "done", verdict: "pass", step: "done" });
+  const r = getHistory().runs.createRecord({ target: "e2e", app: "eval-campaign", sha: "abcdef1234", mode: "diff", campaign: { id: campaignId, variant, replicate } });
+  if (done) getHistory().runs.updateRecord(r.id, { status: "done", verdict: "pass", step: "done" });
   return r.id;
 }
 
@@ -461,7 +461,7 @@ test("the campaign listing carries the labels, replicate, status and grading sta
 });
 
 test("a run that is not part of a campaign is never listed in one", () => {
-  const r = createRecord({ target: "e2e", app: "eval-campaign", sha: "abcdef1234", mode: "diff" });
+  const r = getHistory().runs.createRecord({ target: "e2e", app: "eval-campaign", sha: "abcdef1234", mode: "diff" });
   assert.equal(createEvaluationService({ log: quiet }).campaignRuns("anything", {}).runs.some((x) => x.id === r.id), false);
 });
 
@@ -471,7 +471,7 @@ test("grading and regrading a run mirror its scores as bounded metrics", async (
   try {
     const sink = new ScoreMetricsSink({
       telemetry: h.telemetry,
-      appOf: (runId) => getRecord(runId)?.app,
+      appOf: (runId) => getHistory().runs.getRecord(runId)?.app,
       verdictOf: (runId) => getHistory().learning.getRunOutcome(runId)?.verdict,
     });
     const sched = manualScheduler();

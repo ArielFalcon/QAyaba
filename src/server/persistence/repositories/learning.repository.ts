@@ -92,6 +92,13 @@ export class LearningRepository {
     this.saveScorecardRow = raw.prepare("INSERT INTO scorecard (app, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(app) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at");
   }
 
+  /* Removes what an app's runs taught: outcomes, rules, curriculum and scorecard. Returns nothing; a table that holds no row for the app is left as it is. */
+  deleteApp(app: string): void {
+    this.db.write(() => {
+      for (const table of ["run_outcomes", "learning_rules", "curriculum", "scorecard"]) this.db.statement(`DELETE FROM ${table} WHERE app = ?`).run(app);
+    });
+  }
+
   saveRunOutcome(outcome: RunOutcome): void {
     this.db.write(() => this.writeOutcome(outcome));
   }

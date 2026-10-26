@@ -15,7 +15,6 @@ import {
   type RunRequest,
 } from "./runner";
 import { PendingChangeSets } from "./pending-change-sets";
-import { getRecord, createRecord, updateRecord, getRunPhases, listRecords } from "./history";
 import { recordPhaseSnapshot } from "@contexts/run-orchestration/application/index";
 import { AppConfig } from "../orchestrator/config-loader";
 import { createRunEventStore } from "./run-events";
@@ -24,6 +23,7 @@ import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { AgentTimeoutError, UntrustedGitTreeError } from "@kernel/domain-error";
 import { getIncidents } from "./maintainer";
 import { traceHarness } from "../telemetry/trace-harness";
+import { getHistory } from "./persistence/index";
 
 const cfg = (name: string): AppConfig => ({
   name,
@@ -69,7 +69,7 @@ test("enqueueTrackedRun with no engineFactory supplied — throws loudly, finali
     { loadApp: cfg },
   );
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.status, "done");
   assert.equal(r.verdict, "infra-error", "a missing engineFactory must surface as a loud infra-error");
   assert.match(r.note ?? "", /engineFactory is required/);
@@ -84,7 +84,7 @@ test("engineFactory supplied — routes to port.run", async () => {
     { loadApp: cfg, engineFactory: () => port },
   );
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.status, "done");
   assert.equal(r.verdict, "pass");
   assert.equal(calls.length, 1, "the port must be invoked exactly once");
@@ -111,7 +111,7 @@ test("an agent call that exceeded its deadline finalizes as infrastructure, not 
     { loadApp: cfg, engineFactory: () => port },
   );
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.verdict, "infra-error");
   assert.doesNotMatch(r.note ?? "", /unexpected internal error/);
   assert.equal(getIncidents().length, incidentsBefore, "an agent timeout must not open a maintainer incident");
@@ -138,7 +138,7 @@ test("a run refused because the working copy's git dir is untrusted is finalized
       { loadApp: cfg, engineFactory: () => port },
     );
     await queue.drain();
-    const r = getRecord(id)!;
+    const r = getHistory().runs.getRecord(id)!;
     assert.equal(r.status, "done");
     assert.equal(r.verdict, "infra-error", "the run is inconclusive: no test ran");
     assert.match(r.note ?? "", /security refusal/i);
@@ -157,7 +157,7 @@ test("a context-map run is an e2e context-mode run at the given sha, from a manu
   const id = enqueueContextMapRun(queue, "runner-context-map", "c0ffee1", { loadApp: cfg, engineFactory: () => port });
   await queue.drain();
   const [run] = calls;
-  assert.equal(getRecord(id)?.status, "done");
+  assert.equal(getHistory().runs.getRecord(id)?.status, "done");
   assert.equal(run?.app, "runner-context-map");
   assert.equal(run?.sha.value, "c0ffee1");
   assert.equal(run?.mode, "context");
@@ -172,7 +172,7 @@ test("a login-bootstrap run is an e2e manual run for the login purpose, guided t
   const id = enqueueLoginBootstrapRun(queue, "runner-login-bootstrap", "c0ffee1", { loadApp: cfg, engineFactory: () => port });
   await queue.drain();
   const [run] = calls;
-  assert.equal(getRecord(id)?.status, "done");
+  assert.equal(getHistory().runs.getRecord(id)?.status, "done");
   assert.equal(run?.mode, "manual");
   assert.equal(run?.target, "e2e");
   assert.equal(run?.source, "manual");
@@ -300,7 +300,7 @@ test("outcome.note is forwarded into the run record's note field", async () => {
     { loadApp: cfg, engineFactory: () => port },
   );
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.status, "done");
   assert.equal(r.verdict, "infra-error");
   assert.equal(
@@ -326,7 +326,7 @@ test("the runner passes a testDataNamespace-shaped, per-run namespace to engineF
     },
   );
   await queue.drain();
-  assert.equal(getRecord(id)!.verdict, "pass");
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
   assert.ok(receivedNamespace, "engineFactory must receive a namespace argument");
   assert.notEqual(receivedNamespace, "qa-bot/rewritten", "must never be the old static literal");
   /* testDataNamespace(prefix, sha, runId) formula: `${prefix}-${shortSha(sha)}-${runToken(runId)}`.
@@ -353,8 +353,8 @@ test("two DIFFERENT runs (different sha) produce DIFFERENT namespaces passed to 
     { loadApp: cfg, engineFactory: (_a, ns) => { namespace2 = ns; return port2; } },
   );
   await Promise.all([queue1.drain(), queue2.drain()]);
-  assert.equal(getRecord(id1)!.verdict, "pass");
-  assert.equal(getRecord(id2)!.verdict, "pass");
+  assert.equal(getHistory().runs.getRecord(id1)!.verdict, "pass");
+  assert.equal(getHistory().runs.getRecord(id2)!.verdict, "pass");
   assert.ok(namespace1);
   assert.ok(namespace2);
   assert.notEqual(namespace1, namespace2, "two different-sha runs must never share the same DEV test-data namespace");
@@ -381,7 +381,7 @@ test("the runner passes req.mode to engineFactory's 3rd (run) argument", async (
     },
   );
   await queue.drain();
-  assert.equal(getRecord(id)!.verdict, "pass");
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
   assert.equal(receivedMode, "manual", "engineFactory must receive req.mode, not a hardcoded 'diff'");
 });
 
@@ -401,7 +401,7 @@ test("the runner passes req.guidance to engineFactory's 3rd (run) argument when 
     },
   );
   await queue.drain();
-  assert.equal(getRecord(id)!.verdict, "pass");
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
   assert.equal(receivedGuidance, "test the contact form", "engineFactory must receive req.guidance when the run supplies it");
 });
 
@@ -421,7 +421,7 @@ test("the runner passes req.target to engineFactory's 3rd (run) argument", async
     },
   );
   await queue.drain();
-  assert.equal(getRecord(id)!.verdict, "pass");
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
   assert.equal(receivedTarget, "code", "engineFactory must receive req.target — YAML code:true is only the default when --target is omitted");
 });
 
@@ -441,7 +441,7 @@ test("engineFactory's run.guidance is absent (not an empty string) when req.guid
     },
   );
   await queue.drain();
-  assert.equal(getRecord(id)!.verdict, "pass");
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
   assert.equal(receivedRun?.guidance, undefined, "guidance must be absent, not fabricated, when the request never supplied one");
 });
 
@@ -461,7 +461,7 @@ test("the runner threads req.triggerRepo into port.run's RunInput when present",
     { loadApp: (name) => ({ ...cfg(name), services: [{ repo: "org/orders-svc" }] }), engineFactory: () => port },
   );
   await queue.drain();
-  assert.equal(getRecord(id)!.verdict, "pass");
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.triggerRepo, "org/orders-svc", "RunInput.triggerRepo must carry req.triggerRepo through to port.run");
 });
@@ -485,7 +485,7 @@ test("rejects an undeclared triggerRepo (finalizes infra-error, never reaches po
     { loadApp: cfg, engineFactory: () => port },
   );
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.status, "done");
   assert.equal(r.verdict, "infra-error", "an undeclared triggerRepo must never reach a real verdict — the run is rejected outright");
   assert.match(r.note ?? "", /trigger repo org\/evil-repo is not a declared service of app runner-trigger-repo-undeclared/);
@@ -501,7 +501,7 @@ test("accepts a DECLARED service triggerRepo", async () => {
     { loadApp: (name) => ({ ...cfg(name), services: [{ repo: "org/orders-svc" }] }), engineFactory: () => port },
   );
   await queue.drain();
-  assert.equal(getRecord(id)!.verdict, "pass");
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
   assert.equal(calls.length, 1, "a declared service triggerRepo must reach port.run normally");
 });
 
@@ -515,7 +515,7 @@ test("an app with NO services[] rejects ANY triggerRepo other than its own repo"
     { loadApp: cfg, engineFactory: () => port },
   );
   await queue.drain();
-  assert.equal(getRecord(id)!.verdict, "infra-error");
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "infra-error");
   assert.equal(calls.length, 0);
 });
 
@@ -528,7 +528,7 @@ test("RunInput.triggerRepo is absent (not fabricated) when req.triggerRepo is om
     { loadApp: cfg, engineFactory: () => port },
   );
   await queue.drain();
-  assert.equal(getRecord(id)!.verdict, "pass");
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.triggerRepo, undefined, "an ordinary (non-cross-repo) run must never fabricate a triggerRepo");
 });
@@ -548,7 +548,7 @@ test("the runner threads req.baseSha into port.run's RunInput when present", asy
     { loadApp: cfg, engineFactory: () => port },
   );
   await queue.drain();
-  assert.equal(getRecord(id)!.verdict, "pass");
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.baseSha?.value, "abc1234", "RunInput.baseSha must carry req.baseSha through to port.run");
 });
@@ -562,7 +562,7 @@ test("RunInput.baseSha is absent (not fabricated) when req.baseSha is omitted", 
     { loadApp: cfg, engineFactory: () => port },
   );
   await queue.drain();
-  assert.equal(getRecord(id)!.verdict, "pass");
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.baseSha, undefined, "a single-commit run must never fabricate a baseSha — backward compatible with today's behavior");
 });
@@ -581,7 +581,7 @@ test("the runner threads req.parentRunId into port.run's RunInput when present (
     { loadApp: cfg, engineFactory: () => port },
   );
   await queue.drain();
-  assert.equal(getRecord(id)!.verdict, "pass");
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.parentRunId, "prior-run-abc123", "RunInput.parentRunId must carry req.parentRunId through to port.run");
 });
@@ -595,7 +595,7 @@ test("RunInput.parentRunId is absent (not fabricated) when req.parentRunId is om
     { loadApp: cfg, engineFactory: () => port },
   );
   await queue.drain();
-  assert.equal(getRecord(id)!.verdict, "pass");
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.parentRunId, undefined, "an ordinary webhook run must never fabricate a parentRunId — backward compatible with today's behavior");
 });
@@ -623,7 +623,7 @@ test("engineFactory's run param carries req.triggerRepo when present", async () 
     },
   );
   await queue.drain();
-  assert.equal(getRecord(id)!.verdict, "pass");
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
   assert.equal(receivedRun?.triggerRepo, "org/orders-svc", "engineFactory's run param must carry req.triggerRepo so the factory can route vcs/checkout/gate to the declared service");
 });
 
@@ -643,7 +643,7 @@ test("engineFactory's run.triggerRepo is absent (not fabricated) when req.trigge
     },
   );
   await queue.drain();
-  assert.equal(getRecord(id)!.verdict, "pass");
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
   assert.equal(receivedRun?.triggerRepo, undefined, "an ordinary (non-cross-repo) run must never fabricate a triggerRepo on the engineFactory's run param either");
 });
 
@@ -657,7 +657,7 @@ test("the run path finalizes the record + publishes run.verdict RunEvents from t
     { loadApp: cfg, runEvents, engineFactory: () => port },
   );
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.status, "done");
   assert.equal(r.verdict, "fail");
   const bodies = runEvents.replay(id).map((e) => e.body);
@@ -710,7 +710,7 @@ test("a port that drives ObserverPort.onStep mid-run updates the record's step +
         /* Assert the record already reflects this step BEFORE the run finishes — proving the
            update is live, not batched until the final verdict.
          */
-        assert.equal(getRecord(id)?.step, step, `record.step must advance to '${step}' while the run is still in flight`);
+        assert.equal(getHistory().runs.getRecord(id)?.step, step, `record.step must advance to '${step}' while the run is still in flight`);
       }
       return {
         runId: input.runId,
@@ -741,7 +741,7 @@ test("a port that drives ObserverPort.onStep mid-run updates the record's step +
   );
   await queue.drain();
 
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.status, "done");
   assert.equal(r.verdict, "pass");
   assert.equal(r.step, "done", "the record's final step is 'done' (set by the queue callback's own finalize, after the port resolved)");
@@ -761,8 +761,8 @@ test("ObserverPort.onStep('retry', detail) sets record.stepDetail and record.ret
   const retryingPort: RunPipelinePort = {
     run: async (input) => {
       currentObserver?.onStep("retry", "static-fix round 1/2");
-      assert.equal(getRecord(id)?.retrying, true);
-      assert.equal(getRecord(id)?.stepDetail, "static-fix round 1/2");
+      assert.equal(getHistory().runs.getRecord(id)?.retrying, true);
+      assert.equal(getHistory().runs.getRecord(id)?.stepDetail, "static-fix round 1/2");
       return {
         runId: input.runId,
         app: input.app,
@@ -793,7 +793,7 @@ test("ObserverPort.onStep('retry', detail) sets record.stepDetail and record.ret
      mid-run retrying:true was genuinely observed above (asserted synchronously inside run()),
      not that it survives to the terminal record.
    */
-  assert.equal(getRecord(id)?.retrying, false);
+  assert.equal(getHistory().runs.getRecord(id)?.retrying, false);
 });
 
 /* buildRunObserver's onStep/onEvent wrap updateRecord/runEvents.publish in try/catch — a
@@ -855,7 +855,7 @@ test("a port that drives ObserverPort.onStep, where runEvents.publish throws on 
     },
   );
   await queue.drain();
-  const record = getRecord(id);
+  const record = getHistory().runs.getRecord(id);
   assert.equal(record?.status, "done", "a throwing observer must not prevent the run from finalizing");
   assert.equal(record?.verdict, "pass", "a throwing observer must not change the run's own verdict");
 });
@@ -869,7 +869,7 @@ test("a crashing rewritten port finalizes the record as infra-error (no zombie)"
     { loadApp: cfg, engineFactory: () => crashingPort },
   );
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.status, "done");
   assert.equal(r.verdict, "infra-error");
   assert.match(r.note ?? "", /boom/);
@@ -921,7 +921,7 @@ test("cancelTrackedRun aborts the port's in-flight run.run() AND the record is n
   assert.equal(cancelTrackedRun(queue, id), true, "a live rewritten run must be cancellable via the queue signal");
   await new Promise((r) => setImmediate(r));
   assert.equal(observedAborted, true, "the port's run() must observe the queue's AbortSignal — the gap this closes");
-  const cancelledRecord = getRecord(id)!;
+  const cancelledRecord = getHistory().runs.getRecord(id)!;
   assert.equal(cancelledRecord.status, "done");
   assert.equal(cancelledRecord.verdict, "infra-error", "matches cancelTrackedRun's own aborted-terminal mapping");
   /* Now let the port's stale promise resolve LATE (as if it kept running headless) — this must
@@ -929,7 +929,7 @@ test("cancelTrackedRun aborts the port's in-flight run.run() AND the record is n
    */
   resolveLate?.();
   await queue.drain();
-  const finalRecord = getRecord(id)!;
+  const finalRecord = getHistory().runs.getRecord(id)!;
   assert.equal(finalRecord.status, "done");
   assert.equal(finalRecord.verdict, "infra-error", "a late resolution from a cancelled run must NOT overwrite the finalized cancelled record");
 });
@@ -960,11 +960,11 @@ test("cancelTrackedRun + an UNRELATED late crash: the catch branch must NOT over
   await new Promise((r) => setImmediate(r)); /* let the job claim the queue controller */
   assert.equal(cancelTrackedRun(queue, id), true);
   await new Promise((r) => setImmediate(r)); /* let the port's abort listener fire */
-  const cancelledNote = getRecord(id)!.note;
+  const cancelledNote = getHistory().runs.getRecord(id)!.note;
   /* Now the port's own work rejects LATE with an unrelated error → the catch branch runs. */
   rejectLate?.(new Error("OpenCode 500 — unrelated crash racing the cancel"));
   await queue.drain();
-  const finalRecord = getRecord(id)!;
+  const finalRecord = getHistory().runs.getRecord(id)!;
   assert.equal(finalRecord.verdict, "infra-error");
   assert.equal(finalRecord.note, cancelledNote, "the catch branch must NOT overwrite the cancelled record's note with a crash note (nor fire a spurious incident — the guard returns before both)");
 });
@@ -978,9 +978,9 @@ test("the run does NOT execute synchronously — it is deferred to the queue (no
     { loadApp: cfg, engineFactory: () => port },
   );
   /* Right after enqueue, before draining: the job has not run yet. */
-  assert.equal(getRecord(id)?.status, "enqueued");
+  assert.equal(getHistory().runs.getRecord(id)?.status, "enqueued");
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.status, "done");
   assert.equal(r.verdict, "skipped");
 });
@@ -1000,7 +1000,7 @@ test("a green run finalizes the record with verdict + case counts", async () => 
     { loadApp: cfg, engineFactory: () => port },
   );
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.verdict, "pass");
   assert.equal(r.passed, 2);
   assert.equal(r.failed, 0);
@@ -1048,7 +1048,7 @@ test("a crashing rewritten port finalizes the record as infra-error with the mes
     { loadApp: cfg, engineFactory: () => crashingPort },
   );
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.status, "done");
   assert.equal(r.verdict, "infra-error");
   assert.match(r.note ?? "", /boom/);
@@ -1070,7 +1070,7 @@ test("a continuation records the parent run", async () => {
     { loadApp: cfg, engineFactory: () => port },
   );
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.parentRunId, "parent-1");
   assert.equal(r.verdict, "pass");
 });
@@ -1084,7 +1084,7 @@ test("a bad app name is finalized (not a zombie) — loadApp throwing is caught"
     { loadApp: () => { throw new Error("config/apps/x.yaml not found"); }, engineFactory: () => port },
   );
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.status, "done");
   assert.equal(r.verdict, "infra-error");
 });
@@ -1098,8 +1098,8 @@ test("a bad app name is finalized (not a zombie) — loadApp throwing is caught"
 test("cancelTrackedRun aborts a LIVE run and finalizes its record (returns true)", async () => {
   const queue = new JobQueue();
   let aborted = false;
-  const rec = createRecord({ app: "cancel-live", sha: "aaa1111", target: "e2e", mode: "diff" });
-  updateRecord(rec.id, { status: "running" });
+  const rec = getHistory().runs.createRecord({ app: "cancel-live", sha: "aaa1111", target: "e2e", mode: "diff" });
+  getHistory().runs.updateRecord(rec.id, { status: "running" });
   /* A job that blocks until its signal aborts — stands in for an in-flight agent turn. */
   queue.enqueue(async (signal) => {
     await new Promise<void>((resolve) => {
@@ -1111,36 +1111,36 @@ test("cancelTrackedRun aborts a LIVE run and finalizes its record (returns true)
   assert.equal(cancelTrackedRun(queue, rec.id), true);
   await queue.drain();
   assert.equal(aborted, true, "the live turn must be interrupted via the signal");
-  assert.equal(getRecord(rec.id)?.status, "done");
+  assert.equal(getHistory().runs.getRecord(rec.id)?.status, "done");
 });
 
 test("cancelTrackedRun finalizes a STALE running record the queue no longer holds (the stuck-at-0% bug)", () => {
   const queue = new JobQueue(); /* empty: nothing is actually executing */
-  const rec = createRecord({ app: "cancel-zombie", sha: "bbb2222", target: "e2e", mode: "diff" });
-  updateRecord(rec.id, { status: "running" }); /* a zombie left "running" by a restart/crash race */
+  const rec = getHistory().runs.createRecord({ app: "cancel-zombie", sha: "bbb2222", target: "e2e", mode: "diff" });
+  getHistory().runs.updateRecord(rec.id, { status: "running" }); /* a zombie left "running" by a restart/crash race */
   /* Not the live queue job, so nothing is aborted (false) — but the stuck record MUST be
      finalized so the operator's stop actually clears it (it used to stay "running" → 409).
    */
   assert.equal(cancelTrackedRun(queue, rec.id), false);
-  const r = getRecord(rec.id)!;
+  const r = getHistory().runs.getRecord(rec.id)!;
   assert.equal(r.status, "done");
   assert.equal(r.verdict, "infra-error");
 });
 
 test("cancelTrackedRun dequeues an enqueued run so it never executes", () => {
   const queue = new JobQueue();
-  const rec = createRecord({ app: "cancel-enq", sha: "ccc3333", target: "e2e", mode: "diff" });
+  const rec = getHistory().runs.createRecord({ app: "cancel-enq", sha: "ccc3333", target: "e2e", mode: "diff" });
   /* status stays "enqueued" (createRecord default) — never started */
   assert.equal(cancelTrackedRun(queue, rec.id), false);
-  assert.equal(getRecord(rec.id)?.status, "done");
+  assert.equal(getHistory().runs.getRecord(rec.id)?.status, "done");
 });
 
 test("cancelTrackedRun is a no-op on an already-terminal record", () => {
   const queue = new JobQueue();
-  const rec = createRecord({ app: "cancel-done", sha: "ddd4444", target: "e2e", mode: "diff" });
-  updateRecord(rec.id, { status: "done", verdict: "pass" });
+  const rec = getHistory().runs.createRecord({ app: "cancel-done", sha: "ddd4444", target: "e2e", mode: "diff" });
+  getHistory().runs.updateRecord(rec.id, { status: "done", verdict: "pass" });
   assert.equal(cancelTrackedRun(queue, rec.id), false);
-  assert.equal(getRecord(rec.id)?.verdict, "pass"); /* untouched, not overwritten to infra-error */
+  assert.equal(getHistory().runs.getRecord(rec.id)?.verdict, "pass"); /* untouched, not overwritten to infra-error */
 });
 
 /* A cancelled run must END its live event stream: without a terminal event, a watching console
@@ -1150,8 +1150,8 @@ for (const [branch, label] of [["live", "live run"], ["enqueued", "run still enq
   test(`cancelling a ${label} ends its event stream with exactly one infra-error verdict`, async () => {
     const queue = new JobQueue();
     const runEvents = createRunEventStore();
-    const rec = createRecord({ app: `cancel-event-${branch.replace(" ", "-")}`, sha: "fff6666", target: "e2e", mode: "diff" });
-    if (branch !== "enqueued") updateRecord(rec.id, { status: "running" });
+    const rec = getHistory().runs.createRecord({ app: `cancel-event-${branch.replace(" ", "-")}`, sha: "fff6666", target: "e2e", mode: "diff" });
+    if (branch !== "enqueued") getHistory().runs.updateRecord(rec.id, { status: "running" });
     if (branch === "live") {
       queue.enqueue(async (signal) => {
         await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
@@ -1172,8 +1172,8 @@ for (const [branch, label] of [["live", "live run"], ["enqueued", "run still enq
 
 test("cancelling an already-finished run publishes nothing", () => {
   const runEvents = createRunEventStore();
-  const rec = createRecord({ app: "cancel-event-done", sha: "fff7777", target: "e2e", mode: "diff" });
-  updateRecord(rec.id, { status: "done", verdict: "pass" });
+  const rec = getHistory().runs.createRecord({ app: "cancel-event-done", sha: "fff7777", target: "e2e", mode: "diff" });
+  getHistory().runs.updateRecord(rec.id, { status: "done", verdict: "pass" });
   cancelTrackedRun(new JobQueue(), rec.id, { runEvents });
   assert.deepEqual(runEvents.replay(rec.id), []);
 });
@@ -1202,7 +1202,7 @@ test("outcome.cases populate the run record's cases + passed/failed counts (was:
     { loadApp: cfg, engineFactory: () => port },
   );
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.status, "done");
   assert.equal(r.cases.length, 2, "the run record's cases must reflect the REAL outcome.cases, not the previous permanent []");
   assert.equal(r.passed, 1, "passed must be recomputed from the real cases (history.addCase's own single-source-of-truth contract)");
@@ -1218,7 +1218,7 @@ test("an absent outcome.cases (early-exit terminal) leaves the run record's case
     { loadApp: cfg, engineFactory: () => port },
   );
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.status, "done");
   assert.equal(r.verdict, "invalid");
   assert.deepEqual(r.cases, []);
@@ -1335,7 +1335,7 @@ test("liveAnnounced dedup — a case announced live with a MATCHING final status
     },
   );
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.status, "done");
   /* The record store's own write (addCase) still happened — the case is present in the record. */
   assert.equal(r.cases.length, 1);
@@ -1378,7 +1378,7 @@ test("liveAnnounced dedup — the flaky divergence: live announces failed then p
     },
   );
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.status, "done");
   assert.equal(r.verdict, "flaky");
   assert.equal(r.cases.length, 1);
@@ -1445,7 +1445,7 @@ test("liveAnnounced dedup — addCase (the record-store write) always runs regar
     },
   );
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.cases.length, 2, "addCase must write BOTH cases to the record store regardless of live-announcement/dedup status");
   assert.equal(r.passed, 2);
 });
@@ -1508,7 +1508,7 @@ test("defer-while-active: mirror work (engineFactory) is deferred until isOnboar
     },
   );
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.status, "done");
   assert.equal(r.verdict, "pass");
   assert.equal(calls.length, 1, "engineFactory's port must be invoked exactly once, only after onboarding cleared");
@@ -1535,7 +1535,7 @@ test("breakout path: isOnboardingActive stuck true past onboardingWaitMaxMs — 
       },
     );
     await queue.drain();
-    const r = getRecord(id)!;
+    const r = getHistory().runs.getRecord(id)!;
     assert.equal(r.status, "done");
     assert.equal(r.verdict, "pass", "the run must PROCEED — QA is the product, a wedged advisory flag never permanently starves the pipeline");
     assert.equal(calls.length, 1, "engineFactory must still be called on breakout");
@@ -1576,7 +1576,7 @@ test("abort-during-wait: cancelling mid-poll resolves promptly (signal-aware sle
   await queue.drain();
   assert.ok(sawSignal, "the poll loop's sleep must receive the queue's own AbortSignal");
   assert.equal(calls.length, 0, "engineFactory must never be reached once the wait was aborted");
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.status, "done");
   assert.equal(r.verdict, "infra-error", "matches cancelTrackedRun's own aborted-terminal mapping");
 });
@@ -1596,7 +1596,7 @@ test("idle path (isOnboardingActive omitted): behavior is byte-identical to befo
     },
   );
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.status, "done");
   assert.equal(r.verdict, "pass");
   assert.equal(calls.length, 1);
@@ -1618,7 +1618,7 @@ test("idle path with isOnboardingActive explicitly () => false: same zero-sleep 
     },
   );
   await queue.drain();
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.status, "done");
   assert.equal(calls.length, 1);
   assert.equal(sleepCalls, 0);
@@ -1663,8 +1663,8 @@ test("multi-run FIFO during onboarding: several runs enqueued while onboarding i
   await queue.drain();
   assert.deepEqual(order, ["a", "b", "c"], "runs enqueued during an onboarding window must drain in arrival (FIFO) order — no reorder");
   for (const id of [idA, idB, idC]) {
-    assert.equal(getRecord(id)!.status, "done");
-    assert.equal(getRecord(id)!.verdict, "pass");
+    assert.equal(getHistory().runs.getRecord(id)!.status, "done");
+    assert.equal(getHistory().runs.getRecord(id)!.verdict, "pass");
   }
 });
 
@@ -1697,7 +1697,7 @@ test("a finished run records the furthest phase and the phase timings its outcom
   const id = enqueueTrackedRun(queue, { app: "runner-phases-recorded", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
   await queue.drain();
 
-  assert.deepEqual(getRunPhases(id), { furthestPhase: "setup", phaseTimings: { gate: 2, setup: 700 } });
+  assert.deepEqual(getHistory().runs.getRunPhases(id), { furthestPhase: "setup", phaseTimings: { gate: 2, setup: 700 } });
 });
 
 test("a run whose outcome carries no phase record leaves the phase columns empty", async () => {
@@ -1706,7 +1706,7 @@ test("a run whose outcome carries no phase record leaves the phase columns empty
   const id = enqueueTrackedRun(queue, { app: "runner-phases-absent", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
   await queue.drain();
 
-  assert.deepEqual(getRunPhases(id), { furthestPhase: null, phaseTimings: null });
+  assert.deepEqual(getHistory().runs.getRunPhases(id), { furthestPhase: null, phaseTimings: null });
 });
 
 test("a run the engine ended with an error still records how far it got", async () => {
@@ -1717,8 +1717,8 @@ test("a run the engine ended with an error still records how far it got", async 
   const id = enqueueTrackedRun(queue, { app: "runner-phases-on-error", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
   await queue.drain();
 
-  assert.equal(getRecord(id)!.verdict, "infra-error");
-  assert.deepEqual(getRunPhases(id), { furthestPhase: "generate", phaseTimings: { gate: 1, generate: 5_000 } });
+  assert.equal(getHistory().runs.getRecord(id)!.verdict, "infra-error");
+  assert.deepEqual(getHistory().runs.getRunPhases(id), { furthestPhase: "generate", phaseTimings: { gate: 1, generate: 5_000 } });
 });
 
 test("a run that ended with an error nobody recorded phases for leaves the phase columns empty", async () => {
@@ -1727,7 +1727,7 @@ test("a run that ended with an error nobody recorded phases for leaves the phase
   const id = enqueueTrackedRun(queue, { app: "runner-phases-error-bare", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
   await queue.drain();
 
-  assert.deepEqual(getRunPhases(id), { furthestPhase: null, phaseTimings: null });
+  assert.deepEqual(getHistory().runs.getRunPhases(id), { furthestPhase: null, phaseTimings: null });
 });
 
 test("a phase record that cannot be stored never stops the failed run from being finalized, announced and reported", async () => {
@@ -1748,10 +1748,10 @@ test("a phase record that cannot be stored never stops the failed run from being
     console.error = originalError;
   }
 
-  const r = getRecord(id)!;
+  const r = getHistory().runs.getRecord(id)!;
   assert.equal(r.status, "done");
   assert.equal(r.verdict, "infra-error");
-  assert.deepEqual(getRunPhases(id), { furthestPhase: null, phaseTimings: null });
+  assert.deepEqual(getHistory().runs.getRunPhases(id), { furthestPhase: null, phaseTimings: null });
   const bodies = events.replay(id).map((e) => e.body.type);
   assert.ok(bodies.includes("agent.error"));
   assert.ok(bodies.includes("run.verdict"));
@@ -1783,8 +1783,8 @@ test("a run whose map does not fit its commit runs a context run at its sha firs
   assert.equal(r.calls[0]?.sha.value, "abc1234");
   assert.equal(r.calls[0]?.parentRunId, id);
   assert.equal(r.calls[0]?.previousNamespace || undefined, undefined, "the run it serves is not an interrupted run to clean up after");
-  assert.equal(getRecord(r.calls[0]!.runId)?.status, "done");
-  assert.equal(getRecord(id)?.status, "done");
+  assert.equal(getHistory().runs.getRecord(r.calls[0]!.runId)?.status, "done");
+  assert.equal(getHistory().runs.getRecord(id)?.status, "done");
 });
 
 test("the map is rebuilt once per app and commit: a later run at the same sha does not rebuild it again, whether or not the rebuild worked", async () => {
@@ -1894,7 +1894,7 @@ test("two webhook pushes of one app that land while the queue is busy are one ru
   const first = enqueueTrackedRun(rig.queue, frontPush(rig.app), rig.deps);
   const second = enqueueTrackedRun(rig.queue, servicePush(rig.app), rig.deps);
   assert.equal(second, first, "the second push joins the first run");
-  assert.equal(listRecords(rig.app, 10).length, 1, "one record, not two");
+  assert.equal(getHistory().runs.listRecords(rig.app, 10).length, 1, "one record, not two");
 
   rig.release();
   await rig.queue.drain();
@@ -1910,16 +1910,16 @@ test("two webhook pushes of one app that land while the queue is busy are one ru
 test("the record of a run that pushes joined lists every entry, and a run no push joined lists none", async () => {
   const rig = coalescingRig("coalesce-record");
   const first = enqueueTrackedRun(rig.queue, frontPush(rig.app), rig.deps);
-  assert.equal(getRecord(first)?.changeSet, undefined, "a run of its own request lists no entries");
+  assert.equal(getHistory().runs.getRecord(first)?.changeSet, undefined, "a run of its own request lists no entries");
   enqueueTrackedRun(rig.queue, servicePush(rig.app), rig.deps);
 
-  assert.deepEqual(getRecord(first)?.changeSet, [
+  assert.deepEqual(getHistory().runs.getRecord(first)?.changeSet, [
     { repo: "org/demo", role: "primary", headSha: "f111111", baseSha: "f000000" },
     { repo: "org/orders-svc", role: "service", headSha: "b222222", baseSha: "b000000" },
   ]);
   rig.release();
   await rig.queue.drain();
-  assert.equal(getRecord(first)?.changeSet?.length, 2, "the entries outlive the run");
+  assert.equal(getHistory().runs.getRecord(first)?.changeSet?.length, 2, "the entries outlive the run");
 });
 
 test("two pushes of one repo that land while the queue is busy are one run over both pushes' range", async () => {

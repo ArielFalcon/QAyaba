@@ -26,8 +26,6 @@
   "src/server/agent-runtime.ts",
   "src/server/engine-root.test.ts",
   "src/server/engine-root.ts",
-  "src/server/history.test.ts",
-  "src/server/history.ts",
   "src/server/judge-agent.test.ts",
   "src/server/judge-agent.ts",
   "src/server/judge-evidence.test.ts",

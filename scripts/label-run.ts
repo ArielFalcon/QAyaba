@@ -165,16 +165,15 @@ export function main(argv: readonly string[], deps: LabelRunDeps): number {
 
 /** The run history of the orchestrator container, imported lazily so a test that injects its own never opens it. */
 export async function defaultDeps(): Promise<LabelRunDeps> {
-  const { getRecord, getRunPlan, listSpecSnapshots } = await import("../src/server/history.ts");
   const { getHistory } = await import("../src/server/persistence/index.ts");
   const { RedactionPortAdapter } = await import("../src/orchestrator/sanitizer.ts");
   const redaction = new RedactionPortAdapter();
   return {
-    getRecord: (id) => getRecord(id),
-    getRunPlan,
+    getRecord: (id) => getHistory().runs.getRecord(id),
+    getRunPlan: (id) => getHistory().runs.getRunPlan(id),
     deliveredSpecs: (id) => {
       const newest = new Map<string, { path: string; text: string; at: number }>();
-      for (const row of listSpecSnapshots(id)) if (row.delivered === 1 && (newest.get(row.path)?.at ?? -1) <= row.capturedAt) newest.set(row.path, { path: row.path, text: row.text, at: row.capturedAt });
+      for (const row of getHistory().runs.listSpecSnapshots(id)) if (row.delivered === 1 && (newest.get(row.path)?.at ?? -1) <= row.capturedAt) newest.set(row.path, { path: row.path, text: row.text, at: row.capturedAt });
       return [...newest.values()].sort((a, b) => a.path.localeCompare(b.path)).map(({ path, text }) => ({ path, text }));
     },
     scores: (runId) => getHistory().evaluations.listRunScoreRows(runId),

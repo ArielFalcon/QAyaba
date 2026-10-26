@@ -25,7 +25,6 @@ import { delegateRun, type DelegateRunInput, type DelegateRunResult } from "./se
 import { discoverApiToken } from "./server/api-token";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getRecord } from "./server/history";
 import { LEARNING_RULE_LEDGER_LIMIT } from "./server/persistence/repositories/learning.repository";
 import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/application/index";
 import { loadAppConfig } from "./orchestrator/config-loader";
@@ -41,6 +40,7 @@ import { getOpenSessionCount } from "./integrations/opencode-client";
 import { createRunEngineFactory } from "./server/run-engine-factory";
 import { resolvePort } from "./server/port";
 import { getHistory } from "./server/persistence/index";
+import type { RunRecord } from "./types";
 
 
 const cliAgentRuntime = createAgentRuntimeManager({
@@ -180,7 +180,7 @@ async function main(): Promise<void> {
 
   /* Built once for this process (a mistyped QA_TELEMETRY stops it here); the engine factory takes `telemetry.telemetry` as a dep. */
   const telemetry = processTelemetry();
-  let record: ReturnType<typeof getRecord>;
+  let record: RunRecord | undefined;
   try {
     const queue = new JobQueue();
     /*
@@ -210,7 +210,7 @@ async function main(): Promise<void> {
       ...groundingOf(args),
     }, { runEvents, engineFactory: cliEngineFactory, telemetry: telemetry.telemetry, clock: telemetry.clock });
     await queue.drain();
-    record = getRecord(id);
+    record = getHistory().runs.getRecord(id);
     /*
      * Print the deterministic value signals the run already persisted. In shadow mode there is no
      * PR/Issue artifact to inspect.
@@ -230,7 +230,7 @@ async function main(): Promise<void> {
  * Compose the value report from the persisted run record + its RunOutcome (the structured gate
  * signals). Kept in the CLI (not the pure renderer) because it stitches two persistence reads.
  */
-function printRunReport(record: ReturnType<typeof getRecord> & {}, appCfg: ReturnType<typeof loadAppConfig>): void {
+function printRunReport(record: RunRecord, appCfg: ReturnType<typeof loadAppConfig>): void {
   const outcome = getHistory().learning.getRunOutcome(record.id);
   const gs = outcome?.gateSignals;
   const report = renderRunReport({

@@ -113,7 +113,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${LEARN_TEST}/rule-fold.test.ts`,
       "qa-engine/test/contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter.test.ts",
       `${CROSS_RUN_LEARNING_CTX_TEST}/infrastructure/adapters/learning-port.adapter.test.ts`,
-      "src/server/history.test.ts",
+      "src/server/persistence/repositories/learning.repository.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },

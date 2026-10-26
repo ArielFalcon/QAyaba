@@ -3,7 +3,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, type RunnerDeps, type RunRequest } from "./runner";
-import { commitSpecSnapshots, getRecord } from "./history";
 import { HistoryEvidenceAdapter, defaultEvidenceDeps } from "./evaluation-evidence";
 import { gradeEvidence } from "@contexts/evaluation/application/index";
 import { recordPhaseSnapshot } from "@contexts/run-orchestration/application/index";
@@ -232,7 +231,7 @@ test("an exception out of the engine ends the root as an error, finalizes the re
 
   const root = h.only("qayaba.run");
   assert.equal(root.status.code, SpanStatusCode.ERROR);
-  assert.equal(getRecord(id)?.verdict, "infra-error");
+  assert.equal(getHistory().runs.getRecord(id)?.verdict, "infra-error");
   assert.deepEqual(h.unended(), []);
   assert.ok(h.flushCount() >= 1);
 });
@@ -255,7 +254,7 @@ test("a crash carries on its root the facts the run reached, and one error class
   attachTraceFacts(failure, { generationEnd: "delivered" });
   const port: RunPipelinePort = {
     run: async (input) => {
-      commitSpecSnapshots([{ runId: input.runId, path: "flows/restaurant-list-change-filters.spec.ts", sha256: "a".repeat(64), text: "test('filters', () => {});", bytes: 26, capturedAt: 1, delivered: 1 }]);
+      getHistory().runs.commitSpecSnapshots([{ runId: input.runId, path: "flows/restaurant-list-change-filters.spec.ts", sha256: "a".repeat(64), text: "test('filters', () => {});", bytes: 26, capturedAt: 1, delivered: 1 }]);
       throw failure;
     },
   };
@@ -379,7 +378,7 @@ test("a request that names no trigger is told apart by its source", async () => 
 
 /* Everything of a run's record that does not depend on when or under which id it was made. */
 function recordShape(id: string): Record<string, unknown> {
-  const { id: _id, at: _at, stepStartedAt: _started, activity, cases, ...rest } = getRecord(id)!;
+  const { id: _id, at: _at, stepStartedAt: _started, activity, cases, ...rest } = getHistory().runs.getRecord(id)!;
   /* An activity row or a case row is stamped with its own id, run id and time. */
   return { ...rest, cases: cases.map(({ name, status, detail }) => ({ name, status, detail })), activity: activity?.map(({ kind, text, status }) => ({ kind, text, status })) };
 }
@@ -415,7 +414,7 @@ test("the trace and the record agree when recording the verdict fails after the 
   const id = enqueueTrackedRun(queue, request(uniqueApp()), deps(h, portReturning(), { runEvents: events as never }));
   await queue.drain();
 
-  assert.equal(getRecord(id)?.verdict, "infra-error");
+  assert.equal(getHistory().runs.getRecord(id)?.verdict, "infra-error");
   const root = h.only("qayaba.run");
   assert.equal(attr(root, "qayaba.verdict"), "infra-error");
   assert.equal(root.status.code, SpanStatusCode.ERROR);

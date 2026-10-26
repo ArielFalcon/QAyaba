@@ -2,7 +2,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { createRecord, getRecord, updateRecord, deleteAppHistory } from "../../history";
 import { getHistory } from "../index";
 import { LEARNING_RULE_LEDGER_LIMIT } from "./learning.repository";
 import type { RunOutcome, StructuredReflection } from "../../../types";
@@ -163,7 +162,7 @@ test("loadCurriculum: a corrupt row is logged loudly and reported as a distinct 
 
 test("updateRunOutcomeReflection back-fills the reflection that was null at verdict time", () => {
   const app = "reflect-app";
-  deleteAppHistory(app); /* self-isolate: the history DB is a module-global singleton */
+  getHistory().purgeApp(app); /* self-isolate: the history DB is a module-global singleton */
   try {
     const outcome: RunOutcome = {
       runId: "run-reflect-1", app, sha: "abc1234", mode: "diff", target: "e2e",
@@ -182,13 +181,13 @@ test("updateRunOutcomeReflection back-fills the reflection that was null at verd
     getHistory().learning.updateRunOutcomeReflection("run-reflect-1", reflection);
     assert.deepEqual(getHistory().learning.listRunOutcomes(app)[0]?.reflection, reflection);
   } finally {
-    deleteAppHistory(app);
+    getHistory().purgeApp(app);
   }
 });
 
 test("getRunOutcome returns the single run's outcome and round-trips the reviewer verdict", () => {
   const app = "value-report-app";
-  deleteAppHistory(app); /* self-isolate: the history DB is a module-global singleton */
+  getHistory().purgeApp(app); /* self-isolate: the history DB is a module-global singleton */
   try {
     const outcome: RunOutcome = {
       runId: "run-value-1", app, sha: "deadbeef0", mode: "diff", target: "e2e",
@@ -205,31 +204,31 @@ test("getRunOutcome returns the single run's outcome and round-trips the reviewe
     assert.equal(got!.gateSignals.reviewerRationale, "covers the new validation branch");
     assert.equal(getHistory().learning.getRunOutcome("does-not-exist"), undefined);
   } finally {
-    deleteAppHistory(app);
+    getHistory().purgeApp(app);
   }
 });
 
 test("a crash reclassifies the outcome the engine persisted, keeping the evidence it carried, and writes one where none was", () => {
   const app = "hist-crashed-class";
   try {
-    const withEvidence = createRecord({ target: "e2e", app, sha: "abcdef1234", mode: "diff" });
+    const withEvidence = getHistory().runs.createRecord({ target: "e2e", app, sha: "abcdef1234", mode: "diff" });
     getHistory().learning.saveRunOutcome({
       runId: withEvidence.id, app, sha: "abcdef1234", mode: "diff", target: "e2e", verdict: "infra-error", errorClass: "E-INFRA",
       gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0, mutantCount: 7 },
       rulesRetrieved: [], at: "2026-10-19T00:00:00.000Z",
     });
 
-    getHistory().learning.saveCrashedRunOutcome(getRecord(withEvidence.id)!, "internal-error");
+    getHistory().learning.saveCrashedRunOutcome(getHistory().runs.getRecord(withEvidence.id)!, "internal-error");
     const reclassified = getHistory().learning.getRunOutcome(withEvidence.id)!;
     assert.equal(reclassified.errorClass, "internal-error");
     assert.equal(reclassified.verdict, "infra-error");
     assert.equal(reclassified.gateSignals.mutantCount, 7, "the evidence the engine kept is not replaced with a bare row");
 
-    const bare = createRecord({ target: "e2e", app, sha: "abcdef1234", mode: "diff" });
-    getHistory().learning.saveCrashedRunOutcome(getRecord(bare.id)!, "internal-error");
+    const bare = getHistory().runs.createRecord({ target: "e2e", app, sha: "abcdef1234", mode: "diff" });
+    getHistory().learning.saveCrashedRunOutcome(getHistory().runs.getRecord(bare.id)!, "internal-error");
     assert.equal(getHistory().learning.getRunOutcome(bare.id)?.verdict, "infra-error");
     assert.equal(getHistory().learning.getRunOutcome(bare.id)?.errorClass, "internal-error");
   } finally {
-    deleteAppHistory(app);
+    getHistory().purgeApp(app);
   }
 });

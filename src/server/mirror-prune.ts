@@ -16,9 +16,9 @@
 import { join } from "node:path";
 import { readdirSync, statSync, rmSync } from "node:fs";
 import { loadAppConfig, listAppConfigs } from "../orchestrator/config-loader";
-import { currentRun, getRecord } from "./history";
 import { logJson } from "../integrations/logger";
 import { DELEGATIONS_DIR, EXPERIMENT_COPIES_DIR, JUDGE_WORKDIR, WARM_SNAPSHOTS_DIR } from "../paths";
+import { getHistory } from "./persistence/index";
 
 export const PRUNE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;  /* 7 days */
 /* Mirrors that are never pruned (the maintainer's own working copy). */
@@ -189,9 +189,9 @@ export function defaultMirrorPruneDeps(queueCurrentRunId: () => string | null): 
     },
     activeRepoSlugs: () =>
       computeActiveRepoSlugs({
-        currentRun,
+        currentRun: () => getHistory().runs.currentRun(),
         queueCurrentRunId,
-        getRecord,
+        getRecord: (id) => getHistory().runs.getRecord(id),
         repoForApp: (app) => {
           try {
             return loadAppConfig(app).repo;

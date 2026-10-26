@@ -5,6 +5,7 @@ import { ContextRepository } from "./repositories/context.repository";
 import { EvaluationRepository } from "./repositories/evaluation.repository";
 import { JudgeRepository } from "./repositories/judge.repository";
 import { LearningRepository } from "./repositories/learning.repository";
+import { RunRepository } from "./repositories/run.repository";
 import { TelemetryRepository } from "./repositories/telemetry.repository";
 
 let shared: HistoryDatabase | undefined;
@@ -12,16 +13,36 @@ let history: History | undefined;
 
 /* The repositories over one history database, one per aggregate. */
 export interface History {
+  readonly runs: RunRepository;
   readonly contexts: ContextRepository;
   readonly judges: JudgeRepository;
   readonly evaluations: EvaluationRepository;
   readonly learning: LearningRepository;
   readonly telemetry: TelemetryRepository;
+  /* Deletes everything history holds for an app, across every aggregate, in one transaction. Returns the number of run rows removed. */
+  purgeApp(app: string): number;
 }
 
 /* The repositories over `db`, their statements prepared once. */
 export function createHistory(db: HistoryDatabase): History {
-  return { contexts: new ContextRepository(db), judges: new JudgeRepository(db), evaluations: new EvaluationRepository(db), learning: new LearningRepository(db), telemetry: new TelemetryRepository(db) };
+  const runs = new RunRepository(db);
+  const contexts = new ContextRepository(db);
+  const learning = new LearningRepository(db);
+  return {
+    runs,
+    contexts,
+    learning,
+    purgeApp: (app) =>
+      db.write(() => {
+        const removed = runs.deleteApp(app);
+        learning.deleteApp(app);
+        contexts.deleteApp(app);
+        return removed;
+      }),
+    judges: new JudgeRepository(db),
+    evaluations: new EvaluationRepository(db),
+    telemetry: new TelemetryRepository(db),
+  };
 }
 
 /*

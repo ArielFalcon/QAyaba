@@ -7,7 +7,7 @@ import { getHistory } from "./persistence/index";
 /*
  * Dependency injection is the testing strategy (AGENTS.md): a test supplies a fake saveOutcome so
  * the mapping is verifiable without touching the real (lazily-initialized, module-singleton)
- * SQLite database history.ts owns.
+ * SQLite database the history repositories own.
  */
 export interface RunHistorySqliteAdapterDeps {
   saveOutcome: (outcome: StoredRunOutcome) => void;
@@ -19,7 +19,7 @@ export const defaultRunHistorySqliteAdapterDeps: RunHistorySqliteAdapterDeps = {
 
 /*
  * Maps the kernel RunOutcome onto the shell history store's shape. Optional/unknown
- * fields (errorClass, reflection, usage) are produced by the same taxonomy as history.ts.
+ * fields (errorClass, reflection, usage) are produced by the same taxonomy as the history repositories.
  */
 export function toStoredRunOutcome(outcome: KernelRunOutcome): StoredRunOutcome {
   return {

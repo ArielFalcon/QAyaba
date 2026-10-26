@@ -18,9 +18,9 @@ import { JUDGE_AGENT_NAME, createJudgeAgent } from "./judge-agent";
 import { HistoryJudgeEvidence } from "./judge-evidence";
 import { createJudgeService, type JudgeService } from "./judge-service";
 import { resolveJudgeSetup, resolveJudgeSwitch } from "./judge-settings";
-import { getRunCampaign } from "./history";
 import type { JobQueue } from "./queue";
 import type { AgentDeps } from "@contexts/generation/infrastructure/agent-transport-policy";
+import { getHistory } from "./persistence/index";
 
 /* One judge call: a prompt of a few thousand tokens and a short JSON answer. */
 export const JUDGE_TIMEOUT_MS = 180_000;
@@ -79,7 +79,7 @@ export function composeJudges(opts: ComposeJudgesOptions): JudgesComposition {
     setup,
     agentAvailable: async () => (await listAgentCaps(workDir())).some((agent) => agent.name === JUDGE_AGENT_NAME),
     runner,
-    isCampaignRun: (runId) => getRunCampaign(runId) !== undefined,
+    isCampaignRun: (runId) => getHistory().runs.getRunCampaign(runId) !== undefined,
     runIsFinished: (runId) => evidence.load(runId) !== undefined,
     calibrations,
     latestModel: (judge, promptVersion) => ledger.latestModel(judge, promptVersion),

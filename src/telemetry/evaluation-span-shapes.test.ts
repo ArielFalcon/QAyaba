@@ -11,8 +11,8 @@ import { AgentTurnTraces } from "@contexts/generation/infrastructure/telemetry/t
 import type { StepIntentContext } from "@contexts/generation/application/index";
 import { gradeEvidence } from "@contexts/evaluation/application/index";
 import { HistoryEvidenceAdapter, defaultEvidenceDeps, type LedgerSpan } from "../server/evaluation-evidence";
-import { createRecord, updateRecord } from "../server/history";
 import { traceHarness } from "./trace-harness";
+import { getHistory } from "../server/persistence/index";
 
 const CWD = "/mirrors/org__app";
 const SESSION = "ses_shapes";
@@ -76,8 +76,8 @@ async function tracedTurn(steps: Array<{ tools: RawOpencodeEvent[] }>, stepLimit
 }
 
 function evidenceFor(spans: LedgerSpan[], facts: { limitFired?: string; limitRole?: string }) {
-  const r = createRecord({ app: "shapes-app", sha: "abcdef1234", target: "e2e", mode: "diff" });
-  updateRecord(r.id, { status: "done", verdict: "infra-error", phases: { furthestPhase: "generate", phaseTimings: { generate: 1 } }, facts: { decision: "none", ...(facts.limitFired ? { limitFired: facts.limitFired, limitRole: facts.limitRole ?? null } : {}) } });
+  const r = getHistory().runs.createRecord({ app: "shapes-app", sha: "abcdef1234", target: "e2e", mode: "diff" });
+  getHistory().runs.updateRecord(r.id, { status: "done", verdict: "infra-error", phases: { furthestPhase: "generate", phaseTimings: { generate: 1 } }, facts: { decision: "none", ...(facts.limitFired ? { limitFired: facts.limitFired, limitRole: facts.limitRole ?? null } : {}) } });
   return new HistoryEvidenceAdapter({ ...defaultEvidenceDeps, runSpans: () => spans }).assemble(r.id)!;
 }
 

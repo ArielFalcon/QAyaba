@@ -6,18 +6,18 @@
 import { RUN_PHASES } from "@kernel/run-step";
 import type { RunDetail, RunRecord } from "../contract/commands";
 import { HistoryEvidenceAdapter } from "./evaluation-evidence";
-import { getRunCampaign, getRunFacts, getRunPhases, getStoredEffectiveConfig } from "./history";
 import type { AgentRoleFacts, AgentTurnRecord } from "./persistence/repositories/telemetry.repository";
 import { buildEffectiveConfig, parseStoredRunConfig } from "./effective-config";
 import { getHistory } from "./persistence/index";
+import type { RunRepository } from "./persistence/repositories/run.repository";
 
 export type RunViewExtras = Omit<RunDetail, keyof RunRecord | "schemaVersion">;
 
 export interface RunViewDeps {
-  getRunFacts: typeof getRunFacts;
-  getRunPhases: typeof getRunPhases;
-  getRunCampaign: typeof getRunCampaign;
-  getStoredEffectiveConfig: typeof getStoredEffectiveConfig;
+  getRunFacts(id: string): ReturnType<RunRepository["getRunFacts"]>;
+  getRunPhases(id: string): ReturnType<RunRepository["getRunPhases"]>;
+  getRunCampaign(id: string): ReturnType<RunRepository["getRunCampaign"]>;
+  getStoredEffectiveConfig(id: string): ReturnType<RunRepository["getStoredEffectiveConfig"]>;
   getAgentTurns(id: string): AgentTurnRecord[];
   getAgentRoleFacts(id: string): AgentRoleFacts[];
   evidence: Pick<HistoryEvidenceAdapter, "assemble">;
@@ -29,10 +29,10 @@ export interface RunViewDeps {
 
 export function defaultRunViewDeps(telemetryOn: () => boolean, env: Record<string, string | undefined> = process.env): RunViewDeps {
   return {
-    getRunFacts,
-    getRunPhases,
-    getRunCampaign,
-    getStoredEffectiveConfig,
+    getRunFacts: (id) => getHistory().runs.getRunFacts(id),
+    getRunPhases: (id) => getHistory().runs.getRunPhases(id),
+    getRunCampaign: (id) => getHistory().runs.getRunCampaign(id),
+    getStoredEffectiveConfig: (id) => getHistory().runs.getStoredEffectiveConfig(id),
     getAgentTurns: (id) => getHistory().telemetry.getAgentTurns(id),
     getAgentRoleFacts: (id) => getHistory().telemetry.getAgentRoleFacts(id),
     evidence: new HistoryEvidenceAdapter(),

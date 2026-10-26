@@ -33,6 +33,11 @@ export class ContextRepository {
     this.loadMap = raw.prepare("SELECT built_at_sha, data, updated_at FROM context_maps WHERE app = ?");
   }
 
+  /* Removes the app's stored architecture map. */
+  deleteApp(app: string): void {
+    this.db.write(() => this.db.statement("DELETE FROM context_maps WHERE app = ?").run(app));
+  }
+
   /* Arms the one-shot "rebuild the architecture map next run" flag. */
   markContextStale(app: string): void {
     this.db.write(() => this.markStale.run(app, new Date().toISOString()));

@@ -87,3 +87,23 @@ test("the telemetry repository writes only inside transactions", (t) => {
   assert.equal(writes.length, 2);
   assert.deepEqual(writes.filter((w) => !w.inTransaction), []);
 });
+
+test("the run repository writes only inside transactions", (t) => {
+  const { history, writes } = instrumented(t);
+  const runs = history.runs;
+  const run = runs.createRecord({ app: "app", sha: "abcdef1234", target: "e2e", mode: "diff" });
+  runs.updateRecord(run.id, { status: "running", step: "generate", specs: [{ name: "a.spec.ts" }] });
+  runs.addCase(run.id, { name: "case", status: "pass" });
+  runs.appendLog(run.id, "line");
+  runs.appendActivity(run.id, { kind: "command", text: "x" });
+  runs.recordRunPhases(run.id, { furthestPhase: "setup", phaseTimings: {} });
+  runs.recordEffectiveConfig(run.id, "{}");
+  runs.saveRunEvent({ runId: run.id, seq: 0, ts: 1, body: {} });
+  runs.commitSpecSnapshots([{ runId: run.id, path: "a", sha256: "s", text: "t", bytes: 1, capturedAt: 1, delivered: 1 }]);
+  runs.commitRunPlan(run.id, "{}", 1);
+  history.purgeApp("app");
+  runs.clearDatabase();
+
+  assert.ok(writes.length >= 12);
+  assert.deepEqual(writes.filter((w) => !w.inTransaction), []);
+});

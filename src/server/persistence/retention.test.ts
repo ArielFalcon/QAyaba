@@ -5,8 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openHistoryDatabase, type HistoryDatabase } from "./database";
 import { DELETE_MAX_AGE_DAYS, pruneHistory, retentionPolicyFrom, type RetentionPolicy } from "./retention";
-import { getHistoryDatabase } from "./index";
-import { getRecord, listRecords } from "../history";
+import { getHistory, getHistoryDatabase } from "./index";
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.parse("2026-10-26T12:00:00.000Z");
@@ -41,8 +40,8 @@ test("opening the process database and reading records deletes nothing, however 
   const history = getHistoryDatabase();
   history.write((db) => db.prepare("INSERT INTO runs (id, app, sha, at) VALUES ('read-does-not-prune', 'read-app', 'abcdef1', ?)").run(iso(40)));
 
-  assert.equal(listRecords("read-app", 10).length, 1);
-  assert.ok(getRecord("read-does-not-prune"));
+  assert.equal(getHistory().runs.listRecords("read-app", 10).length, 1);
+  assert.ok(getHistory().runs.getRecord("read-does-not-prune"));
 });
 
 test("a run past the ordinary window is pruned unless it belongs to a campaign still inside the campaign window", (t) => {

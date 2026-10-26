@@ -255,7 +255,7 @@ export interface EngineRootDeps {
 
   /* Write side of the FE<->BE architecture map (context_maps SQLite store). Optional, no stub:
      absent omits RunQaUseCaseDeps.contextMapCapture (no capture, same as today). The shell factory
-     constructs ContextMapCapturePortAdapter backed by history.ts's saveContextMap. */
+     constructs ContextMapCapturePortAdapter backed by ContextRepository.saveContextMap. */
   contextMapCapture?: ContextMapCapturePort;
 
   /* The durable copy of the app's accepted e2e suite (the qa-data volume). Optional, no stub: absent omits RunQaUseCaseDeps.suiteStore and every run starts from what the checkout holds. The shell factory constructs SuiteStoreAdapter (it owns the data directory and the git runner). */

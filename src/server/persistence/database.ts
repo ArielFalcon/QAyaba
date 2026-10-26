@@ -17,6 +17,8 @@ export interface OpenHistoryOptions {
 export interface HistoryDatabase {
   readonly path: string;
   readonly raw: Database.Database;
+  /* A prepared statement for `sql`, prepared once per database and reused. */
+  statement(sql: string): Database.Statement;
   read<T>(fn: (db: Database.Database) => T): T;
   write<T>(fn: (db: Database.Database) => T): T;
   close(): void;
@@ -57,9 +59,18 @@ export function openHistoryDatabase(path: string, opts: OpenHistoryOptions = {})
     throw error;
   }
   closeAtExit(raw);
+  const statements = new Map<string, Database.Statement>();
   return {
     path,
     raw,
+    statement: (sql) => {
+      let prepared = statements.get(sql);
+      if (!prepared) {
+        prepared = raw.prepare(sql);
+        statements.set(sql, prepared);
+      }
+      return prepared;
+    },
     read: (fn) => fn(raw),
     write: (fn) => raw.transaction(() => fn(raw)).immediate(),
     close: () => {
