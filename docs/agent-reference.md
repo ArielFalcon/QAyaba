@@ -14,7 +14,12 @@ Nothing here is optional reading for the areas it covers: the rules are normativ
    parse miss. The reviewer's findings are evidence-bound: a blocking correction must cite a contract
    clause, an execution of this run or a DOM fact, the orchestrator verifies the citation
    (`review-finding-filter.service.ts`) and only a verified blocking finding blocks — an uncited,
-   out-of-scope or DOM-only one is advisory telemetry, never sent to the generator. The generator may
+   out-of-scope or DOM-only one is advisory telemetry, never sent to the generator. A finding that cites
+   an arm of the changed code no test ran (`{"kind":"arm","ref":"<file>:<line>"}`, tagged
+   `[missing-case]`) is a missing case: it is taken out before that filter whatever the integrity switch,
+   kept only when the run's measurement lists that arm (the reviewer receives the list only while it
+   describes the bytes under review), recorded in `gateSignals.missingCases` and shown in the PR or
+   Issue, and it never blocks or rejects: a rejection resting only on missing cases is an approval. The generator may
    answer a finding with a typed `rebuttals` entry instead of a correction; it withdraws the finding only
    against evidence the run can check (a case green on the current bytes, or a contract clause still
    intact — `review-rebuttals.service.ts`). A verified blocking finding that survives while its rebuttal
@@ -66,7 +71,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   there), a ledger of every call's sha256, revoked when the run ends. Scratch specs live in `e2e/.qa-probe/` and are swept
   after every generation: never delivered, stored or validated. When `loopClosed` (every delivered spec's current bytes are those
   whose last call passed) the regenerations that only repeat that work are skipped; the declared no-op, `E-NO-DECISION` /
-  `E-STEP-BUDGET` / `E-TIME-BUDGET` and the single enforce-mode coverage regeneration are unchanged. The `Run spec budget` prompt
+  `E-STEP-BUDGET` / `E-TIME-BUDGET` and the single coverage or branch-case regeneration are unchanged. The `Run spec budget` prompt
   section (facts only) exists only when granted; Codex is never granted it. `gateSignals.closedLoop { calls, devWrites, closed }`.
 - **Authenticated browser (`authbrowser_*`)** — off unless `qa.agentBrowser.enabled` (or a run asks: `--agent-browser on|off`,
   `agentBrowser` on `POST /api/v1/runs`). The authoring roles (`qa-generator`, `qa-sidekick`) get four custom tools
@@ -159,7 +164,10 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   see `docs/efficiency-benchmark.md`).
 - **Effort tier** — an e2e `diff` first pass gets the diff's real size and the effort its tier
   warrants (`generation/domain/diff-stat.ts`: tiny ≤2 files and 40 lines, focused ≤8 and 400,
-  broad above): always an upper bound, and every tier admits the reasoned no-op. The same tiers bound
+  broad above): always an upper bound on spec files (a flow each), each holding a test per behaviour
+  the change decides (its success and each other state it handles that the page can be brought to
+  through the UI), and every tier admits the reasoned no-op. A lead's plan names one acceptance
+  outcome per such behaviour, and a sidekick writes a test per criterion. The same tiers bound
   the first pass's wall time (`DIFF_TIME_BUDGET_MS`: tiny 6 min, focused 12 min, broad none), because a
   step can be arbitrarily long and the step cap alone never ends a turn spent on a few slow ones. The
   budget covers the whole first pass: the session carries it and each prompt, the repair included, is

@@ -370,6 +370,15 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   A mutant is judged only when it reached a page; it is killed when a passing test fails.
   `gateSignals.bundleMutation` holds `{ applied, killed, survived[] }` beside the response oracle's
   `valueScore`, whose meaning is unchanged.
+- **Branch cases** (never a gate; `qa.changeCoverage.branchCases`, default `regenerate`): a green diff run
+  whose measurement blocks nothing and found untaken arms on changed lines gets **one** regeneration with
+  those arms as the cases still missing (a blocking enforce measurement regenerates for coverage instead,
+  with the same arms in its gap). It goes through acceptance like any regeneration; an accepted one is
+  recounted from the dumps already on disk (the first run's minus those of the re-run spec files, plus the
+  acceptance's), never by re-running DEV. `gateSignals.branchCases { outcome, armsBefore, armsAfter? }`.
+- **Missing cases**: the reviewer gets the arms still untaken and may cite one (`arm`, `[missing-case]`).
+  A cited arm the run listed is recorded (`gateSignals.missingCases`) and shown in the PR or Issue; it
+  never blocks or rejects.
 
 New "quality" logic should strengthen this signal (better line mapping, moving apps from
 `signal` to `enforce`), not add another LLM proxy.

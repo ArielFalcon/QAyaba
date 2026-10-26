@@ -132,10 +132,13 @@ qa:
   # changed? Optional; defaults to mode "signal", minRatio 0.7. For an e2e app it needs the DEV
   # build to SERVE source maps (a `sourceMappingURL` comment or `<script>.map`; a build that uploads
   # its maps elsewhere and deletes them measures nothing). The same maps give the branch coverage
-  # of the changed code (recorded only, never a gate).
+  # of the changed code (recorded only, never a gate). branchCases: regenerate (default) gives a green
+  # diff run ONE more generation turn and one acceptance run against DEV of the specs it changes,
+  # aimed at the arms of the changed code no test ran; off skips it. It never blocks publishing.
   changeCoverage:
     mode: signal               # off | signal (measure+record only) | enforce (close the gap, block if still low)
     minRatio: 0.7              # fraction of changed lines that must be exercised to "pass"
+    # branchCases: regenerate  # regenerate (one turn at the arms no test ran) | off
   # Test-intent lock: what a delivered test is FOR, derived by the orchestrator from the change
   # itself (string literals on added diff lines). A regeneration that drops an assertion, weakens a
   # matcher, flips a negation, replaces scope with a positional step, loses the anchor or changes an

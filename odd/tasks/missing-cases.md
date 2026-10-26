@@ -43,7 +43,7 @@ Branch: `main`, as the owner asked ("directo en esta rama"), one commit per task
 | T2 | S3 recount port (collector over several namespaces, dump exclusion, `recount` on the port and its traced wrapper) | inline | done (RED→GREEN: dump names, reader filter, recollect, bridge recount, trace span; objective-signal 274 + orchestration infra 917 green, arch ok) | see git log |
 | T3 | S2, S3 regeneration step, config key, gate signal, persistence | inline | done (RED→GREEN use-case tests: regen + recount + record, no regen without arms/off/unset/enforce-blocking, empty keeps first, no recount → armsAfter absent; orchestration + server 4010 green, 1 known base fail) | see git log |
 | T4 | S4 | inline | done (RED→GREEN: takeMissingCases + arm guard, parser arm citation, reviewer section, use case records/publishes and never rejects, no arms after an unrecounted regen, PR/Issue render, adapter mapping; reviewer contract v6; broad suites 4716 green, 1 known base fail) | see git log |
-| T5 | S5 | inline | pending | |
+| T5 | S5 | inline | done (structural readback; contract:check up to date) | see git log |
 
 ## Log
 
