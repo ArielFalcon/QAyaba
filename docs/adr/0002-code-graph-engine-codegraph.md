@@ -13,7 +13,7 @@ qayaba has one code graph and three consumers. Only two of those consumers ever 
 1. **The structural signal, on every run with the signal on.** It calls `impactedSymbols`, `callersOf` and `coChangeCoupling` (`structural-signal-port.adapter.ts:19,28,37`) and renders the result into the `static-signal` prompt section.
    - The deterministic extractors it once sat beside (lizard, difftastic, tree-sitter) were deleted in `9bef64c6`. The structural signal is now the graph alone.
 2. **The second tier of the cross-repo impact** (`resolve-cross-repo-impact.use-case.ts:63`), which marks the service links a backend change reaches.
-3. **The lead's tool.** `qa-generator`, outside a delegation, has three read-only actions (`search_graph`, `trace_path`, `get_code_snippet`), proxied by the orchestrator to the `codebase-memory-mcp` CLI. It was wired, granted and never called.
+3. **The lead's tool.** The lead, outside a delegation, had three read-only actions (`search_graph`, `trace_path`, `get_code_snippet`), proxied by the orchestrator to the `codebase-memory-mcp` CLI. It was wired, granted and never called.
 
 Onboarding also builds the first index (`src/index.ts:580-623`).
 
