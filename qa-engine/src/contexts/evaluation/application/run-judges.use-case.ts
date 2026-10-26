@@ -6,6 +6,7 @@
  * token budget. A judge is an opinion; nothing here, or anywhere, gates on it.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { judgeDefinition, judgeScore, buildJudgeInput, parseJudgeOutput, judgeGraderVersion, type JudgeName } from "../domain/judges.ts";
 import type { JudgeAgentPort } from "./ports/judge-agent.port.ts";
 import type { JudgeAttempt, JudgeOutcome } from "../domain/judge-evidence.ts";
@@ -70,7 +71,7 @@ export class RunJudgesUseCase {
 
   async execute(work: readonly JudgeWorkItem[], opts: { force?: boolean; signal?: AbortSignal; shouldYield?: () => boolean } = {}): Promise<JudgeBatchResult> {
     const result: JudgeBatchResult = { scored: 0, unparseable: 0, notApplicable: 0, errors: 0, skipped: 0, remaining: [] };
-    const log = this.deps.log ?? ((m: string) => console.error(m));
+    const log = this.deps.log ?? ((m: string) => engineLog.error(m));
     for (let i = 0; i < work.length; i += 1) {
       const stop = opts.signal?.aborted ? "aborted" : opts.shouldYield?.() ? "yield" : undefined;
       if (stop) return this.stop(result, work, i, stop);
@@ -123,7 +124,7 @@ export class RunJudgesUseCase {
     const parsed = parseJudgeOutput(def, answer.output);
     if (!parsed.ok) {
       result.unparseable += 1;
-      (this.deps.log ?? ((m: string) => console.error(m)))(`[judge] ${item.judge} on ${item.runId}: unparseable reply (${parsed.reason}); no score`);
+      (this.deps.log ?? ((m: string) => engineLog.error(m)))(`[judge] ${item.judge} on ${item.runId}: unparseable reply (${parsed.reason}); no score`);
       ledger.record(this.attempt(item, "unparseable", spent, model, parsed.reason));
       return "done";
     }
@@ -149,7 +150,7 @@ export class RunJudgesUseCase {
     try {
       this.deps.ledger.record(this.attempt(item, outcome, tokens, model, detail));
     } catch (err) {
-      (this.deps.log ?? ((m: string) => console.error(m)))(`[judge] could not record the attempt of ${item.runId}: ${err instanceof Error ? err.message : String(err)}`);
+      (this.deps.log ?? ((m: string) => engineLog.error(m)))(`[judge] could not record the attempt of ${item.runId}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }

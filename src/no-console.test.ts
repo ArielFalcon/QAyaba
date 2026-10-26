@@ -26,8 +26,6 @@ const NOT_MIGRATED: readonly string[] = [
   "qa-engine/src/contexts/app-catalog/infrastructure/auth-session.adapter.ts",
   "qa-engine/src/contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner.ts",
   "qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter.ts",
-  "qa-engine/src/contexts/evaluation/application/grade-run.use-case.ts",
-  "qa-engine/src/contexts/evaluation/application/run-judges.use-case.ts",
   "qa-engine/src/contexts/generation/application/generate-tests.use-case.ts",
   "qa-engine/src/contexts/generation/infrastructure/adapters/context-map-capture-port.adapter.ts",
   "qa-engine/src/contexts/generation/infrastructure/adapters/context-trace.ts",

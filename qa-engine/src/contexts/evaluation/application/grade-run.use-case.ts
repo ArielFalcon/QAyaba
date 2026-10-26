@@ -4,6 +4,7 @@
  * changes nothing. Callers run it off the queue path (the runner schedules it; it is never awaited by a run).
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { GRADER_VERSION } from "../domain/grader-catalog.ts";
 import { gradeEvidence } from "../domain/graders.ts";
 import type { Score } from "../domain/score.ts";
@@ -46,7 +47,7 @@ export class GradeRunUseCase {
 
   private async grade(runId: string, opts: { graders?: readonly string[] }): Promise<GradeRunResult> {
     const { evidence, store, now } = this.deps;
-    const log = this.deps.log ?? ((m: string) => console.error(m));
+    const log = this.deps.log ?? ((m: string) => engineLog.error(m));
     try {
       const found = await evidence.load(runId);
       if (!found) return { status: "skipped", reason: "unknown-run" };
