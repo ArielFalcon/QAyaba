@@ -53,8 +53,14 @@ module.exports = {
     {
       name: "workspace-public-surface-carries-no-write-seam",
       severity: "error",
-      comment: "The one file other contexts may import from workspace-and-publication re-exports only the run's workspace ports and the types they need, plus the write-confinement decision service. It reaches nothing else of the context, so an export of the VCS write port or adapter, a GitHub port, the publish policy or use case, or any infrastructure file through it is a violation. An allowlist, so a new file is denied until it is named here.",
-      from: { path: "^qa-engine/src/contexts/workspace-and-publication/application/index\\.ts$" },
+      comment: "The one file other contexts may import from workspace-and-publication re-exports only the run's workspace ports and the types they need, plus the write-confinement decision service. Neither it nor any file it may reach imports anything else of the context, so an export of the VCS write port or adapter, a GitHub port, the publish policy or use case, or any infrastructure file through it, directly or through one of those files, is a violation. An allowlist, so a new file is denied until it is named here.",
+      from: {
+        path: [
+          "^qa-engine/src/contexts/workspace-and-publication/application/index\\.ts$",
+          "^qa-engine/src/contexts/workspace-and-publication/application/ports/(cleanup|confinement|publication|setup|workspace|workspace-mirror-gc)\\.port\\.ts$",
+          "^qa-engine/src/contexts/workspace-and-publication/domain/(workspace-handle|confinement-result|write-confinement\\.service)\\.ts$",
+        ],
+      },
       to: {
         path: "^qa-engine/src/contexts/workspace-and-publication/",
         pathNot: [

@@ -175,6 +175,22 @@ test("the workspace-and-publication public index re-exporting the VCS write seam
   }
 });
 
+test("a file the public index may reach importing the VCS write seam is reported by workspace-public-surface-carries-no-write-seam", () => {
+  const root = treeWith({
+    ...WRITE_SEAM,
+    [`${CTX}/workspace-and-publication/application/index.ts`]: 'export type { SetupPort } from "./ports/setup.port.ts";\n',
+    [`${CTX}/workspace-and-publication/application/ports/setup.port.ts`]:
+      'import type { VcsWritePort } from "./vcs-write.port.ts";\nexport interface SetupPort { write: VcsWritePort }\n',
+  });
+  try {
+    const { ok, output } = archCheck(root);
+    assert.equal(ok, false);
+    assert.match(output, /workspace-public-surface-carries-no-write-seam:\s*qa-engine\/src\/contexts\/workspace-and-publication\/application\/ports\/setup\.port\.ts/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("two modules importing each other are reported by no-circular", () => {
   const root = treeWith({
     "qa-engine/src/shared-kernel/left.ts": 'import { right } from "./right.ts";\nexport const left = () => right;\n',
