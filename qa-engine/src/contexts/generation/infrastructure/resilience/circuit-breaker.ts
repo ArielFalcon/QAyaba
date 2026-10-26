@@ -1,3 +1,5 @@
+import { engineLog } from "@kernel/ports/process-logger.ts";
+
 /* Circuit breaker state is keyed: one key per agent role (the `agent`/descriptor.role identity every
    caller already threads through AgentDeps.open) so a run-away role (e.g. a stalled qa-reviewer)
    cannot trip the breaker for an unrelated, healthy role (e.g. qa-author), and a success on one
@@ -49,7 +51,7 @@ export function recordCircuitFailure(role: string): void {
   s.lastFailure = Date.now();
   if (s.failures >= CIRCUIT_THRESHOLD) {
     s.open = true;
-    console.warn(`[qa] OpenCode circuit breaker OPENED for "${role}" after ${s.failures} consecutive failures`);
+    engineLog.warn(`[qa] OpenCode circuit breaker OPENED for "${role}" after ${s.failures} consecutive failures`);
   }
 }
 

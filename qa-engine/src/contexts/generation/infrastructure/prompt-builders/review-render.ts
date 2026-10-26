@@ -1,5 +1,6 @@
 /* What the independent reviewer is shown besides the rules: the objective of the review, the specs under review read through the confined reader, and the orchestrator's execution evidence. Never import src/. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { join } from "node:path";
 import { readConfinedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
@@ -36,7 +37,7 @@ export function reviewObjective(input: ReviewInput): { subject: string; heading:
     targetNoun: "the change",
   });
   if (input.mode === "diff" || input.target === "code") return commitDiffObjective();
-  console.warn(`[qa] reviewObjective: unhandled review mode ${JSON.stringify(input.mode)} — defaulting to the commit-diff objective`);
+  engineLog.warn(`[qa] reviewObjective: unhandled review mode ${JSON.stringify(input.mode)} — defaulting to the commit-diff objective`);
   return commitDiffObjective();
 }
 
@@ -54,14 +55,14 @@ export function renderReviewSpecs(input: ReviewInput): string {
       content = readConfinedSpecFile(root, s);
     } catch (err) {
       /* A spec the independent reviewer NEVER sees can otherwise ship inside an approved batch — that silently bypasses the quality gate. Surface it loudly (AGENTS.md: never swallow), like the byte-cap branch below does for its own mode switch. */
-      console.warn(`[qa] WARNING: could not read spec '${rel(s)}' for review (${err instanceof Error ? err.message : String(err)}) — it will be judged from a placeholder, NOT its real content.`);
+      engineLog.warn(`[qa] WARNING: could not read spec '${rel(s)}' for review (${err instanceof Error ? err.message : String(err)}) — it will be judged from a placeholder, NOT its real content.`);
       contents.push(`### ${rel(s)}\n( could not read file — review skipped for this spec )`);
       continue;
     }
     const block = `### ${rel(s)}\n\`\`\`typescript\n${content}\n\`\`\``;
     totalBytes += Buffer.byteLength(block, "utf8");
     if (totalBytes > REVIEW_SPECS_MAX_BYTES) {
-      console.warn(
+      engineLog.warn(
         `[qa] WARNING: the combined contents of ${input.specs.length} spec(s) exceed the ${REVIEW_SPECS_MAX_BYTES}-byte inline cap — ` +
           `the reviewer will read files itself instead of judging inlined contents (weaker determinism).`,
       );

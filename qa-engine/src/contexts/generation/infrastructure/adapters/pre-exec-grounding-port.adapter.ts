@@ -1,5 +1,6 @@
 /* PreExecGroundingPort: read spec sources and capture route trees. Never throws; abort resolves empty. The sources are read through the confined reader, so a spec that is a symlink out of the spec directory reads as an empty string and its target reaches neither the sources nor the capture. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { PreExecGroundingPort } from "../../application/ports/pre-exec-grounding.port.ts";
 import { captureRouteTrees, defaultCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import type { CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
@@ -70,7 +71,7 @@ export class PreExecGroundingPortAdapter implements PreExecGroundingPort {
     } catch (err) {
       if (isAbortError(err)) return { specFiles, specSources, routes: [] };
       /* captureRouteTrees itself already degrades a render failure to [] with its own console.warn (dom-snapshot.ts's own header) — this catch is a defensive backstop only, matching ReviewDomGroundingPortAdapter's own posture of never letting ANY throw escape this adapter. */
-      console.warn(`[qa] WARNING: pre-exec route capture FAILED (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.warn(`[qa] WARNING: pre-exec route capture FAILED (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
       return { specFiles, specSources, routes: [] };
     }
   }

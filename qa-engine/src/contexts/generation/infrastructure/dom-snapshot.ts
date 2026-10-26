@@ -1,5 +1,6 @@
 /* Canonical DOM-grounding capture for the independent reviewer. The orchestrator (not the generator — independence holds) renders the routes the spec targets once and inlines real roles + accessible names into the reviewer prompt. Fail-open: a failed or empty render never blocks review. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { AsyncResource } from "node:async_hooks";
 import { join } from "node:path";
 import { redactByValue } from "../../../shared-kernel/run-secret-redaction.ts";
@@ -359,9 +360,9 @@ export function formatDomCapture(snaps: RouteSnapshot[], changed?: ChangedElemen
 function warnOnDegradedRoutes(snaps: readonly RouteSnapshot[]): void {
   const catalogs = snaps.map(buildRouteCatalog);
   const degraded = degradedRouteWarning(catalogs);
-  if (degraded) console.warn(degraded);
+  if (degraded) engineLog.warn(degraded);
   const gated = gatedAppAdvisory(catalogs);
-  if (gated) console.warn(gated);
+  if (gated) engineLog.warn(gated);
 }
 
 /** Capture the live DOM for the routes the spec targets. Returns undefined when there is nothing to capture or the render is unavailable — review then degrades to "defer on unverifiable UI facts" (the prompt's stay-in-your-lane rule), never blocked. Best-effort by design. */
@@ -373,10 +374,10 @@ export async function captureDom(input: CaptureDomInput, deps: CaptureDomDeps): 
     const text = formatDomSnapshot(snaps);
     if (text.trim()) return text;
     /* Routes WERE extractable and a baseUrl WAS present, yet the render produced nothing. That is a real grounding GAP, not a benign no-op — surface it loudly (AGENTS.md: never swallow into an empty result), so a run that authors/judges selectors WITHOUT the live DOM is visible. */
-    console.warn(`[qa] WARNING: DOM grounding produced no snapshot for ${routes.length} route(s) [${loggableRoutes(routes)}] — authoring/judging UI selectors WITHOUT the live DEV tree.`);
+    engineLog.warn(`[qa] WARNING: DOM grounding produced no snapshot for ${routes.length} route(s) [${loggableRoutes(routes)}] — authoring/judging UI selectors WITHOUT the live DEV tree.`);
     return undefined;
   } catch (err) {
-    console.warn(`[qa] WARNING: DOM grounding FAILED to capture ${routes.length} route(s) [${loggableRoutes(routes)}] (${err instanceof Error ? err.message : String(err)}) — authoring/judging UI selectors WITHOUT the live DEV tree.`);
+    engineLog.warn(`[qa] WARNING: DOM grounding FAILED to capture ${routes.length} route(s) [${loggableRoutes(routes)}] (${err instanceof Error ? err.message : String(err)}) — authoring/judging UI selectors WITHOUT the live DEV tree.`);
     return undefined;
   }
 }
@@ -503,7 +504,7 @@ export async function captureDomForRoutes(
       });
     return formatDomCapture(reported, changed);
   } catch (err) {
-    console.warn(`[qa] WARNING: DOM capture FAILED for ${asked.length} route(s) [${loggableRoutes(asked)}] (${err instanceof Error ? err.message : String(err)}) — the worker grounds via its own exploration this run.`);
+    engineLog.warn(`[qa] WARNING: DOM capture FAILED for ${asked.length} route(s) [${loggableRoutes(asked)}] (${err instanceof Error ? err.message : String(err)}) — the worker grounds via its own exploration this run.`);
     return undefined;
   }
 }
@@ -519,13 +520,13 @@ export async function captureDomByRoute(
   const clean = normalized.slice(0, MAX_ROUTES_UNION);
   if (clean.length === 0 || !input.baseUrl) return out;
   if (normalized.length > clean.length) {
-    console.warn(`[qa] WARNING: ${normalized.length} planned routes exceed the render cap (${MAX_ROUTES_UNION}); ${normalized.length - clean.length} route(s) are NOT grounded this run: ${loggableRoutes(normalized.slice(clean.length))}`);
+    engineLog.warn(`[qa] WARNING: ${normalized.length} planned routes exceed the render cap (${MAX_ROUTES_UNION}); ${normalized.length - clean.length} route(s) are NOT grounded this run: ${loggableRoutes(normalized.slice(clean.length))}`);
   }
   let snaps: RouteSnapshot[];
   try {
     snaps = await deps.render(input.e2eDir, input.baseUrl, clean, input.testIdAttribute);
   } catch (err) {
-    console.warn(`[qa] WARNING: DOM capture FAILED for ${clean.length} route(s) [${loggableRoutes(clean)}] (${err instanceof Error ? err.message : String(err)}) — each objective falls back to its own exploration this run.`);
+    engineLog.warn(`[qa] WARNING: DOM capture FAILED for ${clean.length} route(s) [${loggableRoutes(clean)}] (${err instanceof Error ? err.message : String(err)}) — each objective falls back to its own exploration this run.`);
     return out;
   }
   /* Per-route degrade: surface errored routes loudly (same pattern as captureRouteTrees — AGENTS.md: never swallow a capture failure) before filtering them out for grounding. */
@@ -555,7 +556,7 @@ export async function captureRouteTrees(input: CaptureDomInput, deps: CaptureDom
     snaps = await deps.render(input.e2eDir, input.baseUrl, routes, input.testIdAttribute);
   } catch (err) {
     /* Loud, attributed degrade (AGENTS.md: never swallow a capture failure into []). The whole render threw → no pre-execution selector grounding this run; the gate has nothing and stays advisory. */
-    console.warn(`[qa] WARNING: DOM capture FAILED for ${routes.length} route(s) [${loggableRoutes(routes)}] (${err instanceof Error ? err.message : String(err)}) — no pre-execution selector grounding this run.`);
+    engineLog.warn(`[qa] WARNING: DOM capture FAILED for ${routes.length} route(s) [${loggableRoutes(routes)}] (${err instanceof Error ? err.message : String(err)}) — no pre-execution selector grounding this run.`);
     return [];
   }
   warnOnDegradedRoutes(snaps);
@@ -1017,7 +1018,7 @@ export function createCaptureDomDeps(
           try {
             notify?.({ asked: routes, snaps, outputChars: stdout.text().length });
           } catch (err) {
-            console.error(`[qa] the DOM capture observer failed (the capture is unaffected): ${err instanceof Error ? err.message : String(err)}`);
+            engineLog.error(`[qa] the DOM capture observer failed (the capture is unaffected): ${err instanceof Error ? err.message : String(err)}`);
           }
         };
         child.stdout!.setEncoding("utf8");
@@ -1025,10 +1026,10 @@ export function createCaptureDomDeps(
           stdout.append(d);
           if (!stdout.exceeded || finished) return;
           processKill.killTree(child);
-          console.warn(`[qa] WARNING: DOM capture output exceeded ${maxOutputChars} chars — killed, no grounding this run.`);
+          engineLog.warn(`[qa] WARNING: DOM capture output exceeded ${maxOutputChars} chars — killed, no grounding this run.`);
           done([]);
         });
-        child.on("error", (err) => { console.warn(`[qa] WARNING: DOM capture script failed to spawn (${err instanceof Error ? err.message : String(err)}) — no grounding this run.`); done([]); });
+        child.on("error", (err) => { engineLog.warn(`[qa] WARNING: DOM capture script failed to spawn (${err instanceof Error ? err.message : String(err)}) — no grounding this run.`); done([]); });
         child.on("close", () => {
           if (finished) return;
           try {
@@ -1036,7 +1037,7 @@ export function createCaptureDomDeps(
             const raw = captureLines(redactByValue(stdout.text())) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; hrefs?: unknown; repeated?: unknown; absent?: unknown; ms?: unknown; dataState?: unknown; ready?: unknown; resultExpected?: unknown; resultCount?: unknown; effectiveLocation?: unknown; captureAttempts?: unknown }>;
             const read = new Set(raw.map((r) => r.route));
             const unread = routes.filter((route) => !read.has(route));
-            if (unread.length > 0) console.warn(`[qa] WARNING: DOM capture ended before it read ${unread.length} route(s) [${loggableRoutes(unread)}] — those routes are not grounded.`);
+            if (unread.length > 0) engineLog.warn(`[qa] WARNING: DOM capture ended before it read ${unread.length} route(s) [${loggableRoutes(unread)}] — those routes are not grounded.`);
             done(raw.map((r) => {
               if (r.error) {
                 const errored: RouteSnapshot = { route: r.route, error: r.error };
@@ -1077,7 +1078,7 @@ export function createCaptureDomDeps(
               return snap;
             }));
           } catch {
-            console.warn(`[qa] WARNING: DOM capture script produced unparseable output — no grounding this run.`);
+            engineLog.warn(`[qa] WARNING: DOM capture script produced unparseable output — no grounding this run.`);
             done([]);
           }
         });

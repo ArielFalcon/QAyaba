@@ -1,5 +1,6 @@
 /* Deterministic pre-generation context pack (DOM + contracts). Read-only on watched repos. Every component is fail-open: a failed piece yields an absent section, never a crashed run. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { capDomLines, captureDomForRoutes, defaultCaptureDomDeps, MAX_ROUTES, MAX_ROUTES_PER_CHANGE, REDIRECT_ADVISORY_INTRO } from "./dom-snapshot.ts";
 import type { CapturedPage, CaptureDomDeps, CaptureRoutesInput, PageDelivery } from "./dom-snapshot.ts";
@@ -155,7 +156,7 @@ export interface ContextPackDeps {
 export const defaultContextPackDeps: ContextPackDeps = {
   captureDomForRoutes,
   domDeps: defaultCaptureDomDeps,
-  log: (msg) => console.log(msg),
+  log: (msg) => engineLog.info(msg),
 };
 
 

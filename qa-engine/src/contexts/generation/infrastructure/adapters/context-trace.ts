@@ -6,6 +6,7 @@
  * Read-only: what a port returns is returned as it was, and what it throws is thrown. Observability never changes what the agent receives or how a run ends.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { CrossRepoImpact, ServiceLink } from "@kernel/service-links.ts";
 import type { RetrievedRule, SelectedExemplar } from "@kernel/learned-rule.ts";
 import { recordContextSpan } from "../../../../shared-infrastructure/telemetry/run-spans.ts";
@@ -32,7 +33,7 @@ function safely(record: () => void): void {
   try {
     record();
   } catch (err) {
-    console.error(`[telemetry] a context span could not be built (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+    engineLog.error(`[telemetry] a context span could not be built (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

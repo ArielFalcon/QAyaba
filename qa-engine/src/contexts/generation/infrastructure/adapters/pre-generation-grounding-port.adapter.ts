@@ -1,5 +1,6 @@
 /* PreGenerationGroundingPort: fail-open context.json + context pack + harness facts. Never throws. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { GroundingChange } from "../../domain/grounding-change.ts";
 import type { PreGenerationGroundingPort } from "../../application/ports/pre-generation-grounding.port.ts";
 import type { GroundingResult } from "../../domain/pre-generation-grounding.ts";
@@ -126,12 +127,12 @@ export function loadContextMapFromDisk(specDir: string): ArchitectureContext | u
   try {
     read = readOwnedSpecFile({ mirrorDir: specDir, specDir }, CONTEXT_MAP_FILE, MAX_CONTEXT_MAP_BYTES);
   } catch (err) {
-    console.warn(`[qa] WARNING: ${ctxJsonPath} could not be read (${readFailureReason(err)}); contextMap stays absent this run (non-blocking).`);
+    engineLog.warn(`[qa] WARNING: ${ctxJsonPath} could not be read (${readFailureReason(err)}); contextMap stays absent this run (non-blocking).`);
     return undefined;
   }
   if ("absent" in read) return undefined;
   if ("reason" in read) {
-    console.warn(`[qa] WARNING: ${ctxJsonPath} was not read (${read.reason}); contextMap stays absent this run (non-blocking).`);
+    engineLog.warn(`[qa] WARNING: ${ctxJsonPath} was not read (${read.reason}); contextMap stays absent this run (non-blocking).`);
     return undefined;
     /* mutation-scope:end operation-id-filter */
   }
@@ -140,17 +141,17 @@ export function loadContextMapFromDisk(specDir: string): ArchitectureContext | u
     parsed = JSON.parse(read.bytes.toString("utf8"));
   /* mutation-scope:begin context-map-json-read */
   } catch {
-    console.warn(`[qa] WARNING: ${ctxJsonPath} is not valid JSON; contextMap stays absent this run (non-blocking).`);
+    engineLog.warn(`[qa] WARNING: ${ctxJsonPath} is not valid JSON; contextMap stays absent this run (non-blocking).`);
     return undefined;
   }
   if (!isValidArchitectureContext(parsed)) {
-    console.warn(`[qa] WARNING: ${ctxJsonPath} exists but failed form-validation; contextMap stays absent this run (contracts component degrades gracefully).`);
+    engineLog.warn(`[qa] WARNING: ${ctxJsonPath} exists but failed form-validation; contextMap stays absent this run (contracts component degrades gracefully).`);
     return undefined;
   }
   const { map, routesWithoutFiles, droppedEntries } = keepWellFormedImplementationFiles(parsed);
   /* Route ranking ties a changed page file to its route through these files; a route without them is only ranked by the file that declares it. A count only: nothing the file holds is quoted. */
   if (routesWithoutFiles > 0 || droppedEntries > 0) {
-    console.warn(`[qa] WARNING: ${ctxJsonPath}: ${routesWithoutFiles} of ${map.routes.length} routes name no implementationFiles${droppedEntries > 0 ? ` (${droppedEntries} malformed entries dropped)` : ""}; a changed page file cannot be tied to them (non-blocking).`);
+    engineLog.warn(`[qa] WARNING: ${ctxJsonPath}: ${routesWithoutFiles} of ${map.routes.length} routes name no implementationFiles${droppedEntries > 0 ? ` (${droppedEntries} malformed entries dropped)` : ""}; a changed page file cannot be tied to them (non-blocking).`);
   }
   return map;
 }
@@ -163,7 +164,7 @@ export const MAX_FIXTURES_FILE_BYTES = 256 * 1024;
 const FIXTURES_FILE = "fixtures.ts";
 
 function skipFixtures(path: string, reason: string): undefined {
-  console.warn(`[qa] WARNING: harness facts: fixtures file ${path} not scanned (${reason}) — no fixture facts this run (non-blocking).`);
+  engineLog.warn(`[qa] WARNING: harness facts: fixtures file ${path} not scanned (${reason}) — no fixture facts this run (non-blocking).`);
   return undefined;
 }
 
@@ -198,7 +199,7 @@ function readAttributeFact(testIdAttribute: string | undefined): string | undefi
   if (testIdAttribute === undefined) return undefined;
   /* A plain attribute name that redaction would still change is secret-shaped: it is left out, never passed on redacted. */
   if (isSafeAttributeName(testIdAttribute) && sanitizeText(testIdAttribute).text === testIdAttribute) return testIdAttribute;
-  console.warn("[qa] WARNING: harness facts: the configured test-id attribute is not a plain attribute name — left out this run (non-blocking).");
+  engineLog.warn("[qa] WARNING: harness facts: the configured test-id attribute is not a plain attribute name — left out this run (non-blocking).");
   return undefined;
 }
 
@@ -220,7 +221,7 @@ function changedLabelsOf(diff: string, ctx: PreGenerationGroundingStaticContext,
   try {
     return withUnchangedLines(ctx.mirrorDir, diffParser.changedLines(diff), literals, elements);
   } catch (err) {
-    console.warn(`[qa] WARNING: unchanged lines holding the changed labels not read (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+    engineLog.warn(`[qa] WARNING: unchanged lines holding the changed labels not read (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
     return { elements, literals };
   }
 }
@@ -250,7 +251,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
     try {
       notify();
     } catch (err) {
-      console.error(`[qa] the grounding trace failed (grounding is unaffected): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] the grounding trace failed (grounding is unaffected): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -265,14 +266,14 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
       const loaded = loadContextMap(specDir);
       if (loaded) contextMap = loaded;
     } catch (err) {
-      console.warn(`[qa] WARNING: contextMap read-back failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.warn(`[qa] WARNING: contextMap read-back failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
     }
     /* A page changed through its template or style sheet reaches its route by the files its implementation files declare. A single repo only: across repos the changed files are the service's, and the map's files belong to the other repo. */
     if (contextMap && this.ctx.mirrorDir && this.ctx.stagedRoots === undefined) {
       try {
         contextMap = withDeclaredResources(contextMap, this.ctx.mirrorDir);
       } catch (err) {
-        console.warn(`[qa] WARNING: declared resources of the context map not read (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+        engineLog.warn(`[qa] WARNING: declared resources of the context map not read (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
       }
     }
     if (contextMap) result.contextMap = contextMap;
@@ -295,14 +296,14 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
               .map((e) => [e.file, { flow: e.flow, objective: e.objective }]),
           );
         } catch (err) {
-          console.warn(`[qa] WARNING: manifest read failed (non-blocking, existingSpecFiles stays plain): ${err instanceof Error ? err.message : String(err)}`);
+          engineLog.warn(`[qa] WARNING: manifest read failed (non-blocking, existingSpecFiles stays plain): ${err instanceof Error ? err.message : String(err)}`);
         }
         /* mutation-scope:begin existing-spec-listing */
         result.existingSpecFiles = found.map((file) => formatSuiteEntry({ file, ...byFile.get(file) }));
         /* mutation-scope:end existing-spec-listing */
       }
     } catch (err) {
-      console.warn(`[qa] WARNING: existing-spec enumeration failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.warn(`[qa] WARNING: existing-spec enumeration failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
     }
 
     const harnessFacts = readHarnessFacts({ specDir, ...(this.ctx.testIdAttribute ? { testIdAttribute: this.ctx.testIdAttribute } : {}) });
@@ -357,7 +358,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
       if (confirmed.length > 0) result.packConfirmedDataRoutes = confirmed;
       this.tell(() => this.collaborators.trace?.pack?.(packResult));    } catch (err) {
       if (isAbortError(err)) return result; /* abort: return whatever was gathered so far, never throw — see the note above. */
-      console.warn(`[qa] WARNING: context-pack build FAILED (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.warn(`[qa] WARNING: context-pack build FAILED (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
     }
 
     return result;

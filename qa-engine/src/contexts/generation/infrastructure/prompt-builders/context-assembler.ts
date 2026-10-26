@@ -1,5 +1,6 @@
 
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { sha256Hex } from "../../../../shared-kernel/content-hash.ts";
 import { redactByValue } from "../../../../shared-kernel/run-secret-redaction.ts";
 import { ContextAssemblerAdapter } from "@contexts/generation/infrastructure/context-assembler.adapter.ts";
@@ -78,7 +79,7 @@ function capToBytes(text: string, maxBytes: number, sectionId: string): string {
   if (maxBytes <= 0 || Buffer.byteLength(text, "utf8") <= maxBytes) return text;
   const buf = Buffer.from(text, "utf8");
   const truncated = truncateToValidUtf8(buf, maxBytes);
-  console.warn(
+  engineLog.warn(
     `[context-assembler] section '${sectionId}' truncated from ${buf.length} to ${maxBytes} bytes (overflow='summarize' degrades to truncation).`,
   );
   return truncated + `\n…(section '${sectionId}' capped at ${maxBytes} bytes)`;
@@ -107,7 +108,7 @@ function assembleImpl(sections: Section[], opts: AssembleOpts = {}): AssembledPr
 
     const overInnerBudget = sec.maxBytes > 0 && Buffer.byteLength(raw, "utf8") > sec.maxBytes;
     if (overInnerBudget && sec.overflow === "drop") {
-      console.warn(
+      engineLog.warn(
         `[context-assembler] section '${sec.id}' (${Buffer.byteLength(raw, "utf8")} bytes) exceeds maxBytes ${sec.maxBytes} and overflow='drop' — omitting the whole section.`,
       );
       resolved.push({ section: sec, content: "", dropped: true, capped: false });
@@ -154,7 +155,7 @@ function assembleImpl(sections: Section[], opts: AssembleOpts = {}): AssembledPr
         const originalBytes = Buffer.byteLength(candidate.content, "utf8");
 
         if (candidate.section.overflow === "drop") {
-          console.warn(
+          engineLog.warn(
             `[context-assembler] BUDGET OVERFLOW: shedding section '${candidate.section.id}' ` +
               `(${originalBytes} bytes, overflow='drop') — total was ${totalBytes()} bytes, ` +
               `budget is ${budgetBytes} bytes.`,
@@ -165,7 +166,7 @@ function assembleImpl(sections: Section[], opts: AssembleOpts = {}): AssembledPr
         } else {
           const remainingBudget = budgetBytes - (totalBytes() - originalBytes);
           if (remainingBudget <= 0) {
-            console.warn(
+            engineLog.warn(
               `[context-assembler] BUDGET OVERFLOW: shedding section '${candidate.section.id}' ` +
                 `(${originalBytes} bytes, overflow='summarize' → no room → dropping entirely) — ` +
                 `total was ${totalBytes()} bytes, budget is ${budgetBytes} bytes.`,
@@ -180,7 +181,7 @@ function assembleImpl(sections: Section[], opts: AssembleOpts = {}): AssembledPr
             );
             const contentTarget = remainingBudget - markerOverhead;
             if (contentTarget <= 0) {
-              console.warn(
+              engineLog.warn(
                 `[context-assembler] BUDGET OVERFLOW: shedding section '${candidate.section.id}' ` +
                   `(${originalBytes} bytes, overflow='summarize' → no room after marker overhead → dropping entirely) — ` +
                   `total was ${totalBytes()} bytes, budget is ${budgetBytes} bytes.`,
@@ -189,7 +190,7 @@ function assembleImpl(sections: Section[], opts: AssembleOpts = {}): AssembledPr
               candidate.content = "";
             } else {
               const truncated = capToBytes(candidate.content, contentTarget, candidate.section.id);
-              console.warn(
+              engineLog.warn(
                 `[context-assembler] BUDGET OVERFLOW: truncating section '${candidate.section.id}' ` +
                   `from ${originalBytes} to ${Buffer.byteLength(truncated, "utf8")} bytes ` +
                   `(overflow='summarize') — total was ${totalBytes()} bytes, budget is ${budgetBytes} bytes.`,
@@ -202,7 +203,7 @@ function assembleImpl(sections: Section[], opts: AssembleOpts = {}): AssembledPr
       }
 
       if (totalBytes() > budgetBytes) {
-        console.warn(
+        engineLog.warn(
           `[context-assembler] BUDGET OVERFLOW: could not shed enough sections to meet ` +
             `${budgetBytes}-byte budget (remaining: ${totalBytes()} bytes). ` +
             `The assembled prompt exceeds the role budget — raise budgetBytes or reduce section sizes.`,

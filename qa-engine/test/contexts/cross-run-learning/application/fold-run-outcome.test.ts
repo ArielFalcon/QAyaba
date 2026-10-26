@@ -110,7 +110,7 @@ function foldFailureWarnings(redaction?: RedactionPort): string[] {
 }
 
 test("a failing ledger is swallowed and logged with its message passed through the redaction", () => {
-  const redaction: RedactionPort = { redact: (text) => text.replace("s3cr3t-value", REDACTED), detect: () => ({ redacted: false, patterns: [], count: 0 }), containsSecret: () => false };
+  const redaction: RedactionPort = { redact: (text) => text.replace("s3cr3t-value", REDACTED), detect: () => ({ redacted: false, patterns: [], count: 0 }), redactError: (err) => String(err).replace("s3cr3t-value", REDACTED), containsSecret: () => false };
 
   const warnings = foldFailureWarnings(redaction);
 

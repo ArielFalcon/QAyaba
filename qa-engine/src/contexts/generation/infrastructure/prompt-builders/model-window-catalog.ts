@@ -1,5 +1,6 @@
 /* Per-role prompt byte budgets. Reads agents/opencode.json so model identities stay in agents/, not in the engine. That filesystem read is not an env-read confinement violation — the invariant forbids a new process.env read inside qa-engine, not fs. A window the agent runtime reports for the role's model (setLiveModelWindows) wins over this file's catalog. When the JSON is unavailable, the role is absent or its model is neither reported nor cataloged, DEFAULT_WINDOW_TOKENS is a conservative fallback. Budget is bytes via 1 token ≈ 4 bytes; no tokenizer at this layer. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -76,7 +77,7 @@ function warnFallbackOnce(
   const key = `${role}:${reason}`;
   if (warnedFallbacks.has(key)) return;
   warnedFallbacks.add(key);
-  console.warn(
+  engineLog.warn(
     `[model-window-catalog] role '${role}' ${outcome}: ${reason}. ` +
       `Confirm the role→model mapping in agents/opencode.json and the catalog in this file (see \`opencode models\`).`,
   );

@@ -10,6 +10,7 @@
  *
  * Observability never changes how a turn ends: every method is guarded and a fault is logged and dropped.
  */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
 import { attrKey } from "@kernel/telemetry/attribute-registry.ts";
 import { GENAI, normalizeOpenCodeUsage } from "@kernel/telemetry/genai-semconv.ts";
@@ -78,7 +79,7 @@ function guarded(label: string, fn: () => void): void {
   try {
     fn();
   } catch (err) {
-    console.error(`[qa] turn telemetry (${label}) failed and was dropped: ${err instanceof Error ? err.message : String(err)}`);
+    engineLog.error(`[qa] turn telemetry (${label}) failed and was dropped: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -414,7 +415,7 @@ function safeWatch(watch: (span: SpanHandle) => () => void, span: SpanHandle): (
   try {
     return watch(span);
   } catch (err) {
-    console.error(`[qa] turn telemetry (host watch) failed and was dropped: ${err instanceof Error ? err.message : String(err)}`);
+    engineLog.error(`[qa] turn telemetry (host watch) failed and was dropped: ${err instanceof Error ? err.message : String(err)}`);
     return undefined;
   }
 }

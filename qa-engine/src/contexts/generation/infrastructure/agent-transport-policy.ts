@@ -1,4 +1,5 @@
 /* Session-transport policy: circuit-breaker gating, fallback-model retry on transient fault, turn/usage telemetry, sanitize-before-emit. Consumes injected primitives. Does not read process.env or cwd-relative config — the engine-root shell injects resolved timeouts and getFallbackModel. qa-engine never imports src/. */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { checkCircuit, recordCircuitFailure, recordCircuitSuccess } from "./resilience/circuit-breaker.ts";
 import { createStallWatchdog, type StallWatchdog } from "./resilience/stall-watchdog.ts";
 import { AgentTimeoutError, AgentUnavailableError, StalledAgentError, isInfraError } from "@kernel/domain-error.ts";
@@ -299,7 +300,7 @@ function measureOrNull<T>(label: string, measure: () => T): T | null {
   try {
     return measure();
   } catch (err) {
-    console.error(`[qa] turn efficiency: ${label} failed, recording null: ${err instanceof Error ? err.message : String(err)}`);
+    engineLog.error(`[qa] turn efficiency: ${label} failed, recording null: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
 }
@@ -356,7 +357,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
             try {
               collab.persistTurn?.(t);
             } catch (err) {
-              console.warn(`[qa] agent_turns persist failed: ${err instanceof Error ? err.message : String(err)}`);
+              engineLog.warn(`[qa] agent_turns persist failed: ${err instanceof Error ? err.message : String(err)}`);
             }
           }
         : undefined;
@@ -376,7 +377,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
           .then(
             () => true,
             (err: unknown) => {
-              console.error(`[qa] turn efficiency: preparing attempt ${attempt} failed, its steps are unobserved: ${err instanceof Error ? err.message : String(err)}`);
+              engineLog.error(`[qa] turn efficiency: preparing attempt ${attempt} failed, its steps are unobserved: ${err instanceof Error ? err.message : String(err)}`);
               return false;
             },
           );
@@ -388,7 +389,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
         try {
           collab.onAttempt(id, event);
         } catch (err) {
-          console.error(`[qa] attempt telemetry failed and was dropped: ${err instanceof Error ? err.message : String(err)}`);
+          engineLog.error(`[qa] attempt telemetry failed and was dropped: ${err instanceof Error ? err.message : String(err)}`);
         }
       };
 
@@ -553,7 +554,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
                   try {
                     promptOpts.onTurnStats(stats);
                   } catch (err) {
-                    console.error(`[qa] turn stats callback failed: ${err instanceof Error ? err.message : String(err)}`);
+                    engineLog.error(`[qa] turn stats callback failed: ${err instanceof Error ? err.message : String(err)}`);
                   }
                 }
                 return promptOpts?.finalStepOnly ? finalText : outputRaw;
@@ -568,7 +569,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
             if (closed || opts?.signal?.aborted || isInfraError(err)) throw err;
             const fallback = collab.getFallbackModel(agent);
             if (fallback) {
-              console.warn(`[qa] primary model failed for ${agent}, retrying with fallback ${fallback}: ${err instanceof Error ? err.message : String(err)}`);
+              engineLog.warn(`[qa] primary model failed for ${agent}, retrying with fallback ${fallback}: ${err instanceof Error ? err.message : String(err)}`);
               notify({ kind: "fallback", prompt: thisRound, model: fallback, at: clock() });
               return runPrompt(FALLBACK_ATTEMPT, fallback);
             }
@@ -597,7 +598,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
           try {
             await raw.deleteSession(id);
           } catch (err) {
-            console.warn(`[qa] session ${id} dispose failed: ${err instanceof Error ? err.message : String(err)}`);
+            engineLog.warn(`[qa] session ${id} dispose failed: ${err instanceof Error ? err.message : String(err)}`);
           } finally {
             opts?.signal?.removeEventListener("abort", onAbort);
             sessionRegistry.delete(id);
@@ -613,7 +614,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
           try {
             await raw.deleteSession(id);
           } catch (err) {
-            console.warn(`[qa] orphan cleanup failed for session ${id}: ${err instanceof Error ? err.message : String(err)}`);
+            engineLog.warn(`[qa] orphan cleanup failed for session ${id}: ${err instanceof Error ? err.message : String(err)}`);
           }
           sessionRegistry.delete(id);
           cleaned++;
@@ -689,7 +690,7 @@ export function withStallWatchdog(
         try {
           opts.onStall?.(inner.id, threshold);
         } catch (fault) {
-          console.error(`[qa] stall telemetry failed and was dropped: ${fault instanceof Error ? fault.message : String(fault)}`);
+          engineLog.error(`[qa] stall telemetry failed and was dropped: ${fault instanceof Error ? fault.message : String(fault)}`);
         }
         rejectInFlight?.(err);
         unregisterSessionWatchdogNotify(inner.id);

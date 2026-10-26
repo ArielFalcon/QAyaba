@@ -1,4 +1,5 @@
 /* Generate-tests use case. One bounded generator repair. Every generation ends in exactly one classified way (GenerationResult.end): with specs the run continues, without them the end says why. */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { AgentRuntimePort, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import { AUTHOR_SIDEKICK, LEAD_AGENT, openSidekickSession } from "@kernel/sidekick-session.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
@@ -278,7 +279,7 @@ export class GenerateTestsUseCase {
               if (!timeCut) {
                 if (!(isAgentTimeoutError(err) && !limit.boundByCaller)) throw err;
                 repairTimedOutMs = limit.timeoutMs;
-                console.error(`[qa] the generator's contract-repair turn timed out after ${limit.timeoutMs}ms (tools disabled); its first answer stands`);
+                engineLog.error(`[qa] the generator's contract-repair turn timed out after ${limit.timeoutMs}ms (tools disabled); its first answer stands`);
               }
             }
           }

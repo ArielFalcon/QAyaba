@@ -1,4 +1,5 @@
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { RunEventBody } from "@kernel/contract/events.ts";
 import { ActivityRouter, type ActivityKind } from "./agent-activity.ts";
 import { mapOpencodeEvent, eventRunId } from "./activity-mapper.ts";
@@ -62,7 +63,7 @@ export async function startScopedEventStream(
   try {
     const stream = await rawOpener.open(directory, signal, () => lifecycle.streamInterrupted(directory, token));
     if (!stream) {
-      console.warn(`[qa] SSE event stream returned no stream (${directory})`);
+      engineLog.warn(`[qa] SSE event stream returned no stream (${directory})`);
       return;
     }
 
@@ -118,10 +119,10 @@ export async function startScopedEventStream(
       }
     } catch (err) {
       if (!signal?.aborted) {
-        console.warn(`[qa] SSE event stream error (${directory}): ${err instanceof Error ? err.message : String(err)}`);
+        engineLog.warn(`[qa] SSE event stream error (${directory}): ${err instanceof Error ? err.message : String(err)}`);
       }
     } finally {
-      console.log(`[qa] SSE event stream closed (${directory})`);
+      engineLog.info(`[qa] SSE event stream closed (${directory})`);
     }
   } finally {
     lifecycle.streamClosed(directory, token);
@@ -188,7 +189,7 @@ const defaultOpenStream: OpenStreamFn = (directory, onActivity, signal, onRunEve
   void startEventStreamWithReconnect(onActivity, signal, {
     onRunEvent,
     start: (oa, sig, ore) => startScopedEventStream(directory, oa, sig, ore),
-    log: (m) => console.log(m),
+    log: (m) => engineLog.info(m),
   });
 };
 

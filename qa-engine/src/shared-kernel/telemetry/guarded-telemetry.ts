@@ -1,5 +1,6 @@
 /* Makes any TelemetryPort total for its callers. The adapters already swallow their own faults; a caller that cannot assume that (a test double, a future adapter) wraps the port here, so a telemetry fault can never change how a run ends. A callback handed to withSpan/withParent always runs, and only the callback's own exception propagates. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { NoopTelemetry } from "./noop-telemetry.ts";
 import type { RecordMeasurement, SpanHandle, StartSpanOptions, TelemetryContext, TelemetryPort } from "./telemetry.port.ts";
 
@@ -10,7 +11,7 @@ function swallow<T>(fallback: T, op: () => T): T {
   try {
     return op();
   } catch (err) {
-    console.error(`[telemetry] a call failed and was dropped: ${err instanceof Error ? err.message : String(err)}`);
+    engineLog.error(`[telemetry] a call failed and was dropped: ${err instanceof Error ? err.message : String(err)}`);
     return fallback;
   }
 }
@@ -63,7 +64,7 @@ class GuardedTelemetry implements TelemetryPort {
         span.end();
         throw err;
       }
-      console.error(`[telemetry] withSpan failed before the callback ran: ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[telemetry] withSpan failed before the callback ran: ${err instanceof Error ? err.message : String(err)}`);
       return settle(span, run());
     }
   }
@@ -77,7 +78,7 @@ class GuardedTelemetry implements TelemetryPort {
       });
     } catch (err) {
       if (ran) throw err;
-      console.error(`[telemetry] withParent failed before the callback ran: ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[telemetry] withParent failed before the callback ran: ${err instanceof Error ? err.message : String(err)}`);
       return fn();
     }
   }

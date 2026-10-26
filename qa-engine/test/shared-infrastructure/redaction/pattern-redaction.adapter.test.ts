@@ -12,6 +12,13 @@ test("a mixed secret, address and email line loses every sensitive part and keep
   assert.deepEqual(port.detect(input), { redacted: true, patterns: ["api-key-assignment"], count: 2 });
 });
 
+test("redactError redacts the message of an Error and the text of a thrown non-Error", () => {
+  const secret = "ghp_" + "a".repeat(36);
+  assert.equal(port.redactError(new Error(`clone failed with ${secret}`)), `clone failed with ${REDACTED}`);
+  assert.equal(port.redactError(`token ${secret}`), `token ${REDACTED}`);
+  assert.equal(port.redactError(undefined), "undefined");
+});
+
 test("a connection string loses its password and keeps the host", () => {
   assert.equal(port.redact("DATABASE_URL=postgres://admin:s3cr3tP4ss@db.internal:5432/app"), `DATABASE_URL=postgres://${REDACTED}@db.internal:5432/app`);
 });

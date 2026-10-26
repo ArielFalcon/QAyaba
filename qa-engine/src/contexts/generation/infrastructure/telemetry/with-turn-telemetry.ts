@@ -4,6 +4,7 @@
  * promise; the attempt below keeps running until its own timeout). It adds no await to the prompt path: the prompt's promise is
  * returned untouched and only observed.
  */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { activeRunSecretScope, redactByValue } from "../../../../shared-kernel/run-secret-redaction.ts";
 import { activeExecScope } from "../../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry.ts";
@@ -98,7 +99,7 @@ export function withTurnTelemetry(base: AgentDeps, deps: TurnTelemetryDeps): Age
               traces.begin(inner.id, created);
               return created;
             } catch (err) {
-              console.error(`[qa] turn telemetry could not start and is off for this prompt: ${err instanceof Error ? err.message : String(err)}`);
+              engineLog.error(`[qa] turn telemetry could not start and is off for this prompt: ${err instanceof Error ? err.message : String(err)}`);
               return undefined;
             }
           }

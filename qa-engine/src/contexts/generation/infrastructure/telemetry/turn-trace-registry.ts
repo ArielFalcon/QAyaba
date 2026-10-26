@@ -5,6 +5,7 @@
  * unbound probe to that prompt's number, so an event of an earlier prompt that arrives late (an attempt that outlived its turn) is
  * routed to the turn it belongs to and never to the current one.
  */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { TurnLimit } from "@kernel/turn-limit.ts";
 import type { SpanHandle } from "@kernel/telemetry/telemetry.port.ts";
 import type { ServerToolCall, ToolAttemptDirectory } from "../../domain/tool-link.ts";
@@ -43,7 +44,7 @@ export class AgentTurnTraces implements ToolAttemptDirectory {
         try {
           probe?.closeAll();
         } catch (err) {
-          console.error(`[qa] a stale turn trace could not be closed: ${err instanceof Error ? err.message : String(err)}`);
+          engineLog.error(`[qa] a stale turn trace could not be closed: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
       this.bySession.delete(sessionId);

@@ -1,4 +1,5 @@
 /* Manifest file IO. `targets`/`changeRef` are required; `file` stays optional so a hand-edited entry lacking it is not rejected. The manifest sits in a directory the agent writes into, so it is read and written strictly (readOwnedSpecFile, writeOwnedSpecFile): a link or a pipe at the file or at `.qa` is refused, never followed, and a write goes through a temporary file renamed over the target. */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { createHash } from "node:crypto";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 import { MANIFEST_FILE, MAX_MANIFEST_BYTES, manifestEntryViolation } from "@kernel/manifest/manifest-entry.ts";
@@ -40,7 +41,7 @@ function loadManifest(root: SpecRoot): Loaded {
 export async function readManifest(specDir: string): Promise<ManifestEntry[]> {
   const loaded = loadManifest({ mirrorDir: specDir, specDir });
   if ("refused" in loaded) {
-    console.warn(`[qa] WARNING: the manifest of ${specDir} is not read (${loaded.refused}); it is taken for no manifest.`);
+    engineLog.warn(`[qa] WARNING: the manifest of ${specDir} is not read (${loaded.refused}); it is taken for no manifest.`);
     return [];
   }
   return loaded.entries;
@@ -57,7 +58,7 @@ function safetyFilter(root: SpecRoot, entries: readonly ManifestEntry[]): Manife
   const onDisk = withSha
     .filter(({ e, phantom }) => {
       if (phantom) {
-        console.warn(`[qa] WARNING: agent reported spec '${e.file}' in its manifest metadata but it is not on disk — dropping the phantom manifest entry.`);
+        engineLog.warn(`[qa] WARNING: agent reported spec '${e.file}' in its manifest metadata but it is not on disk — dropping the phantom manifest entry.`);
         return false;
       }
       return true;
@@ -67,7 +68,7 @@ function safetyFilter(root: SpecRoot, entries: readonly ManifestEntry[]): Manife
   return onDisk.filter((e) => {
     const violation = manifestEntryViolation(e);
     if (violation) {
-      console.warn(`[qa] WARNING: dropping manifest entry '${e.id}' — it fails the manifest schema: ${violation}.`);
+      engineLog.warn(`[qa] WARNING: dropping manifest entry '${e.id}' — it fails the manifest schema: ${violation}.`);
       return false;
     }
     return true;

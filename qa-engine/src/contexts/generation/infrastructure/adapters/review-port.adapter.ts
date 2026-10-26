@@ -1,5 +1,6 @@
 /* ReviewPort: the `review` sidekick kind (session opened as the registry's review entry names it: `REVIEW_SIDEKICK`). Fail-closed on parse miss or session fault (approved:false, parsed:false). A session fault, or a reviewer that returned nothing, is also marked `unavailable`: no judgment was made, which the run must not mistake for a rejection. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { ReviewPort } from "../../application/ports/review.port.ts";
 import type { ReviewEnrichment } from "../../domain/review-enrichment.ts";
@@ -158,7 +159,7 @@ export class ReviewPortAdapter implements ReviewPort {
   }
 
   private unavailable(reason: string): { approved: false; corrections: string[]; rationale: string; parsed: false; unavailable: true } {
-    console.error(`[qa] reviewer unavailable (${reason}) — failing closed without burning a regeneration round; the run ends as an infra-error, not a rejection.`);
+    engineLog.error(`[qa] reviewer unavailable (${reason}) — failing closed without burning a regeneration round; the run ends as an infra-error, not a rejection.`);
     return {
       approved: false,
       corrections: [],

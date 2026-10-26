@@ -17,6 +17,8 @@ export interface RedactionPort {
   redact(text: string, mode?: RedactionMode): string;
   /** What `redact` found in the text: whether anything was redacted, under which pattern names, and how many times. */
   detect(text: string, mode?: RedactionMode): SecretDetection;
+  /** The message of a caught value (an Error's message, otherwise its string form), redacted. The only form of a caught error that may reach a log line, a run note or a response. */
+  redactError(err: unknown): string;
   /** True when the text still contains a detectable secret after redaction. Fail-loud at the logs→Issue boundary; the diff→model path uses the same guard. */
   containsSecret(text: string, mode?: RedactionMode): boolean;
 }

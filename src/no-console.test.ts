@@ -21,32 +21,6 @@ const ALLOWED: readonly string[] = [
   "src/telemetry/console-log-tap.ts",
 ];
 
-/* Files not migrated yet. The list only shrinks: a file that no longer calls console must leave it. */
-const NOT_MIGRATED: readonly string[] = [
-  "qa-engine/src/contexts/generation/application/generate-tests.use-case.ts",
-  "qa-engine/src/contexts/generation/infrastructure/adapters/context-map-capture-port.adapter.ts",
-  "qa-engine/src/contexts/generation/infrastructure/adapters/context-trace.ts",
-  "qa-engine/src/contexts/generation/infrastructure/adapters/implementation-resources.ts",
-  "qa-engine/src/contexts/generation/infrastructure/adapters/pre-exec-grounding-port.adapter.ts",
-  "qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter.ts",
-  "qa-engine/src/contexts/generation/infrastructure/adapters/review-port.adapter.ts",
-  "qa-engine/src/contexts/generation/infrastructure/agent-transport-policy.ts",
-  "qa-engine/src/contexts/generation/infrastructure/context-pack.ts",
-  "qa-engine/src/contexts/generation/infrastructure/dom-snapshot.ts",
-  "qa-engine/src/contexts/generation/infrastructure/manifest-fs.ts",
-  "qa-engine/src/contexts/generation/infrastructure/prompt-builders/context-assembler.ts",
-  "qa-engine/src/contexts/generation/infrastructure/prompt-builders/model-window-catalog.ts",
-  "qa-engine/src/contexts/generation/infrastructure/prompt-builders/review-render.ts",
-  "qa-engine/src/contexts/generation/infrastructure/resilience/circuit-breaker.ts",
-  "qa-engine/src/contexts/generation/infrastructure/sse/call-efficiency-tracker.ts",
-  "qa-engine/src/contexts/generation/infrastructure/sse/event-stream.ts",
-  "qa-engine/src/contexts/generation/infrastructure/telemetry/turn-probe.ts",
-  "qa-engine/src/contexts/generation/infrastructure/telemetry/turn-trace-registry.ts",
-  "qa-engine/src/contexts/generation/infrastructure/telemetry/with-turn-telemetry.ts",
-  "qa-engine/src/contexts/generation/infrastructure/verdict-parser.adapter.ts",
-  "qa-engine/src/shared-kernel/telemetry/guarded-telemetry.ts",
-];
-
 function productionSources(dir: string): string[] {
   const found: string[] = [];
   for (const entry of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
@@ -67,7 +41,7 @@ const calling = SCANNED.flatMap(productionSources)
   .sort();
 
 test("production code calls console only where the allow-list says", () => {
-  const permitted = new Set([...ALLOWED, ...NOT_MIGRATED]);
+  const permitted = new Set(ALLOWED);
   assert.deepEqual(
     calling.filter((path) => !permitted.has(path)),
     [],
@@ -76,6 +50,6 @@ test("production code calls console only where the allow-list says", () => {
 });
 
 test("a file that no longer calls console is removed from the allow-list", () => {
-  const stale = [...ALLOWED, ...NOT_MIGRATED].filter((path) => !calling.includes(path));
+  const stale = ALLOWED.filter((path) => !calling.includes(path));
   assert.deepEqual(stale, []);
 });

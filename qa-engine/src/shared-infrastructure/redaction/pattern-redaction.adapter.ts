@@ -180,6 +180,10 @@ export class PatternRedactionAdapter implements RedactionPort {
     return sanitizeText(text, mode).detection;
   }
 
+  redactError(err: unknown): string {
+    return this.redact(err instanceof Error ? err.message : String(err));
+  }
+
   containsSecret(text: string, mode: RedactionMode = "issue"): boolean {
     return containsSecrets(text, mode);
   }

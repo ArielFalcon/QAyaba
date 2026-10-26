@@ -1,5 +1,6 @@
 /* ContextMapCapturePortAdapter: fail-open write side of the FE<->BE architecture map. Never throws, except for an untrusted git dir (UntrustedGitTreeError), which is a security refusal. */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { rethrowIfUntrusted } from "@kernel/domain-error.ts";
 import type { ContextMapCapturePort } from "../../application/ports/context-map-capture.port.ts";
 import type { ArchitectureContext } from "@contexts/generation/application/index.ts";
@@ -24,7 +25,7 @@ export class ContextMapCapturePortAdapter implements ContextMapCapturePort {
     private readonly saveFn: ContextMapSave,
     private readonly writtenThisRun: ContextMapWrittenThisRun,
     private readonly onError: (err: unknown) => void = (err) =>
-      console.warn("[ContextMapCapturePortAdapter] off-path failure, swallowed:", err),
+      engineLog.warn("[ContextMapCapturePortAdapter] off-path failure, swallowed:", { error: err }),
   ) {}
 
   async capture(specDir: string, app: string, sha: string): Promise<void> {

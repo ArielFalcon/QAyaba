@@ -22,6 +22,7 @@
  * A half-open connection that has not errored by the time `take()` runs can still undercount;
  * the exhaustion notice in the final step remains the veto for that case.
  */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { RawOpencodeEvent } from "./activity-mapper.ts";
 import { CALL_BUCKETS, bucketForTool, isCodeGraphTool, isShellTool, toolInputPath, type CallBucket } from "../../domain/tool-call-taxonomy.ts";
@@ -412,7 +413,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
       this.apply(session, part);
     } catch (err) {
       session.poisoned = true;
-      console.error(
+      engineLog.error(
         `[qa] call-efficiency tracking failed for session ${sessionId}; its efficiency metrics are dropped: ${err instanceof Error ? err.message : String(err)}`,
       );
     }

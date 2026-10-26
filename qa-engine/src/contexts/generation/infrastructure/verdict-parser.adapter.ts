@@ -1,4 +1,5 @@
 /* Fail-closed on an unparseable verdict. Reviewer path forwards blockingCount + parsed so a parse miss is not treated as a rejection. */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { sep } from "node:path";
 import { scanSpecTree } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import type { VerdictParserPort } from "../application/ports/verdict-parser.port.ts";
@@ -118,7 +119,7 @@ export class VerdictParserAdapter implements VerdictParserPort {
      * the answer's size independent of how much the model wrote.
      */
     if (reviewAnswerIsOversized(text)) {
-      console.warn(
+      engineLog.warn(
         `[qa] WARNING: the reviewer answered ${text.length} chars (contract: ${REVIEW_RESPONSE_MAX_CHARS}) — keeping only the bounded verdict (rationale ≤ ${REVIEW_RATIONALE_MAX_CHARS} chars, ≤ ${REVIEW_CORRECTIONS_MAX} corrections)`,
       );
     }
