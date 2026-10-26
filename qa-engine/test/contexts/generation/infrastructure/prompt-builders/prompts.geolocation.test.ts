@@ -47,16 +47,17 @@ test("an app that declares a location states it on every e2e turn that writes te
   for (const mode of ["diff", "manual", "complete", "exhaustive"] as const) {
     const section = sectionOf(buildPromptAssembled(mkInput({ mode, geolocation: FACTS }), { budgetBytes: 0 }));
     assert.ok(section, mode);
-    assert.match(section, /40\.4168/);
-    assert.match(section, /41\.3874/);
-    assert.match(section, /barcelona/);
+    for (const datum of [FACTS.default.latitude, FACTS.default.longitude, FACTS.current.latitude, FACTS.current.longitude, ...Object.keys(FACTS.places)]) {
+      assert.ok(section.includes(String(datum)), String(datum));
+    }
   }
 });
 
-test("a flow's section says it is the flow's value, and names the helper a delivered spec uses", () => {
-  const section = sectionOf(buildPromptAssembled(mkInput({ geolocation: { ...FACTS, scope: "flow" } }), { budgetBytes: 0 }))!;
-  assert.match(section, /this flow/);
-  assert.match(section, /setLocation/);
+test("a flow's section carries the location of the flow and differs from the run's", () => {
+  const forRun = sectionOf(buildPromptAssembled(mkInput({ geolocation: FACTS }), { budgetBytes: 0 }))!;
+  const forFlow = sectionOf(buildPromptAssembled(mkInput({ geolocation: { ...FACTS, scope: "flow" } }), { budgetBytes: 0 }))!;
+  for (const datum of [FACTS.current.latitude, FACTS.current.longitude]) assert.ok(forFlow.includes(String(datum)), String(datum));
+  assert.notEqual(forFlow, forRun, "the scope changes what the section says");
 });
 
 test("no declared location, no section: the prompt is what it always was", () => {

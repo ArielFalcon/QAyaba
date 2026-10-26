@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildPromptAssembled } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
-import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
+import { AGENT_BROWSER_TOOLS } from "@kernel/agent-browser.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 
 
@@ -24,15 +24,19 @@ function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
 }
 
 const textOf = (over: Partial<OpencodeRunInput> = {}): string => buildPromptAssembled(mkInput(over), { budgetBytes: 0 }).text;
-const PLAIN_BROWSER = /\bbrowser_(navigate|snapshot|console_messages|network_requests)\b/;
+/* The Playwright MCP names its tools as the authenticated browser does, without the prefix. */
+const AUTH_TOOLS = AGENT_BROWSER_TOOLS;
+const PLAIN_TOOLS = AGENT_BROWSER_TOOLS.map((tool) => tool.replace(/^auth/, ""));
+const mentions = (text: string, tool: string): boolean => new RegExp(`(?<![A-Za-z0-9_])${tool}(?![A-Za-z0-9_])`).test(text);
 
 test("with the authenticated browser granted, a page the prompt does not show is read with it, never with the plain browser", () => {
   const text = textOf({ agentBrowser: { maxCalls: 20, perCallMs: 30_000, leaseWaitMs: 10_000 } });
-  assert.match(text, /\bauthbrowser_navigate\b/);
-  assert.match(text, /\bauthbrowser_snapshot\b/);
-  assert.doesNotMatch(text, PLAIN_BROWSER);
+  for (const tool of AUTH_TOOLS.slice(0, 2)) assert.ok(mentions(text, tool), tool);
+  for (const tool of PLAIN_TOOLS) assert.equal(mentions(text, tool), false, tool);
 });
 
 test("without it, the prompt sends the agent to the Playwright MCP's tools", () => {
-  assert.match(textOf(), /\bbrowser_navigate\b/);
+  const text = textOf();
+  for (const tool of PLAIN_TOOLS.slice(0, 2)) assert.ok(mentions(text, tool), tool);
+  for (const tool of AUTH_TOOLS) assert.equal(mentions(text, tool), false, tool);
 });

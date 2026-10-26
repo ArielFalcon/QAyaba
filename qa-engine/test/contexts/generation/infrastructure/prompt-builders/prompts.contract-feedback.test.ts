@@ -7,6 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildPromptAssembled } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
+import { CONTRACT_FEEDBACK_SECTION_ID } from "@contexts/generation/infrastructure/prompt-builders/generator-renderers.ts";
 import { lintCell, type LintSection } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import type { AssembledPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
@@ -42,28 +43,6 @@ const VIOLATION = {
 
 const SECRET = `ghp_${"A".repeat(36)}`;
 
-test("a correction turn carries the contract violations as facts: the rule, the clause and what changed", () => {
-  const { text } = buildPromptAssembled(mkInput({ reviewCorrections: ["[wrong-objective] assert the discount"], contractFeedback: [VIOLATION] }));
-  assert.match(text, /Contract violations/);
-  assert.match(text, /weakened-matcher/);
-  assert.match(text, /flows\/checkout\.spec\.ts#assertion-1/);
-  assert.match(text, /strength=exact/);
-  assert.match(text, /strength=presence/);
-});
-
-test("a turn without contract feedback carries no section", () => {
-  const { text } = buildPromptAssembled(mkInput({ reviewCorrections: ["[wrong-objective] assert the discount"] }));
-  assert.doesNotMatch(text, /Contract violations/);
-});
-
-test("the violations are capped, and the cap says how many it left out", () => {
-  const many = Array.from({ length: 9 }, (_, i) => ({ ...VIOLATION, clauseId: `assertion-${i}` }));
-  const { text } = buildPromptAssembled(mkInput({ reviewCorrections: ["[wrong-objective] assert the discount"], contractFeedback: many }));
-  assert.match(text, /assertion-0/);
-  assert.doesNotMatch(text, /assertion-8/);
-  assert.match(text, /3 more/);
-});
-
 /* The section's own words, cut from the assembled text by the sizes the assembler reports. */
 function sectionText(a: AssembledPrompt, id: string): string {
   const bytes = Buffer.from(a.text, "utf8");
@@ -75,10 +54,34 @@ function sectionText(a: AssembledPrompt, id: string): string {
   return "";
 }
 
+const CORRECTIONS = ["[wrong-objective] assert the discount"];
+
+test("a correction turn carries the contract violations as facts: the rule, the clause and what changed", () => {
+  const assembled = buildPromptAssembled(mkInput({ reviewCorrections: CORRECTIONS, contractFeedback: [VIOLATION] }));
+  assert.notEqual(assembled.sectionSizes[CONTRACT_FEEDBACK_SECTION_ID], undefined);
+  const text = sectionText(assembled, CONTRACT_FEEDBACK_SECTION_ID);
+  for (const datum of [VIOLATION.rule, VIOLATION.file, VIOLATION.clauseId, VIOLATION.before, VIOLATION.after]) assert.ok(text.includes(datum), datum);
+});
+
+test("a turn without contract feedback carries no section", () => {
+  const assembled = buildPromptAssembled(mkInput({ reviewCorrections: CORRECTIONS }));
+  assert.equal(assembled.sectionSizes[CONTRACT_FEEDBACK_SECTION_ID], undefined);
+});
+
+test("the violations are capped, and the cap says how many it left out", () => {
+  const total = 20;
+  const many = Array.from({ length: total }, (_, i) => ({ ...VIOLATION, clauseId: `assertion-${i}` }));
+  const text = sectionText(buildPromptAssembled(mkInput({ reviewCorrections: CORRECTIONS, contractFeedback: many })), CONTRACT_FEEDBACK_SECTION_ID);
+  const shown = many.filter((violation) => text.includes(violation.clauseId));
+  assert.ok(shown.length > 0 && shown.length < total, "some violations are listed and some are left out");
+  assert.deepEqual(shown, many.slice(0, shown.length), "the listed ones are the first ones, in order");
+  assert.ok(text.includes(String(total - shown.length)), "the count of the omitted violations is stated (more than any listed index, so a clause id cannot stand for it)");
+});
+
 test("a secret inside a violation never reaches the prompt, and the section is facts only", () => {
   const assembled = buildPromptAssembled(
     mkInput({
-      reviewCorrections: ["[wrong-objective] assert the discount"],
+      reviewCorrections: CORRECTIONS,
       contractFeedback: [{ ...VIOLATION, after: `expected=${SECRET}` }],
     }),
   );
@@ -88,7 +91,7 @@ test("a secret inside a violation never reaches the prompt, and the section is f
     layer: "assembled" as const,
     text: sectionText(assembled, id),
     claims: assembled.claims[id] ?? [],
-    ...(id === "contract-feedback" ? { factsOnly: true } : {}),
+    ...(id === CONTRACT_FEEDBACK_SECTION_ID ? { factsOnly: true } : {}),
   }));
   assert.deepEqual(lintCell({ name: "corrections-with-contract", regen: true, sections }).filter((finding) => finding.rule === "R6" || finding.rule === "R15"), []);
 });

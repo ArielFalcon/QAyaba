@@ -6,6 +6,7 @@ import {
   buildPromptAssembled,
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
+import { RUNTIME_SIGNALS_LINES } from "@contexts/generation/infrastructure/prompt-builders/generator-renderers.ts";
 import { PACK_HEADINGS } from "@contexts/generation/infrastructure/context-pack.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import type { FactId, PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
@@ -50,6 +51,17 @@ function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
     intent: { type: "feat", breaking: false, message: "feat: show the total", changedFiles: ["src/a.ts", "src/b.ts"] },
     ...overrides,
   };
+}
+
+/* The text of one section, cut from the assembled prompt by the sizes the assembler reports in order. */
+function sectionText(a: AssembledPrompt, id: string): string {
+  const bytes = Buffer.from(a.text, "utf8");
+  let offset = 0;
+  for (const [key, size] of Object.entries(a.sectionSizes)) {
+    if (key === id) return bytes.subarray(offset, offset + size).toString("utf8");
+    offset += size + 1;
+  }
+  return "";
 }
 
 const claimsOf = (a: AssembledPrompt, id: string): readonly PromptClaim[] => a.claims[id] ?? [];
@@ -102,11 +114,14 @@ test("code and context runs never carry the runtime-signals rule", () => {
   assert.equal(directs(buildPromptAssembled(mkInput({ mode: "context" })), "working-rules", "use-runtime-signals"), false);
 });
 
-test("the prompt names the runtime-signals tools exactly when it directs the rule", () => {
-  const tools = /browser_console_messages/;
-  assert.match(buildPrompt(mkInput()), tools);
-  assert.doesNotMatch(buildPrompt(mkInput({ contextPack: DOM_PACK })), tools);
-  assert.doesNotMatch(buildPrompt(mkInput({ domSnapshot: TREE })), tools);
+test("the working rules carry the runtime-signals lines exactly when they direct the rule", () => {
+  const carries = (extra: Partial<OpencodeRunInput>): boolean => {
+    const rules = sectionText(buildPromptAssembled(mkInput(extra)), "working-rules");
+    return RUNTIME_SIGNALS_LINES.every((line) => rules.includes(line));
+  };
+  assert.equal(carries({}), true);
+  assert.equal(carries({ contextPack: DOM_PACK }), false);
+  assert.equal(carries({ domSnapshot: TREE }), false);
 });
 
 /* ── the prompt cannot leak the run's review flag ── */
@@ -142,25 +157,15 @@ test("the working rules do not restate the selector priority, which the role pro
 
 /* ── the size line is the diff's real size ── */
 
-test("the scope budget states the real number of files and changed lines of the diff", () => {
-  const text = buildPrompt(mkInput());
-  const budget = text.slice(text.indexOf("## Scope budget"));
-  assert.match(budget, /\b2 files?\b/);
-  assert.match(budget, /\+4\b/);
-  assert.match(budget, /-2\b/);
-});
+/* The size line of the scope budget: the one line of the task that states both the added and the removed lines. */
+const sizeLineOf = (input: OpencodeRunInput): string =>
+  sectionText(buildPromptAssembled(input), "task").split("\n").find((line) => /\+\d+\b/.test(line) && /-\d+\b/.test(line)) ?? "";
 
-test("the scope budget's size line carries the file count and the changed lines and no other figure, so it counts no commits", () => {
-  const text = buildPrompt(mkInput());
-  const budget = text.slice(text.indexOf("## Scope budget"));
-  const sizeLine = budget.split("\n").find((line) => /\+4\b/.test(line)) ?? "";
-  assert.deepEqual(sizeLine.match(/\d+/g), ["2", "4", "2"], "files, added lines, removed lines");
+test("the scope budget's size line carries the real file count and changed lines and no other figure, so it counts no commits", () => {
+  assert.deepEqual(sizeLineOf(mkInput()).match(/\d+/g), ["2", "4", "2"], "files, added lines, removed lines");
 });
 
 test("the size figures follow the diff, not a constant", () => {
-  const small = buildPrompt(mkInput({ diff: "diff --git a/x.ts b/x.ts\n--- a/x.ts\n+++ b/x.ts\n@@ -1 +1 @@\n-a\n+b\n", intent: { type: "fix", breaking: false, message: "fix: x", changedFiles: ["x.ts"] } }));
-  const budget = small.slice(small.indexOf("## Scope budget"));
-  assert.match(budget, /\b1 files?\b/);
-  assert.match(budget, /\+1\b/);
-  assert.match(budget, /-1\b/);
+  const small = mkInput({ diff: "diff --git a/x.ts b/x.ts\n--- a/x.ts\n+++ b/x.ts\n@@ -1 +1 @@\n-a\n+b\n", intent: { type: "fix", breaking: false, message: "fix: x", changedFiles: ["x.ts"] } });
+  assert.deepEqual(sizeLineOf(small).match(/\d+/g), ["1", "1", "1"], "files, added lines, removed lines");
 });

@@ -34,7 +34,18 @@ function staticSection(id: string, path: string): LintSection {
   return { id, layer: "static", text: readFileSync(join(ROOT, path), "utf8"), claims: [] };
 }
 
-const assembled = (id: string, text: string): LintSection => ({ id, layer: "assembled", text, claims: [] });
+const EXECUTION_RESULT_SECTION_ID = "reviewer-execution-result";
+
+/* One section's text, cut from the assembled prompt by the sizes the assembler reports in order. */
+function sectionText(a: { text: string; sectionSizes: Record<string, number> }, id: string): string {
+  const bytes = Buffer.from(a.text, "utf8");
+  let offset = 0;
+  for (const [key, size] of Object.entries(a.sectionSizes)) {
+    if (key === id) return bytes.subarray(offset, offset + size).toString("utf8");
+    offset += size + 1;
+  }
+  return "";
+}
 
 function reviewerInput(over: Partial<ReviewInput> = {}): ReviewInput {
   return {
@@ -80,10 +91,12 @@ test("D6: the assembled reviewer prompt carries no authorization wording and sta
   assert.match(text, /never invent a finding to look thorough/);
 });
 
-test("D6: a reviewer-correction turn addresses each finding instead of ordering compliance with every item", () => {
-  const text = buildPromptAssembled(correctionTurn()).text;
-  assert.doesNotMatch(text, /\bfix +each\b/i);
-  assert.match(text, /Address each finding below/);
+test("D6: a reviewer-correction turn lists each finding and carries no order of blind compliance", () => {
+  const over = correctionTurn();
+  const assembled = buildPromptAssembled(over);
+  for (const pattern of BLIND_COMPLIANCE_PHRASES) assert.doesNotMatch(assembled.text, pattern);
+  const section = sectionText(assembled, "reviewer-corrections");
+  for (const finding of over.reviewCorrections ?? []) assert.ok(section.includes(finding), finding);
 });
 
 test("D6: the reviewer prompt carries the run's execution result when the run supplies it", () => {
@@ -91,13 +104,13 @@ test("D6: the reviewer prompt carries the run's execution result when the run su
     verdict: "pass",
     cases: [{ name: "checkout", httpStatus: 500, finalUrl: "http://dev/checkout" }],
   });
-  const text = buildReviewerPromptAssembled(reviewerInput({ executionResult: evidence })).text;
-  assert.match(text, /RUNTIME EXECUTION RESULT/);
-  assert.match(text, /httpStatus: 500/);
-  assert.doesNotMatch(text, /\bauthoritative\b/i, "the execution result is evidence, not an authority");
+  const assembled = buildReviewerPromptAssembled(reviewerInput({ executionResult: evidence }));
+  const section = sectionText(assembled, EXECUTION_RESULT_SECTION_ID);
+  for (const datum of ["500", "http://dev/checkout"]) assert.ok(section.includes(datum), datum);
+  for (const pattern of DELEGATED_AUTHORITY_PHRASES) assert.doesNotMatch(assembled.text, pattern, "the execution result is evidence, not an authority");
 });
 
 test("D6: without an execution result the reviewer prompt carries no empty section", () => {
-  const text = buildReviewerPromptAssembled(reviewerInput()).text;
-  assert.doesNotMatch(text, /RUNTIME EXECUTION RESULT/);
+  const assembled = buildReviewerPromptAssembled(reviewerInput());
+  assert.equal(assembled.sectionSizes[EXECUTION_RESULT_SECTION_ID], undefined);
 });
