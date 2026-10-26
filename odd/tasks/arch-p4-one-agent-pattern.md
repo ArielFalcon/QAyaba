@@ -179,8 +179,8 @@ Branch: `fix/failure-observation-conflict` (owner rule: one branch, no PR split)
 - [x] T7b — S5a doors 1, 9, 10 — inline — one author path for code, context, login-seed and regenerations; `generate` deleted — commits: `4161b3b5` (author path), `2913274a` (tool-surface narrowing, own commit)
 - [x] T8 — S5b — inline — Final roster: `qa-author`, delete `qa-generator`, final invariants (governance commit, alone, independent verifier) — commit: `0aafe807`; independent verifier pending (L21)
 - [x] T9 — S6 — inline — `qa-judge` stays staged until a second model exists (owner decision); nothing to change in this phase — commit: n/a (`agents/pending/qa-judge.opencode-block.json` is byte-identical to the baseline `59d85c98`)
-- [x] T10 — S7 — inline — Prompt and doc consolidation — commit: see L22 (docs/lead-sidekicks.md, efficiency-benchmark.md, observability-design.md; AGENTS.md, README.md and docs/agent-reference.md deferred, replacement text in L22)
-- [x] T11 — S8 — inline — Phase gate — commit: see L22
+- [x] T10 — S7 — inline — Prompt and doc consolidation — commit: `cf96c31f` (docs/lead-sidekicks.md, efficiency-benchmark.md, observability-design.md; AGENTS.md, README.md and docs/agent-reference.md deferred, replacement text in L22)
+- [x] T11 — S8 — inline — Phase gate — commit: `cfbceaea` (gate 1 and 2 cosmetics; gate results in L22)
 
 Route declaration: all tasks are inline. The tasks share files (`lead-sidekicks.ts`, `lead-plan.ts`, `generate.steps.ts`, `agents/opencode.json`, `agent-tool-surface.test.ts`) and depend on each other in order, so no two units are independent; no writer trigger holds.
 
