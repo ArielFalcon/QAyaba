@@ -1,5 +1,6 @@
 /* The shell's SQLite side of the LLM-judge ports (docs/observability-design.md section 11.3): the attempt ledger, the calibration reports and the label pairs. */
 
+import { appLogger } from "../integrations/redacting-logger";
 import type { CalibrationPairsPort, CalibrationStorePort, JudgeAttempt, JudgeLedgerPort, JudgeOutcome, JudgePairs } from "@contexts/evaluation/application/index.ts";
 import type { CalibrationReport } from "@contexts/evaluation/application/index";
 import { parseJudgeGraderVersion, type JudgeName } from "@contexts/evaluation/application/index";
@@ -52,7 +53,7 @@ export class SqliteCalibrationStore implements CalibrationStorePort {
       return JSON.parse(row.report) as CalibrationReport;
     } catch {
       /* A report that cannot be read is no calibration: the judge stays experimental. */
-      console.error(`[judge] the stored calibration of ${judge}@${promptVersion} is unreadable; treating it as absent`);
+      appLogger.error(`[judge] the stored calibration of ${judge}@${promptVersion} is unreadable; treating it as absent`);
       return undefined;
     }
   }

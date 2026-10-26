@@ -11,6 +11,7 @@
  * `/api/public/ingestion`, whose envelope carries the timestamp.
  */
 
+import { appLogger } from "../integrations/redacting-logger";
 import { createHash } from "node:crypto";
 import type { ScoreSinkPort } from "@contexts/evaluation/application/index.ts";
 import { GRADER_CATALOG, MAX_SCORE_COMMENT_CHARS } from "@contexts/evaluation/application/index";
@@ -34,7 +35,7 @@ function trustedTarget(url: URL): boolean {
  * the `langfuse-web` service, loopback or https; any other host needs LANGFUSE_ALLOW_EXTERNAL=true. A rejected address leaves the
  * sink unconfigured with a warning (it never stops the boot, and the keys are never sent).
  */
-export function resolveLangfuseConfig(env: Record<string, string | undefined>, warn: (message: string) => void = (m) => console.warn(m)): LangfuseConfig | undefined {
+export function resolveLangfuseConfig(env: Record<string, string | undefined>, warn: (message: string) => void = (m) => appLogger.warn(m)): LangfuseConfig | undefined {
   const baseUrl = env.LANGFUSE_BASE_URL?.trim();
   const publicKey = env.LANGFUSE_PUBLIC_KEY?.trim();
   const secretKey = env.LANGFUSE_SECRET_KEY?.trim();
@@ -153,7 +154,7 @@ export class LangfuseScoreSink implements ScoreSinkPort {
     this.fetchImpl = deps.fetch ?? fetch;
     this.now = deps.now ?? (() => new Date().toISOString());
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    this.log = deps.log ?? ((m: string) => console.error(m));
+    this.log = deps.log ?? ((m: string) => appLogger.error(m));
     this.auth = `Basic ${Buffer.from(`${deps.config.publicKey}:${deps.config.secretKey}`).toString("base64")}`;
   }
 

@@ -1,3 +1,4 @@
+import { appLogger } from "../integrations/redacting-logger";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -92,7 +93,7 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
     try {
       listed = await this.listCaps(directory);
     } catch (err) {
-      console.warn(`[qa] step limits for ${directory} are unavailable (${err instanceof Error ? err.message : String(err)}); no prompt states a limit`);
+      appLogger.warn(`[qa] step limits for ${directory} are unavailable (${err instanceof Error ? err.message : String(err)}); no prompt states a limit`);
       return {};
     }
     const capOf = new Map<string, unknown>(listed.map(({ name, cap }) => [name, cap]));
@@ -100,7 +101,7 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
     for (const role of AGENT_ROLES) {
       const agent = AGENT_NAME_FOR_ROLE[role];
       const limit = enforcedStepLimit(capOf.get(agent));
-      if (limit === undefined) console.warn(noLimitWarning(role, agent, capOf));
+      if (limit === undefined) appLogger.warn(noLimitWarning(role, agent, capOf));
       else limits[role] = limit;
   /* mutation-scope:end step-limit-read */
     }

@@ -4,6 +4,7 @@
 
    Run id. Taken from the span's own `qayaba.run.id` attribute at start, else inherited from the parent's row, and re-checked at end (an attribute set late). */
 
+import { appLogger } from "../integrations/redacting-logger";
 import type { Context } from "@opentelemetry/api";
 import { SpanStatusCode } from "@opentelemetry/api";
 import type { ReadableSpan, Span, SpanProcessor } from "@opentelemetry/sdk-trace-base";
@@ -208,6 +209,6 @@ export class LedgerSpanProcessor implements SpanProcessor {
   private countFault(error: unknown): void {
     this.writeErrors += 1;
     this.lastWriteOk = false;
-    console.error(`[telemetry] span ledger write failed: ${error instanceof Error ? error.message : String(error)}`);
+    appLogger.error(`[telemetry] span ledger write failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

@@ -1,4 +1,5 @@
 
+import { appLogger } from "../integrations/redacting-logger";
 import { PendingChangeSets } from "./pending-change-sets";
 import type { IncomingMessage } from "node:http";
 import { join } from "node:path";
@@ -102,7 +103,7 @@ export interface WiredApp {
 export function wireApp(settingsStore: SettingsStore): WiredApp {
   /* Every value below comes from the typed settings (docs/settings.md). The store reloads them after the onboarding surface applies variables to the live environment. */
   const settings = settingsStore.current();
-  for (const warning of settings.warnings) console.warn(warning);
+  for (const warning of settings.warnings) appLogger.warn(warning);
 
   const SELF_REPO = settings.server.selfRepo;
   const ROOT = qayabaRoot();
@@ -118,7 +119,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
   /* Process-wide host health (suspends, blocked loops, sandbox zombies): runs with no run active and is stopped on shutdown. Fail-open and unref'd. */
   const sandboxIdentity = resolveSandbox(settings.environment);
   const queue = new JobQueue((e) => {
-    console.error("[qa] run failed:", e);
+    appLogger.error("[qa] run failed:", { error: e });
     /*
      * Incidents are recorded by the runner (with infra-vs-code classification).
      * This handler only fires for truly unhandled rejections that escape the job's
@@ -217,7 +218,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
    */
   const ALLOW_UNSIGNED_WEBHOOK = settings.webhook.allowUnsigned;
   if (!secret && !ALLOW_UNSIGNED_WEBHOOK) {
-    console.warn(
+    appLogger.warn(
       "[qa] CRITICAL: WEBHOOK_SECRET is not set — webhook POSTs will be REJECTED. " +
         "Set WEBHOOK_SECRET, or set WEBHOOK_ALLOW_UNSIGNED=true to accept unsigned webhooks (local only).",
     );
@@ -234,11 +235,11 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
     drainMs: settings.server.drainMs,
     telemetryShutdownMs: TELEMETRY_SHUTDOWN_TIMEOUT_MS,
     exit: (code) => process.exit(code),
-    log: (message) => console.log(message),
+    log: (message) => appLogger.info(message),
   });
   installUnhandledRejectionRecorder(
     (summary) => recordIncident({ source: "qa-author", severity: "error", summary }),
-    (message) => console.error(message),
+    (message) => appLogger.error(message),
   );
   const agentRuntime = createAgentRuntimeManager({
     env: settings.environment,
@@ -368,7 +369,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
   /* One path for the control API and the webhook; the trigger is what tells their runs apart in the trace. */
   function enqueueRunFrom(trigger: "api" | "webhook", request: ApiRunRequest): string {
     if (lifecycle.shuttingDown()) {
-      console.warn(`[qa] rejecting run ${request.app}@${request.sha} — shutting down`);
+      appLogger.warn(`[qa] rejecting run ${request.app}@${request.sha} — shutting down`);
       return "";
     }
 
@@ -397,7 +398,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
         recordIncident({ source: "health-check", severity: "warn", summary: `cleaned up ${cleaned} orphaned OpenCode session(s)` });
       }
     } catch (err) {
-      console.warn(`[qa] orphan session cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
+      appLogger.warn(`[qa] orphan session cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -426,7 +427,7 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
     try {
       counts = getHistory().runs.runVerdictCounts();
     } catch (err) {
-      console.warn(`[qa] metrics: verdict counts unavailable: ${err instanceof Error ? err.message : String(err)}`);
+      appLogger.warn(`[qa] metrics: verdict counts unavailable: ${err instanceof Error ? err.message : String(err)}`);
     }
     lines.push(`# HELP qayaba_runs_total Completed runs by verdict`);
     lines.push(`# TYPE qayaba_runs_total counter`);

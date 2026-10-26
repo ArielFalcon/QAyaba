@@ -1,5 +1,6 @@
 /* What a route hands back, and the one place it becomes a response. */
 
+import { appLogger } from "../../integrations/redacting-logger";
 import type { ServerResponse } from "node:http";
 import type { z } from "zod";
 import { json } from "../helpers";
@@ -35,7 +36,7 @@ export function sendResult(res: ServerResponse, result: ApiResult): void {
       const checked = result.schema.safeParse(result.body);
       if (!checked.success) {
         /* Surface the drift loudly (AGENTS.md invariant): a silent 500 hides a real schema mismatch between the route and the contract. */
-        console.error("[contract] response validation failed:", checked.error.issues);
+        appLogger.error("[contract] response validation failed:", { issues: checked.error.issues });
         respondError(res, new ApiError(500, "contract response validation failed"));
         return;
       }

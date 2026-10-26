@@ -8,6 +8,7 @@
  * regrade replaces a series); `qayaba.eval.class` counts grading events, so a regrade counts its class once more.
  */
 
+import { appLogger } from "../integrations/redacting-logger";
 import type { ScoreSinkPort } from "@contexts/evaluation/application/index.ts";
 import { COVERAGE_CLASSES } from "@contexts/evaluation/application/index";
 import type { Score } from "@contexts/evaluation/application/index";
@@ -36,7 +37,7 @@ export class ScoreMetricsSink implements ScoreSinkPort {
   private readonly log: (message: string) => void;
 
   constructor(private readonly deps: ScoreMetricsSinkDeps) {
-    this.log = deps.log ?? ((m: string) => console.error(m));
+    this.log = deps.log ?? ((m: string) => appLogger.error(m));
   }
 
   emit(runId: string, scores: readonly Score[]): void {
@@ -71,7 +72,7 @@ export class ScoreMetricsSink implements ScoreSinkPort {
 }
 
 /* Fans one emission out to every sink, isolating a failing one so the others still see it. */
-export function composeScoreSinks(sinks: readonly ScoreSinkPort[], log: (message: string) => void = (m) => console.error(m)): ScoreSinkPort {
+export function composeScoreSinks(sinks: readonly ScoreSinkPort[], log: (message: string) => void = (m) => appLogger.error(m)): ScoreSinkPort {
   return {
     async emit(runId, scores, at): Promise<void> {
       for (const sink of sinks) {

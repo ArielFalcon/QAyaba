@@ -4,6 +4,7 @@
  * control-plane wrappers. Domain/policy lives in qa-engine.
  */
 
+import { appLogger } from "./redacting-logger";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Agent as OpenCodeAgent } from "@opencode-ai/sdk/v2";
@@ -131,7 +132,7 @@ const agentsConfigCache = new Map<string, AgentsConfigEntry>();
 const agentsConfigStatFailures = new Map<string, string>();
 
 function reportAgentsConfigProblem(configPath: string, problem: string): void {
-  console.error(`[qa] agent config ${configPath}: ${problem}`);
+  appLogger.error(`[qa] agent config ${configPath}: ${problem}`);
 }
 
 function readAgentsConfigEntry(configPath: string): AgentsConfigEntry | null {
@@ -464,7 +465,7 @@ export async function askAssistant(
     ].join("\n"), { textOnly: true });
   } finally {
     await session.dispose().catch((err) => {
-      console.warn(`[qa] session dispose failed: ${err instanceof Error ? err.message : String(err)}`);
+      appLogger.warn(`[qa] session dispose failed: ${err instanceof Error ? err.message : String(err)}`);
     });
   }
 }

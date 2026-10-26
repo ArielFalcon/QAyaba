@@ -10,6 +10,7 @@
  *    experimental) is information for a reader of the catalog, never an input to any gate.
  */
 
+import { appLogger } from "../integrations/redacting-logger";
 import type { CalibrationStorePort, JudgeRegradePort } from "@contexts/evaluation/application/index.ts";
 import type { JudgeBatchResult, JudgeWorkItem, RunJudgesUseCase } from "@contexts/evaluation/application/index";
 import { JUDGE_NAMES, type JudgeName, type JudgeStatus } from "@contexts/evaluation/application/index";
@@ -46,7 +47,7 @@ export interface JudgeService extends JudgeRegradePort {
 const key = (item: JudgeWorkItem): string => `${item.runId}\u0000${item.judge}`;
 
 export function createJudgeService(deps: JudgeServiceDeps): JudgeService {
-  const log = deps.log ?? ((m: string) => console.error(m));
+  const log = deps.log ?? ((m: string) => appLogger.error(m));
   /* What waits for the idle job: one entry per (run, judge), forced when anyone asked for it by name. */
   const pending = new Map<string, JudgeWorkItem & { force: boolean }>();
   let jobQueued = false;

@@ -18,6 +18,7 @@
  *   tsx src/server/file-boundary-check.ts            the check (root)
  */
 
+import { appLogger } from "../integrations/redacting-logger";
 import { spawnSync, type SpawnSyncOptions } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { chmodSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -96,10 +97,10 @@ function main(): number {
   }
   writeStatus(statusFile, formatFileBoundaryStatus(verdict));
   if (verdict.holds) {
-    console.error("[qa] file-boundary: the sandbox uid reaches none of the orchestrator's secrets, code or config");
+    appLogger.error("[qa] file-boundary: the sandbox uid reaches none of the orchestrator's secrets, code or config");
     return 0;
   }
-  console.error(`[qa] file-boundary: the boundary does NOT hold on this host: ${verdict.exposures.join("; ")}`);
+  appLogger.error(`[qa] file-boundary: the boundary does NOT hold on this host: ${verdict.exposures.join("; ")}`);
   return 1;
 }
 

@@ -1,5 +1,6 @@
 /* The composition root's wiring of the egress filter: which origins a run's children may reach, and the one process-wide controller that enforces them. The origins are data (the app's config and config/egress/registries.yaml); the controller is built once per process, because the proxy listeners and the kernel rules it brings up belong to the process, not to a run. */
 
+import { appLogger } from "../integrations/redacting-logger";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
@@ -38,7 +39,7 @@ export function loadRegistryGroups(root: string, read: (path: string) => string 
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     if (!warnedNoRegistries) {
       warnedNoRegistries = true;
-      console.warn("[qa] WARNING: config/egress/registries.yaml is missing: no package registry is reachable by an install child unless the app declares egress.installOrigins.");
+      appLogger.warn("[qa] WARNING: config/egress/registries.yaml is missing: no package registry is reachable by an install child unless the app declares egress.installOrigins.");
     }
     return {};
   }
@@ -99,7 +100,7 @@ export function egressGateFor(env: NodeJS.ProcessEnv, sandbox: Sandbox | null): 
     createProxy: (hooks) => new TransparentProxy({ allows: hooks.allows, declaresAddress: hooks.declaresAddress, onDenied: (host, port) => hooks.onDenied(host, port) }),
     createDns: (hooks) => new DnsFilter({ allowsName: hooks.allowsName, onDenied: (name) => hooks.onDenied(name), forward: (query) => forwardDnsQuery(query) }),
     iptables: createIptablesApplier(),
-    warn: (line) => console.warn(line),
+    warn: (line) => appLogger.warn(line),
   });
   shared = { gate, key };
   return gate;

@@ -5,6 +5,7 @@
  * never imports any of it.
  */
 
+import { appLogger } from "../integrations/redacting-logger";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { RunJudgesUseCase } from "@contexts/evaluation/application/index";
@@ -51,7 +52,7 @@ function sanitizeForJudge(text: string): string {
 export function composeJudges(opts: ComposeJudgesOptions): JudgesComposition {
   const swtch = resolveJudgeSwitch(opts.env);
   const setup = resolveJudgeSetup({ root: opts.root });
-  const log = opts.log ?? ((m: string) => console.error(m));
+  const log = opts.log ?? ((m: string) => appLogger.error(m));
   const workDir = (): string => {
     const dir = join(opts.mirrorsRoot, JUDGE_WORKDIR);
     mkdirSync(dir, { recursive: true });

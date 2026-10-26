@@ -10,6 +10,7 @@
 
    Everything is fail-open: a fault is counted, logged once, and never reaches a run or the server. Timers are unref'd so they never keep the process alive. Clocks, timers, the monitor, /proc and the telemetry port are injected, so tests need no real time. */
 
+import { appLogger } from "../integrations/redacting-logger";
 import { readdirSync, readFileSync } from "node:fs";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry";
@@ -78,7 +79,7 @@ export interface HostHealthDeps {
   /* The sandbox uid whose zombies are counted. Absent: no zombie measurement. */
   readonly sandboxUid?: number;
   readonly thresholdMs?: number;
-  /* Where the single fault line goes. Default: console.error. */
+  /* Where the single fault line goes. Default: the process logger's error level. */
   readonly log?: (line: string) => void;
 }
 
@@ -172,7 +173,7 @@ export class HostHealth {
     this.monitor = deps.monitor;
     this.proc = deps.proc ?? systemProcFs;
     this.thresholdMs = deps.thresholdMs ?? DEFAULT_THRESHOLD_MS;
-    this.log = deps.log ?? ((line) => console.error(line));
+    this.log = deps.log ?? ((line) => appLogger.error(line));
   }
 
   start(): void {

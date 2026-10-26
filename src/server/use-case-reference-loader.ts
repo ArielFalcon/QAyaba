@@ -2,6 +2,7 @@
  * The reference sets of use cases an operator labelled (`config/benchmarks/use-cases/<app>.json`), read from disk. Shared by the labelling
  * script and the evidence assembly, so both read the same files the same way.
  */
+import { appLogger } from "../integrations/redacting-logger";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseUseCaseReference, type UseCaseReference } from "@contexts/evaluation/application/index";
@@ -24,7 +25,7 @@ export function loadReferences(dir: string = USE_CASES_DIR): UseCaseReference[] 
 }
 
 /* The same read for a caller that must go on: a file that is not a reference set is logged loudly and yields none. */
-export function loadReferencesLeniently(dir: string = USE_CASES_DIR, log: (line: string) => void = (line) => console.error(line)): UseCaseReference[] {
+export function loadReferencesLeniently(dir: string = USE_CASES_DIR, log: (line: string) => void = (line) => appLogger.error(line)): UseCaseReference[] {
   return referenceFiles(dir).flatMap((n) => {
     try {
       return [parseFile(dir, n)];

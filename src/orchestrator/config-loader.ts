@@ -3,6 +3,7 @@
  * ${VARS} expand from the environment so credentials never live in the repo.
  */
 
+import { appLogger } from "../integrations/redacting-logger";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { qayabaRoot } from "../paths";
@@ -53,12 +54,12 @@ export function loadAppConfig(name: string, root = ROOT): ValidatedAppConfig {
 function logConfigSkip(file: string, err: unknown): void {
   const msg = err instanceof Error ? err.message : String(err);
   if (/unset env var/.test(msg)) {
-    console.error(
+    appLogger.error(
       `[qa] CONFIG ERROR: ${file} references an unset env var — this app will NOT be watched ` +
         `(no webhooks processed for it) until the variable is set in the environment: ${msg}`,
     );
   } else {
-    console.warn(`[qa] skipping malformed config ${file}: ${msg}`);
+    appLogger.warn(`[qa] skipping malformed config ${file}: ${msg}`);
   }
 }
 

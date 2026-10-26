@@ -4,6 +4,7 @@
  * Env reads for execution timeouts stay here. Agent remains read-only on watched repos.
  */
 
+import { appLogger } from "../integrations/redacting-logger";
 import { join } from "node:path";
 import { DELEGATIONS_DIR, qayabaDataDir, qayabaRoot } from "../paths";
 import { readFileSync, mkdirSync, writeFileSync, realpathSync, lstatSync, rmSync } from "node:fs";
@@ -448,7 +449,7 @@ export function gitChangedFiles(repoDir: string, fromSha: string, toSha: string)
     });
     return parseNameStatusZ(out);
   } catch (err) {
-    console.warn(`[qa] WARNING: the context map's commit ${fromSha.slice(0, 7)} could not be compared with ${toSha.slice(0, 7)} (${err instanceof Error ? err.message.split("\n")[0] : String(err)}); the map is not reused.`);
+    appLogger.warn(`[qa] WARNING: the context map's commit ${fromSha.slice(0, 7)} could not be compared with ${toSha.slice(0, 7)} (${err instanceof Error ? err.message.split("\n")[0] : String(err)}); the map is not reused.`);
     /* mutation-scope:begin context-map-compare-fallback */
     return undefined;
   }
@@ -508,7 +509,7 @@ async function readStepLimits(getAgentFacade: () => AgentFacade, directory: stri
   try {
     return await withTimeout(getAgentFacade().stepLimits(directory), STEP_LIMIT_READ_TIMEOUT_MS, "step limit read");
   } catch (err) {
-    console.warn(`[qa] WARNING: the step limits of ${directory} could not be read from the agent runtime (${err instanceof Error ? err.message : String(err)}); no prompt of this run states one.`);
+    appLogger.warn(`[qa] WARNING: the step limits of ${directory} could not be read from the agent runtime (${err instanceof Error ? err.message : String(err)}); no prompt of this run states one.`);
     return {};
   }
 }
@@ -526,7 +527,7 @@ async function installModelWindows(getAgentFacade: () => AgentFacade, directory:
   try {
     setLiveModelWindows(await withTimeout(facade.modelWindows(directory), STEP_LIMIT_READ_TIMEOUT_MS, "model window read"));
   } catch (err) {
-    console.warn(`[qa] WARNING: the model context windows of ${directory} could not be read from the agent runtime (${err instanceof Error ? err.message : String(err)}); this run's prompts are budgeted by the catalog.`);
+    appLogger.warn(`[qa] WARNING: the model context windows of ${directory} could not be read from the agent runtime (${err instanceof Error ? err.message : String(err)}); this run's prompts are budgeted by the catalog.`);
   }
 }
 
@@ -654,7 +655,7 @@ export function buildEngineRootDeps(
   /* The pre-generation context pack's live-DOM arm (an A/B lever): the resolved effective config already carries it, so this is always a boolean here. */
   const domPack = run.grounding?.domPack ?? app.qa.domPack ?? true;
   if (domPack === false) {
-    console.warn(`[qa] grounding.domPack is OFF for ${app.name}: the pre-generation context pack carries no live DOM. The review, pre-exec and post-failure DOM seams are independent and unchanged; the authenticated-browser alternative is available only when the app and tools grant it.`);
+    appLogger.warn(`[qa] grounding.domPack is OFF for ${app.name}: the pre-generation context pack carries no live DOM. The review, pre-exec and post-failure DOM seams are independent and unchanged; the authenticated-browser alternative is available only when the app and tools grant it.`);
   }
   /*
    * An e2e-target run without a live DEV URL cannot be composed — fail loud here, before any
@@ -762,9 +763,9 @@ export function buildEngineRootDeps(
   const contextStale = !isCode && run.mode !== "context" && !triggerService && getHistory().contexts.isContextStale(app.name);
   if (contextStale && campaignFrozen) {
     /* A campaign's queue holds only its own runs: the rebuild is left for after it, and the flag stays as the campaign found it. */
-    console.log(`[qa] context map for ${app.name} was marked stale by the process audit — skipping the stored/disk map this run; the campaign freeze requests no rebuild.`);
+    appLogger.info(`[qa] context map for ${app.name} was marked stale by the process audit — skipping the stored/disk map this run; the campaign freeze requests no rebuild.`);
   } else if (contextStale) {
-    console.log(`[qa] context map for ${app.name} was marked stale by the process audit — skipping the stored/disk map this run and requesting a rebuild.`);
+    appLogger.info(`[qa] context map for ${app.name} was marked stale by the process audit — skipping the stored/disk map this run and requesting a rebuild.`);
     contextHeal.execute(app.name, run.sha, run.runId);
   }
 
@@ -1455,7 +1456,7 @@ export function buildEngineRootDeps(
       invalidateContext: (reason) => {
         try {
           getHistory().contexts.markContextStale(app.name);
-          console.log(`[audit] marked context stale for ${app.name} — rebuilds next run (${reason})`);
+          appLogger.info(`[audit] marked context stale for ${app.name} — rebuilds next run (${reason})`);
           return true;
         } catch {
           return false; 

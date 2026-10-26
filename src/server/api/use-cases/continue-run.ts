@@ -1,5 +1,6 @@
 /* POST /runs/:id/continue: re-runs the failed cases of a finished run, with optional human guidance. */
 
+import { appLogger } from "../../../integrations/redacting-logger";
 import { z } from "zod";
 import { ContinueResultSchema } from "../../../contract/commands";
 import type { RunRecord } from "../../../types";
@@ -59,7 +60,7 @@ export function continueRun(deps: ApiDeps, { parent, failedNames }: Continuable,
   const depth = continuation.depth(parent);
   let id = "";
   if (depth >= continuation.maxDepth) {
-    console.warn(`[qa] rejecting continuation of ${parent.id}: depth ${depth} >= ${continuation.maxDepth} (max)`);
+    appLogger.warn(`[qa] rejecting continuation of ${parent.id}: depth ${depth} >= ${continuation.maxDepth} (max)`);
   } else {
     const want = new Set(cases ?? []);
     const failed = parent.cases.filter((c) => c.status === "fail" && (want.size === 0 || want.has(c.name)));

@@ -5,6 +5,7 @@
    - Attribute policy. A key outside the registry is dropped and counted. A key classed `redacted-text` or `content` is redacted through the span's bound RedactionScope (not whatever async context is active) and then the outbound sanitizer, and capped; `content` keys leave only in `full` capture, text keys never in `off`. Status descriptions and exception messages are text too; a stack trace is never recorded. If redaction itself fails, the attribute is dropped, never sent raw.
    - Totality. No method throws into the caller: a fault is counted and swallowed, and a callback given to withSpan/withParent always runs. Only the callback's own exception propagates. */
 
+import { appLogger } from "../integrations/redacting-logger";
 import {
   ROOT_CONTEXT,
   SpanKind as OtelSpanKind,
@@ -332,7 +333,7 @@ export class OtelTelemetry implements TelemetryPort {
   fault(where: string, error: unknown): void {
     this.faults += 1;
     if (this.faults <= MAX_FAULT_LOGS) {
-      console.error(`[telemetry] ${where} failed: ${error instanceof Error ? error.message : String(error)}`);
+      appLogger.error(`[telemetry] ${where} failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

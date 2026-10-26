@@ -1,5 +1,6 @@
 /* Routes about runs: launch, read, list, cancel, stream events, agent turns, continue, ask. */
 
+import { appLogger } from "../../../integrations/redacting-logger";
 import { z } from "zod";
 import { AgentTurnViewSchema, RunDetailSchema, RunRecordSchema } from "../../../contract/commands";
 import { RunEventSchema, type RunEvent } from "../../../contract/events";
@@ -106,7 +107,7 @@ function sseWrite(res: ServerResponse, event: unknown): void {
   if (res.writableEnded) return;
   const result = RunEventSchema.safeParse(event);
   if (!result.success) {
-    console.error("[sse] dropped malformed RunEvent:", result.error.issues);
+    appLogger.error("[sse] dropped malformed RunEvent:", { issues: result.error.issues });
     return;
   }
   const parsed = result.data;

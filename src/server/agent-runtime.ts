@@ -1,3 +1,4 @@
+import { appLogger } from "../integrations/redacting-logger";
 import { defaultEnvStoreFs, applyEnvVars, type EnvStoreFs } from "./env-store";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import {
@@ -151,7 +152,7 @@ export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions
 
 /* Warnings leave the config usable: operators see them in the log and in the public config's validation. */
 export function logAgentConfigWarnings(warnings: readonly string[]): void {
-  for (const warning of warnings) console.warn(`[qa] agent runtime: ${warning}`);
+  for (const warning of warnings) appLogger.warn(`[qa] agent runtime: ${warning}`);
 }
 
 async function validateAssignedModels(

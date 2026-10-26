@@ -7,6 +7,7 @@
  * invisible to the TUI/continue/chat).
  */
 
+import { appLogger } from "../integrations/redacting-logger";
 import { JobQueue } from "./queue";
 import { loadAppConfig, AppConfig } from "../orchestrator/config-loader";
 import { assertUniformCapture } from "./campaign-capture";
@@ -146,7 +147,7 @@ function buildRunObserver(runId: string, runEvents: RunEventStore | undefined, l
         getHistory().runs.updateRecord(runId, { step, stepDetail: detail ?? null, retrying: step === "retry" });
         runEvents?.publish(runId, { type: "step.changed", step, detail });
       } catch (err) {
-        console.error("[qa] observer onStep failed (non-fatal, run continues):", err);
+        appLogger.error("[qa] observer onStep failed (non-fatal, run continues):", { error: err });
       }
     },
     onEvent(body: RunEventBody): void {
@@ -161,7 +162,7 @@ function buildRunObserver(runId: string, runEvents: RunEventStore | undefined, l
         }
         runEvents?.publish(runId, body);
       } catch (err) {
-        console.error("[qa] observer onEvent failed (non-fatal, run continues):", err);
+        appLogger.error("[qa] observer onEvent failed (non-fatal, run continues):", { error: err });
       }
     },
   };
@@ -205,7 +206,7 @@ function specCountsForTrace(runId: string, furthestPhase: string | null): RunFac
     if (!current) return undefined;
     return specCountsOf(current, getHistory().runs.listSpecSnapshots(runId), furthestPhase);
   } catch (err) {
-    console.error(`[qa] the spec counts of run ${runId} could not be read for its trace (the run is unaffected): ${err instanceof Error ? err.message : String(err)}`);
+    appLogger.error(`[qa] the spec counts of run ${runId} could not be read for its trace (the run is unaffected): ${err instanceof Error ? err.message : String(err)}`);
     return undefined;
   }
 }
@@ -329,9 +330,9 @@ function enqueueLoginBootstrapFirst(queue: JobQueue, req: RunRequest, deps: Runn
     const app = (deps.loadApp ?? loadAppConfig)(req.app);
     if (app.code === true || app.auth === undefined || holds(req.app)) return;
     const id = enqueueLoginBootstrapRun(queue, req.app, req.sha, deps);
-    console.log(`[qa] login bootstrap: ${req.app} declares a login and its suite store holds no verified one; queued ${id} ahead of this ${req.mode} run at ${req.sha.slice(0, 7)} (once per process; ask POST /api/apps/${req.app}/login-bootstrap to repeat it)`);
+    appLogger.info(`[qa] login bootstrap: ${req.app} declares a login and its suite store holds no verified one; queued ${id} ahead of this ${req.mode} run at ${req.sha.slice(0, 7)} (once per process; ask POST /api/apps/${req.app}/login-bootstrap to repeat it)`);
   } catch (err) {
-    console.warn(`[qa] login bootstrap for ${req.app} not queued (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
+    appLogger.warn(`[qa] login bootstrap for ${req.app} not queued (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -393,7 +394,7 @@ function coalesceInto(req: RunRequest, declared: DeclaredRepos, deps: RunnerDeps
   const runId = deps.pendingChangeSets!.offer(req, declared, (id) => getHistory().runs.getRecord(id)?.status === "enqueued");
   if (!runId) return undefined;
   const repo = req.triggerRepo ?? declared.primary;
-  console.log(`[qa] coalesced ${repo}@${req.sha} into ${runId}`);
+  appLogger.info(`[qa] coalesced ${repo}@${req.sha} into ${runId}`);
   const set = deps.pendingChangeSets!.joinedSet(runId);
   if (set) getHistory().runs.updateRecord(runId, { changeSet: set.entries.map(recordedEntry) });
   deps.runEvents?.publish(runId, { type: "log.line", level: "info", text: `${repo}@${req.sha} joined this run before it started` });
@@ -431,7 +432,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
     ...(req.campaign ? { campaign: req.campaign } : {}),
     captureMode,
   });
-  console.log(`[qa] enqueued ${req.app}@${req.sha} mode=${req.mode}${req.parentRunId ? ` (continue of ${req.parentRunId})` : ""} (${where})`);
+  appLogger.info(`[qa] enqueued ${req.app}@${req.sha} mode=${req.mode}${req.parentRunId ? ` (continue of ${req.parentRunId})` : ""} (${where})`);
 
   /* The trace of the run: a short span here, in the caller's context, and a root of its own when the queue hands the run its turn (run-trace.ts). */
   const telemetry = guardTelemetry(deps.telemetry ?? new NoopTelemetry());
@@ -461,11 +462,11 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
        * (status "done"). Skip it — do NOT resurrect a cancelled run into execution.
        */
       if (getHistory().runs.getRecord(record.id)?.status === "done") {
-        console.log(`[qa] skipping ${req.app}@${req.sha} — cancelled before it started`);
+        appLogger.info(`[qa] skipping ${req.app}@${req.sha} — cancelled before it started`);
         /* The pushes that joined it were acknowledged into this run; the cancel drops them with it, and says which. */
         if (joined) {
           const pushes = joined.entries.map((e) => `${e.repo}@${e.headSha.toString()}`).join(", ");
-          console.log(`[qa] cancelled run ${record.id} drops the pushes that joined it: ${pushes}`);
+          appLogger.info(`[qa] cancelled run ${record.id} drops the pushes that joined it: ${pushes}`);
         }
         cancelledTrace(record.id, trace);
         return;
@@ -495,11 +496,11 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
          */
         if (!parkLogged) {
           parkLogged = true;
-          console.log(`[qa] run parked: onboarding job active — waiting before mirror work (${req.app}@${req.sha})`);
+          appLogger.info(`[qa] run parked: onboarding job active — waiting before mirror work (${req.app}@${req.sha})`);
         }
         if (signal.aborted) break;  /* an operator cancel during the wait — handled below */
         if (Date.now() - waitStart > onboardingWaitMaxMs) {
-          console.warn(
+          appLogger.warn(
             `[qa] onboarding still active after ${onboardingWaitMaxMs}ms — proceeding anyway to avoid starving the QA pipeline (${req.app}@${req.sha})`,
           );
           break;
@@ -512,14 +513,14 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
          * cancelTrackedRun already finalized the record (status "done", verdict "infra-error") the
          * moment it aborted this signal — this is a NO-OP guard, not a second finalize.
          */
-        console.log(`[qa] skipping ${req.app}@${req.sha} — cancelled while waiting for onboarding to clear`);
+        appLogger.info(`[qa] skipping ${req.app}@${req.sha} — cancelled while waiting for onboarding to clear`);
         cancelledTrace(record.id, trace);
         return;
       }
 
       await rebuildContextMapFirst(req, record.id, deps, signal);
       if (signal.aborted) {
-        console.log(`[qa] skipping ${req.app}@${req.sha} — cancelled while its context map was rebuilt`);
+        appLogger.info(`[qa] skipping ${req.app}@${req.sha} — cancelled while its context map was rebuilt`);
         cancelledTrace(record.id, trace);
         return;
       }
@@ -578,7 +579,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
       );
 
       if (getHistory().runs.getRecord(record.id)?.status === "done") {
-        console.log(`[qa] discarding stale late resolution for ${req.app}@${req.sha} — record already finalized (cancelled)`);
+        appLogger.info(`[qa] discarding stale late resolution for ${req.app}@${req.sha} — record already finalized (cancelled)`);
         cancelledTrace(record.id, trace);
         return;
       }
@@ -621,11 +622,11 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
       /* After the record is written, so the trace never says more than the record does (a throw above lands in the catch, which overrides). */
       const specs = specCountsForTrace(record.id, run.facts.furthestPhase ?? null);
       trace.finished(specs ? { ...run.facts, specs } : run.facts);
-      console.log(`[qa] run finished ${req.app}@${req.sha}: verdict=${run.verdict}`);
+      appLogger.info(`[qa] run finished ${req.app}@${req.sha}: verdict=${run.verdict}`);
     } catch (err) {
 
       if (getHistory().runs.getRecord(record.id)?.status === "done") {
-        console.log(`[qa] discarding post-cancel crash for ${req.app}@${req.sha} — record already finalized`);
+        appLogger.info(`[qa] discarding post-cancel crash for ${req.app}@${req.sha} — record already finalized`);
         cancelledTrace(record.id, trace);
         return;
       }
@@ -676,7 +677,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
       getHistory().runs.updateRecord(record.id, { status: "done", step: "done", verdict: "infra-error", note, phases, facts: { traceId: trace.traceId() } });
       deps.runEvents?.publish(record.id, { type: "agent.error", detail: note });
       deps.runEvents?.publish(record.id, { type: "run.verdict", verdict: "infra-error", engineStatus: engineStatus("infra-error") });
-      console.error(`[qa] run ${refusal ? "REFUSED (security refusal: untrusted git tree)" : infra ? "infra-error" : "CRASHED (internal error)"} ${req.app}@${req.sha}: ${msg}`);
+      appLogger.error(`[qa] run ${refusal ? "REFUSED (security refusal: untrusted git tree)" : infra ? "infra-error" : "CRASHED (internal error)"} ${req.app}@${req.sha}: ${msg}`);
       /* The outcome row is what the graders and the value report read: it carries the same class the trace root and the metric just did. */
       getHistory().learning.saveCrashedRunOutcome(record, errorClass);
 
@@ -722,13 +723,13 @@ async function rebuildContextMapFirst(req: RunRequest, runId: string, deps: Runn
   try {
     if (!(await needs(req.app, req.sha))) return;
   } catch (err) {
-    console.warn(`[qa] context map for ${req.app} not checked against ${req.sha.slice(0, 7)} (the run goes on with the stored map): ${err instanceof Error ? err.message : String(err)}`);
+    appLogger.warn(`[qa] context map for ${req.app} not checked against ${req.sha.slice(0, 7)} (the run goes on with the stored map): ${err instanceof Error ? err.message : String(err)}`);
     return;
   }
   contextMapRebuilt.add(key);
   /* The run it serves holds the queue and has made no data yet: it is not an interrupted run to clean up after (previousNamespace ""). */
   const rebuild = trackRun({ app: req.app, sha: req.sha, target: "e2e", mode: "context", source: "manual", trigger: "context", parentRunId: runId, previousNamespace: "" }, deps, capCaptureMode(req.captureMode, (deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENV).maxCapture), `before ${runId}`, true);
-  console.log(`[qa] context map for ${req.app} does not describe ${req.sha.slice(0, 7)}: rebuilding it in ${rebuild.id} before ${runId}`);
+  appLogger.info(`[qa] context map for ${req.app} does not describe ${req.sha.slice(0, 7)}: rebuilding it in ${rebuild.id} before ${runId}`);
   await rebuild.execute(signal);
 }
 
@@ -743,7 +744,7 @@ function recordRunConfig(runId: string, app: AppConfig, req: RunRequest, capture
     trace.configInEffect(configInEffect(config));
     return config;
   } catch (err) {
-    console.error(`[qa] the effective configuration of run ${runId} could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+    appLogger.error(`[qa] the effective configuration of run ${runId} could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
     return undefined;
   }
 }
@@ -755,7 +756,7 @@ function cancelledTrace(runId: string, trace: RunTrace): void {
     const traceId = trace.traceId();
     if (traceId !== null) getHistory().runs.updateRecord(runId, { facts: { traceId } });
   } catch (err) {
-    console.error(`[qa] the trace id of cancelled run ${runId} could not be stored: ${err instanceof Error ? err.message : String(err)}`);
+    appLogger.error(`[qa] the trace id of cancelled run ${runId} could not be stored: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -764,10 +765,10 @@ function notifyRunFinished(deps: Pick<RunnerDeps, "afterRun">, runId: string): v
   try {
     const pending = deps.afterRun?.(runId);
     if (pending && typeof pending.catch === "function") {
-      pending.catch((err: unknown) => console.error(`[qa] post-run hook failed for ${runId} (the run is unaffected): ${err instanceof Error ? err.message : String(err)}`));
+      pending.catch((err: unknown) => appLogger.error(`[qa] post-run hook failed for ${runId} (the run is unaffected): ${err instanceof Error ? err.message : String(err)}`));
     }
   } catch (err) {
-    console.error(`[qa] post-run hook failed for ${runId} (the run is unaffected): ${err instanceof Error ? err.message : String(err)}`);
+    appLogger.error(`[qa] post-run hook failed for ${runId} (the run is unaffected): ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -830,10 +831,10 @@ function finalizeUnfinished(id: string, note: string, deps: Pick<RunnerDeps, "ru
 export function finalizeInterruptedRuns(deps: Pick<RunnerDeps, "runEvents" | "afterRun"> = {}): void {
   const zombies = getHistory().runs.interruptedRecords();
   if (zombies.length === 0) {
-    console.log("[qa] no interrupted runs from previous process — queue is clean");
+    appLogger.info("[qa] no interrupted runs from previous process — queue is clean");
     return;
   }
-  console.log(`[qa] recovering ${zombies.length} interrupted run(s) from previous process...`);
+  appLogger.info(`[qa] recovering ${zombies.length} interrupted run(s) from previous process...`);
   for (const r of zombies) {
     finalizeUnfinished(r.id, "process restarted — run was interrupted", deps, false);
     recordIncident({
@@ -842,7 +843,7 @@ export function finalizeInterruptedRuns(deps: Pick<RunnerDeps, "runEvents" | "af
       summary: `run ${r.id} (${r.app}@${r.sha.slice(0, 7)}) was interrupted by process restart`,
       detail: `Previous status: ${r.status}, step: ${r.step ?? "unknown"}`,
     });
-    console.log(`[qa]   finalized ${r.id} (${r.app}@${r.sha.slice(0, 7)}) as infra-error`);
+    appLogger.info(`[qa]   finalized ${r.id} (${r.app}@${r.sha.slice(0, 7)}) as infra-error`);
   }
-  console.log(`[qa] recovery complete — ${zombies.length} run(s) marked as infra-error`);
+  appLogger.info(`[qa] recovery complete — ${zombies.length} run(s) marked as infra-error`);
 }

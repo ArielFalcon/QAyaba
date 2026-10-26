@@ -1,5 +1,6 @@
 /* Who hears what the host did to the process. HostHealth notifies every registered listener; the active run's root span registers itself for the length of the run (RunTrace), and the active agent-turn span can do the same. A set, not a single slot, so the run and a turn hear the same event. A listener that throws never silences the others and never reaches the notifier. */
 
+import { appLogger } from "../integrations/redacting-logger";
 import type { SpanHandle } from "@kernel/telemetry/telemetry.port";
 
 export interface HostEventListener {
@@ -30,7 +31,7 @@ export class HostListeners {
       try {
         fn(listener);
       } catch (error) {
-        console.error(`[host-health] a listener failed and was skipped: ${error instanceof Error ? error.message : String(error)}`);
+        appLogger.error(`[host-health] a listener failed and was skipped: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }

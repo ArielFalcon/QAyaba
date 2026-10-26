@@ -5,6 +5,7 @@
  * FileCoordinationTelemetryAdapter holds the same records in-process, but only the file survives
  * process restarts, so the dashboard reads the file.
  */
+import { appLogger } from "../integrations/redacting-logger";
 import { openSync, fstatSync, readSync, closeSync } from "node:fs";
 import { resolveCoordinationTelemetryPath } from "./run-engine-factory";
 import type { CoordinationEvent, CoordinationEventsView, CoordinationSignals } from "../contract/commands";
@@ -170,7 +171,7 @@ export function readCoordinationLedger(
     return readLedgerTail(path, filter, fsDeps);
   } catch (err) {
     if (isEnoent(err)) return { events: [], truncated: false };  /* absent file on first boot — normal cold start, not an error */
-    console.error(`[qa] coordination ledger read failed (path=${path}): ${err instanceof Error ? err.message : String(err)}`);
+    appLogger.error(`[qa] coordination ledger read failed (path=${path}): ${err instanceof Error ? err.message : String(err)}`);
     throw err;  /* surface integration errors loudly — never fabricate an empty ledger over a real fault */
   }
 }

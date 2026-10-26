@@ -1,5 +1,6 @@
 /* Routes about the service itself: liveness, telemetry health, the version handshake and the queue. */
 
+import { appLogger } from "../../../integrations/redacting-logger";
 import { QueueStatusSchema, TelemetryHealthSchema, VersionInfoSchema, type TelemetryHealthView } from "../../../contract/commands";
 import type { TelemetryBackendsHealth } from "../../../telemetry/telemetry-health";
 import { getOpenSessionCount } from "../../../integrations/opencode-client";
@@ -38,13 +39,13 @@ export async function telemetryHealth(ctx: ApiContext): Promise<ApiResult> {
   try {
     host = deps.hostHealth?.();
   } catch (err) {
-    console.error(`[api] host health unavailable: ${err instanceof Error ? err.message : String(err)}`);
+    appLogger.error(`[api] host health unavailable: ${err instanceof Error ? err.message : String(err)}`);
   }
   let backends: TelemetryBackendsHealth | undefined;
   try {
     backends = await deps.backendHealth?.get();
   } catch (err) {
-    console.error(`[api] backend health unavailable: ${err instanceof Error ? err.message : String(err)}`);
+    appLogger.error(`[api] backend health unavailable: ${err instanceof Error ? err.message : String(err)}`);
   }
   return reply.contract(200, TelemetryHealthSchema, { schemaVersion: 1, ...deps.telemetryHealth(), ...(backends ? { backends } : {}), ...(host ? { host } : {}) });
 }

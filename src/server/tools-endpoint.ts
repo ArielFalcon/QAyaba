@@ -11,6 +11,7 @@
  * Pure handler plus a thin Node wrapper; the handler never throws and never says what went wrong inside.
  */
 
+import { appLogger } from "../integrations/redacting-logger";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import os from "node:os";
@@ -271,7 +272,7 @@ async function handleGeolocationRequest(request: ToolsRequest, deps: ToolsHandle
     if (response.ok) return { status: 200, body: response };
     return { status: GEOLOCATION_REFUSAL_STATUS[response.code], body: response };
   } catch (err) {
-    console.error(`[qa] the authoring location failed in the orchestrator: ${err instanceof Error ? err.message : String(err)}`);
+    appLogger.error(`[qa] the authoring location failed in the orchestrator: ${err instanceof Error ? err.message : String(err)}`);
     return { status: 500, body: { ok: false, code: "internal", message: "the authoring location failed in the orchestrator" } };
   }
 }
@@ -300,7 +301,7 @@ async function handleCodeGraphRequest(request: ToolsRequest, deps: ToolsHandlerD
     if (response.ok) return { status: 200, body: response };
     return { status: CODE_GRAPH_REFUSAL_STATUS[response.code], body: response };
   } catch (err) {
-    console.error(`[qa] the code graph failed in the orchestrator: ${err instanceof Error ? err.message : String(err)}`);
+    appLogger.error(`[qa] the code graph failed in the orchestrator: ${err instanceof Error ? err.message : String(err)}`);
     return { status: 500, body: { ok: false, code: "internal", message: "the code graph failed in the orchestrator" } };
   }
 }
@@ -316,7 +317,7 @@ async function handleBrowserRequest(request: ToolsRequest, deps: ToolsHandlerDep
     if (response.ok) return { status: 200, body: response };
     return { status: BROWSER_REFUSAL_STATUS[response.code], body: response };
   } catch (err) {
-    console.error(`[qa] the authenticated browser failed in the orchestrator: ${err instanceof Error ? err.message : String(err)}`);
+    appLogger.error(`[qa] the authenticated browser failed in the orchestrator: ${err instanceof Error ? err.message : String(err)}`);
     return { status: 500, body: { ok: false, code: "internal", message: "the authenticated browser failed in the orchestrator" } };
   }
 }
@@ -345,7 +346,7 @@ export async function handleToolsRequest(request: ToolsRequest, deps: ToolsHandl
     if (response.ok) return { status: 200, body: response };
     return { status: REFUSAL_STATUS[response.code], body: response };
   } catch (err) {
-    console.error(`[qa] run_spec failed in the orchestrator: ${err instanceof Error ? err.message : String(err)}`);
+    appLogger.error(`[qa] run_spec failed in the orchestrator: ${err instanceof Error ? err.message : String(err)}`);
     return { status: 500, body: { ok: false, code: "internal", message: "run_spec failed in the orchestrator" } };
   }
 }

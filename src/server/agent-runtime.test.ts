@@ -209,7 +209,7 @@ test("applyConfig accepts a shared reviewer model and logs the warning once", as
     assert.equal(result.config.validation.warnings?.length, 1);
     const lines = warn.mock.calls.map((c) => String(c.arguments[0])).filter((l) => l.includes("independent judgment"));
     assert.equal(lines.length, 1);
-    assert.match(lines[0]!, /^\[qa\] /);
+    assert.match((JSON.parse(lines[0]!) as { m: string }).m, /^\[qa\] /);
   } finally {
     warn.mock.restore();
   }
