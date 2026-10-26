@@ -94,6 +94,8 @@ test("isProtectedPath protects the engine root that wires every context's builde
   assert.equal(isProtectedPath("qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication.ts"), true);
   assert.equal(isProtectedPath("qa-engine/src/contexts/agent-tools/composition/build-agent-tools.ts"), true);
   assert.equal(isProtectedPath("qa-engine/src/contexts/app-catalog/composition/build-app-catalog.ts"), true);
+  assert.equal(isProtectedPath("qa-engine/src/contexts/workspace-and-publication/domain/publish-policy.ts"), true);
+  assert.equal(isProtectedPath("qa-engine/src/contexts/workspace-and-publication/application/publish-workspace.use-case.ts"), true);
   assert.equal(isProtectedPath("qa-engine/src/contexts/run-orchestration/composition/build-run-orchestration.ts"), true);
 });
 

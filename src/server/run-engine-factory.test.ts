@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appSuiteStoreDir, createRunEngineFactory, engineAgentDeps, buildEngineRootDeps, buildVcsPublish, resolveCodeSandbox, type ContextHealRunRequest } from "./run-engine-factory";
+import { appSuiteStoreDir, createRunEngineFactory, engineAgentDeps, buildEngineRootDeps, resolveCodeSandbox, type ContextHealRunRequest, publishWiring } from "./run-engine-factory";
 import { AppConfig } from "../orchestrator/config-loader";
 import { CodeGraphToolRegistry } from "@contexts/agent-tools/infrastructure/code-graph-tool-registry";
 import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-infrastructure/redaction/run-secret-redaction";
@@ -52,6 +52,14 @@ import {
 import { setAgentsConfigPath as setCatalogAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { rosterFixturePath } from "../integrations/fixtures/opencode-roster";
 import { setAgentsConfigPath } from "../integrations/opencode-client";
+import { buildPublishWorkspace } from "../../qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication";
+import type { RunMode } from "@kernel/run-mode";
+
+/* The publish step of a run as the engine wires it: the context's policy over the shell's git wiring. */
+function publishStep(isCode: boolean, mode: RunMode, git?: (args: string[], cwd?: string) => Promise<string>, writeExcludesFn?: (dir: string, patterns: readonly string[]) => void) {
+  return buildPublishWorkspace({ isCode, ...publishWiring(mode, git, writeExcludesFn) });
+}
+
 
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
 setCatalogAgentsConfigPath(rosterFixturePath());
@@ -112,7 +120,7 @@ test("buildEngineRootDeps maps an e2e AppConfig into a complete EngineRootDeps",
   assert.ok(config.objectiveSignal.oracle, "value oracle must be wired");
   assert.ok(config.githubPr, "githubPr collaborator must be wired (production path, not buildShadow)");
   assert.ok(config.githubIssue, "githubIssue collaborator must be wired");
-  assert.ok(config.vcsWrite, "PROD-BLOCKER fix: vcsWrite collaborator must be wired — without it the 'pr' route throws at publish() time instead of silently opening a PR against an unpushed branch");
+  assert.ok(config.publish, "PROD-BLOCKER fix: publish wiring must be wired — without it the 'pr' route throws at publish() time instead of silently opening a PR against an unpushed branch");
   assert.equal(typeof config.checkout, "function");
   assert.ok(config.confinement, "ConfinementPort collaborator must be wired");
   assert.ok(config.reflectorPort, "reflector-rewire: ReflectorPort collaborator must be wired");
@@ -1576,10 +1584,10 @@ test("buildEngineRootDeps falls back to 'main' when app.baseBranch is absent", (
   assert.equal(base, "main", "an app with no configured baseBranch must fall back to 'main'");
 });
 
-/* ── PROD-BLOCKER fix (buildVcsPublish) — the publish path never staged/committed/pushed
+/* ── PROD-BLOCKER fix (the publish step) — the publish path never staged/committed/pushed
    the agent's generated tests before calling GitHub's PR API (VcsWriteAdapter, the only VcsWritePort
    implementation, was never instantiated anywhere in engine-root.ts — grep-confirmed zero
-   references outside its own test). buildVcsPublish is the REAL git-write collaborator wired into
+   references outside its own test). the publish step is the REAL git-write collaborator wired into
    EngineRootDeps.vcsWrite (see the test above). Verified with an injected fake `git` fn (same
    convention as src/integrations/publish.test.ts's own deps() helper for this exact class of git-
    mechanics test) — no real subprocess/filesystem needed to pin the sequence/dispatch.
@@ -1626,9 +1634,9 @@ async function withEnv(vars: Record<string, string | undefined>, body: () => Pro
   }
 }
 
-test("buildVcsPublish (e2e target): no changes under e2e/ -> reports changed:false and only queries status (skip-if-no-changes, no checkout/commit/push)", async () => {
+test("the publish step (e2e target): no changes under e2e/ -> reports changed:false and only queries status (skip-if-no-changes, no checkout/commit/push)", async () => {
   const { git, calls } = fakeGit("   \n  ");
-  const vcsWrite = buildVcsPublish(false, "diff", git, () => {});
+  const vcsWrite = publishStep(false, "diff", git, () => {});
 
   const result = await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
@@ -1636,9 +1644,9 @@ test("buildVcsPublish (e2e target): no changes under e2e/ -> reports changed:fal
   assert.deepEqual(calls.map(subcommandOf), ["status"], "no changes -> only the status check runs, never checkout/add/commit/push");
 });
 
-test("buildVcsPublish (e2e target): changes under e2e/ -> checkout -B, add, commit, push, in that order, scoped to the e2e/ pathspec", async () => {
+test("the publish step (e2e target): changes under e2e/ -> checkout -B, add, commit, push, in that order, scoped to the e2e/ pathspec", async () => {
   const { git, calls } = fakeGit(" M e2e/login.spec.ts");
-  const vcsWrite = buildVcsPublish(false, "diff", git, () => {});
+  const vcsWrite = publishStep(false, "diff", git, () => {});
 
   const result = await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
@@ -1656,9 +1664,9 @@ test("buildVcsPublish (e2e target): changes under e2e/ -> checkout -B, add, comm
    guarantee was previously asserted only by inference, never pinned by a test that actually passes
    mode: "context". This closes that gap the same way the e2e-target test above pins it for "diff".
  */
-test("buildVcsPublish (context mode): the tracked-file denylist guard is ALSO wired for mode='context', not just diff/e2e/code", async () => {
+test("the publish step (context mode): the tracked-file denylist guard is ALSO wired for mode='context', not just diff/e2e/code", async () => {
   const { git, calls } = fakeGit(" M e2e/.qa/context.json");
-  const vcsWrite = buildVcsPublish(false, "context", git, () => {});
+  const vcsWrite = publishStep(false, "context", git, () => {});
 
   const result = await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
@@ -1676,15 +1684,15 @@ test("buildVcsPublish (context mode): the tracked-file denylist guard is ALSO wi
    prepends authHeaderArgs() — auth is per CALL SITE (ensureMirror/ensureMirrorAtBranch, resolveRef,
    publish's `[...authHeaderArgs(), "push", ...]`). Fresh mirrors have NO git identity, so commit
    uses `-c user.name=<GIT_AUTHOR_NAME ?? "qayaba"> -c user.email=<GIT_AUTHOR_EMAIL ??
-   "qayaba@users.noreply.github.com">`. buildVcsPublish decorates the injected git fn (factory-side
+   "qayaba@users.noreply.github.com">`. the publish step decorates the injected git fn (factory-side
    — the qa-engine adapter stays token-agnostic) so push carries auth and commit carries identity.
    These tests pin the EXACT argv the fake receives.
  */
 
-test("CRITICAL auth-on-push: buildVcsPublish's push carries authHeaderArgs() (-c url.insteadOf token rewrite) when GITHUB_TOKEN is set", async () => {
+test("CRITICAL auth-on-push: the publish step's push carries authHeaderArgs() (-c url.insteadOf token rewrite) when GITHUB_TOKEN is set", async () => {
   await withEnv({ GITHUB_TOKEN: "testtoken123" }, async () => {
     const { git, calls } = fakeGit(" M e2e/login.spec.ts");
-    const vcsWrite = buildVcsPublish(false, "diff", git, () => {});
+    const vcsWrite = publishStep(false, "diff", git, () => {});
 
     await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
@@ -1708,7 +1716,7 @@ test("CRITICAL auth-on-push: buildVcsPublish's push carries authHeaderArgs() (-c
 test("CRITICAL auth-on-push: without GITHUB_TOKEN the push argv has NO auth prefix", async () => {
   await withEnv({ GITHUB_TOKEN: undefined }, async () => {
     const { git, calls } = fakeGit(" M e2e/login.spec.ts");
-    const vcsWrite = buildVcsPublish(false, "diff", git, () => {});
+    const vcsWrite = publishStep(false, "diff", git, () => {});
 
     await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
@@ -1720,7 +1728,7 @@ test("CRITICAL auth-on-push: without GITHUB_TOKEN the push argv has NO auth pref
 test("a bare commit hard-fails 'Author identity unknown')", async () => {
   await withEnv({ GIT_AUTHOR_NAME: undefined, GIT_AUTHOR_EMAIL: undefined }, async () => {
     const { git, calls } = fakeGit(" M e2e/login.spec.ts");
-    const vcsWrite = buildVcsPublish(false, "diff", git, () => {});
+    const vcsWrite = publishStep(false, "diff", git, () => {});
 
     await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
@@ -1736,7 +1744,7 @@ test("a bare commit hard-fails 'Author identity unknown')", async () => {
 test("CRITICAL commit-identity: GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL override the fallbacks", async () => {
   await withEnv({ GIT_AUTHOR_NAME: "qa-ops", GIT_AUTHOR_EMAIL: "qa-ops@example.com" }, async () => {
     const { git, calls } = fakeGit(" M src/orders.ts");
-    const vcsWrite = buildVcsPublish(true, "diff", git, () => {});
+    const vcsWrite = publishStep(true, "diff", git, () => {});
 
     await vcsWrite.publish({ mirrorDir: "/mirrors/org/qayaba", branch: "qa-bot/def5678", sha: "def5678" });
 
@@ -1752,7 +1760,7 @@ test("CRITICAL commit-identity: GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL override the fa
 test("CRITICAL decorations are scoped: status/checkout/add stay UNDECORATED", async () => {
   await withEnv({ GITHUB_TOKEN: "testtoken123", GIT_AUTHOR_NAME: undefined, GIT_AUTHOR_EMAIL: undefined }, async () => {
     const { git, calls } = fakeGit(" M e2e/login.spec.ts");
-    const vcsWrite = buildVcsPublish(false, "diff", git, () => {});
+    const vcsWrite = publishStep(false, "diff", git, () => {});
 
     await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
@@ -1765,9 +1773,9 @@ test("CRITICAL decorations are scoped: status/checkout/add stay UNDECORATED", as
   });
 });
 
-test("buildVcsPublish (code target): changes anywhere -> stages the whole tree pathspec '.', not 'e2e'", async () => {
+test("the publish step (code target): changes anywhere -> stages the whole tree pathspec '.', not 'e2e'", async () => {
   const { git, calls } = fakeGit(" M src/orders.ts");
-  const vcsWrite = buildVcsPublish(true, "diff", git, () => {});
+  const vcsWrite = publishStep(true, "diff", git, () => {});
 
   const result = await vcsWrite.publish({ mirrorDir: "/mirrors/org/qayaba", branch: "qa-bot/def5678", sha: "def5678" });
 
@@ -1776,10 +1784,10 @@ test("buildVcsPublish (code target): changes anywhere -> stages the whole tree p
   assert.deepEqual(calls[2], ["add", "--", "."], "code target stages the whole tree");
 });
 
-test("buildVcsPublish writes gitignore-style excludes BEFORE checking for changes (so an ignored path like node_modules/ never fails `git add`)", async () => {
+test("the publish step writes gitignore-style excludes BEFORE checking for changes (so an ignored path like node_modules/ never fails `git add`)", async () => {
   const { git, calls } = fakeGit(" M e2e/login.spec.ts");
   const excludesWritten: { dir: string; patterns: readonly string[] }[] = [];
-  const vcsWrite = buildVcsPublish(false, "diff", git, (dir, patterns) => { excludesWritten.push({ dir, patterns }); });
+  const vcsWrite = publishStep(false, "diff", git, (dir, patterns) => { excludesWritten.push({ dir, patterns }); });
 
   await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
@@ -1789,7 +1797,7 @@ test("buildVcsPublish writes gitignore-style excludes BEFORE checking for change
   assert.equal(subcommandOf(calls[0] ?? []), "status", "writeExcludes must run BEFORE the status check (same ordering as publish.ts's publishChanges)");
 });
 
-test("buildVcsPublish never writes its local excludes through a git dir the sandbox replaced with a symlink", async () => {
+test("the publish step never writes its local excludes through a git dir the sandbox replaced with a symlink", async () => {
   const root = mkdtempSync(join(tmpdir(), "publish-swapped-git-"));
   try {
     const mirror = join(root, "mirror");
@@ -1798,7 +1806,7 @@ test("buildVcsPublish never writes its local excludes through a git dir the sand
     mkdirSync(sandboxGit);
     symlinkSync(sandboxGit, join(mirror, ".git"));
     const { git, calls } = fakeGit(" M e2e/login.spec.ts");
-    const vcsWrite = buildVcsPublish(false, "diff", git);
+    const vcsWrite = publishStep(false, "diff", git);
 
     await assert.rejects(vcsWrite.publish({ mirrorDir: mirror, branch: "qa-bot/abc1234", sha: "abc1234" }), UntrustedGitTreeError);
 
@@ -1809,7 +1817,7 @@ test("buildVcsPublish never writes its local excludes through a git dir the sand
   }
 });
 
-test("buildVcsPublish (code target) refuses to stage the whole tree when the sandbox populated a committed gitlink, and no git command runs", async () => {
+test("the publish step (code target) refuses to stage the whole tree when the sandbox populated a committed gitlink, and no git command runs", async () => {
   const root = mkdtempSync(join(tmpdir(), "publish-gitlink-"));
   try {
     const { marker, command } = writeMarkerCommand(root);
@@ -1820,7 +1828,7 @@ test("buildVcsPublish (code target) refuses to stage the whole tree when the san
       const dir = cwd ?? fixture.repo;
       return execFileSync("git", hardenGitArgs(args, dir), { cwd: dir, env: GIT_ENV, encoding: "utf8" });
     };
-    const vcsWrite = buildVcsPublish(true, "diff", git);
+    const vcsWrite = publishStep(true, "diff", git);
 
     await assert.rejects(vcsWrite.publish({ mirrorDir: fixture.repo, branch: "qa-bot/def5678", sha: "def5678" }), UntrustedGitTreeError);
 

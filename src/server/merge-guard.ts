@@ -129,6 +129,13 @@ export const PROTECTED_PATHS: string[] = [
    */
   "qa-engine/src/contexts/workspace-and-publication/domain/render-publication.ts",
   /*
+   * The publish policy and the step that applies it — which paths enter a commit pushed to an app repo (the
+   * pathspecs and the exclude denylists) and in what order they are staged, committed and pushed. An autonomous
+   * edit can widen a pathspec or drop a denylist entry without touching the git adapter.
+   */
+  "qa-engine/src/contexts/workspace-and-publication/domain/publish-policy.ts",
+  "qa-engine/src/contexts/workspace-and-publication/application/publish-workspace.use-case.ts",
+  /*
    * Builds the Authorization header from GITHUB_TOKEN — the token-handling boundary for every
    * GitHub API call this context makes.
    */

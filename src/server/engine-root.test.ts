@@ -108,11 +108,11 @@ function fakeConfig(overrides: Partial<EngineRootDeps> = {}): EngineRootDeps {
     versionPoll: async () => ({ serving: true }),
     githubPr: { openWithAutoMerge: async () => ({ url: "https://github.com/org/app/pull/1", number: 1 }) },
     githubIssue: { open: async () => ({ url: "https://github.com/org/app/issues/1", number: 1 }) },
-    /* PROD-BLOCKER fix: vcsWrite is now REQUIRED for any run this suite drives to the "pr" outcome
+    /* PROD-BLOCKER fix: publish wiring is now REQUIRED for any run this suite drives to the "pr" outcome
        (PublicationPortAdapter's own fail-closed guard throws otherwise — see that file's own header).
        Wired here once, same "one base object feeds every call site" convention as sanitize below.
      */
-    vcsWrite: { publish: async () => ({ changed: true }) },
+    publish: { mode: "diff", git: async () => " M e2e/a.spec.ts\n", writeExcludes: () => {} },
     historyFilePath: "/tmp/qa-run-history.jsonl",
     /* PublicationPortAdapter's sanitize collaborator is now REQUIRED
        (constructor throws if absent — fail-closed publication default). This fake config's ONE base

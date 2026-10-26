@@ -26,6 +26,7 @@ import {
 } from "../integrations/opencode-client";
 import type { RunPipelinePort, ObserverPort } from "@contexts/run-orchestration/application/index.ts";
 import { buildEngine, type EngineRootDeps } from "./engine-root";
+import type { PublishDeps } from "../../qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication";
 import { createDiscoverLogin } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner";
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { domCaptureObserver } from "@contexts/generation/infrastructure/dom-capture-trace";
@@ -94,12 +95,9 @@ import { GitHubPrAdapter } from "@contexts/workspace-and-publication/infrastruct
 import { GitHubIssueAdapter } from "@contexts/workspace-and-publication/infrastructure/github-issue.adapter";
 import type { GitHubHttpDeps } from "@contexts/workspace-and-publication/infrastructure/github-http";
 import { SetupAdapter, nodeFsDeps } from "@contexts/workspace-and-publication/infrastructure/setup.adapter";
-import { VcsWriteAdapter } from "@contexts/workspace-and-publication/infrastructure/vcs-write.adapter";
-import { CONFINEMENT_DENYLIST, WriteConfinementService } from "@contexts/workspace-and-publication/domain/write-confinement.service";
 import { WriteConfinementAdapter } from "@contexts/workspace-and-publication/infrastructure/write-confinement.adapter";
 import { MirrorGcAdapter } from "@contexts/workspace-and-publication/infrastructure/mirror-gc.adapter";
 import { SuiteStoreAdapter, gitListTracked } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
-import type { VcsPublishCollaborator } from "@contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter";
 import { makeTargetCoverageCollector } from "@contexts/objective-signal/infrastructure/target-coverage-collector";
 import { assembleChangeCoverage } from "@contexts/objective-signal/domain/assemble-change-coverage";
 
@@ -191,32 +189,6 @@ export function roleToAgentName(role: AgentRole): string {
 }
 
 
-const E2E_PUBLISH_ADD = ["e2e"];
-/* `e2e/.qa-probe/` holds the throwaway specs the generator tries with run_spec: swept after every generation and never a deliverable, excluded here as well so that a sweep that left something cannot publish it. */
-const E2E_PUBLISH_EXCLUDES = ["node_modules/", "e2e/.qa/coverage/", "e2e/.qa/fault-injection/", "e2e/.qa-probe/", "e2e/.qa/measured.json", "e2e/.qa/service-context/", "e2e/.qa/*.tmp", "e2e/.auth/"];
-const CODE_PUBLISH_ADD = ["."];
-
-const CONTEXT_PUBLISH_ADD = ["e2e/.qa/context.json"];
-
-const CODE_PUBLISH_EXCLUDES = [
-  "node_modules/",
-  ...CONFINEMENT_DENYLIST,
-  "dist/",
-  "build/",
-  "__pycache__/",
-  "*.pyc",
-  ".venv/",
-  "venv/",
-  "target/",
-  ".next/",
-  "coverage/",
-  "e2e/.qa/coverage/",
-  "e2e/.qa/service-context/",
-  ".stryker-tmp/",
-  "stryker.conf.json",
-  "reports/mutation/",
-];
-
 /*
  * Writes gitignore-style patterns to .git/info/exclude (LOCAL, never committed) — same real fs write
  * as publish.ts's own defaultPublishDeps.writeExcludes. The sandbox owns the mirror's directory, so the git dir
@@ -234,14 +206,14 @@ type GitFn = (args: string[], cwd?: string) => Promise<string>;
 /*
  * realGit is a bare execFile wrapper — auth and commit identity are applied per call site.
  * Fresh mirrors have no git identity, so commit gets -c user.name/email; push gets authHeaderArgs().
- * Env vars are read at call time. qa-engine VcsWriteAdapter stays token-agnostic.
+ * The identity comes from the environment the caller passes in. The engine's git-write seam stays token-agnostic.
  */
-function withPublishGitDecorations(git: GitFn): GitFn {
+function withPublishGitDecorations(git: GitFn, env: NodeJS.ProcessEnv): GitFn {
   return (args, cwd) => {
     if (args[0] === "push") return git([...authHeaderArgs(), ...args], cwd);
     if (args[0] === "commit") {
-      const name = process.env.GIT_AUTHOR_NAME ?? "qayaba";
-      const email = process.env.GIT_AUTHOR_EMAIL ?? "qayaba@users.noreply.github.com";
+      const name = env.GIT_AUTHOR_NAME ?? "qayaba";
+      const email = env.GIT_AUTHOR_EMAIL ?? "qayaba@users.noreply.github.com";
       return git(["-c", `user.name=${name}`, "-c", `user.email=${email}`, ...args], cwd);
     }
     return git(args, cwd);
@@ -249,45 +221,18 @@ function withPublishGitDecorations(git: GitFn): GitFn {
 }
 
 /*
- * Test seam: constructs the VcsPublishCollaborator. `git`/`writeExcludesFn` are injectable
- * and always wrapped in withPublishGitDecorations so tests see the same decorated argv as production.
+ * What the shell gives the publish step of a run: git with the push credentials and the commit identity
+ * applied, and the local-exclude writer. `git`/`writeExcludesFn` are injectable so tests see the same
+ * decorated argv as production.
  */
-export function buildVcsPublish(
-  isCode: boolean,
-
+export function publishWiring(
   mode: RunMode,
   git: GitFn = realGit,
   writeExcludesFn: (dir: string, patterns: readonly string[]) => void = writeExcludes,
-): VcsPublishCollaborator {
-  const vcs = new VcsWriteAdapter(withPublishGitDecorations(git), writeExcludesFn);
-
-  const confinementClassifier = new WriteConfinementService();
-  const isContext = mode === "context";
-  const addDir = isContext ? CONTEXT_PUBLISH_ADD : isCode ? CODE_PUBLISH_ADD : E2E_PUBLISH_ADD;
-  /* Context is staged by exact pathspec — exclude patterns have nothing to filter. */
-  const excludes = isContext ? [] : isCode ? CODE_PUBLISH_EXCLUDES : E2E_PUBLISH_EXCLUDES;
-
-  const denyModifiedTracked = (path: string) => confinementClassifier.isCodeDenied(path);
-  return {
-    async publish({ mirrorDir, branch }): Promise<{ changed: boolean; revertedDenylisted?: string[]; revertedDangerous?: string[] }> {
-      /*
-       * Apply local ignore patterns FIRST (same ordering as publish.ts's publishChanges) so both the
-       * change check and the `git add` below silently skip installed deps/artifacts instead of
-       * failing on an ignored path (the node_modules/.gitignore `git add` failure this ordering fixes).
-       */
-      await vcs.writeExcludes(mirrorDir, excludes);
-      const changed = await vcs.hasChanges(mirrorDir, addDir);
-      if (!changed) return { changed: false };
-      await vcs.checkoutBranch(mirrorDir, branch);
-      const commitMsg = isContext ? "docs(context): automated QA context map" : isCode ? "test(code): automated QA" : "test(e2e): automated QA";
-
-      const { revertedDenylisted, revertedDangerous } = await vcs.commit(mirrorDir, commitMsg, addDir, denyModifiedTracked);
-      await vcs.push(mirrorDir, branch);
-      return { changed: true, revertedDenylisted, revertedDangerous };
-    },
-  };
+  env: NodeJS.ProcessEnv = process.env,
+): PublishDeps {
+  return { mode, git: withPublishGitDecorations(git, env), writeExcludes: writeExcludesFn };
 }
-
 
 export function buildConfinement(
   git: GitFn = realGit,
@@ -1508,7 +1453,7 @@ export function buildEngineRootDeps(
     githubPr: new GitHubPrAdapter(githubHttpDeps(), app.baseBranch ?? "main"),
     githubIssue: new GitHubIssueAdapter(githubHttpDeps()),
     /* Stage/commit/push generated tests before opening the PR. e2e → e2e/; code → whole tree minus deps. */
-    vcsWrite: buildVcsPublish(isCode, run.mode),
+    publish: publishWiring(run.mode),
 
     confinement: buildConfinement(),
 

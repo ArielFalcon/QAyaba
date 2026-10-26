@@ -24,7 +24,7 @@ import { type PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port";
 
 import { GenerationPortAdapter, type GenerationPortCollaborators } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/generation-port.adapter";
 import { type ReviewPortRuntime } from "../../qa-engine/src/contexts/generation/infrastructure/adapters/review-port.adapter";
-import type { GitHubPrCollaborator, GitHubIssueCollaborator, VcsPublishCollaborator } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter";
+import type { GitHubPrCollaborator, GitHubIssueCollaborator } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/publication-port.adapter";
 import type { PathConfinementCollaborator } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/confinement-port.adapter";
 import type { PathMirrorGcCollaborator } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/mirror-gc-port.adapter";
 import type { SetupPortCollaborators } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/adapters/setup-port.adapter";
@@ -46,7 +46,7 @@ import { confinedSpecFiles } from "../../qa-engine/src/shared-infrastructure/spe
 import { buildChangeAnalysis } from "../../qa-engine/src/contexts/change-analysis/composition/build-change-analysis";
 import { buildServiceTopology } from "../../qa-engine/src/contexts/service-topology/composition/build-service-topology";
 import { buildObjectiveSignal } from "../../qa-engine/src/contexts/objective-signal/composition/build-objective-signal";
-import { buildWorkspaceAndPublication } from "../../qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication";
+import { buildWorkspaceAndPublication, type PublishDeps } from "../../qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication";
 import { buildGeneration } from "../../qa-engine/src/contexts/generation/composition/build-generation";
 import { buildCoordination, type DelegationWiring } from "../../qa-engine/src/contexts/coordination/composition/build-coordination";
 import { buildAgentTools, type AgentBrowserWiring, type ClosedLoopWiring, type CodeGraphToolsWiring, type GeolocationWiring } from "../../qa-engine/src/contexts/agent-tools/composition/build-agent-tools";
@@ -216,7 +216,7 @@ export interface EngineRootDeps {
   githubPr: GitHubPrCollaborator;
   githubIssue: GitHubIssueCollaborator;
   /* Git write for the "pr" route only. Optional at the type so issue/shadow compositions need not wire it; an actual "pr" route without it throws (fail-closed) rather than opening a PR against an unpushed branch. */
-  vcsWrite?: VcsPublishCollaborator;
+  publish?: PublishDeps;
   reviewerApprovedForPublish?: boolean;
   coverageBlocksForPublish?: boolean;
   e2eChangedForPublish?: boolean;
@@ -321,7 +321,7 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
       githubIssue: cfg.githubIssue,
       /* Required: the build throws without it, there is no identity default. */
       sanitize: cfg.sanitize as (text: string) => string,
-      ...(cfg.vcsWrite ? { vcsWrite: cfg.vcsWrite } : {}),
+      ...(cfg.publish ? { publish: cfg.publish } : {}),
       ...(cfg.containsSecret ? { containsSecret: cfg.containsSecret } : {}),
       ...(cfg.reviewerApprovedForPublish !== undefined ? { reviewerApproved: cfg.reviewerApprovedForPublish } : {}),
       ...(cfg.coverageBlocksForPublish !== undefined ? { coverageBlocks: cfg.coverageBlocksForPublish } : {}),
