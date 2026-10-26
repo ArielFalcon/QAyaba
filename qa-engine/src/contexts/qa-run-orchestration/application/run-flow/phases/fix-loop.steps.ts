@@ -4,7 +4,7 @@ import { CORRECTION_ORIGIN } from "../../coordination/lead-correction.ts";
 import { createHash } from "node:crypto";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { readConfinedSpecFile, listSpecFiles, readOwnedSpecFile, MAX_SPEC_SOURCE_BYTES, type SpecRoot } from "../../../../../shared-infrastructure/spec-path-confinement.ts";
-import { FixLoop, type FixLoopInput, type FixLoopAcceptancePort, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../../../domain/fix-loop.aggregate.ts";
+import { FixLoop, type FixLoopState, type FixLoopInput, type FixLoopAcceptancePort, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../../../domain/fix-loop.aggregate.ts";
 import { checkSpecSelectors, contradictionOrigins } from "../../../domain/helpers/selector-check.ts";
 import { attributeContradictions } from "../../../domain/helpers/contradiction-attribution.ts";
 import type { SpecSnapshot } from "../../ports/spec-snapshot.port.ts";
@@ -12,7 +12,8 @@ import { goto, type StepOutcome } from "../run-flow.ts";
 import type { StepId } from "../step-ids.ts";
 import type { FixLoopStep } from "../../../domain/fix-loop-action.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
-import type { FixLoopSession, RunState } from "../run-state.ts";
+import { runOf, type FixLoopSession, type RunState } from "../run-state.ts";
+import { addRetries, withRun } from "../reducers.ts";
 import { checkDevHealth, executeAccepted, liveExecutionOptions, validateAccepted } from "./execute.steps.ts";
 import { loopClosedNow, regenerate } from "./generation-services.ts";
 import { carryOn } from "../failure-policy.ts";
@@ -167,7 +168,7 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
         adoptFailures: true,
         ...(closedLoop ? { closedLoop } : {}),
         deadline: runDeadlinePort,
-        validate: validateAccepted(ctx),
+        validate: validateAccepted(state, ctx),
         execute: executeAccepted(ctx),
       });
       if (outcome.kind === "accepted") {
@@ -212,6 +213,13 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
   });
 }
 
+/* The loop in progress: its ports and scratch are live, so the run's services hold it and the state holds only where it stands. */
+function liveLoopOf(ctx: WorkspaceRunContext): FixLoopState {
+  const loop = ctx.services.fixLoopHandle.current;
+  if (!loop) throw new Error("a fix-loop stage ran without a fix loop in progress");
+  return loop;
+}
+
 /* The step a stage of the loop is. */
 const STAGE_STEP = {
   triage: "fix-triage",
@@ -222,11 +230,12 @@ const STAGE_STEP = {
 } as const satisfies Record<FixLoopStep, StepId>;
 
 /* Where the run goes after a stage: the step of the next stage, or the settle step once the loop stopped. */
-function routeTo(session: FixLoopSession, state: Readonly<RunState>, tally: LeadTally): StepOutcome<RunState> {
-  const stage = session.loop.stage;
+function routeTo(loop: FixLoopState, session: Pick<FixLoopSession, "pending" | "failingBefore" | "specShaBefore">, state: Readonly<RunState>, ctx: WorkspaceRunContext, tally: LeadTally): StepOutcome<RunState> {
+  const stage = loop.stage;
+  ctx.services.fixLoopHandle.current = loop;
   return goto(stage === "done" ? "settle-fix-loop" : STAGE_STEP[stage], {
-    fixLoop: { ...state.fixLoop, session },
-    loops: { ...state.loops, fixLoop: session.loop.retry, leadCorrections: state.loops.leadCorrections + tally.leadCorrections },
+    fixLoop: { ...state.fixLoop, session: { stage, retry: loop.retry, pending: session.pending, failingBefore: session.failingBefore, specShaBefore: session.specShaBefore } },
+    loops: { ...state.loops, fixLoop: loop.retry, leadCorrections: state.loops.leadCorrections + tally.leadCorrections },
   });
 }
 
@@ -235,8 +244,9 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
   const { deps, input, cfg, workspace, trail } = ctx;
   const { closedLoop } = trail;
   const { generating } = state.classification;
-  const { lastGenerated, run: initialRun } = state.execution;
-  const { acceptance, runDeadlinePort, proofLedger } = ctx.services;
+  const { lastGenerated } = state.execution;
+  const initialRun = runOf(state);
+  const { acceptance, runDeadlinePort } = ctx.services;
   deps.observer?.onStep("retry", "fix-loop engaged after a failing execute()");
   /*
    * coverageLikelyMeasured omits the cross-repo conjunct on purpose: a false
@@ -257,7 +267,7 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
   /* Failure-point DOM from the initial failing cases, before any FixLoop re-execute. */
   const failureDomSnapshot = buildFailureDomSnapshot(initialRun.cases);
   /* The generator saw every delivered spec pass against DEV in these very bytes: a failure now is not one a rewrite is likely to cure, so it is adjudicated for its Issue and not regenerated. */
-  const fixLoopRetired = await loopClosedNow(ctx);
+  const fixLoopRetired = await loopClosedNow(state, ctx);
   if (fixLoopRetired) {
     deps.observer?.onEvent({ type: "log.line", level: "info", text: "[qa] the suite failed, but every delivered spec was seen passing through run_spec: the failure is adjudicated and not regenerated" });
   }
@@ -286,7 +296,7 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
       ? {
           integrity: {
             hasGreenProof: async (file: string) => {
-              if (proofLedger.has(file)) return true;
+              if (state.proof[file] !== undefined) return true;
               if (!closedLoop) return false;
               try {
                 return await closedLoop.isClosed([file]);
@@ -312,8 +322,7 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
   /* mutation-scope:end pending-contradictions */
   const tally: LeadTally = { leadCorrections: 0 };
   const loop = fixLoopFor(state, ctx, pending, tally).begin(loopInput);
-  const session: FixLoopSession = { loop, pending, failingBefore, specShaBefore };
-  return routeTo(session, state, tally);
+  return routeTo(loop, { pending, failingBefore, specShaBefore }, state, ctx, tally);
 }
 
 function stageStep(): (state: Readonly<RunState>, ctx: WorkspaceRunContext) => Result {
@@ -321,8 +330,9 @@ function stageStep(): (state: Readonly<RunState>, ctx: WorkspaceRunContext) => R
     const session = state.fixLoop.session;
     if (!session) throw new Error("a fix-loop stage ran without a fix-loop session");
     const tally: LeadTally = { leadCorrections: 0 };
-    await fixLoopFor(state, ctx, session.pending, tally).step(session.loop);
-    return routeTo(session, state, tally);
+    const loop = liveLoopOf(ctx);
+    await fixLoopFor(state, ctx, session.pending, tally).step(loop);
+    return routeTo(loop, session, state, ctx, tally);
   };
 }
 
@@ -335,12 +345,14 @@ export const fixReexecute = stageStep();
 /* The fix loop has stopped: the best round's bytes go back, and the run takes what the loop came to. */
 export async function settleFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { deps, workspace, trail } = ctx;
-  const { run: initialRun } = state.execution;
+  const initialRun = runOf(state);
   const session = state.fixLoop.session;
   if (!session) throw new Error("the fix loop was settled without a fix-loop session");
   const loop = fixLoopFor(state, ctx, session.pending, { leadCorrections: 0 });
-  await loop.settle(session.loop);
-  const fixLoopResult = loop.result(session.loop);
+  const liveLoop = liveLoopOf(ctx);
+  await loop.settle(liveLoop);
+  const fixLoopResult = loop.result(liveLoop);
+  ctx.services.fixLoopHandle.current = undefined;
   const { failingBefore, specShaBefore } = session;
   const fixLoopSpecRoot: SpecRoot = { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir };
   const run = { verdict: fixLoopResult.run.verdict, cases: fixLoopResult.run.cases, logs: initialRun.logs };
@@ -378,7 +390,7 @@ export async function settleFixLoop(state: Readonly<RunState>, ctx: WorkspaceRun
   return {
     update: {
       /* Accumulate onto the shared retries; a reassignment would drop static-fix rounds. */
-      execution: { ...state.execution, run, retries: state.execution.retries + fixLoopResult.retries },
+      execution: addRetries(withRun(state.execution, run), fixLoopResult.retries),
       fixLoop: {
         session: undefined,
         coverageNamespace: fixLoopResult.coverageNamespace,
@@ -398,18 +410,18 @@ export async function settleFixLoop(state: Readonly<RunState>, ctx: WorkspaceRun
  */
 export async function fingerprintGreenSuite(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { deps, workspace, services } = ctx;
-  if (!deps.suiteStore || !state.setup.suiteRestored || state.execution.run.verdict !== "pass") return;
+  if (!deps.suiteStore || !state.setup.suiteRestored || runOf(state).verdict !== "pass") return;
   try {
     /* The green run executed the whole suite: every delivered spec on disk at this instant has run in these bytes. The store
      * leaves out a spec it cannot read confined, which seeds no proof (the final guard then refuses to publish it). */
     const fingerprints = await deps.suiteStore.fingerprint(
       { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir },
-      ctx.generation.delivered.map((d) => d.file),
+      state.generation.delivered.map((d) => d.file),
     );
     /* The ledger holds the green bytes themselves when they can be read, so a later restore has them. */
     for (const [file, sha256] of fingerprints) {
       const read = readOwnedSpecFile(services.specRoot, file, MAX_SPEC_SOURCE_BYTES);
-      services.proofLedger.set(file, "bytes" in read ? { sha256, bytes: read.bytes } : { sha256 });
+      services.keepProof(file, sha256, "bytes" in read ? read.bytes : undefined);
     }
   } catch (fingerprintErr) {
     carryOn(fingerprintErr);

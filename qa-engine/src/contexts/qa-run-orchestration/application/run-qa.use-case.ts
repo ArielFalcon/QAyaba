@@ -8,7 +8,6 @@
  * Pre-exec gateSignals use the number 0, not undefined, when unwired.
  */
 
-import { type CoordinationGateSignal } from "@kernel/coordination.ts";
 import { createRunSecretScope, withRunSecretScope } from "../../../shared-infrastructure/run-secret-redaction.ts";
 import { isSandboxUnavailable } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { activeExecScope, refusedScope, sandboxRefused, sandboxSignal, withExecScope, type ExecScopePort } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
@@ -26,6 +25,7 @@ import { type RunEnd } from "./run-flow/run-end.ts";
 import { finalizeRun, recordCrashEvidence } from "./run-flow/finalize-run.ts";
 import type { RunState } from "./run-flow/run-state.ts";
 import { initialRunState } from "./run-flow/run-state.ts";
+import { recordCoordination, recordProof, recordRunFact } from "./run-flow/reducers.ts";
 import { createRunServices } from "./run-flow/run-services.ts";
 import type { RunContext, RunHost, WorkspaceRunContext } from "./run-flow/run-context.ts";
 import { BEFORE_WORKSPACE, IN_WORKSPACE } from "./run-flow/run-steps.ts";
@@ -79,9 +79,6 @@ export class RunQaUseCase {
     this.telemetry = guardTelemetry(deps.telemetry ?? new NoopTelemetry());
   }
 
-  /* What each run came to in the lead/sidekick mode, read when the run's outcome is built. Keyed by the run's input, which every exit has. */
-  private readonly coordinationOf = new WeakMap<RunQaInput, CoordinationGateSignal>();
-
   async run(input: RunQaInput, signal?: AbortSignal): Promise<RunQaResult> {
     /* The run owns the secrets of its test account: whatever learns one registers it into this scope, and the text that reaches a model has them taken out by value (run-secret-redaction.ts). */
     const secrets = createRunSecretScope();
@@ -93,8 +90,9 @@ export class RunQaUseCase {
       if (!isSandboxUnavailable(err)) throw err;
       return await withRunSecretScope(secrets, () =>
         withExecScope(refusedScope(input.runId, err.reason === "scope" ? "uid" : err.reason), async () => {
-          const ctx = this.contextOf(input, undefined, this.trailOf(input, secrets));
-          const result = await this.finalize(failureEnd("sandbox-unavailable", err, ctx), ctx);
+          const state = this.stateOf(input);
+          const ctx = this.contextOf(input, undefined, this.trailOf(input, secrets), state);
+          const result = await this.finalize(failureEnd("sandbox-unavailable", err, ctx, state), ctx, state);
           return attachTraceFacts(result, { endReason: "sandbox-unavailable" });
         }),
       );
@@ -110,24 +108,32 @@ export class RunQaUseCase {
   private trailOf(input: RunQaInput, secrets: RedactionScope): RunTrail {
     const spans = new PhaseSpans({ telemetry: this.telemetry, secrets, app: input.app, mode: input.mode });
     const phases = new RunPhaseCursor(this.deps.phaseClock ?? SYSTEM_PHASE_CLOCK, spans);
-    return { phases, spans, reviewRequired: generationRunsReviewer({ needsReview: { ...DEFAULT_CONFIG, ...this.deps.config }.needsReview, mode: input.mode }) };
+    return { phases, spans };
+  }
+
+  /* The run's state as it begins: what the generation decides about the reviewer is known from the input and the configuration. */
+  private stateOf(input: RunQaInput): RunState {
+    const state = initialRunState();
+    recordRunFact(state, "reviewRequired", generationRunsReviewer({ needsReview: { ...DEFAULT_CONFIG, ...this.deps.config }.needsReview, mode: input.mode }));
+    return state;
   }
 
   private async runInScope(input: RunQaInput, secrets: RedactionScope, signal?: AbortSignal): Promise<RunQaResult> {
     const trail = this.trailOf(input, secrets);
+    const state = this.stateOf(input);
     const { spans, phases } = trail;
     /* A child the launcher starts for this run is a child of whichever phase is open. */
     const scope = activeExecScope();
     if (scope) scope.telemetry = { parent: () => spans.context(), phaseStart: () => spans.startedAt(), annotate: (attrs) => spans.annotate(attrs) };
     try {
-      return this.withPhases(await this.execute(input, signal, trail), trail);
+      return this.withPhases(await this.execute(input, signal, trail, state), trail, state);
     } catch (err) {
       /* An error nothing here handles goes to the caller, which records the run: it is told where the run stood and how generation ended, so its root span carries the same facts a returned verdict would. */
       spans.fail(err);
       phases.close();
       recordPhaseSnapshot(err, phases.snapshot());
       try {
-        if (typeof err === "object" && err !== null) attachTraceFacts(err, this.traceFactsOf(undefined, trail));
+        if (typeof err === "object" && err !== null) attachTraceFacts(err, this.traceFactsOf(undefined, state));
       } catch (traceErr) {
         console.error(`[qa] the crash could not be described for the trace (the run's failure stands): ${traceErr instanceof Error ? traceErr.message : String(traceErr)}`);
       }
@@ -145,17 +151,17 @@ export class RunQaUseCase {
   }
 
   /* How the run ended, for its trace: the decision, the end of generation, and the limit that fired (the deadline's own, else the one the generation end names). A run that threw before a result was built has no decision. */
-  private traceFactsOf(result: RunQaResult | undefined, trail: RunTrail): RunTraceFacts {
-    const end = trail.generationEnd;
+  private traceFactsOf(result: RunQaResult | undefined, state: Readonly<RunState>): RunTraceFacts {
+    const end = state.run.generationEnd;
     const fromEnd = end === GENERATION_END.EXHAUSTED ? { fired: "step-cap", role: "qa-generator" } : end === GENERATION_END.TIME_BUDGET ? { fired: "tier-budget", role: "qa-generator" } : undefined;
-    const limit = trail.limit ?? fromEnd;
+    const limit = state.run.limit ?? fromEnd;
     const cfg: RunQaConfig = { ...DEFAULT_CONFIG, ...this.deps.config };
     return {
       ...(result ? { decision: result.decision.sideEffect } : {}),
-      ...(trail.reviewRequired !== undefined ? { reviewRequired: trail.reviewRequired } : {}),
-      coverage: { ...(trail.coverageStatus ? { status: trail.coverageStatus } : {}), mode: cfg.coveragePolicyMode, ...(cfg.coverageMinRatio !== undefined ? { minRatio: cfg.coverageMinRatio } : {}) },
+      ...(state.run.reviewRequired !== undefined ? { reviewRequired: state.run.reviewRequired } : {}),
+      coverage: { ...(state.coverage.coverageStatus ? { status: state.coverage.coverageStatus } : {}), mode: cfg.coveragePolicyMode, ...(cfg.coverageMinRatio !== undefined ? { minRatio: cfg.coverageMinRatio } : {}) },
       ...(end !== undefined ? { generationEnd: end } : {}),
-      ...(trail.endReason !== undefined ? { endReason: trail.endReason } : {}),
+      ...(state.run.endReason !== undefined ? { endReason: state.run.endReason } : {}),
       ...(limit ? { limitFired: limit.fired, limitRole: limit.role } : {}),
     };
   }
@@ -194,13 +200,13 @@ export class RunQaUseCase {
    * run persisted was saved earlier and is never touched, so the run history holds no phase data (the run's record does).
    * Observability never changes how a run ended: a fault here returns the result as it was.
    */
-  private withPhases(result: RunQaResult, trail: RunTrail): RunQaResult {
+  private withPhases(result: RunQaResult, trail: RunTrail, state: Readonly<RunState>): RunQaResult {
     try {
       const phases = trail.phases;
       phases.close();
       const { furthestPhase, phaseTimings } = phases.snapshot();
       /* The one channel for the trace's facts: the result this returns. The shell adapter hands them on to whichever outcome it returns. */
-      const traceFacts = this.traceFactsOf(result, trail);
+      const traceFacts = this.traceFactsOf(result, state);
       if (furthestPhase === null) return attachTraceFacts(result, traceFacts);
       return attachTraceFacts(
         {
@@ -223,11 +229,11 @@ export class RunQaUseCase {
    * error goes on. A run that spawned nothing has no evidence and persists nothing; a cancelled run is not an error. The
    * note names the kind of error, never its text, which the caller records after redacting it. A fault here never replaces the error.
    */
-  private async keepSandboxEvidence(err: unknown, ctx: RunContext): Promise<void> {
+  private async keepSandboxEvidence(err: unknown, ctx: RunContext, state: Readonly<RunState>): Promise<void> {
     if (ctx.signal?.aborted || sandboxSignal() === undefined) return;
     const kind = err instanceof Error && err.name ? err.name : "an error";
     try {
-      await recordCrashEvidence(`The run ended on ${kind} before it reached a verdict; only what the sandbox saw is kept here.`, ctx);
+      await recordCrashEvidence(`The run ended on ${kind} before it reached a verdict; only what the sandbox saw is kept here.`, ctx, state);
     } catch (persistErr) {
       console.error(`[qa] could not persist the sandbox evidence of a run that ended on an error: ${persistErr instanceof Error ? persistErr.message : String(persistErr)}`);
     }
@@ -266,10 +272,10 @@ export class RunQaUseCase {
   }
 
   /* What the lead routed of the reviewer's corrections, recorded with the run's coordination. */
-  private recordCorrections(input: RunQaInput, trail: RunTrail): void {
+  private recordCorrections(state: RunState, trail: RunTrail): void {
     const corrections = trail.coordinatedPass?.tally();
-    const coordination = this.coordinationOf.get(input);
-    if (coordination && corrections && corrections.turns > 0) this.coordinationOf.set(input, { ...coordination, corrections });
+    const { coordination } = state;
+    if (coordination && corrections && corrections.turns > 0) recordCoordination(state, { ...coordination, corrections });
   }
 
   /* Releases the coordinated pass: the lead's session and every flow's session, workspace, loop and location. A fault is said and never changes how the run ended. */
@@ -318,28 +324,28 @@ export class RunQaUseCase {
     }
   }
 
-  /* An end of the run: the trail learns why, then the end becomes the run's result. */
-  private async finalize(end: RunEnd, ctx: RunContext, state?: Readonly<RunState>): Promise<RunQaResult> {
-    ctx.trail.endReason = end.reason;
+  /* An end of the run: the state learns why, then the end becomes the run's result. */
+  private async finalize(end: RunEnd, ctx: RunContext, state: Readonly<RunState>): Promise<RunQaResult> {
+    recordRunFact(state, "endReason", end.reason);
     return await finalizeRun(end, ctx, state);
   }
 
   /* Runs the pipeline; the errors that end a run as an outcome of their own are turned into one here. */
-  private async execute(input: RunQaInput, signal: AbortSignal | undefined, trail: RunTrail): Promise<RunQaResult> {
-    const baseCtx = this.contextOf(input, signal, trail);
+  private async execute(input: RunQaInput, signal: AbortSignal | undefined, trail: RunTrail, state: RunState): Promise<RunQaResult> {
+    const baseCtx = this.contextOf(input, signal, trail, state);
     try {
-      return await this.drive(baseCtx);
+      return await this.drive(baseCtx, state);
     } catch (err) {
       /* An error from outside any step (the working copy being prepared, say) ends the run the way the policy says; one nothing classifies goes on to the caller. */
       const action = actionFor(err, "required");
-      if (action.do === "end") return await this.finalize(failureEnd(action.reason, err, baseCtx), baseCtx);
-      await this.keepSandboxEvidence(err, baseCtx);
+      if (action.do === "end") return await this.finalize(failureEnd(action.reason, err, baseCtx, state), baseCtx, state);
+      await this.keepSandboxEvidence(err, baseCtx, state);
       throw err;
     }
   }
 
   /* What every step of this run may use: its input, dependencies, configuration and trail, and its own ways to act on them. */
-  private contextOf(input: RunQaInput, signal: AbortSignal | undefined, trail: RunTrail): RunContext {
+  private contextOf(input: RunQaInput, signal: AbortSignal | undefined, trail: RunTrail, state: RunState): RunContext {
     const cfg: RunQaConfig = { ...DEFAULT_CONFIG, ...this.deps.config };
     const startedAt = Date.now();
     const cycleBudget = CycleBudget.derive({
@@ -356,8 +362,8 @@ export class RunQaUseCase {
       ...(cfg.wallClockBudgetMs !== undefined ? { wallClockBudgetMs: cfg.wallClockBudgetMs } : {}),
     });
     const host: RunHost = {
-      recordCoordination: (coordinationSignal) => void this.coordinationOf.set(input, coordinationSignal),
-      recordCorrections: () => this.recordCorrections(input, trail),
+      recordCoordination: (coordinationSignal) => recordCoordination(state, coordinationSignal),
+      recordCorrections: () => this.recordCorrections(state, trail),
       closeCoordinatedPass: () => this.closeCoordinatedPass(trail),
       noteGroundingGates: (result) => this.noteGroundingGates(trail, result),
       pruneMirror: (mirrorDir) => this.pruneMirrorIfWired(mirrorDir),
@@ -367,7 +373,7 @@ export class RunQaUseCase {
       announceSuite: (text, level) => this.announceSuite(text, level),
       announcePrecondition: (failure, ends) => this.announcePrecondition(failure, ends),
       preconditionNote: (failure) => this.preconditionNote(failure),
-      coordination: () => this.coordinationOf.get(input),
+      coordination: () => state.coordination,
       sandboxRefused: () => sandboxRefused(),
       sandboxSignal: () => sandboxSignal(),
     };
@@ -375,34 +381,35 @@ export class RunQaUseCase {
   }
 
   /* Walks the step tables and finalizes the end they reach. */
-  private async drive(baseCtx: RunContext): Promise<RunQaResult> {
+  private async drive(baseCtx: RunContext, state: RunState): Promise<RunQaResult> {
     const { input, signal, trail } = baseCtx;
     const hooks: FlowHooks<StepId, RunState> = {
       aborted: () => signal?.aborted === true,
-      endOf: (reason, err) => failureEnd(reason, err, baseCtx),
+      endOf: (reason, err) => failureEnd(reason, err, baseCtx, state),
       degrade: async (reason, err, stepId, current) => {
         /* Nothing can correct through the coordinated pass from here on, and the run publishes next. */
         await baseCtx.host.closeCoordinatedPass();
-        return degradeFailedStep(reason, err, stepId, current, { reviewRequired: reviewsTests(baseCtx) && current.classification.generating, endOf: (endReason, cause) => failureEnd(endReason, cause, baseCtx) });
+        return degradeFailedStep(reason, err, stepId, current, { reviewRequired: reviewsTests(baseCtx) && current.classification.generating, endOf: (endReason, cause) => failureEnd(endReason, cause, baseCtx, state) });
       },
       enter: (phase: RunPhase) => trail.phases.enter(phase),
-      record: (event) =>
+      record: (event) => {
         trail.spans.step({
           "qayaba.run_step.id": event.id,
           "qayaba.run_step.outcome": event.outcome,
           ...(event.outcome === "ended" ? { "qayaba.run_step.reason": event.reason } : {}),
-        }),
+        });
+        this.deps.stateObserver?.(state, event);
+      },
     };
-    const state = initialRunState();
 
     const opening = await runFlow(BEFORE_WORKSPACE, state, baseCtx, hooks);
     if ("end" in opening) return await this.finalize(opening.end, baseCtx, state);
 
     trail.phases.enter("workspace");
     const workspace = await this.deps.workspace.prepare(input.sha);
-    trail.mirrorDir = workspace.mirrorDir;
-    const services = createRunServices(this.deps, baseCtx.cfg, workspace, signal);
-    const ctx: WorkspaceRunContext = { ...baseCtx, workspace, services, generation: { delivered: [] } };
+    recordRunFact(state, "mirrorDir", workspace.mirrorDir);
+    const services = createRunServices(this.deps, baseCtx.cfg, workspace, signal, (file, sha256) => recordProof(state, file, sha256));
+    const ctx: WorkspaceRunContext = { ...baseCtx, workspace, services };
     const flow = await runFlow(IN_WORKSPACE, state, ctx, hooks);
     if ("end" in flow) return await this.finalize(flow.end, ctx, state);
 

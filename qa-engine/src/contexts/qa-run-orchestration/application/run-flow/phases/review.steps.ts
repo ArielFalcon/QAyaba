@@ -14,7 +14,8 @@ import type { ReviewPort } from "../../ports/index.ts";
 import { end, goto, type StepOutcome } from "../run-flow.ts";
 import { throwIfAborted } from "../abort.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
-import type { ReviewSession, RunState } from "../run-state.ts";
+import { runOf, type ReviewSession, type RunState } from "../run-state.ts";
+import { acceptedRegeneration, addRetries, remeasured, rollbackDelivered, withAcceptanceCalls, withRun } from "../reducers.ts";
 import { liveExecutionOptions, executeAccepted, validateAccepted } from "./execute.steps.ts";
 import { closedLoopSignal, contractFindingText, correctThroughLead, mayCorrectThroughLead, regenerateByLead } from "./generation-services.ts";
 import { resolveTested } from "./fix-loop.steps.ts";
@@ -27,7 +28,7 @@ export const reviewsTests = (ctx: Pick<WorkspaceRunContext, "cfg" | "input">): b
 
 /* Also gated on generating: a regression run never invokes the reviewer (nothing new to judge; decide()'s !generating branch already wins). */
 export const reviewsRun = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean =>
-  state.execution.run.verdict === "pass" && reviewsTests(ctx) && state.classification.generating;
+  runOf(state).verdict === "pass" && reviewsTests(ctx) && state.classification.generating;
 
 /* What the terminal exits of the review know about the run so far. */
 async function exitFactsOf(state: Readonly<RunState>, ctx: WorkspaceRunContext) {
@@ -41,7 +42,7 @@ async function exitFactsOf(state: Readonly<RunState>, ctx: WorkspaceRunContext) 
     archetype: detectArchetype(diff, intent?.changedFiles ?? []),
     confinement: services.confinement.totals,
     tested: resolveTested(state),
-    closedLoop: await closedLoopSignal(ctx),
+    closedLoop: await closedLoopSignal(state, ctx),
     agentBrowser: trail.agentBrowser?.signals(),
   };
 }
@@ -66,15 +67,14 @@ export const reviewInProgress = (state: Readonly<RunState>): boolean => state.re
  * review-round, review-correct and review-resolve; review-settle closes it.
  */
 export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { generation } = ctx;
-  const { run } = state.execution;
+  const run = runOf(state);
   const { existingSpecFiles: groundingExistingSpecFiles } = state.grounding;
   /*
    * The reviewer judges the specs this run delivered, not the whole executed suite: an existing
    * suite file that does not cover this change is context, never a wrong-objective correction.
    * The suite's paths travel separately, marked context-only in the review prompt.
    */
-  const deliveredFiles = new Set(generation.delivered.map((d) => d.file));
+  const deliveredFiles = new Set(state.generation.delivered.map((d) => d.file));
   const existingSpecFiles = [...new Set([...(groundingExistingSpecFiles ?? []), ...run.cases.map((c) => c.file ?? c.name)])]
     .filter((file) => !deliveredFiles.has(file));
   const session: ReviewSession = {
@@ -104,13 +104,13 @@ export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunCo
 
 /* One round: the reviewer judges the specs (or the pre-check or the unchanged-specs rule decides for it), and the verdict says what comes next. */
 export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, input, cfg, signal, workspace, services, generation } = ctx;
+  const { deps, input, cfg, signal, workspace, services } = ctx;
   const { snapshotSuite } = services;
   const session = sessionOf(state);
   const { round } = session;
   const { diff: classificationDiff } = state.classification;
   const { retrievedRules } = state.grounding;
-  const { run, retries } = state.execution;
+  const run = runOf(state);
   const { stats: reviewStats, existingSpecFiles } = session;
   /* Separate from generation enrichment: ReviewEnrichment has no sha/contextPack. domSnapshot is captured per review round on the current specs. */
   const baseReviewEnrichment = {
@@ -321,14 +321,14 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
     decidedBy,
     blockingSpecs,
     snapshot: await snapshotSuite(),
-    deliveredBefore: generation.delivered,
+    deliveredBefore: state.generation.delivered,
     regen: undefined,
     changedSpecFiles: [],
     changedSupportFiles: [],
     outcome: undefined,
     contractFeedback: undefined,
   };
-  return goto("review-correct", { execution: { ...state.execution, retries: retries + 1 }, loops: { ...state.loops, reviewRound: round, reviewAttempt: 0 } });
+  return goto("review-correct", { execution: addRetries(state.execution, 1), loops: { ...state.loops, reviewRound: round, reviewAttempt: 0 } });
 }
 
 /*
@@ -338,7 +338,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
  * per round, so the review loop's own round budget still caps the whole phase.
  */
 export async function reviewCorrect(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { input, signal, trail, workspace, services, generation } = ctx;
+  const { input, signal, trail, workspace, services } = ctx;
   const { acceptance, integrityCounters, runDeadlinePort, suiteChangedFiles, acceptanceScope } = services;
   const { closedLoop } = trail;
   const session = sessionOf(state);
@@ -347,7 +347,7 @@ export async function reviewCorrect(state: Readonly<RunState>, ctx: WorkspaceRun
   const attempt = state.loops.reviewAttempt;
   let { acceptanceCalls } = state.coverage;
   /* A refused attempt's files were restored, so its delivery must not survive into the next one. */
-  generation.delivered = cur.deliveredBefore;
+  rollbackDelivered(state, cur.deliveredBefore);
   const pass = trail.coordinatedPass;
   const { reviewResult, blockingSpecs, contractFeedback } = cur;
   const { output: regen, leadCorrections } = pass && mayCorrectThroughLead(state, ctx)
@@ -377,11 +377,11 @@ export async function reviewCorrect(state: Readonly<RunState>, ctx: WorkspaceRun
     snapshot: cur.snapshot,
     ...(closedLoop ? { closedLoop } : {}),
     deadline: runDeadlinePort,
-    validate: validateAccepted(ctx),
+    validate: validateAccepted(state, ctx),
     execute: executeAccepted(ctx),
   });
   cur.outcome = outcome;
-  const coverage = { ...state.coverage, acceptanceCalls };
+  const coverage = withAcceptanceCalls(state.coverage, acceptanceCalls);
   /* mutation-scope:begin contract-feedback-round */
   const refusedWithViolations = outcome.kind === "rejected" && !!outcome.violations?.length;
   if (reviewAction({ after: "attempt", refusedWithViolations, retried: attempt }) === "correct" && outcome.kind === "rejected") {
@@ -396,15 +396,15 @@ export async function reviewCorrect(state: Readonly<RunState>, ctx: WorkspaceRun
 
 /* The correction is over: what the generator answered to the findings is settled, and its specs stand only once accepted. */
 export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { input, cfg, workspace, services, generation } = ctx;
+  const { input, cfg, workspace, services } = ctx;
   const { integrityCounters, snapshotPort } = services;
   const session = sessionOf(state);
   const cur = session.current;
   if (!cur || !cur.regen) throw new Error("a review correction was resolved before it ran");
   const { reviewResult, decidedBy, regen, snapshot, deliveredBefore, changedSpecFiles, changedSupportFiles, outcome } = cur;
   const { stats: reviewStats } = session;
-  let { run } = state.execution;
-  let { acceptedRegenAfterMeasure } = state.coverage;
+  let run = runOf(state);
+  let coverage = state.coverage;
   /*
    * A rebuttal answers a reviewer finding; the deterministic pre-check is the orchestrator's own evidence and is
    * never rebuttable, so only a model round's findings are open to one. A verified rebuttal withdraws its finding;
@@ -433,7 +433,7 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
     if (restored.length > 0) {
       await snapshotPort.restore(workspace.specDir, snapshot, restored.filter((file) => !snapshot.files.has(file)));
     }
-    generation.delivered = deliveredBefore;
+    rollbackDelivered(state, deliveredBefore);
     /* Every blocking finding withdrawn with evidence, and no new bytes: the reviewed bytes stand approved. */
     const allWithdrawn = reviewResult.corrections.length > 0 && outstanding.length === 0;
     const next = reviewAction({ after: "correction", produced: false, allWithdrawn, disputed: settled.disputed.length > 0 });
@@ -465,7 +465,7 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
   if (outcome?.kind === "accepted" && next === "judge") {
     integrityCounters.acceptances += 1;
     if (outcome.executedSpecs.length === 0) integrityCounters.proofReused += 1;
-    acceptedRegenAfterMeasure = true;
+    coverage = acceptedRegeneration(coverage);
     const changedSet = new Set(changedSpecFiles);
     const realCases = outcome.execution?.cases ?? [];
     if (realCases.length > 0) {
@@ -476,12 +476,12 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
     /* Proof reuse executed nothing: the existing cases already describe the bytes on disk. */
     session.round += 1;
     return goto("review-round", {
-      execution: { ...state.execution, run },
-      coverage: { ...state.coverage, acceptedRegenAfterMeasure },
+      execution: withRun(state.execution, run),
+      coverage,
       loops: { ...state.loops, reviewRound: session.round, reviewAttempt: 0 },
     });
   }
-  generation.delivered = deliveredBefore;
+  rollbackDelivered(state, deliveredBefore);
   session.reviewerApproved = false;
   session.finalReviewerCorrections = reviewResult.corrections;
   if (outcome?.kind === "cap") integrityCounters.capHit = true;
@@ -525,7 +525,7 @@ export async function reviewSettle(state: Readonly<RunState>, ctx: WorkspaceRunC
 
 /* The measurement predates the bytes an accepted regeneration wrote: only a per-commit measurement of a green run can go stale. */
 export const remeasuresStaleCoverage = (state: Readonly<RunState>): boolean =>
-  state.execution.run.verdict === "pass" && state.coverage.coverageMeasured && state.coverage.acceptedRegenAfterMeasure;
+  runOf(state).verdict === "pass" && state.coverage.coverageMeasured && state.coverage.acceptedRegenAfterMeasure;
 
 /*
  * The coverage this run measured is stale when an accepted regeneration followed it. Under enforce, one whole-suite measured
@@ -534,13 +534,13 @@ export const remeasuresStaleCoverage = (state: Readonly<RunState>): boolean =>
  * run's verdict: a red suite is never published.
  */
 export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, input, cfg, trail, telemetry, workspace } = ctx;
-  const { run } = state.execution;
+  const { deps, input, cfg, telemetry, workspace } = ctx;
+  const run = runOf(state);
   if (cfg.coveragePolicyMode === "enforce") {
     const finalNamespace = `${input.runId}-coverage-final`;
     const measuredRun = await deps.execution.execute(workspace.specDir, { ...liveExecutionOptions(ctx), namespace: finalNamespace });
     const finalRun = { verdict: measuredRun.verdict, cases: measuredRun.cases, logs: run.logs };
-    if (measuredRun.verdict !== "pass") return { update: { execution: { ...state.execution, run: finalRun } } };
+    if (measuredRun.verdict !== "pass") return { update: { execution: withRun(state.execution, finalRun) } };
     const baselineCases = measuredRun.cases.filter((c) => c.status === "pass").map((c) => c.name);
     const finalSignal = await deps.objectiveSignal.measure(
       BlastRadius.of(input.sha, state.classification.intent?.changedFiles ?? []),
@@ -549,13 +549,12 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
       baselineCases,
       { namespace: finalNamespace },
     );
-    trail.coverageStatus = finalSignal.status;
     const { valueScore, mutantCount, killedCount } = state.coverage;
     return {
       update: {
-        execution: { ...state.execution, run: finalRun },
+        execution: withRun(state.execution, finalRun),
         coverage: {
-          ...state.coverage,
+          ...remeasured(state.coverage),
           coverageRatio: finalSignal.ratio,
           coverageStatus: finalSignal.status,
           blocksPublish: deps.objectiveSignal.blocks(finalSignal.status),
@@ -564,7 +563,6 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
           mutantCount: finalSignal.mutantCount ?? mutantCount,
           killedCount: finalSignal.killedCount ?? killedCount,
           valueStale: false,
-          acceptedRegenAfterMeasure: false,
         },
       },
     };

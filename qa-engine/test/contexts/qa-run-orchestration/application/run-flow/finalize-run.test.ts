@@ -16,7 +16,8 @@ import { PhaseSpans } from "@contexts/qa-run-orchestration/application/run-phase
 import { finalizeRun, recordCrashEvidence } from "@contexts/qa-run-orchestration/application/run-flow/finalize-run.ts";
 import { END_EFFECTS, END_REASONS, runEnd, type EndReason, type RunEnd } from "@contexts/qa-run-orchestration/application/run-flow/run-end.ts";
 import type { RunContext, WorkspaceRunContext } from "@contexts/qa-run-orchestration/application/run-flow/run-context.ts";
-import { initialRunState } from "@contexts/qa-run-orchestration/application/run-flow/run-state.ts";
+import { recordRunFact } from "@contexts/qa-run-orchestration/application/run-flow/reducers.ts";
+import { initialRunState, type RunState } from "@contexts/qa-run-orchestration/application/run-flow/run-state.ts";
 import { decide, type RunEvidence } from "@contexts/qa-run-orchestration/domain/run-decision.service.ts";
 import type { RunQaConfig, RunQaInput, RunQaResult, RunQaUseCaseDeps } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
 import { RUN_END_ROWS } from "./run-end-rows.ts";
@@ -36,7 +37,7 @@ interface Calls {
   done: number;
 }
 
-function context(opts: { mode?: RunQaInput["mode"]; mirrorDir?: string | undefined; config?: Partial<RunQaConfig> } = {}): { ctx: RunContext; calls: Calls } {
+function context(opts: { mode?: RunQaInput["mode"]; mirrorDir?: string | undefined; config?: Partial<RunQaConfig> } = {}): { ctx: RunContext; calls: Calls; state: RunState } {
   const calls: Calls = { order: [], saved: [], folded: [], published: [], reflected: 0, audited: 0, pruned: [], done: 0 };
   const cfg: RunQaConfig = { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false, reviewLoopIntegrity: false, coveragePolicyMode: "signal", ...opts.config };
   const deps = {
@@ -49,7 +50,10 @@ function context(opts: { mode?: RunQaInput["mode"]; mirrorDir?: string | undefin
   } as unknown as RunQaUseCaseDeps;
   const clock = { now: () => 0 };
   const spans = new PhaseSpans({ telemetry: new NoopTelemetry(), secrets: { redact: (text: string) => text } as never, app: "demo", mode: opts.mode ?? "diff" });
-  const trail = { phases: new RunPhaseCursor(clock, spans), spans, ...("mirrorDir" in opts ? (opts.mirrorDir ? { mirrorDir: opts.mirrorDir } : {}) : { mirrorDir: MIRROR }) };
+  const trail = { phases: new RunPhaseCursor(clock, spans), spans };
+  const state = initialRunState();
+  const mirrorDir = "mirrorDir" in opts ? opts.mirrorDir : MIRROR;
+  if (mirrorDir) recordRunFact(state, "mirrorDir", mirrorDir);
   const cycleBudget = CycleBudget.derive({ maxRetries: cfg.maxRetries });
   const ctx: RunContext = {
     input: { app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: opts.mode ?? "diff", target: "e2e", runId: "finalize-run" },
@@ -68,12 +72,12 @@ function context(opts: { mode?: RunQaInput["mode"]; mirrorDir?: string | undefin
       sandboxSignal: () => undefined,
     } as unknown as RunContext["host"],
   };
-  return { ctx, calls };
+  return { ctx, calls, state };
 }
 
 async function end(reason: RunEnd, ctxOpts?: Parameters<typeof context>[0]): Promise<{ result: RunQaResult; calls: Calls }> {
-  const { ctx, calls } = context(ctxOpts);
-  return { result: await finalizeRun(reason, ctx), calls };
+  const { ctx, calls, state } = context(ctxOpts);
+  return { result: await finalizeRun(reason, ctx, state), calls };
 }
 
 const EVIDENCE = { rulesRetrieved: ["rule-1"], diffArchetypes: ["form-change"], archetype: "form-change", retries: 1 };
@@ -256,8 +260,8 @@ function decidedRun(opts: { verdict: "pass" | "fail"; mode?: RunQaInput["mode"];
   };
   const decision = decide(evidence);
   state.decided = { evidence, decision, isContextCleanPass: ctx.input.mode === "context" && decision.verdict === "pass" };
-  const services = { confinement: { enforce: async () => { calls.order.push("enforce"); }, add: () => {}, totals: undefined }, proofLedger: new Map(), integrityCounters: { acceptances: 0, rejected: 0, capHit: false }, intentLock: { mode: "signal" }, intentState: { clauses: 0, violations: 0, wouldReject: 0, opaque: 0, opacityHigh: false } };
-  const wctx = { ...ctx, workspace: { mirrorDir: MIRROR, specDir: `${MIRROR}/e2e` }, services, generation: { delivered: [] } } as unknown as WorkspaceRunContext;
+  const services = { confinement: { enforce: async () => { calls.order.push("enforce"); }, add: () => {}, totals: undefined }, proofBytes: new Map(), integrityCounters: { acceptances: 0, rejected: 0, capHit: false }, intentLock: { mode: "signal" }, intentState: { clauses: 0, violations: 0, wouldReject: 0, opaque: 0, opacityHigh: false } };
+  const wctx = { ...ctx, workspace: { mirrorDir: MIRROR, specDir: `${MIRROR}/e2e` }, services } as unknown as WorkspaceRunContext;
   if (opts.publishFails) (wctx.deps.publication as { publish: unknown }).publish = async () => { calls.order.push("publish"); throw new Error("the forge is down"); };
   return { ctx: wctx, state, calls };
 }
@@ -330,8 +334,8 @@ test("a run cannot be decided before its working copy is prepared", async () => 
 });
 
 test("an error nothing handles leaves the evidence of its sandbox as a recorded infra-error that nothing learns from", async () => {
-  const { ctx, calls } = context();
-  await recordCrashEvidence("The run ended on TypeError before it reached a verdict; only what the sandbox saw is kept here.", ctx);
+  const { ctx, calls, state } = context();
+  await recordCrashEvidence("The run ended on TypeError before it reached a verdict; only what the sandbox saw is kept here.", ctx, state);
   assert.equal(calls.saved.length, 1);
   assert.match(calls.saved[0]!.note ?? "", /ended on TypeError/);
   assert.equal(calls.published.length, 0);

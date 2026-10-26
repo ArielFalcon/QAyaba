@@ -12,6 +12,7 @@ import type { ExecutionPort, ValidationPort } from "../../ports/index.ts";
 import { end, goto, type StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
+import { addRetries, withRun } from "../reducers.ts";
 import { closedLoopSignal, loopClosedNow, regenerate, staticGateFindings } from "./generation-services.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
@@ -22,7 +23,7 @@ const STATIC_GATE_ERROR_DETAIL_MAX_CHARS = 4000;
 export const DETERMINISTIC_SELECTOR_BLOCKS = 0;
 
 /* The specs the run has delivered so far, as the gates are told. */
-export const deliveredNow = (ctx: WorkspaceRunContext): { deliveredSpecs: string[] } => ({ deliveredSpecs: ctx.generation.delivered.map((d) => d.file) });
+export const deliveredNow = (state: Readonly<RunState>): { deliveredSpecs: string[] } => ({ deliveredSpecs: state.generation.delivered.map((d) => d.file) });
 
 /* Live per-case ObserverPort events during execute(). Absent observer: callbacks are no-ops. */
 export function liveExecutionOptions(ctx: WorkspaceRunContext) {
@@ -55,8 +56,8 @@ export const executeAccepted = (ctx: WorkspaceRunContext): ExecutionPort["execut
   });
 
 /* The static gate an acceptance spends. */
-export const validateAccepted = (ctx: WorkspaceRunContext): ValidationPort["validate"] => (specDir, changedFiles) =>
-  ctx.deps.validation.validate(specDir, changedFiles, deliveredNow(ctx));
+export const validateAccepted = (state: Readonly<RunState>, ctx: WorkspaceRunContext): ValidationPort["validate"] => (specDir, changedFiles) =>
+  ctx.deps.validation.validate(specDir, changedFiles, deliveredNow(state));
 
 /* Mid-run DEV pre-flight, distinct from the entry gate. Absent DeployGatePort (static sites / code) defaults to always-healthy. The failure's message comes back with it. */
 export async function checkDevHealth(ctx: WorkspaceRunContext): Promise<{ healthy: true } | { healthy: false; reason: string }> {
@@ -82,7 +83,7 @@ async function endingEvidence(state: Readonly<RunState>, ctx: WorkspaceRunContex
     confinement: services.confinement.totals,
     /* FixLoop has not run: the tested section is the latest generation's. */
     tested: lastGenerated.specMetas,
-    closedLoop: await closedLoopSignal(ctx),
+    closedLoop: await closedLoopSignal(state, ctx),
     agentBrowser: ctx.trail.agentBrowser?.signals(),
   };
 }
@@ -112,11 +113,11 @@ export async function validateStatically(state: Readonly<RunState>, ctx: Workspa
   const { generating } = state.classification;
   const validateChangedFiles = state.classification.intent?.changedFiles ?? [];
   deps.observer?.onStep("validate");
-  let validation = await deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow(ctx));
-  if (generating) validation = await withLinterFixes(validation, ctx, validateChangedFiles);
+  let validation = await deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow(state));
+  if (generating) validation = await withLinterFixes(validation, state, ctx, validateChangedFiles);
   const lastGenerated = state.generation.generated;
   /* A failing gate on a spec the generator saw pass ends the run invalid instead of rewriting the spec. */
-  const staticFixRetired = !validation.ok && !validation.infra && generating && hasDeliveredSpecs(ctx, lastGenerated) && (await loopClosedNow(ctx));
+  const staticFixRetired = !validation.ok && !validation.infra && generating && hasDeliveredSpecs(state, lastGenerated) && (await loopClosedNow(state, ctx));
   if (staticFixRetired) {
     deps.observer?.onEvent({ type: "log.line", level: "info", text: "[qa] the static gate failed, but every delivered spec was seen passing through run_spec: no static-fix rounds" });
   }
@@ -124,7 +125,7 @@ export async function validateStatically(state: Readonly<RunState>, ctx: Workspa
 }
 
 /* What a static-fix round repairs: the specs the run has delivered, or those the last generation reported; a repair that returned nothing leaves the delivered ones to repair. */
-const hasDeliveredSpecs = (ctx: WorkspaceRunContext, lastGenerated: RunState["execution"]["lastGenerated"]): boolean => ctx.generation.delivered.length > 0 || lastGenerated.specs.length > 0;
+const hasDeliveredSpecs = (state: Readonly<RunState>, lastGenerated: RunState["execution"]["lastGenerated"]): boolean => state.generation.delivered.length > 0 || lastGenerated.specs.length > 0;
 
 /*
  * Bounded repair of static-gate errors (MAX_STATIC_FIX_ROUNDS), one round per run of this step: while `staticFixAction` says
@@ -137,7 +138,7 @@ export async function staticFixRound(state: Readonly<RunState>, ctx: WorkspaceRu
   const { generating } = state.classification;
   const { validation, lastGenerated: previous, staticFixRetired } = state.execution;
   const rounds = state.loops.staticFix;
-  const action = staticFixAction({ validation, rounds, max: MAX_STATIC_FIX_ROUNDS, retired: staticFixRetired, generating, hasDelivered: hasDeliveredSpecs(ctx, previous) });
+  const action = staticFixAction({ validation, rounds, max: MAX_STATIC_FIX_ROUNDS, retired: staticFixRetired, generating, hasDelivered: hasDeliveredSpecs(state, previous) });
   if (action === "stop") {
     if (validation.ok) return;
     /*
@@ -154,7 +155,6 @@ export async function staticFixRound(state: Readonly<RunState>, ctx: WorkspaceRu
   const validateChangedFiles = state.classification.intent?.changedFiles ?? [];
   const round = rounds + 1;
   /* mutation-scope:begin static-fix-round */
-  const retries = state.execution.retries + 1;
   deps.observer?.onStep("retry", `static-fix round ${round}/${MAX_STATIC_FIX_ROUNDS}`);
   /* Repair regen reuses the same classificationDiff/intent as the initial generate(). */
   /* mutation-scope:end static-fix-round */
@@ -163,14 +163,14 @@ export async function staticFixRound(state: Readonly<RunState>, ctx: WorkspaceRu
     fixCases: [{ name: "static-gate", status: "fail", detail: staticGateErrorDetail }],
   }, CORRECTION_ORIGIN.STATIC_GATE, staticGateFindings(validation.errors.map(stripAnsi)));
   await ctx.services.confinement.enforce();
-  const revalidated = await withLinterFixes(await deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow(ctx)), ctx, validateChangedFiles);
-  return goto("static-fix-round", { execution: { ...state.execution, validation: revalidated, lastGenerated, retries }, loops: { ...state.loops, staticFix: round, leadCorrections: state.loops.leadCorrections + leadCorrections } });
+  const revalidated = await withLinterFixes(await deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow(state)), state, ctx, validateChangedFiles);
+  return goto("static-fix-round", { execution: { ...addRetries(state.execution, 1), validation: revalidated, lastGenerated }, loops: { ...state.loops, staticFix: round, leadCorrections: state.loops.leadCorrections + leadCorrections } });
 }
 
 /* The linter's own fixes, applied to the delivered specs before an agent turn is spent on the static gate; the gate runs again on what they made, and only what they leave goes to a repair turn. */
-async function withLinterFixes(validation: Awaited<ReturnType<WorkspaceRunContext["deps"]["validation"]["validate"]>>, ctx: WorkspaceRunContext, changedFiles: string[]): Promise<typeof validation> {
+async function withLinterFixes(validation: Awaited<ReturnType<WorkspaceRunContext["deps"]["validation"]["validate"]>>, state: Readonly<RunState>, ctx: WorkspaceRunContext, changedFiles: string[]): Promise<typeof validation> {
   const { deps, workspace } = ctx;
-  const run = deliveredNow(ctx);
+  const run = deliveredNow(state);
   if (validation.ok || validation.infra || !deps.validation.autofix || run.deliveredSpecs.length === 0) return validation;
   const fixed = await deps.validation.autofix(workspace.specDir, run);
   if (fixed.length === 0) return validation;
@@ -218,5 +218,5 @@ export async function executeSpecs(state: Readonly<RunState>, ctx: WorkspaceRunC
     : await deps.execution.execute(workspace.specDir, liveExecutionOptions(ctx));
   /* The primary pass just ran: its bytes fix the contract every later regeneration is measured against (A5). */
   await services.primeIntentBaseline();
-  return { update: { execution: { ...state.execution, run } } };
+  return { update: { execution: withRun(state.execution, run) } };
 }

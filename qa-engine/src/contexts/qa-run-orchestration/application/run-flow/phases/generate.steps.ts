@@ -7,7 +7,6 @@ import { GENERATION_END } from "@kernel/generation-end.ts";
 import { NOOP_KIND } from "@kernel/noop-kind.ts";
 import { attributeContradictions } from "../../../domain/helpers/contradiction-attribution.ts";
 import { engineSideCauseOf, terminalForGenerationEnd } from "../../../domain/helpers/generation-end-terminal.ts";
-import { mergeDeliveredSpecs } from "../../../domain/helpers/delivered-specs.ts";
 import { checkPreExecGrounding } from "../../../domain/pre-exec-grounding.service.ts";
 import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rule.ts";
 import { reviewerApprovalOf } from "../../ports/index.ts";
@@ -19,6 +18,7 @@ import { throwIfAborted } from "../abort.ts";
 import { preExecAction } from "../../../domain/pre-exec-regen.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
+import { mergeDelivered, recordRunFact } from "../reducers.ts";
 import { afterGeneration, closedLoopSignal, geolocationEnrichment, loopClosedNow, regenerate } from "./generation-services.ts";
 import { carryOn } from "../failure-policy.ts";
 
@@ -100,7 +100,7 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
  * In the lead/sidekick mode the flows' specs stand in for the lead's first pass (coordinateFirstPass).
  */
 export async function generateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, workspace, signal, generation } = ctx;
+  const { deps, workspace, signal } = ctx;
   const { generating, diff: classificationDiff } = state.classification;
   const { authSeedUnauthored } = state.setup;
   const { baseEnrichment } = state.grounding;
@@ -130,7 +130,7 @@ export async function generateFirstPass(state: Readonly<RunState>, ctx: Workspac
         ...(authSeedUnauthored ? { authSeedUnauthored: true } : {}),
         ...(coordinated.unvisitedChangePages ? { unvisitedChangePages: coordinated.unvisitedChangePages } : {}),
       })));
-    generation.delivered = mergeDeliveredSpecs(generation.delivered, generated, coordinatedFirstPass ? "sidekick" : "lead");
+    mergeDelivered(state, generated, coordinatedFirstPass ? "sidekick" : "lead");
   }
   /*
    * Confinement after a real generate() only. The regression synthetic stand-in
@@ -154,7 +154,7 @@ export async function settleGenerationEnd(state: Readonly<RunState>, ctx: Worksp
   const { retrievedRuleIds, diffArchetypes, moreNodes: groundingMoreNodes } = state.grounding;
   const agentBrowserSignal = () => trail.agentBrowser?.signals();
   if (generated.end !== null) {
-    trail.generationEnd = generated.end;
+    recordRunFact(state, "generationEnd", generated.end);
     const terminal = terminalForGenerationEnd(generated.end);
     if (terminal.action === "continue") {
       if (generated.turn?.exhausted === true) {
@@ -173,7 +173,7 @@ export async function settleGenerationEnd(state: Readonly<RunState>, ctx: Worksp
           text: `[qa] the generator declared the change unobservable on DEV, while the pack's changed-value lines show more nodes than unchanged lines for ${groundingMoreNodes.length} changed value(s)`,
         });
       }
-      const skipLoopSignal = await closedLoopSignal(ctx);
+      const skipLoopSignal = await closedLoopSignal(state, ctx);
       return end("generation-noop", {
         note: generated.note,
         reviewerApproved: reviewerApprovalOf(generated),
@@ -199,7 +199,7 @@ export async function settleGenerationEnd(state: Readonly<RunState>, ctx: Worksp
         diffArchetypes,
         archetype: detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
         confinement: services.confinement.totals,
-        closedLoop: await closedLoopSignal(ctx),
+        closedLoop: await closedLoopSignal(state, ctx),
         agentBrowser: agentBrowserSignal(),
       });
     } else {
@@ -265,7 +265,7 @@ export async function preExecRegenerate(state: Readonly<RunState>, ctx: Workspac
   const { deps, signal } = ctx;
   const { groundingCorrections, groundingAttribution } = state.generation;
   /* A spec the generator saw pass against DEV is not rewritten for what a static look at its selectors suspects. */
-  const retired = groundingCorrections.length > 0 && (await loopClosedNow(ctx));
+  const retired = groundingCorrections.length > 0 && (await loopClosedNow(state, ctx));
   if (retired) {
     deps.observer?.onEvent({ type: "log.line", level: "info", text: "[qa] pre-exec grounding raised corrections, but every delivered spec was seen passing through run_spec: no corrective regeneration" });
   }

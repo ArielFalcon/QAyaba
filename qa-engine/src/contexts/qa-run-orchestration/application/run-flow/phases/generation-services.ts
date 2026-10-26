@@ -2,7 +2,7 @@
  * What the generation of a run needs from more than one phase: the work that follows every generation by the lead, the question
  * of whether the run_spec loop has done the work a regeneration would repeat, and one regeneration over what the run has delivered.
  * They are behavior, so they are functions of the run's context and state; the specs delivered so far are the one mutable fact,
- * held on `ctx.generation`.
+ * held on `state.generation` and changed only by the reducers.
  */
 
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
@@ -10,13 +10,13 @@ import { GENERATION_END } from "@kernel/generation-end.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { GeolocationFacts } from "@kernel/geolocation.ts";
 import { PROBE_REL_DIR } from "@contexts/test-execution/domain/run-spec-capability.ts";
-import { mergeDeliveredSpecs } from "../../../domain/helpers/delivered-specs.ts";
 import type { GenerationEnrichment, GenerationOutput } from "../../ports/index.ts";
 import type { CoordinatedPass } from "../../coordination/lead-sidekicks.ts";
 import { CORRECTION_ORIGIN, type CorrectionOrigin, type CorrectionFinding } from "../../coordination/lead-correction.ts";
 import { leadCorrectionAction, leadCorrectionBudget } from "../../../domain/lead-correction-budget.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
+import { mergeDelivered } from "../reducers.ts";
 
 /* A probe is a throwaway spec the generator ran through run_spec: it lives under the probe directory and is never a deliverable. */
 function isProbeSpec(file: string): boolean {
@@ -53,9 +53,9 @@ export async function afterGeneration<T extends Pick<GenerationOutput, "specs" |
 }
 
 /* Whether every delivered spec was seen passing in the bytes it has now: the generator has already done the work a regeneration would repeat. A fault in asking is "not closed", which keeps every regeneration. */
-export async function loopClosedNow(ctx: WorkspaceRunContext): Promise<boolean> {
+export async function loopClosedNow(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<boolean> {
   const { closedLoop } = ctx.trail;
-  const { delivered } = ctx.generation;
+  const { delivered } = state.generation;
   if (!closedLoop || delivered.length === 0) return false;
   try {
     return await closedLoop.isClosed(delivered.map((d) => d.file));
@@ -65,23 +65,23 @@ export async function loopClosedNow(ctx: WorkspaceRunContext): Promise<boolean> 
   }
 }
 
-export async function closedLoopSignal(ctx: WorkspaceRunContext): Promise<ClosedLoopGateSignal | undefined> {
+export async function closedLoopSignal(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<ClosedLoopGateSignal | undefined> {
   const { closedLoop } = ctx.trail;
-  return closedLoop ? { ...closedLoop.signals(), closed: await loopClosedNow(ctx) } : undefined;
+  return closedLoop ? { ...closedLoop.signals(), closed: await loopClosedNow(state, ctx) } : undefined;
 /* mutation-scope:begin lead-regeneration-routing */
 }
 
 /* One regeneration by the lead alone over what the run has delivered so far; what it delivers joins that. */
 export async function regenerateByLead(state: Readonly<RunState>, ctx: WorkspaceRunContext, regenerationSignal: AbortSignal | undefined, enrichment: GenerationEnrichment): Promise<GenerationOutput> {
-  const { deps, workspace, generation } = ctx;
+  const { deps, workspace } = ctx;
   const regenerated = await afterGeneration(ctx, await deps.generation.generate(workspace.specDir, regenerationSignal, state.classification.diff, {
     ...state.grounding.baseEnrichment,
     ...geolocationEnrichment(ctx),
     ...enrichment,
-    ...(generation.delivered.length > 0 ? { deliveredSpecs: generation.delivered } : {}),
+    ...(state.generation.delivered.length > 0 ? { deliveredSpecs: state.generation.delivered } : {}),
 /* mutation-scope:end lead-regeneration-routing */
   }));
-  generation.delivered = mergeDeliveredSpecs(generation.delivered, regenerated, "lead");
+  mergeDelivered(state, regenerated, "lead");
   return regenerated;
 }
 
@@ -204,7 +204,7 @@ export async function correctThroughLead(
     approved: true,
     parsed: corrected.readable,
   });
-  ctx.generation.delivered = mergeDeliveredSpecs(ctx.generation.delivered, byFlows, "sidekick");
+  mergeDelivered(state, byFlows, "sidekick");
   const regenerated = corrected.unrouted.length > 0 ? await regenerateByLead(state, ctx, regenerationSignal, leftover(corrected.unrouted)) : undefined;
   const rebuttals = [...corrected.rebuttals, ...(regenerated?.rebuttals ?? [])];
   const specs = [...new Set([...byFlows.specs, ...(regenerated?.specs ?? [])])];

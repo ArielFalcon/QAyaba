@@ -1,11 +1,10 @@
-/* What every step of a run may use and never returns: the run's input, its dependencies and configuration, the trail its phases leave, and (once the working copy is prepared) the run's live services. Separate from the run's state, which holds only data. */
+/* What every step of a run may use and never returns: the run's input, its dependencies and configuration, the trail of its phase cursor and live handles, and (once the working copy is prepared) the run's live services. Separate from the run's state, which holds only data. */
 
 import type { CycleBudget } from "../../domain/cycle-budget.ts";
 import type { WallClockBudget } from "../../domain/wall-clock-budget.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { PreconditionFailure, RunQaConfig, RunQaInput, RunQaUseCaseDeps, RunTrail } from "./run-types.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
-import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { PreparedWorkspace, RunServices } from "./run-services.ts";
 
 /* What the use case does for a run that is not an end: the notes it keeps on the trail, the login and suite helpers, and the ambient sandbox facts. Bound to the run. */
@@ -46,13 +45,7 @@ export interface RunContext {
   host: RunHost;
 }
 
-/* The specs this run has delivered so far, merged after every generation pass: a lead pass refreshes what its verdict declared for each spec, a sidekick pass adds paths only. Every regeneration is handed them. The one mutable fact of the generation, so the context owns it. */
-export interface GenerationLedger {
-  delivered: readonly DeliveredSpec[];
-}
-
 export interface WorkspaceRunContext extends RunContext {
   workspace: PreparedWorkspace;
   services: RunServices;
-  generation: GenerationLedger;
 }

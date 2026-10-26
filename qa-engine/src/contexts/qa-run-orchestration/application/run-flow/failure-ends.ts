@@ -1,5 +1,5 @@
 /*
- * The end a failure's policy calls for, built once the run is known: the facts a reason carries come from the error and the trail,
+ * The end a failure's policy calls for, built once the run is known: the facts a reason carries come from the error and the run's state,
  * and what the run says aloud about it is said here. `guarded` (steps and effects) and the use case's entry for errors outside any
  * step both ask this, so a failure ends the run the same way wherever it was thrown.
  */
@@ -11,13 +11,15 @@ import type { RunDeadlineExceededError } from "../../../../shared-kernel/run-dea
 import { classifyFailure } from "./failure-policy.ts";
 import type { EndReason } from "./end-reason.ts";
 import { runEnd, type RunEnd } from "./run-end.ts";
-import type { RunQaUseCaseDeps, RunTrail } from "./run-types.ts";
+import type { RunQaUseCaseDeps } from "./run-types.ts";
+import type { RunState } from "./run-state.ts";
+import { recordRunFact } from "./reducers.ts";
 
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
-export function failureEnd(reason: EndReason, err: unknown, run: { deps: RunQaUseCaseDeps; trail: RunTrail }): RunEnd {
-  const { deps, trail } = run;
-  const rules = trail.rulesRetrieved ? { rulesRetrieved: trail.rulesRetrieved } : {};
+export function failureEnd(reason: EndReason, err: unknown, run: { deps: RunQaUseCaseDeps }, state: Readonly<RunState>): RunEnd {
+  const { deps } = run;
+  const rules = state.run.rulesRetrieved ? { rulesRetrieved: state.run.rulesRetrieved } : {};
   switch (reason) {
     case "aborted":
       return runEnd("aborted");
@@ -29,8 +31,8 @@ export function failureEnd(reason: EndReason, err: unknown, run: { deps: RunQaUs
        */
       if (classifyFailure(err) !== "run-deadline") throw err;
       const deadline = err as RunDeadlineExceededError;
-      trail.limit = { fired: "run-deadline", role: deadline.role };
-      trail.generationEnd ??= GENERATION_END.TIME_BUDGET;
+      recordRunFact(state, "limit", { fired: "run-deadline", role: deadline.role });
+      if (state.run.generationEnd === undefined) recordRunFact(state, "generationEnd", GENERATION_END.TIME_BUDGET);
       const note = renderRunDeadlineNote({ budgetMs: deadline.budgetMs, label: deadline.label, role: deadline.role, stop: deadline.stop });
       console.error(`[qa] ${note}`);
       deps.observer?.onEvent({ type: "agent.error", detail: note });

@@ -25,11 +25,13 @@ import type { RegenerationAcceptance } from "../regeneration-acceptance.ts";
 import type { ReviewedSpecs, ReviewTally } from "./phases/review-services.ts";
 import type { DegradeReason } from "./failure-policy.ts";
 import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
-import type { FixLoopState } from "../../domain/fix-loop.aggregate.ts";
+import type { FixLoopStage } from "../../domain/fix-loop.aggregate.ts";
+import type { CoordinationGateSignal } from "@kernel/coordination.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { GraphPage } from "@kernel/change-pages.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunEvidence } from "../../domain/run-decision.service.ts";
+import type { EndReason } from "./end-reason.ts";
 
 /* What the classifier said about the change. Only a diff run classifies: every other run generates and has no diff. */
 export interface Classification {
@@ -94,6 +96,8 @@ export type RegressionStandIn = Omit<GenerationOutput, "end"> & { end: null };
 export interface GenerationOutcome {
   /** The generation the run goes on with: the first pass, or the corrective regeneration that replaced it. */
   generated: GenerationOutput | RegressionStandIn;
+  /** The specs this run has delivered so far, merged after every generation pass: a lead pass refreshes what its verdict declared for each spec, a sidekick pass adds paths only. Every regeneration is handed them; the reducers are its only writers. */
+  delivered: readonly DeliveredSpec[];
   /** The pre-exec gate's counters, real once it has run; 0 when its port is unwired. */
   preExecAmbiguityCatches: number;
   catalogGateInWindow: number;
@@ -116,14 +120,15 @@ export interface ExecutionOutcome {
   staticFixRetired: boolean;
   /** The hash of the login script that signed in just before execute; only such a file is kept by the suite store. */
   authVerifiedSha256: string | undefined;
-  /** The primary execution; a context run's is a synthetic pass with no cases. */
-  run: Awaited<ReturnType<ExecutionPort["execute"]>>;
+  /** The primary execution; a context run's is a synthetic pass with no cases. Absent until the execute step wrote it: read it with `runOf`. */
+  run: Awaited<ReturnType<ExecutionPort["execute"]>> | undefined;
 }
 
 /* What the fix loop left for the coverage, review and decide phases; the defaults stand when the loop never engaged. */
 export interface FixLoopSession {
-  /** Where the loop is and what it has gathered: the loop itself advances it, one stage per step. */
-  loop: FixLoopState;
+  /** The stage the loop is at and the round it is in: the loop itself, which holds its ports and scratch, is a live handle of the run's services. */
+  stage: FixLoopStage;
+  retry: number;
   /** What the loop's regenerations still carry from before it: grounding corrections (one-shot) and the latest lead generation's specs. */
   pending: { selectorContradictions: string[]; attributedSpecFiles: string[]; latestSpecs: string[] };
   /** The failing count and spec-set digest before the loop, for the phase span. */
@@ -258,6 +263,18 @@ export interface Degradation {
   note: string;
 }
 
+/* What the run's trace and its crash records say, once known: how generation ended, the limit that stopped the run, where the working copy is and which rules were retrieved. */
+export interface RunFacts {
+  generationEnd: string | undefined;
+  limit: { fired: string; role: string } | undefined;
+  mirrorDir: string | undefined;
+  rulesRetrieved: string[] | undefined;
+  /** Why the run ended, once it did. */
+  endReason: EndReason | undefined;
+  /** Whether a reviewer was due for the run, as the generation decides it. */
+  reviewRequired: boolean | undefined;
+}
+
 export interface RunState {
   classification: Classification;
   setup: SetupOutcome;
@@ -271,6 +288,19 @@ export interface RunState {
   loops: LoopCounters;
   /** The faults the run degraded past, in order; the decided outcome says each in its note. */
   degraded: Degradation[];
+  /** What the run's trace and crash records read. */
+  run: RunFacts;
+  /** What the lead/sidekick mode came to; absent when the run was not coordinated. */
+  coordination: CoordinationGateSignal | undefined;
+  /** The sha256 of the bytes that executed green, by suite-relative spec path; the bytes themselves are held by the run's services. */
+  proof: Record<string, string>;
+}
+
+/* The primary execution, once the execute step wrote it; reading it earlier is a defect of the step table. */
+export function runOf(state: Readonly<RunState>): NonNullable<ExecutionOutcome["run"]> {
+  const { run } = state.execution;
+  if (run === undefined) throw new Error("the run's execution was read before the execute step wrote it");
+  return run;
 }
 
 export function initialRunState(): RunState {
@@ -304,6 +334,7 @@ export function initialRunState(): RunState {
     },
     generation: {
       generated: { specs: [], approved: true, reviewed: false, end: null },
+      delivered: [],
       preExecAmbiguityCatches: 0,
       catalogGateInWindow: 0,
       catalogGateAdvisory: 0,
@@ -317,7 +348,7 @@ export function initialRunState(): RunState {
       lastGenerated: { specs: [], approved: true, reviewed: false, end: null },
       retries: 0,
       authVerifiedSha256: undefined,
-      run: { verdict: "pass", cases: [], logs: "" },
+      run: undefined,
     },
     fixLoop: { session: undefined, coverageNamespace: undefined, lastAdjudicatorVerdict: undefined, fixLoopFinalSpecMetas: undefined, devNotRenderedConclusive: false },
     coverage: {
@@ -338,5 +369,8 @@ export function initialRunState(): RunState {
     decided: undefined,
     loops: initialLoopCounters(),
     degraded: [],
+    run: { generationEnd: undefined, limit: undefined, mirrorDir: undefined, rulesRetrieved: undefined, endReason: undefined, reviewRequired: undefined },
+    coordination: undefined,
+    proof: {},
   };
 }

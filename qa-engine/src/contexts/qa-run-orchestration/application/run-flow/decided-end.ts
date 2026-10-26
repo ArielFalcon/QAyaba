@@ -18,7 +18,7 @@ import type { PublicationPort } from "../ports/index.ts";
 import { deriveErrorClass, toReflectionInput, toRunOutcome } from "./outcome-assembly.ts";
 import type { WorkspaceRunContext } from "./run-context.ts";
 import type { RunQaResult } from "./run-types.ts";
-import type { RunState } from "./run-state.ts";
+import { runOf, type RunState } from "./run-state.ts";
 import { PublicationFailedError, actionFor, carryOn } from "./failure-policy.ts";
 
 export async function finalizeDecided(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<RunQaResult> {
@@ -113,7 +113,7 @@ async function keepAcceptedSuite(state: Readonly<RunState>, ctx: WorkspaceRunCon
       runId: input.runId,
       sha: input.sha.toString(),
       /* The ledger's own hashes: every file admitted is one whose green bytes this run holds. */
-      executedGreen: new Map([...services.proofLedger].map(([file, proof]) => [file, proof.sha256])),
+      executedGreen: new Map(Object.entries(state.proof)),
       ...(authVerifiedSha256 !== undefined ? { authVerifiedSha256 } : {}),
     });
     host.announceSuite(`[qa] suite store: kept ${kept.entries} file(s) (${kept.admitted} new or changed, ${kept.dropped} dropped${kept.skipped.length > 0 ? `, ${kept.skipped.length} left out` : ""})`, "info");
@@ -130,7 +130,7 @@ async function keepAcceptedSuite(state: Readonly<RunState>, ctx: WorkspaceRunCon
  */
 async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<string> {
   const { deps, input, cfg, workspace, services } = ctx;
-  const { run } = state.execution;
+  const run = runOf(state);
   const { reviewerApproved } = state.review;
   const { lastAdjudicatorVerdict } = state.fixLoop;
   let published: Awaited<ReturnType<PublicationPort["publish"]>>;
@@ -215,12 +215,13 @@ function sharedSignals(state: Readonly<RunState>, ctx: WorkspaceRunContext, loop
 async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContext, publishOutcome: string | undefined): Promise<Persisted> {
   const { deps, services } = ctx;
   const { decision, isContextCleanPass } = decidedOf(state);
-  const { run, retries, validation } = state.execution;
+  const { retries, validation } = state.execution;
+  const run = runOf(state);
   const { coverageRatio, valueScore, mutantCount, killedCount } = state.coverage;
   const { finalReviewerCorrections, reviewerSignal } = state.review;
   const { retrievedRuleIds, diffArchetypes, blastRadiusSignal, serviceLinks, contractDrift, crossRepoImpact } = state.grounding;
   const { preExecAmbiguityCatches, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed } = state.generation;
-  const loopSignal = await closedLoopSignal(ctx);
+  const loopSignal = await closedLoopSignal(state, ctx);
   /* Thread the review loop's real final-round corrections into errorClass derivation. */
   const errorClass = deriveErrorClass(decision.verdict, coverageRatio, valueScore, finalReviewerCorrections, {
     ...(state.fixLoop.devNotRenderedConclusive ? { preconditionFailed: true } : {}),
@@ -339,7 +340,8 @@ function resultOf(state: Readonly<RunState>, ctx: WorkspaceRunContext, persisted
   const { deps } = ctx;
   const { decision, isContextCleanPass } = decidedOf(state);
   const { errorClass, loopSignal, mainlineOutcome } = persisted;
-  const { run, retries, validation } = state.execution;
+  const { retries, validation } = state.execution;
+  const run = runOf(state);
   const { coverageRatio, valueScore } = state.coverage;
   const { reviewerSignal } = state.review;
   const { preExecAmbiguityCatches, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed } = state.generation;

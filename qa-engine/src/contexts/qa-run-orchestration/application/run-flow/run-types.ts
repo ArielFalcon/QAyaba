@@ -20,7 +20,6 @@ import type { RunDeadlinePort } from "../ports/index.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunPhaseCursor, PhaseClock } from "../../domain/run-phase-cursor.ts";
 import type { PhaseSpans } from "../run-phase-spans.ts";
-import type { EndReason } from "./end-reason.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { PreconditionKind } from "../../domain/auth-precondition.ts";
 import type { CoordinationTelemetryPort } from "../coordination/coordination-telemetry.ts";
@@ -77,6 +76,8 @@ export interface RunQaUseCaseDeps {
   phaseClock?: PhaseClock;
   /** Absent: nothing is traced. Present: each phase of the run is a span under the run's active context (run-phase-spans.ts). Never changes a verdict. */
   telemetry?: TelemetryPort;
+  /** Absent: nothing is observed. Present: told the run's state, by reference, after every step the runner passes over, runs or ends on (the record a checkpoint is made from). It must not change the state. */
+  stateObserver?: (state: Readonly<object>, step: { readonly id: string; readonly outcome: string }) => void;
   /** Extracts a spec's clause contract for the intent lock. Absent: the lock has nothing to judge and never rejects. */
   intentContract?: IntentContractPort;
   changeAnalysis: ChangeAnalysisPort;
@@ -332,23 +333,12 @@ export interface RunQaResult {
   note?: string;
 }
 
+/* What the run holds that is not data: its phase cursor, the spans the cursor opens and the handles its authoring runs through. */
 export interface RunTrail {
   /** The run's phase cursor, created before anything runs. */
   phases: RunPhaseCursor;
-  /** How generation ended, once it did. */
-  generationEnd?: string;
-  /** Why the run ended, once it did. */
-  endReason?: EndReason;
-  /** What the engine decided about change-coverage, once it measured. */
-  coverageStatus?: "pass" | "fail" | "unknown";
-  /** Whether a reviewer was due for the run, as the generation decides it. */
-  reviewRequired?: boolean;
-  /** The limit that stopped the run, when the run deadline did. */
-  limit?: { fired: string; role: string };
   /** The spans of the phases the cursor opens. */
   spans: PhaseSpans;
-  mirrorDir?: string;
-  rulesRetrieved?: string[];
   /** The run_spec loop, once opened: closed by runInScope however the run ends. */
   closedLoop?: ClosedLoopHandle;
   /** The authenticated agent browser, once opened: closed by runInScope however the run ends. */

@@ -159,3 +159,15 @@ test("an infra end that is not a failed login survives a cancel", async () => {
 
 const expectedEnd = (reason: "login-precondition" | "pre-execute-infra") =>
   reason === "login-precondition" ? runEnd("login-precondition", { generating: true, note: "rejected" }) : runEnd("pre-execute-infra", { generating: true, note: "rejected", preconditionFailed: true });
+
+test("a step that declares what it writes cannot return an update outside it", async () => {
+  const stray: Step = { id: "a", writes: ["trace"], run: async () => ({ update: { n: 9 } }) };
+  const { hooks } = recorder();
+  await assert.rejects(runFlow([stray], { trace: [], n: 0 }, { skipB: false }, hooks), /step "a" returned an update for "n", which it does not declare/);
+});
+
+test("a step that declares what it writes may update exactly those fields", async () => {
+  const within: Step = { id: "a", writes: ["trace", "n"], run: async (state) => ({ update: { trace: [...state.trace, "a"], n: 1 } }) };
+  const { hooks } = recorder();
+  assert.deepEqual(await runFlow([within], { trace: [], n: 0 }, { skipB: false }, hooks), { state: { trace: ["a"], n: 1 } });
+});

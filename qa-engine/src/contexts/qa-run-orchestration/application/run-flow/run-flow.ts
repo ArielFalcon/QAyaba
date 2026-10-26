@@ -5,7 +5,7 @@
  * cancelled run is never a failed login: an end in ABORT_SUPERSEDES under a cancelled run becomes `aborted` too), a step whose `runs` says no is passed over, a step that names a phase opens it on the run's
  * phase cursor first (a step without one runs inside the phase already open), an update is merged into the state, and the first
  * end stops the walk. Every step the runner passes over, runs or ends on is reported to the run's recorder, so the trace says in
- * which order the steps came and why the run stopped. The runner does not turn an end into a result: that is `finalizeRun`.
+ * which order the steps came and why the run stopped. A step may declare the top-level fields of the state it updates (`writes`), and the runner refuses an update outside them. The runner does not turn an end into a result: that is `finalizeRun`.
  */
 
 import type { RunPhase } from "../../domain/run-phase-cursor.ts";
@@ -35,6 +35,8 @@ export interface FlowStep<S, C, Id extends string = StepId> {
   phase?: RunPhase;
   /** Whether the step runs for this run; absent, it always does. */
   runs?: (state: Readonly<S>, ctx: C) => boolean;
+  /** The top-level fields of the state the step updates; an update outside them is a defect of the step and the runner refuses it. */
+  writes?: readonly (keyof S)[];
   run: (state: Readonly<S>, ctx: C) => Promise<StepOutcome<S, Id>>;
 }
 
@@ -70,6 +72,14 @@ export function validateTable<S, C, Id extends string>(steps: ReadonlyArray<Flow
   }
 }
 
+/* A step that declares what it writes does not update anything else: the declaration is how the state's writers are read off the table. */
+function assertDeclared<S, C, Id extends string>(step: FlowStep<S, C, Id>, update: Partial<S> | undefined): void {
+  if (!step.writes || !update) return;
+  for (const key of Object.keys(update)) {
+    if (!step.writes.includes(key as keyof S)) throw new Error(`the step "${step.id}" returned an update for "${key}", which it does not declare`);
+  }
+}
+
 export async function runFlow<S extends object, C, Id extends string = StepId>(
   steps: ReadonlyArray<FlowStep<S, C, Id>>,
   state: S,
@@ -98,6 +108,7 @@ export async function runFlow<S extends object, C, Id extends string = StepId>(
       hooks.endOf,
       degrade ? (reason, err) => degrade.call(hooks, reason, err, step.id, state) : undefined,
     );
+    if (outcome) assertDeclared(step, outcome.update);
     if (outcome && "end" in outcome) {
       if (outcome.update) Object.assign(state, outcome.update);
       const ending = hooks.aborted() && supersededByAbort(outcome.end) ? runEnd("aborted") : outcome.end;

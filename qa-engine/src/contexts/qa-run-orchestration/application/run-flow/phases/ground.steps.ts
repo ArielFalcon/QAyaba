@@ -9,6 +9,7 @@ import type { StepOutcome } from "../run-flow.ts";
 import { throwIfAborted } from "../abort.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
+import { recordRunFact } from "../reducers.ts";
 import { carryOn } from "../failure-policy.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
@@ -45,7 +46,7 @@ export async function readDiffShapes(state: Readonly<RunState>, _ctx: WorkspaceR
  * for by-id fold attribution — never conflate the two.
  */
 export async function retrieveRules(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, input, trail } = ctx;
+  const { deps, input } = ctx;
   let retrievedRules: RetrievedRule[] = [];
   try {
     retrievedRules = await deps.learning.retrieve(input.sha, state.grounding.retrievalRelevance);
@@ -53,7 +54,7 @@ export async function retrieveRules(state: Readonly<RunState>, ctx: WorkspaceRun
     console.error("[qa] learning retrieval failed (non-fatal, generation continues ungrounded):", err);
   }
   const retrievedRuleIds = retrievedRules.map((r) => r.id);
-  trail.rulesRetrieved = retrievedRuleIds;
+  recordRunFact(state, "rulesRetrieved", retrievedRuleIds);
   return { update: { grounding: { ...state.grounding, retrievedRules, retrievedRuleIds } } };
 }
 

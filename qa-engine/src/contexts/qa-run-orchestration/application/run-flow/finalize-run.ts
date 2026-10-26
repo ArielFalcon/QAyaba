@@ -46,13 +46,13 @@ type Shape =
 
 const isWorkspaceContext = (ctx: RunContext): ctx is WorkspaceRunContext => "workspace" in ctx && "services" in ctx;
 
-export async function finalizeRun(end: RunEnd, ctx: RunContext, state?: Readonly<RunState>): Promise<RunQaResult> {
+export async function finalizeRun(end: RunEnd, ctx: RunContext, state: Readonly<RunState>): Promise<RunQaResult> {
   const effects = END_EFFECTS[end.reason];
   if (end.reason === "decided" || end.reason === "context-pass") {
-    if (!isWorkspaceContext(ctx) || !state) throw new Error("a run cannot be decided before its working copy is prepared");
+    if (!isWorkspaceContext(ctx)) throw new Error("a run cannot be decided before its working copy is prepared");
     return await finalizeDecided(state, ctx);
   }
-  return await finalizeShape(shapeOf(await enforcedEnd(end, effects, ctx), ctx), effects, ctx);
+  return await finalizeShape(shapeOf(await enforcedEnd(end, effects, ctx), ctx), effects, ctx, state);
 }
 
 /* The last confinement pass an end asks for, and the totals of every pass the run made as the evidence the end carries. */
@@ -67,12 +67,12 @@ async function enforcedEnd<E extends Exclude<RunEnd, { reason: "decided" | "cont
  * A run that ends on an error nothing handles leaves its record to the caller, which cannot read the run's sandbox scope. When a
  * child ran, the evidence the scope holds is kept as a persisted infra-error before the error goes on; the caller rethrows.
  */
-export async function recordCrashEvidence(note: string, ctx: RunContext): Promise<void> {
-  const { rulesRetrieved } = ctx.trail;
-  await finalizeShape({ kind: "terminal", terminal: { verdict: "infra-error", generating: true, static: false, note, ...(rulesRetrieved ? { rulesRetrieved } : {}) } }, CRASH_EVIDENCE_EFFECTS, ctx);
+export async function recordCrashEvidence(note: string, ctx: RunContext, state: Readonly<RunState>): Promise<void> {
+  const { rulesRetrieved } = state.run;
+  await finalizeShape({ kind: "terminal", terminal: { verdict: "infra-error", generating: true, static: false, note, ...(rulesRetrieved ? { rulesRetrieved } : {}) } }, CRASH_EVIDENCE_EFFECTS, ctx, state);
 }
 
-async function finalizeShape(shape: Shape, effects: EndEffects, ctx: RunContext): Promise<RunQaResult> {
+async function finalizeShape(shape: Shape, effects: EndEffects, ctx: RunContext, state: Readonly<RunState>): Promise<RunQaResult> {
   const { deps, input } = ctx;
   const decision = decisionOf(shape, ctx);
   let publishOutcome: string | undefined;
@@ -80,7 +80,7 @@ async function finalizeShape(shape: Shape, effects: EndEffects, ctx: RunContext)
     publishOutcome = await publishTerminal(shape, ctx);
   }
   const prune = async (): Promise<void> => {
-    const mirrorDir = ctx.trail.mirrorDir;
+    const { mirrorDir } = state.run;
     if (mirrorDir) await ctx.host.pruneMirror(mirrorDir);
   };
   if (effects.prune === "before-persist") await prune();

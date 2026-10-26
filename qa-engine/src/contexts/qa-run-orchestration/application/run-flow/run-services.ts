@@ -15,6 +15,7 @@ import { diffContracts, type IntentViolation } from "@contexts/objective-signal/
 import type { SpecIntentView } from "../ports/intent-contract.port.ts";
 import type { RunQaConfig, RunQaUseCaseDeps } from "./run-types.ts";
 import { carryOn } from "./failure-policy.ts";
+import type { FixLoopState } from "../../domain/fix-loop.aggregate.ts";
 
 export interface PreparedWorkspace {
   specDir: string;
@@ -29,15 +30,22 @@ export interface ConfinementTotals {
 
 export type RunServices = ReturnType<typeof createRunServices>;
 
-export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, workspace: PreparedWorkspace, signal: AbortSignal | undefined) {
+export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, workspace: PreparedWorkspace, signal: AbortSignal | undefined, recordProof: (file: string, sha256: string) => void) {
   /*
-   * The run's proof ledger: for every delivered spec file, the bytes that executed green — either in the first pass or in an
-   * accepted regeneration — keyed by suite-relative path with their sha256. A delivered file with no entry has no proof, and the
-   * final guard fails the run closed rather than publish its unexecuted bytes. Seeded after the first execution; every accepted
-   * regeneration adds or replaces its changed files' entries.
+   * The run's proof: for every delivered spec file, the bytes that executed green — either in the first pass or in an accepted
+   * regeneration — keyed by suite-relative path. The state holds their sha256 (`state.proof`, written through the callback); the bytes, which a restore needs,
+   * are held here. A delivered file with no entry has no proof, and the final guard fails the run closed rather than publish its
+   * unexecuted bytes. Seeded after the first execution; every accepted regeneration adds or replaces its changed files' entries.
    */
   const specRoot: SpecRoot = { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir };
-  const proofLedger = new Map<string, { sha256: string; bytes?: Uint8Array }>();
+  const proofBytes = new Map<string, Uint8Array>();
+  const keepProof = (file: string, sha256: string, bytes?: Uint8Array): void => {
+    recordProof(file, sha256);
+    if (bytes === undefined) proofBytes.delete(file);
+    else proofBytes.set(file, bytes);
+  };
+  /* The fix loop in progress: its ports and scratch are live objects, so the state holds only where it stands. */
+  const fixLoopHandle: { current: FixLoopState | undefined } = { current: undefined };
   const integrityCounters = { acceptances: 0, rejected: 0, proofReused: 0, capHit: false };
   const snapshotPort = specSnapshotPort(specRoot);
   /* Built once per run; the deadline, validation, execution and the closed-loop proof source are each passed per call. */
@@ -110,7 +118,7 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
     snapshot: snapshotPort,
     fingerprint: (bytes) => sha256Hex(Buffer.from(bytes).toString("utf8")),
     ledger: async (entry) => {
-      proofLedger.set(entry.file, { sha256: entry.sha256, bytes: entry.bytes });
+      keepProof(entry.file, entry.sha256, entry.bytes);
     },
     contractCheck,
   });
@@ -187,7 +195,9 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
 
   return {
     specRoot,
-    proofLedger,
+    proofBytes,
+    keepProof,
+    fixLoopHandle,
     integrityCounters,
     snapshotPort,
     intentLock,

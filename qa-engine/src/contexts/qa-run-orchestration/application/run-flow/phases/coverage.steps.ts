@@ -5,7 +5,8 @@ import { BlastRadius } from "@kernel/blast-radius.ts";
 import { renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
-import type { RunState } from "../run-state.ts";
+import { runOf, type RunState } from "../run-state.ts";
+import { acceptedRegeneration, rollbackDelivered, withAcceptanceCalls, withRun } from "../reducers.ts";
 import { executeAccepted, validateAccepted } from "./execute.steps.ts";
 import { regenerate } from "./generation-services.ts";
 import { coverageRegenAction } from "../../../domain/coverage-regen.ts";
@@ -13,7 +14,7 @@ import { coverageRegenAction } from "../../../domain/coverage-regen.ts";
 type Result = Promise<StepOutcome<RunState>>;
 
 /* A context run executes nothing (its pass is synthetic), so it has no coverage or value to measure. */
-export const measuresCoverage = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean => state.execution.run.verdict === "pass" && ctx.input.mode !== "context";
+export const measuresCoverage = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean => runOf(state).verdict === "pass" && ctx.input.mode !== "context";
 
 /* Only a diff run on one repo measures a real per-commit coverage signal. */
 const measuresPerCommit = (ctx: WorkspaceRunContext): boolean => ctx.input.mode === "diff" && !ctx.input.triggerRepo;
@@ -26,8 +27,8 @@ export async function announceCoverage(_state: Readonly<RunState>, ctx: Workspac
 }
 
 export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, input, trail, workspace } = ctx;
-  const { run } = state.execution;
+  const { deps, input, workspace } = ctx;
+  const run = runOf(state);
   const { diff, intent } = state.classification;
   /* The same BlastRadius the ground phase queried the structural signal with; measure() scopes the code-target oracle to it. */
   const runBlastRadius = BlastRadius.of(input.sha, intent?.changedFiles ?? []);
@@ -50,7 +51,6 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
     baselineCases,
     ...(coverageNamespace ? [{ namespace: coverageNamespace }] : []),
   );
-  trail.coverageStatus = signal.status;
   return {
     update: {
       coverage: {
@@ -84,14 +84,15 @@ export const regeneratesForCoverage = (state: Readonly<RunState>, ctx: Workspace
  * coverage is the single final re-measure before decide.
  */
 export async function regenerateForCoverage(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { input, trail, workspace, services, generation } = ctx;
+  const { input, trail, workspace, services } = ctx;
   const { acceptance, integrityCounters, snapshotPort, runDeadlinePort, suiteChangedFiles, snapshotSuite, acceptanceScope } = services;
-  let { acceptanceCalls, acceptedRegenAfterMeasure } = state.coverage;
-  let { run } = state.execution;
+  let { acceptanceCalls } = state.coverage;
+  let coverage = state.coverage;
+  let run = runOf(state);
   const gap = renderCoverageGap(state.coverage.uncovered);
   const snapshot = await snapshotSuite();
   /* mutation-scope:begin delivered-before-coverage-regen */
-  const deliveredBefore = generation.delivered;
+  const deliveredBefore = state.generation.delivered;
   /* mutation-scope:end delivered-before-coverage-regen */
   const regenerated = await regenerate(state, ctx, undefined, { coverageGap: gap }, CORRECTION_ORIGIN.COVERAGE);
   const regen = regenerated.output;
@@ -104,7 +105,7 @@ export async function regenerateForCoverage(state: Readonly<RunState>, ctx: Work
     if (changedFiles.length > 0) {
       await snapshotPort.restore(workspace.specDir, snapshot, changedFiles.filter((file) => !snapshot.files.has(file)));
     }
-    generation.delivered = deliveredBefore;
+    rollbackDelivered(state, deliveredBefore);
   } else if (changedSpecFiles.length > 0) {
     const { closedLoop } = trail;
     const outcome = await acceptance.accept({
@@ -114,24 +115,24 @@ export async function regenerateForCoverage(state: Readonly<RunState>, ctx: Work
       snapshot,
       ...(closedLoop ? { closedLoop } : {}),
       deadline: runDeadlinePort,
-      validate: validateAccepted(ctx),
+      validate: validateAccepted(state, ctx),
       execute: executeAccepted(ctx),
     });
     if (outcome.kind === "accepted") {
       integrityCounters.acceptances += 1;
       if (outcome.executedSpecs.length === 0) integrityCounters.proofReused += 1;
-      acceptedRegenAfterMeasure = true;
+      coverage = acceptedRegeneration(coverage);
       if (outcome.execution?.cases.length) {
         const changedSet = new Set(changedSpecFiles);
         run = { ...run, cases: [...run.cases.filter((c) => !changedSet.has(c.file ?? c.name)), ...outcome.execution.cases] };
       }
     } else {
       /* Rejected or capped: the turn's specs are not the run's. */
-      generation.delivered = deliveredBefore;
+      rollbackDelivered(state, deliveredBefore);
       if (outcome.kind === "rejected") integrityCounters.rejected += 1;
       else integrityCounters.capHit = true;
       /* The first measurement and the prior bytes stand. */
     }
   }
-  return { update: { execution: { ...state.execution, run }, coverage: { ...state.coverage, acceptanceCalls, acceptedRegenAfterMeasure }, loops: { ...state.loops, coverageRegen: state.loops.coverageRegen + 1, leadCorrections: state.loops.leadCorrections + leadCorrections } } };
+  return { update: { execution: withRun(state.execution, run), coverage: withAcceptanceCalls(coverage, acceptanceCalls), loops: { ...state.loops, coverageRegen: state.loops.coverageRegen + 1, leadCorrections: state.loops.leadCorrections + leadCorrections } } };
 }
