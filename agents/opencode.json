@@ -23,34 +23,12 @@
       "~/.config/opencode/skill/*": "allow"
     }
   },
-  "provider": {
-    "deepseek-api": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "DeepSeek API",
-      "options": {
-        "baseURL": "https://api.deepseek.com",
-        "apiKey": "{env:DEEPSEEK_API_KEY}"
-      },
-      "models": {
-        "deepseek-v4.1-flash": {
-          "id": "deepseek-flash",
-          "name": "DeepSeek V4.1 Flash",
-          "reasoning": true,
-          "tool_call": true,
-          "limit": {
-            "context": 1048576,
-            "output": 393216
-          }
-        }
-      }
-    }
-  },
   "agent": {
     "qa-lead": {
       "description": "Read-only lead of a coordinated run: plans the change into flows, asks for the review of the flows its sidekicks authored and routes the corrections. It writes no file and runs no code: it has no shell, no fetch, no run_spec, no authenticated browser, no location tool and no MCP server (serena and playwright both denied). It holds codegraph_explore, served by the orchestrator: a read-only explore of the run's own code-graph index by symbol, file or code-term names, answered with the matching source and the calls among it; the orchestrator refuses it unless the run granted it.",
       "mode": "primary",
-      "model": "deepseek-api/deepseek-v4.1-flash",
-      "options": { "reasoningEffort": "high" },
+      "model": "opencode-go/glm-5.3-flash",
+      "options": { "reasoningEffort": "low" },
       "prompt": "{file:./agent/qa-lead.md}",
       "tools": {
         "write": false,
@@ -133,8 +111,7 @@
     "qa-reviewer": {
       "description": "Independent E2E quality judge, invoked directly by the orchestrator's ReviewPortAdapter (not delegated to by another agent) — mode is \"all\" because OpenCode's \"subagent\" mode is for agents other primary agents delegate to, which does not describe this invocation path. Does not write: emits a JSON verdict. Holds NO MCP access (serena/playwright both denied) so its independence is enforced by the runtime, not prompt etiquette.",
       "mode": "all",
-      "model": "deepseek-api/deepseek-v4.1-flash",
-      "options": { "reasoningEffort": "high" },
+      "model": "opencode-go/minimax-m3",
       "prompt": "{file:./agent/qa-reviewer.md}",
       "tools": {
         "write": false,
@@ -209,8 +186,7 @@
     "qa-maintainer": {
       "description": "Self-maintenance agent for qayaba itself. Diagnoses and fixes incidents; never touches watched app repos. Has serena MCP access by design (no playwright — it never drives a browser).",
       "mode": "primary",
-      "model": "deepseek-api/deepseek-v4.1-flash",
-      "options": { "reasoningEffort": "high" },
+      "model": "opencode-go/kimi-k2.7-code",
       "prompt": "{file:./agent/qa-maintainer.md}",
       "tools": {
         "write": true,
@@ -261,8 +237,7 @@
     "qa-assistant": {
       "description": "Read-only run Q&A for the interactive layer (TUI chat). Tool-less: answers ONLY from the run context injected in the prompt (src/server/chat.ts buildRunChatContext deterministically embeds run outcomes, learning rules and curriculum as text). ALL MCP toolsets (serena/playwright) are explicitly denied.",
       "mode": "primary",
-      "model": "deepseek-api/deepseek-v4.1-flash",
-      "options": { "reasoningEffort": "high" },
+      "model": "opencode-go/glm-5.3-flash",
       "prompt": "{file:./agent/qa-assistant.md}",
       "tools": {
         "write": false,
@@ -324,8 +299,7 @@
     "qa-reflector": {
       "description": "One-shot failure reflector: turns a sanitized failure context into a StructuredReflection JSON. Tool-less by design (no MCP) so it cannot read/write/recall anything beyond the prompt — a pure transform for the learning ledger. ALL MCP toolsets (serena/playwright) are explicitly denied.",
       "mode": "primary",
-      "model": "deepseek-api/deepseek-v4.1-flash",
-      "options": { "reasoningEffort": "high" },
+      "model": "opencode-go/glm-5.3-flash",
       "prompt": "{file:./agent/qa-reflector.md}",
       "tools": {
         "write": false,
@@ -387,8 +361,7 @@
     "qa-proposer": {
       "description": "Read-only cross-service boundary proposer. Hypothesizes the app's HTTP/event convention as candidate BoundaryProfiles for a deterministic scorer to grade against real repos. Writes nothing; emits only the verdict. Has serena MCP access by design (no playwright).",
       "mode": "primary",
-      "model": "deepseek-api/deepseek-v4.1-flash",
-      "options": { "reasoningEffort": "high" },
+      "model": "opencode-go/glm-5.3-flash",
       "prompt": "{file:./agent/qa-proposer.md}",
       "tools": {
         "write": false,
@@ -439,8 +412,8 @@
     "qa-author": {
       "description": "Test author — the one agent that writes tests. For a flow of a plan it receives a self-contained delegation brief (objective, acceptance criteria, writable/readable scope, known facts, validation plan) and may edit multiple EXISTING specs within its writable scope across follow-up feedback turns in the SAME session; for the run's own task (a login still to be written, the repo's own tests, the architecture map, corrections to what was delivered) it works in the run's working copy. Frozen authority: cannot change acceptance criteria/architecture, cannot write outside writablePaths, never performs git writes; a claimed result is externally validated against what actually exists on disk. Has serena + playwright MCP access by design, minus the tools that run code, push a file or open a shell (its built-in shell is off too). Enforced: those tools are denied. Not enforced: browser_click, browser_type and browser_fill_form can still submit a form on DEV through the UI, which only the prompt forbids. It also holds run_spec and the authbrowser_* tools, served by the orchestrator when the run granted them (run_spec only for the flow it is authoring: it runs the one spec the flow was given, once, against DEV; the browser is a read-only one signed in as the test account); a session the run did not grant them hides them. A flow's author works in a workspace of its own, a copy of what the run may read, and the orchestrator takes back only the files its brief names.",
       "mode": "primary",
-      "model": "deepseek-api/deepseek-v4.1-flash",
-      "options": { "reasoningEffort": "high" },
+      "model": "opencode-go/glm-5.3-flash",
+      "options": { "reasoningEffort": "low" },
       "prompt": "{file:./agent/qa-author.md}",
       "tools": {
         "write": true,
@@ -486,8 +459,8 @@
     "qa-explore": {
       "description": "Read-only exploration sidekick: answers the lead's questions about the change before it plans. It writes no file and runs no code: it has no shell, no fetch, no run_spec, no location tool and no MCP server (serena and playwright both denied). It holds codegraph_explore and the four authbrowser_* tools, served by the orchestrator when the run granted them for the exploration it was opened for (the graph and the browser are bounded by a share of the run's calls; the browser is one that reads only, signed in as the test account: a request that would write to DEV is refused whatever the app allows an author); a session the run did not grant them hides them.",
       "mode": "primary",
-      "model": "deepseek-api/deepseek-v4.1-flash",
-      "options": { "reasoningEffort": "high" },
+      "model": "opencode-go/glm-5.3-flash",
+      "options": { "reasoningEffort": "low" },
       "prompt": "{file:./agent/qa-explore.md}",
       "tools": {
         "write": false,

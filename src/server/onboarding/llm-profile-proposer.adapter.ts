@@ -9,7 +9,7 @@ import type { ProfileProposerPort, ProposerFeedback } from "@contexts/service-to
 import { ProposerVerdictSchema, UNPARSEABLE_SENTINEL, type SchemaCandidate } from "./proposer-verdict.schema";
 
 /** Model pinned for every proposer session. Keep in sync with agents/opencode.json qa-proposer.model. */
-export const PROPOSER_MODEL = "opencode/deepseek-v4.1-flash-free";
+export const PROPOSER_MODEL = "opencode-go/glm-5.3-flash";
 
 /* Default per-session timeout when the caller doesn't override it via ctx.timeoutMs. */
 const DEFAULT_PROPOSER_TIMEOUT_MS = 5 * 60 * 1000;

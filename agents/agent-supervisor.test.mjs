@@ -95,7 +95,8 @@ test("only the explicit baseline opt-in lets the OpenCode server read project co
 test("every provider key opencode.json reads configures the OpenCode runtime and is masked in answers", () => {
   const config = readFileSync(new URL("./opencode.json", import.meta.url), "utf8");
   const read = [...config.matchAll(/\{env:([A-Z0-9_]+)\}/g)].map((m) => m[1]).filter((name) => name.endsWith("_API_KEY"));
-  assert.ok(read.length > 0, "opencode.json reads at least one provider key");
+  /* A config on OpenCode's built-in providers reads none; OPENCODE_API_KEY stays listed for them. */
+  assert.ok(OPENCODE_PROVIDER_KEYS.includes("OPENCODE_API_KEY"));
   for (const name of read) {
     assert.ok(OPENCODE_PROVIDER_KEYS.includes(name), `${name} configures the OpenCode runtime`);
     const before = process.env[name];
