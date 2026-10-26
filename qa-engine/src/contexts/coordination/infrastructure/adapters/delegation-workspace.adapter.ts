@@ -12,6 +12,7 @@
  * untrusted bytes and goes through spec-path-confinement.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { createHash } from "node:crypto";
 import { lstatSync, mkdirSync, readdirSync, rmdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -175,7 +176,7 @@ export class FsDelegationWorkspaceAdapter implements DelegationWorkspacePort {
     try {
       removeTreeBounded(workspace.dir);
     } catch (err) {
-      console.error(`[qa] removing the delegation workspace ${workspace.dir} failed (the next sweep removes it): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] removing the delegation workspace ${workspace.dir} failed (the next sweep removes it): ${err instanceof Error ? err.message : String(err)}`);
       return;
     }
     try {
@@ -203,7 +204,7 @@ export class FsDelegationWorkspaceAdapter implements DelegationWorkspacePort {
         removeTreeBounded(path);
         removed += Math.max(workspaces, 1);
       } catch (err) {
-        console.error(`[qa] sweeping ${path} failed: ${err instanceof Error ? err.message : String(err)}`);
+        engineLog.error(`[qa] sweeping ${path} failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
     this.baselines.clear();

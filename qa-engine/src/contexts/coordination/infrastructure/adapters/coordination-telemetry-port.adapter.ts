@@ -13,6 +13,7 @@
  * cap is crossed — a long-lived process's ledger file (and therefore the cost of reloading it on
  * the NEXT boot) never grows unbounded, without paying a full rewrite on every record.
  */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
@@ -110,7 +111,7 @@ export class FileCoordinationTelemetryAdapter implements CoordinationTelemetryPo
       /* Telemetry is observational: a sink failure must never break the QA run, but it must not stay silent (surface integration errors loudly). Warn once per burst, reset on the next success. */
       if (!this.warnedPersistFailure) {
         this.warnedPersistFailure = true;
-        console.error(
+        engineLog.error(
           `[qa] coordination telemetry persist failed (events kept in memory only): ${err instanceof Error ? err.message : String(err)}`,
         );
       }
@@ -134,7 +135,7 @@ export class FileCoordinationTelemetryAdapter implements CoordinationTelemetryPo
     } catch (err) {
       if (!this.warnedPersistFailure) {
         this.warnedPersistFailure = true;
-        console.error(
+        engineLog.error(
           `[qa] coordination telemetry rotation failed (ledger keeps growing on disk): ${err instanceof Error ? err.message : String(err)}`,
         );
       }

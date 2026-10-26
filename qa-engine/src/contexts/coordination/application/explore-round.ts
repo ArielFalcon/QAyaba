@@ -4,6 +4,7 @@
  * lead is given the findings labelled by that check. Nothing here decides a plan or a verdict: it returns the text of the lead's
  * next turn. A question whose sidekick could not answer is reported to the lead as unanswered, never dropped.
  */
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { AgentBrowserHandle, CodeGraphToolsHandle } from "@contexts/agent-tools/application/index.ts";
 import { packPagesFor } from "@contexts/generation/application/index.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
@@ -99,7 +100,7 @@ export async function runExploreRound(deps: ExploreRoundDeps, input: ExploreRoun
       timeoutMs: Math.max(1, slot.budgetMs),
       delegationId: slot.delegationId,
     });
-    await session.dispose().catch((err: unknown) => console.error(`[qa] closing explore session ${slot.delegationId} failed: ${err instanceof Error ? err.message : String(err)}`));
+    await session.dispose().catch((err: unknown) => engineLog.error(`[qa] closing explore session ${slot.delegationId} failed: ${err instanceof Error ? err.message : String(err)}`));
     deps.record({ reason: `explore ${slot.id}: ${session.first.status}`, delegationId: slot.delegationId, durationMs: deps.now() - started, sidekickStatus: session.first.status });
     answers.set(slot.id, session.first);
     return session.first;
@@ -125,7 +126,7 @@ export async function runExploreRound(deps: ExploreRoundDeps, input: ExploreRoun
     const answer = result?.status === FLOW_RESULT.SETTLED ? result.value : undefined;
     const exploration = answer?.exploration ?? failedExploration(question);
     if (result?.status === FLOW_RESULT.THREW) {
-      console.error(`[qa] explore ${question.id} failed: ${result.error instanceof Error ? result.error.message : String(result.error)}`);
+      engineLog.error(`[qa] explore ${question.id} failed: ${result.error instanceof Error ? result.error.message : String(result.error)}`);
       deps.record({ reason: `explore ${question.id}: the session failed`, delegationId: exploreDelegationId(input.runId, question.id), failureClass: "session-failed" });
     }
     const status = answer?.exploration ? exploration.status : "failed";

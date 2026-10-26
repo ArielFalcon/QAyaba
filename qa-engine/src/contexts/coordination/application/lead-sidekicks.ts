@@ -9,6 +9,7 @@
  * Nothing here decides a verdict: it returns what a generation would, and the run reads it as it reads any generation.
  */
 
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { posix } from "node:path";
 import { PROBE_REL_DIR } from "@contexts/test-execution/application/index.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
@@ -277,7 +278,7 @@ export class LeadSidekicks {
       return refuse(AUTHORING_REFUSAL.NO_TIME, "too little of the run is left to plan and author in parallel", { authoring: authoringName });
     }
 
-    await this.sweep().catch((err: unknown) => console.error(`[qa] sweeping the delegation workspaces failed (the run goes on): ${err instanceof Error ? err.message : String(err)}`));
+    await this.sweep().catch((err: unknown) => engineLog.error(`[qa] sweeping the delegation workspaces failed (the run goes on): ${err instanceof Error ? err.message : String(err)}`));
     const locations = input.geolocation?.placeNames() ?? [];
     const admission = admissionSetOf(input.candidates);
     let planned = await input.plan({
@@ -330,7 +331,7 @@ export class LeadSidekicks {
       if (result.action === "fanout" && result.pass) leadHanded = true;
       return result;
     } finally {
-      if (!leadHanded) await planned.lead?.dispose().catch((err: unknown) => console.error(`[qa] closing the lead's session failed: ${err instanceof Error ? err.message : String(err)}`));
+      if (!leadHanded) await planned.lead?.dispose().catch((err: unknown) => engineLog.error(`[qa] closing the lead's session failed: ${err instanceof Error ? err.message : String(err)}`));
     }
   }
 
@@ -505,7 +506,7 @@ export class LeadSidekicks {
         case FLOW_RESULT.THREW:
           /* The run's own time spent ends the run, not a flow. */
           if (isRunDeadlineError(result.error)) throw result.error;
-          console.error(`[qa] flow ${result.id} failed: ${result.error instanceof Error ? result.error.message : String(result.error)}`);
+          engineLog.error(`[qa] flow ${result.id} failed: ${result.error instanceof Error ? result.error.message : String(result.error)}`);
           reports.set(result.id, this.keepDelivered(live.get(result.id), { outcome: { id: result.id, kind: FLOW_OUTCOME.FAILED, reason: "the sidekick's session failed" }, proposals: undefined }));
           break;
       }
@@ -567,7 +568,7 @@ export class LeadSidekicks {
     });
     /* A session that opened after its flow was stopped or released belongs to nobody: it is closed at once. */
     if (signal.aborted || entry.released) {
-      await session.dispose().catch((err: unknown) => console.error(`[qa] closing flow ${entry.flow.id}'s late session failed: ${err instanceof Error ? err.message : String(err)}`));
+      await session.dispose().catch((err: unknown) => engineLog.error(`[qa] closing flow ${entry.flow.id}'s late session failed: ${err instanceof Error ? err.message : String(err)}`));
       throw new Error(`flow ${entry.flow.id}'s session opened after the flow was stopped`);
     }
     entry.session = session;
@@ -794,7 +795,7 @@ export class LeadSidekicks {
         if (state.released) return;
         state.released = true;
         for (const entry of live.values()) await this.release(entry);
-        await lead.dispose().catch((err: unknown) => console.error(`[qa] closing the lead's session failed: ${err instanceof Error ? err.message : String(err)}`));
+        await lead.dispose().catch((err: unknown) => engineLog.error(`[qa] closing the lead's session failed: ${err instanceof Error ? err.message : String(err)}`));
       },
     };
   }
@@ -867,7 +868,7 @@ export class LeadSidekicks {
 
   /* One flow's correction: its workspace brought up to the working copy, then the findings and the lead's instruction to its sidekick. */
   private async amend(entry: LiveFlow, order: CorrectionOrder, origin: CorrectionOrigin, timeoutMs: number, context: FlowContext, signal: AbortSignal): Promise<FlowReport> {
-    await this.deps.workspaces.refresh(entry.workspace, entry.request).catch((err: unknown) => console.error(`[qa] refreshing flow ${entry.flow.id}'s workspace failed (it corrects the bytes it has): ${err instanceof Error ? err.message : String(err)}`));
+    await this.deps.workspaces.refresh(entry.workspace, entry.request).catch((err: unknown) => engineLog.error(`[qa] refreshing flow ${entry.flow.id}'s workspace failed (it corrects the bytes it has): ${err instanceof Error ? err.message : String(err)}`));
     const instruction = [
       correctionPreamble(origin),
       ...order.findings.map((finding) => `- ${this.deps.redaction.redact(finding)}`),
@@ -900,14 +901,14 @@ export class LeadSidekicks {
     const session = entry?.session;
     if (!entry || !session) return;
     entry.session = undefined;
-    await session.dispose().catch((err: unknown) => console.error(`[qa] closing flow ${entry.flow.id}'s session failed: ${err instanceof Error ? err.message : String(err)}`));
+    await session.dispose().catch((err: unknown) => engineLog.error(`[qa] closing flow ${entry.flow.id}'s session failed: ${err instanceof Error ? err.message : String(err)}`));
   }
 
   /* Everything a flow held, released: its session, its loop, its location and its workspace. Never throws. */
   private async release(entry: LiveFlow): Promise<void> {
     entry.released = true;
     await this.closeSession(entry);
-    if (entry.loop) await entry.loop.close().catch((err: unknown) => console.error(`[qa] closing flow ${entry.flow.id}'s run_spec loop failed: ${err instanceof Error ? err.message : String(err)}`));
+    if (entry.loop) await entry.loop.close().catch((err: unknown) => engineLog.error(`[qa] closing flow ${entry.flow.id}'s run_spec loop failed: ${err instanceof Error ? err.message : String(err)}`));
     entry.geolocation?.close();
     await this.deps.workspaces.dispose(entry.workspace);
   }
@@ -941,7 +942,7 @@ export class LeadSidekicks {
     try {
       this.deps.planSnapshots?.record({ runId: input.runId, kind, ...(reason !== undefined ? { reason } : {}), changeRoutes, unvisited, candidates, flows: snapshotFlows, recordedAt: this.now() });
     } catch (err) {
-      console.error(`[qa] the run's plan could not be kept (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+      engineLog.error(`[qa] the run's plan could not be kept (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
