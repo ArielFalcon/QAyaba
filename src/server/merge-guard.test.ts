@@ -88,6 +88,10 @@ test("isProtectedPath protects the run engine factory", () => {
   assert.equal(isProtectedPath("src/server/run-engine-factory.ts"), true);
 });
 
+test("isProtectedPath protects the engine root that wires every context's builder", () => {
+  assert.equal(isProtectedPath("src/server/engine-root.ts"), true);
+});
+
 test("isProtectedPath flags the recovery net and build/topology, exact and prefix", () => {
   assert.equal(isProtectedPath("boot-guard.mjs"), true);
   assert.equal(isProtectedPath("src/server/self-update.ts"), true);

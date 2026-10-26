@@ -174,6 +174,7 @@ export const PROTECTED_PATHS: string[] = [
    * themselves — the single widest-blast-radius file in the whole security surface.
    */
   "src/server/run-engine-factory.ts",
+  "src/server/engine-root.ts",
 
   "qa-engine/src/shared-kernel/ports/redaction.port.ts",
   /*

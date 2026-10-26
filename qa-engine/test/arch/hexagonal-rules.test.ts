@@ -109,6 +109,20 @@ test("another context's application index and a composition root's wiring are pu
   }
 });
 
+test("a composition module of another context importing workspace-and-publication is reported by no-vcs-write-in-agent-contexts", () => {
+  const root = treeWith({
+    [`${CTX}/alpha/composition/build-alpha.ts`]: 'import { seam } from "../../workspace-and-publication/domain/seam.ts";\nexport const x = seam;\n',
+    [`${CTX}/workspace-and-publication/domain/seam.ts`]: "export const seam = 1;\n",
+  });
+  try {
+    const { ok, output } = archCheck(root);
+    assert.equal(ok, false);
+    assert.match(output, /no-vcs-write-in-agent-contexts:\s*qa-engine\/src\/contexts\/alpha\/composition\/build-alpha\.ts/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("two modules importing each other are reported by no-circular", () => {
   const root = treeWith({
     "qa-engine/src/shared-kernel/left.ts": 'import { right } from "./right.ts";\nexport const left = () => right;\n',

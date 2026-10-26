@@ -11,26 +11,26 @@ import {
   buildProduction,
   wireAdapters,
   type CompositionConfig,
-} from "@contexts/run-orchestration/composition/composition-root.ts";
-import { RunPipelineAdapter } from "@contexts/run-orchestration/infrastructure/run-pipeline.adapter.ts";
-import { Sha } from "@kernel/sha.ts";
-import { BlastRadius } from "@kernel/blast-radius.ts";
+} from "./engine-root";
+import { RunPipelineAdapter } from "@contexts/run-orchestration/infrastructure/run-pipeline.adapter";
+import { Sha } from "@kernel/sha";
+import { BlastRadius } from "@kernel/blast-radius";
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { BoundaryProfile } from "@contexts/service-topology/domain/index.ts";
-import { ok, err } from "@kernel/result.ts";
-import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
-import type { CoChangePort } from "@kernel/ports/co-change.port.ts";
+import type { BoundaryProfile } from "@contexts/service-topology/domain/index";
+import { ok, err } from "@kernel/result";
+import type { CodeGraphPort } from "@kernel/ports/code-graph.port";
+import type { CoChangePort } from "@kernel/ports/co-change.port";
 
-import { GENERATION_END } from "@kernel/generation-end.ts";
-import { resolveCoordinationSettings } from "@kernel/coordination.ts";
-import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
-import type { SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port.ts";
-import { TracedCurriculumPort, TracedLearningPort } from "@contexts/generation/infrastructure/adapters/context-trace.ts";
-import { SpecSnapshotValidationPort } from "@contexts/workspace-and-publication/infrastructure/adapters/spec-snapshot-validation.adapter.ts";
-import { TracedSuiteStore } from "@contexts/workspace-and-publication/infrastructure/adapters/suite-store-trace.ts";
-import { SuiteStoreAdapter } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts";
+import { GENERATION_END } from "@kernel/generation-end";
+import { resolveCoordinationSettings } from "@kernel/coordination";
+import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
+import type { SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port";
+import { TracedCurriculumPort, TracedLearningPort } from "@contexts/generation/infrastructure/adapters/context-trace";
+import { SpecSnapshotValidationPort } from "@contexts/workspace-and-publication/infrastructure/adapters/spec-snapshot-validation.adapter";
+import { TracedSuiteStore } from "@contexts/workspace-and-publication/infrastructure/adapters/suite-store-trace";
+import { SuiteStoreAdapter } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
 /* ── A minimal fake CompositionConfig — every collaborator is a lightweight stub, matching the
    SAME stub shapes run-pipeline.adapter.test.ts already uses for the 10-scenario parity
    (this test does not re-run that parity; it proves the composition root wires the RIGHT classes).
@@ -1459,8 +1459,8 @@ test("buildProduction still indexes without the co-change history, but builds no
 
 /* The run_spec loop is wired only when the shell hands the root its registry; the adapter it builds executes through the run's own execution and cleanup ports. */
 test("wireAdapters builds the run_spec loop port from cfg.closedLoop and omits it when the config has none", async () => {
-  const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry.ts");
-  const { AccountLock } = await import("@contexts/test-execution/domain/account-lock.ts");
+  const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry");
+  const { AccountLock } = await import("@contexts/test-execution/domain/account-lock");
   const without = wireAdapters(fakeConfig());
   assert.equal("closedLoop" in without, false);
 
@@ -1482,8 +1482,8 @@ test("wireAdapters builds the run_spec loop port from cfg.closedLoop and omits i
 });
 
 test("a code-target composition never gets the run_spec loop, whatever the config says", async () => {
-  const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry.ts");
-  const { AccountLock } = await import("@contexts/test-execution/domain/account-lock.ts");
+  const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry");
+  const { AccountLock } = await import("@contexts/test-execution/domain/account-lock");
   const wired = wireAdapters(fakeConfig({
     isCode: true,
     target: "code",
@@ -1494,8 +1494,8 @@ test("a code-target composition never gets the run_spec loop, whatever the confi
 
 /* The authenticated agent browser is wired only when the shell hands the root its registry, and only for an e2e app with a DEV url. */
 test("wireAdapters builds the agent browser port from cfg.agentBrowser and omits it when the config has none", async () => {
-  const { AgentBrowserRegistry } = await import("@contexts/agent-tools/infrastructure/agent-browser-registry.ts");
-  const { AccountLock } = await import("@contexts/test-execution/domain/account-lock.ts");
+  const { AgentBrowserRegistry } = await import("@contexts/agent-tools/infrastructure/agent-browser-registry");
+  const { AccountLock } = await import("@contexts/test-execution/domain/account-lock");
   const without = wireAdapters(fakeConfig({ baseUrl: "https://dev.example.com" }));
   assert.equal("agentBrowser" in without, false);
 
@@ -1517,7 +1517,7 @@ test("wireAdapters builds the agent browser port from cfg.agentBrowser and omits
 
 /* The lead's code-graph tool is wired from the run's explore port and the shell's registry, for an e2e app only. */
 test("wireAdapters builds the lead's code-graph tool over cfg.codeExplore and omits it without the explore, the wiring or for a code target", async () => {
-  const { CodeGraphToolRegistry } = await import("@contexts/agent-tools/infrastructure/code-graph-tool-registry.ts");
+  const { CodeGraphToolRegistry } = await import("@contexts/agent-tools/infrastructure/code-graph-tool-registry");
   const explore = { explore: async () => ok({ text: "**Exploration: x**", indexedSha: "abc1234" }) };
   const wiring = { registry: new CodeGraphToolRegistry(), generatorRuntimeCanCall: () => true, redact: (text: string) => text };
   assert.equal("codeGraphTools" in wireAdapters(fakeConfig({ codeGraphTools: wiring })), false, "no explore, no tool");

@@ -25,7 +25,7 @@ import {
   stallMs,
 } from "../integrations/opencode-client";
 import type { RunPipelinePort, ObserverPort } from "@contexts/run-orchestration/application/index.ts";
-import { buildProduction, type CompositionConfig } from "@contexts/run-orchestration/composition/composition-root";
+import { buildProduction, type CompositionConfig } from "./engine-root";
 import { AuthSessionAdapter } from "@contexts/app-catalog/infrastructure/auth-session.adapter";
 import { createDiscoverLogin } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner";
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
