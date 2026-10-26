@@ -160,9 +160,10 @@ async function openLoop(r: Rig, over: { execute?: () => Promise<void>; trace?: T
   });
   /* The loop opens inside the run, as the use case does; a call comes in later from outside it. */
   await withExecScope(r.scope, async () => {
-    await adapter.open({ runId: "run-9", app: "demo", mode: "diff", mirrorDir: join(r.specDir, ".."), specDir: r.specDir });
+    const run = await adapter.open({ runId: "run-9", app: "demo", mode: "diff", mirrorDir: join(r.specDir, ".."), specDir: r.specDir });
+    run!.openFlow({ delegationId: "run-9-flow-a", flowId: "a", limits: { maxCalls: 8, maxDevWrites: 10 }, workspace: { dir: join(r.specDir, ".."), specDir: r.specDir }, specFile: "flows/a.spec.ts", stage: async () => "flows/a.spec.ts" });
   });
-  registry.bindSession({ sessionId: SESSION, runId: "run-9", agent: "qa-generator" });
+  registry.bindSession({ sessionId: SESSION, runId: "run-9", agent: "qa-sidekick", delegationId: "run-9-flow-a" });
   return registry;
 }
 
@@ -171,7 +172,7 @@ test("a sandboxed child of a run_spec call is a grandchild of the attempt that m
   const registry = await openLoop(r);
   await r.turn(async (stream) => {
     stream(stepStart("a"), toolEvent("c1", "run_spec", "running", { start: r.clock.now() }));
-    await registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-generator", path: "flows/a.spec.ts", messageId: "m1" });
+    await registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-sidekick", path: "flows/a.spec.ts", messageId: "m1" });
     stream(toolEvent("c1", "run_spec", "completed", { start: T0 + 10, end: r.clock.now() }));
   });
 
@@ -185,7 +186,7 @@ test("a sandboxed child of a run_spec call is a grandchild of the attempt that m
   assert.equal(tool.attributes["qayaba.tool.outcome"], "passed");
   assert.equal(tool.attributes["qayaba.spec.path"], "flows/a.spec.ts");
   assert.match(String(tool.attributes["qayaba.spec.sha256"]), /^[0-9a-f]{64}$/);
-  assert.equal(tool.attributes["qayaba.namespace"], "run-9-rs1");
+  assert.equal(tool.attributes["qayaba.namespace"], "run-9-a-rs1");
   assert.equal(tool.attributes["gen_ai.conversation.id"], SESSION);
   assert.deepEqual(r.h.unended(), []);
   assert.deepEqual(r.h.orphans(), []);
@@ -198,7 +199,7 @@ test("the wait for the test account's lease is recorded on the call", async (t) 
   const held = new Promise<void>((resolve) => { release = resolve; });
   const holder = r.lock.withLock("demo/user", () => held);
   await r.turn(async () => {
-    const pending = registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-generator", path: "flows/a.spec.ts" });
+    const pending = registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-sidekick", path: "flows/a.spec.ts" });
     r.clock.advance(400);
     release();
     await pending;
@@ -213,8 +214,8 @@ test("a call refused because another is still running says DEV was busy", async 
   const running = new Promise<void>((resolve) => { release = resolve; });
   const registry = await openLoop(r, { execute: () => running });
   await r.turn(async () => {
-    const first = registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-generator", path: "flows/a.spec.ts" });
-    const second = await registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-generator", path: "flows/a.spec.ts" });
+    const first = registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-sidekick", path: "flows/a.spec.ts" });
+    const second = await registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-sidekick", path: "flows/a.spec.ts" });
     assert.equal(second.ok, false);
     release();
     await first;
@@ -233,7 +234,7 @@ test("the hosts the egress filter refused while the call ran are recorded as co-
     },
   });
   await r.turn(async () => {
-    await registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-generator", path: "flows/a.spec.ts" });
+    await registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-sidekick", path: "flows/a.spec.ts" });
   });
   assert.deepEqual(r.h.only("qayaba.tool.run_spec").attributes["qayaba.egress.denied_cotemporal"], ["tracker.example"]);
 });
@@ -246,7 +247,7 @@ test("the agent's own execute_tool span links to the server span of the same cal
     const start = r.clock.now();
     stream(toolEvent("c1", "run_spec", "running", { start }, "m1"));
     stream(toolEvent("c9", "read", "running", { start }, "m1"));
-    await registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-generator", path: "flows/a.spec.ts", messageId: "m1" });
+    await registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-sidekick", path: "flows/a.spec.ts", messageId: "m1" });
     stream(toolEvent("c1", "run_spec", "completed", { start, end: r.clock.now() }, "m1"));
     stream(toolEvent("c9", "read", "completed", { start, end: start + 5 }, "m1"));
   });
@@ -266,7 +267,7 @@ test("a call of another message does not link to the synthesized span", async (t
     stream(stepStart("a"));
     const start = r.clock.now();
     stream(toolEvent("c1", "run_spec", "running", { start }, "m1"));
-    await registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-generator", path: "flows/a.spec.ts", messageId: "m2" });
+    await registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-sidekick", path: "flows/a.spec.ts", messageId: "m2" });
     stream(toolEvent("c1", "run_spec", "completed", { start, end: r.clock.now() }, "m1"));
   });
   assert.equal(r.h.only("execute_tool run_spec").links.length, 0);
@@ -279,7 +280,7 @@ test("a telemetry port that throws changes nothing a caller can see of the call"
     const registry = await openLoop(r, { trace });
     let response: unknown;
     await r.turn(async () => {
-      response = await registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-generator", path: "flows/a.spec.ts" });
+      response = await registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-sidekick", path: "flows/a.spec.ts" });
     });
     return JSON.stringify(response);
   };
@@ -371,7 +372,7 @@ test("a call that arrives after its attempt and session are over hangs under the
   const r = rig(t);
   const registry = await openLoop(r);
   await r.turn(async () => {});
-  const response = await registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-generator", path: "flows/a.spec.ts", messageId: "m1" });
+  const response = await registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-sidekick", path: "flows/a.spec.ts", messageId: "m1" });
   assert.equal(response.ok, true);
   const tool = r.h.only("qayaba.tool.run_spec");
   assert.equal(parentOf(tool), r.scope.telemetry!.parent()!.spanId);
@@ -389,7 +390,7 @@ test("inside a run_spec call the report's spans hang under the call, and what is
     },
   });
   await r.turn(async () => {
-    await registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-generator", path: "flows/a.spec.ts" });
+    await registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-sidekick", path: "flows/a.spec.ts" });
   });
   const tool = r.h.only("qayaba.tool.run_spec");
   assert.equal(parentOf(r.h.only("qayaba.spec.execute")), idOf(tool));

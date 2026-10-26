@@ -3773,19 +3773,19 @@ test("only an OpenCode generator, as the facade assigns it now, can call the too
   assert.equal(noFacade.closedLoop?.generatorRuntimeCanCall(), false, "a host that cannot say which runtime the generator uses is not assumed to be OpenCode");
 });
 
-test("the factory tells the registry about the generator's sessions through the transport", async () => {
+test("the factory tells the registry about a sidekick's session of a flow through the transport", async () => {
   const { ClosedLoopRegistry } = await import("@contexts/agent-tools/infrastructure/closed-loop-registry");
   const { RunSpecCapability } = await import("@contexts/test-execution/application/index");
   const registry = new ClosedLoopRegistry();
-  const capability = new RunSpecCapability({ runId: "run-loop", limits: { maxCalls: 1, perCallMs: 60_000, maxDevWrites: 1 }, expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0 });
-  registry.register({ runId: "run-loop", capability, call: async () => { throw new Error("not called"); } });
+  const capability = new RunSpecCapability({ runId: "run-loop", agents: new Set(["qa-sidekick"]), limits: { maxCalls: 1, perCallMs: 60_000, maxDevWrites: 1 }, expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0 });
+  registry.register({ runId: "run-loop", delegationId: "run-loop-flow-a", capability, call: async () => { throw new Error("not called"); } });
   const deps: AgentDeps = { open: async () => ({ id: "ses-77", prompt: async () => "", dispose: async () => {} }) as never };
   /* The factory's own wrapping is what the engine opens sessions through. */
   const opened = engineAgentDeps({ getAgentDeps: () => deps, closedLoopRegistry: registry });
-  const session = await opened.open("qa-generator", "/m", { descriptor: { runId: "run-loop", role: "qa-generator" } });
-  assert.equal(capability.authorize("ses-77", "qa-generator"), undefined);
+  const session = await opened.open("qa-sidekick", "/m", { descriptor: { runId: "run-loop", role: "qa-sidekick", delegationId: "run-loop-flow-a" } });
+  assert.equal(capability.authorize("ses-77", "qa-sidekick"), undefined);
   await session.dispose();
-  assert.equal(capability.authorize("ses-77", "qa-generator")?.code, "unknown-session");
+  assert.equal(capability.authorize("ses-77", "qa-sidekick")?.code, "unknown-session");
 });
 
 /* ── The authenticated agent browser ───────────────────────────────────────────────────────────── */
@@ -3984,7 +3984,7 @@ test("the authoring location is composed from the app's declared position and pl
   assert.equal(buildEngineRootDeps(code, { getAgentDeps: stubAgentDeps, geolocationRegistry: registry }, "ns", { mode: "diff", target: "code" }).geolocation, undefined);
 });
 
-test("the factory tells the geolocation registry about the authoring sessions through the transport", async () => {
+test("the factory tells the geolocation registry about a sidekick's session of a flow through the transport", async () => {
   const { GeolocationRegistry } = await import("@contexts/agent-tools/infrastructure/geolocation-registry");
   const { RunGeolocation } = await import("@contexts/agent-tools/application/index");
   const registry = new GeolocationRegistry();
@@ -3992,7 +3992,7 @@ test("the factory tells the geolocation registry about the authoring sessions th
   registry.register({ runId: "run-geo", state, set: (delegationId, change) => state.set(delegationId, change) });
   const deps: AgentDeps = { open: async () => ({ id: "ses-geo", prompt: async () => "", dispose: async () => {} }) as never };
   const opened = engineAgentDeps({ getAgentDeps: () => deps, geolocationRegistry: registry });
-  const generator = await opened.open("qa-generator", "/m", { descriptor: { runId: "run-geo", role: "qa-generator" } });
+  const generator = await opened.open("qa-sidekick", "/m", { descriptor: { runId: "run-geo", role: "qa-sidekick", delegationId: "run-geo-flow-a" } });
   assert.equal(registry.find("ses-geo")?.live.runId, "run-geo");
   await generator.dispose();
   assert.equal(registry.find("ses-geo"), undefined);

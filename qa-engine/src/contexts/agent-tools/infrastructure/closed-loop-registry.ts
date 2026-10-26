@@ -7,7 +7,7 @@
  * the flow's own.
  */
 
-import { RUN_SPEC_AGENT, RUN_SPEC_FLOW_AGENT, type RunSpecCapability } from "@contexts/test-execution/application/index.ts";
+import { RUN_SPEC_FLOW_AGENT, type RunSpecCapability } from "@contexts/test-execution/application/index.ts";
 import type { RunSpecRequest, RunSpecResponse } from "@contexts/test-execution/application/index.ts";
 
 export interface LiveLoop {
@@ -60,15 +60,13 @@ export class ClosedLoopRegistry {
   }
 
   /*
-   * Gives a session the right to call: the generator's session of a run, the run's own loop; the session of a sidekick opened for
-   * a flow, that flow's loop. Nothing else is bound: not a sidekick's session with no flow, not a flow that has no loop, not the
-   * generator's session when it names a flow, and no other agent's session.
+   * Gives a session the right to call: the session of a sidekick opened for a flow, that flow's loop. Nothing else is bound: not a
+   * session of the run itself (it names no flow), not a sidekick's session with no flow, not a flow that has no loop, and no other
+   * agent's session. The run's own loop stays registered for its limits and totals.
    */
   bindSession(session: OpenedSession): void {
-    let key: string;
-    if (session.agent === RUN_SPEC_AGENT && session.delegationId === undefined) key = keyOf(session.runId);
-    else if (session.agent === RUN_SPEC_FLOW_AGENT && session.delegationId !== undefined) key = keyOf(session.runId, session.delegationId);
-    else return;
+    if (session.agent !== RUN_SPEC_FLOW_AGENT || session.delegationId === undefined) return;
+    const key = keyOf(session.runId, session.delegationId);
     const loop = this.loops.get(key);
     if (!loop) return;
     loop.capability.bindSession(session.sessionId);

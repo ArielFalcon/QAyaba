@@ -7,7 +7,7 @@
  */
 
 import { AGENT_BROWSER_AGENTS } from "@contexts/test-execution/application/index.ts";
-import { RUN_SPEC_AGENT, RUN_SPEC_FLOW_AGENT } from "@contexts/test-execution/application/index.ts";
+import { RUN_SPEC_FLOW_AGENT } from "@contexts/test-execution/application/index.ts";
 import type { GeolocationInput } from "@kernel/geolocation.ts";
 import type { GeolocationResult, RunGeolocation } from "../domain/run-geolocation.ts";
 import type { OpenedSession } from "./closed-loop-registry.ts";
@@ -41,12 +41,10 @@ export class GeolocationRegistry {
     for (const [sessionId, bound] of this.sessions) if (bound.live.runId === runId) this.sessions.delete(sessionId);
   }
 
-  /* Gives an authoring role's session of a run the right to change the location of its own scope. Any other role's session, a sidekick's session with no flow, and a session of a run without a location get nothing. */
+  /* Gives a sidekick's session opened for a flow the right to change the location of that flow. Any other role's session, a session with no flow (the run's own author included), and a session of a run without a location get nothing. */
   bindSession(session: OpenedSession): void {
     if (!AGENT_BROWSER_AGENTS.has(session.agent)) return;
-    const isLead = session.delegationId === undefined;
-    if (isLead !== (session.agent === RUN_SPEC_AGENT)) return;
-    if (!isLead && session.agent !== RUN_SPEC_FLOW_AGENT) return;
+    if (session.delegationId === undefined || session.agent !== RUN_SPEC_FLOW_AGENT) return;
     const live = this.runs.get(session.runId);
     if (!live) return;
     this.sessions.set(session.sessionId, { live, agent: session.agent, ...(session.delegationId !== undefined ? { delegationId: session.delegationId } : {}) });

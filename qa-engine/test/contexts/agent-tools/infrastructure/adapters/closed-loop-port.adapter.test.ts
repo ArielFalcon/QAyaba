@@ -7,10 +7,10 @@ import { join } from "node:path";
 import { ClosedLoopPortAdapter, type ClosedLoopPortAdapterDeps } from "@contexts/agent-tools/infrastructure/adapters/closed-loop-port.adapter.ts";
 import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-loop-registry.ts";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
-import { RUN_SPEC_AGENT } from "@contexts/test-execution/domain/run-spec-capability.ts";
+import { RUN_SPEC_AGENT, RUN_SPEC_FLOW_AGENT } from "@contexts/test-execution/domain/run-spec-capability.ts";
 import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../../../src/shared-kernel/run-secret-redaction.ts";
 import type { ExecutionOpts } from "@contexts/test-execution/application/index.ts";
-import type { ClosedLoopOpenInput } from "@contexts/agent-tools/application/index.ts";
+import type { ClosedLoopOpenInput, FlowLoopOpenInput } from "@contexts/agent-tools/application/index.ts";
 
 const SPEC = 'import { test } from "../fixtures";\ntest("loads", async () => {});\n';
 const sha = (text: string): string => createHash("sha256").update(text).digest("hex");
@@ -60,7 +60,14 @@ function rig(t: TestContext, over: { enabled?: boolean; canCall?: boolean } = {}
   return r;
 }
 
-const callOf = (r: Rig, path = "flows/a.spec.ts") => r.registry.find("ses-1")!.call({ sessionId: "ses-1", agent: RUN_SPEC_AGENT, path });
+const callOf = (r: Rig, path = "flows/a.spec.ts") => r.registry.find("ses-1")!.call({ sessionId: "ses-1", agent: RUN_SPEC_FLOW_AGENT, path });
+
+/* The loop of the flow "a" of the run, whose sidekick works in the working copy itself, and a sidekick's session bound to it. Only a flow holds a loop a session can call. */
+const FLOW = "run-9-flow-a";
+function openFlow(r: Rig, handle: { openFlow: (input: FlowLoopOpenInput) => unknown }): void {
+  handle.openFlow({ delegationId: FLOW, flowId: "a", limits: { maxCalls: 4, maxDevWrites: 10 }, workspace: { dir: join(r.specDir, ".."), specDir: r.specDir }, specFile: "flows/a.spec.ts", stage: async () => "flows/a.spec.ts" });
+}
+const bindFlow = (r: Rig, sessionId = "ses-1"): void => r.registry.bindSession({ sessionId, runId: "run-9", agent: RUN_SPEC_FLOW_AGENT, delegationId: FLOW });
 
 test("a disabled app is not granted the loop, and the run's own choice overrides the app's", async (t) => {
   const off = rig(t, { enabled: false });
@@ -87,22 +94,24 @@ test("an open loop tells the prompt its limits and waits for the generator's ses
   assert.equal(r.registry.find("ses-1"), undefined, "no session is bound yet");
 });
 
-test("only the generator's session of the run gets the right, and a call runs the spec once with the narrowing options", async (t) => {
+test("only a sidekick's session of a flow gets the right, and a call runs the spec once with the narrowing options", async (t) => {
   const r = rig(t);
-  await new ClosedLoopPortAdapter(r.deps).open(r.openInput);
-  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: RUN_SPEC_AGENT });
-  r.registry.bindSession({ sessionId: "ses-2", runId: "run-9", agent: "qa-reviewer" });
-  r.registry.bindSession({ sessionId: "ses-3", runId: "other-run", agent: RUN_SPEC_AGENT });
-  assert.equal(r.registry.find("ses-2"), undefined);
-  assert.equal(r.registry.find("ses-3"), undefined);
+  const handle = (await new ClosedLoopPortAdapter(r.deps).open(r.openInput))!;
+  openFlow(r, handle);
+  bindFlow(r);
+  r.registry.bindSession({ sessionId: "ses-2", runId: "run-9", agent: "qa-reviewer", delegationId: FLOW });
+  r.registry.bindSession({ sessionId: "ses-3", runId: "other-run", agent: RUN_SPEC_FLOW_AGENT, delegationId: FLOW });
+  r.registry.bindSession({ sessionId: "ses-4", runId: "run-9", agent: RUN_SPEC_AGENT });
+  r.registry.bindSession({ sessionId: "ses-5", runId: "run-9", agent: RUN_SPEC_FLOW_AGENT });
+  for (const id of ["ses-2", "ses-3", "ses-4", "ses-5"]) assert.equal(r.registry.find(id), undefined, id);
 
   const response = await callOf(r);
   assert.ok(response.ok);
   assert.equal(response.report.status, "passed");
   const [call] = r.executed;
   assert.equal(call!.specDir, r.specDir);
-  assert.deepEqual({ ...call!.opts, signal: undefined }, { specFiles: ["flows/a.spec.ts"], namespace: "run-9-rs1", timeoutMs: 60_000, retries: 0, countWrites: true, signal: undefined });
-  assert.deepEqual(r.cleaned, ["run-9-rs1"]);
+  assert.deepEqual({ ...call!.opts, signal: undefined }, { specFiles: ["flows/a.spec.ts"], namespace: "run-9-a-rs1", timeoutMs: 60_000, retries: 0, countWrites: true, signal: undefined });
+  assert.deepEqual(r.cleaned, ["run-9-a-rs1"]);
 });
 
 test("a call made from outside the run still sees the run's secrets, because it runs in the run's own scope", async (t) => {
@@ -110,9 +119,9 @@ test("a call made from outside the run still sees the run's secrets, because it 
   const scope = createRunSecretScope();
   scope.addAccountSecrets(["hunter2-secret"]);
   await withRunSecretScope(scope, async () => {
-    await new ClosedLoopPortAdapter(r.deps).open(r.openInput);
+    openFlow(r, (await new ClosedLoopPortAdapter(r.deps).open(r.openInput))!);
   });
-  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: RUN_SPEC_AGENT });
+  bindFlow(r);
   await callOf(r);
   assert.doesNotMatch(r.seen.redacted ?? "", /hunter2-secret/);
 });
@@ -120,7 +129,8 @@ test("a call made from outside the run still sees the run's secrets, because it 
 test("the loop is closed when every delivered spec still holds the bytes whose last call passed", async (t) => {
   const r = rig(t);
   const handle = (await new ClosedLoopPortAdapter(r.deps).open(r.openInput))!;
-  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: RUN_SPEC_AGENT });
+  openFlow(r, handle);
+  bindFlow(r);
   assert.equal(await handle.isClosed(["flows/a.spec.ts"]), false, "nothing has run yet");
   await callOf(r);
   assert.equal(await handle.isClosed(["flows/a.spec.ts"]), true);
@@ -134,7 +144,8 @@ test("the loop is closed when every delivered spec still holds the bytes whose l
 test("a spec that is gone, or a link, is never closed", async (t) => {
   const r = rig(t);
   const handle = (await new ClosedLoopPortAdapter(r.deps).open(r.openInput))!;
-  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: RUN_SPEC_AGENT });
+  openFlow(r, handle);
+  bindFlow(r);
   await callOf(r);
   rmSync(join(r.specDir, "flows", "a.spec.ts"));
   assert.equal(await handle.isClosed(["flows/a.spec.ts"]), false);
@@ -143,7 +154,8 @@ test("a spec that is gone, or a link, is never closed", async (t) => {
 test("the counts are the capability's", async (t) => {
   const r = rig(t);
   const handle = (await new ClosedLoopPortAdapter(r.deps).open(r.openInput))!;
-  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: RUN_SPEC_AGENT });
+  openFlow(r, handle);
+  bindFlow(r);
   await callOf(r);
   await callOf(r);
   assert.deepEqual(handle.signals(), { calls: 2, devWrites: 2 });
@@ -180,11 +192,12 @@ test("a probe tree too deep to be removed within its bounds fails the sweep inst
 test("closing revokes the right, forgets the loop, removes the probes and never throws", async (t) => {
   const r = rig(t);
   const handle = (await new ClosedLoopPortAdapter(r.deps).open(r.openInput))!;
-  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: RUN_SPEC_AGENT });
+  openFlow(r, handle);
+  bindFlow(r);
   const capability = r.registry.find("ses-1")!.capability;
   r.write(".qa-probe/try.spec.ts", SPEC);
   await handle.close();
-  assert.equal(capability.authorize("ses-1", RUN_SPEC_AGENT)?.code, "revoked");
+  assert.equal(capability.authorize("ses-1", RUN_SPEC_FLOW_AGENT)?.code, "revoked");
   assert.equal(r.registry.size, 0);
   assert.equal(r.registry.find("ses-1"), undefined);
   assert.equal(existsSync(join(r.specDir, ".qa-probe")), false);
@@ -196,19 +209,21 @@ test("closing while a call is in flight cleans the namespace it was using", asyn
   let release!: () => void;
   r.deps.execution = { execute: async () => { await new Promise<void>((resolve) => { release = resolve; }); return { verdict: "pass", cases: [{ name: "x", status: "pass" }], logs: "" }; } };
   const handle = (await new ClosedLoopPortAdapter(r.deps).open(r.openInput))!;
-  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: RUN_SPEC_AGENT });
+  openFlow(r, handle);
+  bindFlow(r);
   const pending = callOf(r);
   await new Promise((resolve) => setImmediate(resolve));
   await handle.close();
-  assert.ok(r.cleaned.includes("run-9-rs1"));
+  assert.ok(r.cleaned.includes("run-9-a-rs1"));
   release();
   await pending;
 });
 
 test("the registry forgets a session that was unbound", async (t) => {
   const r = rig(t);
-  await new ClosedLoopPortAdapter(r.deps).open(r.openInput);
-  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: RUN_SPEC_AGENT });
+  openFlow(r, (await new ClosedLoopPortAdapter(r.deps).open(r.openInput))!);
+  bindFlow(r);
+  assert.ok(r.registry.find("ses-1"));
   r.registry.unbindSession("ses-1");
   assert.equal(r.registry.find("ses-1"), undefined);
 });
@@ -224,9 +239,9 @@ test("when the generator's session ends, the call it left running is stopped, an
       return { verdict: "infra-error", cases: [], logs: "aborted" };
     },
   };
-  await new ClosedLoopPortAdapter(r.deps).open(r.openInput);
-  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: RUN_SPEC_AGENT });
-  r.registry.bindSession({ sessionId: "ses-2", runId: "run-9", agent: RUN_SPEC_AGENT });
+  openFlow(r, (await new ClosedLoopPortAdapter(r.deps).open(r.openInput))!);
+  bindFlow(r);
+  bindFlow(r, "ses-2");
   const pending = callOf(r);
   await new Promise((resolve) => setImmediate(resolve));
   r.registry.unbindSession("ses-2");
@@ -251,8 +266,8 @@ function rigWithLoginWall(t: TestContext): { r: Rig; prepared: string[] } {
 
 test("a call that ends on the login page renews the session once, with the login the loop opened with", async (t) => {
   const { r, prepared } = rigWithLoginWall(t);
-  await new ClosedLoopPortAdapter(r.deps).open(r.openInput);
-  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: RUN_SPEC_AGENT });
+  openFlow(r, (await new ClosedLoopPortAdapter(r.deps).open(r.openInput))!);
+  bindFlow(r);
   const first = await callOf(r);
   assert.ok(first.ok && first.report.note?.includes("renewed"));
   const second = await callOf(r);
@@ -262,8 +277,8 @@ test("a call that ends on the login page renews the session once, with the login
 
 test("a call never signs in with a login script the generator wrote while it authored", async (t) => {
   const { r, prepared } = rigWithLoginWall(t);
-  await new ClosedLoopPortAdapter(r.deps).open(r.openInput);
-  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: RUN_SPEC_AGENT });
+  openFlow(r, (await new ClosedLoopPortAdapter(r.deps).open(r.openInput))!);
+  bindFlow(r);
   r.write("auth.setup.ts", "// authored by the generator\n");
   const response = await callOf(r);
   assert.ok(response.ok && response.report.sessionLost === true);

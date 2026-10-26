@@ -82,7 +82,7 @@ const bind = (r: Rig, sessionId = "side-1", delegationId = "run-9-flow-login") =
   r.registry.bindSession({ sessionId, runId: "run-9", agent: RUN_SPEC_FLOW_AGENT, delegationId });
 const call = (r: Rig, sessionId = "side-1", path = "flows/login.spec.ts") => r.registry.find(sessionId)!.call({ sessionId, agent: RUN_SPEC_FLOW_AGENT, path });
 
-test("a flow's loop is the sidekick's alone: the sidekick of that flow calls it, the generator and a sibling do not", async (t) => {
+test("a flow's loop is the sidekick's alone: the sidekick of that flow calls it, the run's own session and a sibling do not", async (t) => {
   const r = await rig(t);
   assert.ok(r.run.openFlow(r.flowInput()));
   bind(r);
@@ -90,7 +90,7 @@ test("a flow's loop is the sidekick's alone: the sidekick of that flow calls it,
   r.registry.bindSession({ sessionId: "gen", runId: "run-9", agent: RUN_SPEC_AGENT });
   assert.ok(r.registry.find("side-1"));
   assert.equal(r.registry.find("side-2"), undefined, "a flow that has no loop");
-  assert.notEqual(r.registry.find("gen"), r.registry.find("side-1"), "the generator holds the run's loop and not the flow's");
+  assert.equal(r.registry.find("gen"), undefined, "no session of the run itself holds the run's loop");
 });
 
 test("a call runs the spec the sidekick wrote in its workspace, from the working copy where it was put, once and in a namespace of its own", async (t) => {
@@ -136,8 +136,7 @@ test("the flow's calls and writes to DEV are capped by its own share, and the ru
   assert.equal(third.ok, false);
   assert.equal(!third.ok ? third.code : "", "no-calls");
   assert.equal(flow.signals().calls, 2);
-  r.registry.bindSession({ sessionId: "gen", runId: "run-9", agent: RUN_SPEC_AGENT });
-  assert.ok(r.registry.find("gen"), "the run's own loop is still there with its own calls");
+  assert.equal(r.run.signals().calls, 2, "the run's totals count them");
   assert.equal(r.run.limits.maxCalls, LIMITS.maxCalls);
 });
 

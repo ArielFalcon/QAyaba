@@ -20,13 +20,13 @@ function loop(runId: string, delegationId?: string): { loop: LiveLoop; cancelled
   };
 }
 
-test("the generator's session finds the run's loop, as it always has", () => {
+test("no session of the run itself is given the run's loop: an author with no flow has no run_spec", () => {
   const registry = new ClosedLoopRegistry();
-  const run = loop("r1");
-  registry.register(run.loop);
+  registry.register(loop("r1").loop);
   registry.bindSession({ sessionId: "gen", runId: "r1", agent: RUN_SPEC_AGENT });
-  assert.equal(registry.find("gen"), run.loop);
-  assert.equal(run.loop.capability.authorize("gen", RUN_SPEC_AGENT), undefined);
+  registry.bindSession({ sessionId: "author", runId: "r1", agent: RUN_SPEC_FLOW_AGENT });
+  assert.equal(registry.find("gen"), undefined);
+  assert.equal(registry.find("author"), undefined);
 });
 
 test("a sidekick's session finds the loop of its own flow, and neither the run's loop nor a sibling's", () => {
@@ -78,14 +78,13 @@ test("ending a flow forgets that flow's loop and sessions and leaves the run's a
   const a = loop("r1", "flow-a");
   const b = loop("r1", "flow-b");
   for (const l of [run, a, b]) registry.register(l.loop);
-  registry.bindSession({ sessionId: "gen", runId: "r1", agent: RUN_SPEC_AGENT });
   registry.bindSession({ sessionId: "side-a", runId: "r1", agent: RUN_SPEC_FLOW_AGENT, delegationId: "flow-a" });
   registry.bindSession({ sessionId: "side-b", runId: "r1", agent: RUN_SPEC_FLOW_AGENT, delegationId: "flow-b" });
   registry.unregisterFlow("r1", "flow-a");
   assert.equal(registry.find("side-a"), undefined);
   assert.equal(registry.find("side-b"), b.loop);
-  assert.equal(registry.find("gen"), run.loop);
-  assert.equal(registry.size, 2);
+  assert.equal(registry.size, 2, "the run's loop stays for its limits and totals");
+  void run;
 });
 
 test("ending a run forgets its loop, its flows' loops and every session of them", () => {
@@ -93,14 +92,13 @@ test("ending a run forgets its loop, its flows' loops and every session of them"
   registry.register(loop("r1").loop);
   registry.register(loop("r1", "flow-a").loop);
   registry.register(loop("r2").loop);
-  registry.bindSession({ sessionId: "gen", runId: "r1", agent: RUN_SPEC_AGENT });
+  registry.register(loop("r2", "flow-b").loop);
   registry.bindSession({ sessionId: "side", runId: "r1", agent: RUN_SPEC_FLOW_AGENT, delegationId: "flow-a" });
-  registry.bindSession({ sessionId: "gen2", runId: "r2", agent: RUN_SPEC_AGENT });
+  registry.bindSession({ sessionId: "side2", runId: "r2", agent: RUN_SPEC_FLOW_AGENT, delegationId: "flow-b" });
   registry.unregister("r1");
-  assert.equal(registry.find("gen"), undefined);
   assert.equal(registry.find("side"), undefined);
-  assert.ok(registry.find("gen2"), "another run's loop is untouched");
-  assert.equal(registry.size, 1);
+  assert.ok(registry.find("side2"), "another run's flow loop is untouched");
+  assert.equal(registry.size, 2);
 });
 
 test("a session that ends loses its right and the call it left running is stopped", () => {
