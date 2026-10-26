@@ -174,7 +174,7 @@ Branch: `fix/failure-observation-conflict` (owner rule: one branch, no PR split)
 - [x] T3 — S2 — inline — `SidekickKind` registry and the author entry; delete `AgentCapability` — commit: `8469b8d2`
 - [x] T4 — S3 — inline — Reviewer becomes the `review` kind; delete the inline reviewer and the `decide.steps.ts` fallback; P0.4 rows named (independent verifier) — commit: `14facd30`; correction: `f6a94353` (L14)
 - [x] T5 — S4a — inline — `qa-explore` role and widened browser and graph holders (governance commit, alone, independent verifier) — commit: `cbcc6b84`; independent verifier pending; live steps pending (L15)
-- [x] T6 — S4b — inline — `explore` kind: request, dispatch, evidence verification (independent verifier) — commit: see L16; independent verifier pending
+- [x] T6 — S4b — inline — `explore` kind: request, dispatch, evidence verification (independent verifier) — commit: `bb8a4ab2`; independent verifier pending (L16)
 - [ ] T7 — S5a — inline — Doors to recorded `E-NO-AUTHOR` outcomes; one author path for code, context and regenerations; contract regenerated (independent verifier; may need two work-unit commits: outcome and doors 1-8, then door 9-10) — commit: pending
 - [ ] T8 — S5b — inline — Final roster: `qa-author`, delete `qa-generator`, final invariants (governance commit, alone, independent verifier) — commit: pending
 - [ ] T9 — S6 — inline — `qa-judge` stays staged until a second model exists (owner decision); nothing to change in this phase — commit: n/a
