@@ -100,7 +100,7 @@ export function createJudgeService(deps: JudgeServiceDeps): JudgeService {
         return;
       }
       if (!available) {
-        log(`[judge] not running: the live OpenCode server does not list the ${JUDGE_AGENT_NAME} role (re-record the agent-list fixture and restart the agents container, see docs/observability-design.md section 19)`);
+        log(`[judge] not running: the live OpenCode server does not list the ${JUDGE_AGENT_NAME} role (add the role to agents/opencode.json, restart the agents container, see docs/observability-design.md section 19)`);
         pending.clear();
         return;
       }

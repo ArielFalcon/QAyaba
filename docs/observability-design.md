@@ -1249,14 +1249,11 @@ both.
 - Suspend detection on Docker Desktop is unproven until S0.1.
 - LLM judges stay `experimental` until calibrated.
 - **Required live step before the judges can run (owner).** The judges ship **off and refusing**: the `qa-judge` role is not in
-  `agents/opencode.json`, because adding it changes the role roster and `src/integrations/fixtures/opencode-agent-list.json` must be
-  RE-RECORDED from a live OpenCode server (`agent-tool-surface.test.ts` fails on a configured role that is absent from the recording; the
-  fixture is a capture, never hand-edited). In this order:
+  `agents/opencode.json`, because adding it changes the role roster, which `agent-tool-surface.test.ts` checks against the configuration itself. In this order:
   1. Add the block of `agents/pending/qa-judge.opencode-block.json` under `agent` in `agents/opencode.json` (its model is a config
      assignment: change it if you prefer, but it must differ from `qa-author`'s and `qa-lead`'s, or the judges refuse). The prompt it points at,
      `agents/agent/qa-judge.md`, is already in place and versioned.
-  2. Re-record `opencode-agent-list.json` on the pinned build as `src/integrations/fixtures/README.md` describes, and run
-     `npx tsx --test src/integrations/agent-tool-surface.test.ts` (the new role must resolve with no `ask` standing and no readable secret).
+  2. Run `npx tsx --test src/integrations/agent-tool-surface.test.ts` (the new role must resolve with no `ask` standing and no readable secret).
   3. Rebuild and restart the `agents` container so the live server lists `qa-judge` (the judge job checks the live agent list and refuses,
      with a log line, when it is missing).
   4. Set `QA_JUDGES_ENABLED=true` (and `QA_JUDGES_DAILY_TOKENS` if the default 200000 a day is not what you want) and restart the orchestrator.

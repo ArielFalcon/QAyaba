@@ -8,7 +8,7 @@ A person reads the report and decides.
 
 ## Quick path
 
-1. Once per OpenCode pin, re-record the `GET /agent` fixture on the pinned build
+1. Once per OpenCode pin, check the pinned server's `GET /agent` answer by hand
    ([Before the first run](#before-the-first-run-on-an-opencode-pin)).
 2. Copy `config/benchmarks/efficiency-cases.example.json` to `config/benchmarks/efficiency-cases.json`
    (gitignored: it names real commits) and fill in the cases ([Cases](#cases)).
@@ -43,11 +43,11 @@ letters, digits, `.`, `_` and `-`.
 
 The candidate's prompts state the step limit their runtime enforces, read live from the OpenCode server
 (`GET /agent`, the agent's `steps`; a configured `maxSteps` comes back as `steps`). The reader is tested
-against a recording of that answer, `src/integrations/fixtures/opencode-agent-list.json`, and the
-recording comes from an older build than the one `agents/Dockerfile` pins (`OPENCODE_VERSION`); the
-fixture's README names both. Until it is re-recorded on the pinned build, nothing shows that the pinned
-server answers the way the reader expects, and a different answer would leave every prompt without a
-limit, which the benchmark would then report as an efficiency change.
+against small inline bodies in the shape OpenCode 1.17.7 answers (`steps` is the only cap field, a
+configured agent with no cap carries `"steps": null`, a native agent has no `steps`). Nothing in the repo
+shows that the build `agents/Dockerfile` pins (`OPENCODE_VERSION`) still answers that way, and a different
+answer would leave every prompt without a limit, which the benchmark would then report as an efficiency
+change. After a pin moves, call `GET /agent` on the new server and compare the cap fields with those bodies.
 
 1. Run the pinned `opencode serve` in isolation: throwaway HOME and XDG directories, an empty
    environment, no credentials, loopback only, `OPENCODE_CONFIG` pointing at a throwaway config with the
@@ -552,7 +552,7 @@ not decide which direction is worse, you do. The deliberate no-op case must stil
 
 ## Checklist
 
-- [ ] The `GET /agent` fixture was re-recorded on the pinned OpenCode build, and its test passes.
+- [ ] The pinned OpenCode build's `GET /agent` answer was checked against the shape the reader's test uses.
 - [ ] The cases cover the five kinds above, and the apps run in shadow mode.
 - [ ] The same cases file served both sides, and the queue was idle before every `run`.
 - [ ] Three labels per side, each snapshotted before its records aged out.
@@ -563,4 +563,4 @@ not decide which direction is worse, you do. The deliberate no-op case must stil
 
 Source: `scripts/efficiency-benchmark.ts`, with the tracked example at
 `config/benchmarks/efficiency-cases.example.json`; the live limit read is `stepLimits` in
-`src/agent-runtime/`, and the fixture's README is `src/integrations/fixtures/README.md`.
+`src/agent-runtime/`.

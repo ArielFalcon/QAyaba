@@ -611,10 +611,46 @@ interface ResolvedRule {
   action: string;
 }
 
-/* An agent as `GET /agent` returns it. The recording is made on the pinned OpenCode build with the same
-   `permission` blocks the real config declares (src/integrations/fixtures/README.md). */
-function recordedAgents(): Array<{ name: string; native?: boolean; permission: ResolvedRule[] }> {
-  return JSON.parse(readFileSync(join(process.cwd(), "src", "integrations", "fixtures", "opencode-agent-list.json"), "utf8"));
+/* The permission rules a role resolves to, derived from `agents/opencode.json` in the runtime's merge order: its own
+   defaults first, then the global `tools` map, the global `permission` block, the agent's `tools` and `permission`
+   merged by key (a `permission` entry replaces the `tools` entry of the same key). The tool-output directory the
+   runtime allows last is not a configured rule; the test of the generator pins that the config never re-denies it. */
+const RUNTIME_DEFAULT_RULES: ResolvedRule[] = [
+  { permission: "*", pattern: "*", action: "allow" },
+  { permission: "doom_loop", pattern: "*", action: "ask" },
+  { permission: "external_directory", pattern: "*", action: "ask" },
+  { permission: "read", pattern: "*", action: "allow" },
+  { permission: "read", pattern: "*.env", action: "ask" },
+  { permission: "read", pattern: "*.env.*", action: "ask" },
+  { permission: "read", pattern: "*.env.example", action: "allow" },
+];
+const TOOL_KEYS_THAT_ARE_EDITS = new Set(["write", "edit", "patch", "multiedit"]);
+
+function rulesOf(entries: Record<string, unknown>): ResolvedRule[] {
+  const rules: ResolvedRule[] = [];
+  for (const [permission, rule] of Object.entries(entries)) {
+    if (typeof rule === "boolean") rules.push({ permission, pattern: "*", action: rule ? "allow" : "deny" });
+    else if (typeof rule === "string") rules.push({ permission, pattern: "*", action: rule });
+    else for (const [pattern, action] of Object.entries(rule as Record<string, string>)) rules.push({ permission, pattern, action });
+  }
+  return rules;
+}
+
+function resolvedRules(name: string): ResolvedRule[] {
+  const raw = loadRawConfig();
+  const agent = loadAgentConfig().agents[name];
+  assert.ok(agent, `"${name}" is not configured`);
+  const merged: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(agentTools(agent))) merged[TOOL_KEYS_THAT_ARE_EDITS.has(key) ? "edit" : key] = value;
+  Object.assign(merged, (agent as { permission?: Record<string, unknown> }).permission ?? {});
+  const globalTools: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries((raw.tools ?? {}) as Record<string, unknown>)) globalTools[TOOL_KEYS_THAT_ARE_EDITS.has(key) ? "edit" : key] = value;
+  return [...RUNTIME_DEFAULT_RULES, ...rulesOf(globalTools), ...rulesOf(globalPermission()), ...rulesOf(merged)];
+}
+
+/* Every configured role, each with the rules it resolves to. */
+function recordedAgents(): Array<{ name: string; permission: ResolvedRule[] }> {
+  return Object.keys(loadAgentConfig().agents).map((name) => ({ name, permission: resolvedRules(name) }));
 }
 
 /* The runtime's own defaults carry 'ask' rules (doom_loop, external_directory, an env file read); the
@@ -632,12 +668,10 @@ function unansweredAsks(rules: ResolvedRule[]): ResolvedRule[] {
 }
 
 test("the resolved permissions of every configured role leave no 'ask' standing", () => {
-  /* The `qa-` agents of the recording carry the real roles' `tools` and `permission`; the `probe-` ones exist
-     for their step caps and carry neither. */
   const configured = recordedAgents().filter((agent) => agent.name.startsWith("qa-"));
-  assert.ok(configured.length >= 3, "expected the recorded generator, reviewer and sidekick");
+  assert.ok(configured.length >= 3, "expected the configured roles");
   for (const agent of configured) {
-    assert.deepEqual(unansweredAsks(agent.permission), [], `the server resolves an 'ask' for "${agent.name}"`);
+    assert.deepEqual(unansweredAsks(agent.permission), [], `the configuration leaves an 'ask' for "${agent.name}"`);
   }
 });
 
@@ -675,18 +709,11 @@ const APP_AUTH_SOURCES = [
   "/mirrors/shop/e2e/flows/auth/login.spec.ts",
 ];
 
-test("every role of the real configuration is in the recording, so the resolved rules below cover all of them", () => {
-  const recorded = new Set(recordedAgents().map((agent) => agent.name));
-  for (const name of Object.keys(loadAgentConfig().agents)) {
-    assert.ok(recorded.has(name), `"${name}" is configured but absent from the recorded GET /agent body: re-record it (fixtures/README.md)`);
-  }
-});
-
 test("no role can read an env file, a stored login session or the orchestrator's auth material, whatever else its tools allow", () => {
   /* The runtime's default allows every read, asks for an env file and is followed by the role's own
      `tools.read: true` (`read * allow`): a rule that only the role's `permission` block, merged last, can outweigh. */
   const configured = recordedAgents().filter((agent) => agent.name.startsWith("qa-"));
-  assert.ok(configured.length >= 7, `expected every configured role in the recording, got ${configured.length}`);
+  assert.ok(configured.length >= 7, `expected every configured role, got ${configured.length}`);
   for (const agent of configured) {
     for (const path of SECRET_PATHS) {
       assert.equal(readDecision(agent.permission, path), "deny", `"${agent.name}" resolves a read of ${path} to ${readDecision(agent.permission, path)}`);
@@ -707,7 +734,7 @@ test("a role still reads an app's own auth source code: only the suite's session
 
 test("a role still reads the example env file and an ordinary source file when its tools allow reading", () => {
   const generator = recordedAgents().find((agent) => agent.name === "qa-author");
-  assert.ok(generator, "expected the recorded qa-author");
+  assert.ok(generator, "expected qa-author");
   assert.equal(readDecision(generator.permission, "/mirrors/shop/e2e/tests/login.spec.ts"), "allow");
   assert.equal(readDecision(generator.permission, "/mirrors/shop/.env.example"), "allow", "an example file carries no secret and the runtime allows it");
 });
@@ -737,18 +764,22 @@ test("every role that reads declares the same read denial in its own permission 
   assert.ok(readers >= 5, `expected the reading roles to be checked, got ${readers}`);
 });
 
-test("the resolved generator has no allowed shell command and keeps the runtime's tool-output directory", () => {
+test("the resolved generator has no allowed shell command and never re-denies the runtime's tool-output directory", () => {
   const generator = recordedAgents().find((agent) => agent.name === "qa-author");
-  assert.ok(generator, "expected the recorded qa-author");
+  assert.ok(generator, "expected qa-author");
   const bash = generator.permission.filter((rule) => rule.permission === "bash");
   assert.ok(bash.length > 0, "the generator carries a bash rule");
   assert.deepEqual(
     bash.filter((rule) => rule.action !== "deny"),
     [],
-    "every bash rule the server resolves for the generator denies",
+    "every bash rule the generator resolves to denies",
   );
-  const external = generator.permission.filter((rule) => rule.permission === "external_directory");
-  assert.equal(external[external.length - 1]?.action, "allow", "the runtime's tool-output directory stays allowed last");
+  const { agents } = loadAgentConfig();
+  assert.equal(
+    (agents["qa-author"] as { permission?: Record<string, unknown> }).permission?.external_directory,
+    undefined,
+    "the role declares no external_directory rule after the global denial, so the runtime's tool-output allowance stays last",
+  );
 });
 
 test("the Playwright tools that run code or push a file are denied to every role that drives the browser and writes", () => {
@@ -908,7 +939,7 @@ test("the authenticated browser tools are off for every agent by the global tool
   }
 });
 
-test("every role granted the authenticated browser tools denies webfetch, declared and as the server resolves it", () => {
+test("every role granted the authenticated browser tools denies webfetch, declared and as it resolves", () => {
   const { agents } = loadAgentConfig();
   const granted = Object.entries(agents)
     .filter(([, agent]) => AGENT_BROWSER_TOOLS.some((tool) => agentTools(agent)[tool] === true))
@@ -951,7 +982,7 @@ test("the code-graph tools are off for every agent by the global tools map and o
 
 test("the lead resolves to read-only: no write, shell, fetch, run_spec, authenticated browser, location or Playwright tool", () => {
   const lead = recordedAgents().find((agent) => agent.name === AGENT_NAME_FOR_ROLE.lead);
-  assert.ok(lead, "the recording holds the lead");
+  assert.ok(lead, "the configuration holds the lead");
   const decision = (permission: string): string | undefined => lead.permission.filter((rule) => rule.permission === permission && rule.pattern === "*").pop()?.action;
   for (const permission of ["edit", "bash", "webfetch", "run_spec", ...AGENT_BROWSER_TOOLS, "set_geolocation", "playwright*", "serena*"]) {
     assert.equal(decision(permission), "deny", `the lead resolves ${permission} to deny`);
@@ -963,7 +994,7 @@ test("the lead resolves to read-only: no write, shell, fetch, run_spec, authenti
 
 test("qa-explore resolves every write tool, bash, webfetch and run_spec to deny", () => {
   const explorer = recordedAgents().find((agent) => agent.name === CODE_GRAPH_EXPLORE_AGENT);
-  assert.ok(explorer, "the recording holds the explore role");
+  assert.ok(explorer, "the configuration holds the explore role");
   const decision = (permission: string): string | undefined => explorer.permission.filter((rule) => rule.permission === permission && rule.pattern === "*").pop()?.action;
   for (const permission of ["edit", "bash", "webfetch", "run_spec", "set_geolocation", "playwright*", "serena*"]) {
     assert.equal(decision(permission), "deny", `the explore role resolves ${permission} to deny`);

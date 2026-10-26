@@ -8,7 +8,7 @@ import { resolveJudgeSetup } from "./judge-settings";
 const root = process.cwd();
 const json = (rel: string): any => JSON.parse(readFileSync(join(root, rel), "utf8"));
 
-/* The block waits in agents/pending/ for the owner's live step (re-record the agent-list fixture, then add it to agents/opencode.json). These pin that it is ready to be added as it is. */
+/* The block waits in agents/pending/ for the owner's live step (add it to agents/opencode.json). These pin that it is ready to be added as it is. */
 const block = json("agents/pending/qa-judge.opencode-block.json")["qa-judge"];
 const live = json("agents/opencode.json");
 

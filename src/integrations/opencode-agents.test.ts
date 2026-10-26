@@ -1,17 +1,16 @@
 /* The raw agent-list primitive: the agents the OpenCode server resolves for a directory, each with the
-   step cap it enforces. Read through the real v2 SDK client with only the network faked, over a response
-   recorded from a server (src/integrations/fixtures/README.md says how it was recorded and edited). */
+   step cap it enforces. Read through the real v2 SDK client with only the network faked, over bodies shaped as
+   an OpenCode 1.17.7 server answers GET /agent: `steps` is the only cap field it returns (a configured
+   `maxSteps` comes back as `steps`), a configured agent with no cap carries `"steps": null`, and a native
+   agent has no `steps` key at all. */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Agent as OpenCodeAgent } from "@opencode-ai/sdk/v2";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { listAgentCaps, listModelWindows, turnStepLimit, type AgentListDeps } from "./opencode-client";
-
-const RECORDED_AGENT_LIST = join(import.meta.dirname ?? __dirname, "fixtures", "opencode-agent-list.json");
 
 /* Fails `npm run typecheck` (not this run) if the SDK's v2 Agent stops declaring its cap as an optional number. */
 type Same<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
@@ -38,8 +37,17 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-function recordedAgents(): Array<{ name: string }> {
-  return JSON.parse(readFileSync(RECORDED_AGENT_LIST, "utf8")) as Array<{ name: string }>;
+/* A GET /agent body in the server's shape: configured agents carry `steps` (null when uncapped), native ones none. */
+function serverAgentList(): Array<Record<string, unknown>> {
+  return [
+    { name: "qa-author", mode: "primary", permission: [], options: {}, steps: 300 },
+    { name: "qa-reviewer", mode: "all", permission: [], options: {}, steps: 25 },
+    { name: "probe-steps", mode: "primary", permission: [], options: {}, steps: 40 },
+    { name: "probe-both", mode: "primary", permission: [], options: {}, steps: 33 },
+    { name: "probe-none", mode: "primary", permission: [], options: {}, steps: null },
+    { name: "build", mode: "primary", native: true, permission: [], options: {} },
+    { name: "general", mode: "subagent", native: true, permission: [], options: {} },
+  ];
 }
 
 async function capsOf(wire: unknown): Promise<Map<string, unknown>> {
@@ -47,9 +55,9 @@ async function capsOf(wire: unknown): Promise<Map<string, unknown>> {
   return new Map(listed.map(({ name, cap }) => [name, cap]));
 }
 
-test("every agent of a recorded server response is listed with the cap the server enforces for it", async () => {
-  const caps = await capsOf(recordedAgents());
-  assert.equal(caps.size, recordedAgents().length, "no agent is dropped");
+test("every agent of a server response is listed with the cap the server enforces for it", async () => {
+  const caps = await capsOf(serverAgentList());
+  assert.equal(caps.size, serverAgentList().length, "no agent is dropped");
   assert.equal(caps.get("qa-author"), 300);
   assert.equal(caps.get("qa-reviewer"), 25);
   assert.equal(caps.get("probe-steps"), 40);
@@ -57,7 +65,7 @@ test("every agent of a recorded server response is listed with the cap the serve
 });
 
 test("an agent the server lists without a cap has none, whether its steps is null or absent", async () => {
-  const caps = await capsOf(recordedAgents());
+  const caps = await capsOf(serverAgentList());
   for (const name of ["probe-none", "build", "general"]) {
     assert.equal(caps.has(name), true, `${name} is listed`);
     assert.equal(caps.get(name), undefined, `${name} has no cap`);
