@@ -86,6 +86,8 @@ async function captureContextMap(state: Readonly<RunState>, ctx: WorkspaceRunCon
   try {
     await deps.contextMapCapture.capture(workspace.specDir, input.app, input.sha.toString());
   } catch (captureErr) {
+    /* A git dir that is not the orchestrator's is a security refusal, however the capture was asked: it reaches the caller. */
+    carryOn(captureErr);
     console.warn(
       `[qa] context-map capture failed (off-path; verdict unchanged): ${captureErr instanceof Error ? captureErr.message : String(captureErr)}`,
     );

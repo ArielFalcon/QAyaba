@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { UntrustedGitTreeError } from "@kernel/domain-error.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { traceFactsOf } from "@kernel/run-trace-facts.ts";
+import { scriptedGeneration } from "../../../../support/generation-output.ts";
 import { dispose, newRig, observe, type Rig } from "./run-end-rig.ts";
 
 type Fault = "ordinary" | "deadline" | "untrusted";
@@ -53,6 +54,16 @@ const SITES: readonly Site[] = [
   { id: "code-graph tools", ordinary: "decided", arm: (rig, fault) => { rig.extra = { ...rig.extra, codeGraphTools: { open: failing(fault) } as never }; } },
   { id: "pre-generation grounding", ordinary: "decided", arm: (rig, fault) => { rig.extra = { ...rig.extra, preGenerationGrounding: { ground: failing(fault) } as never }; } },
   { id: "write confinement", ordinary: "decided", arm: (rig, fault) => { rig.extra = { ...rig.extra, confinement: { enforce: failing(fault) } as never }; } },
+  {
+    id: "context map capture",
+    ordinary: "context-pass",
+    noDeadline: true,
+    arm: (rig, fault) => {
+      rig.input = { mode: "context" };
+      rig.generate = async () => scriptedGeneration({ specs: [".qa/context.json"], approved: true, note: "built map" });
+      rig.extra = { ...rig.extra, contextMapCapture: { capture: failing(fault) } as never };
+    },
+  },
   { id: "mirror gc", ordinary: "decided", noDeadline: true, arm: (rig, fault) => { rig.extra = { ...rig.extra, mirrorGc: { prune: failing(fault) } as never }; } },
 ];
 
