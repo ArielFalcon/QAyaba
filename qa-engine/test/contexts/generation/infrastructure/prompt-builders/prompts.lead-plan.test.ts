@@ -11,7 +11,8 @@ import {
 import { PROMPT_HEADINGS, PACK_HEADINGS, ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/domain/prompt-headings.ts";
 import { LIVE_BROWSERS } from "@contexts/generation/infrastructure/prompt-builders/generator-context.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
-import { claim, lintCell, type LintSection } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { AGENT_BROWSER_SECTION_ID, CLOSED_LOOP_SECTION_ID, claim, lintCell, type LintSection } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { STEP_MILESTONE_SECTION_ID } from "@contexts/generation/domain/step-limit.ts";
 import { pageCandidate } from "../../../../support/use-case-candidate.ts";
 import { LEAD_PLAN_KIND } from "@kernel/coordination.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
@@ -131,4 +132,14 @@ test("a planning turn names no browser tool: its session is denied one, so it pl
   /* The same input without a planning turn is an authoring turn, which reads the live page. */
   assert.match(assemble().text, BROWSER_TOOL);
   assert.deepEqual(assemble().claims["working-rules"], [claim.directs("use-runtime-signals")]);
+});
+
+test("a planning turn states the seconds it has, and carries no step milestone and no budget of a tool the lead does not hold", () => {
+  const tools = { stepLimit: 250, closedLoop: { maxCalls: 8, perCallMs: 120_000, maxDevWrites: 20 }, agentBrowser: { maxCalls: 150, perCallMs: 30_000, leaseWaitMs: 10_000 } };
+  const planning = assemble({ ...tools, planning: PLANNING });
+  for (const id of [STEP_MILESTONE_SECTION_ID, CLOSED_LOOP_SECTION_ID, AGENT_BROWSER_SECTION_ID]) assert.equal(planning.sectionSizes[id], undefined, id);
+  assert.ok(sectionOf(planning)!.text.includes(String(PLANNING.budgetMs / 1000)), "the plan section states the turn's seconds");
+  /* The same input without a planning turn is an authoring turn, which holds both tools and writes a test by its milestone. */
+  const authoring = assemble(tools);
+  for (const id of [STEP_MILESTONE_SECTION_ID, CLOSED_LOOP_SECTION_ID, AGENT_BROWSER_SECTION_ID]) assert.ok(authoring.sectionSizes[id] !== undefined, id);
 });

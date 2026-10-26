@@ -49,6 +49,7 @@ export function renderLeadPlan(limits: PlanningLimits): string {
   return [
     `## ${PROMPT_HEADINGS.leadPlan}`,
     `This turn asks for a plan, not for specs: write no file. A plan names at most ${limits.maxFlows} flows, and ${limits.maxParallel} are written at once.`,
+    `The orchestrator ends this turn after ${Math.round(limits.budgetMs / 1000)} seconds; a turn ended before its plan JSON delivers no plan, and the run ends with nothing authored.`,
     ...(limits.locations?.length ? [`The app's locations a flow may name: ${limits.locations.join(", ")}.`] : []),
     ...(limits.candidates?.length
       ? [

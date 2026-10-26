@@ -127,6 +127,7 @@ export function derivePromptContext(input: OpencodeRunInput, opts: BuildPromptAs
   );
   const listingContent = renderSuiteListing(listing);
   /* Only a signal that names symbols is an explored blast radius. One of co-change files alone says which files tend to move together, so it claims nothing explored; a signal that arrives without the flag cannot prove it names symbols and is read the same way. */
+  const planningTurn = isGenerationMode && input.target === "e2e" && Boolean(input.planning) && !isReGen;
   const staticSignalHasSymbols = Boolean(input.staticSignal && isGenerationMode) && input.staticSignalHasSymbols === true;
 
   return {
@@ -145,7 +146,7 @@ export function derivePromptContext(input: OpencodeRunInput, opts: BuildPromptAs
     treeInPrompt,
     browser,
     groundingUncoveredEscape: groundingUncoveredEscape(browser),
-    planningTurn: isGenerationMode && input.target === "e2e" && Boolean(input.planning) && !isReGen,
+    planningTurn,
     archMap,
     mapInjected: archMap !== null,
     listing,
@@ -153,7 +154,8 @@ export function derivePromptContext(input: OpencodeRunInput, opts: BuildPromptAs
     suiteIsListed: listingContent !== "",
     editableListed: listing.editable.length > 0,
     blastRadiusGrounded: staticSignalHasSymbols,
-    milestone: input.stepLimit !== undefined ? stepMilestone(input, input.stepLimit) : undefined,
+    /* A planning turn writes no test, so it has no milestone; its time is stated by the plan section. */
+    milestone: input.stepLimit !== undefined && !planningTurn ? stepMilestone(input, input.stepLimit) : undefined,
     assembly: { suiteListed: listingContent !== "", reaskObjective: listing.reaskObjective },
   };
 }

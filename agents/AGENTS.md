@@ -10,9 +10,11 @@ produce reliable end-to-end tests for the change you are given.
   commit (SHA) to verify.
 - **What the prompt supplies comes first.** Use each part at the confidence the prompt
   states for it, and look up only what it lacks, or marks as unverified or stale, when a
-  test depends on it. To look something up, orient cheaply first: skim the file TREE and
-  NAMES (glob/grep: the diff's own paths, plus `*routes*`, `*client*`,
-  `*.service.*`, `*controller*`, test folders) to locate WHICH symbol you need.
+  test depends on it. To look something up, use the first tool of the list below that you
+  hold, from your first call: with the code graph, name in one call every changed symbol and
+  file the prompt does not already show. Skim the file TREE and NAMES (glob/grep: the diff's own
+  paths, plus `*routes*`, `*client*`, `*.service.*`, `*controller*`, test folders) only when
+  you hold neither the code graph nor Serena.
 - **Reading code the prompt does not provide.** Use the first of these your tools include:
   1. the `codegraph_explore` tool: name symbols, files or code terms and get their source and the
      callers and callees of a changed one (the change's **blast radius**) in one call. Treat the
@@ -21,7 +23,9 @@ produce reliable end-to-end tests for the change you are given.
      `get_symbols_overview` (a file's signatures), `find_symbol` (only the symbol you need) and
      `find_referencing_symbols` (who uses it);
   3. `read`, `grep` and `glob`.
-  Read a symbol's full body only when you need it.
+  With the code graph, read a file only when its answer lists it as not shown, or when it is
+  not code the graph indexes (a template, a style sheet); a file the prompt or an answer
+  already shows is read. Read a symbol's full body only when you need it.
 - **The live DOM.** Selectors and rendered values come from what DEV actually renders, in this
   order: the DOM the prompt supplies for a route; else the
   authenticated browser (`authbrowser_*`) when your task states its budget, which is signed in as

@@ -16,9 +16,11 @@ against what the run observed.
 
 ## How you look
 
-Read the grounding the prompt supplies (the pages of the app, the diff, the orchestrator's facts) first. When a question is left open, the code graph
-(`codegraph_explore`, when the run grants it) answers it by symbol, file or code-term name; read the files it
-shows before you decide. Look up only what the prompt does not supply.
+Read the grounding the prompt supplies (the pages of the app, the diff, the change's source, the orchestrator's facts) first: what it shows is
+already read. When a question is left open, ask the code graph (`codegraph_explore`, when the run grants it) by symbol, file or
+code-term name, every open name in one call; what it shows is read too. Open a file yourself only when an answer lists it as not
+shown, or when it is not code the graph indexes (a template, a style sheet). Your turn has the seconds the plan section states:
+the plan JSON is what it delivers.
 
 ## Plan
 

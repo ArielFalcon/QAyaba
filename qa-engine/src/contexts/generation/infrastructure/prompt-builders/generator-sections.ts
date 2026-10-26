@@ -537,14 +537,15 @@ export const GENERATOR_SECTIONS: readonly PromptSectionDef<PromptContext>[] = [
     id: CLOSED_LOOP_SECTION_ID,
     tier: "semi-stable",
     priority: 0,
-    applies: (ctx) => ctx.isGenerationMode && ctx.input.target === "e2e" && Boolean(ctx.input.closedLoop),
+    /* The lead plans with neither tool: a planning turn is not told their budgets. */
+    applies: (ctx) => ctx.isGenerationMode && ctx.input.target === "e2e" && Boolean(ctx.input.closedLoop) && !ctx.planningTurn,
     render: (ctx) => ({ content: renderClosedLoop(ctx.input.closedLoop!), claims: [claim.provides("closed-loop")] }),
   },
   {
     id: AGENT_BROWSER_SECTION_ID,
     tier: "semi-stable",
     priority: 0,
-    applies: (ctx) => ctx.isGenerationMode && ctx.input.target === "e2e" && Boolean(ctx.input.agentBrowser),
+    applies: (ctx) => ctx.isGenerationMode && ctx.input.target === "e2e" && Boolean(ctx.input.agentBrowser) && !ctx.planningTurn,
     render: (ctx) => ({ content: renderAgentBrowser(ctx.input.agentBrowser!), claims: [claim.provides("agent-browser")] }),
   },
   {
