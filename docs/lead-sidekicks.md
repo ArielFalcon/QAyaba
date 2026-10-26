@@ -41,7 +41,8 @@ signed-in app (see below); without either, no sidekick can author and the run en
 2. **Admit.** `admitLeadPlan` treats the plan as untrusted. It slugs the ids, assigns each flow the spec path
    `e2e/flows/<slug>.spec.ts` itself (any write list the lead names is ignored), caps the sizes, and refuses
    duplicates and more than `maxFlows`. A plan that cannot be admitted ends the run `E-NO-AUTHOR` with the reason recorded
-   (`refusal: plan-rejected:<reason>`); a plan of one flow is a fan-out of one. The plan must answer for each direct
+   (`refusal: plan-rejected:<reason>`); a plan of one flow is a fan-out of one, and a fan-out of no flow whose use cases are dropped
+   with a reason is the lead's declared no-op (the run is `skipped` with those reasons); with no reasoned drop it is refused `empty`. The plan must answer for each direct
    use-case candidate of the change that a browser can reach (the admission set, at most `MAX_ADMISSION_CANDIDATES`): a
    flow covers a candidate when it cites its id (`candidates`) or visits one of its pages, and the lead may drop one with a
    reason (`dropped`); the planning turn lists them. A plan that leaves one unresolved is returned to the lead once, in

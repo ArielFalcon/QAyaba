@@ -213,7 +213,12 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
   }
   if (raw.kind !== LEAD_PLAN_KIND.FANOUT || !Array.isArray(raw.flows)) return reject(PLAN_DOWNGRADE.MALFORMED);
 
-  if (raw.flows.length === 0) return reject(PLAN_DOWNGRADE.EMPTY);
+  if (raw.flows.length === 0) {
+    /* No flow and every use case it names dropped with a reason: the lead decided nothing is worth a test, as a no-op says. */
+    const drops = dropsOf(raw.dropped, deps.redaction);
+    if (drops.length === 0) return reject(PLAN_DOWNGRADE.EMPTY);
+    return { kind: LEAD_PLAN_KIND.NOOP, reason: drops.map((drop) => `${drop.candidate}: ${drop.reason}`).join("; ").slice(0, MAX_NOOP_REASON_CHARS) };
+  }
   if (raw.flows.length > limits.maxFlows) return reject(PLAN_DOWNGRADE.OVER_LIMIT);
   const flows: RawFlow[] = [];
   for (const entry of raw.flows) {

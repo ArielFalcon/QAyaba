@@ -390,6 +390,17 @@ test("a plan that cannot be admitted is refused with its reason on the signal", 
   assert.equal(over.action === "refused" ? over.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.EMPTY}`);
 });
 
+test("a plan of no flows whose use cases are all dropped with a reason is the lead's declared no-op, its reasons named; one with no reasoned drop is still refused", async () => {
+  const r = rig();
+  const dropped = [{ candidate: "uc-aaaa1111", reason: "already proven by the existing spec flows/gate.spec.ts" }, { candidate: "uc-bbbb2222", reason: "not observable on the web build" }];
+  const declared = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: { kind: "fanout", flows: [], dropped }, parsed: true, timedOut: false }) }));
+  assert.equal(declared.action, "noop");
+  for (const drop of dropped) assert.ok(declared.action === "noop" && declared.reason.includes(drop.candidate) && declared.reason.includes(drop.reason), drop.candidate);
+  assert.equal(r.created.length, 0);
+  const unreasoned = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: { kind: "fanout", flows: [], dropped: [{ candidate: "uc-aaaa1111" }] }, parsed: true, timedOut: false }) }));
+  assert.equal(unreasoned.action === "refused" ? unreasoned.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.EMPTY}`);
+});
+
 test("each flow is authored in a workspace of its own by a sidekick that may write that flow's file and no other, and what is delivered is added up", async () => {
   const r = rig();
   const outcome = await r.coordinator.coordinate(input(r));
