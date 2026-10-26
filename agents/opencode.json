@@ -27,8 +27,7 @@
     "qa-lead": {
       "description": "Read-only lead of a coordinated run: plans the change into flows, asks for the review of the flows its sidekicks authored and routes the corrections. It writes no file and runs no code: it has no shell, no fetch, no run_spec, no authenticated browser, no location tool and no MCP server (serena and playwright both denied). It holds codegraph_explore, served by the orchestrator: a read-only explore of the run's own code-graph index by symbol, file or code-term names, answered with the matching source and the calls among it; the orchestrator refuses it unless the run granted it.",
       "mode": "primary",
-      "model": "opencode-go/deepseek-v4.1-flash",
-      "options": { "reasoningEffort": "medium" },
+      "model": "opencode-go/glm-5.3-flash",
       "prompt": "{file:./agent/qa-lead.md}",
       "tools": {
         "write": false,
