@@ -121,6 +121,60 @@ test("a composition module of another context importing workspace-and-publicatio
   }
 });
 
+const WRITE_SEAM = {
+  [`${CTX}/workspace-and-publication/infrastructure/vcs-write.adapter.ts`]: "export class VcsWriteAdapter {}\n",
+  [`${CTX}/workspace-and-publication/application/ports/vcs-write.port.ts`]: "export interface VcsWritePort {}\n",
+  [`${CTX}/workspace-and-publication/application/ports/workspace.port.ts`]: "export interface WorkspacePort {}\n",
+};
+
+test("a context importing the workspace-and-publication public index passes no-vcs-write-in-agent-contexts", () => {
+  const root = treeWith({
+    ...WRITE_SEAM,
+    [`${CTX}/workspace-and-publication/application/index.ts`]: 'export type { WorkspacePort } from "./ports/workspace.port.ts";\n',
+    [`${CTX}/alpha/application/use.ts`]: 'import type { WorkspacePort } from "../../workspace-and-publication/application/index.ts";\nexport type U = WorkspacePort;\n',
+  });
+  try {
+    const { ok, output } = archCheck(root);
+    assert.equal(ok, true, output);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a context importing the VCS write adapter or port directly is reported by no-vcs-write-in-agent-contexts", () => {
+  const root = treeWith({
+    ...WRITE_SEAM,
+    [`${CTX}/workspace-and-publication/application/index.ts`]: 'export type { WorkspacePort } from "./ports/workspace.port.ts";\n',
+    [`${CTX}/alpha/infrastructure/push.ts`]: 'import { VcsWriteAdapter } from "../../workspace-and-publication/infrastructure/vcs-write.adapter.ts";\nexport const a = VcsWriteAdapter;\n',
+    [`${CTX}/beta/application/push.ts`]: 'import type { VcsWritePort } from "../../workspace-and-publication/application/ports/vcs-write.port.ts";\nexport type P = VcsWritePort;\n',
+  });
+  try {
+    const { ok, output } = archCheck(root);
+    assert.equal(ok, false);
+    assert.match(output, /no-vcs-write-in-agent-contexts:\s*qa-engine\/src\/contexts\/alpha\/infrastructure\/push\.ts/);
+    assert.match(output, /no-vcs-write-in-agent-contexts:\s*qa-engine\/src\/contexts\/beta\/application\/push\.ts/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the workspace-and-publication public index re-exporting the VCS write seam is reported by workspace-public-surface-carries-no-write-seam", () => {
+  const root = treeWith({
+    ...WRITE_SEAM,
+    [`${CTX}/workspace-and-publication/application/index.ts`]:
+      'export type { WorkspacePort } from "./ports/workspace.port.ts";\nexport type { VcsWritePort } from "./ports/vcs-write.port.ts";\nexport { VcsWriteAdapter } from "../infrastructure/vcs-write.adapter.ts";\n',
+  });
+  try {
+    const { ok, output } = archCheck(root);
+    assert.equal(ok, false);
+    assert.match(output, /workspace-public-surface-carries-no-write-seam:\s*qa-engine\/src\/contexts\/workspace-and-publication\/application\/index\.ts/);
+    assert.match(output, /vcs-write\.adapter\.ts/);
+    assert.match(output, /vcs-write\.port\.ts/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("two modules importing each other are reported by no-circular", () => {
   const root = treeWith({
     "qa-engine/src/shared-kernel/left.ts": 'import { right } from "./right.ts";\nexport const left = () => right;\n',

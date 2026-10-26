@@ -46,9 +46,22 @@ module.exports = {
     {
       name: "no-vcs-write-in-agent-contexts",
       severity: "error",
-      comment: "Only workspace-and-publication may import the VCS write seam, without exception. All other contexts/* paths are denied — this rule is inverted so new contexts are secure by default without a whitelist update.",
+      comment: "The agent is read-only on watched repos; only the deterministic orchestrator writes to git. Every context other than workspace-and-publication is denied every file of workspace-and-publication (the VCS write port, adapter and domain, the GitHub PR and Issue ports and adapters, the publish policy and use case, the confinement and setup adapters, its composition) except its public index, application/index.ts. The rule is inverted so new contexts are secure by default without a whitelist update. The index is held to an allowlist of ports and types by workspace-public-surface-carries-no-write-seam.",
       from: { path: "qa-engine/src/contexts/(?!workspace-and-publication)" },
-      to: { path: "contexts/workspace-and-publication" },
+      to: { path: "contexts/workspace-and-publication", pathNot: "^qa-engine/src/contexts/workspace-and-publication/application/index\\.ts$" },
+    },
+    {
+      name: "workspace-public-surface-carries-no-write-seam",
+      severity: "error",
+      comment: "The one file other contexts may import from workspace-and-publication re-exports only the run's workspace ports and the types they need, plus the write-confinement decision service. It reaches nothing else of the context, so an export of the VCS write port or adapter, a GitHub port, the publish policy or use case, or any infrastructure file through it is a violation. An allowlist, so a new file is denied until it is named here.",
+      from: { path: "^qa-engine/src/contexts/workspace-and-publication/application/index\\.ts$" },
+      to: {
+        path: "^qa-engine/src/contexts/workspace-and-publication/",
+        pathNot: [
+          "^qa-engine/src/contexts/workspace-and-publication/application/ports/(cleanup|confinement|publication|setup|workspace|workspace-mirror-gc)\\.port\\.ts$",
+          "^qa-engine/src/contexts/workspace-and-publication/domain/(workspace-handle|confinement-result|write-confinement\\.service)\\.ts$",
+        ],
+      },
     },
     {
       name: "no-telemetry-sdk-in-engine",
