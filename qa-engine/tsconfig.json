@@ -21,10 +21,5 @@
       "@interface/*": ["src/interface/*"]
     }
   },
-  "include": ["src", "test"],
-  "exclude": [
-    "test/shared-kernel/run-outcome.test.ts",
-    "test/contexts/generation/infrastructure/context-assembler.adapter-parity.test.ts",
-    "test/contract/seam-parity.contract.test.ts"
-  ]
+  "include": ["src", "test"]
 }

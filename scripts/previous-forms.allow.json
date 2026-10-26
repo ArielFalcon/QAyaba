@@ -104,6 +104,12 @@
   {
     "rule": "dead-path",
     "path": "AGENTS.md",
+    "contains": "qa-engine/test/contract/seam-parity.contract.test.ts",
+    "reason": "Pending edit of a file outside this phase's write authority: the seam test now lives at src/server/seam-parity.contract.test.ts (arch-p3 Log). Remove this entry with that edit."
+  },
+  {
+    "rule": "dead-path",
+    "path": "AGENTS.md",
     "contains": "rewritten-engine-factory.ts",
     "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit."
   },

@@ -3,7 +3,7 @@
    the domain classifyCommit(message, diff) function (for classify(), sourcing message/diff from
    the SAME VcsReadPort). NO new policy — this is a shape/delegation test, not a re-test of
    classifyCommit's own classification table (that lives in commit-classification.test.ts /
-   commit-classification-parity.test.ts).
+   commit-classification.scenarios.test.ts).
    production callers) — its own delegation test is removed here too. fakeVcsRead still declares
    blastRadius in its default shape because VcsReadPort itself still requires it (a real, separate
    caller exists elsewhere — see change-analysis-port.adapter.ts's own header).

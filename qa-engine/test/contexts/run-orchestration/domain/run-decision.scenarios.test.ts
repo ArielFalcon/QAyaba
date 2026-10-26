@@ -6,7 +6,7 @@ import { decide, type RunEvidence } from "@contexts/run-orchestration/domain/run
    (flaky never calls publish or openIssue), while decide() returns "quarantine". Do not map
    one onto the other. Every other verdict's sideEffect must match the harness literal. */
 
-interface ParityCase {
+interface ScenarioCase {
   scenario: string;
   evidence: RunEvidence;
   expectedVerdict: string;
@@ -18,7 +18,7 @@ interface ParityCase {
     Evidence transcribed from each scenario's
    AppConfig/deps in scenarios.ts (see the per-case comment for the exact source).
  */
-const goldenCases: ParityCase[] = [
+const goldenCases: ScenarioCase[] = [
   {
     /* scenarioApp (needsReview:true), makeDeps({}) → generated (approved:true), passing(), no
        coverage config (blocksPublish=false), not shadow.
@@ -113,7 +113,7 @@ const goldenCases: ParityCase[] = [
    from each scenario's AppConfig/deps in scenarios.ts's buildScenarioDepsB2 (per-case source line
    noted below).
  */
-const goldenCasesB2: ParityCase[] = [
+const goldenCasesB2: ScenarioCase[] = [
   {
     /* scenarioApp (needsReview:true); the static-gate repair loop recovers on the regen round, so
        by decide-time the run is a clean pass.
@@ -224,7 +224,7 @@ const goldenCasesB2: ParityCase[] = [
    replays 3 scenarios that assert a verdict/sideEffect; a 4th is a pure config-shape
    assertion that never calls runPipeline — not decide-relevant, so not included here). Mirrors
  */
-const singleProviderCases: ParityCase[] = [
+const singleProviderCases: ScenarioCase[] = [
   {
     /* an app with needsReview:false, a green single-provider run → pass, PR published.
      */
@@ -249,14 +249,14 @@ const singleProviderCases: ParityCase[] = [
    */
 ];
 
-const allCases: ParityCase[] = [...goldenCases, ...goldenCasesB2, ...singleProviderCases];
+const allCases: ScenarioCase[] = [...goldenCases, ...goldenCasesB2, ...singleProviderCases];
 
-test("parity pin: the golden and single-provider scenario sets are non-trivial (guards against an accidentally-empty pin)", () => {
+test("the golden and single-provider scenario sets are non-trivial (guards against an accidentally-empty pin)", () => {
   assert.equal(allCases.length, 23, "expected exactly 10 goldens + 11 B2 scenarios + 2 decide-relevant single-provider scenarios");
 });
 
 for (const c of allCases) {
-  test(`parity pin — ${c.scenario}: decide(evidence) matches the golden verdict + side effect`, () => {
+  test(`${c.scenario}: decide(evidence) matches the golden verdict + side effect`, () => {
     const decision = decide(c.evidence);
     assert.equal(decision.verdict, c.expectedVerdict, `${c.scenario}: verdict mismatch`);
 

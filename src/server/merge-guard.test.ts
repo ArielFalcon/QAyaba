@@ -735,7 +735,6 @@ test("isProtectedPath protects every TypeScript and dependency-cruiser config a 
   const gateConfigs = [
     "tsconfig.json",
     "qa-engine/tsconfig.json",
-    "qa-engine/tsconfig.parity.json",
     "scripts/tsconfig.json",
     "packages/sdk/tsconfig.json",
     "config/e2e/tsconfig.json",

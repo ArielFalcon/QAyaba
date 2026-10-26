@@ -1,5 +1,5 @@
 /* Permanent seam: kernel RunOutcome ↔ toStoredRunOutcome, and AppConfig ↔ CompositionConfig.
-   qa-engine cannot import src/; this file is the drift gate (tsconfig.parity.json). A field added
+   qa-engine cannot import src/, so this shell test is the drift gate. A field added
    to the type without an allowlist entry fails typecheck; a field dropped by the adapter fails
    this test. */
 import { test, describe, mock } from "node:test";
@@ -8,18 +8,18 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { RunOutcome as KernelRunOutcome } from "@kernel/run-outcome.ts";
-import { GENERATION_END } from "@kernel/generation-end.ts";
-import { wireAdapters, type CompositionConfig } from "@contexts/run-orchestration/composition/composition-root.ts";
-import { ConfinedPathError } from "../../src/shared-infrastructure/spec-path-confinement.ts";
+import type { RunOutcome as KernelRunOutcome } from "@kernel/run-outcome";
+import { GENERATION_END } from "@kernel/generation-end";
+import { wireAdapters, type CompositionConfig } from "@contexts/run-orchestration/composition/composition-root";
+import { ConfinedPathError } from "../../qa-engine/src/shared-infrastructure/spec-path-confinement";
 
-import { toStoredRunOutcome, type RunHistorySqliteAdapterDeps, SqliteRunHistoryAdapter } from "../../../src/server/run-history-sqlite-adapter.ts";
-import { buildCompositionConfig, type RunEngineFactoryDeps } from "../../../src/server/run-engine-factory.ts";
-import type { AppConfig } from "../../../src/orchestrator/config-loader.ts";
-import type { AgentDeps } from "../../../src/integrations/opencode-client.ts";
-import { AgentRuntimeFacade } from "../../../src/agent-runtime/facades.ts";
-import type { AgentFacade, AgentProvider, AgentRuntimeStrategy, StepLimits } from "../../../src/agent-runtime/types.ts";
-import type { OpencodeRunInput, ReviewInput } from "@contexts/generation/application/index.ts";
+import { toStoredRunOutcome, type RunHistorySqliteAdapterDeps, SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
+import { buildCompositionConfig, type RunEngineFactoryDeps } from "./run-engine-factory";
+import type { AppConfig } from "../orchestrator/config-loader";
+import type { AgentDeps } from "../integrations/opencode-client";
+import { AgentRuntimeFacade } from "../agent-runtime/facades";
+import type { AgentFacade, AgentProvider, AgentRuntimeStrategy, StepLimits } from "../agent-runtime/types";
+import type { OpencodeRunInput, ReviewInput } from "@contexts/generation/application/index";
 
 /* ── shared sentinel helpers ─────────────────────────────────────────────────────────────────────
    A sentinel is a value that is IMPOSSIBLE to produce by accident (unlike "", 0, false, or []),

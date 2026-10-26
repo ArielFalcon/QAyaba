@@ -61,7 +61,7 @@ function deps(overrides: Partial<MutationOracleDeps> = {}): MutationOracleDeps {
 }
 
 function tmpRepo(): string {
-  const repo = mkdtempSync(join(tmpdir(), "mut-parity-"));
+  const repo = mkdtempSync(join(tmpdir(), "mut-scenarios-"));
   mkdirSync(join(repo, "src"), { recursive: true });
   writeFileSync(join(repo, "src", "index.ts"), "export const x = 1;");
   return repo;
