@@ -16,6 +16,7 @@ import type { CoordinateResult } from "../../coordination/lead-sidekicks.ts";
 import { evidenceFromPackDataRoutes } from "../../coordination/evidence-from.ts";
 import { end, type StepOutcome } from "../run-flow.ts";
 import { throwIfAborted } from "../abort.ts";
+import { preExecAction } from "../../../domain/pre-exec-regen.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { afterGeneration, closedLoopSignal, geolocationEnrichment, loopClosedNow, regenerate } from "./generation-services.ts";
@@ -213,8 +214,7 @@ export async function settleGenerationEnd(state: Readonly<RunState>, ctx: Worksp
  * Reads the on-disk specs. Only the catalog gate's corrections come back to be repaired (a
  * correction names no spec, but the gate says which spec raised each: the files are those of the
  * capture's specs); an ambiguity is counted and warned about, and asks for nothing.
- * One-shot corrective regen before the static gate. Adopt the regen only if it
- * produced specs — an empty result must not discard the original specs.
+ * The corrective regeneration they may earn is the next step (preExecRegenerate).
  */
 export async function groundBeforeExecution(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { deps, workspace, signal } = ctx;
@@ -245,27 +245,37 @@ export async function groundBeforeExecution(state: Readonly<RunState>, ctx: Work
     /* mutation-scope:end catalog-gate-counters */
     return { corrections: result.corrections, attributedSpecFiles: attributeContradictions(result.corrections, result.origins, specFiles) };
   };
-  let generated = state.generation.generated;
   const { corrections: groundingCorrections, attributedSpecFiles: groundingAttribution } = await runPreExecGrounding();
-  /* A spec the generator saw pass against DEV is not rewritten for what a static look at its selectors suspects. */
-  const correctiveRegenRetired = groundingCorrections.length > 0 && (await loopClosedNow(ctx));
-  if (correctiveRegenRetired) {
-    deps.observer?.onEvent({ type: "log.line", level: "info", text: "[qa] pre-exec grounding raised corrections, but every delivered spec was seen passing through run_spec: no corrective regeneration" });
-  }
-  if (groundingCorrections.length > 0 && !correctiveRegenRetired) {
-    deps.observer?.onStep("retry", "pre-exec grounding: corrective regen");
-    const corrected = await regenerate(state, ctx, signal, {
-      selectorContradictions: groundingCorrections,
-      ...(groundingAttribution.length > 0 ? { attributedSpecFiles: groundingAttribution } : {}),
-    }, CORRECTION_ORIGIN.PRE_EXEC);
-    await ctx.services.confinement.enforce();
-    if (corrected.specs.length > 0) {
-      generated = corrected;
-    }
-  }
   return {
     update: {
-      generation: { ...state.generation, generated, preExecAmbiguityCatches, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed, groundingCorrections, groundingAttribution },
+      generation: { ...state.generation, preExecAmbiguityCatches, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed, groundingCorrections, groundingAttribution },
+    },
+  };
+}
+
+/*
+ * One-shot corrective regen before the static gate, when the grounding raised corrections that nothing has repaired and the specs
+ * are not ones the generator saw pass. Adopt the regen only if it produced specs: an empty result must not discard the original specs.
+ */
+export async function preExecRegenerate(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
+  const { deps, signal } = ctx;
+  const { groundingCorrections, groundingAttribution } = state.generation;
+  /* A spec the generator saw pass against DEV is not rewritten for what a static look at its selectors suspects. */
+  const retired = groundingCorrections.length > 0 && (await loopClosedNow(ctx));
+  if (retired) {
+    deps.observer?.onEvent({ type: "log.line", level: "info", text: "[qa] pre-exec grounding raised corrections, but every delivered spec was seen passing through run_spec: no corrective regeneration" });
+  }
+  if (preExecAction({ corrections: groundingCorrections.length, retired, regenerated: state.loops.preExecRegen }) === "proceed") return;
+  deps.observer?.onStep("retry", "pre-exec grounding: corrective regen");
+  const corrected = await regenerate(state, ctx, signal, {
+    selectorContradictions: groundingCorrections,
+    ...(groundingAttribution.length > 0 ? { attributedSpecFiles: groundingAttribution } : {}),
+  }, CORRECTION_ORIGIN.PRE_EXEC);
+  await ctx.services.confinement.enforce();
+  return {
+    update: {
+      generation: { ...state.generation, generated: corrected.specs.length > 0 ? corrected : state.generation.generated },
+      loops: { ...state.loops, preExecRegen: state.loops.preExecRegen + 1 },
     },
   };
 }

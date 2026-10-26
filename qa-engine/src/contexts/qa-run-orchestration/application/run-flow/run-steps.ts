@@ -8,7 +8,7 @@ import type { RunContext, WorkspaceRunContext } from "./run-context.ts";
 import type { RunState } from "./run-state.ts";
 import { cleanPriorRun, openAuthoringHandles, prepareLogin, restoreAcceptedSuite, setUpProject } from "./phases/setup.steps.ts";
 import { assembleEnrichment, groundRepository, readDiffShapes, resolveBlastRadius, resolveCrossRepoImpact, resolveServiceLinks, retrieveRules, selectExemplars } from "./phases/ground.steps.ts";
-import { generateFirstPass, groundBeforeExecution, settleGenerationEnd } from "./phases/generate.steps.ts";
+import { generateFirstPass, groundBeforeExecution, preExecRegenerate, settleGenerationEnd } from "./phases/generate.steps.ts";
 import { announceExecution, checkHealth, executeSpecs, prepareExecuteAuth, staticFixRound, validateStatically } from "./phases/execute.steps.ts";
 import { fingerprintGreenSuite, runFixLoop } from "./phases/fix-loop.steps.ts";
 import { announceCoverage, announcesCoverage, measureCoverage, measuresCoverage, regenerateForCoverage, regeneratesForCoverage } from "./phases/coverage.steps.ts";
@@ -41,6 +41,7 @@ export const IN_WORKSPACE: ReadonlyArray<FlowStep<RunState, WorkspaceRunContext>
   { id: "generate-first-pass", phase: "generate", run: generateFirstPass },
   { id: "settle-generation-end", run: settleGenerationEnd },
   { id: "ground-before-execution", run: groundBeforeExecution },
+  { id: "pre-exec-regenerate", run: preExecRegenerate },
   { id: "validate-statically", phase: "validate", run: validateStatically },
   { id: "static-fix-round", run: staticFixRound },
   { id: "check-health", phase: "health", run: checkHealth },
