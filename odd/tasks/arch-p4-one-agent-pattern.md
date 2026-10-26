@@ -176,7 +176,7 @@ Branch: `fix/failure-observation-conflict` (owner rule: one branch, no PR split)
 - [x] T5 — S4a — inline — `qa-explore` role and widened browser and graph holders (governance commit, alone, independent verifier) — commit: `cbcc6b84`; independent verifier pending; live steps pending (L15)
 - [x] T6 — S4b — inline — `explore` kind: request, dispatch, evidence verification (independent verifier) — commit: `bb8a4ab2`; independent verifier pending (L16)
 - [x] T7a — S5a doors 2-8 — inline — `E-NO-AUTHOR` outcome, refusals, takeover and provider facts deleted — commit: `cd50d26b`
-- [ ] T7b — S5a doors 1, 9, 10 — inline — one author path for code, context, login-seed and regenerations; `generate` deleted — commit: pending
+- [x] T7b — S5a doors 1, 9, 10 — inline — one author path for code, context, login-seed and regenerations; `generate` deleted — commits: `4161b3b5` (author path), `2913274a` (tool-surface narrowing, own commit)
 - [ ] T8 — S5b — inline — Final roster: `qa-author`, delete `qa-generator`, final invariants (governance commit, alone, independent verifier) — commit: pending
 - [ ] T9 — S6 — inline — `qa-judge` stays staged until a second model exists (owner decision); nothing to change in this phase — commit: n/a
 - [ ] T10 — S7 — inline — Prompt and doc consolidation — commit: pending
