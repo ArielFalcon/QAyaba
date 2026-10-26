@@ -743,6 +743,36 @@ test("a reached symbol carries the lowest confidence of the edges on its path, a
   }
 });
 
+test("an edge whose metadata is not JSON, or whose confidence is not a number in [0, 1], reads as certain instead of failing the walk", async () => {
+  const h = harness();
+  try {
+    storeWith(h, "bad-metadata.db", CHAIN_NODES, [["function:mid", "function:leaf", "calls", "not json"], ["function:top", "function:mid", "calls", '{"confidence":"0.2"}']]);
+    await h.adapter.syncTo(h.mirror, h.sha);
+
+    const report = await h.adapter.callersOf(h.mirror, [{ file: "a/chain.ts", symbol: "leaf" }], BUDGET);
+
+    assert.ok(report.ok, JSON.stringify(report));
+    assert.deepEqual(report.value.symbols.map((s) => s.confidence), [1, 1, 1]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("an edge confidence above 1 or below 0 reads as certain", async () => {
+  const h = harness();
+  try {
+    storeWith(h, "out-of-range.db", CHAIN_NODES, [["function:mid", "function:leaf", "calls", '{"confidence":5}'], ["function:top", "function:mid", "calls", '{"confidence":-1}']]);
+    await h.adapter.syncTo(h.mirror, h.sha);
+
+    const report = await h.adapter.callersOf(h.mirror, [{ file: "a/chain.ts", symbol: "leaf" }], BUDGET);
+
+    assert.ok(report.ok, JSON.stringify(report));
+    assert.deepEqual(report.value.symbols.map((s) => s.confidence), [1, 1, 1]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
 test("an edge whose metadata holds no confidence reads as certain", async () => {
   const h = harness();
   try {
