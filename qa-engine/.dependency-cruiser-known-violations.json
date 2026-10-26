@@ -33,7 +33,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/phases/fix-loop.steps.ts",
+    "from": "qa-engine/src/contexts/run-orchestration/application/run-flow/phases/fix-loop.steps.ts",
     "to": "qa-engine/src/shared-infrastructure/spec-path-confinement.ts",
     "unresolvedTo": "../../../../../shared-infrastructure/spec-path-confinement.ts",
     "dependencyTypes": [
@@ -47,7 +47,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/phases/review-services.ts",
+    "from": "qa-engine/src/contexts/run-orchestration/application/run-flow/phases/review-services.ts",
     "to": "qa-engine/src/shared-infrastructure/spec-path-confinement.ts",
     "unresolvedTo": "../../../../../shared-infrastructure/spec-path-confinement.ts",
     "dependencyTypes": [
@@ -61,7 +61,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/phases/review.steps.ts",
+    "from": "qa-engine/src/contexts/run-orchestration/application/run-flow/phases/review.steps.ts",
     "to": "qa-engine/src/shared-infrastructure/spec-path-confinement.ts",
     "unresolvedTo": "../../../../../shared-infrastructure/spec-path-confinement.ts",
     "dependencyTypes": [
@@ -76,8 +76,8 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/run-services.ts",
-    "to": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/spec-snapshot.adapter.ts",
+    "from": "qa-engine/src/contexts/run-orchestration/application/run-flow/run-services.ts",
+    "to": "qa-engine/src/contexts/run-orchestration/infrastructure/adapters/spec-snapshot.adapter.ts",
     "unresolvedTo": "../../infrastructure/adapters/spec-snapshot.adapter.ts",
     "dependencyTypes": [
       "local",
@@ -90,7 +90,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/run-services.ts",
+    "from": "qa-engine/src/contexts/run-orchestration/application/run-flow/run-services.ts",
     "to": "qa-engine/src/shared-infrastructure/content-hash.ts",
     "unresolvedTo": "../../../../shared-infrastructure/content-hash.ts",
     "dependencyTypes": [
@@ -104,7 +104,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/run-services.ts",
+    "from": "qa-engine/src/contexts/run-orchestration/application/run-flow/run-services.ts",
     "to": "qa-engine/src/shared-infrastructure/spec-path-confinement.ts",
     "unresolvedTo": "../../../../shared-infrastructure/spec-path-confinement.ts",
     "dependencyTypes": [
@@ -118,7 +118,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/run-types.ts",
+    "from": "qa-engine/src/contexts/run-orchestration/application/run-flow/run-types.ts",
     "to": "qa-engine/src/shared-infrastructure/process-sandbox/exec-scope.ts",
     "unresolvedTo": "../../../../shared-infrastructure/process-sandbox/exec-scope.ts",
     "dependencyTypes": [
@@ -133,7 +133,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/application/run-qa.use-case.ts",
+    "from": "qa-engine/src/contexts/run-orchestration/application/run-qa.use-case.ts",
     "to": "qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts",
     "unresolvedTo": "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts",
     "dependencyTypes": [
@@ -147,7 +147,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/application/run-qa.use-case.ts",
+    "from": "qa-engine/src/contexts/run-orchestration/application/run-qa.use-case.ts",
     "to": "qa-engine/src/shared-infrastructure/process-sandbox/exec-scope.ts",
     "unresolvedTo": "../../../shared-infrastructure/process-sandbox/exec-scope.ts",
     "dependencyTypes": [
@@ -161,7 +161,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/application/run-qa.use-case.ts",
+    "from": "qa-engine/src/contexts/run-orchestration/application/run-qa.use-case.ts",
     "to": "qa-engine/src/shared-infrastructure/run-secret-redaction.ts",
     "unresolvedTo": "../../../shared-infrastructure/run-secret-redaction.ts",
     "dependencyTypes": [
@@ -447,8 +447,8 @@
   {
     "type": "dependency",
     "from": "qa-engine/src/contexts/evaluation/domain/grader-catalog.ts",
-    "to": "qa-engine/src/contexts/qa-run-orchestration/domain/run-phase-cursor.ts",
-    "unresolvedTo": "@contexts/qa-run-orchestration/domain/run-phase-cursor",
+    "to": "qa-engine/src/contexts/run-orchestration/domain/run-phase-cursor.ts",
+    "unresolvedTo": "@contexts/run-orchestration/domain/run-phase-cursor",
     "dependencyTypes": [
       "aliased",
       "aliased-tsconfig",
@@ -481,8 +481,8 @@
   {
     "type": "dependency",
     "from": "qa-engine/src/contexts/evaluation/domain/graders.ts",
-    "to": "qa-engine/src/contexts/qa-run-orchestration/domain/run-phase-cursor.ts",
-    "unresolvedTo": "@contexts/qa-run-orchestration/domain/run-phase-cursor",
+    "to": "qa-engine/src/contexts/run-orchestration/domain/run-phase-cursor.ts",
+    "unresolvedTo": "@contexts/run-orchestration/domain/run-phase-cursor",
     "dependencyTypes": [
       "aliased",
       "aliased-tsconfig",
@@ -514,7 +514,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/domain/adjudicate.service.ts",
+    "from": "qa-engine/src/contexts/run-orchestration/domain/adjudicate.service.ts",
     "to": "qa-engine/src/contexts/test-execution/domain/playwright-infra.ts",
     "unresolvedTo": "@contexts/test-execution/domain/playwright-infra.ts",
     "dependencyTypes": [
@@ -531,7 +531,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts",
+    "from": "qa-engine/src/contexts/run-orchestration/domain/fix-loop.aggregate.ts",
     "to": "qa-engine/src/contexts/generation/domain/selector-check.ts",
     "unresolvedTo": "../../generation/domain/selector-check.ts",
     "dependencyTypes": [
@@ -546,7 +546,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/contradiction-attribution.ts",
+    "from": "qa-engine/src/contexts/run-orchestration/domain/helpers/contradiction-attribution.ts",
     "to": "qa-engine/src/contexts/generation/domain/selector-check.ts",
     "unresolvedTo": "../../../generation/domain/selector-check.ts",
     "dependencyTypes": [
@@ -561,7 +561,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/generation-end-terminal.ts",
+    "from": "qa-engine/src/contexts/run-orchestration/domain/helpers/generation-end-terminal.ts",
     "to": "qa-engine/src/contexts/cross-run-learning/domain/error-class.ts",
     "unresolvedTo": "../../../cross-run-learning/domain/error-class.ts",
     "dependencyTypes": [
@@ -575,7 +575,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/domain/run-time-budget.ts",
+    "from": "qa-engine/src/contexts/run-orchestration/domain/run-time-budget.ts",
     "to": "qa-engine/src/contexts/generation/domain/diff-stat.ts",
     "unresolvedTo": "@contexts/generation/domain/diff-stat.ts",
     "dependencyTypes": [

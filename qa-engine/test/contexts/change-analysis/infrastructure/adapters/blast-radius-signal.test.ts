@@ -1,4 +1,4 @@
-/* qa-engine/test/contexts/qa-run-orchestration/infrastructure/adapters/blast-radius-signal.test.ts
+/* qa-engine/test/contexts/run-orchestration/infrastructure/adapters/blast-radius-signal.test.ts
    impactedSymbols/callersOf/coChangeCoupling results into ONE markdown block for
    (empty -> "", per-section cap, sanitized cells, byte-budget truncation at a newline boundary).
  */

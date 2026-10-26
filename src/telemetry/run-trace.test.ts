@@ -2,8 +2,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { SpanStatusCode } from "@opentelemetry/api";
-import { RunQaUseCase, type RunQaUseCaseDeps, type RunQaResult } from "@contexts/qa-run-orchestration/application/run-qa.use-case";
-import { RUN_PHASES } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
+import { RunQaUseCase, type RunQaUseCaseDeps, type RunQaResult } from "@contexts/run-orchestration/application/run-qa.use-case";
+import { RUN_PHASES } from "@contexts/run-orchestration/domain/run-phase-cursor";
 import { RunDeadlineExceededError } from "@kernel/run-deadline";
 import { ok } from "@kernel/result";
 import { traceFactsOf } from "@kernel/run-trace-facts";

@@ -12,7 +12,7 @@ import { GRADER_CATALOG } from "@contexts/evaluation/domain/grader-catalog";
 import type { JudgeCatalogEntry } from "@contexts/evaluation/domain/judges";
 import type { JudgeRegradePort } from "@contexts/evaluation/application/ports/judge-ports";
 import type { Score, ScoreDataType, ScorePolarity, ScoreSource } from "@contexts/evaluation/domain/score";
-import { RUN_PHASES } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
+import { RUN_PHASES } from "@contexts/run-orchestration/domain/run-phase-cursor";
 import {
   failInterruptedRegradeJobs,
   getRegradeJob,

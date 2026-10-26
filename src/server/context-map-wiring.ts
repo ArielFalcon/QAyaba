@@ -1,6 +1,6 @@
 /* Composition root's side of the context-map rebuild before a run (runner.ts, RunnerDeps.contextMapNeedsRebuild): the question it asks of an app's stored map, and the switch that turns it off. */
 
-import { contextMapValidity, type ChangedFile } from "@contexts/qa-run-orchestration/domain/context-map-validity";
+import { contextMapValidity, type ChangedFile } from "@contexts/run-orchestration/domain/context-map-validity";
 import { loadAppConfig, type AppConfig } from "../orchestrator/config-loader";
 import { ensureMirror, defaultMirrorDeps } from "../integrations/repo-mirror";
 import { resolveCampaignFreeze } from "./campaign-freeze";

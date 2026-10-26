@@ -20,12 +20,12 @@ const qaEngineRoot = join(here, "..", "..");
    explicitly — dropping a path from disk without removing its entry here would throw ENOENT.
  */
 const DECISION_PATH_FILES = [
-  "src/contexts/qa-run-orchestration/domain/run-decision.service.ts",
-  "src/contexts/qa-run-orchestration/domain/adjudicate.service.ts",
+  "src/contexts/run-orchestration/domain/run-decision.service.ts",
+  "src/contexts/run-orchestration/domain/adjudicate.service.ts",
   "src/contexts/objective-signal/domain/decide-coverage.service.ts",
   "src/contexts/workspace-and-publication/domain/publish-decision.service.ts",
-  "src/contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts",
-  "src/contexts/qa-run-orchestration/domain/helpers/progress-gate.ts",
+  "src/contexts/run-orchestration/domain/fix-loop.aggregate.ts",
+  "src/contexts/run-orchestration/domain/helpers/progress-gate.ts",
   "src/contexts/test-execution/infrastructure/static-gate.adapter.ts",
   "src/contexts/generation/infrastructure/verdict-parser.adapter.ts",
 ];

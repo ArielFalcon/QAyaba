@@ -1,4 +1,4 @@
-/* Immutable record of a finished run — consumed by qa-run-orchestration and cross-run-learning (neither depends on the other). errorClass/usage/reflection/adjudication stay wide so the kernel does not import those types from src/ or downstream contexts. */
+/* Immutable record of a finished run — consumed by run-orchestration and cross-run-learning (neither depends on the other). errorClass/usage/reflection/adjudication stay wide so the kernel does not import those types from src/ or downstream contexts. */
 
 import type { RunMode, TestTarget } from "./run-mode.ts";
 import type { RunVerdict } from "./run-verdict.ts";
@@ -73,7 +73,7 @@ export interface RunOutcome {
     /* Real type is agent-runtime's RunUsage; unknown keeps the kernel free of downstream dependencies. */
     usage?: unknown;
     phaseTimings?: Record<string, number>;
-    /* The pipeline phase the run got furthest into (the canonical order lives in qa-run-orchestration's run-phase-cursor). Absent when the run entered none. */
+    /* The pipeline phase the run got furthest into (the canonical order lives in run-orchestration's run-phase-cursor). Absent when the run entered none. */
     furthestPhase?: string;
     preExecAmbiguityCatches?: number;
     deterministicSelectorBlocks?: number;

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { contextMapNeedsRebuildFor, type ContextMapQuestionDeps } from "./context-map-wiring";
 import type { AppConfig } from "../orchestrator/config-loader";
-import type { ChangedFile } from "@contexts/qa-run-orchestration/domain/context-map-validity";
+import type { ChangedFile } from "@contexts/run-orchestration/domain/context-map-validity";
 
 const BUILT = "aaaa111";
 const RUN = "bbbb222";

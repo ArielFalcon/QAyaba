@@ -4,7 +4,7 @@
  * docs/observability-design.md §11.2; every BOOLEAN is pass-oriented (`true` = the check passed, the problem is absent).
  */
 
-import { RUN_PHASES } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
+import { RUN_PHASES } from "@contexts/run-orchestration/domain/run-phase-cursor";
 import { STEP_INTENTS, scoreOf } from "./grader-catalog.ts";
 import { extractReferences } from "./context-refs.ts";
 import { itemId } from "@contexts/generation/domain/context-item-ids.ts";

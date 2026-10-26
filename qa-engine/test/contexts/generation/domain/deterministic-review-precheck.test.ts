@@ -20,7 +20,7 @@ const R4_DOM = [
 ].join("\n");
 
 const R4_SPEC = `
-import { test, expect } from "../../qa-run-orchestration/fixtures";
+import { test, expect } from "../../run-orchestration/fixtures";
 
 test("the empty state is shown", async ({ page }) => {
   await page.goto("/restaurantes");
@@ -29,7 +29,7 @@ test("the empty state is shown", async ({ page }) => {
 `;
 
 const LEGIT_SPEC = `
-import { test, expect } from "../../qa-run-orchestration/fixtures";
+import { test, expect } from "../../run-orchestration/fixtures";
 
 test("the list and its first card are shown", async ({ page }) => {
   await page.goto("/restaurantes");

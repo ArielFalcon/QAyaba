@@ -1,6 +1,6 @@
 
 import { saveRunOutcome } from "./history";
-import type { RunHistoryPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import type { RunHistoryPort } from "@contexts/run-orchestration/application/ports/index.ts";
 import type { RunOutcome as KernelRunOutcome } from "@kernel/run-outcome.ts";
 import type { RunOutcome as StoredRunOutcome } from "../types";
 

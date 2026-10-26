@@ -2,7 +2,7 @@ import { scoreProfile, selectBestProfile, type ProfileScore } from "./profile-sc
 import type { ProfileProposerPort, ProposerFeedback } from "./ports/index.ts";
 import type { BoundaryProfile, RepoRef } from "../domain/index.ts";
 
-/** Round-ceiling counter for the onboarding loop. Local to this context — not qa-run-orchestration's CycleBudget. */
+/** Round-ceiling counter for the onboarding loop. Local to this context — not run-orchestration's CycleBudget. */
 export class OnboardingBudget {
   private count = 0;
 

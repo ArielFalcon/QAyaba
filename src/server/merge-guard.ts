@@ -191,7 +191,7 @@ export const PROTECTED_PATHS: string[] = [
 
   "qa-engine/src/contexts/generation/infrastructure/",
 
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/",
+  "qa-engine/src/contexts/run-orchestration/infrastructure/adapters/",
 
   "qa-engine/src/contexts/change-analysis/infrastructure/adapters/",
 
@@ -418,7 +418,7 @@ export const SECURITY_SENSITIVE_SURFACE_ROOTS: string[] = [
   "qa-engine/src/shared-infrastructure/process-sandbox/",
   "qa-engine/src/shared-infrastructure/egress/",
   "qa-engine/src/contexts/generation/infrastructure/",
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/",
+  "qa-engine/src/contexts/run-orchestration/infrastructure/adapters/",
   "qa-engine/src/contexts/change-analysis/infrastructure/adapters/",
   "qa-engine/src/contexts/service-topology/infrastructure/adapters/",
   "qa-engine/src/contexts/cross-run-learning/infrastructure/adapters/",

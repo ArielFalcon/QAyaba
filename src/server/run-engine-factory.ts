@@ -24,8 +24,8 @@ import {
   unregisterRunSession,
   stallMs,
 } from "../integrations/opencode-client";
-import type { RunPipelinePort, ObserverPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
-import { buildProduction, type CompositionConfig } from "@contexts/qa-run-orchestration/composition/composition-root";
+import type { RunPipelinePort, ObserverPort } from "@contexts/run-orchestration/application/ports/index.ts";
+import { buildProduction, type CompositionConfig } from "@contexts/run-orchestration/composition/composition-root";
 import { AuthSessionAdapter } from "@contexts/app-catalog/infrastructure/auth-session.adapter";
 import { createDiscoverLogin } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner";
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
@@ -63,9 +63,9 @@ import { GitMirrorReadAdapter } from "@contexts/change-analysis/infrastructure/g
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case";
 import { resolveDiffTimeBudgets } from "@contexts/generation/domain/generator-time-budget";
 import { AgentRuntimeAdapter } from "@contexts/generation/infrastructure/agent-runtime.adapter";
-import { RunDeadline } from "@contexts/qa-run-orchestration/domain/run-deadline";
+import { RunDeadline } from "@contexts/run-orchestration/domain/run-deadline";
 import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
-import { contextMapValidity, parseNameStatusZ, type ChangedFile } from "@contexts/qa-run-orchestration/domain/context-map-validity";
+import { contextMapValidity, parseNameStatusZ, type ChangedFile } from "@contexts/run-orchestration/domain/context-map-validity";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { CONTEXT_MAP_MAX_AGE_MS, contextMapResultCount, type ContextProvenance } from "@kernel/telemetry/context-provenance";
 import { withTurnTelemetry } from "@contexts/generation/infrastructure/telemetry/with-turn-telemetry";
@@ -74,9 +74,9 @@ import type { StepIntentContext } from "@contexts/generation/domain/step-intent"
 import { watchSpanForHost } from "../telemetry/host-listeners";
 import { SYSTEM_CLOCK } from "./run-trace";
 import { stepIntentContextFor } from "./turn-telemetry-config";
-import { resolveRunTimeBudgets } from "@contexts/qa-run-orchestration/domain/run-time-budget";
-import { RunDeadlineRuntime } from "@contexts/qa-run-orchestration/infrastructure/run-deadline-runtime.adapter";
-import { RunRoundRuntime } from "@contexts/qa-run-orchestration/infrastructure/run-round-runtime.adapter";
+import { resolveRunTimeBudgets } from "@contexts/run-orchestration/domain/run-time-budget";
+import { RunDeadlineRuntime } from "@contexts/run-orchestration/infrastructure/run-deadline-runtime.adapter";
+import { RunRoundRuntime } from "@contexts/run-orchestration/infrastructure/run-round-runtime.adapter";
 import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter";
 import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter";
 import { ManifestRepositoryAdapter } from "@contexts/generation/infrastructure/manifest-repository.adapter";

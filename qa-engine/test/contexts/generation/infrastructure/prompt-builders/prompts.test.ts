@@ -252,7 +252,7 @@ test("SECURITY: an ordinary unquoted credential in a priorCorrection is redacted
 });
 
 /* selectorContradictions is
-   built by checkSpecSelectors (qa-run-orchestration/domain/helpers/selector-check.ts), which embeds
+   built by checkSpecSelectors (run-orchestration/domain/helpers/selector-check.ts), which embeds
    `sel.name` extracted VERBATIM from the agent's own spec source — an agent can write
    `page.getByRole('button', { name: '<secret it read from a repo file>' })` (a locator guaranteed
    not to match) and that name is echoed unredacted into the NEXT regen prompt, right next to

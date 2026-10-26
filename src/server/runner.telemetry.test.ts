@@ -6,9 +6,9 @@ import { enqueueTrackedRun, enqueueContextMapRun, enqueueLoginBootstrapRun, canc
 import { commitSpecSnapshots, getRecord, getRunOutcome, listRunSpans } from "./history";
 import { HistoryEvidenceAdapter, defaultEvidenceDeps } from "./evaluation-evidence";
 import { gradeEvidence } from "@contexts/evaluation/domain/graders";
-import { recordPhaseSnapshot } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
+import { recordPhaseSnapshot } from "@contexts/run-orchestration/domain/run-phase-cursor";
 import type { AppConfig } from "../orchestrator/config-loader";
-import type { RunPipelinePort, RunInput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import type { RunPipelinePort, RunInput } from "@contexts/run-orchestration/application/ports/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome";
 import { attachTraceFacts, type RunTraceFacts } from "@kernel/run-trace-facts";
 import { AgentTimeoutError } from "@kernel/domain-error";

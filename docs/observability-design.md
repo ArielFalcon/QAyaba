@@ -58,7 +58,7 @@ Reuse this before adding anything.
 
 | Asset | Where | Useful for | Gap |
 |---|---|---|---|
-| `ObserverPort.onStep/onEvent` | `qa-run-orchestration/application/ports/index.ts:627` | Coarse phase transitions | `RunStep` has no `ground`, `review` or `publish` |
+| `ObserverPort.onStep/onEvent` | `run-orchestration/application/ports/index.ts:627` | Coarse phase transitions | `RunStep` has no `ground`, `review` or `publish` |
 | `run_events` table | `src/server/history.ts:241` | Ingest-time `ts` per event; probe-report derives phases from it | Unstructured for tracing |
 | `gateSignals.phaseTimings` | `run-outcome.ts:35` | A slot for phase durations | **Declared and persisted, never written** |
 | `AgentTurnEvent` | `agent-transport-policy.ts:24-50` | Session id, role, round, repair, tokens (incl. reasoning and cache), cost, `sectionSizes`, call metrics, `ended`, duration | No requested or answered model, no provider, attempt, fallback flag or error class. `sectionSizes` is dropped before persistence |

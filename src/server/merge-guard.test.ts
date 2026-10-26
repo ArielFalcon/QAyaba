@@ -193,7 +193,7 @@ test("isProtectedPath and the completeness walk cover every file of the login di
   assert.equal(isProtectedPath(`${dir}/login-discovery.script.ts`), true);
   assert.equal(isProtectedPath(`${dir}/a-file-added-later.ts`), true);
   assert.equal(isSecuritySensitiveSurface(`${dir}/a-file-added-later.ts`), true);
-  assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/infrastructure/run-pipeline.adapter.ts"), false);
+  assert.equal(isProtectedPath("qa-engine/src/contexts/run-orchestration/infrastructure/run-pipeline.adapter.ts"), false);
 });
 
 /* three control-plane auth files were BOTH unscanned (not
@@ -265,7 +265,7 @@ test("isProtectedPath flags the test infrastructure an autonomous fix could weak
 
 /* assembled and sanitized — literally the directory the 4th and 5th unsanitized-prompt-site defects
    lived in (only sanitize-text.ts was protected; every sibling, including prompts.ts itself, was
-   not). qa-run-orchestration/infrastructure/adapters/ is the port-implementation layer wiring EVERY
+   not). run-orchestration/infrastructure/adapters/ is the port-implementation layer wiring EVERY
    domain security boundary (write-confinement, publication, GitHub) into the use case — only
    publication-port.adapter.ts was protected. Per-file judgment on exactly this class of surface has
    now failed 5 times (the meta-lesson) — rather than add a partial, reasoned allowlist here too, both
@@ -279,7 +279,7 @@ test("isProtectedPath flags the whole generation/infrastructure and orchestratio
   assert.equal(isProtectedPath("qa-engine/src/contexts/generation/infrastructure/route-catalog.ts"), true);
   assert.equal(isProtectedPath("qa-engine/src/contexts/generation/infrastructure/sse/call-efficiency-tracker.ts"), true);
   assert.equal(isProtectedPath("qa-engine/src/contexts/test-execution/infrastructure/adapters/execution-port.adapter.ts"), true);
-  assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/deploy-gate-port.adapter.ts"), true);
+  assert.equal(isProtectedPath("qa-engine/src/contexts/run-orchestration/infrastructure/adapters/deploy-gate-port.adapter.ts"), true);
 });
 
 /* despite being squarely inside the secret/confinement/review boundary this module protects. */
@@ -398,7 +398,7 @@ test("isProtectedPath flags what a sidekick may do against DEV and in the workin
   }
 });
 
-const ORCHESTRATION_ADAPTERS = "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/";
+const ORCHESTRATION_ADAPTERS = "qa-engine/src/contexts/run-orchestration/infrastructure/adapters/";
 
 test("every file under the orchestration adapters directory is protected or explicitly reviewed as not sensitive", () => {
   assert.ok(existsSync(join(repoRoot, ORCHESTRATION_ADAPTERS)), "the adapters directory must exist");
@@ -441,7 +441,7 @@ test("a newly added file under the security-sensitive surface is flagged whateve
   }
 });
 
-/* generation/infrastructure/ and qa-run-orchestration/infrastructure/adapters/ must be in
+/* generation/infrastructure/ and run-orchestration/infrastructure/adapters/ must be in
    SECURITY_SENSITIVE_SURFACE_ROOTS so the completeness walk scans them: narrowing the blanket
    generation/infrastructure/ prefix to per-file entries that skip ONE existing file must be caught.
  */

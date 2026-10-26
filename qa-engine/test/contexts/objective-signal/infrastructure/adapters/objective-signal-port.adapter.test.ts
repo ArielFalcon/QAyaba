@@ -1,4 +1,4 @@
-/* test/contexts/qa-run-orchestration/infrastructure/adapters/objective-signal-port.adapter.test.ts
+/* test/contexts/run-orchestration/infrastructure/adapters/objective-signal-port.adapter.test.ts
    ObjectiveSignalPortAdapter composes the REAL keystone collaborators — CoverageCollectorPort.collect
    (raw covered lines), the assembler (diff + raw CoverageReport -> ChangeCoverage read-model),
    DecideCoverageService.decide (the keystone: unknown NEVER blocks — consumed VERBATIM, never

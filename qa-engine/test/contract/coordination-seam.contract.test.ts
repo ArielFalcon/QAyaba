@@ -142,7 +142,7 @@ test("CoordinationBudget holds the run CycleBudget and WallClockBudget intact �
 test("wires coordination only into RunQaUseCase — generation/FixLoop/AgentRuntime stay free of the seam", () => {
   const forbidden = [
     "src/contexts/generation/application/generate-tests.use-case.ts",
-    "src/contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts",
+    "src/contexts/run-orchestration/domain/fix-loop.aggregate.ts",
     "src/shared-kernel/ports/agent-runtime.port.ts",
     "src/shared-kernel/agent-role.ts",
   ];
@@ -161,12 +161,12 @@ test("wires coordination only into RunQaUseCase — generation/FixLoop/AgentRunt
   }
   /* The use case and the types of its dependencies, which name the seam it is given. */
   const useCase = ["run-qa.use-case.ts", "run-flow/run-types.ts"]
-    .map((file) => readFileSync(join(qaEngineRoot, "src/contexts/qa-run-orchestration/application", file), "utf8"))
+    .map((file) => readFileSync(join(qaEngineRoot, "src/contexts/run-orchestration/application", file), "utf8"))
     .join("\n");
   assert.equal(useCase.includes("LeadSidekicks"), true);
   assert.equal(useCase.includes("advisoryOnly"), false, "advisory downgrade was removed with the modes");
   const composition = readFileSync(
-    join(qaEngineRoot, "src/contexts/qa-run-orchestration/composition/composition-root.ts"),
+    join(qaEngineRoot, "src/contexts/run-orchestration/composition/composition-root.ts"),
     "utf8",
   );
   assert.equal(

@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 import type { RunOutcome as KernelRunOutcome } from "@kernel/run-outcome.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
-import { wireAdapters, type CompositionConfig } from "@contexts/qa-run-orchestration/composition/composition-root.ts";
+import { wireAdapters, type CompositionConfig } from "@contexts/run-orchestration/composition/composition-root.ts";
 import { ConfinedPathError } from "../../src/shared-infrastructure/spec-path-confinement.ts";
 
 import { toStoredRunOutcome, type RunHistorySqliteAdapterDeps, SqliteRunHistoryAdapter } from "../../../src/server/run-history-sqlite-adapter.ts";

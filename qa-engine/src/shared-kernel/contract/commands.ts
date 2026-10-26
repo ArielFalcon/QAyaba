@@ -959,7 +959,7 @@ export const RunReportViewSchema = z.object({
 
 /** ── Architecture map (`e2e/.qa/context.json`) — the FE<->BE map a mode:context run produces,
  * persisted in the context_maps SQLite store and exposed read-only. Wire mirror of qa-engine's
- * port-local ArchitectureContext (generation-ports.ts / qa-run-orchestration ports/index.ts) —
+ * port-local ArchitectureContext (generation-ports.ts / run-orchestration ports/index.ts) —
  * same no-cross-context-import precedent as those two, now also mirrored at the contract boundary. */
 export const ArchitectureRouteSchema = z.object({
   path: z.string(),

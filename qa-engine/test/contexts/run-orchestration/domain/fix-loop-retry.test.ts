@@ -1,0 +1,202 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { FixLoop, type FixLoopExecutionPort, type FixLoopGenerationPort } from "@contexts/run-orchestration/domain/fix-loop.aggregate.ts";
+import { CycleBudget } from "@kernel/cycle-budget.ts";
+import { WallClockBudget } from "@kernel/wall-clock-budget.ts";
+
+/* The retry loop of the FixLoop aggregate: a run that fails the same way on every execution is retried once and ends
+   as a fail, and the aggregate's own retries counter reaches 2 under maxRetries=2 while progress is preserved. The
+   static-gate repair loop is not part of this aggregate.
+ */
+
+test("a run that fails identically on every execution is retried once and ends as a fail", async () => {
+  /* execute() always returns the same fail result (no state change across retries), and generate() always returns the same
+     spec on every regeneration call; no fix-loop override is set, so maxRetries defaults to 2.
+   */
+  const FAIL_RUN = { verdict: "fail" as const, cases: [{ name: "login", status: "fail" as const }] };
+
+  let executeCallCount = 0;
+  const execution: FixLoopExecutionPort = {
+    execute: async () => {
+      executeCallCount++;
+      return FAIL_RUN; /* the stub returns the identical fail result every call, verbatim */
+    },
+  };
+  let generateCallCount = 0;
+  const generation: FixLoopGenerationPort = {
+    generate: async () => {
+      generateCallCount++;
+      return { specs: ["a.spec.ts"], approved: true };
+    },
+  };
+  const cycleBudget = CycleBudget.derive({ maxRetries: 2 });
+  const wallClockBudget = WallClockBudget.derive({ cycleBudget, agentTimeoutMs: 60_000 });
+  const loop = new FixLoop({
+    execution,
+    generation,
+    /* No specSources/failureTrees supplied: the failing case has no failureDom (empty trees, empty findings) and no e2e spec-file reads. */
+    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+  });
+
+  const result = await loop.run({
+    initialRun: FAIL_RUN,
+    isCode: false,
+    generating: true,
+    mode: "diff",
+    objectiveSource: ["src/x.ts"],
+    maxRetries: 2, /* the default when the app sets no fix-loop override */
+    cycleBudget,
+    wallClockBudget,
+    devHealthy: async () => true,
+    namespace: "fail-identically",
+    coverageWillMeasure: false, /* no change-coverage wiring in this scenario */
+  });
+
+  assert.equal(result.retries, 1, "must reproduce fail-issue.json's gateSignals.retries:1 exactly");
+  assert.equal(result.run.verdict, "fail", "must reproduce fail-issue.json's verdict:fail exactly");
+  assert.equal(generateCallCount, 1, "exactly ONE regen call — round 2's fail-closed progress gate stops before a second regen");
+  assert.equal(executeCallCount, 1, "exactly ONE retry-execute call — round 2 never re-executes (loop breaks on break-needs-human first)");
+  assert.equal(result.lastAdjudicatorVerdict?.action, "break-needs-human", "round 2 stops via the fail-closed progress gate (Rule 5)");
+});
+
+test("FixLoop's OWN retries counter reaches 2 under maxRetries=2 with a progress-preserving stub (upper-bound proof, independent of invalid-issue's unrelated static-gate loop)", async () => {
+  /* A stub where EACH round shows measurable progress (Signal A: failing count strictly decreases),
+     so decideProgress spends on every round up to the maxRetries cap — proving the aggregate's own
+     loop can reach retries:2 (the SAME cap invalid-issue.json's static-gate loop independently hits
+     via MAX_STATIC_FIX_ROUNDS, a different mechanism entirely).
+   */
+  let executeCallCount = 0;
+  const execution: FixLoopExecutionPort = {
+    execute: async () => {
+      executeCallCount++;
+      if (executeCallCount === 1) {
+        return {
+          verdict: "fail" as const,
+          cases: [{ name: "checkout-retry-1", status: "fail" as const, file: "checkout.spec.ts", detail: "getByRole resolved to 0 elements" }],
+        };
+      }
+      /* Round 2's retry-execute: a DIFFERENT failing name than round 1's retry-execute output, so
+         Signal B (failing name set changed) holds on round 2's evaluation too — proving the CAP is
+         reached (maxRetries=2 exhausts the for header) rather than an early fail-closed break.
+       */
+      return {
+        verdict: "fail" as const,
+        cases: [{ name: "checkout-retry-2", status: "fail" as const, file: "checkout.spec.ts", detail: "getByRole resolved to 0 elements" }],
+      };
+    },
+  };
+  let generateCallCount = 0;
+  const generation: FixLoopGenerationPort = {
+    generate: async () => {
+      generateCallCount++;
+      return { specs: ["checkout.spec.ts"], approved: true };
+    },
+  };
+  const cycleBudget = CycleBudget.derive({ maxRetries: 2 });
+  const wallClockBudget = WallClockBudget.derive({ cycleBudget, agentTimeoutMs: 60_000 });
+  const loop = new FixLoop({
+    execution,
+    generation,
+    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+  });
+
+  const result = await loop.run({
+    initialRun: { verdict: "fail", cases: [{ name: "checkout", status: "fail", file: "checkout.spec.ts", detail: "getByRole resolved to 0 elements" }] },
+    isCode: false,
+    generating: true,
+    mode: "diff",
+    objectiveSource: ["src/checkout.ts"],
+    maxRetries: 2,
+    cycleBudget,
+    wallClockBudget,
+    devHealthy: async () => true,
+    namespace: "progress-preserved",
+    coverageWillMeasure: true, /* never-filter, keeps merge logic out of this test's scope */
+  });
+
+  assert.equal(result.retries, 2, "reaches the maxRetries=2 cap when progress signal B holds every round");
+  assert.equal(generateCallCount, 2);
+  assert.equal(executeCallCount, 2);
+  assert.equal(result.run.verdict, "fail");
+});
+
+/* failureTrees and specSources are re-derived INSIDE the loop, every iteration, from the CURRENT
+   round's failing cases / regen result.specs. A loop-invariant static FixLoopInput field would
+   leave retry >=2 running Lever-2 against STALE round-1 data. This test drives a 2-round loop
+   where round 1's and round 2's failing cases carry DIFFERENT failureDom trees; round 2's Lever-2
+   check must see round 2's FRESH failureDom — not round 1's.
+ */
+test("failureTrees are re-derived per-round from the CURRENT run's failing cases (fresh, not loop-invariant)", async () => {
+  let executeCallCount = 0;
+  const receivedTreesPerCall: string[][][] = [];
+  const execution: FixLoopExecutionPort = {
+    execute: async () => {
+      executeCallCount++;
+      /* Round 1's retry-execute returns a failing case whose failureDom differs from the initial run's
+         — round 2's Lever-2 check must see THIS tree, not the initial run's.
+       */
+      return {
+        verdict: "fail" as const,
+        cases: [
+          {
+            name: "checkout",
+            status: "fail" as const,
+            file: "checkout.spec.ts",
+            detail: "getByRole resolved to 0 elements",
+            failureDom: "round-2-tree: button Submit",
+          },
+        ],
+      };
+    },
+  };
+  const generation: FixLoopGenerationPort = {
+    generate: async () => ({ specs: ["checkout.spec.ts"], approved: true }),
+  };
+  const cycleBudget = CycleBudget.derive({ maxRetries: 2 });
+  const wallClockBudget = WallClockBudget.derive({ cycleBudget, agentTimeoutMs: 60_000 });
+  const loop = new FixLoop({
+    execution,
+    generation,
+    selectorCheck: {
+      check: (specSources, trees) => {
+        receivedTreesPerCall.push(trees);
+        return { contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false };
+      },
+    },
+  });
+
+  await loop.run({
+    initialRun: {
+      verdict: "fail",
+      cases: [
+        {
+          name: "checkout",
+          status: "fail",
+          file: "checkout.spec.ts",
+          detail: "getByRole resolved to 0 elements",
+          failureDom: "round-1-tree: button Cancel",
+        },
+      ],
+    },
+    isCode: false,
+    generating: true,
+    mode: "diff",
+    objectiveSource: ["src/checkout.ts"],
+    maxRetries: 2,
+    cycleBudget,
+    wallClockBudget,
+    devHealthy: async () => true,
+    namespace: "failure-trees",
+    coverageWillMeasure: true,
+  });
+
+  assert.equal(executeCallCount, 1, "round 1 regenerates+re-executes once; round 2's fail-closed gate (unchanging failing name) stops before a second regen");
+  assert.equal(receivedTreesPerCall.length, 2, "the selector check runs once per loop iteration (round 1 and round 2's gate evaluation)");
+  /* Round 1's check must see the INITIAL run's failureDom tree. */
+  assert.deepEqual(receivedTreesPerCall[0], [["round-1-tree: button Cancel"]], "round 1's Lever-2 check must read the initial run's failureDom, not a stale/empty tree");
+  /* Round 2's check must see the RETRY run's (fresh) failureDom tree — NOT round 1's stale tree, and
+     NOT an empty tree (which is what a loop-invariant static field would produce after retry-execute
+     returned a case with a NEW failureDom the static field never captured).
+   */
+  assert.deepEqual(receivedTreesPerCall[1], [["round-2-tree: button Submit"]], "round 2's Lever-2 check must read the CURRENT (retry) run's failureDom — a loop-invariant static field would still show round 1's tree or an empty one here");
+});

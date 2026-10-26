@@ -30,7 +30,7 @@ import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastru
 import { EXPLORATION_SLOTS } from "@contexts/cross-run-learning/domain/rule-governance.service";
 import { DIFF_TIME_BUDGET_MS } from "@contexts/generation/domain/diff-stat";
 import { DIFF_TIME_BUDGET_ENV } from "@contexts/generation/domain/generator-time-budget";
-import { RUN_TIME_BUDGET_ENV } from "@contexts/qa-run-orchestration/domain/run-time-budget";
+import { RUN_TIME_BUDGET_ENV } from "@contexts/run-orchestration/domain/run-time-budget";
 import { isRunDeadlineError } from "@kernel/run-deadline";
 import { renderGenerationNote } from "@contexts/generation/domain/generation-end";
 import { GENERATION_END } from "@kernel/generation-end";

@@ -1,4 +1,4 @@
-/* test/contexts/qa-run-orchestration/infrastructure/adapters/generation-port.adapter.test.ts
+/* test/contexts/run-orchestration/infrastructure/adapters/generation-port.adapter.test.ts
    GenerationPortAdapter must delegate to the REAL GenerateTestsUseCase.generate()
    and map {specs, reviewed, approved, note} -> {specs, approved, note}. specSources is populated from
    a file-read collaborator (file I/O stays OUTSIDE the domain, per fix-loop.aggregate.ts's own

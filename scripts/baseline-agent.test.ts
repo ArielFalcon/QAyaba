@@ -661,7 +661,7 @@ test("files that cannot be kept fail the run loudly and leave the copy where it 
 
 /* ── the acceptance the plain agent's files are judged by (--accept) ── */
 
-import type { AcceptanceReport } from "@contexts/qa-run-orchestration/application/accept-delivered-specs.use-case.ts";
+import type { AcceptanceReport } from "@contexts/run-orchestration/application/accept-delivered-specs.use-case.ts";
 
 const acceptance = (over: Partial<AcceptanceReport> = {}): AcceptanceReport => ({
   validate: { ok: true, infra: false, errors: [] },

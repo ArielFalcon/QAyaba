@@ -1,4 +1,4 @@
-/* test/contexts/qa-run-orchestration/infrastructure/adapters/review-port.adapter.test.ts
+/* test/contexts/run-orchestration/infrastructure/adapters/review-port.adapter.test.ts
    generation-owned primitives GenerateTestsUseCase.generate() itself composes for its embedded
    review branch (renderReviewer / openSession(reviewerRole) / parseReview) — there is NO standalone
    "reviewer flow" export under generation/ (grep-confirmed: renderReviewer is called from exactly

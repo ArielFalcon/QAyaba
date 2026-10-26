@@ -10,7 +10,7 @@ import { SpecSnapshotValidationPort } from "../../qa-engine/src/contexts/workspa
 import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
 import { MAX_SPEC_SNAPSHOT_BYTES_PER_RUN, MAX_SPEC_SNAPSHOT_TEXT_BYTES, type SpecSnapshot, type SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port";
-import type { ValidationPort } from "../../qa-engine/src/contexts/qa-run-orchestration/application/ports/index";
+import type { ValidationPort } from "../../qa-engine/src/contexts/run-orchestration/application/ports/index";
 import { SqliteSpecSnapshotAdapter } from "./spec-snapshot-sqlite.adapter";
 import { listSpecSnapshots, pruneSpecSnapshots, commitSpecSnapshots, createRecord } from "./history";
 

@@ -12,7 +12,7 @@ import { loadAppConfig, AppConfig } from "../orchestrator/config-loader";
 import { assertUniformCapture } from "./campaign-capture";
 import { createRecord, updateRecord, recordEffectiveConfig, getCampaignCaptureMode, addCase, getRecord, appendActivity, listRecords, interruptedRecords, serializablePhases, listSpecSnapshots, saveCrashedRunOutcome } from "./history";
 import { traceFactsOf } from "@kernel/run-trace-facts";
-import { phaseSnapshotOf } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
+import { phaseSnapshotOf } from "@contexts/run-orchestration/domain/run-phase-cursor";
 import { specCountsOf } from "./evaluation-evidence";
 import { recordIncident } from "./maintainer";
 import { testDataNamespace } from "../qa/test-data";
@@ -33,7 +33,7 @@ import { RunTrace, SYSTEM_CLOCK, markEnqueued, type RunFacts, type RunIdentity, 
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
-import type { RunPipelinePort, RunInput, ObserverPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import type { RunPipelinePort, RunInput, ObserverPort } from "@contexts/run-orchestration/application/ports/index.ts";
 
 type RunStepEvent = Extract<RunEventBody, { type: "step.changed" }>;
 type RunStep = RunStepEvent["step"];

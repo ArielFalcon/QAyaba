@@ -1,4 +1,4 @@
-/* test/contexts/qa-run-orchestration/infrastructure/adapters/change-analysis-port.adapter.test.ts
+/* test/contexts/run-orchestration/infrastructure/adapters/change-analysis-port.adapter.test.ts
    ChangeAnalysisPortAdapter must DELEGATE to the REAL sibling collaborator —
    the domain classifyCommit(message, diff) function (for classify(), sourcing message/diff from
    the SAME VcsReadPort). NO new policy — this is a shape/delegation test, not a re-test of

@@ -81,7 +81,7 @@ test("a file that only looks like a declared one by its name does not rank the r
 
 test("a declared file that is not in the repository is not added, and neither is a source file", async () => {
   await withMirror(async (mirror) => {
-    writeFileSync(join(mirror, PAGE), "import '../../../qa-run-orchestration/infrastructure/adapters/helper.ts'; const a = './missing.html'; const b = './present.html';");
+    writeFileSync(join(mirror, PAGE), "import '../../../run-orchestration/infrastructure/adapters/helper.ts'; const a = './missing.html'; const b = './present.html';");
     writeFileSync(join(mirror, PAGE_DIR, "helper.ts"), "export {}");
     writeFileSync(join(mirror, PAGE_DIR, "present.html"), "<p/>");
 

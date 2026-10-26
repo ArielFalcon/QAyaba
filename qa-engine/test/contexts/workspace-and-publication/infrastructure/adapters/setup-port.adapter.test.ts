@@ -1,4 +1,4 @@
-/* test/contexts/qa-run-orchestration/infrastructure/adapters/setup-port.adapter.test.ts
+/* test/contexts/run-orchestration/infrastructure/adapters/setup-port.adapter.test.ts
    callbacks matching setupE2eProject/setupCodeProject's call shape). THIN — no new policy: this
    adapter only selects the collaborator by target and forwards specDir/signal.
  */

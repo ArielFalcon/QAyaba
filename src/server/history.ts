@@ -26,7 +26,7 @@ import type { ArchitectureContext } from "@contexts/generation/application/ports
 import { parseRetentionDays, parseCampaignRetentionDays, DEFAULT_SPAN_RETENTION_DAYS, DEFAULT_CAMPAIGN_RETENTION_DAYS } from "../telemetry/config";
 import type { CampaignIdentity } from "@kernel/campaign";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
-import { RUN_PHASES } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
+import { RUN_PHASES } from "@contexts/run-orchestration/domain/run-phase-cursor";
 import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
 import type { TurnEnd } from "@kernel/turn-end";
 import type { ToolSequenceEntry } from "@contexts/generation/domain/tool-sequence";

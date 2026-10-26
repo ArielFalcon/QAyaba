@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
    is valid. `import * as X` (NOT `import type * as X`) is required: `import type` is fully erased
    at runtime, so referencing the namespace would throw ReferenceError.
  */
-import * as Core from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import * as Core from "@contexts/run-orchestration/application/ports/index.ts";
 import * as Analysis from "@contexts/change-analysis/application/ports/index.ts";
 import * as Generation from "@contexts/generation/application/ports/index.ts";
 import * as Execution from "@contexts/test-execution/application/ports/index.ts";

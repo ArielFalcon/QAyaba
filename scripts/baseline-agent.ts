@@ -58,7 +58,7 @@ import { saveSuiteFiles, specsOf, suiteDelta } from "./campaign-suite.ts";
 import { prepareHarnessAuth } from "./harness-auth.ts";
 import { loadSnapshot, restoreSuite, specsTouchedSinceSnapshot, warmSnapshotDir, warmStatus, type LoadedSnapshot } from "./warm-suite.ts";
 import { MAX_FILE_BYTES } from "../qa-engine/src/shared-infrastructure/suite-tree.ts";
-import type { AcceptanceReport } from "@contexts/qa-run-orchestration/application/accept-delivered-specs.use-case.ts";
+import type { AcceptanceReport } from "@contexts/run-orchestration/application/accept-delivered-specs.use-case.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -1153,7 +1153,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
     },
     acceptSpecs: async ({ copyDir, authDir, app, namespace, specs, material, sha, review }) => {
       const { buildAcceptanceHarness } = await import("../src/server/run-engine-factory.ts");
-      const { AcceptDeliveredSpecsUseCase } = await import("@contexts/qa-run-orchestration/application/accept-delivered-specs.use-case.ts");
+      const { AcceptDeliveredSpecsUseCase } = await import("@contexts/run-orchestration/application/accept-delivered-specs.use-case.ts");
       const { Sha } = await import("@kernel/sha.ts");
       const { defaultAgentDeps } = await import("../src/integrations/opencode-client.ts");
       const full = loadAppConfig(app.name);

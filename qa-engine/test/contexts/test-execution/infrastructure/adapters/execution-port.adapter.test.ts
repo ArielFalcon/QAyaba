@@ -1,4 +1,4 @@
-/* test/contexts/qa-run-orchestration/infrastructure/adapters/execution-port.adapter.test.ts
+/* test/contexts/run-orchestration/infrastructure/adapters/execution-port.adapter.test.ts
    (E2eExecutionStrategy / CodeExecutionStrategy), both implementing ExecutionStrategyPort.run(req).
    THIN — no new policy: this adapter only maps ExecutionPort.execute(specDir) onto the richer
    ExecutionRequest shape (baseUrl/namespace held as static per-run context) and selects the

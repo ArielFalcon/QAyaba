@@ -5,12 +5,12 @@
 // than the prior generation|agent-runtime allowlist — it covers any new context added in future plans
 // without requiring a whitelist update.
 //
-// ONE deliberate, narrow exemption (Task E.2): the qa-run-orchestration COMPOSITION ROOT
+// ONE deliberate, narrow exemption (Task E.2): the run-orchestration COMPOSITION ROOT
 // (composition-root.ts) is, per the plan's own design (§5.2), "the ONLY module that imports
 // concrete adapters" — it is where the REAL PublishDecisionService/GitHubPrAdapter/
 // GitHubIssueAdapter/ShadowLogAdapter instances are constructed and passed into the
 // PublicationPortAdapter (which itself stays exempt-free — see its own header note on
-// depending only on LOCAL structural interfaces). Every OTHER path under qa-run-orchestration/
+// depending only on LOCAL structural interfaces). Every OTHER path under run-orchestration/
 // (the adapters, the domain, the application layer) remains DENIED — only the single composition
 // file is excepted, so a future adapter/domain/use-case addition is still secure by default.
 // Known limitation: dependency-cruiser may miss dynamic import() — flagged for manual audit.
@@ -43,10 +43,10 @@ module.exports = {
     {
       name: "no-vcs-write-in-agent-contexts",
       severity: "error",
-      comment: "Only workspace-and-publication (and the qa-run-orchestration composition root, its one declared exception) may import the VCS write seam. All other contexts/* paths are denied — this rule is inverted so new contexts are secure by default without a whitelist update.",
+      comment: "Only workspace-and-publication (and the run-orchestration composition root, its one declared exception) may import the VCS write seam. All other contexts/* paths are denied — this rule is inverted so new contexts are secure by default without a whitelist update.",
       from: {
         path: "qa-engine/src/contexts/(?!workspace-and-publication)",
-        pathNot: "qa-engine/src/contexts/qa-run-orchestration/composition/composition-root\\.ts$",
+        pathNot: "qa-engine/src/contexts/run-orchestration/composition/composition-root\\.ts$",
       },
       to: { path: "contexts/workspace-and-publication" },
     },

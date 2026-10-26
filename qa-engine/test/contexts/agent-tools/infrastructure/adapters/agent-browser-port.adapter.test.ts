@@ -9,7 +9,7 @@ import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
 import { BrowserActionError, type AgentBrowserHostPort, type BrowserAction, type BrowserCallOptions, type PageState } from "@contexts/test-execution/application/ports/agent-browser.ports.ts";
 import { newSandboxReport, withExecScope } from "../../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../../../src/shared-infrastructure/run-secret-redaction.ts";
-import type { AgentBrowserOpenInput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import type { AgentBrowserOpenInput } from "@contexts/run-orchestration/application/ports/index.ts";
 import type { SessionMaterial } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
 
 const BASE = "https://dev.example.com";

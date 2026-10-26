@@ -6,7 +6,7 @@ import { enqueueTrackedRun, type RunnerDeps, type RunRequest } from "./runner";
 import { getRecord, getRunCampaign, getStoredEffectiveConfig, listCampaignRuns, saveAgentTurn } from "./history";
 import { buildRunViewExtras, defaultRunViewDeps } from "./run-view";
 import type { AppConfig } from "../orchestrator/config-loader";
-import type { RunPipelinePort, RunInput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import type { RunPipelinePort, RunInput } from "@contexts/run-orchestration/application/ports/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome";
 import type { CampaignIdentity } from "@kernel/campaign";
 import { traceHarness } from "../telemetry/trace-harness";

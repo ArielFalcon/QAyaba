@@ -197,7 +197,7 @@ test("the generation-end preset mutates exactly the classifier, the terminal map
   const sources = preset.mutate.map(sourcePathOf);
   assert.deepEqual(sources, [
     "qa-engine/src/contexts/generation/domain/generation-end.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/generation-end-terminal.ts",
+    "qa-engine/src/contexts/run-orchestration/domain/helpers/generation-end-terminal.ts",
     "qa-engine/src/contexts/cross-run-learning/domain/learning-gates.ts",
   ]);
   for (const module of ["generation-end", "generation-end-terminal", "learning-gates"]) {
@@ -211,7 +211,7 @@ test("the precondition-verdict preset mutates the typed precondition error, its 
   assert.ok(preset, "the precondition-verdict preset exists");
   assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], [
     "qa-engine/src/contexts/app-catalog/domain/auth-precondition.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/precondition-terminal.ts",
+    "qa-engine/src/contexts/run-orchestration/domain/helpers/precondition-terminal.ts",
     "qa-engine/src/contexts/cross-run-learning/domain/error-class.ts",
     "qa-engine/src/contexts/cross-run-learning/domain/process-audit.ts",
   ]);
@@ -451,8 +451,8 @@ test("the carry-forward preset mutates the spec path and the one fold, the decla
     "qa-engine/src/shared-kernel/spec-path.ts",
     "qa-engine/src/shared-kernel/delivered-spec.ts",
     "qa-engine/src/contexts/generation/domain/declared-specs.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/delivered-specs.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/contradiction-attribution.ts",
+    "qa-engine/src/contexts/run-orchestration/domain/helpers/delivered-specs.ts",
+    "qa-engine/src/contexts/run-orchestration/domain/helpers/contradiction-attribution.ts",
     "qa-engine/src/contexts/generation/domain/suite-entry.ts",
     "qa-engine/src/contexts/generation/domain/suite-listing.ts",
     "qa-engine/src/contexts/generation/domain/suite-listing-render.ts",
@@ -461,13 +461,13 @@ test("the carry-forward preset mutates the spec path and the one fold, the decla
     "qa-engine/src/contexts/generation/infrastructure/adapters/pre-generation-grounding-port.adapter.ts",
     "qa-engine/src/contexts/generation/domain/selector-check.ts",
     "qa-engine/src/contexts/generation/domain/pre-exec-grounding.service.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/phases/generation-services.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/phases/generate.steps.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/phases/execute.steps.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/phases/fix-loop.steps.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/phases/coverage.steps.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/phases/review.steps.ts",
+    "qa-engine/src/contexts/run-orchestration/domain/fix-loop.aggregate.ts",
+    "qa-engine/src/contexts/run-orchestration/application/run-flow/phases/generation-services.ts",
+    "qa-engine/src/contexts/run-orchestration/application/run-flow/phases/generate.steps.ts",
+    "qa-engine/src/contexts/run-orchestration/application/run-flow/phases/execute.steps.ts",
+    "qa-engine/src/contexts/run-orchestration/application/run-flow/phases/fix-loop.steps.ts",
+    "qa-engine/src/contexts/run-orchestration/application/run-flow/phases/coverage.steps.ts",
+    "qa-engine/src/contexts/run-orchestration/application/run-flow/phases/review.steps.ts",
   ]);
   for (const whole of ["spec-path", "delivered-spec", "declared-specs", "delivered-specs", "contradiction-attribution", "suite-entry", "suite-listing", "suite-listing-render"]) {
     assert.ok(preset.mutate.some((entry) => sourcePathOf(entry) === entry && entry.endsWith(`/${whole}.ts`)), `${whole} is mutated whole, never narrowed to a range`);

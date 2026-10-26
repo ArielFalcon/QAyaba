@@ -2,7 +2,7 @@
 specRelDir: "e2e" for e2e; empty string for code so specDir is the bare mirrorDir (never mirrorDir/). */
 
 import type { Sha } from "@kernel/sha.ts";
-import type { WorkspacePort } from "@contexts/qa-run-orchestration/application/index.ts";
+import type { WorkspacePort } from "@contexts/run-orchestration/application/index.ts";
 
 export type CheckoutFn = (sha: Sha) => Promise<string>;
 
