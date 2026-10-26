@@ -20,10 +20,11 @@ rules). Re-record it whenever either block, or a role, changes.
 On 2026-10-26 the `qa-lead` entry was added and `qa-author`'s `codegraph_explore` rule flipped from allow to deny when the
 code-graph tool moved to the lead. Both are derived from `agents/opencode.json`, not captured: the merge order (the global tools map,
 the global permission, then the agent's `tools` and `permission` merged by key, then the runtime's tool-output rule) was proven
-first by reproducing every other `qa-` entry of this body rule for rule. A live capture on the pinned build has not been taken since;
-the next one replaces the derived entries.
+first by reproducing every other `qa-` entry of this body rule for rule.
 
-On 2026-10-26 the author roster landed: the generator's entry is deleted and the sidekick's is renamed `qa-author`, which also carries the generator's `permission.bash: deny`. The `qa-author` entry is derived from `agents/opencode.json` the same way as the `qa-lead` and `qa-explore` entries, and the other `qa-` entries were checked rule for rule against the same derivation; it is replaced by the next live capture.
+On 2026-10-26 the author roster landed: the generator's entry is deleted and the sidekick's is renamed `qa-author`, which also carries the generator's `permission.bash: deny`. The `qa-author` entry is derived from `agents/opencode.json` the same way as the `qa-lead` and `qa-explore` entries.
+
+On 2026-10-26 a live capture replaced the derivation: `opencode serve` 1.17.7 in the `agents` image, run as described above, returned every agent of this body with the same fields and the same permission rules in the same order, the derived `qa-lead`, `qa-author` and `qa-explore` entries included, so the body is unchanged.
 
 Edits to the recorded body, and nothing else:
 
