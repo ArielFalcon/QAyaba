@@ -96,8 +96,14 @@ export const FIX_STEPS = {
 /* The steps of a fix, numbered from one; a step may carry the lines under it. */
 export const numbered = (steps: readonly string[]): string[] => steps.map((step, index) => `${index + 1}. ${step}`);
 
+/* The pieces of a cross-service link's line that a reader tells apart: the label of a hop between two backends, the marker a link the change reaches carries, and the heading of the drift warnings. */
+export const BACKEND_TO_BACKEND_LABEL = "BE→BE HTTP";
+export const CONTRACT_DRIFT_HEADING = "Contract drift";
+export const IMPACTED_MARKER_PREFIX = "[IMPACTED:";
+export const impactedMarker = (tier: string): string => `${IMPACTED_MARKER_PREFIX}${tier}]`;
+
 function linkKindLabel(l: { transport: string; source: string }): string {
-  if (l.source === "http-backend-resolver") return "BE→BE HTTP";
+  if (l.source === "http-backend-resolver") return BACKEND_TO_BACKEND_LABEL;
   if (l.transport === "event") return "event";
   if (l.transport === "rpc") return "RPC";
   return "FE→BE HTTP";
@@ -115,9 +121,13 @@ export function renderServiceLinkLine(
   s: (x: unknown) => string,
   tier?: string,
 ): string {
-  return `- ${tier ? `[IMPACTED:${s(tier)}] ` : ""}\`${s(l.from.repo)}/${s(l.from.file)}#${s(l.from.symbol)}\` -> ` +
+  return `- ${tier ? `${impactedMarker(s(tier))} ` : ""}\`${s(l.from.repo)}/${s(l.from.file)}#${s(l.from.symbol)}\` -> ` +
     `${s(l.to.repo)} ${s(l.contractRef ?? l.to.symbol)} (${linkKindLabel(l)}, source ${s(l.source)}, confidence ${l.confidence.toFixed(2)})`;
 }
+
+/* The labels of the evidence lines a failing case carries that a reader tells apart: the HTTP line of a case that reached a page without a status, and how the capture at the failure point says it settled. */
+export const HTTP_UNKNOWN_LABEL = "HTTP (unknown)";
+export const SETTLE_LABELS = { unsettled: "NOT SETTLED", settled: "settled" } as const;
 
 function renderFixCaseEvidenceLines(c: QaCase): string[] {
   const lines: string[] = [];
@@ -127,7 +137,7 @@ function renderFixCaseEvidenceLines(c: QaCase): string[] {
     lines.push(`  HTTP ${c.httpStatus}${urlPart}`);
   } else if (!hasNetworkErrors && c.finalUrl !== undefined) {
     /* The unknown HTTP line was misleading next to real network evidence, so it is only printed when there is none. */
-    lines.push(`  HTTP (unknown) at ${redactForModel(c.finalUrl)}`);
+    lines.push(`  ${HTTP_UNKNOWN_LABEL} at ${redactForModel(c.finalUrl)}`);
   }
   if (c.networkErrors?.length) {
     for (const e of c.networkErrors.slice(0, 3)) {
@@ -141,17 +151,20 @@ function renderFixCaseEvidenceLines(c: QaCase): string[] {
     }
   }
   if (c.failureSettle) lines.push(`  PAGE ${describeSettle(c.failureSettle)}`);
-  if (c.failureResultCount !== undefined) lines.push(`  DATA STATE result count at the failure point: ${c.failureResultCount}`);
+  if (c.failureResultCount !== undefined) lines.push(`  DATA STATE ${describeResultCount(c.failureResultCount)}`);
   return lines;
 }
 
+/* The declared data state's count at the failure point. */
+export const describeResultCount = (count: number): string => `result count at the failure point: ${count}`;
+
 /* The settle facts of a failure-point capture, as facts: a page still changing is a moment of a render, not DEV's data state. */
-function describeSettle(settle: FailureSettle): string {
+export function describeSettle(settle: FailureSettle): string {
   const quiet = settle.quietMs !== undefined ? `, last data response ${settle.quietMs} ms before` : "";
   const tree = settle.treeStable ? "the tree was the same 1 s later" : "the tree changed within 1 s";
   return failureUnsettled(settle)
-    ? `NOT SETTLED at the failure point (${settle.inFlight} data request(s) in flight${quiet}; ${tree}): this tree is a moment of a render, not DEV's data state`
-    : `settled at the failure point (no data request in flight${quiet}; ${tree})`;
+    ? `${SETTLE_LABELS.unsettled} at the failure point (${settle.inFlight} data request(s) in flight${quiet}; ${tree}): this tree is a moment of a render, not DEV's data state`
+    : `${SETTLE_LABELS.settled} at the failure point (no data request in flight${quiet}; ${tree})`;
 }
 
 /* A failing case as a prompt lists it: its name, the start of its error and what the run saw of the page. The case comes out of the test run, so each text is redacted before it is cut, and no secret is left in part by the cut. */
@@ -186,7 +199,7 @@ export function buildDiffSection(input: OpencodeRunInput): string {
 }
 
 /* At most this many violations reach one prompt; the rest are counted so the agent knows the list is abridged. */
-const CONTRACT_FEEDBACK_MAX = 6;
+export const CONTRACT_FEEDBACK_MAX = 6;
 
 export const CONTRACT_FEEDBACK_SECTION_ID = "contract-feedback";
 

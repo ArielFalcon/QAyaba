@@ -13,6 +13,17 @@ import {
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { buildContextTask } from "@contexts/generation/infrastructure/prompt-builders/task-builders.ts";
+import {
+  BACKEND_TO_BACKEND_LABEL,
+  CONTRACT_DRIFT_HEADING,
+  HTTP_UNKNOWN_LABEL,
+  IMPACTED_MARKER_PREFIX,
+  SETTLE_LABELS,
+  describeResultCount,
+  describeSettle,
+  impactedMarker,
+  renderFixCase,
+} from "@contexts/generation/infrastructure/prompt-builders/generator-renderers.ts";
 import { renderReviewSpecs } from "@contexts/generation/infrastructure/prompt-builders/review-render.ts";
 import { renderArchitectureContextParts } from "@contexts/generation/infrastructure/prompt-builders/architecture-context.ts";
 import { assemble as caAssemble, section as caSection } from "@contexts/generation/infrastructure/prompt-builders/context-assembler.ts";
@@ -89,17 +100,15 @@ test("code mode embeds the diff in its task, renders no separate diff section an
   const assembled = buildPromptAssembled(mkInput({ target: "code" }));
   assert.equal(assembled.sectionSizes["diff"], undefined, "the e2e diff section is not rendered for code");
   assert.notEqual(assembled.sectionSizes["task"], undefined);
-  assert.deepEqual(assembled.claims["task"], [claim.provides("diff")], "the code task carries the diff and none of the e2e task's directives");
-  assert.equal(assembled.claims["working-rules"], undefined, "code mode directs no live-page exploration");
+  assert.deepEqual(assembled.claims["task"], [claim.provides("diff"), claim.directs("consult", "diff")], "the code task carries the diff and none of the e2e task's directives");
+  assert.deepEqual(assembled.claims["working-rules"], [claim.provides("orchestrator-validation")], "code mode directs no live-page exploration");
 });
 
 test("code mode working-rules: the generator is not told to compile or run anything, and is told the orchestrator does", () => {
   for (const isReGen of [false, true]) {
-    const text = buildPrompt(mkInput({ target: "code", ...(isReGen ? { fixCases: [failingCase] } : {}) }));
-    assert.doesNotMatch(text, /compile-check/i, "no compile step is asked of an agent without a shell");
-    assert.doesNotMatch(text, /test-compile|testClasses|go vet|cargo check|tsc --noEmit/, "no per-ecosystem compile command");
-    assert.doesNotMatch(text, /existing test command/i, "no test command is asked of an agent without a shell");
-    assert.match(text, /orchestrator compiles and runs/i, "the prompt says who validates what the agent writes");
+    const input = mkInput({ target: "code", ...(isReGen ? { fixCases: [failingCase] } : {}) });
+    assert.doesNotMatch(buildPrompt(input), /test-compile|testClasses|go vet|cargo check|tsc --noEmit/, "no per-ecosystem compile command");
+    assert.deepEqual(claimsOf(buildPromptAssembled(input), "working-rules"), [claim.provides("orchestrator-validation")], "the prompt says who validates what the agent writes");
   }
 });
 
@@ -127,7 +136,7 @@ test("an unauthored stock auth seed sends the login rewrite to the live page, wi
   for (const contextPack of [undefined, pack]) {
     const login = appLoginSection(buildPrompt(mkInput({ authSeedUnauthored: true, ...(contextPack ? { contextPack } : {}) })));
     assert.ok(login, "the login section is rendered");
-    assert.doesNotMatch(login, new RegExp(`${PACK_HEADINGS.pack}|DOM pack`, "i"), "the section does not point at the pack, which may not hold the login page");
+    assert.doesNotMatch(login, new RegExp(`${PACK_HEADINGS.pack}|${PACK_HEADINGS.liveDom}`, "i"), "the section does not point at the pack, which may not hold the login page");
     assert.ok(login.includes("Playwright MCP"), "the rewrite reads the real login page");
   }
 });
@@ -143,28 +152,20 @@ test("a seed that signed in renders no app-login section and no auth.setup.ts re
  */
 
 test("fix-loop: with grounding present and no failure DOM, the fix prompt does NOT command browser_navigate", () => {
-  const text = buildPrompt(mkInput({ fixCases: [failingCase], contextPack: PACK_WITH_DOM }));
-  assert.ok(
-    !text.includes("Use browser_navigate + browser_snapshot to see the ACTUAL page"),
-    "grounded fix retry must not order a full re-navigation",
-  );
-  assert.ok(
-    text.includes("Fix from the injected grounding"),
-    "grounded fix retry must tell the agent to fix from the injected grounding",
-  );
+  const assembled = buildPromptAssembled(mkInput({ fixCases: [failingCase], contextPack: PACK_WITH_DOM }));
+  assert.equal(directs(assembled, "fix-cases", "use-runtime-signals"), false, "grounded fix retry must not order a full re-navigation");
+  assert.ok(directs(assembled, "fix-cases", "consult", "dom-live"), "grounded fix retry must tell the agent to fix from the injected grounding");
 });
 
 test("fix-loop: with NO grounding, the fix prompt STILL commands browser exploration (blind fix)", () => {
-  const text = buildPrompt(mkInput({ fixCases: [failingCase] }));
-  assert.ok(
-    text.includes("Use browser_navigate + browser_snapshot to see the ACTUAL page"),
-    "a blind fix retry (no pack, no DOM) must still explore the live page",
-  );
+  const assembled = buildPromptAssembled(mkInput({ fixCases: [failingCase] }));
+  assert.ok(directs(assembled, "fix-cases", "use-runtime-signals"), "a blind fix retry (no pack, no DOM) must still explore the live page");
+  assert.equal(directs(assembled, "fix-cases", "consult", "dom-live"), false);
 });
 
 test("fix-loop: a pack of contracts alone grounds no selector, so the fix retry still explores the live page", () => {
-  const text = buildPrompt(mkInput({ fixCases: [failingCase], contextPack: PACK_CONTRACTS_ONLY }));
-  assert.ok(text.includes("Use browser_navigate + browser_snapshot to see the ACTUAL page"));
+  const assembled = buildPromptAssembled(mkInput({ fixCases: [failingCase], contextPack: PACK_CONTRACTS_ONLY }));
+  assert.ok(directs(assembled, "fix-cases", "use-runtime-signals"));
 });
 
 test("fix-loop: a failureSourced retry grounds on the captured failure tree and directs the agent to consult only it", () => {
@@ -176,24 +177,15 @@ test("fix-loop: a failureSourced retry grounds on the captured failure tree and 
 });
 
 test("reviewer-corrections: with grounding present, do NOT command re-verify against the live page", () => {
-  const text = buildPrompt(mkInput({ reviewCorrections: ["scope the selector"], contextPack: PACK_WITH_DOM }));
-  assert.ok(
-    !/re-verify it against the live/.test(text),
-    "grounded reviewer-corrections must not order a live re-verification",
-  );
-  assert.ok(
-    text.includes("Re-verify against the injected grounding"),
-    "grounded reviewer-corrections must point at the injected grounding",
-  );
+  const assembled = buildPromptAssembled(mkInput({ reviewCorrections: ["scope the selector"], contextPack: PACK_WITH_DOM }));
+  assert.equal(directs(assembled, "reviewer-corrections", "use-runtime-signals"), false, "grounded reviewer-corrections must not order a live re-verification");
+  assert.ok(directs(assembled, "reviewer-corrections", "consult", "dom-live"), "grounded reviewer-corrections must point at the injected grounding");
 });
 
 test("reviewer-corrections: with NO grounding, keep the live re-verify instruction", () => {
   for (const contextPack of [undefined, PACK_CONTRACTS_ONLY]) {
-    const text = buildPrompt(mkInput({ reviewCorrections: ["scope the selector"], ...(contextPack ? { contextPack } : {}) }));
-    assert.ok(
-      /re-verify it against the live page with the Playwright MCP/.test(text),
-      "a blind reviewer-corrections turn must still re-verify against the live page",
-    );
+    const assembled = buildPromptAssembled(mkInput({ reviewCorrections: ["scope the selector"], ...(contextPack ? { contextPack } : {}) }));
+    assert.ok(directs(assembled, "reviewer-corrections", "use-runtime-signals"), "a blind reviewer-corrections turn must still re-verify against the live page");
   }
 });
 
@@ -256,7 +248,7 @@ test("the reviewer judges the delivered specs and lists the existing suite as co
   assert.notEqual(assembled.sectionSizes["reviewer-specs"], undefined);
   assert.notEqual(assembled.sectionSizes["reviewer-existing-suite"], undefined);
   for (const spec of reviewInput.existingSpecFiles ?? []) assert.ok(assembled.text.includes(spec), `${spec} is listed`);
-  assert.match(assembled.text, /never reject a spec because an existing suite file does not cover this change/);
+  assert.deepEqual(claimsOf(assembled, "reviewer-existing-suite"), [claim.provides("existing-suite"), claim.frames("existing-suite", "unverified")], "the listing is context, never a target of the review");
   assert.ok(assembled.text.includes(`reviewer-prompt-version: ${REVIEWER_PROMPT_VERSION}`));
 });
 
@@ -318,11 +310,9 @@ test("working-rules: a Context Pack with a live DOM grounds the run, a pack of c
 });
 
 test("coverage-enforce: with grounding present, instruct to resolve from grounding, not re-navigate", () => {
-  const text = buildPrompt(mkInput({ coverageGap: "src/foo.ts:10-12", contextPack: PACK_WITH_DOM }));
-  assert.ok(
-    text.includes("Resolve any new selectors from the injected grounding"),
-    "grounded coverage-enforce must point new selectors at the injected grounding",
-  );
+  const assembled = buildPromptAssembled(mkInput({ coverageGap: "src/foo.ts:10-12", contextPack: PACK_WITH_DOM }));
+  assert.ok(directs(assembled, "coverage-gap", "consult", "dom-live"), "grounded coverage-enforce must point new selectors at the injected grounding");
+  assert.equal(directs(buildPromptAssembled(mkInput({ coverageGap: "src/foo.ts:10-12" })), "coverage-gap", "consult", "dom-live"), false, "without grounding there is nothing to point at");
 });
 
 /* ── regen-discipline: a re-generation turn must not re-orient (serena/blast-radius already distilled) ── */
@@ -343,20 +333,18 @@ test("regen-discipline: a FIRST-PASS (non-regen) turn keeps full orientation", (
    The agent must be explicitly told to navigate an uncovered route rather than guess blindly.
  */
 test("a grounded RE-gen prompt MANDATES navigating a route absent from the grounding (anti-blinding)", () => {
-  const text = buildPrompt(mkInput({ fixCases: [failingCase], contextPack: PACK_WITH_DOM }));
-  assert.ok(
-    text.includes("you MUST still browser_navigate that specific route"),
-    "the agent must navigate an uncovered route, never guess its selectors from incomplete grounding",
-  );
+  const regens: Array<Partial<OpencodeRunInput>> = [{ fixCases: [failingCase] }, { reviewCorrections: ["scope the selector"] }, { coverageGap: "src/foo.ts:10-12" }];
+  const sections = ["fix-cases", "reviewer-corrections", "coverage-gap"];
+  regens.forEach((regen, i) => {
+    const assembled = buildPromptAssembled(mkInput({ ...regen, contextPack: PACK_WITH_DOM }));
+    assert.ok(directs(assembled, sections[i]!, "use-browser-for-uncovered-route"), `${sections[i]}: the agent must navigate an uncovered route, never guess its selectors from incomplete grounding`);
+  });
 });
 
 /* the serena suppression was absolute; a fix may legitimately need a symbol not in the brief. */
 test("regen-discipline carves out reading a symbol the grounding lacks", () => {
-  const text = buildPrompt(mkInput({ fixCases: [failingCase] }));
-  assert.ok(
-    text.includes("read ONLY that symbol"),
-    "the serena suppression must allow reading a symbol absent from the grounding",
-  );
+  const assembled = buildPromptAssembled(mkInput({ fixCases: [failingCase] }));
+  assert.ok(directs(assembled, "regen-discipline", "read"), "the serena suppression must allow reading a symbol absent from the grounding");
 });
 
 /* Moving it to the stable-prefix band makes it render before the volatile context-pack, proving it
@@ -370,9 +358,9 @@ test("regen-discipline is in the stable band (renders before the volatile contex
 
 /* anti-blinding gap — a fix that must touch a route NOT in that tree needs the same escape. */
 test("the failure-sourced fix branch carries the anti-blinding escape too", () => {
-  const text = buildPrompt(mkInput({ fixCases: [failingCase], domSnapshot: "button: Add Owner", failureSourced: true }));
+  const assembled = buildPromptAssembled(mkInput({ fixCases: [failingCase], domSnapshot: "button: Add Owner", failureSourced: true }));
   assert.ok(
-    text.includes("you MUST still browser_navigate that specific route"),
+    directs(assembled, "fix-cases", "use-browser-for-uncovered-route"),
     "even a failure-sourced fix must navigate a route absent from the captured failure tree",
   );
 });
@@ -496,23 +484,24 @@ test("buildPrompt fix-cases section slices a long runtimeErrors text to ~200 cha
 });
 
 test("buildPrompt fix-cases section omits evidence lines when absent (no httpStatus/finalUrl/runtimeErrors)", () => {
-  const text = buildPrompt(mkInput({ fixCases: [failingCase] }));
-  assert.doesNotMatch(text, /HTTP \d+ at/, "no httpStatus present must render no HTTP line");
+  const [entry, ...evidence] = renderFixCase(failingCase);
+  assert.ok(buildPrompt(mkInput({ fixCases: [failingCase] })).includes(entry!));
+  assert.deepEqual(evidence, [], "no httpStatus present must render no HTTP line");
 });
 
 test("buildPrompt fix-cases section renders NET evidence and suppresses the misleading HTTP (unknown)", () => {
-  const netCase: QaCase = { name: "owners list", status: "fail", networkErrors: [{ url: "https://api.example/orders", status: 504 }] };
+  const netCase: QaCase = { name: "owners list", status: "fail", finalUrl: "https://dev.example.com/owners", networkErrors: [{ url: "https://api.example/orders", status: 504 }] };
   const text = buildPrompt(mkInput({ fixCases: [netCase] }));
   for (const network of netCase.networkErrors ?? []) {
     assert.ok(text.includes(network.url) && text.includes(String(network.status)), "network evidence carries the failing url and status");
   }
-  assert.doesNotMatch(text, /HTTP \(unknown\)/, "a network error replaces the misleading HTTP (unknown) line");
+  assert.equal(text.includes(HTTP_UNKNOWN_LABEL), false, "a network error replaces the misleading HTTP (unknown) line");
 });
 
 test("buildPrompt fix-cases section still renders HTTP (unknown) when there is a finalUrl and no network errors", () => {
   const noNet: QaCase = { name: "owners list", status: "fail", finalUrl: "https://dev.example.com/owners" };
   const text = buildPrompt(mkInput({ fixCases: [noNet] }));
-  assert.match(text, /HTTP \(unknown\) at https:\/\/dev\.example\.com\/owners/, "no network errors must keep the HTTP (unknown) line");
+  assert.ok(text.includes(`${HTTP_UNKNOWN_LABEL} at ${noNet.finalUrl}`), "no network errors must keep the HTTP (unknown) line");
 });
 function padTo(s: string, bytes: number): string {
   const current = Buffer.byteLength(s, "utf8");
@@ -925,6 +914,8 @@ const link1 = {
   confidence: 0.9,
   source: "openapi",
 };
+/* The backticked subject of link1's line. */
+const LINK1_SUBJECT = `\`${link1.from.repo}/${link1.from.file}#${link1.from.symbol}\``;
 const drift1 = {
   from: { repo: "org/front", file: "src/api.ts", symbol: "deleteOrder" },
   verb: "DELETE",
@@ -944,7 +935,7 @@ test("non-empty serviceLinks in generation mode renders the service-links sectio
 test("http-backend-resolver links render as BE→BE HTTP", () => {
   const be = { ...link1, source: "http-backend-resolver", from: { repo: "org/orders", file: "src/Client.java", symbol: "exchange" } };
   const text = buildPrompt(mkInput({ serviceLinks: [be] }));
-  assert.match(text, /BE→BE HTTP, source http-backend-resolver/);
+  assert.ok(text.includes(`${BACKEND_TO_BACKEND_LABEL}, source ${be.source}`));
 });
 
 test("contractDrift alongside links renders after the links, never merged into the link items", () => {
@@ -1029,7 +1020,7 @@ test("contractDrift present with serviceLinks ABSENT/empty still renders the sec
 
 test("links-only (no drift) still renders exactly as before — no empty 'Contract drift' heading", () => {
   const text = buildPrompt(mkInput({ serviceLinks: [link1] }));
-  assert.ok(!text.includes("Contract drift"), "links-only must not render a drift heading at all");
+  assert.ok(!text.includes(CONTRACT_DRIFT_HEADING), "links-only must not render a drift heading at all");
 });
 
 test("serviceLinks string fields pass through the local s() sanitize wrapper (secrets redacted, never passed through raw)", () => {
@@ -1054,10 +1045,9 @@ test("a matched link's EXISTING bullet gets the '[IMPACTED:<tier>]' prefix", () 
     serviceLinks: [link1],
     crossRepoImpact: { impactedLinks: [{ link: link1, tier: "contract-file" }] },
   }));
-  assert.match(text, /\[IMPACTED:contract-file\]/, "the matched link's bullet must carry the inline tier marker");
-  assert.match(
-    text,
-    /\[IMPACTED:contract-file\] `org\/front\/src\/api\.ts#getOrder`/,
+  assert.ok(text.includes(impactedMarker("contract-file")), "the matched link's bullet must carry the inline tier marker");
+  assert.ok(
+    text.includes(`${impactedMarker("contract-file")} ${LINK1_SUBJECT}`),
     "the marker must prefix the SAME existing bullet line, not a separate entry",
   );
 });
@@ -1075,7 +1065,7 @@ test("an empty crossRepoImpact.impactedLinks is byte-identical to the field bein
   const withEmpty = buildPrompt(mkInput({ serviceLinks: [link1], crossRepoImpact: { impactedLinks: [] } }));
   const withoutField = buildPrompt(mkInput({ serviceLinks: [link1] }));
   assert.equal(withEmpty, withoutField, "an empty impacted set must render byte-identical to the field being entirely absent");
-  assert.ok(!withoutField.includes("[IMPACTED:"), "no inline marker may render when crossRepoImpact is absent");
+  assert.ok(!withoutField.includes(IMPACTED_MARKER_PREFIX), "no inline marker may render when crossRepoImpact is absent");
 });
 
 test("a link present in serviceLinks but NOT in crossRepoImpact.impactedLinks renders with NO marker prefix", () => {
@@ -1091,11 +1081,10 @@ test("a link present in serviceLinks but NOT in crossRepoImpact.impactedLinks re
     serviceLinks: [link1, unmatchedLink],
     crossRepoImpact: { impactedLinks: [{ link: link1, tier: "impacted-symbol" }] },
   }));
-  assert.match(text, /\[IMPACTED:impacted-symbol\] `org\/front\/src\/api\.ts#getOrder`/, "the matched link must carry the marker");
-  assert.doesNotMatch(
-    text.split("\n").find((l) => l.includes("getOther")) ?? "",
-    /\[IMPACTED:/,
-    "an unmatched link's bullet must render with NO [IMPACTED:...] prefix",
+  assert.ok(text.includes(`${impactedMarker("impacted-symbol")} ${LINK1_SUBJECT}`), "the matched link must carry the marker");
+  assert.ok(
+    !(text.split("\n").find((l) => l.includes("getOther")) ?? "").includes(IMPACTED_MARKER_PREFIX),
+    "an unmatched link's bullet must render with NO impacted marker prefix",
   );
 });
 
@@ -1114,9 +1103,8 @@ test("an impacted link past the MAX_LINKS cut still renders WITH its marker — 
   }));
   const text = assembled.text;
   assert.equal(assembled.sectionItems["service-links"]?.itemIds[0], itemId.svcLink(link1), "the impacted link is the first item kept, ahead of discovery order");
-  assert.match(
-    text,
-    /\[IMPACTED:contract-file\] `org\/front\/src\/api\.ts#getOrder`/,
+  assert.ok(
+    text.includes(`${impactedMarker("contract-file")} ${LINK1_SUBJECT}`),
     "the impacted link must survive the MAX_LINKS truncation with its marker — discovery order must not silently drop the one annotated link",
   );
 });
@@ -1298,25 +1286,24 @@ test("coverage-gap survives when other volatile content is large enough to force
    reviewCorrections / coverageGap) — a regen prompt must not command the agent to cross-check
    evidence that was never in the prompt at all.
  */
-test("a first-pass (non-regen) e2e prompt renders 'Cross-check against the diff' alongside the diff", () => {
+test("a first-pass (non-regen) e2e prompt directs the task to cross-check the diff, alongside the diff", () => {
   const assembled = buildPromptAssembled(mkInput({ mode: "diff" }));
-  assert.match(assembled.text, /Cross-check against the diff/, "first pass: the diff renders, so the instruction is valid");
+  assert.ok(directs(assembled, "task", "consult", "diff"), "first pass: the diff renders, so the instruction is valid");
+  assert.deepEqual(provided(assembled, "diff"), ["diff"]);
   assert.notEqual(assembled.sectionSizes["diff"], undefined, "first pass: the diff section itself must be present");
 });
 
-test("a fixCases regen prompt does NOT render 'Cross-check against the diff' (the diff section is empty on regen)", () => {
-  const text = buildPrompt(mkInput({ mode: "diff", fixCases: [failingCase] }));
-  assert.doesNotMatch(text, /Cross-check against the diff/, "regen: no diff section exists, so the instruction must not appear either");
-});
-
-test("a reviewCorrections regen prompt does NOT render 'Cross-check against the diff'", () => {
-  const text = buildPrompt(mkInput({ mode: "diff", reviewCorrections: ["[fragile-selector] tighten the locator"] }));
-  assert.doesNotMatch(text, /Cross-check against the diff/, "reviewer-corrections regen: no diff section, instruction must not appear");
-});
-
-test("a coverageGap regen prompt does NOT render 'Cross-check against the diff'", () => {
-  const text = buildPrompt(mkInput({ mode: "diff", coverageGap: "src/checkout.ts:42-58" }));
-  assert.doesNotMatch(text, /Cross-check against the diff/, "coverage-gap regen: no diff section, instruction must not appear");
+test("a regen prompt does NOT direct a cross-check of the diff (the diff section is empty on regen)", () => {
+  const regens: Array<[string, Partial<OpencodeRunInput>]> = [
+    ["fixCases", { fixCases: [failingCase] }],
+    ["reviewCorrections", { reviewCorrections: ["[fragile-selector] tighten the locator"] }],
+    ["coverageGap", { coverageGap: "src/checkout.ts:42-58" }],
+  ];
+  for (const [what, regen] of regens) {
+    const assembled = buildPromptAssembled(mkInput({ mode: "diff", ...regen }));
+    assert.equal(assembled.sectionSizes["diff"], undefined, `${what}: no diff section exists`);
+    assert.equal(directs(assembled, "task", "consult", "diff"), false, `${what}: so the instruction must not be directed either`);
+  }
 });
 
 /* entry named "static-gate" so the repair round has the actual error text. But the fixCases section
@@ -1325,16 +1312,15 @@ test("a coverageGap regen prompt does NOT render 'Cross-check against the diff'"
  */
 const staticGateCase: QaCase = { name: "static-gate", status: "fail", detail: "TS2322: Type 'string' is not assignable to type 'number'." };
 
-test("a static-gate fixCases entry renders under a 'failing gate' framing, not 'FAILED during execution against DEV'", () => {
-  const text = buildPrompt(mkInput({ fixCases: [staticGateCase] }));
-  assert.doesNotMatch(text, /FAILED during execution against DEV/, "a compile/lint failure never executed against DEV — the execution framing is misleading here");
-  assert.match(text, /failing gate/i, "the static-gate case must render under a distinct 'failing gate' framing");
-  assert.ok(text.includes("TS2322"), "the actual validation error text must still be present");
+test("a static-gate fixCases entry is declared a gate failure, not an execution failure", () => {
+  const assembled = buildPromptAssembled(mkInput({ fixCases: [staticGateCase] }));
+  assert.ok(claimsOf(assembled, "fix-cases").some((c) => isDeepStrictEqual(c, claim.provides("gate-failure"))), "a compile/lint failure never executed against DEV — it is a failing gate");
+  assert.ok(assembled.text.includes("TS2322"), "the actual validation error text must still be present");
 });
 
-test("an ordinary (non-static-gate) fixCases entry keeps the original 'FAILED during execution against DEV' framing", () => {
-  const text = buildPrompt(mkInput({ fixCases: [failingCase] }));
-  assert.match(text, /FAILED during execution against DEV/, "a real Playwright execution failure keeps its original framing");
+test("an ordinary (non-static-gate) fixCases entry keeps the framing of an execution failure", () => {
+  const assembled = buildPromptAssembled(mkInput({ fixCases: [failingCase] }));
+  assert.ok(!claimsOf(assembled, "fix-cases").some((c) => isDeepStrictEqual(c, claim.provides("gate-failure"))), "a real Playwright execution failure is not a gate failure");
 });
 
 test("the assembled coverage-gap section survives a tiny budget that sheds a lower-priority-number volatile section instead", () => {
@@ -1361,13 +1347,13 @@ test("the assembled coverage-gap section survives a tiny budget that sheds a low
    so, and any OpenAPI hint must be rendered under the contracts/ prefix the staging actually uses.
  */
 
-test("cross-repo diff task: describes the service path as a staged READ-ONLY snapshot, never a 'working copy', and prefixes the openapi hint with contracts/", () => {
-  const text = buildPrompt(mkInput({
+test("cross-repo diff task: declares the service path a staged snapshot and prefixes the openapi hint with contracts/", () => {
+  const assembled = buildPromptAssembled(mkInput({
     service: { repo: "org/orders-svc", mirrorDir: "/work/e2e/.qa/service-context/org__orders-svc", openapi: "openapi/orders.yaml" },
   }));
-  assert.match(text, /READ-ONLY staged snapshot/i);
-  assert.doesNotMatch(text, /working copy/i, "the generation task must never claim a full working copy is available");
-  assert.ok(text.includes("contracts/openapi/orders.yaml"), "the openapi hint must point at the contracts/ prefix staging actually uses");
+  assert.ok(claimsOf(assembled, "task").some((c) => isDeepStrictEqual(c, claim.provides("staged-service-snapshot"))), "the generation task never claims a full working copy is available");
+  assert.ok(assembled.text.includes("contracts/openapi/orders.yaml"), "the openapi hint must point at the contracts/ prefix staging actually uses");
+  assert.ok(!claimsOf(buildPromptAssembled(mkInput()), "task").some((c) => isDeepStrictEqual(c, claim.provides("staged-service-snapshot"))), "a run with no service stages nothing");
 });
 
 test("cross-repo diff task: an array openapi hint is prefixed per-entry, not just on the joined string", () => {
@@ -1393,18 +1379,18 @@ test("buildContextTask: its output contract does not ask the generator for an ap
   assert.equal("approved" in contract, false);
 });
 
-test("buildContextTask: describes each microservice path as a staged contract snapshot, never a mirrored working copy, and prefixes hints with contracts/", () => {
-  const text = buildContextTask(mkInput({
+test("buildContextTask: declares each microservice path a staged contract snapshot and prefixes hints with contracts/", () => {
+  const input = mkInput({
     mode: "context",
     services: [
       { repo: "org/orders-svc", mirrorDir: "/staged/org__orders-svc", openapi: "openapi/orders.yaml" },
       { repo: "org/payments-svc", mirrorDir: "/staged/org__payments-svc" },
     ],
-  }));
-  assert.match(text, /staged contract snapshot/i);
-  assert.doesNotMatch(text, /mirrored READ-ONLY|working copy/i);
+  });
+  const text = buildContextTask(input);
+  assert.ok(claimsOf(buildPromptAssembled(input), "task").some((c) => isDeepStrictEqual(c, claim.provides("staged-service-snapshot"))));
   assert.ok(text.includes("contracts/openapi/orders.yaml"));
-  assert.match(text, /staged contract snapshots are local paths you can read/i);
+  for (const service of input.services ?? []) assert.ok(text.includes(service.mirrorDir), `${service.repo}: the staged snapshot's local path is given`);
 });
 
 /* The reviewer judges the specs the generator delivered, inlined from disk. The generator names them in its verdict, so a name can lead anywhere the agent pointed it: a spec that leaves the spec directory is never inlined, and the reviewer gets a block with no code in it instead. */
@@ -1523,8 +1509,8 @@ test("reviewer prompt: stamped with its version and the output caps the parser e
   }
 });
 
-test("reviewer prompt: the reply is one bare JSON object", () => {
-  const text = buildReviewerPrompt({
+test("reviewer prompt: the reply is one bare JSON object, and an empty corrections list is a complete answer", () => {
+  const assembled = buildReviewerPromptAssembled({
     diff: "diff --git a/src/x.ts b/src/x.ts\n+export const x = 1;\n",
     specs: ["flows/checkout.spec.ts"],
     mirrorDir: "/mirrors/org__app",
@@ -1532,8 +1518,7 @@ test("reviewer prompt: the reply is one bare JSON object", () => {
     appName: "testapp",
     mode: "diff",
   });
-  assert.match(text, /no prose before or after it, no markdown fence/i);
-  assert.match(text, /Text outside the object is discarded/);
+  assert.deepEqual(claimsOf(assembled, "reviewer-output-contract"), [claim.provides("bare-json-reply"), claim.provides("empty-corrections-valid")]);
 });
 
 test("reviewer prompt: a second round carries the spec change since the rejection, a first round does not", () => {
@@ -1610,14 +1595,15 @@ test("renderArchitectureContextParts reports no map-cap omission when every list
 test("buildPrompt fix-cases section states a failure tree read while the page was still changing as not settled", () => {
   const unsettled: QaCase = { name: "owners list", status: "fail", failureSettle: { inFlight: 2, quietMs: 30, treeStable: false }, failureResultCount: 0 };
   const text = buildPrompt(mkInput({ fixCases: [unsettled] }));
-  assert.match(text, /not settled/i, "a capture with data requests in flight or a changing tree must be stated as not settled");
-  assert.match(text, /2 data request/, "the in-flight count is stated");
-  assert.match(text, /result count[^\n]*\b0\b/i, "the declared data state's count at the failure point is stated");
+  assert.ok(describeSettle(unsettled.failureSettle!).startsWith(SETTLE_LABELS.unsettled), "a capture with data requests in flight or a changing tree is classified as not settled");
+  assert.ok(text.includes(describeSettle(unsettled.failureSettle!)), "the capture is stated as not settled, with the in-flight count");
+  assert.ok(text.includes(describeResultCount(unsettled.failureResultCount!)), "the declared data state's count at the failure point is stated");
 });
 
 test("buildPrompt fix-cases section states a settled failure tree as settled", () => {
   const settled: QaCase = { name: "owners list", status: "fail", failureSettle: { inFlight: 0, quietMs: 4200, treeStable: true } };
   const text = buildPrompt(mkInput({ fixCases: [settled] }));
-  assert.match(text, /settled/i);
-  assert.doesNotMatch(text, /not settled/i, "a quiet page with a stable tree is not stated as unsettled");
+  assert.ok(describeSettle(settled.failureSettle!).startsWith(SETTLE_LABELS.settled), "a quiet page with a stable tree is classified as settled");
+  assert.ok(text.includes(describeSettle(settled.failureSettle!)));
+  assert.equal(text.includes(SETTLE_LABELS.unsettled), false, "a quiet page with a stable tree is not stated as unsettled");
 });

@@ -1,7 +1,7 @@
 /* The sections of a reviewer prompt, in prompt order, and the context they render from. The reviewer is independent of the generator: it sees the diff, the specs and the orchestrator's evidence, never the generator's reasoning. Never import src/. */
 
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
-import { claim } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { claim, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import {
   REVIEWER_PROMPT_VERSION,
   REVIEW_CORRECTIONS_MAX,
@@ -101,7 +101,7 @@ function renderOutputContract(ctx: ReviewerContext): SectionRender {
     `An empty "corrections" list beside "approved": true is a complete answer — never invent a finding to look thorough.`,
     `{"approved":false,"rationale":"why, in 1-2 sentences","corrections":[{"text":"[fragile-selector] file.spec.ts: specific actionable fix","severity":"blocking","citation":{"kind":"execution","ref":"file.spec.ts"}}]}`,
   ].join("\n");
-  return { content: outputContractContent };
+  return { content: outputContractContent, claims: [claim.provides("bare-json-reply"), claim.provides("empty-corrections-valid")] };
 }
 
 /* Live DEV DOM: actual roles + accessible names on the routes this spec targets. Captured by the orchestrator (reviewer independence). Model-mode sanitization — this is prompt text, never an Issue body. */
@@ -130,7 +130,9 @@ function renderExistingSuite(ctx: ReviewerContext): SectionRender {
         ...input.existingSpecFiles.map((file) => `- ${sanitizeText(file).text}`),
       ].join("\n")
     : "";
-  return { content: existingSpecsContent, maxBytes: 8_000, overflow: "summarize" };
+  /* The listing is context for the reviewer, never a target of its review. */
+  const existingSpecsClaims: PromptClaim[] = existingSpecsContent ? [claim.provides("existing-suite"), claim.frames("existing-suite", "unverified")] : [];
+  return { content: existingSpecsContent, claims: existingSpecsClaims, maxBytes: 8_000, overflow: "summarize" };
 }
 
 function renderPriorCorrections(ctx: ReviewerContext): SectionRender {

@@ -84,11 +84,11 @@ test("D6: the reviewer and generator role files neither hand judgment to a model
 });
 
 test("D6: the assembled reviewer prompt carries no authorization wording and states that an empty finding list is valid", () => {
-  const text = buildReviewerPromptAssembled(reviewerInput()).text;
+  const assembled = buildReviewerPromptAssembled(reviewerInput());
   for (const pattern of [...BLIND_COMPLIANCE_PHRASES, ...DELEGATED_AUTHORITY_PHRASES]) {
-    assert.doesNotMatch(text, pattern);
+    assert.doesNotMatch(assembled.text, pattern);
   }
-  assert.match(text, /never invent a finding to look thorough/);
+  assert.ok(assembled.claims["reviewer-output-contract"]?.some((c) => c.kind === "provides" && c.fact === "empty-corrections-valid"), "an empty finding list is a complete answer");
 });
 
 test("D6: a reviewer-correction turn lists each finding and carries no order of blind compliance", () => {

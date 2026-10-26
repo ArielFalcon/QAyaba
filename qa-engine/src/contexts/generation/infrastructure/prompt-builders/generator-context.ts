@@ -31,10 +31,13 @@ export interface LiveBrowser {
   /* The plain Playwright MCP also reads console messages and network requests; the authenticated browser does not. */
   runtimeSignals: boolean;
 }
+/* The two browsers an authoring turn may be told to use, and the tools each is read with. */
+export const LIVE_BROWSERS = {
+  authenticated: { name: "the authenticated browser", navigate: "authbrowser_navigate", snapshot: "authbrowser_snapshot", runtimeSignals: false },
+  playwright: { name: "the Playwright MCP", navigate: "browser_navigate", snapshot: "browser_snapshot", runtimeSignals: true },
+} as const satisfies Record<string, LiveBrowser>;
 const liveBrowserOf = (input: Pick<OpencodeRunInput, "agentBrowser">): LiveBrowser =>
-  input.agentBrowser
-    ? { name: "the authenticated browser", navigate: "authbrowser_navigate", snapshot: "authbrowser_snapshot", runtimeSignals: false }
-    : { name: "the Playwright MCP", navigate: "browser_navigate", snapshot: "browser_snapshot", runtimeSignals: true };
+  input.agentBrowser ? { ...LIVE_BROWSERS.authenticated } : { ...LIVE_BROWSERS.playwright };
 
 /* What differs between the two assemblies of one turn: the task is worded for a prompt that lists the suite or does not, and asks for the outcome again or not. Everything else a section reads is the same in both. */
 export interface Assembly {

@@ -10,14 +10,12 @@ import {
 import {
   EFFORT_BY_TIER,
   EFFORT_NO_OP_CLAUSE,
+  NO_OP_REASONS,
 } from "@contexts/generation/infrastructure/prompt-builders/task-builders.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { LEAD_PLAN_KIND } from "@kernel/coordination.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 
-
-const NOTHING_WORTH_A_TEST = /nothing (?:here )?is worth a test/i;
-const DEV_CANNOT_SHOW = /cannot be observed on DEV in its current state/i;
 
 const input: OpencodeRunInput = {
   repo: "org/app",
@@ -34,15 +32,12 @@ const input: OpencodeRunInput = {
 };
 
 test("the effort of every tier admits doing nothing for either reason of the no-op", () => {
-  assert.match(EFFORT_NO_OP_CLAUSE, NOTHING_WORTH_A_TEST);
-  assert.match(EFFORT_NO_OP_CLAUSE, DEV_CANNOT_SHOW);
+  for (const reason of Object.values(NO_OP_REASONS)) assert.ok(EFFORT_NO_OP_CLAUSE.includes(reason), reason);
   for (const tier of Object.values(EFFORT_BY_TIER)) assert.ok(tier.text.endsWith(`${EFFORT_NO_OP_CLAUSE}.`));
 });
 
 test("the no-op of a lead's plan names both reasons", () => {
   const prompt = readFileSync(join(process.cwd(), "agents", "agent", "qa-lead.md"), "utf8");
   const noop = prompt.split("\n").find((line) => line.includes(`"kind":"${LEAD_PLAN_KIND.NOOP}"`)) ?? "";
-  assert.match(noop, NOTHING_WORTH_A_TEST);
-  assert.match(noop, DEV_CANNOT_SHOW);
-  assert.match(noop, /the element and the evidence/i, "the unobservable reason is qualified: it names the element and the evidence");
+  for (const reason of Object.values(NO_OP_REASONS)) assert.ok(noop.includes(reason), reason);
 });

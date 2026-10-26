@@ -14,7 +14,9 @@ import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact
 import { DIFF_TIER_NAMES, DIFF_TIERS, type DiffTier } from "@kernel/diff-stat.ts";
 import { PACK_HEADINGS } from "@contexts/generation/infrastructure/context-pack.ts";
 import {
+  claim,
   countDirectives,
+  hasFloorLanguage,
   hasTrustLanguage,
   lintCell,
   type ClaimAction,
@@ -242,9 +244,6 @@ const sectionsDirecting = (a: AssembledPrompt, action: ClaimAction): string[] =>
     .map(([id]) => id)
     .sort();
 
-/* A minimum, in the words a text uses to state one. */
-const FLOOR_WORDS = /\b(?:at least|minimum|no fewer|no less|not fewer|not less)\b/i;
-
 test("every tier declares its effort as a ceiling that admits the reasoned no-op, in a text with no figure, no directive word and no trust word", () => {
   assert.ok(DIFF_TIER_NAMES.length > 0, "setup: the tiers are declared");
   for (const tier of DIFF_TIER_NAMES) {
@@ -252,7 +251,7 @@ test("every tier declares its effort as a ceiling that admits the reasoned no-op
     assert.ok(Number.isInteger(effort.upperBound.specs) && effort.upperBound.specs > 0, `${tier}: an upper bound`);
     assert.equal(effort.admitsNoOp, true, `${tier}: deciding that nothing is worth a test is within the bound`);
     assert.ok(effort.text.includes(EFFORT_NO_OP_CLAUSE), `${tier}: the text says what the data declares, that doing nothing is within the bound`);
-    assert.doesNotMatch(effort.text, FLOOR_WORDS, `${tier}: the text states no minimum`);
+    assert.equal(hasFloorLanguage(effort.text), false, `${tier}: the text states no minimum`);
     assert.equal(countDirectives(effort.text), 0, `${tier}: no directive word`);
     assert.equal(hasTrustLanguage(effort.text), false, `${tier}: no trust word`);
     assert.doesNotMatch(effort.text, /\d/, `${tier}: no figure`);
@@ -346,7 +345,7 @@ test("with a pack DOM or a captured tree, a diff directs no navigation of the li
     assert.deepEqual(sectionsDirecting(a, "use-runtime-signals"), [], label);
     assert.deepEqual(findingsOf(a, false), [], label);
     assert.equal(taskSizeOf(extra), bare, `${label}: the scope bound is in the task of every diff cell, whatever grounding the prompt carries`);
-    assert.match(sectionText(a, "working-rules"), /Playwright\s+MCP/, `${label}: the working rules keep the way out for a route the grounding does not cover`);
+    assert.deepEqual(a.claims["working-rules"], [claim.directs("use-browser-for-uncovered-route")], `${label}: the working rules keep the way out for a route the grounding does not cover`);
   }
 });
 

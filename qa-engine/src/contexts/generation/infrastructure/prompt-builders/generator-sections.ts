@@ -19,6 +19,7 @@ import { STEP_MILESTONE_SECTION_ID } from "@contexts/generation/domain/step-limi
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import type { PromptContext } from "./generator-context.ts";
 import {
+  CONTRACT_DRIFT_HEADING,
   CONTRACT_FEEDBACK_SECTION_ID,
   FIX_STEPS,
   RUNTIME_SIGNALS_LINES,
@@ -38,8 +39,20 @@ import { CODE_TOOLS, renderStepLimit } from "./prompt-text.ts";
 import { buildTask } from "./task-builders.ts";
 import type { PromptSectionDef, SectionRender } from "./prompt-sections.ts";
 
+/* What the working rules call the API contracts a Context Pack holds, when it holds them. */
+export const PACK_CONTRACTS_NOUN = "contracts";
+
 /* The id of the section that lists the suite; it titles the section as well. */
 export const SUITE_LISTING_SECTION_ID = PROMPT_HEADINGS.existingSuiteManifest;
+
+/* What the working rules direct, following the branch of the text that renders: a context run directs nothing; a code run is told who compiles and runs its tests; a planning turn opens no browser; a turn with a DOM tree keeps a browser only for a route the tree does not cover; any other turn reads the live page. */
+function workingRulesClaims({ input, isCode, planningTurn, packProvides, treeInPrompt }: PromptContext): PromptClaim[] {
+  if (input.mode === "context") return [];
+  if (isCode) return [claim.provides("orchestrator-validation")];
+  if (planningTurn) return [];
+  if (packProvides("dom-live") || treeInPrompt) return [claim.directs("use-browser-for-uncovered-route")];
+  return [claim.directs("use-runtime-signals")];
+}
 
 function renderWorkingRules(ctx: PromptContext): SectionRender {
   const { input, isCode, isReGen, planningTurn, packProvides, treeInPrompt, browser, openapiHint } = ctx;
@@ -83,7 +96,7 @@ function renderWorkingRules(ctx: PromptContext): SectionRender {
               ]
             : packProvides("dom-live")
             ? [
-                `- A Context Pack (live DOM${packProvides("api-operations") ? " + contracts" : ""}) was pushed into this prompt by the`,
+                `- A Context Pack (live DOM${packProvides("api-operations") ? ` + ${PACK_CONTRACTS_NOUN}` : ""}) was pushed into this prompt by the`,
                 `  orchestrator before this session started. Where the pack supplies the DOM for a route,`,
                 `  TRANSCRIBE selectors directly from the "Live DOM" section — do NOT use ${browser.navigate} or`,
                 `  ${browser.snapshot} on routes already covered in the pack.`,
@@ -107,8 +120,7 @@ function renderWorkingRules(ctx: PromptContext): SectionRender {
         ]),
   ];
   const workingRulesContent = workingRulesLines.join("\n");
-  const workingRulesClaims: PromptClaim[] = input.mode !== "context" && !isCode && !treeInPrompt ? [claim.directs("use-runtime-signals")] : [];
-  return { content: workingRulesContent, claims: workingRulesClaims, cacheable: true };
+  return { content: workingRulesContent, claims: workingRulesClaims(ctx), cacheable: true };
 }
 
 function renderRegenDiscipline(ctx: PromptContext): SectionRender {
@@ -128,7 +140,8 @@ function renderRegenDiscipline(ctx: PromptContext): SectionRender {
         ``,
       ].join("\n")
     : "";
-  return { content: regenDisciplineContent };
+  /* The one exception to the rule against re-reading: a symbol a correction names and the grounding lacks. */
+  return { content: regenDisciplineContent, claims: regenDisciplineContent ? [claim.directs("read")] : [] };
 }
 
 function renderArchMap(ctx: PromptContext): SectionRender {
@@ -184,7 +197,7 @@ function renderServiceLinks(ctx: PromptContext): SectionRender {
             : []),
           ...(omittedLinkCount > 0 ? [`...and ${omittedLinkCount} more link${omittedLinkCount === 1 ? "" : "s"} (truncated at MAX_LINKS=${MAX_LINKS})`] : []),
           ...(hasContractDrift
-            ? ["", "### Contract drift (WARNINGS — front calls an endpoint the backend contract does not declare):",
+            ? ["", `### ${CONTRACT_DRIFT_HEADING} (WARNINGS — front calls an endpoint the backend contract does not declare):`,
                ...input.contractDrift!.slice(0, MAX_DRIFT).map((d) =>
                  `- WARNING: \`${s(d.from.repo)}/${s(d.from.file)}#${s(d.from.symbol)}\` calls ${s(d.verb)} ${s(d.path)} — not in the contract`)]
             : []),
@@ -421,12 +434,24 @@ function renderFixCases(ctx: PromptContext): SectionRender {
       ].join("\n")
     : "";
 
-  const fixContentClaims: PromptClaim[] = fixContent && hasFailureTree ? [claim.directs("consult", "dom-failure")] : [];
+  /* Where the fix turns for the page, following the branch of the text that renders: the tree captured at the failure or any other injected tree (each with the way out for a route it does not cover), or the live page (a code run has none). A failing gate is a fact of its own: nothing was executed. */
+  const fixContentClaims: PromptClaim[] = !fixContent
+    ? []
+    : [
+        ...(hasStaticGateCase ? [claim.provides("gate-failure")] : []),
+        ...(hasFailureTree
+          ? [claim.directs("consult", "dom-failure"), claim.directs("use-browser-for-uncovered-route")]
+          : treeInPrompt
+          ? [claim.directs("consult", "dom-live"), claim.directs("use-browser-for-uncovered-route")]
+          : isCode
+          ? []
+          : [claim.directs("use-runtime-signals")]),
+      ];
   return { content: fixContent, claims: fixContentClaims };
 }
 
 function renderReviewerCorrections(ctx: PromptContext): SectionRender {
-  const { input, isGenerationMode, isCode, treeInPrompt, browser, groundingUncoveredEscape: GROUNDING_UNCOVERED_ESCAPE } = ctx;
+  const { input, isGenerationMode, isCode, hasFailureTree, treeInPrompt, browser, groundingUncoveredEscape: GROUNDING_UNCOVERED_ESCAPE } = ctx;
   const reviewContent = input.reviewCorrections?.length && isGenerationMode
     ? [
         `## Apply reviewer corrections (HIGHEST priority)`,
@@ -445,11 +470,19 @@ function renderReviewerCorrections(ctx: PromptContext): SectionRender {
         ``,
       ].join("\n")
     : "";
-  return { content: reviewContent, maxBytes: 20_000, overflow: "drop" };
+  /* Where a correction is re-verified, following the branch of the text that renders: the injected tree, the code under test, or the live page. */
+  const reviewClaims: PromptClaim[] = !reviewContent
+    ? []
+    : treeInPrompt
+    ? [claim.directs("consult", hasFailureTree ? "dom-failure" : "dom-live"), claim.directs("use-browser-for-uncovered-route")]
+    : isCode
+    ? []
+    : [claim.directs("use-runtime-signals")];
+  return { content: reviewContent, claims: reviewClaims, maxBytes: 20_000, overflow: "drop" };
 }
 
 function renderCoverageGap(ctx: PromptContext): SectionRender {
-  const { input, isGenerationMode, treeInPrompt, groundingUncoveredEscape: GROUNDING_UNCOVERED_ESCAPE } = ctx;
+  const { input, isGenerationMode, hasFailureTree, treeInPrompt, groundingUncoveredEscape: GROUNDING_UNCOVERED_ESCAPE } = ctx;
   const coverageContent = input.coverageGap && isGenerationMode
     ? [
         `## Cover the change (HIGH priority)`,
@@ -469,7 +502,10 @@ function renderCoverageGap(ctx: PromptContext): SectionRender {
         ``,
       ].join("\n")
     : "";
-  return { content: coverageContent, shedAs: "critical-recap" };
+  const coverageClaims: PromptClaim[] = coverageContent && treeInPrompt
+    ? [claim.directs("consult", hasFailureTree ? "dom-failure" : "dom-live"), claim.directs("use-browser-for-uncovered-route")]
+    : [];
+  return { content: coverageContent, claims: coverageClaims, shedAs: "critical-recap" };
 }
 
 /* A-2b: the deltas the intent lock found in the previous turn, as facts of this one. Capped, sanitized, and never an order: the generator decides how to restore what its bytes weakened. */

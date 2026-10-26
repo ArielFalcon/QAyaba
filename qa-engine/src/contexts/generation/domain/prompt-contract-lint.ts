@@ -29,7 +29,16 @@ export type FactId =
   | "existing-suite"
   | "learned-rules"
   | "exemplars"
-  | "diff";
+  | "diff"
+  /* The orchestrator, not the agent, compiles and runs what a code run writes. */
+  | "orchestrator-validation"
+  /* A failure of the static gate (compile, lint), which nothing executed. */
+  | "gate-failure"
+  /* The bounded snapshot of a service's contracts a cross-repo run reads instead of the service's source. */
+  | "staged-service-snapshot"
+  /* The reviewer's reply is one bare JSON object, and an empty corrections list beside an approval is a complete answer. */
+  | "bare-json-reply"
+  | "empty-corrections-valid";
 
 export type ClaimAction =
   | "read"
@@ -38,7 +47,9 @@ export type ClaimAction =
   | "analyze-repo"
   | "state-outcome"
   | "derive-from-code"
-  | "use-runtime-signals";
+  | "use-runtime-signals"
+  /* The way out for a route the injected grounding does not cover. */
+  | "use-browser-for-uncovered-route";
 
 export type PromptClaim =
   | { kind: "provides"; fact: FactId }
@@ -98,7 +109,7 @@ export interface LintOptions {
   artifactReferences?: readonly ArtifactReference[];
 }
 
-export type LintRule = "R1" | "R2" | "R3" | "R4" | "R5" | "R6" | "R7" | "R8" | "R9" | "R10" | "R11" | "R12" | "R13" | "R14" | "R15";
+export type LintRule = "R1" | "R2" | "R3" | "R4" | "R5" | "R6" | "R7" | "R8" | "R9" | "R10" | "R11" | "R12" | "R13" | "R14" | "R15" | "R16";
 
 export interface LintFinding {
   rule: LintRule;
@@ -185,6 +196,9 @@ export const ESTABLISHED_TRUST_LEXICON: readonly RegExp[] = [
 export const BLIND_COMPLIANCE_PHRASES: readonly RegExp[] = [/\bfix +each\b/i];
 export const DELEGATED_AUTHORITY_PHRASES: readonly RegExp[] = [/(?<!not )(?<!non-)\bauthoritative\b/i];
 
+/* Words that state a minimum. The effort a prompt asks for is a ceiling and never a floor: declaring the no-op is within every bound. */
+export const FLOOR_PHRASES = /\b(?:at least|minimum|no fewer|no less|not fewer|not less)\b/i;
+
 function countMatches(lexicon: readonly RegExp[], text: string): number {
   let total = 0;
   for (const pattern of lexicon) total += [...text.matchAll(pattern)].length;
@@ -193,6 +207,10 @@ function countMatches(lexicon: readonly RegExp[], text: string): number {
 
 export function countDirectives(text: string): number {
   return countMatches(DIRECTIVE_LEXICON, text);
+}
+
+export function hasFloorLanguage(text: string): boolean {
+  return FLOOR_PHRASES.test(text);
 }
 
 export function hasTrustLanguage(text: string): boolean {
@@ -404,6 +422,13 @@ function ruleNoDelegatedAuthority(cell: LintCell): LintFinding[] {
     .map((s) => ({ rule: "R15" as const, sections: [s.id] }));
 }
 
+/* R16: no assembled section states a minimum. Captured data is not prose. */
+function ruleNoEffortFloor(cell: LintCell): LintFinding[] {
+  return cell.sections
+    .filter((s) => s.layer === "assembled" && !s.verbatim && hasFloorLanguage(s.text))
+    .map((s) => ({ rule: "R16" as const, sections: [s.id] }));
+}
+
 /* R11: the runtime-signals directive only belongs where no DOM tree is available. */
 function ruleRuntimeSignalsOnlyWithoutTree(cell: LintCell): LintFinding[] {
   const trees = uniqueSorted([...providersOf(cell, "dom-live"), ...providersOf(cell, "dom-failure")]);
@@ -476,6 +501,7 @@ export function lintCell(cell: LintCell, options: LintOptions = {}): readonly Li
     ...ruleReferencesNeedTheirArtifact(cell, options.artifactReferences),
     ...rulePolarityAgreesWithFraming(cell),
     ...ruleNoDelegatedAuthority(cell),
+    ...ruleNoEffortFloor(cell),
   ];
   /* Ordered by key as text, then by fact: the same cell always yields the same list, comparable across runs. */
   return findings

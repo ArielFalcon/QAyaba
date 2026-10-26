@@ -864,3 +864,21 @@ test("R15: evidence-bound wording is clean", () => {
   );
   assert.deepEqual(findings, []);
 });
+
+/*
+ * R16: the effort a prompt asks for is a ceiling and never a floor. No assembled section states a minimum, so declaring
+ * the no-op stays within every bound; captured data and the static layer are not judged.
+ */
+test("R16: an assembled section that states a minimum is reported, whichever word states it", () => {
+  for (const text of ["Write at least two specs.", "Expected effort: a minimum of one spec.", "No fewer than three flows.", "not less than one case"]) {
+    const findings = lintCell(cell([sec("task", [], { text })]));
+    assert.deepEqual(findings.map((f) => f.rule), ["R16"], text);
+    assert.deepEqual(findings[0]?.sections, ["task"]);
+  }
+});
+
+test("R16: a ceiling is clean, and captured data and the static layer are not judged", () => {
+  assert.deepEqual(lintCell(cell([sec("task", [], { text: "Expected effort (tiny change): at most one or two focused specs, or none if nothing here is worth a test." })])), []);
+  assert.deepEqual(lintCell(cell([sec("diff", [], { text: "at least two lines", verbatim: true })])), []);
+  assert.deepEqual(lintCell(cell([{ ...sec("role", [], { text: "Cover at least the happy path." }), layer: "static" }])), []);
+});

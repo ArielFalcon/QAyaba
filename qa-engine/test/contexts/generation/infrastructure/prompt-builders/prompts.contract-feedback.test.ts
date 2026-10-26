@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildPromptAssembled } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
-import { CONTRACT_FEEDBACK_SECTION_ID } from "@contexts/generation/infrastructure/prompt-builders/generator-renderers.ts";
+import { CONTRACT_FEEDBACK_MAX, CONTRACT_FEEDBACK_SECTION_ID } from "@contexts/generation/infrastructure/prompt-builders/generator-renderers.ts";
 import { lintCell, type LintSection } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import type { AssembledPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
@@ -73,7 +73,7 @@ test("the violations are capped, and the cap says how many it left out", () => {
   const many = Array.from({ length: total }, (_, i) => ({ ...VIOLATION, clauseId: `assertion-${i}` }));
   const text = sectionText(buildPromptAssembled(mkInput({ reviewCorrections: CORRECTIONS, contractFeedback: many })), CONTRACT_FEEDBACK_SECTION_ID);
   const shown = many.filter((violation) => text.includes(violation.clauseId));
-  assert.ok(shown.length > 0 && shown.length < total, "some violations are listed and some are left out");
+  assert.equal(shown.length, CONTRACT_FEEDBACK_MAX, "the first violations up to the cap are listed and the rest are left out");
   assert.deepEqual(shown, many.slice(0, shown.length), "the listed ones are the first ones, in order");
   assert.ok(text.includes(String(total - shown.length)), "the count of the omitted violations is stated (more than any listed index, so a clause id cannot stand for it)");
 });

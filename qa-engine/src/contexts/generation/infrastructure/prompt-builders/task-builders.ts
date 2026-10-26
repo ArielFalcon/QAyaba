@@ -201,8 +201,11 @@ function buildCodeTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
     ``,
     objective.text,
   ].join("\n");
-  return { text, claims: [claim.provides("diff"), ...objective.claims] };
+  return { text, claims: [claim.provides("diff"), claim.directs("consult", "diff"), ...objective.claims] };
 }
+
+/* A cross-repo change is read from the service's staged snapshot, never from its working copy: the block that says so declares the fact. */
+const serviceSnapshotClaims = (input: OpencodeRunInput): PromptClaim[] => (input.service ? [claim.provides("staged-service-snapshot")] : []);
 
 function buildServiceBlock(input: OpencodeRunInput): string[] {
   if (!input.service) return [];
@@ -266,7 +269,7 @@ function buildRegenTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts 
     objective.text,
     ...buildServiceBlock(input),
   ].join("\n");
-  return { text, claims: objective.claims };
+  return { text, claims: [...objective.claims, ...serviceSnapshotClaims(input)] };
 }
 
 /* What the prompt already supplies, so the task does not send the agent to fetch it again. */
@@ -289,7 +292,11 @@ export interface EffortTier {
 }
 
 /* The clause every tier ends with, so that what the data declares (the no-op is admitted) is what the text says. */
-export const EFFORT_NO_OP_CLAUSE = "or none if nothing here is worth a test or the change cannot be observed on DEV in its current state";
+export const NO_OP_REASONS = {
+  nothingWorthATest: "nothing here is worth a test",
+  devCannotShow: "cannot be observed on DEV in its current state",
+} as const;
+export const EFFORT_NO_OP_CLAUSE = `or none if ${NO_OP_REASONS.nothingWorthATest} or the change ${NO_OP_REASONS.devCannotShow}`;
 const effortText = (tier: DiffTier, bound: string): string => `Expected effort (${tier} change): at most ${bound}, ${EFFORT_NO_OP_CLAUSE}.`;
 
 export const EFFORT_BY_TIER: Record<DiffTier, EffortTier> = {
@@ -304,7 +311,9 @@ function sizeSentence({ files, added, removed }: DiffStat): string {
 }
 
 export function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
-  if (input.mode === "context") return { text: buildContextTask(input), claims: [claim.directs("analyze-repo")] };
+  if (input.mode === "context") {
+    return { text: buildContextTask(input), claims: [claim.directs("analyze-repo"), ...(input.services?.length ? [claim.provides("staged-service-snapshot")] : [])] };
+  }
   if (input.target === "code") return buildCodeTask(input, guards);
   if (isReGenTurn(input)) return buildRegenTask(input, guards);
   if (input.mode === "complete" || input.mode === "exhaustive") {
@@ -388,5 +397,7 @@ export function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskPart
   if (!guards.mapInjected) claims.push(claim.directs("read", "arch-map"), claim.frames("arch-map", "unverified"));
   if (!guards.blastRadiusGrounded) claims.push(claim.directs("orient", "blast-radius"));
   if (!guards.suiteListed) claims.push(claim.directs("read", "existing-suite"));
+  /* The instruction to cross-check the diff is in this text, so the diff it refers to is declared consulted. */
+  claims.push(claim.directs("consult", "diff"), ...serviceSnapshotClaims(input));
   return { text, claims };
 }

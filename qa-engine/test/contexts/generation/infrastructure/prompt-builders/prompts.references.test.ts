@@ -7,6 +7,8 @@ import {
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
+import { LIVE_BROWSERS } from "@contexts/generation/infrastructure/prompt-builders/generator-context.ts";
+import { PACK_CONTRACTS_NOUN } from "@contexts/generation/infrastructure/prompt-builders/generator-sections.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import { lintCell, type LintSection } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { renderBlastRadiusSignal } from "@contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts";
@@ -45,6 +47,9 @@ function sectionText(assembled: AssembledPrompt, id: string): string {
   return "";
 }
 
+/* The tools a turn reads a page with, whichever of the two browsers it was given. */
+const BROWSER_TOOL = new RegExp(`\\b(${Object.values(LIVE_BROWSERS).flatMap((browser) => [browser.navigate, browser.snapshot]).join("|")})\\b`);
+
 const PACK_HEAD = `## ${PACK_HEADINGS.pack} (pushed by the orchestrator)\n\n`;
 const DOM_SECTION = `### ${PACK_HEADINGS.liveDom} (a11y tree)\nroute /cart:\n  button: Apply coupon`;
 const CONTRACTS_SECTION = `### ${PACK_HEADINGS.contracts}\n- \`applyCoupon\`: POST /cart/coupon`;
@@ -54,9 +59,9 @@ const PACK_CONTRACTS_ONLY = PACK_HEAD + CONTRACTS_SECTION;
 
 test("the working rules describe the pack by the sections it holds: a pack with a DOM and no contracts is not a contracts pack", () => {
   const domOnly = sectionText(buildPromptAssembled(mkInput({ contextPack: PACK_HEAD + DOM_SECTION })), "working-rules");
-  assert.doesNotMatch(domOnly, /contracts/i);
+  assert.doesNotMatch(domOnly, new RegExp(PACK_CONTRACTS_NOUN, "i"));
   const both = sectionText(buildPromptAssembled(mkInput({ contextPack: `${PACK_HEAD}${DOM_SECTION}\n\n${CONTRACTS_SECTION}` })), "working-rules");
-  assert.match(both, /contracts/i);
+  assert.match(both, new RegExp(PACK_CONTRACTS_NOUN, "i"));
 });
 
 test("a code run is never sent to a browser tool, whichever correction it is asked to make", () => {
@@ -70,7 +75,7 @@ test("a code run is never sent to a browser tool, whichever correction it is ask
       const { baseUrl: _unused, ...codeInput } = mkInput({ target: "code", mode, guidance: "cover the total", ...correction });
       void _unused;
       const assembled = buildPromptAssembled(codeInput);
-      assert.doesNotMatch(assembled.text, /\bbrowser_\w+/, `${Object.keys(correction)[0]} in ${mode} mode`);
+      assert.doesNotMatch(assembled.text, BROWSER_TOOL, `${Object.keys(correction)[0]} in ${mode} mode`);
     }
   }
 });
