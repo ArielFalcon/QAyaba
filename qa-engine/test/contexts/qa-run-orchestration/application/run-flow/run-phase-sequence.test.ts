@@ -82,7 +82,7 @@ test("a green manual run opens the same phases without classify and coverage, wh
 test("a green diff run reports the steps it ran, and the ones it passed over, by id and in table order", async () => {
   const input: RunQaInput = { ...base, mode: "diff", runId: "sequence-ids-diff" };
   assert.deepEqual(await idsOf(input, "ran"), [
-    "stop-if-aborted-before-gate", "wait-for-deploy", "classify-change", "arm-run-deadline", "index-mirror", "restore-accepted-suite", "set-up-project", "prepare-login", "clean-prior-run",
+    "wait-for-deploy", "classify-change", "arm-run-deadline", "index-mirror", "restore-accepted-suite", "set-up-project", "prepare-login", "clean-prior-run",
     "open-authoring-handles", "read-diff-shapes", "retrieve-rules", "select-exemplars", "resolve-blast-radius", "resolve-service-links", "resolve-cross-repo-impact", "ground-repository",
     "assemble-enrichment", "generate-first-pass", "settle-generation-end", "ground-before-execution", "validate-statically", "check-health", "prepare-execute-auth", "announce-execution",
     "execute-specs", "fingerprint-green-suite", "announce-coverage", "measure-coverage", "review-tests", "release-coordinated-pass", "guard-final-proof",
@@ -99,7 +99,7 @@ test("a green manual run reports the same steps except the ones only a per-commi
   assert.deepEqual(await idsOf(input, "skipped"), ["classify-change", "run-fix-loop", "announce-coverage", "regenerate-for-coverage", "remeasure-stale-coverage"]);
 });
 
-test("a step passed over before any phase opens is reported in the first phase that opens", async () => {
+test("the first step of a run is reported in the phase it opens", async () => {
   const recorder = await runOf({ ...base, mode: "diff", runId: "sequence-first-phase" });
-  assert.deepEqual(recorder.steps[0], { id: "stop-if-aborted-before-gate", outcome: "ran", phase: "gate" });
+  assert.deepEqual(recorder.steps[0], { id: "wait-for-deploy", outcome: "ran", phase: "gate" });
 });

@@ -14,10 +14,9 @@ import { fingerprintGreenSuite, runFixLoop } from "./phases/fix-loop.steps.ts";
 import { announceCoverage, announcesCoverage, measureCoverage, measuresCoverage, regenerateForCoverage, regeneratesForCoverage } from "./phases/coverage.steps.ts";
 import { releaseCoordinatedPass, remeasureStaleCoverage, remeasuresStaleCoverage, reviewTests, reviewsRun } from "./phases/review.steps.ts";
 import { decideRun, guardFinalProof, guardsFinalProof } from "./phases/decide.steps.ts";
-import { armRunDeadline, classifyChange, indexMirror, stopIfAbortedBeforeGate, waitForDeploy } from "./phases/opening.steps.ts";
+import { armRunDeadline, classifyChange, indexMirror, waitForDeploy } from "./phases/opening.steps.ts";
 
 export const BEFORE_WORKSPACE: ReadonlyArray<FlowStep<RunState, RunContext>> = [
-  { id: "stop-if-aborted-before-gate", run: stopIfAbortedBeforeGate },
   { id: "wait-for-deploy", phase: "gate", run: waitForDeploy },
 ];
 

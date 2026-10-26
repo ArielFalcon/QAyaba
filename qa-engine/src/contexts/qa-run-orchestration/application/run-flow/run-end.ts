@@ -97,6 +97,17 @@ export function runEnd<R extends EndReason>(reason: R, ...facts: FactsArg<R>): E
  * teaches (learningGates), never by the end alone. `prune`: the working copy is pruned once the git write is done, before the run's record is saved, except for a declared no-op, which records its skip first. The table is
  * pinned row by row against the run-end table of the tests.
  */
+/*
+ * The ends a cancelled run does not keep: a cancelled run is not a failed login, so whatever the killed attempt saw, an end listed
+ * here under a cancelled signal is `aborted`. Data, so the runner applies it to every step.
+ */
+export const ABORT_SUPERSEDES: ReadonlyArray<(end: RunEnd) => boolean> = [
+  (end) => end.reason === "login-precondition",
+  (end) => end.reason === "pre-execute-infra" && end.preconditionFailed === true,
+];
+
+export const supersededByAbort = (end: RunEnd): boolean => ABORT_SUPERSEDES.some((supersedes) => supersedes(end));
+
 export interface EndEffects {
   persist: "yes" | "no" | "not-in-context-mode";
   publish: "decision" | "none";

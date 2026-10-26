@@ -13,6 +13,7 @@ import type { ContractFeedback } from "../../../domain/contract-feedback.ts";
 import type { GenerationOutput, ReviewPort } from "../../ports/index.ts";
 import type { RegenerationAcceptance } from "../../regeneration-acceptance.ts";
 import { end, type StepOutcome } from "../run-flow.ts";
+import { throwIfAborted } from "../abort.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { liveExecutionOptions, executeAccepted, validateAccepted } from "./execute.steps.ts";
@@ -114,13 +115,13 @@ export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunCo
           reviewDomSnapshot = await deps.reviewDomGrounding.capture(workspace.specDir, specsForReview, signal);
         } catch (err) {
           /* Abort during capture stops the run, not an ungrounded review round. */
-          if (signal?.aborted) return end("aborted");
+          throwIfAborted(signal);
           console.error("[qa] WARNING: reviewer DOM grounding failed (non-fatal, review continues ungrounded):", err);
           reviewDomSnapshot = undefined;
         }
         lastReviewSpecsKey = specsKey;
       }
-      if (signal?.aborted) return end("aborted");
+      throwIfAborted(signal);
     }
 
     const reviewedSpecs = readReviewedSpecs(specRoot, reviewCases);

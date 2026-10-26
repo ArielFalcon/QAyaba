@@ -10,11 +10,6 @@ import type { CodeGraphIndexRecord } from "@kernel/code/index.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
 
-/* Already-aborted signal short-circuits before the entry gate. */
-export async function stopIfAbortedBeforeGate(_state: Readonly<RunState>, ctx: RunContext): Result {
-  if (ctx.signal?.aborted) return end("aborted");
-}
-
 export async function waitForDeploy(_state: Readonly<RunState>, ctx: RunContext): Result {
   ctx.deps.observer?.onStep("gate");
   if (ctx.deps.deployGate) {
@@ -24,7 +19,6 @@ export async function waitForDeploy(_state: Readonly<RunState>, ctx: RunContext)
       return end("deploy-gate-failed", { note: gateResult.error.message });
     }
   }
-  if (ctx.signal?.aborted) return end("aborted");
 }
 
 /*
@@ -83,7 +77,6 @@ export async function indexMirror(_state: Readonly<RunState>, ctx: WorkspaceRunC
       }
     }
   }
-  if (ctx.signal?.aborted) return end("aborted");
 }
 
 async function indexOne(ctx: WorkspaceRunContext, codeGraph: CodeGraphPort, repoDir: string, sha: string): Promise<void> {

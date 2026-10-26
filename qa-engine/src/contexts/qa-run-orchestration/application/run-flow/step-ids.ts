@@ -5,7 +5,6 @@
  */
 
 export const STEP_IDS = [
-  "stop-if-aborted-before-gate",
   "wait-for-deploy",
   "classify-change",
   "arm-run-deadline",

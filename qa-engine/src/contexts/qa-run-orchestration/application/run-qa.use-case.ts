@@ -420,6 +420,7 @@ export class RunQaUseCase {
   private async drive(baseCtx: RunContext): Promise<RunQaResult> {
     const { input, signal, trail } = baseCtx;
     const hooks: FlowHooks = {
+      aborted: () => signal?.aborted === true,
       enter: (phase: RunPhase) => trail.phases.enter(phase),
       record: (event) =>
         trail.spans.step({

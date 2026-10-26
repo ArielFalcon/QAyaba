@@ -9,6 +9,7 @@ import { MAX_STATIC_FIX_ROUNDS } from "../../../domain/helpers/derive-cycle-back
 import { reviewerApprovalOf } from "../../ports/index.ts";
 import type { ExecutionPort, ValidationPort } from "../../ports/index.ts";
 import { end, type StepOutcome } from "../run-flow.ts";
+import { throwIfAborted } from "../abort.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { closedLoopSignal, loopClosedNow, regenerate, staticGateFindings } from "./generation-services.ts";
@@ -126,9 +127,7 @@ export async function validateStatically(state: Readonly<RunState>, ctx: Workspa
   }
   while (!staticFixRetired && !validation.ok && !validation.infra && generating && hasDelivered() && staticFixRounds < MAX_STATIC_FIX_ROUNDS) {
     /* Cancel mid-repair must stop before burning another generate()+validate() round-trip. */
-    if (signal?.aborted) {
-      return end("aborted");
-    }
+    throwIfAborted(signal);
     staticFixRounds++;
     /* mutation-scope:begin static-fix-round */
     retries++;
@@ -173,16 +172,13 @@ async function withLinterFixes(validation: Awaited<ReturnType<WorkspaceRunContex
 
 /* Mid-run DEV pre-flight: a DEV that is down ends the run before the specs run. */
 export async function checkHealth(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, signal } = ctx;
+  const { deps } = ctx;
   deps.observer?.onStep("health");
   const health = await checkDevHealth(ctx);
   if (!health.healthy) {
     const healthReason = health.reason;
     console.error("[qa] health pre-flight failed before execute:", healthReason);
     return await preExecuteInfraError(state, ctx, healthReason);
-  }
-  if (signal?.aborted) {
-    return end("aborted");
   }
 }
 
@@ -195,7 +191,6 @@ export async function prepareExecuteAuth(state: Readonly<RunState>, ctx: Workspa
   const auth = await ctx.host.prepareAuth(workspace.specDir, "pre-execute", signal);
   if ("failed" in auth) return await preExecuteInfraError(state, ctx, auth.failed);
   if ("precondition" in auth) {
-    if (signal?.aborted) return end("aborted");
     /* Reached only by a run that generates tests (the guard above), which a failed login always ends. */
     ctx.host.announcePrecondition(auth.precondition, true);
     return await preExecuteInfraError(state, ctx, ctx.host.preconditionNote(auth.precondition), { preconditionFailed: true });
@@ -209,14 +204,11 @@ export async function announceExecution(_state: Readonly<RunState>, ctx: Workspa
 
 /* The primary pass. A successful context generation is an immediate pass with zero cases. */
 export async function executeSpecs(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, input, workspace, signal, services } = ctx;
+  const { deps, input, workspace, services } = ctx;
   const run = input.mode === "context"
     ? { verdict: "pass" as const, cases: [] as QaCase[], logs: state.generation.generated.note ?? "" }
     : await deps.execution.execute(workspace.specDir, liveExecutionOptions(ctx));
   /* The primary pass just ran: its bytes fix the contract every later regeneration is measured against (A5). */
   await services.primeIntentBaseline();
-  if (signal?.aborted) {
-    return end("aborted");
-  }
   return { update: { execution: { ...state.execution, run } } };
 }

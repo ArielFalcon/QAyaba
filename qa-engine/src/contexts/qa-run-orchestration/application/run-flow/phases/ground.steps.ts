@@ -7,7 +7,8 @@ import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 import { rethrowIfUntrusted } from "../../../../../shared-kernel/domain-error.ts";
 import { rethrowIfRunDeadline } from "../../../../../shared-kernel/run-deadline.ts";
 import type { RelevanceBias, RetrievedRule, ServiceLink, ContractDrift, CrossRepoImpact } from "../../ports/index.ts";
-import { end, type StepOutcome } from "../run-flow.ts";
+import type { StepOutcome } from "../run-flow.ts";
+import { throwIfAborted } from "../abort.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 
@@ -111,15 +112,10 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
     } catch (err) {
       rethrowIfRunDeadline(err);
       /* Abort during grounding takes the abort route, not ungrounded continue. */
-      if (signal?.aborted) return end("aborted");
+      throwIfAborted(signal);
       console.error("[qa] WARNING: pre-generation grounding failed (non-fatal, generation continues ungrounded):", err);
     }
   }
-  /*
-   * The adapter may resolve a partial GroundingResult on abort instead of
-   * throwing — this check is what actually routes abort vs continue.
-   */
-  if (signal?.aborted) return end("aborted");
   return {
     update: {
       grounding: {

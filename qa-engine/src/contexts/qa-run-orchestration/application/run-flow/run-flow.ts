@@ -1,14 +1,16 @@
 /*
  * A run as a declarative table of steps. Each step has an id, reads the run's state, does its work and returns one closed outcome:
  * nothing or an update (go on to the next step), `goto` (go on to the step with that id), or `end` (the run is over, for a reason).
- * The runner walks the table in order: a step whose `runs` says no is passed over, a step that names a phase opens it on the run's
+ * The runner walks the table in order: before each step it asks whether the run was cancelled and ends it `aborted` if so (a
+ * cancelled run is never a failed login: an end in ABORT_SUPERSEDES under a cancelled run becomes `aborted` too), a step whose `runs` says no is passed over, a step that names a phase opens it on the run's
  * phase cursor first (a step without one runs inside the phase already open), an update is merged into the state, and the first
  * end stops the walk. Every step the runner passes over, runs or ends on is reported to the run's recorder, so the trace says in
  * which order the steps came and why the run stopped. The runner does not turn an end into a result: that is `finalizeRun`.
  */
 
 import type { RunPhase } from "../../domain/run-phase-cursor.ts";
-import { runEnd, type EndReason, type FactsArg, type RunEnd } from "./run-end.ts";
+import { RunAbortedError } from "./abort.ts";
+import { runEnd, supersededByAbort, type EndReason, type FactsArg, type RunEnd } from "./run-end.ts";
 import type { StepId } from "./step-ids.ts";
 
 /** What a step decides: go on (nothing, or an update), go to a named step, or end the run. */
@@ -40,6 +42,8 @@ export type StepEvent<Id extends string = StepId> =
 
 /** What the runner needs from the run: the phase cursor, and somewhere to report the steps. */
 export interface FlowHooks<Id extends string = StepId> {
+  /** Whether the run was cancelled: asked before every step, and the run ends `aborted` as soon as it was. */
+  aborted(): boolean;
   enter(phase: RunPhase): void;
   record(event: StepEvent<Id>): void;
 }
@@ -70,17 +74,29 @@ export async function runFlow<S extends object, C, Id extends string = StepId>(
   for (let transitions = 0; index < steps.length; transitions++) {
     if (transitions >= MAX_TRANSITIONS) throw new Error(`the step table did not end after ${MAX_TRANSITIONS} transitions`);
     const step = steps[index]!;
+    if (hooks.aborted()) {
+      hooks.record({ id: step.id, outcome: "ended", reason: "aborted" });
+      return { end: runEnd("aborted") };
+    }
     if (step.runs && !step.runs(state, ctx)) {
       hooks.record({ id: step.id, outcome: "skipped" });
       index++;
       continue;
     }
     if (step.phase) hooks.enter(step.phase);
-    const outcome = await step.run(state, ctx);
+    let outcome: StepOutcome<S, Id>;
+    try {
+      outcome = await step.run(state, ctx);
+    } catch (err) {
+      if (!(err instanceof RunAbortedError)) throw err;
+      hooks.record({ id: step.id, outcome: "ended", reason: "aborted" });
+      return { end: runEnd("aborted") };
+    }
     if (outcome && "end" in outcome) {
       if (outcome.update) Object.assign(state, outcome.update);
-      hooks.record({ id: step.id, outcome: "ended", reason: outcome.end.reason });
-      return { end: outcome.end };
+      const ending = hooks.aborted() && supersededByAbort(outcome.end) ? runEnd("aborted") : outcome.end;
+      hooks.record({ id: step.id, outcome: "ended", reason: ending.reason });
+      return { end: ending };
     }
     hooks.record({ id: step.id, outcome: "ran" });
     if (outcome?.update) Object.assign(state, outcome.update);
@@ -92,5 +108,7 @@ export async function runFlow<S extends object, C, Id extends string = StepId>(
       index++;
     }
   }
+  /* A cancel that came during the last step still ends the run, before whatever follows the table. */
+  if (hooks.aborted()) return { end: runEnd("aborted") };
   return { state };
 }

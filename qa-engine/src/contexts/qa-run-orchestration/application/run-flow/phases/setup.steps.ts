@@ -70,8 +70,6 @@ export async function prepareLogin(state: Readonly<RunState>, ctx: WorkspaceRunC
     }
     if ("failed" in auth) return end("auth-failed", { note: auth.failed });
     if ("precondition" in auth) {
-      /* A cancelled run is not a failed login: whatever the killed attempt saw, the abort wins. */
-      if (signal?.aborted) return end("aborted");
       const terminal = terminalForPrecondition(input.mode);
       ctx.host.announcePrecondition(auth.precondition, terminal.action === "end");
       if (terminal.action === "end") {
@@ -80,9 +78,6 @@ export async function prepareLogin(state: Readonly<RunState>, ctx: WorkspaceRunC
     } else {
       authSeedUnauthored = auth.unauthored;
     }
-  }
-  if (signal?.aborted) {
-    return end("aborted");
   }
   return { update: { setup: { ...state.setup, authSeedUnauthored } } };
 }
@@ -103,9 +98,6 @@ export async function cleanPriorRun(_state: Readonly<RunState>, ctx: WorkspaceRu
     } catch (err) {
       console.error(`[qa] cleanup warning (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
     }
-  }
-  if (signal?.aborted) {
-    return end("aborted");
   }
 }
 

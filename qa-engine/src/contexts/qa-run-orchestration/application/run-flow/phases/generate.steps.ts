@@ -16,6 +16,7 @@ import type { GenerationOutput } from "../../ports/index.ts";
 import type { CoordinateResult } from "../../coordination/lead-sidekicks.ts";
 import { evidenceFromPackDataRoutes } from "../../coordination/evidence-from.ts";
 import { end, type StepOutcome } from "../run-flow.ts";
+import { throwIfAborted } from "../abort.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { afterGeneration, closedLoopSignal, geolocationEnrichment, loopClosedNow, regenerate } from "./generation-services.ts";
@@ -116,7 +117,7 @@ export async function generateFirstPass(state: Readonly<RunState>, ctx: Workspac
      */
     const coordinated = await coordinateFirstPass(state, ctx);
     const coordinatedFirstPass = coordinated.generated;
-    if (signal?.aborted) return end("aborted");
+    throwIfAborted(signal);
     generated = coordinatedFirstPass
       ?? (await afterGeneration(ctx, await deps.generation.generate(workspace.specDir, signal, classificationDiff, {
         ...baseEnrichment,
