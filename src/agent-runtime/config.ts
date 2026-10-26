@@ -21,7 +21,7 @@ export interface PublicAgentConfig {
 const DEFAULT_MODELS: Record<AgentProvider, Record<keyof AgentRuntimeConfig["assignments"], string>> = {
   opencode: {
     /* Must match agents/opencode.json qa-author. */
-    primary: "opencode-go/glm-5.3-flash",
+    primary: "opencode-go/deepseek-v4.1-flash",
     /* Must match qa-reviewer. It may equal primary: whether the review is an independent judgment is
        recorded on every run (reviewerIndependence) and warned about at boot, not enforced. */
     reviewer: "opencode-go/glm-5.3-flash",

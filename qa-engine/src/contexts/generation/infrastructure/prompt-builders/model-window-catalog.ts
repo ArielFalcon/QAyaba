@@ -17,7 +17,7 @@ const MODEL_WINDOW_TOKENS: Record<string, number> = {
   "glm-5.3-flash": 1_000_000,
   "minimax-m3.1-flash-free": 1_000_000,
   "deepseek-v4.1-flash-free": 200_000,
-  "deepseek-v4.1-flash": 1_048_576,
+  "deepseek-v4.1-flash": 1_000_000,
   "beam-free": 1_048_576,
   "muse-spark-1.3-contributor": 1_048_576,
   "kimi-k2.7-code": 224_000,
