@@ -1162,6 +1162,19 @@ test("an explore request runs read-only sidekicks, returns verified findings to 
   assert.equal(explores.length, 2, "each explore session is counted in the telemetry");
 });
 
+test("a run cancelled during exploration asks the lead nothing more and starts no author", async () => {
+  const r = rig();
+  const controller = new AbortController();
+  const x = exploring(r, [CART_QUESTION], { cart: { id: "cart", status: "answered", findings: [] } });
+  const open = r.deps.sidekick.open;
+  r.deps.sidekick.open = async (brief, opts) => { if (opts.kind === "explore") controller.abort(); return open(brief, opts); };
+  const outcome = await new LeadSidekicks(r.deps).coordinate(x.input({ signal: controller.signal }));
+  assert.equal(x.askedForPlan.length, 0, "no turn is spent on a cancelled run");
+  assert.equal(outcome.action, "refused");
+  assert.equal(r.sessionsOpened, 0);
+  assert.equal(x.disposedLead(), 1);
+});
+
 test("a second explore request is not admitted: the plan is refused with the reason and no author is started", async () => {
   const r = rig();
   const x = exploring(r, [CART_QUESTION], { cart: { id: "cart", status: "answered", findings: [] } }, { explore: [CART_QUESTION] });

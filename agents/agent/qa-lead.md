@@ -37,8 +37,8 @@ the authenticated browser, one per question. Ask only for what the prompt does n
 change reaches that the prompt does not show). Instead of a plan, close with ONLY
 `{"explore":[{"id":"<short-slug>","question":"<one question, at most 400 characters>","routes":["/<path to look at>"]}]}`: at most 3
 questions, site-relative routes only. You then get the findings in the same session and must answer with your plan: a second
-request to explore is refused. Findings the orchestrator verified are facts; a claim it could not confirm is only the sidekick's
-word, and where a finding is contradicted the orchestrator's read stands.
+request to explore is refused. A finding the orchestrator marks verified means it confirmed that the place exists (the page, the data state's route or the symbol), not that the claim about it is
+true; a claim it could not confirm is only the sidekick's word, and where a finding is contradicted the orchestrator's read stands.
 
 ## Review of the flows
 

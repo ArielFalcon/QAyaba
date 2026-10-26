@@ -272,6 +272,14 @@ test("a run cancelled while its flows were being authored is a cancelled run, no
 });
 
 
+test("a run cancelled while its plan was being refused is a cancelled run, not an E-NO-AUTHOR result", async () => {
+  const controller = new AbortController();
+  const r = rig(() => { controller.abort(); return refused(AUTHORING_REFUSAL.PLAN_TIMED_OUT); });
+  const out = await new RunQaUseCase(r.deps()).run(INPUT, controller.signal);
+  assert.notEqual(out.errorClass, "E-NO-AUTHOR");
+  assert.equal(r.calls.includes("validate"), false);
+});
+
 /* A coordinated pass kept open: it records what it was asked to correct and how many times it was released, and corrects as told. */
 function keptPass(r: Rig, answer: (findings: readonly CorrectionFinding[]) => PassCorrection) {
   const seen = { corrected: [] as CorrectionFinding[][], origins: [] as CorrectionOrigin[], released: 0 };

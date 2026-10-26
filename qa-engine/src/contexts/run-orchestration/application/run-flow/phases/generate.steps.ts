@@ -74,7 +74,11 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
   ctx.host.recordCoordination(result.signal);
   /* The turns the lead spent reviewing the flows, counted from the signal the coordination records. */
   const leadReviewTurns = result.signal.review?.turns ?? 0;
-  if (result.action === "refused") throw new NoAuthorError(result.refusal, result.reason);
+  if (result.action === "refused") {
+    /* A cancelled run is a cancelled run, whatever the coordinator made of it. */
+    throwIfAborted(signal);
+    throw new NoAuthorError(result.refusal, result.reason);
+  }
   if (result.action === "noop") {
     /* A plan names no kind of no-op. */
     return { leadReviewTurns, generated: { specs: [], end: GENERATION_END.DECLARED_NOOP, noopKind: NOOP_KIND.UNSPECIFIED, parsed: true, note: result.reason } };

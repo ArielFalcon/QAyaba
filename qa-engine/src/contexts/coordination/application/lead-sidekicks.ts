@@ -353,6 +353,8 @@ export class LeadSidekicks {
         ...(input.devBaseUrl ? { devBaseUrl: input.devBaseUrl } : {}),
       },
     );
+    /* A cancelled run spends no further turn of the lead: it has no plan to admit, and the caller reads the cancellation. */
+    if (input.signal?.aborted) return { planned: { parsed: false, timedOut: false, lead } };
     const left = this.remaining(input);
     const answered = await lead.askForPlan(renderExploreOutcome(this.deps.redaction, outcome), { timeoutMs: Math.max(1, left === undefined ? input.settings.planBudgetMs : Math.min(input.settings.planBudgetMs, left)) });
     /* One round per run: a second request is not a plan. */
