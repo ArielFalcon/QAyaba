@@ -9,8 +9,7 @@
  */
 
 import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../shared-infrastructure/redaction/run-secret-redaction.ts";
-import { isSandboxUnavailable } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
-import { activeExecScope, refusedScope, sandboxRefused, sandboxSignal, withExecScope, type ExecScopePort } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
+import type { ExecScopePort } from "../../../shared-kernel/ports/exec-scope.port.ts";
 import type { AuthSession } from "@contexts/app-catalog/application/index.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { RunPhaseCursor, recordPhaseSnapshot, type PhaseClock, type RunPhase } from "../domain/run-phase-cursor.ts";
@@ -85,13 +84,14 @@ export class RunQaUseCase {
     /* The run owns the secrets of its test account: whatever learns one registers it into this scope, and the text that reaches a model has them taken out by value (run-secret-redaction.ts). */
     const secrets = createRunSecretScope();
     let sandbox: Awaited<ReturnType<ExecScopePort["open"]>> | undefined;
+    const scopes = this.deps.execScope;
     try {
-      sandbox = await this.deps.execScope?.open({ runId: input.runId });
+      sandbox = await scopes?.open({ runId: input.runId });
     } catch (err) {
       /* The scope could not be made because the sandbox is not safe to run in (a process of an earlier run still holds the sandbox uid): the run ends E-SANDBOX without executing anything. */
-      if (!isSandboxUnavailable(err)) throw err;
+      if (!scopes?.isSandboxUnavailable(err)) throw err;
       return await withRunSecretScope(secrets, () =>
-        withExecScope(refusedScope(input.runId, err.reason === "scope" ? "uid" : err.reason), async () => {
+        scopes.withExecScope(scopes.refusedScope(input.runId, err.reason === "scope" ? "uid" : err.reason), async () => {
           const state = this.stateOf(input);
           const ctx = this.contextOf(input, undefined, this.trailOf(input, secrets), state);
           const result = await this.finalize(failureEnd("sandbox-unavailable", err, ctx, state), ctx, state);
@@ -125,7 +125,7 @@ export class RunQaUseCase {
     const state = this.stateOf(input);
     const { spans, phases } = trail;
     /* A child the launcher starts for this run is a child of whichever phase is open. */
-    const scope = activeExecScope();
+    const scope = this.deps.execScope?.activeExecScope();
     if (scope) scope.telemetry = { parent: () => spans.context(), phaseStart: () => spans.startedAt(), annotate: (attrs) => spans.annotate(attrs) };
     try {
       return this.withPhases(await this.execute(input, signal, trail, state), trail, state);
@@ -232,7 +232,7 @@ export class RunQaUseCase {
    * note names the kind of error, never its text, which the caller records after redacting it. A fault here never replaces the error.
    */
   private async keepSandboxEvidence(err: unknown, ctx: RunContext, state: Readonly<RunState>): Promise<void> {
-    if (ctx.signal?.aborted || sandboxSignal() === undefined) return;
+    if (ctx.signal?.aborted || this.deps.execScope?.sandboxSignal() === undefined) return;
     const kind = err instanceof Error && err.name ? err.name : "an error";
     try {
       await recordCrashEvidence(`The run ended on ${kind} before it reached a verdict; only what the sandbox saw is kept here.`, ctx, state);
@@ -243,7 +243,7 @@ export class RunQaUseCase {
 
   /* Says once, at the end of a run, which hosts the egress filter refused: the operator reads from it what to declare in dev.allowedOrigins. */
   private sayDeniedHosts(): void {
-    const denied = sandboxSignal()?.denied ?? [];
+    const denied = this.deps.execScope?.sandboxSignal()?.denied ?? [];
     if (denied.length === 0) return;
     const shown = denied.slice(0, DENIED_HOSTS_SHOWN).map(printableHost);
     const more = denied.length > shown.length ? ` (and ${denied.length - shown.length} more)` : "";
@@ -377,8 +377,8 @@ export class RunQaUseCase {
       announcePrecondition: (failure, ends) => this.announcePrecondition(failure, ends),
       preconditionNote: (failure) => this.preconditionNote(failure),
       coordination: () => state.coordination,
-      sandboxRefused: () => sandboxRefused(),
-      sandboxSignal: () => sandboxSignal(),
+      sandboxRefused: () => this.deps.execScope?.sandboxRefused() ?? false,
+      sandboxSignal: () => this.deps.execScope?.sandboxSignal(),
     };
     return { input, signal, trail, deps: this.deps, telemetry: this.telemetry, cfg, startedAt, cycleBudget, wallClockBudget, host };
   }

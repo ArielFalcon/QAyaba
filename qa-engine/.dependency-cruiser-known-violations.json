@@ -29,49 +29,6 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/run-orchestration/application/run-flow/run-types.ts",
-    "to": "qa-engine/src/shared-infrastructure/process-sandbox/exec-scope.ts",
-    "unresolvedTo": "../../../../shared-infrastructure/process-sandbox/exec-scope.ts",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "application-not-infrastructure"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/run-orchestration/application/run-qa.use-case.ts",
-    "to": "qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts",
-    "unresolvedTo": "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "application-not-infrastructure"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/run-orchestration/application/run-qa.use-case.ts",
-    "to": "qa-engine/src/shared-infrastructure/process-sandbox/exec-scope.ts",
-    "unresolvedTo": "../../../shared-infrastructure/process-sandbox/exec-scope.ts",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "application-not-infrastructure"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "qa-engine/src/contexts/run-orchestration/application/run-qa.use-case.ts",
     "to": "qa-engine/src/shared-infrastructure/redaction/run-secret-redaction.ts",
     "unresolvedTo": "../../../shared-infrastructure/redaction/run-secret-redaction.ts",

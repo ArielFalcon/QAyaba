@@ -74,7 +74,7 @@ import { MirrorRegistryAdapter } from "@contexts/service-topology/infrastructure
 import type { BoundaryProfileProviderPort } from "@contexts/service-topology/application/index.ts";
 import { CrossRepoImpactPortAdapter } from "../../service-topology/infrastructure/adapters/cross-repo-impact-port.adapter.ts";
 import { GitMirrorReadAdapter } from "@contexts/change-analysis/infrastructure/git-mirror-read.adapter.ts";
-import type { ExecScopePort } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
+import type { ExecScopePort } from "../../../shared-kernel/ports/exec-scope.port.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import { PatternRedactionAdapter } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { readConfinedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";

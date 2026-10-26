@@ -164,6 +164,9 @@ test("isProtectedPath flags the secret boundary (a fix must never weaken what sc
   assert.equal(isProtectedPath("qa-engine/src/shared-infrastructure/spec-path-confinement.ts"), true);
   assert.equal(isProtectedPath("qa-engine/src/shared-infrastructure/spec-files.adapter.ts"), true);
   assert.equal(isProtectedPath("qa-engine/src/shared-kernel/ports/spec-files.port.ts"), true);
+  /* the exec scope the run flow reads the sandbox through: its kernel port and the shared ambient views */
+  assert.equal(isProtectedPath("qa-engine/src/shared-kernel/ports/exec-scope.port.ts"), true);
+  assert.equal(isProtectedPath("qa-engine/src/shared-infrastructure/process-sandbox/ambient-exec-scope.ts"), true);
   /* the logs→Issue containsSecret fail-loud call site — an autonomous fix could remove the guard
      that refuses to ship a secret-carrying Issue body.
    */

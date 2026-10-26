@@ -13,6 +13,7 @@ import type { ObserverPort } from "@contexts/run-orchestration/application/ports
 import { ERROR_CLASS } from "@contexts/cross-run-learning/domain/error-class.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
+import { ambientExecScope } from "../../../../src/shared-infrastructure/process-sandbox/ambient-exec-scope.ts";
 import { createExecSandbox, SandboxUnavailableError } from "../../../../src/shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { activeExecScope, type ExecScopePort } from "../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 import { createExecScopeProvider } from "../../../../src/shared-infrastructure/process-sandbox/exec-scope-provider.ts";
@@ -120,7 +121,7 @@ test("a run in which the launcher refused to start agent code ends E-SANDBOX, no
 
 test("a run whose sandbox scope cannot be opened because a survivor holds the sandbox uid ends E-SANDBOX without running anything", async () => {
   let executed = false;
-  const refusing: ExecScopePort = { open: async () => { throw new SandboxUnavailableError("residue", "the run cannot start: 1 process(es) of the sandbox uid survived SIGKILL"); } };
+  const refusing: ExecScopePort = { ...ambientExecScope, open: async () => { throw new SandboxUnavailableError("residue", "the run cannot start: 1 process(es) of the sandbox uid survived SIGKILL"); } };
   const out = await runWith({ execScope: refusing, execute: async () => { executed = true; return { verdict: "pass", cases: [], logs: "" }; } });
   assert.equal(out.threw, undefined);
   assert.equal(executed, false);

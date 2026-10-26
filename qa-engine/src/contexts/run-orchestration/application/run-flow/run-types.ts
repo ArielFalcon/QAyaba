@@ -12,7 +12,7 @@ import type { AgentBrowserGateSignal } from "@kernel/agent-browser.ts";
 import type { CoordinationSettings } from "@kernel/coordination.ts";
 import type { CoordinatedPass, LeadSidekicks } from "@contexts/coordination/application/index.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
-import type { ExecScopePort } from "../../../../shared-infrastructure/process-sandbox/exec-scope.ts";
+import type { ExecScopePort } from "../../../../shared-kernel/ports/exec-scope.port.ts";
 import type { AuthSessionContext, AuthSessionPort } from "@contexts/app-catalog/application/index.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { ChangeAnalysisPort, StructuralSignalPort } from "@contexts/change-analysis/application/index.ts";

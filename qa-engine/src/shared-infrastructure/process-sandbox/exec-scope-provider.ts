@@ -2,6 +2,7 @@
 
 import { join } from "node:path";
 import { activeRunSecretScope } from "../redaction/run-secret-redaction.ts";
+import { ambientExecScope } from "./ambient-exec-scope.ts";
 import { newSandboxReport, withExecScope, type ExecScopePort, type RunScope } from "./exec-scope.ts";
 import { SandboxUnavailableError, type EgressGate } from "./exec-sandbox.ts";
 import { openRunWorkDir, removeRunWorkDir } from "./exec-workdir.ts";
@@ -43,6 +44,7 @@ export function createExecScopeProvider(deps: ExecScopeProviderDeps): ExecScopeP
     }
   };
   return {
+    ...ambientExecScope,
     async open({ runId }) {
       /* Nothing an earlier run left running may be alive when this one starts: it shares the sandbox uid and would see this run's children. A survivor that cannot be killed refuses the run. */
       if (deps.sandbox && deps.reaper) {

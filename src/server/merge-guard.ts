@@ -286,6 +286,8 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/shared-infrastructure/process-sandbox/exec-env.ts",
   "qa-engine/src/shared-infrastructure/process-sandbox/exec-scope.ts",
   "qa-engine/src/shared-infrastructure/process-sandbox/exec-scope-provider.ts",
+  "qa-engine/src/shared-infrastructure/process-sandbox/ambient-exec-scope.ts",
+  "qa-engine/src/shared-kernel/ports/exec-scope.port.ts",
   "qa-engine/src/shared-infrastructure/process-sandbox/exec-workdir.ts",
   "qa-engine/src/shared-infrastructure/process-sandbox/exec-binary-runner.ts",
   /* The reaper that kills, by uid, whatever a sandboxed child left running (a daemon would share the uid with the next child and read its environment), and fails closed when something survives. */

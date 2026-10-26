@@ -13,6 +13,7 @@ import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import { INSTRUMENTS, checkInstrumentTable } from "@kernel/telemetry/instrument-table";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { activeRunSecretScope } from "../../qa-engine/src/shared-infrastructure/redaction/run-secret-redaction";
+import { ambientExecScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/ambient-exec-scope";
 import { createExecSandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
 import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import { openRunWorkDir } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-workdir";
@@ -270,7 +271,7 @@ test("a child started while a phase is open is a child of that phase, in the sam
         return child;
       }) as unknown as typeof import("node:child_process").spawn,
     });
-    const execScope = { open: () => ({ run: <T>(fn: () => T): T => withExecScope(scope, fn), close: () => {} }) };
+    const execScope = { ...ambientExecScope, open: () => ({ run: <T>(fn: () => T): T => withExecScope(scope, fn), close: () => {} }) };
     const useCase = new RunQaUseCase({
       ...baseDeps(h.clock),
       telemetry: h.telemetry,

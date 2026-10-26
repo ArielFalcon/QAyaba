@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/app-catalog/domain/auth-precondition.ts";
 import { ProbeSweepError } from "@contexts/run-orchestration/application/run-flow/phases/generation-services.ts";
 import { activeExecScope, type ExecScopePort } from "../../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
+import { ambientExecScope } from "../../../../../src/shared-infrastructure/process-sandbox/ambient-exec-scope.ts";
 import { createExecSandbox, SandboxUnavailableError } from "../../../../../src/shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { createExecScopeProvider } from "../../../../../src/shared-infrastructure/process-sandbox/exec-scope-provider.ts";
 import { UntrustedGitTreeError } from "../../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
@@ -230,7 +231,7 @@ export const RUN_END_ROWS: readonly RunEndRow[] = [
     },
     expect: { verdict: "pass", errorClass: null, furthestPhase: "learn", persisted: true, published: "pr", publishCalled: true, folded: true, reflected: false, note: /the run deadline was spent during remeasure-stale-coverage; the suite that ran green on its final bytes is kept/ },
   },
-  { id: "sandbox-unavailable-at-open", endReason: "sandbox-unavailable", setup: (rig) => { rig.extra = { ...rig.extra, execScope: { open: async () => { throw new SandboxUnavailableError("residue", "1 process of the sandbox uid survived SIGKILL"); } } }; }, expect: { verdict: "infra-error", errorClass: "E-SANDBOX", furthestPhase: null, persisted: true, published: "none", publishCalled: false, folded: false, reflected: false } },
+  { id: "sandbox-unavailable-at-open", endReason: "sandbox-unavailable", setup: (rig) => { rig.extra = { ...rig.extra, execScope: { ...ambientExecScope, open: async () => { throw new SandboxUnavailableError("residue", "1 process of the sandbox uid survived SIGKILL"); } } }; }, expect: { verdict: "infra-error", errorClass: "E-SANDBOX", furthestPhase: null, persisted: true, published: "none", publishCalled: false, folded: false, reflected: false } },
   {
     id: "sandbox-unavailable-mid-run",
     endReason: "sandbox-unavailable",
