@@ -44,9 +44,9 @@ qayaba turns every deploy into a QA checkpoint, automatically.
 | Capability | What it means |
 |---|---|
 | **Commit-aware testing** | Reads the diff and commit message to understand what changed. Skips style-only commits, writes targeted tests for features and fixes, runs regression-only for refactors. |
-| **Multi-agent coordination** | The lead agent plans the change's independent flows while bounded sidekick agents author them in parallel, each in a workspace of its own and each closing its own run loop — all subject to the same quality gates. |
-| **Provider-agnostic runtime** | Runs on OpenCode through one facade. Primary, reviewer, and chat models are configurable from the CLI or Dashboard. |
-| **Two-model review** | A different AI model reviews every generated test for value. Tests that click without asserting, use fragile selectors, or miss the actual change are rejected before they reach the suite. |
+| **Multi-agent coordination** | A read-only lead agent plans the change's independent flows while bounded author sidekicks write them in parallel, each in a workspace of its own and each closing its own run loop — all subject to the same quality gates. |
+| **Provider-agnostic runtime** | Runs on OpenCode through one facade. Every role's model is configured in `agents/opencode.json`; the primary, reviewer, and chat assignments can be overridden from the Dashboard or the environment. |
+| **Independent review** | A separate reviewer agent judges every generated test for value. Tests that click without asserting, use fragile selectors, or miss the actual change are rejected before they reach the suite. |
 | **Self-improving suite** | When tests pass and the reviewer approves, they are committed to the app's repository via PR with auto-merge. The suite grows with every deploy and never degrades into "green noise." |
 | **Learning from failures** | Every failed run is reflected on, distilled into a reusable rule, and injected into future runs. Mutation testing measures whether the tests actually catch bugs (valueScore). Rules that correlate with better outcomes are promoted; the rest decay. |
 | **Multi-app, single engine** | One centralized service watches all your team's repos. Each app gets its own namespace for test data and persistent memory. |
@@ -71,15 +71,14 @@ qayaba turns every deploy into a QA checkpoint, automatically.
 flowchart LR
     GH["GitHub push to DEV"] -->|webhook| O[Orchestrator]
     O --> PL[Lead plans flows]
-    PL -->|"plan not admitted / no sidekick"| LEAD[Lead authors alone]
-    PL -->|"one workspace per flow"| SK[Sidekick Agents in parallel]
-    LEAD -->|specs| V{{"Same deterministic gates\nstatic · execution · coverage"}}
-    SK -->|"only the files each brief names"| V
+    PL -->|"plan not admitted / no author"| NA["Run ends E-NO-AUTHOR"]
+    PL -->|"one workspace per flow"| SK[Author sidekicks in parallel]
+    SK -->|"only the files each brief names"| V{{"Same deterministic gates\nstatic · execution · coverage"}}
     V -->|green| RV[Independent Reviewer]
     RV --> DEC[PR with auto-merge / Issue]
     DEC -->|outcomes + rules| LD[(Learning Ledger)]
     DEC -->|telemetry events| TL[(Coordination Telemetry JSONL)]
-    LD -->|retrieval injected into prompt| LEAD
+    LD -->|retrieval injected into prompt| PL
 ```
 
 <table>
@@ -89,7 +88,7 @@ flowchart LR
 ### Orchestrator
 **Node.js** deterministic infrastructure.
 
-Receives webhooks, manages the sequential queue, clones repos, runs Playwright against DEV, publishes results. In the lead/sidekick mode it admits the lead's plan, runs the flows through a bounded pool and takes back only what each brief names. Runs mutation testing to measure test quality (valueScore), maintains the learning ledger, and appends every coordination decision to a durable telemetry ledger. Every side-effecting step is dependency-injected and unit-tested with stubs.
+Receives webhooks, manages the sequential queue, clones repos, runs Playwright against DEV, publishes results. It admits the lead's plan, runs the flows through a bounded pool and takes back only what each brief names. Runs mutation testing to measure test quality (valueScore), maintains the learning ledger, and appends every coordination decision to a durable telemetry ledger. Every side-effecting step is dependency-injected and unit-tested with stubs.
 
 </td>
 <td width="50%" valign="top">
@@ -97,7 +96,7 @@ Receives webhooks, manages the sequential queue, clones repos, runs Playwright a
 ### Agent Runtime
 **OpenCode** behind one provider-neutral facade; another runtime is added as a strategy behind it.
 
-The primary (lead) agent reads code via Serena and writes Playwright specs. In the lead/sidekick mode the lead plans and a dedicated sidekick agent authors each flow in a workspace of its own — it may only write the one file its brief names, must report what it actually wrote, and can push the work back when the brief is wrong. The reviewer stays a fully independent judge: neither agent can influence it. `qayaba agent` or the Dashboard's Agent Runtime screen selects provider, role assignments, models, and API keys.
+The lead (`qa-lead`) is read-only: it explores the code with the code-graph tool, may ask read-only explorer sidekicks (`qa-explore`) to check what it needs, and plans the change's flows. A dedicated author sidekick (`qa-author`) writes each flow in a workspace of its own — it may only write the one file its brief names, must report what it actually wrote, and can push the work back when the brief is wrong. The reviewer stays a fully independent judge: neither agent can influence it. The Dashboard's Agent Runtime screen selects role assignments, models, and API keys; `qayaba agent` prints the current configuration.
 
 </td>
 </tr>
@@ -114,8 +113,8 @@ Every run follows the same sequence, whether triggered by a webhook or manually:
 | **1. Deploy gate** | Waits until DEV reports the right commit SHA and is healthy. Skipped if no health endpoint is configured, or in code mode. |
 | **2. Classification** | Reads the commit message and diff. Conventional Commits like `style:` with no logic changes are skipped before spending a single token. |
 | **3. Retrieval** | Loads learned rules, structural patterns, and proven scenario archetypes from past runs — injects them into the agent prompt. |
-| **4. Coordination** | The lead is asked for a plan of independent flows, the orchestrator admits it (or downgrades to the lead authoring alone, with a recorded reason), and each flow is handed to a sidekick. |
-| **5. Generation** | The lead (or, in the lead/sidekick mode, one sidekick per flow, in parallel) reads the blast radius using semantic code navigation and writes tests into the repo. A flow that cannot be finished is handed back to the lead — a coordination hiccup can never void a run. |
+| **4. Coordination** | The lead is asked for a plan of independent flows, the orchestrator admits it (or refuses the run with a recorded reason: `E-NO-AUTHOR`), and each flow is handed to an author sidekick. |
+| **5. Generation** | One author sidekick per flow, in parallel, reads the blast radius using semantic code navigation and writes tests into the repo; the lead reviews each flow and can send it back to the same sidekick or to a fresh one. |
 | **6. Static gate** | TypeScript compilation, ESLint, and Playwright's test list must pass. Invalid code is rejected before execution. |
 | **7. Execution** | Runs tests against the live DEV URL (e2e) or the repo's own test runner (code mode). Results are classified as pass, fail, or flaky. Repairs re-run inside the same fix loop, which owns retries, adjudication, and regression checks. |
 | **8. Oracle** | For code mode green runs: mutation testing via Stryker measures how many injected bugs the tests actually catch (valueScore). |
@@ -127,17 +126,17 @@ Every run follows the same sequence, whether triggered by a webhook or manually:
 
 ### Multi-agent coordination
 
-Every e2e run is coordinated this way; `qa.coordination` only tunes its limits. When a plan is not admitted or no sidekick can author, the lead authors the change alone and the reason is recorded. Details: [docs/lead-sidekicks.md](docs/lead-sidekicks.md).
+Every e2e run is coordinated this way; `qa.coordination` only tunes its limits. When a plan is not admitted or no sidekick can author, the run ends `E-NO-AUTHOR` and the reason is recorded. Details: [docs/lead-sidekicks.md](docs/lead-sidekicks.md).
 
 | Piece | Role |
 |---|---|
-| **Lead plan** | The lead returns a plan of independent flows instead of specs. The plan is untrusted input: the orchestrator keeps only what its shape and the run's limits allow (`maxFlows`, a deterministic spec path per flow) and otherwise hands the change back to the lead, with the reason recorded. |
-| **Sidekick agent (bounded executor)** | Authors one flow in a copy of what the run may read, using the same harness, fixtures, and selector discipline as the lead; it runs its own spec through `run_spec` until it passes. Only the file its brief names is taken back; any other change is listed as a proposal and never applied. |
+| **Lead plan** | The lead returns a plan of independent flows instead of specs. The plan is untrusted input: the orchestrator keeps only what its shape and the run's limits allow (`maxFlows`, a deterministic spec path per flow) and otherwise refuses the run, with the reason recorded (`E-NO-AUTHOR`). |
+| **Author sidekick (bounded executor)** | Authors one flow in a copy of what the run may read, using the harness, fixtures, and selector discipline of the suite; it runs its own spec through `run_spec` until it passes. Only the file its brief names is taken back; any other change is listed as a proposal and never applied. |
 | **Fan-out** | A bounded pool (`maxParallel`) with a signal and a time budget per flow. DEV access is serialized per test account by the orchestrator's lease. |
-| **Escalation ladder** | A flow gets a second attempt, then the lead takes it back, decided on what the orchestrator saw of the flow's `run_spec` calls, never on the sidekick's word. |
+| **Lead review** | The lead reviews each delivered flow and answers `accept`, `revise` (the same sidekick session), `replace` (a fresh sidekick on the escalated model) or `drop`, decided on what the orchestrator saw of the flow's `run_spec` calls, never on the sidekick's word. |
 | **Independent reviewer** | Never merged with, influenced by, or executed from the coordinator — whoever wrote the specs, the reviewer judges the same way. |
 
-Every flow's result must be earned: a claimed file the brief did not name is not taken back, and the run's gates (validation, execution, change-coverage, review) are the same ones the lead's specs meet.
+Every flow's result must be earned: a claimed file the brief did not name is not taken back, and the run's gates (validation, execution, change-coverage, review) are the same for every spec.
 
 **Coordination telemetry** — every delegation, escalation, and final outcome of a coordinated run is appended to `data/coordination-events.jsonl` (one JSON object per line, survives restarts). Inspect it at any time:
 
@@ -150,7 +149,7 @@ Optional environment tuning (defaults are production-safe, no configuration requ
 | Env var | Default | Purpose |
 |---|---|---|
 | `COORDINATION_TELEMETRY_PATH` | `data/coordination-events.jsonl` | Durable sink for coordination events (e.g. point to a mounted volume). |
-| `COORDINATION_ESCALATED_MODEL` | same model as the standard sidekick | Optional stronger model for escalated sidekick sessions; it must be a model of the provider the primary role is assigned to. |
+| `COORDINATION_ESCALATED_MODEL` | unset (no escalation model) | Optional stronger model for escalated sidekick sessions; it must be a model of the provider the primary role is assigned to. |
 
 ### What happens at the end
 
@@ -246,30 +245,31 @@ OPENCODE_API_KEY=opencode-go-your-key-here
 > [!IMPORTANT]
 > For production, you also need `GITHUB_TOKEN` and `WEBHOOK_SECRET`.
 
+Every environment variable the service reads, with its type and default, is listed in [docs/settings.md](docs/settings.md) (generated from `src/settings/registry.ts`).
+
 ### AI model configuration
 
-The project uses provider-neutral role assignments. Configure them from the Dashboard's **Agent Runtime** view or with `qayaba agent`.
+The project uses provider-neutral role assignments. The roster, each role's model and its step limit live in `agents/opencode.json`; no model is named anywhere else. Override the three operator-facing assignments from the Dashboard's **Agent Runtime** view or with the `AGENT_*_MODEL` environment variables.
 
-| Role | Default provider/model | Purpose |
+| Role | Agent | Purpose |
 |---|---|---|
-| `primary` (lead) | `opencode-go/minimax-m3.1-flash-free` | Reads code, writes Playwright tests, coordinates delegations |
-| `reviewer` | `opencode/deepseek-v4.1-flash-free` | Read-only quality judge; rejects tests with trivial assertions or fragile patterns |
-| `chat` | `opencode/deepseek-v4.1-flash-free` | Read-only operator assistant |
+| `primary` | `qa-lead`, `qa-author`, `qa-explore`, `qa-maintainer`, `qa-proposer` | The lead plans and reviews flows (read-only); the author sidekick writes the Playwright tests; the explorer answers the lead's questions (read-only) |
+| `reviewer` | `qa-reviewer` | Read-only quality judge; rejects tests with trivial assertions or fragile patterns |
+| `chat` | `qa-assistant`, `qa-reflector` | Read-only operator assistant and the failure reflector |
 
-Every role defaults to a free model, so a run keeps working after the paid Go usage limit is exhausted. The lead and the sidekick take `minimax-m3.1-flash-free` (1M context, 512K output — the only free model that holds the grounding and writes several specs in one turn); the smaller-prompt roles take `deepseek-v4.1-flash-free` (200K context, 32K output). All are limited-time offers: check `opencode models` and the catalog in `qa-engine/src/contexts/generation/infrastructure/prompt-builders/model-window-catalog.ts` when they retire.
+The prompts are budgeted against the context-window catalog in `qa-engine/src/contexts/generation/infrastructure/prompt-builders/model-window-catalog.ts`. Check `opencode models` when a model in the roster retires.
 
-The coordination sidekick runs on its own role (`sidekick`) with the same base model as the lead tier; assign it a stronger model via `COORDINATION_ESCALATED_MODEL` when you want escalated sidekick sessions to use a different capacity.
+Assign a stronger model to escalated sidekick sessions via `COORDINATION_ESCALATED_MODEL` when you want a replaced flow to run on a different capacity.
 
 > [!TIP]
-> `qayaba agent` opens the runtime editor; `qayaba agent status` prints the current config.
+> `qayaba agent` prints the current runtime config; `qayaba agent models [provider]` lists a provider's models.
 
 **What you must configure manually:**
 
 | Item | Where | Required |
 |---|---|---|
 | Provider key | `.env` as `OPENCODE_API_KEY` | The key of the one runtime |
-| Runtime mode/provider | Dashboard Agent Runtime, `qayaba agent`, or `AGENT_*` env vars | Only if defaults are not desired |
-| Model IDs | Dashboard Agent Runtime or `AGENT_PRIMARY_MODEL`/`AGENT_REVIEWER_MODEL`/`AGENT_CHAT_MODEL` | Only if the defaults are unavailable |
+| Model IDs | `agents/opencode.json`, Dashboard Agent Runtime, or `AGENT_PRIMARY_MODEL`/`AGENT_REVIEWER_MODEL`/`AGENT_CHAT_MODEL` | Only if the defaults are unavailable |
 | GitHub token | `.env` as `GITHUB_TOKEN` | Yes, for PR and Issue creation |
 | Webhook secret | `.env` as `WEBHOOK_SECRET` | Yes, for production webhook validation |
 
@@ -282,9 +282,9 @@ The coordination sidekick runs on its own role (`sidekick`) with the same base m
 | Playwright authoring skills | `agents/skill/playwright-authoring/` | Login, geolocation, mobile, uploads |
 | Quality review criteria | `agents/skill/test-value-review/` | False-positive pattern catalog |
 | MCP servers (Serena, Playwright) | `agents/opencode.json` and agent container | Code navigation + live DEV exploration |
-| Multi-agent coordination | `qa.coordination` in the app YAML (limits only) | Every e2e run: the lead plans, sidekicks (`qa-sidekick`) author the flows; durable telemetry at `data/coordination-events.jsonl`, per-flow time budgets. |
+| Multi-agent coordination | `qa.coordination` in the app YAML (limits only) | Every e2e run: the lead plans, author sidekicks (`qa-author`) author the flows; durable telemetry at `data/coordination-events.jsonl`, per-flow time budgets. |
 | Docker images | `Dockerfile`, `agents/Dockerfile` | Both services build from these |
-| Control-plane API token | `data/.api_token` (auto-generated on first boot; in the container, `/app/data/.api_token` in the `qa-data` volume, never in the host's `config/`, which the sandboxed agent code must not reach) | The machine credential — protects the API (`Bearer` auth on every non-public route). On the same machine the `qayaba` console auto-loads it from `$QA_API_TOKEN`, or from this file when the service runs on the host; people sign in with GitHub instead (see below). Set `QA_API_TOKEN` to pin your own. |
+| Control-plane API token | `data/.api_token` (auto-generated on first boot; in the container, `/app/data/.api_token` in the `qayaba-data` volume, never in the host's `config/`, which the sandboxed agent code must not reach) | The machine credential — protects the API (`Bearer` auth on every non-public route). On the same machine the `qayaba` console auto-loads it from `$QA_API_TOKEN`, or from this file when the service runs on the host; people sign in with GitHub instead (see below). Set `QA_API_TOKEN` to pin your own. |
 
 </details>
 
@@ -353,7 +353,7 @@ report:
   onFailure: "github-issue"
 ```
 
-**Optional: let the generator run its specs while it writes them** (`run_spec`, OpenCode only; off by default):
+**Optional: let the flow authors run their specs while they write them** (`run_spec`, OpenCode only; off by default):
 
 ```yaml
 qa:
@@ -397,7 +397,7 @@ egress:
 
 A run that tries a host it did not declare is not failed for it: the host is listed in the run's `gateSignals.sandbox.denied`, so the first run of an app shows exactly what to add. A stylesheet or script a page loads from another host (a web-font import, for one) that is refused can stop that page from rendering at all, so a login that stalls names the hosts refused to it. See [docs/execution-sandbox.md](docs/execution-sandbox.md).
 
-**The login is a verified onboarding step.** An app that declares a form login (`auth.kind: form` in the YAML) is not onboarded until its login signs in: after the architecture map, onboarding enqueues a manual run for the login purpose that authors `e2e/auth.setup.ts` and one smoke spec of a route that needs the session. When that run is accepted (green, reviewed, not held back by coverage) the login and the spec are kept in the **suite store** (`data/suites/<app>/` in the qa-data volume), so later runs, including shadow runs that publish nothing, start from a working login instead of authoring it again. Purging an app removes its store. The onboarding status reports `loginProgress.status` as `verified`, `unauthored` or `failed`; the same run can be started on its own with `POST /api/v1/apps/{name}/login-bootstrap`.
+**The login is a verified onboarding step.** An app that declares a form login (`auth.kind: form` in the YAML) is not onboarded until its login signs in: after the architecture map, onboarding enqueues a manual run for the login purpose that authors `e2e/auth.setup.ts` and one smoke spec of a route that needs the session. When that run is accepted (green, reviewed, not held back by coverage) the login and the spec are kept in the **suite store** (`data/suites/<app>/` in the qayaba-data volume), so later runs, including shadow runs that publish nothing, start from a working login instead of authoring it again. Purging an app removes its store. The onboarding status reports `loginProgress.status` as `verified`, `unauthored` or `failed`; the same run can be started on its own with `POST /api/v1/apps/{name}/login-bootstrap`.
 
 ### Trigger a manual run
 
@@ -464,7 +464,7 @@ The orchestrator listens on `PORT` (default `458`) on `LISTEN_HOST` (default `12
 <details>
 <summary>Where the orchestrator keeps its data</summary>
 
-The orchestrator writes under `<QAYABA_ROOT>/data/` (the `qa-data` volume in `docker-compose.yml`) unless a location is overridden:
+The orchestrator writes under `<QAYABA_ROOT>/data/` (the `qayaba-data` volume in `docker-compose.yml`) unless a location is overridden:
 
 | Env var | Default | Purpose |
 |---|---|---|

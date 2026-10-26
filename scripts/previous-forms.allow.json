@@ -72,60 +72,6 @@
     "reason": "Pins that the retired mode selector is gone from the composition."
   },
   {
-    "rule": "bridges",
-    "path": "AGENTS.md",
-    "contains": "bridges/",
-    "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit."
-  },
-  {
-    "rule": "codex",
-    "path": "AGENTS.md",
-    "contains": "Codex",
-    "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit."
-  },
-  {
-    "rule": "legacy",
-    "path": "AGENTS.md",
-    "contains": "legacy `maxSteps`",
-    "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit."
-  },
-  {
-    "rule": "rewritten-name",
-    "path": "AGENTS.md",
-    "contains": "rewritten-engine-factory",
-    "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit."
-  },
-  {
-    "rule": "codebase-memory",
-    "path": "AGENTS.md",
-    "contains": "codebase-memory",
-    "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit."
-  },
-  {
-    "rule": "dead-path",
-    "path": "AGENTS.md",
-    "contains": "qa-engine/test/contract/seam-parity.contract.test.ts",
-    "reason": "Pending edit of a file outside this phase's write authority: the seam test now lives at src/server/seam-parity.contract.test.ts (arch-p3 Log). Remove this entry with that edit."
-  },
-  {
-    "rule": "dead-path",
-    "path": "AGENTS.md",
-    "contains": "rewritten-engine-factory.ts",
-    "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit."
-  },
-  {
-    "rule": "dead-path",
-    "path": "AGENTS.md",
-    "contains": "bridges/pre-generation",
-    "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit."
-  },
-  {
-    "rule": "dead-path",
-    "path": "AGENTS.md",
-    "contains": "adr/0001-grounding",
-    "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit."
-  },
-  {
     "rule": "codex",
     "path": ".env.example",
     "contains": "CODEX",
@@ -148,42 +94,6 @@
     "path": ".env.example",
     "contains": "Codex",
     "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit. (edit denied by the permission settings)"
-  },
-  {
-    "rule": "codex",
-    "path": "AGENTS.md",
-    "contains": ".codex",
-    "reason": "The ADR records the engine it superseded."
-  },
-  {
-    "rule": "dead-path",
-    "path": "AGENTS.md",
-    "contains": "qa-run-orchestration/",
-    "reason": "Pending edit of a file outside this phase's write authority; the context was renamed to run-orchestration in arch-p3 T6 and the replacement text is recorded in the arch-p3 Log. Remove this entry with that edit."
-  },
-  {
-    "rule": "dead-path",
-    "path": "AGENTS.md",
-    "contains": "generation/infrastructure/sanitize-text.ts",
-    "reason": "Pending edit of a file outside this phase's write authority; the pattern sanitizer moved to qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter.ts in arch-p3 T9 and the replacement text is recorded in the arch-p3 Log. Remove this entry with that edit."
-  },
-  {
-    "rule": "dead-path",
-    "path": "AGENTS.md",
-    "contains": "change-analysis/domain/language-id.ts",
-    "reason": "Pending edit of a file outside phase 3's write authority; the replacement text is recorded in the arch-p3 Log (L25). Remove this entry with that edit."
-  },
-  {
-    "rule": "dead-path",
-    "path": "AGENTS.md",
-    "contains": ".dependency-cruiser-known-violations.json",
-    "reason": "Pending edit of a file outside phase 3's write authority; the replacement text is recorded in the arch-p3 Log (L25). Remove this entry with that edit."
-  },
-  {
-    "rule": "dead-path",
-    "path": "AGENTS.md",
-    "contains": "test/arch/known-violations.test.ts",
-    "reason": "Pending edit of a file outside phase 3's write authority; the replacement text is recorded in the arch-p3 Log (L25). Remove this entry with that edit."
   },
   {
     "rule": "codex",
