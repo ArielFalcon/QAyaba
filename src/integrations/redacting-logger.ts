@@ -34,7 +34,12 @@ function redactValue(value: unknown, redact: (text: string) => string, depth: nu
   if (typeof value === "string") return redact(value);
   if (value === null || typeof value !== "object") return value;
   if (value instanceof Error) return redact(errorMessage(value));
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? "Invalid Date" : value.toISOString();
+  if (value instanceof URL) return redact(value.href);
+  if (Buffer.isBuffer(value)) return `[Buffer ${value.length} bytes]`;
   if (depth >= MAX_FIELD_DEPTH) return TRUNCATED;
+  if (value instanceof Map) return [...value].map(([key, inner]) => [redactValue(key, redact, depth + 1), redactValue(inner, redact, depth + 1)]);
+  if (value instanceof Set) return [...value].map((inner) => redactValue(inner, redact, depth + 1));
   if (Array.isArray(value)) return value.map((item) => redactValue(item, redact, depth + 1));
   const out: Record<string, unknown> = {};
   for (const [key, inner] of Object.entries(value)) out[redact(key)] = redactValue(inner, redact, depth + 1);

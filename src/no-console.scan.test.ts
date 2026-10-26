@@ -30,6 +30,23 @@ test("a multi-line template keeps the line count right for the calls after it", 
   assert.deepEqual(consoleCallLines("const t = `one\ntwo\nthree`;\nconsole.error(t);"), [4]);
 });
 
-test("a method that is not a log method, and a property named console, are not calls", () => {
-  assert.deepEqual(consoleCallLines("console.table(x); other.console.log(x);"), []);
+test("a property named console, and an object key named console, are not the console", () => {
+  assert.deepEqual(consoleCallLines("other.console.log(x); const o = { console: 1 };"), []);
+});
+
+test("an optional call is found", () => {
+  assert.deepEqual(consoleCallLines("console?.log(x);"), [1]);
+});
+
+test("a bracket access is found", () => {
+  assert.deepEqual(consoleCallLines("console['log'](x);"), [1]);
+});
+
+test("trace, table and dir are found", () => {
+  assert.deepEqual(consoleCallLines("console.trace(x);\nconsole.table(x);\nconsole.dir(x);"), [1, 2, 3]);
+});
+
+test("an alias of the console is found where it is made", () => {
+  assert.deepEqual(consoleCallLines("const c = console;\nc.log(1);"), [1]);
+  assert.deepEqual(consoleCallLines("const { log } = console;"), [1]);
 });

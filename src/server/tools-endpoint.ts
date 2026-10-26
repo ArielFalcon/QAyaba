@@ -356,7 +356,7 @@ export async function handleToolsRequest(request: ToolsRequest, deps: ToolsHandl
  * boot so the endpoint is never open; the agents service generates its own, the two differ, and every call is then refused with a
  * message that names the variable (the same arrangement as the OpenCode server's password).
  */
-export function resolveToolsToken(env: Record<string, string | undefined>, log: { warn: (message: string) => void } = console): { token: string; generated: boolean } {
+export function resolveToolsToken(env: Record<string, string | undefined>, log: { warn: (message: string) => void } = appLogger): { token: string; generated: boolean } {
   const configured = env[QA_TOOLS_TOKEN_ENV]?.trim();
   if (configured && configured.length >= MIN_TOOLS_TOKEN_CHARS) return { token: configured, generated: false };
   if (configured) {

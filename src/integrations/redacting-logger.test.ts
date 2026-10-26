@@ -125,3 +125,33 @@ test("info, warn and error reach the same levels logJson has, and debug stays ou
   assert.ok(seen.slice(0, 3).every((s) => s.mirror !== false));
   assert.equal(seen[3]!.mirror, false);
 });
+
+/* The fields the logger is handed, as the sink received them. */
+function sinkFields(fields: Record<string, unknown>): Record<string, unknown> {
+  let received: Record<string, unknown> = {};
+  createRedactingLogger({ sink: (_level, _message, meta) => void (received = meta ?? {}) }).info("line", fields);
+  return received;
+}
+
+test("a Date field is written as its ISO string", () => {
+  const at = new Date("2026-10-26T12:00:00.000Z");
+  assert.equal(sinkFields({ at }).at, at.toISOString());
+});
+
+test("a URL field is written as its href, redacted as text", () => {
+  const out = sinkFields({ plain: new URL("https://example.test/a?b=1"), withToken: new URL(`https://example.test/?token=${GITHUB_TOKEN}`) });
+  assert.equal(out.plain, "https://example.test/a?b=1");
+  assert.ok(!String(out.withToken).includes(GITHUB_TOKEN));
+  assert.ok(String(out.withToken).includes(REDACTED));
+});
+
+test("a Map field keeps its entries and a Set field its values, redacted", () => {
+  const out = sinkFields({ map: new Map([["k", `v ${GITHUB_TOKEN}`]]), set: new Set([`s ${GITHUB_TOKEN}`, "t"]) });
+  assert.ok(!JSON.stringify(out).includes(GITHUB_TOKEN));
+  assert.deepEqual(out.map, [["k", `v ${REDACTED}`]]);
+  assert.deepEqual(out.set, [`s ${REDACTED}`, "t"]);
+});
+
+test("a Buffer field is written as a placeholder with its size, never its bytes", () => {
+  assert.equal(sinkFields({ body: Buffer.from("secret bytes") }).body, "[Buffer 12 bytes]");
+});

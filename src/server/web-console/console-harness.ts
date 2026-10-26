@@ -14,6 +14,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createContext, runInContext } from "node:vm";
+import { appLogger } from "../../integrations/redacting-logger";
 
 const JS_DIR = join(import.meta.dirname, "..", "..", "..", "web", "public", "js");
 
@@ -317,7 +318,14 @@ export async function loadConsole(opts: LoadOptions): Promise<ConsoleHarness> {
     AbortController,
     DOMException,
     Response,
-    console,
+    /* The page code logs through the process logger, like every other module. */
+    console: {
+      log: (...args: unknown[]) => appLogger.info(args.map(String).join(" ")),
+      info: (...args: unknown[]) => appLogger.info(args.map(String).join(" ")),
+      debug: (...args: unknown[]) => appLogger.debug(args.map(String).join(" ")),
+      warn: (...args: unknown[]) => appLogger.warn(args.map(String).join(" ")),
+      error: (...args: unknown[]) => appLogger.error(args.map(String).join(" ")),
+    },
   });
   window.window = window;
 

@@ -19,6 +19,7 @@ const ALLOWED: readonly string[] = [
   "src/qa/learning/ledger-cli.ts",
   "src/integrations/logger.ts",
   "src/telemetry/console-log-tap.ts",
+  "qa-engine/src/shared-kernel/ports/process-logger.ts",
 ];
 
 function productionSources(dir: string): string[] {

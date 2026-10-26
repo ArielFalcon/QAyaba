@@ -1,6 +1,5 @@
-/* Finds the console calls a source file makes: a `console.<method>` in code position, not in a comment, a string, a regular expression or the text of a template literal (source text for a page or a child process). */
+/* Finds the uses of the console a source file makes: the `console` object in code position (a call of any method, an optional call, a bracket access, an alias or a pass-by-reference), not in a comment, a string, a regular expression or the text of a template literal (source text for a page or a child process). */
 
-const CONSOLE_CALL = /^console\.(?:log|warn|error|info|debug)\b/;
 /* A `/` after one of these characters starts a regular expression; after anything else it divides. */
 const REGEX_AFTER_CHAR = "(,=:[!&|?{};+-*%<>~^";
 const REGEX_AFTER_WORD = new Set(["return", "typeof", "case", "do", "else", "in", "of", "void", "yield", "await"]);
@@ -95,7 +94,7 @@ export function consoleCallLines(source: string): number[] {
       const start = i;
       while (i < n && /[\w$]/.test(source[i]!)) i++;
       const word = source.slice(start, i);
-      if (word === "console" && source[start - 1] !== "." && CONSOLE_CALL.test(source.slice(start, start + 20))) hits.push(line);
+      if (word === "console" && source[start - 1] !== "." && !/^\s*:/.test(source.slice(i, i + 40))) hits.push(line);
       previous = word.slice(-1);
       previousWord = word;
     } else {
