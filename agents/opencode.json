@@ -111,7 +111,7 @@
     "qa-reviewer": {
       "description": "Independent E2E quality judge, invoked directly by the orchestrator's ReviewPortAdapter (not delegated to by another agent) — mode is \"all\" because OpenCode's \"subagent\" mode is for agents other primary agents delegate to, which does not describe this invocation path. Does not write: emits a JSON verdict. Holds NO MCP access (serena/playwright both denied) so its independence is enforced by the runtime, not prompt etiquette.",
       "mode": "all",
-      "model": "opencode-go/minimax-m3",
+      "model": "opencode-go/glm-5.3-flash",
       "prompt": "{file:./agent/qa-reviewer.md}",
       "tools": {
         "write": false,
@@ -186,7 +186,7 @@
     "qa-maintainer": {
       "description": "Self-maintenance agent for qayaba itself. Diagnoses and fixes incidents; never touches watched app repos. Has serena MCP access by design (no playwright — it never drives a browser).",
       "mode": "primary",
-      "model": "opencode-go/kimi-k2.7-code",
+      "model": "opencode-go/glm-5.3-flash",
       "prompt": "{file:./agent/qa-maintainer.md}",
       "tools": {
         "write": true,
