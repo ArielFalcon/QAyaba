@@ -5,7 +5,7 @@ import {
   buildPromptAssembled,
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
-import { renderArchitectureContext } from "@contexts/generation/infrastructure/prompt-builders/architecture-context.ts";
+import { renderArchitectureContext, renderArchitectureContextParts } from "@contexts/generation/infrastructure/prompt-builders/architecture-context.ts";
 import { PACK_HEADINGS } from "@contexts/generation/infrastructure/context-pack.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { renderBlastRadiusSignal } from "@contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts";
@@ -77,12 +77,12 @@ test("the architecture map omits its API operations list when the pack's contrac
   assert.deepEqual(providers(withoutPackContracts, "api-operations"), ["arch-map"]);
 });
 
-test("renderArchitectureContext lists each API operation once: never when told to yield them, otherwise always", () => {
-  const listed = renderArchitectureContext(MAP, undefined, {});
-  const yielded = renderArchitectureContext(MAP, undefined, { suppressApiOperations: true });
-  assert.ok(listed?.includes("applyCoupon") && /API operations/.test(listed));
-  assert.equal(yielded?.includes("applyCoupon") && /### API operations/.test(yielded), false);
-  assert.ok(yielded?.includes("/cart"), "the routes stay");
+test("the architecture map provides its API operations unless told to yield them, and its routes either way", () => {
+  const factsOf = (suppressApiOperations: boolean): string[] =>
+    (renderArchitectureContextParts(MAP, undefined, { suppressApiOperations })?.claims ?? []).flatMap((c) => (c.kind === "provides" ? [c.fact] : []));
+  assert.ok(factsOf(false).includes("api-operations"));
+  assert.equal(factsOf(true).includes("api-operations"), false);
+  assert.ok(factsOf(true).includes("arch-map"), "the map itself stays");
 });
 
 /* ── FE-BE links have one owner ── */
