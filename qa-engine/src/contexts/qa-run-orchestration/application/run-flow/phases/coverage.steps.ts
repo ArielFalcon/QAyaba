@@ -3,12 +3,12 @@
 import { CORRECTION_ORIGIN } from "../../coordination/lead-correction.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
-import { isRunDeadlineError } from "../../../../../shared-kernel/run-deadline.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { executeAccepted, validateAccepted } from "./execute.steps.ts";
 import { regenerate } from "./generation-services.ts";
+import { classifyFailure } from "../failure-policy.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
 
@@ -133,8 +133,8 @@ export async function regenerateForCoverage(state: Readonly<RunState>, ctx: Work
     }
   } catch (regenErr) {
     /* The run's time is spent: the first measurement stands, as for any regeneration that cannot finish. Any other fault still propagates. */
-    if (!isRunDeadlineError(regenErr)) throw regenErr;
-    console.warn(`[qa] the run deadline was spent during the coverage regeneration; the first measurement stands (${regenErr.message})`);
+    if (classifyFailure(regenErr) !== "run-deadline") throw regenErr;
+    console.warn(`[qa] the run deadline was spent during the coverage regeneration; the first measurement stands (${regenErr instanceof Error ? regenErr.message : String(regenErr)})`);
   }
   return { update: { execution: { ...state.execution, run }, coverage: { ...state.coverage, acceptanceCalls, acceptedRegenAfterMeasure } } };
 }

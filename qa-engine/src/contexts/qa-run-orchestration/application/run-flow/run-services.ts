@@ -13,8 +13,8 @@ import type { ContractFeedback } from "../../domain/contract-feedback.ts";
 import { EMPTY_TOKEN_SET, type ChangeTokenSet } from "@contexts/objective-signal/domain/change-tokens.ts";
 import { diffContracts, type IntentViolation } from "@contexts/objective-signal/domain/test-intent-contract.ts";
 import type { SpecIntentView } from "../ports/intent-contract.port.ts";
-import { rethrowIfUntrusted } from "../../../../shared-kernel/domain-error.ts";
 import type { RunQaConfig, RunQaUseCaseDeps } from "./run-types.ts";
+import { carryOn } from "./failure-policy.ts";
 
 export interface PreparedWorkspace {
   specDir: string;
@@ -168,7 +168,7 @@ export function createRunServices(deps: RunQaUseCaseDeps, cfg: RunQaConfig, work
       };
     } catch (err) {
       /* A git dir that is not the orchestrator's is a security refusal, never a fault to isolate. */
-      rethrowIfUntrusted(err);
+      carryOn(err);
       /*
        * Log loudly, never throw, never alter the verdict or block publish. A thrown
        * enforce() means this call's counts are unknowable — increment dangerous

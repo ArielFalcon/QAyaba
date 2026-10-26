@@ -1,13 +1,12 @@
 /* The setup of a run: the accepted suite comes back, the project is set up, the login is prepared, a prior run's data is cleaned and the run's authoring handles (location, run_spec loop, agent browser) are opened. */
 
 import { RUN_PURPOSE } from "@kernel/run-mode.ts";
-import { rethrowIfUntrusted } from "../../../../../shared-kernel/domain-error.ts";
-import { rethrowIfRunDeadline } from "../../../../../shared-kernel/run-deadline.ts";
 import { terminalForPrecondition } from "../../../domain/helpers/precondition-terminal.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle, GeolocationHandle } from "../../ports/index.ts";
 import { end, type StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
+import { carryOn } from "../failure-policy.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
 
@@ -30,7 +29,7 @@ export async function restoreAcceptedSuite(state: Readonly<RunState>, ctx: Works
         "info",
       );
     } catch (err) {
-      rethrowIfUntrusted(err);
+      carryOn(err);
       ctx.host.announceSuite(`[qa] suite store restore failed (off-path; the run starts cold and keeps nothing): ${err instanceof Error ? err.message : String(err)}`, "warn");
     }
   }
@@ -132,7 +131,7 @@ export async function openAuthoringHandles(state: Readonly<RunState>, ctx: Works
         ...(signal ? { signal } : {}),
       });
     } catch (err) {
-      rethrowIfRunDeadline(err);
+      carryOn(err);
       console.error(`[qa] the authoring location could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
     }
     trail.geolocation = geolocation;
@@ -152,7 +151,7 @@ export async function openAuthoringHandles(state: Readonly<RunState>, ctx: Works
         ...(signal ? { signal } : {}),
       });
     } catch (err) {
-      rethrowIfRunDeadline(err);
+      carryOn(err);
       console.error(`[qa] the run_spec loop could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
     }
     trail.closedLoop = closedLoop;
@@ -173,7 +172,7 @@ export async function openAuthoringHandles(state: Readonly<RunState>, ctx: Works
         ...(geo ? { geolocation: { default: geo.default, forSession: (sessionId: string) => geo.forSession(sessionId) } } : {}),
       });
     } catch (err) {
-      rethrowIfRunDeadline(err);
+      carryOn(err);
       console.error(`[qa] the agent browser could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
     }
     trail.agentBrowser = agentBrowser;
@@ -184,7 +183,7 @@ export async function openAuthoringHandles(state: Readonly<RunState>, ctx: Works
     try {
       trail.codeGraphTools = await deps.codeGraphTools.open({ runId: input.runId });
     } catch (err) {
-      rethrowIfRunDeadline(err);
+      carryOn(err);
       console.error(`[qa] the code-graph tools could not be opened (the run goes on without them): ${err instanceof Error ? err.message : String(err)}`);
     }
   }

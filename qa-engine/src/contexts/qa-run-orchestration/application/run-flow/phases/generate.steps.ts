@@ -5,7 +5,6 @@ import { relative } from "node:path";
 import { DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { NOOP_KIND } from "@kernel/noop-kind.ts";
-import { rethrowIfRunDeadline } from "../../../../../shared-kernel/run-deadline.ts";
 import { attributeContradictions } from "../../../domain/helpers/contradiction-attribution.ts";
 import { engineSideCauseOf, terminalForGenerationEnd } from "../../../domain/helpers/generation-end-terminal.ts";
 import { mergeDeliveredSpecs } from "../../../domain/helpers/delivered-specs.ts";
@@ -20,6 +19,7 @@ import { throwIfAborted } from "../abort.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { afterGeneration, closedLoopSignal, geolocationEnrichment, loopClosedNow, regenerate } from "./generation-services.ts";
+import { carryOn } from "../failure-policy.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
 
@@ -66,7 +66,7 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
       ...(signal ? { signal } : {}),
     });
   } catch (err) {
-    rethrowIfRunDeadline(err);
+    carryOn(err);
     console.error(`[qa] coordination failed (the lead authors the change alone): ${err instanceof Error ? err.message : String(err)}`);
     ctx.host.recordCoordination({ downgrade: "coordination failed", flows: 0, delivered: 0, incomplete: 0, takeover: false });
     return {};

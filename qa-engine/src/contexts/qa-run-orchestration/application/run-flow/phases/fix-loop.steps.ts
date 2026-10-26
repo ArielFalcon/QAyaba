@@ -4,7 +4,6 @@ import { CORRECTION_ORIGIN } from "../../coordination/lead-correction.ts";
 import { createHash } from "node:crypto";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { readConfinedSpecFile, listSpecFiles, readOwnedSpecFile, MAX_SPEC_SOURCE_BYTES, type SpecRoot } from "../../../../../shared-infrastructure/spec-path-confinement.ts";
-import { rethrowIfUntrusted } from "../../../../../shared-kernel/domain-error.ts";
 import { FixLoop, type FixLoopAcceptancePort, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../../../domain/fix-loop.aggregate.ts";
 import { checkSpecSelectors, contradictionOrigins } from "../../../domain/helpers/selector-check.ts";
 import { attributeContradictions } from "../../../domain/helpers/contradiction-attribution.ts";
@@ -14,6 +13,7 @@ import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { checkDevHealth, executeAccepted, liveExecutionOptions, validateAccepted } from "./execute.steps.ts";
 import { loopClosedNow, regenerate } from "./generation-services.ts";
+import { carryOn } from "../failure-policy.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
 
@@ -345,7 +345,7 @@ export async function fingerprintGreenSuite(state: Readonly<RunState>, ctx: Work
       services.proofLedger.set(file, "bytes" in read ? { sha256, bytes: read.bytes } : { sha256 });
     }
   } catch (fingerprintErr) {
-    rethrowIfUntrusted(fingerprintErr);
+    carryOn(fingerprintErr);
     ctx.host.announceSuite(`[qa] suite store fingerprint failed (off-path; no spec is admitted): ${fingerprintErr instanceof Error ? fingerprintErr.message : String(fingerprintErr)}`, "warn");
   }
 }

@@ -17,7 +17,7 @@ import { GENERATION_END } from "@kernel/generation-end.ts";
 import { RunPhaseCursor, recordPhaseSnapshot, type PhaseClock, type RunPhase } from "../domain/run-phase-cursor.ts";
 import { PhaseSpans } from "./run-phase-spans.ts";
 import { runFlow, type FlowHooks } from "./run-flow/run-flow.ts";
-import { actionFor } from "./run-flow/failure-policy.ts";
+import { actionFor, carryOn } from "./run-flow/failure-policy.ts";
 import { failureEnd } from "./run-flow/failure-ends.ts";
 import { type RunEnd } from "./run-flow/run-end.ts";
 import { finalizeRun, recordCrashEvidence } from "./run-flow/finalize-run.ts";
@@ -36,7 +36,6 @@ import { generationRunsReviewer } from "@contexts/generation/domain/generation-r
 import { AuthPreconditionError } from "../domain/auth-precondition.ts";
 import { CycleBudget } from "../domain/cycle-budget.ts";
 import { WallClockBudget } from "../domain/wall-clock-budget.ts";
-import { rethrowIfUntrusted } from "../../../shared-kernel/domain-error.ts";
 import type { PreconditionFailure, RunQaConfig, RunQaUseCaseDeps, RunQaInput, RunQaResult, RunTrail } from "./run-flow/run-types.ts";
 
 export type { PreconditionFailure, RunQaConfig, RunQaUseCaseDeps, RunQaInput, RunQaResult, RunTrail } from "./run-flow/run-types.ts";
@@ -443,7 +442,7 @@ export class RunQaUseCase {
     try {
       await this.deps.suiteStore!.demoteAuth(workspace, DEMOTE_REASON.LOGIN_DID_NOT_SIGN_IN);
     } catch (err) {
-      rethrowIfUntrusted(err);
+      carryOn(err);
       this.announceSuite(`[qa] suite store could not demote the failed login (the failure stands): ${err instanceof Error ? err.message : String(err)}`, "warn");
       return "unchanged";
     }
@@ -490,7 +489,7 @@ export class RunQaUseCase {
     try {
       await this.deps.mirrorGc.prune(mirrorDir);
     } catch (err) {
-      rethrowIfUntrusted(err); /* a git dir that is not the orchestrator's is a security refusal, never a fault to isolate */
+      carryOn(err); /* a git dir that is not the orchestrator's is a security refusal, never a fault to isolate */
       console.error(
         `[qa] mirror gc FAILED (fault-isolated — run continues, never blocks publish): ${err instanceof Error ? err.message : String(err)}`,
       );

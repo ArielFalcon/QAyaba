@@ -7,7 +7,8 @@
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { ERROR_CLASS } from "../../domain/helpers/error-class.ts";
 import { renderRunDeadlineNote } from "../../domain/run-time-budget.ts";
-import { isRunDeadlineError } from "../../../../shared-kernel/run-deadline.ts";
+import type { RunDeadlineExceededError } from "../../../../shared-kernel/run-deadline.ts";
+import { classifyFailure } from "./failure-policy.ts";
 import type { EndReason } from "./end-reason.ts";
 import { runEnd, type RunEnd } from "./run-end.ts";
 import type { RunQaUseCaseDeps, RunTrail } from "./run-types.ts";
@@ -26,10 +27,11 @@ export function failureEnd(reason: EndReason, err: unknown, run: { deps: RunQaUs
        * infra-error under E-TIME-BUDGET with a note that says so, never as an empty result and never as an uncaught integration
        * error. Nothing is published and nothing is learned (how long the agents took says nothing about the app or the tests).
        */
-      if (!isRunDeadlineError(err)) throw err;
-      trail.limit = { fired: "run-deadline", role: err.role };
+      if (classifyFailure(err) !== "run-deadline") throw err;
+      const deadline = err as RunDeadlineExceededError;
+      trail.limit = { fired: "run-deadline", role: deadline.role };
       trail.generationEnd ??= GENERATION_END.TIME_BUDGET;
-      const note = renderRunDeadlineNote({ budgetMs: err.budgetMs, label: err.label, role: err.role, stop: err.stop });
+      const note = renderRunDeadlineNote({ budgetMs: deadline.budgetMs, label: deadline.label, role: deadline.role, stop: deadline.stop });
       console.error(`[qa] ${note}`);
       deps.observer?.onEvent({ type: "agent.error", detail: note });
       deps.observer?.onEvent({

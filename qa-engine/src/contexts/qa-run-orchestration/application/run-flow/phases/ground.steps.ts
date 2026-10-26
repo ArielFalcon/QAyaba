@@ -4,13 +4,12 @@ import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
-import { rethrowIfUntrusted } from "../../../../../shared-kernel/domain-error.ts";
-import { rethrowIfRunDeadline } from "../../../../../shared-kernel/run-deadline.ts";
 import type { RelevanceBias, RetrievedRule, ServiceLink, ContractDrift, CrossRepoImpact } from "../../ports/index.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import { throwIfAborted } from "../abort.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
+import { carryOn } from "../failure-policy.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
 
@@ -110,7 +109,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
       groundingChangeProofs = grounding.changePages?.pages ?? [];
       groundingConfirmedDataRoutes = grounding.packConfirmedDataRoutes;
     } catch (err) {
-      rethrowIfRunDeadline(err);
+      carryOn(err);
       /* Abort during grounding takes the abort route, not ungrounded continue. */
       throwIfAborted(signal);
       console.error("[qa] WARNING: pre-generation grounding failed (non-fatal, generation continues ungrounded):", err);
@@ -199,7 +198,7 @@ export async function resolveCrossRepoImpact(state: Readonly<RunState>, ctx: Wor
     try {
       crossRepoImpact = await deps.crossRepoImpact.resolve(input.triggerRepo, input.sha.toString(), resolvedServiceLinks);
     } catch (err) {
-      rethrowIfUntrusted(err);
+      carryOn(err);
       console.error("[qa] WARNING: cross-repo impact resolution failed (non-fatal, generation continues without it):", err);
     }
   }

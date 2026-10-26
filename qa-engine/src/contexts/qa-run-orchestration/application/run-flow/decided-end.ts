@@ -9,7 +9,6 @@
 import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rule.ts";
 import { isAccepted } from "../../domain/run-decision.service.ts";
 import { learningGates } from "../../domain/helpers/learning-gates.ts";
-import { rethrowIfUntrusted } from "../../../../shared-kernel/domain-error.ts";
 import { reviewsTests } from "./phases/review.steps.ts";
 import { reviewerApprovedForOutcomeOf, decidedOf } from "./phases/decide.steps.ts";
 import { DETERMINISTIC_SELECTOR_BLOCKS } from "./phases/execute.steps.ts";
@@ -21,6 +20,7 @@ import { runEnd, type RunEnd } from "./run-end.ts";
 import type { WorkspaceRunContext } from "./run-context.ts";
 import type { RunQaResult } from "./run-types.ts";
 import type { RunState } from "./run-state.ts";
+import { carryOn } from "./failure-policy.ts";
 
 /* `endInstead` finalizes any other end the effects come to (a publication that failed): the caller's own finalizeRun. */
 export async function finalizeDecided(state: Readonly<RunState>, ctx: WorkspaceRunContext, endInstead: (end: RunEnd) => Promise<RunQaResult>): Promise<RunQaResult> {
@@ -125,7 +125,7 @@ async function keepAcceptedSuite(state: Readonly<RunState>, ctx: WorkspaceRunCon
     });
     host.announceSuite(`[qa] suite store: kept ${kept.entries} file(s) (${kept.admitted} new or changed, ${kept.dropped} dropped${kept.skipped.length > 0 ? `, ${kept.skipped.length} left out` : ""})`, "info");
   } catch (captureErr) {
-    rethrowIfUntrusted(captureErr);
+    carryOn(captureErr);
     host.announceSuite(`[qa] suite store capture failed (off-path; verdict unchanged): ${captureErr instanceof Error ? captureErr.message : String(captureErr)}`, "warn");
   }
 }

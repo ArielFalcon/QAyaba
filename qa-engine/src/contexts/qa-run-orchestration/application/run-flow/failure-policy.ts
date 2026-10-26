@@ -10,7 +10,6 @@ import { isInfraError, isUntrustedGitTreeError } from "../../../../shared-kernel
 import { isRunDeadlineError } from "../../../../shared-kernel/run-deadline.ts";
 import { RunAbortedError } from "./abort.ts";
 import type { EndReason } from "./end-reason.ts";
-import type { RunEnd } from "./run-end.ts";
 
 /** The throwaway specs of the closed loop could not be removed from the working copy. */
 export class ProbeSweepError extends Error {
@@ -83,11 +82,11 @@ const messageOf = (err: unknown): string => (err instanceof Error ? err.message 
  * Wraps a step: what it throws is classified, and the policy for the step's class either ends the run (the end the caller builds
  * for that reason), carries on (said aloud) or rethrows the identical error, unwrapped.
  */
-export async function guarded<O>(
+export async function guarded<O, E>(
   site: { id: string; class: StepClass },
   run: () => Promise<O>,
-  endOf: (reason: EndReason, err: unknown) => RunEnd,
-): Promise<O | { end: RunEnd } | undefined> {
+  endOf: (reason: EndReason, err: unknown) => E,
+): Promise<O | { end: E } | undefined> {
   try {
     return await run();
   } catch (err) {

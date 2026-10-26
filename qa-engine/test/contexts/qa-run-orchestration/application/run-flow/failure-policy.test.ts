@@ -24,7 +24,7 @@ const CASES: ReadonlyArray<[string, unknown, (typeof FAILURE_KINDS)[number]]> = 
   ["an untrusted git tree", new UntrustedGitTreeError("the git dir is not ours"), "untrusted-tree"],
   ["a publication that failed", new PublicationFailedError("github 502"), "publication"],
   ["a collaborator the infrastructure lost", new InfraError("the agent runtime went away"), "integration"],
-  ["an agent turn that timed out", new AgentTimeoutError("generator", 1000), "integration"],
+  ["an agent turn that timed out", new AgentTimeoutError("the generator turn timed out"), "integration"],
   ["a bug", new TypeError("x is not a function"), "unknown"],
   ["a thrown string", "boom", "unknown"],
 ];
