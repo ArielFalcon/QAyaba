@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildHelpContext } from "./help";
-import { infraErrorGloss } from "../qa/learning/taxonomy";
+import { infraErrorGloss } from "../qa/learning/infra-error-gloss";
 
 test("the help explains an infra-error by every cause it can have, the engine-side ones included", () => {
   const help = buildHelpContext();

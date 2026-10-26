@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { deriveAction, renderRunReport, type ValueSignals, type RunReportInput } from "./value-report";
-import { infraErrorGloss } from "./learning/taxonomy";
+import { infraErrorGloss } from "./learning/infra-error-gloss";
 
 const baseSignals: ValueSignals = {
   coverageRatio: null,

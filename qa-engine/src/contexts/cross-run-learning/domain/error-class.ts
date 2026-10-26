@@ -22,8 +22,7 @@ export const ERROR_CLASSES = [
   "E-REVIEWER-UNAVAILABLE",
   "E-REVIEW-DISPUTED",
   "E-SANDBOX",
-  /* The shell's own classes: a run it ended itself, not one the engine classified. They are here so the two copies of the
-     taxonomy stay identical; the learning gates decide they teach nothing. */
+  /* The shell's own classes: a run it ended itself, not one the engine classified. The learning gates decide they teach nothing. */
   "internal-error",
   "security-refusal",
 ] as const;
@@ -57,6 +56,10 @@ const TAG_TO_CLASS: Record<string, ErrorClass> = {
   "fragile-selector": "E-FRAGILE-SELECTOR",
   "no-cleanup": "E-NO-CLEANUP",
 };
+
+/* The GRAVE class tags: anti-patterns that must block publish whatever severity the reviewer assigned (a false-positive test, one that misses the change, or one that leaves orphaned DEV data). Derived from TAG_TO_CLASS, the single source of the tag vocabulary, minus the recoverable `fragile-selector`, so a grave tag added to the vocabulary is grave here too and cannot reopen the downgrade-to-advisory hole the verdict gate closes. */
+const RECOVERABLE_TAGS = new Set<string>(["fragile-selector"]);
+export const GRAVE_TAGS: ReadonlySet<string> = new Set(Object.keys(TAG_TO_CLASS).filter((tag) => !RECOVERABLE_TAGS.has(tag)));
 
 function classifyReviewerCorrection(correction: string): ErrorClass | null {
   const tag = /^\s*\[([a-z][a-z-]*)\]/i.exec(correction)?.[1]?.toLowerCase();

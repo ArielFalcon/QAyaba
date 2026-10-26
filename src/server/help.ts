@@ -1,5 +1,5 @@
 import { sanitizeText } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
-import { infraErrorGloss } from "../qa/learning/taxonomy";
+import { infraErrorGloss } from "../qa/learning/infra-error-gloss";
 import { DEFAULT_HOST } from "./port";
 
 const PRODUCT_CONTEXT = `

@@ -404,7 +404,7 @@ export function historyLearningStore(appName: string): LearningStore {
         trigger: rule.trigger,
         action: rule.action,
         /* history.ts stores ErrorClass; the port types it as string. Taxonomy is the producer. */
-        errorClass: rule.errorClass as import("../qa/learning/taxonomy").ErrorClass,
+        errorClass: rule.errorClass as import("@contexts/cross-run-learning/application/index").ErrorClass,
         archetype: rule.archetype ?? null,
         source: rule.source,
       }),

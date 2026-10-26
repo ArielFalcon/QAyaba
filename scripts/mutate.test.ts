@@ -215,7 +215,7 @@ test("the precondition-verdict preset mutates the typed precondition error, its 
     "qa-engine/src/contexts/cross-run-learning/domain/error-class.ts",
     "qa-engine/src/contexts/cross-run-learning/domain/process-audit.ts",
   ]);
-  for (const module of ["auth-precondition", "precondition-terminal", "error-class", "error-class-taxonomy", "learning-gates", "process-audit"]) {
+  for (const module of ["auth-precondition", "precondition-terminal", "error-class", "error-class.classification", "learning-gates", "process-audit"]) {
     assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s tests run against every mutant`);
   }
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");

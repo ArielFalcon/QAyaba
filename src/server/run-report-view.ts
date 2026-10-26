@@ -12,7 +12,7 @@
  */
 import type { RunRecord, RunOutcome } from "../types";
 import type { ReportView } from "../contract/commands";
-import { infraErrorGloss } from "../qa/learning/taxonomy";
+import { infraErrorGloss } from "../qa/learning/infra-error-gloss";
 
 type Insight = ReportView["insights"][number];
 

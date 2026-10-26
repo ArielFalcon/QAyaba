@@ -214,7 +214,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${APP_CATALOG_CTX_TEST}/domain/auth-precondition.test.ts`,
       `${ORCH_TEST}/domain/helpers/precondition-terminal.test.ts`,
       `${CROSS_RUN_LEARNING_CTX_TEST}/domain/error-class.test.ts`,
-      `${CROSS_RUN_LEARNING_CTX_TEST}/domain/error-class-taxonomy.test.ts`,
+      `${CROSS_RUN_LEARNING_CTX_TEST}/domain/error-class.classification.test.ts`,
       `${CROSS_RUN_LEARNING_CTX_TEST}/domain/learning-gates.test.ts`,
       `${LEARN_TEST}/process-audit.test.ts`,
     ],

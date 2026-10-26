@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { toRunReportView } from "./run-report-view";
-import { infraErrorGloss } from "../qa/learning/taxonomy";
+import { infraErrorGloss } from "../qa/learning/infra-error-gloss";
 import type { RunRecord, RunOutcome } from "../types";
 
 function record(over: Partial<RunRecord> = {}): RunRecord {

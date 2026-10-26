@@ -2958,7 +2958,7 @@ test("errorClass is derived from the verdict (E-EXEC-FAIL on a fail), not hardco
 
   assert.equal(out.decision.verdict, "fail");
   assert.ok(saved, "runHistory.save() must have been called");
-  assert.equal(saved!.errorClass, "E-EXEC-FAIL", "a fail verdict must derive errorClass:E-EXEC-FAIL via the re-ported labeler taxonomy, matching src/qa/learning/taxonomy.ts's errorClassFromVerdict");
+  assert.equal(saved!.errorClass, "E-EXEC-FAIL", "a fail verdict must derive errorClass:E-EXEC-FAIL via errorClassFromVerdict");
 });
 
 test("errorClass is E-STATIC on an invalid verdict", async () => {

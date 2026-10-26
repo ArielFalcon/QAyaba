@@ -1,84 +1,12 @@
-import { describe, it } from "node:test";
+import { describe, it, test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  ERROR_CLASSES,
+  GRAVE_TAGS,
   errorClassFromVerdict,
   errorClassFromCorrections,
-  ERROR_CLASSES,
-  infraErrorGloss,
-} from "./taxonomy";
-
-describe("ERROR_CLASSES", () => {
-  it("lists each class once, including the two an agent's generation end can name", () => {
-    assert.equal(new Set(ERROR_CLASSES).size, ERROR_CLASSES.length);
-    assert.ok((ERROR_CLASSES as readonly string[]).includes("E-STEP-BUDGET"));
-    assert.ok((ERROR_CLASSES as readonly string[]).includes("E-NO-DECISION"));
-  });
-
-  it("lists the precondition class, which is kept in step with the engine's own list", () => {
-    assert.ok((ERROR_CLASSES as readonly string[]).includes("E-PRECONDITION"));
-  });
-
-  it("E-INFRA is present and excludable from learning", () => {
-    assert(ERROR_CLASSES.includes("E-INFRA"));
-  });
-
-  it("E-REVIEWER-REJECTED is a valid ErrorClass", () => {
-    assert.ok((ERROR_CLASSES as readonly string[]).includes("E-REVIEWER-REJECTED"));
-  });
-});
-
-describe("infraErrorGloss", () => {
-  it("says the step-budget class is the agent running out of steps, engine-side", () => {
-    const gloss = infraErrorGloss("E-STEP-BUDGET");
-    assert.match(gloss, /steps/i);
-    assert.match(gloss, /engine/i);
-  });
-
-  it("says the time-budget class is the agent running out of time, engine-side", () => {
-    const gloss = infraErrorGloss("E-TIME-BUDGET");
-    assert.match(gloss, /time/i);
-    assert.match(gloss, /engine/i);
-    assert.doesNotMatch(gloss, /steps/i);
-  });
-
-  it("says the no-decision class is an agent that decided nothing, engine-side", () => {
-    const gloss = infraErrorGloss("E-NO-DECISION");
-    assert.match(gloss, /decision/i);
-    assert.match(gloss, /engine/i);
-  });
-
-  it("says the precondition class is a login the run could not complete, and not an engine-side condition", () => {
-    const gloss = infraErrorGloss("E-PRECONDITION");
-    assert.match(gloss, /login/i);
-    assert.doesNotMatch(gloss, /engine/i);
-  });
-
-  it("says the reviewer-unavailable class is a reviewer that could not be reached and judged nothing, neither a rejection nor the app's fault", () => {
-    const gloss = infraErrorGloss("E-REVIEWER-UNAVAILABLE");
-    assert.match(gloss, /reviewer/i);
-    assert.match(gloss, /not a rejection/i);
-    assert.doesNotMatch(gloss, /engine/i);
-  });
-
-  it("never blames the DEV environment, whatever the class or its absence", () => {
-    for (const errorClass of [...ERROR_CLASSES, null, undefined, "E-FUTURE-CLASS"]) {
-      assert.doesNotMatch(infraErrorGloss(errorClass), /\bDEV\b/, String(errorClass));
-    }
-  });
-
-  it("gives each engine-side class its own wording, apart from the neutral one", () => {
-    const wordings = new Set([infraErrorGloss("E-STEP-BUDGET"), infraErrorGloss("E-NO-DECISION"), infraErrorGloss("E-PRECONDITION"), infraErrorGloss("E-TIME-BUDGET"), infraErrorGloss("E-REVIEWER-UNAVAILABLE"), infraErrorGloss("E-INFRA")]);
-    assert.equal(wordings.size, 6);
-    assert.equal(infraErrorGloss(null), infraErrorGloss("E-INFRA"));
-    assert.equal(infraErrorGloss("E-FUTURE-CLASS"), infraErrorGloss("E-INFRA"));
-  });
-
-  it("stays one plain sentence without an internal E-… code", () => {
-    for (const errorClass of ERROR_CLASSES) {
-      assert.doesNotMatch(infraErrorGloss(errorClass), /\bE-[A-Z]/, errorClass);
-    }
-  });
-});
+  resolveErrorClass,
+} from "@contexts/cross-run-learning/domain/error-class.ts";
 
 describe("errorClassFromVerdict", () => {
   it("invalid → E-STATIC", () => {
@@ -201,4 +129,33 @@ describe("errorClassFromCorrections — closed-vocabulary reviewer tags (PROMPT-
       "E-FRAGILE-SELECTOR",
     );
   });
+});
+
+const RESOLVED_CLASS_BY_INPUT: Record<string, string | null> = {
+  '{"verdict":"invalid","coverageRatio":null,"minCoverageRatio":0.7,"reviewerCorrections":[]}': "E-STATIC",
+  '{"verdict":"fail","coverageRatio":null,"minCoverageRatio":0.7,"reviewerCorrections":[]}': "E-EXEC-FAIL",
+  '{"verdict":"flaky","coverageRatio":null,"minCoverageRatio":0.7,"reviewerCorrections":[]}': "E-FLAKY",
+  '{"verdict":"infra-error","coverageRatio":null,"minCoverageRatio":0.7,"reviewerCorrections":[]}': "E-INFRA",
+  '{"verdict":"pass","coverageRatio":0.25,"minCoverageRatio":0.7,"reviewerCorrections":[]}': "E-COVERAGE-GAP",
+  '{"verdict":"pass","coverageRatio":0.95,"minCoverageRatio":0.7,"reviewerCorrections":[]}': null,
+  '{"verdict":"pass","coverageRatio":null,"minCoverageRatio":0.7,"reviewerCorrections":[]}': null,
+  '{"verdict":"fail","coverageRatio":null,"minCoverageRatio":0.7,"reviewerCorrections":["[false-positive] x"]}': "E-EXEC-FAIL",
+  '{"verdict":"pass","coverageRatio":0.95,"minCoverageRatio":0.7,"reviewerCorrections":[],"valueScore":0.2}': "E-VALUE-SURVIVED",
+  '{"verdict":"pass","coverageRatio":0.95,"minCoverageRatio":0.7,"reviewerCorrections":[],"valueScore":0.85}': null,
+  '{"verdict":"skipped","coverageRatio":null,"minCoverageRatio":0.7,"reviewerCorrections":[]}': null,
+};
+
+test("resolveErrorClass returns the recorded class for each run evidence", () => {
+  for (const [key, expected] of Object.entries(RESOLVED_CLASS_BY_INPUT)) {
+    assert.equal(resolveErrorClass(JSON.parse(key)), expected, key);
+  }
+});
+
+test("the grave tags are the vocabulary tags that must block publish, without the recoverable fragile-selector", () => {
+  assert.deepEqual([...GRAVE_TAGS].sort(), ["false-positive", "no-cleanup", "wrong-objective"]);
+  assert.equal(GRAVE_TAGS.has("fragile-selector"), false);
+});
+
+test("every error class is listed once", () => {
+  assert.equal(new Set(ERROR_CLASSES).size, ERROR_CLASSES.length);
 });

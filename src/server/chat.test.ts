@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildRunContext, buildRunChatContext } from "./chat";
-import { infraErrorGloss } from "../qa/learning/taxonomy";
+import { infraErrorGloss } from "../qa/learning/infra-error-gloss";
 import { RunRecord } from "../types";
 
 const rec = (over: Partial<RunRecord> = {}): RunRecord => ({

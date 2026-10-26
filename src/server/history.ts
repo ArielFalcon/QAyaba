@@ -16,7 +16,7 @@ import { randomBytes } from "node:crypto";
 import { RunRecord, RunMode, TestTarget, QaCase, RunVerdict, SpecRecord, RunOutcome, AgentActivity } from "../types";
 import { applyOutcome as foldApplyOutcome } from "@contexts/cross-run-learning/domain/rule-fold";
 import { type LearningRule, type RuleUpsert, type Confidence, type RuleStatus } from "../qa/learning/learning-rule";
-import type { ErrorClass } from "../qa/learning/taxonomy";
+import type { ErrorClass } from "@contexts/cross-run-learning/application/index";
 import type { Curriculum } from "../qa/learning/curriculum";
 import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
 import { updateScorecard, type Scorecard, type ScorecardEntry } from "../qa/learning/oracle-types";

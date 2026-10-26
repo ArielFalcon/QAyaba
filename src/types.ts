@@ -242,7 +242,7 @@ export interface Incident {
 }
 
 
-export type { ErrorClass } from "./qa/learning/taxonomy";
+export type { ErrorClass } from "@contexts/cross-run-learning/application/index";
 
 export interface RunOutcome {
   runId: string;
@@ -251,7 +251,7 @@ export interface RunOutcome {
   mode: RunMode;
   target: TestTarget;
   verdict: RunVerdict;
-  errorClass: import("./qa/learning/taxonomy").ErrorClass | null;
+  errorClass: import("@contexts/cross-run-learning/application/index").ErrorClass | null;
   gateSignals: {
     static: boolean;
     coverageRatio: number | null;
@@ -363,7 +363,7 @@ export interface StructuredReflection {
   goal: string;
   decision: string;
   assumption: string;
-  errorClass: import("./qa/learning/taxonomy").ErrorClass;
+  errorClass: import("@contexts/cross-run-learning/application/index").ErrorClass;
   gateSignal: string;
   evidence: string;
   rootCause: string;
