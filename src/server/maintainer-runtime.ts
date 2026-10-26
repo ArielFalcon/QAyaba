@@ -22,7 +22,6 @@ import { github } from "../integrations/github";
 
 import { scrubEnv } from "../../qa-engine/src/shared-infrastructure/process-sandbox/scrub-env";
 import { VcsWriteAdapter } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/vcs-write.adapter";
-import { logJson } from "../integrations/logger";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import type { AgentDeps } from "../integrations/opencode-client";
 import { activeSettings } from "../settings/store";
@@ -371,7 +370,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
   function recoverMaintainerState(): void {
     const diagnosing = getIncidents().filter((i) => i.status === "diagnosing");
     if (diagnosing.length > 0) {
-      logJson("info", "maintainer recovering: incidents were mid-diagnosis; re-triggering", { count: diagnosing.length });
+      appLogger.info("maintainer recovering: incidents were mid-diagnosis; re-triggering", { count: diagnosing.length });
       triggerMaintainer();
     }
   }
@@ -394,7 +393,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
        */
       const pending = readPendingPromote(dataDir);
       if (pending?.promote) {
-        logJson("info", "re-driving a promote interrupted by a restart", { prUrl: pending.prUrl ?? "" });
+        appLogger.info("re-driving a promote interrupted by a restart", { prUrl: pending.prUrl ?? "" });
         void (async () => {
           try {
             await promote(pending.promote, pending.prUrl, pending.fix);
@@ -429,7 +428,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
           detail: "the swapped code booted but did not serve /api/health",
         });
         const rolled = fx.rollback(process.cwd(), dataDir);
-        logJson("error", "canary unhealthy — rolled back or no backup", { rolled, prUrl: marker.prUrl ?? "" });
+        appLogger.error("canary unhealthy — rolled back or no backup", { rolled, prUrl: marker.prUrl ?? "" });
         if (rolled) {
           try {
             fx.exec("npm install --no-audit --no-fund", { cwd: process.cwd(), stdio: "inherit", env: scrubEnv() });
@@ -445,7 +444,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
        * boot-guard to roll back an already-healthy service on a later restart.
        */
       fx.confirmSwapHealthy(process.cwd(), dataDir);
-      logJson("info", "canary verified healthy — cleared rollback marker", { prUrl: marker.prUrl });
+      appLogger.info("canary verified healthy — cleared rollback marker", { prUrl: marker.prUrl });
       /*
        * Then PROMOTE: merge the PR so main adopts the now-proven fix. Promotion is gated by the
        * OUTER GUARD (the required CI check on main) and is best-effort — the running service
@@ -482,9 +481,9 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
     try {
       await fx.github.enableAutoMerge(p.nodeId);
       autoMerge = true;
-      logJson("info", "auto-merge enabled — GitHub will merge once CI passes", { ref });
+      appLogger.info("auto-merge enabled — GitHub will merge once CI passes", { ref });
     } catch (err) {
-      logJson("warn", "native auto-merge unavailable — self-enforcing the CI gate", { ref, error: err instanceof Error ? err.message : String(err) });
+      appLogger.warn("native auto-merge unavailable — self-enforcing the CI gate", { ref, error: err instanceof Error ? err.message : String(err) });
     }
 
     /* 2. Observe the outcome so we both finish the merge when appropriate and LEARN on CI failure. */
@@ -502,17 +501,17 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
         const requiredCheck = activeSettings().maintainer.ciCheck;
         s = await fx.github.getPrStatus(p.repo, p.prNumber, undefined, requiredCheck);
       } catch (err) {
-        logJson("warn", "could not read PR status", { ref, error: err instanceof Error ? err.message : String(err) });
+        appLogger.warn("could not read PR status", { ref, error: err instanceof Error ? err.message : String(err) });
         await sleep(15_000);
         continue;
       }
       if (s.merged) {
-        logJson("info", "promoted (merged) to main", { ref });
+        appLogger.info("promoted (merged) to main", { ref });
         return;
       }
       if (s.state === "closed") {
         noteFailure("ci-failed", "the PR was closed without merging");
-        logJson("warn", "PR was closed without merging — not promoted", { ref });
+        appLogger.warn("PR was closed without merging — not promoted", { ref });
         return;
       }
       if (s.checks === "failure") {
@@ -523,7 +522,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
           detail: ref,
         });
         noteFailure("ci-failed", "the required CI check on main went red for this fix");
-        logJson("warn", "CI failed — leaving the PR open (main untouched)", { ref });
+        appLogger.warn("CI failed — leaving the PR open (main untouched)", { ref });
         return;
       }
       if (!autoMerge) {
@@ -540,7 +539,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
           summary: "maintainer canary healthy but branch protection/auto-merge is not configured — PR left for a human to review and merge",
           detail: ref,
         });
-        logJson("warn", "no branch protection — PR left open for human review", { ref });
+        appLogger.warn("no branch protection — PR left open for human review", { ref });
         return;
       }
       /* pending; or (autoMerge waiting for GitHub to land the merge). */
@@ -553,7 +552,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
       detail: ref,
     });
     noteFailure("ci-timeout", "the required CI check did not complete (or auto-merge did not land) within the promote window");
-    logJson("warn", "promote timed out — PR left open", { ref });
+    appLogger.warn("promote timed out — PR left open", { ref });
   }
 
   /*
