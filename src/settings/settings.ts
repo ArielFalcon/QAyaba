@@ -10,12 +10,14 @@ import { resolveEgressMode, type EgressMode } from "../server/egress-wiring";
 import { parseCampaignRetentionDays, parseRetentionDays, resolveTelemetryConfig, type TelemetryConfig } from "../telemetry/config";
 import { resolveBackendHealthConfig, type BackendHealthConfig } from "../telemetry/backend-health";
 import { resolveLangfuseConfig, type LangfuseConfig } from "../telemetry/langfuse-score-sink";
-import { resolveRunTimeBudgets, type RunTimeBudgets } from "../../qa-engine/src/contexts/run-orchestration/domain/run-time-budget";
-import { resolveDiffTimeBudgets, type DiffTimeBudgets } from "../../qa-engine/src/contexts/generation/domain/generator-time-budget";
+import { resolveRunTimeBudgets } from "@contexts/run-orchestration/application/index";
+import { resolveDiffTimeBudgets } from "@contexts/generation/application/index";
 import { resolveExecSandboxMode, type ExecSandboxMode } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
-import { e2eTimeoutMs } from "../../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner";
 import { DEFAULT_REVIEWER_TIMEOUT_MS, DEFAULT_SELF_REPO, DEFAULT_SESSION_TTL_SECONDS, DEFAULT_STALL_MS } from "./defaults";
 import { SETTINGS_REGISTRY, settingDef } from "./registry";
+
+type RunTimeBudgets = ReturnType<typeof resolveRunTimeBudgets>;
+type DiffTimeBudgets = ReturnType<typeof resolveDiffTimeBudgets>;
 
 export type EnvironmentMap = Readonly<Record<string, string | undefined>>;
 
@@ -93,7 +95,6 @@ export interface Settings {
     readonly egressMode: EgressMode;
   };
   readonly run: {
-    readonly e2eTimeoutMs: number;
     readonly pwActionTimeoutMs: string | undefined;
     readonly campaignFrozen: boolean;
     readonly runTimeBudgets: RunTimeBudgets;
@@ -240,7 +241,6 @@ export function loadSettings(env: EnvironmentMap): Settings {
       egressMode: r.run(["QA_EGRESS_MODE"], () => resolveEgressMode(env), "enforce"),
     },
     run: {
-      e2eTimeoutMs: e2eTimeoutMs(env),
       pwActionTimeoutMs: r.str("PW_ACTION_TIMEOUT_MS"),
       campaignFrozen: r.run(["QA_CAMPAIGN_FREEZE"], () => resolveCampaignFreeze(env), false),
       runTimeBudgets: r.run(runBudgetNames(), () => resolveRunTimeBudgets(env), undefined as unknown as RunTimeBudgets),

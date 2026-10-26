@@ -297,6 +297,30 @@ describe("resolveStrykerCommand — absorbed helper, exercised directly", () => 
   });
 });
 
+describe("resolveStrykerCommand — the orchestrator root it is given", () => {
+  it("uses the bundled Stryker binary under the given root", () => {
+    const root = mkdtempSync(join(tmpdir(), "stryker-root-"));
+    try {
+      mkdirSync(join(root, "node_modules", ".bin"), { recursive: true });
+      writeFileSync(join(root, "node_modules", ".bin", "stryker"), "");
+      const { cmd, args } = resolveStrykerCommand(root);
+      assert.equal(cmd, join(root, "node_modules", ".bin", "stryker"));
+      assert.deepEqual(args, ["run"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to npx when the given root has no bundled binary", () => {
+    const root = mkdtempSync(join(tmpdir(), "stryker-root-"));
+    try {
+      assert.equal(resolveStrykerCommand(root).cmd, "npx");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 test("target:'code' identity is threaded via measure() and never routes to the e2e oracle", async () => {
   const repo = tmpRepo();
   try {

@@ -7,6 +7,7 @@ import { JudgeRepository } from "./repositories/judge.repository";
 import { LearningRepository } from "./repositories/learning.repository";
 import { RunRepository } from "./repositories/run.repository";
 import { TelemetryRepository } from "./repositories/telemetry.repository";
+import { activeSettings } from "../../settings/store";
 
 let shared: HistoryDatabase | undefined;
 let history: History | undefined;
@@ -50,7 +51,7 @@ export function createHistory(db: HistoryDatabase): History {
  * prunes: retention is `pruneHistory`, run by the caller.
  */
 export function getHistoryDatabase(): HistoryDatabase {
-  shared ??= openHistoryDatabase(process.env.HISTORY_DB_PATH ?? join(qayabaDataDir(), "qayaba.db"));
+  shared ??= openHistoryDatabase(activeSettings().paths.historyDbPath ?? join(qayabaDataDir(), "qayaba.db"));
   return shared;
 }
 

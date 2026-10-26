@@ -8,7 +8,7 @@
 import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SETTING_GROUPS, SETTINGS_REGISTRY, type SettingDef } from "../src/settings/registry.ts";
+import { SETTING_GROUPS, SETTINGS_REGISTRY, type SettingDef } from "../src/settings/registry";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const SETTINGS_DOC_PATH = join(ROOT, "docs", "settings.md");

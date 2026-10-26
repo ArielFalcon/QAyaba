@@ -1,5 +1,6 @@
 import { REDACTED, SecretLeakError, type RedactionMode, type RedactionPort, type SecretDetection } from "../../qa-engine/src/shared-kernel/ports/redaction.port";
 import { PatternRedactionAdapter } from "../../qa-engine/src/shared-infrastructure/redaction/pattern-redaction.adapter";
+import { activeEnvironment } from "../settings/active";
 
 /*
  * The shell's redaction: the engine's pattern policy (PatternRedactionAdapter) plus the orchestrator's own
@@ -56,12 +57,12 @@ function stripEnvValues(text: string, env: Record<string, string | undefined>): 
  * The Issue-bound policy would also rewrite code that only names a secret (`const token = this.auth.getToken()`), deforming the
  * very source the tool exists to show.
  */
-export function redactSourceForModel(text: string, env: Record<string, string | undefined> = process.env): string {
+export function redactSourceForModel(text: string, env: Record<string, string | undefined> = activeEnvironment()): string {
   return patterns.redact(stripEnvValues(text, env), "model");
 }
 
 export class RedactionPortAdapter implements RedactionPort {
-  constructor(private readonly env: Record<string, string | undefined> = process.env) {}
+  constructor(private readonly env: Record<string, string | undefined> = activeEnvironment()) {}
 
   redact(text: string, mode: RedactionMode = "issue"): string {
     return patterns.redact(stripEnvValues(text, this.env), mode);

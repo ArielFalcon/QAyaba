@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-/* The orchestrator's root (config/, data/, .env): QAYABA_ROOT, else the working directory. */
+/* The orchestrator's root (config/, data/, .env): QAYABA_ROOT, else the working directory. Read directly: it locates the directories the settings report, so it exists before they load. */
 export function qayabaRoot(): string {
   return process.env.QAYABA_ROOT ?? process.cwd();
 }

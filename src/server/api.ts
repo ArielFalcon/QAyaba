@@ -84,6 +84,7 @@ import { CampaignCaptureMismatchError } from "./campaign-capture";
 import { RegradeRequestError } from "@contexts/evaluation/application/index";
 import type { EvaluationService } from "./evaluation-service";
 import type { RunViewExtras } from "./run-view";
+import { activeEnvironment } from "../settings/active";
 
 const TARGETS: TestTarget[] = ["e2e", "code"];
 
@@ -439,7 +440,7 @@ export async function handleApi(
 
   if (req.method === "GET" && path === "/api/health") {
     /* Still 200 when the sandbox is degraded: the container stays up for the operator to read why. */
-    const sandbox = describeSandboxHealth(process.env);
+    const sandbox = describeSandboxHealth(activeEnvironment());
     /* Public route: a flag and a count each, never an endpoint or an error text. */
     const telemetry = deps.telemetryHealth?.();
     /* A degraded store never fails the route (the container stays up); it is a flag, with the reasons on the authenticated route. */

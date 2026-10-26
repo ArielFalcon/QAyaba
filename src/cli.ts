@@ -35,29 +35,44 @@ import type { GroundingInput } from "./contract/commands";
 import { renderRunReport } from "./qa/value-report";
 import { createAgentRuntimeManager } from "./server/agent-runtime";
 import { defaultEnvStoreFs } from "./server/env-store";
+import type { Settings } from "./settings/settings";
+import { createSettingsStore, installSettingsStore, type SettingsStore } from "./settings/store";
 import { OpenCodeRuntimeStrategy } from "./agent-runtime";
 import { getOpenSessionCount } from "./integrations/opencode-client";
 import { createRunEngineFactory } from "./server/run-engine-factory";
-import { resolvePort } from "./server/port";
 import { getHistory } from "./server/persistence/index";
 import type { RunRecord } from "./types";
 
 
-const cliAgentRuntime = createAgentRuntimeManager({
-  env: process.env,
-  fs: defaultEnvStoreFs(),
-  strategies: {
-    opencode: new OpenCodeRuntimeStrategy({ env: process.env }),
-  },
-  hasOpenSessions: () => getOpenSessionCount() > 0,
-});
+/* The CLI is a composition root: the settings load once, on first use, from the process environment. */
+let settingsStore: SettingsStore | undefined;
+function cliSettings(): Settings {
+  if (!settingsStore) {
+    settingsStore = createSettingsStore(process.env);
+    installSettingsStore(settingsStore);
+  }
+  return settingsStore.current();
+}
+
+let agentRuntimeManager: ReturnType<typeof createAgentRuntimeManager> | undefined;
+function cliAgentRuntime(): ReturnType<typeof createAgentRuntimeManager> {
+  agentRuntimeManager ??= createAgentRuntimeManager({
+    env: cliSettings().environment,
+    fs: defaultEnvStoreFs(),
+    strategies: {
+      opencode: new OpenCodeRuntimeStrategy({ env: cliSettings().environment }),
+    },
+    hasOpenSessions: () => getOpenSessionCount() > 0,
+  });
+  return agentRuntimeManager;
+}
 /* Built on first use, by which time main() has built this process's telemetry (a run that is delegated to the service builds none). */
 let cliFactory: ReturnType<typeof createRunEngineFactory> | undefined;
 const cliEngineFactory: ReturnType<typeof createRunEngineFactory> = (...args) => {
-  const telemetry = processTelemetry();
+  const telemetry = processTelemetry(cliSettings().environment);
   cliFactory ??= createRunEngineFactory({
-    getAgentDeps: () => cliAgentRuntime.facade().deps(),
-    getAgentFacade: () => cliAgentRuntime.facade(),
+    getAgentDeps: () => cliAgentRuntime().facade().deps(),
+    getAgentFacade: () => cliAgentRuntime().facade(),
     telemetry: telemetry.telemetry,
     clock: telemetry.clock,
   });
@@ -69,7 +84,7 @@ const cliEngineFactory: ReturnType<typeof createRunEngineFactory> = (...args) =>
  * orchestrator owns the queue on this host and a second queue here would race it against DEV.
  */
 async function localServiceIsRunning(): Promise<boolean> {
-  const port = resolvePort(process.env);
+  const port = cliSettings().server.port;
   try {
     const res = await fetch(`http://localhost:${port}/api/health`, { signal: AbortSignal.timeout(1500) });
     return res.ok;
@@ -84,7 +99,7 @@ async function localServiceIsRunning(): Promise<boolean> {
  * authenticates without the operator typing it.
  */
 function cliApiToken(): string | undefined {
-  return discoverApiToken(process.env, qayabaRoot());
+  return discoverApiToken(cliSettings().environment, qayabaRoot());
 }
 
 /*
@@ -121,7 +136,7 @@ function groundingOf(args: { domPack?: boolean; structuralSignal?: boolean; doss
 }
 
 async function runViaService(args: { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; domPack?: boolean; structuralSignal?: boolean; dossier?: boolean }): Promise<void> {
-  const port = resolvePort(process.env);
+  const port = cliSettings().server.port;
   const baseUrl = `http://localhost:${port}`;
   const appCfg = loadAppConfig(args.app);
   const target = args.target ?? (appCfg.code ? "code" : "e2e");
@@ -179,7 +194,7 @@ async function main(): Promise<void> {
   }
 
   /* Built once for this process (a mistyped QA_TELEMETRY stops it here); the engine factory takes `telemetry.telemetry` as a dep. */
-  const telemetry = processTelemetry();
+  const telemetry = processTelemetry(cliSettings().environment);
   let record: RunRecord | undefined;
   try {
     const queue = new JobQueue();
@@ -263,7 +278,7 @@ function printRunReport(record: RunRecord, appCfg: ReturnType<typeof loadAppConf
       reviewerRationale: gs?.reviewerRationale,
     },
     errorClass: outcome?.errorClass ?? null,
-  }, { color: process.stdout.isTTY === true && !process.env.NO_COLOR });
+  }, { color: process.stdout.isTTY === true && !cliSettings().server.noColor });
   console.log("\n" + report + "\n");
 }
 

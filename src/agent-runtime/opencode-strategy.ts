@@ -15,6 +15,7 @@ import {
 import type { RunEventBody } from "../contract/events";
 import type { UsageSnapshot } from "../qa/usage";
 import { enforcedStepLimit } from "./step-limit";
+import { activeEnvironment } from "../settings/active";
 import {
   AGENT_NAME_FOR_ROLE,
   AGENT_ROLES,
@@ -59,7 +60,7 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
   private readonly listWindows: NonNullable<OpenCodeRuntimeStrategyOptions["listModelWindows"]>;
 
   constructor(opts: OpenCodeRuntimeStrategyOptions = {}) {
-    this.env = opts.env ?? process.env;
+    this.env = opts.env ?? activeEnvironment();
     this.depsFactory = opts.depsFactory ?? defaultAgentDeps;
     this.startEvents = opts.startEvents ?? startActivitySink;
     this.disposeClient = opts.dispose ?? disposeSharedClient;

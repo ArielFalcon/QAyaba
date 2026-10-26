@@ -85,6 +85,7 @@ function check(env: NodeJS.ProcessEnv): FileBoundaryVerdict {
 }
 
 function main(): number {
+  /* A process of its own, started by the container entrypoint as root before the service: it loads no settings, so an unrelated invalid variable can never stop the check that decides whether agent code may run. */
   const env = process.env;
   const statusFile = fileBoundaryStatusFile(env);
   let verdict: FileBoundaryVerdict;

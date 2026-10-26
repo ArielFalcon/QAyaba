@@ -6,7 +6,7 @@
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { renderSettingsDocs, SETTINGS_DOC_PATH } from "./gen-settings-docs.ts";
+import { renderSettingsDocs, SETTINGS_DOC_PATH } from "./gen-settings-docs";
 
 /* Pure comparison, unit-testable with a fake reader. Returns the reason the file is stale, or undefined when it is fresh. */
 export function settingsDocStaleness(readCommitted: (path: string) => string, fresh: string = renderSettingsDocs()): string | undefined {

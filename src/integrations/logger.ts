@@ -5,6 +5,7 @@ import { finished } from "node:stream/promises";
 
 /* JSON-structured logger: a single stream so logs ship without interleaving stdout noise. */
 
+/* Read directly: the logger starts before the settings load and reports their problems. */
 const LOG_DIR = process.env.QAYABA_LOG_DIR ?? join(qayabaDataDir(), "logs");
 const MAX_LOG_FILES = 5;
 const MAX_LOG_BYTES = 50 * 1024 * 1024;

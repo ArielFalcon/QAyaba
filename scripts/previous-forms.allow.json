@@ -184,5 +184,17 @@
     "path": "AGENTS.md",
     "contains": "test/arch/known-violations.test.ts",
     "reason": "Pending edit of a file outside phase 3's write authority; the replacement text is recorded in the arch-p3 Log (L25). Remove this entry with that edit."
+  },
+  {
+    "rule": "codex",
+    "path": "src/settings/compose-parity.test.ts",
+    "contains": "CODEX_API_KEY",
+    "reason": "Names .env.example still assigns although nothing reads them (a pending edit of a file outside this phase's edit surface; the replacement lines are recorded in the arch-p7 Log). Remove this entry with that edit."
+  },
+  {
+    "rule": "dual-mode",
+    "path": "src/settings/compose-parity.test.ts",
+    "contains": "AGENT_RUNTIME_MODE",
+    "reason": "Names .env.example still assigns although nothing reads them (a pending edit of a file outside this phase's edit surface; the replacement lines are recorded in the arch-p7 Log). Remove this entry with that edit."
   }
 ]

@@ -20,6 +20,7 @@ import type {
   RoleAssignment,
 } from "../agent-runtime/types";
 import type { AgentConfigUpdate, AgentModelInfo } from "../contract/commands";
+import { activeEnvironment } from "../settings/active";
 
 export interface AgentRuntimeManager {
   getConfig(): Promise<PublicAgentConfig>;
@@ -46,7 +47,7 @@ const ROLES: Array<keyof AgentRuntimeConfig["assignments"]> = ["primary", "revie
 const redactionPort = new RedactionPortAdapter();
 
 export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions): AgentRuntimeManager {
-  const env = opts.env ?? process.env;
+  const env = opts.env ?? activeEnvironment();
   const fs = opts.fs ?? defaultEnvStoreFs();
   let config = configFromEnv(env);
 

@@ -9,6 +9,7 @@ import { join } from "node:path";
 import type { Agent as OpenCodeAgent } from "@opencode-ai/sdk/v2";
 
 import { RunMode } from "../types";
+import { activeSettings } from "../settings/store";
 import { getHistory } from "../server/persistence/index";
 import { SERENA_WRITE_TOOL_NAMES } from "@contexts/generation/application/index";
 import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
@@ -246,7 +247,7 @@ async function getSharedClient() {
   const { createOpencodeClient } = await import("@opencode-ai/sdk");
   const auth = openCodeServerAuth();
   sharedClient = createOpencodeClient({
-    baseUrl: process.env.OPENCODE_SERVE_URL ?? "http://agents:4096",
+    baseUrl: activeSettings().agent.serveUrl,
     headers: auth.headers,
     fetch: auth.fetch as typeof fetch,
   });
@@ -268,7 +269,7 @@ async function getEventClient() {
   const { createOpencodeClient } = await import("@opencode-ai/sdk/v2");
   const auth = openCodeServerAuth();
   sharedEventClient = createOpencodeClient({
-    baseUrl: process.env.OPENCODE_SERVE_URL ?? "http://agents:4096",
+    baseUrl: activeSettings().agent.serveUrl,
     headers: auth.headers,
     fetch: auth.fetch as typeof fetch,
   });
@@ -471,7 +472,9 @@ export async function askAssistant(
  * it must never inherit the generator's 25-minute worst-case budget: a hung reviewer would
  * add that whole window to the run before the loop fails closed.
  */
-export const REVIEWER_TIMEOUT_MS = Number(process.env.OPENCODE_REVIEWER_TIMEOUT_MS) || 6 * 60 * 1000;
+export function reviewerTimeoutMs(): number {
+  return activeSettings().agent.reviewerTimeoutMs;
+}
 
 const TIMEOUT_BY_MODE: Record<RunMode, number> = {
   diff: 5 * 60 * 1000,
@@ -482,23 +485,21 @@ const TIMEOUT_BY_MODE: Record<RunMode, number> = {
 };
 
 export function agentTimeout(mode: RunMode): number {
-  return Number(process.env.OPENCODE_TIMEOUT_MS) || TIMEOUT_BY_MODE[mode];
+  return activeSettings().agent.timeoutMs ?? TIMEOUT_BY_MODE[mode];
 }
 
 const MAX_AGENT_TIMEOUT_MS = Math.max(...Object.values(TIMEOUT_BY_MODE));
 
 
 /*
- * Default stall threshold: STRICTLY less than the shortest mode timeout (diff = 5 min).
+ * Stall threshold (agent.stallMs, default STRICTLY less than the shortest mode timeout, diff = 5 min).
  * Configurable via OPENCODE_STALL_MS. 180 seconds without any agent activity event triggers the
  * watchdog — tight enough to catch a truly hung session well before the coarse deadline, yet with
  * headroom for a single legitimately-long tool call (e.g. a large Serena index scan) that emits no
  * intermediate SSE events. Raise OPENCODE_STALL_MS for very large repos if healthy runs trip it.
  */
-const DEFAULT_STALL_MS = 180_000;
-
 export function stallMs(): number {
-  return Number(process.env.OPENCODE_STALL_MS) || DEFAULT_STALL_MS;
+  return activeSettings().agent.stallMs;
 }
 
 
@@ -701,8 +702,8 @@ export function answeredFrom(info: { modelID?: unknown; providerID?: unknown; fi
  * Take the max + headroom.
  */
 export function agentPromptCapMs(): number {
-  const generatorMax = Number(process.env.OPENCODE_TIMEOUT_MS) || MAX_AGENT_TIMEOUT_MS;
-  return Math.max(generatorMax, REVIEWER_TIMEOUT_MS) + 30_000;
+  const generatorMax = activeSettings().agent.timeoutMs ?? MAX_AGENT_TIMEOUT_MS;
+  return Math.max(generatorMax, reviewerTimeoutMs()) + 30_000;
 }
 
 export async function defaultAgentDeps(): Promise<AgentDeps> {

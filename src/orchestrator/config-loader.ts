@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { qayabaRoot } from "../paths";
 import { parse } from "yaml";
 import { AppConfigSchema, type ValidatedAppConfig } from "./schemas";
+import { activeEnvironment } from "../settings/active";
 
 const ROOT = qayabaRoot();
 
@@ -84,7 +85,7 @@ export function listAppConfigs(root = ROOT): AppConfig[] {
   return out;
 }
 
-export function expandEnv(s: string, env: Record<string, string | undefined> = process.env): string {
+export function expandEnv(s: string, env: Record<string, string | undefined> = activeEnvironment()): string {
   /* Match any shell-style identifier (not uppercase-only) so a mis-cased ${myToken} fails as unset. */
   return s.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, key) => {
     const val = env[key];

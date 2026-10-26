@@ -12,6 +12,8 @@ import { InfraError } from "../errors";
 import { MirrorProvisionAdapter, type MirrorProvisionDeps } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/mirror-provision.adapter";
 import { hardenGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import { hardenDetachedGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";
+import { activeEnvironment } from "../settings/active";
+import { activeSettings } from "../settings/store";
 
 /* The orchestrator's git hardening has one definition, in the engine (which cannot import src/); every git caller on a working copy goes through it. */
 export { hardenGitArgs, assertTrustedGitTree, UntrustedGitTreeError } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
@@ -34,7 +36,7 @@ export interface MirrorDeps {
 
 /* Single source for a repo's mirror directory. */
 export function workdirRoot(): string {
-  return process.env.MIRROR_DIR ?? join(process.cwd(), ".mirrors");
+  return activeSettings().git.mirrorDir ?? join(process.cwd(), ".mirrors");
 }
 
 /*
@@ -45,7 +47,7 @@ export function workdirRoot(): string {
  * Auth happens exclusively through the transient -c insteadOf rewrite (authHeaderArgs).
  */
 function tokenlessUrl(repo: string): string {
-  const base = process.env.GIT_REMOTE_BASE ?? "https://github.com";
+  const base = activeSettings().git.remoteBase;
   return `${base}/${repo}.git`;
 }
 
@@ -65,7 +67,7 @@ export function assertHexSha(sha: string): void {
  * helper involved, no token in .git/config, works on every OS.
  */
 export function authHeaderArgs(): string[] {
-  const token = process.env.GITHUB_TOKEN;
+  const token = activeEnvironment().GITHUB_TOKEN;
   return token
     ? ["-c", `url.https://x-access-token:${token}@github.com/.insteadOf=https://github.com/`]
     : [];
@@ -190,7 +192,7 @@ function hardenedArgsFor(args: string[], cwd: string | undefined): string[] {
 
 export const realGit: Git = (args, cwd) =>
   new Promise((resolve, reject) => {
-    execFile("git", hardenedArgsFor(args, cwd), { cwd, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }, (err, stdout) => {
+    execFile("git", hardenedArgsFor(args, cwd), { cwd, maxBuffer: 64 * 1024 * 1024, env: { ...activeEnvironment(), GIT_TERMINAL_PROMPT: "0" } }, (err, stdout) => {
       if (!err) {
         resolve(stdout.toString());
         return;

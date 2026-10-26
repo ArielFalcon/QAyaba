@@ -51,7 +51,7 @@ The orchestrator reads its environment once, in `loadSettings(env)`. An empty va
 | `AGENT_CHAT_MODEL` | - | string | - | - | Overrides the model of the chat role (provider/model). Unset, the role's default applies. |
 | `COORDINATION_ESCALATED_MODEL` | `agent.coordinationEscalatedModel` | string | - | - | Model a sidekick escalates to when its first attempt is judged insufficient (provider/model). Unset, no escalation model is configured. |
 | `COORDINATION_TELEMETRY_PATH` | `agent.coordinationTelemetryPath` | path | `<data>/coordination-events.jsonl` | - | File that records the lead's coordination events. |
-| `REFLECTOR_TIMEOUT_MS` | `agent.reflectorTimeoutMs` | integer | `60000` | - | Time budget of the reflection pass in milliseconds. A value that is not a positive number is ignored. |
+| `REFLECTOR_TIMEOUT_MS` | `agent.reflectorTimeoutMs` | integer | - | - | Time budget of the reflection pass in milliseconds. Unset, or a value that is not a positive number, the reflection adapter's own budget (one minute) applies. |
 | `QA_REFLECTOR_ENABLED` | `agent.reflectorEnabled` | boolean | `false` | - | Turns the cross-run reflection pass on (1 or true) or off (0, false or empty). Any other value stops the boot. |
 
 ## Git and mirrors
@@ -95,7 +95,7 @@ The orchestrator reads its environment once, in `loadSettings(env)`. An empty va
 
 | Variable | Field | Type | Default | Flags | Description |
 | --- | --- | --- | --- | --- | --- |
-| `QA_E2E_TIMEOUT_MS` | `run.e2eTimeoutMs` | integer | `900000` | - | Time a Playwright execution may take, in milliseconds. A value that is not a positive number is ignored. |
+| `QA_E2E_TIMEOUT_MS` | - | integer | - | - | Time a Playwright execution may take, in milliseconds. Unset, or a value that is not a positive number, the engine's default of fifteen minutes applies. Read live. |
 | `PW_ACTION_TIMEOUT_MS` | `run.pwActionTimeoutMs` | string | - | - | Overrides Playwright's per-action timeout for the suite (milliseconds, passed through unchanged). |
 | `QA_CAMPAIGN_FREEZE` | `run.campaignFrozen` | boolean | `false` | - | When 1 or true, a run reads and writes no cross-run learning state. 0, false or empty turn it off; any other value stops the boot. |
 | `QA_RUN_TIME_BUDGET_MS_DIFF_TINY` | - | integer | `1500000` | - | Wall time of a tiny diff run, in milliseconds. |

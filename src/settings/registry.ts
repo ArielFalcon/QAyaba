@@ -4,9 +4,7 @@ import { DEFAULT_LISTEN_HOST, DEFAULT_PORT } from "../server/port";
 import { DEFAULT_TOOLS_PORT } from "../server/tools-endpoint";
 import { DEFAULT_JUDGE_DAILY_TOKENS } from "../server/judge-settings";
 import { DEFAULT_CAMPAIGN_RETENTION_DAYS, DEFAULT_SERVICE_NAME, DEFAULT_SPAN_RETENTION_DAYS } from "../telemetry/config";
-import { RUN_TIME_BUDGET_MS } from "../../qa-engine/src/contexts/run-orchestration/domain/run-time-budget";
-import { REFLECT_TIMEOUT_MS } from "../../qa-engine/src/contexts/cross-run-learning/infrastructure/reflector-port.adapter";
-import { DEFAULT_E2E_TIMEOUT_MS } from "../../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner";
+import { resolveRunTimeBudgets } from "@contexts/run-orchestration/application/index";
 
 import { DEFAULT_REVIEWER_TIMEOUT_MS, DEFAULT_SELF_REPO, DEFAULT_SESSION_TTL_SECONDS, DEFAULT_STALL_MS } from "./defaults";
 
@@ -30,6 +28,9 @@ export interface SettingDef {
   readonly values?: readonly string[];
   readonly description: string;
 }
+
+/* The built-in wall time of each kind of run: the engine's own table, read through the parser with an empty environment. */
+const RUN_TIME_BUDGET_MS = resolveRunTimeBudgets({});
 
 const entry = (def: SettingDef): SettingDef => def;
 
@@ -69,7 +70,7 @@ export const SETTINGS_REGISTRY: readonly SettingDef[] = [
   entry({ env: "AGENT_CHAT_MODEL", key: "-", group: "agent", type: "string", description: "Overrides the model of the chat role (provider/model). Unset, the role's default applies." }),
   entry({ env: "COORDINATION_ESCALATED_MODEL", key: "coordinationEscalatedModel", group: "agent", type: "string", description: "Model a sidekick escalates to when its first attempt is judged insufficient (provider/model). Unset, no escalation model is configured." }),
   entry({ env: "COORDINATION_TELEMETRY_PATH", key: "coordinationTelemetryPath", group: "agent", type: "path", default: "<data>/coordination-events.jsonl", description: "File that records the lead's coordination events." }),
-  entry({ env: "REFLECTOR_TIMEOUT_MS", key: "reflectorTimeoutMs", group: "agent", type: "integer", default: String(REFLECT_TIMEOUT_MS), description: "Time budget of the reflection pass in milliseconds. A value that is not a positive number is ignored." }),
+  entry({ env: "REFLECTOR_TIMEOUT_MS", key: "reflectorTimeoutMs", group: "agent", type: "integer", description: "Time budget of the reflection pass in milliseconds. Unset, or a value that is not a positive number, the reflection adapter's own budget (one minute) applies." }),
   entry({ env: "QA_REFLECTOR_ENABLED", key: "reflectorEnabled", group: "agent", type: "boolean", default: "false", description: "Turns the cross-run reflection pass on (1 or true) or off (0, false or empty). Any other value stops the boot." }),
 
   /* git */
@@ -101,7 +102,7 @@ export const SETTINGS_REGISTRY: readonly SettingDef[] = [
   entry({ env: "DEV_CLIENT_CERT_PASS", key: "-", group: "sandbox", type: "string", secret: true, description: "Passphrase of the DEV site's client certificate." }),
 
   /* run */
-  entry({ env: "QA_E2E_TIMEOUT_MS", key: "e2eTimeoutMs", group: "run", type: "integer", default: String(DEFAULT_E2E_TIMEOUT_MS), description: "Time a Playwright execution may take, in milliseconds. A value that is not a positive number is ignored." }),
+  entry({ env: "QA_E2E_TIMEOUT_MS", key: "-", group: "run", type: "integer", description: "Time a Playwright execution may take, in milliseconds. Unset, or a value that is not a positive number, the engine's default of fifteen minutes applies. Read live." }),
   entry({ env: "PW_ACTION_TIMEOUT_MS", key: "pwActionTimeoutMs", group: "run", type: "string", description: "Overrides Playwright's per-action timeout for the suite (milliseconds, passed through unchanged)." }),
   entry({ env: "QA_CAMPAIGN_FREEZE", key: "campaignFrozen", group: "run", type: "boolean", default: "false", description: "When 1 or true, a run reads and writes no cross-run learning state. 0, false or empty turn it off; any other value stops the boot." }),
   entry({ env: "QA_RUN_TIME_BUDGET_MS_DIFF_TINY", key: "-", group: "run", type: "integer", default: String(RUN_TIME_BUDGET_MS["diff-tiny"]), description: "Wall time of a tiny diff run, in milliseconds." }),

@@ -5,6 +5,8 @@
  * the server is thrown, never read as "no agents" or "no session". The password is never put in a message.
  */
 
+import { activeEnvironment } from "../settings/active";
+
 export const OPENCODE_SERVER_PASSWORD_ENV = "OPENCODE_SERVER_PASSWORD";
 const OPENCODE_SERVER_USER = "opencode";
 
@@ -22,7 +24,7 @@ export interface OpenCodeServerAuth {
 }
 
 export function openCodeServerAuth(
-  env: Readonly<Record<string, string | undefined>> = process.env,
+  env: Readonly<Record<string, string | undefined>> = activeEnvironment(),
   inner: (request: Request) => Promise<Response> = (request) => fetch(request),
 ): OpenCodeServerAuth {
   const password = env[OPENCODE_SERVER_PASSWORD_ENV]?.trim();

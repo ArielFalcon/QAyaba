@@ -59,7 +59,7 @@ The service must be running: \`docker compose up\` (or the orchestrator started 
    service repo (org/name), an optional OpenAPI glob, and an optional versionUrl.
    A webhook from a service repo triggers an e2e run of the app with the
    service commit as the blast radius.
-9. Optionally add env vars (KEY=value). They land in process.env immediately AND
+9. Optionally add env vars (KEY=value). They take effect in the running service immediately AND
    are persisted to .env on the orchestrator host (own line, no inline comments).
    Doppler users must also add them in Doppler — .env only covers local boots.
    The wizard masks values; they NEVER appear in API responses or the YAML preview.

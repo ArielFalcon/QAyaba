@@ -1,9 +1,5 @@
-import { parseRetentionDays, parseCampaignRetentionDays, DEFAULT_SPAN_RETENTION_DAYS, DEFAULT_CAMPAIGN_RETENTION_DAYS } from "../../telemetry/config";
-import { logJson } from "../../integrations/logger";
-import { RedactionPortAdapter } from "../../orchestrator/sanitizer";
 import type { HistoryDatabase } from "./database";
 
-const redactionPort = new RedactionPortAdapter();
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /* Runs, their events and their agent turns are kept this long. */
@@ -26,25 +22,9 @@ export interface PruneReport {
   deleted: number;
 }
 
-/*
- * The retention windows from the environment slice that names them. A malformed value is reported loudly and the default
- * stays in force: the telemetry bootstrap fails the process on it, and the history store must still open.
- */
-export function retentionPolicyFrom(env: { QA_TELEMETRY_RETENTION_DAYS?: string; QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS?: string }): RetentionPolicy {
-  return {
-    runMaxAgeDays: DELETE_MAX_AGE_DAYS,
-    campaignDays: windowOrDefault(() => parseCampaignRetentionDays(env.QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS), DEFAULT_CAMPAIGN_RETENTION_DAYS),
-    spanDays: windowOrDefault(() => parseRetentionDays(env.QA_TELEMETRY_RETENTION_DAYS), DEFAULT_SPAN_RETENTION_DAYS),
-  };
-}
-
-function windowOrDefault(parse: () => number, fallback: number): number {
-  try {
-    return parse();
-  } catch (error) {
-    logJson("error", `[telemetry] ${redactionPort.redactError(error)}; keeping ${fallback} days`);
-    return fallback;
-  }
+/* The retention windows the settings carry (already validated when they were loaded). */
+export function retentionPolicyFrom(retention: { spanDays: number; campaignDays: number }): RetentionPolicy {
+  return { runMaxAgeDays: DELETE_MAX_AGE_DAYS, campaignDays: retention.campaignDays, spanDays: retention.spanDays };
 }
 
 /* The rows of a campaign run younger than the campaign window are exempt from the ordinary window. */

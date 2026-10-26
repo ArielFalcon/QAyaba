@@ -24,6 +24,7 @@ import { VcsWriteAdapter } from "../../qa-engine/src/contexts/workspace-and-publ
 import { logJson } from "../integrations/logger";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import type { AgentDeps } from "../integrations/opencode-client";
+import { activeSettings } from "../settings/store";
 
 
 const redactionPort = new RedactionPortAdapter();
@@ -95,7 +96,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
 
   /* Clone qayaba into a persistent working copy (or fetch + reset an existing one to main). */
   async function ensureMirrorSelf(dir: string, mdeps: MirrorDeps): Promise<void> {
-    const base = process.env.GIT_REMOTE_BASE ?? "https://github.com";
+    const base = activeSettings().git.remoteBase;
     const url = `${base}/${cfg.selfRepo}.git`;
     if (!mdeps.exists(dir)) {
       await mdeps.git([...authHeaderArgs(), "clone", url, dir]);
@@ -115,7 +116,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
 
     /* Use the mirrors directory for the working copy (survives restarts as volume) */
     const maintainerWorkDir = join(
-      process.env.MIRROR_DIR ?? join(process.cwd(), ".mirrors"),
+      activeSettings().git.mirrorDir ?? join(process.cwd(), ".mirrors"),
       "qayaba-self"
     );
 
@@ -203,8 +204,8 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
         }
 
         /* Step 4: Commit changes */
-        const name = process.env.GIT_AUTHOR_NAME ?? "qayaba";
-        const email = process.env.GIT_AUTHOR_EMAIL ?? "qayaba@users.noreply.github.com";
+        const name = activeSettings().git.authorName;
+        const email = activeSettings().git.authorEmail;
 
         await mirrorDeps.git(["add", "-A"], maintainerWorkDir);
 
@@ -497,7 +498,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
          * so an unrelated check can neither falsely block nor falsely satisfy the outer guard.
          * Configurable for repos whose required check has a different name.
          */
-        const requiredCheck = process.env.SELF_MAINTAINER_CI_CHECK || "ci";
+        const requiredCheck = activeSettings().maintainer.ciCheck;
         s = await fx.github.getPrStatus(p.repo, p.prNumber, undefined, requiredCheck);
       } catch (err) {
         logJson("warn", "could not read PR status", { ref, error: err instanceof Error ? err.message : String(err) });

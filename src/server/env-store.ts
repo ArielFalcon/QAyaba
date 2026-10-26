@@ -1,4 +1,4 @@
-/* Applies operator-provided env vars to process.env and persists them to .env. */
+/* Applies operator-provided env vars to the live environment and persists them to .env. */
 /* docker compose env_file does not strip inline # */
 /* Doppler users must also add the var in Doppler; .env only covers local boots. */
 

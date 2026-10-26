@@ -42,7 +42,7 @@ import { DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination";
 import { Sha } from "@kernel/sha";
 import { BlastRadius } from "@kernel/blast-radius";
 import {
-  REVIEWER_TIMEOUT_MS,
+  reviewerTimeoutMs,
   agentPromptCapMs,
   agentTimeout,
   withUsageSink,
@@ -947,10 +947,10 @@ test("buildEngineRootDeps leaves baseUrl absent for a code-mode app (no dev bloc
    ~25.5min worst-case ceiling for a hung reviewer session.
  */
 
-test("buildEngineRootDeps sets reviewTimeoutMs to the exported REVIEWER_TIMEOUT_MS constant", () => {
+test("buildEngineRootDeps sets reviewTimeoutMs to the reviewerTimeoutMs() setting", () => {
   const app = cfg("factory-review-timeout");
   const config = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.equal(config.reviewTimeoutMs, REVIEWER_TIMEOUT_MS, "the reviewer must get its OWN purpose-built budget, not the dispatcher's coarse ceiling");
+  assert.equal(config.reviewTimeoutMs, reviewerTimeoutMs(), "the reviewer must get its OWN purpose-built budget, not the dispatcher's coarse ceiling");
 });
 
 test("factory threads agentTimeout(mode) into EngineRootDeps.agentTimeoutMs", () => {

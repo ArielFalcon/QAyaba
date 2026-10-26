@@ -19,6 +19,7 @@ import { loadAppConfig, listAppConfigs } from "../orchestrator/config-loader";
 import { logJson } from "../integrations/logger";
 import { DELEGATIONS_DIR, EXPERIMENT_COPIES_DIR, JUDGE_WORKDIR, WARM_SNAPSHOTS_DIR } from "../paths";
 import { getHistory } from "./persistence/index";
+import { activeSettings } from "../settings/store";
 
 export const PRUNE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;  /* 7 days */
 /* Mirrors that are never pruned (the maintainer's own working copy). */
@@ -163,7 +164,7 @@ export function getDirectorySize(dir: string): number {
  */
 export function defaultMirrorPruneDeps(queueCurrentRunId: () => string | null): MirrorPruneDeps {
   return {
-    mirrorRoot: process.env.MIRROR_DIR ?? join(process.cwd(), ".mirrors"),
+    mirrorRoot: activeSettings().git.mirrorDir ?? join(process.cwd(), ".mirrors"),
     listMirrorDirs: (root) => {
       const out: MirrorEntry[] = [];
       for (const name of readdirSync(root)) {

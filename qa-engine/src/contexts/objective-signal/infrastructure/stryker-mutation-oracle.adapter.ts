@@ -19,8 +19,8 @@ export const MUTATION_OUTPUT_KEEP_CHARS = 8_000;
 export const MAX_MUTATION_REPORT_BYTES = 16 * 1024 * 1024;
 /* mutation-scope:end report-size-cap */
 
-export function resolveStrykerCommand(): { cmd: string; args: string[] } {
-  const root = process.env.QAYABA_ROOT ?? process.cwd();
+/* The orchestrator's bundled Stryker under `root`, else the one `npx` finds. The composition root passes the orchestrator's root. */
+export function resolveStrykerCommand(root: string = process.cwd()): { cmd: string; args: string[] } {
   const bin = join(root, "node_modules", ".bin", "stryker");
   if (existsSync(bin)) return { cmd: bin, args: ["run"] };
   return { cmd: "npx", args: ["stryker", "run"] };
@@ -141,6 +141,8 @@ export interface MutationOracleDeps {
   /* The consolidated killTree seam (shared-kernel ProcessKillPort) — required, not optional: every caller (production via run-engine-factory.ts, tests via the adapter test's `deps()` builder) supplies a real implementation, matching sandboxed-binary-runner.adapter.ts's pattern. */
   processKill: ProcessKillPort;
   timeoutMs?: number;
+  /* The orchestrator's root, where its bundled Stryker is installed. */
+  root?: string;
 }
 
 export class StrykerMutationOracleAdapter implements ValueOraclePort {
@@ -195,7 +197,7 @@ export class StrykerMutationOracleAdapter implements ValueOraclePort {
     const timeoutMs = input.timeoutMs ?? DEFAULT_MUTATION_TIMEOUT_MS;
 
     return new Promise((resolve) => {
-      const { cmd, args } = resolveStrykerCommand();
+      const { cmd, args } = resolveStrykerCommand(this.deps.root);
       const child = this.deps.spawn(cmd, args, { cwd: input.repoDir });
 
       const stdout = new BoundedOutputTail(MUTATION_OUTPUT_KEEP_CHARS);

@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openHistoryDatabase, type HistoryDatabase } from "./database";
+import { loadSettings } from "../../settings/settings";
 import { DELETE_MAX_AGE_DAYS, pruneHistory, retentionPolicyFrom, type RetentionPolicy } from "./retention";
 import { getHistory, getHistoryDatabase } from "./index";
 
@@ -98,8 +99,14 @@ test("the report names every table the job touches", (t) => {
   assert.deepEqual(pruneHistory(history, POLICY, NOW).map((r) => r.table), ["runs", "run_events", "agent_turns", "run_spans", "run_spec_snapshots", "run_plans"]);
 });
 
-test("the retention windows come from the environment slice, a malformed one keeping its default", () => {
-  assert.deepEqual(retentionPolicyFrom({}), POLICY);
-  assert.equal(retentionPolicyFrom({ QA_TELEMETRY_RETENTION_DAYS: "7", QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS: "90" }).spanDays, 7);
-  assert.equal(retentionPolicyFrom({ QA_TELEMETRY_RETENTION_DAYS: "not-a-number" }).spanDays, POLICY.spanDays);
+test("the retention windows come from the loaded settings", () => {
+  assert.deepEqual(retentionPolicyFrom(loadSettings({}).retention), POLICY);
+  const configured = retentionPolicyFrom(loadSettings({ QA_TELEMETRY_RETENTION_DAYS: "7", QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS: "90" }).retention);
+  assert.equal(configured.spanDays, 7);
+  assert.equal(configured.campaignDays, 90);
+  assert.equal(configured.runMaxAgeDays, DELETE_MAX_AGE_DAYS);
+});
+
+test("a malformed retention window stops the settings load instead of keeping a default", () => {
+  assert.throws(() => loadSettings({ QA_TELEMETRY_RETENTION_DAYS: "not-a-number" }), /QA_TELEMETRY_RETENTION_DAYS/);
 });

@@ -1,4 +1,4 @@
-/* The composition root's wiring of the execution sandbox: the one place that reads the process environment for it. The launcher, the per-run scope provider and the identity they run children as are built here from the environment and handed to the engine; qa-engine never reads process.env for any of it. Every launcher built here asks the boot check of the file boundary before each spawn (file-boundary.ts). */
+/* The composition root's wiring of the execution sandbox: the one place that turns the environment it is handed (the typed Settings' environment) into it. The launcher, the per-run scope provider and the identity they run children as are built here and handed to the engine; qa-engine reads no environment for any of it. Every launcher built here asks the boot check of the file boundary before each spawn (file-boundary.ts). */
 
 import { tmpdir } from "node:os";
 import { join } from "node:path";

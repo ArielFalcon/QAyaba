@@ -30,13 +30,10 @@ import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents 
 import { MAX_CONTINUATION_DEPTH } from "./server/persistence/repositories/run.repository";
 import { createEvaluationService } from "./server/evaluation-service";
 import { composeJudges } from "./server/judges-composition";
-import { LangfuseScoreSink, resolveLangfuseConfig, scoreSinkHealthOf } from "./telemetry/langfuse-score-sink";
+import { LangfuseScoreSink, scoreSinkHealthOf } from "./telemetry/langfuse-score-sink";
 import { ScoreMetricsSink, composeScoreSinks } from "./telemetry/score-metrics-sink";
 import { guardRequestHandler, guardResponse } from "./server/guarded-handler";
 import { hashStaticPrompts, type RunConfigEnvironment } from "./server/effective-config";
-import { resolveTelemetryConfig } from "./telemetry/config";
-import { resolveReflectorEnabled } from "./server/reflector-switch";
-import { resolveCampaignFreeze } from "./server/campaign-freeze";
 import { buildRunViewExtras, defaultRunViewDeps } from "./server/run-view";
 import { enqueueTrackedRun, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./server/runner";
 import { codeGraphFor } from "./server/engine-root";
@@ -72,10 +69,10 @@ import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrast
 import { RedactionPortAdapter } from "./orchestrator/sanitizer";
 import { processTelemetry, TELEMETRY_SHUTDOWN_TIMEOUT_MS } from "./telemetry/process-telemetry";
 import { HostHealth } from "./telemetry/host-health";
-import { BackendHealthMonitor, resolveBackendHealthConfig, systemBackendFetch } from "./telemetry/backend-health";
+import { BackendHealthMonitor, systemBackendFetch } from "./telemetry/backend-health";
 import { resolveSandbox } from "../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
-import { resolvePort, resolveListenHost, describeListenAddress, serverErrorListener } from "./server/port";
-import { createToolsServer, resolveToolsListenHost, resolveToolsPort, resolveToolsToken } from "./server/tools-endpoint";
+import { describeListenAddress, serverErrorListener } from "./server/port";
+import { createToolsServer, resolveToolsListenHost, resolveToolsToken } from "./server/tools-endpoint";
 import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-loop-registry";
 import { AgentBrowserRegistry } from "@contexts/agent-tools/infrastructure/agent-browser-registry";
 import { GeolocationRegistry } from "@contexts/agent-tools/infrastructure/geolocation-registry";
@@ -85,13 +82,20 @@ import { DELEGATIONS_DIR } from "./paths";
 import { workdirRoot } from "./integrations/repo-mirror";
 import { sweepOrphanAgentBrowsers } from "../qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep";
 import { buildScriptExec, execWorkRoot } from "./server/exec-sandbox-factory";
-import { resolveApiToken } from "./server/api-token";
+import { loadOrCreateApiToken } from "./server/api-token";
+import { createSettingsStore, installSettingsStore } from "./settings/store";
 import { shouldLogApiRequest } from "./server/api-request-log";
 import { suiteHoldsVerifiedLoginFor } from "./server/login-bootstrap-wiring";
 import { contextMapNeedsRebuildFor } from "./server/context-map-wiring";
 import { getHistory } from "./server/persistence/index";
 
-const SELF_REPO = process.env.QAYABA_REPO ?? "ArielFalcon/qayaba";
+/* The one read of the process environment: every value below comes from the typed settings (docs/settings.md). The store reloads them after the onboarding surface applies variables to the live environment. */
+const settingsStore = createSettingsStore(process.env);
+installSettingsStore(settingsStore);
+const settings = settingsStore.current();
+for (const warning of settings.warnings) console.warn(warning);
+
+const SELF_REPO = settings.server.selfRepo;
 const ROOT = qayabaRoot();
 
 const appCatalog = new YamlAppConfigAdapter({ load: loadAppConfig, list: listAppConfigs });
@@ -101,9 +105,9 @@ const redactionPort = new RedactionPortAdapter();
  * Telemetry is built once, here, before anything that could emit (QA_TELEMETRY=off|local; a mistyped value stops the boot).
  * The engine factory takes `telemetry.telemetry` as a dep; the API reports `telemetry.health()`.
  */
-const telemetry = processTelemetry();
+const telemetry = processTelemetry(settings.environment);
 /* Process-wide host health (suspends, blocked loops, sandbox zombies): runs with no run active and is stopped on shutdown. Fail-open and unref'd. */
-const sandboxIdentity = resolveSandbox(process.env);
+const sandboxIdentity = resolveSandbox(settings.environment);
 const queue = new JobQueue((e) => {
   console.error("[qa] run failed:", e);
   /*
@@ -115,7 +119,7 @@ const queue = new JobQueue((e) => {
 
 /* Scores and regrade jobs. Grading is scheduled off the queue by the runner's post-run hook; a regrade job left open by a previous process ends failed at boot. */
 /* The Langfuse mirror of the scores: built only when LANGFUSE_BASE_URL and both keys are set (docker-compose.langfuse.yml). Fail-open: stored scores never depend on it. */
-const langfuseConfig = resolveLangfuseConfig(process.env);
+const langfuseConfig = settings.telemetry.langfuse;
 const langfuseSink = langfuseConfig
   ? new LangfuseScoreSink({ config: langfuseConfig, traceIdOf: (runId) => getHistory().runs.getRunFacts(runId)?.traceId ?? null, sanitize: (text) => redactionPort.redact(text) })
   : undefined;
@@ -123,7 +127,7 @@ const langfuseSink = langfuseConfig
  * The LLM judges (docs/observability-design.md section 11.3): off unless QA_JUDGES_ENABLED=true. They run as low-priority work on the same
  * sequential queue, so never beside a run, and only for a campaign run or a regrade that names a judge. They never gate anything.
  */
-const judges = composeJudges({ env: process.env, root: ROOT, queue, mirrorsRoot: workdirRoot() });
+const judges = composeJudges({ env: settings.environment, root: ROOT, queue, mirrorsRoot: workdirRoot() });
 /* The score metrics sink makes the grades visible in Grafana; the Langfuse mirror stays optional and human-facing. */
 const scoreMetricsSink = new ScoreMetricsSink({
   telemetry: telemetry.telemetry,
@@ -142,11 +146,11 @@ const afterRun = (runId: string): void => {
 evaluation.recoverInterrupted();
 /* Score configs are ensured in the background at boot; the sink also retries before its first score. */
 void langfuseSink?.ensureScoreConfigs();
-const runViewDeps = defaultRunViewDeps(() => telemetry.health().mode !== "off");
+const runViewDeps = defaultRunViewDeps(() => telemetry.health().mode !== "off", settings.environment);
 const hostHealth = new HostHealth({ telemetry: telemetry.telemetry, ...(sandboxIdentity ? { sandboxUid: sandboxIdentity.uid } : {}) });
 hostHealth.start();
 /* Loki, Tempo and the collectors verified end to end; off with telemetry. Probe addresses come from QA_TELEMETRY_*_URL(S). */
-const backendHealth = telemetry.health().mode === "off" ? undefined : new BackendHealthMonitor({ config: resolveBackendHealthConfig(process.env), fetch: systemBackendFetch, now: () => Date.now() });
+const backendHealth = telemetry.health().mode === "off" ? undefined : new BackendHealthMonitor({ config: settings.telemetry.backendHealth, fetch: systemBackendFetch, now: () => Date.now() });
 /*
  * Durable backing lives in createDurableRunEventStore, shared with the CLI so every
  * trigger persists events identically: the live SSE stream survives a restart (e.g. the
@@ -157,27 +161,27 @@ const runEvents = createDurableRunEventStore();
  * The maintainer's autonomous merge+hot-swap is OFF by default. Opt-in with
  * SELF_MAINTAINER_AUTOMERGE=true (requires branch protection on the self-repo).
  */
-const AUTONOMOUS_MAINTAINER = process.env.SELF_MAINTAINER_AUTOMERGE === "true";
+const AUTONOMOUS_MAINTAINER = settings.maintainer.autoMerge;
 
-const port = resolvePort(process.env);
-const listenHost = resolveListenHost(process.env);
+const port = settings.server.port;
+const listenHost = settings.server.listenHost;
 const MAX_BODY = 1_000_000;
-const secret = process.env.WEBHOOK_SECRET;
+const secret = settings.webhook.secret;
 
 /*
  * API token: env var wins. If absent, reuse the persisted file (data/.api_token, src/server/api-token.ts) so the
  * TUI can discover it across restarts. Only generate a new one if neither exists. The file an earlier version kept in
  * config/ is removed either way, and a copy that cannot be removed stops the start.
  */
-const apiToken: string = resolveApiToken(process.env, ROOT);
+const apiToken: string = settings.auth.apiToken ?? loadOrCreateApiToken(ROOT);
 
 /*
  * Session signing secret for GitHub-user logins. Reuses QA_API_TOKEN by default (one secret
  * to manage), or a dedicated AUTH_SIGNING_KEY when an operator wants to rotate sessions
  * independently of the machine token. Sessions live AUTH_SESSION_TTL_SECONDS (default 24h).
  */
-const signingSecret = process.env.AUTH_SIGNING_KEY ?? apiToken;
-const AUTH_SESSION_TTL_SECONDS = Number(process.env.AUTH_SESSION_TTL_SECONDS ?? 24 * 60 * 60);
+const signingSecret = settings.auth.signingKey ?? apiToken;
+const AUTH_SESSION_TTL_SECONDS = settings.auth.sessionTtlSeconds;
 
 /*
  * Per-IP throttle for the public login endpoint (20 attempts / minute), guarding against a
@@ -203,7 +207,7 @@ function watchedRepos(): string[] {
  * be verified, so an unauthenticated POST could enqueue runs for any configured repo.
  * Reject unsigned webhooks unless explicitly opted in (local dev).
  */
-const ALLOW_UNSIGNED_WEBHOOK = process.env.WEBHOOK_ALLOW_UNSIGNED === "true";
+const ALLOW_UNSIGNED_WEBHOOK = settings.webhook.allowUnsigned;
 if (!secret && !ALLOW_UNSIGNED_WEBHOOK) {
   console.warn(
     "[qa] CRITICAL: WEBHOOK_SECRET is not set — webhook POSTs will be REJECTED. " +
@@ -216,17 +220,17 @@ let shuttingDown = false;
 const SHUTDOWN_TIMEOUT_MS = 25_000;
 const eventStreamController = new AbortController();
 const agentRuntime = createAgentRuntimeManager({
-  env: process.env,
+  env: settings.environment,
   fs: defaultEnvStoreFs(),
   strategies: {
-    opencode: new OpenCodeRuntimeStrategy({ env: process.env }),
+    opencode: new OpenCodeRuntimeStrategy({ env: settings.environment }),
   },
   hasOpenSessions: () => getOpenSessionCount() > 0,
 });
 
 logAgentConfigWarnings([
-  ...validateAgentRuntimeConfig(agentRuntime.current(), keyPresence(process.env)).warnings,
-  ...retiredSelectorWarnings(process.env),
+  ...validateAgentRuntimeConfig(agentRuntime.current(), keyPresence(settings.environment)).warnings,
+  ...retiredSelectorWarnings(settings.environment),
 ]);
 
 function currentAgentDeps(): AgentDeps {
@@ -245,10 +249,10 @@ let engineFactory: ReturnType<typeof createRunEngineFactory>;
 let runConfigEnvironment: RunConfigEnvironment;
 
 /* The question behind the automatic login bootstrap; absent under QA_CAMPAIGN_FREEZE (a mistyped value throws here, at boot, like the engine's own read of it). */
-const suiteHoldsVerifiedLogin = suiteHoldsVerifiedLoginFor(process.env, ROOT);
+const suiteHoldsVerifiedLogin = suiteHoldsVerifiedLoginFor(settings.environment, ROOT);
 
 /* The question behind the context-map rebuild before a run; absent under QA_CAMPAIGN_FREEZE. */
-const contextMapNeedsRebuild = contextMapNeedsRebuildFor(process.env);
+const contextMapNeedsRebuild = contextMapNeedsRebuildFor(settings.environment);
 
 /*
  * The runner deps every enqueue path shares — the event store, the engine factory and the
@@ -289,15 +293,15 @@ setGeolocationGrantLookup((sessionId) => geolocationRegistry.find(sessionId) !==
 /* And for the lead's code-graph tools: a session of a run whose app is not in the graph, or the lead's session for a flow, is not offered them. */
 setCodeGraphGrantLookup((sessionId) => codeGraphRegistry.find(sessionId) !== undefined);
 /* A browser the authenticated agent tools started and a previous process of this container never stopped (it was restarted in place) ends here; a run closes its own browser when it ends. */
-const orphanBrowsers = sweepOrphanAgentBrowsers(execWorkRoot(process.env));
+const orphanBrowsers = sweepOrphanAgentBrowsers(execWorkRoot(settings.environment));
 if (orphanBrowsers > 0) logJson("warn", `stopped ${orphanBrowsers} agent browser process(es) a previous orchestrator process left behind`);
 /* The workspaces of a run's sidekicks that a previous process never removed. */
 void new FsDelegationWorkspaceAdapter({ root: join(workdirRoot(), DELEGATIONS_DIR) }).sweepAll().then(
   (swept) => { if (swept > 0) logJson("warn", `removed ${swept} sidekick workspace(s) a previous orchestrator process left behind`); },
   (err: unknown) => logJson("error", `sweeping the sidekick workspaces failed: ${err instanceof Error ? err.message : String(err)}`),
 );
-const toolsPort = resolveToolsPort(process.env);
-const toolsToken = resolveToolsToken(process.env);
+const toolsPort = settings.server.toolsPort;
+const toolsToken = resolveToolsToken(settings.environment);
 if (toolsToken.generated) logJson("warn", "QA_TOOLS_TOKEN is not set: no run is granted the run_spec or authenticated browser tools until the same value is set on the orchestrator and agents services");
 /* What every run records of the process around it (its effectiveConfig): the agent runtime, the prompt layers, the tool grants and the operator switches, each read where it is configured. */
 /* Memoised for the process's life: editing a prompt file needs a restart to show in later runs' effectiveConfig (docs/observability-design.md section 14). */
@@ -306,9 +310,9 @@ runConfigEnvironment = {
   runtime: () => agentRuntime.current().assignments.primary.provider,
   staticPromptHash: () => (staticPromptHash === undefined ? (staticPromptHash = hashStaticPrompts(ROOT)) : staticPromptHash),
   toolsGranted: !toolsToken.generated,
-  reflectorEnabled: resolveReflectorEnabled(process.env),
-  campaignFrozen: resolveCampaignFreeze(process.env),
-  maxCapture: resolveTelemetryConfig(process.env).maxCapture,
+  reflectorEnabled: settings.agent.reflectorEnabled,
+  campaignFrozen: settings.run.campaignFrozen,
+  maxCapture: settings.telemetry.config.maxCapture,
 };
 const toolsServer = createToolsServer({ token: toolsToken.token, registry: closedLoopRegistry, browsers: agentBrowserRegistry, geolocations: geolocationRegistry, codeGraphs: codeGraphRegistry });
 toolsServer.on("error", (err: Error & { code?: string }) => logJson("error", `the tools endpoint cannot listen on port ${toolsPort}: ${err.message}; the agents' run_spec, authenticated browser and location calls will fail`));
@@ -418,7 +422,7 @@ const enqueueWebhookRun: ApiDeps["enqueue"] = (...args) => enqueueRunFrom("webho
  */
 const MAX_SESSION_AGE_MS = Math.max(
   30 * 60 * 1000,
-  (Number(process.env.OPENCODE_TIMEOUT_MS) || 0) + 5 * 60 * 1000,
+  (settings.agent.timeoutMs ?? 0) + 5 * 60 * 1000,
 );
 
 async function cleanupOrphanedSessions(): Promise<void> {
@@ -473,7 +477,7 @@ function generatePrometheusMetrics(queue: JobQueue, openSessions: number): strin
   const artifactBlock = buildArtifactBytesMetrics(
     {
       listAppConfigs,
-      mirrorRoot: () => process.env.MIRROR_DIR ?? join(ROOT, ".mirrors"),
+      mirrorRoot: () => settingsStore.current().git.mirrorDir ?? join(ROOT, ".mirrors"),
       getDirectorySize,
     },
     artifactSizeCache,
@@ -490,7 +494,7 @@ let pruneTick = 0;
 /* Deletes the history the retention windows no longer keep. A failure is logged and never stops the process. */
 function runHistoryRetention(): void {
   try {
-    const report = pruneHistory(getHistoryDatabase(), retentionPolicyFrom(process.env), Date.now());
+    const report = pruneHistory(getHistoryDatabase(), retentionPolicyFrom(settings.retention), Date.now());
     logJson("info", "history retention pruned", { report });
   } catch (err) {
     logJson("error", "history retention failed", { error: redactionPort.redactError(err) });
@@ -570,15 +574,23 @@ const appAdminDeps: AppAdminDeps = {
   configExists: (name) => configExists(name, ROOT),
   writeConfig: (name, yaml) => writeConfig(name, yaml, ROOT),
   deleteConfig: (name) => unlinkSync(join(ROOT, "config", "apps", `${name}.yaml`)),
-  deleteMirror: (repo) => rmSync(join(process.env.MIRROR_DIR ?? join(ROOT, ".mirrors"), repo.replaceAll("/", "__")), { recursive: true, force: true }),
+  deleteMirror: (repo) => rmSync(join(settingsStore.current().git.mirrorDir ?? join(ROOT, ".mirrors"), repo.replaceAll("/", "__")), { recursive: true, force: true }),
   deleteHistory: (app) => getHistory().purgeApp(app),
   deleteAuthMaterial: (app) => rmSync(appAuthDir(ROOT, app), { recursive: true, force: true }),
   deleteSuiteStore: (app) => deleteSuiteStoreDir(appSuiteStoreDir(ROOT, app)),
   deleteCodeGraphCache: (app) => rmSync(join(qayabaDataDir(), "code-graph", app), { recursive: true, force: true }),
-  applyEnv: (vars) => applyEnvVars(vars, { fs: defaultEnvStoreFs(), env: process.env }),
+  applyEnv: (vars) => {
+    const applied = applyEnvVars(vars, { fs: defaultEnvStoreFs(), env: settings.environment });
+    try {
+      settingsStore.reload();
+    } catch (err) {
+      logJson("error", "the applied variables do not form valid settings; the previous settings stay in force", { error: redactionPort.redactError(err) });
+    }
+    return applied;
+  },
   loadApp: (name) => loadAppConfig(name),
   readConfig: (name) => readFileSync(join(ROOT, "config", "apps", `${name}.yaml`), "utf8"),
-  env: process.env,
+  env: settings.environment,
 };
 
 /*
@@ -592,7 +604,7 @@ const buildTrends = (app: string, window?: number) =>
 
 
 function opencodeConfigPath(): string {
-  return process.env.OPENCODE_CONFIG ?? join(ROOT, "agents", "opencode.json");
+  return settingsStore.current().agent.configPath ?? join(ROOT, "agents", "opencode.json");
 }
 
 
@@ -613,8 +625,8 @@ async function hasProposerAgentConfigured(): Promise<boolean> {
  * mirror is checked out at, the engine in the launcher's graph profile, the store published to the app's cache), in a
  * launcher scope of its own since it has no run to borrow one from. The next run then syncs that store.
  */
-const onboardingSandbox = resolveCodeSandbox(process.env);
-const onboardingExec = buildScriptExec(process.env, onboardingSandbox, egressGateFor(process.env, onboardingSandbox));
+const onboardingSandbox = resolveCodeSandbox(settings.environment);
+const onboardingExec = buildScriptExec(settings.environment, onboardingSandbox, egressGateFor(settings.environment, onboardingSandbox));
 const onboardingGit = new SandboxedBinaryRunnerAdapter({ processKill: new ProcessKillAdapter() });
 
 async function indexRepoForOnboarding(repo: string, mirrorDir: string, app: string): Promise<RepoIndexOutcome> {
@@ -647,7 +659,7 @@ const onboardingJob = createOnboardingJob({
   },
   ensureMirrorAtBranch: (repo, baseBranch) =>
     ensureMirrorAtBranch(repo, baseBranch, defaultMirrorDeps),
-  hasOpencodeApiKey: () => Boolean(process.env.OPENCODE_API_KEY),
+  hasOpencodeApiKey: () => Boolean(settings.environment.OPENCODE_API_KEY),
   hasProposerAgent: () => hasProposerAgentConfigured(),
   buildProposer: (ctx) => new LlmProfileProposerAdapter(defaultAgentDeps, PROPOSER_MODEL, ctx),
   buildOnboardingService: (proposer, onRound) => new OnboardingService(proposer, buildServiceBoundaryResolver, 3, onRound),
@@ -789,7 +801,7 @@ const apiDeps: ApiDeps = {
    * Advertise the OAuth App client id (public) in the version handshake so the console can run
    * the device flow without baking it in — configure GitHub login once, here on the server.
    */
-  githubClientId: process.env.GITHUB_OAUTH_CLIENT_ID,
+  githubClientId: settings.auth.githubOAuthClientId,
   /*
    * GitHub-user login: verify the token's identity, confirm push access to a watched repo,
    * then mint a session. Failures are tagged so the route returns 401 (bad token) vs 403
@@ -804,7 +816,7 @@ const apiDeps: ApiDeps = {
     return { ok: true, token, username, expiresAt: new Date(now + AUTH_SESSION_TTL_SECONDS * 1000).toISOString() };
   },
   /* Same-origin web console: a short-lived session only for a trusted peer AND Host (see auth.ts). */
-  localLogin: createLocalConsoleLogin(process.env, signingSecret, AUTH_SESSION_TTL_SECONDS),
+  localLogin: createLocalConsoleLogin(settings.environment, signingSecret, AUTH_SESSION_TTL_SECONDS),
   agentRuntime,
   /*
    * Cancel through the single funnel (runner.ts): aborts a live run we hold, and ALSO finalizes
@@ -996,7 +1008,7 @@ server.on(
   }),
 );
 
-toolsServer.listen(toolsPort, resolveToolsListenHost(process.env, listenHost), () => logJson("info", `tools endpoint listening on ${describeListenAddress(toolsServer.address())}`));
+toolsServer.listen(toolsPort, resolveToolsListenHost(settings.environment, listenHost), () => logJson("info", `tools endpoint listening on ${describeListenAddress(toolsServer.address())}`));
 
 server.listen(port, listenHost, () => {
   logJson("info", `qayaba listening on ${describeListenAddress(server.address())}${apiToken ? " (API auth on)" : ""}`);
@@ -1004,7 +1016,7 @@ server.listen(port, listenHost, () => {
    * Make global fetch proxy-aware (HTTP(S)_PROXY/NO_PROXY) from boot, before any GitHub API or
    * health call. No-op when no proxy is configured. (A per-run build refines the timeouts.)
    */
-  const startupTimeout = Number(process.env.OPENCODE_TIMEOUT_MS) || 900_000;
+  const startupTimeout = settings.agent.timeoutMs ?? 900_000;
   installHttpDispatcher(startupTimeout).catch((err) => logJson("warn", "HTTP dispatcher setup failed", { error: err instanceof Error ? err.message : String(err) }));
   /*
    * Start the SSE event stream from OpenCode so agent activity (tool calls,

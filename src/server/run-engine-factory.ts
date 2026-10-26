@@ -11,7 +11,7 @@ import { execFileSync } from "node:child_process";
 import type { AppConfig } from "../orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "../orchestrator/schemas";
 import type { AgentDeps } from "../integrations/opencode-client";
-import { REVIEWER_TIMEOUT_MS, agentPromptCapMs, agentTimeout, agentConfigFacts, maxStepsFromConfig, setSessionToolDeny, withTimeout } from "../integrations/opencode-client";
+import { reviewerTimeoutMs, agentPromptCapMs, agentTimeout, agentConfigFacts, maxStepsFromConfig, setSessionToolDeny, withTimeout } from "../integrations/opencode-client";
 import { AGENT_NAME_FOR_ROLE, assignmentForRole, type AgentFacade, type StepLimits } from "../agent-runtime/types";
 import { reviewerIndependence } from "../agent-runtime/config";
 import { enforcedStepLimit } from "../agent-runtime/step-limit";
@@ -170,6 +170,8 @@ import { CurriculumPortAdapter } from "@contexts/cross-run-learning/infrastructu
 import { YamlBoundaryProfileAdapter } from "@contexts/service-topology/infrastructure/yaml-boundary-profile.adapter";
 import { expandEnv } from "../orchestrator/config-loader";
 import { getHistory } from "./persistence/index";
+import { activeEnvironment } from "../settings/active";
+import { activeSettings } from "../settings/store";
 
 /*
  * Role→agent-name mapping for AgentRuntimeAdapter. Also the durable coordination telemetry
@@ -177,7 +179,7 @@ import { getHistory } from "./persistence/index";
  */
 export function resolveCoordinationTelemetryPath(): string {
   return (
-    process.env.COORDINATION_TELEMETRY_PATH?.trim() ||
+    activeSettings().agent.coordinationTelemetryPath ||
     join(qayabaDataDir(), "coordination-events.jsonl")
   );
 }
@@ -227,7 +229,7 @@ export function publishWiring(
   mode: RunMode,
   git: GitFn = realGit,
   writeExcludesFn: (dir: string, patterns: readonly string[]) => void = writeExcludes,
-  env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv = activeEnvironment(),
 ): PublishDeps {
   return { mode, git: withPublishGitDecorations(git, env), writeExcludes: writeExcludesFn };
 }
@@ -255,8 +257,8 @@ export function buildMirrorGc(git: GitFn = realGit): MirrorGcAdapter {
 
 /*
  * The ONLY place GITHUB_TOKEN is read for the publish path: qa-engine's github-http.ts takes
- * authHeaders() as an injected closure and never reads process.env itself (qa-engine never
- * reads process.env at all), so this composition root is the sole credential-locality seam for
+ * authHeaders() as an injected closure and reads no environment itself (qa-engine reads none
+ * at all), so this composition root is the sole credential-locality seam for
  * every GitHub PR/Issue call the engine makes. (repo-mirror.ts and src/integrations/
  * github.ts read GITHUB_TOKEN too, but for git clone/fetch auth and the login/collaborator-check
  * path respectively — different concerns, not the publish path this closure serves.)
@@ -583,7 +585,7 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
   const e2eRelDir = "e2e";
   const e2eDir = join(copyDir, e2eRelDir);
   const baseUrl = app.dev.baseUrl;
-  const env = process.env;
+  const env = activeEnvironment();
 
   const validateDeps = createValidateDeps(exec);
   const staticGate = new StaticGateAdapter({
@@ -632,7 +634,7 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
           rendering: new PromptRenderingAdapter({ buildPromptAssembled, buildReviewerPromptAssembled, specFileForFlow }),
           verdicts: new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict }),
         },
-        { diff: "", mirrorDir: copyDir, e2eRelDir, appName: app.name, mode: "diff", target: "e2e", baseUrl, timeoutMs: REVIEWER_TIMEOUT_MS },
+        { diff: "", mirrorDir: copyDir, e2eRelDir, appName: app.name, mode: "diff", target: "e2e", baseUrl, timeoutMs: reviewerTimeoutMs() },
       )
     : undefined;
 
@@ -667,10 +669,10 @@ export function buildEngineRootDeps(
 
   const redactionPort = new RedactionPortAdapter();
 
-  const e2eDefaultTimeoutMs = e2eTimeoutMs(process.env);
-  const pwActionTimeoutMs = process.env.PW_ACTION_TIMEOUT_MS;
+  const e2eDefaultTimeoutMs = e2eTimeoutMs(activeEnvironment());
+  const pwActionTimeoutMs = activeSettings().run.pwActionTimeoutMs;
 
-  const codeSandbox = resolveCodeSandbox(deps.env ?? process.env);
+  const codeSandbox = resolveCodeSandbox(deps.env ?? activeEnvironment());
 
   const coveragePolicy = { mode: app.qa.changeCoverage?.mode ?? "signal", minRatio: app.qa.changeCoverage?.minRatio ?? 0.7 } as const;
   const intentLock = { mode: app.qa.intentLock?.mode ?? "signal", opacityFlagRatio: app.qa.intentLock?.opacityFlagRatio ?? 0.5 } as const;
@@ -704,10 +706,10 @@ export function buildEngineRootDeps(
    * installs, a login script, the watched repo's test command) starts through `exec`, and each run opens its scope
    * (work dir, auth copies, egress policy) in `execScope`.
    */
-  const suiteAccount = suiteAccountFor(app, deps.env ?? process.env);
-  const egressGate = egressGateFor(deps.env ?? process.env, codeSandbox);
+  const suiteAccount = suiteAccountFor(app, deps.env ?? activeEnvironment());
+  const egressGate = egressGateFor(deps.env ?? activeEnvironment(), codeSandbox);
   const execWiring = buildExecWiring({
-    env: deps.env ?? process.env,
+    env: deps.env ?? activeEnvironment(),
     sandbox: codeSandbox,
     authDir,
     mirrorRoot,
@@ -720,13 +722,13 @@ export function buildEngineRootDeps(
 
 
   /*
-   * QA_CAMPAIGN_FREEZE (operator switch, off by default; read here once because qa-engine never reads process.env):
+   * QA_CAMPAIGN_FREEZE (operator switch, off by default; read here once because qa-engine reads no environment):
    * the run reads and writes no cross-run learning state. The collaborators below are left out, which the
    * composition root reads as "not wired" (a provable no-op), never as a stub that pretends to learn.
    */
-  const campaignFrozen = resolveCampaignFreeze(deps.env ?? process.env);
+  const campaignFrozen = resolveCampaignFreeze(deps.env ?? activeEnvironment());
   /* OFF by default (QA_REFLECTOR_ENABLED, see reflector-switch.ts): no reflection pass, and only proven rules reach a prompt. */
-  const reflectorEnabled = resolveReflectorEnabled(deps.env ?? process.env);
+  const reflectorEnabled = resolveReflectorEnabled(deps.env ?? activeEnvironment());
 
   const triggerService =
     run.triggerRepo && run.triggerRepo !== app.repo
@@ -871,10 +873,10 @@ export function buildEngineRootDeps(
    * The run-level wall-clock deadline: one per run (this factory builds the engine for one run), armed by the use case
    * after classification and read by every agent turn of the run through the bounded runtime below, so no turn (a
    * regeneration, a fix-loop round, a repair, the coverage regen, the reviewer, a sidekick) outlives it.
-   * QA_RUN_TIME_BUDGET_MS_* override a kind of run's time; read here once because qa-engine never reads process.env. A
+   * QA_RUN_TIME_BUDGET_MS_* override a kind of run's time; read here once because qa-engine reads no environment. A
    * mistyped value throws. The reflector keeps the unbounded runtime: it runs after the run's verdict is made.
    */
-  const runDeadline = new RunDeadline({ now: deps.now ?? Date.now, budgets: resolveRunTimeBudgets(deps.env ?? process.env) });
+  const runDeadline = new RunDeadline({ now: deps.now ?? Date.now, budgets: resolveRunTimeBudgets(deps.env ?? activeEnvironment()) });
   const boundedRuntime = new RunDeadlineRuntime(runtimeAdapter, runDeadline, { hostPromptCapMs: agentPromptCapMs() });
   /* Run-level round per role: numbers each role's generated turns across sessions, so a regeneration's turn reads round 1, not the transport's session-local 0. */
   const roundRuntime = new RunRoundRuntime(boundedRuntime);
@@ -896,8 +898,8 @@ export function buildEngineRootDeps(
     repair,
     /* The transport's own deadline: the generator's time budget is never set above it. */
     promptCapMs: agentPromptCapMs(),
-    /* QA_DIFF_TIME_BUDGET_MS_{TINY,FOCUSED,BROAD} override a tier's time; read here once because qa-engine never reads process.env. A mistyped value throws. */
-    timeBudgets: resolveDiffTimeBudgets(deps.env ?? process.env),
+    /* QA_DIFF_TIME_BUDGET_MS_{TINY,FOCUSED,BROAD} override a tier's time; read here once because qa-engine reads no environment. A mistyped value throws. */
+    timeBudgets: resolveDiffTimeBudgets(deps.env ?? activeEnvironment()),
   });
 
 
@@ -957,7 +959,7 @@ export function buildEngineRootDeps(
      */
     runE2E(dir, { baseUrl, namespace, faultInject: true, faultOperations: operations }, e2eExecuteDeps);
 
-  const mutationOracleDeps = { spawn: (cmd: string, args: string[], o: { cwd: string }) => exec.spawn(cmd, args, { cwd: o.cwd, profile: "install" }), detectCodeProject, processKill: new ProcessKillAdapter() };
+  const mutationOracleDeps = { spawn: (cmd: string, args: string[], o: { cwd: string }) => exec.spawn(cmd, args, { cwd: o.cwd, profile: "install" }), detectCodeProject, processKill: new ProcessKillAdapter(), root: qayabaRoot() };
 
   /*
    * Honor YAML qa.valueOracle (and the shadow-aware default the CLI already reports).
@@ -1031,8 +1033,8 @@ export function buildEngineRootDeps(
      * Escalated sidekick model — infra only; threaded as OpenSessionOpts.model when capability is
      * sidekick-escalated. Absent → same worker model as sidekick-standard.
      */
-    ...(process.env.COORDINATION_ESCALATED_MODEL?.trim()
-      ? { sidekickEscalatedModel: process.env.COORDINATION_ESCALATED_MODEL.trim() }
+    ...(activeSettings().agent.coordinationEscalatedModel
+      ? { sidekickEscalatedModel: activeSettings().agent.coordinationEscalatedModel }
       : {}),
     /*
      * Per-delegation wall-clock cap — env-tunable here (the shell), never read by qa-engine's
@@ -1068,7 +1070,7 @@ export function buildEngineRootDeps(
       rendering,
       verdicts,
     },
-    reviewTimeoutMs: REVIEWER_TIMEOUT_MS,
+    reviewTimeoutMs: reviewerTimeoutMs(),
     validationStrategies: { e2e: staticGate, code: codeValidate },
     executionStrategies: { e2e, code },
 
@@ -1292,7 +1294,7 @@ export function buildEngineRootDeps(
     ...(!isCode && app.dev?.baseUrl
       ? {
           authSession: {
-            env: process.env,
+            env: activeEnvironment(),
             authDir,
             ...(deps.telemetry ? { telemetry: deps.telemetry } : {}),
             ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}),
@@ -1421,8 +1423,7 @@ export function buildEngineRootDeps(
      * This factory is the one module that may import both qa-engine @contexts aliases and root
      * src/, so it is the only place that can construct ReflectorPortAdapter: same runtimeAdapter
      * as review, same learningRepo, and host-side backfill via updateRunOutcomeReflection.
-     * REFLECTOR_TIMEOUT_MS parsed here with Number(process.env.X) || default; unset falls back
-     * to the adapter's REFLECT_TIMEOUT_MS (60_000).
+     * REFLECTOR_TIMEOUT_MS comes from the settings; unset falls back to the adapter's REFLECT_TIMEOUT_MS.
      */
     ...(campaignFrozen || !reflectorEnabled ? {} : { reflectorPort: new ReflectorPortAdapter({
       runtime: runtimeAdapter,
@@ -1431,7 +1432,7 @@ export function buildEngineRootDeps(
       backfill: (runId, refl) => getHistory().learning.updateRunOutcomeReflection(runId, refl as import("../types").StructuredReflection),
       cwd: mirrorDir,
       app: app.name,
-      timeoutMs: Number((deps.env ?? process.env).REFLECTOR_TIMEOUT_MS) || REFLECT_TIMEOUT_MS,
+      timeoutMs: activeSettings().agent.reflectorTimeoutMs ?? REFLECT_TIMEOUT_MS,
     }) }),
 
     ...(campaignFrozen ? {} : { processAudit: new ProcessAuditPortAdapter({

@@ -10,6 +10,7 @@ import type { AgentRoleFacts, AgentTurnRecord } from "./persistence/repositories
 import { buildEffectiveConfig, parseStoredRunConfig } from "./effective-config";
 import { getHistory } from "./persistence/index";
 import type { RunRepository } from "./persistence/repositories/run.repository";
+import { activeEnvironment } from "../settings/active";
 
 export type RunViewExtras = Omit<RunDetail, keyof RunRecord | "schemaVersion">;
 
@@ -27,7 +28,7 @@ export interface RunViewDeps {
   traceUrlTemplate: () => string | undefined;
 }
 
-export function defaultRunViewDeps(telemetryOn: () => boolean, env: Record<string, string | undefined> = process.env): RunViewDeps {
+export function defaultRunViewDeps(telemetryOn: () => boolean, env: Record<string, string | undefined> = activeEnvironment()): RunViewDeps {
   return {
     getRunFacts: (id) => getHistory().runs.getRunFacts(id),
     getRunPhases: (id) => getHistory().runs.getRunPhases(id),

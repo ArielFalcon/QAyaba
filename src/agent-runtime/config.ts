@@ -1,5 +1,6 @@
 import { AGENT_PROVIDERS } from "./types";
 import type { AgentProvider, AgentRuntimeConfig, AgentProviderHealth, RoleAssignment } from "./types";
+import { activeEnvironment } from "../settings/active";
 
 export type KeyPresence = Record<AgentProvider, boolean>;
 
@@ -31,7 +32,7 @@ const DEFAULT_MODELS: Record<AgentProvider, Record<keyof AgentRuntimeConfig["ass
 const KEY_NAME: Record<AgentProvider, string> = { opencode: "OPENCODE_API_KEY" };
 
 /* Every role runs on `provider`; each model comes from AGENT_<ROLE>_MODEL or the provider's default. */
-export function providerConfig(provider: AgentProvider, env: Record<string, string | undefined> = process.env): AgentRuntimeConfig {
+export function providerConfig(provider: AgentProvider, env: Record<string, string | undefined> = activeEnvironment()): AgentRuntimeConfig {
   return {
     assignments: {
       primary: assignment(provider, "primary", env),
@@ -41,7 +42,7 @@ export function providerConfig(provider: AgentProvider, env: Record<string, stri
   };
 }
 
-export function configFromEnv(env: Record<string, string | undefined> = process.env): AgentRuntimeConfig {
+export function configFromEnv(env: Record<string, string | undefined> = activeEnvironment()): AgentRuntimeConfig {
   return providerConfig("opencode", env);
 }
 
@@ -55,13 +56,13 @@ const RETIRED_RUNTIME_SELECTORS = [
   "AGENT_CHAT_PROVIDER",
 ] as const;
 
-export function retiredSelectorWarnings(env: Record<string, string | undefined> = process.env): string[] {
+export function retiredSelectorWarnings(env: Record<string, string | undefined> = activeEnvironment()): string[] {
   return RETIRED_RUNTIME_SELECTORS.filter((name) => env[name] !== undefined && env[name] !== "").map(
     (name) => `${name} is set but no longer read: every role runs on the one agent runtime; remove it from the environment`,
   );
 }
 
-export function keyPresence(env: Record<string, string | undefined> = process.env): KeyPresence {
+export function keyPresence(env: Record<string, string | undefined> = activeEnvironment()): KeyPresence {
   return { opencode: Boolean(env.OPENCODE_API_KEY) };
 }
 
