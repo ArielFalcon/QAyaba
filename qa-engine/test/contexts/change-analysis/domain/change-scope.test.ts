@@ -63,6 +63,14 @@ test("a changed symbol reaching more entries than the hub limit adds none and is
   assert.deepEqual([cut.reach.length, cut.hubs[0]?.truncated], [0, true]);
 });
 
+test("a walk the budget cut marks the scope even when it proved no entry, and an uncut one does not", () => {
+  const cut = scope([walkOf([sym(FORMAT, "formatMoney", 0)], { truncated: true })]);
+  const whole = scope([walkOf([sym(FORMAT, "formatMoney", 0)])]);
+
+  assert.deepEqual([cut.reach.length, cut.hubs.length, cut.walksTruncated], [0, 0, true]);
+  assert.equal("walksTruncated" in whole, false);
+});
+
 test("a map-linked changed file is direct, a depth-2 graph hit is indirect and a call-site hit is cross-repo", () => {
   const direct = scope([walkOf([sym(ORDERS, "total", 0)])]);
   const indirect = scope([walkOf([sym(FORMAT, "formatMoney", 0), sym("web/mid.ts", "mid", 1, FORMAT_SEED), sym(PROFILE, "balance", 2, { file: "web/mid.ts", symbol: "mid" })])]);

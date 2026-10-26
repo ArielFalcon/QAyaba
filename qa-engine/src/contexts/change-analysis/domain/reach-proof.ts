@@ -154,6 +154,7 @@ export function buildChangeScope(input: ScopeInput, proofs: readonly ReachProof[
     hubs,
     disagreements: pageFiles(input.proofs.map, input.proofs.pageRoutes).disagreements,
     omitted: reach.length - capped.length,
+    ...(input.proofs.walks.some((w) => w.truncated === true) ? { walksTruncated: true as const } : {}),
     degraded: [...input.degraded],
   };
 }

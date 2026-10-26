@@ -55,6 +55,20 @@ describe("labelFailure", () => {
     }
   });
 
+  it("does not call a failure out of reach when a hub the scope withheld names its entry point", () => {
+    const hub = { hubs: [{ keys: ["GET /orders/{id}", "page /about"] }] };
+    assert.equal(run([failed({ networkErrors: request("/orders/7") })], scope(hub))?.reach, "unknown");
+    assert.equal(run([failed({ finalUrl: "https://dev.example/about" })], scope(hub))?.reach, "unknown");
+  });
+
+  it("still calls a failure out of reach when the scope's hubs name other entry points", () => {
+    assert.equal(run([failed({ networkErrors: request("/orders/7") })], scope({ hubs: [{ keys: ["GET /shops/{id}"] }] }))?.reach, "out-of-reach");
+  });
+
+  it("does not call a failure out of reach when a walk the budget cut proved nothing", () => {
+    assert.equal(run([failed({ networkErrors: request("/orders/7") })], scope({ walksTruncated: true }))?.reach, "unknown");
+  });
+
   it("labels a failing page the change reaches as in reach by page", () => {
     const label = run([failed({ finalUrl: "https://dev.example/shops/42" })], scope({}, [page("/shops/:id")]));
     assert.equal(label?.reach, "in-reach");

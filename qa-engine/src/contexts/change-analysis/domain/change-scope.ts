@@ -51,6 +51,8 @@ export interface ChangeScope {
   hubs: ScopeHub[];
   disagreements: ScopeDisagreement[];
   omitted: number;
+  /* A walk the budget cut: what it reached is a lower bound, even when it proved no entry. */
+  walksTruncated?: true;
   /* A repo whose index did not answer: its absence from `reach` proves nothing. */
   degraded: Array<{ repo: string; reason: string }>;
 }

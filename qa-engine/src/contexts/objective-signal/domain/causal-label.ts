@@ -2,7 +2,8 @@
  * Whether a failure is in the change's reach, as a label that names its evidence. Each failed case is matched, most specific first,
  * on the request that failed (an operation the change reaches), the page it ended on (a page the change reaches) and the flow whose
  * spec it is (written for the use cases the change makes testable); the first match wins. The run's label is read from its cases.
- * A label records and decides nothing. Absence is not independence: "out of reach" needs a scope that did not degrade or truncate.
+ * A label records and decides nothing. Absence is not independence: "out of reach" needs a scope that did not degrade or truncate,
+ * and an entry a hub reaches is withheld from the reach, never outside it.
  * Pure: the route and operation matching is handed in by the caller, so the rules of other contexts are not imported.
  */
 import type { EntryPoint } from "@kernel/change-reach.ts";
@@ -33,8 +34,9 @@ export interface CausalLabel {
 export interface CausalScope {
   repos: ReadonlyArray<{ repo: string; entryPoints: readonly EntryPoint[]; entryPointsTruncated: boolean }>;
   reach: ReadonlyArray<{ entry: EntryPoint }>;
-  hubs: ReadonlyArray<{ truncated?: boolean }>;
+  hubs: ReadonlyArray<{ keys?: readonly string[]; truncated?: boolean }>;
   omitted: number;
+  walksTruncated?: boolean;
   degraded: ReadonlyArray<{ repo: string }>;
 }
 
@@ -83,7 +85,13 @@ function pathnameOf(url: string | undefined): string | undefined {
 
 /* Absence from the reach proves nothing when a repo's index did not answer or a walk or list was cut. */
 function absenceProves(scope: CausalScope): boolean {
-  return scope.degraded.length === 0 && scope.omitted === 0 && !scope.hubs.some((hub) => hub.truncated === true) && !scope.repos.some((repo) => repo.entryPointsTruncated);
+  return scope.degraded.length === 0 && scope.omitted === 0 && scope.walksTruncated !== true && !scope.hubs.some((hub) => hub.truncated === true) && !scope.repos.some((repo) => repo.entryPointsTruncated);
+}
+
+/* Entries a hub reaches are withheld from the reach, not outside it: one of them is never proven out of reach. */
+function outsideReach(scope: CausalScope, entries: readonly EntryPoint[]): EntryPoint[] {
+  const withheld = new Set(scope.hubs.flatMap((hub) => hub.keys ?? []));
+  return entries.some((entry) => withheld.has(entryKey(entry))) ? [] : [...entries];
 }
 
 function byRequest(c: CausalInput["cases"][number], input: CausalInput): Found {
@@ -96,7 +104,7 @@ function byRequest(c: CausalInput["cases"][number], input: CausalInput): Found {
   if (hit.length > 0) return { reach: "in-reach", basis: "request", via: hit.map(entryKey) };
   if (!absenceProves(scope)) return NONE;
   const known = operations(scope.repos.flatMap((repo) => repo.entryPoints));
-  const outside = known.filter((op) => paths.some((p) => matchers.servesOperation(p, op)));
+  const outside = outsideReach(scope, known.filter((op) => paths.some((p) => matchers.servesOperation(p, op))));
   return outside.length > 0 ? { reach: "out-of-reach", basis: "request", via: outside.map(entryKey) } : NONE;
 }
 
@@ -108,7 +116,7 @@ function byPage(c: CausalInput["cases"][number], input: CausalInput): Found {
   const hit = pages(scope.reach.map((r) => r.entry)).filter((page) => matchers.namesPage(page.route, pathname));
   if (hit.length > 0) return { reach: "in-reach", basis: "page", via: hit.map(entryKey) };
   if (!absenceProves(scope)) return NONE;
-  const outside = pages(scope.repos.flatMap((repo) => repo.entryPoints)).filter((page) => matchers.namesPage(page.route, pathname));
+  const outside = outsideReach(scope, pages(scope.repos.flatMap((repo) => repo.entryPoints)).filter((page) => matchers.namesPage(page.route, pathname)));
   return outside.length > 0 ? { reach: "out-of-reach", basis: "page", via: outside.map(entryKey) } : NONE;
 }
 
