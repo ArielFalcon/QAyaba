@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { consoleCallLines } from "./no-console.scan";
 
 /*
  * Production code logs through LoggerPort, which redacts. A raw console call writes an unredacted line, so only the
@@ -11,9 +12,8 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCANNED = ["src", "qa-engine/src"];
-const CONSOLE_CALL = /\bconsole\.(log|warn|error|info|debug)\b/;
 
-/* Output the operator reads as the product, the JSON logger's own mirror, and the tap that intercepts third-party output. */
+/* Output the operator reads as the product, the JSON logger's own mirror, the tap that intercepts third-party output. */
 const ALLOWED: readonly string[] = [
   "src/cli.ts",
   "src/qa/learning/ledger-cli.ts",
@@ -134,13 +134,7 @@ function productionSources(dir: string): string[] {
 }
 
 function callsConsole(path: string): boolean {
-  return readFileSync(join(ROOT, path), "utf8")
-    .split("\n")
-    .some((line) => {
-      const code = line.trim();
-      if (code.startsWith("//") || code.startsWith("/*") || code.startsWith("*")) return false;
-      return CONSOLE_CALL.test(code);
-    });
+  return consoleCallLines(readFileSync(join(ROOT, path), "utf8")).length > 0;
 }
 
 const calling = SCANNED.flatMap(productionSources)

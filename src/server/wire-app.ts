@@ -1,5 +1,6 @@
 
 import { appLogger } from "../integrations/redacting-logger";
+import { installProcessLogger } from "@kernel/ports/process-logger";
 import { PendingChangeSets } from "./pending-change-sets";
 import type { IncomingMessage } from "node:http";
 import { join } from "node:path";
@@ -101,6 +102,8 @@ export interface WiredApp {
 }
 
 export function wireApp(settingsStore: SettingsStore): WiredApp {
+  /* The engine's lines go through the same redacting logger as the shell's. */
+  installProcessLogger(appLogger);
   /* Every value below comes from the typed settings (docs/settings.md). The store reloads them after the onboarding surface applies variables to the live environment. */
   const settings = settingsStore.current();
   for (const warning of settings.warnings) appLogger.warn(warning);
