@@ -46,7 +46,7 @@ import { confinedSpecFiles } from "../../qa-engine/src/shared-infrastructure/spe
 import { buildChangeAnalysis, codeGraphFor } from "../../qa-engine/src/contexts/change-analysis/composition/build-change-analysis";
 import { buildServiceTopology } from "../../qa-engine/src/contexts/service-topology/composition/build-service-topology";
 import { buildObjectiveSignal } from "../../qa-engine/src/contexts/objective-signal/composition/build-objective-signal";
-import { buildWorkspaceAndPublication, type PublishDeps } from "../../qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication";
+import { buildPublishWorkspace, buildWorkspaceAndPublication, type PublishDeps } from "../../qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication";
 import { buildGeneration } from "../../qa-engine/src/contexts/generation/composition/build-generation";
 import { buildCoordination, type DelegationWiring } from "../../qa-engine/src/contexts/coordination/composition/build-coordination";
 import { buildAgentTools, type AgentBrowserWiring, type ClosedLoopWiring, type CodeGraphToolsWiring, type GeolocationWiring } from "../../qa-engine/src/contexts/agent-tools/composition/build-agent-tools";
@@ -67,7 +67,9 @@ import type { VcsReadPort } from "@contexts/change-analysis/application/index";
 import type { LearningRepositoryPort, ReflectorPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/index";
 
 /* The code graph of an app, built by its context: the factory builds a run's graph with it and onboarding builds its first index with it. */
-export { codeGraphFor };
+/* The builders and deps types the shell and its tests reach, so engine-root.ts is the one shell module that imports a composition module. */
+export { codeGraphFor, buildAppCatalog, buildPublishWorkspace };
+export type { PublishDeps };
 
 export interface EngineRootDeps {
   /* Static per-run context (shared across GenerationPort/ReviewPort/ExecutionPort/PublicationPort). */

@@ -1,8 +1,8 @@
 import { test, mock } from "node:test";
 import type { ContextHealRunRequest } from "@contexts/run-orchestration/application/index";
+import { buildAppCatalog, buildPublishWorkspace } from "./engine-root";
 import { FoldRunOutcome, type LearningStorePort } from "@contexts/cross-run-learning/application/index";
 import type { RunOutcome } from "@kernel/run-outcome";
-import { buildAppCatalog } from "../../qa-engine/src/contexts/app-catalog/composition/build-app-catalog";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -55,7 +55,6 @@ import {
 import { setAgentsConfigPath as setCatalogAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { rosterFixturePath } from "../integrations/fixtures/opencode-roster";
 import { setAgentsConfigPath } from "../integrations/opencode-client";
-import { buildPublishWorkspace } from "../../qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication";
 import type { RunMode } from "@kernel/run-mode";
 
 /* The publish step of a run as the engine wires it: the context's policy over the shell's git wiring. */

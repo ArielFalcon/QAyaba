@@ -8,6 +8,7 @@
    in a throwaway fixture repo); every other git subcommand (status/checkout/add/commit) runs for
    real, exercising the publish step's full publish() orchestration exactly as production wires it.
  */
+import { buildPublishWorkspace } from "./engine-root";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -18,7 +19,6 @@ import { buildConfinement, publishWiring } from "./run-engine-factory";
 import { realGit } from "../integrations/repo-mirror";
 import { closeGitDir, indexedGitlinks, makeEmbeddedRepo } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 import { defaultSpecWriteDeps, writeOwnedSpecFile } from "../../qa-engine/src/shared-infrastructure/spec-path-confinement";
-import { buildPublishWorkspace } from "../../qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication";
 import type { RunMode } from "@kernel/run-mode";
 
 /* The publish step of a run as the engine wires it: the context's policy over the shell's git wiring. */

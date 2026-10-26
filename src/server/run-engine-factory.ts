@@ -27,7 +27,7 @@ import {
 import type { RunPipelinePort, ObserverPort } from "@contexts/run-orchestration/application/index.ts";
 import { RequestContextHeal, type EnqueueContextRunPort } from "@contexts/run-orchestration/application/index";
 import { buildEngine, codeGraphFor, type EngineRootDeps } from "./engine-root";
-import type { PublishDeps } from "../../qa-engine/src/contexts/workspace-and-publication/composition/build-workspace-and-publication";
+import type { PublishDeps } from "./engine-root";
 import { createDiscoverLogin } from "@contexts/app-catalog/infrastructure/login-discovery/login-discovery.runner";
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { domCaptureObserver } from "@contexts/generation/infrastructure/dom-capture-trace";

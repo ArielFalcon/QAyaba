@@ -30,7 +30,16 @@
 // npm resolves the nearest manifest and fails LOUDLY with "Missing script" — an error, never a
 // silent wrong-tree scan. The always-enforced gate is qa-engine/test/arch/ inside `npm test`,
 // which pins its own cwd and is invocation-independent.
+const fs = require("node:fs");
 const path = require("node:path");
+
+/* Shell modules (src/, scripts/) that still import an infrastructure file of a context directly, because the symbol they need
+   (an adapter the shell constructs, a registry it owns, a prompt builder a script renders) has no builder or application export yet.
+   The list is frozen: it may only shrink, qa-engine/.dependency-cruiser-shell-exceptions.json holds it; qa-engine/test/arch/shell-public-surface.test.ts fails on an entry that no longer imports
+   an infrastructure file and on any growth past its ceiling. A new shell module never joins it. */
+/* A tree that carries a copy of this config without the list (the arch tests build such trees) has no exception. */
+const EXCEPTIONS_FILE = path.join(__dirname, ".dependency-cruiser-shell-exceptions.json");
+const SHELL_INFRASTRUCTURE_EXCEPTIONS = fs.existsSync(EXCEPTIONS_FILE) ? JSON.parse(fs.readFileSync(EXCEPTIONS_FILE, "utf8")) : [];
 
 module.exports = {
   forbidden: [
@@ -134,10 +143,24 @@ module.exports = {
       },
     },
     {
+      name: "shell-public-surface",
+      severity: "error",
+      comment: "The shell (src/, scripts/) reaches a context only through its public surface, application/index.ts. The domain, the other application files and the infrastructure of a context are internal to it. The frozen SHELL_INFRASTRUCTURE_EXCEPTIONS list names the shell modules that still import an infrastructure file; it only shrinks.",
+      from: { path: "^(src|scripts)/", pathNot: SHELL_INFRASTRUCTURE_EXCEPTIONS.map((f) => "^" + f.replace(/\./g, "\\.") + "$") },
+      to: { path: "^qa-engine/src/contexts/", pathNot: ["^qa-engine/src/contexts/[^/]+/application/index\\.ts$", "^qa-engine/src/contexts/[^/]+/composition/"] },
+    },
+    {
+      name: "composition-only-from-shell-root",
+      severity: "error",
+      comment: "A context's composition/ builders are imported by one module only, the engine root src/server/engine-root.ts, which wires every context. Nothing else, shell or engine, builds a context.",
+      from: { path: "^(src|scripts|qa-engine/src)/", pathNot: ["^src/server/engine-root\\.ts$", "^qa-engine/src/contexts/([^/]+)/composition/"] },
+      to: { path: "^qa-engine/src/contexts/[^/]+/composition/" },
+    },
+    {
       name: "no-circular",
       severity: "error",
       comment: "A module never depends on itself through other modules: a cycle makes every module in it impossible to understand, test or move alone.",
-      from: {},
+      from: { path: "^qa-engine/src/" },
       to: { circular: true },
     },
   ],
