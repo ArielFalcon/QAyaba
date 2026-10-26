@@ -218,7 +218,7 @@ Branch: `arch/remediation` (the worktree's branch; the original `fix/failure-obs
 ## Tasks
 
 - [x] T0 — S0 — inline — Re-verify every `path:line`, count and symbol in this document against HEAD; rewrite only the S# whose evidence moved and log the drift — commit: n/a (drift in L8)
-- [x] T1 — S1a — inline — Persistence foundation: schema 1, migrator, transaction helper, adoption by stamping, explicit prune job (needs P1.7's shim deletion first) — commit: see L9
+- [x] T1 — S1a — inline — Persistence foundation: schema 1, migrator, transaction helper, adoption by stamping, explicit prune job (needs P1.7's shim deletion first) — commit: 7f8a65ee
 - [ ] T2 — S1b — inline — Repositories per aggregate, five pure-move commits, then delete `history.ts`; `parseJsonColumn` logs corrupt columns — commit: pending
 - [ ] T3 — S2a — inline — Typed `Settings`, generated `docs/settings.md`, `settings:check`, compose and `.env.example` parity, replace every shell env read — commit: pending
 - [ ] T4 — S2b — inline — `createApp(deps)`, control-plane router, webhook handler, shutdown, health poller, thin `main()` (the factory is P3.6's) — commit: pending
