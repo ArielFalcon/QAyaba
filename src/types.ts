@@ -254,6 +254,8 @@ export interface RunOutcome {
     value?: { stale: boolean };
     /* Whether the run's failure is in the change's reach and the evidence for it; absent when no case failed. Persist-only, never a gate. */
     causal?: { reach: "in-reach" | "out-of-reach" | "unknown"; basis: "request" | "page" | "flow" | "none"; via: string[]; reason: string; cases: Array<{ name: string; reach: "in-reach" | "out-of-reach" | "unknown"; basis: "request" | "page" | "flow" | "none" }> };
+    /* The share of each use case's changed lines the green run executed, or the reason it has none (`unmeasured`). Absent when the run asked for no use case or measured nothing. Persist-only: the aggregate ratio alone decides. */
+    coverageByCandidate?: Array<{ candidateId: string; changedLines: number; coveredChanged: number; ratio: number | null; unmeasured?: string }>;
     /* How the run's regeneration acceptance spent its proof ledger. Persist-only. */
     integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
     /* The test-intent lock: derived clauses, deltas and would-be rejections, with the opacity flag. Persist-only. */

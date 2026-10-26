@@ -60,3 +60,25 @@ test("renderCoverageGap: exactly at the max — no truncation trailer", () => {
   const out = renderCoverageGap(uncovered, 2);
   assert.equal(out, "changed lines NOT exercised by any test:\n- src/a.ts: lines 1\n- src/b.ts: lines 2");
 });
+
+/* ── Grouped by the use case whose seeds hold the lines ── */
+
+const cand = (id: string, route: string, file: string, start: number, end: number) => ({
+  id, entry: { kind: "page" as const, repo: "web", route }, tier: "direct" as const, basis: "graph" as const, evidence: [], seeds: [{ file, symbol: "s", range: { start, end } }],
+  confidence: 1, reachability: "page" as const, pages: [], existingSpecs: [],
+});
+
+test("renderCoverageGap: with candidates, the uncovered lines are grouped under the candidate whose seeds hold them", () => {
+  const out = renderCoverageGap(
+    [{ file: "src/a.ts", lines: [2, 3, 12, 40] }],
+    10,
+    [cand("uc-1", "/one", "src/a.ts", 1, 5), cand("uc-2", "/two", "src/a.ts", 10, 20)],
+  );
+  assert.equal(out, "changed lines NOT exercised by any test, by use case:\nuc-1 (page /one):\n  - src/a.ts: lines 2-3\nuc-2 (page /two):\n  - src/a.ts: lines 12\nother changed lines:\n  - src/a.ts: lines 40");
+});
+
+test("renderCoverageGap: candidates that hold none of the uncovered lines leave the ungrouped text as it was", () => {
+  const plain = renderCoverageGap([{ file: "src/a.ts", lines: [40] }]);
+  assert.equal(renderCoverageGap([{ file: "src/a.ts", lines: [40] }], 10, [cand("uc-1", "/one", "src/a.ts", 1, 5)]), plain);
+  assert.equal(renderCoverageGap([{ file: "src/a.ts", lines: [40] }], 10, []), plain);
+});

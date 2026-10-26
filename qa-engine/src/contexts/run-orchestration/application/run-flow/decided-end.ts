@@ -188,8 +188,10 @@ function sharedSignals(state: Readonly<RunState>, ctx: WorkspaceRunContext, loop
   const { integrityCounters, intentLock, intentState } = ctx.services;
   const { coverageStale, valueStale } = state.coverage;
   const causal = state.decided?.causal;
+  const { perCandidate } = state.coverage;
   return {
     ...(causal ? { causal } : {}),
+    ...(perCandidate && perCandidate.length > 0 ? { coverageByCandidate: perCandidate } : {}),
     ...(loopSignal ? { closedLoop: loopSignal } : {}),
     ...(agentBrowser?.signals() ? { agentBrowser: agentBrowser.signals() } : {}),
     ...(coverageStale ? { coverage: { stale: true } } : {}),

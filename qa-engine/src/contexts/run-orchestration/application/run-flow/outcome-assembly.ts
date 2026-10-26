@@ -69,6 +69,8 @@ export interface OutcomeExtras {
   intent?: { mode: string; violations: number; wouldReject: number; clauses: number; opaque: number; opacityHigh: boolean };
   /* The kind a declared no-op named; absent for every run that is not one. */
   noop?: { kind: NoopKind };
+  /* Per use case change-coverage; absent when no use case was asked for. */
+  coverageByCandidate?: RunOutcome["gateSignals"]["coverageByCandidate"];
   /* Whether the failure is in the change's reach; absent when no case failed. */
   causal?: RunOutcome["gateSignals"]["causal"];
 }
@@ -202,6 +204,7 @@ export function toRunOutcome(
       ...(extra?.intent !== undefined ? { intent: extra.intent } : {}),
       ...(extra?.noop !== undefined ? { noop: extra.noop } : {}),
       ...(extra?.causal !== undefined ? { causal: extra.causal } : {}),
+      ...(extra?.coverageByCandidate !== undefined ? { coverageByCandidate: extra.coverageByCandidate } : {}),
       ...(coordination ? { coordination } : {}),
     },
     rulesRetrieved: extra?.rulesRetrieved ?? [],

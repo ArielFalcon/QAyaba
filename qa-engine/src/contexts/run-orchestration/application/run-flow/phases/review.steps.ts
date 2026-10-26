@@ -548,7 +548,7 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
       workspace.specDir,
       state.classification.diff,
       baselineCases,
-      { namespace: finalNamespace },
+      { namespace: finalNamespace, ...(state.grounding.candidates.length > 0 ? { candidates: state.grounding.candidates } : {}) },
     );
     const { valueScore, mutantCount, killedCount } = state.coverage;
     return {
@@ -558,6 +558,7 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
           ...remeasured(state.coverage),
           coverageRatio: finalSignal.ratio,
           coverageStatus: finalSignal.status,
+          perCandidate: finalSignal.measurement?.perCandidate,
           blocksPublish: deps.objectiveSignal.blocks(finalSignal.status),
           /* The oracle measured again on the delivered bytes: its score describes what is on disk now. */
           valueScore: finalSignal.valueScore ?? valueScore,

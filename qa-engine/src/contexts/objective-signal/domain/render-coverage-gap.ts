@@ -1,4 +1,6 @@
 /* Renders uncovered changed lines as the enforce-mode regeneration prompt. Pure; no I/O; never throws. */
+import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import { entryKey } from "@kernel/change-reach.ts";
 
 type Uncovered = { file: string; lines: number[] }[];
 
@@ -18,8 +20,42 @@ function compactRanges(sorted: number[]): string {
   return parts.join(", ");
 }
 
-export function renderCoverageGap(uncovered: Uncovered, max = 10): string {
+/* The uncovered lines inside a candidate's seeds (a seed with no range holds every line of its file). */
+function uncoveredWithin(candidate: UseCaseCandidate, uncovered: Uncovered): Uncovered {
+  const out: Uncovered = [];
+  for (const u of uncovered) {
+    const lines = u.lines.filter((line) => candidate.seeds.some((seed) => seed.file === u.file && (seed.range === undefined || (line >= seed.range.start && line <= seed.range.end))));
+    if (lines.length > 0) out.push({ file: u.file, lines });
+  }
+  return out;
+}
+
+/*
+ * With the candidates the change makes testable, the gap is grouped under the candidate whose seeds hold each line, so the one
+ * regeneration is aimed at a use case; lines no candidate holds stay under their own heading. Without candidates the text is the
+ * ungrouped one.
+ */
+function renderGroupedGap(uncovered: Uncovered, candidates: readonly UseCaseCandidate[], max: number): string {
+  const sections: string[] = [];
+  const claimed = new Map<string, Set<number>>();
+  for (const candidate of candidates) {
+    const held = uncoveredWithin(candidate, uncovered);
+    if (held.length === 0) continue;
+    for (const u of held) {
+      const set = claimed.get(u.file) ?? new Set<number>();
+      u.lines.forEach((line) => set.add(line));
+      claimed.set(u.file, set);
+    }
+    sections.push(`${candidate.id} (${entryKey(candidate.entry)}):\n${held.slice(0, max).map((u) => `  - ${u.file}: lines ${compactRanges(u.lines)}`).join("\n")}${held.length > max ? `\n  …and ${held.length - max} more file(s)` : ""}`);
+  }
+  const rest = uncovered.map((u) => ({ file: u.file, lines: u.lines.filter((line) => !claimed.get(u.file)?.has(line)) })).filter((u) => u.lines.length > 0);
+  if (rest.length > 0) sections.push(`other changed lines:\n${rest.slice(0, max).map((u) => `  - ${u.file}: lines ${compactRanges(u.lines)}`).join("\n")}${rest.length > max ? `\n  …and ${rest.length - max} more file(s)` : ""}`);
+  return `changed lines NOT exercised by any test, by use case:\n${sections.join("\n")}`;
+}
+
+export function renderCoverageGap(uncovered: Uncovered, max = 10, candidates: readonly UseCaseCandidate[] = []): string {
   if (uncovered.length === 0) return "all changed lines are covered by the tests";
+  if (candidates.some((c) => uncoveredWithin(c, uncovered).length > 0)) return renderGroupedGap(uncovered, candidates, max);
   const lines = uncovered.slice(0, max).map((u) => `- ${u.file}: lines ${compactRanges(u.lines)}`);
   const more = uncovered.length > max ? `\n…and ${uncovered.length - max} more file(s)` : "";
   return `changed lines NOT exercised by any test:\n${lines.join("\n")}${more}`;

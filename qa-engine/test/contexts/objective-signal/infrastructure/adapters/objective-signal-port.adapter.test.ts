@@ -443,3 +443,51 @@ test("measure() says the scripts carried no source map when the dumps held scrip
   const none = await make({ covered: [], scripts: { total: 0, withSourceMap: 0 } }).measure(br, "/r/e2e", SAMPLE_DIFF);
   assert.equal(none.measurement?.unmeasured, "no-changed-file-mapped", "no script at all is not a statement about maps");
 });
+
+/* ── Per use case: a signal beside the aggregate, which stays the only figure that decides ── */
+
+const CAND = (id: string, over: Record<string, unknown> = {}) => ({
+  id, entry: { kind: "page" as const, repo: "org/app", route: `/${id}` }, tier: "direct" as const, basis: "graph" as const, evidence: [],
+  seeds: [{ file: "src/checkout.ts", symbol: "s", range: { start: 1, end: 2 } }], confidence: 1, reachability: "page" as const, pages: [], existingSpecs: [], ...over,
+});
+
+function perCandidateAdapter(covered: number[]) {
+  return new ObjectiveSignalPortAdapter(
+    { collector: fakeCollector({ covered: [{ file: "src/checkout.ts", lines: covered }] }), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" }) },
+    { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
+  );
+}
+
+test("measure() with candidates reports each candidate's share and leaves the aggregate status, ratio and blocks as they are without them", async () => {
+  const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
+  const adapter = perCandidateAdapter([1]);
+  const without = await adapter.measure(br, "/m/e2e", SAMPLE_DIFF);
+  const withCandidates = await adapter.measure(br, "/m/e2e", SAMPLE_DIFF, undefined, { candidates: [CAND("uc-1")] });
+  assert.equal(withCandidates.status, without.status);
+  assert.equal(withCandidates.ratio, without.ratio);
+  assert.equal(adapter.blocks(withCandidates.status), adapter.blocks(without.status));
+  assert.equal(without.measurement?.perCandidate, undefined);
+  assert.deepEqual(withCandidates.measurement?.perCandidate, [{ candidateId: "uc-1", changedLines: 2, coveredChanged: 1, ratio: 0.5 }]);
+});
+
+test("measure() with candidates and no source maps gives every candidate the reason, and the aggregate still never blocks", async () => {
+  const adapter = new ObjectiveSignalPortAdapter(
+    { collector: fakeCollector({ covered: [], scripts: { total: 3, withSourceMap: 0 } }), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" }) },
+    { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
+  );
+  const result = await adapter.measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), "/m/e2e", SAMPLE_DIFF, undefined, { candidates: [CAND("uc-1"), CAND("uc-2")] });
+  assert.equal(result.status, "unknown");
+  assert.equal(adapter.blocks(result.status), false);
+  assert.deepEqual(result.measurement?.perCandidate?.map((c) => c.unmeasured), ["no-source-maps", "no-source-maps"]);
+});
+
+test("measure() reports a diff that only deletes as deletion-only, and a withheld diff as cross-repo per candidate", async () => {
+  const adapter = perCandidateAdapter([]);
+  const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
+  const deleting = "diff --git a/src/checkout.ts b/src/checkout.ts\n--- a/src/checkout.ts\n+++ b/src/checkout.ts\n@@ -1,2 +1,0 @@\n-a\n-b\n";
+  const onlyDeleted = await adapter.measure(br, "/m/e2e", deleting);
+  assert.equal(onlyDeleted.measurement?.unmeasured, "deletion-only");
+  const withheld = await adapter.measure(br, "/m/e2e", undefined, undefined, { candidates: [CAND("uc-1")], crossRepo: true });
+  assert.equal(withheld.measurement?.unmeasured, "no-diff");
+  assert.equal(withheld.measurement?.perCandidate?.[0]?.unmeasured, "cross-repo");
+});

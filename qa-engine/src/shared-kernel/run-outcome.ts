@@ -102,6 +102,8 @@ export interface RunOutcome {
     coverage?: { stale: boolean };
     /* Whether the run's failure is in the change's reach, and the evidence the label rests on (plain shape; the domain's CausalLabel). Absent when no case failed or the run was not decided. Persist-only: it records and decides nothing. */
     causal?: { reach: "in-reach" | "out-of-reach" | "unknown"; basis: "request" | "page" | "flow" | "none"; via: string[]; reason: string; cases: Array<{ name: string; reach: "in-reach" | "out-of-reach" | "unknown"; basis: "request" | "page" | "flow" | "none" }> };
+    /* The share of each use case's changed lines the green run executed, or the reason it has none (`unmeasured`). Absent when the run asked for no use case or measured nothing. Persist-only: the aggregate ratio alone decides. */
+    coverageByCandidate?: Array<{ candidateId: string; changedLines: number; coveredChanged: number; ratio: number | null; unmeasured?: string }>;
     /* How the run's regeneration acceptance spent its proof ledger: how many regenerations were accepted (and how many of those reused a closed-loop proof instead of executing), how many were rejected, and whether the per-run execution cap was hit. Persist-only; never read by decide/verdict/gate/publish. */
     integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
   };

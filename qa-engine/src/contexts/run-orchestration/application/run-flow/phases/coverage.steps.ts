@@ -49,7 +49,13 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
     workspace.specDir,
     input.triggerRepo ? undefined : diff,
     baselineCases,
-    ...(coverageNamespace ? [{ namespace: coverageNamespace }] : []),
+    ...(coverageNamespace || state.grounding.candidates.length > 0
+      ? [{
+          ...(coverageNamespace ? { namespace: coverageNamespace } : {}),
+          ...(state.grounding.candidates.length > 0 ? { candidates: state.grounding.candidates } : {}),
+          ...(input.triggerRepo ? { crossRepo: true } : {}),
+        }]
+      : []),
   );
   return {
     update: {
@@ -62,6 +68,7 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
         mutantCount: signal.mutantCount ?? undefined,
         killedCount: signal.killedCount ?? undefined,
         uncovered: signal.uncovered ?? [],
+        perCandidate: signal.measurement?.perCandidate,
         /*
          * Ask the port: only enforce+fail blocks. Unknown/pass never block. Do not
          * re-implement the mode check here.
@@ -89,7 +96,7 @@ export async function regenerateForCoverage(state: Readonly<RunState>, ctx: Work
   let { acceptanceCalls } = state.coverage;
   let coverage = state.coverage;
   let run = runOf(state);
-  const gap = renderCoverageGap(state.coverage.uncovered);
+  const gap = renderCoverageGap(state.coverage.uncovered, undefined, state.grounding.candidates);
   const snapshot = await snapshotSuite();
   /* mutation-scope:begin delivered-before-coverage-regen */
   const deliveredBefore = state.generation.delivered;

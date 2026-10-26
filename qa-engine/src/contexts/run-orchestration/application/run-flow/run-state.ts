@@ -20,7 +20,7 @@ import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
 import type { FixLoopStage } from "../../domain/fix-loop.aggregate.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import type { CausalLabel } from "@contexts/objective-signal/application/index.ts";
+import type { CandidateCoverage, CausalLabel } from "@contexts/objective-signal/application/index.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunEvidence } from "../../domain/run-decision.service.ts";
 import type { EndReason } from "./end-reason.ts";
@@ -170,6 +170,8 @@ export interface CoverageOutcome {
   killedCount: number | undefined;
   /** The changed lines the first measurement left uncovered, for the enforce-mode regeneration. */
   uncovered: { file: string; lines: number[] }[];
+  /** The share of each use case's changed lines the run executed, or why it has none; undefined when no use case was asked for. A signal beside the ratio, never a gate. */
+  perCandidate: CandidateCoverage[] | undefined;
   /** Acceptances spent so far; each names its namespace by it. */
   acceptanceCalls: number;
   /** An accepted regeneration rewrote specs after the last measurement: the coverage ratio is then stale. */
@@ -367,6 +369,7 @@ export function initialRunState(): RunState {
       mutantCount: undefined,
       killedCount: undefined,
       uncovered: [],
+      perCandidate: undefined,
       acceptanceCalls: 0,
       acceptedRegenAfterMeasure: false,
       coverageStale: false,
