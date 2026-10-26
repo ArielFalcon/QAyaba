@@ -9,6 +9,7 @@ import type { RunState } from "../run-state.ts";
 import { executeAccepted, validateAccepted } from "./execute.steps.ts";
 import { regenerate } from "./generation-services.ts";
 import { classifyFailure } from "../failure-policy.ts";
+import { coverageRegenAction } from "../../../domain/coverage-regen.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
 
@@ -74,7 +75,7 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
 
 /* Whether the enforce-mode regeneration runs: a measurement that blocks publication, on a per-commit diff. */
 export const regeneratesForCoverage = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean =>
-  measuresCoverage(state, ctx) && state.coverage.blocksPublish && measuresPerCommit(ctx);
+  coverageRegenAction({ measured: measuresCoverage(state, ctx), blocks: state.coverage.blocksPublish, perCommit: measuresPerCommit(ctx), regenerated: state.loops.coverageRegen }) === "regenerate";
 
 /*
  * Enforce-mode one-shot coverage regen: this step runs at most once per run and is independent of the FixLoop budget. A regen
@@ -136,5 +137,5 @@ export async function regenerateForCoverage(state: Readonly<RunState>, ctx: Work
     if (classifyFailure(regenErr) !== "run-deadline") throw regenErr;
     console.warn(`[qa] the run deadline was spent during the coverage regeneration; the first measurement stands (${regenErr instanceof Error ? regenErr.message : String(regenErr)})`);
   }
-  return { update: { execution: { ...state.execution, run }, coverage: { ...state.coverage, acceptanceCalls, acceptedRegenAfterMeasure } } };
+  return { update: { execution: { ...state.execution, run }, coverage: { ...state.coverage, acceptanceCalls, acceptedRegenAfterMeasure }, loops: { ...state.loops, coverageRegen: state.loops.coverageRegen + 1 } } };
 }
