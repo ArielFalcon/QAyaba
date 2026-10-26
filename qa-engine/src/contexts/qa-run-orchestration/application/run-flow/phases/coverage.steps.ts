@@ -88,13 +88,16 @@ export async function regenerateForCoverage(state: Readonly<RunState>, ctx: Work
   const { acceptance, integrityCounters, snapshotPort, runDeadlinePort, suiteChangedFiles, snapshotSuite, acceptanceScope } = services;
   let { acceptanceCalls, acceptedRegenAfterMeasure } = state.coverage;
   let { run } = state.execution;
+  let leadCorrections = 0;
   try {
     const gap = renderCoverageGap(state.coverage.uncovered);
     const snapshot = await snapshotSuite();
     /* mutation-scope:begin delivered-before-coverage-regen */
     const deliveredBefore = generation.delivered;
     /* mutation-scope:end delivered-before-coverage-regen */
-    const regen = await regenerate(state, ctx, undefined, { coverageGap: gap }, CORRECTION_ORIGIN.COVERAGE);
+    const regenerated = await regenerate(state, ctx, undefined, { coverageGap: gap }, CORRECTION_ORIGIN.COVERAGE);
+    const regen = regenerated.output;
+    leadCorrections = regenerated.leadCorrections;
     await services.confinement.enforce();
     const changedFiles = await suiteChangedFiles(snapshot, regen.specs);
     const changedSpecFiles = acceptanceScope(changedFiles);
@@ -137,5 +140,5 @@ export async function regenerateForCoverage(state: Readonly<RunState>, ctx: Work
     if (classifyFailure(regenErr) !== "run-deadline") throw regenErr;
     console.warn(`[qa] the run deadline was spent during the coverage regeneration; the first measurement stands (${regenErr instanceof Error ? regenErr.message : String(regenErr)})`);
   }
-  return { update: { execution: { ...state.execution, run }, coverage: { ...state.coverage, acceptanceCalls, acceptedRegenAfterMeasure }, loops: { ...state.loops, coverageRegen: state.loops.coverageRegen + 1 } } };
+  return { update: { execution: { ...state.execution, run }, coverage: { ...state.coverage, acceptanceCalls, acceptedRegenAfterMeasure }, loops: { ...state.loops, coverageRegen: state.loops.coverageRegen + 1, leadCorrections: state.loops.leadCorrections + leadCorrections } } };
 }

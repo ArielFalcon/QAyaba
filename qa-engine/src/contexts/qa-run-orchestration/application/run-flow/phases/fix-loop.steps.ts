@@ -60,8 +60,13 @@ export function resolveTested(state: Readonly<RunState>): { flow?: string; objec
   return fixLoopFinalSpecMetas?.length ? fixLoopFinalSpecMetas : state.execution.lastGenerated.specMetas;
 }
 
+/* The corrections a stage routed through the lead, which the stage's step adds to the run's counter. */
+interface LeadTally {
+  leadCorrections: number;
+}
+
 /* The ports of the fix loop, over the working copy and the services of this run; the loop's own state lives in its session, so a step rebuilds them each time. */
-function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending: FixLoopSession["pending"]): FixLoop {
+function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending: FixLoopSession["pending"], tally: LeadTally): FixLoop {
   const { deps, workspace, signal, services, trail, startedAt, wallClockBudget } = ctx;
   const { closedLoop } = trail;
   const { lastGenerated } = state.execution;
@@ -104,7 +109,7 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
       ];
       /* mutation-scope:begin regenerate-round */
 
-      const r = await regenerate(state, ctx, signal, {
+      const { output: r, leadCorrections } = await regenerate(state, ctx, signal, {
         fixCases: fixLoopInput.fixCases,
         ...(mergedSelectorContradictions.length ? { selectorContradictions: mergedSelectorContradictions } : {}),
       /* mutation-scope:end regenerate-round */
@@ -113,6 +118,7 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
         /* The intent lock's deltas on the round it refused: the next round repairs the weakening it introduced. */
         ...(fixLoopInput.contractFeedback?.length ? { contractFeedback: fixLoopInput.contractFeedback } : {}),
       }, CORRECTION_ORIGIN.EXECUTION);
+      tally.leadCorrections += leadCorrections;
       /* mutation-scope:begin confinement-and-clear-corrections */
       await services.confinement.enforce();
       /* Pre-exec corrections are one-shot — clear after the first FixLoop regen. */
@@ -216,11 +222,11 @@ const STAGE_STEP = {
 } as const satisfies Record<FixLoopStep, StepId>;
 
 /* Where the run goes after a stage: the step of the next stage, or the settle step once the loop stopped. */
-function routeTo(session: FixLoopSession, state: Readonly<RunState>): StepOutcome<RunState> {
+function routeTo(session: FixLoopSession, state: Readonly<RunState>, tally: LeadTally): StepOutcome<RunState> {
   const stage = session.loop.stage;
   return goto(stage === "done" ? "settle-fix-loop" : STAGE_STEP[stage], {
     fixLoop: { ...state.fixLoop, session },
-    loops: { ...state.loops, fixLoop: session.loop.retry },
+    loops: { ...state.loops, fixLoop: session.loop.retry, leadCorrections: state.loops.leadCorrections + tally.leadCorrections },
   });
 }
 
@@ -304,17 +310,19 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
     latestSpecs: lastGenerated.specs,
   };
   /* mutation-scope:end pending-contradictions */
-  const loop = fixLoopFor(state, ctx, pending).begin(loopInput);
+  const tally: LeadTally = { leadCorrections: 0 };
+  const loop = fixLoopFor(state, ctx, pending, tally).begin(loopInput);
   const session: FixLoopSession = { loop, pending, failingBefore, specShaBefore };
-  return routeTo(session, state);
+  return routeTo(session, state, tally);
 }
 
 function stageStep(): (state: Readonly<RunState>, ctx: WorkspaceRunContext) => Result {
   return async (state, ctx) => {
     const session = state.fixLoop.session;
     if (!session) throw new Error("a fix-loop stage ran without a fix-loop session");
-    await fixLoopFor(state, ctx, session.pending).step(session.loop);
-    return routeTo(session, state);
+    const tally: LeadTally = { leadCorrections: 0 };
+    await fixLoopFor(state, ctx, session.pending, tally).step(session.loop);
+    return routeTo(session, state, tally);
   };
 }
 
@@ -330,7 +338,7 @@ export async function settleFixLoop(state: Readonly<RunState>, ctx: WorkspaceRun
   const { run: initialRun } = state.execution;
   const session = state.fixLoop.session;
   if (!session) throw new Error("the fix loop was settled without a fix-loop session");
-  const loop = fixLoopFor(state, ctx, session.pending);
+  const loop = fixLoopFor(state, ctx, session.pending, { leadCorrections: 0 });
   await loop.settle(session.loop);
   const fixLoopResult = loop.result(session.loop);
   const { failingBefore, specShaBefore } = session;

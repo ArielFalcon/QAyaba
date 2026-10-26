@@ -14,6 +14,7 @@ import { mergeDeliveredSpecs } from "../../../domain/helpers/delivered-specs.ts"
 import type { GenerationEnrichment, GenerationOutput } from "../../ports/index.ts";
 import type { CoordinatedPass } from "../../coordination/lead-sidekicks.ts";
 import { CORRECTION_ORIGIN, type CorrectionOrigin, type CorrectionFinding } from "../../coordination/lead-correction.ts";
+import { leadCorrectionAction, leadCorrectionBudget } from "../../../domain/lead-correction-budget.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 
@@ -145,6 +146,17 @@ function leftoverOf(enrichment: GenerationEnrichment, findings: readonly Evidenc
   };
 }
 
+/* A regeneration's generation and the corrections it routed through the lead's pass (0 or 1): the step adds them to `loops.leadCorrections`. */
+export interface Regenerated {
+  output: GenerationOutput;
+  leadCorrections: number;
+}
+
+/* Whether the run's budget of corrections through the lead has room for one more. */
+export function mayCorrectThroughLead(state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean {
+  return leadCorrectionAction({ used: state.loops.leadCorrections, budget: leadCorrectionBudget({ maxRetries: ctx.cfg.maxRetries }) }) === "through-lead";
+}
+
 /*
  * One regeneration over what the run has delivered so far; what it delivers joins that. In a run whose flows were authored by
  * sidekicks and whose pass is still open, the evidence goes to the lead first, which routes each finding to the flow whose spec it
@@ -159,10 +171,10 @@ export async function regenerate(
   enrichment: GenerationEnrichment,
   origin: Exclude<CorrectionOrigin, typeof CORRECTION_ORIGIN.REVIEW>,
   evidence?: readonly EvidenceFinding[],
-): Promise<GenerationOutput> {
+): Promise<Regenerated> {
   const pass = ctx.trail.coordinatedPass;
   const findings = pass ? (evidence ?? findingsOf(enrichment)) : [];
-  if (!pass || findings.length === 0) return regenerateByLead(state, ctx, regenerationSignal, enrichment);
+  if (!pass || findings.length === 0 || !mayCorrectThroughLead(state, ctx)) return { output: await regenerateByLead(state, ctx, regenerationSignal, enrichment), leadCorrections: 0 };
   return correctThroughLead(state, ctx, pass, findings.map((f) => f.finding), regenerationSignal, origin, (unrouted) => leftoverOf(enrichment, findings, unrouted));
 }
 
@@ -180,7 +192,7 @@ export async function correctThroughLead(
   regenerationSignal: AbortSignal | undefined,
   origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW,
   leftover: (unrouted: readonly number[]) => GenerationEnrichment = (unrouted) => ({ reviewCorrections: unrouted.map((i) => findings[i]!.text) }),
-): Promise<GenerationOutput> {
+): Promise<Regenerated> {
   const corrected = await pass.correct(findings, origin);
   /* Recorded after every turn, so however the run ends from here what the lead routed is on its record. */
   ctx.host.recordCorrections();
@@ -201,12 +213,15 @@ export async function correctThroughLead(
   const testCorrect = specs.length === 0 ? (regenerated?.testCorrect ?? corrected.testCorrect) : undefined;
   const { testCorrect: _claim, specSources: _sources, ...base } = regenerated ?? byFlows;
   return {
-    ...base,
-    specs,
-    end: specs.length > 0 ? GENERATION_END.DELIVERED : (regenerated?.end ?? byFlows.end),
-    ...(specSources ? { specSources } : {}),
-    ...(testCorrect ? { testCorrect } : {}),
-    ...(rebuttals.length > 0 ? { rebuttals } : {}),
+    leadCorrections: 1,
+    output: {
+      ...base,
+      specs,
+      end: specs.length > 0 ? GENERATION_END.DELIVERED : (regenerated?.end ?? byFlows.end),
+      ...(specSources ? { specSources } : {}),
+      ...(testCorrect ? { testCorrect } : {}),
+      ...(rebuttals.length > 0 ? { rebuttals } : {}),
+    },
   };
 }
 

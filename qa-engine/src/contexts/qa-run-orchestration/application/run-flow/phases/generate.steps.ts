@@ -32,7 +32,7 @@ type Result = Promise<StepOutcome<RunState>>;
  * A code run, a context run and a login still to be written never coordinate. `unvisitedChangePages`: the change pages an admitted plan
  * left to the lead did not visit, which the lead's own turn is told.
  */
-async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<{ generated?: GenerationOutput; unvisitedChangePages?: readonly string[] }> {
+async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<{ generated?: GenerationOutput; unvisitedChangePages?: readonly string[]; leadReviewTurns?: number }> {
   const { deps, input, cfg, workspace, signal } = ctx;
   const { closedLoop, agentBrowser, geolocation } = ctx.trail;
   const { generating, intent: classificationIntent, diff: classificationDiff } = state.classification;
@@ -73,10 +73,12 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
     return {};
   }
   ctx.host.recordCoordination(result.signal);
-  if (result.action === "lead") return result.unvisited ? { unvisitedChangePages: result.unvisited } : {};
+  /* The turns the lead spent reviewing the flows, counted from the signal the coordination records. */
+  const leadReviewTurns = result.signal.review?.turns ?? 0;
+  if (result.action === "lead") return { ...(result.unvisited ? { unvisitedChangePages: result.unvisited } : {}), leadReviewTurns };
   if (result.action === "noop") {
     /* A plan names no kind of no-op. */
-    return { generated: { specs: [], end: GENERATION_END.DECLARED_NOOP, noopKind: NOOP_KIND.UNSPECIFIED, reviewed: false, approved: true, parsed: true, note: result.reason } };
+    return { leadReviewTurns, generated: { specs: [], end: GENERATION_END.DECLARED_NOOP, noopKind: NOOP_KIND.UNSPECIFIED, reviewed: false, approved: true, parsed: true, note: result.reason } };
   }
   const { aggregated } = result;
   /* Kept open for the reviewer's corrections only when the flows delivered: nothing else reaches a review. */
@@ -85,11 +87,11 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
     else await result.pass.release().catch((err: unknown) => console.error(`[qa] releasing the coordinated pass failed: ${err instanceof Error ? err.message : String(err)}`));
   }
   if (aggregated.end !== GENERATION_END.DELIVERED) {
-    return { generated: { specs: [], end: aggregated.end, reviewed: false, approved: true, parsed: true, ...(aggregated.note ? { note: aggregated.note } : {}) } };
+    return { leadReviewTurns, generated: { specs: [], end: aggregated.end, reviewed: false, approved: true, parsed: true, ...(aggregated.note ? { note: aggregated.note } : {}) } };
   }
   const unfinished = aggregated.incompleteFlows.map((f) => `${f.id} (${f.kind})`).join(", ");
   if (unfinished) deps.observer?.onEvent({ type: "log.line", level: "warn", text: `coordination: ${aggregated.incompleteFlows.length} flow(s) did not finish: ${unfinished}` });
-  return { generated: await afterGeneration(ctx, { specs: aggregated.specs, end: GENERATION_END.DELIVERED, reviewed: false, approved: true, parsed: true, ...(unfinished ? { note: `flows that did not finish: ${unfinished}` } : {}) }) };
+  return { leadReviewTurns, generated: await afterGeneration(ctx, { specs: aggregated.specs, end: GENERATION_END.DELIVERED, reviewed: false, approved: true, parsed: true, ...(unfinished ? { note: `flows that did not finish: ${unfinished}` } : {}) }) };
 }
 
 /*
@@ -106,6 +108,7 @@ export async function generateFirstPass(state: Readonly<RunState>, ctx: Workspac
   deps.observer?.onStep("generate", generating ? undefined : "regression: running the existing suite, not generating");
   /* A regression run generates nothing: a stand-in with no generation end, never one a generation could return. */
   let generated = state.generation.generated;
+  let leadReviewTurns = 0;
   if (!generating) {
     generated = { specs: [], approved: true, reviewed: false, end: null };
   } else {
@@ -118,6 +121,7 @@ export async function generateFirstPass(state: Readonly<RunState>, ctx: Workspac
      */
     const coordinated = await coordinateFirstPass(state, ctx);
     const coordinatedFirstPass = coordinated.generated;
+    leadReviewTurns = coordinated.leadReviewTurns ?? 0;
     throwIfAborted(signal);
     generated = coordinatedFirstPass
       ?? (await afterGeneration(ctx, await deps.generation.generate(workspace.specDir, signal, classificationDiff, {
@@ -133,7 +137,7 @@ export async function generateFirstPass(state: Readonly<RunState>, ctx: Workspac
    * wrote nothing. Sidekick writes are still agent writes.
    */
   if (generating) await ctx.services.confinement.enforce();
-  return { update: { generation: { ...state.generation, generated } } };
+  return { update: { generation: { ...state.generation, generated }, loops: { ...state.loops, leadReviewTurns } } };
 }
 
 /*
@@ -267,7 +271,7 @@ export async function preExecRegenerate(state: Readonly<RunState>, ctx: Workspac
   }
   if (preExecAction({ corrections: groundingCorrections.length, retired, regenerated: state.loops.preExecRegen }) === "proceed") return;
   deps.observer?.onStep("retry", "pre-exec grounding: corrective regen");
-  const corrected = await regenerate(state, ctx, signal, {
+  const { output: corrected, leadCorrections } = await regenerate(state, ctx, signal, {
     selectorContradictions: groundingCorrections,
     ...(groundingAttribution.length > 0 ? { attributedSpecFiles: groundingAttribution } : {}),
   }, CORRECTION_ORIGIN.PRE_EXEC);
@@ -275,7 +279,7 @@ export async function preExecRegenerate(state: Readonly<RunState>, ctx: Workspac
   return {
     update: {
       generation: { ...state.generation, generated: corrected.specs.length > 0 ? corrected : state.generation.generated },
-      loops: { ...state.loops, preExecRegen: state.loops.preExecRegen + 1 },
+      loops: { ...state.loops, preExecRegen: state.loops.preExecRegen + 1, leadCorrections: state.loops.leadCorrections + leadCorrections },
     },
   };
 }

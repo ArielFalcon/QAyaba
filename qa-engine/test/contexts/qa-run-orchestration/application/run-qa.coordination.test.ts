@@ -13,6 +13,7 @@ import { RunQaUseCase, type RunQaInput, type RunQaUseCaseDeps } from "@contexts/
 import type { CoordinateInput, CoordinateResult, CoordinatedPass, PassCorrection } from "@contexts/qa-run-orchestration/application/coordination/lead-sidekicks.ts";
 import { CORRECTION_ORIGIN, type CorrectionOrigin, type CorrectionFinding } from "@contexts/qa-run-orchestration/application/coordination/lead-correction.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle, GenerationEnrichment, PlanOutput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import { leadCorrectionBudget } from "@contexts/qa-run-orchestration/domain/lead-correction-budget.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../support/run-workspace.ts";
 const INPUT: RunQaInput = { app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "coord-run" };
@@ -292,6 +293,17 @@ test("in a coordinated run the reviewer's corrections go to the lead's pass, not
   assert.equal(kept.seen.released, 1);
   assert.equal(result.outcome?.verdict, "pass");
   assert.deepEqual(result.outcome?.gateSignals.coordination?.corrections, { turns: 1, routed: 1, unrouted: 0, revised: 1, replaced: 0, rebutted: 0 });
+});
+
+test("the corrections a coordinated run routes through the lead are recorded and stay within the lead's budget", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
+  const result = await new RunQaUseCase(r.deps({ review: rejectingOnce(["flows/a.spec.ts never asserts the total"]) })).run(INPUT);
+  const turns = result.outcome?.gateSignals.coordination?.corrections?.turns ?? 0;
+  assert.equal(turns, kept.seen.corrected.length);
+  assert.ok(turns > 0 && turns <= leadCorrectionBudget({ maxRetries: 2 }));
 });
 
 test("a finding no flow was sent goes to a regeneration with only that finding", async () => {

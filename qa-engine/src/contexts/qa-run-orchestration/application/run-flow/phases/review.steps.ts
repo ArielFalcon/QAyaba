@@ -16,7 +16,7 @@ import { throwIfAborted } from "../abort.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { ReviewSession, RunState } from "../run-state.ts";
 import { liveExecutionOptions, executeAccepted, validateAccepted } from "./execute.steps.ts";
-import { closedLoopSignal, contractFindingText, correctThroughLead, regenerateByLead } from "./generation-services.ts";
+import { closedLoopSignal, contractFindingText, correctThroughLead, mayCorrectThroughLead, regenerateByLead } from "./generation-services.ts";
 import { resolveTested } from "./fix-loop.steps.ts";
 import { addReviewStats, annotateReviewPhase, newReviewTally, readReviewedSpecs, rebuttalEvidence, recordReviewDecision } from "./review-services.ts";
 
@@ -350,22 +350,26 @@ export async function reviewCorrect(state: Readonly<RunState>, ctx: WorkspaceRun
   generation.delivered = cur.deliveredBefore;
   const pass = trail.coordinatedPass;
   const { reviewResult, blockingSpecs, contractFeedback } = cur;
-  const regen = pass
+  const { output: regen, leadCorrections } = pass && mayCorrectThroughLead(state, ctx)
     ? await correctThroughLead(state, ctx, pass, [
         ...reviewResult.corrections.map((text) => ({ text, ...(blockingSpecs.has(text) ? { spec: blockingSpecs.get(text)! } : {}) })),
         ...(contractFeedback ?? []).map((v) => ({ text: contractFindingText(v), spec: v.file })),
       ], signal)
-    : await regenerateByLead(state, ctx, signal, {
-        reviewCorrections: reviewResult.corrections,
-        ...(contractFeedback ? { contractFeedback } : {}),
-      });
+    : {
+        output: await regenerateByLead(state, ctx, signal, {
+          reviewCorrections: reviewResult.corrections,
+          ...(contractFeedback ? { contractFeedback } : {}),
+        }),
+        leadCorrections: 0,
+      };
   await services.confinement.enforce();
   const changed = await suiteChangedFiles(cur.snapshot, regen.specs);
   cur.regen = regen;
   cur.changedSpecFiles = acceptanceScope(changed);
   cur.changedSupportFiles = changed.filter((file) => !file.endsWith(".spec.ts"));
   cur.outcome = undefined;
-  if (regen.specs.length === 0) return goto("review-resolve");
+  const loops = { ...state.loops, leadCorrections: state.loops.leadCorrections + leadCorrections };
+  if (regen.specs.length === 0) return goto("review-resolve", { loops });
   const outcome = await acceptance.accept({
     specDir: workspace.specDir,
     changedSpecFiles: cur.changedSpecFiles,
@@ -385,9 +389,9 @@ export async function reviewCorrect(state: Readonly<RunState>, ctx: WorkspaceRun
     /* The refused attempt is one rejected regeneration, even though the round goes on to answer it. */
     integrityCounters.rejected += 1;
     cur.contractFeedback = outcome.violations;
-    return goto("review-correct", { coverage, loops: { ...state.loops, reviewAttempt: attempt + 1 } });
+    return goto("review-correct", { coverage, loops: { ...loops, reviewAttempt: attempt + 1 } });
   }
-  return goto("review-resolve", { coverage });
+  return goto("review-resolve", { coverage, loops });
 }
 
 /* The correction is over: what the generator answered to the findings is settled, and its specs stand only once accepted. */

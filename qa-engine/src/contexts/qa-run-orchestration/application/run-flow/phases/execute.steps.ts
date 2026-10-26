@@ -159,12 +159,12 @@ export async function staticFixRound(state: Readonly<RunState>, ctx: WorkspaceRu
   /* Repair regen reuses the same classificationDiff/intent as the initial generate(). */
   /* mutation-scope:end static-fix-round */
   const staticGateErrorDetail = stripAnsi(validation.errors.join("\n\n")).slice(0, STATIC_GATE_ERROR_DETAIL_MAX_CHARS);
-  const lastGenerated = await regenerate(state, ctx, signal, {
+  const { output: lastGenerated, leadCorrections } = await regenerate(state, ctx, signal, {
     fixCases: [{ name: "static-gate", status: "fail", detail: staticGateErrorDetail }],
   }, CORRECTION_ORIGIN.STATIC_GATE, staticGateFindings(validation.errors.map(stripAnsi)));
   await ctx.services.confinement.enforce();
   const revalidated = await withLinterFixes(await deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow(ctx)), ctx, validateChangedFiles);
-  return goto("static-fix-round", { execution: { ...state.execution, validation: revalidated, lastGenerated, retries }, loops: { ...state.loops, staticFix: round } });
+  return goto("static-fix-round", { execution: { ...state.execution, validation: revalidated, lastGenerated, retries }, loops: { ...state.loops, staticFix: round, leadCorrections: state.loops.leadCorrections + leadCorrections } });
 }
 
 /* The linter's own fixes, applied to the delivered specs before an agent turn is spent on the static gate; the gate runs again on what they made, and only what they leave goes to a repair turn. */
