@@ -13,9 +13,7 @@ import { announceExecution, checkHealth, executeSpecs, prepareExecuteAuth, valid
 import { fingerprintGreenSuite, runFixLoop } from "./phases/fix-loop.steps.ts";
 import { announceCoverage, announcesCoverage, measureCoverage, measuresCoverage, regenerateForCoverage, regeneratesForCoverage } from "./phases/coverage.steps.ts";
 import { releaseCoordinatedPass, remeasureStaleCoverage, remeasuresStaleCoverage, reviewTests, reviewsRun } from "./phases/review.steps.ts";
-import { decideRun, guardFinalProof, guardsFinalProof, recordCoordinationOutcome } from "./phases/decide.steps.ts";
-import { captureContextMap, enforceConfinement, keepAcceptedSuite, keepsSuite, publishDecision, publishes, pruneAfterPublish } from "./phases/publish.steps.ts";
-import { finishRun, learnFromOutcome, learnsFromRun, persistOutcome } from "./phases/persist.steps.ts";
+import { decideRun, guardFinalProof, guardsFinalProof } from "./phases/decide.steps.ts";
 import { armRunDeadline, classifyChange, indexMirror, stopIfAbortedBeforeGate, waitForDeploy } from "./phases/opening.steps.ts";
 
 export const BEFORE_WORKSPACE: ReadonlyArray<FlowStep<RunState, RunContext>> = [
@@ -59,13 +57,4 @@ export const IN_WORKSPACE: ReadonlyArray<FlowStep<RunState, WorkspaceRunContext>
   { id: "remeasure-stale-coverage", runs: remeasuresStaleCoverage, run: remeasureStaleCoverage },
   { id: "guard-final-proof", runs: guardsFinalProof, run: guardFinalProof },
   { id: "decide-run", phase: "decide", run: decideRun },
-  { id: "record-coordination-outcome", run: recordCoordinationOutcome },
-  { id: "enforce-confinement", run: enforceConfinement },
-  { id: "capture-context-map", phase: "publish", run: captureContextMap },
-  { id: "keep-accepted-suite", runs: keepsSuite, run: keepAcceptedSuite },
-  { id: "publish-decision", runs: publishes, run: publishDecision },
-  { id: "prune-after-publish", run: pruneAfterPublish },
-  { id: "persist-outcome", run: persistOutcome },
-  { id: "learn-from-outcome", phase: "learn", runs: learnsFromRun, run: learnFromOutcome },
-  { id: "finish-run", run: finishRun },
 ];

@@ -10,7 +10,6 @@ import type { GenerationEndKind } from "@kernel/generation-end.ts";
 import type { NoopKind } from "@kernel/noop-kind.ts";
 import type { DisputedFinding } from "../../domain/review-rebuttals.service.ts";
 import { END_REASONS, type EndReason } from "./end-reason.ts";
-import type { RunQaResult } from "./run-types.ts";
 
 export { END_REASONS, type EndReason };
 import type { ConfinementTotals } from "./run-services.ts";
@@ -73,8 +72,9 @@ export type RunEnd =
   /** The run's time was spent. */
   | { reason: "run-deadline"; note: string; generationEnd: GenerationEndKind; rulesRetrieved?: string[] }
   | { reason: UnreachedVerdict; note: string; rulesRetrieved?: string[] }
-  /** The run reached its decision; its result is built by the steps that follow until the decision is finalized here. */
-  | { reason: "decided" | "context-pass"; built: RunQaResult };
+  /** The run reached its decision (`state.decided`); `finalizeRun` carries it out. */
+  | { reason: "decided" }
+  | { reason: "context-pass" };
 
 /* One member per reason: a member that names several reasons is split, so a reason picks out exactly its own facts. */
 type PerReason<E> = E extends { reason: infer R } ? (R extends EndReason ? Omit<E, "reason"> & { reason: R } : never) : never;
@@ -102,10 +102,12 @@ export interface EndEffects {
   publish: "decision" | "none";
   learn: "mainline" | "terminal" | "none";
   prune: "before-persist" | "after-persist";
+  /** The write-confinement pass runs one last time before the end is carried out, and its totals are the ones the record carries. */
+  enforce: boolean;
 }
 
-const UNRECORDED: EndEffects = { persist: "no", publish: "none", learn: "none", prune: "before-persist" };
-const RECORDED_TERMINAL: EndEffects = { persist: "yes", publish: "decision", learn: "terminal", prune: "before-persist" };
+const UNRECORDED: EndEffects = { persist: "no", publish: "none", learn: "none", prune: "before-persist", enforce: false };
+const RECORDED_TERMINAL: EndEffects = { persist: "yes", publish: "decision", learn: "terminal", prune: "before-persist", enforce: false };
 
 /* What a run that dies on an error nothing handles keeps when a child of its sandbox left evidence: the record of a terminal, learned from like one. */
 export const CRASH_EVIDENCE_EFFECTS: EndEffects = RECORDED_TERMINAL;
@@ -117,11 +119,13 @@ export const END_EFFECTS: Readonly<Record<EndReason, EndEffects>> = {
   "setup-failed": UNRECORDED,
   "auth-failed": UNRECORDED,
   "login-precondition": RECORDED_TERMINAL,
-  "generation-noop": { persist: "yes", publish: "none", learn: "none", prune: "after-persist" },
+  "generation-noop": { persist: "yes", publish: "none", learn: "none", prune: "after-persist", enforce: false },
   "generation-ended-without-specs": RECORDED_TERMINAL,
   "generation-empty-output": UNRECORDED,
-  "static-gate-failed": { ...RECORDED_TERMINAL, persist: "not-in-context-mode" },
-  "pre-execute-infra": RECORDED_TERMINAL,
+  /* The last confinement pass comes immediately before this exit's publish(). */
+  "static-gate-failed": { ...RECORDED_TERMINAL, persist: "not-in-context-mode", enforce: true },
+  /* The specs were generated, so their strays are reverted even though this exit does not publish. */
+  "pre-execute-infra": { ...RECORDED_TERMINAL, enforce: true },
   "reviewer-unavailable": RECORDED_TERMINAL,
   "review-disputed": RECORDED_TERMINAL,
   "final-proof-guard": UNRECORDED,
@@ -129,6 +133,6 @@ export const END_EFFECTS: Readonly<Record<EndReason, EndEffects>> = {
   "run-deadline": RECORDED_TERMINAL,
   "sandbox-unavailable": RECORDED_TERMINAL,
   "probe-sweep-failed": RECORDED_TERMINAL,
-  decided: { persist: "yes", publish: "decision", learn: "mainline", prune: "before-persist" },
-  "context-pass": { persist: "no", publish: "decision", learn: "none", prune: "before-persist" },
+  decided: { persist: "yes", publish: "decision", learn: "mainline", prune: "before-persist", enforce: true },
+  "context-pass": { persist: "no", publish: "decision", learn: "none", prune: "before-persist", enforce: true },
 };

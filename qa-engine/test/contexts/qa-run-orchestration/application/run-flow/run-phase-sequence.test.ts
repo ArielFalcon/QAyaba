@@ -85,11 +85,10 @@ test("a green diff run reports the steps it ran, and the ones it passed over, by
     "stop-if-aborted-before-gate", "wait-for-deploy", "classify-change", "arm-run-deadline", "index-mirror", "restore-accepted-suite", "set-up-project", "prepare-login", "clean-prior-run",
     "open-authoring-handles", "read-diff-shapes", "retrieve-rules", "select-exemplars", "resolve-blast-radius", "resolve-service-links", "resolve-cross-repo-impact", "ground-repository",
     "assemble-enrichment", "generate-first-pass", "settle-generation-end", "ground-before-execution", "validate-statically", "check-health", "prepare-execute-auth", "announce-execution",
-    "execute-specs", "fingerprint-green-suite", "announce-coverage", "measure-coverage", "review-tests", "release-coordinated-pass", "guard-final-proof", "decide-run",
-    "record-coordination-outcome", "enforce-confinement", "capture-context-map", "keep-accepted-suite", "publish-decision", "prune-after-publish", "persist-outcome", "learn-from-outcome",
+    "execute-specs", "fingerprint-green-suite", "announce-coverage", "measure-coverage", "review-tests", "release-coordinated-pass", "guard-final-proof",
   ]);
   assert.deepEqual(await idsOf(input, "skipped"), ["run-fix-loop", "regenerate-for-coverage", "remeasure-stale-coverage"]);
-  assert.deepEqual((await runOf(input)).steps.filter((step) => step.outcome === "ended"), [{ id: "finish-run", outcome: "ended", phase: "learn", reason: "decided" }]);
+  assert.deepEqual((await runOf(input)).steps.filter((step) => step.outcome === "ended"), [{ id: "decide-run", outcome: "ended", phase: "decide", reason: "decided" }]);
 });
 
 test("a green manual run reports the same steps except the ones only a per-commit diff run has", async () => {

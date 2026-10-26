@@ -93,8 +93,6 @@ async function endingEvidence(state: Readonly<RunState>, ctx: WorkspaceRunContex
  * for this source is false.
  */
 async function preExecuteInfraError(state: Readonly<RunState>, ctx: WorkspaceRunContext, reason: string, ending: { preconditionFailed?: boolean } = {}): Result {
-  /* Confinement still runs for revert even though this exit does not publish. */
-  await ctx.services.confinement.enforce();
   return end("pre-execute-infra", {
     generating: state.classification.generating,
     ...(await endingEvidence(state, ctx)),
@@ -153,8 +151,6 @@ export async function validateStatically(state: Readonly<RunState>, ctx: Workspa
      */
     console.error("[qa] static gate failed:", validation.errors);
     const staticGateNote = validation.errors.slice(0, 2).join("\n\n") || undefined;
-    /* Last confinement pass immediately before this exit's publish(). */
-    await ctx.services.confinement.enforce();
     return end(validation.infra ? "pre-execute-infra" : "static-gate-failed", {
       generating,
       ...(await endingEvidence({ ...state, execution }, ctx)),

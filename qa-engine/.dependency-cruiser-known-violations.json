@@ -530,6 +530,23 @@
   },
   {
     "type": "dependency",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/decided-end.ts",
+    "to": "qa-engine/src/contexts/cross-run-learning/domain/distill-rule.ts",
+    "unresolvedTo": "@contexts/cross-run-learning/domain/distill-rule.ts",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "cross-context-internals"
+    }
+  },
+  {
+    "type": "dependency",
     "from": "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/phases/coverage.steps.ts",
     "to": "qa-engine/src/contexts/objective-signal/domain/render-coverage-gap.ts",
     "unresolvedTo": "@contexts/objective-signal/domain/render-coverage-gap.ts",
@@ -601,23 +618,6 @@
     "from": "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/phases/opening.steps.ts",
     "to": "qa-engine/src/contexts/objective-signal/domain/change-tokens.ts",
     "unresolvedTo": "@contexts/objective-signal/domain/change-tokens.ts",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "cross-context-internals"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/phases/persist.steps.ts",
-    "to": "qa-engine/src/contexts/cross-run-learning/domain/distill-rule.ts",
-    "unresolvedTo": "@contexts/cross-run-learning/domain/distill-rule.ts",
     "dependencyTypes": [
       "aliased",
       "aliased-tsconfig",

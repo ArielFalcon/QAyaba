@@ -41,15 +41,6 @@ export const STEP_IDS = [
   "remeasure-stale-coverage",
   "guard-final-proof",
   "decide-run",
-  "record-coordination-outcome",
-  "enforce-confinement",
-  "capture-context-map",
-  "keep-accepted-suite",
-  "publish-decision",
-  "prune-after-publish",
-  "persist-outcome",
-  "learn-from-outcome",
-  "finish-run",
 ] as const;
 
 export type StepId = (typeof STEP_IDS)[number];

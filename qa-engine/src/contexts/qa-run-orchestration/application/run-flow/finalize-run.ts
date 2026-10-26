@@ -14,10 +14,11 @@ import { ERROR_CLASS } from "../../domain/helpers/error-class.ts";
 import { learningGates, observesOperatingSignal } from "../../domain/helpers/learning-gates.ts";
 import type { PublicationPort } from "../ports/index.ts";
 import type { RunQaResult } from "./run-types.ts";
-import type { RunContext } from "./run-context.ts";
+import type { RunContext, WorkspaceRunContext } from "./run-context.ts";
 import { deriveErrorClass, toReflectionInput, toRunOutcome } from "./outcome-assembly.ts";
 import { CRASH_EVIDENCE_EFFECTS, END_EFFECTS, type EndEffects, type EndEvidence, type GroundingSignals, type RunEnd } from "./run-end.ts";
 import type { RunState } from "./run-state.ts";
+import { finalizeDecided } from "./decided-end.ts";
 
 const NO_GROUNDING_SIGNALS: GroundingSignals = { preExecAmbiguityCatches: 0, deterministicSelectorBlocks: 0, catalogGateInWindow: 0, catalogGateAdvisory: 0, catalogGateFailClosed: 0 };
 
@@ -43,9 +44,23 @@ type Shape =
   | { kind: "skip"; note: string | undefined; reviewerApproved: boolean | undefined; noop?: { kind: NoopKind } | undefined; confinement?: EndEvidence["confinement"]; closedLoop?: EndEvidence["closedLoop"]; agentBrowser?: EndEvidence["agentBrowser"] }
   | { kind: "terminal"; terminal: TerminalShape };
 
-export async function finalizeRun(end: RunEnd, ctx: RunContext, _state?: Readonly<RunState>): Promise<RunQaResult> {
-  if ("built" in end) return end.built;
-  return await finalizeShape(shapeOf(end, ctx), END_EFFECTS[end.reason], ctx);
+const isWorkspaceContext = (ctx: RunContext): ctx is WorkspaceRunContext => "workspace" in ctx && "services" in ctx;
+
+export async function finalizeRun(end: RunEnd, ctx: RunContext, state?: Readonly<RunState>): Promise<RunQaResult> {
+  const effects = END_EFFECTS[end.reason];
+  if (end.reason === "decided" || end.reason === "context-pass") {
+    if (!isWorkspaceContext(ctx) || !state) throw new Error("a run cannot be decided before its working copy is prepared");
+    return await finalizeDecided(state, ctx, (other) => finalizeRun(other, ctx, state));
+  }
+  return await finalizeShape(shapeOf(await enforcedEnd(end, effects, ctx), ctx), effects, ctx);
+}
+
+/* The last confinement pass an end asks for, and the totals of every pass the run made as the evidence the end carries. */
+async function enforcedEnd<E extends Exclude<RunEnd, { reason: "decided" | "context-pass" }>>(end: E, effects: EndEffects, ctx: RunContext): Promise<E> {
+  if (!effects.enforce || !isWorkspaceContext(ctx)) return end;
+  await ctx.services.confinement.enforce();
+  const { totals } = ctx.services.confinement;
+  return totals === undefined ? end : { ...end, confinement: totals };
 }
 
 /*
@@ -83,7 +98,7 @@ async function finalizeShape(shape: Shape, effects: EndEffects, ctx: RunContext)
 }
 
 /* Said aloud before anything else happens, so a run's end is never silent, and shaped into the form its result takes. */
-function shapeOf(end: Exclude<RunEnd, { built: unknown }>, ctx: RunContext): Shape {
+function shapeOf(end: Exclude<RunEnd, { reason: "decided" | "context-pass" }>, ctx: RunContext): Shape {
   const { deps } = ctx;
   switch (end.reason) {
     case "aborted":

@@ -19,7 +19,6 @@ import type {
 import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { GraphPage } from "@kernel/change-pages.ts";
-import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunEvidence } from "../../domain/run-decision.service.ts";
 
@@ -167,19 +166,6 @@ export interface DecidedOutcome {
   isContextCleanPass: boolean;
 }
 
-/* What the publish phase did; undefined `publishOutcome` means publication was not called. */
-export interface PublicationOutcome {
-  publishOutcome: string | undefined;
-}
-
-/* What the persist phase derived and saved; undefined until it has run. */
-export interface PersistedOutcome {
-  errorClass: string | null;
-  loopSignal: ClosedLoopGateSignal | undefined;
-  /** Absent for a clean context pass, which persists nothing. */
-  mainlineOutcome: RunOutcome | undefined;
-}
-
 export interface RunState {
   classification: Classification;
   setup: SetupOutcome;
@@ -190,8 +176,6 @@ export interface RunState {
   coverage: CoverageOutcome;
   review: ReviewOutcome;
   decided: DecidedOutcome | undefined;
-  publication: PublicationOutcome;
-  persisted: PersistedOutcome | undefined;
 }
 
 export function initialRunState(): RunState {
@@ -256,7 +240,5 @@ export function initialRunState(): RunState {
     },
     review: { reviewerApproved: true, reviewerApprovedForOutcome: undefined, finalReviewerCorrections: [], reviewerSignal: undefined },
     decided: undefined,
-    publication: { publishOutcome: undefined },
-    persisted: undefined,
   };
 }

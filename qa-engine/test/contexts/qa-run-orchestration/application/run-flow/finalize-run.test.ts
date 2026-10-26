@@ -15,7 +15,9 @@ import { RunPhaseCursor } from "@contexts/qa-run-orchestration/domain/run-phase-
 import { PhaseSpans } from "@contexts/qa-run-orchestration/application/run-phase-spans.ts";
 import { finalizeRun, recordCrashEvidence } from "@contexts/qa-run-orchestration/application/run-flow/finalize-run.ts";
 import { END_EFFECTS, END_REASONS, runEnd, type EndReason, type RunEnd } from "@contexts/qa-run-orchestration/application/run-flow/run-end.ts";
-import type { RunContext } from "@contexts/qa-run-orchestration/application/run-flow/run-context.ts";
+import type { RunContext, WorkspaceRunContext } from "@contexts/qa-run-orchestration/application/run-flow/run-context.ts";
+import { initialRunState } from "@contexts/qa-run-orchestration/application/run-flow/run-state.ts";
+import { decide, type RunEvidence } from "@contexts/qa-run-orchestration/domain/run-decision.service.ts";
 import type { RunQaConfig, RunQaInput, RunQaResult, RunQaUseCaseDeps } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
 import { RUN_END_ROWS } from "./run-end-rows.ts";
 import { dispose, newRig } from "./run-end-rig.ts";
@@ -235,11 +237,95 @@ for (const reason of ["sandbox-unavailable", "probe-sweep-failed"] as const) {
   });
 }
 
-test("a decided end hands back the result its steps built, without doing anything to the outside", async () => {
-  const { ctx, calls } = context();
-  const built = { decision: { verdict: "pass", sideEffect: "pr" } } as unknown as RunQaResult;
-  assert.equal(await finalizeRun({ reason: "decided", built }, ctx), built);
-  assert.deepEqual(calls.order, []);
+/* A decided run: the context it ends in has a working copy, services and the state the phases left. */
+function decidedRun(opts: { verdict: "pass" | "fail"; mode?: RunQaInput["mode"]; shadow?: boolean; reviewerApproved?: boolean; publishFails?: boolean; config?: Partial<RunQaConfig> }) {
+  const { ctx, calls } = context({ mode: opts.mode ?? "diff", config: { shadow: opts.shadow ?? false, ...opts.config } });
+  const run = { verdict: opts.verdict, cases: [{ name: "case", status: opts.verdict === "pass" ? "pass" : "fail" }], logs: "log text" };
+  const state = initialRunState();
+  state.execution = { ...state.execution, run: run as never, validation: { ok: true, errors: [] } as never, lastGenerated: { specMetas: [] } as never };
+  state.review = { ...state.review, reviewerApproved: opts.reviewerApproved ?? true };
+  state.grounding = { ...state.grounding, retrievedRuleIds: ["rule-1"] };
+  const evidence: RunEvidence = {
+    verdict: opts.verdict,
+    generating: true,
+    needsReview: ctx.cfg.needsReview && ctx.input.mode !== "context",
+    reviewerApproved: state.review.reviewerApproved,
+    blocksPublish: false,
+    shadow: ctx.cfg.shadow,
+    onFailure: ctx.cfg.onFailure,
+  };
+  const decision = decide(evidence);
+  state.decided = { evidence, decision, isContextCleanPass: ctx.input.mode === "context" && decision.verdict === "pass" };
+  const services = { confinement: { enforce: async () => { calls.order.push("enforce"); }, add: () => {}, totals: undefined }, proofLedger: new Map(), integrityCounters: { acceptances: 0, rejected: 0, capHit: false }, intentLock: { mode: "signal" }, intentState: { clauses: 0, violations: 0, wouldReject: 0, opaque: 0, opacityHigh: false } };
+  const wctx = { ...ctx, workspace: { mirrorDir: MIRROR, specDir: `${MIRROR}/e2e` }, services, generation: { delivered: [] } } as unknown as WorkspaceRunContext;
+  if (opts.publishFails) (wctx.deps.publication as { publish: unknown }).publish = async () => { calls.order.push("publish"); throw new Error("the forge is down"); };
+  return { ctx: wctx, state, calls };
+}
+
+test("a decided green run opens its pull request after the last confinement pass, prunes, saves its record and folds it, which a pass does without reflecting", async () => {
+  const { ctx, state, calls } = decidedRun({ verdict: "pass" });
+  const result = await finalizeRun(runEnd("decided"), ctx, state);
+  assert.equal(result.decision.verdict, "pass");
+  assert.equal(result.decision.sideEffect, "pr");
+  assert.equal(result.note, "issue #7 opened");
+  assert.deepEqual(result.rulesRetrieved, ["rule-1"]);
+  assert.equal(result.outcome, calls.saved[0]);
+  assert.deepEqual(calls.order, ["enforce", "publish", "prune", "save", "fold"]);
+  assert.equal(calls.done, 1);
+});
+
+test("a decided run whose reviewer rejected the green suite opens an Issue and teaches nothing a pass would", async () => {
+  const { ctx, state, calls } = decidedRun({ verdict: "pass", reviewerApproved: false });
+  const result = await finalizeRun(runEnd("decided"), ctx, state);
+  assert.equal(result.decision.sideEffect, "issue");
+  assert.equal(calls.published.length, 1);
+  assert.equal(calls.saved.length, 1);
+});
+
+test("a decided run in shadow mode still publishes through the port, which logs instead of opening anything", async () => {
+  const { ctx, state, calls } = decidedRun({ verdict: "pass", shadow: true });
+  const result = await finalizeRun(runEnd("decided"), ctx, state);
+  assert.equal(result.decision.sideEffect, "shadow-log");
+  assert.equal(calls.published.length, 1);
+  assert.equal(calls.saved.length, 1);
+});
+
+test("a decided run with nothing to publish still prunes and records", async () => {
+  const { ctx, state, calls } = decidedRun({ verdict: "pass", config: { needsReview: false }, mode: "diff" });
+  state.classification.generating = false;
+  state.decided = { ...state.decided!, decision: decide({ ...state.decided!.evidence, generating: false }) };
+  const result = await finalizeRun(runEnd("decided"), ctx, state);
+  assert.equal(result.decision.sideEffect, "none");
+  assert.equal(calls.published.length, 0);
+  assert.deepEqual(calls.order.slice(0, 3), ["enforce", "prune", "save"]);
+  assert.equal(result.note, undefined);
+});
+
+test("a clean context pass publishes its map, persists nothing and reports no retrieved rules or static pass", async () => {
+  const { ctx, state, calls } = decidedRun({ verdict: "pass", mode: "context" });
+  const result = await finalizeRun(runEnd("context-pass"), ctx, state);
+  assert.equal(result.outcome, undefined);
+  assert.deepEqual(result.rulesRetrieved, []);
+  assert.equal(result.gateSignals.static, false);
+  assert.equal(calls.saved.length, 0);
+  assert.equal(calls.folded.length, 0);
+  assert.equal(calls.order.includes("prune"), true);
+});
+
+test("a publication that throws after the verdict ends the run as an unrecorded infra-error naming the decided verdict", async () => {
+  const { ctx, state, calls } = decidedRun({ verdict: "pass", publishFails: true });
+  const result = await finalizeRun(runEnd("decided"), ctx, state);
+  assert.equal(result.decision.verdict, "infra-error");
+  assert.match(result.note ?? "", /publication failed after verdict was decided \(decided: pass, reviewerApproved: true\): the forge is down/);
+  assert.equal(calls.saved.length, 0);
+  assert.equal(calls.folded.length, 0);
+  assert.equal(ctx.trail.endReason, "publication-failed");
+  assert.deepEqual(calls.order, ["enforce", "publish", "prune"]);
+});
+
+test("a run cannot be decided before its working copy is prepared", async () => {
+  const { ctx } = context();
+  await assert.rejects(finalizeRun(runEnd("decided"), ctx, initialRunState()), /before its working copy is prepared/);
 });
 
 test("an error nothing handles leaves the evidence of its sandbox as a recorded infra-error that nothing learns from", async () => {

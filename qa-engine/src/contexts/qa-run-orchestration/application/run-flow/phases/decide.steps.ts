@@ -3,6 +3,7 @@
 import { decide, type RunEvidence } from "../../../domain/run-decision.service.ts";
 import { reviewerApprovalOf } from "../../ports/index.ts";
 import { end, type StepOutcome } from "../run-flow.ts";
+import { runEnd } from "../run-end.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { DecidedOutcome, RunState } from "../run-state.ts";
 import { reviewsTests } from "./review.steps.ts";
@@ -84,7 +85,7 @@ export async function guardFinalProof(_state: Readonly<RunState>, ctx: Workspace
   }
 }
 
-/* Publish never emits its own step; "decide" covers the decide+publish pair. */
+/* The last step of the table: the run reached its decision, and finalizeRun carries it out (publish, prune, persist, learn). */
 export async function decideRun(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { deps, cfg, input } = ctx;
   deps.observer?.onStep("decide");
@@ -98,36 +99,6 @@ export async function decideRun(state: Readonly<RunState>, ctx: WorkspaceRunCont
     onFailure: cfg.onFailure,
   };
   const decision = decide(evidence);
-  return { update: { decided: { evidence, decision, isContextCleanPass: input.mode === "context" && decision.verdict === "pass" } } };
-}
-
-/* A coordinated run says how it ended: the verdict with the quality sampled at the same instant, and how many flows were handed back. */
-export async function recordCoordinationOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, input, ends, startedAt } = ctx;
-  const { decision } = decidedOf(state);
-  const coordinationSignal = ends.coordination();
-  if (!coordinationSignal || !deps.coordinationTelemetry) return;
-  const { coverageRatio, valueScore } = state.coverage;
-  const reviewerApprovedForOutcome = reviewerApprovedForOutcomeOf(state);
-  /* Read from the same honest source as the persisted outcome: absent when no reviewer looked at this run. */
-  const reviewOutcome =
-    !reviewsTests(ctx) ? "skipped" as const
-    : reviewerApprovedForOutcome === true ? "approved" as const
-    : reviewerApprovedForOutcome === false ? "rejected" as const
-    : "n/a" as const;
-  deps.coordinationTelemetry.record({
-    runId: input.runId,
-    app: input.app,
-    kind: "outcome",
-    action: coordinationSignal.plan === "fanout" ? "delegate" : "direct",
-    reason: `pipeline verdict=${decision.verdict}; flows ${coordinationSignal.delivered}/${coordinationSignal.flows} delivered${coordinationSignal.takeover ? "; the lead took over" : ""}`,
-    finalOutcome: decision.verdict,
-    reviewOutcome,
-    /* Quality sampled at the same instant the outcome is stamped. */
-    ...(coverageRatio !== undefined ? { coverageRatio } : {}),
-    ...(valueScore !== null ? { valueScore } : {}),
-    escalations: coordinationSignal.incomplete + (coordinationSignal.takeover ? 1 : 0),
-    durationMs: Date.now() - startedAt,
-    at: Date.now(),
-  });
+  const isContextCleanPass = input.mode === "context" && decision.verdict === "pass";
+  return { end: runEnd(isContextCleanPass ? "context-pass" : "decided"), update: { decided: { evidence, decision, isContextCleanPass } } };
 }
