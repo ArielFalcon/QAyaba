@@ -178,6 +178,14 @@ test("a candidate whose page a hub reaches carries the hub's seed and range as a
   assert.deepEqual(c!.changedFiles, [{ file: "web/src/orders.scss" }]);
 });
 
+test("a candidate whose page a fan-in hub's closure reaches carries the changed symbols that reach the hub as shared seeds", () => {
+  const scope: ChangeScope = { ...hubScope([], []), hubs: [{ symbol: "web/src/shared/store.ts::Store", entries: 1, keys: ["page /orders"], via: "fan-in", fanIn: 40, seeds: [`${HUB_SEED.file}::${HUB_SEED.symbol}`] }] };
+
+  const [c] = deriveCandidates(scope, { mapLinks: hubLinks });
+
+  assert.deepEqual(c!.sharedSeeds, [{ ...HUB_SEED, pages: 1, addedLines: 6 }]);
+});
+
 test("a hub alone creates no candidate, and a hub that reaches no candidate's page attaches nothing", () => {
   assert.deepEqual(deriveCandidates(hubScope([], ["page /orders", "page /cart"])), []);
 

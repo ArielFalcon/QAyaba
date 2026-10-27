@@ -120,16 +120,20 @@ function changedFilesOf(seeds: readonly { file: string }[], scope: ChangeScope, 
   });
 }
 
-/* The hubs whose keys name the entry, as shared seeds: the hub's changed symbol with its range, the pages it reaches and the lines added to its file. A hub never creates a candidate; this only enriches one that exists. */
+/* The hubs whose keys name the entry, as shared seeds: the hub's changed symbol (for a node pruned at its fan-in, each changed symbol that reaches it) with its range, the pages the hub reaches and the lines added to its file. A hub never creates a candidate; this only enriches one that exists. */
 function sharedSeedsOf(entry: EntryPoint, scope: ChangeScope): SharedSeed[] {
   const key = entryKey(entry);
   const seeds = scope.repos.flatMap((r) => r.seeds.map((seed) => ({ seed, addedLines: r.addedLines?.[seed.file] })));
-  return scope.hubs.filter((hub) => hub.keys.includes(key)).flatMap((hub) => {
-    const held = seeds.find(({ seed }) => `${seed.file}::${seed.symbol}` === hub.symbol);
-    if (held === undefined) return [];
+  const out = new Map<string, SharedSeed>();
+  for (const hub of scope.hubs.filter((h) => h.keys.includes(key))) {
     const pages = hub.keys.filter((k) => k.startsWith("page ")).length;
-    return [{ ...held.seed, pages, ...(held.addedLines !== undefined ? { addedLines: held.addedLines } : {}) }];
-  });
+    for (const symbol of hub.seeds ?? [hub.symbol]) {
+      const held = seeds.find(({ seed }) => `${seed.file}::${seed.symbol}` === symbol);
+      if (held === undefined || out.has(symbol)) continue;
+      out.set(symbol, { ...held.seed, pages, ...(held.addedLines !== undefined ? { addedLines: held.addedLines } : {}) });
+    }
+  }
+  return [...out.values()];
 }
 
 export function deriveCandidates(scope: ChangeScope, enrichment: CandidateEnrichment = {}): UseCaseCandidate[] {

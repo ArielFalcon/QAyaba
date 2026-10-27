@@ -7,7 +7,10 @@
  */
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
-import type { GraphRoute, ImpactBudget, LocalSymbolRef } from "@kernel/code/index.ts";
+import type { GraphRoute, ImpactBudget, ImpactReport, LocalSymbolRef } from "@kernel/code/index.ts";
+import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
+import { activeExecScope } from "../../../../shared-infrastructure/process-sandbox/exec-scope.ts";
+import { walkAttrs, walkSummary } from "./structural-signal-port.adapter.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { Sha } from "@kernel/sha.ts";
 import type { PageMap } from "../../domain/page-files.ts";
@@ -77,7 +80,12 @@ export class ChangeScopePortAdapter implements ChangeScopePort {
     }
 
     const map = this.mapOf(request);
-    return buildChangeScope({ proofs: { map, walks, pageRoutes, handlerRoutes, links: linksOf(request) }, repos, degraded, linked: new Set() }, this.deps.proofs);
+    const scope = buildChangeScope({ proofs: { map, walks, pageRoutes, handlerRoutes, links: linksOf(request) }, repos, degraded, linked: new Set() }, this.deps.proofs);
+    note({
+      "qayaba.change_scope.partial_seeds": scope.partialSeeds ?? [],
+      "qayaba.change_scope.hub_nodes": scope.hubs.filter((h) => h.via === "fan-in").map((h) => `${h.symbol}: ${h.fanIn ?? 0}`),
+    });
+    return scope;
   }
 
   async candidates(request: { specDir: string; scope: ChangeScope }): Promise<UseCaseCandidate[]> {
@@ -113,7 +121,8 @@ export class ChangeScopePortAdapter implements ChangeScopePort {
       degraded.push({ repo: r.repo, reason: `walk: ${impact.error.reason}` });
       return { repo: { ...emptyScope(r), entryPoints: known.entryPoints, entryPointsTruncated: known.truncated } };
     }
-    const { symbols, truncated, seedBasis, indexedSha } = impact.value;
+    const { symbols, seedBasis, indexedSha } = impact.value;
+    observeWalk(r.repo, impact.value);
     return {
       repo: {
         repo: r.repo,
@@ -126,7 +135,7 @@ export class ChangeScopePortAdapter implements ChangeScopePort {
         entryPoints: known.entryPoints,
         entryPointsTruncated: known.truncated,
       },
-      walk: { repo: r.repo, reached: symbols, handlers: true, truncated },
+      walk: { repo: r.repo, reached: symbols, handlers: true, ...walkFacts(impact.value) },
     };
   }
 
@@ -154,8 +163,29 @@ export class ChangeScopePortAdapter implements ChangeScopePort {
       degraded.push({ repo: pages.repo, reason: `walk from the call sites: ${walk.error.reason}` });
       return undefined;
     }
-    return { repo: pages.repo, reached: walk.value.symbols, prefixOf, handlers: false, truncated: walk.value.truncated };
+    observeWalk(pages.repo, walk.value);
+    return { repo: pages.repo, reached: walk.value.symbols, prefixOf, handlers: false, ...walkFacts(walk.value) };
   }
+}
+
+/* What a walk's answer says about its seeds for the proofs: a lower bound, the partial seeds, the hubs it pruned. */
+function walkFacts(report: ImpactReport): Pick<ProofWalk, "truncated" | "partialSeeds" | "hubNodes"> {
+  return { truncated: report.truncated, partialSeeds: new Set((report.partialSeeds ?? []).map(keyOf)), hubNodes: report.hubNodes ?? [] };
+}
+
+/* The scope's walk facts go on the open phase's span; telemetry is advisory, so a fault here is logged and dropped. */
+function note(attrs: Attrs): void {
+  try {
+    activeExecScope()?.telemetry?.annotate?.(attrs);
+  } catch (cause) {
+    engineLog.error(`[qa] change scope telemetry failed and was dropped: ${cause instanceof Error ? cause.message : String(cause)}`);
+  }
+}
+
+/* A walk that left a seed partial or pruned a hub says so in the log and on the span; a complete one without hubs is silent. */
+function observeWalk(repo: string, report: ImpactReport): void {
+  note(walkAttrs(report));
+  if (report.truncated || (report.hubNodes?.length ?? 0) > 0) engineLog.info(`[qa] change scope of ${repo}: ${walkSummary(report)}`);
 }
 
 /* The pages the map links to the files the app's own repo changed: its implementation files, its source, the spec of an operation it joins. */

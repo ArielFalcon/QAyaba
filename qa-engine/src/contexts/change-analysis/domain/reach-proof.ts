@@ -3,10 +3,14 @@
  * entry points a changed symbol reaches and how. `buildChangeScope` runs every proof it is given, keeps the shortest evidence
  * per entry, withholds the entries of a hub, and orders what is left; a new proof kind is a new strategy in the list, never an
  * edit here. Nothing here resolves a contract or creates a link. Pure.
+ *
+ * A hub is a changed symbol whose proven entries of one kind exceed `hubEntries` (a partial seed too, when its lower bound
+ * already does), or a node the walk pruned at its fan-in limit: the pages of its closure are its keys. A partial seed below the
+ * limit keeps its entries, ranked after the complete ones; no absence is proven while one exists.
  */
-import type { GraphRoute, ImpactedSymbol } from "@kernel/code/index.ts";
+import type { GraphRoute, HubNode, ImpactedSymbol } from "@kernel/code/index.ts";
 import { keyOf, pageFiles, type PageMap } from "./page-files.ts";
-import { entryKey, type ChangedSymbol, type ChangeScope, type EntryPoint, type ReachBasis, type ReachEntry, type ReachTier, type RepoScope } from "./change-scope.ts";
+import { entryKey, type ChangedSymbol, type ChangeScope, type EntryPoint, type ReachBasis, type ReachEntry, type ReachTier, type RepoScope, type ScopeHub } from "./change-scope.ts";
 
 /* maxReach: the entries kept per kind (pages, operations); hubEntries: the entries of one kind past which a changed symbol is a hub. */
 export const CHANGE_SCOPE_LIMITS = { maxReach: 6, hubEntries: 4 } as const;
@@ -18,8 +22,12 @@ export interface ProofWalk {
   /* The proof steps before a seed, by the seed's `file::symbol`; present for a walk that starts at a frontend call site. */
   prefixOf?: ReadonlyMap<string, readonly string[]>;
   handlers: boolean;
-  /* The budget cut the walk: what a seed reached is a lower bound, so no seed of it is proven a non-hub. */
+  /* What a seed reached is a lower bound: a seed is partial, or the change had more seeds than the walk took. */
   truncated?: boolean;
+  /* The seeds the walk's budget left partial, by `file::symbol`. */
+  partialSeeds?: ReadonlySet<string>;
+  /* The nodes the walk pruned at its fan-in limit, each with its closure. */
+  hubNodes?: readonly HubNode[];
 }
 
 /* A contract operation of a service that the change impacted, as the cross-repo impact left it. */
@@ -51,7 +59,8 @@ export interface ReachHit {
   hops: number;
   evidence: string[];
   confidence: number;
-  seedCut: boolean;
+  /* The seed's walk is partial: the hit stands, but the seed may reach more. */
+  partial: boolean;
 }
 
 export interface ReachProof {
@@ -59,18 +68,27 @@ export interface ReachProof {
   prove(input: ProofInput): readonly ReachHit[];
 }
 
-/* One reached symbol with the path from its seed: the seed first. */
+/* One reached symbol for one seed that reaches it, with the path the walk found first: that path's seed first. */
 export interface WalkChain {
   symbol: ImpactedSymbol;
   seed: ImpactedSymbol;
   chain: ImpactedSymbol[];
-  /* The evidence steps up to and including the symbol, after the walk's prefix for the seed. */
+  /* The evidence steps up to and including the symbol, after the walk's prefix for the path's seed. */
   steps: string[];
+  /* The hops from `seed` to the symbol. */
+  hops: number;
+  /* `seed`'s walk is partial. */
+  partial: boolean;
 }
 
+/*
+ * One chain per (reached symbol, seed that reaches it): the seed `via` leads back to, with its path, and every other seed the
+ * walk recorded for the symbol, with its own hops and the same path as evidence. A page two seeds reach counts for both.
+ */
 export function walkChains(walk: ProofWalk): WalkChain[] {
   const byKey = new Map(walk.reached.map((s) => [keyOf(s), s]));
-  return walk.reached.map((symbol) => {
+  const partial = (s: ImpactedSymbol): boolean => walk.partialSeeds?.has(keyOf(s)) === true;
+  return walk.reached.flatMap((symbol) => {
     const chain = [symbol];
     const seen = new Set([keyOf(symbol)]);
     let at = symbol;
@@ -82,7 +100,12 @@ export function walkChains(walk: ProofWalk): WalkChain[] {
       at = next;
     }
     const seed = chain[0]!;
-    return { symbol, seed, chain, steps: [...(walk.prefixOf?.get(keyOf(seed)) ?? []), ...chain.map(keyOf)] };
+    const steps = [...(walk.prefixOf?.get(keyOf(seed)) ?? []), ...chain.map(keyOf)];
+    const others = (symbol.seeds ?? []).flatMap((reach) => {
+      const other = byKey.get(keyOf(reach));
+      return other === undefined || keyOf(other) === keyOf(seed) ? [] : [{ symbol, seed: other, chain, steps, hops: reach.hops, partial: partial(other) }];
+    });
+    return [{ symbol, seed, chain, steps, hops: chain.length - 1, partial: partial(seed) }, ...others];
   });
 }
 
@@ -108,22 +131,49 @@ export interface ScopeInput {
   limits?: { maxReach: number; hubEntries: number };
 }
 
+/* The fan-in hubs of the walks: each pruned node, keyed by what the proofs prove over its closure from it. */
+function fanInHubs(input: ScopeInput, proofs: readonly ReachProof[]): ScopeHub[] {
+  return input.proofs.walks.flatMap((walk) =>
+    (walk.hubNodes ?? []).map((hub): ScopeHub => {
+      const symbol = keyOf(hub);
+      const closure: ProofWalk = { repo: walk.repo, reached: hub.closure.symbols, handlers: walk.handlers, ...(walk.prefixOf ? { prefixOf: walk.prefixOf } : {}) };
+      const keys = [...new Set(proofs.flatMap((proof) => proof.prove({ ...input.proofs, walks: [closure] })).filter((h) => keyOf(h.seed) === symbol).map((h) => entryKey(h.entry)))].sort();
+      return { symbol, entries: keys.length, keys, via: "fan-in", fanIn: hub.fanIn, seeds: [...new Set(hub.seeds.map(keyOf))].sort(), ...(hub.closure.complete ? {} : { truncated: true as const }) };
+    }),
+  );
+}
+
+/* One hub per symbol: a changed symbol that is both over the entry limit and a pruned node holds the keys of both. */
+function mergeHubs(hubs: readonly ScopeHub[]): ScopeHub[] {
+  const out = new Map<string, ScopeHub>();
+  for (const hub of hubs) {
+    const held = out.get(hub.symbol);
+    if (!held) {
+      out.set(hub.symbol, hub);
+      continue;
+    }
+    const keys = [...new Set([...held.keys, ...hub.keys])].sort();
+    out.set(hub.symbol, { ...held, ...hub, keys, entries: keys.length, ...(held.truncated || hub.truncated ? { truncated: true as const } : {}) });
+  }
+  return [...out.values()].sort((a, b) => b.entries - a.entries || a.symbol.localeCompare(b.symbol));
+}
+
 export function buildChangeScope(input: ScopeInput, proofs: readonly ReachProof[]): ChangeScope {
   const limits = input.limits ?? CHANGE_SCOPE_LIMITS;
   const hits = proofs.flatMap((proof) => proof.prove(input.proofs));
 
-  /* A seed reaching more entries of one kind than the limit is a hub; so is a seed of a walk the budget cut. */
-  const keysOf = new Map<string, { page: Set<string>; operation: Set<string>; cut: boolean }>();
+  /* A seed reaching more entries of one kind than the limit is a hub; a partial one is, once its lower bound already does. */
+  const keysOf = new Map<string, { page: Set<string>; operation: Set<string>; partial: boolean }>();
   for (const h of hits) {
     const seed = keyOf(h.seed);
-    const held = keysOf.get(seed) ?? keysOf.set(seed, { page: new Set(), operation: new Set(), cut: false }).get(seed)!;
+    const held = keysOf.get(seed) ?? keysOf.set(seed, { page: new Set(), operation: new Set(), partial: false }).get(seed)!;
     held[h.entry.kind].add(entryKey(h.entry));
-    held.cut ||= h.seedCut;
+    held.partial ||= h.partial;
   }
-  const hubs = [...keysOf]
-    .filter(([, k]) => k.page.size > limits.hubEntries || k.operation.size > limits.hubEntries || k.cut)
-    .map(([symbol, k]) => ({ symbol, entries: k.page.size + k.operation.size, keys: [...k.page, ...k.operation].sort(), ...(k.cut ? { truncated: true as const } : {}) }))
-    .sort((a, b) => b.entries - a.entries || a.symbol.localeCompare(b.symbol));
+  const overLimit = [...keysOf]
+    .filter(([, k]) => k.page.size > limits.hubEntries || k.operation.size > limits.hubEntries)
+    .map(([symbol, k]): ScopeHub => ({ symbol, entries: k.page.size + k.operation.size, keys: [...k.page, ...k.operation].sort(), ...(k.partial ? { truncated: true as const } : {}) }));
+  const hubs = mergeHubs([...overLimit, ...fanInHubs(input, proofs)]);
   const hubSet = new Set(hubs.map((h) => h.symbol));
 
   const best = new Map<string, ReachHit[]>();
@@ -132,13 +182,17 @@ export function buildChangeScope(input: ScopeInput, proofs: readonly ReachProof[
     const key = entryKey(h.entry);
     best.set(key, [...(best.get(key) ?? []), h]);
   }
-  const reach: ReachEntry[] = [...best].map(([, group]) => {
-    const shortest = [...group].sort((a, b) => a.evidence.length - b.evidence.length || a.evidence.join(">").localeCompare(b.evidence.join(">")))[0]!;
+  /* An entry only partial seeds prove is ranked after the complete ones of its tier. */
+  const partialOnly = new Set<string>();
+  const reach: ReachEntry[] = [...best].map(([key, group]) => {
+    const shortest = [...group].sort((a, b) => a.evidence.length - b.evidence.length || a.evidence.join(">").localeCompare(b.evidence.join(">")) || a.hops - b.hops)[0]!;
     const seeds = new Map<string, ChangedSymbol>();
     for (const h of group) seeds.set(keyOf(h.seed), h.seed);
+    if (group.every((h) => h.partial)) partialOnly.add(key);
     return { entry: shortest.entry, tier: tierOf(shortest), basis: shortest.basis, evidence: shortest.evidence, seeds: [...seeds.values()], confidence: shortest.confidence };
   });
-  reach.sort((a, b) => TIER_ORDER[a.tier] - TIER_ORDER[b.tier] || b.confidence - a.confidence || a.evidence.length - b.evidence.length || entryKey(a.entry).localeCompare(entryKey(b.entry)));
+  const partialRank = (r: ReachEntry): number => (partialOnly.has(entryKey(r.entry)) ? 1 : 0);
+  reach.sort((a, b) => TIER_ORDER[a.tier] - TIER_ORDER[b.tier] || partialRank(a) - partialRank(b) || b.confidence - a.confidence || a.evidence.length - b.evidence.length || entryKey(a.entry).localeCompare(entryKey(b.entry)));
 
   /* Pages and operations are capped each on their own: an operation never takes a page's slot. */
   const kept = new Map<ReachEntry["entry"]["kind"], number>();
@@ -148,6 +202,7 @@ export function buildChangeScope(input: ScopeInput, proofs: readonly ReachProof[
     return n < limits.maxReach;
   });
 
+  const partialSeeds = [...new Set(input.proofs.walks.flatMap((w) => [...(w.partialSeeds ?? [])]))].sort();
   return {
     repos: [...input.repos],
     reach: capped,
@@ -155,6 +210,7 @@ export function buildChangeScope(input: ScopeInput, proofs: readonly ReachProof[
     disagreements: pageFiles(input.proofs.map, input.proofs.pageRoutes).disagreements,
     omitted: reach.length - capped.length,
     ...(input.proofs.walks.some((w) => w.truncated === true) ? { walksTruncated: true as const } : {}),
+    ...(partialSeeds.length > 0 ? { partialSeeds } : {}),
     degraded: [...input.degraded],
   };
 }

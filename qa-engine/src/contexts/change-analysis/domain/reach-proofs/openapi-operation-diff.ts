@@ -17,7 +17,7 @@ export const openapiOperationDiff: ReachProof = {
         hops: 0,
         evidence: [`${l.repo}: ${operation}${l.change === "removed" ? " (removed)" : ""}`],
         confidence: l.confidence,
-        seedCut: false,
+        partial: false,
       };
     });
   },

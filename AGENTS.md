@@ -380,6 +380,14 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   asked unless every spec to change has an objective its lead declared and no correction
   disputes it; the rule against weakening a test is stated on every test-writing turn, whether
   or not the question is asked.
+- **Impact walk** — every code-graph walk of the change (structural block, change scope, cross-repo impact) runs
+  under one `WalkPolicy` (`shared-kernel/code`), never a symbol cap: depth 3; test-file code never calls; a node
+  with more callers than the index's own p99 fan-in (clamped 10..64) is a hub, recorded with its closure and not
+  expanded; a count of caller queries bounds the walk, and when it is spent only the seeds left with an open frontier
+  are `partial`. Each reached node records every seed that reaches it, so a page two seeds reach counts for both. In
+  the change scope a partial seed keeps its pages (ranked after complete ones) unless they already exceed the hub
+  bound, a pruned node is a `fan-in` hub keyed by its closure's pages (its seeds become the candidates' shared seeds),
+  and no absence is proven while a seed is partial or a closure is cut. Reached route nodes are kept in the report.
 - **Diff-ranked map routes** — before the live-DOM capture cut, the routes the orchestrator
   derived are ordered by the links the context map declares to the changed files, and only
   those: a route's `implementationFiles`, then its `source`, then the `spec` of an API

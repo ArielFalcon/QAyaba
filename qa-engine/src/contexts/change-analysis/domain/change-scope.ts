@@ -33,12 +33,19 @@ export interface RepoScope {
   entryPointsTruncated: boolean;
 }
 
-/* A changed symbol that reaches too many entries (or whose walk the budget cut) proves none of them. */
+/*
+ * A changed symbol that reaches too many entries proves none of them; neither does a node the walk pruned at its fan-in limit
+ * (`via: "fan-in"`), whose keys are what its closure reaches and whose `seeds` are the changed symbols that reach it.
+ * `truncated`: the keys are a lower bound (a partial seed, or a closure its budget cut).
+ */
 export interface ScopeHub {
   symbol: string;
   entries: number;
   keys: string[];
   truncated?: boolean;
+  via?: "fan-in";
+  fanIn?: number;
+  seeds?: string[];
 }
 
 export interface ScopeDisagreement {
@@ -53,8 +60,10 @@ export interface ChangeScope {
   hubs: ScopeHub[];
   disagreements: ScopeDisagreement[];
   omitted: number;
-  /* A walk the budget cut: what it reached is a lower bound, even when it proved no entry. */
+  /* A walk whose answer is a lower bound for a seed (a partial seed, or seeds past the walk's bound): no absence is proven. */
   walksTruncated?: true;
+  /* The changed symbols the walk's budget left partial, as `file::symbol`: their entries stand, ranked after complete ones. */
+  partialSeeds?: string[];
   /* A repo whose index did not answer: its absence from `reach` proves nothing. */
   degraded: Array<{ repo: string; reason: string }>;
 }

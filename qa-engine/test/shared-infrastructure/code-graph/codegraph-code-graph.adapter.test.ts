@@ -1048,3 +1048,35 @@ test("the fan-in limit is the index's own in-degree percentile, clamped to the p
     rmSync(h.root, { recursive: true, force: true });
   }
 });
+
+test("a page two changed symbols reach through the same caller is credited to both, whichever reached the caller first", async () => {
+  const h = harness();
+  try {
+    const home = "a/home.page.ts";
+    const opener = { file: "a/home.helpers.ts", symbol: "openMenuById" };
+    const card = { file: "a/restaurant-map-card.component.ts", symbol: "restaurant" };
+    storeWith(
+      h,
+      "two-seeds.db",
+      [
+        ["function:openMenuById", "function", opener.symbol, opener.file, 1, 5],
+        ["function:restaurant", "function", card.symbol, card.file, 1, 5],
+        ["function:homeConstructor", "function", "constructor", home, 2, 10],
+      ],
+      [["function:homeConstructor", "function:openMenuById", "calls"], ["function:homeConstructor", "function:restaurant", "calls"]],
+    );
+    await h.adapter.syncTo(h.mirror, h.sha);
+    const map = { builtAtSha: h.sha, routes: [{ path: "/home", implementationFiles: [home] }] };
+    const scopes = new ChangeScopePortAdapter({ codeGraph: h.adapter, budget: BUDGET, proofs: [fileImplementsPage], loadMap: () => map });
+
+    const scope = await scopes.resolve({
+      specDir: "/s",
+      repos: [{ repo: "org/app", role: "primary", repoDir: h.mirror, headSha: h.sha, changedFiles: [opener.file, card.file], touchedLines: new Map([[opener.file, new Set([2])], [card.file, new Set([2])]]) }],
+    });
+
+    assert.deepEqual(scope.hubs, []);
+    assert.deepEqual(scope.reach.map((r) => [(r.entry as { route: string }).route, r.seeds.map((s) => s.symbol).sort()]), [["/home", ["openMenuById", "restaurant"]]]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});

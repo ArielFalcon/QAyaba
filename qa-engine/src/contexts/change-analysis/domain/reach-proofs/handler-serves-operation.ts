@@ -17,11 +17,11 @@ export function handlerServesOperation(serves: ServesOperation): ReachProof {
       const out: ReachHit[] = [];
       for (const walk of input.walks) {
         if (!walk.handlers) continue;
-        for (const { symbol, seed, chain, steps } of walkChains(walk)) {
+        for (const { symbol, seed, steps, hops, partial } of walkChains(walk)) {
           const handled = input.handlerRoutes.filter((h) => h.method !== undefined && h.target !== undefined && keyOf(h.target) === keyOf(symbol));
           for (const op of operations) {
             if (!(op.operationId === symbol.symbol || handled.some((h) => serves({ method: h.method!, path: h.path }, { verb: op.method, path: op.path })))) continue;
-            const common = { basis: "handler" as const, seed: changedSymbolOf(seed), hops: chain.length - 1, confidence: symbol.confidence, seedCut: walk.truncated === true };
+            const common = { basis: "handler" as const, seed: changedSymbolOf(seed), hops, confidence: symbol.confidence, partial };
             const operationStep = `${op.method.toUpperCase()} ${op.path} (${op.operationId})`;
             out.push({ ...common, entry: { kind: "operation", repo: walk.repo, verb: op.method.toUpperCase(), path: op.path, operationId: op.operationId }, evidence: [...steps, operationStep] });
             for (const route of joined.get(op.operationId) ?? []) out.push({ ...common, entry: { kind: "page", repo: walk.repo, route }, evidence: [...steps, operationStep, `page ${route}`] });
