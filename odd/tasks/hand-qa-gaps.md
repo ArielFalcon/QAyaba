@@ -15,10 +15,10 @@ Branch: main (single branch, owner rule). Delivery: work-unit commits on main; p
 
 | ID | Specs | Route | Status | Evidence |
 |---|---|---|---|---|
-| T1 | S1 | delegated (parallel writer: objective-signal mutation and survivor closure, several files) | pending | |
-| T2 | S2 | delegated (parallel writer: Context Pack capture, pack pages, plan coverage, briefs) | pending | |
-| T3 | S3 | inline (seed lint rules, reviewer citation) | pending | |
-| T4 | S4 | explore first (no generic source of "two data sources of one page" is known yet) | pending | |
+| T1 | S1 | delegated (parallel writer: objective-signal mutation and survivor closure, several files) | in progress | |
+| T2 | S2 | delegated (parallel writer: Context Pack capture, pack pages, plan coverage, briefs) | in progress | |
+| T3 | S3 | inline (seed lint rules, reviewer citation) | deterministic part done: the seed's static gate refuses `playwright/no-conditional-expect` (was a warning in the plugin's recommended set); RED then GREEN (`seed-lint-rules.test.ts` 2/2), test-execution and workspace suites 1129/0, seed:lint 0 errors; the reviewer citation of an expected value read from the state it checks is folded into T4 (the fact that makes such an assertion wrong is the contradicting observation S4 needs) | main 01c23aa0 |
+| T4 | S4 | explore first (no generic source of "two data sources of one page" is known yet) | exploring | |
 | T5 | S5 | needs the owner's decision | pending | |
 
 ## Log
