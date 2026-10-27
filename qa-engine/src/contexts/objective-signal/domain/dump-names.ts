@@ -11,3 +11,10 @@ export function isDumpOfSpecFile(dump: string, specFile: string): boolean {
   const key = dashed(specFile);
   return dump.startsWith(key.slice(0, DUMP_TITLE_CHARS)) && (key.length >= DUMP_TITLE_CHARS || dump.charAt(key.length) === "-");
 }
+
+const FIXTURE_DUMP = /^(.+)-\d+-\d+\.json$/;
+
+/* The test that wrote `dump`, named as the coverage fixture names it (`<title path dashed and cut>-<worker>-<repeat>.json`): its dashed, cut title path; undefined for a name the fixture does not write. */
+export function testOfDump(dump: string): string | undefined {
+  return FIXTURE_DUMP.exec(dump)?.[1];
+}

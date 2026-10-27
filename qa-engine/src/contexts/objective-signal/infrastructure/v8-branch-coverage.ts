@@ -1,6 +1,6 @@
 /* Branch coverage of the changed code, and the places a mutant of it can be made, from what a browser ran. The decisions are found in the script the browser ran (whatever language compiled to it: a component's template compiles to conditionals too) and placed in the repository by the script's source map, so one parser and one direction of the map serve every source language. Whether an arm ran comes from V8's block counts: an arm with code of its own ran when its block's count is above nothing; an implicit else or a short circuit ran when the decision was reached more often than its explicit arm.
    What is found is bounded like the line coverage it sits beside: a script is parsed only when it is a changed file or maps to one, once per collection however many dumps hold it, and the counts are read at the arms alone, so a dump costs the number of its ranges and of the arms of the changed files, never their product. The time the dumps are given is asked before each parse.
-   A mutation site is a decision's condition (negated) or a comparison or logical operator (swapped) in the generated script, placed the same way; it carries the exact edit of the served script and the dumps (tests) that ran it, so a mutant re-runs only the tests that reach it. */
+   A mutation site is a decision's condition (negated) or a comparison or logical operator (swapped) in the generated script, placed the same way; it carries the exact edit of the served script, the expression the edit changes, the source line it is placed at when the map carries its sources' text (so a site the build added beside the change's code is told from it), and the dumps (tests) that ran it, so a mutant re-runs only the tests that reach it. */
 import { createHash } from "node:crypto";
 import ts from "typescript";
 import { decodeMappings, lineStartOffsets, type TimeSpent, type V8Entry } from "./v8-source-map.ts";
@@ -24,19 +24,21 @@ interface ScriptDecision {
   kind: BranchKind;
   arms: ArmProbe[];
 }
-/* An edit of the generated script that inverts what a decision or a comparison of it does. */
+/* An edit of the generated script that inverts what a decision or a comparison of it does, and the expression it changes. */
 interface ScriptSite {
   at: number;
   operator: string;
   start: number;
   end: number;
   replacement: string;
+  expression: string;
 }
-type Placed<T> = T & { file: string; line: number; column: number };
+/* `source` is the index of the map's source the item is placed in; absent for a script that is a changed file itself. */
+type Placed<T> = T & { file: string; line: number; column: number; source?: number };
 interface PlacedScript {
   sha256: string;
   decisions: Placed<ScriptDecision>[];
-  sites: Placed<ScriptSite>[];
+  sites: Array<Placed<ScriptSite> & { sourceLine?: string }>;
 }
 
 /* Past this many decisions in the changed files a collection's branches are not used: far beyond any change, and what a dump made to be costly would hold. The line coverage beside them is unaffected. */
@@ -44,8 +46,10 @@ export const MAX_BRANCH_DECISIONS = 50_000;
 
 const LOGICAL = new Set([ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken]);
 const MAX_CASE_LABEL = 40;
-/* A negated condition is carried whole in the mutant; past this length the condition is no site. */
+/* A negated condition is carried whole in the mutant; past this length the condition is no site, and a site's expression is cut to it. */
 export const MAX_MUTANT_TEXT = 400;
+/* A source line a site carries is cut to this many characters. */
+export const MAX_SOURCE_LINE_TEXT = 2_000;
 const SWAPPED_OPERATOR: ReadonlyMap<ts.SyntaxKind, string> = new Map([
   [ts.SyntaxKind.EqualsEqualsEqualsToken, "!=="],
   [ts.SyntaxKind.ExclamationEqualsEqualsToken, "==="],
@@ -67,7 +71,7 @@ export function analyzeScript(source: string): { decisions: ScriptDecision[]; si
   const start = (node: ts.Node): number => node.getStart(sf);
   const negate = (condition: ts.Expression): void => {
     const text = source.slice(start(condition), condition.end);
-    if (text.length <= MAX_MUTANT_TEXT) sites.push({ at: start(condition), operator: "negate condition", start: start(condition), end: condition.end, replacement: `!(${text})` });
+    if (text.length <= MAX_MUTANT_TEXT) sites.push({ at: start(condition), operator: "negate condition", start: start(condition), end: condition.end, replacement: `!(${text})`, expression: text });
   };
   const visit = (node: ts.Node): void => {
     if (ts.isBinaryExpression(node)) {
@@ -75,7 +79,7 @@ export function analyzeScript(source: string): { decisions: ScriptDecision[]; si
       if (swapped) {
         /* The site ran when its expression did: V8 opens the range of a logical right side at the operator itself, so the operator's own count is the right side's. */
         const operator = start(node.operatorToken);
-        sites.push({ at: start(node), operator: `${node.operatorToken.getText(sf)} → ${swapped}`, start: operator, end: node.operatorToken.end, replacement: swapped });
+        sites.push({ at: start(node), operator: `${node.operatorToken.getText(sf)} → ${swapped}`, start: operator, end: node.operatorToken.end, replacement: swapped, expression: source.slice(start(node), node.end).slice(0, MAX_MUTANT_TEXT) });
       }
     }
     if (ts.isIfStatement(node)) negate(node.expression);
@@ -187,7 +191,7 @@ function place<T extends { at: number }>(decisions: readonly T[], source: string
       if (line > genLine || (line === genLine && col >= genCol)) return;
       if (last && last.genLine === line) {
         const file = files[last.sourceIndex];
-        if (file) placed.push({ ...d, file, line: last.origLine + 1, column: last.origCol });
+        if (file) placed.push({ ...d, file, line: last.origLine + 1, column: last.origCol, source: last.sourceIndex });
       }
       next++;
     }
@@ -199,6 +203,24 @@ function place<T extends { at: number }>(decisions: readonly T[], source: string
   }
   placeUpTo(Number.MAX_SAFE_INTEGER, 0);
   return placed;
+}
+
+/* Each site with the text of the source line it is placed at, from the map's sources' text when it carries it. */
+function withSourceLines(sites: Placed<ScriptSite>[], map: V8Entry["map"]): Array<Placed<ScriptSite> & { sourceLine?: string }> {
+  const contents = map?.sourcesContent;
+  if (!Array.isArray(contents)) return sites;
+  const lines = new Map<number, string[]>();
+  return sites.map((site) => {
+    const text = site.source === undefined ? undefined : contents[site.source];
+    if (typeof text !== "string") return site;
+    let split = lines.get(site.source!);
+    if (!split) {
+      split = text.split(/\r?\n/);
+      lines.set(site.source!, split);
+    }
+    const line = split[site.line - 1];
+    return line === undefined ? site : { ...site, sourceLine: line.slice(0, MAX_SOURCE_LINE_TEXT) };
+  });
 }
 
 /* The decisions of the changed files across the dumps of a collection: each script parsed and placed once, each dump's counts read at its arms, an arm taken in any dump taken. Decisions of the same place in two scripts (a chunk two bundles share) are one. A script it cannot read within its bounds leaves the collection's branches unused (`result()` is undefined) and never the line coverage: the time the dumps are given is the line coverage's, which ends the whole set when it is spent. */
@@ -238,7 +260,7 @@ export class BranchSink {
       placed = {
         sha256: createHash("sha256").update(source).digest("hex"),
         decisions: place(decisions, source, directFile, entry.map, files, spent),
-        sites: place(sites, source, directFile, entry.map, files, spent),
+        sites: withSourceLines(place(sites, source, directFile, entry.map, files, spent), entry.map),
       };
       this.placedByScript.set(key, placed);
       let total = 0;
@@ -257,7 +279,7 @@ export class BranchSink {
       if (known) {
         if (!known.ranIn.includes(this.dump)) known.ranIn.push(this.dump);
       } else {
-        this.sites.set(id, { file: site.file, line: site.line, column: site.column, operator: site.operator, script: { url: entry.url!, sha256: placed.sha256 }, edit: { start: site.start, end: site.end, replacement: site.replacement }, original: source.slice(site.start, site.end), ranIn: [this.dump] });
+        this.sites.set(id, { file: site.file, line: site.line, column: site.column, operator: site.operator, script: { url: entry.url!, sha256: placed.sha256 }, edit: { start: site.start, end: site.end, replacement: site.replacement }, original: source.slice(site.start, site.end), expression: site.expression, ...(site.sourceLine !== undefined ? { sourceLine: site.sourceLine } : {}), ranIn: [this.dump] });
       }
     }
     for (const d of placed.decisions) {

@@ -86,3 +86,14 @@ test("a surviving mutant keeps the spec files that reached it and the edit it ma
   assert.ok(!/\n/.test(survivor!.original!) && !/\n/.test(survivor!.replacement!), "single line");
   assert.ok(survivor!.original!.length <= 121 && survivor!.replacement!.length <= 121, "cut");
 });
+
+test("a mutant that names the tests that reached it hands them to the suite's mutation fixture, and one that names none re-runs every test of its spec files", async () => {
+  const sent: Array<{ tests?: string[] }> = [];
+  const oracle = new BundleMutationOracleAdapter(async ({ mutant: m }) => (sent.push(JSON.parse(m)), { verdict: "pass", cases: [pass("t")] }), () => 1, "https://dev.example");
+
+  await oracle.measure([{ ...mutant(10), tests: ["flows-a-spec-ts-x"] }, mutant(12)], "/e2e", "run", ["t"]);
+
+  const [narrowed, whole] = sent;
+  assert.deepEqual(narrowed?.tests, ["flows-a-spec-ts-x"]);
+  assert.equal(whole !== undefined && "tests" in whole, false);
+});

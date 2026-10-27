@@ -9,7 +9,7 @@
 import { startRunChildSpan } from "../../../../shared-infrastructure/telemetry/run-spans.ts";
 import type { TelemetryPort } from "../../../../shared-kernel/telemetry/telemetry.port.ts";
 import type { CandidateCoverage } from "../../domain/per-candidate-coverage.ts";
-import type { BundleMutationOutcome, CoverageMeasurement } from "../../domain/objective-signal.ts";
+import type { BundleMutationOutcome, CoverageMeasurement, MutantSelectionRecord } from "../../domain/objective-signal.ts";
 import type { ObjectiveSignalPort } from "../../application/ports/objective-signal.port.ts";
 
 /* How many candidates were measured and, per reason, how many were not: `reason: count`, once each. */
@@ -31,6 +31,16 @@ function survivorAttrs(m: BundleMutationOutcome) {
     "qayaba.mutation.killed": m.killed,
     "qayaba.mutation.survivors_routed": routed,
     "qayaba.mutation.survivors_without_spec": m.survived.length - routed,
+  };
+}
+
+/* How the mutants were chosen: the sites left out (`reason: count`, once each) and how each mutant's re-run was scoped. */
+function selectionAttrs(m: MutantSelectionRecord) {
+  return {
+    "qayaba.mutation.sites_skipped": m.skippedSites?.count ?? 0,
+    ...(m.skippedSites ? { "qayaba.mutation.sites_skipped_reasons": Object.entries(m.skippedSites.reasons).map(([reason, count]) => `${reason}: ${count}`) } : {}),
+    "qayaba.mutation.reruns_by_test": m.rerunsByTest,
+    "qayaba.mutation.reruns_by_spec_file": m.rerunsBySpecFile,
   };
 }
 
@@ -101,6 +111,7 @@ export class TracedObjectiveSignalPort implements ObjectiveSignalPort {
       span.setAttrs({
         "qayaba.coverage.status": result.status,
         ...(result.bundleMutation ? survivorAttrs(result.bundleMutation) : {}),
+        ...(result.mutantSelection ? selectionAttrs(result.mutantSelection) : {}),
         ...(result.ratio !== null ? { "qayaba.coverage.ratio": result.ratio } : {}),
         ...countsOf(result.measurement),
       });

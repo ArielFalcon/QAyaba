@@ -11,6 +11,9 @@
    changedFiles threading into collect()'s optional trailing arg.
  */
 import { test } from "node:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import assert from "node:assert/strict";
 import { ObjectiveSignalPortAdapter } from "@contexts/objective-signal/infrastructure/adapters/objective-signal-port.adapter.ts";
 import { DecideCoverageService, type ChangeCoverage } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
@@ -552,7 +555,7 @@ test("measure() reports the branches on the changed lines and the arms that neve
 });
 
 test("measure() hands the mutants on the changed lines to the mutation oracle, with the spec files that reached them, and reports what it found", async () => {
-  const site = (line: number) => ({ file: "src/checkout.ts", line, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x", ranIn: ["flows-pay-spec-ts-x-0-0.json"] });
+  const site = (line: number) => ({ file: "src/checkout.ts", line, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x", sourceLine: "if (x) pay();", ranIn: ["flows-pay-spec-ts-x-0-0.json"] });
   const report: CoverageReport = { covered: [{ file: "src/checkout.ts", lines: [1, 2] }], mutationSites: [site(1), site(9)] };
   const asked: unknown[] = [];
   const mutation = {
@@ -572,8 +575,38 @@ test("measure() hands the mutants on the changed lines to the mutation oracle, w
   assert.deepEqual(result.bundleMutation, { applied: 1, killed: 0, survived: [{ file: "src/checkout.ts", line: 1, operator: "negate condition" }] });
 });
 
+test("measure() makes no mutant of a site whose source line in the working copy does not hold what it mutates, and records each site left out, by why, beside the outcome", async () => {
+  const repoDir = mkdtempSync(join(tmpdir(), "qa-mutation-source-"));
+  try {
+    mkdirSync(join(repoDir, "src"));
+    writeFileSync(join(repoDir, "src/checkout.ts"), "if (x) pay();\nconst icon = theme === 'dark' ? 'moon' : 'sun';\n");
+    const site = (line: number, expression: string) => ({ file: "src/checkout.ts", line, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: expression, expression, ranIn: ["flows-pay-spec-ts-x-0-0.json"] });
+    const report: CoverageReport = { covered: [{ file: "src/checkout.ts", lines: [1, 2] }], mutationSites: [site(1, "x"), site(2, "ngDevMode")] };
+    const asked: Array<{ line: number; tests?: string[] }> = [];
+    const mutation = {
+      measure: async (mutants: Array<{ site: { line: number }; tests?: string[] }>) => {
+        asked.push(...mutants.map((m) => ({ line: m.site.line, ...(m.tests ? { tests: m.tests } : {}) })));
+        return { applied: 1, killed: 1, survived: [] };
+      },
+    };
+    const adapter = new ObjectiveSignalPortAdapter(
+      { collector: fakeCollector(report), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }), mutation },
+      { policy: { mode: "signal", minRatio: 0.7 }, repoDir, assembleChangeCoverage, namespace: "run-7" },
+    );
+
+    const result = await adapter.measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), "/e2e", SAMPLE_DIFF, ["pays"], { caseFiles: ["flows/pay.spec.ts"] });
+
+    assert.deepEqual(asked, [{ line: 1, tests: ["flows-pay-spec-ts-x"] }]);
+    assert.deepEqual(result.bundleMutation?.skippedSites, { count: 1, reasons: { "not-in-source-line": 1 } });
+    assert.equal(result.bundleMutation?.rerunsBySpecFile, undefined, "every mutant re-runs only the tests that reached it");
+    assert.equal(result.mutantSelection?.rerunsByTest, 1);
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true });
+  }
+});
+
 test("measure() hands back the survivors' mutants as they ran beside the outcome it records, which keeps no served script or edit", async () => {
-  const site = { file: "src/checkout.ts", line: 1, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x", ranIn: ["flows-pay-spec-ts-x-0-0.json"] };
+  const site = { file: "src/checkout.ts", line: 1, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x", sourceLine: "if (x) pay();", ranIn: ["flows-pay-spec-ts-x-0-0.json"] };
   const survivorRuns = [{ site, specFiles: ["flows/pay.spec.ts"] }];
   const mutation = { measure: async () => ({ applied: 1, killed: 0, survived: [{ file: "src/checkout.ts", line: 1, operator: "negate condition" }], survivorRuns }) };
   const adapter = new ObjectiveSignalPortAdapter(
@@ -675,7 +708,7 @@ function provingAdapter(verified: CoverageReport, asked: unknown[] = []) {
   const first: CoverageReport = {
     covered: [{ file: "src/checkout.ts", lines: [1] }],
     branches: [{ file: "src/checkout.ts", line: 1, column: 0, kind: "if", arms: [{ label: "then", taken: false }, { label: "else", taken: true }] }],
-    mutationSites: [{ file: "src/checkout.ts", line: 1, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x", ranIn: ["flows-pay-spec-ts-x-0-0.json"] }],
+    mutationSites: [{ file: "src/checkout.ts", line: 1, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x", sourceLine: "if (x) pay();", ranIn: ["flows-pay-spec-ts-x-0-0.json"] }],
   };
   const collector: CoverageCollectorPort = {
     collect: async () => first,

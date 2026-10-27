@@ -271,7 +271,7 @@ qayaba.run
 ├─ qayaba.phase.execute           qayaba.spec.execute per spec, qayaba.test per case (synthesized, §6.2)
 ├─ qayaba.phase.fix_loop          rounds as children: regenerate → validate → execute
 ├─ qayaba.phase.coverage          status, ratio, changed/covered lines, policy; coverage regen child
-│  ├─ qayaba.coverage.measure     changed/covered lines, changed/mapped files, changed/taken branches, judged/killed mutants, why nothing was measured
+│  ├─ qayaba.coverage.measure     changed/covered lines, changed/mapped files, changed/taken branches, judged/killed mutants, the mutation sites left out because their source line does not hold what they mutate (`qayaba.mutation.sites_skipped`, `_reasons` as `reason: count`), mutants re-running only the tests that reached them or their spec files' every test (`reruns_by_test`, `reruns_by_spec_file`), why nothing was measured
 │  ├─ qayaba.coverage.survivor_recheck  surviving mutants re-applied after the regeneration that answered them: rechecked, judged, closed
 │  └─ qayaba.coverage.recount     the same counts after an accepted regeneration, from the dumps on disk
 ├─ qayaba.phase.review            invoke_agent qa-reviewer per round, review-dom grounding

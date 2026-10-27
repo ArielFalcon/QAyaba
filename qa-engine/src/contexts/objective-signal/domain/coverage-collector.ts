@@ -10,7 +10,7 @@ export type BranchKind = DecisionKind;
 export interface BranchArm { label: string; taken: boolean; }
 /* One decision of a changed file the executed code holds: where its condition is (1-based line, 0-based column), its kind, and whether each arm ran in at least one test. */
 export interface BranchHit { file: string; line: number; column: number; kind: BranchKind; arms: BranchArm[]; }
-/* A place of a changed file where the served script can be mutated: the exact edit of the script (identified by its URL and the sha256 of its text), the text it replaces, what it does, and the dumps (one per test) that ran it. */
+/* A place of a changed file where the served script can be mutated: the exact edit of the script (identified by its URL and the sha256 of its text), the text it replaces, what it does, and the dumps (one per test) that ran it. `expression` is the whole expression the edit changes (the condition it negates, or the comparison or logical expression whose operator it swaps), cut; `sourceLine` is the text of the source line the script's map places it at, when the map carries its sources' text. A site is a mutant only when that line holds the expression (`mutation-site-source.ts`). */
 export interface MutationSite {
   file: string;
   line: number;
@@ -19,6 +19,8 @@ export interface MutationSite {
   script: { url: string; sha256: string };
   edit: { start: number; end: number; replacement: string };
   original: string;
+  expression?: string;
+  sourceLine?: string;
   ranIn: string[];
 }
 /* The edit a mutant made to one served script, enough to undo it in what a page ran: the script's URL and the sha256 of its text before the edit, the edit, and the text it replaced. */
@@ -41,8 +43,8 @@ export interface ValueOracleResult {
   /** What the re-run counted, for the calibration of the score; absent when it measured nothing. */
   stats?: ValueStats;
 }
-/* A mutant of the served script to re-run, with the spec files whose tests reached it. */
-export interface MutantRun { site: MutationSite; specFiles: string[]; }
+/* A mutant of the served script to re-run, with the spec files whose tests reached it and, when the dumps that ran it name their tests, those tests (each as the coverage fixture names its dumps): only they are re-run. */
+export interface MutantRun { site: MutationSite; specFiles: string[]; tests?: string[]; }
 /* What the mutants did: how many reached a page and were judged, how many a test noticed, and where the others are. */
 /* A mutant no test noticed: where it was applied and the mutation. `specFiles` are the spec files whose tests reached the line (the ones that ran the mutated code and checked nothing that depended on it); `original` and `replacement` are the text before and after the edit, on one line and cut. */
 export interface SurvivedMutant { file: string; line: number; operator: string; specFiles?: string[]; original?: string; replacement?: string; }

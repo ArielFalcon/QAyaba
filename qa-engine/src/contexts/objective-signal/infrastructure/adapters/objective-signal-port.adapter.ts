@@ -10,7 +10,10 @@ import type { ValueOraclePort } from "../../application/ports/value-oracle.port.
 import type { BundleMutationResult, CoverageReport, DumpSource, MutantProof, MutantRun } from "../../domain/coverage-collector.ts";
 import { DecideCoverageService, type ChangeCoverage, type CoveragePolicy } from "../../domain/decide-coverage.service.ts";
 import { parseDiffHunks } from "../../domain/assemble-change-coverage.ts";
-import { selectMutants } from "../../domain/select-mutants.ts";
+import { selectMutants, type SourceLineOf } from "../../domain/select-mutants.ts";
+import type { MutantSelectionRecord } from "../../domain/objective-signal.ts";
+import { RepoReader } from "../../../../shared-infrastructure/repo-reader.ts";
+import { MAX_SPEC_SOURCE_BYTES } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { diffWithoutTestFiles } from "../../domain/diff-without-test-files.ts";
 import { diffChangedFiles, perCandidateCoverage } from "../../domain/per-candidate-coverage.ts";
 
@@ -20,6 +23,8 @@ export interface ObjectiveSignalPortCollaborators {
   oracle: ValueOraclePort;
   /* The mutation pass over the served script; absent when the value oracle is off or the target has no browser. */
   mutation?: BundleMutationPort;
+  /* The text of a changed file of the working copy; absent → the working copy (`repoDir`) is read through the confined reader. */
+  readSource?: (file: string) => string | undefined;
 }
 
 export interface ObjectiveSignalPortStaticContext {
@@ -60,6 +65,25 @@ function measurementOf(cc: ChangeCoverage | null, skipped: CoverageMeasurement["
   return { ...counts, unmeasured: unmappable ? "no-source-maps" : "no-changed-file-mapped" };
 }
 
+/* The source line of a changed file, each file read once per measurement through `readSource`. */
+function sourceLines(readSource: (file: string) => string | undefined): SourceLineOf {
+  const lines = new Map<string, string[] | undefined>();
+  return (file, line) => {
+    if (!lines.has(file)) lines.set(file, readSource(file)?.split(/\r?\n/));
+    return lines.get(file)?.[line - 1];
+  };
+}
+
+/* The working copy's text of a changed file, through the strict, capped read; a file that cannot be used gives no text, said once. */
+function workingCopySource(repoDir: string): (file: string) => string | undefined {
+  return (file) => {
+    const reader = new RepoReader(repoDir);
+    const text = reader.optionalText(file, MAX_SPEC_SOURCE_BYTES);
+    reader.warn("mutation: the source of a changed file");
+    return text;
+  };
+}
+
 export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
   constructor(
     private readonly deps: ObjectiveSignalPortCollaborators,
@@ -84,8 +108,11 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
 
     /* Mutants only of a measured change, on its changed lines, where a test reached: first the decisions an arm of which no test ran. */
     let bundleMutation: BundleMutationResult | null = null;
+    let mutantSelection: MutantSelectionRecord | undefined;
     if (this.deps.mutation && report?.mutationSites && executed?.measured && changeDiff !== undefined) {
-      const mutants = selectMutants(report.mutationSites, parseDiffHunks(changeDiff), opts?.caseFiles ?? [], undefined, report.branches);
+      const { mutants, skipped } = selectMutants(report.mutationSites, parseDiffHunks(changeDiff), opts?.caseFiles ?? [], undefined, report.branches, sourceLines(this.deps.readSource ?? workingCopySource(this.ctx.repoDir)));
+      const bySpecFile = mutants.filter((m) => m.tests === undefined).length;
+      mutantSelection = { ...(skipped.count > 0 ? { skippedSites: skipped } : {}), rerunsByTest: mutants.length - bySpecFile, rerunsBySpecFile: bySpecFile };
       if (mutants.length > 0) bundleMutation = await this.deps.mutation.measure(mutants, specDir, namespace, baselineCases ?? this.ctx.baselineCases ?? []);
     }
     const proofs = bundleMutation?.proofs ?? [];
@@ -113,7 +140,18 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
       killedCount: oracleResult.killedCount,
       ...(willAssemble && cc?.uncovered ? { uncovered: cc.uncovered } : {}),
       ...(cc?.untakenArms ? { untakenArms: cc.untakenArms } : {}),
-      ...(bundleMutation ? { bundleMutation: { applied: bundleMutation.applied, killed: bundleMutation.killed, survived: bundleMutation.survived } } : {}),
+      ...(bundleMutation
+        ? {
+            bundleMutation: {
+              applied: bundleMutation.applied,
+              killed: bundleMutation.killed,
+              survived: bundleMutation.survived,
+              ...(mutantSelection?.skippedSites ? { skippedSites: mutantSelection.skippedSites } : {}),
+              ...(mutantSelection?.rerunsBySpecFile ? { rerunsBySpecFile: mutantSelection.rerunsBySpecFile } : {}),
+            },
+          }
+        : {}),
+      ...(mutantSelection ? { mutantSelection } : {}),
       ...(verified ? { mutantProofs: proofs } : {}),
       ...(bundleMutation?.survivorRuns ? { survivorRuns: bundleMutation.survivorRuns } : {}),
       measurement,

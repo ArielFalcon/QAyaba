@@ -1,3 +1,4 @@
+import type { SkippedSites } from "./select-mutants.ts";
 import type { SurvivedMutant } from "./coverage-collector.ts";
 import type { AggregateUnmeasured, CandidateCoverage } from "./per-candidate-coverage.ts";
 
@@ -33,11 +34,20 @@ export interface UntakenArm {
   arm: string;
 }
 
-/** What the mutants of the changed code in the served script did: judged, noticed by a test, and where the others are. */
+/** What the mutants of the changed code in the served script did: judged, noticed by a test, and where the others are; the sites on changed lines a test reached that were no candidate, counted by why (`skippedSites`, absent when none was); and how many mutants re-ran every test of their spec files because the tests that reached them could not be told (`rerunsBySpecFile`, absent when none did). */
 export interface BundleMutationOutcome {
   applied: number;
   killed: number;
   survived: SurvivedMutant[];
+  skippedSites?: SkippedSites;
+  rerunsBySpecFile?: number;
+}
+
+/** How the mutants of a measurement were chosen: the sites left out by why (absent when none was), and how many mutants re-run only the tests that reached them and how many every test of their spec files. */
+export interface MutantSelectionRecord {
+  skippedSites?: SkippedSites;
+  rerunsByTest: number;
+  rerunsBySpecFile: number;
 }
 
 /** The dumps a re-run of some spec files wrote, under its own namespace. */

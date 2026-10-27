@@ -6,6 +6,7 @@ import vm from "node:vm";
 import { createHash } from "node:crypto";
 import { V8BrowserCoverageAdapter, defaultParseV8Coverage, type V8Entry } from "@contexts/objective-signal/infrastructure/v8-browser-coverage.adapter.ts";
 import { BranchSink, MAX_BRANCH_DECISIONS } from "@contexts/objective-signal/infrastructure/v8-branch-coverage.ts";
+import { selectMutants } from "@contexts/objective-signal/domain/select-mutants.ts";
 
 let scriptCount = 0;
 
@@ -181,6 +182,29 @@ gate(404, true);
   assert.equal(source.slice(0, negate.edit.start) + negate.edit.replacement + source.slice(negate.edit.end), source.replace("if (status === 404)", "if (!(status === 404))"));
   assert.deepEqual(negate.script, { url: "https://dev.example/src/gate.ts", sha256: createHash("sha256").update(source).digest("hex") });
   assert.deepEqual(negate.ranIn, ["flows-detail-spec-ts-missing-0-0.json"]);
+});
+
+test("a bundle's mutation sites carry the expression they change and the source line their map places them at, so the code the build added beside the change's own is no mutant", async () => {
+  const source = `function render(theme) {
+  if (typeof ngDevMode === "undefined" || ngDevMode) ensure();
+  return theme === "dark" ? "moon" : "sun";
+}
+function ensure() {}
+render("dark");
+`;
+  const original = "export class ThemeIcon {\n  icon = () => this.theme() === 'dark' ? 'moon' : 'sun';\n}\n";
+  const functions = await ranUnderCoverage(source);
+  const map = { ...lineMap(["../src/app/theme-icon.ts"], [[0, 0], [0, 1], [0, 1], [0, 2]]), sourcesContent: [original] };
+  const sink = new BranchSink();
+  sink.beginDump("flows-theme-spec-ts-dark-0-0.json");
+  defaultParseV8Coverage([{ url: "https://dev.example/main.js", source, functions, map }], ["src/app/theme-icon.ts"], undefined, undefined, sink);
+
+  const sites = sink.mutationSites()!;
+  assert.ok(sites.length >= 5 && sites.every((s) => s.line === 2 && s.sourceLine === "  icon = () => this.theme() === 'dark' ? 'moon' : 'sun';"));
+  assert.ok(sites.some((s) => s.operator === "=== → !==" && s.expression === 'theme === "dark"'));
+  const { mutants, skipped } = selectMutants(sites, new Map([["src/app/theme-icon.ts", new Set([2])]]), ["flows/theme.spec.ts"], 10);
+  assert.deepEqual(mutants.map((m) => m.site.expression?.includes("ngDevMode")), [false], "one mutant for the line, of the change's own expression");
+  assert.equal(skipped.count, 3, "the guard's comparison, its `||` and its negated condition");
 });
 
 test("a site that ran in several dumps names each of them once", async () => {

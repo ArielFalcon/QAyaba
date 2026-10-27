@@ -665,12 +665,18 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   of its dump sources could not be read.
 - **Bundle mutation** (signal, never a gate; on with `qa.valueOracle`): up to three mutants of the changed
   code in the served script (a negated condition, a swapped comparison or logical operator), each one
-  re-run of the spec files whose tests reached it, through the seed's `_mutate` fixture (`PW_MUTANT`). The
+  re-run, through the seed's `_mutate` fixture (`PW_MUTANT`), of the tests whose coverage dumps ran it (the
+  fixture skips the others; when the dumps do not name their tests, every test of their spec files). A site is
+  a mutant only when the source line its map places it at (the map's `sourcesContent`, else the working copy
+  through the confined reader) holds the expression it changes: a name of the expression and each of its
+  comparison or logical operators (`mutation-site-source.ts`), so code the build added beside the change (a
+  framework's development guard, a lowered `?.`) is never mutated. The
   decisions of changed lines with an arm no test ran come first, each by the site that forces it (the negated
   condition of an if or `?:`, the swapped `&&`/`||`); the rest are one per changed line (`select-mutants.ts`).
   A mutant is judged only when it reached a page; it is killed when a passing test fails.
-  `gateSignals.bundleMutation` holds `{ applied, killed, survived[] }` beside the response oracle's
-  `valueScore`, whose meaning is unchanged.
+  `gateSignals.bundleMutation` holds `{ applied, killed, survived[] }`, plus `skippedSites { count, reasons }`
+  (sites left out, by `no-source-line` or `not-in-source-line`) and `rerunsBySpecFile` (mutants whose tests
+  could not be told) when there are any, beside the response oracle's `valueScore`, whose meaning is unchanged.
 - **Survivor closure** (signal, never a gate): a surviving mutant routed to a coverage or branch-case
   regeneration is, once that regeneration is accepted, applied again to the specs it changed and judged
   against their passing cases (`closeSurvivors`, `survivor-closure.ts`): a regenerated test counts as
