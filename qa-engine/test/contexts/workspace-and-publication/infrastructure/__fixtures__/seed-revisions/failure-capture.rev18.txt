@@ -1,0 +1,373 @@
+
+// >>> qa-failure-capture (system-owned: do not edit) >>>
+// Captures the aria snapshot of the page at the failure point, the page's final URL, the HTTP
+// status of the most-recent correlated 5xx server error, the failures of the requests the page depends on
+// (requestfailed events; background traffic is counted apart), the runtime errors (console error + pageerror), whether the page had settled (data requests
+// in flight, time since the last data response, a second read of the tree) and the result count the
+// app's declared data state (PW_DATA_STATE) shows there, writing them to QA_FAILURE_CAPTURE_DIR so
+// the orchestrator can ground the fix-loop regeneration and surface runtime evidence to the adjudicator
+// and reviewer. A passing test still dumps when it showed network or page-error evidence (a failed request,
+// a 5xx or an uncaught page error), without an aria snapshot; a benign console log does not trigger it.
+// Best-effort only: the page may be closed on a nav-crash (try/catch swallows), and the entire block is a
+// no-op when QA_FAILURE_CAPTURE_DIR is unset.
+//
+// SELF-CONTAINED: this exact block is also appended (append-only) into existing repos'
+// fixtures.ts by the orchestrator, so it CANNOT assume any top-level import is present.
+// node:fs/path/crypto are pulled in via dynamic import() INSIDE the async afterEach —
+// a CommonJS-style synchronous load is not defined in this native-ESM module
+// ("type":"module") and would throw a ReferenceError that the catch would swallow.
+//
+// The capture runs from the seed's auto fixture (_failureCapture), which reaches every spec file. The
+// hooks at the end of this block stand in where that fixture is absent: a hook declared in this module
+// binds only to the first spec file a worker loads, since the module is evaluated once per worker.
+import type { APIRequestContext as QaCaptureRequest, Page as QaCapturePage, TestInfo as QaCaptureTestInfo } from "@playwright/test";
+let errorResponses: { url: string; status: number; resourceType: string }[] = [];
+// App-defect detection: browser console `error`-level entries and uncaught `pageerror`
+// exceptions observed during the current test. Reset per-test (mirrors errorResponses) so a reused
+// page never cross-attributes a PRIOR test's runtime errors to the current one. Best-effort: the
+// orchestrator's runtime-error classifier turns this into a diagnostic signal ONLY — it never
+// blocks or masks a real generated-test defect.
+let runtimeErrors: { type: string; text: string }[] = [];
+// Browser network failures (requestfailed events) observed during the current test, reset per-test like the
+// other evidence arrays. Each entry carries the sanitized URL (origin + pathname only — a query string or
+// fragment never reaches the dump), a truncated error text and the resource type.
+let failedRequests: { url: string; errorText: string; resourceType: string }[] = [];
+// What the page depends on, as opposed to the background traffic around it (error-tracking and analytics
+// beacons, map-vendor events, the browser's own housekeeping). The resource type decides, never the host: a
+// request is page-dependent when it is of a type the page needs to render or act (the foreground
+// interactions document, fetch, xhr, plus the scripts and style sheets it loads), whatever origin it goes
+// to. The suite's network only reaches the origins the app declares, so an origin cannot tell a needed API
+// from a telemetry host: a refused script or fetch IS the diagnosis (egress), while a beacon, image, font or
+// media request is fire-and-forget and the page works without it. Only a page-dependent failure is a network
+// error of the test; the rest is counted apart so it stays visible and never explains a failure.
+const PAGE_FOREGROUND_TYPES = ['document', 'fetch', 'xhr'];
+const PAGE_DEPENDENT_TYPES = new Set([...PAGE_FOREGROUND_TYPES, 'script', 'stylesheet']);
+const BACKGROUND_HOSTS_CAP = 5;
+let backgroundFailures: { count: number; hosts: string[] } = { count: 0, hosts: [] };
+function isPageDependent(resourceType: string): boolean {
+  return PAGE_DEPENDENT_TYPES.has(resourceType);
+}
+function noteBackgroundFailure(rawUrl: string): void {
+  backgroundFailures.count++;
+  try {
+    const host = new URL(rawUrl).hostname.toLowerCase();
+    if (host && !backgroundFailures.hosts.includes(host) && backgroundFailures.hosts.length < BACKGROUND_HOSTS_CAP) backgroundFailures.hosts.push(host);
+  } catch {}
+}
+// Settle facts of the current test's page: data requests (fetch/xhr) started and not yet finished or
+// failed, and when the last one finished. Reset per-test like the other evidence.
+let dataInFlight = 0;
+let lastDataAt = 0;
+function isDataRequest(r: { resourceType(): string }): boolean { try { const t = r.resourceType(); return t === 'fetch' || t === 'xhr'; } catch { return false; } }
+// The app's declared data state for a pathname: an exact key first, then a key with parameters
+// ("/shops/:city") the pathname fills segment by segment, then a key ending "/*" (its prefix and its
+// root) — the same matching the Context Pack's capture applies to dev.dataState.
+function fillsDataStateTemplate(key: string, pathname: string): boolean {
+  const keyParts = key.split('/').filter((part) => part !== '');
+  if (!keyParts.some((part) => part.startsWith(':'))) return false;
+  const parts = pathname.split('/').filter((part) => part !== '');
+  return keyParts.length === parts.length && keyParts.every((part, i) => (part.startsWith(':') ? part.length > 1 : part === parts[i]));
+}
+function matchDataState(routes: Record<string, { resultSelector?: string; resultTextSelector?: string }>, pathname: string): { resultSelector?: string; resultTextSelector?: string } | undefined {
+  if (Object.prototype.hasOwnProperty.call(routes, pathname)) return routes[pathname];
+  for (const key of Object.keys(routes)) {
+    if (fillsDataStateTemplate(key, pathname)) return routes[key];
+  }
+  for (const key of Object.keys(routes)) {
+    if (key.endsWith('/*') && (pathname === key.slice(0, -2) || pathname.startsWith(key.slice(0, -1)))) return routes[key];
+  }
+  return undefined;
+}
+// Reduces a URL to origin + pathname so a query string or fragment never reaches the dump.
+function networkUrl(raw: string): string { try { const u = new URL(raw); const url = u.origin + u.pathname; return url.length > 300 ? url.slice(0, 300) : url; } catch { return ""; } }
+// DEV-write counter, on only when the orchestrator asks (PW_COUNT_DEV_WRITES=1, for a spec it executes on the
+// generator's behalf): the mutating requests (POST, PUT, PATCH, DELETE) of a test's page and context that a server
+// answered, written per test to a ledger file in the capture directory so the orchestrator can hold what a spec does
+// to DEV to a cap. A request nobody answered (refused by the sandbox's egress filter, like an error reporter's
+// beacon, or failed on the network) wrote nothing and is not counted. A context is listened to once however many
+// tests share it. Requests of the API clients (the `request` fixture, `page.request`, `context.request`) are not
+// browser requests, so their fetch is counted too, once it comes back with a response. Only a write to DEV counts: a
+// request to one of the origins the orchestrator names in PW_DEV_ORIGINS (a JSON list of scheme://host[:port] or
+// scheme://*.suffix[:port], the run's DEV origins), matched by host and port as the egress filter matches them; a page's
+// own requests to other hosts (analytics, error reporters) write nothing to DEV. Without a readable list every write
+// counts. The first DEV_WRITE_REQUESTS_CAP counted requests of a test are recorded beside its count, by method and
+// origin + pathname (never the query or the body).
+let devWrites = 0;
+let devWriteRequests: Array<{ method: string; url: string }> = [];
+const DEV_WRITE_REQUESTS_CAP = 20;
+const countedContexts = new WeakSet<object>();
+const countedApis = new WeakSet<object>();
+interface DevOrigin { host: string; wildcard: boolean; port: number }
+let devOrigins: DevOrigin[] | undefined;
+function readDevOrigins(raw: string | undefined): DevOrigin[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const list: unknown = JSON.parse(raw);
+    if (!Array.isArray(list) || list.length === 0) return undefined;
+    const origins: DevOrigin[] = [];
+    for (const entry of list) {
+      const m = typeof entry === 'string' ? /^(https?):\/\/(\*\.)?([^/?#@:*]+)(?::(\d+))?\/?$/i.exec(entry) : null;
+      if (!m) return undefined;
+      const host = m[3]!.toLowerCase().replace(/\.$/, '');
+      origins.push({ host, wildcard: m[2] !== undefined, port: m[4] ? Number(m[4]) : m[1]!.toLowerCase() === 'https' ? 443 : 80 });
+    }
+    return origins;
+  } catch { return undefined; }
+}
+// Whether a request to `raw` goes to DEV. A URL that cannot be read counts, the closed reading.
+function isDevWrite(raw: string | undefined): boolean {
+  if (!devOrigins || raw === undefined) return true;
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.toLowerCase().replace(/\.$/, '');
+    const port = u.port ? Number(u.port) : u.protocol === 'https:' ? 443 : u.protocol === 'http:' ? 80 : -1;
+    return devOrigins.some((o) => o.port === port && (o.wildcard ? host.endsWith('.' + o.host) : host === o.host));
+  } catch { return true; }
+}
+function noteDevWrite(method: string, raw: string | undefined): void {
+  if (!isDevWrite(raw)) return;
+  devWrites++;
+  const url = raw === undefined ? '' : networkUrl(raw);
+  if (url && devWriteRequests.length < DEV_WRITE_REQUESTS_CAP) devWriteRequests.push({ method, url });
+}
+interface WriteCountable { fetch(target: unknown, options?: { method?: string }): Promise<unknown> }
+function countWrites(api: WriteCountable | undefined): void {
+  if (!api || countedApis.has(api)) return;
+  countedApis.add(api);
+  const original = api.fetch.bind(api);
+  api.fetch = async (target, options) => {
+    let method: string | undefined;
+    let url: string | undefined;
+    try {
+      const request = typeof target === 'object' && target !== null ? (target as { method?: unknown; url?: unknown }) : undefined;
+      const own = request && typeof request.method === 'function' ? (request.method as () => string)() : 'GET';
+      const candidate = String(options?.method ?? own).toUpperCase();
+      if (/^(?:POST|PUT|PATCH|DELETE)$/.test(candidate)) method = candidate;
+      if (typeof target === 'string') url = new URL(target, process.env.PW_BASE_URL).href;
+      else if (request && typeof request.url === 'function') url = (request.url as () => string)();
+    } catch {}
+    const response = await original(target, options);
+    if (method) noteDevWrite(method, url);
+    return response;
+  };
+}
+
+async function qaFailureCaptureStart(page: QaCapturePage, request: QaCaptureRequest): Promise<void> {
+  if (!process.env.QA_FAILURE_CAPTURE_DIR) return; // no-op when capture is disabled (zero overhead)
+  errorResponses = [];                               // reset unconditionally so reused pages never cross-attribute
+  runtimeErrors = [];                                 // same per-test reset discipline
+  failedRequests = [];                                // same per-test reset discipline
+  backgroundFailures = { count: 0, hosts: [] };
+  dataInFlight = 0;
+  lastDataAt = 0;
+  devWrites = 0;
+  devWriteRequests = [];
+  if (process.env.PW_COUNT_DEV_WRITES === '1') {
+    devOrigins = readDevOrigins(process.env.PW_DEV_ORIGINS);
+    try {
+      const context = page.context();
+      if (!countedContexts.has(context)) {
+        countedContexts.add(context);
+        context.on('requestfinished', (r) => {
+          try {
+            const method = r.method();
+            if (!/^(?:POST|PUT|PATCH|DELETE)$/.test(method)) return;
+            let url: string | undefined;
+            try { url = r.url(); } catch {}
+            noteDevWrite(method, url);
+          } catch {}
+        });
+        countWrites(context.request);
+      }
+      countWrites(request);
+    } catch {}
+  }
+  try {
+    page.on('request', (r) => { if (isDataRequest(r)) dataInFlight++; });
+    page.on('requestfinished', (r) => { if (isDataRequest(r)) { dataInFlight = Math.max(0, dataInFlight - 1); lastDataAt = Date.now(); } });
+  } catch {}
+  try {
+    page.on('response', (r) => {
+      try { const s = r.status(); if (s >= 400 && errorResponses.length < 50) errorResponses.push({ url: r.url(), status: s, resourceType: r.request().resourceType() }); } catch {}
+    });
+  } catch {}
+  try {
+    page.on('requestfailed', (r) => {
+      try {
+        if (isDataRequest(r)) dataInFlight = Math.max(0, dataInFlight - 1);
+        const type = r.resourceType();
+        if (!isPageDependent(type)) { noteBackgroundFailure(r.url()); return; }
+        if (failedRequests.length >= 50) return;
+        const url = networkUrl(r.url());
+        if (!url) return;
+        const errorText = r.failure()?.errorText ?? "request failed";
+        failedRequests.push({ url, errorText: errorText.length > 160 ? errorText.slice(0, 160) : errorText, resourceType: r.resourceType().slice(0, 40) });
+      } catch {}
+    });
+  } catch {}
+  try {
+    page.on('console', (msg) => {
+      try {
+        if (msg.type() !== 'error') return; // only error-level; warnings/logs are not runtime evidence
+        runtimeErrors.push({ type: 'error', text: msg.text() });
+      } catch {}
+    });
+  } catch {}
+  try {
+    page.on('pageerror', (err) => {
+      try { runtimeErrors.push({ type: 'pageerror', text: err.message ?? String(err) }); } catch {}
+    });
+  } catch {}
+}
+
+async function qaFailureCaptureFinish(page: QaCapturePage, testInfo: QaCaptureTestInfo): Promise<void> {
+  const dir = process.env.QA_FAILURE_CAPTURE_DIR;
+  if (!dir) return;                                   // degrade to no-op when the orchestrator did not ask
+  if (process.env.PW_COUNT_DEV_WRITES === '1') {
+    try {
+      const { writeFileSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      const id = String(testInfo.testId ?? testInfo.title).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60);
+      writeFileSync(join(dir, 'ledger-w' + testInfo.workerIndex + '-' + id + '-r' + testInfo.retry + '.json'), JSON.stringify(devWriteRequests.length > 0 ? { writes: devWrites, requests: devWriteRequests } : { writes: devWrites }));
+    } catch { /* best effort — the count is a bound on the spec, never a test failure */ }
+  }
+  const expected = testInfo.status === testInfo.expectedStatus;
+  // A passing test still dumps when the page raised an uncaught error. Network evidence describes a
+  // failure: a passing attempt never dumps for it and never reports network errors, because a telemetry
+  // fetch the egress filter refused is background noise of a test that worked.
+  const hasEvidence = runtimeErrors.some((e) => e.type === "pageerror");
+  if (expected && !hasEvidence) return;
+  try {
+    const { writeFileSync } = await import("node:fs");
+    const { join, basename } = await import("node:path");
+    const { createHash } = await import("node:crypto");
+    // Settle facts as of the failure point, read before anything waits.
+    const inFlight = dataInFlight;
+    const quietMs = lastDataAt > 0 ? Date.now() - lastDataAt : undefined;
+    const yaml = expected ? "" : await page.locator("body").ariaSnapshot(); // a passing test with evidence needs no tree
+    // title = the describe › test chain (drop the leading project element), MATCHING the stream
+    // reporter's _name. The orchestrator's harvest keys off this: the JSON report's case name is
+    // `file › describe › test`, whose trailing segments equal this title's segments.
+    const title = testInfo.titlePath.filter(Boolean).slice(1).join(" › ");
+    const project = testInfo.project.name;
+    // file = the spec's basename. Two tests with the SAME describe › test chain in DIFFERENT spec
+    // files share a title; the file disambiguates them so neither the dump identity nor the harvest
+    // match attaches the wrong DOM. Stored in the body AND folded into the filename hash below.
+    const file = basename(testInfo.file ?? "");
+    // Filename: project + a short hash of file + title + retry. The project keeps two projects
+    // (desktop/mobile) running the same spec from clobbering each other; the (file + title) HASH
+    // (not an 80-char truncation) keeps two long titles sharing an 80-char prefix — or two same-titled
+    // tests in different files — from colliding. The body is authoritative for matching (project/file/
+    // title); the filename only guarantees uniqueness + retry.
+    const hash = createHash("sha1").update(`${file}/${title}`).digest("hex").slice(0, 12);
+    const safeProject = project.replace(/[^a-z0-9]+/gi, "-").slice(0, 40);
+    // Compute finalUrl (sync, always available in afterEach) and the attributed httpStatus
+    // via the attribution heuristic (5xx-only, resource-type-gated, same-origin correlated, last).
+    // (Path-family intentionally omitted: in a SPA the finalUrl is the UI route (e.g. /orders) while
+    // the causing 5xx is the API call (e.g. /api/orders) — different path segments — so path-family
+    // would drop legitimate API 5xxs; same-origin is the correct, not-too-tight correlation.)
+    const finalUrl = page.url();
+    // The result count the app's declared data state shows on this page, read at the failure point.
+    let resultCount: number | undefined;
+    if (!expected && process.env.PW_DATA_STATE) {
+      try {
+        const declared = JSON.parse(process.env.PW_DATA_STATE) as { routes?: unknown };
+        const routes = declared && typeof declared.routes === 'object' && declared.routes !== null ? declared.routes as Record<string, { resultSelector?: string; resultTextSelector?: string }> : undefined;
+        const state = routes ? matchDataState(routes, new URL(finalUrl).pathname) : undefined;
+        if (state?.resultTextSelector) {
+          const m = (await page.locator(state.resultTextSelector).first().innerText({ timeout: 1000 })).match(/\d+/);
+          if (m) resultCount = parseInt(m[0], 10);
+        } else if (state?.resultSelector) {
+          resultCount = await page.locator(state.resultSelector).count();
+        }
+      } catch { resultCount = undefined; }
+    }
+    // A second read of the tree a moment later: a tree that changed was a moment of a render, not a settled page.
+    // The gap between the two reads is the measurement itself, not a wait for the page.
+    let settle: { inFlight: number; quietMs?: number; treeStable: boolean } | undefined;
+    if (!expected) {
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const again = await page.locator("body").ariaSnapshot();
+        settle = { inFlight, ...(quietMs !== undefined ? { quietMs } : {}), treeStable: again === yaml };
+      } catch { settle = undefined; }
+    }
+    let httpStatus: number | undefined;
+    try {
+      let finalUrlOrigin = '';
+      try { finalUrlOrigin = new URL(finalUrl).origin; } catch {}
+      const survivors = errorResponses.filter((e) => {
+        if (e.status < 500 || e.status > 599) return false; // 5xx only
+        if (!PAGE_FOREGROUND_TYPES.includes(e.resourceType)) return false; // keep only foreground interactions
+        try {
+          const eOrigin = new URL(e.url).origin;
+          return eOrigin === finalUrlOrigin;                  // same-origin correlation
+        } catch { return false; }
+      });
+      if (survivors.length > 0) httpStatus = survivors[survivors.length - 1]!.status; // last survivor
+    } catch {}
+    // Runtime errors: dedupe (same type+text pair collapses to one entry — a repeated framework error
+    // firing on every change-detection cycle would otherwise flood the dump), cap at ~15 entries
+    // (the orchestrator only needs enough to classify, not an exhaustive log), and truncate each
+    // entry's text to ~200 chars (the classifier only needs the first line/signature, not a full
+    // stack). Best-effort: any failure here still lets the rest of the dump (yaml/finalUrl/httpStatus)
+    // write normally.
+    let dedupedRuntimeErrors: { type: string; text: string }[] = [];
+    try {
+      const RUNTIME_ERRORS_CAP = 15;
+      const RUNTIME_ERROR_TEXT_CAP = 200;
+      const seen = new Set<string>();
+      for (const e of runtimeErrors) {
+        const text = e.text.length > RUNTIME_ERROR_TEXT_CAP ? e.text.slice(0, RUNTIME_ERROR_TEXT_CAP) : e.text;
+        const key = `${e.type} ${text}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        dedupedRuntimeErrors.push({ type: e.type, text });
+        if (dedupedRuntimeErrors.length >= RUNTIME_ERRORS_CAP) break;
+      }
+    } catch { dedupedRuntimeErrors = []; }
+    // Network errors: merge the HTTP error responses (url/status/resourceType) and the failed requests
+    // (url/errorText/resourceType) into one bounded list, each URL reduced to origin + pathname, deduped
+    // by status|errorText|url|resourceType and capped at 10. Best-effort: a failure here still lets the
+    // rest of the dump write.
+    let networkErrors: { url: string; status?: number; errorText?: string; resourceType: string }[] = [];
+    try {
+      const NETWORK_ERRORS_CAP = 10;
+      const seen = new Set<string>();
+      const merged: { url: string; status?: number; errorText?: string; resourceType: string }[] = [];
+      for (const e of errorResponses) {
+        if (!isPageDependent(e.resourceType)) { noteBackgroundFailure(e.url); continue; }
+        const url = networkUrl(e.url);
+        if (url) merged.push({ url, status: e.status, resourceType: e.resourceType });
+      }
+      for (const e of failedRequests) {
+        const url = networkUrl(e.url);
+        if (url) merged.push({ url, errorText: e.errorText, resourceType: e.resourceType });
+      }
+      for (const e of merged) {
+        const key = `${e.status ?? ""}|${e.errorText ?? ""}|${e.url}|${e.resourceType}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        networkErrors.push(e);
+        if (networkErrors.length >= NETWORK_ERRORS_CAP) break;
+      }
+    } catch { networkErrors = []; }
+    if (expected) networkErrors = [];
+    writeFileSync(
+      join(dir, `${safeProject}__${hash}__${testInfo.retry}.json`),
+      JSON.stringify({ project, file, title, retry: testInfo.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors, ...(backgroundFailures.count > 0 ? { backgroundNetwork: backgroundFailures } : {}), settle, resultCount }),
+    );
+  } catch { /* page may be closed on a nav-crash — best-effort, never fail the run */ }
+}
+
+// Set by the seed's _failureCapture fixture, which then runs the capture itself.
+let qaFailureCaptureByFixture = false;
+
+test.beforeEach(async ({ page, request }) => {
+  if (!qaFailureCaptureByFixture) await qaFailureCaptureStart(page, request);
+});
+
+test.afterEach(async ({ page }, testInfo) => {
+  if (!qaFailureCaptureByFixture) await qaFailureCaptureFinish(page, testInfo);
+});
+// <<< qa-failure-capture <<<

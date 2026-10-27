@@ -457,23 +457,68 @@ function networkUrl(raw: string): string { try { const u = new URL(raw); const u
 // to DEV to a cap. A request nobody answered (refused by the sandbox's egress filter, like an error reporter's
 // beacon, or failed on the network) wrote nothing and is not counted. A context is listened to once however many
 // tests share it. Requests of the API clients (the `request` fixture, `page.request`, `context.request`) are not
-// browser requests, so their fetch is counted too, once it comes back with a response.
+// browser requests, so their fetch is counted too, once it comes back with a response. Only a write to DEV counts: a
+// request to one of the origins the orchestrator names in PW_DEV_ORIGINS (a JSON list of scheme://host[:port] or
+// scheme://*.suffix[:port], the run's DEV origins), matched by host and port as the egress filter matches them; a page's
+// own requests to other hosts (analytics, error reporters) write nothing to DEV. Without a readable list every write
+// counts. The first DEV_WRITE_REQUESTS_CAP counted requests of a test are recorded beside its count, by method and
+// origin + pathname (never the query or the body).
 let devWrites = 0;
+let devWriteRequests: Array<{ method: string; url: string }> = [];
+const DEV_WRITE_REQUESTS_CAP = 20;
 const countedContexts = new WeakSet<object>();
 const countedApis = new WeakSet<object>();
+interface DevOrigin { host: string; wildcard: boolean; port: number }
+let devOrigins: DevOrigin[] | undefined;
+function readDevOrigins(raw: string | undefined): DevOrigin[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const list: unknown = JSON.parse(raw);
+    if (!Array.isArray(list) || list.length === 0) return undefined;
+    const origins: DevOrigin[] = [];
+    for (const entry of list) {
+      const m = typeof entry === 'string' ? /^(https?):\/\/(\*\.)?([^/?#@:*]+)(?::(\d+))?\/?$/i.exec(entry) : null;
+      if (!m) return undefined;
+      const host = m[3]!.toLowerCase().replace(/\.$/, '');
+      origins.push({ host, wildcard: m[2] !== undefined, port: m[4] ? Number(m[4]) : m[1]!.toLowerCase() === 'https' ? 443 : 80 });
+    }
+    return origins;
+  } catch { return undefined; }
+}
+// Whether a request to `raw` goes to DEV. A URL that cannot be read counts, the closed reading.
+function isDevWrite(raw: string | undefined): boolean {
+  if (!devOrigins || raw === undefined) return true;
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.toLowerCase().replace(/\.$/, '');
+    const port = u.port ? Number(u.port) : u.protocol === 'https:' ? 443 : u.protocol === 'http:' ? 80 : -1;
+    return devOrigins.some((o) => o.port === port && (o.wildcard ? host.endsWith('.' + o.host) : host === o.host));
+  } catch { return true; }
+}
+function noteDevWrite(method: string, raw: string | undefined): void {
+  if (!isDevWrite(raw)) return;
+  devWrites++;
+  const url = raw === undefined ? '' : networkUrl(raw);
+  if (url && devWriteRequests.length < DEV_WRITE_REQUESTS_CAP) devWriteRequests.push({ method, url });
+}
 interface WriteCountable { fetch(target: unknown, options?: { method?: string }): Promise<unknown> }
 function countWrites(api: WriteCountable | undefined): void {
   if (!api || countedApis.has(api)) return;
   countedApis.add(api);
   const original = api.fetch.bind(api);
   api.fetch = async (target, options) => {
-    let writes = false;
+    let method: string | undefined;
+    let url: string | undefined;
     try {
-      const own = typeof target === 'object' && target !== null && typeof (target as { method?: unknown }).method === 'function' ? (target as { method: () => string }).method() : 'GET';
-      writes = /^(?:POST|PUT|PATCH|DELETE)$/.test(String(options?.method ?? own).toUpperCase());
+      const request = typeof target === 'object' && target !== null ? (target as { method?: unknown; url?: unknown }) : undefined;
+      const own = request && typeof request.method === 'function' ? (request.method as () => string)() : 'GET';
+      const candidate = String(options?.method ?? own).toUpperCase();
+      if (/^(?:POST|PUT|PATCH|DELETE)$/.test(candidate)) method = candidate;
+      if (typeof target === 'string') url = new URL(target, process.env.PW_BASE_URL).href;
+      else if (request && typeof request.url === 'function') url = (request.url as () => string)();
     } catch {}
     const response = await original(target, options);
-    if (writes) devWrites++;
+    if (method) noteDevWrite(method, url);
     return response;
   };
 }
@@ -487,13 +532,21 @@ async function qaFailureCaptureStart(page: QaCapturePage, request: QaCaptureRequ
   dataInFlight = 0;
   lastDataAt = 0;
   devWrites = 0;
+  devWriteRequests = [];
   if (process.env.PW_COUNT_DEV_WRITES === '1') {
+    devOrigins = readDevOrigins(process.env.PW_DEV_ORIGINS);
     try {
       const context = page.context();
       if (!countedContexts.has(context)) {
         countedContexts.add(context);
         context.on('requestfinished', (r) => {
-          try { if (/^(?:POST|PUT|PATCH|DELETE)$/.test(r.method())) devWrites++; } catch {}
+          try {
+            const method = r.method();
+            if (!/^(?:POST|PUT|PATCH|DELETE)$/.test(method)) return;
+            let url: string | undefined;
+            try { url = r.url(); } catch {}
+            noteDevWrite(method, url);
+          } catch {}
         });
         countWrites(context.request);
       }
@@ -546,7 +599,7 @@ async function qaFailureCaptureFinish(page: QaCapturePage, testInfo: QaCaptureTe
       const { writeFileSync } = await import("node:fs");
       const { join } = await import("node:path");
       const id = String(testInfo.testId ?? testInfo.title).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60);
-      writeFileSync(join(dir, 'ledger-w' + testInfo.workerIndex + '-' + id + '-r' + testInfo.retry + '.json'), JSON.stringify({ writes: devWrites }));
+      writeFileSync(join(dir, 'ledger-w' + testInfo.workerIndex + '-' + id + '-r' + testInfo.retry + '.json'), JSON.stringify(devWriteRequests.length > 0 ? { writes: devWrites, requests: devWriteRequests } : { writes: devWrites }));
     } catch { /* best effort — the count is a bound on the spec, never a test failure */ }
   }
   const expected = testInfo.status === testInfo.expectedStatus;
