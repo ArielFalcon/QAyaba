@@ -1024,7 +1024,7 @@ test("a flow's brief preloads its changed code while it fits the author's window
   assert.equal(tight.opts.contextFit?.outcome, "fits");
 });
 
-test("every flow of a large plan is granted the calls its own time can run, while the run's DEV-write cap stays what it was whatever the plan's size", async () => {
+test("every flow of a large plan is granted the calls its own time can run, while the flows' DEV writes together never pass the run's unchanged cap", async () => {
   const run = async (count: number) => {
     const r = rig({ hasFile: new Set() });
     const devWritesCap = r.closedLoop.limits.maxDevWrites;
@@ -1036,12 +1036,17 @@ test("every flow of a large plan is granted the calls its own time can run, whil
   const flowMs = DEFAULT_COORDINATION_SETTINGS.flowBudgetMs.opencode;
   for (const count of [2, 10]) {
     const { r, devWritesCap } = await run(count);
-    assert.equal(r.flowLoops.length, count);
+    /* 12 writes: a share of 6 each for 2 flows; for 10 flows the minimum of 2 for the first 6, and none left for the other 4. */
+    const withWrites = Math.min(count, Math.floor(devWritesCap / Math.max(Math.floor(devWritesCap / count), MIN_RUN_SPEC_DEV_WRITES_PER_FLOW)));
+    assert.equal(r.flowLoops.length, withWrites, `${count} flows: a loop for each flow the cap leaves writes to`);
+    assert.ok(r.flowLoops.reduce((sum, l) => sum + l.input.limits.maxDevWrites, 0) <= devWritesCap, "the flows' writes together never pass the run's cap");
+    const withheld = r.executed.filter((e) => /requests that write to DEV are all granted to other flows/.test(e.brief.task));
+    assert.equal(withheld.length, count - withWrites, "a flow left no write is told it cannot run the spec, and why");
+    assert.ok(withheld.every((e) => !(e.brief.tools ?? []).includes("run_spec")));
     assert.ok(r.flowLoops.every((l) => l.input.limits.maxCalls === Math.floor(flowMs / r.closedLoop.limits.perCallMs)), `${count} flows: run_spec by each flow's time`);
     assert.ok(r.shares.every(([, calls]) => calls === Math.floor(flowMs / r.agentBrowser.limits.perCallMs)), `${count} flows: browser by each flow's time`);
     assert.ok(r.shares.reduce((sum, [, calls]) => sum + calls, 0) > r.agentBrowser.limits.maxCalls || count < 10, "the grants add up past the browser's own total");
     assert.equal(r.closedLoop.limits.maxDevWrites, devWritesCap, "the run's DEV-write cap is not raised");
-    assert.ok(r.flowLoops.every((l) => l.input.limits.maxDevWrites === Math.max(Math.floor(devWritesCap / count), Math.min(devWritesCap, MIN_RUN_SPEC_DEV_WRITES_PER_FLOW))), `${count} flows: DEV writes are the cap's share`);
   }
 });
 

@@ -296,8 +296,18 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
   if (budgetMs < limits.minFlowMs) return reject(PLAN_DOWNGRADE.NO_TIME);
 
   const runSpecCalls = perFlowGrant({ held: limits.runSpecPerCallMs !== undefined, flows: count, minimum: MIN_RUN_SPEC_CALLS_PER_FLOW, flowBudgetMs: budgetMs, ...(limits.runSpecPerCallMs !== undefined ? { perCallMs: limits.runSpecPerCallMs } : {}), ...(limits.runSpecCallsCeiling !== undefined ? { ceiling: limits.runSpecCallsCeiling } : {}) });
-  /* The DEV-write cap protects DEV's data: it is never derived from the plan, and every flow's writes are a share of it. */
-  const runSpecDevWrites = perFlowGrant({ held: limits.runSpecDevWrites !== undefined, ceiling: limits.runSpecDevWrites ?? 0, flows: count, minimum: MIN_RUN_SPEC_DEV_WRITES_PER_FLOW });
+  /*
+   * The DEV-write cap protects DEV's data: it is never derived from the plan, and the flows' writes together never promise more than
+   * it. Each flow in plan order is granted its share out of what is left, so when every flow's minimum does not fit, the last flows
+   * get what remains, possibly none.
+   */
+  const writeShare = perFlowGrant({ held: limits.runSpecDevWrites !== undefined, ceiling: limits.runSpecDevWrites ?? 0, flows: count, minimum: MIN_RUN_SPEC_DEV_WRITES_PER_FLOW });
+  let writesLeft = limits.runSpecDevWrites ?? 0;
+  const devWritesOf = (): number => {
+    const granted = Math.min(writeShare, writesLeft);
+    writesLeft -= granted;
+    return granted;
+  };
   const browserCalls = perFlowGrant({ held: limits.browserPerCallMs !== undefined, flows: count, minimum: MIN_BROWSER_CALLS_PER_FLOW, flowBudgetMs: budgetMs, ...(limits.browserPerCallMs !== undefined ? { perCallMs: limits.browserPerCallMs } : {}), ...(limits.browserCallsCeiling !== undefined ? { ceiling: limits.browserCallsCeiling } : {}) });
 
   return {
@@ -319,7 +329,7 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
         writablePaths: [`${deps.specRelDir.replace(/\/+$/, "")}/${specFile}`],
         budgetMs,
         runSpecCalls,
-        runSpecDevWrites,
+        runSpecDevWrites: devWritesOf(),
         browserCalls,
         ...(flow.location !== undefined ? { location: flow.location } : {}),
       };

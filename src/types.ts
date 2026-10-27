@@ -248,7 +248,7 @@ export interface RunOutcome {
     /* Whether the reviewer judged with the generator's own model; absent when the runtime assignment is unknown. */
     reviewerIndependence?: "shared-model" | "distinct-model";
     /* How the generator used run_spec this run and whether the loop ended closed; absent when the tool was not granted. */
-    closedLoop?: { calls: number; devWrites: number; closed: boolean; granted?: number };
+    closedLoop?: { calls: number; devWrites: number; closed: boolean; granted?: number; writesRefused?: number };
     /* How the authoring agents used the authenticated browser this run; absent when it was not granted. */
     agentBrowser?: { calls: number; blocks: number; invalidations: number; renewals: number; granted?: number };
     /* How the run was coordinated: what became of the lead's plan and its flows; absent for a run that did not coordinate (a code or context run). A record stored earlier may also carry a `mode`. */

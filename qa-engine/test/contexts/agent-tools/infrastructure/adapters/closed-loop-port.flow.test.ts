@@ -33,7 +33,7 @@ interface Rig {
   events: string[];
 }
 
-async function rig(t: TestContext, over: { devWrites?: number } = {}): Promise<Rig> {
+async function rig(t: TestContext, over: { devWrites?: number; runDevWrites?: number } = {}): Promise<Rig> {
   const base = mkdtempSync(join(tmpdir(), "closed-loop-flow-"));
   t.after(() => rmSync(base, { recursive: true, force: true }));
   const mirrorDir = join(base, "mirror");
@@ -50,7 +50,7 @@ async function rig(t: TestContext, over: { devWrites?: number } = {}): Promise<R
   } as unknown as Rig;
   r.deps = {
     registry,
-    setting: { enabled: true, limits: LIMITS },
+    setting: { enabled: true, limits: over.runDevWrites === undefined ? LIMITS : { ...LIMITS, maxDevWrites: over.runDevWrites } },
     generatorRuntimeCanCall: () => true,
     execution: {
       execute: async (dir, opts) => {
@@ -245,4 +245,49 @@ test("a flow cannot be opened twice, and a flow of a run whose loop is closed ca
   assert.throws(() => r.run.openFlow(r.flowInput()), /already open/);
   await r.run.close();
   assert.equal(r.run.openFlow(r.flowInput({ delegationId: "run-9-flow-late", flowId: "late" })), undefined);
+});
+
+const flowOf = (r: Rig, i: number, maxDevWrites: number): FlowLoopOpenInput => r.flowInput({ delegationId: `run-9-flow-f${i}`, flowId: `f${i}`, limits: { maxCalls: 2, maxDevWrites } });
+
+test("the run's DEV-write cap holds across its flows together: twelve flows of two writes each against a cap of twenty send twenty, and the refusals are recorded", async (t) => {
+  const r = await rig(t, { runDevWrites: 20 });
+  for (let i = 0; i < 12; i++) r.run.openFlow(flowOf(r, i, 2));
+  r.writeWorkspace("flows/login.spec.ts", SPEC);
+  const refused: string[] = [];
+  for (let i = 0; i < 12; i++) {
+    bind(r, `side-${i}`, `run-9-flow-f${i}`);
+    for (let k = 0; k < 2; k++) {
+      const answer = await call(r, `side-${i}`);
+      if (!answer.ok) refused.push(answer.code);
+    }
+  }
+  assert.equal(r.run.signals().devWrites, 20, "no write past the run's cap");
+  assert.equal(r.executed.length, 20);
+  assert.ok(refused.length === 4 && refused.every((code) => code === "no-writes"), JSON.stringify(refused));
+  assert.equal(r.run.signals().writesRefused, 4);
+});
+
+test("flows racing for the run's last DEV write never send more than the run's cap together", async (t) => {
+  const r = await rig(t, { runDevWrites: 1 });
+  for (let i = 0; i < 3; i++) {
+    r.run.openFlow(flowOf(r, i, 1));
+    bind(r, `side-${i}`, `run-9-flow-f${i}`);
+  }
+  r.writeWorkspace("flows/login.spec.ts", SPEC);
+  const answers = await Promise.all([0, 1, 2].map((i) => call(r, `side-${i}`)));
+  assert.equal(r.executed.length, 1, "one spec ran");
+  assert.equal(r.run.signals().devWrites, 1);
+  assert.deepEqual(answers.map((a) => (a.ok ? "ok" : a.code)).sort(), ["no-writes", "no-writes", "ok"]);
+  const ran = answers.find((a) => a.ok);
+  assert.equal(ran?.ok ? ran.report.budget.devWritesLeft : -1, 0, "the budget a flow is told is the run's real remainder");
+});
+
+test("a flow opened once the run's DEV writes are spent is granted none, whatever its share", async (t) => {
+  const r = await rig(t, { runDevWrites: 1 });
+  r.run.openFlow(flowOf(r, 0, 1));
+  bind(r, "side-0", "run-9-flow-f0");
+  r.writeWorkspace("flows/login.spec.ts", SPEC);
+  assert.ok((await call(r, "side-0")).ok);
+  const late = r.run.openFlow(flowOf(r, 1, 2))!;
+  assert.equal(late.limits.maxDevWrites, 0);
 });

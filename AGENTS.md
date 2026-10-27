@@ -223,12 +223,14 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   output. The capability (`test-execution/domain/run-spec-capability.ts`) is the orchestrator's, bound to the flow-author
   sessions the agent transport reports for the run (`ClosedLoopRegistry`); the budget is granted per flow of a plan only, so a run-level author holds none: each flow is
   granted the calls its own time runs at the per-call time (the run's total is the sum of its flows', `qa.closedLoop.maxCalls` an optional
-  ceiling they then share), time per call (also bounded by the run deadline) and one run-level cap on DEV writes, never derived from the plan (each flow's writes are a share of it) (counted by the capture block's ledger in `fixtures.ts`, a spec must import its `test` from
+  ceiling they then share), time per call (also bounded by the run deadline) and one run-level cap on DEV writes, never derived from the plan, that holds across the
+  flows together (one run ledger checked and charged under the account lease; the flows' shares never add up past it, so the last flows of a large plan
+  may get none and then no loop; refusals in `gateSignals.closedLoop.writesRefused`) (counted by the capture block's ledger in `fixtures.ts`, a spec must import its `test` from
   there), a ledger of every call's sha256, revoked when the run ends. Scratch specs live in `e2e/.qa-probe/` and are swept
   after every generation: never delivered, stored or validated. When `loopClosed` (every delivered spec's current bytes are those
   whose last call passed) the regenerations that only repeat that work are skipped; the declared no-op, `E-NO-DECISION` /
   `E-STEP-BUDGET` / `E-TIME-BUDGET` and the single coverage or branch-case regeneration are unchanged. The `Run spec budget` prompt
-  section (facts only) exists only when granted. `gateSignals.closedLoop { calls, devWrites, closed, granted }`.
+  section (facts only) exists only when granted. `gateSignals.closedLoop { calls, devWrites, closed, granted, writesRefused }`.
 - **Authenticated browser (`authbrowser_*`)** — on unless `qa.agentBrowser.enabled: false`, and skipped for a run with no saved session (or a run asks: `--agent-browser on|off`,
   `agentBrowser` on `POST /api/v1/runs`). The author (`qa-author`) and the explorer (`qa-explore`, read-only) get four custom tools
   (`agents/tool/authbrowser.ts`: navigate, snapshot, click, type) that POST to the same internal listener as `run_spec`

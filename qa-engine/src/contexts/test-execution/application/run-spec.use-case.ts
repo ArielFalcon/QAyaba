@@ -207,11 +207,15 @@ export class RunSpecUseCase {
         async () => {
           waited = true;
           tell({ "qayaba.lease.wait_ms": Math.max(0, now() - asked) });
-          /* The time the run has left is read when the call gets the account, not when it asked for it. */
+          /* The time the run has left and its writes to DEV are read when the call gets the account, not when it asked for it: every run_spec call of the run holds this lease, so the check and the charge below admit no two calls against the same last write. */
+          const spent = capability.runWritesSpent();
+          if (spent) return spent;
           const timeoutMs = capability.timeoutFor(deadline?.remainingMs());
           if (typeof timeoutMs !== "number") return timeoutMs;
           began = true;
-          return this.executeAndClean(rel, grep, reservation.namespace, timeoutMs, stop);
+          const ran = await this.executeAndClean(rel, grep, reservation.namespace, timeoutMs, stop);
+          capability.chargeRunWrites(ran.devWrites);
+          return ran;
         },
         stop,
       );

@@ -7,6 +7,7 @@
 
 import { DEFAULT_CLOSED_LOOP_LIMITS, type ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
+import type { RunDevWriteLedger } from "./run-dev-write-ledger.ts";
 
 /* The agent whose sessions hold the capability of one flow of a plan: the author of that flow. */
 export const RUN_SPEC_FLOW_AGENT = "qa-author";
@@ -95,6 +96,8 @@ export interface RunSpecCapabilityInit {
   now: () => number;
   /* The agents whose sessions may hold it. Absent: the author alone. */
   agents?: ReadonlySet<string>;
+  /* The run's one count of writes to DEV, shared by every loop of the run; absent: only this capability's own cap applies. */
+  runWrites?: RunDevWriteLedger;
 }
 
 function refuse(code: ClosedLoopRefusalCode, message: string): ClosedLoopRefusal {
@@ -166,8 +169,27 @@ export class RunSpecCapability {
     return {
       callsLeft: Math.max(0, this.init.limits.maxCalls - this.calls_),
       msLeft: deadlineLeftMs === undefined ? undefined : Math.max(0, deadlineLeftMs),
-      devWritesLeft: Math.max(0, this.init.limits.maxDevWrites - this.devWrites_),
+      devWritesLeft: this.devWritesLeft(),
     };
+  }
+
+  /* The writes to DEV this capability may still send: its own share left, and never more than the run's total left. */
+  private devWritesLeft(): number {
+    const own = Math.max(0, this.init.limits.maxDevWrites - this.devWrites_);
+    return this.init.runWrites ? Math.min(own, this.init.runWrites.left()) : own;
+  }
+
+  /* Why a call may not start because the run's writes to DEV are spent, counting the refusal; undefined while some are left. */
+  runWritesSpent(): ClosedLoopRefusal | undefined {
+    const run = this.init.runWrites;
+    if (!run || run.left() > 0) return undefined;
+    run.noteRefused();
+    return refuse(CLOSED_LOOP_REFUSAL.NO_WRITES, `the executed specs of this run already sent ${run.used} write request(s) to DEV, the run's cap of ${run.cap}`);
+  }
+
+  /* Charges the run's count with what a call sent to DEV. Called while the call still holds the test account's lease, before the next call can be admitted. */
+  chargeRunWrites(writes: number): void {
+    this.init.runWrites?.charge(writes);
   }
 
   /* Takes one call from the budget, or says why there is none. The call it returns is the only one in flight until `settle`. */
@@ -176,6 +198,8 @@ export class RunSpecCapability {
     if (this.inFlight) return refuse(CLOSED_LOOP_REFUSAL.BUSY, "another run_spec call is still running");
     if (this.calls_ >= this.init.limits.maxCalls) return refuse(CLOSED_LOOP_REFUSAL.NO_CALLS, `the ${this.init.limits.maxCalls} run_spec calls of this run are spent`);
     if (this.devWrites_ >= this.init.limits.maxDevWrites) return refuse(CLOSED_LOOP_REFUSAL.NO_WRITES, `the executed specs already sent ${this.devWrites_} write request(s) to DEV, the run's cap`);
+    const spent = this.runWritesSpent();
+    if (spent) return spent;
     const timeoutMs = this.timeoutFor(deadlineLeftMs);
     if (typeof timeoutMs !== "number") return timeoutMs;
     this.calls_ += 1;

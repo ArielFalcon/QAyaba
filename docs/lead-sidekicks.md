@@ -49,8 +49,13 @@ signed-in app (see below); without either, no sidekick can author and the run en
    later flow of a large plan starves. Each grant is still bounded by the flow's time and every call by the run's deadline. An
    app's `qa.closedLoop.maxCalls` is an optional ceiling on the flows' `run_spec` calls together, which they then share, never
    under a useful minimum the ceiling allows (`MIN_RUN_SPEC_CALLS_PER_FLOW` 3: write and run, correct once, confirm). The run's
-   cap on writes to DEV (`qa.closedLoop.maxDevWrites`) protects DEV's data and is never derived: each flow's writes are its share
-   of it, never a minimum above it (`MIN_RUN_SPEC_DEV_WRITES_PER_FLOW` 2). A browser session of a flow spends its flow's share alone;
+   cap on writes to DEV (`qa.closedLoop.maxDevWrites`) protects DEV's data and is never derived. It holds across the flows
+   together: the flows' write shares never promise more than it (each flow in plan order gets its share, at least
+   `MIN_RUN_SPEC_DEV_WRITES_PER_FLOW` 2, out of what is left, so the last flows of a large plan may get none), and every loop of the
+   run checks and charges one run ledger (`RunDevWriteLedger`) while the call holds the test account's lease, so no call is admitted
+   once the run's total is spent, even with share left, and no two flows are admitted against the same last write. A flow left no
+   write gets no `run_spec` loop and its brief says why; a flow opened after writes were spent is granted only what is left. Calls
+   refused for the run's total are counted in `gateSignals.closedLoop.writesRefused`. A browser session of a flow spends its flow's share alone;
    the browser's own run total (`DEFAULT_AGENT_BROWSER_LIMITS.maxCalls`) holds only the sessions bound to no flow and is the base an
    explore question's share is cut from. The derived totals are recorded: `gateSignals.closedLoop.granted` and
    `gateSignals.agentBrowser.granted`. A plan that cannot be admitted goes back to the lead once, in its open session, with the

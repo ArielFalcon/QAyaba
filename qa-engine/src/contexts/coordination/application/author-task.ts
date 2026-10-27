@@ -9,6 +9,7 @@ export function authorTask(
   loop: FlowLoopHandle | undefined,
   browserCallMs: number | undefined,
   geolocation: FlowGeolocationHandle | undefined,
+  writesWithheld = false,
 ): string {
   const places = geolocation ? Object.keys(geolocation.facts().places).sort() : [];
   const browserUsesLocation = browserCallMs !== undefined && flow.browserCalls > 0 ? " The authenticated browser uses the authoring location." : "";
@@ -24,7 +25,9 @@ export function authorTask(
       : "",
     loop
       ? `run_spec: at most ${loop.limits.maxCalls} calls, ${Math.round(loop.limits.perCallMs / 1000)} seconds each, ${loop.limits.maxDevWrites} requests that write to DEV in all. It runs ${flow.writablePaths[0]} and no other file. Run it until it passes, then finish.`
-      : "You cannot run the spec: verify it by reading the pages and the grounding.",
+      : writesWithheld
+        ? "You cannot run the spec: the run's requests that write to DEV are all granted to other flows or spent. Verify it by reading the pages and the grounding."
+        : "You cannot run the spec: verify it by reading the pages and the grounding.",
     browserCallMs !== undefined && flow.browserCalls > 0
       ? `Authenticated browser: at most ${flow.browserCalls} authbrowser_* calls, ${Math.round(browserCallMs / 1000)} seconds each. It reads DEV as the test account and never writes.`
       : "",

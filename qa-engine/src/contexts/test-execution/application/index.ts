@@ -7,6 +7,7 @@ export { AccountLock } from "../domain/account-lock.ts";
 export { AGENT_BROWSER_AGENTS, AgentBrowserCapability } from "../domain/agent-browser-capability.ts";
 export { createRouteGuard } from "../domain/agent-browser-route-guard.ts";
 export { GEOLOCATION_AGENTS, PROBE_REL_DIR, RUN_SPEC_FLOW_AGENT, RunSpecCapability, loopClosed } from "../domain/run-spec-capability.ts";
+export { RunDevWriteLedger } from "../domain/run-dev-write-ledger.ts";
 export type { AgentBrowserHostPort } from "./ports/agent-browser-host.port.ts";
 export type { ExecutionPort } from "./ports/execution.port.ts";
 export type { SessionRenewalPort } from "./ports/session-renewal.port.ts";

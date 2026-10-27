@@ -247,15 +247,16 @@ test("with an app ceiling on the run's calls, the flows share it, never under th
   assert.ok(stingy.every((f) => f.runSpecCalls === 1 && f.browserCalls === 2), "a minimum is never above the app's ceiling");
 });
 
-test("a flow's DEV writes are its share of the run's DEV-write cap, never a minimum above it, whatever the plan's size", () => {
-  const few = admitted(admitLeadPlan(fanout(flow("a"), flow("b")), limits, deps));
-  assert.ok(few.every((f) => f.runSpecDevWrites === Math.floor(limits.runSpecDevWrites! / 2)));
-  const many = admitted(admitLeadPlan(fanout(...Array.from({ length: 12 }, (_, i) => flow(`f${i}`))), limits, deps));
-  assert.ok(many.every((f) => f.runSpecDevWrites === MIN_RUN_SPEC_DEV_WRITES_PER_FLOW));
-  for (const cap of [0, 1]) {
-    const stingy = admitted(admitLeadPlan(fanout(...Array.from({ length: 4 }, (_, i) => flow(`f${i}`))), { ...limits, runSpecDevWrites: cap }, deps));
-    assert.ok(stingy.every((f) => f.runSpecDevWrites === cap), `a cap of ${cap}`);
-  }
+test("the flows' DEV writes never promise more than the run's DEV-write cap together: later flows get what is left, possibly none", () => {
+  const writesOf = (count: number, cap: number) => admitted(admitLeadPlan(fanout(...Array.from({ length: count }, (_, i) => flow(`f${i}`))), { ...limits, runSpecDevWrites: cap }, deps)).map((f) => f.runSpecDevWrites);
+  const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+  assert.deepEqual(writesOf(2, 20), [10, 10], "a share each while the cap allows it");
+  /* 12 flows x the minimum of 2 is 24, more than 20: the first ten get their minimum and the last two get none. */
+  const many = writesOf(12, 20);
+  assert.equal(sum(many), 20);
+  assert.deepEqual(many, [...Array.from({ length: 10 }, () => MIN_RUN_SPEC_DEV_WRITES_PER_FLOW), 0, 0]);
+  assert.deepEqual(writesOf(4, 1), [1, 0, 0, 0]);
+  assert.deepEqual(writesOf(4, 0), [0, 0, 0, 0]);
 });
 
 test("a run that was not granted run_spec or the browser gives its flows none", () => {

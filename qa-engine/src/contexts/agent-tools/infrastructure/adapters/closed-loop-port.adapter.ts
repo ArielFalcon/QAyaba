@@ -19,7 +19,7 @@ import { MAX_SPEC_SOURCE_BYTES, purgeRefusedDirectory, readOwnedSpecFile, type S
 import { confinedSpecFiles } from "../../../../shared-infrastructure/spec-files.adapter.ts";
 import { typescriptSpecFixtures } from "../../../../shared-infrastructure/spec-fixtures-import.ts";
 import { AccountLock } from "@contexts/test-execution/application/index.ts";
-import { PROBE_REL_DIR, RUN_SPEC_FLOW_AGENT, RunSpecCapability, loopClosed } from "@contexts/test-execution/application/index.ts";
+import { PROBE_REL_DIR, RUN_SPEC_FLOW_AGENT, RunDevWriteLedger, RunSpecCapability, loopClosed } from "@contexts/test-execution/application/index.ts";
 import { RunSpecUseCase, type RunSpecRequest, type RunSpecResponse } from "@contexts/test-execution/application/index.ts";
 import type { SpecCleanupPort, SpecExecutorPort } from "@contexts/test-execution/application/index.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
@@ -76,11 +76,14 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
     }
     const now = this.deps.now ?? Date.now;
     const left = this.deps.deadline?.remainingMs();
+    /* One count of the run's writes to DEV, against the run's cap, for its own loop and every flow's. */
+    const runWrites = new RunDevWriteLedger(this.deps.setting.limits.maxDevWrites);
     const capability = new RunSpecCapability({
       runId: input.runId,
       limits: this.deps.setting.limits,
       expiresAtMs: now() + (left !== undefined && left > 0 ? left : DEFAULT_LOOP_TTL_MS),
       now,
+      runWrites,
     });
     const root: SpecRoot = { mirrorDir: input.mirrorDir, specDir: input.specDir };
     /* One renewal allowance for the whole run: the generator's loop and every flow's draw on the same one. */
@@ -124,7 +127,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
         for (const controller of running.get(sessionId) ?? []) controller.abort();
       },
     });
-    return this.handle(input, capability, root, inRunContext, session);
+    return this.handle(input, capability, runWrites, root, inRunContext, session);
   }
 
   /* One call, as a span of the orchestrator's own when tracing is wired; the answer is the use case's, untouched. */
@@ -132,7 +135,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
     return traceToolCall(this.deps.trace, { span: "qayaba.tool.run_spec", tool: "run_spec", sessionId: request.sessionId, messageId: request.messageId }, run, runSpecOutcome);
   }
 
-  private handle(input: ClosedLoopOpenInput, capability: RunSpecCapability, root: SpecRoot, inRunContext: <R>(fn: () => R) => R, session: ReturnType<typeof trustedSessionRenewal> | undefined): ClosedLoopHandle {
+  private handle(input: ClosedLoopOpenInput, capability: RunSpecCapability, runWrites: RunDevWriteLedger, root: SpecRoot, inRunContext: <R>(fn: () => R) => R, session: ReturnType<typeof trustedSessionRenewal> | undefined): ClosedLoopHandle {
     let closed = false;
     /* The capability of every flow opened, those closed included: what a flow's calls did stays in the run's counts and ledger. */
     const flows = new Map<string, RunSpecCapability>();
@@ -141,7 +144,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
       openFlow: (flow) => {
         if (closed) return undefined;
         if (flows.has(flow.delegationId)) throw new Error(`the run_spec loop of flow ${flow.delegationId} is already open`);
-        const opened = this.openFlowLoop(input, flow, inRunContext, session);
+        const opened = this.openFlowLoop(input, flow, runWrites, inRunContext, session);
         flows.set(flow.delegationId, opened.capability);
         return opened.handle;
       },
@@ -155,6 +158,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
         calls: capability.calls + [...flows.values()].reduce((sum, c) => sum + c.calls, 0),
         devWrites: capability.devWrites + [...flows.values()].reduce((sum, c) => sum + c.devWrites, 0),
         ...(flows.size > 0 ? { granted: [...flows.values()].reduce((sum, c) => sum + c.limits.maxCalls, 0) } : {}),
+        ...(runWrites.refused > 0 ? { writesRefused: runWrites.refused } : {}),
       }),
       close: async () => {
         if (closed) return;
@@ -179,15 +183,17 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
    * executor that puts that spec in the working copy, inside the call's lease, and runs it from there. Everything else is the
    * run's: the execution, the cleanup, the account lock, the session renewal and the run's scope.
    */
-  private openFlowLoop(input: ClosedLoopOpenInput, flow: FlowLoopOpenInput, inRunContext: <R>(fn: () => R) => R, session: ReturnType<typeof trustedSessionRenewal> | undefined): { capability: RunSpecCapability; handle: FlowLoopHandle } {
+  private openFlowLoop(input: ClosedLoopOpenInput, flow: FlowLoopOpenInput, runWrites: RunDevWriteLedger, inRunContext: <R>(fn: () => R) => R, session: ReturnType<typeof trustedSessionRenewal> | undefined): { capability: RunSpecCapability; handle: FlowLoopHandle } {
     const now = this.deps.now ?? Date.now;
     const left = this.deps.deadline?.remainingMs();
     const capability = new RunSpecCapability({
       runId: `${input.runId}-${flow.flowId}`,
-      limits: { maxCalls: flow.limits.maxCalls, perCallMs: this.deps.setting.limits.perCallMs, maxDevWrites: flow.limits.maxDevWrites },
+      /* The flow's share of writes, never more than the run has left when the flow opens: what its brief states is what it may send. */
+      limits: { maxCalls: flow.limits.maxCalls, perCallMs: this.deps.setting.limits.perCallMs, maxDevWrites: Math.min(flow.limits.maxDevWrites, runWrites.left()) },
       expiresAtMs: now() + (left !== undefined && left > 0 ? left : DEFAULT_LOOP_TTL_MS),
       now,
       agents: new Set([RUN_SPEC_FLOW_AGENT]),
+      runWrites,
     });
     const workspace: SpecRoot = { mirrorDir: flow.workspace.dir, specDir: flow.workspace.specDir };
     const only = normalizeSpecPath(flow.specFile);
