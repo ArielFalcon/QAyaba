@@ -2,6 +2,7 @@
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
+import type { DataContradiction } from "@kernel/data-contradiction.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { SecretLeakError } from "@kernel/ports/redaction.port.ts";
@@ -64,6 +65,7 @@ export interface PublicationRenderCollaborator {
     missingCases?: readonly string[];
     routeAvailability?: readonly RouteAvailabilityFact[];
     stubbedState?: StubbedStateView;
+    dataContradictions?: readonly DataContradiction[];
   }): string;
   prBody(input: {
     sha?: string;
@@ -73,6 +75,7 @@ export interface PublicationRenderCollaborator {
     missingCases?: readonly string[];
     routeAvailability?: readonly RouteAvailabilityFact[];
     stubbedState?: StubbedStateView;
+    dataContradictions?: readonly DataContradiction[];
   }): string;
 }
 
@@ -148,6 +151,7 @@ export class PublicationPortAdapter implements PublicationPort {
     missingCases?: readonly string[];
     routeAvailability?: readonly RouteAvailabilityFact[];
     stubbedState?: StubbedStateView;
+    dataContradictions?: readonly DataContradiction[];
   }): Promise<{ outcome: string; revertedDenylisted?: string[]; revertedDangerous?: string[] }> {
     /* A handle this registry did not issue throws here, on every route, before anything is rendered or sent. */
     const workspace = decision.workspace ? this.registry.resolve(decision.workspace) : undefined;
@@ -175,6 +179,7 @@ export class PublicationPortAdapter implements PublicationPort {
           ...(decision.missingCases?.length ? { missingCases: decision.missingCases } : {}),
           ...(decision.routeAvailability?.length ? { routeAvailability: decision.routeAvailability } : {}),
           ...(decision.stubbedState ? { stubbedState: decision.stubbedState } : {}),
+          ...(decision.dataContradictions?.length ? { dataContradictions: decision.dataContradictions } : {}),
         }),
       );
     const prBodyText = (): string =>
@@ -187,6 +192,7 @@ export class PublicationPortAdapter implements PublicationPort {
           ...(decision.missingCases?.length ? { missingCases: decision.missingCases } : {}),
           ...(decision.routeAvailability?.length ? { routeAvailability: decision.routeAvailability } : {}),
           ...(decision.stubbedState ? { stubbedState: decision.stubbedState } : {}),
+          ...(decision.dataContradictions?.length ? { dataContradictions: decision.dataContradictions } : {}),
         }),
       );
     /* Issues open in the triggering repo when supplied; PRs always target ctx.repo (primary). */

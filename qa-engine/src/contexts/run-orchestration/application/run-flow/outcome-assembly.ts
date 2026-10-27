@@ -44,6 +44,7 @@ export interface OutcomeExtras {
   missingCases?: string[];
   routeAvailability?: RunOutcome["gateSignals"]["routeAvailability"];
   stubbedState?: RunOutcome["gateSignals"]["stubbedState"];
+  dataContradictions?: RunOutcome["gateSignals"]["dataContradictions"];
   note?: string;
   rulesRetrieved?: string[];
   diffArchetypes?: string[];
@@ -194,6 +195,7 @@ export function toRunOutcome(
       ...(extra?.missingCases?.length ? { missingCases: extra.missingCases } : {}),
       ...(extra?.routeAvailability ? { routeAvailability: extra.routeAvailability } : {}),
       ...(extra?.stubbedState ? { stubbedState: extra.stubbedState } : {}),
+      ...(extra?.dataContradictions ? { dataContradictions: extra.dataContradictions } : {}),
       reviewerCorrections: extra?.reviewerCorrections ?? [],
       /* Conditional-spread: true undefined survives when no reviewer-unavailable rationale exists. */
       ...(extra?.reviewerRationale !== undefined ? { reviewerRationale: extra.reviewerRationale } : {}),

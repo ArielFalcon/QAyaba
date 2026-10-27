@@ -29,6 +29,7 @@ import { reviewChangeViewOf } from "../review-change.ts";
 import { branchCoverageOf, changeCoverageOf, traceAcceptedFiles } from "./coverage.steps.ts";
 import { addDroppedRejection, addReviewStats, annotateReviewPhase, newReviewTally, readReviewedSpecs, rebuttalEvidence, recordReviewDecision } from "./review-services.ts";
 import { pathOnly } from "@kernel/route-availability.ts";
+import { dataContradictionRefs } from "@kernel/data-contradiction.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
 
@@ -233,6 +234,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
         ...(existingSpecFiles.length ? { existingSpecFiles } : {}),
         ...(session.armsCurrent ? { untakenArms: state.coverage.untakenArms } : {}),
         ...(state.grounding.routeAvailability?.facts.length ? { routeAvailability: state.grounding.routeAvailability.facts } : {}),
+        ...(state.grounding.dataContradictions?.facts.length ? { dataContradictions: state.grounding.dataContradictions.facts } : {}),
         /* The run's own execution of the specs under review: the reviewer weighs a 5xx or a redirect against the test instead of guessing. */
         ...(reviewCases.length > 0 ? { executionEvidence: { verdict: run.verdict, cases: reviewCases } } : {}),
         ...(changeView ? { changeView } : {}),
@@ -288,6 +290,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
       inScopeSpecs: new Set(reviewCases.map((c) => c.file ?? c.name)),
       executedSpecs: new Set(run.cases.map((c) => c.file).filter((file): file is string => !!file)),
       availabilityRoutes: new Set((state.grounding.routeAvailability?.facts ?? []).flatMap((fact) => [pathOnly(fact.route), ...(fact.template !== undefined ? [pathOnly(fact.template)] : [])])),
+      contradictionRefs: dataContradictionRefs(state.grounding.dataContradictions?.facts ?? []),
     });
     blockingSpecs = new Map(findings.flatMap((f) => {
       const spec = f.citation ? citedSpec(f.citation.ref, specRelDir) : undefined;

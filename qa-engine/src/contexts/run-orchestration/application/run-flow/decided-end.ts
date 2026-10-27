@@ -23,6 +23,7 @@ import type { RunQaResult } from "./run-types.ts";
 import { runOf, type RunState } from "./run-state.ts";
 import { routeAvailabilitySignal, type RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import { detectStubbedState, type SpecText } from "@contexts/test-execution/application/index.ts";
+import { dataContradictionsSignal } from "@kernel/data-contradiction.ts";
 
 /* The availability facts a PR or an Issue lists: the change's own unavailabilities and the possible regressions. */
 function publishedAvailability(state: Readonly<RunState>): RouteAvailabilityFact[] {
@@ -225,6 +226,8 @@ async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunConte
       ...(publishedAvailability(state).length ? { routeAvailability: publishedAvailability(state) } : {}),
       /* The tests that fulfil a stated response instead of reading DEV, and the guards they broke. */
       ...(stubbed ? { stubbedState: stubbed.view } : {}),
+      /* Every pair of data sources of a page that disagreed on what their items carry: possible defects of the app's data, for the human reading the PR or the Issue. */
+      ...(state.grounding.dataContradictions?.facts.length ? { dataContradictions: state.grounding.dataContradictions.facts } : {}),
       ...(resolveTested(state)?.length ? { tested: resolveTested(state) } : {}),
     });
   } catch (pubErr) {
@@ -325,6 +328,7 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
     ...(missingCases.length ? { missingCases } : {}),
     ...(state.grounding.routeAvailability ? { routeAvailability: routeAvailabilitySignal(state.grounding.routeAvailability.read, state.grounding.routeAvailability.facts) } : {}),
     ...(stubbed ? { stubbedState: stubbed.signal } : {}),
+    ...(state.grounding.dataContradictions ? { dataContradictions: dataContradictionsSignal(state.grounding.dataContradictions.read, state.grounding.dataContradictions.facts) } : {}),
     reviewerCorrections: finalReviewerCorrections,
     ...(reviewerSignal !== undefined ? { reviewer: reviewerSignal } : {}),
     /* Publish outcome string, never fabricated when publish() was not called. */

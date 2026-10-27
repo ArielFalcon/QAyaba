@@ -4,6 +4,7 @@ import type { ContractDrift, CrossRepoImpact, ServiceLink } from "@kernel/servic
 import type { RetrievedRule, SelectedExemplar } from "@kernel/learned-rule.ts";
 import type { ArchitectureContext, GroundingOmission, HarnessFacts } from "@kernel/grounding.ts";
 import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
+import type { DataContradiction } from "@kernel/data-contradiction.ts";
 import type { ChangeScope, UseCaseCandidate } from "@contexts/change-analysis/application/index.ts";
 import type { CommitIntent } from "@kernel/commit-intent.ts";
 import type { GenerationEnrichment, GenerationOutput } from "@contexts/generation/application/index.ts";
@@ -83,6 +84,8 @@ export interface Grounding {
   changedDecisions: readonly ChangedDecision[];
   /** Why each captured route the pack could not show at its own address was not, and how many routes the capture read: the plan check, the review citation, the fix loop's triage, the gate signal and the PR read it. Undefined when the pack did not classify. */
   routeAvailability?: { read: number; facts: readonly RouteAvailabilityFact[] } | undefined;
+  /** The data sources of one captured page that disagreed on what their items carry, and how many pages had a response shape to read: the reviewer's citation, the gate signal and the PR read it. Undefined when no page had a shape. */
+  dataContradictions?: { read: number; facts: readonly DataContradiction[] } | undefined;
   blastRadiusSignal: string;
   blastRadiusSignalHasSymbols: boolean;
   /** The files the signal's dossier shows verbatim. */

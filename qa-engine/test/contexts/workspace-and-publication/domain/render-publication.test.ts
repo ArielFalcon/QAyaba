@@ -239,3 +239,34 @@ test("a body with no stubbed test says nothing about stubs, and a violation alon
   assert.doesNotMatch(pr, /Tested against a stated response/);
   assert.match(pr, /Guards these tests broke[^\n]*\n- `a\.spec\.ts`[^\n]*har-replay/);
 });
+
+/* ── Data contradictions: possible defects of the app's data, published beside the possible regressions ── */
+
+const CONTRADICTION = {
+  route: "/browse",
+  key: "category",
+  carriedBy: { operation: "GET https://app.example/api/items", items: 40 },
+  missingFrom: { operation: "GET https://app.example/api/items/by-region/ES", items: 12 },
+  schemaBacked: true,
+};
+
+test("a PR body and an Issue list the data contradictions of the run's pages as possible defects, beside the possible regressions", () => {
+  const pr = renderPrBody({ isCode: false, dataContradictions: [CONTRADICTION, { ...CONTRADICTION, route: "/shops", template: "/shops/:region", key: "zone", schemaBacked: false }] });
+  assert.match(pr, /Possible data contradictions[^\n]*\n- `\/browse`: GET https:\/\/app\.example\/api\/items\/by-region\/ES returned 12 items, none with "category"/);
+  assert.match(pr, /OpenAPI response schema/);
+  assert.match(pr, /- `\/shops` \(instance of `\/shops\/:region`\): .*none with "zone"/);
+  assert.match(renderIssue({ verdict: "fail", cases: [failCase()], dataContradictions: [CONTRADICTION] }), /Possible data contradictions/);
+});
+
+test("a run with no data contradiction renders its PR body and Issue as before", () => {
+  assert.equal(renderPrBody({ isCode: false }), renderPrBody({ isCode: false, dataContradictions: [] }));
+  assert.equal(renderIssue({ verdict: "fail", cases: [failCase()] }), renderIssue({ verdict: "fail", cases: [failCase()], dataContradictions: [] }));
+  assert.doesNotMatch(renderPrBody({ isCode: false }), /Possible data contradictions/);
+});
+
+test("more data contradictions than the list holds are counted, not dropped silently", () => {
+  const many = Array.from({ length: 80 }, (_, i) => ({ ...CONTRADICTION, key: `k${i}` }));
+  const pr = renderPrBody({ isCode: false, dataContradictions: many });
+  assert.match(pr, /and \d+ more/);
+  assert.equal(pr.includes('"k79"'), false);
+});

@@ -1,4 +1,5 @@
 import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
+import type { DataContradiction } from "@kernel/data-contradiction.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { CausalLabel } from "@contexts/objective-signal/application/index.ts";
@@ -44,6 +45,8 @@ export interface PublicationPort {
       tests: ReadonlyArray<{ file: string; name: string; response?: string; routes: readonly string[] }>;
       violations?: ReadonlyArray<{ file: string; kind: string; test?: string }>;
     };
+    /** The data sources of one captured page that disagree on what their items carry: listed in the PR or Issue as possible defects of the app's data, never a gate. */
+    dataContradictions?: readonly DataContradiction[];
     /**
      * The run's working copy, for the "pr" route's git-write: the adapter reads the mirror, the commit and the target from the
      * handle it issued, so no path comes from the caller. Absent on an actual "pr" route with a required vcsWrite collaborator is a

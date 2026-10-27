@@ -214,7 +214,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   (fail-open): the stored context map, reused at another sha only when the files it names are unchanged between the two
   commits (`run-orchestration/domain/context-map-validity.ts`; otherwise the run grounds without it and a rebuild at
   the run's sha is requested, recorded as `recapture` requested/skipped, see `docs/observability-design.md`),
-  context pack (live DOM per route, the data requests each page made, redirect advisory, relevant API contracts, routes not
+  context pack (live DOM per route, the data requests each page made, the data contradictions they show, redirect advisory, relevant API contracts, routes not
   capturable — `generation/infrastructure/context-pack.ts`), harness facts
   (`generation/domain/harness-facts.ts`: the test-id attribute, the fixtures module's exports with their declared
   signatures and the fixtures a test receives, the Playwright config's testDir/testMatch/storageState/projects, all read
@@ -229,6 +229,26 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   after the pages and the availability facts, last fact first, as a count, and a `no-observable-change` drop of a candidate whose pages
   made requests is refused with the first of them named (`dropRefusal`; what the lead keeps after the one re-ask is honoured and
   recorded as before). A signal, never a gate.
+- **Data contradictions** — when one page's two data sources disagree, the run reports it as a possible defect instead of normalising it.
+  The capture records, per successful JSON fetch/XHR GET response a captured page read (any origin the browser reached: the sandbox's egress
+  filter admits only the declared ones), the operation (method + address, never query, body or values), its item count and the union of the
+  top-level keys of its items (`DataShape`, `shared-kernel`/`generation/domain/route-snapshot.ts`; `null` counts as present). Items are the
+  elements of a root array, else of the one array of objects the body holds at its root or one level down, else the object itself. Bounds
+  (`MAX_SHAPES_PER_ROUTE`, `MAX_SHAPE_KEYS`, `MAX_SHAPE_KEY_CHARS`, `MAX_SHAPE_ITEMS`, `MAX_SHAPE_BODY_BYTES`, `SHAPE_READ_TIMEOUT_MS`) cut the
+  capture, a cut shape is `complete: false` and never contradicts, and a body over the bound is a count (`shapesOmitted`). The pure rule
+  (`generation/domain/data-contradictions.ts`) says operation B contradicts operation A of the same page on key K when A's items carry K, B
+  has at least one item and none carries K, and they are the same kind of resource: both GET, B complete, at least `SAME_KIND_MIN_SHARED_KEYS`
+  (3) keys in common and an overlap of the shared keys over the union of the others of at least `SAME_KIND_MIN_OVERLAP` (0.8), K itself left
+  out of both. The OpenAPI response schema tightens it (`service-topology/domain/response-fields.ts`, read from the app's `openapi` hint by
+  `openapi-response-fields.source.ts`): B's declared item fields carrying K make the fact `schemaBacked`, not declaring K suppress it (the
+  contract says B is not meant to carry it), an unknown or empty schema leaves it unbacked. Facts are observed by the orchestrator, never read
+  from a spec's comment. They appear as the Context Pack's `Possible data contradictions` section (after the requests; a flow's brief carries
+  those of its pages and gives way after the requests, last fact first, as a count), as `gateSignals.dataContradictions { pages, found,
+  schemaBacked, facts[], omitted }` (`qayaba.context.data_contradictions` on the context-pack span), in the PR and Issue under `Possible data
+  contradictions`, and to the reviewer, which may cite one (`{"kind":"contradiction","ref":"<path>#<key>"}`) against a spec that passes by
+  adapting to that state (an expected value read from the state it checks, or a check guarded by it); the orchestrator verifies the ref
+  against the recorded facts (`review-finding-filter.service.ts`, drop reason `no-contradiction-fact`). A signal, never a gate: it decides no
+  verdict.
 - **Pre-exec / review grounding** — `pre-exec-grounding-port.adapter.ts`,
   `review-dom-grounding-port.adapter.ts` (same folder).
   The pre-exec selector-ambiguity check is a regex over the spec text and **advisory**: its findings

@@ -8,6 +8,7 @@ import type { AgentBrowserGateSignal } from "./agent-browser.ts";
 import type { CoordinationGateSignal } from "./coordination.ts";
 import type { NoopKind } from "./noop-kind.ts";
 import type { RouteAvailabilityGateSignal } from "./route-availability.ts";
+import type { DataContradictionGateSignal } from "./data-contradiction.ts";
 import type { ObservedDifference } from "./observed-difference.ts";
 
 export type ErrorClass = string | null;
@@ -130,6 +131,8 @@ export interface RunOutcome {
     routeAvailability?: RouteAvailabilityGateSignal;
     /* The delivered tests that fulfil a stated response instead of reading DEV: how many spec files and tests, and the guards they broke (a fulfil no GET check guards, a changed request, a replay of every method, a spec file with no live test). Absent when no delivered test is stubbed and no guard broke. Persist-only: it reads nothing back into a verdict. */
     stubbedState?: { specFiles: number; tests: number; violations?: Array<{ file: string; kind: string }> };
+    /* Which data sources of one captured page disagreed on what their items carry (a key one returns and a source of the same kind never does), from the response shapes the capture read. Absent when no page had a shape to read. Persist-only: it reads nothing back into a verdict. */
+    dataContradictions?: DataContradictionGateSignal;
     /* How the run's regeneration acceptance spent its proof ledger: how many regenerations were accepted (and how many of those reused a closed-loop proof instead of executing), how many were rejected, and whether the per-run execution cap was hit. Persist-only; never read by decide/verdict/gate/publish. */
     integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
   };

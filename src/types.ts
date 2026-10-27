@@ -6,6 +6,7 @@ import { RUN_MODES, type RunMode, type TestTarget, type TriggerSource } from "@k
 import { RUN_ENGINE_STATUSES, engineStatus, type RunEngineStatus, type RunVerdict } from "@kernel/run-verdict";
 import type { CaseStatus, QaCase } from "@kernel/qa-case";
 import type { RouteAvailabilityGateSignal } from "@kernel/route-availability";
+import type { DataContradictionGateSignal } from "@kernel/data-contradiction";
 import type { ObservedDifference } from "@kernel/observed-difference";
 
 export { RUN_MODES, RUN_ENGINE_STATUSES, engineStatus };
@@ -281,6 +282,8 @@ export interface RunOutcome {
     routeAvailability?: RouteAvailabilityGateSignal;
     /* The delivered tests that fulfil a stated response instead of reading DEV, and the guards they broke. Absent when there were none. Persist-only, never a gate. */
     stubbedState?: { specFiles: number; tests: number; violations?: Array<{ file: string; kind: string }> };
+    /* Which data sources of one captured page disagreed on what their items carry. Persist-only, never a gate. */
+    dataContradictions?: DataContradictionGateSignal;
     /* How the run's regeneration acceptance spent its proof ledger. Persist-only. */
     integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
     /* The test-intent lock: derived clauses, deltas and would-be rejections, with the opacity flag. Persist-only. */

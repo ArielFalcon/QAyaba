@@ -2,6 +2,7 @@
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { outcomeText, type RouteAvailabilityFact } from "@kernel/route-availability.ts";
+import { dataContradictionStatement, type DataContradiction } from "@kernel/data-contradiction.ts";
 
 export interface TestedItem {
   flow?: string;
@@ -29,6 +30,8 @@ const CAP_NAME = 200;
 const CAP_CAUSE = 200;
 const CAP_FLOW = 120;
 const CAP_OBJECTIVE = 300;
+/* A data contradiction names two operations by their address and says what each returned: longer than an objective. */
+const CAP_CONTRADICTION = 600;
 
 const cap = (v: string, max: number): string =>
   v.length <= max ? v : v.slice(0, max).trimEnd() + ` …(+${v.length - max} chars)`;
@@ -149,6 +152,8 @@ export interface RenderIssueInput {
   routeAvailability?: readonly RouteAvailabilityFact[];
   /* The delivered tests that fulfil a stated response instead of reading DEV, and the guards they broke. */
   stubbedState?: StubbedStateView;
+  /* The data sources of one page that disagree on what their items carry, from the response shapes the run's capture read. */
+  dataContradictions?: readonly DataContradiction[];
 }
 
 /* The reviewer's missing cases as a section of their own; empty when there are none. A record for the reader, never a gate. */
@@ -175,6 +180,16 @@ function renderAvailabilitySection(facts: readonly RouteAvailabilityFact[] | und
   if (introduced.length > 0) blocks.push(`**Routes this change makes unavailable** (the change governs where they send the browser; check that this is intended):\n${introduced.map(line).join("\n")}`);
   if (regressions.length > 0) blocks.push(`**Possible regressions** (a route the change reaches is sent away after a runtime error; a signal, not a gate):\n${regressions.map(line).join("\n")}`);
   return blocks.join("\n\n");
+}
+
+/* The data contradictions of the run's pages: two data sources of one page that disagree on what their items carry. A possible defect of the app's data, which a test written around it would hide; a record for the reader, never a gate. */
+function renderDataContradictionsSection(facts: readonly DataContradiction[] | undefined): string {
+  const shown = (facts ?? []).slice(0, MAX_ITEMS);
+  if (shown.length === 0) return "";
+  const page = (fact: DataContradiction): string => (fact.template === undefined ? `\`${cap(fact.route, CAP_FLOW)}\`` : `\`${cap(fact.route, CAP_FLOW)}\` (instance of \`${cap(fact.template, CAP_FLOW)}\`)`);
+  const more = (facts ?? []).length - shown.length;
+  const omitted = more > 0 ? `\n_…and ${more} more omitted._` : "";
+  return `**Possible data contradictions** (two data sources of one page disagree on what their items carry, read from the answers the page received; they may be a defect of the app's data, not of the tests; a signal, not a gate):\n${shown.map((fact) => `- ${page(fact)}: ${cap(dataContradictionStatement(fact), CAP_CONTRADICTION)}`).join("\n")}${omitted}`;
 }
 
 export function renderIssue(input: RenderIssueInput): string {
@@ -216,6 +231,8 @@ export function renderIssue(input: RenderIssueInput): string {
   if (availability) blocks.push(availability);
   const stubbed = renderStubbedSection(input.stubbedState);
   if (stubbed) blocks.push(stubbed);
+  const contradictions = renderDataContradictionsSection(input.dataContradictions);
+  if (contradictions) blocks.push(contradictions);
 
   const head = blocks.join("\n\n");
   const footer = "\n\n_Full trace + logs in the run artifacts (trace on-first-retry)._";
@@ -233,6 +250,8 @@ export interface RenderPrBodyInput {
   routeAvailability?: readonly RouteAvailabilityFact[];
   /* The delivered tests that fulfil a stated response instead of reading DEV, and the guards they broke. */
   stubbedState?: StubbedStateView;
+  /* The data sources of one page that disagree on what their items carry, from the response shapes the run's capture read. */
+  dataContradictions?: readonly DataContradiction[];
 }
 
 export function renderPrBody(input: RenderPrBodyInput): string {
@@ -257,6 +276,8 @@ export function renderPrBody(input: RenderPrBodyInput): string {
   if (availability) blocks.push(availability);
   const stubbed = renderStubbedSection(input.stubbedState);
   if (stubbed) blocks.push(stubbed);
+  const contradictions = renderDataContradictionsSection(input.dataContradictions);
+  if (contradictions) blocks.push(contradictions);
 
   if (input.parentRunId) blocks.push(`> ⛓️ Continuation of ${input.parentRunId}`);
 

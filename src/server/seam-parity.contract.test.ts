@@ -47,7 +47,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
     catalogGateInWindow: true, catalogGateAdvisory: true, catalogGateFailClosed: true,
     structuralSignalBytes: true, serviceLinksCount: true, contractDriftCount: true,
     crossRepoImpactedCount: true, sandbox: true, reviewerIndependence: true, closedLoop: true, agentBrowser: true, coordination: true,
-    coverage: true, integrity: true, intent: true, value: true, noop: true, causal: true, coverageByCandidate: true, valueByCandidate: true, valueStats: true, routeAvailability: true, stubbedState: true,
+    coverage: true, integrity: true, intent: true, value: true, noop: true, causal: true, coverageByCandidate: true, valueByCandidate: true, valueStats: true, routeAvailability: true, stubbedState: true, dataContradictions: true,
   } satisfies Record<keyof KernelRunOutcome["gateSignals"], true>;
 
   const ALLOWLIST: Record<string, string> = {
@@ -78,7 +78,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
       "preExecAmbiguityCatches", "deterministicSelectorBlocks", "catalogGateInWindow",
       "catalogGateAdvisory", "catalogGateFailClosed",
       "structuralSignalBytes", "serviceLinksCount", "contractDriftCount", "crossRepoImpactedCount", "sandbox", "reviewerIndependence", "closedLoop", "agentBrowser", "coordination",
-      "coverage", "integrity", "intent", "value", "noop", "causal", "coverageByCandidate", "valueByCandidate", "valueStats", "routeAvailability", "stubbedState",
+      "coverage", "integrity", "intent", "value", "noop", "causal", "coverageByCandidate", "valueByCandidate", "valueStats", "routeAvailability", "stubbedState", "dataContradictions",
     ];
     assert.deepEqual(mapped.sort(), Object.keys(ALL_GATE_SIGNAL_FIELDS).sort(), "every gateSignals field must be mapped — toStoredRunOutcome's own header claims 100% pass-through for this nested object");
   });
@@ -128,6 +128,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
         valueStats: { baseline: 5, exposed: 2, killed: 1, failed: 1, flowBreaks: 0 },
         routeAvailability: { read: 4, unavailable: 1, byClass: { "change-introduced": 1 }, facts: [{ route: "/a", class: "change-introduced", why: "route-declaration", to: "/home" }], omitted: 0 },
         stubbedState: { specFiles: 1, tests: 2, violations: [{ file: "a.spec.ts", kind: "har-replay" }] },
+        dataContradictions: { pages: 2, found: 1, schemaBacked: 0, facts: [{ route: "/a", key: "k", carriedBy: "GET https://x/all", missingFrom: "GET https://x/some", schemaBacked: false }], omitted: 0 },
         valueByCandidate: [{ candidateId: "uc-0000aaaa", exposed: 2, killed: 1, ratio: 0.5 }],
         causal: { reach: "in-reach", basis: "request", via: ["GET /orders"], reason: "r", cases: [{ name: "c", reach: "in-reach", basis: "request" }] },
       },
@@ -170,6 +171,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toStoredRunOutcome)", (
     assert.equal(gs.valueStats?.exposed, 2, `gateSignals.valueStats dropped at ${dyingLayer}`);
     assert.equal(gs.routeAvailability?.facts[0]?.class, "change-introduced", `gateSignals.routeAvailability dropped at ${dyingLayer}`);
     assert.deepEqual(gs.stubbedState, { specFiles: 1, tests: 2, violations: [{ file: "a.spec.ts", kind: "har-replay" }] }, `gateSignals.stubbedState dropped at ${dyingLayer}`);
+    assert.equal(gs.dataContradictions?.facts[0]?.key, "k", `gateSignals.dataContradictions dropped at ${dyingLayer}`);
     assert.equal(gs.valueByCandidate?.[0]?.ratio, 0.5, `gateSignals.valueByCandidate dropped at ${dyingLayer}`);
     assert.equal(gs.coverageByCandidate?.[0]?.ratio, 0.75, `gateSignals.coverageByCandidate dropped at ${dyingLayer}`);
     assert.equal(gs.preExecAmbiguityCatches, 2, `gateSignals.preExecAmbiguityCatches dropped at ${dyingLayer}`);

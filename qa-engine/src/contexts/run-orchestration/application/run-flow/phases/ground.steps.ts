@@ -97,6 +97,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
   let groundingConfirmedDataRoutes: RunState["grounding"]["confirmedDataRoutes"];
   let groundingChangedDecisions: RunState["grounding"]["changedDecisions"] = [];
   let groundingRouteAvailability: RunState["grounding"]["routeAvailability"];
+  let groundingDataContradictions: RunState["grounding"]["dataContradictions"];
   if (deps.preGenerationGrounding) {
     deps.observer?.onStep("generate", PRE_GENERATION_GROUNDING_STEP_DETAIL);
     try {
@@ -109,6 +110,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
         ...availabilityGroundingOf(state, ctx),
       });
       groundingRouteAvailability = grounding.routeAvailability;
+      groundingDataContradictions = grounding.dataContradictions;
       groundingContextPack = grounding.contextPack;
       groundingContextPackItemIds = grounding.contextPackItemIds;
       groundingContextPackOmissions = grounding.contextPackOmissions;
@@ -142,6 +144,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
         confirmedDataRoutes: groundingConfirmedDataRoutes,
         changedDecisions: groundingChangedDecisions,
         routeAvailability: groundingRouteAvailability,
+        dataContradictions: groundingDataContradictions,
         /* A route the change governs that the capture saw sent away is a use case to assert, named or not by the scope. */
         candidates: groundingRouteAvailability?.facts.length
           ? withRouteConfigCandidates(state.grounding.candidates, groundingRouteAvailability.facts, input.changeSet.anchor.repo)

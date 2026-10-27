@@ -920,3 +920,19 @@ test("publish() puts the reviewer's missing cases into the PR body it renders", 
 
   assert.ok(body.includes("[missing-case] the empty search result is not tested"));
 });
+
+test("publish() puts the data contradictions of the run's pages into the PR body and the Issue body it renders", async () => {
+  const bodies: string[] = [];
+  const pr = { openWithAutoMerge: async (_repo: string, _branch: string, _title: string, b: string) => { bodies.push(b); return { url: "u", number: 1 }; } };
+  const issue = { open: async (_repo: string, _title: string, b: string) => { bodies.push(b); return { url: "https://github.com/org/app/issues/9", number: 9 }; } };
+  const adapter = new PublicationPortAdapter({ decide: new PublishDecisionService(), pr, issue, shadowLog: new ShadowLogAdapter(() => {}), sanitize: identitySanitize, vcsWrite: fakeVcsWrite([]), render: realRender() }, {
+    repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true,
+  });
+  const dataContradictions = [{ route: "/browse", key: "category", carriedBy: { operation: "GET https://app.example/api/items", items: 40 }, missingFrom: { operation: "GET https://app.example/api/items/by-region/ES", items: 12 }, schemaBacked: false }];
+
+  await adapter.publish({ verdict: "pass", cases: [], logs: "", workspace: handle(), dataContradictions });
+  await adapter.publish({ verdict: "fail", cases: [{ name: "checkout", status: "fail" }], logs: "", dataContradictions });
+
+  assert.equal(bodies.length, 2);
+  for (const body of bodies) assert.match(body, /Possible data contradictions[\s\S]*none with "category"/);
+});
