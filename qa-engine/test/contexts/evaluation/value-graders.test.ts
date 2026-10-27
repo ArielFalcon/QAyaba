@@ -62,6 +62,18 @@ test("survivors_routed is the share of surviving mutants a delivered spec reache
   assert.equal(grade(withSignals({ survivors: undefined }), "survivors_routed"), undefined);
 });
 
+test("availability_regressions counts the possible regressions and availability_unexplained is the unsettled share, both silent without an unavailable route", () => {
+  const classified = withSignals({ routeAvailability: { unavailable: 4, byClass: { "change-introduced": 1, "regression-candidate": 1, unexplained: 2 } } });
+  assert.equal(grade(classified, "availability_regressions")?.value, 1);
+  assert.equal(grade(classified, "availability_unexplained")?.value, 2 / 4);
+  const settled = withSignals({ routeAvailability: { unavailable: 2, byClass: { "pre-existing": 2 } } });
+  assert.deepEqual([grade(settled, "availability_regressions")?.value, grade(settled, "availability_unexplained")?.value], [0, 0], "a measured zero is a zero");
+  for (const routeAvailability of [undefined, { unavailable: 0, byClass: {} }]) {
+    assert.deepEqual(gradeEvidence(withSignals({ routeAvailability }), ["availability_regressions", "availability_unexplained"]), []);
+  }
+  assert.deepEqual(gradeEvidence(withSignals({ routeAvailability: { unavailable: 1, byClass: { unexplained: 1 } } }, { finished: false, verdict: null }), ["availability_regressions", "availability_unexplained"]), []);
+});
+
 test("flaky_triage names the class mix of a flaky run and says nothing for a run that was not", () => {
   const triage = (dataInstability: number, timing: number) => withSignals({ flakyTriage: { cases: dataInstability + timing, dataInstability, timing, outcome: "accepted" } });
   assert.equal(grade(triage(2, 0), "flaky_triage")?.value, "data-instability");

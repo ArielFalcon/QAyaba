@@ -583,6 +583,24 @@ const survivorsRouted: Grader = {
   }),
 };
 
+/*
+ * The routes the capture could not show at their own address: how many the change may have broken (a route it governs that also raised a
+ * runtime error), and the share whose cause the run's evidence could not settle. Silent for a run that classified none.
+ */
+const routeAvailability: Grader = {
+  names: ["availability_regressions", "availability_unexplained"],
+  grade: finishedOnly((e) => {
+    const a = e.signals?.routeAvailability;
+    if (!a || a.unavailable <= 0) return [];
+    const regressions = a.byClass["regression-candidate"] ?? 0;
+    const unexplained = a.byClass["unexplained"] ?? 0;
+    return [
+      { name: "availability_regressions", value: regressions, comment: `${regressions} of ${a.unavailable} unavailable route(s) are possible regressions` },
+      { name: "availability_unexplained", value: ratio(unexplained, a.unavailable), comment: `${unexplained} of ${a.unavailable} unavailable route(s) had no cause the run could prove` },
+    ];
+  }),
+};
+
 /* The class of a flaky run's cases: DEV data instability, timing, both or neither. Silent for a run that was not flaky. */
 const flakyTriage: Grader = {
   names: ["flaky_triage"],
@@ -620,6 +638,7 @@ export const GRADERS: readonly Grader[] = [
   reviewVerdict,
   defectFound,
   survivorsRouted,
+  routeAvailability,
   flakyTriage,
   dropsContradicted,
   infraError,

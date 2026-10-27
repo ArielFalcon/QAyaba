@@ -511,6 +511,7 @@ export class HistoryEvidenceAdapter implements EvidencePort {
             bundleMutation: g.bundleMutation ? { applied: g.bundleMutation.applied, killed: g.bundleMutation.killed } : undefined,
             survivors: survivorsOf(spans),
             flakyTriage: g.flakyTriage,
+            routeAvailability: g.routeAvailability ? { unavailable: g.routeAvailability.unavailable, byClass: g.routeAvailability.byClass } : undefined,
             reviewer: g.reviewer ? { approved: g.reviewer.approved, rounds: g.reviewer.rounds, modelRounds: g.reviewer.modelRounds } : undefined,
             causal: causalOf(g.causal),
           }
