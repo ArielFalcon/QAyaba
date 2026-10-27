@@ -657,6 +657,12 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   A mutant is judged only when it reached a page; it is killed when a passing test fails.
   `gateSignals.bundleMutation` holds `{ applied, killed, survived[] }` beside the response oracle's
   `valueScore`, whose meaning is unchanged.
+- **Survivor closure** (signal, never a gate): a surviving mutant routed to a coverage or branch-case
+  regeneration is, once that regeneration is accepted, applied again to the specs it changed and judged
+  against their passing cases (`closeSurvivors`, `survivor-closure.ts`): a regenerated test counts as
+  answering its survivor only when that mutant now fails it. The mutant as it ran (served script, edit)
+  stays with the orchestrator and never reaches an agent or the record. `gateSignals.survivorClosure
+  { routed, judged, closed, open[] }`; a survivor still open never changes the decision.
 - **Branch cases** (never a gate; `qa.changeCoverage.branchCases`, default `regenerate`): a green diff run
   whose measurement blocks nothing and found untaken arms on changed lines gets **one** regeneration (the
   step `regenerate-for-branch-cases`) with those arms as the cases still missing (a blocking enforce

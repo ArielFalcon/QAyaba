@@ -6,7 +6,7 @@ import { faultAimOf } from "../fault-aim.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { hasGreenBytes } from "@kernel/run-verdict.ts";
 import type { GenerationEnrichment } from "@contexts/generation/application/index.ts";
-import { renderBranchGap, renderCoverageGap, renderSurvivedMutant, renderSurvivedMutants, type CoverageMeasurement, type CoverageRerun, type SurvivedMutant } from "@contexts/objective-signal/application/index.ts";
+import { renderBranchGap, renderCoverageGap, renderSurvivedMutant, renderSurvivedMutants, survivorClosureOf, survivorRechecks, type CoverageMeasurement, type CoverageRerun, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import { runOf, type BranchCasesOutcome, type CoverageOutcome, type RunState } from "../run-state.ts";
@@ -104,6 +104,7 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
         untakenArmsCurrent: true,
         bundleMutation: signal.bundleMutation,
         mutantProofs: signal.mutantProofs ?? [],
+        survivorRuns: signal.survivorRuns ?? [],
         changeCoverage: changeCoverageOf(signal.measurement),
         /*
          * Ask the port: only enforce+fail blocks. Unknown/pass never block. Do not
@@ -133,13 +134,14 @@ export const regeneratesForBranchCases = (state: Readonly<RunState>, ctx: Worksp
     untakenArms: state.coverage.untakenArms.length + survivorsOf(state).length,
   }) === "regenerate";
 
-/* How a gap regeneration ended; `reruns` names the acceptance's own dumps when every spec it changed executed in it, so the coverage can be recounted from them. */
+/* How a gap regeneration ended; `reruns` names the acceptance's own dumps when every spec it changed executed in it, so the coverage can be recounted from them; `changedSpecFiles` are the specs an accepted one changed. */
 export interface GapRegeneration {
   outcome: BranchCasesOutcome["outcome"];
   run: NonNullable<RunState["execution"]["run"]>;
   acceptanceCalls: number;
   leadCorrections: number;
   reruns?: CoverageRerun[];
+  changedSpecFiles?: string[];
 }
 
 /*
@@ -207,7 +209,25 @@ export async function regenerateAtGap(
   /* A spec whose proof was reused left no dumps here: the coverage cannot be recounted without it. */
   const executed = new Set(outcome.executedSpecs);
   const recountable = changedSpecFiles.every((file) => executed.has(file));
-  return { outcome: "accepted", run, acceptanceCalls, leadCorrections, ...(recountable ? { reruns: [{ namespace, specFiles: changedSpecFiles }] } : {}) };
+  return { outcome: "accepted", run, acceptanceCalls, leadCorrections, changedSpecFiles, ...(recountable ? { reruns: [{ namespace, specFiles: changedSpecFiles }] } : {}) };
+}
+
+/*
+ * Whether an accepted regeneration answered the surviving mutants routed to it: each is applied again to the specs it changed, judged
+ * against those specs' passing cases. The proof of a regenerated test is that the fault it was asked about now fails it; until then it
+ * is only text. Undefined when no survivor was routed or the regeneration was not accepted. A signal, never a gate.
+ */
+export async function closeSurvivors(state: Readonly<RunState>, ctx: WorkspaceRunContext, regen: GapRegeneration): Promise<SurvivorClosure | undefined> {
+  const { deps, input, workspace } = ctx;
+  const routed = state.coverage.survivorRuns.slice(0, MAX_GAP_SURVIVORS);
+  const changed = regen.changedSpecFiles ?? [];
+  if (regen.outcome !== "accepted" || routed.length === 0 || changed.length === 0 || !deps.objectiveSignal.recheckSurvivors) return undefined;
+  const changedSet = new Set(changed);
+  const baselineCases = regen.run.cases.filter((c) => c.status === "pass" && changedSet.has(c.file ?? c.name)).map((c) => c.name);
+  const result = baselineCases.length > 0 ? await deps.objectiveSignal.recheckSurvivors(survivorRechecks(routed, changed), workspace.specDir, `${input.runId}-closure`, baselineCases) : null;
+  const closure = survivorClosureOf(routed.length, result);
+  engineLog.info(`[qa] survivor closure: ${closure.closed} of ${closure.routed} surviving mutant(s) now noticed by a test (${closure.judged} judged)`);
+  return closure;
 }
 
 /*
@@ -325,7 +345,9 @@ export async function regenerateForCoverage(state: Readonly<RunState>, ctx: Work
   const survived = survivorsOf(state);
   const gap = [renderCoverageGap(uncovered, undefined, state.grounding.candidates), renderBranchGap(untakenArms)].filter(Boolean).join("\n\n");
   const regen = await regenerateAtCoverageGap(state, ctx, gap, gapUnits(uncovered, untakenArms, state.grounding.candidates), survived);
-  return { update: { execution: withRun(state.execution, regen.run), coverage: await recountAfter(state, ctx, regen), loops: { ...state.loops, coverageRegen: state.loops.coverageRegen + 1, leadCorrections: state.loops.leadCorrections + regen.leadCorrections } } };
+  const survivorClosure = await closeSurvivors(state, ctx, regen);
+  const coverage = await recountAfter(state, ctx, regen);
+  return { update: { execution: withRun(state.execution, regen.run), coverage: { ...coverage, ...(survivorClosure ? { survivorClosure } : {}) }, loops: { ...state.loops, coverageRegen: state.loops.coverageRegen + 1, leadCorrections: state.loops.leadCorrections + regen.leadCorrections } } };
 }
 
 /* The one regeneration from the arms of the changed code no test ran and the mutants no test noticed: they are the cases still missing. It never blocks; what it did is recorded with the arms before and after it. */
@@ -333,12 +355,13 @@ export async function regenerateForBranchCases(state: Readonly<RunState>, ctx: W
   const armsBefore = state.coverage.untakenArms.length;
   const survived = survivorsOf(state);
   const regen = await regenerateAtCoverageGap(state, ctx, renderBranchGap(state.coverage.untakenArms), gapUnits([], state.coverage.untakenArms, []), survived);
+  const survivorClosure = await closeSurvivors(state, ctx, regen);
   const coverage = await recountAfter(state, ctx, regen);
   const armsAfter = regen.outcome !== "accepted" ? armsBefore : coverage.untakenArmsCurrent ? coverage.untakenArms.length : undefined;
   return {
     update: {
       execution: withRun(state.execution, regen.run),
-      coverage: { ...coverage, branchCases: { outcome: regen.outcome, armsBefore, ...(armsAfter !== undefined ? { armsAfter } : {}) } },
+      coverage: { ...coverage, ...(survivorClosure ? { survivorClosure } : {}), branchCases: { outcome: regen.outcome, armsBefore, ...(armsAfter !== undefined ? { armsAfter } : {}) } },
       loops: { ...state.loops, leadCorrections: state.loops.leadCorrections + regen.leadCorrections },
     },
   };

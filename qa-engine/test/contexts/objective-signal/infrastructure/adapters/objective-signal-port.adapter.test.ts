@@ -572,6 +572,37 @@ test("measure() hands the mutants on the changed lines to the mutation oracle, w
   assert.deepEqual(result.bundleMutation, { applied: 1, killed: 0, survived: [{ file: "src/checkout.ts", line: 1, operator: "negate condition" }] });
 });
 
+test("measure() hands back the survivors' mutants as they ran beside the outcome it records, which keeps no served script or edit", async () => {
+  const site = { file: "src/checkout.ts", line: 1, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x", ranIn: ["flows-pay-spec-ts-x-0-0.json"] };
+  const survivorRuns = [{ site, specFiles: ["flows/pay.spec.ts"] }];
+  const mutation = { measure: async () => ({ applied: 1, killed: 0, survived: [{ file: "src/checkout.ts", line: 1, operator: "negate condition" }], survivorRuns }) };
+  const adapter = new ObjectiveSignalPortAdapter(
+    { collector: fakeCollector({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }], mutationSites: [site] }), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }), mutation },
+    { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage, namespace: "run-7" },
+  );
+
+  const result = await adapter.measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), "/e2e", SAMPLE_DIFF, ["pays"], { caseFiles: ["flows/pay.spec.ts"] });
+
+  assert.deepEqual(result.survivorRuns, survivorRuns);
+  assert.equal(JSON.stringify(result.bundleMutation).includes("https://dev/main.js"), false, "the recorded outcome carries no served script");
+});
+
+test("recheckSurvivors() applies the survivors again through the mutation oracle under its namespace, and judges nothing without one", async () => {
+  const site = { file: "src/checkout.ts", line: 1, column: 0, operator: "negate condition", script: { url: "u", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x", ranIn: ["d"] };
+  const asked: unknown[] = [];
+  const judged = { applied: 1, killed: 1, survived: [] };
+  const mutation = { measure: async (mutants: unknown, specDir: string, namespace: string, baselineCases: string[]) => (asked.push([mutants, specDir, namespace, baselineCases]), judged) };
+  const build = (withMutation: boolean) => new ObjectiveSignalPortAdapter(
+    { collector: fakeCollector({ covered: [] }), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }), ...(withMutation ? { mutation } : {}) },
+    { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
+  );
+  const survivors = [{ site, specFiles: ["flows/new.spec.ts"] }];
+
+  assert.equal(await build(true).recheckSurvivors(survivors, "/e2e", "run-closure", ["pays"]), judged);
+  assert.deepEqual(asked, [[survivors, "/e2e", "run-closure", ["pays"]]]);
+  assert.equal(await build(false).recheckSurvivors(survivors, "/e2e", "run-closure", ["pays"]), null);
+});
+
 test("measure() asks no mutation when no site is on a changed line, coverage measured nothing, or no mutation oracle is wired", async () => {
   let asked = 0;
   const mutation = { measure: async () => { asked++; return null; } };

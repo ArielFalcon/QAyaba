@@ -7,7 +7,7 @@ import type { CoverageRecount, CoverageRerun } from "../../domain/objective-sign
 import type { BundleMutationPort } from "../../application/ports/bundle-mutation.port.ts";
 import type { CoverageCollectorPort } from "../../application/ports/coverage-collector.port.ts";
 import type { ValueOraclePort } from "../../application/ports/value-oracle.port.ts";
-import type { BundleMutationResult, CoverageReport, DumpSource, MutantProof } from "../../domain/coverage-collector.ts";
+import type { BundleMutationResult, CoverageReport, DumpSource, MutantProof, MutantRun } from "../../domain/coverage-collector.ts";
 import { DecideCoverageService, type ChangeCoverage, type CoveragePolicy } from "../../domain/decide-coverage.service.ts";
 import { parseDiffHunks } from "../../domain/assemble-change-coverage.ts";
 import { selectMutants } from "../../domain/select-mutants.ts";
@@ -115,6 +115,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
       ...(cc?.untakenArms ? { untakenArms: cc.untakenArms } : {}),
       ...(bundleMutation ? { bundleMutation: { applied: bundleMutation.applied, killed: bundleMutation.killed, survived: bundleMutation.survived } } : {}),
       ...(verified ? { mutantProofs: proofs } : {}),
+      ...(bundleMutation?.survivorRuns ? { survivorRuns: bundleMutation.survivorRuns } : {}),
       measurement,
     };
   }
@@ -126,6 +127,11 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     const proofSources = proofs.map(({ namespace, specFiles, ...mutant }) => ({ namespace, onlySpecFiles: specFiles, mutant }));
     const report = await recollect.call(this.deps.collector, specDir, [...sources, ...proofSources], changedFiles);
     return report.incomplete ? null : this.ctx.assembleChangeCoverage(changeDiff, report);
+  }
+
+  async recheckSurvivors(survivors: readonly MutantRun[], specDir: string, namespace: string, baselineCases: readonly string[]): Promise<BundleMutationResult | null> {
+    if (!this.deps.mutation || survivors.length === 0) return null;
+    return this.deps.mutation.measure([...survivors], specDir, namespace, [...baselineCases]);
   }
 
   blocks(status: "pass" | "fail" | "unknown"): boolean {

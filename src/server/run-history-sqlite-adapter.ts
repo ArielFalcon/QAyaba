@@ -40,6 +40,7 @@ export function toStoredRunOutcome(outcome: KernelRunOutcome): StoredRunOutcome 
       ...(outcome.gateSignals.changeCoverage !== undefined ? { changeCoverage: outcome.gateSignals.changeCoverage } : {}),
       ...(outcome.gateSignals.bundleMutation !== undefined ? { bundleMutation: outcome.gateSignals.bundleMutation } : {}),
       ...(outcome.gateSignals.branchCases !== undefined ? { branchCases: outcome.gateSignals.branchCases } : {}),
+      ...(outcome.gateSignals.survivorClosure !== undefined ? { survivorClosure: outcome.gateSignals.survivorClosure } : {}),
       ...(outcome.gateSignals.flakyTriage !== undefined ? { flakyTriage: outcome.gateSignals.flakyTriage } : {}),
       ...(outcome.gateSignals.missingCases !== undefined ? { missingCases: outcome.gateSignals.missingCases } : {}),
       reviewerCorrections: outcome.gateSignals.reviewerCorrections,

@@ -5,6 +5,7 @@ export type { ChangeTokenSet } from "../domain/change-tokens.ts";
 export { DecideCoverageService } from "../domain/decide-coverage.service.ts";
 export type { ChangeCoverage, CoveragePolicy } from "../domain/decide-coverage.service.ts";
 export { renderBranchGap, renderCoverageGap, renderSurvivedMutant, renderSurvivedMutants } from "../domain/render-coverage-gap.ts";
+export { survivorClosureOf, survivorRechecks, type SurvivorClosure } from "../domain/survivor-closure.ts";
 export { diffContracts } from "../domain/test-intent-contract.ts";
 export type { IntentViolation, SpecContractExtraction, SpecIntent } from "../domain/test-intent-contract.ts";
 export type { IntentContractPort } from "./ports/intent-contract.port.ts";

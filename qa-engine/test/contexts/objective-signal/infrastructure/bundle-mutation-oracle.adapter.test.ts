@@ -41,7 +41,8 @@ test("each mutant re-runs its spec files under its own namespace with its edit, 
     killed: 1,
     survived: [{ file: "src/store.ts", line: 12, operator: "negate condition", specFiles: ["flows/b.spec.ts"], original: "x === 1", replacement: "!(x === 1)" }],
     proofs: [{ namespace: "run-1-mut0", specFiles: ["flows/a.spec.ts"], url: "https://dev.example/main.js", sha256: "abc", edit: { start: 10, end: 20, replacement: "!(x === 1)" }, original: "x === 1" }],
-  }, "the killed mutant's proof names its re-run and the spec files whose tests failed");
+    survivorRuns: [mutant(12, ["flows/b.spec.ts"])],
+  }, "the killed mutant's proof names its re-run and the spec files whose tests failed; the survivor keeps the mutant as it ran, so it can be applied again");
   assert.deepEqual(runs.map((r) => [r.namespace, r.specFiles]), [["run-1-mut0", ["flows/a.spec.ts"]], ["run-1-mut1", ["flows/b.spec.ts"]]]);
   assert.deepEqual(runs[0]!.mutant, { url: "https://dev.example/main.js", sha256: "abc", start: 10, end: 20, replacement: "!(x === 1)" });
 });

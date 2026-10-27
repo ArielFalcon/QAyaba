@@ -224,7 +224,7 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
   const { decision, isContextCleanPass } = decidedOf(state);
   const { retries, validation } = state.execution;
   const run = runOf(state);
-  const { coverageRatio, valueScore, mutantCount, killedCount, branchCoverage, bundleMutation, branchCases, flakyTriage, changeCoverage } = state.coverage;
+  const { coverageRatio, valueScore, mutantCount, killedCount, branchCoverage, bundleMutation, branchCases, survivorClosure, flakyTriage, changeCoverage } = state.coverage;
   const { finalReviewerCorrections, reviewerSignal, missingCases } = state.review;
   const { retrievedRuleIds, diffArchetypes, blastRadiusSignal, serviceLinks, contractDrift, crossRepoImpact } = state.grounding;
   const { preExecAmbiguityCatches, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed } = state.generation;
@@ -246,6 +246,7 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
     ...(changeCoverage ? { changeCoverage } : {}),
     ...(bundleMutation ? { bundleMutation } : {}),
     ...(branchCases ? { branchCases } : {}),
+    ...(survivorClosure ? { survivorClosure } : {}),
     ...(flakyTriage ? { flakyTriage } : {}),
     ...(missingCases.length ? { missingCases } : {}),
     reviewerCorrections: finalReviewerCorrections,

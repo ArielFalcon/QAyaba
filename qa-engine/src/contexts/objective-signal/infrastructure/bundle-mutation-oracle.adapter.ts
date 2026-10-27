@@ -30,6 +30,7 @@ export class BundleMutationOracleAdapter implements BundleMutationPort {
     let killed = 0;
     const survived: BundleMutationResult["survived"] = [];
     const proofs: MutantProof[] = [];
+    const survivorRuns: MutantRun[] = [];
     for (const [i, { site, specFiles }] of mutants.entries()) {
       const mutantNamespace = `${namespace}-mut${i}`;
       const mutant = JSON.stringify({ url: site.script.url, sha256: site.script.sha256, ...site.edit });
@@ -50,8 +51,11 @@ export class BundleMutationOracleAdapter implements BundleMutationPort {
         killed++;
         const failedFiles = [...new Set(noticed.flatMap((c) => (c.file ? [c.file] : [])))];
         proofs.push({ namespace: mutantNamespace, specFiles: failedFiles.length > 0 ? failedFiles : specFiles, url: site.script.url, sha256: site.script.sha256, edit: site.edit, original: site.original });
-      } else survived.push({ file: site.file, line: site.line, operator: site.operator, specFiles, original: oneLine(site.original), replacement: oneLine(site.edit.replacement) });
+      } else {
+        survived.push({ file: site.file, line: site.line, operator: site.operator, specFiles, original: oneLine(site.original), replacement: oneLine(site.edit.replacement) });
+        survivorRuns.push({ site, specFiles });
+      }
     }
-    return applied > 0 ? { applied, killed, survived, ...(proofs.length > 0 ? { proofs } : {}) } : null;
+    return applied > 0 ? { applied, killed, survived, ...(proofs.length > 0 ? { proofs } : {}), ...(survivorRuns.length > 0 ? { survivorRuns } : {}) } : null;
   }
 }

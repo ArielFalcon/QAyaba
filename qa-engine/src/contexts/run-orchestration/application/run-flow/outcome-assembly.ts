@@ -39,6 +39,7 @@ export interface OutcomeExtras {
   changeCoverage?: RunOutcome["gateSignals"]["changeCoverage"];
   bundleMutation?: RunOutcome["gateSignals"]["bundleMutation"];
   branchCases?: RunOutcome["gateSignals"]["branchCases"];
+  survivorClosure?: RunOutcome["gateSignals"]["survivorClosure"];
   flakyTriage?: RunOutcome["gateSignals"]["flakyTriage"];
   missingCases?: string[];
   note?: string;
@@ -186,6 +187,7 @@ export function toRunOutcome(
       ...(extra?.changeCoverage ? { changeCoverage: extra.changeCoverage } : {}),
       ...(extra?.bundleMutation ? { bundleMutation: extra.bundleMutation } : {}),
       ...(extra?.branchCases ? { branchCases: extra.branchCases } : {}),
+      ...(extra?.survivorClosure ? { survivorClosure: extra.survivorClosure } : {}),
       ...(extra?.flakyTriage ? { flakyTriage: extra.flakyTriage } : {}),
       ...(extra?.missingCases?.length ? { missingCases: extra.missingCases } : {}),
       reviewerCorrections: extra?.reviewerCorrections ?? [],

@@ -21,7 +21,7 @@ import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
 import type { FixLoopStage } from "../../domain/fix-loop.aggregate.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import type { BundleMutationOutcome, CandidateCoverage, CandidateValue, CausalLabel, CoverageRerun, MutantProof, UntakenArm, ValueStats } from "@contexts/objective-signal/application/index.ts";
+import type { BundleMutationOutcome, CandidateCoverage, CandidateValue, CausalLabel, CoverageRerun, MutantProof, MutantRun, SurvivorClosure, UntakenArm, ValueStats } from "@contexts/objective-signal/application/index.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunEvidence } from "../../domain/run-decision.service.ts";
 import type { EndReason } from "./end-reason.ts";
@@ -211,6 +211,10 @@ export interface CoverageOutcome {
   bundleMutation: BundleMutationOutcome | undefined;
   /** The killed mutants whose re-runs the coverage counts, so a recount counts them again; empty when none added a line. */
   mutantProofs: MutantProof[];
+  /** The mutants of `bundleMutation.survived`, in its order, as they were run, so a regeneration they drove can apply them again; they name the served script and its edit and never reach an agent or the record. */
+  survivorRuns: MutantRun[];
+  /** Whether the regeneration the surviving mutants drove made a test notice them; undefined when no accepted regeneration answered a survivor. A signal, never a gate. */
+  survivorClosure: SurvivorClosure | undefined;
   /** What the coverage counted beside its ratio (code lines, lines left out, files not loaded, what only a killed mutant ran); undefined when nothing was measured. */
   changeCoverage: RunOutcome["gateSignals"]["changeCoverage"];
   /** The re-runs of every regeneration accepted so far, in the order they ran: a recount reads these specs from them and the rest from the base namespace, so it describes the bytes under review however many regenerations came before. */
@@ -429,6 +433,8 @@ export function initialRunState(): RunState {
       flakyTriage: undefined,
       bundleMutation: undefined,
       mutantProofs: [],
+      survivorRuns: [],
+      survivorClosure: undefined,
       changeCoverage: undefined,
       reruns: [],
       acceptanceCalls: 0,

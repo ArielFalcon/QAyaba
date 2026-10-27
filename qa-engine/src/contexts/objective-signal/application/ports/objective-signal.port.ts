@@ -2,7 +2,7 @@ import type { BlastRadius } from "@kernel/blast-radius.ts";
 import type { CandidateValue, FaultAim, ValueStats } from "../../domain/fault-injection-score.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import type { BundleMutationOutcome, CoverageMeasurement, CoverageRecount, CoverageRerun, UntakenArm } from "../../domain/objective-signal.ts";
-import type { MutantProof } from "../../domain/coverage-collector.ts";
+import type { BundleMutationResult, MutantProof, MutantRun } from "../../domain/coverage-collector.ts";
 
 export interface ObjectiveSignalPort {
   /**
@@ -25,8 +25,10 @@ export interface ObjectiveSignalPort {
    * measure(); the first measurement is untouched.
    * The coverage counts what the passing tests ran and what a mutant a test killed made run (the verified coverage);
    * `mutantProofs` names those mutants' re-runs, so a recount can count them again, and is absent when none added a line.
+   * `survivorRuns` are the mutants no test noticed, in the order of `bundleMutation.survived`, as they were run, so a regeneration
+   * they drove can apply them again; they name the served script and its edit, so they never reach an agent.
    */
-  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[]; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; faultAim?: FaultAim }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; valueByCandidate?: CandidateValue[]; valueStats?: ValueStats; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[]; untakenArms?: UntakenArm[]; bundleMutation?: BundleMutationOutcome; mutantProofs?: MutantProof[]; measurement?: CoverageMeasurement }>;
+  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[]; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; faultAim?: FaultAim }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; valueByCandidate?: CandidateValue[]; valueStats?: ValueStats; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[]; untakenArms?: UntakenArm[]; bundleMutation?: BundleMutationOutcome; mutantProofs?: MutantProof[]; survivorRuns?: MutantRun[]; measurement?: CoverageMeasurement }>;
   /**
    * Single source of truth for whether a measured status blocks publish.
    * Only "enforce" + "fail" blocks; "unknown" never blocks regardless of mode.
@@ -38,5 +40,11 @@ export interface ObjectiveSignalPort {
    * `proofs` whose spec files were not re-run. Null when nothing can be counted that way (coverage off, no diff, a collector that
    * reads reports a run writes whole, or a source whose dumps could not be read). Absent on a port that cannot recount.
    */
+  /**
+   * The surviving mutants applied again, each re-running its `specFiles`, and judged against `baselineCases` (the passing cases of
+   * those specs) as the first pass judged them: killed when one of those cases fails. Re-runs land under `namespace`. Null when none
+   * was judged. Absent on a port with no mutation pass. A signal, never a gate.
+   */
+  recheckSurvivors?(survivors: readonly MutantRun[], specDir: string, namespace: string, baselineCases: readonly string[]): Promise<BundleMutationResult | null>;
   recount?(br: BlastRadius, specDir: string, diff: string | undefined, reruns: readonly CoverageRerun[], opts?: { namespace?: string; proofs?: readonly MutantProof[] }): Promise<CoverageRecount | null>;
 }

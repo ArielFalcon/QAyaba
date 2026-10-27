@@ -86,6 +86,7 @@ function stubPorts(overrides: Partial<{
   measure: ObjectiveSignalPort["measure"];
   blocks: ObjectiveSignalPort["blocks"];
   recount: NonNullable<ObjectiveSignalPort["recount"]>;
+  recheckSurvivors: NonNullable<ObjectiveSignalPort["recheckSurvivors"]>;
   publish: PublicationPort["publish"];
   fold: LearningPort["fold"];
   retrieve: LearningPort["retrieve"];
@@ -132,6 +133,7 @@ function stubPorts(overrides: Partial<{
      */
     blocks: overrides.blocks ?? (() => false),
     ...(overrides.recount ? { recount: overrides.recount } : {}),
+    ...(overrides.recheckSurvivors ? { recheckSurvivors: overrides.recheckSurvivors } : {}),
   };
   const publication: PublicationPort = {
     publish: overrides.publish ?? (async () => ({ outcome: "pr" })),
@@ -9569,6 +9571,88 @@ test("signal mode: a green run with arms no test ran regenerates once with those
     assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2, armsAfter: 1 });
     assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCoverage, { changed: 6, taken: 5 }, "the recount is what the run records");
     assert.equal(savedOutcomes.at(-1)!.gateSignals.coverageRatio, 1);
+  } finally {
+    real.cleanup();
+  }
+});
+
+/* ── Survivor closure: a regeneration a surviving mutant drove re-applies that mutant to the specs it changed ── */
+
+const SURVIVOR_SITE = {
+  file: "src/a.ts",
+  line: 9,
+  column: 2,
+  operator: "negate condition",
+  script: { url: "https://dev.example/main.js", sha256: "h" },
+  edit: { start: 3, end: 8, replacement: "!(ok)" },
+  original: "ok",
+  ranIn: ["a-spec-ts-a-works-0.json"],
+};
+const SURVIVED = { file: "src/a.ts", line: 9, operator: "negate condition", specFiles: ["a.spec.ts"], original: "ok", replacement: "!(ok)" };
+
+function survivorRun(recheck: NonNullable<ObjectiveSignalPort["recheckSurvivors"]>) {
+  const real = realCoverageWorkspace();
+  const turns: string[] = [];
+  const { ports, savedOutcomes } = stubPorts({
+    prepare: real.prepare,
+    generate: async (...args) => {
+      turns.push(JSON.stringify(args));
+      return real.generate(...args);
+    },
+    execute: async () => ({ verdict: "pass" as const, cases: [{ name: "a works", status: "pass" as const, file: "a.spec.ts" }], logs: "" }),
+    measure: async () => ({
+      status: "pass" as const,
+      ratio: 1,
+      uncovered: [],
+      untakenArms: [],
+      bundleMutation: { applied: 1, killed: 0, survived: [SURVIVED] },
+      survivorRuns: [{ site: SURVIVOR_SITE, specFiles: ["a.spec.ts"] }],
+      measurement: { changedLines: 4, coveredChanged: 4, changedFiles: 1, mappedFiles: 1 },
+    }),
+    recount: async () => null,
+    recheckSurvivors: recheck,
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false, coveragePolicyMode: "signal", coverageBranchCases: "regenerate" } });
+  return { real, turns, savedOutcomes, useCase };
+}
+
+test("an accepted regeneration a surviving mutant drove re-applies that mutant to the specs it changed and records that a test now notices it", async () => {
+  const rechecks: unknown[] = [];
+  const { real, turns, savedOutcomes, useCase } = survivorRun(async (survivors, specDir, namespace, baselineCases) => {
+    rechecks.push([survivors, specDir.endsWith("e2e"), namespace, baselineCases]);
+    return { applied: 1, killed: 1, survived: [] };
+  });
+  try {
+    const out = await useCase.run({ ...baseInput, runId: "survivor-closed" });
+
+    assert.equal(turns.length, 2, "the first pass and the one regeneration the survivor drove");
+    assert.deepEqual(rechecks, [[[{ site: SURVIVOR_SITE, specFiles: ["a.spec.ts"] }], true, "survivor-closed-closure", ["a works"]]]);
+    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.survivorClosure, { routed: 1, judged: 1, closed: 1, open: [] });
+    assert.ok(!turns[1]!.includes(SURVIVOR_SITE.script.url), "the served script a mutant edits never reaches an agent");
+    assert.equal(out.decision.sideEffect, "pr");
+  } finally {
+    real.cleanup();
+  }
+});
+
+test("a mutant that still survives the regeneration it drove is recorded open and never changes the decision", async () => {
+  const { real, savedOutcomes, useCase } = survivorRun(async () => ({ applied: 1, killed: 0, survived: [SURVIVED] }));
+  try {
+    const out = await useCase.run({ ...baseInput, runId: "survivor-open" });
+
+    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.survivorClosure, { routed: 1, judged: 1, closed: 0, open: [{ file: "src/a.ts", line: 9, operator: "negate condition" }] });
+    assert.equal(out.decision.sideEffect, "pr", "survivor closure is a signal, never a gate");
+  } finally {
+    real.cleanup();
+  }
+});
+
+test("a re-applied mutant that reached no page is not judged: the closure counts it routed and neither closed nor open", async () => {
+  const { real, savedOutcomes, useCase } = survivorRun(async () => null);
+  try {
+    await useCase.run({ ...baseInput, runId: "survivor-unjudged" });
+
+    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.survivorClosure, { routed: 1, judged: 0, closed: 0, open: [] });
   } finally {
     real.cleanup();
   }
