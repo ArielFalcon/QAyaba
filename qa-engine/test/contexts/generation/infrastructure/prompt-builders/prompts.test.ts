@@ -25,7 +25,7 @@ import {
   renderFixCase,
 } from "@contexts/generation/infrastructure/prompt-builders/generator-renderers.ts";
 import { renderReviewSpecs } from "@contexts/generation/infrastructure/prompt-builders/review-render.ts";
-import { renderArchitectureContextParts } from "@contexts/generation/infrastructure/prompt-builders/architecture-context.ts";
+import { MAP_ITEMS_SAFETY_BOUND, renderArchitectureContextParts } from "@contexts/generation/infrastructure/prompt-builders/architecture-context.ts";
 import { assemble as caAssemble, section as caSection } from "@contexts/generation/infrastructure/prompt-builders/context-assembler.ts";
 import { assemblerBudgetBytes } from "@kernel/context-budget.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
@@ -1552,29 +1552,38 @@ test("reviewer prompt: the spec-change excerpt is bounded and sanitized", () => 
   assert.ok(Buffer.byteLength(text, "utf8") <= REVIEWER_BUDGET_BYTES);
 });
 
-/* The map-cap omission counts only the entries MAX_ITEMS actually left out, per rendered list — a suppressed list was never
-   rendered, so its cap is not an omission, and the whole-list sum the old code emitted over-counted. */
-test("renderArchitectureContextParts counts exactly the entries MAX_ITEMS left out, per rendered list", () => {
+/* No fixed count or length cuts the map: an app with hundreds of routes and operations is rendered whole, every entry supplied. */
+test("renderArchitectureContextParts renders a large map whole, every entry of every list, past any fixed length", () => {
   const ctx: ArchitectureContext = {
     builtAtSha: "abc1234",
-    routes: Array.from({ length: 250 }, (_, i) => ({ path: `/r${i}` })),
+    routes: Array.from({ length: 250 }, (_, i) => ({ path: `/r${i}`, component: `RouteComponentNumber${i}` })),
     api: Array.from({ length: 250 }, (_, i) => ({ operationId: `op${i}`, method: "GET", path: `/p${i}` })),
     feBe: Array.from({ length: 230 }, (_, i) => ({ route: `/r${i % 250}`, operationId: `op${i % 250}`, via: "x" })),
     flows: Array.from({ length: 210 }, (_, i) => ({ id: `flow${i}`, routes: [`/f${i}`] })),
   };
-
-  /* 50 routes + 50 api + 30 links + 10 flows = 140, all rendered. */
-  assert.deepEqual(renderArchitectureContextParts(ctx, undefined, {})?.omissions, [
-    { class: "truncation", reason: "map-cap", count: 140 },
-  ]);
-
-  /* With API operations suppressed, only routes (50), links (30) and flows (10) count. */
-  assert.deepEqual(renderArchitectureContextParts(ctx, undefined, { suppressApiOperations: true })?.omissions, [
-    { class: "truncation", reason: "map-cap", count: 90 },
-  ]);
+  const parts = renderArchitectureContextParts(ctx, undefined, {})!;
+  assert.ok(parts.text.length > 20_000);
+  for (const needle of ["`/r249`", "`op249`", "**flow209**", "Route `/r229`"]) assert.ok(parts.text.includes(needle), needle);
+  assert.doesNotMatch(parts.text, /truncated/);
+  assert.deepEqual(parts.omissions, []);
+  assert.equal(parts.itemIds.length, 250 + 250 + 230 + 210);
 });
 
-test("renderArchitectureContextParts reports no map-cap omission when every list is under MAX_ITEMS", () => {
+/* A list past the safety bound (a context.json the orchestrator does not control) keeps the bound's worth and counts what it left out. */
+test("renderArchitectureContextParts counts exactly the entries the safety bound left out, per rendered list", () => {
+  const over = MAP_ITEMS_SAFETY_BOUND + 5;
+  const ctx: ArchitectureContext = {
+    builtAtSha: "abc1234",
+    routes: Array.from({ length: over }, (_, i) => ({ path: `/r${i}` })),
+    api: Array.from({ length: over }, (_, i) => ({ operationId: `op${i}`, method: "GET", path: `/p${i}` })),
+    feBe: [],
+    flows: [],
+  };
+  assert.deepEqual(renderArchitectureContextParts(ctx, undefined, {})?.omissions, [{ class: "truncation", reason: "map-safety-bound", count: 10 }]);
+  assert.deepEqual(renderArchitectureContextParts(ctx, undefined, { suppressApiOperations: true })?.omissions, [{ class: "truncation", reason: "map-safety-bound", count: 5 }]);
+});
+
+test("renderArchitectureContextParts reports no omission when every list is under the safety bound", () => {
   const ctx: ArchitectureContext = {
     builtAtSha: "abc1234",
     routes: [{ path: "/a" }, { path: "/b" }],

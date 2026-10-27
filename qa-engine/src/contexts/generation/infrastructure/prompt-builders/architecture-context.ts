@@ -1,4 +1,4 @@
-/* The FE-BE architecture map as a prompt section: bounded, and every field sanitized because the map is read from the watched repo. Never import src/. */
+/* The FE-BE architecture map as a prompt section: whole (the prompt fits it to the role's window), held to a safety bound per list, and every field sanitized because the map is read from the watched repo. Never import src/. */
 
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { itemId } from "@kernel/context-item-ids.ts";
@@ -7,7 +7,15 @@ import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts"
 import { claim, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import type { ArchitectureContext } from "../../domain/generation-input.ts";
 
-/** context.json is read from the WATCHED repo (and committed by this system's own PRs), so it is attacker-influenceable. Every field is sanitized before it reaches the test-writing agent (prompt-injection / secret-exfil defense), and the map is BOUNDED so a huge file cannot blow the token budget. `s()` redacts; MAX_ITEMS caps each section. */
+/*
+ * The most entries one list of the map renders. A safety bound, not a budget: context.json is read from the watched repo, so a file
+ * of millions of entries must not reach the orchestrator's renderer whole; no real app's map comes near it. What a prompt shows of
+ * the map is its role's window's to decide (the arch-map section gives way to a reference to the file). Past the bound, the entries
+ * left out are counted as `map-safety-bound`.
+ */
+export const MAP_ITEMS_SAFETY_BOUND = 5_000;
+
+/** context.json is read from the WATCHED repo (and committed by this system's own PRs), so it is attacker-influenceable. Every field is sanitized before it reaches the test-writing agent (prompt-injection / secret-exfil defense), and each list is held to MAP_ITEMS_SAFETY_BOUND so a hostile file cannot make the renderer hold millions of entries. `s()` redacts. */
 export function renderArchitectureContext(
   ctx: ArchitectureContext,
   changedFiles?: string[],
@@ -25,8 +33,7 @@ export function renderArchitectureContextParts(
   if (!ctx.routes?.length && !ctx.api?.length) return null;
 
   const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
-  const MAX_ITEMS = 200;
-  const MAX_LEN = 20_000;
+  const MAX_ITEMS = MAP_ITEMS_SAFETY_BOUND;
 
   const fullFeBe = changedFiles?.length
     ? ctx.feBe?.filter((link) => {
@@ -81,22 +88,19 @@ export function renderArchitectureContextParts(
   const claims: PromptClaim[] = [claim.provides("arch-map"), claim.frames("arch-map", "unverified")];
   if (listsApiOperations) claims.push(claim.provides("api-operations"));
   if (relevantLinks.length) claims.push(claim.provides("fe-be-links"));
-  /* The ids of what the rendered map supplies, in the map's own order. A map truncated past MAX_LEN delivers none of them (conservative). */
-  const truncated = out.length > MAX_LEN;
-  const itemIds = truncated
-    ? []
-    : [
-        ...ctx.routes.slice(0, MAX_ITEMS).map((r) => itemId.route(r.path)),
-        ...(listsApiOperations ? ctx.api.slice(0, MAX_ITEMS).map((o) => itemId.op(o.operationId)) : []),
-        ...relevantLinks.map((l) => itemId.link(l.route, l.operationId)),
-        ...(ctx.flows?.length ? ctx.flows.slice(0, MAX_ITEMS).map((f) => itemId.flow(f.id)) : []),
-      ];
-  /* The entries each rendered list left out to MAX_ITEMS, and only those: a list the caller suppressed (API operations) was never rendered, so its cap is not an omission, and a list under the cap omits nothing. */
+  /* The ids of what the rendered map supplies, in the map's own order. */
+  const itemIds = [
+    ...ctx.routes.slice(0, MAX_ITEMS).map((r) => itemId.route(r.path)),
+    ...(listsApiOperations ? ctx.api.slice(0, MAX_ITEMS).map((o) => itemId.op(o.operationId)) : []),
+    ...relevantLinks.map((l) => itemId.link(l.route, l.operationId)),
+    ...(ctx.flows?.length ? ctx.flows.slice(0, MAX_ITEMS).map((f) => itemId.flow(f.id)) : []),
+  ];
+  /* The entries each rendered list left out to the safety bound, and only those: a list the caller suppressed (API operations) was never rendered, so its bound is not an omission, and a list under the bound omits nothing. */
   const mapCapOmitted =
     Math.max(0, ctx.routes.length - MAX_ITEMS)
     + (listsApiOperations ? Math.max(0, ctx.api.length - MAX_ITEMS) : 0)
     + (fullFeBe.length > 0 ? Math.max(0, fullFeBe.length - MAX_ITEMS) : 0)
     + (ctx.flows?.length ? Math.max(0, ctx.flows.length - MAX_ITEMS) : 0);
-  const omissions: Omission[] = mapCapOmitted > 0 ? [{ class: "truncation", reason: "map-cap", count: mapCapOmitted }] : [];
-  return { text: truncated ? out.slice(0, MAX_LEN) + "\n…(context truncated)" : out, claims, itemIds, omissions };
+  const omissions: Omission[] = mapCapOmitted > 0 ? [{ class: "truncation", reason: "map-safety-bound", count: mapCapOmitted }] : [];
+  return { text: out, claims, itemIds, omissions };
 }

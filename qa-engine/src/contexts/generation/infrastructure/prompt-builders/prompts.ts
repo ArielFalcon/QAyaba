@@ -24,10 +24,12 @@ export function specFileForFlow(flow: string): string {
   return `flows/${safe}.spec.ts`;
 }
 
-/* The files whose content the surviving sections render compactly: reading one of them re-fetches what the prompt already carries. A section that was shed contributes nothing. */
-function providedPathsOf(input: OpencodeRunInput, sectionSizes: Record<string, number>): string[] {
+/* The files whose content the surviving sections render compactly: reading one of them re-fetches what the prompt already carries. A section that was shed, or shown as a reference to fit the window, contributes nothing. */
+function providedPathsOf(input: OpencodeRunInput, assembled: AssembledPrompt): string[] {
+  const sectionSizes = assembled.sectionSizes;
   const paths: string[] = [];
-  if (sectionSizes["arch-map"] !== undefined) paths.push(`${input.e2eRelDir}/.qa/context.json`);
+  const mapReferenced = assembled.windowFit?.degraded.some((section) => section.id === "arch-map") === true;
+  if (sectionSizes["arch-map"] !== undefined && !mapReferenced) paths.push(`${input.e2eRelDir}/.qa/context.json`);
   if (sectionSizes[HARNESS_FACTS_SECTION_ID] !== undefined && input.harnessFacts?.fixtures) {
     paths.push(`${input.e2eRelDir}/${input.harnessFacts.fixtures.file}`);
   }
@@ -79,7 +81,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     const keepsEverySection = Object.keys(assembled.sectionSizes).every((id) => reassembled.sectionSizes[id] !== undefined);
     if (keepsEverySection && (kept === undefined || reassembled.text.includes(suiteListingHead(ctx.listing)))) assembled = reassembled;
   }
-  return { ...assembled, providedPaths: providedPathsOf(input, assembled.sectionSizes), promptRole: ctx.promptRole };
+  return { ...assembled, providedPaths: providedPathsOf(input, assembled), promptRole: ctx.promptRole };
 }
 
 export function buildPrompt(input: OpencodeRunInput): string {

@@ -155,3 +155,24 @@ test("a generator prompt that fits, or whose window is unknown, is the prompt it
     assert.deepEqual(prompt.sectionItems, plain.sectionItems);
   }
 });
+
+test("the architecture map over the author's window is one line naming what it holds and its file, which is then no longer counted as provided", () => {
+  const contextMap = {
+    builtAtSha: "abc1234",
+    routes: Array.from({ length: 300 }, (_, i) => ({ path: `/r${i}`, component: `RouteComponentNumber${i}` })),
+    api: Array.from({ length: 300 }, (_, i) => ({ operationId: `op${i}`, method: "GET", path: `/p${i}` })),
+    feBe: [],
+    flows: [],
+  };
+  const input = generator({ contextMap });
+  const whole = buildPromptAssembled(input, { fit: roomy });
+  assert.ok(whole.text.includes("`/r299`"));
+  assert.ok(whole.providedPaths?.includes("e2e/.qa/context.json"));
+
+  const prompt = buildPromptAssembled(input, { fit: windowOf(bytesOf(whole.text) - 10_000) });
+  assert.match(prompt.text, /The map's 300 route\(s\), 300 API operation\(s\), 0 FE↔BE link\(s\) and 0 named flow\(s\) are not shown here, to fit the window: they are in e2e\/\.qa\/context\.json/);
+  assert.ok(!prompt.text.includes("`/r299`"));
+  assert.ok(!prompt.providedPaths?.includes("e2e/.qa/context.json"));
+  assert.deepEqual(prompt.sectionItems["arch-map"]?.itemIds, []);
+  assert.ok(prompt.sectionItems["arch-map"]?.omissions.some((o) => o.reason === WINDOW_FIT_REASON && o.count === 600));
+});

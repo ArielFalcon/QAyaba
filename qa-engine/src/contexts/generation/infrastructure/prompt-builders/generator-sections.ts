@@ -19,6 +19,7 @@ import { STEP_MILESTONE_SECTION_ID } from "@contexts/generation/domain/step-limi
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import type { PromptContext } from "./generator-context.ts";
 import { domPagesDegrade, NOT_SHOWN, referenceDegrade } from "./window-fit-references.ts";
+import { WINDOW_FIT_REASON } from "@kernel/prompt-sections.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import {
   CONTRACT_DRIFT_HEADING,
@@ -150,12 +151,22 @@ function renderRegenDiscipline(ctx: PromptContext): SectionRender {
   return { content: regenDisciplineContent, claims: regenDisciplineContent ? [claim.directs("read")] : [] };
 }
 
+/* The map whole; over the window, one line naming what it holds and the file it is in. */
 function renderArchMap(ctx: PromptContext): SectionRender {
-  const { archMap } = ctx;
+  const { archMap, input } = ctx;
+  const map = input.contextMap;
+  const reference = archMap && map
+    ? [
+        `## ${PROMPT_HEADINGS.architectureContext} (from ${input.e2eRelDir}/.qa/context.json)`,
+        `The map's ${map.routes.length} route(s), ${map.api.length} API operation(s), ${map.feBe?.length ?? 0} FE↔BE link(s) and ${map.flows?.length ?? 0} named flow(s) are ${NOT_SHOWN}: they are in ${input.e2eRelDir}/.qa/context.json.`,
+        ``,
+      ].join("\n")
+    : "";
   return {
     content: [archMap?.text ?? "", ``].join("\n"),
     claims: archMap?.claims ?? [],
     ...(archMap ? { itemIds: archMap.itemIds, omissions: archMap.omissions } : {}),
+    ...(archMap ? { degrade: (step: number) => (step === 1 ? { content: reference, omissions: [...archMap.omissions, { class: "truncation" as const, reason: WINDOW_FIT_REASON, count: archMap.itemIds.length }] } : undefined) } : {}),
   };
 }
 
