@@ -30,7 +30,7 @@ Source: campaign run `run-ed28973-mvqy1s7l-64c65862` (name-webapp ed28973: 3 com
 |---|---|---|---|---|
 | T0 | S1, S2, S7 (P0.1, P0.2) | delegated (worktree, measurement) | done: codegraph 1.6.2 has no app route nodes for `AppRoutes`-typed arrays, no declaration ranges, no route→guard link → route-table extractor per framework from git base/head; walk F = clamp(non-test p99, 10, 64), drop test callers | worktree-agent-ad5b3c96cc3bea21c 929a8406, 5ca0a924 |
 | T1 | S1 | delegated (parallel, worktree): independent unit, several files | done | main b7431edb, c4fd6316 cherry-picked; gate 0 failed |
-| T2 | S2 | delegated (parallel, worktree): independent unit, several files; E2 wired after T1 | in progress | |
+| T2 | S2 | delegated (parallel, worktree): independent unit, several files; E2 wired after T1 | done; gaps: `availability_asserted` grader (evidence holds no spec source), sibling probe for template routes, gate signal on early-ending runs, tsconfig-alias guard imports → `unexplained` | merge 67adc02a; E2 on the walk policy b13d534b; reviewer contract e1b0266c, ee2477c0; gate 11795, 0 failed |
 | T3 | S3 | delegated (parallel, worktree): shares context-pack.ts with T2, isolated worktree | done (within its surfaces); remaining caps → T12 | main 6 commits ending 8a74dd74 (agent branch 082e40eb..f3f9d58e); agent gate: 11661 tests, 0 failed |
 | T4 | S4, S5, S7 | delegated read-only diagnosis | done: S4 confirmed (adapter dropped severities/citations; parser misaligned them), S5 mechanism confirmed, S7 = first-predecessor attribution (T0) | |
 | T5 | S6 | delegated read-only analysis; optimisation after correctness | done: 42% of 63 min wasted after the write budget ran out at t≈988 s; top sinks → S5, S9, review per flow, recapture memo, S8 | |
@@ -39,9 +39,9 @@ Source: campaign run `run-ed28973-mvqy1s7l-64c65862` (name-webapp ed28973: 3 com
 | T8 | S8 | delegated (parallel, worktree) | done | main 015f90fc cherry-pick + b11d635d (seed revision mirror, type); gate 0 failed |
 | T9 | S9 | delegated (parallel, worktree) | done; gap: enforce coverage regeneration kept/restored only on its span (new gate key needs run-history adapter) | main d618a2e8, d8677ef3, ac058e4a; gate 11732, 0 failed |
 | T10 | S10 | delegated (worktree, context backstop) | done | main cd4cd8bf (`modelForRole`), 239d3902 (settings doc); gate 11743, 0 failed |
-| T12 | S3 remainder: diff cap `MAX_PROMPT_DIFF_CHARS` (prompt-cap.ts), lead review spec cut `MAX_SPEC_CHARS` (lead-turn-sections.ts), brief suite listing 30×300 (brief-sections.ts), brief pages fit (sidekick-prompt.ts, lead-sidekicks.ts), per-item runtime evidence caps, degraded-section span count, stale `reviewer|over-cap` matrix case | after T2 merges (shared files) | pending | |
+| T12 | S3 remainder: availability facts cap 16 in the reviewer and pack sections, diff cap `MAX_PROMPT_DIFF_CHARS` (prompt-cap.ts), lead review spec cut `MAX_SPEC_CHARS` (lead-turn-sections.ts), brief suite listing 30×300 (brief-sections.ts), brief pages fit (sidekick-prompt.ts, lead-sidekicks.ts), per-item runtime evidence caps, degraded-section span count, stale `reviewer|over-cap` matrix case | after T2 merges (shared files) | pending | |
 | T13 | S11 | delegated (with T9, same seam) | done | main 7b504354 |
-| T14 | S12 | inline | pending | |
+| T14 | S12 | inline | done | ec1b0bbc (RED observed) |
 | T15 | S13 | inline after the guard check | pending | |
 | T16 | S14 | owner decision | pending | |
 | T17 | S15 | re-check after T1, T2 | pending | |
@@ -64,3 +64,4 @@ Source: campaign run `run-ed28973-mvqy1s7l-64c65862` (name-webapp ed28973: 3 com
 - L13 T1+T8 gate on main: exit 0, 0 failed.
 - L14 T7 verifier: S5 met, no blockers. Advisories: (1) a spec rewriting `PW_BASE_URL`/`PW_DEV_ORIGINS` could move a write off the count → seed now reads both once at load (a4004d9d, RED observed); (2) a lead accept of a spec whose last run_spec failed is accepted once writes are spent (`unverified-no-writes`) — intended by S5, execution and the fix loop judge it; (3) a caller's `PW_DEV_ORIGINS` passed the PW_* allowlist for non-suite profiles → dropped for every profile (81c23923); (4) `wss:` never counted — handshake GETs, not writes.
 - L15 T9 + S11 merged. T10: one resolver `modelForRole` (caller > operator-chosen tier > opencode.json agent model > tier default) for the session, the context window and reviewer independence; `applyConfig` persists only chosen tiers. Lead, explore, maintainer and proposer now run on what opencode.json declares. Needs an orchestrator restart (Doppler) before the campaign.
+- L16 T2 merged (merge commit 67adc02a does not typecheck alone; b13d534b moves the closure to `CHANGE_CLOSURE_POLICY` = walk policy at depth 6 and counts hub closures). Reviewer contract lists the `availability` citation; REVIEWER_PROMPT_VERSION 8. S12 done. Remaining before the campaign: T12, T15 (S13), feature-end verifier, restart with Doppler; owner decisions: S14, dom citations, name-webapp geolocation.
