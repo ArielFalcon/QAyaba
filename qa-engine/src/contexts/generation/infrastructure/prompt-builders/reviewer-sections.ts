@@ -13,9 +13,10 @@ import type { PromptFit } from "./generator-context.ts";
 import { assemblerBudgetBytes } from "@kernel/context-budget.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 import { renderStepLimit } from "./prompt-text.ts";
-import { reviewObjective, reviewSpecsOutcome, type ReviewSpecContents } from "./review-render.ts";
+import { EXECUTION_RESULT_DETAIL_PREFIX, EXECUTION_RESULT_URL_PREFIX, reviewObjective, reviewSpecsOutcome, withoutExecutionResultLines, type ReviewSpecContents } from "./review-render.ts";
+import { boundedEvidenceCount, EVIDENCE_SAFETY_BOUND_REASON } from "../prompt-cap.ts";
 import type { PromptSectionDef, SectionRender } from "./prompt-sections.ts";
-import type { SectionDegradation } from "@kernel/prompt-sections.ts";
+import { WINDOW_FIT_REASON, type SectionDegradation } from "@kernel/prompt-sections.ts";
 import { REVIEWER_CHANGE_SECTIONS } from "./reviewer-change-sections.ts";
 import { diffWindowDegrade } from "./plan-diff-section.ts";
 import { countByDirectory, domPagesDegrade, NOT_SHOWN, referenceDegrade, stepsDegrade } from "../../domain/window-fit-references.ts";
@@ -253,6 +254,23 @@ const referencesTheDiff = (degrade: (step: number) => SectionDegradation | undef
   return next === undefined ? undefined : { ...next, claims: [claim.provides("diff")] };
 };
 
+/* The execution result whole while the window holds it; over it, each case gives up its detail, then its final url, and keeps its name and status. */
+function renderExecutionResultSection(result: string): SectionRender {
+  const cut = boundedEvidenceCount(result);
+  const prefixes = [EXECUTION_RESULT_DETAIL_PREFIX, EXECUTION_RESULT_URL_PREFIX];
+  return {
+    content: result,
+    ...(cut > 0 ? { omissions: [{ class: "truncation" as const, reason: EVIDENCE_SAFETY_BOUND_REASON, count: cut }] } : {}),
+    degrade: (step) => {
+      const prefix = prefixes[step - 1];
+      if (prefix === undefined) return undefined;
+      const left = prefixes.slice(0, step).reduce((sum, p) => sum + withoutExecutionResultLines(result, p).left, 0);
+      const text = prefixes.slice(0, step).reduce((kept, p) => withoutExecutionResultLines(kept, p).text, result);
+      return { content: `${text}\n\n(${left} line(s) of the cases' ${step === 1 ? "detail" : "detail and final url"} are ${NOT_SHOWN}.)`, omissions: [{ class: "truncation" as const, reason: WINDOW_FIT_REASON, count: left }] };
+    },
+  };
+}
+
 export const REVIEWER_SECTIONS: readonly PromptSectionDef<ReviewerContext>[] = [
   { id: "reviewer-role-framing", tier: "stable-prefix", priority: 1, stability: "static", reason: "Reviewer independence: it judges the tests on their own merit, without the generator's reasoning (bd29f624)", applies: () => true, render: renderRoleFraming },
   { id: "reviewer-instructions", tier: "stable-prefix", priority: 2, stability: "static", reason: "Keeps the reviewer in its lane: no UI fact from memory, no rejection over the existing suite (875a6004, 8fea750c)", applies: () => true, render: renderInstructions },
@@ -271,7 +289,7 @@ export const REVIEWER_SECTIONS: readonly PromptSectionDef<ReviewerContext>[] = [
   /* VOLATILE: DOM grounding (priority 1 — first in VOLATILE so it precedes the spec contents that reference it; the instructions refer to it position-independently as "the Live DEV DOM section"). Whole while the window holds it; past it, page by page as references. */
   { id: "reviewer-dom", tier: "volatile", priority: 1, stability: "run", reason: "UI facts are judged against the live DOM the orchestrator captured, never prior knowledge (875a6004)", applies: ({ input }) => Boolean(input.domSnapshot), render: renderDom },
   /* VOLATILE: runtime execution evidence. Deterministic orchestrator evidence (HTTP status codes + final URLs captured via page.on('response')) injected BEFORE the spec contents so the reviewer can weigh the objective server-error signal before reading test code. Priority 1.5 — after DOM grounding (which grounds UI facts) but before specs themselves. Absent when the run produced no execution evidence (first-time generate, code mode, etc.). */
-  { id: "reviewer-execution-result", tier: "volatile", priority: 1.5, stability: "run", reason: "Runtime server-error evidence, weighed before the test code (f8fa33f8)", applies: ({ input }) => Boolean(input.executionResult), render: ({ input }) => ({ content: input.executionResult ?? "" }) },
+  { id: "reviewer-execution-result", tier: "volatile", priority: 1.5, stability: "run", reason: "Runtime server-error evidence, weighed before the test code (f8fa33f8)", applies: ({ input }) => Boolean(input.executionResult), render: ({ input }) => renderExecutionResultSection(input.executionResult ?? "") },
   { id: "reviewer-specs", tier: "volatile", priority: 2, stability: "run", reason: "The specs under review, inline or to be read, from the one outcome the instructions also render from", applies: () => true, render: ({ specBlock, specContents }) => ({ content: specBlock, overflow: "summarize", ...(specContents === "inline" ? { claims: [claim.provides(SPEC_CONTENTS_INLINE_FACT)] } : {}) }) },
   { id: "reviewer-existing-suite", tier: "volatile", priority: 3, stability: "run", reason: "Existing specs as context only: the reviewer judges only what this run delivered (8fea750c)", applies: ({ input }) => Boolean(input.existingSpecFiles?.length), render: renderExistingSuite },
   {

@@ -6,7 +6,9 @@
  */
 import { WINDOW_FIT_REASON, type SectionDegradation } from "@kernel/prompt-sections.ts";
 import type { Omission } from "@kernel/telemetry/section-meta.ts";
-import { availabilityFactCount, domPageCount, referenceAvailabilityFacts, referenceDomPages } from "./pack-pages.ts";
+import { domPageCount, referenceDomPages, referenceSectionFacts, sectionFactCount } from "./pack-pages.ts";
+import { PACK_HEADINGS } from "./prompt-headings.ts";
+import { itemId } from "@kernel/context-item-ids.ts";
 
 const windowFit = (count: number, route?: string): Omission => ({ class: "truncation", reason: WINDOW_FIT_REASON, count, ...(route !== undefined ? { route } : {}) });
 
@@ -38,22 +40,30 @@ export function domPagesDegrade(opts: {
 
 /*
  * The Context Pack over the window: its Live DOM gives way page by page (the lowest-ranked page first), then its availability
- * facts, the last-listed fact first, each named by a count. `liveDom` is the heading of the DOM section.
+ * facts, then its API contracts, the last-listed fact first, each named by a count. `liveDom` is the heading of the DOM section.
  */
 export function packDegrade(opts: { pack: string; liveDom: string; itemIds?: readonly string[]; omissions?: readonly Omission[] }): (step: number) => SectionDegradation | undefined {
   const pages = domPageCount(opts.pack, { section: opts.liveDom });
   const dom = domPagesDegrade({ dom: opts.pack, wrap: (text) => text, section: opts.liveDom, ...(opts.itemIds ? { itemIds: opts.itemIds } : {}), ...(opts.omissions ? { omissions: opts.omissions } : {}) });
-  const facts = availabilityFactCount(opts.pack);
+  const facts = sectionFactCount(opts.pack, PACK_HEADINGS.availability);
+  const contracts = sectionFactCount(opts.pack, PACK_HEADINGS.contracts);
   return (step) => {
     if (step <= pages) return dom(step);
     const count = step - pages;
-    if (count > facts) return undefined;
+    if (count > facts + contracts) return undefined;
     const base = pages > 0 ? dom(pages) : undefined;
-    const { text, left } = referenceAvailabilityFacts(base?.content ?? opts.pack, count);
+    const availability = referenceSectionFacts(base?.content ?? opts.pack, PACK_HEADINGS.availability, Math.min(count, facts), "route");
+    const dropContracts = count > facts ? referenceSectionFacts(availability.text, PACK_HEADINGS.contracts, count - facts, "contract") : undefined;
+    const ids = base?.itemIds ?? opts.itemIds;
+    /* A contract left out is no longer an item the pack supplies. */
+    const droppedOps = (dropContracts?.dropped ?? []).flatMap((line) => {
+      const name = /^- `([^`]*)`/.exec(line)?.[1];
+      return name === undefined ? [] : [itemId.op(name)];
+    });
     return {
-      content: text,
-      omissions: [...(base?.omissions ?? opts.omissions ?? []), windowFit(left)],
-      ...((base?.itemIds ?? opts.itemIds) ? { itemIds: base?.itemIds ?? opts.itemIds } : {}),
+      content: dropContracts?.text ?? availability.text,
+      omissions: [...(base?.omissions ?? opts.omissions ?? []), windowFit(availability.left + (dropContracts?.left ?? 0))],
+      ...(ids ? { itemIds: ids.filter((id) => !droppedOps.includes(id)) } : {}),
     };
   };
 }

@@ -1410,8 +1410,8 @@ function emptyReadEvidence(redaction: RedactionPort, ledger: readonly FlowLedger
 const MAX_FACTS_CHARS = 2_000;
 
 /* The options of a lead turn: its time, the sizes and hashes of the sections its prompt was assembled from, so the transport's trace can split the turn, and its stable prefix. */
-function turnOpts(assembled: AssembledPrompt, timeoutMs: number): { timeoutMs: number; sectionSizes: Record<string, number>; sectionHashes?: Record<string, string>; promptStablePrefixBytes: number } {
-  return { timeoutMs, sectionSizes: assembled.sectionSizes, ...(assembled.sectionHashes ? { sectionHashes: assembled.sectionHashes } : {}), promptStablePrefixBytes: assembled.stablePrefixBytes };
+function turnOpts(assembled: AssembledPrompt, timeoutMs: number): { timeoutMs: number; sectionSizes: Record<string, number>; sectionHashes?: Record<string, string>; sectionsDegraded?: number; promptStablePrefixBytes: number } {
+  return { timeoutMs, sectionSizes: assembled.sectionSizes, ...(assembled.sectionHashes ? { sectionHashes: assembled.sectionHashes } : {}), ...(assembled.windowFit ? { sectionsDegraded: assembled.windowFit.degraded.length } : {}), promptStablePrefixBytes: assembled.stablePrefixBytes };
 }
 
 /* What the orchestrator adds to an instruction of the lead's: what it saw of the flow's last run_spec call, the kind of failure it met, and the reads that disagree. */

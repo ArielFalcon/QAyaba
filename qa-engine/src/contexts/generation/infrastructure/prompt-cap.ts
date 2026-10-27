@@ -19,3 +19,27 @@ export function capText(text: string, maxChars: number = MAX_PROMPT_BODY_CHARS):
     `\n[…body truncated: ${text.length - maxChars} more chars; read the full message with \`git show <sha>\`.]`
   );
 }
+
+/*
+ * The safety bound on one piece of runtime evidence text (a test's error, a network or console message, a contract clause): the
+ * text comes out of a test run or an agent's bytes, so its size is not the orchestrator's to know. Nothing below it is cut to
+ * shorten a prompt, that is the window fit rule's job; a text past it is cut with a marker in the text, and the section records
+ * `EVIDENCE_SAFETY_BOUND_REASON` with how many texts were cut.
+ */
+export const EVIDENCE_TEXT_SAFETY_BOUND = 8_000;
+export const EVIDENCE_ITEMS_SAFETY_BOUND = 50;
+export const EVIDENCE_SAFETY_BOUND_REASON = "evidence-safety-bound";
+const BOUNDED_MARKER = "[… cut: ";
+
+export function boundEvidenceText(text: string, maxChars: number = EVIDENCE_TEXT_SAFETY_BOUND): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}${BOUNDED_MARKER}${text.length - maxChars} more chars, past the safety bound on evidence text]`;
+}
+
+/* The line that says a list of evidence entries was cut at the safety bound on their number. */
+export const evidenceItemsCutLine = (cut: number): string => `  ${BOUNDED_MARKER}${cut} more entries, past the safety bound on evidence items]`;
+
+/* How many texts and lists of a rendered section the safety bound cut. */
+export function boundedEvidenceCount(rendered: string): number {
+  return rendered.split(BOUNDED_MARKER).length - 1;
+}

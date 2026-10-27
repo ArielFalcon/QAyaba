@@ -19,11 +19,15 @@ import { STEP_MILESTONE_SECTION_ID } from "@contexts/generation/domain/step-limi
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import type { PromptContext } from "./generator-context.ts";
 import { NOT_SHOWN, packDegrade, referenceDegrade } from "../../domain/window-fit-references.ts";
-import { WINDOW_FIT_REASON } from "@kernel/prompt-sections.ts";
+import { WINDOW_FIT_REASON, type SectionDegradation } from "@kernel/prompt-sections.ts";
+import type { Omission } from "@kernel/telemetry/section-meta.ts";
+import { boundedEvidenceCount, EVIDENCE_SAFETY_BOUND_REASON } from "../prompt-cap.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import {
   CONTRACT_DRIFT_HEADING,
   CONTRACT_FEEDBACK_SECTION_ID,
+  type ContractViolationShape,
+  type FixCaseShape,
   FIX_STEPS,
   RUNTIME_SIGNALS_LINES,
   buildDiffSection,
@@ -178,12 +182,11 @@ function renderStaticSignal(ctx: PromptContext): SectionRender {
   return { content, claims: [claim.provides(signalFact), claim.frames(signalFact, "unverified")], itemIds: advisoryLineIds(content) };
 }
 
+/* The links and the drift whole while the window holds them; over it, the links the change reaches stay and the others are counted, then every link is counted, then the drift too. */
 function renderServiceLinks(ctx: PromptContext): SectionRender {
   const { input, isGenerationMode } = ctx;
   /* Local sanitize wrapper (this function's own scope — NOT the DIFFERENT s() declared inside renderArchitectureContext further down this file) so untrusted cross-repo strings (data leaving/entering the model boundary) are redacted before reaching the prompt. */
   const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
-  const MAX_LINKS = 40;
-  const MAX_DRIFT = 20;
   const hasServiceLinks = Boolean(input.serviceLinks?.length);
   const hasContractDrift = Boolean(input.contractDrift?.length);
   const linkKey = (l: { from: { repo: string; file: string; symbol: string }; to: { repo: string } }): string =>
@@ -200,40 +203,50 @@ function renderServiceLinks(ctx: PromptContext): SectionRender {
           ...input.serviceLinks!.filter((l) => tierFor(l) === undefined),
         ]
       : input.serviceLinks ?? [];
-  const omittedLinkCount = hasServiceLinks ? Math.max(0, orderedLinks.length - MAX_LINKS) : 0;
-  const serviceLinksContent =
-    (hasServiceLinks || hasContractDrift) && isGenerationMode
-      ? [
-          `## ${PROMPT_HEADINGS.crossServiceLinks} (deterministic — from the stitcher, advisory)`,
-          "Structural cross-service contract links resolved from the code, advisory and NOT a gate; absent links do NOT imply no dependency. Transport/source name how each hop was derived (FE→BE HTTP, BE→BE HTTP, event).",
-          "",
-          ...(hasServiceLinks
-            ? orderedLinks.slice(0, MAX_LINKS).map((l) => {
-                const tier = tierFor(l);
-                return renderServiceLinkLine(l, s, tier);
-              })
-            : []),
-          ...(omittedLinkCount > 0 ? [`...and ${omittedLinkCount} more link${omittedLinkCount === 1 ? "" : "s"} (truncated at MAX_LINKS=${MAX_LINKS})`] : []),
-          ...(hasContractDrift
-            ? ["", `### ${CONTRACT_DRIFT_HEADING} (WARNINGS — front calls an endpoint the backend contract does not declare):`,
-               ...input.contractDrift!.slice(0, MAX_DRIFT).map((d) =>
-                 `- WARNING: \`${s(d.from.repo)}/${s(d.from.file)}#${s(d.from.symbol)}\` calls ${s(d.verb)} ${s(d.path)} — not in the contract`)]
-            : []),
-        ].join("\n")
-      : "";
+  type Link = (typeof orderedLinks)[number];
+  const impactedLinks = orderedLinks.filter((l) => tierFor(l) !== undefined);
+  const drift = input.contractDrift ?? [];
+  const render = (shownLinks: readonly Link[], driftShown: boolean): string =>
+    [
+      `## ${PROMPT_HEADINGS.crossServiceLinks} (deterministic — from the stitcher, advisory)`,
+      "Structural cross-service contract links resolved from the code, advisory and NOT a gate; absent links do NOT imply no dependency. Transport/source name how each hop was derived (FE→BE HTTP, BE→BE HTTP, event).",
+      "",
+      ...shownLinks.map((l) => renderServiceLinkLine(l, s, tierFor(l))),
+      ...(shownLinks.length < orderedLinks.length ? [`${orderedLinks.length - shownLinks.length} link(s) are ${NOT_SHOWN}.`] : []),
+      ...(hasContractDrift
+        ? ["", `### ${CONTRACT_DRIFT_HEADING} (WARNINGS — front calls an endpoint the backend contract does not declare):`,
+           ...(driftShown
+             ? drift.map((d) => `- WARNING: \`${s(d.from.repo)}/${s(d.from.file)}#${s(d.from.symbol)}\` calls ${s(d.verb)} ${s(d.path)} — not in the contract`)
+             : [`${drift.length} warning(s) are ${NOT_SHOWN}.`])]
+        : []),
+    ].join("\n");
+  const present = (hasServiceLinks || hasContractDrift) && isGenerationMode;
+  const serviceLinksContent = present ? render(orderedLinks, true) : "";
 
   const serviceLinksClaims: PromptClaim[] = serviceLinksContent
     ? [claim.provides("service-links"), claim.frames("service-links", "unverified")]
     : [];
+  const itemsOf = (links: readonly Link[]): string[] => links.map((l) => itemId.svcLink(l));
+  /* The renders the window can ask for, each with the links it keeps and what it leaves out. */
+  const steps: Array<{ links: readonly Link[]; driftShown: boolean }> = [
+    ...(impactedLinks.length > 0 && impactedLinks.length < orderedLinks.length ? [{ links: impactedLinks, driftShown: true }] : []),
+    ...(orderedLinks.length > 0 ? [{ links: [] as readonly Link[], driftShown: true }] : []),
+    ...(drift.length > 0 ? [{ links: [] as readonly Link[], driftShown: false }] : []),
+  ];
+  const degrade = (step: number): SectionDegradation | undefined => {
+    const next = steps[step - 1];
+    if (!present || next === undefined) return undefined;
+    return {
+      content: render(next.links, next.driftShown),
+      itemIds: itemsOf(next.links),
+      omissions: [{ class: "truncation", reason: WINDOW_FIT_REASON, count: orderedLinks.length - next.links.length + (next.driftShown ? 0 : drift.length) }],
+    };
+  };
   return {
     content: serviceLinksContent,
     claims: serviceLinksClaims,
-    ...(hasServiceLinks
-      ? {
-          itemIds: orderedLinks.slice(0, MAX_LINKS).map((l) => itemId.svcLink(l)),
-          ...(omittedLinkCount > 0 ? { omissions: [{ class: "selection" as const, reason: "link-selection", count: omittedLinkCount }] } : {}),
-        }
-      : {}),
+    ...(hasServiceLinks ? { itemIds: itemsOf(orderedLinks) } : {}),
+    ...(present ? { degrade } : {}),
   };
 }
 
@@ -378,6 +391,8 @@ function renderFixCases(ctx: PromptContext): SectionRender {
   /* The listing tells the agent to read the specs it changes; where it does not, the fix reads the test file itself. */
   const readTestStep = editableListed ? [] : [FIX_STEPS.readTestFile];
 
+  /* The failed cases as the prompt lists them, whole while the window holds them. */
+  const casesText = (shape: FixCaseShape): string => (input.fixCases ?? []).flatMap((c) => renderFixCase(c, shape)).join("\n");
   const fixContent = input.fixCases?.length && isGenerationMode
     ? [
         `## Fix failing tests`,
@@ -393,7 +408,7 @@ function renderFixCases(ctx: PromptContext): SectionRender {
             ]),
         ``,
         `Failed cases:`,
-        ...input.fixCases.flatMap(renderFixCase),
+        casesText("whole"),
         ``,
         ...(hasFailureTree
           ? [
@@ -477,7 +492,18 @@ function renderFixCases(ctx: PromptContext): SectionRender {
           ? []
           : [claim.directs("use-runtime-signals")]),
       ];
-  return { content: fixContent, claims: fixContentClaims };
+  /* Over the window the failed cases give up their evidence lines, then all but the first line of their error, then their error; the instructions stay. */
+  const whole = casesText("whole");
+  const shapes: FixCaseShape[] = ["no-evidence", "first-line", "named"];
+  const degrade = fixContent
+    ? (step: number): SectionDegradation | undefined => {
+        const shape = shapes[step - 1];
+        return shape === undefined
+          ? undefined
+          : { content: fixContent.replace(whole, () => casesText(shape)), omissions: [{ class: "truncation", reason: WINDOW_FIT_REASON, count: input.fixCases?.length ?? 0 }] };
+      }
+    : undefined;
+  return { content: fixContent, claims: fixContentClaims, ...boundOmissions(fixContent), ...(degrade ? { degrade } : {}) };
 }
 
 function renderReviewerCorrections(ctx: PromptContext): SectionRender {
@@ -543,7 +569,24 @@ function renderCoverageGap(ctx: PromptContext): SectionRender {
 
 /* A-2b: the deltas the intent lock found in the previous turn, as facts of this one. Sanitized, and never an order: the generator decides how to restore what its bytes weakened. */
 function renderContractFeedback(ctx: PromptContext): SectionRender {
-  return { content: renderContractViolations(ctx.input.contractFeedback ?? []), overflow: "drop" };
+  const violations = ctx.input.contractFeedback ?? [];
+  const content = renderContractViolations(violations);
+  const shapes: ContractViolationShape[] = ["named", "counted"];
+  return {
+    content,
+    overflow: "drop",
+    ...boundOmissions(content),
+    degrade: (step) => {
+      const shape = shapes[step - 1];
+      return shape === undefined ? undefined : { content: renderContractViolations(violations, shape), omissions: [{ class: "truncation", reason: WINDOW_FIT_REASON, count: violations.length }] };
+    },
+  };
+}
+
+/* The omission the safety bound on evidence text records when it cut something in a rendered section. */
+function boundOmissions(rendered: string): { omissions?: Omission[] } {
+  const cut = boundedEvidenceCount(rendered);
+  return cut > 0 ? { omissions: [{ class: "truncation", reason: EVIDENCE_SAFETY_BOUND_REASON, count: cut }] } : {};
 }
 
 function renderTask(ctx: PromptContext): SectionRender {

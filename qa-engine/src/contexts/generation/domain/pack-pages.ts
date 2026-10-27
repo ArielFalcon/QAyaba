@@ -45,36 +45,36 @@ export function packPagesFor(pack: string | undefined, routes: readonly string[]
   return [...head, ...mine.map((page) => page.join("\n"))].join("\n");
 }
 
-/* The lines of a pack text that are facts of its availability section: the `- ` lines under its heading, which runs to the next heading. */
-function availabilityFactLines(lines: readonly string[]): number[] {
+/* The lines of a pack text that are facts of one of its sections: the `- ` lines under the heading, which runs to the next heading. */
+function sectionFactLines(lines: readonly string[], heading: string): number[] {
   const at: number[] = [];
   let inSection = false;
   lines.forEach((line, i) => {
-    if (HEADING.test(line)) inSection = line.startsWith(`### ${PACK_HEADINGS.availability}`);
+    if (HEADING.test(line)) inSection = line.startsWith(`### ${heading}`);
     else if (inSection && line.startsWith("- ")) at.push(i);
   });
   return at;
 }
 
-/* How many facts a pack text's availability section holds, each of which can give way to a reference. */
-export function availabilityFactCount(text: string): number {
-  return availabilityFactLines(text.split("\n")).length;
+/* How many facts a pack text's section holds, each of which can give way to a reference. */
+export function sectionFactCount(text: string, heading: string): number {
+  return sectionFactLines(text.split("\n"), heading).length;
 }
 
-/* The pack text with the last `count` facts of its availability section (the lowest-ranked classes, listed last) replaced by one line that counts them. */
-export function referenceAvailabilityFacts(text: string, count: number): { text: string; left: number } {
+/* The pack text with the last `count` facts of a section (the lowest-ranked, listed last) replaced by one line that counts them, `noun` naming what they are; with the fact lines it dropped. */
+export function referenceSectionFacts(text: string, heading: string, count: number, noun: string): { text: string; left: number; dropped: string[] } {
   const lines = text.split("\n");
-  const facts = availabilityFactLines(lines);
+  const facts = sectionFactLines(lines, heading);
   const left = Math.min(Math.max(0, count), facts.length);
-  if (left === 0) return { text, left: 0 };
+  if (left === 0) return { text, left: 0, dropped: [] };
   const dropped = new Set(facts.slice(facts.length - left));
   const last = facts[facts.length - 1];
   const out: string[] = [];
   lines.forEach((line, i) => {
     if (!dropped.has(i)) out.push(line);
-    else if (i === last) out.push(`(${left} more route(s) are not shown here, to fit the window)`);
+    else if (i === last) out.push(`(${left} more ${noun}(s) are not shown here, to fit the window)`);
   });
-  return { text: out.join("\n"), left };
+  return { text: out.join("\n"), left, dropped: [...dropped].map((i) => lines[i]!) };
 }
 
 /* A page the window can leave out: the page the trace names it by (the template it was opened from, else its address) and how many lines of its own it held. */

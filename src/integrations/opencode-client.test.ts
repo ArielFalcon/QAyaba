@@ -928,8 +928,8 @@ test("a reviewer window the run does not know cuts nothing: the oversized learne
 
 /* ── renderExecutionResult + ReviewInput.executionResult ──────────────────
    These tests drive the reviewer-consumer chain:
-   - renderExecutionResult is a pure renderer: sanitizes finalUrl, bounds total
-   output at 4000 chars, caps per-case detail at 500 chars.
+   - renderExecutionResult is a pure renderer: sanitizes finalUrl and lists every
+     case whole (the window fit rule gives its details up when a prompt is over its window).
    - ReviewInput gains an optional executionResult field.
    - buildReviewerPromptAssembled emits a VOLATILE "RUNTIME EXECUTION RESULT"
    section when executionResult is present, and omits it when absent.
@@ -965,29 +965,26 @@ test("renderExecutionResult sanitizes finalUrl (strips token query param)", () =
   assert.doesNotMatch(result, /ghp_AAAA/, "finalUrl token must be redacted before reaching the reviewer");
 });
 
-test("renderExecutionResult total output is bounded at 4000 chars", () => {
+test("renderExecutionResult lists every case, however long the whole is", () => {
+  const detail = "detail word ".repeat(90);
   const cases = Array.from({ length: 20 }, (_, i) => ({
     name: `test ${i}`,
-    detail: "x".repeat(1000),
+    detail,
     httpStatus: 500,
     finalUrl: `https://app.example.com/page${i}`,
   }));
   const result = renderExecutionResult({ verdict: "fail", cases });
-  assert.ok(result.length <= 4000, `total output must be <= 4000 chars, got ${result.length}`);
+  assert.ok(result.length > 4000, "no total cap");
+  assert.ok(result.includes("test 19") && result.includes("page19"));
 });
 
-test("renderExecutionResult caps per-case detail at 500 chars", () => {
-  const longDetail = "z".repeat(1000);
+test("renderExecutionResult keeps a case's detail whole past the old 500 characters", () => {
+  const longDetail = "detail word ".repeat(90);
   const result = renderExecutionResult({
     verdict: "fail",
     cases: [{ name: "verbose test", detail: longDetail }],
   });
-  /* The long detail must be truncated — the result cannot contain 600 consecutive z's. */
-  assert.doesNotMatch(
-    result,
-    /z{600}/,
-    "per-case detail must be capped at 500 chars",
-  );
+  assert.ok(result.includes(longDetail));
 });
 
 test("buildReviewerPrompt omits execution-result section when executionResult is absent", () => {

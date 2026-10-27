@@ -323,12 +323,12 @@ test("a failing case that reports no error text is listed, and not as one whose 
   }
 });
 
-test("a failing case is still shown as it was reported once there is nothing to redact: the error cut at its limit, the page, the status and the errors the page raised", () => {
+test("a failing case is still shown as it was reported once there is nothing to redact: the error whole, the page, the status and the errors the page raised", () => {
   const detail = "Error: expected 'Total: 10' but received 'Total: 12'";
   for (const [where, build] of builders) {
     const text = build([{ ...FAILED_CASE, name: "cart applies a coupon", detail: `${detail}${"!".repeat(600)}` }]);
     assert.ok(text.includes("cart applies a coupon"), where);
-    assert.ok(text.includes(`${detail}${"!".repeat(500 - detail.length)}`) && !text.includes(`${detail}${"!".repeat(501 - detail.length)}`), `${where}: the error is cut at 500 characters`);
+    assert.ok(text.includes(`${detail}${"!".repeat(600)}`), `${where}: the error is whole, past the old 500 characters`);
     for (const carried of ["500", "https://dev.example.com/pay", "pageerror", "TypeError: cannot read properties of undefined"]) assert.ok(text.includes(carried), `${where}: ${carried}`);
   }
 });

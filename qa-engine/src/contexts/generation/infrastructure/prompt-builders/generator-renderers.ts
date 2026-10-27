@@ -1,7 +1,8 @@
 /* Renderers of the facts and evidence sections of a generator prompt. Each returns the section text; the registry in generator-sections.ts decides when one applies. Never import src/. */
 
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
-import { capText } from "../prompt-cap.ts";
+import { boundEvidenceText, EVIDENCE_ITEMS_SAFETY_BOUND, evidenceItemsCutLine } from "../prompt-cap.ts";
+import { NOT_SHOWN } from "../../domain/window-fit-references.ts";
 import { failureUnsettled, type FailureSettle, type QaCase } from "@kernel/qa-case.ts";
 import { stripAnsi } from "@kernel/ansi.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
@@ -137,17 +138,17 @@ function renderFixCaseEvidenceLines(c: QaCase): string[] {
     /* The unknown HTTP line was misleading next to real network evidence, so it is only printed when there is none. */
     lines.push(`  ${HTTP_UNKNOWN_LABEL} at ${redactForModel(c.finalUrl)}`);
   }
-  if (c.networkErrors?.length) {
-    for (const e of c.networkErrors.slice(0, 3)) {
-      const label = e.status !== undefined ? String(e.status) : e.errorText ?? "failed";
-      lines.push(stripAnsi(`  NET ${label} ${redactForModel(e.url)}`).slice(0, 400));
-    }
+  const network = c.networkErrors ?? [];
+  for (const e of network.slice(0, EVIDENCE_ITEMS_SAFETY_BOUND)) {
+    const label = e.status !== undefined ? String(e.status) : e.errorText ?? "failed";
+    lines.push(boundEvidenceText(stripAnsi(`  NET ${label} ${redactForModel(e.url)}`)));
   }
-  if (c.runtimeErrors?.length) {
-    for (const e of c.runtimeErrors.slice(0, 3)) {
-      lines.push(`  [${e.type}] ${stripAnsi(redactForModel(e.text)).slice(0, 200)}`);
-    }
+  if (network.length > EVIDENCE_ITEMS_SAFETY_BOUND) lines.push(evidenceItemsCutLine(network.length - EVIDENCE_ITEMS_SAFETY_BOUND));
+  const runtime = c.runtimeErrors ?? [];
+  for (const e of runtime.slice(0, EVIDENCE_ITEMS_SAFETY_BOUND)) {
+    lines.push(`  [${e.type}] ${boundEvidenceText(stripAnsi(redactForModel(e.text)))}`);
   }
+  if (runtime.length > EVIDENCE_ITEMS_SAFETY_BOUND) lines.push(evidenceItemsCutLine(runtime.length - EVIDENCE_ITEMS_SAFETY_BOUND));
   if (c.failureSettle) lines.push(`  PAGE ${describeSettle(c.failureSettle)}`);
   if (c.failureResultCount !== undefined) lines.push(`  DATA STATE ${describeResultCount(c.failureResultCount)}`);
   return lines;
@@ -165,10 +166,19 @@ export function describeSettle(settle: FailureSettle): string {
     : `${SETTLE_LABELS.settled} at the failure point (no data request in flight${quiet}; ${tree})`;
 }
 
-/* A failing case as a prompt lists it: its name, the start of its error and what the run saw of the page. The case comes out of the test run, so each text is redacted before it is cut, and no secret is left in part by the cut. */
-export function renderFixCase(c: QaCase): string[] {
-  const error = c.detail === undefined ? "(no detail)" : stripAnsi(redactForModel(c.detail)).slice(0, 500);
-  return [`- ${redactForModel(c.name)}\n  Error: ${error}`, ...renderFixCaseEvidenceLines(c)];
+/*
+ * A failing case as a prompt lists it: its name, its error and what the run saw of the page, each whole while the window holds them.
+ * The case comes out of the test run, so each text is redacted before the safety bound cuts it, and no secret is left in part by the cut.
+ * `shape` is what the window fit rule asks for when the prompt is over its window: without the evidence lines, with only the first line of
+ * the error, or the name alone.
+ */
+export type FixCaseShape = "whole" | "no-evidence" | "first-line" | "named";
+export function renderFixCase(c: QaCase, shape: FixCaseShape = "whole"): string[] {
+  const name = `- ${redactForModel(c.name)}`;
+  if (shape === "named") return [`${name}\n  Error: ${NOT_SHOWN}`];
+  const full = c.detail === undefined ? "(no detail)" : stripAnsi(redactForModel(c.detail));
+  const error = shape === "first-line" ? (full.split("\n")[0] ?? "") : boundEvidenceText(full);
+  return [`${name}\n  Error: ${error}`, ...(shape === "whole" ? renderFixCaseEvidenceLines(c) : [])];
 }
 
 /* Read only where the agent has no DOM tree and explores the live page itself: with a tree in the prompt it transcribes and does not navigate, so there is nothing to observe. */
@@ -187,30 +197,30 @@ export function buildDiffSection(input: OpencodeRunInput): string {
   return commitDiffBlock(input.diff);
 }
 
-/* At most this many violations reach one prompt; the rest are counted so the agent knows the list is abridged. */
-export const CONTRACT_FEEDBACK_MAX = 6;
-
 export const CONTRACT_FEEDBACK_SECTION_ID = "contract-feedback";
 
 /**
  * The intent lock's violations as a facts section: each line names the rule, the clause and what the
- * contract held before and after. Every text is redacted and cut, so a literal that carries a secret
- * never reaches the model, and the section states counts rather than demanding anything.
+ * contract held before and after. Every text is redacted, so a literal that carries a secret never reaches
+ * the model, and a clause past the safety bound on evidence text is cut and says so. `shape` is how much of
+ * each violation a line shows: `whole`, `named` (the rule, the file and the clause only) or `counted` (how
+ * many, nothing else); the last two are what the window fit rule asks for.
  */
+export type ContractViolationShape = "whole" | "named" | "counted";
 export function renderContractViolations(
   violations: readonly { rule: string; file: string; clauseId: string; before: string; after: string }[],
+  shape: ContractViolationShape = "whole",
 ): string {
-  const shown = violations.slice(0, CONTRACT_FEEDBACK_MAX);
+  const line = (violation: (typeof violations)[number]): string => {
+    const named = `- ${sanitizeText(violation.rule).text} ${sanitizeText(violation.file).text}#${sanitizeText(violation.clauseId).text}`;
+    return shape === "named" ? named : `${named}: ${boundEvidenceText(sanitizeText(violation.before).text)} → ${boundEvidenceText(sanitizeText(violation.after).text)}`;
+  };
   const lines = [
     `## Contract violations (the intent contract this run fixed on these specs)`,
     ``,
     `The intent contract was derived from the primary pass's own bytes. Each line is a delta the orchestrator found between that contract and the bytes of the last turn:`,
     ``,
-    ...shown.map(
-      (violation) =>
-        `- ${sanitizeText(violation.rule).text} ${sanitizeText(violation.file).text}#${sanitizeText(violation.clauseId).text}: ${capText(sanitizeText(violation.before).text, 200)} → ${capText(sanitizeText(violation.after).text, 200)}`,
-    ),
-    ...(violations.length > shown.length ? [``, `(${violations.length - shown.length} more not shown.)`] : []),
+    ...(shape === "counted" ? [`${violations.length} violation(s) are ${NOT_SHOWN}.`] : violations.map(line)),
     ``,
   ];
   return lines.join("\n");

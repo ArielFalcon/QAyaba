@@ -56,7 +56,7 @@ export function availabilityLine(fact: RouteAvailabilityFact): string {
   return `- ${label}: ${where}. ${availabilityReason(fact.basis)}`;
 }
 
-/* The section's body under its heading, or no line when no route was unavailable. Every fact, the change's own first: no count bound cuts them, and the prompt that carries them fits them to its role's window (referenceAvailabilityFacts). */
+/* The section's body under its heading, or no line when no route was unavailable. Every fact, the change's own first: no count bound cuts them, and the prompt that carries them fits them to its role's window (referenceSectionFacts). */
 export function availabilitySectionLines(facts: readonly RouteAvailabilityFact[]): string[] {
   if (facts.length === 0) return [];
   const ordered = [...facts].sort((a, b) => ORDER.indexOf(a.basis.class) - ORDER.indexOf(b.basis.class));

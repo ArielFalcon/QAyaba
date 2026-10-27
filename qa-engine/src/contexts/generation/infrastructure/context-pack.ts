@@ -186,7 +186,7 @@ function filterRelevantContracts(
   }
 
   if (relevantIds.size === 0) return [];
-  return contextMap.api.filter((op) => relevantIds.has(op.operationId)).slice(0, 50);
+  return contextMap.api.filter((op) => relevantIds.has(op.operationId));
 }
 
 

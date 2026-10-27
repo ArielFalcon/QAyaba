@@ -9,7 +9,7 @@ import { FEEDBACK_SECTIONS } from "./coordination-sections/feedback-sections.ts"
 import { delegatingKindSpec, type SidekickKind } from "./sidekick-kinds.ts";
 
 export interface SidekickRender {
-  (brief: DelegationBrief): { text: string; sectionSizes: Record<string, number>; sectionHashes?: Record<string, string>; stablePrefixBytes?: number };
+  (brief: DelegationBrief): { text: string; sectionSizes: Record<string, number>; sectionHashes?: Record<string, string>; stablePrefixBytes?: number; sectionsDegraded?: number };
 }
 
 export interface SidekickExecutorDeps {
@@ -99,6 +99,7 @@ export class SidekickExecutor {
         sectionSizes,
         ...(Object.keys(sectionHashes).length > 0 ? { sectionHashes } : {}),
         ...(assembled.stablePrefixBytes !== undefined ? { promptStablePrefixBytes: assembled.stablePrefixBytes } : {}),
+        ...(assembled.sectionsDegraded !== undefined ? { sectionsDegraded: assembled.sectionsDegraded } : {}),
         ...(opts.contextFit ? { contextFit: opts.contextFit } : {}),
       });
       const first = read(output);

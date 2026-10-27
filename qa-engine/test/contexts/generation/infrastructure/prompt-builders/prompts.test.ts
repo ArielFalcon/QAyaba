@@ -455,7 +455,7 @@ test("buildPrompt fix-cases section renders up to 3 runtimeErrors lines", () => 
   }
 });
 
-test("buildPrompt fix-cases section caps runtimeErrors at 3 lines", () => {
+test("buildPrompt fix-cases section renders every runtimeErrors line, however many", () => {
   const manyErrors: QaCase = {
     ...evidenceCase,
     runtimeErrors: [
@@ -466,17 +466,15 @@ test("buildPrompt fix-cases section caps runtimeErrors at 3 lines", () => {
     ],
   };
   const text = buildPrompt(mkInput({ fixCases: [manyErrors] }));
-  assert.ok(text.includes("error one") && text.includes("error two") && text.includes("error three"));
-  assert.ok(!text.includes("error four"), "runtimeErrors rendering must cap at 3 lines per case");
+  for (const line of ["error one", "error two", "error three", "error four"]) assert.ok(text.includes(line), line);
 });
 
-test("buildPrompt fix-cases section slices a long runtimeErrors text to ~200 chars", () => {
+test("buildPrompt fix-cases section renders a long runtimeErrors text whole", () => {
   /* Words, as an error message is: one unbroken run of letters that long is what the redaction takes for a secret. */
   const longText = "word ".repeat(100);
   const longErrorCase: QaCase = { ...evidenceCase, runtimeErrors: [{ type: "pageerror", text: longText }] };
   const text = buildPrompt(mkInput({ fixCases: [longErrorCase] }));
-  assert.ok(!text.includes(longText), "a long runtimeErrors text must be sliced, not rendered in full");
-  assert.ok(text.includes("word ".repeat(40)), "the slice must keep roughly the first 200 chars");
+  assert.ok(text.includes(longText), "a long runtimeErrors text is not cut to shorten the prompt");
 });
 
 test("buildPrompt fix-cases section omits evidence lines when absent (no httpStatus/finalUrl/runtimeErrors)", () => {
@@ -957,45 +955,10 @@ test("isGenerationMode false (context mode) suppresses the section even when ser
   assert.equal(assembled.sectionSizes["service-links"], undefined, "context mode must never render the service-links section, mirroring every other isGenerationMode-gated section");
 });
 
-test("more than MAX_LINKS (40) links renders only the first 40; more than MAX_DRIFT (20) drift entries renders only the first 20", () => {
-  const manyLinks = Array.from({ length: 45 }, (_, i) => ({
-    from: { repo: "org/front", file: "src/api.ts", symbol: `sym${i}` },
-    to: { repo: "org/orders", file: "src/routes.ts", symbol: `route${i}` },
-    transport: "http" as const,
-    confidence: 0.5,
-    source: "openapi",
-  }));
-  const manyDrift = Array.from({ length: 25 }, (_, i) => ({
-    from: { repo: "org/front", file: "src/api.ts", symbol: `sym${i}` },
-    verb: "GET",
-    path: `/path${i}`,
-  }));
-  const text = buildPrompt(mkInput({ serviceLinks: manyLinks, contractDrift: manyDrift }));
-  assert.ok(text.includes("sym0") && text.includes("sym39"), "the first 40 links must render");
-  assert.ok(!text.includes("sym40") && !text.includes("sym44"), "links beyond the 40-cap must be dropped");
-  assert.ok(text.includes("/path0") && text.includes("/path19"), "the first 20 drift entries must render");
-  assert.ok(!text.includes("/path20") && !text.includes("/path24"), "drift entries beyond the 20-cap must be dropped");
-});
-
 /* generator (and any human reading a captured prompt) had no way to know MORE links existed past the
    cut. Append an observability marker naming how many were omitted.
  */
-test("more than MAX_LINKS (40) links declares the omitted count as a link-selection omission (single-agent prompt)", () => {
-  const manyLinks = Array.from({ length: 45 }, (_, i) => ({
-    from: { repo: "org/front", file: "src/api.ts", symbol: `sym${i}` },
-    to: { repo: "org/orders", file: "src/routes.ts", symbol: `route${i}` },
-    transport: "http" as const,
-    confidence: 0.5,
-    source: "openapi",
-  }));
-  const meta = buildPromptAssembled(mkInput({ serviceLinks: manyLinks })).sectionItems["service-links"];
-  assert.equal(meta?.itemIds.length, 40, "only the rendered links are items");
-  assert.equal(meta?.omissions.length, 1);
-  assert.equal(meta?.omissions[0]?.reason, "link-selection");
-  assert.equal(meta?.omissions[0]?.count, 5, "45 links - 40 rendered = 5 are declared omitted");
-});
-
-test("exactly MAX_LINKS (40) links declares no omission (nothing was actually omitted)", () => {
+test("forty links declare no omission (nothing was omitted)", () => {
   const exactLinks = Array.from({ length: 40 }, (_, i) => ({
     from: { repo: "org/front", file: "src/api.ts", symbol: `sym${i}` },
     to: { repo: "org/orders", file: "src/routes.ts", symbol: `route${i}` },
@@ -1087,7 +1050,7 @@ test("a link present in serviceLinks but NOT in crossRepoImpact.impactedLinks re
   );
 });
 
-test("an impacted link past the MAX_LINKS cut still renders WITH its marker — impacted links survive truncation", () => {
+test("an impacted link far down the discovery order renders WITH its marker, and is the first item", () => {
   const filler = Array.from({ length: 44 }, (_, i) => ({
     from: { repo: "org/front", file: `src/f${i}.ts`, symbol: `call${i}` },
     to: { repo: "org/other", file: "src/routes.ts", symbol: `GET /f${i}` },
@@ -1097,14 +1060,14 @@ test("an impacted link past the MAX_LINKS cut still renders WITH its marker — 
     source: "openapi",
   }));
   const assembled = buildPromptAssembled(mkInput({
-    serviceLinks: [...filler, link1], /* the impacted link sits at index 44 — past the 40-link ceiling */
+    serviceLinks: [...filler, link1], /* the impacted link sits at index 44, the last of the discovery order */
     crossRepoImpact: { impactedLinks: [{ link: link1, tier: "contract-file" }] },
   }));
   const text = assembled.text;
   assert.equal(assembled.sectionItems["service-links"]?.itemIds[0], itemId.svcLink(link1), "the impacted link is the first item kept, ahead of discovery order");
   assert.ok(
     text.includes(`${impactedMarker("contract-file")} ${LINK1_SUBJECT}`),
-    "the impacted link must survive the MAX_LINKS truncation with its marker — discovery order must not silently drop the one annotated link",
+    "the impacted link carries its marker wherever discovery order put it",
   );
 });
 

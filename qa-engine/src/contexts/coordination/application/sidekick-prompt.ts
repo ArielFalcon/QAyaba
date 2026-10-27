@@ -15,7 +15,9 @@ export function renderSidekickBrief(redaction: RedactionPort, brief: DelegationB
   sectionSizes: Record<string, number>;
   sectionHashes: Record<string, string>;
   stablePrefixBytes: number;
+  /* How many sections the window fit rule gave a smaller render; absent when the brief was assembled with no window. */
+  sectionsDegraded?: number;
 } {
-  const { text, sectionSizes, sectionHashes, stablePrefixBytes } = assembleSidekickBrief(redaction, brief, fit);
-  return { text, sectionSizes, sectionHashes: sectionHashes ?? {}, stablePrefixBytes };
+  const { text, sectionSizes, sectionHashes, stablePrefixBytes, windowFit } = assembleSidekickBrief(redaction, brief, fit);
+  return { text, sectionSizes, sectionHashes: sectionHashes ?? {}, stablePrefixBytes, ...(windowFit ? { sectionsDegraded: windowFit.degraded.length } : {}) };
 }

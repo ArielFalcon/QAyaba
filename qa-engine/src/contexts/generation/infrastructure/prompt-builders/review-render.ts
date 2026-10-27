@@ -4,7 +4,7 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import { join } from "node:path";
 import { readConfinedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
-import { capText } from "../prompt-cap.ts";
+import { boundEvidenceText } from "../prompt-cap.ts";
 import type { ReviewInput } from "../../domain/generation-input.ts";
 import { COMMIT_DIFF_HEADING, redactedDiffText } from "./prompt-text.ts";
 
@@ -103,7 +103,7 @@ export function reviewSpecsOutcome(input: ReviewInput, opts: { asReferences?: bo
   return { contents: "inline", text: `## Specs to review (${contents.length} file(s) — contents provided inline)\n\n${contents.join("\n\n")}` };
 }
 
-/** Renders a deterministic RUNTIME EXECUTION RESULT section from the orchestrator's evidence (HTTP status codes and final URLs captured during test execution). This is evidence the reviewer can use to distinguish an app defect (5xx) from a test defect — captured by the orchestrator, not inferred from the generator's reasoning, so reviewer independence is preserved. Output is bounded at 4000 chars total; per-case detail is capped at 500 chars. finalUrl is sanitized via sanitizeText before being included in the prompt (prevents secrets in redirect URLs from leaking to the reviewer model). */
+/** Renders a deterministic RUNTIME EXECUTION RESULT section from the orchestrator's evidence (HTTP status codes and final URLs captured during test execution). This is evidence the reviewer can use to distinguish an app defect (5xx) from a test defect — captured by the orchestrator, not inferred from the generator's reasoning, so reviewer independence is preserved. Every case is listed whole (a detail past the safety bound on evidence text is cut and says so); over the reviewer's window the section gives up the details, then the urls (reviewer-sections.ts). finalUrl is sanitized via sanitizeText before being included in the prompt (prevents secrets in redirect URLs from leaking to the reviewer model). */
 export interface ExecutionResultCase {
   name: string;
   httpStatus?: number;
@@ -115,11 +115,6 @@ export function renderExecutionResult(evidence: {
   verdict: string;
   cases: ExecutionResultCase[];
 }): string {
-  const CAP_TOTAL = 4000;
-  const CAP_TOTAL_INTERNAL = CAP_TOTAL - 130;
-  const CAP_DETAIL = 500;
-  const CAP_DETAIL_INTERNAL = CAP_DETAIL - 130;
-
   const lines: string[] = [
     `## RUNTIME EXECUTION RESULT (captured by the orchestrator, not inferred)`,
     ``,
@@ -137,12 +132,19 @@ export function renderExecutionResult(evidence: {
       lines.push(`  finalUrl: ${sanitized}`);
     }
     if (c.detail !== undefined) {
-      const capped = capText(c.detail, CAP_DETAIL_INTERNAL);
-      lines.push(`  detail: ${capped}`);
+      lines.push(`  detail: ${boundEvidenceText(c.detail)}`);
     }
   }
 
-  const raw = lines.join("\n");
-  if (raw.length <= CAP_TOTAL) return raw;
-  return capText(raw, CAP_TOTAL_INTERNAL);
+  return lines.join("\n");
+}
+
+/* The execution result's lines a prompt over its window can do without, in the order they give way: each case's detail, then its final url. The verdict, the case names and their status stay. */
+export const EXECUTION_RESULT_DETAIL_PREFIX = "  detail: ";
+export const EXECUTION_RESULT_URL_PREFIX = "  finalUrl: ";
+
+/* The result without the lines that start with `prefix`, and how many that was. */
+export function withoutExecutionResultLines(result: string, prefix: string): { text: string; left: number } {
+  const kept = result.split("\n").filter((line) => !line.startsWith(prefix));
+  return { text: kept.join("\n"), left: result.split("\n").length - kept.length };
 }

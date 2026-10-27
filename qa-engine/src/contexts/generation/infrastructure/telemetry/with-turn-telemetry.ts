@@ -82,6 +82,7 @@ export function withTurnTelemetry(base: AgentDeps, deps: TurnTelemetryDeps): Age
                   sectionHashes: promptOpts?.sectionHashes ?? null,
                   sectionItems: promptOpts?.sectionItems ?? null,
                   sectionsDropped: promptOpts?.sectionsDropped,
+                  sectionsDegraded: promptOpts?.sectionsDegraded,
                   budgetBytes: promptOpts?.promptBudgetBytes,
                   stablePrefixBytes: promptOpts?.promptStablePrefixBytes,
                   contextFit: promptOpts?.contextFit,
