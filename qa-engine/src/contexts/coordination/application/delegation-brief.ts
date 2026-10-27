@@ -61,6 +61,14 @@ export interface DelegationBrief {
   readonly specRelDir?: string;
   /* The specs the suite holds, one line each (path, flow, objective), never source. */
   readonly suite?: readonly string[];
+  /* The tool families the turn grants the sidekick, as the kind table names them (`read`, `write`, `run_spec`, `authbrowser`, `codegraph`, ...). Absent: what the scope alone grants (see `briefTools`). */
+  readonly tools?: readonly string[];
+}
+
+/* The tools a brief states: those the turn named, or the ones its scope grants by itself (read where something is readable, write where something is writable). */
+export function briefTools(brief: Pick<DelegationBrief, "scope" | "tools">): readonly string[] {
+  if (brief.tools) return brief.tools;
+  return [...(brief.scope.readablePaths.length > 0 ? ["read"] : []), ...(brief.scope.writablePaths.length > 0 ? ["write"] : [])];
 }
 
 export function createDelegationBrief(input: {
@@ -81,6 +89,7 @@ export function createDelegationBrief(input: {
   harnessFacts?: HarnessFacts;
   specRelDir?: string;
   suite?: readonly string[];
+  tools?: readonly string[];
 }): DelegationBrief {
   const scrub = (text: string): string => input.redaction.redact(text);
   if (!input.delegationId) throw new Error("DelegationBrief requires delegationId");
@@ -96,6 +105,7 @@ export function createDelegationBrief(input: {
     artifactRefs: input.artifactRefs ?? [],
     validationPlan: (input.validationPlan ?? []).map((step) => ({ ...step, description: scrub(step.description) })),
     authority: SIDEKICK_AUTHORITY,
+    ...(input.tools ? { tools: [...input.tools] } : {}),
     ...(input.pages ? { pages: scrub(input.pages) } : {}),
     ...(input.proofs?.length ? { proofs: input.proofs.map(scrub) } : {}),
     ...(input.harnessFacts ? { harnessFacts: input.harnessFacts, ...(input.specRelDir ? { specRelDir: input.specRelDir } : {}) } : {}),

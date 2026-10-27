@@ -9,7 +9,11 @@
  * Pure: no clock, no file, no model.
  */
 
-import { REVIEW_ACTION, MAX_INSTRUCTION_CHARS, MAX_SPEC_CHARS } from "./lead-review.ts";
+import { REVIEW_ACTION, MAX_INSTRUCTION_CHARS } from "./lead-review.ts";
+import { assembleDefs, type AssembledPrompt } from "@kernel/prompt-sections.ts";
+import { LEAD_CORRECTION_SECTIONS, REFUSED_CORRECTION_SECTIONS, type CorrectionFinding, type FlowUnderCorrection } from "./coordination-sections/lead-turn-sections.ts";
+
+export type { CorrectionFinding, FlowUnderCorrection };
 import { lastJsonObjectWhere } from "@kernel/last-json-object.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
@@ -72,28 +76,6 @@ export function correctionPreamble(origin: CorrectionOrigin): string {
 
 /* Whether the findings of this origin are a judgment the lead may rebut. */
 const rebuttable = (origin: CorrectionOrigin): boolean => origin === CORRECTION_ORIGIN.REVIEW;
-
-/* One finding a correction turn routes: a verified blocking finding of the reviewer, or a fact one of the run's checks observed, with the spec it names when it names one. */
-export interface CorrectionFinding {
-  text: string;
-  spec?: string;
-  /* The changed source file the finding is about (a coverage gap names code, not a spec), and the line when it names one. */
-  file?: string;
-  line?: number;
-}
-
-export interface FlowUnderCorrection {
-  id: string;
-  objective: string;
-  /* The flow's spec, relative to the spec directory. */
-  specFile: string;
-  sessionOpen: boolean;
-  /* The spec as the working copy holds it now. */
-  spec?: string;
-  /* The ids of the use cases the flow covers and the changed files that seed them: a finding about one of those files is the flow's. */
-  candidates?: readonly string[];
-  seedFiles?: readonly string[];
-}
 
 export interface CorrectionOrder {
   flowId: string;
@@ -175,57 +157,30 @@ export function routeOfFinding(finding: CorrectionFinding, flows: readonly FlowU
   return seeded.length === 1 ? { flowId: seeded[0]!.id, by: "candidate" } : undefined;
 }
 
-function cut(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max)}\n… (cut at ${max} characters)` : text;
+/* The correction turn's prompt, as data: the flows and the findings numbered, assembled from the registered sections. How to route them and the answer's shape are the lead's role prompt. */
+export function assembleLeadCorrection(redaction: RedactionPort, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW, omitted = 0): AssembledPrompt {
+  const text = ORIGIN_TEXT[origin];
+  return assembleDefs(
+    LEAD_CORRECTION_SECTIONS,
+    { flows, findings, owner: findings.map((finding) => flowOfFinding(finding, flows)), origin: { heading: text.heading, lead: text.lead, rebuttable: rebuttable(origin) }, omitted, scrub: (value) => redaction.redact(value) },
+    { separator: "\n\n" },
+  );
 }
 
-/* The correction turn's prompt, as data: the flows and the findings numbered. How to route them and the answer's shape are the lead's role prompt. */
 export function renderLeadCorrection(redaction: RedactionPort, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW, omitted = 0): string {
-  const scrub = (text: string): string => redaction.redact(text);
-  const owner = findings.map((finding) => flowOfFinding(finding, flows));
-  const line = (index: number): string => `${index + 1}. ${scrub(findings[index]!.text)}`;
-  const blocks = flows.flatMap((flow) => {
-    const own = findings.flatMap((_, i) => (owner[i] === flow.id ? [i] : []));
-    if (own.length === 0) return [];
-    return [[
-      `### Flow \`${flow.id}\` (${flow.specFile})`,
-      `Objective: ${scrub(flow.objective)}`,
-      ...(flow.candidates?.length ? [`Use cases it covers: ${flow.candidates.join(", ")}`] : []),
-      ["Findings on its spec:", ...own.map(line)].join("\n"),
-      flow.spec !== undefined ? ["Spec:", "```ts", cut(scrub(flow.spec), MAX_SPEC_CHARS), "```"].join("\n") : "Spec: not readable.",
-    ].join("\n")];
-  });
-  const loose = findings.flatMap((_, i) => (owner[i] === undefined ? [i] : []));
-  const text = ORIGIN_TEXT[origin];
-  /* Where a finding about a source file goes is decided by the use cases a flow covers, so with findings to place every flow is listed with them. */
-  const catalogue = loose.length > 0
-    ? ["### The flows and the use cases they cover", ...flows.map((flow) => `- \`${flow.id}\` (${flow.specFile}): ${flow.candidates?.length ? flow.candidates.join(", ") : "no use case cited"}`)].join("\n")
-    : "";
-  return [
-    `## ${text.heading}`,
-    text.lead,
-    rebuttable(origin) ? "" : "These are facts the run observed: each one is corrected, none is rebutted.",
-    omitted > 0 ? `${omitted} further unit(s) of the gap are not listed in this turn: the run records the count as left out and no one corrects them now.` : "",
-    ...blocks,
-    catalogue,
-    loose.length > 0
-      ? ["### Findings that cite no flow", rebuttable(origin) ? "Name the flow each one belongs to, or rebut it." : "Name the flow each one belongs to: an order lists the numbers of the findings the flow is to take. One no flow takes is recorded unrouted and no one corrects it.", ...loose.map(line)].join("\n")
-      : "",
-  ].filter(Boolean).join("\n\n");
+  return assembleLeadCorrection(redaction, flows, findings, origin, omitted).text;
 }
 
 /*
  * The one request that sends a refused answer back to the lead: why each part of it was not admitted, the numbers that are findings, and
  * what to answer. The lead's answer is untrusted text and a number outside the list is a correctable slip, not a decision.
  */
+export function assembleRefusedCorrection(refused: CorrectionAdmission["refused"], findingCount: number): AssembledPrompt {
+  return assembleDefs(REFUSED_CORRECTION_SECTIONS, { refused, findingCount }, { separator: "\n\n" });
+}
+
 export function renderRefusedCorrection(refused: CorrectionAdmission["refused"], findingCount: number): string {
-  return [
-    "## Your correction was not admitted",
-    "The orchestrator did not admit these parts of your answer:",
-    ...refused.map((r) => `- ${r.flowId ? `flow ${r.flowId}` : "the answer"}${r.finding ? `, finding ${r.finding}` : ""}: ${r.reason}`),
-    `The findings are numbered 1..${findingCount}, each number is one finding, and an order names the findings its flow is to take by those numbers.`,
-    "Answer with ONLY the corrected JSON object of the correction contract, complete (repeat every order and rebuttal you still hold). This is the only other correction turn for these findings.",
-  ].join("\n");
+  return assembleRefusedCorrection(refused, findingCount).text;
 }
 
 function textOf(redaction: RedactionPort, value: unknown, max: number): string {

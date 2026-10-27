@@ -3,34 +3,24 @@ import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import type { DelegationResult } from "./delegation-result.ts";
 import { lastJsonObjectWhere } from "@kernel/last-json-object.ts";
+import { assembleDefs, type AssembledPrompt } from "@kernel/prompt-sections.ts";
+import { EXPLORE_BRIEF_SECTIONS } from "./coordination-sections/brief-sections.ts";
+import { exploreDelegationId, questionIdOf } from "./coordination-sections/explore-ids.ts";
 import { EXPLORE_FINDING_KIND, EXPLORE_STATUS, MAX_FINDING_CHARS, MAX_FINDINGS, MAX_REF_CHARS, type ExploreFinding, type ExploreFindingKind, type ExploreStatus } from "./exploration.ts";
 
 const KINDS: readonly string[] = Object.values(EXPLORE_FINDING_KIND);
 const STATUSES: readonly string[] = Object.values(EXPLORE_STATUS);
 
-/* The question id a delegation id names: `<run>-explore-<id>`. */
-export const exploreDelegationId = (runId: string, questionId: string): string => `${runId}-explore-${questionId}`;
-export const questionIdOf = (delegationId: string): string => delegationId.replace(/^.*-explore-/, "");
+export { exploreDelegationId, questionIdOf };
 
-export function renderExploreBrief(redaction: RedactionPort, brief: DelegationBrief): { text: string; sectionSizes: Record<string, number> } {
-  const scrub = (value: string): string => redaction.redact(value);
-  const id = questionIdOf(brief.delegationId);
-  const sections: Record<string, string> = {
-    question: ["## Question", `id: ${id}`, scrub(brief.objective)].join("\n"),
-    task: ["## Task", scrub(brief.task)].join("\n"),
-    ...(brief.knownFacts.length > 0 ? { facts: ["## Known facts", ...brief.knownFacts.map((fact) => `- [${fact.confidence}/${fact.kind}] ${scrub(fact.summary)}`)].join("\n") } : {}),
-    ...(brief.artifactRefs.length > 0 ? { artifacts: ["## Artifacts", ...brief.artifactRefs.map((ref) => `- ${ref.id}: ${ref.path}`)].join("\n") } : {}),
-    contract: [
-      "## Output contract",
-      "End with ONLY JSON:",
-      `{"id":"${id}","status":"answered"|"unanswered","findings":[{"claim":"...","kind":"page"|"element"|"symbol"|"data-state","ref":"...","evidence":"..."}]}`,
-      `At most ${MAX_FINDINGS} findings. A symbol ref is <repo-relative file>#<symbol>; a page or data-state ref is the site-relative path.`,
-    ].join("\n"),
-  };
-  const text = Object.values(sections).join("\n\n");
-  const sectionSizes: Record<string, number> = {};
-  for (const [key, value] of Object.entries(sections)) sectionSizes[key] = Buffer.byteLength(value, "utf8");
-  return { text, sectionSizes };
+/* The explore sidekick's brief, assembled from the registered sections, with everything the assembler reports. */
+export function assembleExploreBrief(redaction: RedactionPort, brief: DelegationBrief): AssembledPrompt {
+  return assembleDefs(EXPLORE_BRIEF_SECTIONS, { brief, scrub: (value) => redaction.redact(value) }, { separator: "\n\n" });
+}
+
+export function renderExploreBrief(redaction: RedactionPort, brief: DelegationBrief): { text: string; sectionSizes: Record<string, number>; sectionHashes: Record<string, string> } {
+  const { text, sectionSizes, sectionHashes } = assembleExploreBrief(redaction, brief);
+  return { text, sectionSizes, sectionHashes: sectionHashes ?? {} };
 }
 
 function failed(brief: DelegationBrief, summary: string, redaction: RedactionPort): DelegationResult {

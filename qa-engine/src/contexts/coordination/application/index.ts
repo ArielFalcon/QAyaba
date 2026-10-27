@@ -71,7 +71,13 @@ export { admitExploreRequest, EXPLORE_BUDGET_MS, EXPLORE_REJECTED, MAX_EXPLORE_Q
 export { FINDING_VERIFICATION, verifyExplorationFindings, type ExplorationGround, type VerifiedFinding } from "./explore-verification.ts";
 export { openKindSession } from "./kind-session.ts";
 export { authorTask } from "./author-task.ts";
-export { renderSidekickBrief } from "./sidekick-prompt.ts";
+export { assembleSidekickBrief, renderSidekickBrief } from "./sidekick-prompt.ts";
+export { assembleExploreBrief } from "./explore-kind.ts";
+export { assembleLeadReview } from "./lead-review.ts";
+export { assembleLeadCorrection, assembleRefusedCorrection } from "./lead-correction.ts";
+export { assembleExploreOutcome } from "./explore-round.ts";
+export { assembleRejectedPlanRequest } from "./lead-plan.ts";
+export { COORDINATION_PROMPTS, type CoordinationPromptId } from "./coordination-sections/index.ts";
 export {
   AGENT_TOOL,
   AUTHOR_TARGET,

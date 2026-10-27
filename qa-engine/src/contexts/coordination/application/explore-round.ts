@@ -8,13 +8,15 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { AgentBrowserHandle, CodeGraphToolsHandle } from "@contexts/agent-tools/application/index.ts";
 import { packPagesFor } from "@contexts/generation/application/index.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
+import { assembleDefs, type AssembledPrompt } from "@kernel/prompt-sections.ts";
+import { EXPLORE_OUTCOME_SECTIONS } from "./coordination-sections/lead-turn-sections.ts";
 import { createDelegationBrief, type DelegationBrief } from "./delegation-brief.ts";
 import type { DelegationResult } from "./delegation-result.ts";
 import { evidenceFromPackDataRoutes } from "./evidence-from.ts";
 import { EXPLORE_STATUS, type Exploration } from "./exploration.ts";
 import { EXPLORE_BUDGET_MS, EXPLORE_CALL_SHARE, MIN_EXPLORE_MS, type ExploreQuestion } from "./explore-request.ts";
 import { exploreDelegationId } from "./explore-kind.ts";
-import { FINDING_VERIFICATION, verifyExplorationFindings, type VerifiedExploration } from "./explore-verification.ts";
+import { verifyExplorationFindings, type VerifiedExploration } from "./explore-verification.ts";
 import { FLOW_RESULT, type FanOutDispatcher } from "./fan-out-dispatcher.ts";
 import { SIDEKICK_KIND } from "./sidekick-kinds.ts";
 import type { SidekickExecutor } from "./sidekick-executor.ts";
@@ -53,12 +55,10 @@ export interface ExploreOutcome {
   skipped?: string;
 }
 
-const taskOf = (question: ExploreQuestion, browser: boolean, graph: boolean): string =>
+const taskOf = (question: ExploreQuestion): string =>
   [
     `Answer ONE question for the lead, read-only: ${question.question}`,
     question.routes.length > 0 ? `Pages to look at: ${question.routes.join(", ")}` : "",
-    graph ? "You may walk the code graph (codegraph_explore)." : "You have no code graph in this run.",
-    browser ? "You may read DEV through the authenticated browser (authbrowser_*); it never writes." : "You have no authenticated browser in this run.",
     "Report only what you read or saw, as the result contract says.",
   ].filter(Boolean).join("\n");
 
@@ -70,8 +70,9 @@ function briefOf(deps: ExploreRoundDeps, input: ExploreRoundInput, question: Exp
     delegationId,
     runId: input.runId,
     objective: question.question,
-    task: taskOf(question, browser, graph),
+    task: taskOf(question),
     scope: { readablePaths: ["."], writablePaths: [], allowedCommands: [] },
+    tools: ["read", ...(graph ? ["codegraph"] : []), ...(browser ? ["authbrowser"] : [])],
     knownFacts: input.confirmedDataRoutes?.length ? evidenceFromPackDataRoutes(deps.redaction, input.confirmedDataRoutes) : [],
     ...(input.devBaseUrl ? { artifactRefs: [{ id: "dev-base-url", path: input.devBaseUrl }] } : {}),
   });
@@ -135,23 +136,11 @@ export async function runExploreRound(deps: ExploreRoundDeps, input: ExploreRoun
   return { ran: true, questions: outcome };
 }
 
-const LABEL: Record<(typeof FINDING_VERIFICATION)[keyof typeof FINDING_VERIFICATION], string> = {
-  [FINDING_VERIFICATION.VERIFIED]: "verified by the orchestrator",
-  [FINDING_VERIFICATION.UNVERIFIED]: "CLAIM, not verified",
-  [FINDING_VERIFICATION.CONTRADICTED]: "CONTRADICTED by the orchestrator's own read",
-};
+/* The lead's next turn as the registered sections assemble it: the findings labelled by what the orchestrator checked, and the one answer that is left to give. */
+export function assembleExploreOutcome(redaction: RedactionPort, outcome: ExploreOutcome): AssembledPrompt {
+  return assembleDefs(EXPLORE_OUTCOME_SECTIONS, { ...(outcome.skipped ? { skipped: outcome.skipped } : {}), questions: outcome.questions, scrub: (text) => redaction.redact(text) }, { separator: "\n\n" });
+}
 
-/* The lead's next turn: the findings labelled by what the orchestrator checked, and the one answer that is left to give. */
 export function renderExploreOutcome(redaction: RedactionPort, outcome: ExploreOutcome): string {
-  const lines: string[] = ["## Exploration findings", "The orchestrator ran the exploration you asked for. Verified findings are facts; a claim that is not verified is only the explore sidekick's word; where a finding is contradicted, the orchestrator's read stands."];
-  if (outcome.skipped) lines.push(`No exploration ran: ${redaction.redact(outcome.skipped)}. Plan from what you have.`);
-  for (const question of outcome.questions) {
-    lines.push("", `### ${question.id}: ${redaction.redact(question.question)}`, `status: ${question.status}`);
-    if (question.findings.length === 0) lines.push("(no findings)");
-    for (const finding of question.findings) {
-      lines.push(`- [${LABEL[finding.verification]}] (${finding.kind}) ${redaction.redact(finding.claim)} | ref: ${redaction.redact(finding.ref)} | evidence: ${redaction.redact(finding.evidence)}${finding.contradictedBy ? ` | the orchestrator: ${redaction.redact(finding.contradictedBy)}` : ""}`);
-    }
-  }
-  lines.push("", 'Now answer with your plan: ONLY the JSON object `{"plan":...}` (or the declared no-op). You cannot explore again.');
-  return lines.join("\n");
+  return assembleExploreOutcome(redaction, outcome).text;
 }

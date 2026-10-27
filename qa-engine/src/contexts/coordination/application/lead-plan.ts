@@ -10,6 +10,8 @@
 import { LEAD_PLAN_KIND, type LeadPlanKind } from "@kernel/coordination.ts";
 import { normalizeGeoLocation, resolvePlace, type GeoLocation } from "@kernel/geolocation.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
+import { assembleDefs, type AssembledPrompt } from "@kernel/prompt-sections.ts";
+import { REJECTED_PLAN_SECTIONS } from "./coordination-sections/lead-turn-sections.ts";
 import { SIDEKICK_KIND, type SidekickKind } from "./sidekick-kinds.ts";
 
 export { LEAD_PLAN_KIND, type LeadPlanKind };
@@ -38,13 +40,13 @@ const DOWNGRADE_FACTS: Readonly<Record<PlanDowngrade, (maxFlows: number) => stri
 };
 
 /* The one request that sends a refused plan back to the lead: why it was refused (by its code and in words), and what to answer. */
-export function renderRejectedPlanRequest(downgrade: string, maxFlows: number): string {
+export function assembleRejectedPlanRequest(downgrade: string, maxFlows: number): AssembledPrompt {
   const fact = (DOWNGRADE_FACTS as Record<string, ((n: number) => string) | undefined>)[downgrade]?.(maxFlows) ?? "it could not be admitted";
-  return [
-    "## Your plan was not admitted",
-    `The orchestrator refused the plan (${downgrade}): ${fact}.`,
-    "Answer with ONLY the corrected plan JSON object, in one of the shapes of the plan contract. This is the only other plan turn of this run.",
-  ].join("\n");
+  return assembleDefs(REJECTED_PLAN_SECTIONS, { downgrade, fact }, { separator: "\n\n" });
+}
+
+export function renderRejectedPlanRequest(downgrade: string, maxFlows: number): string {
+  return assembleRejectedPlanRequest(downgrade, maxFlows).text;
 }
 
 export const MAX_FLOW_ID_CHARS = 48;

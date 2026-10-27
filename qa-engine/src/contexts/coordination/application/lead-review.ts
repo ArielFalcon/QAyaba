@@ -8,11 +8,14 @@
  * Pure: no clock, no file, no model.
  */
 
-import { candidateLine, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import { assembleDefs, type AssembledPrompt } from "@kernel/prompt-sections.ts";
 import { flowCovers, type AdmissionSet } from "./plan-coverage.ts";
-import { FLOW_OUTCOME, type FlowOutcome } from "./flow-outcomes.ts";
+import { FLOW_OUTCOME } from "./flow-outcomes.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
+import { LEAD_REVIEW_SECTIONS, MAX_SPEC_CHARS, type CandidateGaps, type FlowUnderReview } from "./coordination-sections/lead-turn-sections.ts";
 import { lastJsonObjectWhere } from "@kernel/last-json-object.ts";
+
+export { MAX_SPEC_CHARS, type CandidateGaps, type FlowUnderReview };
 
 export const REVIEW_ACTION = {
   ACCEPT: "accept",
@@ -24,29 +27,8 @@ export type ReviewAction = (typeof REVIEW_ACTION)[keyof typeof REVIEW_ACTION];
 
 /* The most review turns a coordinated pass asks the lead for; revisions are ordered in every turn but the last. */
 export const MAX_REVIEW_TURNS = 3;
-export const MAX_SPEC_CHARS = 8_000;
 export const MAX_INSTRUCTION_CHARS = 1_200;
 const MAX_REASON_CHARS = 400;
-
-export interface FlowUnderReview {
-  id: string;
-  objective: string;
-  acceptance: readonly string[];
-  outcome: FlowOutcome;
-  /* What the sidekick said of its last answer. */
-  summary?: string;
-  concerns: readonly string[];
-  /* What the orchestrator saw of the flow's run_spec calls; absent when the flow has no loop. */
-  runSpec?: { calls: number; maxCalls: number; lastStatus?: string; lastFailure?: string };
-  /* Whether the spec the flow holds now is the one its last run_spec call passed on. */
-  verified: boolean;
-  /* The app defect the flow's run showed, when one did. */
-  appDefect?: string;
-  /* Whether the sidekick's session is still open for a follow-up. */
-  sessionOpen: boolean;
-  /* The spec the flow delivered, as it is in the working copy. */
-  spec?: string;
-}
 
 export interface ReviewOrder {
   flowId: string;
@@ -79,44 +61,6 @@ export interface ReviewAdmission {
   refused: Array<{ flowId: string; action: string; reason: string; code: string }>;
 }
 
-function cut(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max)}\n… (cut at ${max} characters)` : text;
-}
-
-function runSpecLine(redaction: RedactionPort, flow: FlowUnderReview): string {
-  if (!flow.runSpec) return "run_spec: not available to this flow.";
-  const { calls, maxCalls, lastStatus, lastFailure } = flow.runSpec;
-  const verified = flow.verified ? "the spec it holds now is the one that passed" : "the spec it holds now has NOT passed run_spec";
-  return [
-    `run_spec: ${calls} of ${maxCalls} calls used${lastStatus ? `; last call ${lastStatus}` : ""}; ${verified}.`,
-    lastFailure ? `Last failure: ${redaction.redact(lastFailure)}` : "",
-  ].filter(Boolean).join("\n");
-}
-
-function flowBlock(redaction: RedactionPort, flow: FlowUnderReview): string {
-  return [
-    `### Flow \`${flow.id}\``,
-    `Objective: ${redaction.redact(flow.objective)}`,
-    flow.acceptance.length > 0 ? ["Acceptance:", ...flow.acceptance.map((a, i) => `${i + 1}. ${redaction.redact(a)}`)].join("\n") : "",
-    `Outcome: ${flow.outcome.kind}${flow.outcome.reason ? ` (${redaction.redact(flow.outcome.reason)})` : ""}`,
-    flow.summary ? `Sidekick says: ${redaction.redact(flow.summary)}` : "",
-    flow.concerns.length > 0 ? `Sidekick concerns: ${flow.concerns.map((concern) => redaction.redact(concern)).join("; ")}` : "",
-    runSpecLine(redaction, flow),
-    flow.appDefect ? `App defect shown by its run: ${redaction.redact(flow.appDefect)}. It is reported as it ran and is never sent back to be made green.` : "",
-    flow.spec !== undefined ? ["Spec:", "```ts", cut(redaction.redact(flow.spec), MAX_SPEC_CHARS), "```"].join("\n") : "Spec: none delivered.",
-  ].filter(Boolean).join("\n");
-}
-
-/* The use cases a review names: those no flow answers for, and those whose answering flows all ran run_spec and none holds a spec that passed it. A use case a flow without run_spec answers for is not called unproven: nothing says so. A use case the lead dropped with a reason is not named. */
-export interface CandidateGaps {
-  /* The use cases the plan had to answer for. */
-  required: readonly UseCaseCandidate[];
-  unvisited: UseCaseCandidate[];
-  unproven: UseCaseCandidate[];
-  /* How many less direct use cases the plan did not have to answer for. */
-  others: number;
-}
-
 export function candidateGapsOf(
   admission: AdmissionSet,
   dropped: ReadonlySet<string>,
@@ -132,28 +76,13 @@ export function candidateGapsOf(
   return unvisited.length > 0 || unproven.length > 0 ? { required: admission.required, unvisited, unproven, others: admission.others } : undefined;
 }
 
-function candidatesBlock(redaction: RedactionPort, gaps: CandidateGaps, last: boolean): string {
-  const lines = (candidates: readonly UseCaseCandidate[]): string[] => candidates.map((candidate) => `- ${redaction.redact(candidateLine(candidate))}`);
-  return [
-    "## Change candidates",
-    `The change makes ${gaps.required.length} use case(s) testable that your plan had to answer for${gaps.others > 0 ? `, and ${gaps.others} less direct one(s) it did not` : ""}.`,
-    gaps.unvisited.length > 0 ? ["No flow of your plan covers:", ...lines(gaps.unvisited)].join("\n") : "",
-    gaps.unproven.length > 0 ? ["No flow that covers it holds a spec that passed run_spec:", ...lines(gaps.unproven)].join("\n") : "",
-    last
-      ? "A use case named here whose behaviour the change alters stays untested by this run."
-      : `A use case named here whose behaviour the change alters is untested: "revise" the flow that should cover it, naming the page and what to assert there.`,
-  ].filter(Boolean).join("\n");
+/* The review turn's prompt, as data: the flows as the orchestrator knows them and the use cases no passing flow covers, assembled from the registered sections. How to judge them and the answer's shape are the lead's role prompt. */
+export function assembleLeadReview(redaction: RedactionPort, flows: readonly FlowUnderReview[], turn: { turn: number; maxTurns: number }, gaps?: CandidateGaps): AssembledPrompt {
+  return assembleDefs(LEAD_REVIEW_SECTIONS, { flows, turn, ...(gaps ? { gaps } : {}), scrub: (text) => redaction.redact(text) }, { separator: "\n\n" });
 }
 
-/* The review turn's prompt, as data: the flows as the orchestrator knows them and the use cases no passing flow covers. How to judge them and the answer's shape are the lead's role prompt. */
 export function renderLeadReview(redaction: RedactionPort, flows: readonly FlowUnderReview[], turn: { turn: number; maxTurns: number }, gaps?: CandidateGaps): string {
-  const last = turn.turn >= turn.maxTurns;
-  return [
-    `## Review of the flows (turn ${turn.turn} of ${turn.maxTurns})`,
-    last ? "This is the last review: each flow can only be accepted or dropped." : "",
-    ...flows.map((flow) => flowBlock(redaction, flow)),
-    ...(gaps ? [candidatesBlock(redaction, gaps, last)] : []),
-  ].filter(Boolean).join("\n\n");
+  return assembleLeadReview(redaction, flows, turn, gaps).text;
 }
 
 function textOf(redaction: RedactionPort, value: unknown, max: number): string {
