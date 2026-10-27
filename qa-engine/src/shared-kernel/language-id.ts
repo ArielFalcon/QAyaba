@@ -36,6 +36,18 @@ const ROUTE_TABLES: Record<RouteTableSyntax, { languages: readonly LanguageId[];
   "angular-router": { languages: ["typescript", "javascript"], manifest: "package.json", dependency: "@angular/router", moduleConfigs: ["tsconfig.json", "jsconfig.json"] },
 };
 
+/*
+ * The consumer-expectation extractors: what a consumer's own code declares it expects of a response (the type it declares for the
+ * answer to a request, and the fields its code reads and never writes), read from the language's declared types. Declared per syntax
+ * with the languages it reads and the files that configure how those languages resolve a module specifier. A language with no
+ * syntax here yields no expectation, never a guess.
+ */
+export type ExpectationSyntax = "typescript-declared-types";
+
+const EXPECTATIONS: Record<ExpectationSyntax, { languages: readonly LanguageId[]; moduleConfigs: readonly string[] }> = {
+  "typescript-declared-types": { languages: ["typescript", "javascript"], moduleConfigs: ["tsconfig.json", "jsconfig.json"] },
+};
+
 /* The manifest files a route-table syntax is named in. */
 export const ROUTE_TABLE_MANIFESTS: readonly string[] = Object.freeze([...new Set(Object.values(ROUTE_TABLES).map((t) => t.manifest))].sort());
 
@@ -101,6 +113,18 @@ export const LanguageRegistry = {
   /* The files, by name, that configure module resolution for the languages a route-table syntax reads. */
   routeTableModuleConfigs(syntax: RouteTableSyntax): readonly string[] {
     return ROUTE_TABLES[syntax].moduleConfigs;
+  },
+
+  /* The consumer-expectation syntax that reads a file of a declared language, or null for a file of no declared language or of a language with none. */
+  expectationSyntaxFor(file: string): ExpectationSyntax | null {
+    const lang = this.languageForFile(file);
+    if (lang === null) return null;
+    return (Object.keys(EXPECTATIONS) as ExpectationSyntax[]).find((syntax) => EXPECTATIONS[syntax].languages.includes(lang)) ?? null;
+  },
+
+  /* The files, by name, that configure module resolution for the languages a consumer-expectation syntax reads. */
+  expectationModuleConfigs(syntax: ExpectationSyntax): readonly string[] {
+    return EXPECTATIONS[syntax].moduleConfigs;
   },
 
   hasAstGrepRules(lang: LanguageId): boolean {

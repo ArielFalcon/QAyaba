@@ -49,3 +49,11 @@ test("a file is a test file by its own language's conventions, and only then", (
     assert.equal(LanguageRegistry.isTestFile(file), false, file);
   }
 });
+
+test("the consumer-expectation extractor is declared for the languages whose declared types it reads; Java and undeclared languages have none", () => {
+  assert.equal(LanguageRegistry.expectationSyntaxFor("src/app/api.ts"), "typescript-declared-types");
+  assert.equal(LanguageRegistry.expectationSyntaxFor("src/app/api.mjs"), "typescript-declared-types");
+  assert.equal(LanguageRegistry.expectationSyntaxFor("svc/src/main/java/com/x/Client.java"), null);
+  assert.equal(LanguageRegistry.expectationSyntaxFor("README.md"), null);
+  assert.deepEqual(LanguageRegistry.expectationModuleConfigs("typescript-declared-types"), ["tsconfig.json", "jsconfig.json"]);
+});
