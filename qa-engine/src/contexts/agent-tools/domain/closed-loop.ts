@@ -25,7 +25,7 @@ export interface ClosedLoopSignals {
   devWrites: number;
   /** The calls the run's flows were granted, together: the run's derived total. Absent when no flow opened a loop. */
   granted?: number;
-  /** Calls refused because the run's writes to DEV were spent, whatever the calling flow's own share. Absent when none was. */
+  /** Calls refused for writes to DEV: the run's cap was spent, or the calling flow's own share was. Absent when none was. */
   writesRefused?: number;
 }
 
@@ -49,6 +49,8 @@ export interface FlowLedgerEntry {
   sha256: string;
   status: string;
   devWrites: number;
+  /** The requests behind `devWrites`, by method and origin + pathname (no query, no body), redacted. Absent when none were recorded. */
+  devWriteRequests?: readonly { method: string; url: string; count: number }[];
   /** The facts of the call's failing tests: error, page by pathname, results read, server status, runtime errors, whether the page was still changing. */
   failures?: readonly FlowFailureFact[];
 }

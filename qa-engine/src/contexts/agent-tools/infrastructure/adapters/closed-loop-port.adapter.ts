@@ -242,7 +242,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
       limits: capability.limits,
       signals: () => ({ calls: capability.calls, devWrites: capability.devWrites }),
       runWritesLeft: () => runWrites.left(),
-      ledger: () => capability.ledger.map((e) => ({ path: e.path, sha256: e.sha256, status: e.status, devWrites: e.devWrites, ...(e.failures ? { failures: e.failures } : {}) })),
+      ledger: () => capability.ledger.map((e) => ({ path: e.path, sha256: e.sha256, status: e.status, devWrites: e.devWrites, ...(e.devWriteRequests ? { devWriteRequests: e.devWriteRequests } : {}), ...(e.failures ? { failures: e.failures } : {}) })),
       isClosed: async () => loopClosed(capability.ledger, new Map([[only, currentSha256(workspace, only)]])),
       close: async () => {
         if (closed) return;
@@ -280,7 +280,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
           ...(request.grep !== undefined ? { grep: request.grep } : {}),
           ...(request.signal ? { signal: request.signal } : {}),
         });
-        return { verdict: result.verdict, cases: result.cases, logs: result.logs, ...(result.devWrites !== undefined ? { devWrites: result.devWrites } : {}) };
+        return { verdict: result.verdict, cases: result.cases, logs: result.logs, ...(result.devWrites !== undefined ? { devWrites: result.devWrites } : {}), ...(result.devWriteRequests !== undefined ? { devWriteRequests: result.devWriteRequests } : {}) };
       },
     };
   }

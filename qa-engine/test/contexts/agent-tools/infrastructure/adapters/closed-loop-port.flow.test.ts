@@ -10,6 +10,7 @@ import { ClosedLoopRegistry } from "@contexts/agent-tools/infrastructure/closed-
 import { DevLease } from "@contexts/test-execution/domain/dev-lease.ts";
 import { RUN_SPEC_FLOW_AGENT } from "@contexts/test-execution/domain/run-spec-capability.ts";
 import type { ExecutionOpts } from "@contexts/test-execution/application/index.ts";
+import type { DevWriteRequest } from "@contexts/test-execution/domain/dev-write-request.ts";
 import type { ClosedLoopHandle, ClosedLoopOpenInput, FlowLoopOpenInput } from "@contexts/agent-tools/application/index.ts";
 
 const SPEC = 'import { test } from "../fixtures";\ntest("loads", async () => {});\n';
@@ -33,7 +34,7 @@ interface Rig {
   events: string[];
 }
 
-async function rig(t: TestContext, over: { devWrites?: number; runDevWrites?: number; uncounted?: boolean } = {}): Promise<Rig> {
+async function rig(t: TestContext, over: { devWrites?: number; runDevWrites?: number; uncounted?: boolean; devWriteRequests?: DevWriteRequest[] } = {}): Promise<Rig> {
   const base = mkdtempSync(join(tmpdir(), "closed-loop-flow-"));
   t.after(() => rmSync(base, { recursive: true, force: true }));
   const mirrorDir = join(base, "mirror");
@@ -56,7 +57,7 @@ async function rig(t: TestContext, over: { devWrites?: number; runDevWrites?: nu
       execute: async (dir, opts) => {
         r.events.push("execute");
         r.executed.push({ specDir: dir, opts: opts as ExecutionOpts });
-        return { verdict: "pass", cases: [{ name: "loads", status: "pass" }], logs: "", ...(over.uncounted ? {} : { devWrites: over.devWrites ?? 1 }) };
+        return { verdict: "pass", cases: [{ name: "loads", status: "pass" }], logs: "", ...(over.uncounted ? {} : { devWrites: over.devWrites ?? 1 }), ...(over.devWriteRequests ? { devWriteRequests: over.devWriteRequests } : {}) };
       },
     },
     cleanup: { cleanup: async (_dir, o) => void r.cleaned.push(o.namespace) },
@@ -149,6 +150,16 @@ test("a flow whose executed specs have spent its share of writes is refused the 
   const next = await call(r);
   assert.equal(next.ok, false);
   assert.equal(!next.ok ? next.code : "", "no-writes");
+});
+
+test("the requests behind a call's writes to DEV reach the flow's ledger entry", async (t) => {
+  const devWriteRequests = [{ method: "POST", url: "https://dev.example.com/api/sessions", count: 1 }];
+  const r = await rig(t, { devWrites: 1, devWriteRequests });
+  const flow = r.run.openFlow(r.flowInput())!;
+  r.writeWorkspace("flows/login.spec.ts", SPEC);
+  bind(r);
+  assert.ok((await call(r)).ok);
+  assert.deepEqual(flow.ledger()[0]?.devWriteRequests, devWriteRequests);
 });
 
 test("a spec that is not in the sidekick's workspace yet is not found, and costs no call", async (t) => {

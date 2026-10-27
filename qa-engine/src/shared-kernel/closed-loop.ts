@@ -19,7 +19,7 @@ export interface ClosedLoopGateSignal {
   devWrites: number;
   /* The run_spec calls the run's flows were granted, together: the run's derived total. Absent when no flow opened a loop. */
   granted?: number;
-  /* Calls refused because the run's writes to DEV were spent, whatever the calling flow's own share. Absent when none was. */
+  /* Calls refused for writes to DEV: the run's cap was spent, or the calling flow's own share was. Absent when none was. */
   writesRefused?: number;
   closed: boolean;
 }
