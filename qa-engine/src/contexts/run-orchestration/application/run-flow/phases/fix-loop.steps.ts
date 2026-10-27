@@ -7,6 +7,7 @@ import { MAX_SPEC_SOURCE_BYTES, type SpecRoot } from "@kernel/ports/spec-files.p
 import { FixLoop, type FixLoopState, type FixLoopInput, type FixLoopAcceptancePort, type FixLoopExecutionPort, type FixLoopRegenerationPort, type FixLoopSelectorCheckPort } from "../../../domain/fix-loop.aggregate.ts";
 import { checkSpecSelectors, contradictionOrigins } from "@contexts/generation/application/index.ts";
 import { attributeContradictions } from "../../../domain/helpers/contradiction-attribution.ts";
+import { routesOpenedBy } from "../../../domain/availability-triage.ts";
 import type { SuiteRestorePoint } from "../../../domain/suite-restore-point.ts";
 import { goto, type StepOutcome } from "../run-flow.ts";
 import type { StepId } from "../step-ids.ts";
@@ -276,6 +277,17 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
     ...(initialSpecSources?.length ? { initialSpecSources } : {}),
     ...(failureDomSnapshot ? { failureDomSnapshot } : {}),
     ...(state.grounding.confirmedDataRoutes?.length ? { packConfirmedDataRoutes: state.grounding.confirmedDataRoutes } : {}),
+    ...(state.grounding.routeAvailability?.facts.length
+      ? {
+          routeAvailability: {
+            facts: state.grounding.routeAvailability.facts,
+            specOpens: async (file: string) => {
+              const source = ctx.services.specFiles.read(fixLoopSpecRoot, file);
+              return source === undefined ? [] : routesOpenedBy(source);
+            },
+          },
+        }
+      : {}),
     specDir: workspace.specDir,
     ...(cfg.reviewLoopIntegrity
       ? {

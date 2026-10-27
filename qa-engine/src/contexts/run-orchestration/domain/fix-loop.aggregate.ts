@@ -12,6 +12,7 @@ import { decideProgress, bestRound, isLikelyRealBug, type RoundResult } from "./
 import type { ContradictionOrigin, SpecSelectorFindings } from "@kernel/selector-findings.ts";
 import type { ContractFeedback } from "./contract-feedback.ts";
 import { contradictsPack } from "./failure-data-state.ts";
+import { availabilityDecision, matchAvailability, type AvailabilityTriageInput } from "./availability-triage.ts";
 import { fixLoopAction, type FixLoopNext, type FixLoopStep, type FixLoopStop } from "./fix-loop-action.ts";
 
 
@@ -154,6 +155,8 @@ export interface FixLoopInput {
   failureDomSnapshot?: string;
   /* The pages this run's Context Pack read with results (> 0) under the app's declared data state, by pathname. A failure that reads an empty data state on one of them contradicts the pack. */
   packConfirmedDataRoutes?: readonly { path: string; resultCount: number }[];
+  /* The routes this run's capture classified as unavailable, and how to read which routes a spec opens. A failure that ended where its route sends the run's client met the route's availability. Absent when none was classified. */
+  routeAvailability?: AvailabilityTriageInput;
   specDir?: string;
   /* Present only while the review-loop integrity switch is on: enables triage and reads a typed test-correct claim. */
   integrity?: FixLoopIntegrity;
@@ -179,10 +182,10 @@ export interface FixLoopResult {
 }
 
 export interface FixLoopTriage {
-  /* `pack-conflict`: the failures read an empty data state on pages the Context Pack read with results; `absent-selectors`: their target was absent from the failure-point tree. */
-  trigger: "pack-conflict" | "absent-selectors";
-  /* `passed`: the re-read passed (the run is flaky); `dev-not-rendered`: it failed the same way; `inconclusive`: it failed differently; `no-budget`: no execution was left for it; `unproven`: an absent target whose bytes had no green proof, so no re-read was spent. */
-  outcome: "passed" | "dev-not-rendered" | "inconclusive" | "no-budget" | "unproven";
+  /* `pack-conflict`: the failures read an empty data state on pages the Context Pack read with results; `absent-selectors`: their target was absent from the failure-point tree; `availability`: they ended where a route the capture classified sends the run's client. */
+  trigger: "pack-conflict" | "absent-selectors" | "availability";
+  /* `passed`: the re-read passed (the run is flaky); `dev-not-rendered`: it failed the same way; `inconclusive`: it failed differently; `no-budget`: no execution was left for it; `unproven`: an absent target whose bytes had no green proof, so no re-read was spent. An availability trigger never re-reads: `precondition` (the environment sent every failure away), `needs-human` (a possible regression) or `corrected` (the test is told where its route ends). */
+  outcome: "passed" | "dev-not-rendered" | "inconclusive" | "no-budget" | "unproven" | "precondition" | "needs-human" | "corrected";
   /* The spec files the re-read covered. */
   files: number;
 }
@@ -275,6 +278,10 @@ interface RoundScratch {
   runtimeErrorsByCase: { type: string; text: string }[][];
   fiveXx: number[];
   devNotRendered: AdjudicatorEvidence["devNotRendered"];
+  /* The verdict the run's route availability facts settle the round with, in place of the adjudicator's. */
+  availabilityVerdict?: AdjudicatorVerdict;
+  /* The correction each failed case that met a route's availability carries into the regeneration, by case name. */
+  availabilityNotes?: ReadonlyMap<string, string>;
   roundNs: string;
   roundToken: unknown;
   result: FixLoopGenerateResult | undefined;
@@ -497,8 +504,17 @@ export class FixLoop {
      * results in this same run. The pack stands where a green proof would, since it saw the target's data.
      */
     let devNotRendered: AdjudicatorEvidence["devNotRendered"];
+    /* A failure that ended where its route sends the run's client: the class of the route's fact decides, with no re-read. */
+    const availability = !input.isCode && input.routeAvailability ? availabilityDecision(await matchAvailability(failed, input.routeAvailability), failed.length) : undefined;
+    let availabilityVerdict: AdjudicatorVerdict | undefined;
+    if (availability) {
+      state.triage ??= { trigger: "availability", outcome: availability.kind === "correct" ? "corrected" : availability.kind, files: new Set(failed.map((c) => c.file)).size };
+      if (availability.kind === "needs-human") availabilityVerdict = { class: ADJ_CLASS.APP_DEFECT, confidence: ADJ_CONFIDENCE.LOW, action: ADJ_ACTION.BREAK_NEEDS_HUMAN, reason: availability.reason };
+      if (availability.kind === "precondition") availabilityVerdict = { class: ADJ_CLASS.DEV_NOT_RENDERED, confidence: ADJ_CONFIDENCE.HIGH, action: ADJ_ACTION.BREAK_ISSUE, reason: availability.reason };
+    }
     const packConflict = failed.length > 0 && failed.every((c) => contradictsPack(c, input.packConfirmedDataRoutes));
     if (
+      availabilityVerdict === undefined &&
       !state.triaged &&
       input.integrity &&
       !input.isCode &&
@@ -566,6 +582,8 @@ export class FixLoop {
       runtimeErrorsByCase,
       fiveXx,
       devNotRendered,
+      ...(availabilityVerdict ? { availabilityVerdict } : {}),
+      ...(availability?.kind === "correct" ? { availabilityNotes: availability.notes } : {}),
       roundNs: `${input.namespace}-r${state.retry + 1}`,
       roundToken: undefined,
       result: undefined,
@@ -592,7 +610,7 @@ export class FixLoop {
       runtimeErrorsByCase: round.runtimeErrorsByCase,
       ...(round.devNotRendered ? { devNotRendered: round.devNotRendered } : {}),
     };
-    const verdict = adjudicate(evidence);
+    const verdict = round.availabilityVerdict ?? adjudicate(evidence);
     state.adjVerdict = verdict;
 
     if (verdict.action === ADJ_ACTION.BREAK_ISSUE) {
@@ -626,8 +644,9 @@ export class FixLoop {
     }
 
     /* Regeneration with review:skip. Cycle/wall-clock budgets are forwarded unread (see the header). */
+    const notes = round.availabilityNotes;
     const result = await this.deps.regeneration.regenerate({
-      fixCases: round.failed,
+      fixCases: notes ? round.failed.map((c) => (notes.has(c.name) ? { ...c, detail: `${c.detail ?? ""}\n${notes.get(c.name)!}`.trim() } : c)) : round.failed,
       ...(round.selectorContradictions.length > 0 ? { selectorContradictions: round.selectorContradictions } : {}),
       ...(round.selectorContradictions.length > 0 && round.origins ? { selectorContradictionOrigins: round.origins } : {}),
       ...(input.failureDomSnapshot ? { domSnapshot: input.failureDomSnapshot } : {}),
