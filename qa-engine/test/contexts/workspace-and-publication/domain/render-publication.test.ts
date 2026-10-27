@@ -215,3 +215,27 @@ test("a PR body lists every unavailability the change introduced and every possi
   assert.match(renderIssue({ verdict: "fail", cases: [failCase()], routeAvailability }), /Routes this change makes unavailable/);
   assert.equal(renderPrBody({ isCode: false }), renderPrBody({ isCode: false, routeAvailability: [routeAvailability[3]!] }));
 });
+
+/* ── Tests that fulfil a stated response: published apart, as tested against that response and not DEV ── */
+
+test("a PR body and an Issue list the stubbed tests as tested against a stated response, not DEV, and any guard they broke", () => {
+  const stubbedState = {
+    tests: [
+      { file: "flow/cuisines.spec.ts", name: "[stubbed: geo response without the cuisine field] disables every chip", response: "geo response without the cuisine field", routes: ["**/geo/**"] },
+      { file: "flow/cuisines.spec.ts", name: "through a helper", routes: [] },
+    ],
+    violations: [{ file: "flow/cuisines.spec.ts", kind: "fulfil-without-get-guard", test: "through a helper" }],
+  };
+  const pr = renderPrBody({ isCode: false, stubbedState });
+  assert.match(pr, /Tested against a stated response, not DEV[^\n]*\n- `flow\/cuisines\.spec\.ts` › .*disables every chip — geo response without the cuisine field \(`\*\*\/geo\/\*\*`\)/);
+  assert.match(pr, /- `flow\/cuisines\.spec\.ts` › through a helper — a helper it calls could not be read, so it is counted as stubbed/);
+  assert.match(pr, /Guards these tests broke[^\n]*\n- `flow\/cuisines\.spec\.ts`[^\n]*through a helper[^\n]*fulfil-without-get-guard/);
+  assert.match(renderIssue({ verdict: "fail", cases: [failCase()], stubbedState }), /Tested against a stated response, not DEV/);
+});
+
+test("a body with no stubbed test says nothing about stubs, and a violation alone is still listed", () => {
+  assert.equal(renderPrBody({ isCode: false }), renderPrBody({ isCode: false, stubbedState: { tests: [] } }));
+  const pr = renderPrBody({ isCode: false, stubbedState: { tests: [], violations: [{ file: "a.spec.ts", kind: "har-replay" }] } });
+  assert.doesNotMatch(pr, /Tested against a stated response/);
+  assert.match(pr, /Guards these tests broke[^\n]*\n- `a\.spec\.ts`[^\n]*har-replay/);
+});

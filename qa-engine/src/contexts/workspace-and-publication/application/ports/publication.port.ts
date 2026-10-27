@@ -39,6 +39,11 @@ export interface PublicationPort {
     missingCases?: readonly string[];
     /** The routes the change made unavailable and the possible regressions: listed in the PR or Issue, never a gate. */
     routeAvailability?: readonly RouteAvailabilityFact[];
+    /** The delivered tests that fulfil a stated response instead of reading DEV, and the guards they broke: listed in the PR or Issue as tested against that response, never a gate. */
+    stubbedState?: {
+      tests: ReadonlyArray<{ file: string; name: string; response?: string; routes: readonly string[] }>;
+      violations?: ReadonlyArray<{ file: string; kind: string; test?: string }>;
+    };
     /**
      * The run's working copy, for the "pr" route's git-write: the adapter reads the mirror, the commit and the target from the
      * handle it issued, so no path comes from the caller. Absent on an actual "pr" route with a required vcsWrite collaborator is a

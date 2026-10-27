@@ -279,6 +279,8 @@ export interface RunOutcome {
     valueStats?: { baseline: number; exposed: number; killed: number; failed: number; flowBreaks: number };
     /* Why the routes the Context Pack's capture could not show at their own address were not, by class. Persist-only, never a gate. */
     routeAvailability?: RouteAvailabilityGateSignal;
+    /* The delivered tests that fulfil a stated response instead of reading DEV, and the guards they broke. Absent when there were none. Persist-only, never a gate. */
+    stubbedState?: { specFiles: number; tests: number; violations?: Array<{ file: string; kind: string }> };
     /* How the run's regeneration acceptance spent its proof ledger. Persist-only. */
     integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
     /* The test-intent lock: derived clauses, deltas and would-be rejections, with the opacity flag. Persist-only. */

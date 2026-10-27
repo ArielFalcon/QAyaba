@@ -79,6 +79,7 @@ export function toStoredRunOutcome(outcome: KernelRunOutcome): StoredRunOutcome 
       ...(outcome.gateSignals.valueByCandidate !== undefined ? { valueByCandidate: outcome.gateSignals.valueByCandidate } : {}),
       ...(outcome.gateSignals.valueStats !== undefined ? { valueStats: outcome.gateSignals.valueStats } : {}),
       ...(outcome.gateSignals.routeAvailability !== undefined ? { routeAvailability: outcome.gateSignals.routeAvailability } : {}),
+      ...(outcome.gateSignals.stubbedState !== undefined ? { stubbedState: outcome.gateSignals.stubbedState } : {}),
     },
     rulesRetrieved: outcome.rulesRetrieved,
     ...(outcome.reflection !== undefined ? { reflection: outcome.reflection as StoredRunOutcome["reflection"] } : {}),

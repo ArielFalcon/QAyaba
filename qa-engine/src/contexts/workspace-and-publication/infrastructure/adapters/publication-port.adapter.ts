@@ -7,6 +7,7 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import { SecretLeakError } from "@kernel/ports/redaction.port.ts";
 import type { PublicationPort } from "../../application/ports/publication.port.ts";
 import type { WorkspaceHandle } from "../../domain/workspace-handle.ts";
+import type { StubbedStateView } from "../../domain/render-publication.ts";
 import type { WorkspaceRegistry } from "./workspace-registry.ts";
 
 /* Local structural mirror of workspace-and-publication's PublishContext/PublishDecision (domain/publish-decision.service.ts) — duck-typed, NOT imported, per the security-boundary note. */
@@ -62,6 +63,7 @@ export interface PublicationRenderCollaborator {
     reviewerNote?: string;
     missingCases?: readonly string[];
     routeAvailability?: readonly RouteAvailabilityFact[];
+    stubbedState?: StubbedStateView;
   }): string;
   prBody(input: {
     sha?: string;
@@ -70,6 +72,7 @@ export interface PublicationRenderCollaborator {
     parentRunId?: string;
     missingCases?: readonly string[];
     routeAvailability?: readonly RouteAvailabilityFact[];
+    stubbedState?: StubbedStateView;
   }): string;
 }
 
@@ -144,6 +147,7 @@ export class PublicationPortAdapter implements PublicationPort {
     parentRunId?: string;
     missingCases?: readonly string[];
     routeAvailability?: readonly RouteAvailabilityFact[];
+    stubbedState?: StubbedStateView;
   }): Promise<{ outcome: string; revertedDenylisted?: string[]; revertedDangerous?: string[] }> {
     /* A handle this registry did not issue throws here, on every route, before anything is rendered or sent. */
     const workspace = decision.workspace ? this.registry.resolve(decision.workspace) : undefined;
@@ -170,6 +174,7 @@ export class PublicationPortAdapter implements PublicationPort {
           ...(decision.reviewerNote ? { reviewerNote: decision.reviewerNote } : {}),
           ...(decision.missingCases?.length ? { missingCases: decision.missingCases } : {}),
           ...(decision.routeAvailability?.length ? { routeAvailability: decision.routeAvailability } : {}),
+          ...(decision.stubbedState ? { stubbedState: decision.stubbedState } : {}),
         }),
       );
     const prBodyText = (): string =>
@@ -181,6 +186,7 @@ export class PublicationPortAdapter implements PublicationPort {
           ...(decision.parentRunId ? { parentRunId: decision.parentRunId } : {}),
           ...(decision.missingCases?.length ? { missingCases: decision.missingCases } : {}),
           ...(decision.routeAvailability?.length ? { routeAvailability: decision.routeAvailability } : {}),
+          ...(decision.stubbedState ? { stubbedState: decision.stubbedState } : {}),
         }),
       );
     /* Issues open in the triggering repo when supplied; PRs always target ctx.repo (primary). */

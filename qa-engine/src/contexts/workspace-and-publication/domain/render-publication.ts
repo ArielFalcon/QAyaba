@@ -95,6 +95,45 @@ function renderReviewerNoteSection(note: string): string {
   return ["Reviewer unavailable", note].join("\n");
 }
 
+/* The tests that fulfil a stated response instead of reading DEV, and the guards they broke, as the run recorded them. */
+export interface StubbedStateView {
+  tests: ReadonlyArray<{ file: string; name: string; response?: string; routes: readonly string[] }>;
+  violations?: ReadonlyArray<{ file: string; kind: string; test?: string }>;
+}
+
+const STUB_MARKER_PREFIX = /^\s*\[stubbed:[^\]]*\]\s*/i;
+
+const GUARD_MEANING: Record<string, string> = {
+  "fulfil-without-get-guard": "a fulfil no explicit GET check guards would answer a write too",
+  "unverifiable-handler": "its route handler is not in the file, so it cannot be shown to fulfil only reads",
+  "override-changes-request": "a continue or fallback sets the request's method or body",
+  "har-replay": "a HAR replay answers every method it recorded",
+  "no-live-test": "every test of the spec file is stubbed: no live test sits beside them",
+};
+
+function renderStubbedTest(t: StubbedStateView["tests"][number]): string {
+  const title = t.response !== undefined ? t.name.replace(STUB_MARKER_PREFIX, "") : t.name;
+  const routes = t.routes.length > 0 ? ` (${t.routes.map((r) => `\`${cap(r, CAP_FLOW)}\``).join(", ")})` : "";
+  const against =
+    t.response !== undefined ? cap(t.response, CAP_OBJECTIVE) + routes
+    : t.routes.length > 0 ? `the response its handler fulfils${routes}`
+    : "a helper it calls could not be read, so it is counted as stubbed";
+  return `- \`${cap(t.file, CAP_FLOW)}\` › ${cap(title, CAP_NAME)} — ${against}`;
+}
+
+/* The stubbed tests as a section of their own, and the guards they broke: what the reader must know about a test that holds for a stated response and not for what DEV returns. Empty when there is neither. A record for the reader, never a gate. */
+function renderStubbedSection(state: StubbedStateView | undefined): string {
+  const tests = (state?.tests ?? []).slice(0, MAX_ITEMS);
+  const violations = (state?.violations ?? []).slice(0, MAX_ITEMS);
+  const blocks: string[] = [];
+  if (tests.length > 0) blocks.push(`**Tested against a stated response, not DEV** (these tests fulfil the responses they state through the browser's route interception: they hold for those responses, not for what DEV returns; a signal, not a gate):\n${tests.map(renderStubbedTest).join("\n")}`);
+  if (violations.length > 0) {
+    const line = (v: NonNullable<StubbedStateView["violations"]>[number]): string => `- \`${cap(v.file, CAP_FLOW)}\`${v.test !== undefined ? ` › ${cap(v.test, CAP_NAME)}` : ""} — ${v.kind}: ${GUARD_MEANING[v.kind] ?? "a guard of the stubbed-state rules"}`;
+    blocks.push(`**Guards these tests broke** (the stubbed-state rules: only reads are fulfilled, a write is never faked, and a live test sits beside; a signal, not a gate):\n${violations.map(line).join("\n")}`);
+  }
+  return blocks.join("\n\n");
+}
+
 export interface RenderIssueInput {
   verdict: RunVerdict;
   cases: readonly QaCase[];
@@ -108,6 +147,8 @@ export interface RenderIssueInput {
   missingCases?: readonly string[];
   /* The routes the change made unavailable and the possible regressions, from the run's availability classification. */
   routeAvailability?: readonly RouteAvailabilityFact[];
+  /* The delivered tests that fulfil a stated response instead of reading DEV, and the guards they broke. */
+  stubbedState?: StubbedStateView;
 }
 
 /* The reviewer's missing cases as a section of their own; empty when there are none. A record for the reader, never a gate. */
@@ -173,6 +214,8 @@ export function renderIssue(input: RenderIssueInput): string {
   if (missing) blocks.push(missing);
   const availability = renderAvailabilitySection(input.routeAvailability);
   if (availability) blocks.push(availability);
+  const stubbed = renderStubbedSection(input.stubbedState);
+  if (stubbed) blocks.push(stubbed);
 
   const head = blocks.join("\n\n");
   const footer = "\n\n_Full trace + logs in the run artifacts (trace on-first-retry)._";
@@ -188,6 +231,8 @@ export interface RenderPrBodyInput {
   missingCases?: readonly string[];
   /* The routes the change made unavailable and the possible regressions, from the run's availability classification. */
   routeAvailability?: readonly RouteAvailabilityFact[];
+  /* The delivered tests that fulfil a stated response instead of reading DEV, and the guards they broke. */
+  stubbedState?: StubbedStateView;
 }
 
 export function renderPrBody(input: RenderPrBodyInput): string {
@@ -210,6 +255,8 @@ export function renderPrBody(input: RenderPrBodyInput): string {
   if (missing) blocks.push(missing);
   const availability = renderAvailabilitySection(input.routeAvailability);
   if (availability) blocks.push(availability);
+  const stubbed = renderStubbedSection(input.stubbedState);
+  if (stubbed) blocks.push(stubbed);
 
   if (input.parentRunId) blocks.push(`> ⛓️ Continuation of ${input.parentRunId}`);
 

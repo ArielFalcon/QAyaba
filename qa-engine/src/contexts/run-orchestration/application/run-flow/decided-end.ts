@@ -17,16 +17,76 @@ import { closedLoopSignal } from "./phases/generation-services.ts";
 import { resolveTested } from "./phases/fix-loop.steps.ts";
 import type { PublicationPort } from "@contexts/workspace-and-publication/application/index.ts";
 import { deriveErrorClass, toReflectionInput, toRunOutcome } from "./outcome-assembly.ts";
+import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { WorkspaceRunContext } from "./run-context.ts";
 import type { RunQaResult } from "./run-types.ts";
 import { runOf, type RunState } from "./run-state.ts";
 import { routeAvailabilitySignal, type RouteAvailabilityFact } from "@kernel/route-availability.ts";
+import { detectStubbedState, type SpecText } from "@contexts/test-execution/application/index.ts";
 
 /* The availability facts a PR or an Issue lists: the change's own unavailabilities and the possible regressions. */
 function publishedAvailability(state: Readonly<RunState>): RouteAvailabilityFact[] {
   return (state.grounding.routeAvailability?.facts ?? []).filter((fact) => fact.basis.class === "change-introduced" || fact.basis.class === "regression-candidate");
 }
 import { PublicationFailedError, actionFor, carryOn } from "./failure-policy.ts";
+
+/* What the delivered specs say about tests that fulfil a stated response: the publication view and the gate signal, or none when no delivered test is stubbed and no guard broke. */
+interface StubbedRecord {
+  view: NonNullable<Parameters<PublicationPort["publish"]>[0]["stubbedState"]>;
+  signal: NonNullable<RunOutcome["gateSignals"]["stubbedState"]>;
+}
+
+/*
+ * The delivered specs, read through the confined reader (a file that is gone or refused contributes nothing), classified from their text.
+ * Off-path: a fault here is logged and the run goes on without the record. A code run has no browser to intercept.
+ */
+function stubbedStateOf(state: Readonly<RunState>, ctx: WorkspaceRunContext): StubbedRecord | undefined {
+  if (ctx.cfg.isCode) return undefined;
+  try {
+    const specs: SpecText[] = [];
+    for (const file of new Set(state.generation.delivered.map((d) => d.file))) {
+      try {
+        specs.push({ file, text: ctx.services.specFiles.read(ctx.services.specRoot, file) });
+      } catch {
+        /* A spec the reader refuses or no longer finds is not published either. */
+      }
+    }
+    const report = detectStubbedState(specs);
+    if (report.tests.length === 0 && report.violations.length === 0) return undefined;
+    return {
+      view: { tests: report.tests, ...(report.violations.length > 0 ? { violations: report.violations } : {}) },
+      signal: {
+        specFiles: report.specFiles,
+        tests: report.tests.length,
+        ...(report.violations.length > 0 ? { violations: report.violations.map((v) => ({ file: v.file, kind: v.kind })) } : {}),
+      },
+    };
+  } catch (err) {
+    engineLog.warn(`[qa] stubbed-state detection failed (off-path; the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
+  }
+}
+
+/* One span for the record: how many delivered specs and tests fulfil a stated response and which guards they broke. */
+function recordStubbedState(ctx: WorkspaceRunContext, record: StubbedRecord): void {
+  const kinds = new Map<string, number>();
+  for (const v of record.signal.violations ?? []) kinds.set(v.kind, (kinds.get(v.kind) ?? 0) + 1);
+  try {
+    ctx.telemetry
+      .startSpan("qayaba.stubbed_state", {
+        attrs: {
+          "qayaba.app": ctx.input.app,
+          "qayaba.stubbed.spec_files": record.signal.specFiles,
+          "qayaba.stubbed.tests": record.signal.tests,
+          "qayaba.stubbed.violations": record.signal.violations?.length ?? 0,
+          ...(kinds.size > 0 ? { "qayaba.stubbed.violation_kinds": [...kinds].map(([kind, count]) => `${kind}=${count}`).join(",") } : {}),
+        },
+      })
+      .end();
+  } catch (err) {
+    engineLog.error(`[telemetry] the stubbed-state span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
 
 export async function finalizeDecided(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<RunQaResult> {
   await recordCoordinationOutcome(state, ctx);
@@ -36,15 +96,19 @@ export async function finalizeDecided(state: Readonly<RunState>, ctx: WorkspaceR
   await captureContextMap(state, ctx);
   if (keepsSuite(state, ctx)) await keepAcceptedSuite(state, ctx);
 
+  /* Read once, from the specs as they stand when the run ends: the publication and the record say the same. */
+  const stubbed = stubbedStateOf(state, ctx);
+  if (stubbed) recordStubbedState(ctx, stubbed);
+
   let publishOutcome: string | undefined;
-  if (decidedOf(state).decision.sideEffect !== "none") publishOutcome = await publishDecision(state, ctx);
+  if (decidedOf(state).decision.sideEffect !== "none") publishOutcome = await publishDecision(state, ctx, stubbed);
 
   /* Once, after confinement and publish, so gc never races this run's git write. */
   await ctx.host.pruneMirror(ctx.workspace);
 
   /* What the run went on past is said on its record beside what publication came to. */
   const note = [...state.degraded.map((d) => d.note), ...(publishOutcome !== undefined ? [publishOutcome] : [])].join("; ") || undefined;
-  const persisted = await persistOutcome(state, ctx, note);
+  const persisted = await persistOutcome(state, ctx, note, stubbed);
   if (persisted.mainlineOutcome) {
     ctx.trail.phases.enter("learn");
     await learnFromOutcome(state, ctx, persisted.mainlineOutcome);
@@ -134,7 +198,7 @@ async function keepAcceptedSuite(state: Readonly<RunState>, ctx: WorkspaceRunCon
  * blocksPublish ride along so a green-but-rejected run opens an Issue and an enforce coverage fail holds the PR. e2eChanged is
  * omitted (no computed source: do not fabricate). Cross-repo Issues file in triggerRepo; PRs still target the primary.
  */
-async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<string> {
+async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunContext, stubbed: StubbedRecord | undefined): Promise<string> {
   const { deps, input, workspace, services } = ctx;
   const run = runOf(state);
   const { reviewerApproved } = state.review;
@@ -159,6 +223,8 @@ async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunConte
       ...(state.review.missingCases.length ? { missingCases: state.review.missingCases } : {}),
       /* Every unavailability the change introduced, and every possible regression, for the human reading the PR or the Issue. */
       ...(publishedAvailability(state).length ? { routeAvailability: publishedAvailability(state) } : {}),
+      /* The tests that fulfil a stated response instead of reading DEV, and the guards they broke. */
+      ...(stubbed ? { stubbedState: stubbed.view } : {}),
       ...(resolveTested(state)?.length ? { tested: resolveTested(state) } : {}),
     });
   } catch (pubErr) {
@@ -227,7 +293,7 @@ function sharedSignals(state: Readonly<RunState>, ctx: WorkspaceRunContext, loop
 }
 
 /* Derive errorClass/valueScore once for both the persisted outcome and the returned result. */
-async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContext, publishOutcome: string | undefined): Promise<Persisted> {
+async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContext, publishOutcome: string | undefined, stubbed: StubbedRecord | undefined): Promise<Persisted> {
   const { deps, services } = ctx;
   const { decision, isContextCleanPass } = decidedOf(state);
   const { retries, validation } = state.execution;
@@ -258,6 +324,7 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
     ...(flakyTriage ? { flakyTriage } : {}),
     ...(missingCases.length ? { missingCases } : {}),
     ...(state.grounding.routeAvailability ? { routeAvailability: routeAvailabilitySignal(state.grounding.routeAvailability.read, state.grounding.routeAvailability.facts) } : {}),
+    ...(stubbed ? { stubbedState: stubbed.signal } : {}),
     reviewerCorrections: finalReviewerCorrections,
     ...(reviewerSignal !== undefined ? { reviewer: reviewerSignal } : {}),
     /* Publish outcome string, never fabricated when publish() was not called. */
