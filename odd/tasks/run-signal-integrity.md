@@ -18,14 +18,14 @@ Branch: main (owner rule: single branch, governance changes as own commits). Del
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
-| T1 | S1 | delegated (parallel, worktree) | pending | |
-| T2 | S2 | delegated (parallel, worktree) | pending | |
-| T3 | S3 | delegated (parallel, worktree) | pending | |
-| T4 | S4 | delegated (parallel, worktree) | pending | |
-| T5 | S5 | delegated (parallel, worktree) | pending | |
-| T6 | S6 | delegated (parallel, worktree) | pending | |
-| T7 | S7 | delegated (parallel, worktree) | pending | |
-| T8 | S8 | delegated (parallel, worktree) | pending | |
+| T1 | S1 | delegated (parallel, worktree) | done (integrated) | 8c506286 |
+| T2 | S2 | delegated (parallel, worktree) | done (integrated) | 2d319787, 21a690d4 |
+| T3 | S3 | delegated (parallel, worktree) | done (integrated) | 2f8aa847 |
+| T4 | S4 | delegated (parallel, worktree) | done (integrated) | 41cae36e |
+| T5 | S5 | delegated (parallel, worktree) | done (integrated) | 4798c7e1 |
+| T6 | S6 | delegated (parallel, worktree) | done (integrated) | 72c27f2b |
+| T7 | S7 | delegated (parallel, worktree) | done (integrated) | e4da2972 |
+| T8 | S8 | delegated (parallel, worktree) | done (integrated) | 582c5349, 87c5f184 |
 
 Route evidence: Writer trigger (a) — eight independent units with their own tests; overlapping files (coverage.steps.ts, lead-sidekicks.ts, maintenance-flow.ts) → isolated worktrees, parent merges.
 
@@ -34,3 +34,6 @@ Route evidence: Writer trigger (a) — eight independent units with their own te
 - L1 (2026-10-27, user, verbatim): "Separa las tareas pendientes en unidades de trabajo lógicas y aplícalas en paralelo con agentes, si necesitas worktrees por cada uno hazlo"
 - L2 (2026-10-27, user, verbatim, the constraint on every fix): "No debes priorizar parches que solucionen solo la manifestación actual del error sino identificar la causa estructural para que la solución sea válida para cualquier ejecución sobre otra app no solo para ese caso"
 - L3 Evidence: runs run-ed28973-mvpw76qh/mvq9r6vy/mvqb6uob/mvqc7x8j/mvqd9fda; engram diag/t7-broad-3c, diag/t7-broad-3c-causes.
+- L4 (2026-10-27, user, verbatim): "Cuando terminen las 8 integraciones lanza un agente con opus 5.5 con esfuerzo xhigh pasale por contexto los problemas originales y que evalúe la calidad de las implementaciones"
+- L5 Integration on integrate/run-signal-integrity: conflicts resolved in coverage.steps.ts (T4×T5, T6×T4/T5: regenerateAtGap generalized, regenerateAtCoverageGap + gapFindings carry file-owned units and spec-owned survivors). Prompt baseline re-recorded (no change). Gate: static checks OK; npm test 11426 pass / 0 fail. Independent evaluation (L4) pending.
+- L6 Independent evaluation (Opus, xhigh). Blockers: (1) T7 egress unreachable — page-dependent = declared origin = egress allowlist; (2) T4 contradicted no-op ends E-NO-AUTHOR, violating "Honor the explicit no-op", and the explicit noop shape skips the check; (3) T2 reviewer/author/plan verdicts still parsed by src/integrations/verdict-parse.ts first-span scanner; (4) T1 an approved review can be recorded as a dropped rejection, grader flags designed drops. High: T1 rebuttal verifier compares raw paths. Medium: T6 coverage measured on stale bytes after flaky correction; T4 sameFile suffix match. One correction batch (C1–C5) follows; advisories recorded, not fixed: T5 survivors not re-measured, T8 compares to replicate 1 not the seeded snapshot, T6 budget invariant, file-identity variants elsewhere.
