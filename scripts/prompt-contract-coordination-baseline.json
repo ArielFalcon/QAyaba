@@ -78,14 +78,14 @@
     }
   },
   "staticLayers": {
-    "qa-author": 24667,
+    "qa-author": 24753,
     "qa-explore": 10092,
     "qa-lead": 16161
   },
   "lastIncrease": {
-    "reason": "the full author brief carries the static decision listing of its owned hunks (S6)",
+    "reason": "S14 requests fact",
     "budgets": [
-      "flow-author-brief/full:bytes"
+      "static:qa-author"
     ]
   }
 }
