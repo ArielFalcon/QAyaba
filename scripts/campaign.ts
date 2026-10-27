@@ -34,7 +34,7 @@ import {
   ARM, CASE_KIND, armOrder, armToken, assessSpecs, isPlainAgentArm, classifyOutcome, invalidReplicateReasons, matchesExpected, parseArguments, parseCases,
   type Arm, type CampaignArguments, type CampaignCase, type ValidationRunSummary,
 } from "./campaign-model.ts";
-import { renderMarkdown, renderRubricCsv, type ArmRunResult, type CampaignRecord } from "./campaign-report.ts";
+import { renderMarkdown, renderRubricCsv, withIsolation, type ArmRunResult, type CampaignRecord } from "./campaign-report.ts";
 import { specsOf, type DeltaFile, type SuiteDelta } from "./campaign-suite.ts";
 import type { ProbeReport } from "./probe-metrics.ts";
 import { type LoadedSnapshot, warmStatus } from "./warm-suite.ts";
@@ -186,6 +186,8 @@ export interface CampaignDeps {
   waitForIdleQueue(timeoutMs: number): Promise<void>;
   /** Loads the snapshot into the app's suite store, replacing what it held: the pipeline's next run restores it after its checkout. */
   seedStore(app: AppFacts, snapshot: LoadedSnapshot): Promise<void>;
+  /** The digest of the suite store set that run restored (its restore span's `qayaba.suite_store.restored_digest`); null when the run recorded none or the history cannot be read. */
+  restoredDigest(runId: string): Promise<string | null>;
   runCleanup(input: { app: AppFacts; snapshot: LoadedSnapshot; spec: string; workspace: string }): Promise<{ ok: boolean; note: string }>;
   runPipeline(req: PipelineRequest): Promise<ArmOutcome>;
   runBaseline(req: BaselineRequest): Promise<ArmOutcome>;
@@ -332,7 +334,8 @@ export async function runCampaign(argv: string[], deps: CampaignDeps): Promise<n
           const result = await armRun(plan, deps, c, order[i]!, rep, i + 1);
           record.results.push(result);
           write();
-          out(`[campaign] ${c.id} ${result.arm}${rep}: ${result.verdict ?? "no verdict"}, ${result.outcome}, valid ${result.valid ? "yes" : "no"}${result.invalidReplicate ? `, INVALID (${result.invalidReasons.join("; ")})` : ""}`);
+          const judged = withIsolation(record.results).at(-1)!;
+          out(`[campaign] ${c.id} ${judged.arm}${rep}: ${judged.verdict ?? "no verdict"}, ${judged.outcome}, valid ${judged.valid ? "yes" : "no"}${judged.invalidReplicate ? `, INVALID (${judged.invalidReasons.join("; ")})` : ""}`);
         }
       }
     }
@@ -446,6 +449,10 @@ async function armRun(plan: Plan, deps: CampaignDeps, c: CampaignCase, arm: Arm,
   const assessed = assessSpecs({ specs: flagged, validation: validation.runs });
   const validationInfra = toRun.length > 0 && !outcome.capped && !outcome.lost && (validation.error !== undefined || validation.runs.some((r) => r.verdict === "infra-error"));
 
+  const restoredDigest = arm === ARM.PIPELINE && outcome.runId !== null ? await deps.restoredDigest(outcome.runId).catch((err: unknown) => {
+    deps.out(`[campaign] ${label}: the digest of the restored suite could not be read (${err instanceof Error ? err.message : String(err)}); its isolation is unknown`);
+    return null;
+  }) : undefined;
   const report = outcome.report;
   const verdict = (report?.verdict ?? null) as RunVerdict | null;
   const result = classifyOutcome({ verdict, delivered: specs.length });
@@ -467,6 +474,7 @@ async function armRun(plan: Plan, deps: CampaignDeps, c: CampaignCase, arm: Arm,
     loginRewritten: files.some((f) => f.path === "auth.setup.ts"),
     capped: outcome.capped,
     invalidReplicate: reasons.length > 0, invalidReasons: reasons,
+    ...(restoredDigest !== undefined ? { restoredDigest } : {}),
   };
   deps.writeJson(join(armDir, "result.json"), arr);
   return arr;
@@ -494,6 +502,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
   const { collectReport, defaultReportDeps, defaultProbeResultsDir, readGroundTruthFile, writeJsonAtomically } = await import("./probe-report.ts");
   const { loadSnapshot, restoreSuite, seedSuiteStore, warmSnapshotDir } = await import("./warm-suite.ts");
   const { suiteDelta } = await import("./campaign-suite.ts");
+  const { getHistory } = await import("../src/server/persistence/index.ts");
   const { prepareHarnessAuth } = await import("./harness-auth.ts");
   const baseline = await import("./baseline-agent.ts");
 
@@ -597,6 +606,11 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
     },
     seedStore: async (app, snapshot) => {
       await seedSuiteStore(app.name, snapshot.files, snapshot.label);
+    },
+    restoredDigest: async (runId) => {
+      const restore = getHistory().telemetry.listRunSpans(runId).find((span) => span.name === "qayaba.suite_store.restore");
+      const digest = restore === undefined ? undefined : (JSON.parse(restore.attrs) as Record<string, unknown>)["qayaba.suite_store.restored_digest"];
+      return typeof digest === "string" ? digest : null;
     },
     runCleanup: async ({ app, snapshot, spec, workspace }) => {
       const { e2eDir, authDir } = await prepareWorkspace(workspace, snapshot, []);

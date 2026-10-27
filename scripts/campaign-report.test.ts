@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { renderMarkdown, renderRubricCsv, summarize, type ArmRunResult, type CampaignRecord } from "./campaign-report.ts";
+import { renderMarkdown, renderRubricCsv, summarize, withIsolation, type ArmRunResult, type CampaignRecord } from "./campaign-report.ts";
 
 function result(over: Partial<ArmRunResult> = {}): ArmRunResult {
   return {
@@ -95,4 +95,50 @@ test("a field with a comma, a quote or a newline stays one field in the rubric",
   rec.cases[0]!.expected.mustVerify = 'shows "refused", twice\nand more';
   const csv = renderRubricCsv(rec);
   assert.ok(csv.includes('"shows ""refused"", twice and more"'));
+});
+
+/* ── isolation between replicates ── */
+
+const piped = (replicate: number, restoredDigest?: string | null, over: Partial<ArmRunResult> = {}): ArmRunResult =>
+  result({ arm: "B", replicate, runId: `run-${replicate}`, ...(restoredDigest !== undefined ? { restoredDigest } : {}), ...over });
+
+test("a replicate that restored another suite than the first one did is invalid, with the reason, and leaves the statistics", () => {
+  const results = [piped(1, "d1"), piped(2, "d1"), piped(3, "d2", { costUsd: 9 })];
+  const checked = withIsolation(results);
+  assert.deepEqual(checked.map((r) => r.invalidReplicate), [false, false, true]);
+  assert.ok(checked[2]!.invalidReasons.some((reason) => /restored suite/i.test(reason) && reason.includes("replicate 1")));
+  const [row] = summarize(results);
+  assert.equal(row!.replicates, 3);
+  assert.equal(row!.usable, 2);
+  assert.equal(row!.medianCostUsd, 0.5, "the contaminated replicate's cost stays out of the median");
+  assert.ok(renderMarkdown(record(results)).includes("restored suite"));
+  assert.equal(renderRubricCsv(record(results)).trim().split("\n").length, 3, "the contaminated replicate is not offered to the rubric");
+});
+
+test("the first replicate is the reference per case and arm, so another case or arm is never compared with it", () => {
+  const checked = withIsolation([piped(1, "d1"), result({ caseId: "other", arm: "B", replicate: 1, runId: "x1", restoredDigest: "d2" }), result({ caseId: "other", arm: "B", replicate: 2, runId: "x2", restoredDigest: "d2" })]);
+  assert.deepEqual(checked.map((r) => r.invalidReplicate), [false, false, false]);
+});
+
+test("a run with no recorded digest is isolation unknown, never invalid, and the markdown says so", () => {
+  const results = [piped(1, "d1"), piped(2), piped(3, null)];
+  const checked = withIsolation(results);
+  assert.deepEqual(checked.map((r) => r.invalidReplicate), [false, false, false]);
+  const text = renderMarkdown(record(results));
+  assert.equal(text.split("isolation unknown").length - 1, 2);
+});
+
+test("when the first replicate has no digest nothing can be compared with it: the others are unknown, not invalid", () => {
+  const checked = withIsolation([piped(1), piped(2, "d1"), piped(3, "d2")]);
+  assert.deepEqual(checked.map((r) => r.invalidReplicate), [false, false, false]);
+});
+
+test("an arm with no run id (the plain agent) uses no suite store and is not reported as unknown", () => {
+  assert.ok(!renderMarkdown(record([result()])).includes("isolation unknown"));
+});
+
+test("a replicate already invalid keeps its own reasons and gains the isolation one", () => {
+  const [, second] = withIsolation([piped(1, "d1"), piped(2, "d2", { invalidReplicate: true, invalidReasons: ["the wall cap cut the run"] })]);
+  assert.equal(second!.invalidReasons.length, 2);
+  assert.equal(second!.invalidReasons[0], "the wall cap cut the run");
 });

@@ -45,6 +45,7 @@ export class TracedSuiteStore implements SuiteStorePort {
         "qayaba.suite_store.overlaid": result.overlaid,
         "qayaba.suite_store.tracked_wins": result.trackedWins,
         "qayaba.suite_store.auth_restored": result.authRestored,
+        ...(result.digest !== undefined ? { "qayaba.suite_store.restored_digest": result.digest } : {}),
       });
       if (result.authRestored) noteSuiteAuth((notes) => { notes.restored = true; });
       span.end();

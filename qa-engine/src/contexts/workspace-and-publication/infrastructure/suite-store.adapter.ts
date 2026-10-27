@@ -229,6 +229,12 @@ export function suiteStoreHoldsVerifiedLogin(storeDir: string): boolean {
 
 type Decision = { action: "admit"; entry: SuiteEntry; bytes: Buffer } | { action: "keep" } | { action: "drop" };
 
+/** The digest of a restored set: sha256 over `path NUL sha256 LF` lines sorted by path. The empty set has a digest too, so a run that restored nothing differs from one that restored a suite. */
+export function restoredSetDigest(files: ReadonlyArray<{ path: string; sha256: string }>): string {
+  const lines = [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)).map((f) => `${f.path}\0${f.sha256}\n`);
+  return createHash("sha256").update(lines.join("")).digest("hex");
+}
+
 export class SuiteStoreAdapter implements SuiteStorePort {
   private readonly limits: SuiteStoreLimits;
 
@@ -239,7 +245,8 @@ export class SuiteStoreAdapter implements SuiteStorePort {
   async restore(root: SuiteRoot): Promise<SuiteRestoreResult> {
     const result: SuiteRestoreResult = { restored: 0, trackedWins: 0, overlaid: 0, authRestored: false };
     const manifest = this.load();
-    if (manifest.entries.length === 0) return result;
+    const written: Array<{ path: string; sha256: string }> = [];
+    if (manifest.entries.length === 0) return { ...result, digest: restoredSetDigest(written) };
     const tracked = await this.deps.listTracked(root.mirrorDir, this.deps.specRelDir);
     if (!existsSync(root.specDir)) mkdirSync(root.specDir, { recursive: true });
     if (this.deps.seedDir !== undefined && !existsSync(join(root.specDir, PROJECT_MARK_FILE))) {
@@ -257,9 +264,10 @@ export class SuiteStoreAdapter implements SuiteStorePort {
       writeOwnedSpecFile(root, entry.path, bytes);
       if (trackedFile !== undefined) result.overlaid += 1;
       else result.restored += 1;
+      written.push({ path: entry.path, sha256: entry.sha256 });
       if (entry.kind === SUITE_ENTRY_KIND.AUTH_SETUP) result.authRestored = true;
     }
-    return result;
+    return { ...result, digest: restoredSetDigest(written) };
   }
 
   async fingerprint(root: SuiteRoot, specs: readonly string[]): Promise<ReadonlyMap<string, string>> {

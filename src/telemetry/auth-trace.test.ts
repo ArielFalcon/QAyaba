@@ -189,6 +189,14 @@ test("a demotion reason in any other words is exported as other, never as free t
   assert.equal(h.only("qayaba.suite_store.demote").attributes["qayaba.suite_store.reason"], "other");
 });
 
+test("the restore span carries the digest of the set it put back, so two runs can be compared on what they started from", async () => {
+  const h = traceHarness();
+  const digest = "a".repeat(64);
+  const store = new TracedSuiteStore({ restore: async () => ({ restored: 13, trackedWins: 0, overlaid: 0, authRestored: false, digest }), fingerprint: async () => new Map(), capture: async () => ({ entries: 0, admitted: 0, dropped: 0, skipped: [] }), demoteAuth: async () => {} }, h.telemetry);
+  await store.restore({ mirrorDir: "/m", specDir: "/m/e2e" });
+  assert.equal(h.only("qayaba.suite_store.restore").attributes["qayaba.suite_store.restored_digest"], digest);
+});
+
 test("a store call that fails is an error on its span and the failure goes on", async () => {
   const h = traceHarness();
   const store = new TracedSuiteStore({ restore: async () => { throw new Error("disk gone"); }, fingerprint: async () => new Map(), capture: async () => ({ entries: 0, admitted: 0, dropped: 0, skipped: [] }), demoteAuth: async () => {} }, h.telemetry);

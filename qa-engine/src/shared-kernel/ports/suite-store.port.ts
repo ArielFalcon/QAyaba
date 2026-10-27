@@ -22,6 +22,11 @@ export interface SuiteRestoreResult {
   overlaid: number;
   /** The stored login (`auth.setup.ts`) was put back. */
   authRestored: boolean;
+  /**
+   * A sha256 over the sorted (path, content hash) pairs of the files this restore put back, so two runs that started from the same suite
+   * carry the same value and a run that started from more, fewer or other files carries another. Absent from a store that computes none.
+   */
+  digest?: string;
 }
 
 export interface SuiteCaptureInput extends SuiteRoot {

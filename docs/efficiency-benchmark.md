@@ -452,6 +452,16 @@ A replicate is flagged **invalid** (and left out of the summary) when the enviro
 cleanup failed, the run was lost, an infra-error the arm did not cause (`E-NO-DECISION`, `E-STEP-BUDGET` and `E-TIME-BUDGET` are the arm's own
 results), or the re-run could not execute against DEV.
 
+**Isolation between replicates.** Every pipeline run's restore span carries `qayaba.suite_store.restored_digest`, a sha256 over the sorted
+(path, content hash) pairs of the files it put back from the suite store, and the campaign copies it into the arm-run's `restoredDigest`.
+`campaign.md` compares each replicate with the first one of the same case and arm: a different digest means the replicate started from
+another suite (a run still going when the store was seeded, a spec an earlier replicate left behind), so it is marked **invalid** with that
+reason and left out of the summary and the rubric. A run with no digest (a record from before it existed, or spans that could not be read)
+reads `ok (isolation unknown)`, never invalid; if the first replicate has none, nothing can be compared. The campaign itself is strictly
+sequential (each arm-run waits for an idle queue, then seeds the store, before it starts). **A run launched by hand as a replicate** (`npm run qa`,
+`POST /api/v1/runs`) is not: it must not be enqueued while another run is going or queued, and the suite store must be restored to the
+warm snapshot (`warm-suite seed-store`) before each one; otherwise the digest comparison above is what reveals the contamination, after the fact.
+
 ### Arm A': the plain agent, judged by the pipeline's acceptance
 
 Arm A calls any spec that passed its own two runs a pass, while the pipeline keeps a suite only when it was validated, executed, measured and reviewed. A' asks the plain

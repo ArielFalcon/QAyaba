@@ -83,6 +83,7 @@ function harness(over: Partial<CampaignDeps> = {}, opts: { cases?: unknown; app?
       baselineRequests.push(req);
       return { report: report("baseline", "pass", { totalMs: 500_000, phases: { gate: null, classify: null, setup: 20_000, grounding: null, generation: 400_000, validate: null, health: null, execute: 80_000, coverage: null, retry: null, decide: null } }), runId: null, capped: false, lost: false, wallMs: 500_000 };
     },
+    restoredDigest: async () => "digest-warm",
     pipelineDelta: async (): Promise<SuiteDelta> => ({ files: [file("a.spec.ts", GOOD_SPEC)], removed: [], skipped: [] }),
     readSavedFiles: async () => [file("a.spec.ts", GOOD_SPEC)],
     saveFiles: (dir, files) => { saved.set(dir, [...files]); },
@@ -184,6 +185,46 @@ test("each arm-run waits for an idle queue, runs the case's cleanup, then seeds 
   assert.deepEqual(h.calls.slice(0, firstRun + 1), ["idle", "cleanup", "seed", "run:A"]);
   const second = h.calls.slice(firstRun + 1);
   assert.deepEqual(second.slice(second.indexOf("idle"), second.indexOf("run:B") + 1), ["idle", "cleanup", "seed", "run:B"]);
+});
+
+test("no arm-run starts before the previous one has finished, whatever the arms and replicates", async () => {
+  let active = 0;
+  let overlapped = false;
+  const enter = (): void => { active += 1; if (active > 1) overlapped = true; };
+  const h = harness({
+    waitForIdleQueue: async () => { if (active > 0) overlapped = true; },
+    runPipeline: async (): Promise<ArmOutcome> => { enter(); await new Promise((r) => setImmediate(r)); active -= 1; return { report: report("pipeline", "pass"), runId: "run-1", capped: false, lost: false, wallMs: 1 }; },
+    runBaseline: async (): Promise<ArmOutcome> => { enter(); await new Promise((r) => setImmediate(r)); active -= 1; return { report: report("baseline", "pass"), runId: null, capped: false, lost: false, wallMs: 1 }; },
+  });
+  assert.equal(await runCampaign(argv("--arms", "A,B", "--replicas", "3"), h.deps), 0);
+  assert.equal(overlapped, false);
+  assert.equal(recordOf(h).results.length, 6);
+});
+
+test("the pipeline arm-run records the digest of the suite its run restored", async () => {
+  const asked: string[] = [];
+  const h = harness({ restoredDigest: async (runId) => { asked.push(runId); return "digest-warm"; } });
+  assert.equal(await runCampaign(argv("--arms", "A,B"), h.deps), 0);
+  assert.deepEqual(asked, ["run-1"], "only the pipeline has a run to ask about");
+  const [plain, piped] = recordOf(h).results;
+  assert.equal(plain!.restoredDigest, undefined);
+  assert.equal(piped!.restoredDigest, "digest-warm");
+});
+
+test("a digest that cannot be read is recorded as none, and the replicate is not invalid for it", async () => {
+  const h = harness({ restoredDigest: async () => { throw new Error("history unavailable"); } });
+  assert.equal(await runCampaign(argv(), h.deps), 0);
+  const [only] = recordOf(h).results;
+  assert.equal(only!.restoredDigest, null);
+  assert.equal(only!.invalidReplicate, false);
+});
+
+test("a replicate that restored another suite than the first is reported invalid, as the campaign runs", async () => {
+  let n = 0;
+  const h = harness({ restoredDigest: async () => (n++ === 0 ? "d-first" : "d-contaminated") });
+  assert.equal(await runCampaign(argv("--replicas", "2"), h.deps), 0);
+  assert.ok(h.lines.some((l) => l.includes("INVALID") && l.includes("restored suite")));
+  assert.ok(h.written.get("/campaigns/camp/campaign.md")!.includes("restored suite"));
 });
 
 test("a case with no cleanup runs none", async () => {

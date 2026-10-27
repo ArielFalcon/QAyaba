@@ -43,6 +43,11 @@ export interface ArmRunResult {
   capped: boolean;
   invalidReplicate: boolean;
   invalidReasons: string[];
+  /**
+   * The digest of the suite the pipeline run restored from the suite store (the `qayaba.suite_store.restored_digest` of its restore span).
+   * Absent for an arm that has no suite store or a record written before the digest existed; null when the run's spans could not be read.
+   */
+  restoredDigest?: string | null;
 }
 
 export interface CampaignCaseRecord {
@@ -75,6 +80,32 @@ export interface CampaignRecord {
   results: ArmRunResult[];
 }
 
+/* ── isolation between replicates ──────────────────────────────────────────────────── */
+
+const caseArmKey = (r: ArmRunResult): string => `${r.caseId}\u0000${r.arm}`;
+/** Only a pipeline run restores from a suite store, so only it has an isolation to know or not to know. */
+const hasSuiteStore = (r: ArmRunResult): boolean => r.runId !== null;
+
+/**
+ * Every replicate of a case and arm starts from the same suite: the warm snapshot, seeded before the run. A replicate whose restore put
+ * back another set than the first replicate's started from something else (a run still going when the store was seeded, a spec an
+ * earlier replicate left behind), so it is not a draw of the same experiment. It is marked invalid with the reason and the statistics
+ * leave it out. A replicate with no digest, or one whose reference has none, cannot be judged: it stays as it was and the report says
+ * its isolation is unknown.
+ */
+export function withIsolation(results: readonly ArmRunResult[]): ArmRunResult[] {
+  const reference = new Map<string, ArmRunResult>();
+  for (const r of results) {
+    const known = reference.get(caseArmKey(r));
+    if (known === undefined || r.replicate < known.replicate) reference.set(caseArmKey(r), r);
+  }
+  return results.map((r) => {
+    const first = reference.get(caseArmKey(r))!;
+    if (first === r || typeof r.restoredDigest !== "string" || typeof first.restoredDigest !== "string" || r.restoredDigest === first.restoredDigest) return r;
+    return { ...r, invalidReplicate: true, invalidReasons: [...r.invalidReasons, `the restored suite differs from replicate ${first.replicate}'s (digest ${r.restoredDigest.slice(0, 12)} against ${first.restoredDigest.slice(0, 12)}): the suite store was not reset between them`] };
+  });
+}
+
 /* ── summary ───────────────────────────────────────────────────────────────────────── */
 
 export interface CellSummary {
@@ -101,8 +132,8 @@ function median(values: ReadonlyArray<number | null>): number | null {
 
 export function summarize(results: readonly ArmRunResult[]): CellSummary[] {
   const cells = new Map<string, ArmRunResult[]>();
-  for (const r of results) {
-    const key = `${r.caseId}\u0000${r.arm}`;
+  for (const r of withIsolation(results)) {
+    const key = caseArmKey(r);
     cells.set(key, [...(cells.get(key) ?? []), r]);
   }
   return [...cells.values()].map((runs) => {
@@ -152,8 +183,8 @@ export function renderMarkdown(record: CampaignRecord): string {
   lines.push(`- app in shadow mode: ${yesNo(e.appShadow)}; pipeline arm asked for shadow in its request: ${yesNo(e.forcedShadow)}`);
 
   lines.push("", "## Per arm-run", "", header(RUN_COLUMNS));
-  for (const r of record.results) {
-    const replicate = r.invalidReplicate ? `INVALID: ${r.invalidReasons.join("; ")}` : "ok";
+  for (const r of withIsolation(record.results)) {
+    const replicate = r.invalidReplicate ? `INVALID: ${r.invalidReasons.join("; ")}` : typeof r.restoredDigest === "string" || !hasSuiteStore(r) ? "ok" : "ok (isolation unknown)";
     lines.push(`| ${[
       r.caseId, r.arm, String(r.replicate), String(r.position), r.verdict ?? NA, `${r.outcome} (${r.matchesExpected ? "as expected" : "not as expected"})`,
       yesNo(r.valid), `${r.specs.filter((s) => s.valid).length} / ${r.delivered.length}`, flagsOf(r) || "-", r.rubric, usd(r.costUsd), mins(r.wallMs), mins(r.wallExclOracleMs), num(r.steps),
@@ -181,7 +212,7 @@ export const RUBRIC_HEADER = ["case", "arm", "replicate", "specs", "must_verify"
 /** One row per valid, comparable arm-run, for the owner to score 0-3 against what the case says a valid spec must verify. */
 export function renderRubricCsv(record: CampaignRecord): string {
   const mustVerify = new Map(record.cases.map((c) => [c.id, c.expected.mustVerify]));
-  const rows = record.results
+  const rows = withIsolation(record.results)
     .filter((r) => r.valid && !r.invalidReplicate)
     .map((r) => [r.caseId, r.arm, String(r.replicate), r.delivered.join(" "), mustVerify.get(r.caseId) ?? "", r.savedTo ?? "", "", ""].map(csvField).join(","));
   return `${[RUBRIC_HEADER.join(","), ...rows].join("\n")}\n`;

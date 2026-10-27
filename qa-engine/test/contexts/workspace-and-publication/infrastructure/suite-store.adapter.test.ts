@@ -99,17 +99,51 @@ test("a restore puts back what a capture took, and a wiped working copy equals t
   r.clean();
   const result = await r.store().restore(root(r));
 
-  assert.deepEqual(result, { restored: 5, trackedWins: 0, overlaid: 0, authRestored: true });
+  assert.deepEqual({ ...result, digest: undefined }, { restored: 5, trackedWins: 0, overlaid: 0, authRestored: true, digest: undefined });
   assert.equal(r.read("flows/login.spec.ts"), "test('login')");
   assert.equal(r.read("pages/login.page.ts"), "export class LoginPage {}");
   assert.equal(r.read(AUTH_SETUP_PATH), APP_LOGIN);
   assert.equal(r.read(".qa/manifest.json"), "{\"specs\":[]}");
 });
 
+test("a restore names the set it put back by a digest: the same set gives the same digest, an extra spec gives another", async (t) => {
+  const r = rig(t);
+  r.put("flows/a.spec.ts", "test('a')");
+  r.put("flows/b.spec.ts", "test('b')");
+  await r.capture({ executedGreen: ["flows/a.spec.ts", "flows/b.spec.ts"] });
+
+  r.clean();
+  const first = await r.store().restore(root(r));
+  r.clean();
+  const again = await r.store().restore(root(r));
+  assert.match(first.digest ?? "", /^[0-9a-f]{64}$/);
+  assert.equal(again.digest, first.digest, "the same stored set restores to the same digest");
+
+  r.put("flows/c.spec.ts", "test('c')");
+  await r.capture({ executedGreen: ["flows/a.spec.ts", "flows/b.spec.ts", "flows/c.spec.ts"] });
+  r.clean();
+  const grown = await r.store().restore(root(r));
+  assert.notEqual(grown.digest, first.digest, "a spec another replicate generated changes the digest");
+});
+
+test("the digest follows the content of the restored files, not the order they were stored in", async (t) => {
+  const r = rig(t);
+  r.put("flows/a.spec.ts", "test('a')");
+  await r.capture({ executedGreen: ["flows/a.spec.ts"] });
+  r.clean();
+  const before = await r.store().restore(root(r));
+  r.put("flows/a.spec.ts", "test('a, edited')");
+  await r.capture({ executedGreen: ["flows/a.spec.ts"] });
+  r.clean();
+  assert.notEqual((await r.store().restore(root(r))).digest, before.digest);
+});
+
 test("a store with nothing in it restores nothing and leaves the working copy alone", async (t) => {
   const r = rig(t);
   r.put("flows/a.spec.ts", "x");
-  assert.deepEqual(await r.store().restore(root(r)), { restored: 0, trackedWins: 0, overlaid: 0, authRestored: false });
+  const empty = await r.store().restore(root(r));
+  assert.deepEqual({ ...empty, digest: undefined }, { restored: 0, trackedWins: 0, overlaid: 0, authRestored: false, digest: undefined });
+  assert.match(empty.digest ?? "", /^[0-9a-f]{64}$/, "an empty restore still has a digest, so it differs from a populated one");
   assert.equal(r.read("flows/a.spec.ts"), "x");
 });
 
@@ -537,7 +571,7 @@ test("a seeded store restores to exactly the snapshot, and the snapshot's login 
 
   r.clean();
   const restored = await r.store().restore(root(r));
-  assert.deepEqual(restored, { restored: 3, trackedWins: 0, overlaid: 0, authRestored: true });
+  assert.deepEqual({ ...restored, digest: undefined }, { restored: 3, trackedWins: 0, overlaid: 0, authRestored: true, digest: undefined });
   assert.equal(r.read(AUTH_SETUP_PATH), APP_LOGIN);
 });
 
