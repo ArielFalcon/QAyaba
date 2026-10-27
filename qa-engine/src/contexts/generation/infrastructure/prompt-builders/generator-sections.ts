@@ -18,7 +18,7 @@ import {
 import { STEP_MILESTONE_SECTION_ID } from "@contexts/generation/domain/step-limit.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import type { PromptContext } from "./generator-context.ts";
-import { NOT_SHOWN, packDegrade, referenceDegrade } from "../../domain/window-fit-references.ts";
+import { NOT_SHOWN, advisoryListsDegrade, packDegrade, referenceDegrade } from "../../domain/window-fit-references.ts";
 import { WINDOW_FIT_REASON, type SectionDegradation } from "@kernel/prompt-sections.ts";
 import type { Omission } from "@kernel/telemetry/section-meta.ts";
 import { boundedEvidenceCount, EVIDENCE_SAFETY_BOUND_REASON } from "../prompt-cap.ts";
@@ -179,7 +179,8 @@ function renderArchMap(ctx: PromptContext): SectionRender {
 function renderStaticSignal(ctx: PromptContext): SectionRender {
   const content = ctx.input.staticSignal ?? "";
   const signalFact = ctx.blastRadiusGrounded ? "structural-signal" : "co-change";
-  return { content, claims: [claim.provides(signalFact), claim.frames(signalFact, "unverified")], itemIds: advisoryLineIds(content) };
+  /* Whole while the window holds it; over it, the lists give way to the files they name, the last symbol list first. */
+  return { content, claims: [claim.provides(signalFact), claim.frames(signalFact, "unverified")], itemIds: advisoryLineIds(content), degrade: advisoryListsDegrade(content) };
 }
 
 /* The links and the drift whole while the window holds them; over it, the links the change reaches stay and the others are counted, then every link is counted, then the drift too. */

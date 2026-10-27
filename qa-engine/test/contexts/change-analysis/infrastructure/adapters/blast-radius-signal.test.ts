@@ -1,6 +1,6 @@
 /* qa-engine/test/contexts/run-orchestration/infrastructure/adapters/blast-radius-signal.test.ts
    impactedSymbols/callersOf/coChangeCoupling results into ONE markdown block for
-   (empty -> "", per-section cap, sanitized cells, byte-budget truncation at a newline boundary).
+   (empty -> "", every item listed, sanitized cells).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -90,52 +90,31 @@ test("coupled files are sorted by descending couplingScore", () => {
   assert.ok(highIdx < lowIdx, "expected descending couplingScore ordering: High before Low");
 });
 
-test("each sub-block is capped at MAX_ITEMS (200) items", () => {
-  const out = renderBlastRadiusSignal({
-    impacted: impacted(250),
-    callers: [],
-    coupled: [],
-  });
+test("every impacted symbol and every co-change file is listed, however many there are", () => {
+  const out = renderBlastRadiusSignal({ impacted: impacted(250), callers: [], coupled: coupled(250) });
 
   assert.match(out, /Impacted symbols \(250\)/);
-  const occurrences = out.split("\n").filter((l) => l.startsWith("- `method")).length;
-  assert.equal(occurrences, 200, "impacted sub-block must cap at 200 rendered items even though 250 were supplied");
+  assert.equal(out.split("\n").filter((l) => l.startsWith("- `method")).length, 250);
+  assert.equal(out.split("\n").filter((l) => l.startsWith("- src/Other")).length, 250);
 });
 
-test("coupled sub-block is also capped at MAX_ITEMS (200) items", () => {
-  const out = renderBlastRadiusSignal({
-    impacted: [],
-    callers: [],
-    coupled: coupled(250),
-  });
-
-  const occurrences = out.split("\n").filter((l) => l.startsWith("- src/Other")).length;
-  assert.equal(occurrences, 200, "coupled sub-block must cap at 200 rendered items even though 250 were supplied");
-});
-
-test("the whole block is capped at the byte budget, truncated at the last newline boundary", () => {
-  /* MAX_ITEMS caps each sub-block at 200 rendered lines — well under the byte budget on its own.
-     To actually exercise the whole-block byte-budget truncation, spread the 200-item cap across
-     three sub-blocks with long, distinctive symbol/file names so the combined output exceeds
-     MAX_LEN (20_000 bytes).
-   */
+test("a block larger than any byte budget is rendered whole, with nothing cut and no truncation marker", () => {
   const long = (prefix: string, n: number) =>
     Array.from({ length: n }, (_, i) => ({ file: `src/main/java/very/long/package/path/${prefix}File${i}Repository.java`, symbol: `${prefix}veryLongMethodNameNumber${i}ForBudgetPadding` }));
 
   const out = renderBlastRadiusSignal({
-    impacted: long("Impacted", 200),
-    callers: long("Caller", 200),
-    coupled: Array.from({ length: 200 }, (_, i) => ({
+    impacted: long("Impacted", 300),
+    callers: long("Caller", 300),
+    coupled: Array.from({ length: 300 }, (_, i) => ({
       file: `src/main/java/very/long/package/path/Coupled${i}Repository.java`,
       couplingScore: 0.5,
       coChanges: 5,
     })),
   });
 
-  const bytes = Buffer.byteLength(out, "utf8");
-  assert.ok(bytes <= 20_000, `expected output <= 20000 bytes, got ${bytes}`);
-  assert.match(out, /truncated/);
-  assert.ok(out.endsWith("\n…(structural blast radius truncated)"), "must end with the truncation marker");
+  assert.ok(Buffer.byteLength(out, "utf8") > 20_000);
+  assert.doesNotMatch(out, /truncated/);
+  assert.ok(out.includes("CallerFile299Repository.java") && out.includes("Coupled299Repository.java"));
 });
 
 test("every cell is passed through sanitizeText (secrets redacted)", () => {
@@ -196,7 +175,7 @@ test("the symbol-block predicate agrees with what the renderer draws: a symbol i
 });
 
 /* ── a block of co-change files alone says what it is ──
-   The prompt's claims already treat such a block as no blast radius (the lookup stays). The words a model reads must say the same: the lint sees claims, never block text, so the title, the introduction and the truncation marker are pinned here. */
+   The prompt's claims already treat such a block as no blast radius (the lookup stays). The words a model reads must say the same: the lint sees claims, never block text, so the title and the introduction are pinned here. */
 
 const CO_CHANGE_ONLY: BlastRadiusSignalInput = { impacted: [], callers: [], coupled: COUPLED };
 const WITH_SYMBOLS: BlastRadiusSignalInput = { impacted: [SAVE], callers: [HANDLE], coupled: COUPLED };
@@ -239,18 +218,16 @@ test("the title and the introduction follow the symbol predicate: a block with s
   }
 });
 
-test("a block of co-change files alone that outgrows the byte budget is cut with a marker that names the co-change list, never a blast radius", () => {
-  const long = Array.from({ length: 200 }, (_, i) => ({
+test("a block of co-change files alone that is long is listed whole, titled as co-change history and never cut", () => {
+  const long = Array.from({ length: 400 }, (_, i) => ({
     file: `src/main/java/very/long/package/path/${"nested/".repeat(8)}Coupled${i}Repository.java`,
     couplingScore: 0.5,
     coChanges: 5,
   }));
   const out = renderBlastRadiusSignal({ impacted: [], callers: [], coupled: long });
-  const bytes = Buffer.byteLength(out, "utf8");
-  assert.ok(bytes <= 20_000, `expected output <= 20000 bytes, got ${bytes}`);
-  assert.match(out, /truncated/, "setup: the block really was cut");
-  assert.doesNotMatch(out, /blast radius/i);
-  assert.ok(out.split("\n").at(-1)!.includes("co-change"), "the marker names what was cut");
+  assert.ok(Buffer.byteLength(out, "utf8") > 20_000);
+  assert.doesNotMatch(out, /truncated|blast radius/i);
+  assert.ok(out.includes("Coupled399Repository.java"));
 });
 
 test("a dossier of exactly the largest size the renderer declares is shown, and one byte more is left out", () => {

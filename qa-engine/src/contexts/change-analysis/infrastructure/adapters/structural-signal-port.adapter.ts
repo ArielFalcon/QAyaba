@@ -18,9 +18,6 @@ import { activeExecScope } from "../../../../shared-infrastructure/process-sandb
 /* The walk policy every impact walk of the change shares. */
 export const ADVISORY_BUDGET: WalkPolicy = DEFAULT_WALK_POLICY;
 
-/* The most reached symbols the block is rendered from, nearest first: a bound of the prompt block, never of the walk. */
-export const RENDERED_SYMBOLS = 300;
-
 /* The change dossier's bounds: how many of the change's symbols it explores, how many files the engine may show, and how much of the block it may take (in bytes, and never more than the block can carry). */
 export const DOSSIER_LIMITS = { maxSymbols: 4, maxFiles: 4, maxChars: 8_000 } as const;
 
@@ -149,9 +146,8 @@ export class StructuralSignalPortAdapter implements StructuralSignalPort {
 
     const [reached, coupled] = await Promise.all([safeImpacted(this.codeGraph, this.repoDir, changed), safeCoupled(this.coChange, this.repoDir, changed)]);
     const ref = (s: ImpactedSymbol) => ({ file: s.file, symbol: s.symbol });
-    const rendered = reached.symbols.slice(0, RENDERED_SYMBOLS);
-    const impacted = rendered.filter((s) => s.depth === 0).map(ref);
-    const callers = rendered.filter((s) => s.depth > 0).map(ref);
+    const impacted = reached.symbols.filter((s) => s.depth === 0).map(ref);
+    const callers = reached.symbols.filter((s) => s.depth > 0).map(ref);
     const dossier = await this.dossierOf(reached.symbols);
     const text = renderBlastRadiusSignal({ impacted, callers, coupled, ...(dossier ? { dossier: dossier.text } : {}) });
     /* The renderer leaves out a dossier the block's byte budget cannot hold: its files are provided only when the text shows them. */

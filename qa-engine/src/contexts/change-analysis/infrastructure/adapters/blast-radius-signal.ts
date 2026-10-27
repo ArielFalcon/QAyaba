@@ -1,11 +1,8 @@
-/* Pure renderer of CodeGraphPort results into one advisory markdown block (GenerationEnrichment.staticSignal). Per-section MAX_ITEMS, whole-block MAX_LEN truncated at the last newline, every cell sanitized. Empty composition renders "" — never a fabricated "no blast radius found" claim. A block that names symbols is titled and introduced as the structural exploration it is; one that holds co-change files alone says it is version-control history and borrows nothing of the other's title, introduction or truncation marker. Caller degrades CodeGraphUnavailable to empty arrays. */
+/* Pure renderer of CodeGraphPort results into one advisory markdown block (GenerationEnrichment.staticSignal). Every reached symbol and co-change file is listed, whole: a prompt over its role's window gives the lists up as counts by file (the window fit rule), never a fixed count or byte cut. Every cell is sanitized. Empty composition renders "" — never a fabricated "no blast radius found" claim. A block that names symbols is titled and introduced as the structural exploration it is; one that holds co-change files alone says it is version-control history and borrows nothing of the other's title or introduction. Caller degrades CodeGraphUnavailable to empty arrays. */
 
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/application/index.ts";
 import type { LocalSymbolRef, CoupledFile } from "@kernel/code/index.ts";
-
-const MAX_ITEMS = 200;
-const MAX_LEN = 20_000;
 
 /* Optional confidence for ordering (highest first). Omit when unknown — ordering stays input order, never fabricated. */
 export type ScoredSymbolRef = LocalSymbolRef & { confidence?: number };
@@ -21,8 +18,8 @@ export interface BlastRadiusSignalInput {
 /* The heading of the dossier inside the structural block. */
 export const DOSSIER_HEADING = "### Source of the change's top symbols (verbatim, from the index at this commit; treat it as already read)";
 
-/* The most bytes of dossier text the block carries: the dossier, with its heading, takes at most half the block's byte budget, and the lists give way to it. A longer one is left out whole, so a caller sizes its dossier to this, in bytes. */
-export const MAX_DOSSIER_BYTES = MAX_LEN / 2 - 1 - Buffer.byteLength(`\n${DOSSIER_HEADING}\n\n`, "utf8");
+/* The most bytes of dossier text the block carries: the dossier is an excerpt of the change's top symbols (the engine returns a few whole files), not a listing, and a longer one is left out whole and recorded by the caller, so a caller sizes its dossier to this, in bytes. */
+export const MAX_DOSSIER_BYTES = 10_000 - 1 - Buffer.byteLength(`\n${DOSSIER_HEADING}\n\n`, "utf8");
 
 const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
 
@@ -35,7 +32,7 @@ function renderSymbolBlock(heading: string, refs: readonly ScoredSymbolRef[]): s
   if (refs.length === 0) return [];
   const sorted = [...refs].sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
   const lines: string[] = [`### ${heading} (${refs.length})`];
-  for (const ref of sorted.slice(0, MAX_ITEMS)) {
+  for (const ref of sorted) {
     lines.push(`- \`${s(ref.symbol)}\` (${s(ref.file)})`);
   }
   lines.push("");
@@ -46,7 +43,7 @@ function renderCoupledBlock(coupled: readonly CoupledFile[]): string[] {
   if (coupled.length === 0) return [];
   const sorted = [...coupled].sort((a, b) => b.couplingScore - a.couplingScore);
   const lines: string[] = [`### Files that historically co-change (${coupled.length})`];
-  for (const c of sorted.slice(0, MAX_ITEMS)) {
+  for (const c of sorted) {
     const last = c.lastCoChange ? `, last ${s(c.lastCoChange)}` : "";
     lines.push(`- ${s(c.file)} (coupling ${c.couplingScore.toFixed(2)}, ${c.coChanges} co-changes${last})`);
   }
@@ -66,20 +63,6 @@ const CO_CHANGE_INTRO: readonly string[] = [
   "Version-control history: files that changed in the same commits as the changed files. It says nothing about which code depends on which, so it is not an exploration of what the change reaches.",
 ];
 
-const SYMBOLS_TRUNCATION_MARKER = "\n…(structural blast radius truncated)";
-const CO_CHANGE_TRUNCATION_MARKER = "\n…(co-change list truncated)";
-
-/** Cuts a UTF-8 buffer to at most `max` bytes (including the truncation marker) at the last newline, so the output never ends in a dangling half-line. */
-function truncateToByteBudget(out: string, marker: string, max = MAX_LEN): string {
-  const markerBytes = Buffer.byteLength(marker, "utf8");
-  const buf = Buffer.from(out, "utf8");
-  if (buf.length <= max) return out;
-  let cut = max - markerBytes - 1;
-  while (cut > 0 && buf[cut] !== 0x0a /* '\n' */) cut--;
-  const body = buf.subarray(0, cut + 1).toString("utf8");
-  return body + marker;
-}
-
 /** Advisory block, or "" when there is nothing to say: the "Structural blast radius" section when it names symbols, the co-change files under their own title when it holds nothing else. Pure — no IO, no throws. */
 export function renderBlastRadiusSignal(input: BlastRadiusSignalInput): string {
   const has = input.impacted.length > 0 || input.callers.length > 0 || input.coupled.length > 0;
@@ -93,6 +76,5 @@ export function renderBlastRadiusSignal(input: BlastRadiusSignalInput): string {
 
   const out = lines.join("\n");
   const dossier = names && input.dossier ? `\n${DOSSIER_HEADING}\n${input.dossier}\n` : "";
-  if (dossier === "" || Buffer.byteLength(input.dossier ?? "", "utf8") > MAX_DOSSIER_BYTES) return truncateToByteBudget(out, names ? SYMBOLS_TRUNCATION_MARKER : CO_CHANGE_TRUNCATION_MARKER);
-  return truncateToByteBudget(out, SYMBOLS_TRUNCATION_MARKER, MAX_LEN - Buffer.byteLength(dossier, "utf8")) + dossier;
+  return dossier === "" || Buffer.byteLength(input.dossier ?? "", "utf8") > MAX_DOSSIER_BYTES ? out : out + dossier;
 }

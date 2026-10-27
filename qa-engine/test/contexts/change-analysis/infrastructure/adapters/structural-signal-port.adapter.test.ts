@@ -3,7 +3,7 @@
    them. Never throws: an unavailable answer degrades to an empty list for that field. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ADVISORY_BUDGET, RENDERED_SYMBOLS, StructuralSignalPortAdapter } from "@contexts/change-analysis/infrastructure/adapters/structural-signal-port.adapter.ts";
+import { ADVISORY_BUDGET, StructuralSignalPortAdapter } from "@contexts/change-analysis/infrastructure/adapters/structural-signal-port.adapter.ts";
 import { DOSSIER_HEADING, renderBlastRadiusSignal } from "@contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts";
 import type { CodeExplorePort } from "@kernel/ports/code-explore.port.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
@@ -213,12 +213,12 @@ test("a dossier is never asked for a change with no changed symbol", async () =>
   assert.equal(result.text.includes(DOSSIER_HEADING), false);
 });
 
-test("the lists give way to the dossier within the block's budget, and the dossier is shown whole", () => {
+test("the dossier follows the lists whole, however long the lists are", () => {
   const many = Array.from({ length: 200 }, (_, i) => ({ file: `src/very/long/path/to/a/module/number/${i}/File${i}.java`, symbol: `symbolWithALongName${i}` }));
   const text = renderBlastRadiusSignal({ impacted: many, callers: many, coupled: [], dossier: EXPLORED });
-  assert.ok(Buffer.byteLength(text, "utf8") <= 20_000);
   assert.ok(text.endsWith(`${DOSSIER_HEADING}\n${EXPLORED}\n`));
-  assert.match(text, /structural blast radius truncated/);
+  assert.equal(text.split("\n").filter((line) => line.startsWith("- `symbolWithALongName199`")).length, 2, "both lists end with their last symbol");
+  assert.doesNotMatch(text, /truncated/);
 });
 
 test("a block of co-change files alone carries no dossier", () => {
@@ -269,7 +269,6 @@ test("a dossier whose characters fit the cap but whose bytes would not fit the b
   const { value: result, notes } = await observed(() => new StructuralSignalPortAdapter(reaching, fakeCoChange(), "/repo", { explore: fakeExplore(wide) }).render("/repo", changed));
 
   assert.ok(result.text.includes(DOSSIER_HEADING), "the dossier is shown, cut, not dropped");
-  assert.ok(Buffer.byteLength(result.text, "utf8") <= 20_000);
   assert.deepEqual(result.providedFiles, ["src/Foo.java"]);
   assert.equal(notes["qayaba.structural.dossier"], "shown");
 });
@@ -304,15 +303,16 @@ test("a failed, thrown or truncated impact walk is logged and recorded, and rend
   assert.deepEqual(ok.logs, [], "a complete walk logs nothing");
 });
 
-test("the block is rendered from the walk's nearest symbols up to its rendering bound, however far the walk went", async () => {
-  const far = Array.from({ length: RENDERED_SYMBOLS + 100 }, (_, i): ImpactedSymbol => ({ file: "src/Caller.java", symbol: `c${i}`, kind: "method", depth: 1 + Math.floor(i / 200), confidence: 1, via: { file: "src/Foo.java", symbol: "run" } }));
+test("the block lists every symbol the walk reached, however far it went", async () => {
+  const far = Array.from({ length: 700 }, (_, i): ImpactedSymbol => ({ file: "src/Caller.java", symbol: `c${i}`, kind: "method", depth: 1 + Math.floor(i / 200), confidence: 1, via: { file: "src/Foo.java", symbol: "run" } }));
   const adapter = new StructuralSignalPortAdapter(fakeCodeGraph({ impactedSymbols: async () => report([changedSymbol, ...far]) }), fakeCoChange(), "/repo");
 
   const { text } = await adapter.render("/repo", changed);
 
-  const shown = [changedSymbol, ...far].slice(0, RENDERED_SYMBOLS);
   const ref = (s: ImpactedSymbol) => ({ file: s.file, symbol: s.symbol });
-  assert.equal(text, renderBlastRadiusSignal({ impacted: shown.filter((s) => s.depth === 0).map(ref), callers: shown.filter((s) => s.depth > 0).map(ref), coupled: [] }));
+  const all = [changedSymbol, ...far];
+  assert.equal(text, renderBlastRadiusSignal({ impacted: all.filter((s) => s.depth === 0).map(ref), callers: all.filter((s) => s.depth > 0).map(ref), coupled: [] }));
+  assert.ok(text.includes("`c699`"), "the farthest symbol is in the block");
 });
 
 test("a walk that left seeds partial or pruned hubs records what it did on the phase", async () => {
