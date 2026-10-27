@@ -369,8 +369,8 @@ export { expect };
 
 // >>> qa-failure-capture (system-owned: do not edit) >>>
 // Captures the aria snapshot of the page at the failure point, the page's final URL, the HTTP
-// status of the most-recent correlated 5xx server error, the browser network failures (requestfailed
-// events), the runtime errors (console error + pageerror), whether the page had settled (data requests
+// status of the most-recent correlated 5xx server error, the failures of the requests the page depends on
+// (requestfailed events; background traffic is counted apart), the runtime errors (console error + pageerror), whether the page had settled (data requests
 // in flight, time since the last data response, a second read of the tree) and the result count the
 // app's declared data state (PW_DATA_STATE) shows there, writing them to QA_FAILURE_CAPTURE_DIR so
 // the orchestrator can ground the fix-loop regeneration and surface runtime evidence to the adjudicator
@@ -400,6 +400,50 @@ let runtimeErrors: { type: string; text: string }[] = [];
 // other evidence arrays. Each entry carries the sanitized URL (origin + pathname only — a query string or
 // fragment never reaches the dump), a truncated error text and the resource type.
 let failedRequests: { url: string; errorText: string; resourceType: string }[] = [];
+// What the page depends on, as opposed to the background traffic around it (error-tracking and analytics
+// beacons, map-vendor events, the browser's own housekeeping). A request is page-dependent when it goes to
+// the app's own origin or an origin the app declares (PW_APP_ORIGINS, set by the orchestrator from the app's
+// config; PW_BASE_URL alone when absent; with neither, no host is foreign) AND is of a resource type the page needs to render or act: the
+// foreground interactions (document, fetch, xhr) plus the scripts and style sheets it loads. Only a
+// page-dependent failure is a network error of the test; the rest is counted apart so it stays visible and
+// never explains a failure.
+const PAGE_FOREGROUND_TYPES = ['document', 'fetch', 'xhr'];
+const PAGE_DEPENDENT_TYPES = new Set([...PAGE_FOREGROUND_TYPES, 'script', 'stylesheet']);
+const BACKGROUND_HOSTS_CAP = 5;
+let backgroundFailures: { count: number; hosts: string[] } = { count: 0, hosts: [] };
+function declaredOrigins(): string[] {
+  const origins: string[] = [];
+  try {
+    const parsed: unknown = JSON.parse(process.env.PW_APP_ORIGINS ?? '[]');
+    if (Array.isArray(parsed)) for (const o of parsed) if (typeof o === 'string') origins.push(o);
+  } catch {}
+  try { if (process.env.PW_BASE_URL) origins.push(new URL(process.env.PW_BASE_URL).origin); } catch {}
+  return origins;
+}
+// An origin is scheme://host[:port], or scheme://*.suffix[:port] for the subdomains of a suffix (the egress policy's forms).
+function matchesOrigin(url: URL, origin: string): boolean {
+  const m = /^(https?):\/\/([^/:]+)(?::(\d+))?\/?$/i.exec(origin);
+  if (!m) return false;
+  const scheme = m[1]!.toLowerCase();
+  const port = m[3] ?? (scheme === 'https' ? '443' : '80');
+  const urlPort = url.port || (url.protocol === 'https:' ? '443' : '80');
+  if (port !== urlPort) return false;
+  const host = m[2]!.toLowerCase();
+  const name = url.hostname.toLowerCase();
+  return host.startsWith('*.') ? name.endsWith(host.slice(1)) : name === host;
+}
+function isPageDependent(rawUrl: string, resourceType: string, origins: string[]): boolean {
+  if (!PAGE_DEPENDENT_TYPES.has(resourceType)) return false;
+  if (origins.length === 0) return true; // no origin is known (a run outside the orchestrator): nothing marks a host as foreign
+  try { const url = new URL(rawUrl); return origins.some((o) => matchesOrigin(url, o)); } catch { return false; }
+}
+function noteBackgroundFailure(rawUrl: string): void {
+  backgroundFailures.count++;
+  try {
+    const host = new URL(rawUrl).hostname.toLowerCase();
+    if (host && !backgroundFailures.hosts.includes(host) && backgroundFailures.hosts.length < BACKGROUND_HOSTS_CAP) backgroundFailures.hosts.push(host);
+  } catch {}
+}
 // Settle facts of the current test's page: data requests (fetch/xhr) started and not yet finished or
 // failed, and when the last one finished. Reset per-test like the other evidence.
 let dataInFlight = 0;
@@ -458,6 +502,7 @@ async function qaFailureCaptureStart(page: QaCapturePage, request: QaCaptureRequ
   errorResponses = [];                               // reset unconditionally so reused pages never cross-attribute
   runtimeErrors = [];                                 // same per-test reset discipline
   failedRequests = [];                                // same per-test reset discipline
+  backgroundFailures = { count: 0, hosts: [] };
   dataInFlight = 0;
   lastDataAt = 0;
   devWrites = 0;
@@ -487,6 +532,8 @@ async function qaFailureCaptureStart(page: QaCapturePage, request: QaCaptureRequ
     page.on('requestfailed', (r) => {
       try {
         if (isDataRequest(r)) dataInFlight = Math.max(0, dataInFlight - 1);
+        const type = r.resourceType();
+        if (!isPageDependent(r.url(), type, declaredOrigins())) { noteBackgroundFailure(r.url()); return; }
         if (failedRequests.length >= 50) return;
         const url = networkUrl(r.url());
         if (!url) return;
@@ -523,9 +570,9 @@ async function qaFailureCaptureFinish(page: QaCapturePage, testInfo: QaCaptureTe
   }
   const expected = testInfo.status === testInfo.expectedStatus;
   // A passing test still dumps when the page showed evidence (a console error, a failed request or a
-  // 5xx) — the evidence is real even when the assertions passed. Only an expected result with no
-  // evidence returns early.
-  const hasEvidence = runtimeErrors.some((e) => e.type === "pageerror") || failedRequests.length > 0 || errorResponses.some((e) => e.status >= 500);
+  // 5xx, of a request the page depends on) — the evidence is real even when the assertions passed. Only an
+  // expected result with no evidence returns early.
+  const hasEvidence = runtimeErrors.some((e) => e.type === "pageerror") || failedRequests.length > 0 || errorResponses.some((e) => e.status >= 500 && isPageDependent(e.url, e.resourceType, declaredOrigins()));
   if (expected && !hasEvidence) return;
   try {
     const { writeFileSync } = await import("node:fs");
@@ -586,12 +633,9 @@ async function qaFailureCaptureFinish(page: QaCapturePage, testInfo: QaCaptureTe
     try {
       let finalUrlOrigin = '';
       try { finalUrlOrigin = new URL(finalUrl).origin; } catch {}
-      const FOREGROUND = new Set(['document', 'fetch', 'xhr']);
-      const BACKGROUND = new Set(['ping', 'beacon', 'image', 'stylesheet', 'font', 'media']);
       const survivors = errorResponses.filter((e) => {
         if (e.status < 500 || e.status > 599) return false; // 5xx only
-        if (BACKGROUND.has(e.resourceType)) return false;    // exclude background resource types
-        if (!FOREGROUND.has(e.resourceType)) return false;   // keep only foreground interactions
+        if (!PAGE_FOREGROUND_TYPES.includes(e.resourceType)) return false; // keep only foreground interactions
         try {
           const eOrigin = new URL(e.url).origin;
           return eOrigin === finalUrlOrigin;                  // same-origin correlation
@@ -628,7 +672,12 @@ async function qaFailureCaptureFinish(page: QaCapturePage, testInfo: QaCaptureTe
       const NETWORK_ERRORS_CAP = 10;
       const seen = new Set<string>();
       const merged: { url: string; status?: number; errorText?: string; resourceType: string }[] = [];
+      let finalOrigin = '';
+      try { finalOrigin = new URL(finalUrl).origin; } catch {}
+      const declared = declaredOrigins();
+      const origins = declared.length > 0 && finalOrigin ? [...declared, finalOrigin] : declared;
       for (const e of errorResponses) {
+        if (!isPageDependent(e.url, e.resourceType, origins)) { noteBackgroundFailure(e.url); continue; }
         const url = networkUrl(e.url);
         if (url) merged.push({ url, status: e.status, resourceType: e.resourceType });
       }
@@ -646,7 +695,7 @@ async function qaFailureCaptureFinish(page: QaCapturePage, testInfo: QaCaptureTe
     } catch { networkErrors = []; }
     writeFileSync(
       join(dir, `${safeProject}__${hash}__${testInfo.retry}.json`),
-      JSON.stringify({ project, file, title, retry: testInfo.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors, settle, resultCount }),
+      JSON.stringify({ project, file, title, retry: testInfo.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors, ...(backgroundFailures.count > 0 ? { backgroundNetwork: backgroundFailures } : {}), settle, resultCount }),
     );
   } catch { /* page may be closed on a nav-crash — best-effort, never fail the run */ }
 }

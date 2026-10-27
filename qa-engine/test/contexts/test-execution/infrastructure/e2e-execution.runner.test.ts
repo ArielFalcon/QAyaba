@@ -34,7 +34,7 @@ import {
   type StreamEvent,
   type FailureDump,
 } from "@contexts/test-execution/infrastructure/e2e-execution.runner.ts";
-import { sharedTestExec } from "../../../support/exec-sandbox-harness.ts";
+import { sharedTestExec, testExecSandbox } from "../../../support/exec-sandbox-harness.ts";
 import { ProcessKillAdapter } from "../../../../src/shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { newSandboxReport, withExecScope, type RunScope } from "../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -898,14 +898,14 @@ function scopeWithDenied(denied: string[]): RunScope {
   return { runId: "test-run", workDir: tmpdir(), egress: { dev: [], install: [] }, report };
 }
 
-async function runWithNetworkDump(opts: { status: "pass" | "fail"; networkErrors: unknown; denied?: string[] }): Promise<{ cases: QaCase[] }> {
+async function runWithNetworkDump(opts: { status: "pass" | "fail"; networkErrors?: unknown; backgroundNetwork?: unknown; denied?: string[] }): Promise<{ cases: QaCase[] }> {
   const hash = createHash("sha1").update(`${netCase.file}/${netCase.title}`).digest("hex").slice(0, 12);
   const deps: E2eExecuteDeps = {
     runSuite: async (args) => {
       if (args.failureCaptureDir) {
         writeFileSync(
           join(args.failureCaptureDir, `desktop__${hash}__0.json`),
-          JSON.stringify({ project: "desktop", file: netCase.file, title: netCase.title, retry: 0, networkErrors: opts.networkErrors }),
+          JSON.stringify({ project: "desktop", file: netCase.file, title: netCase.title, retry: 0, ...(opts.networkErrors !== undefined ? { networkErrors: opts.networkErrors } : {}), ...(opts.backgroundNetwork !== undefined ? { backgroundNetwork: opts.backgroundNetwork } : {}) }),
         );
       }
       return {
@@ -952,6 +952,43 @@ test("networkClass is egress when a network-error host is in the run's denied li
     denied: ["api.example.com"],
   });
   assert.equal(cases.find((c) => c.status === "fail")?.networkClass, "egress", "a denied host classifies egress before a 5xx");
+});
+
+test("a denied third-party beacon, counted by the fixture as background, never classifies a case as egress", async () => {
+  const { cases } = await runWithNetworkDump({
+    status: "pass",
+    backgroundNetwork: { count: 10, hosts: ["errors.tracker.example", "events.maps.example"] },
+    denied: ["errors.tracker.example", "events.maps.example"],
+  });
+  const passed = cases.find((c) => c.status === "pass");
+  assert.equal(passed?.networkClass, undefined, "no page-dependent error, no class");
+  assert.equal(passed?.networkErrors, undefined);
+});
+
+test("a case whose page-dependent error is a refused origin stays egress beside background failures", async () => {
+  const { cases } = await runWithNetworkDump({
+    status: "fail",
+    networkErrors: [{ url: "https://api.example.com/orders", errorText: "net::ERR_FAILED", resourceType: "fetch" }],
+    backgroundNetwork: { count: 2, hosts: ["errors.tracker.example"] },
+    denied: ["errors.tracker.example", "api.example.com"],
+  });
+  assert.equal(cases.find((c) => c.status === "fail")?.networkClass, "egress");
+});
+
+test("the dump reader keeps a bounded background failure count and ignores a malformed one", () => {
+  const dir = mkdtempSync(join(tmpdir(), "bg-dump-"));
+  try {
+    const write = (name: string, backgroundNetwork: unknown): void => writeFileSync(join(dir, `desktop__${name}__0.json`), JSON.stringify({ project: "desktop", title: name, retry: 0, backgroundNetwork }));
+    write("ok", { count: 7, hosts: ["a.example", "b.example", "c.example", "d.example", "e.example", "f.example", 3, ""] });
+    write("negative", { count: -1, hosts: ["a.example"] });
+    write("zero", { count: 0, hosts: [] });
+    write("text", "many");
+    const byTitle = new Map(readFailureDumps(dir).map((d) => [d.title, d.backgroundNetwork]));
+    assert.deepEqual(byTitle.get("ok"), { count: 7, hosts: ["a.example", "b.example", "c.example", "d.example", "e.example"] });
+    for (const title of ["negative", "zero", "text"]) assert.equal(byTitle.get(title), undefined, title);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("networkClass is backend for a 504 with no denied host", async () => {
@@ -1117,6 +1154,17 @@ test("a Playwright suite child gets neither the test account nor an orchestrator
   assert.equal(env.GITHUB_TOKEN, undefined);
   assert.equal(env.PW_NAMESPACE, "ns-1");
   assert.equal(env.PW_BASE_URL, "https://dev.example");
+});
+
+test("a Playwright suite child with failure capture is told the origins the app declares, which the fixture reads as the page's own", async () => {
+  const made = testExecSandbox({ egressOrigins: { dev: ["https://dev.example", "https://*.cdn.example"], install: ["https://registry.npmjs.org"] } });
+  try {
+    const { env } = await withExecScope(made.scope, () =>
+      seenByChild((deps, root) => deps.runSuite({ dir: root, baseUrl: "https://dev.example", namespace: "ns-1", failureCaptureDir: join(made.scope.workDir, "failures-y") }).then(() => undefined)));
+    assert.deepEqual(JSON.parse(env.PW_APP_ORIGINS ?? "null"), ["https://dev.example", "https://*.cdn.example"]);
+  } finally {
+    made.dispose();
+  }
 });
 
 test("a Playwright suite child writes its output, report and failure dumps outside the mirror it runs in", async () => {

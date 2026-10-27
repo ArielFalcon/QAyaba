@@ -388,6 +388,10 @@ export async function runE2E(
     }
   }
 
+  /* The page's background traffic that failed (beacons, third-party events) is not a network error of any case; the run says once that it saw it, so it stays visible. */
+  const background = backgroundNetworkOf(dumps);
+  if (background.count > 0) engineLog.info(`[qa] ${background.count} background request failure(s) the page does not depend on were left out of the network errors${background.hosts.length > 0 ? ` (hosts: ${background.hosts.join(", ")})` : ""}`);
+
   const qaCases = parsed.cases as QaCase[];
   /* A spec can print the account's password into an assertion message, and a page can echo it into the DOM the fixture dumped: what a child reported has the run's secrets taken out by value where it enters, before anything stores or forwards a case. */
   for (const c of qaCases) redactCaseByValue(c);
@@ -473,6 +477,8 @@ export interface FailureDump {
   finalUrl?: string;
   runtimeErrors?: { type: string; text: string }[];
   networkErrors?: QaCase["networkErrors"];
+  /* Failed requests the page does not depend on (third-party beacons, background traffic): counted apart by the fixture, never part of `networkErrors` and so never what classifies the case. */
+  backgroundNetwork?: { count: number; hosts: string[] };
   settle?: FailureSettle;
   resultCount?: number;
 }
@@ -516,9 +522,10 @@ const DUMP_FILE_RE = /__(\d+)\.json$/;
 
 /* One dump, from the file the fixture wrote. Throws on what is not JSON; the reader says that the dump was left out and never quotes why. */
 function toFailureDump(name: string, bytes: Buffer): FailureDump {
-  const body = JSON.parse(bytes.toString("utf8")) as { project?: unknown; file?: unknown; title?: unknown; retry?: unknown; yaml?: unknown; httpStatus?: unknown; finalUrl?: unknown; runtimeErrors?: unknown; networkErrors?: unknown; settle?: unknown; resultCount?: unknown };
+  const body = JSON.parse(bytes.toString("utf8")) as { project?: unknown; file?: unknown; title?: unknown; retry?: unknown; yaml?: unknown; httpStatus?: unknown; finalUrl?: unknown; runtimeErrors?: unknown; networkErrors?: unknown; backgroundNetwork?: unknown; settle?: unknown; resultCount?: unknown };
   const runtimeErrors = parseRuntimeErrors(body.runtimeErrors);
   const networkErrors = parseNetworkErrors(body.networkErrors);
+  const backgroundNetwork = parseBackgroundNetwork(body.backgroundNetwork);
   const settle = parseSettle(body.settle);
   return {
     project: typeof body.project === "string" ? body.project : "",
@@ -531,6 +538,7 @@ function toFailureDump(name: string, bytes: Buffer): FailureDump {
     ...(typeof body.finalUrl === "string" ? { finalUrl: body.finalUrl } : {}),
     ...(runtimeErrors.length > 0 ? { runtimeErrors } : {}),
     ...(networkErrors !== undefined ? { networkErrors } : {}),
+    ...(backgroundNetwork !== undefined ? { backgroundNetwork } : {}),
     ...(settle !== undefined ? { settle } : {}),
     ...(isCount(body.resultCount) ? { resultCount: body.resultCount } : {}),
   };
@@ -579,6 +587,17 @@ function parseRuntimeErrors(v: unknown): { type: string; text: string }[] {
 }
 
 const MAX_NETWORK_ERRORS = 10;
+const MAX_BACKGROUND_HOSTS = 5;
+const BACKGROUND_HOST_CAP = 253;
+
+/* Defensively parses the `backgroundNetwork` field of a capture dump: a positive integer count and at most MAX_BACKGROUND_HOSTS capped host names; undefined for anything else. Never throws. */
+function parseBackgroundNetwork(v: unknown): FailureDump["backgroundNetwork"] {
+  if (!v || typeof v !== "object") return undefined;
+  const b = v as { count?: unknown; hosts?: unknown };
+  if (!isCount(b.count) || b.count === 0) return undefined;
+  const hosts = Array.isArray(b.hosts) ? b.hosts.filter((h): h is string => typeof h === "string" && h !== "").map((h) => h.slice(0, BACKGROUND_HOST_CAP)).slice(0, MAX_BACKGROUND_HOSTS) : [];
+  return { count: b.count, hosts };
+}
 const NETWORK_ERROR_URL_CAP = 300;
 const NETWORK_ERROR_TEXT_CAP = 160;
 const NETWORK_ERROR_RESOURCE_CAP = 40;
@@ -615,7 +634,7 @@ function parseNetworkErrors(v: unknown): QaCase["networkErrors"] {
   return out.length > 0 ? out : undefined;
 }
 
-/* Derives `networkClass` from the case's sanitized network errors and the run's egress report: a URL whose host the filter refused is egress; else a 5xx is backend; else a DNS-shaped error is dns; else other. Undefined when there are no network errors. */
+/* Derives `networkClass` from the case's sanitized network errors (the ones the page depends on: the fixture keeps background failures out of them) and the run's egress report: a URL whose host the filter refused is egress; else a 5xx is backend; else a DNS-shaped error is dns; else other. Undefined when there are no network errors. */
 function deriveNetworkClass(errors: NonNullable<QaCase["networkErrors"]>, deniedHosts: readonly string[]): QaCase["networkClass"] {
   const denied = new Set(deniedHosts.map((h) => h.toLowerCase()));
   const hostOf = (url: string): string | undefined => {
@@ -625,6 +644,17 @@ function deriveNetworkClass(errors: NonNullable<QaCase["networkErrors"]>, denied
   if (errors.some((e) => e.status !== undefined && e.status >= 500)) return "backend";
   if (errors.some((e) => e.errorText !== undefined && /ERR_NAME|ENOTFOUND|EAI_AGAIN/.test(e.errorText))) return "dns";
   return "other";
+}
+
+/* What the dumps of a run counted as background failures, with each host once and at most MAX_BACKGROUND_HOSTS of them. */
+function backgroundNetworkOf(dumps: readonly FailureDump[]): { count: number; hosts: string[] } {
+  const hosts = new Set<string>();
+  let count = 0;
+  for (const d of dumps) {
+    count += d.backgroundNetwork?.count ?? 0;
+    for (const h of d.backgroundNetwork?.hosts ?? []) hosts.add(h);
+  }
+  return { count, hosts: [...hosts].slice(0, MAX_BACKGROUND_HOSTS) };
 }
 
 export function matchFailureDumps(caseName: string, dumps: FailureDump[]): FailureDump | null {
@@ -807,7 +837,7 @@ export function createDefaultE2eExecuteDeps(
           profile: "suite",
           commandClass: "playwright-test",
           ...(geolocation ? { geolocation } : {}),
-          extraEnv: { PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), ...(countWrites ? { PW_COUNT_DEV_WRITES: "1", PW_COVERAGE: "0" } : {}), ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(faultInject ? { QA_FAULT_INJECT: "1", ...(faultOperations !== undefined && faultOperations.length > 0 ? { QA_FAULT_INJECT_OPERATIONS: JSON.stringify(faultOperations.slice(0, 64).map(({ verb, pattern }) => ({ verb, pattern }))) } : {}) } : {}), ...(mutant ? { PW_MUTANT: mutant } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}), ...(failureCaptureDir && dataState ? { PW_DATA_STATE: JSON.stringify(dataState) } : {}) },
+          extraEnv: { PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), ...(countWrites ? { PW_COUNT_DEV_WRITES: "1", PW_COVERAGE: "0" } : {}), ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(faultInject ? { QA_FAULT_INJECT: "1", ...(faultOperations !== undefined && faultOperations.length > 0 ? { QA_FAULT_INJECT_OPERATIONS: JSON.stringify(faultOperations.slice(0, 64).map(({ verb, pattern }) => ({ verb, pattern }))) } : {}) } : {}), ...(mutant ? { PW_MUTANT: mutant } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}), ...(failureCaptureDir && dataState ? { PW_DATA_STATE: JSON.stringify(dataState) } : {}), ...(failureCaptureDir ? { PW_APP_ORIGINS: JSON.stringify(activeExecScope()?.egress.dev ?? []) } : {}) },
         });
 
         const stderr = new BoundedOutputTail(E2E_STDERR_KEEP_CHARS);

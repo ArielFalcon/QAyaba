@@ -551,9 +551,16 @@ for an id nobody can export would be noise. This deviates from brief §4.2, deli
   `qayaba.test.http_status`, `qayaba.test.network_error_count` and `qayaba.test.network_class`
   (`egress | backend | dns | other`), matched to the case from the harvested dumps. The failure-capture
   block also writes a dump for a **passing** test that showed evidence (a console error, a failed request
-  or a 5xx) and records `requestfailed` entries with the URL reduced to origin + pathname, so a query
-  string never reaches the dump. `network_class` is derived: a host in the run's denied list is `egress`,
-  a 5xx is `backend`, a name-resolution error is `dns`.
+  or a 5xx **of a request the page depends on**) and records `requestfailed` entries with the URL reduced
+  to origin + pathname, so a query string never reaches the dump. The page depends on a request when it
+  goes to the app's own origin or an origin the app declares (`dev.baseUrl`, `dev.allowedOrigins`, handed
+  to the fixture as `PW_APP_ORIGINS`) and is a document, fetch, xhr, script or style sheet; everything
+  else that failed (error-tracking and analytics beacons, a map vendor's events, the browser's own
+  background traffic, an image or font) is counted apart in the dump's `backgroundNetwork`
+  (`{ count, hosts }`, at most five host names, logged once per run), is not a network error and never
+  makes a passing test dump. `network_error_count` and `network_class` therefore count only page-dependent
+  failures. `network_class` is derived: a host in the run's denied list is `egress`, a 5xx is `backend`,
+  a name-resolution error is `dns`.
 - **Validation.** One child per check: `typecheck|lint|list|manifest`, with an ok flag and an error
   count. Also the catalog gate (fabricated test-id count) and the ambiguity advisory
   (`preExecAmbiguityCatches`).
