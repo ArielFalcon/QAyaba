@@ -177,7 +177,7 @@ declare wildcards only below names you own); no path, query or credentials; an I
 
 A bad origin is refused when the config loads. A run that tries an undeclared host does not fail for it by itself: the host
 is recorded in `gateSignals.sandbox.denied` (at most 64 per run), which is how the first run of an app shows what to declare.
-A refused host never labels a test by itself: a test is `egress` (`qayaba.test.network_class`) only when a request the page depends on (the app's own or a declared origin; a document, fetch, xhr, script or style sheet) failed against a denied host. A beacon or third-party event to an undeclared host is counted as background (`backgroundNetwork` in the failure dump) and stays out of the network errors.
+A refused host never labels a test by itself: a test is `egress` (`qayaba.test.network_class`) only when a request the page depends on (by resource type, whatever its origin: a document, fetch, xhr, script or style sheet) failed against a denied host. A fire-and-forget request (a beacon, image, font or media) to an undeclared host is counted as background (`backgroundNetwork` in the failure dump) and stays out of the network errors.
 
 ### Modes
 

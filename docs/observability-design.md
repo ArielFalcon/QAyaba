@@ -562,9 +562,9 @@ for an id nobody can export would be noise. This deviates from brief §4.2, deli
   (`egress | backend | dns | other`), matched to the case from the harvested dumps. The failure-capture
   block also writes a dump for a **passing** test that showed evidence (a console error, a failed request
   or a 5xx **of a request the page depends on**) and records `requestfailed` entries with the URL reduced
-  to origin + pathname, so a query string never reaches the dump. The page depends on a request when it
-  goes to the app's own origin or an origin the app declares (`dev.baseUrl`, `dev.allowedOrigins`, handed
-  to the fixture as `PW_APP_ORIGINS`) and is a document, fetch, xhr, script or style sheet; everything
+  to origin + pathname, so a query string never reaches the dump. The page depends on a request by its resource type, never
+  its host: a document, fetch, xhr, script or style sheet counts whatever origin it goes to (the suite's
+  network reaches only the declared origins, so a refused one is the egress diagnosis); everything
   else that failed (error-tracking and analytics beacons, a map vendor's events, the browser's own
   background traffic, an image or font) is counted apart in the dump's `backgroundNetwork`
   (`{ count, hosts }`, at most five host names, logged once per run), is not a network error and never

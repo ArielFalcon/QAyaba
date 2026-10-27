@@ -401,41 +401,19 @@ let runtimeErrors: { type: string; text: string }[] = [];
 // fragment never reaches the dump), a truncated error text and the resource type.
 let failedRequests: { url: string; errorText: string; resourceType: string }[] = [];
 // What the page depends on, as opposed to the background traffic around it (error-tracking and analytics
-// beacons, map-vendor events, the browser's own housekeeping). A request is page-dependent when it goes to
-// the app's own origin or an origin the app declares (PW_APP_ORIGINS, set by the orchestrator from the app's
-// config; PW_BASE_URL alone when absent; with neither, no host is foreign) AND is of a resource type the page needs to render or act: the
-// foreground interactions (document, fetch, xhr) plus the scripts and style sheets it loads. Only a
-// page-dependent failure is a network error of the test; the rest is counted apart so it stays visible and
-// never explains a failure.
+// beacons, map-vendor events, the browser's own housekeeping). The resource type decides, never the host: a
+// request is page-dependent when it is of a type the page needs to render or act (the foreground
+// interactions document, fetch, xhr, plus the scripts and style sheets it loads), whatever origin it goes
+// to. The suite's network only reaches the origins the app declares, so an origin cannot tell a needed API
+// from a telemetry host: a refused script or fetch IS the diagnosis (egress), while a beacon, image, font or
+// media request is fire-and-forget and the page works without it. Only a page-dependent failure is a network
+// error of the test; the rest is counted apart so it stays visible and never explains a failure.
 const PAGE_FOREGROUND_TYPES = ['document', 'fetch', 'xhr'];
 const PAGE_DEPENDENT_TYPES = new Set([...PAGE_FOREGROUND_TYPES, 'script', 'stylesheet']);
 const BACKGROUND_HOSTS_CAP = 5;
 let backgroundFailures: { count: number; hosts: string[] } = { count: 0, hosts: [] };
-function declaredOrigins(): string[] {
-  const origins: string[] = [];
-  try {
-    const parsed: unknown = JSON.parse(process.env.PW_APP_ORIGINS ?? '[]');
-    if (Array.isArray(parsed)) for (const o of parsed) if (typeof o === 'string') origins.push(o);
-  } catch {}
-  try { if (process.env.PW_BASE_URL) origins.push(new URL(process.env.PW_BASE_URL).origin); } catch {}
-  return origins;
-}
-// An origin is scheme://host[:port], or scheme://*.suffix[:port] for the subdomains of a suffix (the egress policy's forms).
-function matchesOrigin(url: URL, origin: string): boolean {
-  const m = /^(https?):\/\/([^/:]+)(?::(\d+))?\/?$/i.exec(origin);
-  if (!m) return false;
-  const scheme = m[1]!.toLowerCase();
-  const port = m[3] ?? (scheme === 'https' ? '443' : '80');
-  const urlPort = url.port || (url.protocol === 'https:' ? '443' : '80');
-  if (port !== urlPort) return false;
-  const host = m[2]!.toLowerCase();
-  const name = url.hostname.toLowerCase();
-  return host.startsWith('*.') ? name.endsWith(host.slice(1)) : name === host;
-}
-function isPageDependent(rawUrl: string, resourceType: string, origins: string[]): boolean {
-  if (!PAGE_DEPENDENT_TYPES.has(resourceType)) return false;
-  if (origins.length === 0) return true; // no origin is known (a run outside the orchestrator): nothing marks a host as foreign
-  try { const url = new URL(rawUrl); return origins.some((o) => matchesOrigin(url, o)); } catch { return false; }
+function isPageDependent(resourceType: string): boolean {
+  return PAGE_DEPENDENT_TYPES.has(resourceType);
 }
 function noteBackgroundFailure(rawUrl: string): void {
   backgroundFailures.count++;
@@ -533,7 +511,7 @@ async function qaFailureCaptureStart(page: QaCapturePage, request: QaCaptureRequ
       try {
         if (isDataRequest(r)) dataInFlight = Math.max(0, dataInFlight - 1);
         const type = r.resourceType();
-        if (!isPageDependent(r.url(), type, declaredOrigins())) { noteBackgroundFailure(r.url()); return; }
+        if (!isPageDependent(type)) { noteBackgroundFailure(r.url()); return; }
         if (failedRequests.length >= 50) return;
         const url = networkUrl(r.url());
         if (!url) return;
@@ -572,7 +550,7 @@ async function qaFailureCaptureFinish(page: QaCapturePage, testInfo: QaCaptureTe
   // A passing test still dumps when the page showed evidence (a console error, a failed request or a
   // 5xx, of a request the page depends on) — the evidence is real even when the assertions passed. Only an
   // expected result with no evidence returns early.
-  const hasEvidence = runtimeErrors.some((e) => e.type === "pageerror") || failedRequests.length > 0 || errorResponses.some((e) => e.status >= 500 && isPageDependent(e.url, e.resourceType, declaredOrigins()));
+  const hasEvidence = runtimeErrors.some((e) => e.type === "pageerror") || failedRequests.length > 0 || errorResponses.some((e) => e.status >= 500 && isPageDependent(e.resourceType));
   if (expected && !hasEvidence) return;
   try {
     const { writeFileSync } = await import("node:fs");
@@ -672,12 +650,8 @@ async function qaFailureCaptureFinish(page: QaCapturePage, testInfo: QaCaptureTe
       const NETWORK_ERRORS_CAP = 10;
       const seen = new Set<string>();
       const merged: { url: string; status?: number; errorText?: string; resourceType: string }[] = [];
-      let finalOrigin = '';
-      try { finalOrigin = new URL(finalUrl).origin; } catch {}
-      const declared = declaredOrigins();
-      const origins = declared.length > 0 && finalOrigin ? [...declared, finalOrigin] : declared;
       for (const e of errorResponses) {
-        if (!isPageDependent(e.url, e.resourceType, origins)) { noteBackgroundFailure(e.url); continue; }
+        if (!isPageDependent(e.resourceType)) { noteBackgroundFailure(e.url); continue; }
         const url = networkUrl(e.url);
         if (url) merged.push({ url, status: e.status, resourceType: e.resourceType });
       }

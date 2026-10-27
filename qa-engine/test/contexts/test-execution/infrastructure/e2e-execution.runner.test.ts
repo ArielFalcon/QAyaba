@@ -965,14 +965,24 @@ test("a denied third-party beacon, counted by the fixture as background, never c
   assert.equal(passed?.networkErrors, undefined);
 });
 
-test("a case whose page-dependent error is a refused origin stays egress beside background failures", async () => {
+test("a case whose refused request is a script the page needs is egress, with a refused beacon counted apart", async () => {
   const { cases } = await runWithNetworkDump({
     status: "fail",
-    networkErrors: [{ url: "https://api.example.com/orders", errorText: "net::ERR_FAILED", resourceType: "fetch" }],
+    networkErrors: [{ url: "https://cdn.other.example/app.js", errorText: "net::ERR_FAILED", resourceType: "script" }],
     backgroundNetwork: { count: 2, hosts: ["errors.tracker.example"] },
-    denied: ["errors.tracker.example", "api.example.com"],
+    denied: ["errors.tracker.example", "cdn.other.example"],
   });
   assert.equal(cases.find((c) => c.status === "fail")?.networkClass, "egress");
+});
+
+test("a case whose only refused host is a background beacon is not egress", async () => {
+  const { cases } = await runWithNetworkDump({
+    status: "fail",
+    networkErrors: [],
+    backgroundNetwork: { count: 3, hosts: ["errors.tracker.example"] },
+    denied: ["errors.tracker.example"],
+  });
+  assert.notEqual(cases.find((c) => c.status === "fail")?.networkClass, "egress");
 });
 
 test("the dump reader keeps a bounded background failure count and ignores a malformed one", () => {
@@ -1156,12 +1166,12 @@ test("a Playwright suite child gets neither the test account nor an orchestrator
   assert.equal(env.PW_BASE_URL, "https://dev.example");
 });
 
-test("a Playwright suite child with failure capture is told the origins the app declares, which the fixture reads as the page's own", async () => {
-  const made = testExecSandbox({ egressOrigins: { dev: ["https://dev.example", "https://*.cdn.example"], install: ["https://registry.npmjs.org"] } });
+test("a Playwright suite child with failure capture is not handed an origin allowlist: the resource type decides what the page depends on", async () => {
+  const made = testExecSandbox({ egressOrigins: { dev: ["https://dev.example"], install: ["https://registry.npmjs.org"] } });
   try {
     const { env } = await withExecScope(made.scope, () =>
       seenByChild((deps, root) => deps.runSuite({ dir: root, baseUrl: "https://dev.example", namespace: "ns-1", failureCaptureDir: join(made.scope.workDir, "failures-y") }).then(() => undefined)));
-    assert.deepEqual(JSON.parse(env.PW_APP_ORIGINS ?? "null"), ["https://dev.example", "https://*.cdn.example"]);
+    assert.equal(env.PW_APP_ORIGINS, undefined);
   } finally {
     made.dispose();
   }

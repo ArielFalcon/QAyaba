@@ -349,7 +349,7 @@ export const ATTRIBUTES = {
   "qayaba.failure.tree_stable": bool("Whether the accessibility tree was the same on a second read a moment after the failure."),
   "qayaba.failure.runtime_error_count": int("Console errors and uncaught page errors the page had raised when the attempt failed."),
   "qayaba.failure.runtime_error": text("The first runtime error the page raised before the attempt failed."),
-  "qayaba.failure.network_error_count": int("Failed requests the page depends on before the attempt failed; background and third-party failures are not counted."),
+  "qayaba.failure.network_error_count": int("Failed requests the page depends on before the attempt failed; fire-and-forget failures (beacons, images, fonts, media) are not counted."),
   "qayaba.failure.dom_lines": int("Lines of the accessibility tree captured when the attempt failed."),
   "qayaba.failure.dom_sha256": metaHash("sha256 of the accessibility tree captured when the attempt failed (equal digests: the same page)."),
   "qayaba.selector.match_count": int("Elements a locator resolved to in a strict mode violation."),
