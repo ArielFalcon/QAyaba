@@ -130,6 +130,20 @@ test("a requested capture mode is capped at the server ceiling and the applied v
   assert.deepEqual([capped, allowed, unasked, off].map(view), ["metadata", "full", "metadata", "off"]);
 });
 
+test("a campaign run that asks for no capture mode captures full content, still under the server ceiling", async () => {
+  const h = traceHarness();
+  const queue = new JobQueue();
+  const own = (id: string): CampaignIdentity => ({ id: `${id}-${uniqueApp()}`, variant: { arm: "a" }, replicate: 1 });
+  const ceilingFull = { runConfig: { ...env, maxCapture: "full" as const } };
+  const unasked = enqueueTrackedRun(queue, request(uniqueApp(), { campaign: own("full") }), deps(h, { run: async (i) => outcomeOf(i) }, ceilingFull));
+  const asked = enqueueTrackedRun(queue, request(uniqueApp(), { campaign: own("meta"), captureMode: "metadata" }), deps(h, { run: async (i) => outcomeOf(i) }, ceilingFull));
+  const capped = enqueueTrackedRun(queue, request(uniqueApp(), { campaign: own("capped") }), deps(h, { run: async (i) => outcomeOf(i) }));
+  const ordinary = enqueueTrackedRun(queue, request(uniqueApp()), deps(h, { run: async (i) => outcomeOf(i) }, ceilingFull));
+  await queue.drain();
+  const applied = (id: string) => getHistory().runs.getStoredEffectiveConfig(id)?.captureMode;
+  assert.deepEqual([unasked, asked, capped, ordinary].map(applied), ["full", "metadata", "metadata", "metadata"]);
+});
+
 test("a run that asks for full content gets it on its trace only when the ceiling allows", async () => {
   const ceilingFull = traceHarness({ captureMode: "metadata" });
   const queue = new JobQueue();

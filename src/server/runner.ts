@@ -10,7 +10,7 @@
 import { appLogger } from "../integrations/redacting-logger";
 import { JobQueue } from "./queue";
 import { loadAppConfig, AppConfig } from "../orchestrator/config-loader";
-import { assertUniformCapture } from "./campaign-capture";
+import { assertUniformCapture, CAMPAIGN_CAPTURE_MODE, requestedCaptureMode } from "./campaign-capture";
 import { serializablePhases } from "./persistence/repositories/run.repository";
 import { traceFactsOf } from "@kernel/run-trace-facts";
 import { phaseSnapshotOf } from "@contexts/run-orchestration/application/index";
@@ -354,7 +354,9 @@ export function enqueueLoginBootstrapRun(queue: JobQueue, app: string, sha: stri
 export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: RunnerDeps = {}): string {
   /* The capture a run gets is decided here, for every door: what it asked for, never above the server's ceiling. */
   const runConfigEnv = deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENV;
-  const captureMode = capCaptureMode(req.captureMode, runConfigEnv.maxCapture);
+  const captureMode = capCaptureMode(requestedCaptureMode(req), runConfigEnv.maxCapture);
+  if (req.campaign && requestedCaptureMode(req) === CAMPAIGN_CAPTURE_MODE && captureMode !== CAMPAIGN_CAPTURE_MODE)
+    appLogger.warn(`[qa] campaign '${req.campaign.id}' captures '${captureMode}', not '${CAMPAIGN_CAPTURE_MODE}': the server ceiling QA_TELEMETRY_MAX_CAPTURE is '${runConfigEnv.maxCapture}', so its prompts are not stored`);
   /* A run joins a campaign only with the capture mode its siblings have; refused before anything is queued or marked. */
   if (req.campaign) assertUniformCapture(req.campaign.id, captureMode, getHistory().runs.getCampaignCaptureMode(req.campaign.id));
   /* A push that can join a run still waiting for its turn does: that run reads it, and it needs no run, record or bootstrap of its own. */
@@ -450,7 +452,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
     triggerRepo: req.triggerRepo,
     shadow: req.shadow,
     campaign: req.campaign,
-    captureMode: req.captureMode === undefined ? undefined : captureMode,
+    captureMode: requestedCaptureMode(req) === undefined ? undefined : captureMode,
   };
   const enqueued = markEnqueued(telemetry, clock, identity, { root: insideRun });
 

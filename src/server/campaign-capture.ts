@@ -19,3 +19,11 @@ export class CampaignCaptureMismatchError extends Error {
 export function assertUniformCapture(campaignId: string, applied: CaptureMode, existing: string | undefined): void {
   if (existing !== undefined && existing !== applied) throw new CampaignCaptureMismatchError(campaignId, existing, applied);
 }
+
+/* The capture mode a campaign run asks for when its request names none: campaigns are read prompt by prompt, so they capture full
+   content. The server's ceiling still applies (`capCaptureMode`); an ordinary run keeps the default. */
+export const CAMPAIGN_CAPTURE_MODE: CaptureMode = "full";
+
+export function requestedCaptureMode(req: { readonly captureMode?: CaptureMode; readonly campaign?: unknown }): CaptureMode | undefined {
+  return req.captureMode ?? (req.campaign ? CAMPAIGN_CAPTURE_MODE : undefined);
+}
