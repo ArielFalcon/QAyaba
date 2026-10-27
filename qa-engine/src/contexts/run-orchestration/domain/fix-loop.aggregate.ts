@@ -112,6 +112,8 @@ export type FixLoopAcceptanceOutcome =
       kind: "accepted";
       /** The specs the turn actually changed (created, rewritten or deleted), suite-relative. */
       changedSpecFiles: readonly string[];
+      /** The changed specs the round's execution ran; the others held a green proof and left no dumps. Absent: every changed spec ran. */
+      executedSpecFiles?: readonly string[];
       /** The execution of the changed specs; absent when every change already held a green proof. */
       execution?: FixLoopRun;
       /** The bytes this round leaves on disk, for restoring it if it is the best run. */
@@ -756,8 +758,12 @@ export class FixLoop {
 
     state.run = mergeAcceptedRound(state.run, outcome);
     state.contractFeedback = undefined;
-    /* The round executed only the specs it changed: theirs are the latest dumps, every other spec's stay where they were. */
-    if (outcome.changedSpecFiles.length > 0) state.coverageReruns = [...state.coverageReruns, { namespace: round.roundNs, specFiles: outcome.changedSpecFiles }];
+    /*
+     * The round executed only the specs it changed, and of those only the ones without a green proof: theirs are the latest dumps,
+     * every other spec's stay where they were.
+     */
+    const ran = outcome.executedSpecFiles === undefined ? outcome.changedSpecFiles : outcome.changedSpecFiles.filter((file) => outcome.executedSpecFiles!.includes(file));
+    if (ran.length > 0) state.coverageReruns = [...state.coverageReruns, { namespace: round.roundNs, specFiles: ran }];
     state.roundAccepted = true;
     state.acceptedToken = outcome.accepted;
     this.recordBest(state);

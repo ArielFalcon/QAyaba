@@ -165,6 +165,7 @@ function fixLoopFor(state: Readonly<RunState>, ctx: WorkspaceRunContext, pending
         return {
           kind: "accepted",
           changedSpecFiles,
+          executedSpecFiles: outcome.executedSpecs,
           ...(outcome.execution ? { execution: { verdict: outcome.execution.verdict, cases: [...outcome.execution.cases] } } : {}),
           accepted,
         };

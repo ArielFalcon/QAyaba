@@ -777,6 +777,40 @@ test("the best round's snapshot is restored when a later round regresses", async
   assert.deepEqual(result.coverageReruns, [{ namespace: "qa-bot-abc-r1", specFiles: ["a.spec.ts"] }], "the best round's dumps go back with its bytes, not the worse round's");
 });
 
+test("an accepted round names as re-run only the changed spec files its execution ran, never one whose proof was reused", async () => {
+  const acceptance = fakeAcceptance(async () => ({
+    kind: "accepted",
+    changedSpecFiles: ["a.spec.ts", "c.spec.ts"],
+    executedSpecFiles: ["a.spec.ts"],
+    execution: { verdict: "pass", cases: [{ name: "a", status: "pass", file: "a.spec.ts" }] },
+    accepted: "round-a-v1",
+  }));
+  const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
+  const regeneration: FixLoopRegenerationPort = { regenerate: async () => ({ specs: ["a.spec.ts", "c.spec.ts"], approved: true }) };
+  const { cycleBudget, wallClockBudget } = budgets();
+  const loop = new FixLoop({
+    execution,
+    regeneration,
+    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    acceptance,
+  });
+
+  const result = await loop.run({
+    initialRun: twoFailures(),
+    isCode: false,
+    generating: true,
+    mode: "diff",
+    objectiveSource: ["src/checkout.ts"],
+    maxRetries: 1,
+    cycleBudget,
+    wallClockBudget,
+    devHealthy: async () => true,
+    namespace: "qa-bot-abc",
+  });
+
+  assert.deepEqual(result.coverageReruns, [{ namespace: "qa-bot-abc-r1", specFiles: ["a.spec.ts"] }], "c.spec.ts left no dumps in the round: its earlier ones are still read");
+});
+
 test("an accepted round keeps a case the run cannot attribute to a file", async () => {
   const acceptance = fakeAcceptance(async () => ({
     kind: "accepted",
