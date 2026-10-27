@@ -1,7 +1,7 @@
 // @ts-check
 /* The capture of a page's DOM for the orchestrator, run as its own node process through the execution launcher (profile "suite"). Its input is PW_CAPTURE_INPUT (JSON: baseUrl, routes, probe, limits) and the PW_* / DEV_ENV_* names of its environment; its output is one JSON line per route on stdout. The page it reads is untrusted: every bound in `limits` caps what a page can make it report. PLAYWRIGHT_PATH is prepended by buildCaptureScript. */
 /**
- * @typedef {{ navigationTimeoutMs: number, settleTimeoutMs: number, defaultDataStateWaitMs: number, retryDataStateWaitMs: number, maxLinksPerPage: number, maxHrefChars: number, maxRepeatedPerRoute: number, maxNamesResolved: number, maxScopeChars: number, maxScopeDepth: number }} CaptureLimits
+ * @typedef {{ navigationTimeoutMs: number, settleTimeoutMs: number, defaultDataStateWaitMs: number, retryDataStateWaitMs: number, minDataStateReadMs: number, maxLinksPerPage: number, maxHrefChars: number, maxRepeatedPerRoute: number, maxNamesResolved: number, maxScopeChars: number, maxScopeDepth: number }} CaptureLimits
  * @typedef {{ type: string, text: string }} RuntimeError
  * @typedef {{ readySelector?: string, resultSelector?: string, resultTextSelector?: string, locationSelector?: string, timeoutMs?: number }} DataStateSettings
  * @typedef {{ key: string, testId?: string, id?: string, name?: string, href?: string, inputType?: string, nameFallback?: string }} RawAttr
@@ -45,6 +45,14 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
     let currentRouteErrors = [];
     page.on("pageerror", function(/** @type {any} */ err) { currentRouteErrors.push({ type: "pageerror", text: String(err && err.message || err) }); });
     page.on("console", function(/** @type {any} */ msg) { if (msg.type() === "error") currentRouteErrors.push({ type: "console", text: msg.text() }); });
+    /* The data requests (fetch, XHR) the page has started and not finished: an empty list is no settled state while one is out. */
+    /** @type {Set<any>} */
+    const dataRequestsInFlight = new Set();
+    /** @param {any} request */
+    function isDataRequest(request) { try { const type = request.resourceType(); return type === "fetch" || type === "xhr"; } catch(_r) { return false; } }
+    page.on("request", function(/** @type {any} */ request) { if (isDataRequest(request)) dataRequestsInFlight.add(request); });
+    page.on("requestfinished", function(/** @type {any} */ request) { dataRequestsInFlight.delete(request); });
+    page.on("requestfailed", function(/** @type {any} */ request) { dataRequestsInFlight.delete(request); });
     /* The app's declared data-state selectors (dev.dataState), read from the child's env: readiness/result/location per route path, keyed like the routes the capture is asked for. */
     /** @type {Record<string, DataStateSettings> | any} */
     let stateRoutes = null;
@@ -98,11 +106,11 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
       if (!stateRoutes) return null;
       return stateFor(pathname) || stateFor(requested);
     }
-    /* The same unconfirmed rule the orchestrator applies: a declared data state whose result stayed empty, or whose readiness never appeared. */
+    /* The same unconfirmed rule the orchestrator applies: a declared data state whose result count was not read, or was read as 0 without the empty state being confirmed, or whose readiness never appeared. */
     /** @param {Record<string, any>} entry */
     function unconfirmed(entry) {
       if (entry.dataState !== true) return false;
-      if (entry.resultExpected === true) return entry.resultCount === undefined || entry.resultCount === 0;
+      if (entry.resultExpected === true) return entry.resultCount === undefined || (entry.resultCount === 0 && entry.emptyConfirmed !== true);
       return entry.ready === false;
     }
     /* One pass of a route: navigate, settle, read its data state (when one matches) and the DOM. A retry caps the data-state waits at 2s. */
@@ -113,6 +121,7 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
      */
     async function readRoute(route, retry) {
       currentRouteErrors = [];
+      dataRequestsInFlight.clear();
       const routeStartedAt = Date.now();
       try {
         const response = await page.goto(new URL(route, baseUrl).toString(), { waitUntil: "domcontentloaded", timeout: limits.navigationTimeoutMs });
@@ -139,14 +148,15 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
         let ready;
         let resultExpected;
         let resultCount;
+        let emptyConfirmed = false;
         let effectiveLocation;
         let dataState = false;
         if (settings) {
           dataState = true;
           const waitMs = retry ? Math.min(settings.timeoutMs || limits.defaultDataStateWaitMs, limits.retryDataStateWaitMs) : (settings.timeoutMs || limits.defaultDataStateWaitMs);
           const deadline = Date.now() + waitMs;
-          /* Every read of the data state waits only for what is left of its wait: a read with no time of its own would wait the browser's default for an element the page never shows. */
-          const left = function() { return Math.max(1, deadline - Date.now()); };
+          /* Every read of the data state waits for what is left of its wait, and never less than the floor: a read given a millisecond turns a count the page shows into no count. */
+          const left = function() { return Math.max(limits.minDataStateReadMs, deadline - Date.now()); };
           if (settings.readySelector) {
             const left = deadline - Date.now();
             if (left <= 0) ready = false;
@@ -158,6 +168,10 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
             resultExpected = true;
             try {
               let count;
+              /* A count of 0 is an empty state only when read on two reads in a row with no data request in flight and the tree unchanged between them; the wait still runs to its end, so a page that fills late is not read as empty. */
+              let emptyReads = 0;
+              let lastEmptyTree;
+              let readsPastDeadline = 0;
               while (true) {
                 try {
                   if (settings.resultTextSelector) {
@@ -168,11 +182,23 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
                     count = await page.locator(settings.resultSelector).count();
                   }
                 } catch(_e) { count = undefined; }
+                if (count === 0 && dataRequestsInFlight.size === 0) {
+                  let tree;
+                  try { tree = await page.locator('body').ariaSnapshot({ timeout: left() }); } catch(_t) { tree = undefined; }
+                  if (tree !== undefined && tree === lastEmptyTree) emptyReads++;
+                  else emptyReads = tree === undefined ? 0 : 1;
+                  lastEmptyTree = tree;
+                } else { emptyReads = 0; lastEmptyTree = undefined; }
                 if (count !== undefined && count > 0) break;
-                if (Date.now() >= deadline) break;
+                if (Date.now() >= deadline) {
+                  /* One more read when the wait ended on the first empty one: two reads are the least that confirm it. */
+                  if (!(count === 0 && emptyReads === 1 && readsPastDeadline === 0)) break;
+                  readsPastDeadline++;
+                }
                 await new Promise(function(r) { setTimeout(r, 200); });
               }
               resultCount = count;
+              emptyConfirmed = count === 0 && emptyReads >= 2 && ready !== false;
             } catch(_e) { /* resultCount stays undefined */ }
           }
           if (settings.locationSelector) {
@@ -327,6 +353,7 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
           if (ready !== undefined) entry.ready = ready;
           if (resultExpected !== undefined) entry.resultExpected = resultExpected;
           if (resultCount !== undefined) entry.resultCount = resultCount;
+          if (emptyConfirmed) entry.emptyConfirmed = true;
           if (effectiveLocation !== undefined) entry.effectiveLocation = effectiveLocation;
           entry.captureAttempts = retry ? 2 : 1;
         }

@@ -797,6 +797,34 @@ test("a page with a confirmed data state reports its result count and effective 
   assert.ok(result.text?.includes('location "Madrid"'), "the effective location is quoted");
 });
 
+test("a page whose empty state was confirmed says so, and is not called unconfirmed or a page with results", async () => {
+  const deps: ContextPackDeps = {
+    captureDomForRoutes: async (_routes, input) => {
+      input.onPages?.([{
+        route: "/list",
+        grounded: true,
+        links: [],
+        dataState: true,
+        resultExpected: true,
+        resultCount: 0,
+        emptyConfirmed: true,
+        dataStateUnconfirmed: false,
+        keptNodes: ["text: 0 resultados"],
+        keptTestIds: [],
+        testIdOfNode: new Map(),
+        nodeCapOmitted: 0,
+      }]);
+      return "route /list:\n  text: 0 resultados";
+    },
+    domDeps: stubDomDeps(undefined),
+    log: () => {},
+  };
+  const result = await buildContextPack({ routes: ["/list"], baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" }, deps);
+  assert.ok(result.text?.includes("0 result(s)"));
+  assert.ok(result.text?.includes("empty state confirmed"), "the confirmed empty state is stated");
+  assert.ok(!result.text?.includes("data state not confirmed"));
+});
+
 /* The pack is assembled elsewhere and reaches the prompt as a string, so its claims are derived from what it actually rendered. */
 const providedFacts = (claims: readonly PromptClaim[]): FactId[] =>
   claims.flatMap((c) => (c.kind === "provides" ? [c.fact] : [])).sort();

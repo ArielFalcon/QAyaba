@@ -104,7 +104,7 @@ dev:
   #                             # ("/restaurants/:province/:city"), a key ending "/*" a prefix and its root ("/restaurants/*");
   #                             # an exact key wins, then a key with parameters, then a prefix
   #       readySelector: "[data-testid='restaurant-list']"   # must appear for the page to be ready
-  #       resultSelector: "[data-testid='restaurant-card']"  # count results (0 is unconfirmed → captured once more)
+  #       resultSelector: "[data-testid='restaurant-card']"  # count results (0 is an empty state only when read twice on a settled page, otherwise unconfirmed → captured once more)
   #       # resultTextSelector: "[data-testid='result-count']"  # alternative: first integer in the text is the count
   #       locationSelector: "[data-testid='location-label']"    # the effective location the page shows
   #       timeoutMs: 8000       # how long to wait for readiness/result before deeming the state unconfirmed (1..15000)

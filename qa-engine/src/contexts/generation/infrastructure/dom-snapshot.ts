@@ -414,6 +414,7 @@ export interface CapturedPage {
   ready?: boolean;
   resultExpected?: boolean;
   resultCount?: number;
+  emptyConfirmed?: boolean;
   effectiveLocation?: string;
   captureAttempts?: number;
   /* Whether the page's data state could not be confirmed at capture time (its result stayed empty, or its readiness never appeared). */
@@ -485,6 +486,7 @@ export async function captureDomForRoutes(
         ...(snap.ready !== undefined ? { ready: snap.ready } : {}),
         ...(snap.resultExpected !== undefined ? { resultExpected: snap.resultExpected } : {}),
         ...(snap.resultCount !== undefined ? { resultCount: snap.resultCount } : {}),
+        ...(snap.emptyConfirmed === true ? { emptyConfirmed: true } : {}),
         ...(snap.effectiveLocation !== undefined ? { effectiveLocation: snap.effectiveLocation } : {}),
         ...(snap.captureAttempts !== undefined ? { captureAttempts: snap.captureAttempts } : {}),
         dataStateUnconfirmed: dataStateUnconfirmed(snap),
@@ -596,6 +598,14 @@ const NAVIGATION_TIMEOUT_MS = 10_000;
 const SETTLE_TIMEOUT_MS = 5_000;
 const DEFAULT_DATA_STATE_WAIT_MS = 8_000;
 const RETRY_DATA_STATE_WAIT_MS = 2_000;
+/*
+ * The least a read of a data state's selector may wait, however little of the data state's wait is left. Playwright reads an
+ * element that is in the page at once and only auto-waits for one that is not yet; the seed gives an action 8 s
+ * (PW_ACTION_TIMEOUT_MS), and the capture polls every 200 ms. 2 s is the share of that action timeout that covers a slow main
+ * thread on a page that shows the element, without lengthening a capture by more than one read when the element never comes;
+ * a read left a millisecond turned a visible "0 resultados" into no count (run-ed28973 recaptures).
+ */
+export const MIN_DATA_STATE_READ_MS = 2_000;
 /* One read of a route at its slowest: opened, settled, and its tree, attributes, links and probes read. */
 export const CAPTURE_ROUTE_READ_MS = NAVIGATION_TIMEOUT_MS + SETTLE_TIMEOUT_MS + 5_000;
 /* The browser's start and the session's context, before the first route. */
@@ -608,7 +618,7 @@ export function captureTimeoutMs(routes: readonly string[], dataState?: CaptureD
     const state = dataState ? dataStateRouteFor(dataState.routes, route) : undefined;
     if (state === undefined) return CAPTURE_ROUTE_READ_MS;
     const wait = state.timeoutMs ?? DEFAULT_DATA_STATE_WAIT_MS;
-    return CAPTURE_ROUTE_READ_MS + wait + CAPTURE_ROUTE_READ_MS + Math.min(wait, RETRY_DATA_STATE_WAIT_MS);
+    return CAPTURE_ROUTE_READ_MS + wait + MIN_DATA_STATE_READ_MS + CAPTURE_ROUTE_READ_MS + Math.min(wait, RETRY_DATA_STATE_WAIT_MS) + MIN_DATA_STATE_READ_MS;
   });
   const total = perRoute.length === 0 ? CAPTURE_ROUTE_READ_MS : perRoute.reduce((sum, ms) => sum + ms, 0);
   return Math.min(CAPTURE_START_MS + total, CAPTURE_MAX_TIMEOUT_MS);
@@ -623,6 +633,7 @@ export const CAPTURE_LIMITS = {
   settleTimeoutMs: SETTLE_TIMEOUT_MS,
   defaultDataStateWaitMs: DEFAULT_DATA_STATE_WAIT_MS,
   retryDataStateWaitMs: RETRY_DATA_STATE_WAIT_MS,
+  minDataStateReadMs: MIN_DATA_STATE_READ_MS,
   maxLinksPerPage: MAX_LINKS_PER_PAGE,
   maxHrefChars: MAX_HREF_CHARS,
   maxRepeatedPerRoute: MAX_REPEATED_PER_ROUTE,
@@ -822,7 +833,7 @@ export function createCaptureDomDeps(
           if (finished) return;
           try {
             /* The page decides what it shows, and it can show the account's password: the run's secrets are taken out of the document by value before it is read (a JSON-escaped spelling of each is replaced too). */
-            const raw = captureLines(redactByValue(stdout.text())) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; hrefs?: unknown; repeated?: unknown; absent?: unknown; ms?: unknown; dataState?: unknown; ready?: unknown; resultExpected?: unknown; resultCount?: unknown; effectiveLocation?: unknown; captureAttempts?: unknown } & RawNavigationFacts>;
+            const raw = captureLines(redactByValue(stdout.text())) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; hrefs?: unknown; repeated?: unknown; absent?: unknown; ms?: unknown; dataState?: unknown; ready?: unknown; resultExpected?: unknown; resultCount?: unknown; emptyConfirmed?: unknown; effectiveLocation?: unknown; captureAttempts?: unknown } & RawNavigationFacts>;
             const read = new Set(raw.map((r) => r.route));
             const unread = routes.filter((route) => !read.has(route));
             if (unread.length > 0) engineLog.warn(`[qa] WARNING: DOM capture ended before it read ${unread.length} route(s) [${loggableRoutes(unread)}] — those routes are not grounded.`);
@@ -859,6 +870,7 @@ export function createCaptureDomDeps(
               if (typeof r.resultExpected === "boolean") snap.resultExpected = r.resultExpected;
               const resultCount = resultCountOf(r.resultCount);
               if (resultCount !== undefined) snap.resultCount = resultCount;
+              if (r.emptyConfirmed === true && resultCount === 0) snap.emptyConfirmed = true;
               const effectiveLocation = effectiveLocationOf(r.effectiveLocation);
               if (effectiveLocation !== undefined) snap.effectiveLocation = effectiveLocation;
               const captureAttempts = captureAttemptsOf(r.captureAttempts);

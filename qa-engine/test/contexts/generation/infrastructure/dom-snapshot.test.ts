@@ -1430,6 +1430,22 @@ test("dataStateUnconfirmed is false without a data state, and true only for an u
   assert.equal(dataStateUnconfirmed({ dataState: true, ready: true }), false);
 });
 
+test("a count of 0 read twice on a settled page is a confirmed empty state; only a count not read stays unconfirmed", () => {
+  assert.equal(dataStateUnconfirmed({ dataState: true, resultExpected: true, resultCount: 0, emptyConfirmed: true }), false);
+  assert.equal(dataStateUnconfirmed({ dataState: true, resultExpected: true, emptyConfirmed: true }), true, "a confirmation without a count read confirms nothing");
+  assert.equal(dataStateUnconfirmed({ dataState: true, resultExpected: true, resultCount: 0, emptyConfirmed: false }), true);
+});
+
+test("a DOM capture carries the confirmed empty state onto the snapshot, and only beside a count of 0", { timeout: 30_000 }, async () => {
+  const script = "process.stdout.write(JSON.stringify([{ route: '/home', yaml: '- button \\\"Save\\\"', dataState: true, resultExpected: true, resultCount: 0, emptyConfirmed: true, captureAttempts: 1 }, { route: '/other', yaml: '- button \\\"Save\\\"', dataState: true, resultExpected: true, resultCount: 4, emptyConfirmed: true, captureAttempts: 1 }]));";
+  await withStandInNode(script, async (root) => {
+    const deps = createCaptureDomDeps(sharedTestExec(), 20_000);
+    const snaps = await deps.render(root, "http://localhost", ["/home", "/other"]);
+    assert.equal(snaps[0]?.emptyConfirmed, true);
+    assert.equal(snaps[1]?.emptyConfirmed, undefined, "a page with results is no empty state");
+  });
+});
+
 test("RouteSnapshot accepts runtimeErrors and finalUrl fields", () => {
   const snap: RouteSnapshot = {
     route: "/login",
@@ -1672,6 +1688,7 @@ function withFakeBrowser<T>(anchors: unknown[], body: (e2eDir: string, authDir: 
 const anchors = ${JSON.stringify(anchors)};
 let current = "";
 const gotoCounts = Object.create(null);
+let treeReads = 0;
 const page = {
   on() {},
   goto: async (url) => {
@@ -1683,7 +1700,8 @@ const page = {
   waitForSelector: async () => {},
   url: () => current,
   locator: (selector) => ({
-    ariaSnapshot: async () => '- link "Home"',
+    // The first visit is a page still loading (its tree changes between reads), so a count of 0 there confirms nothing; a revisit is settled.
+    ariaSnapshot: async () => ((gotoCounts[current] ?? 0) > 1 ? '- link "Home"' : '- link "Home"\\n- text: loading ' + treeReads++),
     count: async () => 0,
     first: () => ({ innerText: async () => selector === ".count" ? ((gotoCounts[current] ?? 0) > 1 ? "11 resultados" : "0 resultados") : "" }),
   }),

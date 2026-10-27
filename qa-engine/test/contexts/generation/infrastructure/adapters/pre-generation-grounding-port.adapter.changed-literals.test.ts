@@ -163,10 +163,11 @@ test("ground() hands the run the pages the pack read with results under the decl
   const pages = [
     { route: "/restaurantes/madrid", finalUrl: "https://dev.example/restaurantes/madrid", resultExpected: true, resultCount: 3 },
     { route: "/restaurantes", finalUrl: "https://dev.example/restaurantes", resultExpected: true, resultCount: 0 },
+    { route: "/ofertas", finalUrl: "https://dev.example/ofertas", resultExpected: true, resultCount: 0, emptyConfirmed: true },
     { route: "/home", finalUrl: "https://dev.example/home" },
   ];
   const grounded = await withPages(pages).ground("/tmp/qa-golden/e2e", undefined, labelDiff);
   assert.deepEqual(grounded.packConfirmedDataRoutes, [{ path: "/restaurantes/madrid", resultCount: 3 }]);
-  const none = await withPages([pages[1], pages[2]]).ground("/tmp/qa-golden/e2e", undefined, labelDiff);
+  const none = await withPages([pages[1], pages[2], pages[3]]).ground("/tmp/qa-golden/e2e", undefined, labelDiff);
   assert.equal("packConfirmedDataRoutes" in none, false);
 });

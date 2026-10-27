@@ -56,6 +56,15 @@ test("buildRouteCatalog never trusts a route whose declared data state is unconf
   assert.equal(confirmed.settled, true, "a populated data state keeps the normal trust");
 });
 
+test("buildRouteCatalog trusts a route whose empty state was confirmed, and not one whose count was never read", () => {
+  const empty = buildRouteCatalog({ route: "/list", nodes: ["text: 0 resultados"], settled: true, dataState: true, resultExpected: true, resultCount: 0, emptyConfirmed: true });
+  assert.equal(empty.settled, true, "a real empty list is a settled page");
+  const unread = buildRouteCatalog({ route: "/list", nodes: ["text: 0 resultados"], settled: true, dataState: true, resultExpected: true, emptyConfirmed: true });
+  assert.equal(unread.settled, false);
+  const unsettled = buildRouteCatalog({ route: "/list", nodes: ["text: 0 resultados"], dataState: true, resultExpected: true, resultCount: 0, emptyConfirmed: true });
+  assert.equal(unsettled.settled, false, "the page's own settling still decides");
+});
+
 test("buildRouteCatalog marks a capture error as degraded (never trusted)", () => {
   const cat = buildRouteCatalog({ route: "/owners", error: "Timeout 15000ms exceeded" });
   assert.equal(cat.status, "degraded");

@@ -153,7 +153,7 @@ export const AppConfigSchema = z
         /*
          * Capture-time data-state readiness. Per route path, selectors the DOM capture reads after the page settles so an
          * empty tree is not mistaken for truth: `readySelector` must appear for the page to be ready; `resultSelector` /
-         * `resultTextSelector` count results (a result of 0 is unconfirmed and retried once); `locationSelector` reads the
+         * `resultTextSelector` count results (a result of 0 read twice on a settled page, with no data request in flight and the tree unchanged, is a confirmed empty state; otherwise it is unconfirmed and retried once); `locationSelector` reads the
          * effective location the page shows. A key ending `/*` names a prefix and its root. Selectors are app data, never a
          * fact the engine infers.
          */

@@ -13,6 +13,10 @@ const BASE_URL = "https://dev.example";
 
 interface StubPage {
   aria?: string;
+  ariaCycle?: string[];
+  count?: number;
+  text?: string | null;
+  dataRequestInFlight?: boolean;
   anchors?: string[];
   elements?: { testId?: string; id?: string; tag?: string }[];
 }
@@ -20,6 +24,7 @@ interface StubPage {
 interface CaptureRun {
   lines: Record<string, unknown>[];
   newContext: Record<string, unknown>;
+  innerTextTimeouts: number[];
 }
 
 function runCapture(opts: { input?: Record<string, unknown>; env?: Record<string, string>; page?: StubPage; limits?: Record<string, unknown> }): CaptureRun {
@@ -39,6 +44,7 @@ function runCapture(opts: { input?: Record<string, unknown>; env?: Record<string
     return {
       lines: result.stdout.split("\n").filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>),
       newContext: (created?.newContext ?? {}) as Record<string, unknown>,
+      innerTextTimeouts: events.flatMap((event) => ("innerText" in event ? [event.innerText as number] : [])),
     };
   } finally {
     rmSync(work, { recursive: true, force: true });
@@ -106,4 +112,55 @@ test("a container of the change that the page shows none of is reported absent, 
 test("a route is read once and answered with one JSON line carrying its address", () => {
   const { lines } = runCapture({ input: { routes: ["/", "/shop"] } });
   assert.deepEqual(lines.map((line) => line.finalUrl), [`${BASE_URL}/`, `${BASE_URL}/shop`]);
+});
+
+/* A declared data state with a result count, waiting only briefly so the polling ends fast. */
+const COUNT_STATE = { routes: { "/": { resultSelector: ".card", timeoutMs: 450 } } };
+const TEXT_STATE = { routes: { "/": { resultTextSelector: ".total", timeoutMs: 450 } } };
+const stateEnv = (state: unknown) => ({ PW_CAPTURE_DATA_STATE: JSON.stringify(state) });
+
+test("a count of 0 read twice on a page whose requests and tree stood still is a confirmed empty state, read once", () => {
+  const { lines } = runCapture({ env: stateEnv(COUNT_STATE), page: { count: 0, aria: '- text: "0 resultados"' } });
+  assert.equal(lines[0]!.resultCount, 0);
+  assert.equal(lines[0]!.emptyConfirmed, true);
+  assert.equal(lines[0]!.captureAttempts, 1, "a confirmed empty state is not read again");
+});
+
+test("a count of 0 on a tree that keeps changing is not a confirmed empty state and the route is read again", () => {
+  const { lines } = runCapture({ env: stateEnv(COUNT_STATE), page: { count: 0, ariaCycle: ["- text: a", "- text: b"] } });
+  assert.equal(lines[0]!.resultCount, 0);
+  assert.notEqual(lines[0]!.emptyConfirmed, true);
+  assert.equal(lines[0]!.captureAttempts, 2);
+});
+
+test("a count of 0 while a data request is still in flight is not a confirmed empty state", () => {
+  const { lines } = runCapture({ env: stateEnv(COUNT_STATE), page: { count: 0, aria: "- text: loading", dataRequestInFlight: true } });
+  assert.notEqual(lines[0]!.emptyConfirmed, true);
+  assert.equal(lines[0]!.captureAttempts, 2);
+});
+
+test("a result text the page does not show leaves the count unread and the state unconfirmed", () => {
+  const { lines } = runCapture({ env: stateEnv(TEXT_STATE), page: { text: null, aria: "- text: x" } });
+  assert.equal("resultCount" in lines[0]!, false);
+  assert.notEqual(lines[0]!.emptyConfirmed, true);
+  assert.equal(lines[0]!.captureAttempts, 2);
+});
+
+test("a page with results is read once and is no empty state", () => {
+  const { lines } = runCapture({ env: stateEnv(COUNT_STATE), page: { count: 5, aria: "- text: cards" } });
+  assert.equal(lines[0]!.resultCount, 5);
+  assert.notEqual(lines[0]!.emptyConfirmed, true);
+  assert.equal(lines[0]!.captureAttempts, 1);
+});
+
+test("a result text read as 0 is a confirmed empty state", () => {
+  const { lines } = runCapture({ env: stateEnv(TEXT_STATE), page: { text: "0 resultados", aria: "- text: empty" } });
+  assert.equal(lines[0]!.resultCount, 0);
+  assert.equal(lines[0]!.emptyConfirmed, true);
+});
+
+test("no read of the result text waits less than the floor, however little of the wait is left", () => {
+  const { innerTextTimeouts } = runCapture({ env: stateEnv(TEXT_STATE), page: { text: "0 resultados", aria: "- text: empty" } });
+  assert.ok(innerTextTimeouts.length >= 2);
+  assert.ok(innerTextTimeouts.every((ms) => ms >= CAPTURE_LIMITS.minDataStateReadMs), `timeouts ${innerTextTimeouts.join(",")}`);
 });

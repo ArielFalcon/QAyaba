@@ -311,6 +311,7 @@ function captureStateLabel(page: CapturedPage): string {
 function captureStateLine(page: CapturedPage, hasChangedElements: boolean): string {
   const parts: string[] = [];
   if (page.resultCount !== undefined) parts.push(`${page.resultCount} result(s)`);
+  if (page.emptyConfirmed === true) parts.push("empty state confirmed (0 read on two reads of a settled page): the page has no results now");
   if (page.effectiveLocation !== undefined) parts.push(`location "${s(page.effectiveLocation)}"`);
   if (page.captureAttempts !== undefined && page.captureAttempts > 1) parts.push("captured twice");
   if (page.dataStateUnconfirmed === true) {

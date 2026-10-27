@@ -337,6 +337,7 @@ export const ATTRIBUTES = {
   "qayaba.route.ready": bool("The route's readiness selector was found within the timeout."),
   "qayaba.route.result_expected": bool("A result selector or result text was configured for the route."),
   "qayaba.route.result_count": int("Results counted on the route (the first integer of the result text, or the result selector's count)."),
+  "qayaba.route.empty_confirmed": bool("The route's result count was read as 0 on two reads of a settled page (no data request in flight, the tree unchanged): a real empty state, not an unconfirmed one."),
   "qayaba.route.effective_location": text("The route's effective location, read from its configured location selector."),
   "qayaba.route.capture_attempts": int("How many times the route's data state was read (1 or 2)."),
 

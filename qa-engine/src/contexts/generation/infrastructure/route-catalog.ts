@@ -83,10 +83,10 @@ function redirectTarget(route: string, finalUrl: string | undefined): string | u
   return reached === normalize(requestedPath) ? undefined : reached.slice(0, REDIRECT_PATH_MAX_CHARS);
 }
 
-/** Whether a captured page's declared data state could not be confirmed at capture time: a declared data state whose result was expected but stayed empty, or whose readiness selector never appeared. A page with no data state is never unconfirmed. */
-export function dataStateUnconfirmed(snapshot: Pick<RouteSnapshot, "dataState" | "resultExpected" | "resultCount" | "ready">): boolean {
+/** Whether a captured page's declared data state could not be confirmed at capture time: a declared data state whose result count was not read, or was read as 0 without the empty state being confirmed (a pre-hydration page reads 0 as well), or whose readiness selector never appeared. A count of 0 read on two reads of a settled page (`emptyConfirmed`) is a real empty state. A page with no data state is never unconfirmed. */
+export function dataStateUnconfirmed(snapshot: Pick<RouteSnapshot, "dataState" | "resultExpected" | "resultCount" | "ready" | "emptyConfirmed">): boolean {
   if (snapshot.dataState !== true) return false;
-  if (snapshot.resultExpected === true) return snapshot.resultCount === undefined || snapshot.resultCount === 0;
+  if (snapshot.resultExpected === true) return snapshot.resultCount === undefined || (snapshot.resultCount === 0 && snapshot.emptyConfirmed !== true);
   return snapshot.ready === false;
 }
 

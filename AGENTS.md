@@ -185,6 +185,10 @@ no regeneration, when the evidence does not blame the test: its target is absent
 bytes passed through `run_spec`, or its failure point read an empty data state (`dev.dataState`)
 on a page this run's Context Pack read with results. The failure capture states whether the page
 had settled (data requests in flight, a second read of the tree), and the regeneration prompt says so.
+The Context Pack's own capture applies the same test to a count of 0 (`dev.dataState`): after the whole wait, two reads
+in a row with no data request in flight and the tree unchanged make a confirmed empty state (`emptyConfirmed`, never
+read again, not "read with results"); a count not read, or read as 0 without that, is unconfirmed and read once more.
+Every read of a data-state selector waits at least `MIN_DATA_STATE_READ_MS`.
 
 **Modes** (`--mode`): `diff` (default, the only one that classifies), `complete`
 (analyze repo + suite, `e2e/.qa/analysis.json`, cover important gaps), `exhaustive`

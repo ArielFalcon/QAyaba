@@ -39,6 +39,7 @@ export function routeEventAttrs(snap: RouteSnapshot, idsOverflow = 0): Attrs {
     ...(snap.ready !== undefined ? { "qayaba.route.ready": snap.ready } : {}),
     ...(snap.resultExpected !== undefined ? { "qayaba.route.result_expected": snap.resultExpected } : {}),
     ...(snap.resultCount !== undefined ? { "qayaba.route.result_count": snap.resultCount } : {}),
+    ...(snap.emptyConfirmed === true ? { "qayaba.route.empty_confirmed": true } : {}),
     ...(snap.effectiveLocation !== undefined ? { "qayaba.route.effective_location": snap.effectiveLocation } : {}),
     ...(snap.captureAttempts !== undefined ? { "qayaba.route.capture_attempts": snap.captureAttempts } : {}),
     ...(snap.ms !== undefined ? { "qayaba.route.ms": snap.ms } : {}),

@@ -26,11 +26,17 @@ function withDocument(run) {
   globalThis.document = document;
   try { return run(); } finally { delete globalThis.document; }
 }
+/* `ariaCycle` answers successive tree reads from its entries in turn (a page that keeps changing); `text` null is a result text the page does not show. */
+let treeReads = 0;
 function locator() {
   return {
-    ariaSnapshot: async () => page.aria || "",
+    ariaSnapshot: async () => (page.ariaCycle ? page.ariaCycle[treeReads++ % page.ariaCycle.length] : page.aria || ""),
     first() { return locator(); },
-    innerText: async () => page.text || "",
+    innerText: async (options) => {
+      record({ innerText: options && options.timeout });
+      if (page.text === null) throw new Error("no such element");
+      return page.text || "";
+    },
     count: async () => page.count || 0,
   };
 }
@@ -43,9 +49,15 @@ const chromium = {
         return {
           async newPage() {
             let url = "about:blank";
+            const handlers = {};
             return {
-              on() {},
-              async goto(target) { url = target; record({ goto: target }); },
+              on(event, handler) { (handlers[event] ||= []).push(handler); },
+              /* `dataRequestInFlight`: the page starts a data request on opening and never finishes it. */
+              async goto(target) {
+                url = target;
+                record({ goto: target });
+                if (page.dataRequestInFlight) for (const handler of handlers.request || []) handler({ resourceType: () => "fetch" });
+              },
               async waitForLoadState() {},
               url: () => url,
               locator,

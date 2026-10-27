@@ -46,6 +46,8 @@ export interface RouteSnapshot {
   resultExpected?: boolean;
   /* Results counted on the route (the first integer of the result text, or the result selector's count). */
   resultCount?: number;
+  /* The count was read as 0 on two reads of a settled page (no data request in flight, the tree unchanged between them): a real empty state, neither a page with results nor an unconfirmed one. */
+  emptyConfirmed?: boolean;
   /* The route's effective location, read from its configured location selector (trim/collapse/200 chars). */
   effectiveLocation?: string;
   /* How many times the route's data state was read (1, or 2 after the one retry). Set only when a data state matched. */
