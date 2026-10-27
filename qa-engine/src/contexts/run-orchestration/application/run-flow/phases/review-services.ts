@@ -10,7 +10,8 @@ import type { ReviewStats } from "@contexts/generation/application/index.ts";
 import { diffContracts } from "@contexts/objective-signal/application/index.ts";
 import type { SpecFilesPort, SpecRoot } from "@kernel/ports/spec-files.port.ts";
 import type { ReviewSpecText } from "@contexts/generation/application/index.ts";
-import { refKey, type RebuttalEvidence, type ReviewRebuttal } from "../../../domain/review-rebuttals.service.ts";
+import { resolveSpecReference, specRelDirOf } from "@kernel/spec-path.ts";
+import { contractRefKey, refKey, type RebuttalEvidence, type ReviewRebuttal } from "../../../domain/review-rebuttals.service.ts";
 import type { DropReason } from "../../../domain/review-finding-filter.service.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 
@@ -45,19 +46,22 @@ export type ReviewedSpecs = ReturnType<typeof readReviewedSpecs>;
 export function rebuttalEvidence(ctx: WorkspaceRunContext, cases: readonly QaCase[], rebuttals: readonly ReviewRebuttal[]): RebuttalEvidence {
   const specRoot: SpecRoot = ctx.services.specRoot;
   const { intentState } = ctx.services;
-  const failedFiles = new Set(cases.filter((c) => c.status !== "pass" && c.file).map((c) => c.file!));
+  /* Case files and rebuttal references meet in the suite-relative form: the spec directory an agent prefixes to a path is not part of the file's name. */
+  const specRelDir = specRelDirOf(specRoot);
+  const suiteFile = (file: string): string => resolveSpecReference(file, specRelDir) ?? refKey(file);
+  const failedFiles = new Set(cases.filter((c) => c.status !== "pass" && c.file).map((c) => suiteFile(c.file!)));
   const greenCaseRefs = new Set<string>();
   for (const c of cases) {
     if (c.status !== "pass") continue;
     greenCaseRefs.add(refKey(c.name));
-    if (c.file && !failedFiles.has(c.file)) greenCaseRefs.add(refKey(c.file));
+    if (c.file && !failedFiles.has(suiteFile(c.file))) greenCaseRefs.add(suiteFile(c.file));
   }
   const intactClauses = new Set<string>();
   const extractor = ctx.deps.intentContract;
   if (extractor) {
     for (const rebuttal of rebuttals) {
       if (rebuttal.basis !== "contract") continue;
-      const key = refKey(rebuttal.ref);
+      const key = contractRefKey(rebuttal.ref, specRelDir);
       const hash = key.lastIndexOf("#");
       const file = hash > 0 ? key.slice(0, hash) : "";
       const clause = hash > 0 ? key.slice(hash + 1) : "";
@@ -72,7 +76,7 @@ export function rebuttalEvidence(ctx: WorkspaceRunContext, cases: readonly QaCas
       }
     }
   }
-  return { greenCaseRefs, intactClauses };
+  return { greenCaseRefs, intactClauses, specRelDir };
 }
 
 /* What the review phase cost, rolled up over its rounds. */

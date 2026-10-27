@@ -282,8 +282,8 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
     filteredReviewFindings = filtered.dropped.length;
     advisoryReviewFindings = filtered.advisory.length;
     droppedBlockingReasons = filtered.droppedBlocking;
-    /* A rejection whose every blocking finding was dropped turns into an approval here: the run must be able to tell. */
-    if (filtered.blocking.length === 0 && Object.keys(filtered.droppedBlocking).length > 0) addDroppedRejection(reviewStats, filtered.droppedBlocking);
+    /* A rejection whose every blocking finding was dropped turns into an approval here: the run must be able to tell. Only the model's own rejection counts: an approval's notes default to blocking severity and were never a rejection. */
+    if (!reviewResult.approved && filtered.blocking.length === 0 && Object.keys(filtered.droppedBlocking).length > 0) addDroppedRejection(reviewStats, filtered.droppedBlocking);
     if (filtered.dropped.length > 0 || filtered.advisory.length > 0) {
       try {
         ctx.telemetry.counter("qayaba.review.filtered")(filtered.dropped.length, { "qayaba.app": input.app });

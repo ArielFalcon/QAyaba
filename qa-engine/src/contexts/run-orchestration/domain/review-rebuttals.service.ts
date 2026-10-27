@@ -5,6 +5,8 @@
  * evidence — it is a dispute, and the run reports it instead of deciding. Pure: no I/O.
  */
 
+import { resolveSpecReference } from "@kernel/spec-path.ts";
+
 /** What a rebuttal rests on. A free-text reason is never a basis. */
 export type RebuttalBasis = "execution" | "contract";
 
@@ -24,6 +26,8 @@ export interface RebuttalEvidence {
   readonly greenCaseRefs: ReadonlySet<string>;
   /** `<spec>#<clauseId>` clauses the current bytes still hold. */
   readonly intactClauses: ReadonlySet<string>;
+  /** The spec directory under the mirror: both sets name specs suite-relative, and a rebuttal may spell the directory in front. */
+  readonly specRelDir?: string;
 }
 
 /** A finding the turn disputed without evidence the orchestrator could check. */
@@ -50,6 +54,23 @@ export function findingKey(text: string): string {
 /** A citation reference's identity: the same separators and path slashes, whatever the model wrote. */
 export function refKey(ref: string): string {
   return findingKey(ref).replaceAll("\\", "/");
+}
+
+/** The key a contract rebuttal's `<spec>#<clause>` holds in `intactClauses`: the spec in its suite-relative form, whatever prefix it was spelled with. */
+export function contractRefKey(ref: string, specRelDir: string): string {
+  const slashed = ref.trim().replaceAll("\\", "/");
+  const hash = slashed.lastIndexOf("#");
+  if (hash <= 0) return refKey(ref);
+  const spec = resolveSpecReference(slashed.slice(0, hash), specRelDir);
+  return `${spec ?? refKey(slashed.slice(0, hash))}#${refKey(slashed.slice(hash + 1))}`;
+}
+
+/** Whether the green set holds what an execution rebuttal names: a case name, or a spec in any spelling (a reference with a clause marker names no run). */
+function greenFor(ref: string, evidence: RebuttalEvidence): boolean {
+  if (evidence.greenCaseRefs.has(refKey(ref))) return true;
+  if (ref.includes("#")) return false;
+  const spec = resolveSpecReference(ref, evidence.specRelDir ?? "");
+  return spec !== undefined && evidence.greenCaseRefs.has(spec);
 }
 
 /*
@@ -80,8 +101,8 @@ export function verifyRebuttals(
   for (const rebuttal of rebuttals) {
     const checked =
       rebuttal.basis === "execution"
-        ? evidence.greenCaseRefs.has(refKey(rebuttal.ref))
-        : evidence.intactClauses.has(refKey(rebuttal.ref));
+        ? greenFor(rebuttal.ref, evidence)
+        : evidence.intactClauses.has(contractRefKey(rebuttal.ref, evidence.specRelDir ?? ""));
     for (const finding of findings) {
       if (!names(rebuttal.finding, finding)) continue;
       if (checked) withdrawn.add(finding);

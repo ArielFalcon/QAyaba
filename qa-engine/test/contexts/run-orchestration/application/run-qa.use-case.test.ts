@@ -9160,6 +9160,24 @@ test("a blocking finding that cites its spec with the spec directory in front st
   }
 });
 
+test("an approval that carries plain-string notes is no dropped rejection: the reviewer never rejected", async () => {
+  const { fixtures, generate } = findingFixtures();
+  try {
+    const { ports } = stubPorts({
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      review: async () => ({ approved: true, corrections: ["minor: a name could be clearer"], blockingCount: 0, parsed: true }),
+    });
+    ports.generation.author = generate;
+    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: true } }).run({ ...baseInput, runId: "findings-approval-notes" });
+
+    assert.equal(out.decision.sideEffect, "pr");
+    assert.equal(out.gateSignals.reviewer?.droppedRejections, undefined);
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
 test("a rejection whose every blocking finding the filter dropped is recorded on the decision span and on the reviewer's signal", async () => {
   const { fixtures, generate } = findingFixtures();
   try {

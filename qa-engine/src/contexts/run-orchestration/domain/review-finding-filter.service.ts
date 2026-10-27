@@ -9,7 +9,7 @@
  * Pure: no I/O. See docs and the D slice of the change spec.
  */
 
-import { resolveSpecReference } from "@kernel/spec-path.ts";
+import { resolveCitedSpec, resolveSpecReference } from "@kernel/spec-path.ts";
 
 export type ReviewCitationKind = "contract" | "execution" | "dom" | "arm";
 
@@ -50,12 +50,9 @@ export interface FilteredReviewFindings {
   readonly droppedBlocking: Partial<Record<DropReason, number>>;
 }
 
-const SPEC_PATH = /([\w./-]+\.spec\.ts)/;
-
 /** The suite-relative spec a citation's reference names, or undefined when it names none the suite can hold. A contract ref is `<spec>#<clause>`; the spec may carry the spec directory. */
 export function citedSpec(ref: string, specRelDir: string): string | undefined {
-  const named = SPEC_PATH.exec(ref)?.[1];
-  return named === undefined ? undefined : resolveSpecReference(named, specRelDir);
+  return resolveCitedSpec(ref, specRelDir);
 }
 
 /** A set of spec files in the canonical suite-relative form; what resolves to no spec is left out. */

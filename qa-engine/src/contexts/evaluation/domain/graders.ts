@@ -94,9 +94,10 @@ const approvalConsistent: Grader = {
       if ((e.signals.catalogGateFailClosed ?? 0) > 0) said.push("catalog gate failed closed");
       if (e.signals.coverageMode === "enforce" && e.signals.coverageStatus === "fail") said.push("change-coverage failed under the enforced policy");
       const dropped = e.signals.droppedRejections;
-      if (dropped && dropped.rounds > 0) {
-        const reasons = Object.entries(dropped.reasons).map(([reason, count]) => `${count} ${reason}`).join(", ");
-        said.push(`the reviewer rejected in ${dropped.rounds} round(s) but every blocking finding was dropped by the evidence filter (${reasons})`);
+      /* Only a valid citation the orchestrator could not resolve contradicts an approval; uncited, out-of-scope and not-executed drops are the evidence policy working as designed. */
+      const unresolved = dropped?.reasons["unresolved"] ?? 0;
+      if (dropped && dropped.rounds > 0 && unresolved > 0) {
+        said.push(`the reviewer rejected in ${dropped.rounds} round(s) but every blocking finding was dropped by the evidence filter (${unresolved} unresolved)`);
       }
     }
     const inconsistent = accepted(e) && said.length > 0;

@@ -18,6 +18,18 @@ export function specRelDirOf(root: { readonly mirrorDir: string; readonly specDi
  * `#clause` suffix; all of them resolve to `flows/x.spec.ts`. Refused: an absolute path, one that climbs out of the spec directory,
  * a hidden directory (the probe directory) and any file that is not a `.spec.ts`.
  */
+/* A spec path inside prose: any run of characters up to `.spec.ts`, not crossing whitespace, a `#` clause marker, a quote or a bracket (Unicode names and `@scope` folders included). */
+const SPEC_IN_TEXT = /[^\s#"'`()[\]<>]+\.spec\.ts/u;
+
+/*
+ * The one place a spec path is pulled out of free text (a citation or a rebuttal reference) and resolved: the suite-relative spec
+ * the text names, or undefined when it names none (see `resolveSpecReference`).
+ */
+export function resolveCitedSpec(text: string, specRelDir: string): string | undefined {
+  const named = SPEC_IN_TEXT.exec(text)?.[0];
+  return named === undefined ? undefined : resolveSpecReference(named, specRelDir);
+}
+
 export function resolveSpecReference(raw: string, specRelDir: string): string | undefined {
   const path = normalizeSpecPath(raw.split("#")[0]!);
   if (path === "" || path.startsWith("/")) return undefined;

@@ -179,3 +179,15 @@ test("a repeated fragment of exactly the identifying length is specific enough; 
   assert.deepEqual(verifyRebuttals([rebuttal({ finding: exact })], [finding], evidence()).withdrawn, [finding]);
   assert.deepEqual(verifyRebuttals([rebuttal({ finding: exact.slice(0, 23) })], [finding], evidence()).withdrawn, []);
 });
+
+test("a rebuttal spells the spec with the spec directory in front and still verifies, on either basis", () => {
+  const prefixed = evidence({ specRelDir: "e2e" });
+  const execution = verifyRebuttals([rebuttal({ finding: FINDING, ref: "e2e/flows/checkout.spec.ts" })], [FINDING], prefixed);
+  assert.deepEqual(execution.withdrawn, [FINDING]);
+  const contract = verifyRebuttals(
+    [rebuttal({ finding: FINDING, basis: "contract", ref: "e2e/flows/checkout.spec.ts#assertion-0" })],
+    [FINDING],
+    prefixed,
+  );
+  assert.deepEqual(contract.withdrawn, [FINDING]);
+});

@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeSpecPath, resolveSpecReference, specRelDirOf } from "@kernel/spec-path.ts";
+import { normalizeSpecPath, resolveCitedSpec, resolveSpecReference, specRelDirOf } from "@kernel/spec-path.ts";
+
+test("a spec named inside prose resolves whatever characters its name holds, and stops at whitespace, a clause marker or a quote", () => {
+  assert.equal(resolveCitedSpec("see e2e/flows/café-ñame.spec.ts#clause-1", "e2e"), "flows/café-ñame.spec.ts");
+  assert.equal(resolveCitedSpec("`flows/@scope/pago.spec.ts`", "e2e"), "flows/@scope/pago.spec.ts");
+  assert.equal(resolveCitedSpec('"flows/x.spec.ts" fails', ""), "flows/x.spec.ts");
+  assert.equal(resolveCitedSpec("the checkout flow", "e2e"), undefined);
+});
 
 test("a spec path keeps its folders and file name", () => {
   assert.equal(normalizeSpecPath("flows/login.spec.ts"), "flows/login.spec.ts");

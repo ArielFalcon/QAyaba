@@ -95,6 +95,16 @@ test("an accepted run whose reviewer rejection lost every blocking finding to th
   assert.equal(find(evidence({ signals: signals({ droppedRejections: undefined }) }), "approval_consistent")?.value, true);
 });
 
+test("only a drop the orchestrator could not resolve contradicts an approval; the designed evidence policy does not", () => {
+  const policy = { rounds: 1, reasons: { uncited: 1, "out-of-scope": 1, "not-executed": 1 } };
+  assert.equal(find(evidence({ signals: signals({ droppedRejections: policy }) }), "approval_consistent")?.value, true);
+  const mixed = { rounds: 1, reasons: { uncited: 1, unresolved: 1 } };
+  const score = find(evidence({ signals: signals({ droppedRejections: mixed }) }), "approval_consistent");
+  assert.equal(score?.value, false);
+  assert.match(score?.comment ?? "", /1 unresolved/);
+  assert.doesNotMatch(score?.comment ?? "", /uncited/);
+});
+
 test("low coverage only contradicts an approval when the policy enforces it", () => {
   assert.equal(find(evidence({ signals: signals({ coverageStatus: "fail", coverageMode: "signal" }) }), "approval_consistent")?.value, true);
 });
