@@ -43,8 +43,8 @@ export { classifyGenerationEnd, renderGenerationNote } from "../domain/generatio
 export { DIFF_TIME_BUDGET_ENV, resolveDiffTimeBudgets } from "../domain/generator-time-budget.ts";
 export type { HarnessFacts } from "../domain/harness-facts.ts";
 export { ARTIFACT_REFERENCES } from "../domain/prompt-artifact-references.ts";
-export { AGENT_BROWSER_SECTION_ID, CLOSED_LOOP_SECTION_ID, HARNESS_FACTS_SECTION_ID, LEAD_PLAN_SECTION_ID, STEP_LIMIT_SECTION_ID, countDirectives, findingKey, hasTrustLanguage, lintCell } from "../domain/prompt-contract-lint.ts";
-export type { LintCell, LintFinding, LintSection } from "../domain/prompt-contract-lint.ts";
+export { AGENT_BROWSER_SECTION_ID, CLOSED_LOOP_SECTION_ID, HARNESS_FACTS_SECTION_ID, LEAD_PLAN_SECTION_ID, STEP_LIMIT_SECTION_ID, claim, countDirectives, findingKey, hasTrustLanguage, lintCell } from "../domain/prompt-contract-lint.ts";
+export type { DelegationGrant, LintCell, LintFinding, LintSection } from "../domain/prompt-contract-lint.ts";
 export { PACK_HEADINGS, SUITE_LISTING_LABELS } from "../domain/prompt-headings.ts";
 export { isPageOfTemplate } from "../domain/route-instantiation.ts";
 export { ROUTE_LINK_FIELDS } from "../domain/route-ranking.ts";

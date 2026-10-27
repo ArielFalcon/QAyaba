@@ -9,54 +9,10 @@
  * paraphrased restatement; claim/text drift is caught by the per-behavior tests, not here.
  */
 
-export type FactId =
-  | "blast-radius"
-  | "fe-be-links"
-  | "api-operations"
-  | "dom-live"
-  | "dom-failure"
-  | "changed-values"
-  | "arch-map"
-  | "structural-signal"
-  | "co-change"
-  | "service-links"
-  | "harness-facts"
-  | "step-limit"
-  | "closed-loop"
-  | "agent-browser"
-  | "geolocation"
-  | "lead-plan"
-  | "existing-suite"
-  | "learned-rules"
-  | "exemplars"
-  | "diff"
-  /* The orchestrator, not the agent, compiles and runs what a code run writes. */
-  | "orchestrator-validation"
-  /* A failure of the static gate (compile, lint), which nothing executed. */
-  | "gate-failure"
-  /* The bounded snapshot of a service's contracts a cross-repo run reads instead of the service's source. */
-  | "staged-service-snapshot"
-  /* The reviewer's reply is one bare JSON object, and an empty corrections list beside an approval is a complete answer. */
-  | "bare-json-reply"
-  | "empty-corrections-valid"
-  /* The reviewer's specs section holds the spec contents themselves, not only the names of the files. */
-  | "spec-contents-inline";
+import type { BriefContractPart, ClaimAction, FactId, PromptClaim } from "@kernel/prompt-claim.ts";
+import { BRIEF_CONTRACT_PARTS } from "@kernel/prompt-claim.ts";
 
-export type ClaimAction =
-  | "read"
-  | "consult"
-  | "orient"
-  | "analyze-repo"
-  | "state-outcome"
-  | "derive-from-code"
-  | "use-runtime-signals"
-  /* The way out for a route the injected grounding does not cover. */
-  | "use-browser-for-uncovered-route";
-
-export type PromptClaim =
-  | { kind: "provides"; fact: FactId }
-  | { kind: "frames"; fact: FactId; as: "established" | "unverified" }
-  | { kind: "directs"; action: ClaimAction; target?: FactId };
+export type { BriefContractPart, ClaimAction, FactId, PromptClaim };
 
 /* Builders declare claims with these; the shape is the only thing the lint reads. */
 export const claim = {
@@ -64,6 +20,12 @@ export const claim = {
   frames: (fact: FactId, as: "established" | "unverified"): PromptClaim => ({ kind: "frames", fact, as }),
   directs: (action: ClaimAction, target?: FactId): PromptClaim =>
     target ? { kind: "directs", action, target } : { kind: "directs", action },
+  /* A delegation brief: the section states this part of the brief's contract. */
+  statesContract: (part: BriefContractPart): PromptClaim => ({ kind: "states-contract", part }),
+  /* A delegation brief: the section says the turn holds this tool. */
+  statesTool: (tool: string): PromptClaim => ({ kind: "states-tool", tool }),
+  /* A delegation brief: the section says the turn may write files. */
+  statesWrite: (): PromptClaim => ({ kind: "states-write" }),
 };
 
 export interface LintSection {
@@ -78,11 +40,19 @@ export interface LintSection {
   factsOnly?: boolean;
 }
 
+/* What the turn of a delegation brief grants the sidekick: the tools it holds and whether it may write. The brief is linted against it. */
+export interface DelegationGrant {
+  tools: readonly string[];
+  writes: boolean;
+}
+
 export interface LintCell {
   name: string;
   /* The turn is a regeneration (fix / reviewer corrections / coverage gap / selector contradictions). */
   regen: boolean;
   sections: readonly LintSection[];
+  /* Set on the cell of a delegation brief: the brief is held to its contract (R17) and to what its turn grants (R18). */
+  delegation?: DelegationGrant;
 }
 
 export interface LintBudget {
@@ -111,7 +81,7 @@ export interface LintOptions {
   artifactReferences?: readonly ArtifactReference[];
 }
 
-export type LintRule = "R1" | "R2" | "R3" | "R4" | "R5" | "R6" | "R7" | "R8" | "R9" | "R10" | "R11" | "R12" | "R13" | "R14" | "R15" | "R16";
+export type LintRule = "R1" | "R2" | "R3" | "R4" | "R5" | "R6" | "R7" | "R8" | "R9" | "R10" | "R11" | "R12" | "R13" | "R14" | "R15" | "R16" | "R17" | "R18";
 
 export interface LintFinding {
   rule: LintRule;
@@ -120,6 +90,8 @@ export interface LintFinding {
   fact?: FactId;
   /* The artifact a section refers to and the cell does not provide (R13). */
   artifact?: string;
+  /* The contract part a brief states zero or several times (R17), or the tool or write grant a brief states without its turn granting it, or whose grant it never states (R18). */
+  part?: string;
   /* The numbers behind a size finding: duplicated bytes (R7), or what a budget measured against its limit (R9). */
   measured?: number;
   limit?: number;
@@ -221,7 +193,7 @@ export function hasTrustLanguage(text: string): boolean {
 }
 
 export function findingKey(finding: LintFinding): string {
-  return [finding.rule, ...[...finding.sections].sort()].join("|");
+  return [finding.rule, ...[...finding.sections].sort(), ...(finding.part !== undefined ? [finding.part] : [])].join("|");
 }
 
 /* A line shorter than this (once trimmed) is too generic to count as a duplicate. */
@@ -394,6 +366,8 @@ function ruleTrustNeedsFraming(cell: LintCell, headingNames: readonly string[] |
       (s) =>
         s.layer === "assembled" &&
         !s.verbatim &&
+        /* The words of an answer's shape (an acceptance status named `unverified`) are values the sidekick reports, not a trust the section assigns. */
+        !s.claims.some((c) => c.kind === "states-contract" && c.part === "return-shape") &&
         outsideReferences(s.text, headingNames).some(hasTrustLanguage) &&
         !s.claims.some((c) => c.kind === "frames"),
     )
@@ -487,6 +461,39 @@ function ruleReferencesNeedTheirArtifact(cell: LintCell, references: readonly Ar
     });
 }
 
+/* R17: a delegation brief states each part of its contract (objective, return shape, boundary, tools) in exactly one section. */
+function ruleBriefContract(cell: LintCell): LintFinding[] {
+  if (!cell.delegation) return [];
+  return BRIEF_CONTRACT_PARTS.flatMap((part) => {
+    const owners = uniqueSorted(
+      cell.sections.filter((s) => s.layer === "assembled" && s.claims.some((c) => c.kind === "states-contract" && c.part === part)).map((s) => s.id),
+    );
+    if (owners.length === 0) return [{ rule: "R17" as const, sections: [], part }];
+    return allPairs(owners).map(([a, b]) => ({ rule: "R17" as const, sections: [a, b], part }));
+  });
+}
+
+/* R18: a delegation brief states only what its turn grants: every tool it names is held, every tool held is named, and it says the sidekick may write only when the turn lets it. */
+function ruleBriefStatesGrant(cell: LintCell): LintFinding[] {
+  const grant = cell.delegation;
+  if (!grant) return [];
+  const assembled = cell.sections.filter((s) => s.layer === "assembled");
+  const stated = new Set(assembled.flatMap((s) => s.claims.flatMap((c) => (c.kind === "states-tool" ? [c.tool] : []))));
+  const held = new Set(grant.tools);
+  const overstated = [...stated]
+    .filter((tool) => !held.has(tool))
+    .map((tool) => ({
+      rule: "R18" as const,
+      sections: uniqueSorted(assembled.filter((s) => s.claims.some((c) => c.kind === "states-tool" && c.tool === tool)).map((s) => s.id)),
+      part: `tool:${tool}`,
+    }));
+  const unstated = [...held].filter((tool) => !stated.has(tool)).map((tool) => ({ rule: "R18" as const, sections: [], part: `tool:${tool}` }));
+  const writes = grant.writes
+    ? []
+    : assembled.filter((s) => s.claims.some((c) => c.kind === "states-write")).map((s) => ({ rule: "R18" as const, sections: [s.id], part: "write" }));
+  return [...overstated, ...unstated, ...writes];
+}
+
 export function lintCell(cell: LintCell, options: LintOptions = {}): readonly LintFinding[] {
   const findings = [
     ...ruleSingleFraming(cell),
@@ -505,6 +512,8 @@ export function lintCell(cell: LintCell, options: LintOptions = {}): readonly Li
     ...rulePolarityAgreesWithFraming(cell),
     ...ruleNoDelegatedAuthority(cell),
     ...ruleNoEffortFloor(cell),
+    ...ruleBriefContract(cell),
+    ...ruleBriefStatesGrant(cell),
   ];
   /* Ordered by key as text, then by fact: the same cell always yields the same list, comparable across runs. */
   return findings
