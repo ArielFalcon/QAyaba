@@ -66,6 +66,20 @@ test("a child never inherits the orchestrator's secrets or its DEV_TEST_* accoun
   }
 });
 
+test("a suite is told the DEV origins its egress lease holds, as data, and no caller can name others; no other profile is told them", () => {
+  const h = harness();
+  try {
+    const scope: RunScope = { ...h.scope, egress: { dev: ["https://dev.example.com", "https://*.api.example.com:8443"], install: ["https://registry.npmjs.org"] } };
+    h.port.spawn("npx", ["playwright"], { cwd: "/m", profile: "suite", scope, extraEnv: { PW_DEV_ORIGINS: JSON.stringify(["https://elsewhere.example.org"]) } });
+    for (const profile of SANDBOX_PROFILES.filter((p) => p !== "suite")) h.port.spawn("npx", ["playwright"], { cwd: "/m", profile, scope });
+    const suiteEnv = h.calls[0]!.options.env as Record<string, string>;
+    assert.deepEqual(JSON.parse(suiteEnv.PW_DEV_ORIGINS ?? "null"), ["https://dev.example.com", "https://*.api.example.com:8443"]);
+    for (const call of h.calls.slice(1)) assert.equal("PW_DEV_ORIGINS" in (call.options.env as Record<string, string>), false);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
 test("a login carries the account it is given; a suite given the same account does not", () => {
   const h = harness();
   try {

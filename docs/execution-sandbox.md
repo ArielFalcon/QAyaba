@@ -26,7 +26,7 @@ detached, as the sandbox uid and gid (`CODE_SANDBOX_UID`, `1002` in the image), 
 | Profile | Used for | Environment (besides `PATH`, `LANG`, `HOME=<work dir>/home`, `TMPDIR=<work dir>/tmp`, `PLAYWRIGHT_BROWSERS_PATH`) | Network |
 |---|---|---|---|
 | `offline` | `tsc`, `eslint`, `playwright test --list` | nothing | none |
-| `suite` | the specs, the cleanup spec, the DOM capture | `PW_*` the caller names, `PW_STORAGE_STATE` (a per-spawn copy), the client certificate (a copy) and its passphrase, `DEV_ENV_USER/PASS` (the DEV HTTP-Basic gate) | the app's origins |
+| `suite` | the specs, the cleanup spec, the DOM capture | `PW_*` the caller names, `PW_DEV_ORIGINS` (the DEV origins of the run's egress lease, as a JSON list, set by the launcher over any the caller names), `PW_STORAGE_STATE` (a per-spawn copy), the client certificate (a copy) and its passphrase, `DEV_ENV_USER/PASS` (the DEV HTTP-Basic gate) | the app's origins |
 | `login` | the auth setup, the login discovery | the `suite` set without a session, plus **`DEV_TEST_USER/PASS` (the test account)** | the app's origins |
 | `install` | `npm ci`, a code-mode install / test / coverage, Stryker | the package-manager and toolchain variables (`npm_config_*`, `JAVA_HOME`, `GOPATH`, ...) rebased under the run's home | registries |
 | `graph` | the code-graph engine (`codegraph`, pinned in the image under `/opt/codegraph`) and its store reader, on the run's graph workspace | the engine's off switches: `DO_NOT_TRACK=1`, `CODEGRAPH_TELEMETRY=0`, `CODEGRAPH_NO_UPDATE_CHECK=1` | none |

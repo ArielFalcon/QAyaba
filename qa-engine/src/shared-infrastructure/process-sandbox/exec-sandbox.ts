@@ -129,6 +129,11 @@ export interface ExecSandboxDeps {
   warn?: (line: string) => void;
 }
 
+/* The caller's extra variables, and for a suite the DEV origins its egress lease holds (PW_DEV_ORIGINS, a JSON list): the seed's write counter counts only a write to one of them. The launcher sets it after the caller's, so the origins are always the run's own. */
+function extraEnvFor(options: ExecSpawnOptions, scope: RunScope): Record<string, string> {
+  return { ...options.extraEnv, ...(options.profile === "suite" ? { PW_DEV_ORIGINS: JSON.stringify(scope.egress.dev) } : {}) };
+}
+
 export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
   const spawnFn = deps.spawnFn ?? nodeSpawn;
   const warn = deps.warn ?? ((line: string): void => engineLog.warn(line));
@@ -238,7 +243,7 @@ export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
         ...(scope.suiteAccount ? { suiteAccount: scope.suiteAccount } : {}),
         staged,
         ...(options.account ? { account: options.account } : {}),
-        ...(options.extraEnv ? { extraEnv: options.extraEnv } : {}),
+        ...(options.extraEnv || options.profile === "suite" ? { extraEnv: extraEnvFor(options, scope) } : {}),
       });
       const ids = sandboxSpawnOptions({}, deps.sandbox);
       /* Whatever goes wrong while the span is set up is dropped here: tracing must not touch the spawn or the lease. */
