@@ -199,6 +199,7 @@ export const ATTRIBUTES = {
   "qayaba.candidates.entries": spec("string[]", "Each candidate as `id: entry [tier, reachability, basis]`, in the order they are offered.", "high", "none", 50),
   "qayaba.candidates.proofs": spec("string[]", "The evidence path of each candidate as `id: step > step > ...` (symbol and file names only).", "high", "none", 50),
   "qayaba.candidates.with_specs": int("Candidates the suite already holds a spec for."),
+  "qayaba.candidates.shared_seeds": int("Changed symbols a hub reaches, attached to the candidates of the pages it reaches (sharedSeeds), summed over the candidates."),
   "qayaba.exec.command_class": str("A closed set taken from the call site: tsc, eslint, playwright-list, playwright-test, npm-ci, login, dom-capture, browser or code-test."),
   "qayaba.exec.signal": str("The signal that ended the child, if any."),
   "qayaba.exec.timed_out": bool("The child was killed by its timeout."),

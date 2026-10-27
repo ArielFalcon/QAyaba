@@ -313,9 +313,10 @@ function recordCandidates(ctx: WorkspaceRunContext, candidates: readonly UseCase
       attrs: {
         "qayaba.app": ctx.input.app,
         "qayaba.candidates.count": candidates.length,
-        "qayaba.candidates.entries": candidates.map((c) => `${c.id}: ${c.entry.kind === "page" ? `page ${c.entry.route}` : `${c.entry.verb} ${c.entry.path}`} [${c.tier}, ${c.reachability}, ${c.basis}]${c.sharedSeeds !== undefined ? ` [shared seeds: ${c.sharedSeeds.length}]` : ""}`),
+        "qayaba.candidates.entries": candidates.map((c) => `${c.id}: ${c.entry.kind === "page" ? `page ${c.entry.route}` : `${c.entry.verb} ${c.entry.path}`} [${c.tier}, ${c.reachability}, ${c.basis}]`),
         "qayaba.candidates.proofs": candidates.map((c) => `${c.id}: ${c.evidence.join(" > ")}`),
-        "qayaba.candidates.with_specs": candidates.filter((c) => c.existingSpecs.length > 0).length,      },
+        "qayaba.candidates.with_specs": candidates.filter((c) => c.existingSpecs.length > 0).length,
+        "qayaba.candidates.shared_seeds": candidates.reduce((n, c) => n + (c.sharedSeeds?.length ?? 0), 0),      },
     }).end();
   } catch (err) {
     engineLog.error(`[telemetry] the candidates span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);

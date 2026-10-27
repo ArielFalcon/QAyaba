@@ -89,6 +89,7 @@ test("a diff run asks for the scope of every repo of its change, each at its own
     assert.deepEqual(attrs["qayaba.change_scope.seed_basis"], [`${FRONT}: lines`]);
     assert.equal(telemetry.candidateSpans.length, 1);
     assert.equal(telemetry.candidateSpans[0]!["qayaba.candidates.count"], 2);
+    assert.equal(telemetry.candidateSpans[0]!["qayaba.candidates.shared_seeds"], 0);
     assert.match(String((telemetry.candidateSpans[0]!["qayaba.candidates.entries"] as string[])[0]), /^uc-[0-9a-f]{8}: page \/a \[direct, page, implementation\]$/);
   } finally {
     dispose(rig);
