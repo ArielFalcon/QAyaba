@@ -28,13 +28,14 @@ export function specFileForFlow(flow: string): string {
 function providedPathsOf(input: OpencodeRunInput, assembled: AssembledPrompt): string[] {
   const sectionSizes = assembled.sectionSizes;
   const paths: string[] = [];
-  const mapReferenced = assembled.windowFit?.degraded.some((section) => section.id === "arch-map") === true;
+  const referenced = (id: string): boolean => assembled.windowFit?.degraded.some((section) => section.id === id) === true;
+  const mapReferenced = referenced("arch-map");
   if (sectionSizes["arch-map"] !== undefined && !mapReferenced) paths.push(`${input.e2eRelDir}/.qa/context.json`);
   if (sectionSizes[HARNESS_FACTS_SECTION_ID] !== undefined && input.harnessFacts?.fixtures) {
     paths.push(`${input.e2eRelDir}/${input.harnessFacts.fixtures.file}`);
   }
   if (sectionSizes[HARNESS_FACTS_SECTION_ID] !== undefined && input.harnessFacts?.playwright) paths.push(`${input.e2eRelDir}/playwright.config.ts`);
-  if (sectionSizes["static-signal"] !== undefined) paths.push(...(input.staticSignalFiles ?? []));
+  if (sectionSizes["static-signal"] !== undefined && !referenced("static-signal")) paths.push(...(input.staticSignalFiles ?? []));
   return paths;
 }
 
@@ -43,21 +44,17 @@ export type GeneratorPrompt = AssembledPrompt & { promptRole: "lead" | "author" 
 
 /*
  * How many ranked pieces of the planning diff the lead's prompt shows: the longest prefix of the ranking whose prompt the fit rule
- * does not call over the lead's window and the assembler's budget does not cut; every other piece is named as a reference. The
- * prompt with no piece shown (the change map and every reference) is assembled once and the size of any other count follows
- * from the section's own size, so nothing is assembled per piece. A prompt over the window even with no piece shown is sent in
- * that minimal form, and its fit records it. An unknown fit and no budget hold nothing back.
+ * does not call over the lead's window; every other piece is named as a reference. The prompt with no piece shown (the change map
+ * and every reference) is assembled once and the size of any other count follows from the section's own size, so nothing is
+ * assembled per piece. A prompt over the window even with no piece shown is sent in that minimal form, and its fit records it. An
+ * unknown fit holds nothing back.
  */
 function fittedPlanDiffShown(ctx: PromptContext, fit: PromptFit | undefined): number {
   const section = ctx.planDiff;
   if (!section) return 0;
-  /* The assembler reads a budget of 0 as none. */
-  const budget = ctx.budgetBytes !== undefined && ctx.budgetBytes > 0 ? ctx.budgetBytes : undefined;
-  const outcome = (bytes: number): ReturnType<PromptFit> => fit?.({ bytes, role: ctx.promptRole }) ?? "unknown";
-  const allowed = (bytes: number): boolean => (budget === undefined || bytes <= budget) && outcome(bytes) !== "over";
-  if (budget === undefined && fit === undefined) return section.pieces;
-  const minimal = assemble(renderSections(GENERATOR_SECTIONS, { ...ctx, planDiffShown: 0 }), { budgetBytes: budget });
-  if ((minimal.droppedSections?.length ?? 0) > 0 || Object.values(minimal.sectionItems).some((item) => item.capped)) return 0;
+  if (fit === undefined) return section.pieces;
+  const allowed = (bytes: number): boolean => fit({ bytes, role: ctx.promptRole }) !== "over";
+  const minimal = assemble(renderSections(GENERATOR_SECTIONS, { ...ctx, planDiffShown: 0 }));
   const rest = Buffer.byteLength(minimal.text, "utf8") - section.bytes(0);
   let shown = 0;
   while (shown < section.pieces && allowed(rest + section.bytes(shown + 1))) shown++;
@@ -71,9 +68,9 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   const fit = opts.fit;
   const windowFit = fit ? { fit: (bytes: number) => fit({ bytes, role: ctx.promptRole }) } : {};
   const assembleWith = (assembly: Assembly): AssembledPrompt =>
-    assemble(renderSections(GENERATOR_SECTIONS, withAssembly(ctx, assembly)), { budgetBytes: ctx.budgetBytes, ...windowFit });
+    assemble(renderSections(GENERATOR_SECTIONS, withAssembly(ctx, assembly)), windowFit);
 
-  /* The listing is a section the byte budget may cut or shed. What the task says about reading the suite depends on whether the listing is there, and the decision not to ask for the outcome again rests on the objectives the listing shows. So when the budget sheds the listing the prompt is assembled again with the task worded for a prompt that has none, so that the agent is sent to read the suite and no claim reads a fact the prompt provides; when it cuts the listing, the prompt is assembled again with what is left of it. Either way the task asks for the outcome. The second assembly is kept only if the question costs the prompt no section and no part of the head of the listing: a wording must not take what the listing is for. */
+  /* The listing is a section the window fit rule may give a smaller render. What the task says about reading the suite depends on whether the listing is there, and the decision not to ask for the outcome again rests on the objectives the listing shows. So when the listing is absent the prompt is assembled again with the task worded for a prompt that has none, so that the agent is sent to read the suite and no claim reads a fact the prompt provides; when the listing gave up entries, the prompt is assembled again with what is left of it. Either way the task asks for the outcome. The second assembly is kept only if the question costs the prompt no section and no part of the head of the listing: a wording must not take what the listing is for. */
   let assembled = assembleWith(ctx.assembly);
   const kept = assembled.sectionSizes[SUITE_LISTING_SECTION_ID];
   if (ctx.suiteIsListed && kept !== Buffer.byteLength(ctx.listingContent, "utf8")) {
@@ -100,7 +97,7 @@ export function buildReviewerPromptAssembled(input: ReviewInput, opts: BuildRevi
   const fit = opts.fit;
   const sectionFit = fit ? { fit: (bytes: number) => fit({ bytes, role: "reviewer" }) } : {};
   const assembleWith = (degraded: ReadonlySet<string>, sections: "whole" | "fitted" = "fitted", context = ctx): AssembledPrompt =>
-    assemble(renderSections(REVIEWER_SECTIONS, { ...context, degraded }), { budgetBytes: context.budgetBytes, ...(sections === "fitted" ? sectionFit : {}) });
+    assemble(renderSections(REVIEWER_SECTIONS, { ...context, degraded }), (sections === "fitted" ? sectionFit : {}));
   if (!fit) return assembleWith(ctx.degraded);
   const over = (bytes: number): boolean => fit({ bytes, role: "reviewer" }) === "over";
   let assembled = assembleWith(ctx.degraded, "whole");

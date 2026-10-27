@@ -9,7 +9,6 @@ import { buildPromptAssembled, buildReviewerPromptAssembled } from "@contexts/ge
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 import type { ReviewInput } from "@contexts/generation/application/index.ts";
 import { WINDOW_FIT_REASON } from "@kernel/prompt-sections.ts";
-import { assemblerBudgetBytes } from "@kernel/context-budget.ts";
 import type { PromptFit } from "@contexts/generation/infrastructure/prompt-builders/generator-context.ts";
 
 const windowOf = (bytes: number): PromptFit => ({ bytes: size }) => (size <= bytes ? "fits" : "over");
@@ -97,11 +96,11 @@ test("the reviewer's diff objective over its window gives hunks up as references
   assert.ok(prompt.sectionItems["reviewer-objective"]?.omissions.some((o) => o.reason === WINDOW_FIT_REASON));
 });
 
-test("a giant diff given the reviewer's window never starves its specs or its DOM, and the prompt stays inside the reviewer's budget", () => {
-  const budget = assemblerBudgetBytes(200_000)!;
+test("a giant diff given the reviewer's window never starves its specs or its DOM, and the prompt stays inside the reviewer's window", () => {
+  const budget = 600_000;
   const { text, sectionSizes } = buildReviewerPromptAssembled(
     review({ specs: ["flows/checkout.spec.ts"], domSnapshot: "button: Submit\nheading: Checkout" }),
-    { windowTokens: () => 200_000, fit: windowOf(budget) },
+    { fit: windowOf(budget) },
   );
   assert.notEqual(sectionSizes["reviewer-objective"], undefined, "the objective gives hunks up, it is not dropped");
   assert.notEqual(sectionSizes["reviewer-specs"], undefined);

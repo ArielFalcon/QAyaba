@@ -440,7 +440,7 @@ async function generatorPrompts(subject: string): Promise<PromptText[]> {
     coveringSpecs(validSpecs()).flatMap((spec) =>
       STEP_LIMITS.map(async (limit) => ({
         source: `generator prompt ${cellName(spec)}${limitSuffix(limit)}`,
-        text: buildPromptAssembled({ ...(await buildInput(spec, limit)), repo: repoOf(subject) }, { budgetBytes: 0 }).text,
+        text: buildPromptAssembled({ ...(await buildInput(spec, limit)), repo: repoOf(subject) }).text,
       })),
     ),
   );

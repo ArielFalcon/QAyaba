@@ -111,9 +111,7 @@ async function twoStepTurn(r: Rig, prompt = "write the spec") {
     round: 0,
     sectionSizes: { task: 10, "working-rules": 40 },
     sectionHashes: { task: "h-task", "working-rules": "h-rules" },
-    sectionsDropped: 1,
     sectionsDegraded: 2,
-    promptBudgetBytes: 90_000,
     promptStablePrefixBytes: 40,
   });
   await session.dispose();
@@ -211,7 +209,7 @@ test("the turn names its agent, session, role, prompt and the models, and sums i
   assert.deepEqual([a("gen_ai.request.model"), a("gen_ai.provider.name"), a("gen_ai.response.model")], ["asked-model", "p-answer", "m-answer"]);
   assert.equal(a("langfuse.observation.type"), "agent");
   assert.equal(a("qayaba.agent.steps.limit"), 25);
-  assert.deepEqual([a("qayaba.prompt.bytes"), a("qayaba.prompt.sections.dropped"), a("qayaba.prompt.budget_bytes"), a("qayaba.prompt.stable_prefix.bytes")], [14, 1, 90_000, 40]);
+  assert.deepEqual([a("qayaba.prompt.bytes"), a("qayaba.prompt.stable_prefix.bytes")], [14, 40]);
   assert.equal(a("qayaba.prompt.sections.degraded"), 2, "how many sections the window fit rule gave up to fit the role's window");
   assert.equal(a("qayaba.prompt.hash"), r.rows[0]!.promptHash, "the span mirrors the record: one hash, of the bytes sent");
   assert.match(String(a("qayaba.prompt.hash")), /^[0-9a-f]{64}$/);

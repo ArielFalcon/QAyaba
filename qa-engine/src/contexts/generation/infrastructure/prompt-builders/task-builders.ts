@@ -279,7 +279,7 @@ export interface TaskGuards {
   mapInjected: boolean;
   /* The prompt carries an explored blast radius: a structural signal that names symbols. */
   blastRadiusGrounded: boolean;
-  /* The listing of the specs that already exist is in this prompt, which the byte budget may have shed from it. */
+  /* The listing of the specs that already exist is in this prompt, which a section's own cap may have dropped from it. */
   suiteListed: boolean;
   /* The turn asks for the outcome again: a spec under correction has no objective its lead declared, or a reviewer disputes one. Read on a regeneration only. */
   reaskObjective: boolean;

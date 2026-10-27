@@ -9,7 +9,7 @@ test("assemble delegates to the injected assemble fn and returns its AssembledPr
     (heading, band, body, opts) => ({ heading, band, body, ...opts }) as never,
   );
   const s = adapter.section("task", "task", "do x", { priority: 1 });
-  const out = adapter.assemble([s], { budgetBytes: 1000 });
+  const out = adapter.assemble([s], { separator: "\n\n" });
   assert.ok(seenSections, "assemble must be called");
   assert.equal(out.text, "ASM");
 });
@@ -31,16 +31,16 @@ test("sectionSizes are forwarded from the assembled result for telemetry", () =>
     (_id, _role, content) => ({ content }) as never,
   );
   const s = adapter.section("task", "task", "do y");
-  const out = adapter.assemble([s], { budgetBytes: 500 });
+  const out = adapter.assemble([s], { separator: "\n\n" });
   assert.deepEqual(out.sectionSizes, { task: 7, diff: 42 });
 });
 
-test("assemble is called with the budgetBytes passed in (opts forwarded)", () => {
+test("assemble is called with the options passed in (opts forwarded)", () => {
   let seenOpts: unknown = null;
   const adapter = new ContextAssemblerAdapter(
     (_sections, opts) => { seenOpts = opts; return { text: "", sectionSizes: {}, claims: {}, sectionItems: {}, stablePrefixBytes: 0 }; },
     (_id, _role, content) => ({ content }) as never,
   );
-  adapter.assemble([], { budgetBytes: 9999 });
-  assert.deepEqual(seenOpts, { budgetBytes: 9999 });
+  adapter.assemble([], { separator: "\n\n" });
+  assert.deepEqual(seenOpts, { separator: "\n\n" });
 });

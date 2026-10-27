@@ -10,7 +10,6 @@ import { buildSuiteListing, type SuiteListing } from "@contexts/generation/domai
 import { renderSuiteListing } from "@contexts/generation/domain/suite-listing-render.ts";
 import type { OpencodeRunInput } from "../../domain/opencode-run-input.ts";
 import { renderArchitectureContextParts } from "./architecture-context.ts";
-import { assemblerBudgetBytes } from "@kernel/context-budget.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 import { redactForModel } from "./prompt-text.ts";
 import { planDiff } from "../../domain/plan-diff.ts";
@@ -21,10 +20,6 @@ import { PlanDiffSection } from "./plan-diff-section.ts";
 export type PromptFit = (request: { bytes: number; role: AgentRole }) => "fits" | "over" | "unknown";
 
 export interface BuildPromptAssembledOpts {
-  /** Explicit byte-budget override. Absent, the budget derives from the window of the role the prompt is for. */
-  budgetBytes?: number;
-  /** The run's context window of a role, in tokens (the per-run ContextWindowPort). Absent, or a role whose window it does not know: the prompt is not cut. */
-  windowTokens?: (role: AgentRole) => number | undefined;
   /** The run's fit rule. Absent, or an `unknown` outcome: nothing is held back for it. */
   fit?: PromptFit;
 }
@@ -58,8 +53,6 @@ export interface Assembly {
 
 export interface PromptContext {
   readonly input: OpencodeRunInput;
-  /* The byte budget the prompt is assembled to; undefined when the window of the role it is for is unknown, which cuts nothing. */
-  readonly budgetBytes: number | undefined;
   /* The role the prompt is for: the lead on a planning turn, the author on any other. */
   readonly promptRole: "lead" | "author";
   readonly isGenerationMode: boolean;
@@ -151,7 +144,6 @@ export function derivePromptContext(input: OpencodeRunInput, opts: BuildPromptAs
 
   return {
     input,
-    budgetBytes: opts.budgetBytes ?? assemblerBudgetBytes(opts.windowTokens?.(promptRole)),
     promptRole,
     isGenerationMode,
     isCode,

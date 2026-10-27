@@ -45,10 +45,10 @@ test("each registry declares a section id once", () => {
 });
 
 test("a generator section that does not apply to the turn leaves no size and no claim in the prompt", () => {
-  const without = buildPromptAssembled(mkInput(), { budgetBytes: 0 });
+  const without = buildPromptAssembled(mkInput());
   assert.equal(without.sectionSizes[CLOSED_LOOP_SECTION_ID], undefined);
   assert.equal(without.claims[CLOSED_LOOP_SECTION_ID], undefined);
-  const granted = buildPromptAssembled(mkInput({ closedLoop: LIMITS }), { budgetBytes: 0 });
+  const granted = buildPromptAssembled(mkInput({ closedLoop: LIMITS }));
   assert.ok((granted.sectionSizes[CLOSED_LOOP_SECTION_ID] ?? 0) > 0);
   assert.ok((granted.claims[CLOSED_LOOP_SECTION_ID] ?? []).length > 0);
 });

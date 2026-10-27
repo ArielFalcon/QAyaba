@@ -23,7 +23,7 @@ function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
   };
 }
 
-const textOf = (over: Partial<OpencodeRunInput> = {}): string => buildPromptAssembled(mkInput(over), { budgetBytes: 0 }).text;
+const textOf = (over: Partial<OpencodeRunInput> = {}): string => buildPromptAssembled(mkInput(over)).text;
 /* The Playwright MCP names its tools as the authenticated browser does, without the prefix. */
 const AUTH_TOOLS = AGENT_BROWSER_TOOLS;
 const PLAIN_TOOLS = AGENT_BROWSER_TOOLS.map((tool) => tool.replace(/^auth/, ""));

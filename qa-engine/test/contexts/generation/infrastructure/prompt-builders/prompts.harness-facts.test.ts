@@ -10,6 +10,7 @@ import { countDirectives, hasTrustLanguage, HARNESS_FACTS_SECTION_ID } from "@co
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 import type { ArchitectureContext } from "@contexts/generation/domain/generation-input.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
+import { renderBlastRadiusSignal } from "@contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts";
 
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
 
@@ -96,14 +97,15 @@ test("the architecture map's context.json and the fixtures file are listed as pr
   assert.deepEqual([...(a.providedPaths ?? [])].sort(), ["tests/e2e/.qa/context.json", "tests/e2e/fixtures.ts"]);
 });
 
-test("the files the structural block's dossier shows are provided paths while the block survives", () => {
-  const signal = { staticSignal: "## Structural blast radius\n\n- `run` (src/Foo.java)\n", staticSignalHasSymbols: true, staticSignalFiles: ["src/Foo.java"] };
+test("the files the structural block's dossier shows are provided paths while the block is shown whole", () => {
+  const callers = Array.from({ length: 300 }, (_, i) => ({ file: `src/c/Caller${i % 10}.java`, symbol: `handler${i}` }));
+  const signal = { staticSignal: renderBlastRadiusSignal({ impacted: [{ file: "src/Foo.java", symbol: "run" }], callers, coupled: [] }), staticSignalHasSymbols: true, staticSignalFiles: ["src/Foo.java"] };
   const a = buildPromptAssembled(mkInput(signal));
   assert.deepEqual(a.providedPaths, ["src/Foo.java"]);
   const total = Buffer.byteLength(a.text, "utf8");
-  const shed = buildPromptAssembled(mkInput(signal), { budgetBytes: total - (a.sectionSizes["static-signal"] ?? 0) });
-  assert.equal(shed.sectionSizes["static-signal"], undefined, "the block was shed");
-  assert.deepEqual(shed.providedPaths, []);
+  const given = buildPromptAssembled(mkInput(signal), { fit: ({ bytes }) => (bytes <= total - 3_000 ? "fits" : "over") });
+  assert.ok(given.windowFit?.degraded.some((section) => section.id === "static-signal"), "the block was given a smaller render");
+  assert.deepEqual(given.providedPaths, [], "its symbols are no longer in the prompt, so reading the file is not a repeat");
 });
 
 test("a prompt that renders neither file lists no provided path", () => {
@@ -111,13 +113,13 @@ test("a prompt that renders neither file lists no provided path", () => {
   assert.deepEqual(buildPromptAssembled(mkInput({ harnessFacts: { testIdAttribute: "data-cy" } })).providedPaths, []);
 });
 
-test("a section shed by the byte budget contributes no provided path", () => {
+test("a map given up to the window as a reference contributes no provided path", () => {
   const input = mkInput({ harnessFacts: FACTS, contextMap: MAP });
   const full = buildPromptAssembled(input);
   assert.equal(full.providedPaths?.length, 2);
   const total = Buffer.byteLength(full.text, "utf8");
-  const withoutMap = buildPromptAssembled(input, { budgetBytes: total - (full.sectionSizes["arch-map"] ?? 0) });
-  assert.equal(withoutMap.sectionSizes["arch-map"], undefined, "the map was shed");
+  const withoutMap = buildPromptAssembled(input, { fit: ({ bytes }) => (bytes <= total - (full.sectionSizes["arch-map"] ?? 0) / 2 ? "fits" : "over") });
+  assert.ok(withoutMap.windowFit?.degraded.some((section) => section.id === "arch-map"), "the map was given a smaller render");
   assert.ok(withoutMap.sectionSizes[HARNESS_FACTS_SECTION_ID] !== undefined, "the facts survived");
   assert.deepEqual(withoutMap.providedPaths, ["tests/e2e/fixtures.ts"]);
 });

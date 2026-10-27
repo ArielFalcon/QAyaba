@@ -21,19 +21,6 @@ export function bytesOfTokens(tokens: number): number {
   return tokens * BYTES_PER_TOKEN_ESTIMATE;
 }
 
-/*
- * The share of a window the prompt assembler lets a prompt's sections take before it sheds or cuts one. It is the cut the assembler
- * has always applied (window x 0.75 x 4 bytes); the adaptive degradation replaces it with `fit`, and until then it keeps the
- * prompts byte-identical for a known window.
- */
-export const ASSEMBLER_WINDOW_SHARE = 0.75;
-
-/* The assembler's byte budget for a window; undefined for an unknown window, which budgets nothing. */
-export function assemblerBudgetBytes(windowTokens: number | undefined): number | undefined {
-  if (windowTokens === undefined || !Number.isSafeInteger(windowTokens) || windowTokens <= 0) return undefined;
-  return Math.floor(bytesOfTokens(windowTokens) * ASSEMBLER_WINDOW_SHARE);
-}
-
 /* The context a role's steps add to its session: growth per step x usual steps. */
 export function roomTokens(room: RoleWorkingRoom): number {
   return Math.ceil(room.growthTokensPerStep * room.steps);

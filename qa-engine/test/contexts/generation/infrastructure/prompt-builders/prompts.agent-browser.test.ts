@@ -31,7 +31,7 @@ function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
   };
 }
 
-const assemble = (over: Partial<OpencodeRunInput> = {}): AssembledPrompt => buildPromptAssembled(mkInput(over), { budgetBytes: 0 });
+const assemble = (over: Partial<OpencodeRunInput> = {}): AssembledPrompt => buildPromptAssembled(mkInput(over));
 
 function sectionOf(assembled: AssembledPrompt): { id: string; text: string } | undefined {
   const bytes = Buffer.from(assembled.text, "utf8");

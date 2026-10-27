@@ -52,9 +52,9 @@ function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
   };
 }
 
-/* The assembled prompt of a turn, without the byte budget (nothing is shed), with a limit or without one. */
+/* The assembled prompt of a turn, with no window to fit (nothing is given a smaller render), with a limit or without one. */
 const assemble = (over: Partial<OpencodeRunInput>, stepLimit?: number): AssembledPrompt =>
-  buildPromptAssembled(mkInput({ ...over, ...(stepLimit !== undefined ? { stepLimit } : {}) }), { budgetBytes: 0 });
+  buildPromptAssembled(mkInput({ ...over, ...(stepLimit !== undefined ? { stepLimit } : {}) }));
 
 const FIX = { fixCases: [{ name: "cart total", status: "fail" as const, detail: "boom" }] };
 

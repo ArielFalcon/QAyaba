@@ -46,14 +46,14 @@ const shapes: Record<string, (n: number) => Partial<OpencodeRunInput>> = {
 
 for (const [shape, facts] of Object.entries(shapes)) {
   test(`the generator prompt (${shape}) opens with a stable prefix that two runs share byte for byte`, () => {
-    const a = buildPromptAssembled(run(1, facts(1)), { budgetBytes: 0 });
-    const b = buildPromptAssembled(run(2, facts(2)), { budgetBytes: 0 });
+    const a = buildPromptAssembled(run(1, facts(1)));
+    const b = buildPromptAssembled(run(2, facts(2)));
     assertSharedPrefix(a, b, shape);
   });
 }
 
 test("the test-data prefix, which carries the run id, is outside the generator's stable prefix", () => {
-  const prompt = buildPromptAssembled(run(1), { budgetBytes: 0 });
+  const prompt = buildPromptAssembled(run(1));
   assert.ok(prompt.text.includes("qa-run-1-r0"));
   assert.ok(!prefixOf(prompt).includes("qa-run-1-r0"));
 });

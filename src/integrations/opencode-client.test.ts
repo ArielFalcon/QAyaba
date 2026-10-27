@@ -33,7 +33,6 @@ import { setRawEventStreamOpener, startScopedEventStream } from "@contexts/gener
 import type { StreamLifecycleSink, StreamToken } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
 import type { ArchitectureContext, OpencodeRunInput, ReviewInput } from "@contexts/generation/application/index.ts";
 import { SERENA_WRITE_TOOL_NAMES } from "@contexts/generation/application/index";
-import { assemblerBudgetBytes } from "@kernel/context-budget";
 import { ANTI_WEAKENING_RULE, OBJECTIVE_QUESTION } from "@contexts/generation/infrastructure/prompt-builders/task-builders";
 
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
@@ -824,107 +823,42 @@ test("complete/exhaustive buildReviewerPrompt works unchanged (no priorCorrectio
   }
 });
 
-/* The budget engine is INERT unless the *Assembled builders are handed the run's window of the role they build for.
-   These tests prove the wiring is active and can never silently regress to inert again.
+/* The window fit rule is INERT unless the *Assembled builders are handed the run's fit rule for the role they build for.
+   These tests prove the wiring is active, and that no section is shed for its size.
  */
-const AUTHOR_WINDOW_TOKENS = 200_000;
-const REVIEWER_WINDOW_TOKENS = 200_000;
+const fitsWindow = { fit: () => "fits" as const };
+const overWindow = { fit: () => "over" as const };
 
-test("buildPromptAssembled applies qa-author budget — normal prompt fits, no sections shed", () => {
-  /* A minimal diff-mode prompt is well within the author's budget (floor(window × 0.75 × 4) bytes).
-     All sections must survive when the prompt is normal-sized.
-   */
-  const { text, sectionSizes } = buildPromptAssembled({
+test("buildPromptAssembled fits a normal prompt to the author's window — nothing is given a smaller render", () => {
+  const { text, sectionSizes, windowFit } = buildPromptAssembled({
     ...input,
     mode: "diff",
     diff: "diff --git a/x b/x\n+const x = 1;",
-  }, { windowTokens: () => AUTHOR_WINDOW_TOKENS });
+  }, fitsWindow);
 
-  /* Core sections must all survive (nothing shed by the conservative budget). */
   assert.match(text, /Working rules/, "working-rules section must survive");
   assert.match(text, /Generate\/update E2E tests/, "task section must survive");
-
-  /* sectionSizes must exist for the core sections. */
   assert.ok("working-rules" in sectionSizes, "working-rules in sectionSizes");
   assert.ok("task" in sectionSizes, "task in sectionSizes");
-
-  /* The total byte size must be well under the qa-author catalog budget. */
-  const totalBytes = Buffer.byteLength(text, "utf8");
-  const budget = assemblerBudgetBytes(AUTHOR_WINDOW_TOKENS)!;
-  assert.ok(budget > 0, "a known window must give a positive budget");
-  assert.ok(
-    totalBytes < budget,
-    `normal prompt (${totalBytes} bytes) must fit within qa-author budget (${budget} bytes)`,
-  );
+  assert.deepEqual(windowFit, { outcome: "fits", degraded: [] });
 });
 
-test("buildReviewerPromptAssembled applies qa-reviewer budget — oversized learnedRules section is shed", () => {
-  /* The reviewer budget is derived from the reviewer's window.
-     To force an overflow size-independently: pad learnedRules to the ROLE BUDGET + 8 KB so the
-     combined prompt exceeds the budget.
-     reviewer-learned-rules has priority: 3 within volatile (the lowest-priority volatile
-     section in the reviewer), so it is shed FIRST by the global budget pass.
-   */
+test("buildReviewerPromptAssembled sheds no section for its size — an oversized learnedRules section reaches the reviewer whole, over the window too", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-budget-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// spec\ntest('login', async () => {});");
 
-  /* role-framing + instructions + objective + specs + output-contract together are ~4–6 KB,
-     so a learnedRules body of budget + 8 KB reliably overflows whatever the budget is.
-   */
-  const roleBudget = assemblerBudgetBytes(REVIEWER_WINDOW_TOKENS)!;
-  const padLen = roleBudget + 8_192;
-  const hugeLearnedRules = "- rule: " + "x".repeat(padLen);
+  const rule = "- rule: scope the coupon button to the cart form. ";
+  const hugeLearnedRules = rule.repeat(Math.ceil(700_000 / rule.length));
 
   try {
-    const { text, sectionSizes } = buildReviewerPromptAssembled(
-      makeReviewInput(dir, { learnedRules: hugeLearnedRules }),
-      { windowTokens: () => REVIEWER_WINDOW_TOKENS },
-    );
-
-    /* The oversized learnedRules section must be shed (overflow='drop' for a section
-       that pushes the total over budget; reviewer-learned-rules is the lowest-priority
-       volatile section and therefore the first candidate to go).
-     */
-    assert.ok(
-      !text.includes(hugeLearnedRules.slice(0, 20)),
-      "oversized learnedRules section must be shed when budget is exceeded",
-    );
-
-    /* The reviewer budget IS applied: without it, hugeLearnedRules would appear in the prompt.
-       Core load-bearing sections must survive (they have the highest shed-resistance).
-     */
-    assert.match(text, /Independent review/, "role-framing section must survive");
-    assert.match(text, /\{"approved":false/, "output-contract section must survive");
-
-    /* sectionSizes must NOT include the shed section (dropped sections are excluded). */
-    assert.ok(
-      !("reviewer-learned-rules" in sectionSizes),
-      "shed section must not appear in sectionSizes",
-    );
-
-    /* The surviving prompt must fit within the budget. */
-    const totalBytes = Buffer.byteLength(text, "utf8");
-    const budget = roleBudget;
-    assert.ok(budget > 0, "a known window must give a positive budget");
-    assert.ok(
-      totalBytes <= budget,
-      `surviving prompt (${totalBytes} bytes) must be within qa-reviewer budget (${budget} bytes)`,
-    );
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("a reviewer window the run does not know cuts nothing: the oversized learnedRules section stays", () => {
-  const dir = mkdtempSync(join(tmpdir(), "qa-rev-nowindow-"));
-  mkdirSync(join(dir, "e2e"), { recursive: true });
-  writeFileSync(join(dir, "e2e", "login.spec.ts"), "// spec\ntest('login', async () => {});");
-  try {
-    const hugeLearnedRules = "- rule: " + "x".repeat(assemblerBudgetBytes(REVIEWER_WINDOW_TOKENS)! + 8_192);
-    const { sectionSizes, budgetBytes } = buildReviewerPromptAssembled(makeReviewInput(dir, { learnedRules: hugeLearnedRules }), { windowTokens: () => undefined });
-    assert.ok("reviewer-learned-rules" in sectionSizes, "no window, no cut");
-    assert.equal(budgetBytes, undefined);
+    for (const [what, opts] of [["no window", {}], ["a window that holds it", fitsWindow], ["a window it is over", overWindow]] as const) {
+      const { text, sectionSizes } = buildReviewerPromptAssembled(makeReviewInput(dir, { learnedRules: hugeLearnedRules }), opts);
+      assert.ok(text.includes(hugeLearnedRules.trim()), `${what}: the learned rules are whole`);
+      assert.ok("reviewer-learned-rules" in sectionSizes, `${what}: the section stands`);
+      assert.match(text, /Independent review/, `${what}: role-framing section must survive`);
+      assert.match(text, /\{"approved":false/, `${what}: output-contract section must survive`);
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

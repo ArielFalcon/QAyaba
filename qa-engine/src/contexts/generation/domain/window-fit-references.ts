@@ -95,7 +95,7 @@ export function countByDirectory(paths: readonly string[]): string[] {
 /* The sentence every reference closes on: what it stands for is not in the prompt because the prompt did not fit its window. */
 export const NOT_SHOWN = "not shown here, to fit the window";
 
-/* A list of an advisory block (`### heading (N)` and its `- ` items), and what its items are: reached symbols with their file, or co-change files. */
+/* A list of an advisory block (a third-level heading with its count, and its `- ` items), and what its items are: reached symbols with their file, or co-change files. */
 interface AdvisoryList {
   start: number;
   end: number;
@@ -103,13 +103,15 @@ interface AdvisoryList {
   items: string[];
 }
 
+/* The heading of one list of an advisory block: the line this reads, never one it writes. */
+const LIST_HEADING = /^#{3} /;
 const SYMBOL_ITEM = /^- `[^`]*` \((.+)\)$/;
 const FILE_ITEM = /^- (\S+) \(coupling /;
 
 function advisoryLists(lines: readonly string[]): AdvisoryList[] {
   const lists: AdvisoryList[] = [];
   for (let at = 0; at < lines.length; at++) {
-    if (!lines[at]!.startsWith("### ")) continue;
+    if (!LIST_HEADING.test(lines[at]!)) continue;
     let end = at + 1;
     while (end < lines.length && !lines[end]!.startsWith("#")) end++;
     const items = lines.slice(at + 1, end).filter((line) => line.startsWith("- "));

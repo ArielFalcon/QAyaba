@@ -517,11 +517,15 @@ test("a code fix keeps the read of the code under test whether or not the listin
   assert.equal(countOf(e2e.text, FIX_STEPS.readCodeUnderTest), 0, "an e2e run reads no code under test");
 });
 
-/* ── the listing is never shed silently ── */
+/* ── a listing that does not fit the window gives way by reference, and is never lost ── */
 
-const withoutBudget = { budgetBytes: 0 } as const;
+const padded = (index: number): string => String(index).padStart(3, "0");
+const bytesOf = (text: string): number => Buffer.byteLength(text, "utf8");
 
-/* The assembler says so on the console each time it sheds; these tests shed on purpose. */
+/* The role's window as the fit rule reads it: a prompt of more bytes than this is over. */
+const windowOf = (bytes: number) => ({ fit: ({ bytes: size }: { bytes: number }) => (size <= bytes ? ("fits" as const) : ("over" as const)) });
+
+/* The assembler logs each time it gives a section a smaller render; these tests do so on purpose. */
 function quietly<T>(run: () => T): T {
   const original = console.warn;
   console.warn = () => {};
@@ -532,33 +536,29 @@ function quietly<T>(run: () => T): T {
   }
 }
 
-/* The room the read-the-suite lines of a task need once no listing supplies the suite. */
-const ROOM_FOR_THE_READ = 400;
+const listingGaveUp = (a: AssembledPrompt): boolean => a.windowFit?.degraded.some((section) => section.id === SUITE_ID) === true;
 
-test("a first pass whose listing the byte budget sheds is sent to read the suite instead, and the lint stays clean", () => {
+/* The sections of a regeneration that carry the failure and its evidence. */
+const VOLATILE_SECTIONS = ["dom-snapshot", "selector-contradictions", "fix-cases", "reviewer-corrections", "learned-rules"] as const;
+
+test("a first pass whose listing is over the window is given the directories of the suite instead, and says the specs are not shown", () => {
   const lines = Array.from({ length: 20 }, (_, index) => `flows/f${index}.spec.ts — flow: f${index}, objective: o${index}`);
   const variants: Array<Partial<OpencodeRunInput>> = [{}, { mode: "manual", guidance: GUIDANCE, e2eRelDir: "qa-suite" }];
   for (const extra of variants) {
     const input = mkInput({ existingSpecFiles: lines, ...extra });
-    const whole = buildPromptAssembled(input, withoutBudget);
-    assert.equal(directs(whole, "task", "read", "existing-suite"), false, "kept: the listing supplies the suite");
+    const whole = buildPromptAssembled(input);
     const listing = whole.sectionSizes[SUITE_ID] ?? 0;
-    assert.ok(listing > ROOM_FOR_THE_READ, "setup: the listing is larger than the room the read needs");
-    const budgetBytes = Buffer.byteLength(whole.text, "utf8") - listing - 1 + ROOM_FOR_THE_READ;
-    const shed = quietly(() => buildPromptAssembled(input, { budgetBytes }));
-    assert.equal(shed.sectionSizes[SUITE_ID], undefined, "setup: the byte budget sheds the listing");
-    assert.equal(directs(shed, "task", "read", "existing-suite"), true, "shed: the task reads the suite");
-    assert.deepEqual(Object.keys(shed.sectionSizes), Object.keys(whole.sectionSizes).filter((id) => id !== SUITE_ID), "nothing else is lost to the read");
-    assert.ok(shed.text.split("\n").at(-1)!.includes(SUITE_ID), "the budget notice names the section");
-    assert.deepEqual(findingsOf(shed, false), []);
-    assert.ok((shed.sectionSizes["task"] ?? 0) > (whole.sectionSizes["task"] ?? 0), "the task says more once the listing is gone");
+    const given = quietly(() => buildPromptAssembled(input, windowOf(bytesOf(whole.text) - 1)));
+    assert.ok(listingGaveUp(given), "setup: the window gives the listing a smaller render");
+    assert.ok((given.sectionSizes[SUITE_ID] ?? Number.POSITIVE_INFINITY) < listing);
+    assert.match(sectionText(given, SUITE_ID), /- flows\/: 20 file\(s\)/);
+    assert.match(sectionText(given, SUITE_ID), /not shown here, to fit the window/);
+    assert.deepEqual(Object.keys(given.sectionSizes), Object.keys(whole.sectionSizes), "no section is lost");
+    assert.deepEqual(findingsOf(given, false), []);
   }
 });
 
-/* The sections of a regeneration that the byte budget sheds before it sheds anything of the suite's: the failure and its evidence. */
-const VOLATILE_SECTIONS = ["dom-snapshot", "selector-contradictions", "fix-cases", "reviewer-corrections", "learned-rules"] as const;
-
-test("a regeneration keeps its listing until every volatile section is gone, and the listing comes before the failure it is about", () => {
+test("a regeneration's listing is never lost to the window, however small, and its head stands", () => {
   const corrections = Array.from({ length: 40 }, (_, index) => `flows/a.spec.ts: correction ${index} with enough words to take room in the prompt`);
   const input = mkInput({
     deliveredSpecs: [A, B],
@@ -570,29 +570,24 @@ test("a regeneration keeps its listing until every volatile section is gone, and
     domSnapshot: "  button: Apply coupon",
     failureSourced: true,
   });
-  const whole = buildPromptAssembled(input, withoutBudget);
+  const whole = buildPromptAssembled(input);
   const order = Object.keys(whole.sectionSizes);
   for (const id of VOLATILE_SECTIONS) {
     assert.ok(whole.sectionSizes[id] !== undefined, `setup: the turn carries ${id}`);
     assert.ok(order.indexOf(SUITE_ID) < order.indexOf(id), `the listing comes before ${id}`);
   }
-  const total = Buffer.byteLength(whole.text, "utf8");
-  let withVolatile = 0;
+  const head = sectionText(whole, SUITE_ID).split("\n").slice(0, 2).join("\n");
   quietly(() => {
-    for (let budgetBytes = total; budgetBytes > 800; budgetBytes -= 37) {
-      const a = buildPromptAssembled(input, { budgetBytes });
-      const standing = VOLATILE_SECTIONS.filter((id) => a.sectionSizes[id] !== undefined);
-      if (standing.length > 0) withVolatile += 1;
-      if (a.sectionSizes[SUITE_ID] === undefined) assert.deepEqual(standing, [], `budget ${budgetBytes}: the listing is gone while ${standing.join(", ")} stand`);
+    for (let window = bytesOf(whole.text); window > 800; window -= 37) {
+      const a = buildPromptAssembled(input, windowOf(window));
+      assert.ok(a.sectionSizes[SUITE_ID] !== undefined, `window ${window}: the listing stands`);
+      assert.ok(sectionText(a, SUITE_ID).startsWith(head), `window ${window}: its head stands`);
+      for (const id of VOLATILE_SECTIONS) assert.ok(a.sectionSizes[id] !== undefined, `window ${window}: ${id} is not dropped`);
     }
   });
-  assert.ok(withVolatile > 20, "setup: the budgets tried leave volatile sections standing many times");
 });
 
-/* ── a listing that does not fit is cut, not lost ── */
-
-const padded = (index: number): string => String(index).padStart(3, "0");
-const bytesOf = (text: string): number => Buffer.byteLength(text, "utf8");
+/* ── a listing that does not fit is given up in steps, not lost ── */
 
 /* A run that delivered many specs over a suite of many: the coverage turn that follows takes every delivered spec, so it lists the largest groups the section can have. Every spec has the objective its lead declared. */
 const MANY_DELIVERED = Array.from({ length: 40 }, (_, index): DeliveredSpec => ({
@@ -601,114 +596,97 @@ const MANY_DELIVERED = Array.from({ length: 40 }, (_, index): DeliveredSpec => (
   objective: `the outcome of flow number ${index} is shown`,
 }));
 const MANY_EXISTING = Array.from({ length: 40 }, (_, index) => `suite/s${padded(index)}.spec.ts — flow: suite flow ${index}, objective: the suite outcome ${index} is shown`);
-/* A sidekick's spec has no objective its lead declared: a turn that has it to change asks for the outcome whatever the budget does. */
+/* A sidekick's spec has no objective its lead declared: a turn that has it to change asks for the outcome whatever the window does. */
 const SIDEKICK_AT_THE_END: DeliveredSpec = { file: "flows/zz-sidekick.spec.ts" };
 const bigCoverage = (extra: readonly DeliveredSpec[] = []): OpencodeRunInput =>
   mkInput({ existingSpecFiles: MANY_EXISTING, deliveredSpecs: [...MANY_DELIVERED, ...extra], coverageGap: "src/cart.ts: lines 10-14" });
 
-/* What a prompt holds besides its listing, in bytes: a budget of this plus a room is a budget that leaves the listing that room. */
+/* What a prompt holds besides its listing, in bytes: a window of this plus a room is a window that leaves the listing that room. */
 const aroundTheListing = (whole: AssembledPrompt): number => bytesOf(whole.text) - (whole.sectionSizes[SUITE_ID] ?? 0);
 
-/* A section the assembler cut ends with a marker line of its own; what precedes it is the head of the whole section. */
-const headOf = (cut: string): string => cut.split("\n").slice(0, -1).join("\n");
-
-/* The room the marker the assembler ends a cut section with takes, and a few entries' worth over it. */
-const MARKER_AND_A_FEW_ENTRIES = 200;
-
-test("a listing that does not fit is cut from its end: the do-not-rewrite group first, then the specs only the fallback added, and the label and the summary stay", () => {
+test("a listing over the window gives up the do-not-rewrite entries as directories first, then the specs only the fallback added, and the label and the summary stay", () => {
   const asking = (): OpencodeRunInput => bigCoverage([SIDEKICK_AT_THE_END]);
-  const whole = buildPromptAssembled(asking(), withoutBudget);
-  assert.equal(countOf(whole.text, OBJECTIVE_QUESTION), 1, "setup: the turn asks for the outcome with or without a cut, so a cut changes nothing else of the task");
+  const whole = buildPromptAssembled(asking());
+  assert.equal(countOf(whole.text, OBJECTIVE_QUESTION), 1, "setup: the turn asks for the outcome with or without a smaller render, so it changes nothing else of the task");
   const wholeSection = sectionText(whole, SUITE_ID);
-  const wholeLines = wholeSection.split("\n");
   const summary = everyDeliveredLine(MANY_DELIVERED.length + 1);
-  const through = (line: string): number => bytesOf(wholeLines.slice(0, wholeLines.indexOf(line) + 1).join("\n"));
-  const cutTo = (room: number): string => sectionText(quietly(() => buildPromptAssembled(asking(), { budgetBytes: aroundTheListing(whole) + room })), SUITE_ID);
+  const around = aroundTheListing(whole);
 
-  const inDoNotRewrite = cutTo(through(SUITE_LISTING_LABELS.doNotRewrite) + MARKER_AND_A_FEW_ENTRIES);
-  assert.ok(wholeSection.startsWith(headOf(inDoNotRewrite)), "what is left is the head of the section");
-  assert.equal(editableIn(inDoNotRewrite).length, MANY_DELIVERED.length + 1, "every spec the fallback added is still there");
-  assert.ok(inDoNotRewrite.includes(summary));
-  assert.ok(doNotRewriteIn(inDoNotRewrite).length < MANY_EXISTING.length, "the do-not-rewrite group is shorter");
+  const first = sectionText(quietly(() => buildPromptAssembled(asking(), windowOf(bytesOf(whole.text) - 1))), SUITE_ID);
+  assert.equal(editableIn(first).length, MANY_DELIVERED.length + 1, "every spec the fallback added is still there");
+  assert.ok(first.includes(summary));
+  assert.equal(doNotRewriteIn(first).some((line) => line.startsWith("suite/")), false, "the entries to leave alone are not listed");
+  assert.ok(doNotRewriteIn(first).join("\n").includes("- suite/: 40 file(s)"), "they are named by their directory with a count");
+  assert.ok(first.length < wholeSection.length);
 
-  const inFallback = cutTo(through(summary) + MARKER_AND_A_FEW_ENTRIES);
-  assert.ok(wholeSection.startsWith(headOf(inFallback)));
-  assert.ok(inFallback.includes(SUITE_LISTING_LABELS.editable) && inFallback.includes(summary), "the label and the summary stay");
-  assert.ok(editableIn(inFallback).length > 0 && editableIn(inFallback).length < MANY_DELIVERED.length + 1, "the specs only the fallback added are shorter");
-  assert.equal(inFallback.includes(SUITE_LISTING_LABELS.doNotRewrite), false, "the do-not-rewrite group is gone");
+  const second = sectionText(quietly(() => buildPromptAssembled(asking(), windowOf(around + 1))), SUITE_ID);
+  assert.ok(second.includes(SUITE_LISTING_LABELS.editable) && second.includes(summary), "the label and the summary stay");
+  assert.equal(editableIn(second).filter((line) => line.startsWith("flows/m")).length, 0, "the specs only the fallback added are not listed");
+  assert.ok(second.includes("- suite/: 40 file(s)"));
 });
 
-test("a listing is cut and never lost at any budget that leaves it room for its title, its label and its summary", () => {
-  const whole = buildPromptAssembled(bigCoverage(), withoutBudget);
+test("a listing is given up in steps and never lost at any window that leaves the prompt around it", () => {
+  const whole = buildPromptAssembled(bigCoverage());
   const wholeSection = sectionText(whole, SUITE_ID);
   const head = wholeSection.split("\n").slice(0, wholeSection.split("\n").indexOf(everyDeliveredLine(MANY_DELIVERED.length)) + 1);
-  const room = bytesOf(head.join("\n")) + MARKER_AND_A_FEW_ENTRIES;
+  const around = aroundTheListing(whole);
   const wholeSize = whole.sectionSizes[SUITE_ID] ?? 0;
-  assert.ok(wholeSize > 2 * room, "setup: there is a lot to cut");
   quietly(() => {
-    for (let kept = room; kept < wholeSize; kept += 97) {
-      const a = buildPromptAssembled(bigCoverage(), { budgetBytes: aroundTheListing(whole) + kept });
+    for (let room = 0; room < wholeSize; room += 97) {
+      const a = buildPromptAssembled(bigCoverage(), windowOf(around + room));
       const section = sectionText(a, SUITE_ID);
-      assert.ok(section !== "", `room ${kept}: the listing stands`);
-      assert.deepEqual(section.split("\n").slice(0, head.length), head, `room ${kept}: its title, its label and its summary stand`);
+      assert.ok(section !== "", `room ${room}: the listing stands`);
+      assert.deepEqual(section.split("\n").slice(0, head.length), head, `room ${room}: its title, its label and its summary stand`);
     }
   });
 });
 
-test("a plain list the byte budget cannot hold is dropped whole, as a first pass drops it, and not cut", () => {
-  const input = mkInput({ existingSpecFiles: MANY_EXISTING, deliveredSpecs: MANY_DELIVERED, fixCases: [failing(undefined, "the page timed out")] });
-  const whole = buildPromptAssembled(input, withoutBudget);
-  assert.equal(countOf(whole.text, SUITE_LISTING_LABELS.editable), 0, "setup: nothing is editable, so the list is plain");
-  const shed = quietly(() => buildPromptAssembled(input, { budgetBytes: aroundTheListing(whole) + MARKER_AND_A_FEW_ENTRIES }));
-  assert.equal(shed.sectionSizes[SUITE_ID], undefined);
+test("a listing over the window, however it gives up its entries, records them as a window-fit omission", () => {
+  const whole = buildPromptAssembled(bigCoverage());
+  const given = quietly(() => buildPromptAssembled(bigCoverage(), windowOf(bytesOf(whole.text) - 1)));
+  assert.ok(listingGaveUp(given));
+  assert.deepEqual(given.sectionItems[SUITE_ID]?.omissions, [{ class: "truncation", reason: "window-fit", count: MANY_EXISTING.length }]);
+  assert.equal(whole.sectionItems[SUITE_ID]?.omissions.length ?? 0, 0, "a listing that fits records none");
 });
 
-test("a listing the byte budget cuts can no longer justify skipping the outcome: the prompt asks for it, and a listing that fits does not", () => {
-  const whole = buildPromptAssembled(bigCoverage(), withoutBudget);
+test("a listing that gave up entries can no longer justify skipping the outcome: the prompt asks for it, and a listing that fits does not", () => {
+  const whole = buildPromptAssembled(bigCoverage());
   assert.equal(countOf(whole.text, OBJECTIVE_QUESTION), 0, "setup: every spec under correction has an objective its lead declared");
   const total = bytesOf(whole.text);
-  const fits = quietly(() => buildPromptAssembled(bigCoverage(), { budgetBytes: total }));
+  const fits = quietly(() => buildPromptAssembled(bigCoverage(), windowOf(total)));
   assert.equal(countOf(fits.text, OBJECTIVE_QUESTION), 0);
-  const cut = quietly(() => buildPromptAssembled(bigCoverage(), { budgetBytes: total - 600 }));
-  assert.ok((cut.sectionSizes[SUITE_ID] ?? Number.POSITIVE_INFINITY) < (whole.sectionSizes[SUITE_ID] ?? 0), "setup: the listing is cut, not shed");
-  assert.equal(countOf(cut.text, OBJECTIVE_QUESTION), 1);
-  assert.equal(directs(cut, "task", "state-outcome"), true);
+  const given = quietly(() => buildPromptAssembled(bigCoverage(), windowOf(total - 600)));
+  assert.ok(listingGaveUp(given), "setup: the listing gave up entries");
+  assert.equal(countOf(given.text, OBJECTIVE_QUESTION), 1);
+  assert.equal(directs(given, "task", "state-outcome"), true);
 });
 
 test("the question costs the listing nothing of its head: wherever the prompt asks for the outcome again, the title, the label and the summary stand", () => {
-  const whole = buildPromptAssembled(bigCoverage(), withoutBudget);
+  const whole = buildPromptAssembled(bigCoverage());
   const around = aroundTheListing(whole);
   const wholeLines = sectionText(whole, SUITE_ID).split("\n");
   const head = wholeLines.slice(0, wholeLines.indexOf(everyDeliveredLine(MANY_DELIVERED.length)) + 1).join("\n");
   let asked = 0;
-  let held = 0;
   quietly(() => {
     for (let room = 0; room < (whole.sectionSizes[SUITE_ID] ?? 0); room += 29) {
-      const a = buildPromptAssembled(bigCoverage(), { budgetBytes: around + room });
-      const standing = a.text.includes(head);
+      const a = buildPromptAssembled(bigCoverage(), windowOf(around + room));
       if (countOf(a.text, OBJECTIVE_QUESTION) === 1) {
         asked += 1;
-        assert.ok(standing, `room ${room}: the prompt asks, so the head of the listing stands`);
-      } else if (standing) {
-        held += 1;
+        assert.ok(a.text.includes(head), `room ${room}: the prompt asks, so the head of the listing stands`);
       }
     }
   });
-  assert.ok(asked > 10, "setup: the prompt asks at many of the budgets tried");
-  assert.ok(held > 5, "setup: the head is kept, without the question, at budgets where the question would take it");
+  assert.ok(asked > 10, "setup: the prompt asks at many of the windows tried");
 });
 
-/* Under this, the marker the assembler ends a cut section with leaves the section no room for anything of its own. */
-const NO_ROOM_FOR_A_HEAD = 100;
-
-test("asking for the outcome again never costs the prompt a section: at any budget that holds all but the listing the task stands, and so does a listing that has room", () => {
-  const whole = buildPromptAssembled(bigCoverage(), withoutBudget);
+test("asking for the outcome again never costs the prompt a section: at any window the task and the listing stand", () => {
+  const whole = buildPromptAssembled(bigCoverage());
   const around = aroundTheListing(whole);
   quietly(() => {
-    for (let budgetBytes = around; budgetBytes <= bytesOf(whole.text); budgetBytes += 17) {
-      const a = buildPromptAssembled(bigCoverage(), { budgetBytes });
-      assert.ok(a.sectionSizes["task"] !== undefined, `budget ${budgetBytes}: the task stands`);
-      if (budgetBytes - around >= NO_ROOM_FOR_A_HEAD) assert.ok(a.sectionSizes[SUITE_ID] !== undefined, `budget ${budgetBytes}: the listing stands`);
+    for (let window = around; window <= bytesOf(whole.text); window += 17) {
+      const a = buildPromptAssembled(bigCoverage(), windowOf(window));
+      assert.ok(a.sectionSizes["task"] !== undefined, `window ${window}: the task stands`);
+      assert.ok(a.sectionSizes[SUITE_ID] !== undefined, `window ${window}: the listing stands`);
     }
   });
 });
@@ -724,12 +702,12 @@ test("a regeneration with a listing is clean under the lint, in both targets and
   }
 });
 
-test("the largest listing a regeneration carries is clean under the lint, whole and cut", () => {
-  const whole = buildPromptAssembled(bigCoverage(), withoutBudget);
+test("the largest listing a regeneration carries is clean under the lint, whole and given up in steps", () => {
+  const whole = buildPromptAssembled(bigCoverage());
   assert.deepEqual(findingsOf(whole, true), []);
-  const cut = quietly(() => buildPromptAssembled(bigCoverage(), { budgetBytes: bytesOf(whole.text) - 600 }));
-  assert.ok((cut.sectionSizes[SUITE_ID] ?? Number.POSITIVE_INFINITY) < (whole.sectionSizes[SUITE_ID] ?? 0), "setup: the listing is cut");
-  assert.deepEqual(findingsOf(cut, true), []);
+  const given = quietly(() => buildPromptAssembled(bigCoverage(), windowOf(bytesOf(whole.text) - 600)));
+  assert.ok(listingGaveUp(given), "setup: the listing gave up entries");
+  assert.deepEqual(findingsOf(given, true), []);
 });
 
 test("a limited prompt still ends with the step limit and then the milestone when the listing is in it", () => {

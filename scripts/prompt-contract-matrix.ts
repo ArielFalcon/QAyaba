@@ -377,8 +377,8 @@ function deliveredSpecsFor(spec: CellSpec): DeliveredSpec[] | undefined {
 /* The step limit a cell of the OpenCode layer is assembled with. That runtime caps an agent's steps and reports the cap. */
 export const MATRIX_STEP_LIMIT = 40;
 
-/* The reviewer window the matrix prompts are budgeted by (the run's window of the reviewer, in tokens), so a recorded digest names the budget it was built under. */
-export const MATRIX_REVIEWER_WINDOW = { windowTokens: () => 1_000_000 };
+/* The reviewer window the matrix prompts are fitted to: one that holds every prompt of the matrix, so a recorded digest is the prompt whole. */
+export const MATRIX_REVIEWER_WINDOW = { fit: () => "fits" as const };
 
 /* The run_spec budget a granted cell is assembled with: the shipped defaults. */
 export const MATRIX_CLOSED_LOOP = DEFAULT_CLOSED_LOOP_LIMITS;
@@ -587,7 +587,7 @@ export async function buildMatrix(root: string = ROOT, specs: readonly CellSpec[
       const cellKey = `${cellName(spec)}|${layer}${stepLimit === undefined ? "|no-limit" : ""}`;
       const staticSections = (spec.planning ? leadStaticByLayer : staticByLayer).get(layer)!;
       /* Budget 0 disables shedding: the matrix measures the full prompt, independent of the model window catalog. */
-      const assembled = buildPromptAssembled(input, { budgetBytes: 0 });
+      const assembled = buildPromptAssembled(input);
       const sections = assembledLintSections(assembled);
       const measure = measureAssembled(sections);
       cells.push({
@@ -745,7 +745,7 @@ export function collectFindings(
 }
 
 /* ── digest pin ──
- * One sha256 per prompt of the matrix (every combination that can reach the agent, with and without a step limit, with no byte budget) and per reviewer
+ * One sha256 per prompt of the matrix (every combination that can reach the agent, with and without a step limit, assembled with no window to fit) and per reviewer
  * prompt of a fixed set of options. A digest covers everything an assembly returns: the text, the size of each section, its claims, its items, the files
  * the prompt provides and the hash of each section. The committed file holds the digests of the prompt builders as they stood before they became section
  * registries, so a change to how a prompt is declared that alters one byte of any of them fails prompt-contract-matrix.test.ts.
@@ -771,8 +771,6 @@ export function assemblyDigest(assembled: AssembledPrompt): string {
       sectionItems: assembled.sectionItems,
       providedPaths: assembled.providedPaths,
       sectionHashes: assembled.sectionHashes,
-      droppedSections: assembled.droppedSections,
-      budgetBytes: assembled.budgetBytes,
     }),
   );
 }
@@ -785,7 +783,7 @@ export async function matrixDigests(): Promise<DigestSet> {
       if (stepLimit === undefined && (spec.closedLoop || spec.agentBrowser || spec.planning)) continue;
       const input = await buildInput(spec, stepLimit);
       set.keys.push(`generator|${cellName(spec)}|${stepLimit === undefined ? "no-limit" : "limit"}`);
-      set.digests.push(assemblyDigest(buildPromptAssembled(input, { budgetBytes: 0 })));
+      set.digests.push(assemblyDigest(buildPromptAssembled(input)));
     }
   }
   return set;
@@ -850,13 +848,13 @@ export function reviewerDigests(): DigestSet {
     set.keys.push("reviewer|large-specs");
     set.digests.push(assemblyDigest(buildReviewerPromptAssembled(largeSpecsReviewerInput(mirror), MATRIX_REVIEWER_WINDOW)));
     set.keys.push("reviewer|large-specs|over-window");
-    set.digests.push(assemblyDigest(buildReviewerPromptAssembled(largeSpecsReviewerInput(mirror), { ...MATRIX_REVIEWER_WINDOW, fit: () => "over" })));
+    set.digests.push(assemblyDigest(buildReviewerPromptAssembled(largeSpecsReviewerInput(mirror), { fit: () => "over" as const })));
     /* A planned run: the change by flow under review instead of the whole diff, every part shown, then every part referenced (a window it does not fit). */
     const planned = plannedReviewerInput(mirror);
     set.keys.push("reviewer|planned");
     set.digests.push(assemblyDigest(buildReviewerPromptAssembled(planned, MATRIX_REVIEWER_WINDOW)));
     set.keys.push("reviewer|planned|over-window");
-    set.digests.push(assemblyDigest(buildReviewerPromptAssembled(planned, { ...MATRIX_REVIEWER_WINDOW, fit: () => "over" })));
+    set.digests.push(assemblyDigest(buildReviewerPromptAssembled(planned, { fit: () => "over" as const })));
     return set;
   } finally {
     rmSync(mirror, { recursive: true, force: true });

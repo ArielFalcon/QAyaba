@@ -47,10 +47,8 @@ export interface TurnIdentity {
     sectionSizes: Record<string, number> | null;
     sectionHashes: Record<string, string> | null;
     sectionItems: Record<string, SectionMeta> | null;
-    sectionsDropped: number | undefined;
     /* How many sections the window fit rule gave a smaller render to; absent when the prompt was assembled with no window. */
     sectionsDegraded?: number | undefined;
-    budgetBytes: number | undefined;
     /* Bytes of the stable prefix the prompt opened with; absent when the prompt was not assembled from a registry. */
     stablePrefixBytes?: number | undefined;
     contextFit: ContextFit | undefined;
@@ -172,9 +170,7 @@ export class TurnProbe {
         ...(who.delegationId !== undefined ? { "qayaba.delegation.id": who.delegationId } : {}),
         ...(who.stepLimit !== undefined ? { "qayaba.agent.steps.limit": who.stepLimit } : {}),
         "qayaba.prompt.bytes": prompt.bytes,
-        ...(prompt.sectionsDropped !== undefined ? { "qayaba.prompt.sections.dropped": prompt.sectionsDropped } : {}),
         ...(prompt.sectionsDegraded !== undefined ? { "qayaba.prompt.sections.degraded": prompt.sectionsDegraded } : {}),
-        ...(prompt.budgetBytes !== undefined ? { "qayaba.prompt.budget_bytes": prompt.budgetBytes } : {}),
         ...(prompt.stablePrefixBytes !== undefined ? { "qayaba.prompt.stable_prefix.bytes": prompt.stablePrefixBytes } : {}),
         ...contextFitAttrs(prompt.contextFit),
         ...sectionAttrs(prompt.sectionSizes, prompt.sectionHashes),

@@ -140,7 +140,7 @@ carries the change map first: every changed file once, with its added and remove
 registry's), its relevance class, whether it is an app test file, and the use cases its changed code seeds. Then come the
 hunks in rank order (code, other kinds, style sheets; within each, the hunks holding a changed decision of the static
 listing first, then diff order), as many as fit the lead's own window by the fit rule (prompt plus the lead's working room within its
-window, `ContextBudget`) without passing the assembler's budget. Every hunk not shown is named as a reference,
+window, `ContextBudget`). Every hunk not shown is named as a reference,
 `path:start-end` with its lines, kind and why: past the window, or in an app test file, a generated file or a low-relevance
 file, which are only ever named. An unknown window holds nothing back (`plan-diff.ts`, `plan-diff-section.ts`). It is told the pages
 of the app's map the change is linked to and asked to give a flow to each page whose behaviour the change alters; the

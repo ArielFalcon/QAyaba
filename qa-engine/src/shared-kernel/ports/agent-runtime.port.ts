@@ -79,11 +79,8 @@ export interface AgentPromptOpts {
   timeLimit?: TimeLimitSource;
   /** sha256 of each section of the prompt, by section id, computed by the assembler over the section with the run's secrets taken out. Only for the trace. The hash of the whole prompt is the transport's, over the exact bytes it sends. */
   sectionHashes?: Record<string, string> | null;
-  /** How many sections the byte budget omitted, and the budget the prompt was assembled to. Only for the trace. */
-  sectionsDropped?: number;
   /** How many sections the window fit rule gave a smaller render to, to fit the role's context window. Only for the trace. */
   sectionsDegraded?: number;
-  promptBudgetBytes?: number;
   /** Bytes of the prompt's stable prefix: the sections that do not vary per run, which open it. Only for the trace, read beside the turn's cache-read tokens. */
   promptStablePrefixBytes?: number;
   /** What each grounding section supplied and lost, from the kept assembly, by section id (pre-redaction). Only for the trace: the delivered span of each grounding source is built from it. */

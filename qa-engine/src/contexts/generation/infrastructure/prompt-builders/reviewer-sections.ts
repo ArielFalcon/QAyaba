@@ -10,8 +10,6 @@ import {
 } from "@contexts/generation/domain/review-output.ts";
 import type { ReviewInput } from "../../domain/generation-input.ts";
 import type { PromptFit } from "./generator-context.ts";
-import { assemblerBudgetBytes } from "@kernel/context-budget.ts";
-import type { AgentRole } from "@kernel/agent-role.ts";
 import { renderStepLimit } from "./prompt-text.ts";
 import { EXECUTION_RESULT_DETAIL_PREFIX, EXECUTION_RESULT_URL_PREFIX, reviewObjective, reviewSpecsOutcome, withoutExecutionResultLines, type ReviewSpecContents } from "./review-render.ts";
 import { boundedEvidenceCount, EVIDENCE_SAFETY_BOUND_REASON } from "../prompt-cap.ts";
@@ -29,7 +27,6 @@ export const REVIEWER_MISSING_CASES_SECTION_ID = "reviewer-missing-cases";
 
 export interface ReviewerContext {
   readonly input: ReviewInput;
-  readonly budgetBytes: number | undefined;
   readonly changeType: string;
   readonly specBlock: string;
   /* The one outcome of whether the specs section holds the spec contents; the instructions and the section both render from it. */
@@ -46,10 +43,6 @@ export interface ReviewerContextOpts extends BuildReviewerPromptOpts {
 }
 
 export interface BuildReviewerPromptOpts {
-  /** Explicit byte-budget override. Absent, the budget derives from the reviewer's window. */
-  budgetBytes?: number;
-  /** The run's context window of a role, in tokens. Absent, or unknown for the reviewer: the prompt is not cut. */
-  windowTokens?: (role: AgentRole) => number | undefined;
   /** Whether a prompt of this many bytes fits a role's window with the working room its turn needs. Absent, or unknown: every part of the change is shown. */
   fit?: PromptFit;
 }
@@ -59,7 +52,7 @@ export function deriveReviewerContext(input: ReviewInput, opts: ReviewerContextO
   const { text: specBlock, contents: specContents } = reviewSpecsOutcome(input, { asReferences: opts.specsAsReferences === true });
   const kind = input.target === "code" ? "tests" : "E2E tests";
   const obj = reviewObjective(input);
-  return { input, budgetBytes: opts.budgetBytes ?? assemblerBudgetBytes(opts.windowTokens?.("reviewer")), changeType, specBlock, specContents, kind, obj, degraded: new Set() };
+  return { input, changeType, specBlock, specContents, kind, obj, degraded: new Set() };
 }
 
 function renderRoleFraming(ctx: ReviewerContext): SectionRender {

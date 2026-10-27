@@ -207,13 +207,12 @@ test("an empty listing supplies nothing, so the manual first pass still reads th
   assert.equal(directsRead(code, "task", "existing-suite"), false);
 });
 
-test("a section shed by the byte budget contributes no claims and a surviving one keeps them", () => {
-  const input = mkInput({ domSnapshot: "  button: Save" });
+test("a prompt over its window declares claims only for the sections it still carries, and a section given a smaller render keeps its claims", () => {
+  const input = mkInput({ staticSignal: renderBlastRadiusSignal({ impacted: [{ file: "src/a.ts", symbol: "run" }], callers: Array.from({ length: 300 }, (_, i) => ({ file: `src/c/C${i % 10}.ts`, symbol: `caller${i}` })), coupled: [] }), staticSignalHasSymbols: true });
   const full = buildPromptAssembled(input);
-  assert.ok(full.claims["dom-snapshot"], "the section declared claims while it survived");
-  const total = Buffer.byteLength(full.text, "utf8");
-  const tight = buildPromptAssembled(input, { budgetBytes: total - (full.sectionSizes["dom-snapshot"] ?? 0) });
-  assert.equal(tight.sectionSizes["dom-snapshot"], undefined, "the volatile tree was shed");
-  assert.equal(tight.claims["dom-snapshot"], undefined);
-  assert.ok(Object.keys(tight.claims).every((id) => tight.sectionSizes[id] !== undefined), "claims exist only for surviving sections");
+  assert.ok(full.claims["static-signal"], "the section declared claims while it was whole");
+  const tight = buildPromptAssembled(input, { fit: ({ bytes }) => (bytes <= Buffer.byteLength(full.text, "utf8") - 3_000 ? "fits" : "over") });
+  assert.ok(tight.windowFit?.degraded.some((section) => section.id === "static-signal"), "the structural block was given a smaller render");
+  assert.deepEqual(tight.claims["static-signal"], full.claims["static-signal"]);
+  assert.ok(Object.keys(tight.claims).every((id) => tight.sectionSizes[id] !== undefined), "claims exist only for sections in the prompt");
 });

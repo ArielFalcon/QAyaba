@@ -140,7 +140,7 @@ test("a cell that states a step limit is budgeted in its limited bucket, and one
 
 test("a cell's assembled sections reproduce the assembled prompt exactly", async () => {
   for (const spec of allValidSpecs().filter((_, i) => i % 7 === 0)) {
-    const assembled = buildPromptAssembled(await buildInput(spec), { budgetBytes: 0 });
+    const assembled = buildPromptAssembled(await buildInput(spec));
     const sections = splitAssembledSections(assembled);
     assert.equal(sections.map((s) => s.text).join("\n"), assembled.text, cellName(spec));
     assert.deepEqual(sections.map((s) => s.id), Object.keys(assembled.sectionSizes), cellName(spec));
@@ -152,7 +152,7 @@ test("the shapes the matrix adds are really assembled: a pack with no DOM and th
     ...allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === "regen-fix" && s.tree === "none" && s.grounding === "pack" && s.contextMap && !s.service && s.packDom)!,
     ...over,
   });
-  const claimsOf = async (s: CellSpec) => Object.values(buildPromptAssembled(await buildInput(s), { budgetBytes: 0 }).claims).flat();
+  const claimsOf = async (s: CellSpec) => Object.values(buildPromptAssembled(await buildInput(s)).claims).flat();
   const full = await claimsOf(spec({}));
   assert.ok(full.some((c) => c.kind === "provides" && c.fact === "dom-live"));
 
@@ -185,7 +185,7 @@ test("a signal of co-change files alone is a narrow shape: diff runs with none o
 
 test("the signal shapes are really assembled: symbols give the structural signal and drop the lookup, co-change files give the co-change fact and keep it, none gives neither", async () => {
   const base = coChangeSpecs().find((s) => s.phase === "first" && s.target === "e2e" && s.grounding === "none")!;
-  const claimsOf = async (s: CellSpec) => Object.values(buildPromptAssembled(await buildInput(s), { budgetBytes: 0 }).claims).flat();
+  const claimsOf = async (s: CellSpec) => Object.values(buildPromptAssembled(await buildInput(s)).claims).flat();
   const provides = (claims: Awaited<ReturnType<typeof claimsOf>>, fact: string) => claims.some((c) => c.kind === "provides" && c.fact === fact);
   const looksUp = (claims: Awaited<ReturnType<typeof claimsOf>>) => claims.some((c) => c.kind === "directs" && c.action === "orient" && c.target === "blast-radius");
 
@@ -203,7 +203,7 @@ test("the signal shapes are really assembled: symbols give the structural signal
 });
 
 test("no cell with a signal of co-change files alone titles it as the structural signal is titled, while its twin with symbols does", async () => {
-  const assembledOf = async (spec: CellSpec) => buildPromptAssembled(await buildInput(spec), { budgetBytes: 0 });
+  const assembledOf = async (spec: CellSpec) => buildPromptAssembled(await buildInput(spec));
   const titleOf = (assembled: Awaited<ReturnType<typeof assembledOf>>): string =>
     splitAssembledSections(assembled).find((section) => section.id === "static-signal")?.text.split("\n")[0] ?? "";
   for (const spec of coChangeSpecs()) {
@@ -222,9 +222,9 @@ test("a regeneration with a signal of co-change files alone never says the blast
   const regens = coChangeSpecs().filter((s) => s.phase !== "first");
   assert.ok(regens.length > 0);
   for (const spec of regens) {
-    const withCoChange = buildPromptAssembled(await buildInput(spec), { budgetBytes: 0 });
+    const withCoChange = buildPromptAssembled(await buildInput(spec));
     assert.equal(explored.test(withCoChange.text), false, cellName(spec));
-    const withSymbols = buildPromptAssembled(await buildInput({ ...spec, structuralSignal: "symbols" }), { budgetBytes: 0 });
+    const withSymbols = buildPromptAssembled(await buildInput({ ...spec, structuralSignal: "symbols" }));
     assert.equal(explored.test(withSymbols.text), true, `${cellName(spec)} with symbols`);
   }
 });
@@ -232,7 +232,7 @@ test("a regeneration with a signal of co-change files alone never says the blast
 test("the redirect shape is really assembled: the pack lists the page a redirect reached as a section of its own, outside the live DOM", async () => {
   const base = allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === "regen-fix" && s.tree === "none" && s.grounding === "pack" && s.contextMap && !s.service && s.packDom && !s.packRedirect)!;
   const packOf = async (spec: CellSpec): Promise<string> =>
-    splitAssembledSections(buildPromptAssembled(await buildInput(spec), { budgetBytes: 0 })).find((section) => section.id === "context-pack")?.text ?? "";
+    splitAssembledSections(buildPromptAssembled(await buildInput(spec))).find((section) => section.id === "context-pack")?.text ?? "";
   const sectionOf = (pack: string, heading: string): string => pack.split(/^### /m).find((part) => part.startsWith(heading)) ?? "";
 
   const redirected = await packOf({ ...base, packRedirect: true });
@@ -282,7 +282,7 @@ test("a diff first pass with no listing and a regeneration with no carried specs
 
 test("the suite shapes are really assembled: a listing is a provider of the suite and a missing one sends the first pass to read it", async () => {
   const base = allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === "first" && s.suite === "listed" && s.grounding === "none" && s.structuralSignal === "none" && !s.contextMap)!;
-  const claimsOf = async (s: CellSpec) => buildPromptAssembled(await buildInput(s), { budgetBytes: 0 }).claims;
+  const claimsOf = async (s: CellSpec) => buildPromptAssembled(await buildInput(s)).claims;
   const providers = (claims: Awaited<ReturnType<typeof claimsOf>>) => Object.entries(claims).filter(([, list]) => list.some((c) => c.kind === "provides" && c.fact === "existing-suite")).map(([id]) => id);
   const readsSuite = (claims: Awaited<ReturnType<typeof claimsOf>>) => Object.values(claims).flat().some((c) => c.kind === "directs" && c.action === "read" && c.target === "existing-suite");
 
@@ -297,7 +297,7 @@ test("the suite shapes are really assembled: a listing is a provider of the suit
 test("a regeneration that carries the run's specs lists them under the labels of the turn's work, with the delivered specs refreshing the suite's own line", async () => {
   for (const phase of DIMENSIONS.phase.filter((p) => p !== "first")) {
     const spec = allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === phase && s.suite === "listed" && s.grounding === "none" && s.tree === "none" && s.structuralSignal === "none" && !s.contextMap && !s.service)!;
-    const section = splitAssembledSections(buildPromptAssembled(await buildInput(spec), { budgetBytes: 0 })).find((part) => part.id === "existing-suite-manifest")!;
+    const section = splitAssembledSections(buildPromptAssembled(await buildInput(spec))).find((part) => part.id === "existing-suite-manifest")!;
     assert.ok(section, `${phase}: the listing is in the prompt`);
     assert.ok(section.text.includes(SUITE_LISTING_LABELS.editable), `${phase}: there is a spec to change`);
     assert.equal(section.text.split("\n").filter((line) => line.includes("flows/cart.spec.ts")).length, 1, `${phase}: the suite's line and the run's delivery of the same file are one entry`);
@@ -306,7 +306,7 @@ test("a regeneration that carries the run's specs lists them under the labels of
 
 test("an exhaustive regeneration carries many of the run's specs it leaves alone, and the listing names every one of them", async () => {
   const spec = allValidSpecs().find((s) => s.mode === "exhaustive" && s.target === "e2e" && s.phase === "regen-fix" && s.suite === "listed" && s.grounding === "none" && s.tree === "none")!;
-  const section = splitAssembledSections(buildPromptAssembled(await buildInput(spec), { budgetBytes: 0 })).find((part) => part.id === "existing-suite-manifest")!;
+  const section = splitAssembledSections(buildPromptAssembled(await buildInput(spec))).find((part) => part.id === "existing-suite-manifest")!;
   const delivered = (await buildInput(spec)).deliveredSpecs ?? [];
   const written = section.text.split("\n");
   assert.ok(delivered.length - 1 > 30, "setup: many specs are left alone");
@@ -349,7 +349,7 @@ test("the worst-case listing is really built: many specs delivered and many suit
     const existing = input.existingSpecFiles ?? [];
     assert.ok(delivered.length > 30 && existing.length > 30, `${phase}: setup, there are many of each`);
     assert.equal(new Set([...delivered.map((d) => d.file), ...existing.map(suiteEntryFile)]).size, delivered.length + existing.length, `${phase}: no spec is listed twice`);
-    const section = splitAssembledSections(buildPromptAssembled(input, { budgetBytes: 0 })).find((part) => part.id === "existing-suite-manifest")!;
+    const section = splitAssembledSections(buildPromptAssembled(input)).find((part) => part.id === "existing-suite-manifest")!;
     const written = section.text.split("\n");
     const labelAt = written.indexOf(SUITE_LISTING_LABELS.doNotRewrite);
     assert.ok(written.includes(SUITE_LISTING_LABELS.editable) && labelAt > 0, `${phase}: both groups are there`);
@@ -372,15 +372,15 @@ test("the budgets of the worst-case listing are above those of every ordinary li
   assert.ok(baseline.ceiling.bytes >= Math.max(...valid.filter((s) => s.suite === "large").map((s) => baseline.buckets[bucketOf(s, true)]!.bytes)));
 });
 
-test("the worst-case listing stands whole in a prompt of the reference production size: a budget that holds the reference prompt sheds and cuts none of it", async () => {
+test("the worst-case listing stands whole in a prompt of the reference production size: a window that holds the reference prompt gives up none of it", async () => {
   const cells = (await buildMatrix(ROOT, largeSpecs())).filter((c) => c.layer === "opencode");
   const worst = cells.reduce((a, b) => (b.assembledBytes > a.assembledBytes ? b : a));
   assert.ok(worst.assembledBytes <= GLOBAL_USER_PROMPT_BASELINE_BYTES, "setup: the worst case is no larger than the reference prompt");
   const input = await buildInput(worst.spec, MATRIX_STEP_LIMIT);
-  const whole = buildPromptAssembled(input, { budgetBytes: 0 });
-  const budgeted = buildPromptAssembled(input, { budgetBytes: GLOBAL_USER_PROMPT_BASELINE_BYTES });
-  assert.deepEqual(budgeted.sectionSizes, whole.sectionSizes);
-  assert.equal(budgeted.text, whole.text);
+  const whole = buildPromptAssembled(input);
+  const fitted = buildPromptAssembled(input, { fit: ({ bytes }) => (bytes <= GLOBAL_USER_PROMPT_BASELINE_BYTES ? "fits" : "over") });
+  assert.deepEqual(fitted.sectionSizes, whole.sectionSizes);
+  assert.equal(fitted.text, whole.text);
 });
 
 test("cells with harness facts carry the facts-only section, linted as data with no directive or framing", async () => {
@@ -696,7 +696,7 @@ test("every section a matrix prompt carries is a registered generator section, i
   const registered = new Set(GENERATOR_SECTIONS.map((def) => def.id));
   const seen = new Set<string>();
   for (const spec of allValidSpecs()) {
-    const ids = Object.keys(buildPromptAssembled(await buildInput(spec, MATRIX_STEP_LIMIT), { budgetBytes: 0 }).sectionSizes);
+    const ids = Object.keys(buildPromptAssembled(await buildInput(spec, MATRIX_STEP_LIMIT)).sectionSizes);
     for (const id of ids) seen.add(id);
     assert.deepEqual(ids, assemblyOrder.filter((id) => ids.includes(id)), JSON.stringify(spec));
   }

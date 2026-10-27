@@ -1,4 +1,4 @@
-/* The prompt engine. A prompt is a list of section definitions: each declares the section it is, why it exists, whether its bytes vary per run, when it applies to a turn's context and how it renders from it. Assembly renders the sections that apply, orders them (the stable prefix first, then the run's facts, then the closing recap; by tier and priority within each), degrades them to references by the window fit rule when the prompt is over its role's window, sheds them to the byte budget and reports each survivor's size, hash and claims. Every role's prompt (generator, reviewer, the lead's turns, a delegation brief) is assembled here, so section sizes, hashes, budgets and the prompt-contract lint apply to all of them. Never import src/. */
+/* The prompt engine. A prompt is a list of section definitions: each declares the section it is, why it exists, whether its bytes vary per run, when it applies to a turn's context and how it renders from it. Assembly renders the sections that apply, orders them (the stable prefix first, then the run's facts, then the closing recap; by tier and priority within each), degrades them to references by the window fit rule when the prompt is over its role's window and reports each survivor's size, hash and claims. Every role's prompt (generator, reviewer, the lead's turns, a delegation brief) is assembled here, so section sizes, hashes and the prompt-contract lint apply to all of them. Never import src/. */
 import { engineLog } from "./ports/process-logger.ts";
 import { sha256Hex } from "./content-hash.ts";
 import { redactByValue } from "./run-secret-redaction.ts";
@@ -6,8 +6,6 @@ import type { PromptClaim } from "./prompt-claim.ts";
 import type { Omission, SectionMeta } from "./telemetry/section-meta.ts";
 
 export interface AssembleOpts {
-  /* Global byte budget for the assembled prompt. When provided and positive, the assembler sheds lowest-priority sections until the total fits within this limit. 0 or absent means no global budget enforcement. */
-  budgetBytes?: number;
   /* What joins two surviving sections: one newline by default; a prompt whose sections are blocks of prose separates them with a blank line. */
   separator?: string;
   /* The window fit rule of the role the prompt is for (the run's ContextBudget): whether a prompt of this many bytes leaves the role the working room its turn needs. Over, the sections that can degrade do, in WINDOW_FIT_ORDER, until the prompt fits; unknown (or absent), nothing is degraded: the prompt fails open. */
@@ -106,10 +104,6 @@ export interface AssembledPrompt {
   providedPaths?: readonly string[];
   /* sha256 of each surviving section's bytes with the run's secrets taken out by value, keyed by section id. Computed when the prompt is assembled, which the use case does inside the run's secret scope; the hash of the whole prompt is the transport's, over the bytes it sends. The text itself is left as it was: the transport redacts it at its own seam. */
   sectionHashes?: Record<string, string>;
-  /* The sections the byte budget omitted, the ones the prompt's own omission notice names. */
-  droppedSections?: readonly string[];
-  /* The byte budget the prompt was assembled to; absent when none applied. */
-  budgetBytes?: number;
   /* Bytes of the stable prefix: the static sections that open the prompt, joined, without the separator after them. 0 when the prompt opens with a run fact. */
   stablePrefixBytes: number;
   /* What the window fit rule did; absent when no fit rule was given. */
@@ -141,13 +135,13 @@ interface ResolvedSection {
   section: Section;
   content: string;
   dropped: boolean;
-  /* The content was cut to a bound (its maxBytes, or the byte budget): the section survives, but its items are not all there. */
+  /* The content was cut to the section's own maxBytes: the section survives, but its items are not all there. */
   capped: boolean;
   /* The window fit rule replaced the content with a smaller render of the section: its step, and what it leaves out. */
   degradation?: SectionDegradation & { step: number };
 }
 
-/* The order sections give way in, for the window and for the byte budget alike: the volatile run facts first, then the semi-stable ones, then the task; the stable prefix and the closing recap last. Within a band, the lowest priority (the highest number) first. */
+/* The order sections give way in for the window: the volatile run facts first, then the semi-stable ones, then the task; the stable prefix and the closing recap last. Within a band, the lowest priority (the highest number) first. */
 const WINDOW_FIT_ORDER: Record<SectionRole, number> = {
   "volatile": 1,
   "semi-stable": 2,
@@ -233,77 +227,6 @@ export function assembleSections(sections: Section[], opts: AssembleOpts = {}): 
 
   const windowFit = opts.fit ? fitToWindow(resolved, opts.fit, separatorBytes) : undefined;
 
-  const droppedIds: string[] = [];
-  const budgetBytes = opts.budgetBytes ?? 0;
-  if (budgetBytes > 0) {
-    const totalBytes = (): number => joinedBytes(resolved, separatorBytes);
-
-    if (totalBytes() > budgetBytes) {
-      const candidates = resolved.filter((r) => !r.dropped).sort(byShedOrder);
-
-      for (const candidate of candidates) {
-        if (totalBytes() <= budgetBytes) break;
-
-        const originalBytes = Buffer.byteLength(candidate.content, "utf8");
-
-        if (candidate.section.overflow === "drop") {
-          engineLog.warn(
-            `[context-assembler] BUDGET OVERFLOW: shedding section '${candidate.section.id}' ` +
-              `(${originalBytes} bytes, overflow='drop') — total was ${totalBytes()} bytes, ` +
-              `budget is ${budgetBytes} bytes.`,
-          );
-          candidate.dropped = true;
-          candidate.content = "";
-          droppedIds.push(candidate.section.id);
-        } else {
-          const remainingBudget = budgetBytes - (totalBytes() - originalBytes);
-          if (remainingBudget <= 0) {
-            engineLog.warn(
-              `[context-assembler] BUDGET OVERFLOW: shedding section '${candidate.section.id}' ` +
-                `(${originalBytes} bytes, overflow='summarize' → no room → dropping entirely) — ` +
-                `total was ${totalBytes()} bytes, budget is ${budgetBytes} bytes.`,
-            );
-            candidate.dropped = true;
-            candidate.content = "";
-            droppedIds.push(candidate.section.id);
-          } else {
-            const markerOverhead = Buffer.byteLength(
-              `\n…(section '${candidate.section.id}' capped at ${remainingBudget} bytes)`,
-              "utf8",
-            );
-            const contentTarget = remainingBudget - markerOverhead;
-            if (contentTarget <= 0) {
-              engineLog.warn(
-                `[context-assembler] BUDGET OVERFLOW: shedding section '${candidate.section.id}' ` +
-                  `(${originalBytes} bytes, overflow='summarize' → no room after marker overhead → dropping entirely) — ` +
-                  `total was ${totalBytes()} bytes, budget is ${budgetBytes} bytes.`,
-              );
-              candidate.dropped = true;
-              candidate.content = "";
-            } else {
-              const truncated = capToBytes(candidate.content, contentTarget, candidate.section.id);
-              engineLog.warn(
-                `[context-assembler] BUDGET OVERFLOW: truncating section '${candidate.section.id}' ` +
-                  `from ${originalBytes} to ${Buffer.byteLength(truncated, "utf8")} bytes ` +
-                  `(overflow='summarize') — total was ${totalBytes()} bytes, budget is ${budgetBytes} bytes.`,
-              );
-              candidate.content = truncated;
-              candidate.capped = true;
-            }
-          }
-        }
-      }
-
-      if (totalBytes() > budgetBytes) {
-        engineLog.warn(
-          `[context-assembler] BUDGET OVERFLOW: could not shed enough sections to meet ` +
-            `${budgetBytes}-byte budget (remaining: ${totalBytes()} bytes). ` +
-            `The assembled prompt exceeds the role budget — raise budgetBytes or reduce section sizes.`,
-        );
-      }
-    }
-  }
-
   const parts: string[] = [];
   let stablePrefixBytes = 0;
   let inPrefix = true;
@@ -334,13 +257,6 @@ export function assembleSections(sections: Section[], opts: AssembleOpts = {}): 
     sectionItems[r.section.id] = { itemIds: r.dropped || r.capped ? [] : [...declared], omissions, capped: r.capped };
   }
 
-  if (droppedIds.length > 0) {
-    const notice =
-      `⚠ Budget: these context sections were omitted and are NOT below: ${droppedIds.join(", ")}. ` +
-      `If a flow needs DOM/structure/contracts you did not receive, explore it directly — do not assume it is absent.`;
-    parts.push(notice);
-  }
-
   const text = parts.join(separator);
   return {
     text,
@@ -348,8 +264,6 @@ export function assembleSections(sections: Section[], opts: AssembleOpts = {}): 
     claims,
     sectionItems,
     sectionHashes,
-    droppedSections: droppedIds,
-    ...(budgetBytes > 0 ? { budgetBytes } : {}),
     stablePrefixBytes,
     ...(windowFit ? { windowFit } : {}),
   };

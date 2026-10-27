@@ -1,4 +1,4 @@
-/* A prompt is budgeted by the run's window of the role it is for, read through the per-run ContextWindowPort: the lead's plan prompt by the lead's window, an authoring prompt by the author's, the reviewer's by the reviewer's. A window the run does not know cuts nothing and says so. */
+/* A prompt is fitted to the run's window of the role it is for, read through the per-run ContextWindowPort: the lead's plan prompt to the lead's window, an authoring prompt to the author's, the reviewer's to the reviewer's. No share of a window cuts a prompt that fits it; a window the run does not know degrades nothing. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -8,7 +8,7 @@ import { buildPromptAssembled, buildReviewerPromptAssembled } from "@contexts/ge
 import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 import type { ReviewInput } from "@contexts/generation/application/index.ts";
-import { ContextBudget, assemblerBudgetBytes } from "@kernel/context-budget.ts";
+import { ContextBudget } from "@kernel/context-budget.ts";
 import type { ContextWindowPort } from "@kernel/ports/context-window.port.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 import { promptFactsOpts } from "@contexts/generation/domain/prompt-facts.ts";
@@ -33,34 +33,38 @@ const input = (over: Partial<OpencodeRunInput> = {}): OpencodeRunInput => ({
 const PLANNING = { capacity: 5, maxParallel: 2, budgetMs: 240_000 };
 const review: ReviewInput = { diff: "+x\n", specs: ["flows/a.spec.ts"], mirrorDir: "/mirrors/org__app", e2eRelDir: "e2e", appName: "shop", mode: "diff" };
 
-test("the lead's plan prompt is budgeted by the lead's own window, an authoring prompt by the author's", () => {
-  const port = windows({ lead: 100_000, author: 400_000, reviewer: 50_000 });
-  const opts = { windowTokens: (role: AgentRole) => port.windowTokens(role) };
+test("the lead's plan prompt is fitted to the lead's own window, an authoring prompt to the author's, the reviewer's to the reviewer's", () => {
+  const asked: string[] = [];
+  const opts = { fit: ({ role }: { role: AgentRole }) => { asked.push(role); return "fits" as const; } };
 
   const plan = buildPromptAssembled(input({ planning: PLANNING }), opts);
+  const planAsked = [...asked];
   const authoring = buildPromptAssembled(input(), opts);
+  buildReviewerPromptAssembled(review, opts);
 
   assert.equal(plan.promptRole, "lead");
-  assert.equal(plan.budgetBytes, assemblerBudgetBytes(100_000));
   assert.equal(authoring.promptRole, "author");
-  assert.equal(authoring.budgetBytes, assemblerBudgetBytes(400_000));
-  assert.equal(buildReviewerPromptAssembled(review, opts).budgetBytes, assemblerBudgetBytes(50_000));
+  assert.deepEqual([...new Set(planAsked)], ["lead"], "the plan prompt asked only for the lead's window");
+  assert.ok(asked.includes("author") && asked.includes("reviewer"));
 });
 
-test("a known window gives the budget the assembler has always applied: 0.75 of the window at 4 bytes a token", () => {
-  assert.equal(assemblerBudgetBytes(200_000), 600_000);
-  assert.equal(buildPromptAssembled(input(), { windowTokens: () => 200_000 }).budgetBytes, 600_000);
+test("no share of the window cuts a prompt that fits it: a prompt above 0.75 of its window reaches the agent whole", () => {
+  const rule = "- rule: scope the coupon button to the cart form. ";
+  const learnedRules = rule.repeat(Math.ceil(1_300_000 / rule.length));
+  const rendering = new PromptRenderingAdapter(
+    { buildPromptAssembled, buildReviewerPromptAssembled, specFileForFlow: (flow) => flow },
+    new ContextBudget(windows({ author: 400_000 }), cold),
+  );
+
+  const main = rendering.renderMain(input({ learnedRules }));
+
+  assert.ok(Buffer.byteLength(main.text, "utf8") > 0.75 * 400_000 * 4, "setup: the prompt is above three quarters of the window");
+  assert.equal(main.contextFit?.outcome, "fits", "setup: it fits the window");
+  assert.ok(main.text.includes(learnedRules.trim()), "the learned rules are whole");
+  assert.doesNotMatch(main.text, /capped at|Budget: these context sections/);
 });
 
-test("a window the run does not know cuts nothing and invents no budget", () => {
-  assert.equal(assemblerBudgetBytes(undefined), undefined);
-  assert.equal(assemblerBudgetBytes(0), undefined);
-  assert.equal(buildPromptAssembled(input({ planning: PLANNING }), { windowTokens: () => undefined }).budgetBytes, undefined);
-  assert.equal(buildPromptAssembled(input()).budgetBytes, undefined, "no source of windows at all");
-  assert.equal(buildReviewerPromptAssembled(review).budgetBytes, undefined);
-});
-
-test("the rendering adapter budgets each prompt by its role's window and records the fit with the window and the working room", () => {
+test("the rendering adapter fits each prompt to its role's window and records the fit with the window and the working room", () => {
   const budget = new ContextBudget(windows({ lead: 100_000, author: 400_000, reviewer: 50_000 }), cold);
   const rendering = new PromptRenderingAdapter(
     { buildPromptAssembled, buildReviewerPromptAssembled, specFileForFlow: (flow) => flow },
@@ -70,7 +74,6 @@ test("the rendering adapter budgets each prompt by its role's window and records
   const plan = rendering.renderMain(input({ planning: PLANNING }));
   const reviewer = rendering.renderReviewer(review);
 
-  assert.equal(plan.budgetBytes, assemblerBudgetBytes(100_000));
   assert.deepEqual([plan.contextFit?.outcome, plan.contextFit?.windowTokens, plan.contextFit?.workingRoomTokens, plan.contextFit?.roomBasis], ["fits", 100_000, 100, "cold-start"]);
   assert.equal(reviewer.contextFit?.windowTokens, 50_000);
   assert.deepEqual(promptFactsOpts(plan).contextFit, plan.contextFit, "the fit reaches the turn's trace");
@@ -84,7 +87,6 @@ test("a role whose window is unknown is rendered whole and recorded as unknown",
 
   const plan = rendering.renderMain(input({ planning: PLANNING }));
 
-  assert.equal(plan.budgetBytes, undefined);
   assert.equal(plan.contextFit?.outcome, "unknown");
   assert.equal(plan.contextFit?.windowTokens, undefined);
 });
@@ -94,7 +96,6 @@ test("a host with no context budget renders as before and records no fit", () =>
 
   const main = rendering.renderMain(input());
 
-  assert.equal(main.budgetBytes, undefined);
   assert.equal(main.contextFit, undefined);
 });
 

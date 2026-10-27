@@ -27,7 +27,6 @@ import {
 import { renderReviewSpecs } from "@contexts/generation/infrastructure/prompt-builders/review-render.ts";
 import { MAP_ITEMS_SAFETY_BOUND, renderArchitectureContextParts } from "@contexts/generation/infrastructure/prompt-builders/architecture-context.ts";
 import { assemble as caAssemble, section as caSection } from "@contexts/generation/infrastructure/prompt-builders/context-assembler.ts";
-import { assemblerBudgetBytes } from "@kernel/context-budget.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import {
   APP_LOGIN_SECTION_ID,
@@ -514,78 +513,14 @@ test("the objective the agent commits to precedes the diff section in diff mode"
   assert.ok(ids.indexOf("task") < ids.indexOf("diff"), `the task (objective) must precede the diff section; order: ${ids.join(", ")}`);
 });
 
-/* [seam a] 1.1: diff section exists as a dedicated section (not embedded in task).
-   We verify this via sectionSizes when the diff fits within budget.
-   Also asserts that under shed pressure (using assemble directly), diff (shedAs semi-stable, band 2)
-   sheds BEFORE task (band 3).
- */
-test("diff is a dedicated section (shedAs semi-stable) and sheds before task under budget pressure", () => {
-  /* Part 1: When diff fits within budget, sectionSizes must have a "diff" key separate from "task". */
+/* The diff is a dedicated section, not embedded in the task, so the window fit rule can give it up on its own. */
+test("diff is a dedicated section, separate from the task", () => {
   const result = buildPromptAssembled(mkInput({
     diff: "diff --git a/src/foo.ts\n+export function foo() {}",
   }));
   assert.ok(
     Object.keys(result.sectionSizes).includes("diff"),
     `expected a dedicated "diff" section in sectionSizes; got: ${Object.keys(result.sectionSizes).join(", ")}`,
-  );
-
-  const DIFF_MARKER = "DIFF_SECTION_MARKER";
-  const TASK_MARKER = "TASK_SECTION_MARKER";
-  const padded = (s: string) => padTo(s, 20_000);
-  const budget = 22_000;
-
-  const shedResult = caAssemble([
-    caSection("task", "task", padded(TASK_MARKER), { priority: 1 }),
-    caSection("diff", "task", padded(DIFF_MARKER), { priority: 2, shedAs: "semi-stable" }),
-  ], { budgetBytes: budget });
-
-  /* diff (shedAs semi-stable, band 2) sheds before task (band 3) → DIFF_MARKER absent, TASK_MARKER present. */
-  assert.ok(
-    shedResult.text.includes(TASK_MARKER),
-    "task section must survive when diff (shedAs semi-stable) is shed under budget pressure",
-  );
-  assert.ok(
-    !shedResult.text.includes(DIFF_MARKER),
-    "diff section (shedAs semi-stable, band 2) must shed before task (band 3) under budget pressure",
-  );
-});
-
-/* [seam a] 1.3 (regression guard, STRENGTHENED): critical-recap (context-pack shedAs:critical-recap,
-   band 4) outlasts the diff (shedAs:semi-stable, band 2) AND learned-rules (volatile, band 1) under
-   real budget enforcement. Shed order: learned-rules (volatile, band 1) → diff (semi-stable, band 2)
-   → context-pack (critical-recap, band 4). Budget forces both learned-rules AND diff to shed while
-   the pack survives — proving the invariant under enforcement, not just by construction.
- */
-test("critical-recap context-pack sheds LAST — survives when diff AND learned-rules are shed", () => {
-  const PACK_MARKER = "PACK_MARKER_CONTENT";
-  const DIFF_MARKER = "DIFF_SECTION_MARKER";
-  const LEARNED_MARKER = "LEARNED_RULES_MARKER";
-
-  const padded = (s: string) => padTo(s, 25_000);
-  /* Budget: fits only 1 of 3 sections (each ~25k, budget 27k).
-     Shed order: learned-rules (volatile, band 1) → diff (shedAs:semi-stable, band 2)
-     → context-pack (shedAs:critical-recap, band 4).
-     Expected: LEARNED_MARKER shed, DIFF_MARKER shed, PACK_MARKER survives.
-   */
-  const budget = 27_000;
-
-  const result = caAssemble([
-    caSection("context-pack", "volatile", padded(PACK_MARKER), { priority: 0, shedAs: "critical-recap" }),
-    caSection("learned-rules", "volatile", padded(LEARNED_MARKER), { priority: 2 }),
-    caSection("diff", "task", padded(DIFF_MARKER), { priority: 2, shedAs: "semi-stable" }),
-  ], { budgetBytes: budget });
-
-  assert.ok(
-    result.text.includes(PACK_MARKER),
-    "context-pack (shedAs:critical-recap, band 4) must survive when budget forces shedding of volatile and semi-stable sections",
-  );
-  assert.ok(
-    !result.text.includes(LEARNED_MARKER),
-    "learned-rules (volatile, band 1) must be shed first under tight budget",
-  );
-  assert.ok(
-    !result.text.includes(DIFF_MARKER),
-    "diff (shedAs:semi-stable, band 2) must be shed before context-pack (band 4) under tight budget",
   );
 });
 
@@ -621,119 +556,23 @@ test("FE↔BE appears at most twice when contextPack is present", () => {
   );
 });
 
-/* [seam d] 1.9: learned-rules sheds AFTER reviewer-corrections and coverage-gap.
-   After seam d, learned-rules priority is p2 in buildPromptAssembled.
-   Use caAssemble to verify the shed order invariant directly.
- */
-test("learned-rules (p2) sheds AFTER reviewer-corrections (p4) and coverage-gap (p5) in shed order", () => {
-  /* With learned-rules at priority p2: volatile shed order is coverage-gap(5) → reviewer-corrections(4) →
-     fix-cases(3) → learned-rules(2) → dom(1). So learned-rules (p2) sheds LAST among these.
-     We verify: with a budget that forces shedding of coverage-gap (p5) only, learned-rules and
-     reviewer-corrections both survive; with more shedding, reviewer-corrections (p4) goes before learned-rules.
-   */
-
-  const REVIEWER_MARKER = "REVIEWER_CORRECTIONS_MARKER";
-  const LEARNED_MARKER = "LEARNED_RULES_MARKER";
-  const GAP_MARKER = "COVERAGE_GAP_MARKER";
-
-  const padded = (s: string) => padTo(s, 20_000);
-  /* Budget: fits 2 of 3 sections. coverage-gap (p5) sheds first (highest number = first to go).
-     After that, reviewer-corrections (p4) sheds next if still over budget.
-     learned-rules (p2) sheds LAST — so with budget=42k, coverage-gap is shed, both others survive.
-   */
-  const budget = 42_000;
-
-  const result = caAssemble([
-    caSection("reviewer-corrections", "volatile", padded(REVIEWER_MARKER), { priority: 4 }),
-    caSection("coverage-gap", "volatile", padded(GAP_MARKER), { priority: 5 }),
-    caSection("learned-rules", "volatile", padded(LEARNED_MARKER), { priority: 2 }),
-  ], { budgetBytes: budget });
-
-  /* With p2: coverage-gap (p5) sheds first → LEARNED_MARKER and REVIEWER_MARKER both survive. */
-  assert.ok(
-    result.text.includes(LEARNED_MARKER),
-    `learned-rules (p2) must survive budget shedding — coverage-gap (p5) should shed first. ` +
-    `Actual sectionSizes: ${JSON.stringify(result.sectionSizes)}`,
-  );
-  assert.ok(
-    result.text.includes(REVIEWER_MARKER),
-    "reviewer-corrections (p4) must survive when only coverage-gap (p5) is shed",
-  );
-  assert.ok(
-    !result.text.includes(GAP_MARKER),
-    "coverage-gap (p5) must be shed first under budget pressure",
-  );
-});
-
-/* [seam d] 1.10: plan-lessons (p2 after seam d) survives budget pressure that evicts plan-arch-map (p2, declared first).
-   With both at p2 (after seam d), the stable sort orders shed candidates by declaration order:
-   plan-arch-map is declared FIRST in the array → shed FIRST. plan-lessons SURVIVES.
- */
-test("plan-lessons (p2) survives budget pressure when plan-arch-map (p2, declared first) is shed", () => {
-  const LESSONS_MARKER = "PLAN_LESSONS_MARKER";
-  const ARCH_MAP_MARKER = "PLAN_ARCH_MAP_MARKER";
-
-  const padded = (s: string) => padTo(s, 20_000);
-  /* Budget: fits 1 of 2 sections. Both at p2 → tied priority, declaration order decides.
-     plan-arch-map declared first → sheds first. plan-lessons survives.
-   */
-  const budget = 22_000;
-
-  const result = caAssemble([
-    caSection("plan-arch-map", "semi-stable", padded(ARCH_MAP_MARKER), { priority: 2 }),
-    caSection("plan-lessons", "semi-stable", padded(LESSONS_MARKER), { priority: 2 }), /* p2, tied with arch-map */
-  ], { budgetBytes: budget });
-
-  /* Both p2 → stable sort keeps declaration order → plan-arch-map sheds first → plan-lessons survives. */
-  assert.ok(
-    result.text.includes(LESSONS_MARKER),
-    `plan-lessons (p2) must survive when plan-arch-map (also p2, declared first) sheds first.`,
-  );
-  assert.ok(
-    !result.text.includes(ARCH_MAP_MARKER),
-    "plan-arch-map (p2, declared first) must be shed when only 1 section fits",
-  );
-});
-
 /* ── Priority pinning: pin REAL production priority scalars ────────── */
 
-/* Generator path: buildPromptAssembled with large learnedRules + coverageGap content so the role
-   budget (192k for kimi-k2.7-code) forces shedding. coverage-gap is rendered with
-   shedAs:"critical-recap" (least-shedable — it is the ENTIRE payload of an enforce-mode coverage
-   regen). Under budget pressure, learned-rules (still p2) sheds instead — proving the shedAs
-   promotion took effect, not merely that learned-rules kept its own priority.
- */
-test("coverage-gap (shedAs critical-recap) survives budget pressure that sheds learned-rules (p2)", () => {
+/* Generator path: no section is cut for the size of the prompt. A large learnedRules and a large coverageGap both reach the prompt whole,
+   with an unknown window and with a window that holds them. */
+test("a large coverage gap and large learned rules both reach the prompt whole: nothing is shed for size", () => {
   const LEARNED_MARKER = "PINNING_LEARNED_RULES_MARKER";
   const GAP_MARKER = "PINNING_COVERAGE_GAP_MARKER";
-
-  /* Each section ~100k bytes. Together ~200k — exceeds the injected 192k budget, so at least
-     one section must shed. The budget is injected via buildPromptAssembled's budgetBytes seam
-     (64k tokens × 0.75 safety × 4 bytes/token = 192k — the value the old 64K catalog entry
-     produced) so the assertion is INDEPENDENT of the live model-window catalog: raising a
-     real model window to 1M must never silently void this shed-order reasoning test.
-     learned-rules in the volatile shed band at all, so learned-rules (still volatile p2) sheds first.
-   */
   const learnedContent = padTo(LEARNED_MARKER, 100_000);
   const gapContent = padTo(GAP_MARKER, 100_000);
+  const input = mkInput({ mode: "diff", learnedRules: learnedContent, coverageGap: gapContent });
 
-  const result = buildPromptAssembled(mkInput({
-    mode: "diff",
-    learnedRules: learnedContent,
-    coverageGap: gapContent,
-  }), { budgetBytes: 192_000 });
-
-  assert.ok(
-    result.text.includes(GAP_MARKER),
-    `coverage-gap (shedAs critical-recap) must survive budget pressure — it is the entire payload ` +
-    `of its own regen turn. sectionSizes: ${JSON.stringify(result.sectionSizes)}`,
-  );
-  assert.ok(
-    !result.text.includes(LEARNED_MARKER),
-    `learned-rules (volatile p2, unchanged) is expected to shed here so the budget math actually forces ` +
-    `a real choice between the two — otherwise this test would pass trivially if both fit. ` +
-    `sectionSizes: ${JSON.stringify(result.sectionSizes)}`,
-  );
+  for (const opts of [{}, { fit: () => "unknown" as const }, { fit: () => "fits" as const }]) {
+    const result = buildPromptAssembled(input, opts);
+    assert.ok(result.text.includes(GAP_MARKER), `the coverage gap is whole. sectionSizes: ${JSON.stringify(result.sectionSizes)}`);
+    assert.ok(result.text.includes(LEARNED_MARKER), `the learned rules are whole. sectionSizes: ${JSON.stringify(result.sectionSizes)}`);
+    assert.ok(result.text.length > 200_000);
+  }
 });
 
 /* The selector priority is unconditional craft: the generator role prompt's Procedure owns it (pinned by
@@ -1099,9 +938,9 @@ test("a small diff passes through buildDiffSection unmodified (no spurious trunc
   assert.ok(text.includes(small.trimEnd()), "a small diff must render in full");
 });
 
-/* A reviewer window the run reported, in tokens: the assembler budgets the prompt to the share of it the budget derives. */
-const KNOWN_REVIEWER_WINDOW = { windowTokens: () => 200_000 };
-const REVIEWER_BUDGET_BYTES = assemblerBudgetBytes(200_000)!;
+/* A reviewer window the run reported: the fit rule calls a prompt over it when it is larger than this many bytes. */
+const REVIEWER_WINDOW_BYTES = 600_000;
+const KNOWN_REVIEWER_WINDOW = { fit: ({ bytes }: { bytes: number }) => (bytes <= REVIEWER_WINDOW_BYTES ? ("fits" as const) : ("over" as const)) };
 
 test("a small diff at the reviewer site passes through unmodified", () => {
   const small = "diff --git a/src/foo.ts b/src/foo.ts\n+export function foo() {}\n";
@@ -1118,7 +957,7 @@ test("a small diff at the reviewer site passes through unmodified", () => {
 });
 
 /* The reviewer's live DOM has no fixed byte cap of its own: a large snapshot reaches the prompt whole while the reviewer's window holds it. */
-test("an oversized DOM snapshot reaches the reviewer whole within the reviewer role's budget, with no section cap cutting it", () => {
+test("an oversized DOM snapshot reaches the reviewer whole within the reviewer's window, with no section cap cutting it", () => {
   const oversizedDom = padTo("button: Submit\nheading: Checkout\n", 25_000);
   const { text, sectionSizes } = buildReviewerPromptAssembled({
     diff: "diff --git a/src/foo.ts b/src/foo.ts\n+export function foo() {}\n",
@@ -1131,7 +970,7 @@ test("an oversized DOM snapshot reaches the reviewer whole within the reviewer r
   }, KNOWN_REVIEWER_WINDOW);
   assert.ok((sectionSizes["reviewer-dom"] ?? 0) > Buffer.byteLength(oversizedDom, "utf8"), "reviewer-dom holds the whole snapshot");
   assert.doesNotMatch(text, /capped at/);
-  assert.ok(Buffer.byteLength(text, "utf8") <= REVIEWER_BUDGET_BYTES, "the assembled reviewer prompt respects the reviewer role's byte budget");
+  assert.ok(Buffer.byteLength(text, "utf8") <= REVIEWER_WINDOW_BYTES, "the assembled reviewer prompt fits the reviewer's window");
 });
 
 /* coverage-gap must survive its own regen prompt. On an enforce-mode coverage regen, coverage-gap
@@ -1200,22 +1039,16 @@ test("an ordinary (non-static-gate) fixCases entry keeps the framing of an execu
   assert.ok(!claimsOf(assembled, "fix-cases").some((c) => isDeepStrictEqual(c, claim.provides("gate-failure"))), "a real Playwright execution failure is not a gate failure");
 });
 
-test("the assembled coverage-gap section survives a tiny budget that sheds a lower-priority-number volatile section instead", () => {
-  /* Direct structural check against the ACTUAL section descriptor buildPromptAssembled constructs
-     for coverage-gap (priority 5, shedAs "critical-recap") vs. a lower-priority-number volatile
-     section (dom-snapshot, priority 1 — sheds SECOND under the old per-priority-number ordering,
-     but FIRST once coverage-gap is promoted to the critical-recap shed band).
-   */
+test("over the window the coverage gap is never given up: the section that has a smaller render is the one that gives way", () => {
   const coverageText = "## Cover the change (HIGH priority)\n\nCOVERAGE_GAP_UNIQUE_MARKER";
   const domText = "## Live DEV accessibility tree\n" + "x".repeat(5000);
-  const budgetBytes = Buffer.byteLength(coverageText, "utf8") + 50; /* room for coverage-gap alone, not both */
   const assembled = caAssemble([
-    caSection("dom-snapshot", "volatile", domText, { priority: 1 }),
+    caSection("dom-snapshot", "volatile", domText, { priority: 1, degrade: (step) => (step === 1 ? { content: "## Live DEV accessibility tree\n(not shown here, to fit the window)", omissions: [] } : undefined) }),
     caSection("coverage-gap", "volatile", coverageText, { priority: 5, shedAs: "critical-recap" }),
-  ], { budgetBytes });
-  assert.ok(assembled.text.includes("COVERAGE_GAP_UNIQUE_MARKER"), "coverage-gap (shedAs critical-recap) must survive the tiny budget");
-  assert.ok(assembled.sectionSizes["coverage-gap"] !== undefined, "coverage-gap must be present in sectionSizes (not shed)");
-  assert.ok(assembled.sectionSizes["dom-snapshot"] === undefined, "dom-snapshot (shedAs volatile, its own default band) must be the one shed instead");
+  ], { fit: (bytes) => (bytes <= coverageText.length + 200 ? "fits" : "over") });
+  assert.ok(assembled.text.includes("COVERAGE_GAP_UNIQUE_MARKER"), "the coverage gap stays whole");
+  assert.deepEqual(assembled.windowFit?.degraded.map((entry) => entry.id), ["dom-snapshot"]);
+  assert.ok(assembled.sectionSizes["dom-snapshot"] !== undefined && assembled.sectionSizes["dom-snapshot"] < 200, "the tree gave way to its reference");
 });
 
 /* ── Cross-repo prompt wording honesty (service-context staging fix) ──────────────────────────
@@ -1433,7 +1266,7 @@ test("reviewer prompt: the spec-change excerpt is bounded and sanitized", () => 
   }, KNOWN_REVIEWER_WINDOW);
 
   assert.ok(!text.includes(secret), "a secret in the change excerpt must be redacted before it reaches the reviewer");
-  assert.ok(Buffer.byteLength(text, "utf8") <= REVIEWER_BUDGET_BYTES);
+  assert.ok(Buffer.byteLength(text, "utf8") <= REVIEWER_WINDOW_BYTES);
 });
 
 /* No fixed count or length cuts the map: an app with hundreds of routes and operations is rendered whole, every entry supplied. */
