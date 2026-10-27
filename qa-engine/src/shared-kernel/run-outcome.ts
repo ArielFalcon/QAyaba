@@ -76,6 +76,8 @@ export interface RunOutcome {
       correctionClass?: string;
       /* The findings the generator disputed instead of correcting; `withdrawn` is how many the orchestrator verified. Absent when no rebuttal arrived. */
       rebuttals?: { received: number; withdrawn: number };
+      /* Rounds whose model rejection lost every blocking finding to the evidence filter (so the round read as an approval), and the findings lost per reason. Absent when no round did. Persist-only: it reads nothing back into a verdict. */
+      droppedRejections?: { rounds: number; reasons: Record<string, number> };
     };
     flaky: boolean;
     retries: number;

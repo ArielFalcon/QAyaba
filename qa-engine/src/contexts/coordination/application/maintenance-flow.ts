@@ -5,7 +5,7 @@
  * no model; the spec path is confined here, before anything is opened.
  */
 
-import { normalizeSpecPath } from "@kernel/spec-path.ts";
+import { resolveSpecReference } from "@kernel/spec-path.ts";
 import { SIDEKICK_KIND } from "./sidekick-kinds.ts";
 import type { AdmittedFlow } from "./lead-plan.ts";
 import type { CorrectionFinding } from "./lead-correction.ts";
@@ -16,12 +16,7 @@ const MAX_ID_CHARS = 60;
 
 /* The spec a path names, relative to the spec directory, or undefined when it is not a spec file inside it (absolute, climbing, hidden directories such as the probe directory, any other extension). */
 export function confinedSpecFile(raw: string, specRelDir: string): string | undefined {
-  const path = normalizeSpecPath(raw);
-  if (path === "" || path.startsWith("/")) return undefined;
-  const root = `${normalizeSpecPath(specRelDir)}/`;
-  const rel = path.startsWith(root) ? path.slice(root.length) : path;
-  if (!rel.endsWith(".spec.ts")) return undefined;
-  return rel.split("/").some((segment) => segment === ".." || segment.startsWith(".")) ? undefined : rel;
+  return resolveSpecReference(raw, specRelDir);
 }
 
 /* The one spec a finding names: the file it cites, or failing that the one spec its text names. Undefined when it names none, several, or one outside the spec directory. */

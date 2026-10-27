@@ -200,6 +200,8 @@ export interface RunOutcome {
       skippedRounds: number;
       /* The class of the final blocking correction (`none` when approved), from the closed review tags. */
       correctionClass?: string;
+      /* Rounds whose model rejection lost every blocking finding to the evidence filter, and the findings lost per reason. Absent when no round did. */
+      droppedRejections?: { rounds: number; reasons: Record<string, number> };
     };
     flaky: boolean;
     retries: number;

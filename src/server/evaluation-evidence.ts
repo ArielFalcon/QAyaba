@@ -480,6 +480,7 @@ export class HistoryEvidenceAdapter implements EvidencePort {
             mutantCount: g.mutantCount,
             killedCount: g.killedCount,
             catalogGateFailClosed: g.catalogGateFailClosed,
+            droppedRejections: g.reviewer?.droppedRejections,
           }
         : undefined,
       limit: facts?.limitFired ? { fired: facts.limitFired, role: facts.limitRole ?? undefined, intent: limitIntentOf(spans, facts.limitRole ?? undefined) } : undefined,

@@ -8,7 +8,9 @@ import {
   type ReviewScope,
 } from "@contexts/run-orchestration/domain/review-finding-filter.service.ts";
 
+const SPEC_DIR = "e2e";
 const scope: ReviewScope = {
+  specRelDir: SPEC_DIR,
   inScopeSpecs: new Set(["flows/checkout.spec.ts"]),
   executedSpecs: new Set(["flows/checkout.spec.ts"]),
 };
@@ -102,7 +104,7 @@ test("a contract citation needs the spec in scope, not an execution of it: only 
         citation: { kind: "contract", ref: "flows/checkout.spec.ts#assertion-1" },
       }),
     ],
-    { inScopeSpecs: new Set(["flows/checkout.spec.ts"]), executedSpecs: new Set<string>() },
+    { specRelDir: SPEC_DIR, inScopeSpecs: new Set(["flows/checkout.spec.ts"]), executedSpecs: new Set<string>() },
   );
   assert.equal(out.blocking.length, 1, "the clause travels with the bytes; it does not need its own execution");
 });
@@ -115,7 +117,7 @@ test("an execution citation on an in-scope spec the run never executed is droppe
         citation: { kind: "execution", ref: "flows/checkout.spec.ts" },
       }),
     ],
-    { inScopeSpecs: new Set(["flows/checkout.spec.ts"]), executedSpecs: new Set<string>() },
+    { specRelDir: SPEC_DIR, inScopeSpecs: new Set(["flows/checkout.spec.ts"]), executedSpecs: new Set<string>() },
   );
   assert.deepEqual(out.blocking, []);
   assert.equal(out.dropped.length, 1, "an execution claim needs an execution of that spec");
@@ -136,6 +138,63 @@ test("a finding that cites an arm no test ran is a missing case, kept only when 
 });
 
 test("an arm citation that reaches the evidence filter is never a verified finding", () => {
-  const out = filterReviewFindings([{ text: "x", severity: "blocking", citation: { kind: "arm", ref: "src/a.ts:1" } }], { inScopeSpecs: new Set(["a.spec.ts"]), executedSpecs: new Set(["a.spec.ts"]) });
-  assert.deepEqual(out, { blocking: [], advisory: [], dropped: ["x"] });
+  const out = filterReviewFindings([{ text: "x", severity: "blocking", citation: { kind: "arm", ref: "src/a.ts:1" } }], { specRelDir: SPEC_DIR, inScopeSpecs: new Set(["a.spec.ts"]), executedSpecs: new Set(["a.spec.ts"]) });
+  assert.deepEqual(out, { blocking: [], advisory: [], dropped: ["x"], droppedBlocking: { arm: 1 } });
+});
+
+const flowsScope: ReviewScope = {
+  specRelDir: SPEC_DIR,
+  inScopeSpecs: new Set(["flows/map-filter-dialogs.spec.ts", "flows/native-upload-gate.spec.ts"]),
+  executedSpecs: new Set(["flows/map-filter-dialogs.spec.ts"]),
+};
+
+test("an execution citation that carries the spec directory still blocks when that spec is in scope and was executed", () => {
+  const out = filterReviewFindings(
+    [finding({ text: "[false-positive] the dialog is never asserted", citation: { kind: "execution", ref: `${SPEC_DIR}/flows/map-filter-dialogs.spec.ts` } })],
+    flowsScope,
+  );
+  assert.deepEqual(out.blocking, ["[false-positive] the dialog is never asserted"]);
+  assert.deepEqual(out.dropped, []);
+  assert.deepEqual(out.droppedBlocking, {});
+});
+
+test("a contract citation with the spec directory and a clause suffix still blocks when that spec is in scope", () => {
+  const out = filterReviewFindings(
+    [finding({ text: "[wrong-objective] the gate clause is gone", citation: { kind: "contract", ref: `${SPEC_DIR}/flows/native-upload-gate.spec.ts#clause` } })],
+    flowsScope,
+  );
+  assert.equal(out.blocking.length, 1);
+});
+
+test("the scope may spell its files with the spec directory too: both sides are compared in canonical form", () => {
+  const out = filterReviewFindings(
+    [finding({ text: "t", citation: { kind: "execution", ref: "flows/a.spec.ts" } })],
+    { specRelDir: SPEC_DIR, inScopeSpecs: new Set([`./${SPEC_DIR}/flows/a.spec.ts`]), executedSpecs: new Set([`${SPEC_DIR}\\flows\\a.spec.ts`]) },
+  );
+  assert.equal(out.blocking.length, 1);
+});
+
+test("the spec directory is the app's own, never a fixed name", () => {
+  const out = filterReviewFindings(
+    [finding({ text: "t", citation: { kind: "contract", ref: "tests/e2e/flows/a.spec.ts#c1" } })],
+    { specRelDir: "tests/e2e", inScopeSpecs: new Set(["flows/a.spec.ts"]), executedSpecs: new Set<string>() },
+  );
+  assert.equal(out.blocking.length, 1);
+});
+
+test("a blocking finding dropped for its citation is counted by reason, telling a reference that names no spec from one outside the scope", () => {
+  const out = filterReviewFindings(
+    [
+      finding({ text: "no spec", citation: { kind: "contract", ref: "the checkout flow" } }),
+      finding({ text: "climbs", citation: { kind: "contract", ref: "../secrets.spec.ts" } }),
+      finding({ text: "elsewhere", citation: { kind: "contract", ref: `${SPEC_DIR}/flows/other.spec.ts` } }),
+      finding({ text: "never ran", citation: { kind: "execution", ref: "flows/native-upload-gate.spec.ts" } }),
+      finding({ text: "nothing" }),
+      finding({ text: "advisory elsewhere", severity: "advisory", citation: { kind: "contract", ref: "flows/other.spec.ts" } }),
+    ],
+    flowsScope,
+  );
+  assert.deepEqual(out.blocking, []);
+  assert.deepEqual(out.droppedBlocking, { unresolved: 2, "out-of-scope": 1, "not-executed": 1, uncited: 1 });
+  assert.equal(out.dropped.length, 6, "an advisory finding that is dropped is not counted as a lost rejection");
 });

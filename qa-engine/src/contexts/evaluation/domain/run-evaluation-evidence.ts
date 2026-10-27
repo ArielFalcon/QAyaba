@@ -150,6 +150,8 @@ export interface RunEvaluationEvidence {
         mutantCount: number | undefined;
         killedCount: number | undefined;
         catalogGateFailClosed: number | undefined;
+        /* Review rounds whose model rejection lost every blocking finding to the evidence filter (the round then read as an approval), with the findings lost per reason; undefined when none did. */
+        droppedRejections: { rounds: number; reasons: Readonly<Record<string, number>> } | undefined;
       }
     | undefined;
   /* The limit that ended the run, when one did: the limit, the role it stopped and the intent of that turn's last step (undefined when unknown). */

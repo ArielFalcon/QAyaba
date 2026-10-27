@@ -15,7 +15,7 @@ export function evidence(over: Partial<RunEvaluationEvidence> = {}): RunEvaluati
     specs: { generated: 2, valid: 2, passed: 2 },
     reviewerTurns: 1,
     reviewRequired: true,
-    signals: { static: true, reviewerApproved: true, coverageStatus: "pass", coverageMode: "signal", mutantCount: undefined, killedCount: undefined, catalogGateFailClosed: undefined },
+    signals: { static: true, reviewerApproved: true, coverageStatus: "pass", coverageMode: "signal", mutantCount: undefined, killedCount: undefined, catalogGateFailClosed: undefined, droppedRejections: undefined },
     limit: undefined,
     stepIntents: undefined,
     context: undefined,

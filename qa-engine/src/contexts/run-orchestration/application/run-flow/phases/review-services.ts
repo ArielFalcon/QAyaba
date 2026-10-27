@@ -11,6 +11,7 @@ import { diffContracts } from "@contexts/objective-signal/application/index.ts";
 import type { SpecFilesPort, SpecRoot } from "@kernel/ports/spec-files.port.ts";
 import type { ReviewSpecText } from "@contexts/generation/application/index.ts";
 import { refKey, type RebuttalEvidence, type ReviewRebuttal } from "../../../domain/review-rebuttals.service.ts";
+import type { DropReason } from "../../../domain/review-finding-filter.service.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 
 /*
@@ -88,7 +89,18 @@ export interface ReviewTally {
   blocking: number;
   rebuttals: number;
   rebuttalWithdrawn: number;
+  /* Rounds whose model rejection lost every blocking finding to the evidence filter, and the findings lost per reason. */
+  droppedRejections: number;
+  droppedRejectionReasons: Partial<Record<DropReason, number>>;
   metricsKnown: { output: boolean; cost: boolean; steps: boolean };
+}
+
+/* One round's rejection that the evidence filter dropped entirely. */
+export function addDroppedRejection(tally: ReviewTally, reasons: Partial<Record<DropReason, number>>): void {
+  tally.droppedRejections++;
+  for (const [reason, count] of Object.entries(reasons) as Array<[DropReason, number]>) {
+    tally.droppedRejectionReasons[reason] = (tally.droppedRejectionReasons[reason] ?? 0) + count;
+  }
 }
 
 export function newReviewTally(): ReviewTally {
@@ -105,6 +117,8 @@ export function newReviewTally(): ReviewTally {
     blocking: 0,
     rebuttals: 0,
     rebuttalWithdrawn: 0,
+    droppedRejections: 0,
+    droppedRejectionReasons: {},
     metricsKnown: { output: false, cost: false, steps: false },
   };
 }
@@ -154,6 +168,8 @@ export interface ReviewDecisionRecord {
   corrections: readonly string[];
   filtered: number;
   advisory: number;
+  /* The reviewer-blocking findings the filter dropped, per reason. */
+  droppedBlocking: Partial<Record<DropReason, number>>;
   rationale: string | undefined;
   durationMs: number | undefined;
 }
@@ -166,6 +182,7 @@ export interface ReviewDecisionRecord {
  */
 export function recordReviewDecision(ctx: WorkspaceRunContext, record: ReviewDecisionRecord): void {
   const { telemetry, input } = ctx;
+  const droppedBlockingTotal = Object.values(record.droppedBlocking).reduce((sum, count) => sum + (count ?? 0), 0);
   try {
     const reviewSpan = telemetry.startSpan("qayaba.review.decision", {
       attrs: {
@@ -181,6 +198,8 @@ export function recordReviewDecision(ctx: WorkspaceRunContext, record: ReviewDec
         /* What the filter set aside: a dropped finding can never block, an advisory one is recorded only. */
         ...(record.filtered > 0 ? { "qayaba.review.filtered": record.filtered } : {}),
         ...(record.advisory > 0 ? { "qayaba.review.advisory": record.advisory } : {}),
+        /* A blocking finding the filter dropped is a rejection the run did not honor: how many, and why (a reference that names no spec is told apart from a spec outside the scope). */
+        ...(droppedBlockingTotal > 0 ? { "qayaba.review.dropped_blocking": droppedBlockingTotal, "qayaba.review.drop_reasons": Object.entries(record.droppedBlocking).map(([reason, count]) => `${reason}=${count}`).join(",") } : {}),
         ...(record.rationale ? { "qayaba.review.rationale": record.rationale } : {}),
       },
     });

@@ -4,8 +4,12 @@
  * execution the run performed, or a DOM fact. Anything else is advisory telemetry — never sent to the
  * generator, never a gate. A finding that names an arm of the changed code no test ran is a missing case:
  * kept when the run's measurement lists that arm, recorded and shown, never a requirement or a gate.
+ * A citation and the run's scope are compared in one canonical form (the suite-relative spec path), so the
+ * way an agent spells a file never decides whether its finding counts.
  * Pure: no I/O. See docs and the D slice of the change spec.
  */
+
+import { resolveSpecReference } from "@kernel/spec-path.ts";
 
 export type ReviewCitationKind = "contract" | "execution" | "dom" | "arm";
 
@@ -24,11 +28,16 @@ export interface CitedFinding {
 
 /** What the orchestrator knows about this run, the only facts that can verify a citation. */
 export interface ReviewScope {
-  /** Spec files this run delivered (suite-relative): the diff's own scope. */
+  /** The spec directory under the mirror: the prefix a citation may carry in front of the suite-relative path. */
+  readonly specRelDir: string;
+  /** Spec files this run delivered: the diff's own scope. Any spelling of a path; compared in canonical form. */
   readonly inScopeSpecs: ReadonlySet<string>;
-  /** Spec files whose cases this run actually executed. */
+  /** Spec files whose cases this run actually executed. Any spelling of a path; compared in canonical form. */
   readonly executedSpecs: ReadonlySet<string>;
 }
+
+/** Why a finding can never block: it cites nothing, an arm nobody checked, a reference that names no spec the suite can hold, a spec outside this run's scope, or an execution this run did not perform. */
+export type DropReason = "uncited" | "arm" | "unresolved" | "out-of-scope" | "not-executed";
 
 export interface FilteredReviewFindings {
   /** Verified, reviewer-blocking findings: the only ones that reach the generator or fail the gate. */
@@ -37,14 +46,26 @@ export interface FilteredReviewFindings {
   readonly advisory: string[];
   /** No citation, an unverifiable one, or a citation outside this run's scope. */
   readonly dropped: string[];
+  /** Per reason, the dropped findings the reviewer had marked blocking: a rejection that vanishes here is not a judgment the run made. */
+  readonly droppedBlocking: Partial<Record<DropReason, number>>;
 }
 
 const SPEC_PATH = /([\w./-]+\.spec\.ts)/;
 
-/** The spec a citation names, or undefined when it names none. A contract ref is `<spec>#<clause>`. */
-/* The spec a citation's reference names, when it names one. */
-export function citedSpec(ref: string): string | undefined {
-  return SPEC_PATH.exec(ref)?.[1];
+/** The suite-relative spec a citation's reference names, or undefined when it names none the suite can hold. A contract ref is `<spec>#<clause>`; the spec may carry the spec directory. */
+export function citedSpec(ref: string, specRelDir: string): string | undefined {
+  const named = SPEC_PATH.exec(ref)?.[1];
+  return named === undefined ? undefined : resolveSpecReference(named, specRelDir);
+}
+
+/** A set of spec files in the canonical suite-relative form; what resolves to no spec is left out. */
+function canonicalSpecs(files: ReadonlySet<string>, specRelDir: string): Set<string> {
+  const canonical = new Set<string>();
+  for (const file of files) {
+    const spec = resolveSpecReference(file, specRelDir);
+    if (spec !== undefined) canonical.add(spec);
+  }
+  return canonical;
 }
 
 /**
@@ -59,16 +80,24 @@ export function filterReviewFindings(
   const blocking: string[] = [];
   const advisory: string[] = [];
   const dropped: string[] = [];
+  const droppedBlocking: Partial<Record<DropReason, number>> = {};
+  const inScope = canonicalSpecs(scope.inScopeSpecs, scope.specRelDir);
+  const executed = canonicalSpecs(scope.executedSpecs, scope.specRelDir);
+
+  const drop = (finding: CitedFinding, reason: DropReason): void => {
+    dropped.push(finding.text);
+    if (finding.severity === "blocking") droppedBlocking[reason] = (droppedBlocking[reason] ?? 0) + 1;
+  };
 
   for (const finding of findings) {
     const citation = finding.citation;
     if (!citation) {
-      dropped.push(finding.text);
+      drop(finding, "uncited");
       continue;
     }
     if (citation.kind === "arm") {
       /* Missing cases are taken out before this filter: an arm here was never checked against the run's list. */
-      dropped.push(finding.text);
+      drop(finding, "arm");
       continue;
     }
     if (citation.kind === "dom") {
@@ -76,20 +105,24 @@ export function filterReviewFindings(
       advisory.push(finding.text);
       continue;
     }
-    const spec = citedSpec(citation.ref);
-    const verified =
-      spec !== undefined &&
-      scope.inScopeSpecs.has(spec) &&
-      (citation.kind !== "execution" || scope.executedSpecs.has(spec));
-    if (!verified) {
-      dropped.push(finding.text);
+    const spec = citedSpec(citation.ref, scope.specRelDir);
+    if (spec === undefined) {
+      drop(finding, "unresolved");
+      continue;
+    }
+    if (!inScope.has(spec)) {
+      drop(finding, "out-of-scope");
+      continue;
+    }
+    if (citation.kind === "execution" && !executed.has(spec)) {
+      drop(finding, "not-executed");
       continue;
     }
     if (finding.severity === "blocking") blocking.push(finding.text);
     else advisory.push(finding.text);
   }
 
-  return { blocking, advisory, dropped };
+  return { blocking, advisory, dropped, droppedBlocking };
 }
 
 /**

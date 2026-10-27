@@ -112,6 +112,8 @@ export const ATTRIBUTES = {
   "qayaba.review.targets": spec("string[]", "The spec paths this run delivered and the reviewer judged.", "high", "none", 50),
   "qayaba.review.existing_specs": spec("string[]", "The existing suite paths shown as context only, never judged.", "high", "none", 50),
   "qayaba.review.corrections": spec("string[]", "The bounded correction texts of the review round.", "high", "redacted-text", 6),
+  "qayaba.review.dropped_blocking": int("Reviewer-blocking findings the evidence filter dropped in the review round: rejections the run did not honor."),
+  "qayaba.review.drop_reasons": str("Why those findings were dropped, as reason=count pairs: uncited, arm, unresolved (the citation names no spec of the suite), out-of-scope, not-executed."),
   "qayaba.review.rationale": text("The bounded rationale of the review round."),
   "qayaba.review.rebuttal.outcome": str("What became of a generator rebuttal: withdrawn (the orchestrator verified the basis it named) or disputed (it could not check it)."),
   "qayaba.limit.fired": str("The limit that ended the run or turn: tier-budget, run-deadline, repair-cap, session-timeout, prompt-budget, host-cap, stall, step-cap, cancel or none."),

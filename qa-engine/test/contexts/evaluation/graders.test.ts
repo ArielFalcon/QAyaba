@@ -87,6 +87,14 @@ test("an accepted run that a deterministic signal rejected is not approval-consi
   assert.equal(find(evidence({ signals: signals({ coverageStatus: "fail", coverageMode: "enforce" }) }), "approval_consistent")?.value, false);
 });
 
+test("an accepted run whose reviewer rejection lost every blocking finding to the evidence filter is not approval-consistent, and the comment names why", () => {
+  const droppedRejections = { rounds: 1, reasons: { unresolved: 2 } };
+  const score = find(evidence({ signals: signals({ droppedRejections }) }), "approval_consistent");
+  assert.equal(score?.value, false);
+  assert.match(score?.comment ?? "", /unresolved/);
+  assert.equal(find(evidence({ signals: signals({ droppedRejections: undefined }) }), "approval_consistent")?.value, true);
+});
+
 test("low coverage only contradicts an approval when the policy enforces it", () => {
   assert.equal(find(evidence({ signals: signals({ coverageStatus: "fail", coverageMode: "signal" }) }), "approval_consistent")?.value, true);
 });

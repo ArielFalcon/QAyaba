@@ -92,6 +92,11 @@ const approvalConsistent: Grader = {
       if (!e.signals.static) said.push("static checks failed");
       if ((e.signals.catalogGateFailClosed ?? 0) > 0) said.push("catalog gate failed closed");
       if (e.signals.coverageMode === "enforce" && e.signals.coverageStatus === "fail") said.push("change-coverage failed under the enforced policy");
+      const dropped = e.signals.droppedRejections;
+      if (dropped && dropped.rounds > 0) {
+        const reasons = Object.entries(dropped.reasons).map(([reason, count]) => `${count} ${reason}`).join(", ");
+        said.push(`the reviewer rejected in ${dropped.rounds} round(s) but every blocking finding was dropped by the evidence filter (${reasons})`);
+      }
     }
     const inconsistent = accepted(e) && said.length > 0;
     return [{ name: "approval_consistent", value: !inconsistent, ...(inconsistent ? { comment: `accepted while: ${said.join("; ")}` } : {}) }];

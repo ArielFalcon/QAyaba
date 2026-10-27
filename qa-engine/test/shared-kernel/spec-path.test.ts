@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeSpecPath } from "@kernel/spec-path.ts";
+import { normalizeSpecPath, resolveSpecReference, specRelDirOf } from "@kernel/spec-path.ts";
 
 test("a spec path keeps its folders and file name", () => {
   assert.equal(normalizeSpecPath("flows/login.spec.ts"), "flows/login.spec.ts");
@@ -73,4 +73,26 @@ test("normalizing a normalized path changes nothing", () => {
     const once = normalizeSpecPath(reported);
     assert.equal(normalizeSpecPath(once), once);
   }
+});
+
+test("a reference resolves to the same suite-relative spec whether or not it carries the spec directory", () => {
+  for (const raw of ["flows/x.spec.ts", "e2e/flows/x.spec.ts", "./e2e/flows/x.spec.ts", "e2e\\flows\\x.spec.ts", "e2e/flows/x.spec.ts#clause-2"]) {
+    assert.equal(resolveSpecReference(raw, "e2e"), "flows/x.spec.ts", raw);
+  }
+});
+
+test("the spec directory is whatever the app declares, nested or empty", () => {
+  assert.equal(resolveSpecReference("tests/e2e/x.spec.ts", "tests/e2e"), "x.spec.ts");
+  assert.equal(resolveSpecReference("e2e/x.spec.ts", ""), "e2e/x.spec.ts");
+});
+
+test("a reference that is absolute, climbs, is hidden or is no spec file resolves to nothing", () => {
+  for (const raw of ["/abs/e2e/x.spec.ts", "e2e/../x.spec.ts", "../x.spec.ts", "e2e/.qa-probe/x.spec.ts", "e2e/flows/x.ts", "", "#clause"]) {
+    assert.equal(resolveSpecReference(raw, "e2e"), undefined, raw);
+  }
+});
+
+test("the spec directory of a run is where its specs sit under the mirror", () => {
+  assert.equal(specRelDirOf({ mirrorDir: "/m/app", specDir: "/m/app/tests/e2e" }), "tests/e2e");
+  assert.equal(specRelDirOf({ mirrorDir: "/m/app", specDir: "/m/app" }), "");
 });

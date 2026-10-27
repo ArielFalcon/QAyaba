@@ -9,7 +9,8 @@ import { renderSpecChanges, sameReviewedSpecs, type ReviewSpecText } from "@cont
 import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
 import type { SpecRoot } from "@kernel/ports/spec-files.port.ts";
 import { precheckSpecsAgainstDom } from "@contexts/generation/application/index.ts";
-import { citedSpec, filterReviewFindings, takeMissingCases } from "../../../domain/review-finding-filter.service.ts";
+import { specRelDirOf } from "@kernel/spec-path.ts";
+import { citedSpec, filterReviewFindings, takeMissingCases, type DropReason } from "../../../domain/review-finding-filter.service.ts";
 import { verifyRebuttals, findingKey } from "../../../domain/review-rebuttals.service.ts";
 import { MAX_REVIEW_ROUNDS, reviewAction } from "../../../domain/review-action.ts";
 import type { ReviewPort } from "@contexts/generation/application/index.ts";
@@ -24,7 +25,7 @@ import { closedLoopSignal, contractFindingText, correctionBudgetSpent, correctTh
 import { CORRECTION_ORIGIN, type CorrectionFinding } from "@contexts/coordination/application/index.ts";
 import { resolveTested } from "./fix-loop.steps.ts";
 import { branchCoverageOf, changeCoverageOf } from "./coverage.steps.ts";
-import { addReviewStats, annotateReviewPhase, newReviewTally, readReviewedSpecs, rebuttalEvidence, recordReviewDecision } from "./review-services.ts";
+import { addDroppedRejection, addReviewStats, annotateReviewPhase, newReviewTally, readReviewedSpecs, rebuttalEvidence, recordReviewDecision } from "./review-services.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
 
@@ -254,6 +255,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
    */
   let filteredReviewFindings = 0;
   let advisoryReviewFindings = 0;
+  let droppedBlockingReasons: Partial<Record<DropReason, number>> = {};
   /* The spec each verified finding's citation names, for routing it to the flow that owns that spec. */
   let blockingSpecs = new Map<string, string>();
   if (cfg.reviewLoopIntegrity && decidedBy === "model" && reviewResult.corrections.length > 0) {
@@ -262,16 +264,22 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
       severity: reviewResult.severities?.[index] ?? ("blocking" as const),
       ...(reviewResult.citations?.[index] ? { citation: reviewResult.citations[index]! } : {}),
     }));
+    /* The scope and the citations meet in the suite-relative form: the spec directory an agent prefixes to a path is not part of the file's name. */
+    const specRelDir = specRelDirOf(specRoot);
     const filtered = filterReviewFindings(findings, {
+      specRelDir,
       inScopeSpecs: new Set(reviewCases.map((c) => c.file ?? c.name)),
       executedSpecs: new Set(run.cases.map((c) => c.file).filter((file): file is string => !!file)),
     });
     blockingSpecs = new Map(findings.flatMap((f) => {
-      const spec = f.citation ? citedSpec(f.citation.ref) : undefined;
+      const spec = f.citation ? citedSpec(f.citation.ref, specRelDir) : undefined;
       return spec !== undefined && filtered.blocking.includes(f.text) ? [[f.text, spec] as const] : [];
     }));
     filteredReviewFindings = filtered.dropped.length;
     advisoryReviewFindings = filtered.advisory.length;
+    droppedBlockingReasons = filtered.droppedBlocking;
+    /* A rejection whose every blocking finding was dropped turns into an approval here: the run must be able to tell. */
+    if (filtered.blocking.length === 0 && Object.keys(filtered.droppedBlocking).length > 0) addDroppedRejection(reviewStats, filtered.droppedBlocking);
     if (filtered.dropped.length > 0 || filtered.advisory.length > 0) {
       try {
         ctx.telemetry.counter("qayaba.review.filtered")(filtered.dropped.length, { "qayaba.app": input.app });
@@ -307,6 +315,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
     corrections: reviewResult.corrections,
     filtered: filteredReviewFindings,
     advisory: advisoryReviewFindings,
+    droppedBlocking: droppedBlockingReasons,
     rationale: reviewResult.rationale,
     durationMs: reviewResult.stats?.durationMs,
   });
@@ -553,6 +562,7 @@ export async function reviewSettle(state: Readonly<RunState>, ctx: WorkspaceRunC
           preCheckRejects: reviewStats.preCheckRejects,
           skippedRounds: reviewStats.skippedRounds,
           correctionClass: reviewerApproved ? "none" : correctionClassOf(finalReviewerCorrections),
+          ...(reviewStats.droppedRejections > 0 ? { droppedRejections: { rounds: reviewStats.droppedRejections, reasons: { ...reviewStats.droppedRejectionReasons } } } : {}),
           ...(reviewStats.rebuttals > 0 ? { rebuttals: { received: reviewStats.rebuttals, withdrawn: reviewStats.rebuttalWithdrawn } } : {}),
         },
       },

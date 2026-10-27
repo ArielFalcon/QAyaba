@@ -9136,6 +9136,51 @@ test("a verified blocking finding on a spec this run delivered still rejects", a
   }
 });
 
+test("a blocking finding that cites its spec with the spec directory in front still rejects, as one that cites it without", async () => {
+  for (const citation of [
+    { kind: "execution" as const, ref: "e2e/flows/checkout.spec.ts" },
+    { kind: "contract" as const, ref: "e2e/flows/checkout.spec.ts#clause" },
+  ]) {
+    const { fixtures, generate } = findingFixtures();
+    try {
+      const { ports } = stubPorts({
+        prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+        execute: async () => ({ verdict: "pass" as const, cases: [{ name: "checkout", file: "flows/checkout.spec.ts", status: "pass" as const }], logs: "" }),
+        review: citedReview(citation),
+      });
+      ports.generation.author = generate;
+      const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: true } }).run({ ...baseInput, runId: `findings-prefixed-${citation.kind}` });
+
+      assert.notEqual(out.decision.sideEffect, "pr", `${citation.ref} names a delivered spec`);
+      assert.equal(out.gateSignals.reviewer?.droppedRejections, undefined, "nothing the reviewer blocked on was dropped");
+    } finally {
+      fixtures.cleanup();
+    }
+  }
+});
+
+test("a rejection whose every blocking finding the filter dropped is recorded on the decision span and on the reviewer's signal", async () => {
+  const { fixtures, generate } = findingFixtures();
+  try {
+    const h = new RecordingTelemetry();
+    const { ports } = stubPorts({
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      review: citedReview({ kind: "contract", ref: "the checkout flow" }),
+    });
+    ports.generation.author = generate;
+    const out = await new RunQaUseCase({ ...ports, telemetry: h, config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: true } }).run({ ...baseInput, runId: "findings-dropped-recorded" });
+
+    assert.equal(out.decision.sideEffect, "pr");
+    const span = h.spans.find((s) => s.name === "qayaba.review.decision" && s.attrs["qayaba.review.decided_by"] === "model");
+    assert.equal(span?.attrs["qayaba.review.dropped_blocking"], 1);
+    assert.equal(span?.attrs["qayaba.review.drop_reasons"], "unresolved=1");
+    assert.deepEqual(out.gateSignals.reviewer?.droppedRejections, { rounds: 1, reasons: { unresolved: 1 } });
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
 /*
  * A finding the generator refuses to correct. The orchestrator checks the basis the generator names: a
  * case that ran green, or a clause the current bytes still hold. Verified, the finding is withdrawn and
