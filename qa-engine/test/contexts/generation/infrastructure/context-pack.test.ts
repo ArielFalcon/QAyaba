@@ -1095,7 +1095,9 @@ test("buildContextPack: a template behind the cut is not opened and stays in the
   const behind = "/behind/:id";
   const result = await buildContextPack({ routes: [...plainRoutes(MAX_ROUTES), behind], ...PACK_INPUT }, siteWithLinks({ "/r0": ["/behind/1"] }, calls));
   assert.equal(calls.length, 1);
-  assert.ok(sectionOf(result.text, PACK_HEADINGS.notCapturable).includes(behind));
+  const listed = sectionOf(result.text, PACK_HEADINGS.notCapturable);
+  assert.ok(listed.includes(behind));
+  assert.ok(listed.includes(TEMPLATE_LEFT_OUT.BEHIND_THE_CUT), "it says the capture's page count was spent, not that the template cannot be captured");
 });
 
 test("buildContextPack: the pages rendered stay within the bounds of the cut, one seed and one page per template", async () => {
@@ -1242,11 +1244,11 @@ test("buildContextPack: when every candidate names no page and no template of on
   assert.equal(result.text, undefined);
 });
 
-test("buildContextPack: a template that was never looked at keeps the plain reason it names no page, not one about links", async () => {
+test("buildContextPack: a template that was never looked at says it was behind the cut, not one about links", async () => {
   const calls: Call[] = [];
   const result = await buildContextPack({ routes: [...plainRoutes(MAX_ROUTES), "/behind/:id"], ...PACK_INPUT }, siteWithLinks({ "/r0": ["/behind/1"] }, calls));
   const line = sectionOf(result.text, PACK_HEADINGS.notCapturable).split("\n").find((entry) => entry.includes("/behind/:id")) ?? "";
-  assert.ok(line.endsWith(`(${ROUTE_REASON.TEMPLATE})`), line);
+  assert.ok(line.endsWith(`(${TEMPLATE_LEFT_OUT.BEHIND_THE_CUT})`), line);
 });
 
 test("buildContextPack: a template is reported as having no link when some page that could show one was grounded, even if another was not", async () => {

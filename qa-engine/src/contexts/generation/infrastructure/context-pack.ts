@@ -213,6 +213,8 @@ export const TEMPLATE_LEFT_OUT = {
   PAGE_NOT_CONFIRMED: `${ROUTE_REASON.TEMPLATE}: the page found for it could not be captured at its own address`,
   /* The page the app declares for it (dev.routeSamples) shows what a page of it that cannot exist shows: the declared page is gone. */
   DECLARED_PAGE_MISSING: `${ROUTE_REASON.TEMPLATE}: the page declared for it shows what a page that does not exist shows`,
+  /* The capture's page count was spent on routes that rank ahead of it, so it was never looked at: not a page the capture failed on. */
+  BEHIND_THE_CUT: `${ROUTE_REASON.TEMPLATE}: behind the capture's page count, never looked at`,
 } as const;
 
 /* How alike a declared page's tree and its missing sibling's must be, as the share of their node lines in common, for the declared page to be read as missing. */
@@ -485,7 +487,8 @@ export async function buildContextPack(
   const grounded = (route: string): boolean => pages.get(route)?.grounded === true;
   const anyPageGrounded = [...pages.values()].some((page) => page.grounded);
   const reasonFor = (entry: { route: string; reason?: string }): string | undefined => {
-    if (!isTemplate(entry) || !instanceOfTemplate.has(entry.route)) return entry.reason;
+    if (!isTemplate(entry)) return entry.reason;
+    if (!instanceOfTemplate.has(entry.route)) return captures.length > 0 && !reachableTemplates.includes(entry.route) ? TEMPLATE_LEFT_OUT.BEHIND_THE_CUT : entry.reason;
     const instance = instanceOfTemplate.get(entry.route);
     if (instance === undefined) return anyPageGrounded ? TEMPLATE_LEFT_OUT.NO_LINK : TEMPLATE_LEFT_OUT.NO_PAGE_TO_LOOK_AT;
     if (declaredMissing.has(instance)) return TEMPLATE_LEFT_OUT.DECLARED_PAGE_MISSING;
