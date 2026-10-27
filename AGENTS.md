@@ -51,9 +51,15 @@ No build step — TypeScript runs via `tsx`.
 
 ```bash
 npm ci
-npm test                    # node:test via tsx; network/agent runtimes/Playwright stubbed
+npm test                    # node:test via tsx in shared-process workers (scripts/run-tests.mjs); network/agent runtimes/Playwright stubbed
+npm test -- path/to/file.test.ts "src/server/**/*.test.ts" [--test-name-pattern="..."] [--workers=N]
+npm run test:isolated       # the same suite, one process per test file (plain node --test): the fallback when sharing is in doubt
 npm run typecheck
 node --import ./test-setup.mjs --import tsx --test path/to/file.test.ts [--test-name-pattern="..."]
+# npm test splits the files into availableParallelism() workers (QA_TEST_WORKERS or --workers=N overrides), balanced by
+# scripts/test-timings.json (refresh it with `npm test -- --record-timings`), each running its files in ONE process
+# (--test-isolation=none). A test restores every global it changes; scripts/run-tests.mjs ISOLATED_FILES lists the few
+# files that need a process of their own, each with why (docs/testing-standards.md, "Shared test processes").
 
 # Full CI gate (.github/workflows/ci.yml) — all must stay green:
 npm run typecheck && npm run arch:check && npm run previous-forms:check && npm run seed:lint && npm run embedded:lint && npm run sdk:typecheck && npm run contract:check && npm run settings:check && npm test

@@ -1,7 +1,7 @@
 # Testing standards
 
 A test earns its place by failing when behavior breaks and staying green when only structure
-changes. `npm test` (node:test via tsx) and `cd client && go test ./...` are the suites; mutation
+changes. `npm test` (node:test via tsx, in shared-process workers: see "Shared test processes") and `cd client && go test ./...` are the suites; mutation
 testing (`npm run mutate`) is the objective check that they would catch a bug.
 
 ## Principles
@@ -60,6 +60,35 @@ throws `ERR_TEST_TRACKED_TREE_WRITE`. Tests run in parallel, so a planted file w
 every concurrent test. Write fixtures under `mkdtempSync(join(tmpdir(), "…"))` and remove them in a
 `finally`. The guard cannot see child processes (git, a spawned node), so point those at a temp dir too.
 The history DB and the JSON logs already get a per-process temp dir.
+
+## Shared test processes
+
+`npm test` (`scripts/run-tests.mjs`) splits the test files into one group per core, balanced by the time
+each file took last time (`scripts/test-timings.json`, refreshed with `npm test -- --record-timings`), and
+runs each group in ONE process with `node --test --test-isolation=none`: a module graph is loaded once
+per worker instead of once per file, which is where most of the suite's time used to go. The split is
+deterministic, so a failure reproduces with the same command. `npm run test:isolated` runs the same
+suite one process per file, as before.
+
+A test file therefore shares its process, its globals and its module state with the other files of its
+worker, and its history database (`test-setup.mjs` gives one per worker, not per file):
+
+- **Restore what you change.** `process.env`, `globalThis.fetch`, a `mock.method` made outside `t.mock`,
+  a timer, a module-level registry (`set…`/`install…`/`register…`): put back what was there in a
+  `finally` or `t.after`. Prefer `t.mock`, which restores itself when the test ends.
+- **Do not assume a module's state is fresh.** Loading a module may wire state (the OpenCode client wires
+  the event-stream opener and the runtime model assignments on import); a test that needs it unwired sets
+  that up itself and puts it back.
+- **A top-level hook belongs to the whole worker.** With `--test-isolation=none`, a `beforeEach` or
+  `afterEach` at the top of a file runs around every test of every file in the process, and a top-level
+  `after` runs when the worker ends. Put hooks inside a `describe` that holds the file's tests.
+- **Name what you write uniquely.** Two workers (and two checkouts) run at once: a fixed path under
+  `os.tmpdir()` or a fixed run id that names a work dir collides; use `mkdtempSync` or `randomUUID()`.
+- **The history database is shared by the worker.** Use unique app names or ids, or open your own
+  temp database; never expect it empty.
+- A file that truly needs a process of its own (it sets where a once-per-process singleton lives before
+  first use) goes in `ISOLATED_FILES` in `scripts/run-tests.mjs` with the reason. Anything else that fails
+  only when shared is a leak, fixed in the test.
 
 ## Named pipes
 
