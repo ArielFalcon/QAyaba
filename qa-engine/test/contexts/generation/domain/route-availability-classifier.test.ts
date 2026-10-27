@@ -111,9 +111,9 @@ test("rule 10: an unchanged declaration whose guards no changed symbol reaches i
 });
 
 test("rule 10 never holds on partial evidence: no walk, a partial walk, or an unknown declaration is unexplained", () => {
-  const noWalk = classify({ navigation: redirected({ route: "/" }), evidence: { declaration: { status: "unchanged", at: "a.ts:1" }, implements: false } });
+  const noWalk = classify({ navigation: redirected({ route: "/" }), evidence: { declaration: { status: "unchanged", at: "src/app.routes.ts:1" }, implements: false } });
   assert.deepEqual(noWalk?.basis, { class: "unexplained", missing: ["guard-reach"] });
-  const partial = classify({ navigation: redirected({ route: "/" }), evidence: { declaration: { status: "unchanged", at: "a.ts:1" }, guards: { status: "partial" }, implements: false } });
+  const partial = classify({ navigation: redirected({ route: "/" }), evidence: { declaration: { status: "unchanged", at: "src/app.routes.ts:1" }, guards: { status: "partial" }, implements: false } });
   assert.deepEqual(partial?.basis, { class: "unexplained", missing: ["guard-reach"] });
   const noDeclaration = classify({ navigation: redirected({ route: "/" }), evidence: { declaration: { status: "unknown" }, guards: { status: "unreached" }, implements: false } });
   assert.deepEqual(noDeclaration?.basis, { class: "unexplained", missing: ["declaration"] });

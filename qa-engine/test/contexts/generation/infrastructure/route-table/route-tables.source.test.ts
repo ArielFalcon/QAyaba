@@ -12,7 +12,7 @@ const PATHS = "export const RoutePath = {\n  Home: 'home',\n  Login: 'login',\n 
 const UPLOAD = "import { Routes } from '@angular/router';\n\nexport const UPLOAD_ROUTES: Routes = [\n  { path: 'preview', component: PreviewPage },\n  { path: 'confirm', component: ConfirmPage },\n];\n";
 const GUARD = "export const nativeOnlyGuard = () => isNative();\n";
 
-const routesFile = (opts: { guarded: boolean; legacy?: boolean; earlierLogin?: boolean; fallbackTo?: string }): string => [
+const routesFile = (opts: { guarded: boolean; retired?: boolean; earlierLogin?: boolean; fallbackTo?: string }): string => [
   "import { RoutePath } from './route-paths';",
   ...(opts.guarded ? ["import { nativeOnlyGuard } from './guards/native-only.guard';"] : []),
   "import { guestGuard } from './guards/guest.guard';",
@@ -27,7 +27,7 @@ const routesFile = (opts: { guarded: boolean; legacy?: boolean; earlierLogin?: b
   "    component: LoginPage,",
   "  },",
   "  { path: RoutePath.Home, component: HomePage },",
-  ...(opts.legacy ? ["  { path: 'legacy', component: LegacyPage },"] : []),
+  ...(opts.retired ? ["  { path: 'retired', component: RetiredPage },"] : []),
   "  {",
   "    path: RoutePath.Upload,",
   ...(opts.guarded ? ["    canMatch: [nativeOnlyGuard],"] : []),
@@ -76,8 +76,8 @@ test("a route's guards are its own and its parents', placed at the file that dec
 });
 
 test("a route present at the base and gone at head is changed by the change", async () => {
-  const tables = await tablesFor(routesFile({ guarded: false }), routesFile({ guarded: false, legacy: true }));
-  assert.deepEqual(declarationEvidence(tables!.head, tables!.base, "/legacy"), { status: "changed", at: "src/app/app.routes.ts:13 (removed at head)" });
+  const tables = await tablesFor(routesFile({ guarded: false }), routesFile({ guarded: false, retired: true }));
+  assert.deepEqual(declarationEvidence(tables!.head, tables!.base, "/retired"), { status: "changed", at: "src/app/app.routes.ts:13 (removed at head)" });
 });
 
 test("an entry added before a route that takes its address changes the route", async () => {
