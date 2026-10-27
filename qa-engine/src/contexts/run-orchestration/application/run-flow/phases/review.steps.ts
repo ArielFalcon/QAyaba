@@ -636,6 +636,7 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
         caseFiles,
         ...(state.grounding.candidates.length > 0 ? { candidates: state.grounding.candidates } : {}),
         ...(faultAim ? { faultAim } : {}),
+        ...(state.coverage.exclusions ? { exclusions: state.coverage.exclusions } : {}),
       },
     );
     const { valueScore, mutantCount, killedCount } = state.coverage;

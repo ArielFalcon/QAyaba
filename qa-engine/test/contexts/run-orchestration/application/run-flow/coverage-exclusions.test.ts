@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { coverageExclusionsOf, measureCoverage, recountAfter, type GapRegeneration } from "@contexts/run-orchestration/application/run-flow/phases/coverage.steps.ts";
+import { remeasureStaleCoverage } from "@contexts/run-orchestration/application/run-flow/phases/review.steps.ts";
 import { initialRunState, type RunState } from "@contexts/run-orchestration/application/run-flow/run-state.ts";
 import type { WorkspaceRunContext } from "@contexts/run-orchestration/application/run-flow/run-context.ts";
 import type { CoverageExclusions } from "@contexts/objective-signal/application/index.ts";
@@ -149,4 +150,22 @@ test("a run with nothing to leave out measures as before: the port is handed no 
   await measureCoverage(state, ctx);
 
   assert.equal("exclusions" in (measured[0] as object), false);
+});
+
+test("the enforce re-measure before decide leaves out the same files as the first measurement", async () => {
+  const { ctx, measured } = ctxOf({ importersOf: async () => ok(HELPER_IMPORTERS) });
+  const enforced = {
+    ...ctx,
+    cfg: { coveragePolicyMode: "enforce" },
+    input: { ...ctx.input, runId: "run-1" },
+    deps: { ...ctx.deps, execution: { execute: async () => ({ verdict: "pass", cases: [{ name: "a", status: "pass", file: "a.spec.ts" }] }) } },
+  } as unknown as WorkspaceRunContext;
+  const state = stateOf();
+  const expected: CoverageExclusions = { unreachableByDesign: [{ file: PREVIEW, routes: ["/upload-menu/preview"] }], testSupportFiles: [{ file: HELPER, importers: 2 }] };
+  state.execution = { ...state.execution, run: { verdict: "pass", cases: [], logs: "" } } as RunState["execution"];
+  state.coverage = { ...state.coverage, coverageMeasured: true, acceptedRegenAfterMeasure: true, exclusions: expected };
+
+  await remeasureStaleCoverage(state, enforced);
+
+  assert.deepEqual((measured[0] as { exclusions?: CoverageExclusions }).exclusions, expected);
 });
