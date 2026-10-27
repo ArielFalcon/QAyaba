@@ -18,22 +18,32 @@ Source: the prompt audit of runs `run-ed28973-mvqc7x8j-2da31df4` and `run-ed2897
 - **S9 Stable prefix (research point 3).** Within each role's prompt, sections that do not vary per run come first and run-varying facts last; no timestamp, run id or unordered-key serialization in the stable prefix. A test proves the stable prefix is byte-identical across two runs with different facts. Cache-read tokens per turn are reported per role.
 - **S10 Every section earns its place (research point 4).** Each registered section declares the observed failure or contract it exists for (a short reason, optionally a run id); the lint fails on a section with none. Removing a section is measured by a campaign.
 
+- **S11 Change map and slice (grounding).** Kernel `ChangeMap`: every changed file once (path, language-registry kind, added/removed lines, test/generated/low-relevance flag, the candidate ids it seeds); never cut. Kernel `ChangeSlice` per flow: every hunk overlapping a seed or shared seed of the flow's candidates (a whole-file seed takes every hunk of its file), each hunk once with its candidate ids, ranked (code, other kinds, styles, then diff order; a decision rank filled by S6), the rest as references `path:start-end (+a −r, kind, why)`; app test files, lockfiles, generated files and maps are only referenced; `unassignedOf(map, slices)` gives the diff no slice holds (the whole diff when there are no slices).
+- **S12 Context window and fit.** A per-run `ContextWindowPort` (role → live window from the runtime's `modelWindows`, built in the composition root; qa-engine never imports src/; fakes in tests) and a `ContextBudget`: a prompt fits when prompt + expected working room <= window; the working room is estimated from telemetry (per-step session growth x the role's usual steps), never a fixed share. Degradation order (L13). Unknown window: fail open (preload all owned content, no split) and record `windowUnknown`. The model catalog inside qa-engine (`model-window-catalog.ts`, names models, invents a 32K fallback) and the module-global live windows are removed; the lead plan prompt is fitted to the lead's own window, not the author's.
+- **S13 Derived flow capacity.** `maxFlows` stops being a fixed 6 that rejects a whole plan: capacity derives from `maxParallel` and the run's remaining time (`parallel x floor((remaining - reserve) / flowBudgetMs)`), with an optional per-app ceiling for cost. `run_spec` and authenticated-browser budgets are granted per flow with a useful minimum (bounded by DEV time), instead of a per-run total split until a flow gets 0 (`NO_CALLS`). The plan section states the capacity; candidate lines carry each candidate's owned-slice size so the lead groups well in the first plan.
+- **S14 One plan amendment turn.** Unresolved candidates, contradicted drops and oversize flows are asked of the lead in ONE follow-up turn, not separate re-asks.
+- **S15 Lead planning section from the map.** The lead's plan prompt carries the `ChangeMap` and the ranked hunks that fit its own window (S12), with the rest as references; no blind 50 KB diff cut. The `## Commit diff` heading stays (judges read it back).
+
+Decisions applied by owner authorization (L14), each the recommendation given: Q-a yes (S13); Q-b no cost budget yet, measure cost per run by tier; Q-c per-flow grants (S13); Q-d fail open (S12); Q-e delete the in-engine model catalog (S12); Q-f the reviewer's unassigned remainder that does not fit goes as references, not a split review; Q-g no byte budget (L13); Q-h S5 re-baselined: the reviewer prompt grows on large changes because nothing is cut silently; the measure is "no truncation, test files named", plus missing cases and verified corrections not down; Q3 static decision listing declared per language in the language registry, JS/TS first, a language with none states nothing; Q5 the unchanged-spec digest line is always sent (as implemented). Q4 (truncated-walk hits creating candidates) is not changed.
+
 ## Tasks
 
 | ID | Specs | Route | Status | Commit |
 |---|---|---|---|---|
-| T1 (U0) | S7, S8 | delegated (parallel, worktree) | pending | |
+| T1 (U0) | S7, S8 | delegated (parallel, worktree) | done | f5aa950f, 4fd05ceb, 8d2ba811 |
 | T2 (U1) | S1 | delegated (parallel, worktree) | done | d7d44b57 |
 | T3 (U3) | S3 | delegated (parallel, worktree) | done | 52eeb9a7, 1d03927a |
-| T4 (U2) | S2 | delegated, after T1 | done | 93e73b3d, 28b09367 |
-| T5 (U4) | S4 | delegated, after T1+T3, needs Q6 | pending | |
-| T6 (U7) | S9, S10 | delegated, after T1+T2 | pending | |
-| T7 (U5) | S5 | delegated, after T5 (uses its slice model) | pending | |
-| T8 (U6) | S6 | blocked Q3 | pending | |
+| T4 (U2) | S2 | delegated | done | 93e73b3d, 28b09367 |
+| T9 | S11 | delegated, phase 1 (parallel) | pending | |
+| T10 | S12 | delegated, phase 1 (parallel) | pending | |
+| T5 | S4 | delegated, phase 2, after T9+T10 | pending | |
+| T11 | S15 | delegated, phase 2, after T9+T10 | pending | |
+| T12 | S13, S14 | delegated, phase 2, after T9+T10 | pending | |
+| T7 | S5 | delegated, phase 2, after T9 | pending | |
+| T8 | S6 | delegated, phase 3, after T5 | pending | |
+| T6 | S9, S10 | delegated, phase 3, last (touches every section definition) | pending | |
 
-Route evidence: T1–T3 are independent units of behaviour with disjoint edit surfaces (coordination prompt assembly; reviewer spec block; change-analysis candidates), each several files and 100+ lines (Writer trigger, parallelism). The prompt-contract matrix and its baseline are shared: each unit adds its own cells, the parent re-records the baseline at integration.
-
-Open owner questions: Q3 static decision listing for JS/TS only, declared through the language registry; Q4 truncated walk hits creating candidates or a different walk budget; Q5 lead session compaction risk when unchanged specs are not re-sent; Q6 byte budget of the change slice per brief.
+Route evidence: each phase's units are independent behaviours with disjoint main edit surfaces and several files each (Writer trigger, parallelism); `lead-sidekicks.ts` is shared in phase 2 by T5 (`briefOf`) and T12 (admission, re-asks) in different regions, resolved by the parent at integration. Prompt-contract baselines are re-recorded by the parent at integration.
 
 ## Log
 
@@ -50,3 +60,4 @@ Open owner questions: Q3 static decision listing for JS/TS only, declared throug
 - L11 T4 integrated and merged to main (28b09367): orchestrator facts stated as the orchestrator's, last failure labelled by the bytes it ran on (`current` / `earlier` / `no-spec`, the last added at integration), unchanged specs sent as a digest line, coordination turns forward section sizes/hashes, no prompt left outside the registry. Gate: static OK, matrix 0 findings (18 coordination prompts), npm test 11536 pass / 0 fail. RED was not observed before implementation by the writer.
 - L12 Adaptive scaling design (engram `plan/adaptive-prompt-scaling`, Opus xhigh): ChangeMap + ChangeSlice + ContextWindowPort + ContextBudget + derived flow capacity + one plan amendment turn; inventory of fixed caps and their raise history.
 - L13 (2026-10-27, user, verbatim, Q6/Q-g): "Me parece bien, la duda es que pasa cuando el prompt es muy cercano al máximo de contexto, que no le deje espacio para analizar, o peor que sea más grande? Esto es lo que debe resolver el sistema de escalado." Decision: no byte budget per flow slice. Fit rule: prompt + expected working room <= the model's live window, the working room estimated from telemetry (per-step session growth x the role's usual steps), never a fixed share. Degradation order: owned non-code to references, then lowest-ranked code to references, then the lead is asked to split the flow, and a prompt whose minimal form (map + references) still does not fit is not sent and is recorded. Unknown window: preload all owned content and record it. One delivery rule for all grounding: preload what the role owns and will very likely use, reference the rest.
+- L14 (2026-10-27, user, verbatim): "Si, aplica la recomendación de maxFlows que das. Con eso resuelto puedes implementar todo". The remaining questions take the recommendations given (listed above S11-S15's decision paragraph).
