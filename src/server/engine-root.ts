@@ -215,6 +215,8 @@ export interface EngineRootDeps {
 
   /* Pre-generation context pack carries no live-DOM capture when false (an A/B arm; default true). Independent of review/pre-exec DOM grounding. */
   domPack?: boolean;
+  /* One file of the run's repository at a commit, through the confined mirror reader: the route table at the run's base. Absent → no route is proven unchanged. */
+  readFileAtRef?: (ref: string, file: string) => Promise<string | undefined>;
   /* false → the run builds no context pack at all (context mode discards it); the map/brief/harness still load. Default true. */
   contextPack?: boolean;
 
@@ -417,6 +419,7 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
       ...(cfg.contextMapProvenance ? { contextMapProvenance: cfg.contextMapProvenance } : {}),
       ...(cfg.prChangedFiles ? { prChangedFiles: cfg.prChangedFiles } : {}),
       ...(cfg.domPack !== undefined ? { domPack: cfg.domPack } : {}),
+      ...(cfg.readFileAtRef ? { readAtRef: cfg.readFileAtRef } : {}),
       ...(cfg.contextPack !== undefined ? { contextPack: cfg.contextPack } : {}),
       ...(cfg.groundingCollaborators ? { collaborators: cfg.groundingCollaborators } : {}),
       ...(cfg.reviewDomGroundingCollaborators ? { reviewDomCollaborators: cfg.reviewDomGroundingCollaborators } : {}),

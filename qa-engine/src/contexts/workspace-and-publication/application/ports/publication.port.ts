@@ -1,3 +1,4 @@
+import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { CausalLabel } from "@contexts/objective-signal/application/index.ts";
@@ -36,6 +37,8 @@ export interface PublicationPort {
     reviewerNote?: string;
     /** The reviewer's missing cases (findings on arms of the changed code no test ran): shown in the PR or Issue, never a gate. */
     missingCases?: readonly string[];
+    /** The routes the change made unavailable and the possible regressions: listed in the PR or Issue, never a gate. */
+    routeAvailability?: readonly RouteAvailabilityFact[];
     /**
      * The run's working copy, for the "pr" route's git-write: the adapter reads the mirror, the commit and the target from the
      * handle it issued, so no path comes from the caller. Absent on an actual "pr" route with a required vcsWrite collaborator is a

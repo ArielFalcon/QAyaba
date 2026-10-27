@@ -198,3 +198,19 @@ test("a blocking finding dropped for its citation is counted by reason, telling 
   assert.deepEqual(out.droppedBlocking, { unresolved: 2, "out-of-scope": 1, "not-executed": 1, uncited: 1 });
   assert.equal(out.dropped.length, 6, "an advisory finding that is dropped is not counted as a lost rejection");
 });
+
+test("an availability citation blocks only when it names a route the run classified, in any spelling of its address", () => {
+  const classified: ReviewScope = { ...scope, availabilityRoutes: new Set(["/upload-menu/preview"]) };
+  const out = filterReviewFindings(
+    [
+      finding({ text: "never asserts where /upload-menu/preview ends", citation: { kind: "availability", ref: "https://dev.example/upload-menu/preview/?from=menu" } }),
+      finding({ text: "a route the run never classified", citation: { kind: "availability", ref: "/orders" } }),
+      finding({ text: "advisory about the same route", severity: "advisory", citation: { kind: "availability", ref: "/upload-menu/preview" } }),
+    ],
+    classified,
+  );
+  assert.deepEqual(out.blocking, ["never asserts where /upload-menu/preview ends"]);
+  assert.deepEqual(out.advisory, ["advisory about the same route"]);
+  assert.deepEqual(out.droppedBlocking, { "no-availability-fact": 1 });
+  assert.deepEqual(filterReviewFindings([finding({ text: "no facts", citation: { kind: "availability", ref: "/upload-menu/preview" } })], scope).blocking, []);
+});

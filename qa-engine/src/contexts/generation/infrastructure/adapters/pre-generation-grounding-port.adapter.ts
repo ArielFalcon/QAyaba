@@ -22,6 +22,8 @@ import { withChangedElementScopes } from "./changed-element-scope.ts";
 import { withUnchangedLines, type MeasuredLabels } from "./changed-label-lines.ts";
 import { changedDecisionsOf } from "./changed-decisions.ts";
 import { filesLinkedToPages, rankRoutesWithRelevance } from "@contexts/generation/application/index.ts";
+import type { PackAvailabilityInput } from "../pack-availability.ts";
+import { routeChangeEvidence } from "./route-change-evidence.ts";
 const diffParser = new DiffParserService();
 
 export interface PreGenerationGroundingStaticContext {
@@ -37,6 +39,8 @@ export interface PreGenerationGroundingStaticContext {
   contextPack?: boolean;
   mirrorDir?: string; /* the working copy the map's implementationFiles are relative to — absent → a route is tied only to the files the map names */
   stagedRoots?: string[]; /* cross-repo runs only: where the triggering service's snapshot was staged, as the map may name it (present even when empty) — the pack ranks a route only by the spec of an operation it joins, under these roots */
+  /* One file of the working copy's repository as it was at a commit, through the confined mirror reader: the route table at the run's base. Absent → no route is proven unchanged. */
+  readAtRef?: (ref: string, file: string) => Promise<string | undefined>;
 }
 
 /* Told what grounding supplied, as it supplies it. Read-only: nothing it does reaches what the agent receives, and a fault in it is logged and ignored. */
@@ -260,6 +264,25 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
     }
   }
 
+  /* What the pack's availability classification is given: the declared login page, whether the change is another repository's, and the change evidence, built only when a route was unavailable. */
+  private availabilityInput(diff: string | undefined, change: GroundingChange | undefined): PackAvailabilityInput {
+    const crossRepo = this.ctx.stagedRoots !== undefined;
+    return {
+      ...(change?.loginPath !== undefined ? { loginPath: change.loginPath } : {}),
+      ...(crossRepo ? { changeElsewhere: true } : {}),
+      evidence: () =>
+        routeChangeEvidence({
+          ...(this.ctx.mirrorDir !== undefined ? { mirrorDir: this.ctx.mirrorDir } : {}),
+          changedFiles: diff ? diffParser.changedFiles(diff) : [],
+          ...(change?.baseRef !== undefined ? { baseRef: change.baseRef } : {}),
+          ...(this.ctx.readAtRef !== undefined ? { readAtRef: this.ctx.readAtRef } : {}),
+          ...(change?.changeClosure !== undefined ? { closure: change.changeClosure } : {}),
+          ...(change?.candidates !== undefined ? { candidates: change.candidates } : {}),
+          crossRepo,
+        }),
+    };
+  }
+
   async ground(specDir: string, signal?: AbortSignal, diff?: string, change?: GroundingChange): Promise<GroundingResult> {
     if (signal?.aborted) return {};
 
@@ -357,6 +380,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
           ...(hubPages?.length ? { hubPages: [...hubPages] } : {}),
           ...(changedElements?.length ? { changedElements } : {}),
           ...(labels?.literals.length ? { changedLiterals: labels.literals } : {}),
+          ...(domPack ? { availability: this.availabilityInput(diff, change) } : {}),
         },
         deps,
       );
@@ -368,6 +392,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
         result.contextPackOmissions = delivery.omissions;
       }
       if (packResult.changedValuesWithMoreNodes?.length) result.changedValuesWithMoreNodes = packResult.changedValuesWithMoreNodes;
+      if (packResult.routeAvailability !== undefined) result.routeAvailability = packResult.routeAvailability;
       const confirmed = confirmedDataRoutes(packResult.trace?.pages ?? []);
       if (confirmed.length > 0) result.packConfirmedDataRoutes = confirmed;
       this.tell(() => this.collaborators.trace?.pack?.(packResult));    } catch (err) {

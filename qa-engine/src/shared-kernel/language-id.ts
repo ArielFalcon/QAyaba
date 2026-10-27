@@ -24,6 +24,20 @@ const LANGS: Record<LanguageId, { astGrep: boolean; testPaths: readonly RegExp[]
   java:       { astGrep: true, testPaths: [/(^|\/)src\/test\//, /(Test|Tests|IT)\.java$/], manifests: ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"], decisions: null },
 };
 
+/*
+ * The route-table extractors: a framework's route configuration read as an ordered table (each entry's path, guards, redirect,
+ * matcher and children), declared per framework with the languages its configuration is written in and the manifest dependency
+ * that names it. A repository whose manifests name none states no route table, and its routes' availability stays unexplained.
+ */
+export type RouteTableSyntax = "angular-router";
+
+const ROUTE_TABLES: Record<RouteTableSyntax, { languages: readonly LanguageId[]; manifest: string; dependency: string }> = {
+  "angular-router": { languages: ["typescript", "javascript"], manifest: "package.json", dependency: "@angular/router" },
+};
+
+/* The manifest files a route-table syntax is named in. */
+export const ROUTE_TABLE_MANIFESTS: readonly string[] = Object.freeze([...new Set(Object.values(ROUTE_TABLES).map((t) => t.manifest))].sort());
+
 const EXT_TO_LANGUAGE: Record<string, LanguageId> = {
   js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript",
   ts: "typescript", tsx: "typescript", mts: "typescript", cts: "typescript",
@@ -67,6 +81,20 @@ export const LanguageRegistry = {
   decisionSyntaxForFile(file: string): DecisionSyntax | null {
     const lang = this.languageForFile(file);
     return lang === null ? null : LANGS[lang].decisions;
+  },
+
+  /* The route-table syntaxes whose framework a repository's build file declares (its dependency in a manifest of the syntax's language), in declaration order. */
+  routeTableSyntaxesFor(manifest: { file: string; dependencies: ReadonlySet<string> }): RouteTableSyntax[] {
+    return (Object.keys(ROUTE_TABLES) as RouteTableSyntax[]).filter((syntax) => {
+      const declared = ROUTE_TABLES[syntax];
+      return declared.manifest === manifest.file && manifest.dependencies.has(declared.dependency);
+    });
+  },
+
+  /* Whether a route-table syntax reads a file of this language. */
+  routeTableReads(syntax: RouteTableSyntax, file: string): boolean {
+    const lang = this.languageForFile(file);
+    return lang !== null && ROUTE_TABLES[syntax].languages.includes(lang);
   },
 
   hasAstGrepRules(lang: LanguageId): boolean {

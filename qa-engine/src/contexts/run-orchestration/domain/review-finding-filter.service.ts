@@ -10,8 +10,9 @@
  */
 
 import { resolveCitedSpec, resolveSpecReference } from "@kernel/spec-path.ts";
+import { pathOnly } from "@kernel/route-availability.ts";
 
-export type ReviewCitationKind = "contract" | "execution" | "dom" | "arm";
+export type ReviewCitationKind = "contract" | "execution" | "dom" | "arm" | "availability";
 
 /** What a finding claims to rest on. The ref names the spec (and, for a contract, its clause), or for an arm its `<file>:<line>`. */
 export interface ReviewCitation {
@@ -34,10 +35,12 @@ export interface ReviewScope {
   readonly inScopeSpecs: ReadonlySet<string>;
   /** Spec files whose cases this run actually executed. Any spelling of a path; compared in canonical form. */
   readonly executedSpecs: ReadonlySet<string>;
+  /** The routes (pathnames, and the templates they are pages of) the run holds an availability fact for: what an `availability` citation names. */
+  readonly availabilityRoutes?: ReadonlySet<string>;
 }
 
 /** Why a finding can never block: it cites nothing, an arm nobody checked, a reference that names no spec the suite can hold, a spec outside this run's scope, or an execution this run did not perform. */
-export type DropReason = "uncited" | "arm" | "unresolved" | "out-of-scope" | "not-executed";
+export type DropReason = "uncited" | "arm" | "unresolved" | "out-of-scope" | "not-executed" | "no-availability-fact";
 
 export interface FilteredReviewFindings {
   /** Verified, reviewer-blocking findings: the only ones that reach the generator or fail the gate. */
@@ -95,6 +98,16 @@ export function filterReviewFindings(
     if (citation.kind === "arm") {
       /* Missing cases are taken out before this filter: an arm here was never checked against the run's list. */
       drop(finding, "arm");
+      continue;
+    }
+    if (citation.kind === "availability") {
+      /* A route the run classified: where the browser ends there is a fact of the run's own capture. */
+      if (!(scope.availabilityRoutes ?? new Set<string>()).has(pathOnly(citation.ref.trim()))) {
+        drop(finding, "no-availability-fact");
+        continue;
+      }
+      if (finding.severity === "blocking") blocking.push(finding.text);
+      else advisory.push(finding.text);
       continue;
     }
     if (citation.kind === "dom") {

@@ -63,6 +63,8 @@ export interface GenerationDeps {
     prChangedFiles?: string[];
     domPack?: boolean;
     contextPack?: boolean;
+    /* One file of the run's repository at a commit (the confined mirror reader): the route table at the run's base. */
+    readAtRef?: (ref: string, file: string) => Promise<string | undefined>;
     collaborators?: PreGenerationGroundingCollaborators;
     reviewDomCollaborators?: ReviewDomGroundingCollaborators;
     preExecCollaborators?: PreExecGroundingCollaborators;
@@ -148,6 +150,7 @@ export function buildGeneration(deps: GenerationDeps): GenerationApi {
           prChangedFiles: grounding.prChangedFiles,
           domPack: grounding.domPack,
           contextPack: grounding.contextPack,
+          ...(grounding.readAtRef ? { readAtRef: grounding.readAtRef } : {}),
           ...(run.triggerService ? { stagedRoots: stagedRootsOf(run.mirrorDir, e2eDir, run.triggerService.mirrorDir) } : {}),
         },
         telemetry ? { ...groundingCollaborators, trace: telemetryGroundingTrace(telemetry, grounding.contextMapProvenance) } : groundingCollaborators,

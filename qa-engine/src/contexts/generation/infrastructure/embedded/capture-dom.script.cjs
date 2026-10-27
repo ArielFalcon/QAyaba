@@ -115,7 +115,21 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
       currentRouteErrors = [];
       const routeStartedAt = Date.now();
       try {
-        await page.goto(new URL(route, baseUrl).toString(), { waitUntil: "domcontentloaded", timeout: limits.navigationTimeoutMs });
+        const response = await page.goto(new URL(route, baseUrl).toString(), { waitUntil: "domcontentloaded", timeout: limits.navigationTimeoutMs });
+        /* How the document arrived: its status, how many server redirects led to it and the pathname it was served at. A redirect after it loaded is the page's own (client-side). */
+        /** @type {Record<string, any>} */
+        const navigation = { sessionAttached: Boolean(process.env.PW_STORAGE_STATE) };
+        if (response) {
+          try {
+            navigation.documentStatus = response.status();
+            let request = response.request();
+            let hops = 0;
+            while (request.redirectedFrom() && hops < 20) { request = request.redirectedFrom(); hops++; }
+            navigation.serverRedirects = hops;
+            const documentPath = new URL(response.url()).pathname;
+            if (documentPath.length <= limits.maxHrefChars) navigation.documentPath = documentPath;
+          } catch(_n) { /* the navigation facts stay as far as they were read */ }
+        }
         let settled = false;
         try { await page.waitForLoadState("networkidle", { timeout: limits.settleTimeoutMs }); settled = true; } catch (_settle) { /* the page never went quiet: settled stays false */ }
         const finalUrl = page.url();
@@ -307,7 +321,7 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
           } catch(_e) { absent = []; }
         }
         /** @type {Record<string, any>} */
-        const entry = { route, yaml, rawAttrs, testIdRawList, testIdAttr, settled, runtimeErrors: currentRouteErrors, finalUrl, hrefs, repeated, absent, ms: Date.now() - routeStartedAt };
+        const entry = { route, yaml, rawAttrs, testIdRawList, testIdAttr, settled, runtimeErrors: currentRouteErrors, finalUrl, hrefs, repeated, absent, ms: Date.now() - routeStartedAt, ...navigation };
         if (dataState) {
           entry.dataState = true;
           if (ready !== undefined) entry.ready = ready;

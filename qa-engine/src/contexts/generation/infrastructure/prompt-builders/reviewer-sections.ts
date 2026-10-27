@@ -17,6 +17,8 @@ import { reviewObjective, reviewSpecsOutcome, type ReviewSpecContents } from "./
 import type { PromptSectionDef, SectionRender } from "./prompt-sections.ts";
 import { REVIEWER_CHANGE_SECTIONS } from "./reviewer-change-sections.ts";
 import { countByDirectory, domPagesDegrade, NOT_SHOWN, referenceDegrade, stepsDegrade } from "./window-fit-references.ts";
+import { availabilityLine } from "../../domain/route-availability-section.ts";
+import { MAX_AVAILABILITY_FACTS_RECORDED } from "@kernel/route-availability.ts";
 
 /* The reviewer's statement of its own cap is a section of its own, apart from the generator's. */
 export const REVIEWER_STEP_LIMIT_SECTION_ID = "reviewer-step-limit";
@@ -191,6 +193,20 @@ function renderMissingCases({ input }: ReviewerContext): SectionRender {
   };
 }
 
+/* The run's availability facts: where the browser ends on each route the capture could not show at its own address, and why. A finding that a spec claims to cover such a route but never asserts where it ends can cite one. */
+function renderRouteAvailability({ input }: ReviewerContext): SectionRender {
+  const facts = input.routeAvailability ?? [];
+  return {
+    content: [
+      `## Route availability — classified by the orchestrator from this run's capture`,
+      `A finding about where one of these routes ends may cite "citation":{"kind":"availability","ref":"<route>"} with the route as listed.`,
+      ...facts.slice(0, MAX_AVAILABILITY_FACTS_RECORDED).map((fact) => sanitizeText(availabilityLine(fact), "model").text),
+    ].join("\n"),
+    maxBytes: 4_000,
+    overflow: "summarize",
+  };
+}
+
 function renderPriorCorrections(ctx: ReviewerContext): SectionRender {
   const { input } = ctx;
   const corrections = input.priorCorrections ?? [];
@@ -255,6 +271,8 @@ export const REVIEWER_SECTIONS: readonly PromptSectionDef<ReviewerContext>[] = [
   },
   /* The arms of the changed code no delivered test ran, measured by the orchestrator: a missing case cites one of them, and it is a record, never a reason to reject. */
   { id: REVIEWER_MISSING_CASES_SECTION_ID, tier: "volatile", priority: 3, stability: "run", reason: "The arms no test ran, so a missing case cites a measured arm and never gates (d717095d)", applies: ({ input }) => Boolean(input.untakenArms?.length), render: renderMissingCases },
+  /* Where the routes the capture could not show at their own address end, and why: an `availability` citation names one. */
+  { id: "reviewer-route-availability", tier: "volatile", priority: 3, stability: "run", reason: "A spec that claims to cover a route the change makes unavailable can be checked against where the run saw it end (route-availability S2)", applies: ({ input }) => Boolean(input.routeAvailability?.length), render: renderRouteAvailability },
   /* VOLATILE: prior-round corrections (priority 4 — convergence context; lowest priority in VOLATILE so it does not crowd out the spec contents or DOM grounding on budget overflow). */
   { id: "reviewer-prior-corrections", tier: "volatile", priority: 4, stability: "run", reason: "Convergent rounds: approve once the earlier blocking findings are resolved (14ec74b7)", applies: ({ input }) => Boolean(input.priorCorrections?.length), render: renderPriorCorrections },
   /* What the generator changed since the rejection this round answers: the smallest section in the prompt, and the one the round is about. Shed first when the window is tight. */

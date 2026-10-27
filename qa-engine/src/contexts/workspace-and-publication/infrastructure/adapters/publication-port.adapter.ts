@@ -1,6 +1,7 @@
 /* PublicationPort: injected decide collaborator owns the verdict → PR/Issue/shadow/quarantine/noop mapping; this adapter only dispatches. Duck-typed local interfaces — this file must not import workspace-and-publication (agent is read-only; only the orchestrator does git writes). */
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
+import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { SecretLeakError } from "@kernel/ports/redaction.port.ts";
@@ -60,6 +61,7 @@ export interface PublicationRenderCollaborator {
     causal?: CausalLabelView;
     reviewerNote?: string;
     missingCases?: readonly string[];
+    routeAvailability?: readonly RouteAvailabilityFact[];
   }): string;
   prBody(input: {
     sha?: string;
@@ -67,6 +69,7 @@ export interface PublicationRenderCollaborator {
     tested?: { flow?: string; objective?: string }[];
     parentRunId?: string;
     missingCases?: readonly string[];
+    routeAvailability?: readonly RouteAvailabilityFact[];
   }): string;
 }
 
@@ -140,6 +143,7 @@ export class PublicationPortAdapter implements PublicationPort {
     tested?: { flow?: string; objective?: string }[];
     parentRunId?: string;
     missingCases?: readonly string[];
+    routeAvailability?: readonly RouteAvailabilityFact[];
   }): Promise<{ outcome: string; revertedDenylisted?: string[]; revertedDangerous?: string[] }> {
     /* A handle this registry did not issue throws here, on every route, before anything is rendered or sent. */
     const workspace = decision.workspace ? this.registry.resolve(decision.workspace) : undefined;
@@ -165,6 +169,7 @@ export class PublicationPortAdapter implements PublicationPort {
           ...(decision.causal ? { causal: decision.causal } : {}),
           ...(decision.reviewerNote ? { reviewerNote: decision.reviewerNote } : {}),
           ...(decision.missingCases?.length ? { missingCases: decision.missingCases } : {}),
+          ...(decision.routeAvailability?.length ? { routeAvailability: decision.routeAvailability } : {}),
         }),
       );
     const prBodyText = (): string =>
@@ -175,6 +180,7 @@ export class PublicationPortAdapter implements PublicationPort {
           ...(decision.tested?.length ? { tested: decision.tested } : {}),
           ...(decision.parentRunId ? { parentRunId: decision.parentRunId } : {}),
           ...(decision.missingCases?.length ? { missingCases: decision.missingCases } : {}),
+          ...(decision.routeAvailability?.length ? { routeAvailability: decision.routeAvailability } : {}),
         }),
       );
     /* Issues open in the triggering repo when supplied; PRs always target ctx.repo (primary). */

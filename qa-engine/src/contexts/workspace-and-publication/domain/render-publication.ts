@@ -1,6 +1,7 @@
 /* Renders the GitHub markdown for a run: the Issue body for a failing/invalid/flaky run and the PR body for a green publish. The goal is REVIEWER-FACING DOCUMENTATION — a concise, high-level account of what was tested, what was found, and what to do — NOT a log dump. PURE, no sanitizer dependency: every field here is markdown-composed from caller-supplied, already-untrusted text. The CALLER (publication-port.adapter.ts) sanitizes the WHOLE composed body string returned by renderIssue/renderPrBody before it ever reaches GitHub — a single whole-body sanitize pass satisfies "every rendered field passes the injected sanitizer" (the spec's own MUST) without threading a sanitize callback through every render helper in this file, and keeps this domain file testable with zero collaborators (matches this context's OWN write-confinement.service.ts precedent: pure classifiers, effectful wiring lives one layer out). */
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import { outcomeText, type RouteAvailabilityFact } from "@kernel/route-availability.ts";
 
 export interface TestedItem {
   flow?: string;
@@ -105,6 +106,8 @@ export interface RenderIssueInput {
   reviewerNote?: string;
   /* The reviewer's missing cases: behaviours the change decides that no test runs. */
   missingCases?: readonly string[];
+  /* The routes the change made unavailable and the possible regressions, from the run's availability classification. */
+  routeAvailability?: readonly RouteAvailabilityFact[];
 }
 
 /* The reviewer's missing cases as a section of their own; empty when there are none. A record for the reader, never a gate. */
@@ -112,6 +115,25 @@ function renderMissingCasesSection(missingCases: readonly string[] | undefined):
   const shown = (missingCases ?? []).filter((text) => text.trim() !== "").slice(0, MAX_ITEMS);
   if (shown.length === 0) return "";
   return `**Cases the change decides that no test runs** (the reviewer's reading of the measured arms; not a gate):\n${shown.map((text) => `- ${cap(text, CAP_OBJECTIVE)}`).join("\n")}`;
+}
+
+/* Where each fact's evidence is: the route table entry or guard the change governs it by, or the reach of a possible regression. */
+function availabilityEvidence(fact: RouteAvailabilityFact): string {
+  const basis = fact.basis;
+  if (basis.class === "change-introduced") return basis.via === "route-declaration" ? `its route table entry changed at ${basis.at}` : `a changed symbol reaches its guard ${basis.at}`;
+  if (basis.class === "regression-candidate") return basis.reach === "governs" ? "the change governs it and the page logged a runtime error" : "the change reaches the page and it logged a runtime error";
+  return basis.class;
+}
+
+/* The route availability the reader must see: every unavailability the change introduced (a new contract the tests may assert), and every possible regression. Empty when there is neither. A record for the reader, never a gate. */
+function renderAvailabilitySection(facts: readonly RouteAvailabilityFact[] | undefined): string {
+  const line = (fact: RouteAvailabilityFact): string => `- \`${cap(fact.route, CAP_FLOW)}\` ends on ${cap(outcomeText(fact.outcome), CAP_FLOW)}: ${cap(availabilityEvidence(fact), CAP_CAUSE)}`;
+  const introduced = (facts ?? []).filter((fact) => fact.basis.class === "change-introduced").slice(0, MAX_ITEMS);
+  const regressions = (facts ?? []).filter((fact) => fact.basis.class === "regression-candidate").slice(0, MAX_ITEMS);
+  const blocks: string[] = [];
+  if (introduced.length > 0) blocks.push(`**Routes this change makes unavailable** (the change governs where they send the browser; check that this is intended):\n${introduced.map(line).join("\n")}`);
+  if (regressions.length > 0) blocks.push(`**Possible regressions** (a route the change reaches is sent away after a runtime error; a signal, not a gate):\n${regressions.map(line).join("\n")}`);
+  return blocks.join("\n\n");
 }
 
 export function renderIssue(input: RenderIssueInput): string {
@@ -149,6 +171,8 @@ export function renderIssue(input: RenderIssueInput): string {
   }
   const missing = renderMissingCasesSection(input.missingCases);
   if (missing) blocks.push(missing);
+  const availability = renderAvailabilitySection(input.routeAvailability);
+  if (availability) blocks.push(availability);
 
   const head = blocks.join("\n\n");
   const footer = "\n\n_Full trace + logs in the run artifacts (trace on-first-retry)._";
@@ -162,6 +186,8 @@ export interface RenderPrBodyInput {
   parentRunId?: string;
   /* The reviewer's missing cases: behaviours the change decides that no test runs. */
   missingCases?: readonly string[];
+  /* The routes the change made unavailable and the possible regressions, from the run's availability classification. */
+  routeAvailability?: readonly RouteAvailabilityFact[];
 }
 
 export function renderPrBody(input: RenderPrBodyInput): string {
@@ -182,6 +208,8 @@ export function renderPrBody(input: RenderPrBodyInput): string {
 
   const missing = renderMissingCasesSection(input.missingCases);
   if (missing) blocks.push(missing);
+  const availability = renderAvailabilitySection(input.routeAvailability);
+  if (availability) blocks.push(availability);
 
   if (input.parentRunId) blocks.push(`> ⛓️ Continuation of ${input.parentRunId}`);
 

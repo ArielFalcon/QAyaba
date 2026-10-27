@@ -20,6 +20,12 @@ import { deriveErrorClass, toReflectionInput, toRunOutcome } from "./outcome-ass
 import type { WorkspaceRunContext } from "./run-context.ts";
 import type { RunQaResult } from "./run-types.ts";
 import { runOf, type RunState } from "./run-state.ts";
+import { routeAvailabilitySignal, type RouteAvailabilityFact } from "@kernel/route-availability.ts";
+
+/* The availability facts a PR or an Issue lists: the change's own unavailabilities and the possible regressions. */
+function publishedAvailability(state: Readonly<RunState>): RouteAvailabilityFact[] {
+  return (state.grounding.routeAvailability?.facts ?? []).filter((fact) => fact.basis.class === "change-introduced" || fact.basis.class === "regression-candidate");
+}
 import { PublicationFailedError, actionFor, carryOn } from "./failure-policy.ts";
 
 export async function finalizeDecided(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<RunQaResult> {
@@ -151,6 +157,8 @@ async function publishDecision(state: Readonly<RunState>, ctx: WorkspaceRunConte
       /* tested omitted when empty. parentRunId only from /continue, never fabricated. Intra-run regens reuse this same input object. */
       ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
       ...(state.review.missingCases.length ? { missingCases: state.review.missingCases } : {}),
+      /* Every unavailability the change introduced, and every possible regression, for the human reading the PR or the Issue. */
+      ...(publishedAvailability(state).length ? { routeAvailability: publishedAvailability(state) } : {}),
       ...(resolveTested(state)?.length ? { tested: resolveTested(state) } : {}),
     });
   } catch (pubErr) {
@@ -249,6 +257,7 @@ async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRunContex
     ...(survivorClosure ? { survivorClosure } : {}),
     ...(flakyTriage ? { flakyTriage } : {}),
     ...(missingCases.length ? { missingCases } : {}),
+    ...(state.grounding.routeAvailability ? { routeAvailability: routeAvailabilitySignal(state.grounding.routeAvailability.read, state.grounding.routeAvailability.facts) } : {}),
     reviewerCorrections: finalReviewerCorrections,
     ...(reviewerSignal !== undefined ? { reviewer: reviewerSignal } : {}),
     /* Publish outcome string, never fabricated when publish() was not called. */

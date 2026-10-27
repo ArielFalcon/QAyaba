@@ -15,7 +15,7 @@ export interface ReviewPort {
     parsed?: boolean;
     /* The reviewer's own severity per correction, and the evidence it cites, in the same order. */
     severities?: ("blocking" | "advisory")[];
-    citations?: ({ kind: "contract" | "execution" | "dom" | "arm"; ref: string } | undefined)[];
+    citations?: ({ kind: "contract" | "execution" | "dom" | "arm" | "availability"; ref: string } | undefined)[];
     /**
      * True when no judgment was possible because the reviewer's runtime failed or returned nothing: an
      * integration fault, which is neither an approval nor a rejection. Absent on every review that

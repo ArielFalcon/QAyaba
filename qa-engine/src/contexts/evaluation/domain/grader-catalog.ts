@@ -65,6 +65,8 @@ export const GRADER_CATALOG: readonly ScoreSpec[] = [
   spec({ name: "defect_found", dataType: "NUMERIC", polarity: "none", range: { min: 0 } }),
   spec({ name: "survivors_routed", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
   spec({ name: "flaky_triage", dataType: "CATEGORICAL", polarity: "none", categories: FLAKY_CLASSES }),
+  spec({ name: "availability_regressions", dataType: "NUMERIC", polarity: "lower_better", range: { min: 0 } }),
+  spec({ name: "availability_unexplained", dataType: "NUMERIC", polarity: "lower_better", range: UNIT }),
   spec({ name: "drops_contradicted", dataType: "NUMERIC", polarity: "lower_better", range: { min: 0 } }),
   spec({ name: "infra_error", dataType: "CATEGORICAL", polarity: "none" }),
   spec({ name: "plan_graph_route_coverage", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),

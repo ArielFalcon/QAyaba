@@ -1,4 +1,5 @@
 import type { GroundingOmission, ArchitectureContext, HarnessFacts } from "@kernel/grounding.ts";
+import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import type { DecisionListing } from "@kernel/changed-decision.ts";
 
 export interface GroundingResult {
@@ -22,4 +23,6 @@ export interface GroundingResult {
   packConfirmedDataRoutes?: { path: string; resultCount: number }[];
   /** The decisions on the change's own changed lines, read statically from the working copy, and the changed files that did not parse. Absent without a diff, without a working copy, or on a cross-repo run. */
   changedDecisions?: DecisionListing;
+  /** Why each captured route the pack could not show at its own address was not, and how many routes the capture read. Absent when the pack did not classify. */
+  routeAvailability?: { read: number; facts: RouteAvailabilityFact[] };
 }

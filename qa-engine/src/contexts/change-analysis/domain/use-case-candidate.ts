@@ -31,7 +31,7 @@ export interface CandidateEnrichment {
 
 /* The order candidates are offered in: a change's own pages first, then those reached through the call graph, then across repos. */
 const TIER_ORDER: Readonly<Record<ReachTier, number>> = { direct: 0, indirect: 1, "cross-repo": 2 };
-const BASIS_ORDER: Readonly<Record<ReachBasis, number>> = { implementation: 0, source: 1, spec: 2, handler: 3, contract: 3, graph: 4, "call-site": 4 };
+const BASIS_ORDER: Readonly<Record<ReachBasis, number>> = { "route-config": 0, implementation: 0, source: 1, spec: 2, handler: 3, contract: 3, graph: 4, "call-site": 4 };
 
 const isText = (v: unknown): v is string => typeof v === "string" && v !== "";
 

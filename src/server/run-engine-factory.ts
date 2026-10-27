@@ -1050,6 +1050,8 @@ export function buildEngineRootDeps(
     maxRetries: app.qa.fixLoop?.maxRetries ?? 2,
     isCode,
     domPack,
+    /* The route table at the run's base, for the availability classification: read through the confined mirror reader. */
+    readFileAtRef: (ref: string, file: string) => vcs.fileAt(ref, file),
     /* A context-mode run's prompt discards the pack; building it would spend the live-DOM capture for nothing. */
     contextPack: run.mode !== "context",
     /*

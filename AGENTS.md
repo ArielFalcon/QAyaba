@@ -409,6 +409,23 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   `qayaba-no-such-page`); one whose tree is that sibling's is the site's "nothing here" page, gone from DEV, and is
   listed as not capturable with why instead of delivered. A template counts as opened only when the capture grounded its page at its own address; otherwise it is
   listed as not capturable, with why.
+- **Route availability** — a captured route that did not render at its own address (a redirect, server or client-side,
+  or an HTTP error, with whether the run's session was attached) is classified by one ordered, pure rule list
+  (`generation/domain/route-availability-classifier.ts`; the kernel types in `shared-kernel/route-availability.ts`):
+  `change-introduced`, `regression-candidate`, `environment`, `pre-existing` or `unexplained`. The evidence is git and
+  the graph, never a hand-kept ledger: the app's route table is read at the run's base (its range start) and at head by an
+  extractor declared per framework in the language registry (`RouteTableSyntax`, Angular's router first;
+  `generation/infrastructure/route-table/`; the head through the confined reader, the base through the mirror's `fileAt`),
+  and a route's own entry, every entry that can match before it and the fallbacks are compared, import-only hunks aside,
+  with parent guards inherited by lazy children. Whether a changed symbol reaches a guard a route lists is one optional
+  fact, the code graph's closure of the change (depth 6), complete or not. A framework with no extractor, an unreadable base,
+  a partial closure or a cross-repo run leaves the route `unexplained`; "unchanged" says not caused by this change, never
+  that it pre-existed. The Context Pack states each class and why (`Route availability`); a route the change governs
+  becomes a `route-config` use case whose drop as `no-observable-change` or `needs-unavailable-state` is refused; the
+  reviewer may cite a fact (`{"kind":"availability","ref":"<route>"}`, verified against the run's facts); the fix loop
+  settles a failure that ended where its route sends the client by the fact's class, with no re-read (a correction, an
+  `E-PRECONDITION`, or `BREAK_NEEDS_HUMAN` for a possible regression); the PR or Issue lists every `change-introduced`
+  route and every possible regression; `gateSignals.routeAvailability` records the counts. A signal, never a gate.
 - **Cross-run learning** — `qa-engine/src/contexts/cross-run-learning/`: deterministic
   rule fold, rule governance, curriculum, and the `qa-reflector` pass (distils
   `candidate`/`low`-confidence rules only; flaky/infra verdicts excluded). No agent keeps a memory of its own across

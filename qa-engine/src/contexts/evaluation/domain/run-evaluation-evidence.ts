@@ -164,6 +164,8 @@ export interface RunEvaluationEvidence {
         survivors?: { routed: number; total: number } | undefined;
         /* The flaky cases of a flaky run by class, and what the correction came to; undefined when the run was not flaky. */
         flakyTriage?: { cases: number; dataInstability: number; timing: number; outcome: string } | undefined;
+        /* The routes the capture could not show at their own address, by availability class; undefined when the run classified none. */
+        routeAvailability?: { unavailable: number; byClass: Readonly<Partial<Record<string, number>>> } | undefined;
         /* The reviewer's final verdict (the effective one) and its rounds; undefined when no reviewer phase ran. */
         reviewer?: { approved: boolean; rounds: number; modelRounds: number } | undefined;
         /* The failing cases by the causal label's reach; undefined when no case failed or the run was not labelled. */
