@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { availabilityGroundingOf, CHANGE_CLOSURE_BUDGET, runBaseRef, withRouteConfigCandidates } from "@contexts/run-orchestration/application/run-flow/route-availability-grounding.ts";
+import { availabilityGroundingOf, CHANGE_CLOSURE_POLICY, runBaseRef, withRouteConfigCandidates } from "@contexts/run-orchestration/application/run-flow/route-availability-grounding.ts";
 import { initialRunState, type RunState } from "@contexts/run-orchestration/application/run-flow/run-state.ts";
 import type { WorkspaceRunContext } from "@contexts/run-orchestration/application/run-flow/run-context.ts";
 import type { ImpactReport } from "@kernel/code/index.ts";
@@ -39,15 +39,22 @@ test("the grounding gets the run's base, the declared login page and a closure i
   assert.equal(grounding.loginPath, "/login");
   assert.deepEqual(asked, []);
   assert.deepEqual(await grounding.changeClosure?.(), { symbols: [{ file: "src/guards/native.ts", symbol: "nativeOnlyGuard" }, { file: "src/guards/native.ts", symbol: "caller" }], complete: true });
-  assert.deepEqual(asked, [CHANGE_CLOSURE_BUDGET]);
+  assert.deepEqual(asked, [CHANGE_CLOSURE_POLICY]);
 });
 
 test("a closure cut by its budget, reaching its depth bound or seeded by nothing is not complete", async () => {
   const closure = async (report: ImpactReport) => availabilityGroundingOf(stateWithDiff(), ctxWith(report, [])).changeClosure?.();
   assert.equal((await closure({ indexedSha: HEAD, symbols: [symbol("a", 0)], truncated: true, seedBasis: "lines" }))?.complete, false);
-  assert.equal((await closure({ indexedSha: HEAD, symbols: [symbol("a", CHANGE_CLOSURE_BUDGET.depth)], truncated: false, seedBasis: "lines" }))?.complete, false);
+  assert.equal((await closure({ indexedSha: HEAD, symbols: [symbol("a", CHANGE_CLOSURE_POLICY.depth)], truncated: false, seedBasis: "lines" }))?.complete, false);
   assert.equal((await closure({ indexedSha: HEAD, symbols: [], truncated: false, seedBasis: "none" }))?.complete, false);
   assert.equal(await availabilityGroundingOf(stateWithDiff(), ctxWith(undefined, [])).changeClosure?.(), undefined);
+});
+
+test("a hub the walk did not expand still reaches the guards its closure holds, and an incomplete hub closure leaves the closure incomplete", async () => {
+  const hub = (complete: boolean) => ({ file: "src/core/store.ts", symbol: "Store", kind: "class", fanIn: 40, depth: 1, seeds: [], closure: { symbols: [{ ...symbol("nativeOnlyGuard", 2), file: "src/guards/native.ts" }], complete } });
+  const closure = async (complete: boolean) => availabilityGroundingOf(stateWithDiff(), ctxWith({ indexedSha: HEAD, symbols: [symbol("changed", 0)], truncated: false, seedBasis: "lines", hubNodes: [hub(complete)] }, [])).changeClosure?.();
+  assert.deepEqual(await closure(true), { symbols: [{ file: "src/guards/native.ts", symbol: "changed" }, { file: "src/guards/native.ts", symbol: "nativeOnlyGuard" }], complete: true });
+  assert.equal((await closure(false))?.complete, false);
 });
 
 test("a route the change governs becomes a direct route-config use case; one already named keeps its id and gains the fact", () => {

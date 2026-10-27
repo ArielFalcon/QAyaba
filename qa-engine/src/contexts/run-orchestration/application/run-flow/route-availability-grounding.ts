@@ -6,14 +6,14 @@
  */
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
-import type { ImpactBudget } from "@kernel/code/index.ts";
+import { DEFAULT_WALK_POLICY, type WalkPolicy } from "@kernel/code/index.ts";
 import { outcomeText, pathOnly, type ChangeClosure, type RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import { candidateId, type UseCaseCandidate } from "@contexts/change-analysis/application/index.ts";
 import type { WorkspaceRunContext } from "./run-context.ts";
 import type { RunState } from "./run-state.ts";
 
-/* The closure's walk: the reader's deepest walk, and a node budget far above a change's ordinary reach. */
-export const CHANGE_CLOSURE_BUDGET: ImpactBudget = { depth: 6, maxSymbols: 5000 };
+/* The closure's walk: the run's walk policy, deeper, so a guard several calls above a changed symbol is still reached. */
+export const CHANGE_CLOSURE_POLICY: WalkPolicy = { ...DEFAULT_WALK_POLICY, depth: 6 };
 
 export interface AvailabilityGrounding {
   baseRef?: string;
@@ -69,13 +69,16 @@ export function availabilityGroundingOf(state: Readonly<RunState>, ctx: Workspac
     : async (): Promise<ChangeClosure | undefined> => {
         const parser = new DiffParserService();
         const changed = BlastRadius.of(input.sha, parser.changedFiles(diff), parser.touchedLines(diff));
-        const walked = await codeGraph.impactedSymbols(repoDir, changed, CHANGE_CLOSURE_BUDGET);
+        const walked = await codeGraph.impactedSymbols(repoDir, changed, CHANGE_CLOSURE_POLICY);
         if (!walked.ok) return undefined;
-        const atBound = walked.value.symbols.some((symbol) => symbol.depth >= CHANGE_CLOSURE_BUDGET.depth);
+        /* A hub the walk did not expand is reached all the same: its closure (what calls it) is the rest of the change's reach. */
+        const hubs = walked.value.hubNodes ?? [];
+        const reached = [...walked.value.symbols, ...hubs.flatMap((hub) => hub.closure.symbols)];
+        const atBound = reached.some((symbol) => symbol.depth >= CHANGE_CLOSURE_POLICY.depth);
         return {
-          symbols: walked.value.symbols.map((symbol) => ({ file: symbol.file, symbol: symbol.symbol })),
+          symbols: reached.map((symbol) => ({ file: symbol.file, symbol: symbol.symbol })),
           /* Seeds from no symbol at all may be an index that does not hold the changed files: nothing is proven unreached from them. */
-          complete: !walked.value.truncated && !atBound && walked.value.seedBasis !== "none",
+          complete: !walked.value.truncated && hubs.every((hub) => hub.closure.complete) && !atBound && walked.value.seedBasis !== "none",
         };
       };
   return {
