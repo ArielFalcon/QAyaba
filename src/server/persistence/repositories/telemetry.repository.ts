@@ -160,6 +160,14 @@ export interface AgentRoleFacts {
 }
 
 /* The telemetry ledgers: run_spans (the span ledger) and agent_turns (one row per agent prompt/response cycle). */
+export interface RecentTurnFigures {
+  role: string;
+  stepsUsed: number | null;
+  promptBytes: number | null;
+  tokensInput: number | null;
+  tokensCacheRead: number | null;
+}
+
 export class TelemetryRepository {
   private readonly upsertSpan;
   private readonly spansOfRun;
@@ -396,6 +404,20 @@ export class TelemetryRepository {
       partialText: (r.partial_text as string | null) ?? null,
     };
     });
+  }
+
+  /* The figures of the newest non-repair turns that recorded their steps, across runs: what the working room of a turn is estimated from. */
+  getRecentTurnFigures(limit: number): RecentTurnFigures[] {
+    const rows = this.db.raw
+      .prepare("SELECT role, steps_used, prompt_bytes, tokens_input, tokens_cache_read FROM agent_turns WHERE steps_used IS NOT NULL AND is_repair = 0 ORDER BY id DESC LIMIT ?")
+      .all(limit) as Array<Record<string, unknown>>;
+    return rows.map((r) => ({
+      role: r.role as string,
+      stepsUsed: (r.steps_used as number | null) ?? null,
+      promptBytes: (r.prompt_bytes as number | null) ?? null,
+      tokensInput: (r.tokens_input as number | null) ?? null,
+      tokensCacheRead: (r.tokens_cache_read as number | null) ?? null,
+    }));
   }
 
   getAgentRoleFacts(runId: string): AgentRoleFacts[] {

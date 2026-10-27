@@ -11,6 +11,7 @@ import type { SuiteStorePort } from "@kernel/ports/suite-store.port";
 import type { ValidationPort } from "@contexts/test-execution/application/index";
 import type { ObjectiveSignalPort } from "@contexts/objective-signal/application/index";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
+import type { ContextBudget } from "@kernel/context-budget";
 import type { CoordinationSettings } from "@kernel/coordination";
 import type { ToolAttemptDirectory } from "@contexts/generation/application/index";
 import type { AuthDeclaration } from "@contexts/app-catalog/application/index";
@@ -145,6 +146,8 @@ export interface EngineRootDeps {
   readSpecSource?: GenerationTurnsCollaborators["readSpecSource"];
   /* The step limit the agent runtime enforces for a role this run, shared by every prompt of the run (the shell reads it once). It resolves undefined when the runtime enforces none for the role or cannot be read, and never rejects. Optional, no stub: absent, no prompt of the run states a step limit. */
   stepLimitFor?: StepLimitFor;
+  /* This run's context budget (per-run windows of the lead, author, reviewer and the escalated model, and the working room a turn needs). Built by the shell, never shared between runs; absent when the host has no live runtime, and then no window is known. */
+  contextBudget?: ContextBudget;
 
   /* ReviewPort collaborator — the SAME 3 generation-owned primitives the adapter composes standalone. */
   reviewRuntime: {
@@ -406,6 +409,7 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
     generationUseCase: cfg.generationUseCase,
     ...(cfg.readSpecSource ? { readSpecSource: cfg.readSpecSource } : {}),
     ...(cfg.stepLimitFor ? { stepLimitFor: cfg.stepLimitFor } : {}),
+    ...(cfg.contextBudget ? { contextBudget: cfg.contextBudget } : {}),
     ...(cfg.runDeadline ? { deadline: cfg.runDeadline } : {}),
     review: { runtime: cfg.reviewRuntime as ReviewPortRuntime, ...(cfg.reviewTimeoutMs !== undefined ? { timeoutMs: cfg.reviewTimeoutMs } : {}) },
     grounding: {
@@ -463,6 +467,7 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
     ...(cfg.sanitize ? { sanitize: cfg.sanitize } : {}),
     ...(cfg.planSnapshots ? { planSnapshots: cfg.planSnapshots } : {}),
     ...(cfg.sidekickEscalatedModel ? { escalatedModel: cfg.sidekickEscalatedModel } : {}),
+    ...(cfg.contextBudget ? { contextBudget: cfg.contextBudget } : {}),
     ...(cfg.coordinationTelemetryPath ? { telemetryPath: cfg.coordinationTelemetryPath } : {}),
     ...(cfg.telemetry ? { telemetry: cfg.telemetry } : {}),
   });

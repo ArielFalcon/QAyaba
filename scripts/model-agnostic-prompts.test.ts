@@ -1,5 +1,5 @@
 /* The model-agnostic prompt guard: no prompt names a model. A limit, a tier or a budget comes from the runtime or from a named constant, never from which model runs, so a text that names a model id or a family is a defect wherever it stands. The guard scans the static role and shared layers, the skills and every prompt the harness sends to an agent (generator, context task, reviewer, verdict repair, sidekick, maintainer, assistant, reflector, proposer), in three layers:
-   - derived: every id and label a declared model source holds (the runtime agent config and its fallbacks, each provider's role defaults, the cataloged windows, the proposer's pin), so a model configured later is caught with no edit here. An id is forbidden anywhere, its family only next to a version chunk;
+   - derived: every id and label a declared model source holds (the runtime agent config and its fallbacks, each provider's role defaults, the proposer's pin), so a model configured later is caught with no edit here. An id is forbidden anywhere, its family only next to a version chunk;
    - fixed list: well-known vendor and family names, forbidden anywhere. The list only forbids: nothing selects a prompt, a limit or a rule by it;
    - headings: the parenthetical of a role's title holds no version-like token and no letter segment of a declared id.
    The title's letter-segment match is intentionally strict inside parentheses: a plain word such as "flash" or "mini" is a finding there, though it is fine in a body.
@@ -10,7 +10,6 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CATALOGED_MODELS } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog.ts";
 import {
   buildPromptAssembled,
   buildReviewerPromptAssembled,
@@ -228,7 +227,6 @@ async function readDeclaredModelSources(root: string = ROOT): Promise<Record<str
     ),
     "OpenCode fallback list": withLabels(await new OpenCodeRuntimeStrategy({ configPath: absentConfig }).listModels()),
     "proposer pin": [PROPOSER_MODEL],
-    "window catalog": [...CATALOGED_MODELS],
   };
 }
 
@@ -293,12 +291,16 @@ test("a model configured later is caught with no edit here: its id in the agent 
   }
 });
 
+/* The repo's declared terms plus one made-up id whose family is two plain words, so the family rules are exercised whatever the repo declares. */
+const FIXTURE_MODEL_ID = "orion-nova-1.3-zeta";
+const termsWithFixture = async (): Promise<ModelTerms> => deriveModelTerms([...Object.values(await declaredModelSources()).flat(), FIXTURE_MODEL_ID]);
+
 test("a derived family alone names no model: only a version next to it does", async () => {
-  const terms = await repoTerms();
-  assert.deepEqual(scanText("p.md", "A muse spark of insight changed the plan.", terms), []);
-  assert.deepEqual(scanText("p.md", "Muse Spark 2 changed the plan.", terms), [{ source: "p.md", layer: "declared-family", token: "Muse Spark" }]);
-  assert.deepEqual(scanText("p.md", "Muse Spark v2 changed the plan.", terms), [{ source: "p.md", layer: "declared-family", token: "Muse Spark" }]);
-  assert.deepEqual(scanText("p.md", "The 1.3 Muse Spark build changed the plan.", terms), [{ source: "p.md", layer: "declared-family", token: "Muse Spark" }]);
+  const terms = await termsWithFixture();
+  assert.deepEqual(scanText("p.md", "An orion nova of insight changed the plan.", terms), []);
+  assert.deepEqual(scanText("p.md", "Orion Nova 2 changed the plan.", terms), [{ source: "p.md", layer: "declared-family", token: "Orion Nova" }]);
+  assert.deepEqual(scanText("p.md", "Orion Nova v2 changed the plan.", terms), [{ source: "p.md", layer: "declared-family", token: "Orion Nova" }]);
+  assert.deepEqual(scanText("p.md", "The 1.3 Orion Nova build changed the plan.", terms), [{ source: "p.md", layer: "declared-family", token: "Orion Nova" }]);
 });
 
 test("a family of a single letter names no model: only the whole id does", () => {
@@ -336,14 +338,14 @@ test("a listed vendor is caught wherever it stands, as a whole word only", async
 });
 
 test("a role title may carry acronyms and plain words in parentheses, never a version-like token or a segment of a declared id", async () => {
-  const terms = await repoTerms();
+  const terms = await termsWithFixture();
   for (const title of ["# Login helper (OAuth2)", "# Assistant (lite model)", "# Reviewer (E2E, read-only)"]) {
     assert.deepEqual(titleFindings("t.md", `${title}\n\nBody.`, terms), [], title);
   }
   assert.deepEqual(titleFindings("t.md", "# Writer (Alpha V4)\n", terms), [{ source: "t.md", layer: "heading", token: "V4" }]);
   assert.deepEqual(titleFindings("t.md", "# Writer (e2e)\n", terms), [{ source: "t.md", layer: "heading", token: "e2e" }], "acronyms are case-sensitive");
   assert.deepEqual(titleFindings("t.md", "# Writer (Flash)\n", terms), [{ source: "t.md", layer: "heading", token: "Flash" }]);
-  assert.deepEqual(titleFindings("t.md", "# Writer (spark-lite)\n", terms), [{ source: "t.md", layer: "heading", token: "spark" }]);
+  assert.deepEqual(titleFindings("t.md", "# Writer (nova-pro)\n", terms), [{ source: "t.md", layer: "heading", token: "nova" }]);
   assert.deepEqual(titleFindings("t.md", "# Writer\n\nA (V4) in the body is not a title.\n", terms), []);
 });
 

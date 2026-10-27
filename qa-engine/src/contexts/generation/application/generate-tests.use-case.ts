@@ -8,7 +8,6 @@ import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.t
 import type { PromptRenderingPort } from "./ports/prompt-rendering.port.ts";
 import type { VerdictParserPort } from "./ports/verdict-parser.port.ts";
 import type { ManifestRepositoryPort } from "./ports/manifest-repository.port.ts";
-import type { PromptBudgetPort } from "./ports/prompt-budget.port.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
 import type { GeneratorDeliverable } from "../domain/manifest-repository.ts";
 import type { OpencodeRunInput } from "../domain/opencode-run-input.ts";
@@ -33,7 +32,6 @@ export interface AuthoringPorts {
   verdicts: VerdictParserPort;
   manifest: ManifestRepositoryPort;
 
-  budget: PromptBudgetPort;
   repair?: RepairPort;
   /** The longest a single prompt may run on this host: the deadline of its transport. A tier's time at or above it could never fire before that deadline, so no budget is set and a timeout there stays the host's. Absent: the host states none, and the budget is applied as the effort tier gives it. */
   promptCapMs?: number;

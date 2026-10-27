@@ -14,11 +14,8 @@ import { lintCell, type FactId, type LintSection, type PromptClaim } from "@cont
 import { renderLearnedRules } from "@contexts/cross-run-learning/application/index.ts";
 import { renderBlastRadiusSignal } from "@contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
-import { setAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
-import { rosterFixturePath } from "../../../../support/roster-fixture.ts";
 
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
-setAgentsConfigPath(rosterFixturePath());
 
 
 function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {

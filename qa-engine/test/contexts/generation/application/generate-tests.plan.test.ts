@@ -53,7 +53,6 @@ function build(step: { output: string } | { throws: Error }, deliverable: Genera
       parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [], parsed: true }),
     },
     manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
-    budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
   };
   return { ports, seen };
 }

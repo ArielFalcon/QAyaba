@@ -16,11 +16,8 @@ import {
   buildReviewerPromptAssembled,
   specFileForFlow,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
-import { setAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
-import { rosterFixturePath } from "../../../support/roster-fixture.ts";
 
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
-setAgentsConfigPath(rosterFixturePath());
 
 /* Orchestration sequence through port stubs: render → open session → parse deliverable →
    reconcile manifest. A parse miss without review is fail-closed (empty specs, no phantom names).
@@ -51,11 +48,6 @@ test("renders → opens session → parses deliverable → reconciles manifest (
     manifest: {
       read: async () => [],
       reconcile: async (_d, e) => { calls.push("reconcile"); return [...e] as ManifestEntry[]; },
-    },
-    budget: {
-      capDiff: (d) => d,
-      capText: (t) => t,
-      budgetForRole: () => 0,
     },
   };
 
@@ -103,7 +95,6 @@ test("the files the rendered prompt already carries are handed to the session wi
       parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
-    budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
   });
   const input: OpencodeRunInput = {
     repo: "org/demo", sha: "abc", diff: "d", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
@@ -144,11 +135,6 @@ test("code target skips manifest reconciliation entirely and passes specMetas th
     manifest: {
       read: async () => [],
       reconcile: async (_d, e) => { calls.push("reconcile"); return [...e] as ManifestEntry[]; },
-    },
-    budget: {
-      capDiff: (d) => d,
-      capText: (t) => t,
-      budgetForRole: () => 0,
     },
   };
 
@@ -206,11 +192,6 @@ test("fires exactly ONE bounded repair when checkGenerator returns valid:false",
       read: async () => [],
       reconcile: async (_d, e) => [...e] as ManifestEntry[],
     },
-    budget: {
-      capDiff: (d) => d,
-      capText: (t) => t,
-      budgetForRole: () => 0,
-    },
     repair: {
       checkGenerator: (text) => {
         if (text.includes('"specs"')) return { valid: true, issues: [] };
@@ -266,11 +247,6 @@ test("parse miss → empty specs (fail-closed, no phantom spec names)", async ()
       read: async () => [],
       reconcile: async (_d, e) => [...e] as ManifestEntry[],
     },
-    budget: {
-      capDiff: (d) => d,
-      capText: (t) => t,
-      budgetForRole: () => 0,
-    },
   };
 
   const useCase = new GenerateTestsUseCase(ports);
@@ -320,11 +296,6 @@ test("manifest.reconcile is called with [] when the deliverable carries specs bu
         return reconcileArgs;
       },
     },
-    budget: {
-      capDiff: (d) => d,
-      capText: (t) => t,
-      budgetForRole: () => 0,
-    },
   };
 
   const useCase = new GenerateTestsUseCase(ports);
@@ -372,7 +343,6 @@ test("manifest.reconcile receives the run's spec root: the mirror, and the spec 
         return [...entries] as ManifestEntry[];
       },
     },
-    budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
   };
   const useCase = new GenerateTestsUseCase(ports);
 
@@ -428,11 +398,6 @@ test("manifest entries are built from specMetas with objective/flow/targets + ch
         reconcileArgs = [...e] as ManifestEntry[];
         return reconcileArgs;
       },
-    },
-    budget: {
-      capDiff: (d) => d,
-      capText: (t) => t,
-      budgetForRole: () => 0,
     },
   };
 
@@ -491,11 +456,6 @@ test("manifest entry changeRef.type falls back to 'unknown' when input.intent is
         return reconcileArgs;
       },
     },
-    budget: {
-      capDiff: (d) => d,
-      capText: (t) => t,
-      budgetForRole: () => 0,
-    },
   };
 
   const useCase = new GenerateTestsUseCase(ports);
@@ -551,11 +511,6 @@ test("a spec present in specs[] but ABSENT from specMetas[] gets NO manifest ent
         reconcileArgs = [...e] as ManifestEntry[];
         return reconcileArgs;
       },
-    },
-    budget: {
-      capDiff: (d) => d,
-      capText: (t) => t,
-      budgetForRole: () => 0,
     },
   };
 
@@ -617,11 +572,6 @@ test("follow-up #27: a malformed generator verdict triggers ONE bounded repair w
     manifest: {
       read: async () => [],
       reconcile: async (_d, e) => [...e] as ManifestEntry[],
-    },
-    budget: {
-      capDiff: (d) => d,
-      capText: (t) => t,
-      budgetForRole: () => 0,
     },
     repair: {
       checkGenerator: (text) => {
@@ -695,11 +645,6 @@ test("assembled manifest entries satisfy the real ManifestEntrySchema shape (obj
         return reconcileArgs;
       },
     },
-    budget: {
-      capDiff: (d) => d,
-      capText: (t) => t,
-      budgetForRole: () => 0,
-    },
   };
 
   const useCase = new GenerateTestsUseCase(ports);
@@ -747,7 +692,6 @@ async function reportedSpecsFor(target: "e2e" | "code"): Promise<string[]> {
         parseReviewerVerdict: () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true, valid: true, issues: [] }),
       }),
       manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
-      budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
     };
     const out = await new GenerateTestsUseCase(ports).author({
       repo: "org/demo", sha: "abc", diff: "d", mirrorDir, e2eRelDir: "e2e", namespace: "ns",
@@ -791,7 +735,6 @@ async function optionsSentFor(input: Partial<OpencodeRunInput>, repairing?: "gen
       parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [], parsed: true }),
     },
     manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
-    budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
     ...(repairing
       ? {
           repair: {
@@ -865,7 +808,6 @@ for (const mode of ["diff", "context"] as const) {
         parseReview: () => ({ approved: false, corrections: [], valid: true, issues: [], parsed: true }),
       },
       manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
-      budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
     };
 
     const result = await new GenerateTestsUseCase(ports).author({

@@ -22,11 +22,8 @@ import {
 } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 import type { ReviewInput } from "@contexts/generation/domain/generation-input.ts";
-import { setAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
-import { rosterFixturePath } from "../../../../support/roster-fixture.ts";
 
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
-setAgentsConfigPath(rosterFixturePath());
 
 const ROOT = join(import.meta.dirname, "..", "..", "..", "..", "..", "..");
 

@@ -94,11 +94,6 @@ function makeAuthoringPorts(capturedInput: { value: OpencodeRunInput | undefined
       read: async () => [],
       reconcile: async (_root, e: readonly ManifestEntry[]) => [...e] as ManifestEntry[],
     },
-    budget: {
-      capDiff: (d: string) => d,
-      capText: (t: string) => t,
-      budgetForRole: () => 0,
-    },
   };
 }
 

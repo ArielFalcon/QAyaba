@@ -4,7 +4,6 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { reviewerIndependence, providerConfig, validateAgentRuntimeConfig } from "./config";
 import { AGENT_PROVIDERS } from "./types";
-import { CATALOGED_MODELS, normalizeModelName } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 
 /* Guard against the model "split-brain": config.ts's DEFAULT_MODELS (used by the runtime
    reconfig layer) and opencode/opencode.json (the file that actually runs the agents) must
@@ -78,14 +77,5 @@ test("the default config of EVERY provider validates ok", () => {
   for (const provider of AGENT_PROVIDERS) {
     const result = validateAgentRuntimeConfig(providerConfig(provider, {}), { opencode: true });
     assert.equal(result.ok, true, `[${provider}] errors: ${result.errors.join("; ")}`);
-  }
-});
-
-/* A role assigned a model the window catalog holds nothing for runs on the conservative default budget. Read from the real defaults of both providers, so a model added or retired in config.ts needs no edit here. */
-test("every default role model of every provider has a window in the model-window catalog", () => {
-  for (const provider of AGENT_PROVIDERS) {
-    for (const [role, { model }] of Object.entries(providerConfig(provider, {}).assignments)) {
-      assert.ok(CATALOGED_MODELS.includes(normalizeModelName(model)), `default ${provider} ${role} model '${model}' has no window in the catalog`);
-    }
   }
 });

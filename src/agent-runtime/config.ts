@@ -66,15 +66,6 @@ export function keyPresence(env: Record<string, string | undefined> = activeEnvi
   return { opencode: Boolean(env.OPENCODE_API_KEY) };
 }
 
-/* Boot and live-reconfiguration share this mapping so role→model cannot split. */
-export function runtimeRoleModelsFromConfig(config: AgentRuntimeConfig): { primary: string; reviewer: string; chat: string } {
-  return {
-    primary: config.assignments.primary.model,
-    reviewer: config.assignments.reviewer.model,
-    chat: config.assignments.chat.model,
-  };
-}
-
 export type ReviewerIndependence = "shared-model" | "distinct-model";
 
 /* The single derivation of whether the reviewer judges with the generator's own model. */

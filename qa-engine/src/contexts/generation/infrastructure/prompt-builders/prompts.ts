@@ -9,7 +9,7 @@ import { assemble, type AssembledPrompt } from "./context-assembler.ts";
 import { derivePromptContext, withAssembly, type Assembly, type BuildPromptAssembledOpts } from "./generator-context.ts";
 import { GENERATOR_SECTIONS, SUITE_LISTING_SECTION_ID } from "./generator-sections.ts";
 import { renderSections } from "./prompt-sections.ts";
-import { REVIEWER_MISSING_CASES_SECTION_ID, REVIEWER_SECTIONS, deriveReviewerContext } from "./reviewer-sections.ts";
+import { REVIEWER_MISSING_CASES_SECTION_ID, REVIEWER_SECTIONS, deriveReviewerContext, type BuildReviewerPromptOpts } from "./reviewer-sections.ts";
 
 export type { AssembledPrompt };
 export { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES };
@@ -33,7 +33,10 @@ function providedPathsOf(input: OpencodeRunInput, sectionSizes: Record<string, n
   return paths;
 }
 
-export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptAssembledOpts = {}): AssembledPrompt {
+/* A generator prompt and the role it is for: the lead on a planning turn, the author on any other. */
+export type GeneratorPrompt = AssembledPrompt & { promptRole: "lead" | "author" };
+
+export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptAssembledOpts = {}): GeneratorPrompt {
   const ctx = derivePromptContext(input, opts);
   const assembleWith = (assembly: Assembly): AssembledPrompt =>
     assemble(renderSections(GENERATOR_SECTIONS, withAssembly(ctx, assembly)), { budgetBytes: ctx.budgetBytes });
@@ -46,15 +49,15 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     const keepsEverySection = Object.keys(assembled.sectionSizes).every((id) => reassembled.sectionSizes[id] !== undefined);
     if (keepsEverySection && (kept === undefined || reassembled.text.includes(suiteListingHead(ctx.listing)))) assembled = reassembled;
   }
-  return { ...assembled, providedPaths: providedPathsOf(input, assembled.sectionSizes) };
+  return { ...assembled, providedPaths: providedPathsOf(input, assembled.sectionSizes), promptRole: ctx.promptRole };
 }
 
 export function buildPrompt(input: OpencodeRunInput): string {
   return buildPromptAssembled(input).text;
 }
 
-export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPrompt {
-  const ctx = deriveReviewerContext(input);
+export function buildReviewerPromptAssembled(input: ReviewInput, opts: BuildReviewerPromptOpts = {}): AssembledPrompt {
+  const ctx = deriveReviewerContext(input, opts);
   return assemble(renderSections(REVIEWER_SECTIONS, ctx), { budgetBytes: ctx.budgetBytes });
 }
 

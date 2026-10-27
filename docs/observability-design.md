@@ -409,7 +409,7 @@ invoke_agent qa-author               INTERNAL  one per prompt (turn)
 | Work | `qayaba.agent.steps.used`, `.steps.limit` (live from `GET /agent`), `qayaba.agent.calls.<bucket>` per `CALL_BUCKETS`, `.calls.denied`, `.reads.redundant`, `.reads.same_file`, `.reads.prompt_provided`, `.writes` |
 | Limits | `qayaba.limit.applied` (the smallest that applied), `qayaba.limit.applied_ms`, `qayaba.limit.fired`, `qayaba.agent.end` (`completed\|exhausted\|timeout\|aborted`) |
 | Verdict | `qayaba.agent.verdict.specs`, `.noop_kind` (`not-worth\|unobservable\|unspecified`), `.parse` (`ok\|repaired\|unreadable`) |
-| Prompt | `qayaba.prompt.hash`, `qayaba.prompt.bytes`, `qayaba.prompt.section.<id>.bytes` and `.hash`, `qayaba.prompt.sections.dropped`, `qayaba.prompt.tools_offered.count` and `.bytes` (§5.6) |
+| Prompt | `qayaba.prompt.hash`, `qayaba.prompt.bytes`, `qayaba.prompt.section.<id>.bytes` and `.hash`, `qayaba.prompt.sections.dropped`, `qayaba.prompt.budget_bytes`, the context fit (`qayaba.prompt.context.fit` = fits\|over\|unknown, `.window_tokens`, `.window_unknown`, `.working_room_tokens`, `.room_basis` = history\|cold-start: the role's window and the working room estimated from recorded turns, or from its live step limit when there are none), `qayaba.prompt.tools_offered.count` and `.bytes` (§5.6) |
 | Rules | `qayaba.context.item_ids` for the rules and exemplars this prompt carried (F16) |
 | Error | `error.type`=`quota_exceeded\|rate_limited\|auth\|socket_closed\|provider_5xx\|output_length\|aborted\|timeout\|circuit_open\|unknown`. Added to `agentErrorToInfra` and the transport throw path, where today only the message carries it |
 

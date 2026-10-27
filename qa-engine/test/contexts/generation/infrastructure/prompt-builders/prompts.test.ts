@@ -27,7 +27,7 @@ import {
 import { renderReviewSpecs } from "@contexts/generation/infrastructure/prompt-builders/review-render.ts";
 import { renderArchitectureContextParts } from "@contexts/generation/infrastructure/prompt-builders/architecture-context.ts";
 import { assemble as caAssemble, section as caSection } from "@contexts/generation/infrastructure/prompt-builders/context-assembler.ts";
-import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog.ts";
+import { assemblerBudgetBytes } from "@kernel/context-budget.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import {
   APP_LOGIN_SECTION_ID,
@@ -51,11 +51,8 @@ import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-
 import type { ReviewInput, ArchitectureContext } from "@contexts/generation/domain/generation-input.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { BUILT_IN_EXEMPLARS } from "@kernel/scenario-catalog.ts";
-import { setAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
-import { rosterFixturePath } from "../../../../support/roster-fixture.ts";
 
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
-setAgentsConfigPath(rosterFixturePath());
 
 
 /* Regeneration prompts must NOT command the agent to re-navigate / re-snapshot / re-activate
@@ -1193,6 +1190,10 @@ test("reviewObjective/commitDiffObjective (reviewer diff objective) caps a giant
   expectCappedDiff(buildReviewerPrompt(reviewInput), huge);
 });
 
+/* A reviewer window the run reported, in tokens: the assembler budgets the prompt to the share of it the budget derives. */
+const KNOWN_REVIEWER_WINDOW = { windowTokens: () => 200_000 };
+const REVIEWER_BUDGET_BYTES = assemblerBudgetBytes(200_000)!;
+
 test("reviewer defense-in-depth: a >capDiff diff never starves the specs/dom sections", () => {
   const huge = bigDiff();
   const { text, sectionSizes } = buildReviewerPromptAssembled({
@@ -1203,13 +1204,13 @@ test("reviewer defense-in-depth: a >capDiff diff never starves the specs/dom sec
     appName: "testapp",
     mode: "diff",
     domSnapshot: "button: Submit\nheading: Checkout",
-  });
+  }, KNOWN_REVIEWER_WINDOW);
   expectCappedDiff(text, huge);
   assert.notEqual(sectionSizes["reviewer-objective"], undefined, "the objective must be capped, not dropped");
   assert.notEqual(sectionSizes["reviewer-specs"], undefined, "reviewer-specs must survive");
   assert.notEqual(sectionSizes["reviewer-dom"], undefined, "reviewer-dom must survive");
   assert.ok(
-    Buffer.byteLength(text, "utf8") <= roleWindowBytes("qa-reviewer"),
+    Buffer.byteLength(text, "utf8") <= REVIEWER_BUDGET_BYTES,
     "the assembled reviewer prompt must respect the reviewer role's byte budget",
   );
 });
@@ -1245,14 +1246,14 @@ test("reviewer defense-in-depth actually FIRES: an oversized DOM snapshot alone 
     appName: "testapp",
     mode: "diff",
     domSnapshot: oversizedDom,
-  });
+  }, KNOWN_REVIEWER_WINDOW);
   assert.notEqual(sectionSizes["reviewer-dom"], undefined, "reviewer-dom must be PRESENT despite exceeding its own cap — a 'drop' overflow policy would omit it entirely");
   assert.ok(
     (sectionSizes["reviewer-dom"] ?? Infinity) < Buffer.byteLength(oversizedDom, "utf8"),
     "reviewer-dom is cut to its own maxBytes, below the oversized snapshot",
   );
   assert.ok(
-    Buffer.byteLength(text, "utf8") <= roleWindowBytes("qa-reviewer"),
+    Buffer.byteLength(text, "utf8") <= REVIEWER_BUDGET_BYTES,
     "the assembled reviewer prompt must still respect the reviewer role's byte budget",
   );
 });
@@ -1553,10 +1554,10 @@ test("reviewer prompt: the spec-change excerpt is bounded and sanitized", () => 
     appName: "testapp",
     mode: "diff",
     specChanges: `### flows/checkout.spec.ts\n+const token = "${secret}";\n${"+ filler\n".repeat(2_000)}`,
-  });
+  }, KNOWN_REVIEWER_WINDOW);
 
   assert.ok(!text.includes(secret), "a secret in the change excerpt must be redacted before it reaches the reviewer");
-  assert.ok(Buffer.byteLength(text, "utf8") <= roleWindowBytes("qa-reviewer"));
+  assert.ok(Buffer.byteLength(text, "utf8") <= REVIEWER_BUDGET_BYTES);
 });
 
 /* The map-cap omission counts only the entries MAX_ITEMS actually left out, per rendered list — a suppressed list was never

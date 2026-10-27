@@ -5715,7 +5715,6 @@ function fakeAuthoringPortsForAntiInert(capture: { input?: OpencodeRunInput }): 
       parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_d, entries) => [...entries] },
-    budget: { capDiff: (d: string) => d, capText: (t: string) => t, budgetForRole: () => 100_000 },
   };
 }
 

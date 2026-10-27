@@ -257,7 +257,7 @@ The project uses provider-neutral role assignments. The roster, each role's mode
 | `reviewer` | `qa-reviewer` | Read-only quality judge; rejects tests with trivial assertions or fragile patterns |
 | `chat` | `qa-assistant`, `qa-reflector` | Read-only operator assistant and the failure reflector |
 
-The prompts are budgeted against the context-window catalog in `qa-engine/src/contexts/generation/infrastructure/prompt-builders/model-window-catalog.ts`. Check `opencode models` when a model in the roster retires.
+Each run reads the context window the agent runtime reports for the models its roles are assigned (`src/agent-runtime/run-context-budget.ts`); the engine keeps no table of models, and a window the runtime does not report cuts nothing.
 
 Assign a stronger model to escalated sidekick sessions via `COORDINATION_ESCALATED_MODEL` when you want a replaced flow to run on a different capacity.
 

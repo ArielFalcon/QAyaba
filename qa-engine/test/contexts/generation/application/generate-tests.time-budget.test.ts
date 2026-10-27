@@ -83,7 +83,6 @@ function build(
       parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [], parsed: true }),
     },
     manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
-    budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
     now: () => seen.clock.now,
     ...(opts.promptCapMs !== undefined ? { promptCapMs: opts.promptCapMs } : {}),
     ...(opts.timeBudgets ? { timeBudgets: opts.timeBudgets } : {}),

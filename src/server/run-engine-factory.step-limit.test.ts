@@ -13,13 +13,10 @@ import { AGENT_NAME_FOR_ROLE, type AgentFacade, type StepLimits } from "../agent
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { EngineRootDeps } from "./engine-root";
 import type { StepLimitRole } from "@contexts/generation/application/index.ts";
-import { BYTES_PER_TOKEN, INPUT_PROMPT_SAFETY_MARGIN, modelWindowBytes, roleWindowBytes, setLiveModelWindows, setRuntimeRoleModels } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
-import { setAgentsConfigPath as setCatalogAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { rosterFixturePath } from "../integrations/fixtures/opencode-roster";
 import { setAgentsConfigPath } from "../integrations/opencode-client";
 
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
-setCatalogAgentsConfigPath(rosterFixturePath());
 setAgentsConfigPath(rosterFixturePath());
 
 const APP: AppConfig = {
@@ -235,30 +232,65 @@ test("a host that wires no facade composes no resolver: absence means no prompt 
   assert.equal("stepLimitFor" in config, false);
 });
 
-test("the run's one read of its runtime also installs the context window the runtime reports for each model, so a prompt is budgeted by the real window", async () => {
-  const { facade } = reporting({ author: 41 });
-  facade.modelWindows = async () => ({ "some-provider/uncataloged-model": 500_000 });
-  setRuntimeRoleModels({ primary: "some-provider/uncataloged-model", reviewer: "some-provider/uncataloged-model", chat: "some-provider/uncataloged-model" });
-  try {
-    await limitOf(compose(() => facade), "author");
-    assert.equal(roleWindowBytes("qa-author"), Math.floor(500_000 * INPUT_PROMPT_SAFETY_MARGIN * BYTES_PER_TOKEN));
-  } finally {
-    setLiveModelWindows(undefined);
-    setRuntimeRoleModels(undefined);
-  }
+/* A facade whose roles run on two models: the primary tier (lead, author) and the reviewer. */
+function facadeWithWindows(windows: () => Promise<Record<string, number>>, limits: StepLimits = { author: 41, lead: 12 }): AgentFacade {
+  const { facade } = reporting(limits);
+  facade.config = { assignments: { primary: { provider: "opencode", model: "p/primary-model" }, reviewer: { provider: "opencode", model: "p/reviewer-model" }, chat: ASSIGNMENT } };
+  facade.modelWindows = windows;
+  return facade;
+}
+
+test("the run's one read of its runtime also installs the window of each role's model in the run's own context budget", async () => {
+  const facade = facadeWithWindows(async () => ({ "p/primary-model": 500_000, "p/reviewer-model": 200_000 }));
+  const config = compose(() => facade);
+  assert.ok(config.contextBudget, "a host that wires a facade composes a context budget");
+  assert.equal(config.contextBudget.windowTokens("author"), undefined, "nothing is known before a prompt asks");
+
+  await limitOf(config, "author");
+
+  assert.equal(config.contextBudget.windowTokens("author"), 500_000);
+  assert.equal(config.contextBudget.windowTokens("lead"), 500_000, "the lead runs on the primary tier");
+  assert.equal(config.contextBudget.windowTokens("reviewer"), 200_000);
+  assert.equal(config.contextBudget.windowTokens("author", "primary-model"), 500_000, "a model the caller picked, named without its provider, is found under the role's provider");
+  assert.equal(config.contextBudget.windowTokens("author", "p/reviewer-model"), 200_000);
 });
 
-test("a window read that fails leaves the catalog in charge and still answers the step limits", async (t) => {
+test("two runs read their own windows: a later run's read never changes an earlier run's budget", async () => {
+  const first = compose(() => facadeWithWindows(async () => ({ "p/primary-model": 100_000 })));
+  const second = compose(() => facadeWithWindows(async () => ({ "p/primary-model": 900_000 })));
+
+  await limitOf(first, "author");
+  await limitOf(second, "author");
+
+  assert.equal(first.contextBudget!.windowTokens("lead"), 100_000);
+  assert.equal(second.contextBudget!.windowTokens("lead"), 900_000);
+});
+
+test("a window read that fails leaves every window unknown, never an invented one, and still answers the step limits", async (t) => {
   t.mock.method(console, "warn", () => undefined);
-  const { facade } = reporting({ author: 41 });
-  facade.modelWindows = async () => { throw new Error("providers unreachable"); };
-  setLiveModelWindows({ "opencode-go/minimax-m3": 7 });
-  setRuntimeRoleModels({ primary: "opencode-go/minimax-m3", reviewer: "opencode-go/minimax-m3", chat: "opencode-go/minimax-m3" });
-  try {
-    assert.equal(await limitOf(compose(() => facade), "author"), 41);
-    assert.equal(roleWindowBytes("qa-author"), modelWindowBytes("minimax-m3"), "a previous run's windows never outlive a failed read");
-  } finally {
-    setLiveModelWindows(undefined);
-    setRuntimeRoleModels(undefined);
-  }
+  const config = compose(() => facadeWithWindows(async () => { throw new Error("providers unreachable"); }));
+
+  assert.equal(await limitOf(config, "author"), 41);
+  assert.equal(config.contextBudget!.windowTokens("author"), undefined);
+  assert.equal(config.contextBudget!.fit({ prompt: { tokens: 1 }, role: "author" }).outcome, "unknown");
+});
+
+test("a model the runtime reports no window for has an unknown window", async () => {
+  const config = compose(() => facadeWithWindows(async () => ({ "p/primary-model": 0, "p/other": 10 })));
+
+  await limitOf(config, "author");
+
+  assert.equal(config.contextBudget!.windowTokens("author"), undefined, "a zero window is no window");
+  assert.equal(config.contextBudget!.windowTokens("reviewer"), undefined);
+});
+
+test("with no recorded turns the working room starts cold from the role's live step limit", async () => {
+  const config = compose(() => facadeWithWindows(async () => ({ "p/primary-model": 1_000_000 }), { author: 41, lead: 12 }));
+
+  await limitOf(config, "author");
+
+  const fit = config.contextBudget!.fit({ prompt: { tokens: 1_000 }, role: "author" });
+  assert.equal(fit.roomBasis, "cold-start");
+  assert.equal(fit.outcome, "fits");
+  assert.equal(config.contextBudget!.fit({ prompt: { tokens: 1_000 }, role: "reviewer" }).outcome, "unknown", "no step limit and no history: the room is unknown");
 });

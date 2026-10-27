@@ -6,6 +6,7 @@ import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.
 import type { CrossRepoImpactPort, ServiceLinksPort } from "@contexts/service-topology/application/index.ts";
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
+import type { ContextBudget } from "@kernel/context-budget.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import { readConfinedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import type { GenerateOpts, GenerationResult } from "../application/generate-tests.use-case.ts";
@@ -51,6 +52,8 @@ export interface GenerationDeps {
   readSpecSource?: GenerationTurnsCollaborators["readSpecSource"];
   /* The step limit the runtime enforces for a role this run. Absent: no prompt states one. */
   stepLimitFor?: StepLimitFor;
+  /* The run's context budget: its windows per role and the working room a turn needs. The shell's prompt rendering already holds it; it is handed on so a unit that fits content to a window reads the same one. Absent: no window is known. */
+  contextBudget?: ContextBudget;
   deadline?: GenerationTurnsCollaborators["deadline"];
   review: { runtime: ReviewPortRuntime; timeoutMs?: number };
   grounding: {
@@ -70,6 +73,8 @@ export interface GenerationDeps {
 
 export interface GenerationApi {
   generation: LeadPort & AuthorPort;
+  /* The run's context budget, as given. */
+  contextBudget?: ContextBudget;
   review: ReviewPort;
   /* Absent for a code run: nothing is grounded on a DEV page. */
   preGenerationGrounding?: PreGenerationGroundingPort;
@@ -154,6 +159,7 @@ export function buildGeneration(deps: GenerationDeps): GenerationApi {
   return {
     generation,
     review,
+    ...(deps.contextBudget ? { contextBudget: deps.contextBudget } : {}),
     ...(preGenerationGrounding ? { preGenerationGrounding } : {}),
     ...(reviewDomGrounding ? { reviewDomGrounding } : {}),
     ...(preExecGrounding ? { preExecGrounding } : {}),

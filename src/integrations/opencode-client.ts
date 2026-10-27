@@ -16,8 +16,6 @@ import { SERENA_WRITE_TOOL_NAMES } from "@contexts/generation/application/index"
 import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
 import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
 
-import { configFromEnv, runtimeRoleModelsFromConfig } from "../agent-runtime/config";
-import { setRuntimeRoleModels } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { installHttpDispatcher } from "../util/net";
 import { enforcedStepLimit } from "../agent-runtime/step-limit";
 import { openCodeServerAuth } from "./opencode-server-auth";
@@ -61,8 +59,6 @@ export type { ExecutionResultCase } from "@contexts/generation/infrastructure/pr
 
 
 
-const runtimeConfig = configFromEnv();
-setRuntimeRoleModels(runtimeRoleModelsFromConfig(runtimeConfig));
 
 
 import { resetCircuit } from "@contexts/generation/infrastructure/resilience/circuit-breaker";

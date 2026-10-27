@@ -13,7 +13,7 @@ import type { AppConfig } from "../orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "../orchestrator/schemas";
 import type { AgentDeps } from "../integrations/opencode-client";
 import { reviewerTimeoutMs, agentPromptCapMs, agentTimeout, agentConfigFacts, maxStepsFromConfig, setSessionToolDeny, withTimeout } from "../integrations/opencode-client";
-import { AGENT_NAME_FOR_ROLE, assignmentForRole, type AgentFacade, type StepLimits } from "../agent-runtime/types";
+import { AGENT_NAME_FOR_ROLE, assignmentForRole, type AgentFacade, type AgentRuntimeConfig, type ModelWindows, type StepLimits } from "../agent-runtime/types";
 import { reviewerIndependence } from "../agent-runtime/config";
 import { enforcedStepLimit } from "../agent-runtime/step-limit";
 
@@ -87,8 +87,6 @@ import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prom
 import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter";
 import { ManifestRepositoryAdapter } from "@contexts/generation/infrastructure/manifest-repository.adapter";
 import { readManifest, reconcileManifest } from "@contexts/generation/infrastructure/manifest-fs";
-import { PromptBudgetAdapter } from "@contexts/generation/infrastructure/prompt-budget.adapter";
-import { capDiff, capText } from "@contexts/generation/infrastructure/prompt-cap";
 import { StaticGateAdapter } from "@contexts/test-execution/infrastructure/static-gate.adapter";
 import { E2eExecutionStrategy } from "@contexts/test-execution/infrastructure/e2e-execution.strategy";
 import { CodeExecutionStrategy } from "@contexts/test-execution/infrastructure/code-execution.strategy";
@@ -124,7 +122,7 @@ import { parseVerdict } from "../integrations/verdict-parse";
 import { parseReviewerVerdict, checkGeneratorVerdict, repairInstruction } from "../integrations/verdict-validate";
 import type { StepLimitFor, StepLimitRole } from "@contexts/generation/application/index.ts";
 import { MultiRepoCheckoutAdapter } from "@contexts/workspace-and-publication/infrastructure/adapters/multi-repo-checkout.adapter";
-import { roleWindowBytes, setLiveModelWindows } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
+import { RunContextBudget, WORKING_ROOM_HISTORY_TURNS, type RecordedTurnRow } from "../agent-runtime/run-context-budget";
 import type { RepairPort } from "@contexts/generation/application/index.ts";
 
 import {
@@ -494,15 +492,19 @@ const RUNTIME_ROLE_OF_STEP_LIMIT_ROLE: Readonly<Record<StepLimitRole, AgentRole>
  * serves every role and every prompt of the run. The facade is resolved at the first ask, so a run that never
  * prompts reads nothing and a runtime switched between runs gives each run its own. A read that throws or outlasts
  * its deadline leaves every role without a limit and warns once. The baked config copy is never a substitute: it
- * can differ from what the server enforces. The same first ask installs the context window the runtime reports for
- * each model, which budgets every prompt of the run (every prompt that states a limit awaits this read first).
+ * can differ from what the server enforces. The same first ask installs, into the run's own context budget, the
+ * context window the runtime reports for each model, the models the roles are assigned and the working room estimated
+ * from the recorded turns, which budget every prompt of the run (every prompt that states a limit awaits this read first).
  */
-function stepLimitResolver(getAgentFacade: () => AgentFacade, directory: string): StepLimitFor {
+function stepLimitResolver(getAgentFacade: () => AgentFacade, directory: string, context: RunContextBudget, loadHistory: () => RecordedTurnRow[]): StepLimitFor {
   let read: Promise<StepLimits> | undefined;
   let facade: AgentFacade | undefined;
   const facadeOnce = (): AgentFacade => (facade ??= getAgentFacade());
   return async (role) => {
-    read ??= Promise.all([readStepLimits(facadeOnce, directory), installModelWindows(facadeOnce, directory)]).then(([limits]) => limits);
+    read ??= Promise.all([readStepLimits(facadeOnce, directory), readModelWindows(facadeOnce, directory)]).then(([limits, windows]) => {
+      installRunContext(context, facadeOnce, windows, limits, loadHistory);
+      return limits;
+    });
     return enforcedStepLimit((await read)[RUNTIME_ROLE_OF_STEP_LIMIT_ROLE[role]]);
   };
 }
@@ -517,21 +519,38 @@ async function readStepLimits(getAgentFacade: () => AgentFacade, directory: stri
   }
 }
 
-/* Never rejects: a failed read leaves the catalog in charge for this run, said once; a previous run's windows never stand in. */
-async function installModelWindows(getAgentFacade: () => AgentFacade, directory: string): Promise<void> {
-  setLiveModelWindows(undefined);
+/* Never rejects: a failed read leaves every window unknown for this run, said once; no previous run's windows stand in, and an unknown window cuts nothing. */
+async function readModelWindows(getAgentFacade: () => AgentFacade, directory: string): Promise<ModelWindows | undefined> {
   let facade: AgentFacade;
   try {
     facade = getAgentFacade();
   } catch {
-    return; /* the step-limit read of the same ask reports a facade that cannot be resolved */
+    return undefined; /* the step-limit read of the same ask reports a facade that cannot be resolved */
   }
-  if (!facade.modelWindows) return;
+  if (!facade.modelWindows) return undefined;
   try {
-    setLiveModelWindows(await withTimeout(facade.modelWindows(directory), STEP_LIMIT_READ_TIMEOUT_MS, "model window read"));
+    return await withTimeout(facade.modelWindows(directory), STEP_LIMIT_READ_TIMEOUT_MS, "model window read");
   } catch (err) {
-    appLogger.warn(`[qa] WARNING: the model context windows of ${directory} could not be read from the agent runtime (${err instanceof Error ? err.message : String(err)}); this run's prompts are budgeted by the catalog.`);
+    appLogger.warn(`[qa] WARNING: the model context windows of ${directory} could not be read from the agent runtime (${err instanceof Error ? err.message : String(err)}); no prompt of this run is cut or split for a window.`);
+    return undefined;
   }
+}
+
+/* The windows, the role -> model assignments and the recorded turns of the run's one read, installed in its context budget. A history that cannot be read is an empty one: the working room then starts cold from the step limits. */
+function installRunContext(context: RunContextBudget, getAgentFacade: () => AgentFacade, windows: ModelWindows | undefined, stepLimits: StepLimits, loadHistory: () => RecordedTurnRow[]): void {
+  let config: AgentRuntimeConfig | undefined;
+  try {
+    config = getAgentFacade().config;
+  } catch {
+    config = undefined;
+  }
+  let history: RecordedTurnRow[] = [];
+  try {
+    history = loadHistory();
+  } catch (err) {
+    appLogger.warn(`[qa] WARNING: the recorded turns could not be read (${err instanceof Error ? err.message : String(err)}); the working room of this run's turns starts from the step limits.`);
+  }
+  context.install({ windows, config, stepLimits, history });
 }
 
 /*
@@ -694,7 +713,8 @@ export function buildEngineRootDeps(
    * both run in the primary mirror (the working copy checkout(sha) returns is this same directory), so one read of it
    * answers for both. A host with no facade has no limit to give.
    */
-  const stepLimitFor = deps.getAgentFacade ? stepLimitResolver(deps.getAgentFacade, mirrorDir) : undefined;
+  const runContext = deps.getAgentFacade ? new RunContextBudget() : undefined;
+  const stepLimitFor = deps.getAgentFacade && runContext ? stepLimitResolver(deps.getAgentFacade, mirrorDir, runContext, () => getHistory().telemetry.getRecentTurnFigures(WORKING_ROOM_HISTORY_TURNS)) : undefined;
 
   /*
    * QAYABA_ROOT/data (the qayaba-data volume — NOT mounted into the agents container, only mirrors
@@ -879,7 +899,7 @@ export function buildEngineRootDeps(
   const boundedRuntime = new RunDeadlineRuntime(runtimeAdapter, runDeadline, { hostPromptCapMs: agentPromptCapMs() });
   /* Run-level round per role: numbers each role's generated turns across sessions, so a regeneration's turn reads round 1, not the transport's session-local 0. */
   const roundRuntime = new RunRoundRuntime(boundedRuntime);
-  const rendering = new PromptRenderingAdapter({ buildPromptAssembled, buildReviewerPromptAssembled, specFileForFlow });
+  const rendering = new PromptRenderingAdapter({ buildPromptAssembled, buildReviewerPromptAssembled, specFileForFlow }, runContext?.budget);
   const verdicts = new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict });
 
   /* Bounded contract-repair for malformed generator/reviewer verdicts — fail-closed if still invalid. */
@@ -893,7 +913,6 @@ export function buildEngineRootDeps(
     rendering,
     verdicts,
     manifest: new ManifestRepositoryAdapter({ readManifest, reconcileManifest }),
-    budget: new PromptBudgetAdapter(roleWindowBytes, capDiff, capText),
     repair,
     /* The transport's own deadline: the generator's time budget is never set above it. */
     promptCapMs: agentPromptCapMs(),
@@ -1072,6 +1091,7 @@ export function buildEngineRootDeps(
     ...(vcsFor ? { vcsFor } : {}),
     generationUseCase,
     ...(stepLimitFor ? { stepLimitFor } : {}),
+    ...(runContext ? { contextBudget: runContext.budget } : {}),
     runDeadline,
     ...(deps.telemetry ? { telemetry: deps.telemetry, toolAttempts: agentTurnTraces } : {}),
     /* What a run's specs held at validation is kept for after-the-fact grading, as long as the run is traced. */

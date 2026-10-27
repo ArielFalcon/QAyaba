@@ -52,7 +52,6 @@ import {
   unregisterRunSession,
   activityRouter,
 } from "../integrations/opencode-client";
-import { setAgentsConfigPath as setCatalogAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { rosterFixturePath } from "../integrations/fixtures/opencode-roster";
 import { setAgentsConfigPath } from "../integrations/opencode-client";
 import type { RunMode } from "@kernel/run-mode";
@@ -67,7 +66,6 @@ function publishStep(isCode: boolean, mode: RunMode, git?: (args: string[], cwd?
 
 
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
-setCatalogAgentsConfigPath(rosterFixturePath());
 setAgentsConfigPath(rosterFixturePath());
 
 /* The learning fold as the ledger runs it: the use case over the store the shell implements. */

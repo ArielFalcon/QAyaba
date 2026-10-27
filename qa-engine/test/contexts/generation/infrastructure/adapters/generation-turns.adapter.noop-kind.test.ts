@@ -21,7 +21,6 @@ function portsReturning(deliverable: GeneratorDeliverable): AuthoringPorts {
       parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_dir, entries) => [...entries] },
-    budget: { capDiff: (d: string) => d, capText: (t: string) => t, budgetForRole: () => 1000 },
   };
 }
 

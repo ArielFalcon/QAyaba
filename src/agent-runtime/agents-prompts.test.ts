@@ -21,11 +21,8 @@ import { GENERATION_END } from "@kernel/generation-end";
 import { parseVerdict } from "../integrations/verdict-parse";
 import { checkGeneratorVerdict } from "../integrations/verdict-validate";
 import { RUN_MODES } from "../types";
-import { setAgentsConfigPath as setCatalogAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
-import { rosterFixturePath } from "../integrations/fixtures/opencode-roster";
 
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
-setCatalogAgentsConfigPath(rosterFixturePath());
 
 /* Resolve repo root relative to this test file (src/agent-runtime/ → two levels up) */
 const REPO_ROOT = join(import.meta.dirname ?? __dirname, "..", "..");

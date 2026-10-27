@@ -10,12 +10,15 @@ import { buildSuiteListing, type SuiteListing } from "@contexts/generation/domai
 import { renderSuiteListing } from "@contexts/generation/domain/suite-listing-render.ts";
 import type { OpencodeRunInput } from "../../domain/opencode-run-input.ts";
 import { renderArchitectureContextParts } from "./architecture-context.ts";
-import { roleWindowBytes } from "./model-window-catalog.ts";
+import { assemblerBudgetBytes } from "@kernel/context-budget.ts";
+import type { AgentRole } from "@kernel/agent-role.ts";
 import { redactForModel } from "./prompt-text.ts";
 
 export interface BuildPromptAssembledOpts {
-  /** Explicit byte-budget override for tests/telemetry that must not depend on the live model-window catalog. Undefined ⇒ the author's catalog window (production path). */
+  /** Explicit byte-budget override. Absent, the budget derives from the window of the role the prompt is for. */
   budgetBytes?: number;
+  /** The run's context window of a role, in tokens (the per-run ContextWindowPort). Absent, or a role whose window it does not know: the prompt is not cut. */
+  windowTokens?: (role: AgentRole) => number | undefined;
 }
 
 /* The injected grounding (Context Pack ≤6 routes, failure DOM ≤4 routes) may not cover the route a regeneration must touch. Every grounded regeneration branch carries this explicit escape, so a fix is never written blind for lack of navigation. */
@@ -47,8 +50,10 @@ export interface Assembly {
 
 export interface PromptContext {
   readonly input: OpencodeRunInput;
-  /* The byte budget the prompt is assembled to. */
-  readonly budgetBytes: number;
+  /* The byte budget the prompt is assembled to; undefined when the window of the role it is for is unknown, which cuts nothing. */
+  readonly budgetBytes: number | undefined;
+  /* The role the prompt is for: the lead on a planning turn, the author on any other. */
+  readonly promptRole: "lead" | "author";
   readonly isGenerationMode: boolean;
   readonly isCode: boolean;
   /* A re-generation turn (fix / reviewer-corrections / coverage-gap) has already distilled the blast radius — it must not trace it again or re-skim the repo. */
@@ -128,11 +133,13 @@ export function derivePromptContext(input: OpencodeRunInput, opts: BuildPromptAs
   const listingContent = renderSuiteListing(listing);
   /* Only a signal that names symbols is an explored blast radius. One of co-change files alone says which files tend to move together, so it claims nothing explored; a signal that arrives without the flag cannot prove it names symbols and is read the same way. */
   const planningTurn = isGenerationMode && input.target === "e2e" && Boolean(input.planning) && !isReGen;
+  const promptRole = planningTurn ? "lead" : "author";
   const staticSignalHasSymbols = Boolean(input.staticSignal && isGenerationMode) && input.staticSignalHasSymbols === true;
 
   return {
     input,
-    budgetBytes: opts.budgetBytes ?? roleWindowBytes("qa-author"),
+    budgetBytes: opts.budgetBytes ?? assemblerBudgetBytes(opts.windowTokens?.(promptRole)),
+    promptRole,
     isGenerationMode,
     isCode,
     isReGen,

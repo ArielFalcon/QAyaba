@@ -24,11 +24,8 @@ import { REDACTED } from "@kernel/ports/redaction.port.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
-import { setAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
-import { rosterFixturePath } from "../../../../support/roster-fixture.ts";
 
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
-setAgentsConfigPath(rosterFixturePath());
 
 
 const SUITE_ID = PROMPT_HEADINGS.existingSuiteManifest;

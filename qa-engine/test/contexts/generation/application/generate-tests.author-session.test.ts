@@ -24,7 +24,6 @@ function author(): { turn(): Promise<unknown>; opened: Opened[]; disposed: () =>
       parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
-    budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
   };
   const useCase = new GenerateTestsUseCase(ports);
   return {

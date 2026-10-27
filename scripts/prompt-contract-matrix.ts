@@ -376,6 +376,9 @@ function deliveredSpecsFor(spec: CellSpec): DeliveredSpec[] | undefined {
 /* The step limit a cell of the OpenCode layer is assembled with. That runtime caps an agent's steps and reports the cap. */
 export const MATRIX_STEP_LIMIT = 40;
 
+/* The reviewer window the matrix prompts are budgeted by (the run's window of the reviewer, in tokens), so a recorded digest names the budget it was built under. */
+export const MATRIX_REVIEWER_WINDOW = { windowTokens: () => 1_000_000 };
+
 /* The run_spec budget a granted cell is assembled with: the shipped defaults. */
 export const MATRIX_CLOSED_LOOP = DEFAULT_CLOSED_LOOP_LIMITS;
 
@@ -829,12 +832,12 @@ export function reviewerDigests(): DigestSet {
           ...(index % 2 === 0 ? { stepLimit: 30 } : {}),
         };
         set.keys.push(`reviewer|${mode}|${target}|${flags}|${index % 2 === 0 ? "limit" : "no-limit"}`);
-        set.digests.push(assemblyDigest(buildReviewerPromptAssembled(input)));
+        set.digests.push(assemblyDigest(buildReviewerPromptAssembled(input, MATRIX_REVIEWER_WINDOW)));
       }
     }
     /* The specs together exceed the inline cap: the instruction and the specs section both send the reviewer to read the files. */
     set.keys.push("reviewer|over-cap");
-    set.digests.push(assemblyDigest(buildReviewerPromptAssembled(overCapReviewerInput(mirror))));
+    set.digests.push(assemblyDigest(buildReviewerPromptAssembled(overCapReviewerInput(mirror), MATRIX_REVIEWER_WINDOW)));
     return set;
   } finally {
     rmSync(mirror, { recursive: true, force: true });

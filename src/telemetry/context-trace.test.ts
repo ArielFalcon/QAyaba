@@ -34,11 +34,8 @@ import { traceHarness } from "./trace-harness";
 import { buildPromptAssembled } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { recordDeliveredContextSpans } from "@contexts/generation/infrastructure/telemetry/turn-probe";
 import type { OpencodeRunInput } from "@contexts/generation/application/index.ts";
-import { setAgentsConfigPath as setCatalogAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
-import { rosterFixturePath } from "../integrations/fixtures/opencode-roster";
 
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
-setCatalogAgentsConfigPath(rosterFixturePath());
 
 
 const rule = (id: string): RetrievedRule => ({ id, trigger: `trigger ${id}`, action: `action ${id}`, errorClass: "selector", status: "active", confidence: "high" });

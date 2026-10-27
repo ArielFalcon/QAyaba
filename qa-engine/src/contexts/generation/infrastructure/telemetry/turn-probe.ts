@@ -12,6 +12,7 @@
  */
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
+import type { ContextFit } from "@kernel/context-budget.ts";
 import { attrKey } from "@kernel/telemetry/attribute-registry.ts";
 import { GENAI, normalizeOpenCodeUsage } from "@kernel/telemetry/genai-semconv.ts";
 import { LANGFUSE, langfuseObservationType } from "@contexts/generation/domain/langfuse-mapping.ts";
@@ -48,6 +49,7 @@ export interface TurnIdentity {
     sectionItems: Record<string, SectionMeta> | null;
     sectionsDropped: number | undefined;
     budgetBytes: number | undefined;
+    contextFit: ContextFit | undefined;
   };
 }
 
@@ -168,6 +170,7 @@ export class TurnProbe {
         "qayaba.prompt.bytes": prompt.bytes,
         ...(prompt.sectionsDropped !== undefined ? { "qayaba.prompt.sections.dropped": prompt.sectionsDropped } : {}),
         ...(prompt.budgetBytes !== undefined ? { "qayaba.prompt.budget_bytes": prompt.budgetBytes } : {}),
+        ...contextFitAttrs(prompt.contextFit),
         ...sectionAttrs(prompt.sectionSizes, prompt.sectionHashes),
         [LANGFUSE.attrs.observationType]: langfuseObservationType(GENAI.operations.invokeAgent),
       },
@@ -423,6 +426,18 @@ function safeWatch(watch: (span: SpanHandle) => () => void, span: SpanHandle): (
     engineLog.error(`[qa] turn telemetry (host watch) failed and was dropped: ${err instanceof Error ? err.message : String(err)}`);
     return undefined;
   }
+}
+
+/* The window, the fit outcome and the working room a prompt was judged by; a run with no context budget records nothing. */
+function contextFitAttrs(fit: ContextFit | undefined): Attrs {
+  if (!fit) return {};
+  return {
+    "qayaba.prompt.context.fit": fit.outcome,
+    "qayaba.prompt.context.window_unknown": fit.windowTokens === undefined,
+    ...(fit.windowTokens !== undefined ? { "qayaba.prompt.context.window_tokens": fit.windowTokens } : {}),
+    ...(fit.workingRoomTokens !== undefined ? { "qayaba.prompt.context.working_room_tokens": fit.workingRoomTokens } : {}),
+    ...(fit.roomBasis !== undefined ? { "qayaba.prompt.context.room_basis": fit.roomBasis } : {}),
+  } as Attrs;
 }
 
 function sectionAttrs(sizes: Record<string, number> | null, hashes: Record<string, string> | null): Attrs {

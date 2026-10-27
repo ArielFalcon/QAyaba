@@ -70,7 +70,6 @@ async function generate(turns: Turn[], options: { valid?: (text: string) => bool
       parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
-    budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
     ...(options.noRepair
       ? {}
       : {

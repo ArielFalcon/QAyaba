@@ -28,7 +28,6 @@ function generate(deliverable: GeneratorDeliverable, options: Options = {}): Pro
       parseReview: () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true, valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_root, entries) => (options.reconcile ? options.reconcile([...entries]) : [...entries]) },
-    budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
   };
   return new GenerateTestsUseCase(ports).author({
     repo: "org/demo",

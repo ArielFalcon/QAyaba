@@ -33,11 +33,8 @@ import {
   buildReviewerPromptAssembled,
   specFileForFlow,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
-import { setAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
-import { rosterFixturePath } from "../../../../support/roster-fixture.ts";
 
 /* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
-setAgentsConfigPath(rosterFixturePath());
 
 function fakeAuthoringPorts(overrides: {
   generatorOutput?: string;
@@ -63,11 +60,6 @@ function fakeAuthoringPorts(overrides: {
     manifest: {
       read: async () => [],
       reconcile: async (_specDir, entries) => [...entries],
-    },
-    budget: {
-      capDiff: (d: string) => d,
-      capText: (t: string) => t,
-      budgetForRole: () => 1000,
     },
   };
 }
@@ -938,7 +930,6 @@ async function generatorPromptWith(rules: readonly RetrievedRule[]): Promise<str
       parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_specDir, entries) => [...entries] },
-    budget: { capDiff: (d: string) => d, capText: (t: string) => t, budgetForRole: () => 0 },
   });
   const adapter = new GenerationTurnsAdapter(useCase, {
     repo: "org/app", appName: "app", mirrorDir: "/nonexistent/mirror", e2eRelDir: "e2e",
@@ -983,7 +974,6 @@ async function generatorPromptFor(
       parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_specDir, entries) => [...entries] },
-    budget: { capDiff: (d: string) => d, capText: (t: string) => t, budgetForRole: () => 0 },
   });
   const adapter = new GenerationTurnsAdapter(useCase, {
     repo: "org/app", appName: "app", mirrorDir: run.mirrorDir ?? "/nonexistent/mirror", e2eRelDir: run.e2eRelDir,

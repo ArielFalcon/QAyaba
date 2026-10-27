@@ -3,17 +3,7 @@ import assert from "node:assert/strict";
 import { createAgentRuntimeManager } from "./agent-runtime";
 import type { EnvStoreFs } from "./env-store";
 import type { AgentProvider, AgentRuntimeStrategy } from "../agent-runtime/types";
-import { configFromEnv, providerConfig, runtimeRoleModelsFromConfig } from "../agent-runtime/config";
-import {
-  modelWindowBytes,
-  roleWindowBytes,
-  setRuntimeRoleModels,
-} from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
-import { setAgentsConfigPath as setCatalogAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
-import { rosterFixturePath } from "../integrations/fixtures/opencode-roster";
-
-/* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
-setCatalogAgentsConfigPath(rosterFixturePath());
+import { providerConfig } from "../agent-runtime/config";
 
 function memoryFs(initial = ""): EnvStoreFs & { content: string } {
   return {
@@ -140,57 +130,6 @@ test("agent runtime manager rejects a configured model that is not listed by its
     /primary model 'opencode-go\/not-a-real-model' is not available for opencode/,
   );
   assert.deepEqual(restarts, []);
-});
-
-/* applyConfig mutates the LIVE AgentRuntimeConfig.assignments (via the guarded PUT
-   /api/agent-config operator path) and must re-call setRuntimeRoleModels. Otherwise after a live
-   role→model reassignment, roleWindowBytes keeps budgeting against the STALE boot snapshot until
-   process restart. Reassigning to a SMALLER-window model leaves the budget too generous.
- */
-test("agent runtime manager re-injects runtime role models on applyConfig so roleWindowBytes reflects the NEW model, not the stale boot snapshot", async () => {
-  const restarts: AgentProvider[] = [];
-  const env: Record<string, string | undefined> = {
-    OPENCODE_API_KEY: "open-key",
-    AGENT_REVIEWER_MODEL: "opencode-go/minimax-m3",
-  };
-
-  /* (a) boot path: mirrors opencode-client.ts's module-load wiring — resolve the real runtime
-     assignments once from configFromEnv() and inject them into the qa-engine catalog seam.
-   */
-  setRuntimeRoleModels(runtimeRoleModelsFromConfig(configFromEnv(env)));
-
-  try {
-    const bytesBeforeReconfig = roleWindowBytes("qa-reviewer");
-    assert.equal(bytesBeforeReconfig, modelWindowBytes("minimax-m3"), "sanity: boot injected the env-assigned reviewer model");
-
-    const manager = createAgentRuntimeManager({
-      env,
-      fs: memoryFs(),
-      strategies: { opencode: strategy("opencode", restarts) },
-    });
-
-    /* (b) live reconfiguration: reassign qa-reviewer to a DIFFERENT-window model via the guarded
-       operator path (PUT /api/agent-config → applyConfig).
-     */
-    await manager.applyConfig({
-      assignments: { reviewer: { provider: "opencode", model: "opencode-go/kimi-k2.7-code" } },
-    });
-
-    /* (c) roleWindowBytes must now reflect the new model's window, not the stale snapshot from boot. */
-    const bytesAfterReconfig = roleWindowBytes("qa-reviewer");
-    assert.equal(
-      bytesAfterReconfig,
-      modelWindowBytes("kimi-k2.7-code"),
-      "roleWindowBytes must budget against the newly-assigned model after live reconfiguration",
-    );
-    assert.notEqual(
-      bytesAfterReconfig,
-      modelWindowBytes("minimax-m3"),
-      "must not still budget against the stale boot-time model",
-    );
-  } finally {
-    setRuntimeRoleModels(undefined);
-  }
 });
 
 test("applyConfig accepts a shared reviewer model and logs the warning once", async () => {

@@ -9,15 +9,12 @@ import { buildReviewerPromptAssembled } from "@contexts/generation/infrastructur
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import { lintCell, type LintSection } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import type { AssembledPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
-import { setAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
-import { rosterFixturePath } from "../../../../support/roster-fixture.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import type { PromptRenderingPort } from "@contexts/generation/application/ports/prompt-rendering.port.ts";
 import type { VerdictParserPort } from "@contexts/generation/application/ports/verdict-parser.port.ts";
 import type { ReviewInput } from "@contexts/generation/domain/generation-input.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
-setAgentsConfigPath(rosterFixturePath());
 
 const runtime: AgentRuntimePort = { openSession: async () => ({ prompt: async () => ({ output: "{}" }), dispose: async () => {} }) };
 const verdicts: VerdictParserPort = {

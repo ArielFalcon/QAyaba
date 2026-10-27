@@ -3,6 +3,7 @@
 import type { AgentRole } from "@kernel/agent-role.ts";
 import type { TimeLimitSource } from "@kernel/turn-limit.ts";
 import type { SectionMeta } from "@kernel/telemetry/section-meta.ts";
+import type { ContextFit } from "@kernel/context-budget.ts";
 
 /* One prompt attempt's usage, as the runtime's transport reports it. The counts are the ones the
  * provider returned; `cost` is the SDK's own (0 when the model's rate is unknown). */
@@ -83,6 +84,8 @@ export interface AgentPromptOpts {
   promptBudgetBytes?: number;
   /** What each grounding section supplied and lost, from the kept assembly, by section id (pre-redaction). Only for the trace: the delivered span of each grounding source is built from it. */
   sectionItems?: Record<string, SectionMeta> | null;
+  /** Whether the prompt fits its role's context window with the working room the turn needs (window, outcome, room). Only for the trace. */
+  contextFit?: ContextFit;
 }
 
 export interface AgentSession {

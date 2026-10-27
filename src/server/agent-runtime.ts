@@ -5,11 +5,9 @@ import {
   configFromEnv,
   keyPresence,
   publicAgentConfig,
-  runtimeRoleModelsFromConfig,
   validateAgentRuntimeConfig,
   type PublicAgentConfig,
 } from "../agent-runtime/config";
-import { setRuntimeRoleModels } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { AgentRuntimeFacade } from "../agent-runtime/facades";
 import { AGENT_PROVIDERS } from "../agent-runtime/types";
 import type {
@@ -102,16 +100,6 @@ export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions
       const runtimeVars = configEnvVars(next);
       applyEnvVars({ ...apiKeyVars, ...runtimeVars }, { fs, env });
       config = next;
-
-      /*
-       * Live reconfiguration must not split-brain: re-derive the runtime role→model map
-       * from the NEW live config and re-inject it into the qa-engine catalog seam — the SAME
-       * derivation the boot path (`opencode-client.ts`'s module load, via `configFromEnv()`) uses,
-       * via the shared `runtimeRoleModelsFromConfig` helper. Without this, `roleWindowBytes` keeps
-       * budgeting against the STALE snapshot injected at boot even after a live role→model
-       * reassignment through this guarded operator path (PUT /api/agent-config).
-       */
-      setRuntimeRoleModels(runtimeRoleModelsFromConfig(config));
 
 
       const restarted = changedProviders(previous, next, apiKeyVars);

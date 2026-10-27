@@ -7,6 +7,7 @@ import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
+import type { ContextBudget } from "@kernel/context-budget.ts";
 import { readConfinedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import { systemTimers } from "../application/fan-out-dispatcher.ts";
 import { LeadSidekicks } from "../application/lead-sidekicks.ts";
@@ -42,6 +43,8 @@ export interface CoordinationDeps {
   planSnapshots?: PlanSnapshotPort;
   /* The model a fresh sidekick the lead's review starts on a flow runs with. */
   escalatedModel?: string;
+  /* The run's context budget: the window of the lead, the author and the reviewer, and of the escalated model above, with the working room a turn needs. Absent: no window is known. */
+  contextBudget?: ContextBudget;
   /* Durable JSONL sink for the decision ledger; absent: memory-only. */
   telemetryPath?: string;
   telemetry?: TelemetryPort;
@@ -49,6 +52,8 @@ export interface CoordinationDeps {
 
 export interface CoordinationApi {
   coordinationTelemetry: CoordinationTelemetryPort;
+  /* The run's context budget, as given. */
+  contextBudget?: ContextBudget;
   leadSidekicks?: LeadSidekicks;
 }
 
@@ -57,9 +62,11 @@ export function buildCoordination(deps: CoordinationDeps): CoordinationApi {
   const ledger = deps.telemetryPath ? getSharedCoordinationTelemetry(deps.telemetryPath) : getSharedCoordinationTelemetry();
   const coordinationTelemetry = deps.telemetry ? new TracedCoordinationTelemetry(ledger, deps.telemetry) : ledger;
   const { delegation } = deps;
-  if (!delegation || deps.isCode) return { coordinationTelemetry };
+  const contextBudget = deps.contextBudget ? { contextBudget: deps.contextBudget } : {};
+  if (!delegation || deps.isCode) return { coordinationTelemetry, ...contextBudget };
   return {
     coordinationTelemetry,
+    ...contextBudget,
     leadSidekicks: new LeadSidekicks({
       redaction: deps.redaction,
       sidekick: new SidekickExecutor({ runtime: deps.runtime, redaction: deps.redaction }),

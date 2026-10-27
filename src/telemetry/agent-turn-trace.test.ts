@@ -181,6 +181,25 @@ test("a turn is invoke_agent -> attempt -> chat and execute_tool, with the calls
   assert.deepEqual([attr(read, "gen_ai.tool.name"), attr(read, "gen_ai.tool.call.id"), attr(read, "qayaba.tool.bucket"), attr(read, "qayaba.tool.status"), attr(read, "qayaba.tool.target")], ["read", "c1", "code_read", "completed", "src/cart.ts"]);
 });
 
+test("the turn span records the window, the fit and the working room its prompt was judged by, and says when the window was unknown", async () => {
+  const fits = rig({ promptSession: twoSteps });
+  const session = await fits.deps.open("qa-author", CWD, { model: "prov/asked-model", descriptor: { runId: "run-1", role: "qa-author" } });
+  await session.prompt("write the spec", { stepLimit: 25, contextFit: { outcome: "fits", promptTokens: 4, windowTokens: 200_000, workingRoomTokens: 50_000, roomBasis: "history" } });
+  await session.dispose();
+  const known = fits.h.only("invoke_agent qa-author");
+  assert.deepEqual(
+    ["qayaba.prompt.context.fit", "qayaba.prompt.context.window_tokens", "qayaba.prompt.context.working_room_tokens", "qayaba.prompt.context.room_basis", "qayaba.prompt.context.window_unknown"].map((k) => attr(known, k)),
+    ["fits", 200_000, 50_000, "history", false],
+  );
+
+  const unknown = rig({ promptSession: twoSteps });
+  const second = await unknown.deps.open("qa-author", CWD, { model: "prov/asked-model", descriptor: { runId: "run-1", role: "qa-author" } });
+  await second.prompt("write the spec", { stepLimit: 25, contextFit: { outcome: "unknown", promptTokens: 4 } });
+  await second.dispose();
+  const none = unknown.h.only("invoke_agent qa-author");
+  assert.deepEqual([attr(none, "qayaba.prompt.context.fit"), attr(none, "qayaba.prompt.context.window_unknown"), attr(none, "qayaba.prompt.context.window_tokens")], ["unknown", true, undefined]);
+});
+
 test("the turn names its agent, session, role, prompt and the models, and sums its steps' usage under qayaba.usage.*", async () => {
   const r = rig({ promptSession: twoSteps });
   await twoStepTurn(r);
