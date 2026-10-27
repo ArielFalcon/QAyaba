@@ -4,6 +4,7 @@
  * docs/observability-design.md §11.2; every BOOLEAN is pass-oriented (`true` = the check passed, the problem is absent).
  */
 
+import { UNREADABLE_ANSWER } from "@kernel/unreadable-answer.ts";
 import { RUN_PHASES } from "@kernel/run-step";
 import { STEP_INTENTS, scoreOf } from "./grader-catalog.ts";
 import { extractReferences } from "./context-refs.ts";
@@ -458,8 +459,9 @@ const sidekickReportConsistent: Grader = {
   grade: finishedOnly((e) => {
     const checked = e.sidekickReports.filter((r) => r.lastRunSpec !== undefined && ["failed", "blocked", "completed"].includes(r.status));
     if (checked.length === 0) return [];
+    const unreadable = e.sidekickReports.filter((r) => r.status === UNREADABLE_ANSWER).length;
     const wrong = checked.filter((r) => contradicts(r.status, r.lastRunSpec!)).map((r) => `${r.delegationId.startsWith(`${e.runId}-`) ? r.delegationId.slice(e.runId.length + 1) : r.delegationId}${r.attempt !== undefined ? ` turn ${r.attempt}` : ""}: reported ${r.status}, last run_spec ${r.lastRunSpec}`);
-    return [{ name: "sidekick_report_consistent", value: wrong.length === 0, ...(wrong.length > 0 ? { comment: wrong.join("; ") } : {}) }];
+    return [{ name: "sidekick_report_consistent", value: wrong.length === 0, ...(wrong.length > 0 || unreadable > 0 ? { comment: [...wrong, ...(unreadable > 0 ? [`${unreadable} unreadable answer(s) not graded`] : [])].join("; ") } : {}) }];
   }),
 };
 

@@ -1,5 +1,6 @@
 /* app scopes repo.listAll for the existing-rule set the dedup decision runs against. archetype comes from the use-case (never fabricated here; coalesced to null only when the use-case has none). */
 import { engineLog } from "@kernel/ports/process-logger.ts";
+import { lastJsonObjectWhere } from "@kernel/last-json-object.ts";
 import type { LearningRepositoryPort } from "../application/ports/learning-repository.port.ts";
 import type { LearningRule, ReflectionInput, StructuredReflection } from "../domain/learning-repository.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
@@ -8,50 +9,6 @@ import { capRuleFields, correctionToErrorClass, decideDistill } from "../domain/
 import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
 const DEDUP_SCAN_LIMIT = 200;
-
-function extractJsonObjects(text: string): unknown[] {
-  const objs: unknown[] = [];
-  let depth = 0;
-  let start = -1;
-  let inStr = false;
-  let esc = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (inStr) {
-      if (esc) esc = false;
-      else if (ch === "\\") esc = true;
-      else if (ch === '"') inStr = false;
-      continue;
-    }
-    if (ch === '"') inStr = true;
-    else if (ch === "{") {
-      if (depth === 0) start = i;
-      depth++;
-    } else if (ch === "}") {
-      if (depth > 0) {
-        depth--;
-        if (depth === 0 && start >= 0) {
-          try {
-            objs.push(JSON.parse(text.slice(start, i + 1)));
-          } catch {
-            /* not valid JSON; ignore this span */
-          }
-          start = -1;
-        }
-      }
-    }
-  }
-  return objs;
-}
-
-function lastJsonMatching<T = Record<string, unknown>>(text: string, pred: (o: Record<string, unknown>) => boolean): T | undefined {
-  const objs = extractJsonObjects(text);
-  for (let i = objs.length - 1; i >= 0; i--) {
-    const o = objs[i];
-    if (o && typeof o === "object" && pred(o as Record<string, unknown>)) return o as T;
-  }
-  return undefined;
-}
 
 function isStructuredReflection(o: Record<string, unknown>): boolean {
   const pr = o.preventiveRule as Record<string, unknown> | undefined;
@@ -70,9 +27,9 @@ function isStructuredReflection(o: Record<string, unknown>): boolean {
   );
 }
 
-/* Parse the qa-reflector's StructuredReflection out of its raw output. The role is told to emit "ONLY the JSON object, no markdown", but models do not always comply — they may wrap the object in a ```json fence or surround it with prose, which makes a raw JSON.parse throw. Routing through the shared balanced-brace extractor makes reflection parsing robust to fences/prose. Returns null when no complete reflection object is present (never throws). */
+/* Parse the qa-reflector's StructuredReflection out of its raw output. The role is told to emit "ONLY the JSON object, no markdown", but models do not always comply — they may wrap the object in a ```json fence or surround it with prose, which makes a raw JSON.parse throw. Routing through the shared last-object reader makes reflection parsing robust to fences/prose. Returns null when no complete reflection object is present (never throws). */
 function parseStructuredReflection(raw: string): StructuredReflection | null {
-  return lastJsonMatching<StructuredReflection>(raw, isStructuredReflection) ?? null;
+  return (lastJsonObjectWhere(raw, isStructuredReflection) as StructuredReflection | undefined) ?? null;
 }
 
 /* Classes whose run never produced a suite to measure: the fact is the class itself, and the gate signals (a static gate that never ran reads "FAIL") would mislead the reflector. Deterministic — from the class alone. */
