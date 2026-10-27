@@ -339,7 +339,10 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   the two reads when a flow's empty read contradicts a page the Context Pack read with results, which also refuses that flow's
   decline). Flows that deliver are added up like a generation (`aggregateFlowOutcomes`), and the rest of the run (validate,
   execute, coverage, review, decide) goes on as for any generation, with the pass kept open (`CoordinatedPass`: the lead's session and
-  every flow's session, workspace, loop and location) until the review ends. The reviewer's verified corrections go to the lead
+  every flow's session, workspace, loop and location) until the review ends. A session ends only in its holder's `dispose`: a
+  signal's abort (a flow's time, the run's cancel) aborts the prompt and never deletes the session, a flow that ran out of its
+  time keeps its idle session for the lead's `revise`, and the orphan sweep collects only a session with no prompt in flight
+  and no use for longer than the longest run budget in force (`docs/lead-sidekicks.md`, "Session lifecycle"). The reviewer's verified corrections go to the lead
   (`lead-correction.ts`), which routes each to the flow whose spec it cites (revise in the same sidekick session, replace with a fresh
   one) or rebuts it; the orchestrator's facts decide over its answer (a finding that cites a flow goes to it and to no other), an
   order the admission refuses is sent back to the lead once with the reason, the workspace is refreshed from the working copy first,

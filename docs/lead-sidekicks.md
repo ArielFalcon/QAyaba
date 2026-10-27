@@ -235,7 +235,9 @@ the transport, as the sidekick's brief and its feedback do. It answers per flow:
 
 - `accept`;
 - `revise`: its instruction goes to the SAME sidekick session, which is kept, with the flow's workspace, `run_spec`
-  loop and location, until the coordinated pass ends;
+  loop and location, until the coordinated pass ends. A flow that ran out of its time (or was stopped) keeps its session
+  too, idle and aborted, so a `revise` of it reaches that session instead of becoming a `replace`: the stop of a flow
+  aborts its prompt and never deletes the session;
 - `replace`: the old session is ended and a fresh sidekick takes the flow from its brief and the instruction, on the
   escalated capability (and `COORDINATION_ESCALATED_MODEL` when set);
 - `drop`: a flow that delivered nothing is settled with the lead's reason.
@@ -399,3 +401,14 @@ leaves nothing behind).
   generator spends in the same run.
 - No live run of this mode has been recorded: the behavior is verified by unit and contract tests, not by a
   campaign.
+
+## Session lifecycle
+
+A transport session ends in exactly one place: its holder's `dispose` (`closeSession`, a flow's `release`, the pass's
+`release`, the `finally` of `coordinate`). A signal's abort (a flow's time, the run's cancel) aborts the session's prompt and
+nothing else, and a `dispose` waits for the aborts still running before it deletes, so a delete never races a message the
+runtime is persisting. The orphan sweep (`cleanupOrphans`, every 60 s) is only the backstop for a holder that never
+disposed: a session is an orphan when no prompt is in flight and nothing has used it (opened it, started or ended a prompt)
+for longer than the longest run can last (the largest run time budget in force, never less than the agent's own turn
+limit, plus 5 minutes), so a session a run holds between two of its own turns, the lead's planning session while the
+flows author included, is never collected.
