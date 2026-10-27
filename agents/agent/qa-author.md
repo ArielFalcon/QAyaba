@@ -115,7 +115,8 @@ cookies/cache, file upload.
 code decides on that flow: the outcome when it succeeds, and each other state the change handles
 (an error message, an empty result, a rejected input, a missing permission) that the page can be
 brought to through the UI against DEV. The diff shows those decisions. A state the change does not
-handle, or one only a mocked network could provoke (a server failure), is not a case.
+handle is not a case. One it handles but DEV cannot be brought to (the data or response it needs is
+not there and no UI step creates it) is covered only by a stubbed test, below.
 When your task is a brief, each of its acceptance criteria is one behaviour the change decides: give it a
 test of its own in your spec, so a criterion that fails names its test.
 
@@ -129,9 +130,20 @@ Each test must:
   fit this app, rewrite `e2e/auth.setup.ts` (see the `playwright-authoring` skill's auth
   guide) — never the `authenticate` code in `e2e/fixtures.ts`. Credentials come from
   `process.env`, never literals.
-- Exercise the **real** path against DEV (no mocks, no fabricated API calls).
+- Exercise the **real** path against DEV (no mocks, no fabricated API calls); the one exception is a
+  stubbed test, below.
 - Have **at least one real assert** on the observable outcome.
 - Be **deterministic** and **clean up** what it creates via `cleanup()`.
+
+**Stubbed tests (the one exception to the real path).** For a state the change handles that DEV
+cannot be brought to, write a stubbed test in the same spec file BESIDE the live test of that page, never
+instead of it. Fulfil only the GET responses the state needs, with `page.route` and `route.fulfill`, and
+check the method first: `if (route.request().method() !== "GET") return route.continue();`. The response
+shape comes from the app's contract or a response the grounding captured, never a guess. Never fulfil or
+alter a write, never `routeFromHAR`, never `continue` with a changed method or body. Start the title with
+`[stubbed: <the response it states>]`, and assert what the page does with that response, not the response
+itself. The orchestrator finds these tests from the code and publishes them as tested against a stated
+response, not DEV: a stubbed state can hide a defect of the backend, which is why the live test stays.
 
 In a flow, edit no shared helper, fixture or other spec: say in `concerns` and `unresolvedQuestions` that one
 must change. A flow an existing spec already covers: write no file, report `completed` with `filesChanged`

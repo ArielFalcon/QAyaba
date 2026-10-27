@@ -13,6 +13,7 @@ import { DIFF_TIERS } from "@kernel/diff-stat";
 import { classifyGenerationEnd } from "@contexts/generation/application/index";
 import { PACK_HEADINGS, PROMPT_HEADINGS } from "@contexts/generation/application/index";
 import { ROUTE_LINK_FIELDS } from "@contexts/generation/application/index";
+import { detectStubbedState } from "@contexts/test-execution/application/index";
 import type { MilestoneOutcome } from "@contexts/generation/application/index";
 import { ASSEMBLED_ARTIFACT_NAMES, buildPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { ANTI_WEAKENING_RULE, EFFORT_NO_OP_CLAUSE, OBJECTIVE_QUESTION, buildContextTask } from "@contexts/generation/infrastructure/prompt-builders/task-builders";
@@ -90,6 +91,32 @@ describe("agent prompt guard", () => {
         `${rel} must reject tests that mock the unit under test (the anti-mock rubric wording).`,
       );
     }
+  });
+
+  it("every layer that states the one allowed mock teaches the shape the stubbed-test detector accepts", () => {
+    for (const rel of ["agents/agent/qa-author.md", "agents/skill/playwright-authoring/SKILL.md"]) {
+      const content = readFile(rel);
+      assert.ok(content.includes("[stubbed: "), `${rel} must teach the "[stubbed: <response>]" title the PR names the test by.`);
+      assert.ok(content.includes('route.request().method() !== "GET"'), `${rel} must teach the GET check that guards a fulfil.`);
+    }
+    for (const rel of ["agents/agent/qa-reviewer.md", "agents/skill/test-value-review/SKILL.md"]) {
+      assert.ok(readFile(rel).includes("[stubbed: "), `${rel} must judge a test titled "[stubbed: <response>]" by what the frontend does with the response.`);
+    }
+    /* The shape the layers teach is the one the detector accepts without a violation, and reads as stubbed with its stated response. */
+    const taught = [
+      'import { test, expect } from "./fixtures";',
+      'test("lists", async ({ page }) => { await page.goto("/x"); await expect(page).toHaveURL("/x"); });',
+      'test("[stubbed: a response with no items] shows the empty state", async ({ page }) => {',
+      '  await page.route("**/items", async (route) => {',
+      '    if (route.request().method() !== "GET") return route.continue();',
+      "    await route.fulfill({ json: { items: [] } });",
+      "  });",
+      '  await expect(page).toHaveURL("/x");',
+      "});",
+    ].join("\n");
+    const report = detectStubbedState([{ file: "x.spec.ts", text: taught }]);
+    assert.deepEqual(report.violations, []);
+    assert.deepEqual(report.tests.map((t) => t.response), ["a response with no items"]);
   });
 
   it("qa-reviewer.md rejects on sight a ledger-bypassing 'learned habit' spec comment", () => {

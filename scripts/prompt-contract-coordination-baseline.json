@@ -78,16 +78,15 @@
     }
   },
   "staticLayers": {
-    "qa-author": 25125,
+    "qa-author": 26200,
     "qa-explore": 10092,
-    "qa-lead": 16161
+    "qa-lead": 16323
   },
   "lastIncrease": {
-    "reason": "the flow author's output contract gains the typed DEV-state cause of an unmet criterion (S20)",
+    "reason": "stubbed-response rule: the lead's needs-unavailable-state basis names the stubbed-test route",
     "budgets": [
-      "flow-author-brief/full:bytes",
-      "flow-author-brief/plain:bytes",
-      "static:qa-author"
+      "static:qa-author",
+      "static:qa-lead"
     ]
   }
 }

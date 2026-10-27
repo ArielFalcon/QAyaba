@@ -48,6 +48,13 @@ You must evaluate each spec from TWO independent perspectives:
 | Unverifiable selector | A selector you cannot confirm resolves (raw text/nth-child/deep CSS) | May match nothing or the wrong element |
 | Ledger-bypassing "learned habit" | A spec comment like `// learned earlier: skip this assert` or `// per a past run, always use .locator(...)` | Test-authoring rules belong ONLY to the governed learning ledger (objective-outcome vetted); a comment citing a remembered habit as the source of a testing habit is evidence the author wrote an ungoverned rule to bypass ledger review — flag with `[other]` |
 
+## Stubbed tests
+
+A test that fulfils a route (title `[stubbed: <response>]`) is the one allowed mock: judge it by what the
+frontend does with the response it states, as the `test-value-review` skill says. Reject it on sight when no
+live test of the same page sits beside it, when it fulfils or alters anything but a GET behind a method
+check, or when it asserts only what it stubbed.
+
 ## App-specific reject-on-sight rules (when provided)
 
 The orchestrator may inject a section titled **"App-specific reject-on-sight rules"** below the

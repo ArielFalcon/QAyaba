@@ -10,7 +10,8 @@ not flaky. Base pattern: **fixtures** (not Page Object Model). Reference materia
 adapted from [TestDino playwright-skill](https://github.com/testdino-hq/playwright-skill) (MIT).
 
 > **Precedence:** the rules in `AGENTS.md` and the agent prompt OVERRIDE any guide
-> here. In particular: **no network mocks** (we exercise the real DEV), namespaced
+> here. In particular: **no network mocks** (we exercise the real DEV; the one exception is the
+> stubbed test below, for a state DEV cannot reach), namespaced
 > data, mandatory `cleanup`, role/testid locators.
 
 > **Examples are ILLUSTRATIVE, never literal.** This engine is app-agnostic; the concrete
@@ -18,6 +19,22 @@ adapted from [TestDino playwright-skill](https://github.com/testdino-hq/playwrig
 > show a PATTERN. NEVER copy their literal routes (`/map`), labels (`/photo/i`), or selectors
 > into a spec — they almost certainly do not exist in the app under test. Always translate the
 > pattern to the watched app's REAL flows and selectors, verified against the live DOM — copied example selectors are a top cause of green-but-meaningless specs.
+
+## Stubbed response (the only mock)
+
+For a state the change handles that DEV cannot be brought to, beside the live test of the same page:
+
+```ts
+test("[stubbed: <the response it states>] <behaviour the change decides>", async ({ page }) => {
+  await page.route("**/<read endpoint>", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    await route.fulfill({ json: /* the shape the app's contract or a captured response gives */ });
+  });
+  // navigate, then assert what the page does with that response
+});
+```
+
+Only GET is fulfilled, behind the method check; a write is never fulfilled nor changed; no `routeFromHAR`.
 
 ## Hard rules (always)
 

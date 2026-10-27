@@ -27,7 +27,11 @@ concrete correction.
    pass anyway (e.g. asserts a button appears, not that the operation happened). →
    Assert the effect, not the mere presence of UI.
 4. **Tautology / depends on its own mock.** Checks something the test itself set
-   up, or mocks the network (forbidden here) and verifies the mock. → No value.
+   up, or fulfils a response and verifies only that response (the stub's own text or count).
+   → No value. A test titled `[stubbed: <response>]` is judged by what the frontend does
+   with the response it states; reject it when no live test of the same page sits beside it,
+   when it fulfils or alters a write (anything but a GET behind a method check), or when it
+   asserts only what it stubbed.
 5. **Pre-existing data.** Assumes a real entity exists ("admin user", "order 42")
    instead of creating it namespaced. → Fragile and not isolated.
 6. **Non-deterministic.** `waitForTimeout`, implicit ordering between tests,
@@ -87,7 +91,7 @@ environment.
 When the prompt lists the decisions of the change that no test ran, judge each listed arm: one
 that is a behaviour worth a test (an error, an empty result, a rejected input the page can be
 brought to through the UI) is a missing case, reported as the output format says. It is a record
-for the team, never a reason to reject; an arm only a mocked network could reach is not a case.
+for the team, never a reason to reject; an arm DEV cannot be brought to is a case only for a stubbed test.
 
 ## How you emit the verdict
 
