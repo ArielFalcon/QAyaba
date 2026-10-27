@@ -50,6 +50,20 @@ export const ISOLATED_FILES = new Map([
     "the history store resolves its location once per process, on first use: the file unsets HISTORY_DB_PATH before that",
   ],
 ]);
+/* The longest a single test may run in a shared worker before it fails by name. Far above any test of the suite (the slowest, the
+   prompt-contract matrix, takes about a minute under load), so it only ever ends a test that hangs: a hang in a shared process
+   would otherwise hold the whole worker, and the run, with no word of which test it is. */
+export const DEFAULT_TEST_TIMEOUT_MS = 300_000;
+
+/* The node --test flags a shared worker runs with: the caller's, plus a bound on each test unless the caller gave one, and an exit once
+   the tests end (a handle a test left open must not keep a worker alive after its last test). */
+export function workerNodeFlags(nodeFlags) {
+  const flags = [...nodeFlags];
+  if (!flags.some((f) => f === "--test-timeout" || f.startsWith("--test-timeout="))) flags.push(`--test-timeout=${DEFAULT_TEST_TIMEOUT_MS}`);
+  if (!flags.includes("--test-force-exit")) flags.push("--test-force-exit");
+  return flags;
+}
+
 /* node --test flags that take their value as the next argument when written without `=`. */
 const VALUED_FLAGS = new Set([
   "--test-name-pattern",
@@ -140,7 +154,7 @@ function runWorker(index, files, nodeFlags, dir, isolated) {
     "--test", isolated ? "--test-isolation=process" : "--test-isolation=none",
     "--test-reporter=spec", `--test-reporter-destination=${specOut}`,
     `--test-reporter=${REPORTER}`, `--test-reporter-destination=${jsonOut}`,
-    ...nodeFlags, ...files,
+    ...workerNodeFlags(nodeFlags), ...files,
   ];
   const started = performance.now();
   return new Promise((resolveRun) => {

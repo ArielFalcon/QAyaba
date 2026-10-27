@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_TEST_GLOBS, ISOLATED_FILES, balance, costFunction, expandPatterns, parseArgs } from "./run-tests.mjs";
+import { DEFAULT_TEST_GLOBS, DEFAULT_TEST_TIMEOUT_MS, ISOLATED_FILES, balance, costFunction, expandPatterns, parseArgs, workerNodeFlags } from "./run-tests.mjs";
 
 test("runner options are taken out and every other flag goes to node --test with its value", () => {
   const opts = parseArgs(["--workers=3", "--test-name-pattern", "the login", "src/a.test.ts", "--test-only", "--record-timings"]);
@@ -12,6 +12,13 @@ test("runner options are taken out and every other flag goes to node --test with
   assert.equal(opts.recordTimings, true);
   assert.deepEqual(opts.nodeFlags, ["--test-name-pattern", "the login", "--test-only"]);
   assert.deepEqual(opts.patterns, ["src/a.test.ts"]);
+});
+
+test("a worker bounds every test and exits once its tests end, so a hung test fails by name instead of holding the run", () => {
+  assert.deepEqual(workerNodeFlags([]), [`--test-timeout=${DEFAULT_TEST_TIMEOUT_MS}`, "--test-force-exit"]);
+  assert.deepEqual(workerNodeFlags(["--test-name-pattern", "x"]), ["--test-name-pattern", "x", `--test-timeout=${DEFAULT_TEST_TIMEOUT_MS}`, "--test-force-exit"]);
+  assert.deepEqual(workerNodeFlags(["--test-timeout=5000"]), ["--test-timeout=5000", "--test-force-exit"], "a timeout the caller gives is kept");
+  assert.deepEqual(workerNodeFlags(["--test-timeout", "5000", "--test-force-exit"]), ["--test-timeout", "5000", "--test-force-exit"]);
 });
 
 test("a worker count that is not a positive whole number is refused", () => {
