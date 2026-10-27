@@ -4,6 +4,7 @@ import type { PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port.ts";
 import { sanitizedPlanSnapshots } from "@kernel/ports/plan-snapshot.port.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
+import { DEFAULT_WALK_POLICY } from "@kernel/code/index.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
@@ -95,7 +96,7 @@ export function buildCoordination(deps: CoordinationDeps): CoordinationApi {
 export async function graphHoldsSymbol(codeGraph: CodeGraphPort, repoDir: string, ref: string): Promise<boolean> {
   const at = ref.indexOf("#");
   if (at > 0 && at < ref.length - 1) {
-    const found = await codeGraph.callersOf(repoDir, [{ file: ref.slice(0, at), symbol: ref.slice(at + 1) }], { depth: 0, maxSymbols: 1 });
+    const found = await codeGraph.callersOf(repoDir, [{ file: ref.slice(0, at), symbol: ref.slice(at + 1) }], { ...DEFAULT_WALK_POLICY, depth: 0 });
     return found.ok && found.value.symbols.some((s) => s.file === ref.slice(0, at) && s.symbol === ref.slice(at + 1));
   }
   const routes = await codeGraph.routes(repoDir);

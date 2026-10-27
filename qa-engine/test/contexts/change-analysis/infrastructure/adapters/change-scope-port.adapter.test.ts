@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { ChangeScopePortAdapter, entryPointsOf } from "@contexts/change-analysis/infrastructure/adapters/change-scope-port.adapter.ts";
 import { MAX_KNOWN_ENTRY_POINTS, crossRepoCallSite, fileImplementsPage, handlerServesOperation, openapiOperationDiff } from "@contexts/change-analysis/application/index.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
-import type { GraphRoute, ImpactedSymbol, LocalSymbolRef } from "@kernel/code/index.ts";
+import { DEFAULT_WALK_POLICY, type GraphRoute, type ImpactedSymbol, type LocalSymbolRef } from "@kernel/code/index.ts";
 import type { PageMap } from "@contexts/change-analysis/domain/page-files.ts";
 import type { ServiceLink } from "@kernel/service-links.ts";
 import { err, ok } from "@kernel/result.ts";
@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const SHA = "abc1234";
-const BUDGET = { depth: 3, maxSymbols: 300 };
+const BUDGET = DEFAULT_WALK_POLICY;
 const ORDERS = "web/src/app/orders/orders.page.ts";
 const FORMAT = "web/src/app/shared/format.ts";
 const MAP = { routes: [{ path: "/orders", implementationFiles: [ORDERS] }], api: [], feBe: [] };

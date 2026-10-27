@@ -16,6 +16,9 @@ export const CODEGRAPH_ENGINE = "codegraph";
 const BINARY = "codegraph";
 const STORE_FILE = "codegraph.db";
 /* The reader ships with qayaba and is run by Node under the same profile; the warning flag keeps node:sqlite's notice off stderr. */
+/* Characters of a store-reader request per argument: well under the 128 KiB one argument may hold on Linux, even when every character takes four bytes. */
+export const REQUEST_CHUNK = 30 * 1024;
+
 export const STORE_READER_SCRIPT = fileURLToPath(new URL("./codegraph-store-reader.mjs", import.meta.url));
 
 export interface EngineFailure {
@@ -93,9 +96,12 @@ export class CodegraphEngine {
     return this.run(BINARY, ["explore", "--max-files", String(Math.max(1, Math.trunc(maxFiles))), "--", ...terms], workspace, this.timeouts.queryMs, signal);
   }
 
-  /* One structured answer from the store (codegraph-store-reader.mjs), parsed. */
+  /* One structured answer from the store (codegraph-store-reader.mjs), parsed. The request goes in arguments of at most REQUEST_CHUNK characters, which the reader joins: one argument has a smaller bound than all of them together. */
   async read<T>(workspace: string, request: Record<string, unknown>, signal?: AbortSignal): Promise<Result<T, EngineFailure>> {
-    const out = await this.run(this.node, ["--disable-warning=ExperimentalWarning", STORE_READER_SCRIPT, storePathOf(workspace), JSON.stringify(request)], workspace, this.timeouts.queryMs, signal);
+    const json = JSON.stringify(request);
+    const parts: string[] = [];
+    for (let at = 0; at < json.length || parts.length === 0; at += REQUEST_CHUNK) parts.push(json.slice(at, at + REQUEST_CHUNK));
+    const out = await this.run(this.node, ["--disable-warning=ExperimentalWarning", STORE_READER_SCRIPT, storePathOf(workspace), ...parts], workspace, this.timeouts.queryMs, signal);
     if (!out.ok) return out;
     try {
       return ok(JSON.parse(out.value) as T);

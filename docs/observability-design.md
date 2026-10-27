@@ -308,6 +308,13 @@ Rules, from the brief §2.1 and the OTel spec:
   `.outcome` (`no-flaky-case`, `no-pass`, or the correction's `accepted`/`empty`/`rejected`/`capped`), and
   `gateSignals.flakyTriage { cases, dataInstability, timing, outcome }`. Its findings carry the `flaky`
   correction origin ("passed on retry"), counted in the lead's correction budget.
+- **Impact walk.** The code-graph walks of the change run under one `WalkPolicy` (`shared-kernel/code`): depth, a
+  fan-in limit (the index's own in-degree percentile with test-file callers left out, clamped to a floor and a
+  ceiling) and a count of caller queries. The phase that walked records `qayaba.code_graph.walk.seeds`,
+  `.seeds_partial` (seeds the query budget left with an open frontier), `.hub_nodes` (nodes pruned at the fan-in
+  limit), `.expansions`, `.budget` and `.fan_in_limit`, and the change scope adds `qayaba.change_scope.partial_seeds`
+  and `.hub_nodes`. The log line reads "impact walk: N seeds (M partial), K hub nodes pruned at fan-in above F, E of
+  B expansions". No symbol count cuts a walk; 300 symbols bound only the structural block's rendering.
 
 ### 4.3 Root attributes
 

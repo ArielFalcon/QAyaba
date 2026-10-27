@@ -10,7 +10,7 @@ import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodegraphCodeGraphAdapter, selectSeeds, type StoreSymbol } from "../../../src/shared-infrastructure/code-graph/codegraph-code-graph.adapter.ts";
-import { CodegraphEngine } from "../../../src/shared-infrastructure/code-graph/codegraph-engine.ts";
+import { CodegraphEngine, STORE_READER_SCRIPT } from "../../../src/shared-infrastructure/code-graph/codegraph-engine.ts";
 import { CodegraphStoreCache } from "../../../src/shared-infrastructure/code-graph/codegraph-store-cache.ts";
 import type { SandboxedBinaryRunner, SandboxedRunRequest, SandboxedRunResult } from "../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import { SandboxedBinaryRunnerAdapter } from "../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter.ts";
@@ -18,6 +18,7 @@ import { ProcessKillAdapter } from "../../../src/shared-infrastructure/process-s
 import { LanguageRegistry } from "../../../src/shared-kernel/language-id.ts";
 import { BlastRadius } from "../../../src/shared-kernel/blast-radius.ts";
 import { Sha } from "../../../src/shared-kernel/sha.ts";
+import { DEFAULT_WALK_POLICY, type WalkPolicy } from "../../../src/shared-kernel/code/index.ts";
 import { closeGitDir, git } from "../process-sandbox/git-fixtures.ts";
 import { ChangeScopePortAdapter } from "../../../src/contexts/change-analysis/infrastructure/adapters/change-scope-port.adapter.ts";
 import { fileImplementsPage, handlerServesOperation } from "../../../src/contexts/change-analysis/application/index.ts";
@@ -103,7 +104,14 @@ function commitAnother(h: Harness): string {
   return git(h.mirror, "rev-parse", "HEAD");
 }
 
-const BUDGET = { depth: 3, maxSymbols: 300 };
+const BUDGET = DEFAULT_WALK_POLICY;
+/* The default policy with a fixed fan-in limit and the given expansion budget, so a test does not depend on the store's own distribution. */
+const policyOf = (over: { depth?: number; fanInLimit?: number; expansions?: number; closures?: number } = {}): WalkPolicy => ({
+  depth: over.depth ?? DEFAULT_WALK_POLICY.depth,
+  fanIn: over.fanInLimit === undefined ? DEFAULT_WALK_POLICY.fanIn : { percentile: 99, floor: over.fanInLimit, ceiling: over.fanInLimit },
+  expansions: over.expansions === undefined ? DEFAULT_WALK_POLICY.expansions : { base: over.expansions, perSeed: 0, floor: over.expansions, ceiling: over.expansions },
+  closures: { expansions: over.closures ?? DEFAULT_WALK_POLICY.closures.expansions },
+});
 const FORMAT = "web/src/app/shared/format.ts";
 
 test("a first index builds the store, validates it and publishes it to the cache with its provenance", async () => {
@@ -256,7 +264,7 @@ test("impactedSymbols seeds the symbol around each touched line and walks to the
   }
 });
 
-test("impactedSymbols seeds every symbol of a changed file the diff gave no lines for, and reports a walk the budget cut", async () => {
+test("impactedSymbols seeds every symbol of a changed file the diff gave no lines for, and a seed the expansion budget leaves open is partial", async () => {
   const h = harness();
   try {
     await h.adapter.syncTo(h.mirror, h.sha);
@@ -265,9 +273,10 @@ test("impactedSymbols seeds every symbol of a changed file the diff gave no line
     assert.ok(whole.ok);
     assert.deepEqual(whole.value.symbols.filter((s) => s.depth === 0).map((s) => s.symbol), ["formatMoney", "roundCents"]);
 
-    const cut = await h.adapter.impactedSymbols(h.mirror, BlastRadius.of(Sha.of(h.sha), [FORMAT]), { depth: 3, maxSymbols: 2 });
+    const cut = await h.adapter.impactedSymbols(h.mirror, BlastRadius.of(Sha.of(h.sha), [FORMAT]), policyOf({ expansions: 0 }));
     assert.ok(cut.ok);
     assert.equal(cut.value.truncated, true);
+    assert.deepEqual(cut.value.partialSeeds?.map((s) => s.symbol), ["formatMoney", "roundCents"]);
   } finally {
     rmSync(h.root, { recursive: true, force: true });
   }
@@ -681,28 +690,32 @@ test("selectSeeds leaves a changed file without lines out when the diff was read
 });
 
 /* A walk whose budget cuts it keeps the same callers on every run, whatever order the store holds its edges in. */
-test("when the budget cuts a walk the nodes kept do not depend on the order the store lists its edges", async () => {
+test("when the budget leaves seeds partial, the answer does not depend on the order the store lists its edges", async () => {
   const h = harness();
   try {
-    const store = join(h.root, "reordered.db");
-    copyFileSync(STORE, store);
-    const db = new DatabaseSync(store);
-    const target = (db.prepare("SELECT id FROM nodes WHERE name = 'formatMoney' AND kind = 'function'").get() as { id: string }).id;
-    const insertNode = db.prepare("INSERT INTO nodes (id, kind, name, qualified_name, file_path, language, start_line, end_line, start_column, end_column, updated_at) VALUES (?, 'function', ?, ?, 'a/first.ts', 'typescript', 1, 2, 0, 0, 0)");
-    const insertEdge = db.prepare("INSERT INTO edges (source, target, kind) VALUES (?, ?, 'calls')");
-    for (const name of ["e", "d", "c", "b", "a"]) {
-      insertNode.run(`function:${name}`, name, name);
-      insertEdge.run(`function:${name}`, target);
+    const answers: string[] = [];
+    for (const order of [["e", "d", "c", "b", "a"], ["a", "b", "c", "d", "e"]]) {
+      const store = join(h.root, `reordered-${order[0]}.db`);
+      copyFileSync(STORE, store);
+      const db = new DatabaseSync(store);
+      const target = (db.prepare("SELECT id FROM nodes WHERE name = 'formatMoney' AND kind = 'function'").get() as { id: string }).id;
+      const insertNode = db.prepare("INSERT INTO nodes (id, kind, name, qualified_name, file_path, language, start_line, end_line, start_column, end_column, updated_at) VALUES (?, 'function', ?, ?, 'a/first.ts', 'typescript', 1, 2, 0, 0, 0)");
+      const insertEdge = db.prepare("INSERT INTO edges (source, target, kind) VALUES (?, ?, 'calls')");
+      for (const name of order) {
+        insertNode.run(`function:${name}`, name, name);
+        insertEdge.run(`function:${name}`, target);
+      }
+      db.close();
+      h.engine.store = store;
+      await h.adapter.syncTo(h.mirror, h.sha);
+
+      const report = await h.adapter.callersOf(h.mirror, [{ file: FORMAT, symbol: "formatMoney" }, { file: "web/src/app/shared/format.ts", symbol: "roundCents" }], policyOf({ depth: 2, expansions: 2 }));
+
+      assert.ok(report.ok);
+      assert.equal(report.value.truncated, true);
+      answers.push(JSON.stringify(report.value));
     }
-    db.close();
-    h.engine.store = store;
-    await h.adapter.syncTo(h.mirror, h.sha);
-
-    const report = await h.adapter.callersOf(h.mirror, [{ file: FORMAT, symbol: "formatMoney" }], { depth: 1, maxSymbols: 3 });
-
-    assert.ok(report.ok);
-    assert.equal(report.value.truncated, true);
-    assert.deepEqual(report.value.symbols.map((s) => s.symbol), ["formatMoney", "a", "b"]);
+    assert.equal(answers[0], answers[1]);
   } finally {
     rmSync(h.root, { recursive: true, force: true });
   }
@@ -852,6 +865,185 @@ test("a changed arrow component seeds the walk", async () => {
 
     assert.ok(report.ok);
     assert.deepEqual(report.value.symbols.map((s) => [s.symbol, s.kind, s.depth]), [["Widget", "component", 0]]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+/* `count` functions in `file`, named `<prefix>000`, `<prefix>001`, …, each one line long. */
+const manyNodes = (prefix: string, file: string, count: number): Array<[string, string, string, string, number, number]> =>
+  Array.from({ length: count }, (_, i) => {
+    const name = `${prefix}${String(i).padStart(3, "0")}`;
+    return [`function:${name}`, "function", name, file, i + 1, i + 1];
+  });
+
+test("no global symbol cap cuts a walk: every caller within the depth is reached while the expansion budget lasts", async () => {
+  const h = harness();
+  try {
+    const callers = manyNodes("c", "a/callers.ts", 400);
+    storeWith(h, "wide.db", [["function:leaf", "function", "leaf", "a/wide.ts", 1, 3], ...callers], callers.map(([id]): [string, string, string] => [id, "function:leaf", "calls"]));
+    await h.adapter.syncTo(h.mirror, h.sha);
+
+    const report = await h.adapter.callersOf(h.mirror, [{ file: "a/wide.ts", symbol: "leaf" }], policyOf({ depth: 1, fanInLimit: 1000 }));
+
+    assert.ok(report.ok);
+    assert.equal(report.value.truncated, false);
+    assert.equal(report.value.symbols.length, 401);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+const HUB_USERS = manyNodes("user", "a/users.ts", 4);
+const HUB_NODES: Array<[string, string, string, string, number, number]> = [
+  ["function:alpha", "function", "alpha", "a/seeds.ts", 1, 3],
+  ["function:beta", "function", "beta", "a/seeds.ts", 5, 7],
+  ["function:shared", "function", "shared", "a/hub.ts", 1, 9],
+  ["function:bmid", "function", "bmid", "a/b.ts", 1, 3],
+  ["function:btop", "function", "btop", "a/b.ts", 5, 7],
+  ...HUB_USERS,
+];
+const HUB_EDGES: Array<[string, string, string]> = [
+  ["function:shared", "function:alpha", "calls"],
+  ["function:bmid", "function:beta", "calls"],
+  ["function:btop", "function:bmid", "calls"],
+  ...HUB_USERS.map(([id]): [string, string, string] => [id, "function:shared", "calls"]),
+];
+const HUB_SEEDS = [{ file: "a/seeds.ts", symbol: "alpha" }, { file: "a/seeds.ts", symbol: "beta" }];
+
+test("a node whose fan-in is above the limit is a hub: recorded with the seeds that reach it, not expanded, while other paths go on", async () => {
+  const h = harness();
+  try {
+    storeWith(h, "hub.db", HUB_NODES, HUB_EDGES);
+    await h.adapter.syncTo(h.mirror, h.sha);
+
+    const report = await h.adapter.callersOf(h.mirror, HUB_SEEDS, policyOf({ fanInLimit: 3 }));
+
+    assert.ok(report.ok);
+    assert.deepEqual(report.value.symbols.map((s) => `${s.depth} ${s.symbol}`), ["0 alpha", "0 beta", "1 bmid", "1 shared", "2 btop"]);
+    assert.deepEqual(report.value.hubNodes?.map((n) => ({ symbol: n.symbol, fanIn: n.fanIn, depth: n.depth, seeds: n.seeds.map((s) => s.symbol) })), [{ symbol: "shared", fanIn: 4, depth: 1, seeds: ["alpha"] }]);
+    assert.equal(report.value.truncated, false, "a pruned hub is not a cut");
+    assert.equal(report.value.cost?.fanInLimit, 3);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a hub's closure is what it reaches within the depth left, and a closure the closure budget cuts is not complete", async () => {
+  const h = harness();
+  try {
+    storeWith(h, "closure.db", HUB_NODES, HUB_EDGES);
+    await h.adapter.syncTo(h.mirror, h.sha);
+
+    const closed = await h.adapter.callersOf(h.mirror, HUB_SEEDS, policyOf({ fanInLimit: 3 }));
+    const starved = await h.adapter.callersOf(h.mirror, HUB_SEEDS, policyOf({ fanInLimit: 3, closures: 0 }));
+
+    assert.ok(closed.ok && starved.ok);
+    const closure = closed.value.hubNodes?.[0]?.closure;
+    assert.deepEqual(closure?.symbols.map((s) => `${s.depth} ${s.symbol}`), ["1 shared", "2 user000", "2 user001", "2 user002", "2 user003"]);
+    assert.deepEqual(closure?.symbols.slice(1).map((s) => s.via?.symbol), ["shared", "shared", "shared", "shared"]);
+    assert.equal(closure?.complete, true);
+    assert.equal(starved.value.hubNodes?.[0]?.closure.complete, false);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("when the expansion budget runs out mid-depth only the seeds with an open frontier are partial", async () => {
+  const h = harness();
+  try {
+    storeWith(h, "partial.db", [...CHAIN_NODES, ["function:alone", "function", "alone", "a/zz.ts", 1, 2]], [["function:mid", "function:leaf", "calls"], ["function:top", "function:mid", "calls"]]);
+    await h.adapter.syncTo(h.mirror, h.sha);
+
+    const report = await h.adapter.callersOf(h.mirror, [{ file: "a/chain.ts", symbol: "leaf" }, { file: "a/zz.ts", symbol: "alone" }], policyOf({ expansions: 2 }));
+
+    assert.ok(report.ok);
+    assert.deepEqual(report.value.symbols.map((s) => `${s.depth} ${s.symbol}`), ["0 leaf", "0 alone", "1 mid"]);
+    assert.deepEqual(report.value.partialSeeds, [{ file: "a/chain.ts", symbol: "leaf" }]);
+    assert.equal(report.value.truncated, true);
+    assert.deepEqual(report.value.cost && [report.value.cost.expansions, report.value.cost.budget], [2, 2]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a node two seeds reach through a shared caller records both seeds, not only the one that got there first", async () => {
+  const h = harness();
+  try {
+    storeWith(
+      h,
+      "shared-caller.db",
+      [
+        ["method:openMenuById", "function", "openMenuById", "a/home.page.ts", 20, 24],
+        ["function:restaurant", "function", "restaurant", "a/card.ts", 1, 5],
+        ["function:constructor", "function", "constructor", "a/home.page.ts", 2, 10],
+      ],
+      [["function:constructor", "method:openMenuById", "calls"], ["function:constructor", "function:restaurant", "calls"]],
+    );
+    await h.adapter.syncTo(h.mirror, h.sha);
+
+    const report = await h.adapter.callersOf(h.mirror, [{ file: "a/home.page.ts", symbol: "openMenuById" }, { file: "a/card.ts", symbol: "restaurant" }], BUDGET);
+
+    assert.ok(report.ok);
+    const shared = report.value.symbols.find((s) => s.symbol === "constructor");
+    assert.deepEqual(shared?.seeds, [{ file: "a/card.ts", symbol: "restaurant", hops: 1 }, { file: "a/home.page.ts", symbol: "openMenuById", hops: 1 }]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a route node the walk reaches is kept in the report's routes, with the seeds that reach it, never among the symbols", async () => {
+  const h = harness();
+  try {
+    storeWith(h, "route.db", [["component:OrdersPage", "component", "OrdersPage", "a/orders.page.ts", 1, 30], ["route:/orders", "route", "/orders", "a/app.routes.ts", 4, 4]], [["route:/orders", "component:OrdersPage", "references"]]);
+    await h.adapter.syncTo(h.mirror, h.sha);
+
+    const report = await h.adapter.callersOf(h.mirror, [{ file: "a/orders.page.ts", symbol: "OrdersPage" }], BUDGET);
+
+    assert.ok(report.ok);
+    assert.deepEqual(report.value.routes, [{ file: "a/app.routes.ts", line: 4, path: "/orders", depth: 1, via: { file: "a/orders.page.ts", symbol: "OrdersPage" }, seeds: [{ file: "a/orders.page.ts", symbol: "OrdersPage", hops: 1 }] }]);
+    assert.deepEqual(report.value.symbols.map((s) => s.symbol), ["OrdersPage"]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("code in test files never calls: it is not walked and does not count toward a node's fan-in", async () => {
+  const h = harness();
+  try {
+    storeWith(
+      h,
+      "test-callers.db",
+      [...CHAIN_NODES, ["function:specA", "function", "specA", "a/chain.spec.ts", 1, 3], ["function:specB", "function", "specB", "a/chain.spec.ts", 5, 7]],
+      [["function:mid", "function:leaf", "calls"], ["function:specA", "function:leaf", "calls"], ["function:specB", "function:leaf", "calls"], ["function:top", "function:mid", "calls"]],
+    );
+    await h.adapter.syncTo(h.mirror, h.sha);
+
+    const report = await h.adapter.callersOf(h.mirror, [{ file: "a/chain.ts", symbol: "leaf" }], policyOf({ fanInLimit: 2 }));
+
+    assert.ok(report.ok);
+    assert.deepEqual(report.value.hubNodes, [], "two test callers and one caller of the app's code is a fan-in of one");
+    assert.deepEqual(report.value.symbols.map((s) => s.symbol), ["leaf", "mid", "top"]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("the fan-in limit is the index's own in-degree percentile, clamped to the policy's floor and ceiling", async () => {
+  const h = harness();
+  try {
+    await h.adapter.syncTo(h.mirror, h.sha);
+    const testFiles = Object.keys(REPO).filter((f) => LanguageRegistry.isTestFile(f));
+    const reader = spawnSync(process.execPath, ["--disable-warning=ExperimentalWarning", STORE_READER_SCRIPT, STORE, JSON.stringify({ op: "degrees", percentile: 99, excludeFiles: testFiles })], { encoding: "utf8" });
+    const p99 = (JSON.parse(reader.stdout) as { value: number }).value;
+    const limitUnder = async (floor: number, ceiling: number) => {
+      const r = await h.adapter.callersOf(h.mirror, [{ file: FORMAT, symbol: "formatMoney" }], { ...BUDGET, fanIn: { percentile: 99, floor, ceiling } });
+      return r.ok ? r.value.cost?.fanInLimit : undefined;
+    };
+
+    assert.equal(await limitUnder(1, 1000), Math.max(1, p99));
+    assert.equal(await limitUnder(50, 60), 50);
+    assert.equal(await limitUnder(1, 1), 1);
   } finally {
     rmSync(h.root, { recursive: true, force: true });
   }

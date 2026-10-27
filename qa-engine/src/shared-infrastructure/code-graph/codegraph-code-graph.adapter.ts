@@ -19,7 +19,7 @@ import { err, ok, type Result } from "../../shared-kernel/result.ts";
 import type { BlastRadius, TouchedLines } from "../../shared-kernel/blast-radius.ts";
 import type { CodeGraphPort } from "../../shared-kernel/ports/code-graph.port.ts";
 import type { CodeExplorePort, ExploreAnswer } from "../../shared-kernel/ports/code-explore.port.ts";
-import type { CodeGraphIndexRecord, CodeGraphUnavailable, GraphRoute, ImpactBudget, ImpactReport, ImpactedSymbol, IndexOutcome, LocalSymbolRef, SeedBasis } from "../../shared-kernel/code/index.ts";
+import { expansionBudget, type CodeGraphIndexRecord, type CodeGraphUnavailable, type GraphRoute, type HubNode, type ImpactReport, type ImpactedSymbol, type IndexOutcome, type LocalSymbolRef, type ReachedRoute, type SeedBasis, type SeedReach, type WalkCost, type WalkPolicy } from "../../shared-kernel/code/index.ts";
 import type { Sandbox } from "../process-sandbox/sandbox.ts";
 import type { SandboxedBinaryRunner } from "../process-sandbox/sandboxed-binary-runner.ts";
 import { CODEGRAPH_ENGINE, storePathOf, type CodegraphEngine, type EngineFailure, type EngineStatus } from "./codegraph-engine.ts";
@@ -46,6 +46,17 @@ interface WalkNode {
   depth: number;
   confidence: number;
   via?: LocalSymbolRef;
+  /* [index into the answer's seeds, hops]; absent on a closure's nodes. */
+  seeds?: Array<[number, number]>;
+}
+
+/* The store reader's walk answer (codegraph-store-reader.mjs). */
+interface WalkAnswer {
+  nodes: WalkNode[];
+  seeds: Array<{ id: string; file: string; symbol: string; status: "complete" | "partial" }>;
+  hubNodes: Array<{ id: string; file: string; symbol: string; kind: string; fanIn: number; depth: number; seeds: number[]; closure: { nodes: WalkNode[]; complete: boolean } }>;
+  cost: WalkCost;
+  truncated: boolean;
 }
 
 interface StoreRoute {
@@ -115,6 +126,26 @@ export interface CodegraphCodeGraphDeps {
 interface Indexed {
   workspace: string;
   sha: string;
+  /* The index's test files, read once: their code never calls in a walk. */
+  testFiles?: Promise<Result<string[], CodeGraphUnavailable>>;
+  /* The fan-in limit each policy's percentile, floor and ceiling gave on this index, by their JSON. */
+  fanInLimits: Map<string, number>;
+}
+
+const refKey = (r: LocalSymbolRef): string => `${r.file}::${r.symbol}`;
+
+/* Each changed symbol once, at the fewest hops it reaches the node in. */
+function fewestHops(reaches: readonly SeedReach[]): SeedReach[] {
+  const out = new Map<string, SeedReach>();
+  for (const r of reaches) {
+    const held = out.get(refKey(r));
+    if (!held || r.hops < held.hops) out.set(refKey(r), { file: r.file, symbol: r.symbol, hops: r.hops });
+  }
+  return [...out.values()];
+}
+
+function uniqueRefs(refs: readonly LocalSymbolRef[]): LocalSymbolRef[] {
+  return [...new Map(refs.map((r) => [refKey(r), { file: r.file, symbol: r.symbol }])).values()];
 }
 
 /* What the store was built from besides the commit: a store of another scope is never reused. */
@@ -226,7 +257,7 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
         });
         if (!published.published) engineLog.warn(`[qa] the code-graph store of ${repo} was not cached (${clean(published.reason)}); the next run indexes it again`);
       }
-      this.indexed.set(repoDir, { workspace, sha });
+      this.indexed.set(repoDir, { workspace, sha, fanInLimits: new Map() });
       return record(outcome, status.value);
     } finally {
       lock?.release();
@@ -254,19 +285,28 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
     return ok({ value: answer.value, sha: entry.sha });
   }
 
-  private async walkFrom(repoDir: string, seeds: readonly StoreSymbol[], budget: ImpactBudget, sha: string, cut: boolean, basis: SeedBasis): Promise<Result<ImpactReport, CodeGraphUnavailable>> {
-    if (seeds.length === 0) return ok({ indexedSha: sha, symbols: [], truncated: cut, seedBasis: "none" });
-    const walked = await this.read<{ nodes: WalkNode[]; truncated: boolean }>(repoDir, { op: "walk", seeds: seeds.map((s) => s.id), depth: budget.depth, maxNodes: budget.maxSymbols });
-    if (!walked.ok) return walked;
-    const symbols: ImpactedSymbol[] = [];
-    const seen = new Set<string>();
-    for (const n of walked.value.value.nodes) {
-      /* A container the walk lifted from a changed member (depth 0 with a predecessor) carries the walk, but was not changed. */
+  /* The index's test files, asked once per index. */
+  private testFilesOf(repoDir: string, entry: Indexed): Promise<Result<string[], CodeGraphUnavailable>> {
+    entry.testFiles ??= this.read<{ files: string[] }>(repoDir, { op: "files" }).then((r) => (r.ok ? ok(r.value.value.files.filter((f) => this.deps.isTestFile(f))) : r));
+    return entry.testFiles;
+  }
+
+  /*
+   * The nodes as impacted symbols, one per file::symbol (the seeds of a repeated one merged into the first). Left out: route
+   * nodes, a test file's code, and a container the walk lifted from a changed member (depth 0 with a predecessor: it carries
+   * the walk, but was not changed).
+   */
+  private symbolsOf(nodes: readonly WalkNode[], seedRef: (i: number) => LocalSymbolRef | undefined): ImpactedSymbol[] {
+    const out = new Map<string, ImpactedSymbol>();
+    for (const n of nodes) {
       if (n.kind === "route" || this.deps.isTestFile(n.file) || (n.depth === 0 && n.via !== undefined)) continue;
-      const key = `${n.file}::${n.symbol}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      symbols.push({
+      const seeds = n.seeds?.flatMap(([i, hops]) => { const ref = seedRef(i); return ref ? [{ ...ref, hops }] : []; });
+      const held = out.get(refKey(n));
+      if (held) {
+        if (seeds) held.seeds = fewestHops([...(held.seeds ?? []), ...seeds]);
+        continue;
+      }
+      out.set(refKey(n), {
         file: n.file,
         symbol: n.symbol,
         kind: n.kind,
@@ -274,40 +314,97 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
         confidence: n.confidence,
         ...(n.depth === 0 && n.endLine !== undefined ? { range: { start: n.startLine, end: n.endLine } } : {}),
         ...(n.via ? { via: n.via } : {}),
+        ...(seeds ? { seeds: fewestHops(seeds) } : {}),
       });
     }
-    return ok({ indexedSha: walked.value.sha, symbols, truncated: walked.value.value.truncated || cut, seedBasis: basis });
+    return [...out.values()];
   }
 
-  async impactedSymbols(repoDir: string, changed: BlastRadius, budget: ImpactBudget): Promise<Result<ImpactReport, CodeGraphUnavailable>> {
+  private async walkFrom(repoDir: string, seeds: readonly StoreSymbol[], policy: WalkPolicy, sha: string, cut: boolean, basis: SeedBasis): Promise<Result<ImpactReport, CodeGraphUnavailable>> {
+    if (seeds.length === 0) return ok({ indexedSha: sha, symbols: [], truncated: cut, seedBasis: "none" });
+    const entry = this.indexOf(repoDir);
+    if (!entry) return err({ reason: "the repo is not indexed in this run" });
+    const testFiles = await this.testFilesOf(repoDir, entry);
+    if (!testFiles.ok) return testFiles;
+    const fanInKey = JSON.stringify(policy.fanIn);
+    const knownLimit = entry.fanInLimits.get(fanInKey);
+    const walked = await this.read<WalkAnswer>(repoDir, {
+      op: "walk",
+      seeds: seeds.map((s) => s.id),
+      depth: policy.depth,
+      excludeFiles: testFiles.value,
+      ...(knownLimit !== undefined ? { fanInLimit: knownLimit } : { fanIn: policy.fanIn }),
+      maxExpansions: expansionBudget(policy, seeds.length),
+      closureExpansions: policy.closures.expansions,
+    });
+    if (!walked.ok) return walked;
+    const answer = walked.value.value;
+    if (answer.cost.fanInLimit !== undefined) entry.fanInLimits.set(fanInKey, answer.cost.fanInLimit);
+    const seedRef = (i: number): LocalSymbolRef | undefined => {
+      const s = answer.seeds[i];
+      return s ? { file: s.file, symbol: s.symbol } : undefined;
+    };
+    const reachesOf = (pairs: ReadonlyArray<[number, number]>): SeedReach[] => fewestHops(pairs.flatMap(([i, hops]) => { const ref = seedRef(i); return ref ? [{ ...ref, hops }] : []; }));
+    const routes: ReachedRoute[] = answer.nodes
+      .filter((n) => n.kind === "route" && !this.deps.isTestFile(n.file))
+      .map((n) => {
+        const http = HTTP_ROUTE.exec(n.symbol);
+        return { file: n.file, line: n.startLine, ...(http ? { method: http[1]!, path: http[2]! } : { path: n.symbol }), depth: n.depth, ...(n.via ? { via: n.via } : {}), seeds: reachesOf(n.seeds ?? []) };
+      });
+    const hubNodes: HubNode[] = answer.hubNodes
+      .filter((h) => !this.deps.isTestFile(h.file))
+      .map((h) => ({
+        file: h.file,
+        symbol: h.symbol,
+        kind: h.kind,
+        fanIn: h.fanIn,
+        depth: h.depth,
+        seeds: uniqueRefs(h.seeds.flatMap((i) => seedRef(i) ?? [])),
+        /* The hub opens its closure, so every chain of the closure leads back to it. */
+        closure: { symbols: [{ file: h.file, symbol: h.symbol, kind: h.kind, depth: h.depth, confidence: 1 }, ...this.symbolsOf(h.closure.nodes, () => undefined)], complete: h.closure.complete },
+      }));
+    const partialSeeds = uniqueRefs(answer.seeds.filter((s) => s.status === "partial"));
+    return ok({
+      indexedSha: walked.value.sha,
+      symbols: this.symbolsOf(answer.nodes, seedRef),
+      truncated: answer.truncated || cut || partialSeeds.length > 0,
+      seedBasis: basis,
+      partialSeeds,
+      hubNodes,
+      routes,
+      cost: answer.cost,
+    });
+  }
+
+  async impactedSymbols(repoDir: string, changed: BlastRadius, policy: WalkPolicy): Promise<Result<ImpactReport, CodeGraphUnavailable>> {
     const files = changed.changedFiles.filter((f) => !this.deps.isTestFile(f));
     const entry = this.indexOf(repoDir);
     if (!entry) return err({ reason: "the repo is not indexed in this run" });
     if (files.length === 0) return ok({ indexedSha: entry.sha, symbols: [], truncated: false, seedBasis: "none" });
     const lines = changed.touchedLines ? [...changed.touchedLines].map(([file, set]) => [file, [...set].sort((a, b) => a - b)]).sort() : null;
-    const key = JSON.stringify([repoDir, entry.workspace, entry.sha, [...files].sort(), lines, budget.depth, budget.maxSymbols]);
+    const key = JSON.stringify([repoDir, entry.workspace, entry.sha, [...files].sort(), lines, policy]);
     const known = this.walks.get(key);
     if (known) return known;
-    const walk = this.walkChange(repoDir, files, changed.touchedLines, budget);
+    const walk = this.walkChange(repoDir, files, changed.touchedLines, policy);
     this.walks.set(key, walk);
     /* Only an answer is kept: a failed walk may succeed when asked again. */
     void walk.then((result) => { if (!result.ok) this.walks.delete(key); }, () => this.walks.delete(key));
     return walk;
   }
 
-  private async walkChange(repoDir: string, files: string[], touchedLines: TouchedLines | undefined, budget: ImpactBudget): Promise<Result<ImpactReport, CodeGraphUnavailable>> {
+  private async walkChange(repoDir: string, files: string[], touchedLines: TouchedLines | undefined, policy: WalkPolicy): Promise<Result<ImpactReport, CodeGraphUnavailable>> {
     const listed = await this.read<{ symbols: StoreSymbol[]; truncated: boolean }>(repoDir, { op: "symbols", files });
     if (!listed.ok) return listed;
-    return this.walkFrom(repoDir, selectSeeds(listed.value.value.symbols, files, touchedLines), budget, listed.value.sha, listed.value.value.truncated, touchedLines === undefined ? "whole-file" : "lines");
+    return this.walkFrom(repoDir, selectSeeds(listed.value.value.symbols, files, touchedLines), policy, listed.value.sha, listed.value.value.truncated, touchedLines === undefined ? "whole-file" : "lines");
   }
 
-  async callersOf(repoDir: string, symbols: readonly LocalSymbolRef[], budget: ImpactBudget): Promise<Result<ImpactReport, CodeGraphUnavailable>> {
+  async callersOf(repoDir: string, symbols: readonly LocalSymbolRef[], policy: WalkPolicy): Promise<Result<ImpactReport, CodeGraphUnavailable>> {
     const entry = this.indexOf(repoDir);
     if (!entry) return err({ reason: "the repo is not indexed in this run" });
     if (symbols.length === 0) return ok({ indexedSha: entry.sha, symbols: [], truncated: false, seedBasis: "none" });
     const found = await this.read<{ symbols: StoreSymbol[]; truncated: boolean }>(repoDir, { op: "find", symbols: symbols.map((s) => ({ file: s.file, symbol: s.symbol })) });
     if (!found.ok) return found;
-    return this.walkFrom(repoDir, found.value.value.symbols, budget, found.value.sha, found.value.value.truncated, "lines");
+    return this.walkFrom(repoDir, found.value.value.symbols, policy, found.value.sha, found.value.value.truncated, "lines");
   }
 
   async explore(repoDir: string, terms: readonly string[], maxFiles: number): Promise<Result<ExploreAnswer, CodeGraphUnavailable>> {

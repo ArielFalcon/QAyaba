@@ -4,7 +4,7 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { BlastRadius } from "@kernel/blast-radius.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { CoChangePort } from "@kernel/ports/co-change.port.ts";
-import type { CoupledFile, ImpactBudget, ImpactedSymbol } from "@kernel/code/index.ts";
+import { DEFAULT_WALK_POLICY, type CoupledFile, type ImpactReport, type ImpactedSymbol, type WalkPolicy } from "@kernel/code/index.ts";
 import type { CodeExplorePort } from "@kernel/ports/code-explore.port.ts";
 import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
 import type { StructuralSignalResult } from "@kernel/ports/structural-signal.port.ts";
@@ -15,7 +15,11 @@ import { sanitizeText } from "../../../../shared-infrastructure/redaction/patter
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
 import { activeExecScope } from "../../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 
-export const ADVISORY_BUDGET: ImpactBudget = { depth: 3, maxSymbols: 300 };
+/* The walk policy every impact walk of the change shares. */
+export const ADVISORY_BUDGET: WalkPolicy = DEFAULT_WALK_POLICY;
+
+/* The most reached symbols the block is rendered from, nearest first: a bound of the prompt block, never of the walk. */
+export const RENDERED_SYMBOLS = 300;
 
 /* The change dossier's bounds: how many of the change's symbols it explores, how many files the engine may show, and how much of the block it may take (in bytes, and never more than the block can carry). */
 export const DOSSIER_LIMITS = { maxSymbols: 4, maxFiles: 4, maxChars: 8_000 } as const;
@@ -60,7 +64,26 @@ function note(attrs: Attrs): void {
 
 const reasonOf = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause)).replace(/\s+/g, " ").trim().slice(0, 200);
 
-/* The impact walk, or nothing when it fails; a failed or truncated walk is logged and recorded, never silent. */
+/* One line of what a walk did: its seeds, the partial ones, the hubs it pruned and the work it spent. */
+export function walkSummary(report: ImpactReport): string {
+  const seeds = report.symbols.filter((s) => s.depth === 0).length;
+  const cost = report.cost;
+  const limit = cost?.fanInLimit !== undefined ? ` at fan-in above ${cost.fanInLimit}` : "";
+  return `impact walk: ${seeds} seeds (${report.partialSeeds?.length ?? 0} partial), ${report.hubNodes?.length ?? 0} hub nodes pruned${limit}, ${cost?.expansions ?? 0} of ${cost?.budget ?? 0} expansions`;
+}
+
+/* The walk's attributes for the open phase's span. */
+export function walkAttrs(report: ImpactReport): Attrs {
+  return {
+    "qayaba.code_graph.walk.seeds": report.symbols.filter((s) => s.depth === 0).length,
+    "qayaba.code_graph.walk.seeds_partial": report.partialSeeds?.length ?? 0,
+    "qayaba.code_graph.walk.hub_nodes": report.hubNodes?.length ?? 0,
+    ...(report.cost ? { "qayaba.code_graph.walk.expansions": report.cost.expansions, "qayaba.code_graph.walk.budget": report.cost.budget } : {}),
+    ...(report.cost?.fanInLimit !== undefined ? { "qayaba.code_graph.walk.fan_in_limit": report.cost.fanInLimit } : {}),
+  };
+}
+
+/* The impact walk, or nothing when it fails; a failed walk, or one that left a seed partial, is logged and recorded, never silent. */
 async function safeImpacted(codeGraph: CodeGraphPort, repoDir: string, changed: BlastRadius): Promise<{ symbols: ImpactedSymbol[]; indexedSha?: string }> {
   const failed = (reason: string) => {
     engineLog.warn(`[qa] structural signal: the impact walk failed, so the block lists no symbols: ${reason}`);
@@ -70,8 +93,8 @@ async function safeImpacted(codeGraph: CodeGraphPort, repoDir: string, changed: 
   try {
     const result = await codeGraph.impactedSymbols(repoDir, changed, ADVISORY_BUDGET);
     if (!result.ok) return failed(reasonOf(result.error.reason));
-    if (result.value.truncated) engineLog.warn(`[qa] structural signal: the impact walk stopped at its budget (${ADVISORY_BUDGET.maxSymbols} symbols, depth ${ADVISORY_BUDGET.depth}); the block lists only part of what the change reaches`);
-    note({ "qayaba.structural.walk": result.value.truncated ? "truncated" : "complete" });
+    if (result.value.truncated) engineLog.warn(`[qa] structural signal: ${walkSummary(result.value)}; the block lists only part of what the partial seeds reach`);
+    note({ "qayaba.structural.walk": result.value.truncated ? "truncated" : "complete", ...walkAttrs(result.value) });
     return { symbols: result.value.symbols, indexedSha: result.value.indexedSha };
   } catch (cause) {
     return failed(reasonOf(cause));
@@ -126,8 +149,9 @@ export class StructuralSignalPortAdapter implements StructuralSignalPort {
 
     const [reached, coupled] = await Promise.all([safeImpacted(this.codeGraph, this.repoDir, changed), safeCoupled(this.coChange, this.repoDir, changed)]);
     const ref = (s: ImpactedSymbol) => ({ file: s.file, symbol: s.symbol });
-    const impacted = reached.symbols.filter((s) => s.depth === 0).map(ref);
-    const callers = reached.symbols.filter((s) => s.depth > 0).map(ref);
+    const rendered = reached.symbols.slice(0, RENDERED_SYMBOLS);
+    const impacted = rendered.filter((s) => s.depth === 0).map(ref);
+    const callers = rendered.filter((s) => s.depth > 0).map(ref);
     const dossier = await this.dossierOf(reached.symbols);
     const text = renderBlastRadiusSignal({ impacted, callers, coupled, ...(dossier ? { dossier: dossier.text } : {}) });
     /* The renderer leaves out a dossier the block's byte budget cannot hold: its files are provided only when the text shows them. */

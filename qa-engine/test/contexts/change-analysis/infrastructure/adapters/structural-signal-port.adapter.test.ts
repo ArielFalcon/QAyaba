@@ -3,7 +3,7 @@
    them. Never throws: an unavailable answer degrades to an empty list for that field. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ADVISORY_BUDGET, StructuralSignalPortAdapter } from "@contexts/change-analysis/infrastructure/adapters/structural-signal-port.adapter.ts";
+import { ADVISORY_BUDGET, RENDERED_SYMBOLS, StructuralSignalPortAdapter } from "@contexts/change-analysis/infrastructure/adapters/structural-signal-port.adapter.ts";
 import { DOSSIER_HEADING, renderBlastRadiusSignal } from "@contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts";
 import type { CodeExplorePort } from "@kernel/ports/code-explore.port.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
@@ -302,4 +302,34 @@ test("a failed, thrown or truncated impact walk is logged and recorded, and rend
   const ok = await observed(() => new StructuralSignalPortAdapter(reaching, fakeCoChange(), "/repo").render("/repo", changed));
   assert.equal(ok.notes["qayaba.structural.walk"], "complete");
   assert.deepEqual(ok.logs, [], "a complete walk logs nothing");
+});
+
+test("the block is rendered from the walk's nearest symbols up to its rendering bound, however far the walk went", async () => {
+  const far = Array.from({ length: RENDERED_SYMBOLS + 100 }, (_, i): ImpactedSymbol => ({ file: "src/Caller.java", symbol: `c${i}`, kind: "method", depth: 1 + Math.floor(i / 200), confidence: 1, via: { file: "src/Foo.java", symbol: "run" } }));
+  const adapter = new StructuralSignalPortAdapter(fakeCodeGraph({ impactedSymbols: async () => report([changedSymbol, ...far]) }), fakeCoChange(), "/repo");
+
+  const { text } = await adapter.render("/repo", changed);
+
+  const shown = [changedSymbol, ...far].slice(0, RENDERED_SYMBOLS);
+  const ref = (s: ImpactedSymbol) => ({ file: s.file, symbol: s.symbol });
+  assert.equal(text, renderBlastRadiusSignal({ impacted: shown.filter((s) => s.depth === 0).map(ref), callers: shown.filter((s) => s.depth > 0).map(ref), coupled: [] }));
+});
+
+test("a walk that left seeds partial or pruned hubs records what it did on the phase", async () => {
+  const partial = ok({
+    indexedSha: SHA,
+    symbols: [changedSymbol, caller],
+    truncated: true,
+    seedBasis: "lines" as const,
+    partialSeeds: [{ file: "src/Foo.java", symbol: "run" }],
+    hubNodes: [],
+    cost: { expansions: 40, budget: 40, fanInLimit: 12, closureExpansions: 0, closureBudget: 100 },
+  });
+  const { notes, logs } = await observed(() => new StructuralSignalPortAdapter(fakeCodeGraph({ impactedSymbols: async () => partial }), fakeCoChange(), "/repo").render("/repo", changed));
+
+  assert.deepEqual(
+    [notes["qayaba.code_graph.walk.seeds"], notes["qayaba.code_graph.walk.seeds_partial"], notes["qayaba.code_graph.walk.hub_nodes"], notes["qayaba.code_graph.walk.expansions"], notes["qayaba.code_graph.walk.budget"], notes["qayaba.code_graph.walk.fan_in_limit"]],
+    [1, 1, 0, 40, 40, 12],
+  );
+  assert.ok(logs.some((l) => l.includes("impact walk: 1 seeds (1 partial), 0 hub nodes pruned at fan-in above 12, 40 of 40 expansions")));
 });

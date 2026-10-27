@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import type { BlastRadius } from "../../../shared-kernel/blast-radius.ts";
 import { Sha } from "../../../shared-kernel/sha.ts";
 import type { CodeGraphPort } from "../../../shared-kernel/ports/code-graph.port.ts";
+import { DEFAULT_WALK_POLICY } from "../../../shared-kernel/code/index.ts";
 import { rethrowIfUntrusted } from "../../../shared-kernel/domain-error.ts";
 import type { MirrorRefreshPort } from "./ports/mirror-refresh.port.ts";
 import { routeServesOperation } from "../domain/cross-repo-impact.ts";
@@ -23,8 +24,6 @@ export interface MirrorRegistryLike {
   mirrorDir(repo: string): Promise<string>;
 }
 
-/* The same walk budget as the structural signal: a hub module cannot blow it. */
-const IMPACT_BUDGET = { depth: 3, maxSymbols: 300 } as const;
 
 export class ResolveCrossRepoImpactUseCase {
   constructor(
@@ -77,9 +76,9 @@ export class ResolveCrossRepoImpactUseCase {
        * reached at depth 0), by either key. The operationId: a codegen interface, and the controller implementing it, name
        * the method after it. The handler's verb and path: a hand-written controller's route node names them.
        */
-      const impactedRes = this.codeGraph ? await this.codeGraph.impactedSymbols(mirrorDir, blast, IMPACT_BUDGET) : undefined;
+      const impactedRes = this.codeGraph ? await this.codeGraph.impactedSymbols(mirrorDir, blast, DEFAULT_WALK_POLICY) : undefined;
       if (impactedRes && !impactedRes.ok) engineLog.warn(`[qa] WARNING: the index did not answer the cross-repo impact walk of ${triggerRepo}, so only the contract-file tier applies (non-blocking): ${impactedRes.error.reason}`);
-      if (impactedRes?.ok && impactedRes.value.truncated) engineLog.warn(`[qa] WARNING: the cross-repo impact walk of ${triggerRepo} was cut by its budget; a link it would reach may be missing (non-blocking).`);
+      if (impactedRes?.ok && impactedRes.value.truncated) engineLog.warn(`[qa] WARNING: the cross-repo impact walk of ${triggerRepo} left ${impactedRes.value.partialSeeds?.length ?? 0} seed(s) partial at its expansion budget; a link one of them would reach may be missing (non-blocking).`);
       const reached = impactedRes?.ok ? impactedRes.value.symbols : [];
       const reachedNames = new Set(reached.map((s) => s.symbol));
       const reachedRefs = new Set(reached.map((s) => `${s.file}::${s.symbol}`));
