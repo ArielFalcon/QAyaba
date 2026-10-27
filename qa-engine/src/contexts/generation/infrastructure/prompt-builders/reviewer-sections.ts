@@ -18,6 +18,7 @@ import { WINDOW_FIT_REASON, type SectionDegradation } from "@kernel/prompt-secti
 import { REVIEWER_CHANGE_SECTIONS } from "./reviewer-change-sections.ts";
 import { diffWindowDegrade } from "./plan-diff-section.ts";
 import { countByDirectory, domPagesDegrade, NOT_SHOWN, referenceDegrade, stepsDegrade } from "../../domain/window-fit-references.ts";
+import { dataContradictionRef, dataContradictionStatement, type DataContradiction } from "@kernel/data-contradiction.ts";
 import { availabilityLine } from "../../domain/route-availability-section.ts";
 
 /* The reviewer's statement of its own cap is a section of its own, apart from the generator's. */
@@ -207,6 +208,24 @@ function renderRouteAvailability({ input }: ReviewerContext): SectionRender {
   };
 }
 
+/* The run's data contradictions: two data sources of one captured page that disagree on what their items carry, read from the answers the page received. A finding that a spec adapts to one (an expected value read from the state it checks, a check skipped when that state is empty) can cite it. */
+function renderDataContradictions({ input }: ReviewerContext): SectionRender {
+  const facts = input.dataContradictions ?? [];
+  const head = [
+    `## Possible data contradictions — read by the orchestrator from the answers this run's pages received`,
+    `A finding that a spec passes by adapting to one of these (an expected value derived from the state it checks, or a check guarded by that state) may cite "citation":{"kind":"contradiction","ref":"<ref>"} with the ref as listed.`,
+  ];
+  const line = (fact: DataContradiction): string => sanitizeText(`- ${dataContradictionRef(fact)}: ${dataContradictionStatement(fact)}`, "model").text;
+  /* Over the window: the refs a citation names, then how many there are. */
+  const asRefs = [...head, `What each source returned is ${NOT_SHOWN}; the refs:`, ...facts.map((fact) => sanitizeText(`- ${dataContradictionRef(fact)}`, "model").text)].join("\n");
+  const asCount = [...head, `The ${facts.length} contradiction(s) are ${NOT_SHOWN}.`].join("\n");
+  return {
+    content: [...head, ...facts.map(line)].join("\n"),
+    overflow: "summarize",
+    degrade: stepsDegrade([{ content: asRefs, items: facts.length }, { content: asCount, items: facts.length }]),
+  };
+}
+
 function renderPriorCorrections(ctx: ReviewerContext): SectionRender {
   const { input } = ctx;
   const corrections = input.priorCorrections ?? [];
@@ -296,6 +315,8 @@ export const REVIEWER_SECTIONS: readonly PromptSectionDef<ReviewerContext>[] = [
   { id: REVIEWER_MISSING_CASES_SECTION_ID, tier: "volatile", priority: 3, stability: "run", reason: "The arms no test ran, so a missing case cites a measured arm and never gates (d717095d)", applies: ({ input }) => Boolean(input.untakenArms?.length), render: renderMissingCases },
   /* Where the routes the capture could not show at their own address end, and why: an `availability` citation names one. */
   { id: "reviewer-route-availability", tier: "volatile", priority: 3, stability: "run", reason: "A spec that claims to cover a route the change makes unavailable can be checked against where the run saw it end (route-availability S2)", applies: ({ input }) => Boolean(input.routeAvailability?.length), render: renderRouteAvailability },
+  /* Two data sources of a page that disagree on what their items carry, as the orchestrator read them: a `contradiction` citation names one. */
+  { id: "reviewer-data-contradictions", tier: "volatile", priority: 3, stability: "run", reason: "A spec that passes by adapting to a state the run saw contradict itself can be cited against that fact (hand-qa-gaps S3/S4: run ed28973 passed over a missing key)", applies: ({ input }) => Boolean(input.dataContradictions?.length), render: renderDataContradictions },
   /* VOLATILE: prior-round corrections (priority 4 — convergence context; lowest priority in VOLATILE so it does not crowd out the spec contents or DOM grounding on budget overflow). */
   { id: "reviewer-prior-corrections", tier: "volatile", priority: 4, stability: "run", reason: "Convergent rounds: approve once the earlier blocking findings are resolved (14ec74b7)", applies: ({ input }) => Boolean(input.priorCorrections?.length), render: renderPriorCorrections },
   /* What the generator changed since the rejection this round answers: the smallest section in the prompt, and the one the round is about. Shed first when the window is tight. */

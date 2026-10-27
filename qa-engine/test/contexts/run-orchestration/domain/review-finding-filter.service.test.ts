@@ -7,6 +7,7 @@ import {
   type CitedFinding,
   type ReviewScope,
 } from "@contexts/run-orchestration/domain/review-finding-filter.service.ts";
+import { dataContradictionRefs } from "@kernel/data-contradiction.ts";
 
 const SPEC_DIR = "e2e";
 const scope: ReviewScope = {
@@ -213,4 +214,28 @@ test("an availability citation blocks only when it names a route the run classif
   assert.deepEqual(out.advisory, ["advisory about the same route"]);
   assert.deepEqual(out.droppedBlocking, { "no-availability-fact": 1 });
   assert.deepEqual(filterReviewFindings([finding({ text: "no facts", citation: { kind: "availability", ref: "/upload-menu/preview" } })], scope).blocking, []);
+});
+
+const contradiction = { route: "/browse", template: "/browse/:region", key: "category", carriedBy: { operation: "GET https://app.example/api/items", items: 40 }, missingFrom: { operation: "GET https://app.example/api/items/by-region/ES", items: 12 }, schemaBacked: false };
+
+test("a finding that cites a data contradiction the run recorded is a verified finding against the adaptive assertion, in any spelling of its page", () => {
+  const recorded: ReviewScope = { ...scope, contradictionRefs: dataContradictionRefs([contradiction]) };
+  const out = filterReviewFindings(
+    [
+      finding({ text: "[false-positive] the spec guards its check with `if (offered.length > 0)` over a source the run saw contradict itself", citation: { kind: "contradiction", ref: "/browse#category" } }),
+      finding({ text: "same fact by the template it was opened from", citation: { kind: "contradiction", ref: "https://dev.example/browse/:region/?x=1#category" } }),
+      finding({ text: "a key the run never saw contradict", citation: { kind: "contradiction", ref: "/browse#zone" } }),
+      finding({ text: "a page with no contradiction", citation: { kind: "contradiction", ref: "/cart#category" } }),
+      finding({ text: "no key named", citation: { kind: "contradiction", ref: "/browse" } }),
+      finding({ text: "advisory about the same fact", severity: "advisory", citation: { kind: "contradiction", ref: "/browse#category" } }),
+    ],
+    recorded,
+  );
+  assert.deepEqual(out.blocking, ["[false-positive] the spec guards its check with `if (offered.length > 0)` over a source the run saw contradict itself", "same fact by the template it was opened from"]);
+  assert.deepEqual(out.advisory, ["advisory about the same fact"]);
+  assert.deepEqual(out.droppedBlocking, { "no-contradiction-fact": 3 });
+});
+
+test("a data contradiction citation with no contradiction recorded verifies nothing", () => {
+  assert.deepEqual(filterReviewFindings([finding({ text: "no facts", citation: { kind: "contradiction", ref: "/browse#category" } })], scope).blocking, []);
 });

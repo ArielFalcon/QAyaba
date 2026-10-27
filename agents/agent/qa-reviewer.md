@@ -117,6 +117,9 @@ Each correction MUST be a structured object with three fields:
     the run and never changes `approved`.
   - `"availability"`: only when the prompt lists the run's route availability; `ref` is one listed
     route, for a spec that claims to cover it but never asserts where the browser ends.
+  - `"contradiction"`: only when the prompt lists data contradictions of the run; `ref` is one listed
+    ref (`<path>#<key>`), for a spec that passes by adapting to that state: an expected value read
+    from the state it checks, or a check guarded by it (`if (offered.length > 0)`).
   Cite only evidence you actually hold. A correction with no citation can never block: the
   orchestrator treats it as advisory at most, so an uncited blocking correction changes nothing.
   - **blocking**: the test is worthless or actively harmful (false-positive, wrong-objective,

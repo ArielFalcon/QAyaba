@@ -11,8 +11,9 @@
 
 import { resolveCitedSpec, resolveSpecReference } from "@kernel/spec-path.ts";
 import { pathOnly } from "@kernel/route-availability.ts";
+import { normalizedContradictionRef } from "@kernel/data-contradiction.ts";
 
-export type ReviewCitationKind = "contract" | "execution" | "dom" | "arm" | "availability";
+export type ReviewCitationKind = "contract" | "execution" | "dom" | "arm" | "availability" | "contradiction";
 
 /** What a finding claims to rest on. The ref names the spec (and, for a contract, its clause), or for an arm its `<file>:<line>`. */
 export interface ReviewCitation {
@@ -37,10 +38,12 @@ export interface ReviewScope {
   readonly executedSpecs: ReadonlySet<string>;
   /** The routes (pathnames, and the templates they are pages of) the run holds an availability fact for: what an `availability` citation names. */
   readonly availabilityRoutes?: ReadonlySet<string>;
+  /** The data contradictions the run recorded, as a citation names them (`<path>#<key>`, the page by its address or by its template): what a `contradiction` citation names. */
+  readonly contradictionRefs?: ReadonlySet<string>;
 }
 
 /** Why a finding can never block: it cites nothing, an arm nobody checked, a reference that names no spec the suite can hold, a spec outside this run's scope, or an execution this run did not perform. */
-export type DropReason = "uncited" | "arm" | "unresolved" | "out-of-scope" | "not-executed" | "no-availability-fact";
+export type DropReason = "uncited" | "arm" | "unresolved" | "out-of-scope" | "not-executed" | "no-availability-fact" | "no-contradiction-fact";
 
 export interface FilteredReviewFindings {
   /** Verified, reviewer-blocking findings: the only ones that reach the generator or fail the gate. */
@@ -104,6 +107,17 @@ export function filterReviewFindings(
       /* A route the run classified: where the browser ends there is a fact of the run's own capture. */
       if (!(scope.availabilityRoutes ?? new Set<string>()).has(pathOnly(citation.ref.trim()))) {
         drop(finding, "no-availability-fact");
+        continue;
+      }
+      if (finding.severity === "blocking") blocking.push(finding.text);
+      else advisory.push(finding.text);
+      continue;
+    }
+    if (citation.kind === "contradiction") {
+      /* Two data sources of a page the run read disagreeing is a fact of the run's own capture: a spec that adapts to it hides a possible defect. */
+      const ref = normalizedContradictionRef(citation.ref);
+      if (ref === undefined || !(scope.contradictionRefs ?? new Set<string>()).has(ref)) {
+        drop(finding, "no-contradiction-fact");
         continue;
       }
       if (finding.severity === "blocking") blocking.push(finding.text);

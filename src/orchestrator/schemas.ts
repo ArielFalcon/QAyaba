@@ -540,7 +540,7 @@ export const CorrectionEntrySchema = z.union([
     text: z.string(),
     severity: z.enum(["blocking", "advisory"]),
     citation: z
-      .object({ kind: z.enum(["contract", "execution", "dom", "arm", "availability"]), ref: z.string() })
+      .object({ kind: z.enum(["contract", "execution", "dom", "arm", "availability", "contradiction"]), ref: z.string() })
       .optional()
       .catch(undefined),
   }),
@@ -565,7 +565,7 @@ export function correctionSeverity(entry: CorrectionEntry): "blocking" | "adviso
 }
 
 /* Resolve a correction entry's cited evidence, if it carries any. */
-export function correctionCitation(entry: CorrectionEntry): { kind: "contract" | "execution" | "dom" | "arm" | "availability"; ref: string } | undefined {
+export function correctionCitation(entry: CorrectionEntry): { kind: "contract" | "execution" | "dom" | "arm" | "availability" | "contradiction"; ref: string } | undefined {
   return typeof entry === "string" ? undefined : entry.citation;
 }
 

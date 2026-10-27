@@ -1,6 +1,7 @@
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import type { ReviewChangeView } from "./review-change-view.ts";
 import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
+import type { DataContradiction } from "@kernel/data-contradiction.ts";
 
 export type CommitType =
   | "feat" | "fix" | "perf" | "refactor" | "chore"
@@ -91,6 +92,8 @@ export interface ReviewInput {
   untakenArms?: { file: string; line: number; kind: string; arm: string }[];
   /* Why the routes the run's capture could not show at their own address were not. Absent when it classified none. */
   routeAvailability?: readonly RouteAvailabilityFact[];
+  /* The data sources of one captured page that disagreed on what their items carry: the facts a `contradiction` citation names. Absent when the run recorded none. */
+  dataContradictions?: readonly DataContradiction[];
   /* The step limit the runtime enforces for the reviewer's session. Absent = the runtime enforces none or could not be read, and no prompt states one. */
   stepLimit?: number;
   /* On a run with a plan whose flows under review own part of the change: the change by flow, given instead of the whole diff. Absent: the objective is the whole diff. */
