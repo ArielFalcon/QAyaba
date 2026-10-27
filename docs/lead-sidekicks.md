@@ -96,7 +96,7 @@ signed-in app (see below); without either, no sidekick can author and the run en
    the changed behaviour with its own client (`dropRefusal`).
 3. **Author.** Each sidekick's brief carries the Live DOM of its flow's pages (by address, or by the map template a
    page was opened from) and the data requests those pages made while they were captured, cut from the run's Context Pack
-   (`packPagesFor`); over the author's window the pages give way first, then those requests, last fact first, as a count; a flow whose pages the pack did not read gets
+   (`packPagesFor`); over the author's window the pages give way first, then those requests, then the data contradictions those pages showed (`Possible data contradictions`, facts the run observed: see `Data contradictions` in `AGENTS.md`), last fact first, as a count; a flow whose pages the pack did not read gets
    none. The brief states the change the flow must exercise in one section, cut from the run's change map
    (`brief-change.ts`, over the kernel's `buildChangeMap` and `sliceFor`): every use case the flow must exercise (those its
    plan cites, then those its routes name), each with its id, its reach path, its changed symbols with their ranges and

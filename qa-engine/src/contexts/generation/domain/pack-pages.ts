@@ -32,14 +32,14 @@ export function pageIsNamed(route: string, template: string | undefined, wanted:
   return wanted.has(opened) || [...wanted].some((name) => namesTemplatePage(opened, name));
 }
 
-/* The facts of the pack's requests section for the wanted pages, in the pack's order; `heading` is the section's own heading line, when it holds any. */
-function requestFactsFor(pack: string, wanted: ReadonlySet<string>): { heading?: string; facts: Array<{ line: string; request: string; counted: boolean }> } {
+/* The facts of one of the pack's sections of per-page facts (the requests section unless another is named) for the wanted pages, in the pack's order; `heading` is the section's own heading line, when it holds any. */
+function requestFactsFor(pack: string, wanted: ReadonlySet<string>, section: string = PACK_HEADINGS.requests): { heading?: string; facts: Array<{ line: string; request: string; counted: boolean }> } {
   let heading: string | undefined;
   const facts: Array<{ line: string; request: string; counted: boolean }> = [];
   let inSection = false;
   for (const line of pack.split("\n")) {
     if (HEADING.test(line)) {
-      inSection = line.startsWith(`### ${PACK_HEADINGS.requests}`);
+      inSection = line.startsWith(`### ${section}`);
       if (inSection) heading = line;
       continue;
     }
@@ -78,9 +78,12 @@ export function packPagesFor(pack: string | undefined, routes: readonly string[]
     return pageIsNamed(route!, template, wanted);
   });
   if (mine.length === 0) return undefined;
-  const requests = requestFactsFor(pack, wanted);
-  const requestLines = requests.facts.length === 0 ? [] : ["", requests.heading!, ...requests.facts.map((fact) => fact.line)];
-  return [...head, ...mine.map((page) => page.join("\n")), ...requestLines].join("\n");
+  /* The facts of the pages' other sections come after them: what they requested, then what their data contradicts. */
+  const factLines = [PACK_HEADINGS.requests, PACK_HEADINGS.contradictions].flatMap((section) => {
+    const facts = requestFactsFor(pack, wanted, section);
+    return facts.facts.length === 0 ? [] : ["", facts.heading!, ...facts.facts.map((fact) => fact.line)];
+  });
+  return [...head, ...mine.map((page) => page.join("\n")), ...factLines].join("\n");
 }
 
 /* The lines of a pack text that are facts of one of its sections: the `- ` lines under the heading, which runs to the next heading. */

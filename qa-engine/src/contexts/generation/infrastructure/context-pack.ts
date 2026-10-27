@@ -21,6 +21,9 @@ import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import { classifyPackAvailability, type PackAvailabilityInput } from "./pack-availability.ts";
 import { availabilitySectionLines } from "../domain/route-availability-section.ts";
 import { requestsSectionLines, REQUESTS_SECTION_INTRO } from "../domain/pack-requests.ts";
+import { contradictionsSectionLines, CONTRADICTIONS_SECTION_INTRO } from "../domain/pack-contradictions.ts";
+import { findDataContradictions, type ResponseFieldsOf } from "../domain/data-contradictions.ts";
+import type { DataContradiction } from "@kernel/data-contradiction.ts";
 export { PACK_HEADINGS };
 
 const SECTION_FACTS: ReadonlyArray<readonly [string, FactId]> = [
@@ -78,6 +81,9 @@ export interface ContextPackInput {
 
   /* Classify why a captured route was not available at its own address. Absent → no classification and no availability section. */
   availability?: PackAvailabilityInput;
+
+  /* The fields the app's OpenAPI documents declare for the items an operation returns: what backs a possible data contradiction. Absent → no fact is backed by a schema and none is removed by one. */
+  responseFields?: ResponseFieldsOf;
 }
 
 /* What the pack was made from, for the trace: nothing here reaches the agent or the verdict. */
@@ -142,6 +148,8 @@ export interface ContextPackAssembly {
   changedValuesWithMoreNodes?: string[];
   /* Why each captured route that was not available at its own address was not, and how many routes the capture read. Absent when the pack did not classify. */
   routeAvailability?: { read: number; facts: RouteAvailabilityFact[] };
+  /* The data sources of one page that disagree on what their items carry, and how many pages had a response shape to read. Absent when no page did. */
+  dataContradictions?: { read: number; facts: DataContradiction[] };
 }
 
 /* mutation-scope:begin context-pack-deps */
@@ -531,6 +539,14 @@ export async function buildContextPack(
   );
   const requestsSection = requestLines.length > 0 ? sanitizeText([`### ${PACK_HEADINGS.requests} ${REQUESTS_SECTION_INTRO}`, ...requestLines].join("\n"), "model").text : "";
 
+  /* The data sources of one page that disagree on what their items carry (key names and counts read from the answers the page received), as facts of the page: a possible defect of the app's data that a test must not be written around. A signal; the same pattern redaction. */
+  const shapePages = [...pages.values()].flatMap((page) => (page.shapes !== undefined && reportedRoutes.has(page.route) ? [{ route: page.route, ...(page.template !== undefined ? { template: page.template } : {}), shapes: page.shapes }] : []));
+  const found = findDataContradictions(shapePages, input.responseFields);
+  if (found.omitted > 0) log(`[qa] WARNING: ${found.omitted} possible data contradiction(s) were not listed, past the bound of one page (non-blocking).`);
+  const dataContradictions = found.pages > 0 ? { read: found.pages, facts: found.facts } : undefined;
+  const contradictionLines = contradictionsSectionLines(found.facts);
+  const contradictionsSection = contradictionLines.length > 0 ? sanitizeText([`### ${PACK_HEADINGS.contradictions} ${CONTRADICTIONS_SECTION_INTRO}`, ...contradictionLines].join("\n"), "model").text : "";
+
   const domBytes = Buffer.byteLength(domSection, "utf8");
   const contractBytes = Buffer.byteLength(contractSection, "utf8");
   const trace: ContextPackTrace = domPack
@@ -565,12 +581,13 @@ export async function buildContextPack(
     { text: domSection, held: "the live DOM of the routes it covers" },
     { text: changedValuesSection, held: "what the captured pages show of the values the change added and removed" },
     { text: requestsSection, held: "the data requests the captured pages made" },
+    { text: contradictionsSection, held: "the data contradictions their pages show (possible defects)" },
     { text: redirectSection, held: "the pages reached by redirect (advisory)" },
     { text: availabilitySection, held: "why the routes not shown at their own address were not" },
     { text: contractSection, held: "the API contracts relevant to this objective" },
   ].filter(hasText);
   if (sections.length === 0) {
-    return { text: undefined, domBytes: 0, contractBytes: 0, trace, ...(routeAvailability !== undefined ? { routeAvailability } : {}) };
+    return { text: undefined, domBytes: 0, contractBytes: 0, trace, ...(routeAvailability !== undefined ? { routeAvailability } : {}), ...(dataContradictions !== undefined ? { dataContradictions } : {}) };
   }
   /* The list of routes left out accompanies a pack that has something to say; it is no reason to make one. */
   sections.push(...[{ text: renderNotCapturable(notCaptured), held: "the routes not capturable, with why" }].filter(hasText));
@@ -587,5 +604,5 @@ export async function buildContextPack(
   ].join("\n");
 
   const text = packHeader + parts.join("\n\n");
-  return { text, domBytes, contractBytes, trace, ...(moreNodes.length > 0 ? { changedValuesWithMoreNodes: moreNodes } : {}), ...(routeAvailability !== undefined ? { routeAvailability } : {}) };
+  return { text, domBytes, contractBytes, trace, ...(moreNodes.length > 0 ? { changedValuesWithMoreNodes: moreNodes } : {}), ...(routeAvailability !== undefined ? { routeAvailability } : {}), ...(dataContradictions !== undefined ? { dataContradictions } : {}) };
 }

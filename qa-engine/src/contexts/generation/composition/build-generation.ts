@@ -151,6 +151,7 @@ export function buildGeneration(deps: GenerationDeps): GenerationApi {
           domPack: grounding.domPack,
           contextPack: grounding.contextPack,
           ...(grounding.readAtRef ? { readAtRef: grounding.readAtRef } : {}),
+          ...(run.openapi ? { openapi: run.openapi } : {}),
           ...(run.triggerService ? { stagedRoots: stagedRootsOf(run.mirrorDir, e2eDir, run.triggerService.mirrorDir) } : {}),
         },
         telemetry ? { ...groundingCollaborators, trace: telemetryGroundingTrace(telemetry, grounding.contextMapProvenance) } : groundingCollaborators,

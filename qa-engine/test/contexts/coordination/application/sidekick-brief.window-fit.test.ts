@@ -92,3 +92,16 @@ test("the requests of the flow's pages reach the brief whole while the window ho
   assert.match(over.text, /\(\d+ more request\(s\) are not shown here, to fit the window\)/);
   assert.ok(over.sectionItems["context-pack"]?.omissions.some((o) => o.reason === WINDOW_FIT_REASON && o.route === undefined));
 });
+
+const CONTRADICTION_FACTS = Array.from({ length: 3 }, (_, i) => `- /cart: GET https://api.example/v${i}/by-region returned 3 items, none with "key${i}", while GET https://api.example/v${i}/all returned 9 items of the same kind with it`);
+const PAGES_WITH_CONTRADICTIONS = [PAGES_WITH_REQUESTS, "", `### ${PACK_HEADINGS.contradictions} (two sources disagree)`, ...CONTRADICTION_FACTS].join("\n");
+
+test("the data contradictions of the flow's pages reach the brief, and over the window they outlast the pages and the requests", () => {
+  const brief = createDelegationBrief({ ...base, pages: PAGES_WITH_CONTRADICTIONS });
+  const whole = assembleSidekickBrief(redaction, brief, roomy);
+  for (let i = 0; i < CONTRADICTION_FACTS.length; i++) assert.ok(whole.text.includes(`none with "key${i}"`), `fact ${i}`);
+
+  const over = assembleSidekickBrief(redaction, brief, windowOf(bytesOf(whole.text) - 16_500));
+  assert.match(over.text, /\(\d+ more request\(s\) are not shown here, to fit the window\)/, "requests gave way");
+  for (let i = 0; i < CONTRADICTION_FACTS.length; i++) assert.ok(over.text.includes(`none with "key${i}"`), `fact ${i} stayed`);
+});

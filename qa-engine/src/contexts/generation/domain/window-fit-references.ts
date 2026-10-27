@@ -43,11 +43,13 @@ const PACK_FACT_SECTIONS: ReadonlyArray<{ heading: string; noun: string }> = [
   { heading: PACK_HEADINGS.availability, noun: "route" },
   { heading: PACK_HEADINGS.requests, noun: "request" },
   { heading: PACK_HEADINGS.contracts, noun: "contract" },
+  { heading: PACK_HEADINGS.contradictions, noun: "contradiction" },
 ];
 
 /*
  * The Context Pack over the window: its Live DOM gives way page by page (the lowest-ranked page first), then its availability
- * facts, then the requests its pages made, then its API contracts, the last-listed fact first, each named by a count. `liveDom` is the
+ * facts, then the requests its pages made, then its API contracts, then the data contradictions its pages show (the last to go: few
+ * and the ones that point at a defect), the last-listed fact first, each named by a count. `liveDom` is the
  * heading of the DOM section.
  */
 export function packDegrade(opts: { pack: string; liveDom: string; itemIds?: readonly string[]; omissions?: readonly Omission[] }): (step: number) => SectionDegradation | undefined {
@@ -85,20 +87,35 @@ export function packDegrade(opts: { pack: string; liveDom: string; itemIds?: rea
   };
 }
 
+/* The sections of per-page facts a flow's pages bring with them, in the order they give way over the window, the last-listed fact of each first. */
+const BRIEF_FACT_SECTIONS: ReadonlyArray<{ heading: string; noun: string }> = [
+  { heading: PACK_HEADINGS.requests, noun: "request" },
+  { heading: PACK_HEADINGS.contradictions, noun: "contradiction" },
+];
+
 /*
- * A flow's pages over the window: they give way page by page (the last page first), then the requests those pages made, the last
- * fact first, each named by a count. `wrap` puts the pages back under their head.
+ * A flow's pages over the window: they give way page by page (the last page first), then the requests those pages made, then the data
+ * contradictions they show, the last fact of each first, each named by a count. `wrap` puts the pages back under their head.
  */
 export function pagesDegrade(opts: { dom: string; wrap: (dom: string) => string }): (step: number) => SectionDegradation | undefined {
   const pages = domPageCount(opts.dom);
   const dom = domPagesDegrade(opts);
-  const facts = sectionFactCount(opts.dom, PACK_HEADINGS.requests);
+  const sections = BRIEF_FACT_SECTIONS.map((section) => ({ ...section, facts: sectionFactCount(opts.dom, section.heading) }));
+  const total = sections.reduce((sum, section) => sum + section.facts, 0);
   return (step) => {
     if (step <= pages) return dom(step);
-    if (step - pages > facts) return undefined;
+    if (step - pages > total) return undefined;
     const base = pages > 0 ? dom(pages) : undefined;
-    const given = referenceSectionFacts(base?.content ?? opts.wrap(opts.dom), PACK_HEADINGS.requests, step - pages, "request");
-    return { content: given.text, omissions: [...(base?.omissions ?? []), windowFit(given.left)] };
+    let text = base?.content ?? opts.wrap(opts.dom);
+    let remaining = step - pages;
+    let left = 0;
+    for (const section of sections) {
+      const given = referenceSectionFacts(text, section.heading, Math.min(remaining, section.facts), section.noun);
+      text = given.text;
+      remaining -= given.left;
+      left += given.left;
+    }
+    return { content: text, omissions: [...(base?.omissions ?? []), windowFit(left)] };
   };
 }
 

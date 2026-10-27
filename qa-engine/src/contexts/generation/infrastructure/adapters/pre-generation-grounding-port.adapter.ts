@@ -24,6 +24,8 @@ import { changedDecisionsOf } from "./changed-decisions.ts";
 import { filesLinkedToPages, rankRoutesWithRelevance } from "@contexts/generation/application/index.ts";
 import type { PackAvailabilityInput } from "../pack-availability.ts";
 import { routeChangeEvidence } from "./route-change-evidence.ts";
+import { loadResponseFields } from "../openapi-response-fields.source.ts";
+import type { ResponseFieldsOf } from "../../domain/data-contradictions.ts";
 const diffParser = new DiffParserService();
 
 export interface PreGenerationGroundingStaticContext {
@@ -41,6 +43,8 @@ export interface PreGenerationGroundingStaticContext {
   stagedRoots?: string[]; /* cross-repo runs only: where the triggering service's snapshot was staged, as the map may name it (present even when empty) — the pack ranks a route only by the spec of an operation it joins, under these roots */
   /* One file of the working copy's repository as it was at a commit, through the confined mirror reader: the route table at the run's base. Absent → no route is proven unchanged. */
   readAtRef?: (ref: string, file: string) => Promise<string | undefined>;
+  /* Where the app keeps its OpenAPI documents (the config's `openapi` globs). Absent → files named like one are looked for. */
+  openapi?: string | string[];
 }
 
 /* Told what grounding supplied, as it supplies it. Read-only: nothing it does reaches what the agent receives, and a fault in it is logged and ignored. */
@@ -255,6 +259,23 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
     private readonly collaborators: PreGenerationGroundingCollaborators = {},
   ) {}
 
+  /* The fields the working copy's OpenAPI documents declare for an operation's items, read once per run: what backs a possible data contradiction. Absent without a working copy or a document; a document that cannot be read costs the backing, never the pack. */
+  private responseFieldsRead = false;
+  private responseFieldsOf: ResponseFieldsOf | undefined;
+  private responseFields(): ResponseFieldsOf | undefined {
+    if (!this.responseFieldsRead) {
+      this.responseFieldsRead = true;
+      if (this.ctx.mirrorDir) {
+        try {
+          this.responseFieldsOf = loadResponseFields({ mirrorDir: this.ctx.mirrorDir, ...(this.ctx.openapi ? { openapi: this.ctx.openapi } : {}) });
+        } catch (err) {
+          engineLog.warn(`[qa] WARNING: the OpenAPI response schemas were not read (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+    return this.responseFieldsOf;
+  }
+
   /* The observer is told in passing: its fault never changes what grounding returns. */
   private tell(notify: () => void): void {
     try {
@@ -381,6 +402,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
           ...(changedElements?.length ? { changedElements } : {}),
           ...(labels?.literals.length ? { changedLiterals: labels.literals } : {}),
           ...(domPack ? { availability: this.availabilityInput(diff, change) } : {}),
+          ...(domPack && this.responseFields() !== undefined ? { responseFields: this.responseFields()! } : {}),
         },
         deps,
       );
@@ -393,6 +415,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
       }
       if (packResult.changedValuesWithMoreNodes?.length) result.changedValuesWithMoreNodes = packResult.changedValuesWithMoreNodes;
       if (packResult.routeAvailability !== undefined) result.routeAvailability = packResult.routeAvailability;
+      if (packResult.dataContradictions !== undefined) result.dataContradictions = packResult.dataContradictions;
       const confirmed = confirmedDataRoutes(packResult.trace?.pages ?? []);
       if (confirmed.length > 0) result.packConfirmedDataRoutes = confirmed;
       this.tell(() => this.collaborators.trace?.pack?.(packResult));    } catch (err) {

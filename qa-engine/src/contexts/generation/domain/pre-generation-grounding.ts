@@ -1,5 +1,6 @@
 import type { GroundingOmission, ArchitectureContext, HarnessFacts } from "@kernel/grounding.ts";
 import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
+import type { DataContradiction } from "@kernel/data-contradiction.ts";
 import type { DecisionListing } from "@kernel/changed-decision.ts";
 
 export interface GroundingResult {
@@ -25,4 +26,6 @@ export interface GroundingResult {
   changedDecisions?: DecisionListing;
   /** Why each captured route the pack could not show at its own address was not, and how many routes the capture read. Absent when the pack did not classify. */
   routeAvailability?: { read: number; facts: RouteAvailabilityFact[] };
+  /** The data sources of one captured page that disagree on what their items carry, and how many pages had a response shape to read. Absent when no page did. */
+  dataContradictions?: { read: number; facts: DataContradiction[] };
 }

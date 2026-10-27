@@ -315,6 +315,7 @@ export const ATTRIBUTES = {
   "qayaba.context.stale": bool("The source was stale when the generator used it."),
   "qayaba.context.stale_reason": str("Why a source was stale: sha-mismatch, older-than-max-age, dom-changed, data-state-unconfirmed, ... or none."),
   "qayaba.context.recapture.outcome": str("What a recapture request came to: not-needed, requested, completed, failed or skipped."),
+  "qayaba.context.data_contradictions": int("Data contradictions the context pack found: pages whose responses disagree on a key of the same kind of resource (a possible defect, never a gate)."),
   "qayaba.context.dom_changed": bool("The change-relevant DOM differed between two captures of the same page."),
   "qayaba.context.omitted": int("Items a delivered source left out (selection + truncation)."),
   "qayaba.context.omissions": spec("string[]", "Per-reason omissions of a delivered source, as class:reason:count[:route], at most 200.", "high", "none", 200),

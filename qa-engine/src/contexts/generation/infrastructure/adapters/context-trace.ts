@@ -86,6 +86,7 @@ export function telemetryGroundingTrace(telemetry: TelemetryPort, mapProvenance?
         bytes: assembly.text === undefined ? 0 : bytesOf(assembly.text),
         truncatedItems: trace?.omittedLines ?? 0,
         freshness: provenanceOf("live:dev", trace?.pages.length ?? 0),
+        ...(assembly.dataContradictions !== undefined ? { attrs: { "qayaba.context.data_contradictions": assembly.dataContradictions.facts.length } } : {}),
       });
     }),
   };
