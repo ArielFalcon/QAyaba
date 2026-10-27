@@ -319,14 +319,17 @@ export const test = base.extend<QaFixtures>({
   // green while the changed code it ran does the opposite does not check that code. The edit is made
   // only to a response whose text is the script the coverage saw (same sha256). How many responses were
   // mutated is counted beside the response oracle's counters, so a mutant that never reached the page
-  // is not scored. No-op in a normal run.
+  // is not scored. When the mutant names the tests whose coverage dumps ran it (`tests`, each named as
+  // the coverage fixture names a dump), every other test is skipped. No-op in a normal run.
   _mutate: [
-    async ({ page }, use) => {
+    async ({ page }, use, testInfo) => {
       let mutated = 0;
       const raw = process.env.PW_MUTANT;
       if (raw) {
         const { createHash } = await import("node:crypto");
-        const m = JSON.parse(raw) as { url: string; sha256: string; start: number; end: number; replacement: string };
+        const m = JSON.parse(raw) as { url: string; sha256: string; start: number; end: number; replacement: string; tests?: unknown };
+        const dumpName = testInfo.titlePath.join("-").replace(/[^a-z0-9]+/gi, "-").slice(0, 60);
+        testInfo.skip(Array.isArray(m.tests) && !m.tests.includes(dumpName), "the mutated code did not run in this test");
         await page.route((url) => url.href === m.url, async (route) => {
           let res;
           try {
