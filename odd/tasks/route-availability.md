@@ -37,10 +37,10 @@ Source: campaign run `run-ed28973-mvqy1s7l-64c65862` (name-webapp ed28973: 3 com
 | T6 | S4 | inline (small, one understood change) | done | |
 | T7 | S5 | delegated (parallel, worktree) | done; verifier: all S5 items met, no blocker; advisories 1 and 3 fixed inline (81c23923, a4004d9d; gate 11718, 0 failed) | main 784dd2cc..ecc43fdb (068b13fb governance: sandbox env, own commit); agent gate 11717 tests, 0 failed |
 | T8 | S8 | delegated (parallel, worktree) | done | main 015f90fc cherry-pick + b11d635d (seed revision mirror, type); gate 0 failed |
-| T9 | S9 | delegated (parallel, worktree) | in progress | |
-| T10 | S10 | delegated (worktree, context backstop) | in progress | |
+| T9 | S9 | delegated (parallel, worktree) | done; gap: enforce coverage regeneration kept/restored only on its span (new gate key needs run-history adapter) | main d618a2e8, d8677ef3, ac058e4a; gate 11732, 0 failed |
+| T10 | S10 | delegated (worktree, context backstop) | done | main cd4cd8bf (`modelForRole`), 239d3902 (settings doc); gate 11743, 0 failed |
 | T12 | S3 remainder: diff cap `MAX_PROMPT_DIFF_CHARS` (prompt-cap.ts), lead review spec cut `MAX_SPEC_CHARS` (lead-turn-sections.ts), brief suite listing 30×300 (brief-sections.ts), brief pages fit (sidekick-prompt.ts, lead-sidekicks.ts), per-item runtime evidence caps, degraded-section span count, stale `reviewer|over-cap` matrix case | after T2 merges (shared files) | pending | |
-| T13 | S11 | inline or delegated after T9 merges (shares acceptance/recount) | pending | |
+| T13 | S11 | delegated (with T9, same seam) | done | main 7b504354 |
 | T14 | S12 | inline | pending | |
 | T15 | S13 | inline after the guard check | pending | |
 | T16 | S14 | owner decision | pending | |
@@ -63,3 +63,4 @@ Source: campaign run `run-ed28973-mvqy1s7l-64c65862` (name-webapp ed28973: 3 com
 - L12 (2026-10-27) owner: "veo en opencode go que solo se ha usado deepseek-v4.1-flash y minimax-m3.1-flash, no veo GLM, no se habia configurado este como parte de los modelos de agentes?" Confirmed from trace 171e8a11…: the lead ran on DeepSeek; S10 was wrongly closed as by-design and is reopened with the real cause.
 - L13 T1+T8 gate on main: exit 0, 0 failed.
 - L14 T7 verifier: S5 met, no blockers. Advisories: (1) a spec rewriting `PW_BASE_URL`/`PW_DEV_ORIGINS` could move a write off the count → seed now reads both once at load (a4004d9d, RED observed); (2) a lead accept of a spec whose last run_spec failed is accepted once writes are spent (`unverified-no-writes`) — intended by S5, execution and the fix loop judge it; (3) a caller's `PW_DEV_ORIGINS` passed the PW_* allowlist for non-suite profiles → dropped for every profile (81c23923); (4) `wss:` never counted — handshake GETs, not writes.
+- L15 T9 + S11 merged. T10: one resolver `modelForRole` (caller > operator-chosen tier > opencode.json agent model > tier default) for the session, the context window and reviewer independence; `applyConfig` persists only chosen tiers. Lead, explore, maintainer and proposer now run on what opencode.json declares. Needs an orchestrator restart (Doppler) before the campaign.
