@@ -748,6 +748,26 @@ test("a flow that ran out of its time keeps its idle sidekick session for the le
   assert.deepEqual([...r.sessionsDisposed].sort(), [1, 2], "the pass's release deletes it, once");
 });
 
+test("a first turn that returns after the lead's review replaced its flow closes its late session and leaves the replacement as the flow's only session", async () => {
+  let late!: () => void;
+  const hold = new Promise<void>((resolve) => { late = resolve; });
+  const lead = leadWith([[{ flow: "cart", action: "revise", instruction: "finish the cart total" }], []]);
+  const r = rig({ answers: { cart: [{ hold }, { writes: true }] } });
+  const pending = new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, settings: { ...DEFAULT_COORDINATION_SETTINGS, flowBudgetMs: { opencode: 100_000 } } }));
+  for (let i = 0; i < 20; i++) await settle();
+  r.timers.advance(100_000);
+  await settle();
+  r.timers.advance(DEFAULT_ABORT_GRACE);
+  const outcome = await pending;
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  assert.equal(r.sessionsOpened, 3, "no session was open for the revision, so a fresh one took the flow");
+  late();
+  for (let i = 0; i < 5; i++) await settle();
+  assert.deepEqual(r.sessionsDisposed, [1], "the late session is closed at once");
+  await outcome.pass!.release();
+  assert.deepEqual([...r.sessionsDisposed].sort(), [1, 2, 3], "the replacement is released with the pass, not leaked");
+});
+
 test("the lead is never asked to review when the run has no room left for it", async () => {
   const lead = leadWith([[{ flow: "cart", action: "accept" }]]);
   const r = rig();

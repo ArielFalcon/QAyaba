@@ -234,6 +234,8 @@ interface LiveFlow {
   taken?: boolean;
   /* Set when the pass released the flow: a turn that answers after it changes nothing and leaves nothing open. */
   released?: boolean;
+  /* How many sessions the flow has begun to open: a session that returns when a newer one was begun is stale. */
+  opens: number;
   appDefect?: string;
   failure?: AuthoringFailure;
   conflict?: string;
@@ -627,7 +629,7 @@ export class LeadSidekicks {
       throw new Error(`flow ${flow.id} was stopped before it started`);
     }
     const geolocation = input.geolocation?.openFlow(delegationId, flow.location);
-    const entry: LiveFlow = { flow, delegationId, workspace, request, tier: SIDEKICK_TIER.STANDARD, turns: 0, delivered: false, ...(geolocation ? { geolocation } : {}) };
+    const entry: LiveFlow = { flow, delegationId, workspace, request, tier: SIDEKICK_TIER.STANDARD, turns: 0, opens: 0, delivered: false, ...(geolocation ? { geolocation } : {}) };
     live.set(flow.id, entry);
     const probePath = `${PROBE_REL_DIR}/${posix.basename(flow.specFile)}`;
     if (input.closedLoop && flow.runSpecCalls > 0) {
@@ -677,6 +679,7 @@ export class LeadSidekicks {
 
   /* A fresh sidekick session on the brief, with the feedback when there is some; the session is kept on the flow. */
   private async openSession(entry: LiveFlow, context: FlowContext, brief: DelegationBrief, model: string | undefined, contextFit: ContextFit | undefined, fit: ((bytes: number) => WindowFitOutcome) | undefined, signal: AbortSignal, timeoutMs: number, feedback?: string): Promise<DelegationResult> {
+    const seq = ++entry.opens;
     const session = await this.deps.sidekick.open(brief, {
       cwd: entry.workspace.dir,
       kind: entry.flow.kind,
@@ -691,8 +694,8 @@ export class LeadSidekicks {
       ...(fit ? { fit } : {}),
       ...(feedback ? { feedback } : {}),
     });
-    /* A session that opened after its pass released the flow belongs to nobody: it is closed at once. */
-    if (entry.released) {
+    /* A session that opened after its pass released the flow, or after a newer one was begun for it, belongs to nobody: it is closed at once. */
+    if (entry.released || entry.opens !== seq) {
       await session.dispose().catch((err: unknown) => engineLog.error(`[qa] closing flow ${entry.flow.id}'s late session failed: ${err instanceof Error ? err.message : String(err)}`));
       throw new Error(`flow ${entry.flow.id}'s session opened after the flow was stopped`);
     }

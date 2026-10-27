@@ -15,7 +15,7 @@ interface Rig {
   answer(id: string): void;
 }
 
-function rig(opts: { abortHeld?: Promise<void>; holdPrompts?: boolean } = {}): Rig {
+function rig(opts: { abortHeld?: Promise<void>; holdPrompts?: boolean; abortSettleMs?: number } = {}): Rig {
   resetCircuit();
   const calls: string[] = [];
   const clock = { now: 1_000 };
@@ -34,7 +34,7 @@ function rig(opts: { abortHeld?: Promise<void>; holdPrompts?: boolean } = {}): R
     },
     deleteSession: async (id) => void calls.push(`delete:${id}`),
   };
-  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 600_000, getFallbackModel: () => undefined, now: () => clock.now });
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 600_000, getFallbackModel: () => undefined, now: () => clock.now, ...(opts.abortSettleMs !== undefined ? { abortSettleMs: opts.abortSettleMs } : {}) });
   return { calls, clock, deps, answer: (id) => held.get(id)?.() };
 }
 
@@ -102,4 +102,14 @@ test("the orphan sweep never collects a session with a prompt in flight, however
   r.clock.now += 101;
   await r.deps.cleanupOrphans!(100);
   assert.equal(deleted(r.calls).includes(session.id), true);
+});
+
+test("a dispose stops waiting for an abort the runtime never answers and deletes the session anyway", async () => {
+  const r = rig({ abortHeld: new Promise<void>(() => {}), abortSettleMs: 20 });
+  const controller = new AbortController();
+  const session = await r.deps.open("qa-author", "/tmp", { signal: controller.signal });
+  controller.abort();
+  await tick();
+  await session.dispose();
+  assert.deepEqual(deleted(r.calls), [session.id]);
 });

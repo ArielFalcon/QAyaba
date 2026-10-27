@@ -170,6 +170,18 @@ export interface RawAgentTransport {
 }
 
 
+/** How long a dispose waits for the aborts of its session before it deletes regardless. */
+export const DEFAULT_ABORT_SETTLE_MS = 10_000;
+
+/* Resolves when `p` settles or after `ms`, whichever is first; never rejects. */
+function settledWithin(p: Promise<unknown>, ms: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    const done = (): void => { clearTimeout(timer); resolve(); };
+    p.then(done, done);
+  });
+}
+
 export function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new AgentTimeoutError(`${label}: timed out after ${ms}ms`)), ms);
@@ -287,6 +299,8 @@ export interface AgentDepsCollaborators {
   maxStepsFor?(agent: string): number | undefined;
   /** The wall clock a turn's duration is measured by, in epoch milliseconds. Defaults to `Date.now`; injected by tests. */
   now?(): number;
+  /** The longest a dispose waits for the aborts still running before it deletes anyway (the runtime may never answer). Defaults to `DEFAULT_ABORT_SETTLE_MS`. */
+  abortSettleMs?: number;
   /** Told what happens to each prompt of the session, in order, for its trace (see `AttemptEvent`). A fault in it is logged and never reaches the prompt. */
   onAttempt?(sessionId: string, event: AttemptEvent): void;
   /** The limit a layer above this one fired on the session's turn in flight (the stall watchdog), when one did. It names the cause when this layer's own timeout closes the turn afterwards. */
@@ -620,7 +634,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
         },
         dispose: () => (disposal ??= (async () => {
           try {
-            await Promise.all([...aborting]);
+            await settledWithin(Promise.all([...aborting]), collab.abortSettleMs ?? DEFAULT_ABORT_SETTLE_MS);
             await raw.deleteSession(id);
           } catch (err) {
             engineLog.warn(`[qa] session ${id} dispose failed: ${err instanceof Error ? err.message : String(err)}`);
