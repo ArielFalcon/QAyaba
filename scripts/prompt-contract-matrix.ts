@@ -19,6 +19,7 @@
  *   tsx scripts/prompt-contract-matrix.ts --record-digests                   rewrite scripts/prompt-section-digests.txt (see the digest pin below)
  */
 import type { ServiceLink } from "@kernel/service-links";
+import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -46,7 +47,19 @@ import {
   type LintFinding,
   type LintSection,
 } from "@contexts/generation/application/index.ts";
-import type { ArchitectureContext, OpencodeRunInput, ReviewInput } from "@contexts/generation/application/index.ts";
+import type { ArchitectureContext, DelegationGrant, OpencodeRunInput, ReviewInput } from "@contexts/generation/application/index.ts";
+import {
+  CORRECTION_ORIGIN,
+  assembleExploreBrief,
+  assembleExploreOutcome,
+  assembleLeadCorrection,
+  assembleLeadReview,
+  assembleRefusedCorrection,
+  assembleRejectedPlanRequest,
+  assembleSidekickBrief,
+  createDelegationBrief,
+  type CorrectionOrigin,
+} from "@contexts/coordination/application/index.ts";
 import { DEFAULT_CLOSED_LOOP_LIMITS } from "@kernel/closed-loop.ts";
 import { DEFAULT_AGENT_BROWSER_LIMITS } from "@kernel/agent-browser.ts";
 import { DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
@@ -842,11 +855,169 @@ export function loadDigests(path: string = DIGESTS_PATH): { header: string; dige
   return { header, digests };
 }
 
+/* ── the coordination prompts ──
+ * The prompts the lead and its sidekicks are handed after the plan is made (the flow author's and the explore sidekick's briefs, the
+ * lead's review, correction, re-plan and exploration turns) are assembled from registered sections like the generator's, so the same lint
+ * holds them. Each is paired with the static role layer of the agent that reads it; a delegation brief is also held to its contract
+ * (R17) and to what its turn grants (R18). Their budgets are recorded apart, in prompt-contract-coordination-baseline.json. */
+
+export interface CoordinationCell {
+  key: string;
+  prompt: string;
+  /* The agent whose role prompt the cell's static layer holds. */
+  role: "qa-author" | "qa-explore" | "qa-lead";
+  lint: LintCell;
+  assembledBytes: number;
+  directives: number;
+  staticBytes: number;
+}
+
+export interface CoordinationBaseline {
+  /* The largest user prompt and directive volume of each cell. */
+  cells: Record<string, CellMeasure>;
+  /* The size of the static layer each role ships with. */
+  staticLayers: Record<string, number>;
+  lastIncrease?: { reason: string; budgets: string[] };
+}
+
+export const coordinationBaselinePath = (root: string = ROOT): string => join(root, "scripts", "prompt-contract-coordination-baseline.json");
+
+const MATRIX_REDACTION = { redact: (text: string): string => text } as unknown as RedactionPort;
+
+/* The sections of an assembled coordination prompt, which the registry joins with a blank line. */
+export function coordinationLintSections(assembled: AssembledPrompt): LintSection[] {
+  const bytes = Buffer.from(assembled.text, "utf8");
+  let offset = 0;
+  return Object.entries(assembled.sectionSizes).map(([id, size]) => {
+    const text = bytes.subarray(offset, offset + size).toString("utf8");
+    offset += size + 2;
+    return { id, layer: "assembled" as const, text, claims: assembled.claims[id] ?? [] };
+  });
+}
+
+function coordinationBriefs() {
+  const scope = { readablePaths: ["."], writablePaths: ["e2e/flows/cart.spec.ts"], allowedCommands: [] };
+  const author = (extra: Parameters<typeof createDelegationBrief>[0] extends infer I ? Partial<I> : never = {}) =>
+    createDelegationBrief({ redaction: MATRIX_REDACTION, delegationId: "r1-d1", runId: "r1", objective: "the cart lists the items added to it", task: "Write the Playwright E2E spec for ONE flow.", scope, acceptanceCriteria: ["adding an item shows it in the cart"], tools: ["read", "write", "run_spec"], ...extra } as never);
+  const explore = (tools: string[]) =>
+    createDelegationBrief({ redaction: MATRIX_REDACTION, delegationId: "r1-explore-q1", runId: "r1", objective: "does the cart page list items?", task: "Answer ONE question for the lead, read-only.", scope: { readablePaths: ["."], writablePaths: [], allowedCommands: [] }, tools });
+  return { author, explore };
+}
+
+function coordinationReviewFixtures() {
+  const flow = { id: "cart", objective: "the cart lists items", acceptance: ["adding an item shows it"], outcome: { kind: "delivered" }, summary: "wrote it", concerns: [], runSpec: { calls: 2, maxCalls: 5, lastStatus: "passed" }, verified: true, sessionOpen: true, spec: "test('lists items', async () => {});" };
+  const candidate = { id: "uc-00000001", entry: { kind: "page", route: "/cart" }, tier: "direct", basis: "graph", evidence: ["cart.ts::total"], seeds: [], changedFiles: [{ file: "src/cart.ts", addedLines: 4 }], confidence: 1, reachability: "page", pages: ["/cart"], existingSpecs: [] };
+  return { flows: [flow, { ...flow, id: "orders", verified: false, appDefect: "500 on /orders" }] as never, gaps: { required: [candidate], unvisited: [candidate], unproven: [], others: 1 } as never };
+}
+
+/* Every coordination prompt over the shapes that change what it carries. */
+export function buildCoordinationMatrix(root: string = ROOT): CoordinationCell[] {
+  const briefs = coordinationBriefs();
+  const review = coordinationReviewFixtures();
+  const correctionFlows = [{ id: "cart", objective: "the cart lists items", specFile: "flows/cart.spec.ts", sessionOpen: true, spec: "test('x', async () => {});", candidates: ["uc-00000001"], seedFiles: ["src/cart.ts"] }];
+  const findings = [{ text: "flows/cart.spec.ts: the selector is not scoped", spec: "flows/cart.spec.ts" }, { text: "src/cart.ts:12 no test exercised this line", file: "src/cart.ts", line: 12 }];
+  const outcome = { ran: true, questions: [{ id: "q1", question: "does the cart list items?", status: "answered", findings: [{ claim: "the cart lists items", kind: "page", ref: "/cart", evidence: "heading", verification: "verified" }] }, { id: "q2", question: "is there a coupon?", status: "failed", findings: [] }] };
+  const prompts: Array<{ prompt: string; variant: string; role: CoordinationCell["role"]; assembled: AssembledPrompt; delegation?: DelegationGrant }> = [
+    { prompt: "flow-author-brief", variant: "plain", role: "qa-author", assembled: assembleSidekickBrief(MATRIX_REDACTION, briefs.author()), delegation: { tools: ["read", "write", "run_spec"], writes: true } },
+    {
+      prompt: "flow-author-brief",
+      variant: "full",
+      role: "qa-author",
+      assembled: assembleSidekickBrief(MATRIX_REDACTION, briefs.author({
+        tools: ["read", "write", "run_spec", "authbrowser", "set_geolocation"],
+        pages: "route /cart:\n  heading \"Cart\"",
+        proofs: ["/cart: src/cart.ts::total > src/CartPage.ts::CartPage > page /cart"],
+        candidates: [{ id: "uc-00000001", entry: "page /cart", tier: "direct", evidence: ["src/cart.ts::total"], symbols: ["src/cart.ts::total (lines 10-14)"], hunks: ["@@ -10 +10 @@\n-const total = 0;\n+const total = items.length;"], expectedFrom: [{ kind: "commit-message", ref: "feat(cart): show the item count" }] }],
+        suite: ["flows/checkout.spec.ts: checkout completes"],
+      })),
+      delegation: { tools: ["read", "write", "run_spec", "authbrowser", "set_geolocation"], writes: true },
+    },
+    { prompt: "explore-brief", variant: "graph", role: "qa-explore", assembled: assembleExploreBrief(MATRIX_REDACTION, briefs.explore(["read", "codegraph"])), delegation: { tools: ["read", "codegraph"], writes: false } },
+    { prompt: "explore-brief", variant: "graph-and-browser", role: "qa-explore", assembled: assembleExploreBrief(MATRIX_REDACTION, briefs.explore(["read", "codegraph", "authbrowser"])), delegation: { tools: ["read", "codegraph", "authbrowser"], writes: false } },
+    { prompt: "lead-review", variant: "turn-1", role: "qa-lead", assembled: assembleLeadReview(MATRIX_REDACTION, review.flows, { turn: 1, maxTurns: 3 }) },
+    { prompt: "lead-review", variant: "last-turn-with-gaps", role: "qa-lead", assembled: assembleLeadReview(MATRIX_REDACTION, review.flows, { turn: 3, maxTurns: 3 }, review.gaps) },
+    ...(Object.values(CORRECTION_ORIGIN) as CorrectionOrigin[]).map((origin) => ({ prompt: "lead-correction", variant: origin, role: "qa-lead" as const, assembled: assembleLeadCorrection(MATRIX_REDACTION, correctionFlows, findings, origin) })),
+    { prompt: "lead-correction-refused", variant: "plain", role: "qa-lead", assembled: assembleRefusedCorrection([{ flowId: "cart", finding: 3, reason: "the finding is not one of the turn's" }], 2) },
+    { prompt: "lead-plan-rejected", variant: "malformed", role: "qa-lead", assembled: assembleRejectedPlanRequest("malformed", 4) },
+    { prompt: "lead-explore-outcome", variant: "answered", role: "qa-lead", assembled: assembleExploreOutcome(MATRIX_REDACTION, outcome as never) },
+  ];
+  const staticByRole = new Map<CoordinationCell["role"], LintSection[]>();
+  const staticOf = (role: CoordinationCell["role"]): LintSection[] => {
+    if (!staticByRole.has(role)) {
+      staticByRole.set(role, [
+        { id: "opencode/AGENTS.md", layer: "static", text: readText(join(root, "agents", "AGENTS.md")), claims: [] },
+        { id: `opencode/${role}.md`, layer: "static", text: readText(join(root, "agents", "agent", `${role}.md`)), claims: [] },
+      ]);
+    }
+    return staticByRole.get(role)!;
+  };
+  return prompts.map(({ prompt, variant, role, assembled, delegation }) => {
+    const sections = coordinationLintSections(assembled);
+    const measure = measureAssembled(sections);
+    const key = `${prompt}/${variant}`;
+    return {
+      key,
+      prompt,
+      role,
+      lint: { name: key, regen: false, sections: [...staticOf(role), ...sections], ...(delegation ? { delegation } : {}) },
+      assembledBytes: measure.bytes,
+      directives: measure.directives,
+      staticBytes: measureStatic(staticOf(role)),
+    };
+  });
+}
+
+export function loadCoordinationBaseline(root: string = ROOT): CoordinationBaseline {
+  return JSON.parse(readText(coordinationBaselinePath(root))) as CoordinationBaseline;
+}
+
+export function recordCoordinationBaseline(cells: readonly CoordinationCell[], committed?: CoordinationBaseline, options: RecordOptions = {}): CoordinationBaseline {
+  const next: CoordinationBaseline = {
+    cells: Object.fromEntries(cells.map((c) => [c.key, { bytes: c.assembledBytes, directives: c.directives }]).sort(([a], [b]) => (a! < b! ? -1 : 1))),
+    staticLayers: Object.fromEntries([...new Set(cells.map((c) => c.role))].sort().map((role) => [role, cells.find((c) => c.role === role)!.staticBytes])),
+  };
+  const raised = committed
+    ? [
+        ...Object.entries(next.cells).flatMap(([key, measure]) => measuresOf(key, committed.cells[key], measure)),
+        ...Object.entries(next.staticLayers).flatMap(([role, bytes]) => (committed.staticLayers[role] !== undefined && bytes > committed.staticLayers[role]! ? [{ budget: `static:${role}`, from: committed.staticLayers[role]!, to: bytes }] : [])),
+      ]
+    : [];
+  const reason = options.increaseReason?.trim();
+  if (raised.length > 0) {
+    if (!reason) throw new BaselineIncreaseError(raised);
+    return { ...next, lastIncrease: { reason, budgets: raised.map((r) => r.budget) } };
+  }
+  return committed?.lastIncrease ? { ...next, lastIncrease: committed.lastIncrease } : next;
+}
+
+export function lintCoordinationCell(cell: CoordinationCell, baseline?: CoordinationBaseline): readonly LintFinding[] {
+  const recorded = baseline?.cells[cell.key];
+  const unrecorded: LintFinding[] = baseline && !recorded ? [{ rule: "R9", sections: [], budget: "unrecorded" }] : [];
+  return [
+    ...unrecorded,
+    ...lintCell(cell.lint, {
+      assembledArtifactNames: ASSEMBLED_ARTIFACT_NAMES,
+      artifactReferences: ARTIFACT_REFERENCES,
+      ...(baseline ? { budget: { ...(recorded ? { maxAssembledBytes: recorded.bytes, maxDirectives: recorded.directives } : {}), ...(baseline.staticLayers[cell.role] !== undefined ? { maxStaticBytes: baseline.staticLayers[cell.role]! } : {}) } } : {}),
+    }),
+  ];
+}
+
 async function main(): Promise<void> {
   if (process.argv.includes("--record-digests")) {
     const set = await currentDigests();
     writeFileSync(DIGESTS_PATH, [digestHeader(set.keys), ...set.digests, ""].join("\n"));
     console.log(`recorded ${set.digests.length} digests to ${DIGESTS_PATH}`);
+    return;
+  }
+  if (process.argv.includes("--record-coordination")) {
+    const flag = process.argv.indexOf("--allow-increase");
+    const reason = flag >= 0 ? process.argv[flag + 1] : undefined;
+    if (flag >= 0 && !reason?.trim()) throw new Error('--allow-increase needs a reason: --allow-increase "<why the budgets must grow>"');
+    const committed = existsSync(coordinationBaselinePath()) ? loadCoordinationBaseline() : undefined;
+    const baseline = recordCoordinationBaseline(buildCoordinationMatrix(), committed, reason ? { increaseReason: reason } : {});
+    writeFileSync(coordinationBaselinePath(), JSON.stringify(baseline, null, 2) + "\n");
+    console.log(`recorded ${Object.keys(baseline.cells).length} coordination budgets to ${coordinationBaselinePath()}`);
     return;
   }
   const cells = await buildMatrix();
@@ -865,6 +1036,11 @@ async function main(): Promise<void> {
     console.log(`${key}\t${finding.fact ?? ""}\t(${where.length} cells)`);
   }
   console.log(`${findings.size} unique findings over ${cells.length} cell/layer combinations`);
+  const coordination = buildCoordinationMatrix();
+  const recorded = existsSync(coordinationBaselinePath()) ? loadCoordinationBaseline() : undefined;
+  const coordinationFindings = coordination.flatMap((cell) => lintCoordinationCell(cell, recorded).map((finding) => ({ cell: cell.key, finding })));
+  for (const { cell, finding } of coordinationFindings) console.log(`${findingKey(finding)}\t${finding.fact ?? ""}\t(${cell})`);
+  console.log(`${coordinationFindings.length} coordination findings over ${coordination.length} prompts`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

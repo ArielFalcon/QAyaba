@@ -1,0 +1,69 @@
+{
+  "cells": {
+    "explore-brief/graph": {
+      "bytes": 625,
+      "directives": 0
+    },
+    "explore-brief/graph-and-browser": {
+      "bytes": 716,
+      "directives": 1
+    },
+    "flow-author-brief/full": {
+      "bytes": 2909,
+      "directives": 5
+    },
+    "flow-author-brief/plain": {
+      "bytes": 1637,
+      "directives": 2
+    },
+    "lead-correction-refused/plain": {
+      "bytes": 474,
+      "directives": 0
+    },
+    "lead-correction/coverage": {
+      "bytes": 489,
+      "directives": 0
+    },
+    "lead-correction/execution": {
+      "bytes": 541,
+      "directives": 0
+    },
+    "lead-correction/flaky": {
+      "bytes": 542,
+      "directives": 0
+    },
+    "lead-correction/pre-exec": {
+      "bytes": 514,
+      "directives": 0
+    },
+    "lead-correction/review": {
+      "bytes": 476,
+      "directives": 0
+    },
+    "lead-correction/static-gate": {
+      "bytes": 512,
+      "directives": 0
+    },
+    "lead-explore-outcome/answered": {
+      "bytes": 551,
+      "directives": 0
+    },
+    "lead-plan-rejected/malformed": {
+      "bytes": 305,
+      "directives": 0
+    },
+    "lead-review/last-turn-with-gaps": {
+      "bytes": 1128,
+      "directives": 1
+    },
+    "lead-review/turn-1": {
+      "bytes": 702,
+      "directives": 1
+    }
+  },
+  "staticLayers": {
+    "qa-author": 24736,
+    "qa-explore": 10092,
+    "qa-lead": 16161
+  }
+}

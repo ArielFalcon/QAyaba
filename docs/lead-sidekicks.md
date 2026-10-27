@@ -99,6 +99,10 @@ results, the orchestrator's browser showed that sidekick the page, or the code g
 shown to the lead as a claim. The lead is then asked in the same session and that answer must be a plan: a second request is
 refused as a plan that was not admitted (`E-NO-AUTHOR`, `plan-rejected:malformed`). A plan answered directly spends no exploration time.
 
+## How the prompts are assembled
+
+Every prompt of this context is assembled from registered section definitions (`coordination/application/coordination-sections/`) through the shared prompt engine (`shared-kernel/prompt-sections.ts`), the one the generator and the reviewer use: the flow author's brief, the explore sidekick's brief, the lead's review turn, its correction turn (and the request that sends a refused answer back), its re-plan refusal and the turn after an exploration. Sections are ordered by priority and joined by a blank line, and each report carries its sections' sizes and hashes (`assemble*` functions; the `render*` ones return the text). A delegation brief states four things, each in exactly one section: the objective (`task` / `question`), the return shape (`contract`), the boundary (`scope`: what it may write, and the authority it cannot raise) and the tools it holds (`tools`, from the kind's grant); the prompt-contract lint (R17, R18) fails a brief that misses one, states one twice, names a tool its turn does not grant or says it may write when the turn grants no write. `scripts/prompt-contract-matrix.ts` assembles each of these prompts over its shapes and holds them to budgets recorded in `scripts/prompt-contract-coordination-baseline.json`. A module outside a registry that writes a prompt heading fails `prompt-registry-rule.test.ts`.
+
 ## What a sidekick may author with
 
 `sidekickAuthoring` picks one mode per run:

@@ -64,7 +64,7 @@ Reuse this before adding anything.
 | `AgentTurnEvent` | `agent-transport-policy.ts:24-50` | Session id, role, round, repair, tokens (incl. reasoning and cache), cost, `sectionSizes`, call metrics, `ended`, duration | No requested or answered model, no provider, attempt, fallback flag or error class. `sectionSizes` is dropped before persistence |
 | `CallEfficiencyTracker` | `generation/infrastructure/sse/call-efficiency-tracker.ts` | Per-step tokens, tool calls, buckets, time to first call and first write | Ignores `part.state.time`. Per-step tokens are summed and discarded. A session registered with `liveObservation:false` (the judge's) is excluded |
 | `agent_turns` table | `TelemetryRepository.saveAgentTurn` | Redacted prompt and output text, turn metrics | 30-day retention. No model or attempt columns |
-| Section abstraction | `context-assembler.ts:11-49` | `AssembledPrompt.sectionSizes` per section id | No section or prompt hash |
+| Section abstraction | `prompt-sections.ts:16-80` | `AssembledPrompt.sectionSizes` per section id | No section or prompt hash |
 | `SandboxReport` / exec scope (ALS) | `process-sandbox/exec-scope.ts` | Denied hosts per run, `openDeniedWindow` per login attempt, refusal reason | Denials keep the host but drop the port. Not per child |
 | `RunDeadlineExceededError` | `shared-kernel/run-deadline.ts:20` | `budgetMs`, `label`, `role`, `stop` | Only on the deadline path. Other limits are implicit |
 | Run-secret redaction (ALS) | `shared-infrastructure/redaction/run-secret-redaction.ts` | `redactByValue` inside the run scope | **No-op outside the run's async context** |
