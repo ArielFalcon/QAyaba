@@ -8,7 +8,7 @@
  */
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync, rmSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
@@ -1250,16 +1250,165 @@ test("runE2E reports the writes to DEV the fixtures counted, summed over the tes
   }
 });
 
-test("runE2E gives no count for a run that did not finish: the test that was running when it was stopped left no ledger", async () => {
-  const ledger = withLedgerDir({ "ledger-0-1.json": '{"writes":4}' });
+/* A run that was stopped (timed out, cancelled, crashed): the stream reporter told which tests began, and each of them left a ledger from its start. */
+const FINISHED_LEDGER = (writes: number) => JSON.stringify({ v: 2, writes, pending: 0, done: true });
+const UNFINISHED_LEDGER = (writes: number, pending: number) => JSON.stringify({ v: 2, writes, pending, done: false });
+
+function stoppedRun(ledger: { deps: (report?: unknown) => E2eExecuteDeps }, begun: number, logs = "playwright runner timed out after 10ms — killed"): E2eExecuteDeps {
+  const deps = ledger.deps();
+  deps.runSuite = async (args) => {
+    for (let i = 0; i < begun; i++) args.onEvent?.({ phase: "testbegin", title: `test ${i}` });
+    return { report: {}, logs, ran: false };
+  };
+  return deps;
+}
+
+async function countOf(deps: E2eExecuteDeps): Promise<{ devWrites?: number; unfinishedTests?: number; verdict: string }> {
+  const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, deps);
+  return { verdict: run.verdict, devWrites: run.devWrites, unfinishedTests: run.unfinishedTests };
+}
+
+test("runE2E counts a run that was stopped by its ledgers: a finished test's writes, and an unfinished test's writes plus the requests still out", async () => {
+  const ledger = withLedgerDir({ "ledger-p1-w0-1.json": FINISHED_LEDGER(2), "ledger-p1-w0-2.json": UNFINISHED_LEDGER(1, 1) });
   try {
-    const deps = ledger.deps();
-    deps.runSuite = async () => ({ report: {}, logs: "playwright runner timed out after 10ms — killed", ran: false });
-    const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, deps);
+    const run = await countOf(stoppedRun(ledger, 2));
     assert.equal(run.verdict, "infra-error");
-    assert.equal(run.devWrites, undefined);
+    assert.equal(run.devWrites, 4);
+    assert.equal(run.unfinishedTests, 1, "the result says one test did not finish");
   } finally {
     ledger.cleanup();
+  }
+});
+
+test("runE2E gives no count for a stopped run in which a test that began left no ledger", async () => {
+  const ledger = withLedgerDir({ "ledger-p1-w0-1.json": FINISHED_LEDGER(2) });
+  try {
+    const run = await countOf(stoppedRun(ledger, 2));
+    assert.equal(run.devWrites, undefined);
+    assert.equal(run.unfinishedTests, undefined);
+  } finally {
+    ledger.cleanup();
+  }
+});
+
+test("runE2E counts a stopped run in which no test began and no ledger was left as no writes, and one that executed zero tests too", async () => {
+  const none = withLedgerDir({});
+  const zero = withLedgerDir({});
+  try {
+    assert.equal((await countOf(stoppedRun(none, 0))).devWrites, 0);
+    const deps = zero.deps({ suites: [], stats: { expected: 0, unexpected: 0, flaky: 0, skipped: 0 } });
+    assert.equal((await countOf(deps)).devWrites, 0, "a report that says no test ran, with nothing begun and nothing left");
+  } finally {
+    none.cleanup();
+    zero.cleanup();
+  }
+});
+
+test("runE2E gives no count when a ledger of a stopped run cannot be trusted: forged, oversized or unreadable", async () => {
+  const forged = [
+    UNFINISHED_LEDGER(1, -1),
+    JSON.stringify({ v: 2, writes: 1, pending: "1", done: false }),
+    JSON.stringify({ v: 2, writes: 1, pending: 0 }),
+    JSON.stringify({ v: 3, writes: 1, pending: 0, done: false }),
+    "x".repeat(100_000),
+    "not json",
+  ].map((text) => withLedgerDir({ "ledger-p1-w0-1.json": FINISHED_LEDGER(2), "ledger-p1-w0-2.json": text }));
+  try {
+    for (const ledger of forged) assert.equal((await countOf(stoppedRun(ledger, 2))).devWrites, undefined);
+  } finally {
+    for (const ledger of forged) ledger.cleanup();
+  }
+});
+
+test("runE2E reads a ledger without a version as the finished test it was", async () => {
+  const ledger = withLedgerDir({ "ledger-0-1.json": '{"writes":2}' });
+  try {
+    const run = await countOf(stoppedRun(ledger, 1));
+    assert.equal(run.devWrites, 2);
+    assert.equal(run.unfinishedTests, undefined);
+  } finally {
+    ledger.cleanup();
+  }
+});
+
+test("runE2E counts the unfinished test of a run that did report, when the child ended before the test did", async () => {
+  const ledger = withLedgerDir({ "ledger-p1-w0-1.json": UNFINISHED_LEDGER(3, 2) });
+  try {
+    const run = await countOf(ledger.deps({ stats: { expected: 1 }, suites: [] }));
+    assert.equal(run.devWrites, 5);
+    assert.equal(run.unfinishedTests, 1);
+  } finally {
+    ledger.cleanup();
+  }
+});
+
+/* A stand-in launcher whose child does not die when it is killed: it exits when the test lets it, so the test can place a ledger between the kill and the exit. */
+function killableLauncher(): { exec: never; workRoot: string; failures(): string; spawned: Promise<void>; child: EventEmitter & { stdout: PassThrough; stderr: PassThrough } } {
+  const workRoot = mkdtempSync(join(tmpdir(), "qa-kill-exec-"));
+  const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough };
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  let failureDir = "";
+  let started!: () => void;
+  const spawned = new Promise<void>((resolve) => { started = resolve; });
+  const exec = {
+    isolated: false,
+    workDir: () => workRoot,
+    allocDir: (prefix: string, subdirs: readonly string[] = []) => {
+      const dir = mkdtempSync(join(workRoot, `${prefix}-`));
+      for (const sub of subdirs) mkdirSync(join(dir, sub), { recursive: true });
+      return dir;
+    },
+    writeScript: (name: string, content: string) => { const path = join(workRoot, name); writeFileSync(path, content); return path; },
+    spawn: (_cmd: string, _args: readonly string[], options: { extraEnv?: Record<string, string> }) => {
+      failureDir = options.extraEnv?.QA_FAILURE_CAPTURE_DIR ?? "";
+      child.stdout.write(`${JSON.stringify({ e: "testbegin", title: "orders › lists" })}\n`);
+      started();
+      return child;
+    },
+  };
+  return { exec: exec as never, workRoot, failures: () => failureDir, spawned, child };
+}
+
+test("a ledger renamed into place after the kill and before the child exits is counted: the runner waits for the exit before it reads", async () => {
+  const launcher = killableLauncher();
+  try {
+    const kill = {
+      killTree: () => {
+        setImmediate(() => {
+          writeFileSync(join(launcher.failures(), ".ledger-p1-w0-1.tmp"), UNFINISHED_LEDGER(3, 1));
+          renameSync(join(launcher.failures(), ".ledger-p1-w0-1.tmp"), join(launcher.failures(), "ledger-p1-w0-1.json"));
+          launcher.child.emit("close", null, "SIGKILL");
+        });
+      },
+    };
+    const deps = createDefaultE2eExecuteDeps(kill as never, 60_000, launcher.exec);
+    const controller = new AbortController();
+    const running = runE2E(launcher.workRoot, { baseUrl: "https://dev", namespace: "ns", countWrites: true, specFiles: ["orders.spec.ts"], signal: controller.signal }, deps);
+    await launcher.spawned;
+    controller.abort();
+    const run = await running;
+    assert.equal(run.verdict, "infra-error");
+    assert.equal(run.devWrites, 4, "the three answered writes and the one still out");
+    assert.equal(run.unfinishedTests, 1);
+  } finally {
+    rmSync(launcher.workRoot, { recursive: true, force: true });
+  }
+});
+
+test("a child that never exits after the kill does not hold the run: its ledgers are read once the wait for it is over", async () => {
+  const launcher = killableLauncher();
+  try {
+    const kill = { killTree: () => { writeFileSync(join(launcher.failures(), "ledger-p1-w0-1.json"), UNFINISHED_LEDGER(1, 0)); } };
+    const deps = createDefaultE2eExecuteDeps(kill as never, 60_000, launcher.exec, undefined, undefined, 25);
+    const controller = new AbortController();
+    const running = runE2E(launcher.workRoot, { baseUrl: "https://dev", namespace: "ns", countWrites: true, specFiles: ["orders.spec.ts"], signal: controller.signal }, deps);
+    await launcher.spawned;
+    controller.abort();
+    const run = await running;
+    assert.equal(run.devWrites, 1);
+  } finally {
+    rmSync(launcher.workRoot, { recursive: true, force: true });
   }
 });
 

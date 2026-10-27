@@ -52,7 +52,10 @@ signed-in app (see below); without either, no sidekick can author and the run en
    cap on writes to DEV (`qa.closedLoop.maxDevWrites`) protects DEV's data and is never derived. It holds across the flows
    together through one run ledger (`RunDevWriteLedger`) that every loop of the run checks and charges while the call holds the
    test account's lease: no call is admitted once the run's total is spent, even with share left, and no two flows are admitted
-   against the same last write. Every flow keeps its own share (its fair share of the cap, never under
+   against the same last write. A call that is stopped (its sidekick's session ended, its time ran out) is charged what
+   its tests' ledgers counted, those still running by their writes plus the requests they had out, so it spends the run's
+   cap by what it sent and not by the whole remainder, and the replacement sidekick of the flow, which shares the flow's
+   one loop, inherits the flow's share less that count. Every flow keeps its own share (its fair share of the cap, never under
    `MIN_RUN_SPEC_DEV_WRITES_PER_FLOW` 2, never above the cap) and its loop, never cut to 0 by its place in the plan; its brief says
    "up to N requests that write to DEV while the run's shared cap lasts (M left now)", and each answer reports the smaller of its
    share left and the run's. Writes are counted after a spec ran, so the last admitted call can send more than was left (the total

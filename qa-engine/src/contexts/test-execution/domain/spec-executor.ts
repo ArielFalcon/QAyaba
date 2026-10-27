@@ -19,6 +19,8 @@ export interface SpecExecutionResult {
   logs: string;
   /* Mutating requests the executed spec sent to DEV, as the fixtures counted them. Absent: nothing could be counted. */
   devWrites?: number;
+  /* How many of the tests behind that count had not finished when the call ended (it was stopped or the child crashed): each was charged its answered writes plus the requests it still had out. Absent: every test finished. */
+  unfinishedTests?: number;
   /* The requests behind that count, by method and origin and pathname. Absent: none recorded. */
   devWriteRequests?: readonly DevWriteRequest[];
   /* The requests that keep the run's own session alive, which the fixtures did not count as writes. Absent: none recorded. */

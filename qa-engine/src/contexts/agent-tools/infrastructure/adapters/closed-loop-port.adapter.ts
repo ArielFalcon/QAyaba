@@ -280,7 +280,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
           ...(request.grep !== undefined ? { grep: request.grep } : {}),
           ...(request.signal ? { signal: request.signal } : {}),
         });
-        return { verdict: result.verdict, cases: result.cases, logs: result.logs, ...(result.devWrites !== undefined ? { devWrites: result.devWrites } : {}), ...(result.devWriteRequests !== undefined ? { devWriteRequests: result.devWriteRequests } : {}), ...(result.sessionRequests !== undefined ? { sessionRequests: result.sessionRequests } : {}) };
+        return { verdict: result.verdict, cases: result.cases, logs: result.logs, ...(result.devWrites !== undefined ? { devWrites: result.devWrites } : {}), ...(result.unfinishedTests !== undefined ? { unfinishedTests: result.unfinishedTests } : {}), ...(result.devWriteRequests !== undefined ? { devWriteRequests: result.devWriteRequests } : {}), ...(result.sessionRequests !== undefined ? { sessionRequests: result.sessionRequests } : {}) };
       },
     };
   }

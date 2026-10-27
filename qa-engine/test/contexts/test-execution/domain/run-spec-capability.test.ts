@@ -190,3 +190,29 @@ test("the run's cap still refuses every flow once spent, whatever share a flow h
   assert.equal(other.budget(undefined).devWritesLeft, 0, "the share left is bounded by the run's total left");
   assert.equal(runWrites.refused, 1);
 });
+
+test("an interrupted call charged what its ledgers counted, reaching the run's cap, refuses every flow", () => {
+  const runWrites = new RunDevWriteLedger(5);
+  const stopped = flowOf(runWrites, 5);
+  const other = flowOf(runWrites, 5);
+  assert.ok(stopped.reserve(undefined).ok);
+  stopped.settle(entry({ devWrites: 5 }));
+  stopped.chargeRunWrites(5);
+  for (const flow of [stopped, other]) {
+    const refused = flow.reserve(undefined);
+    assert.equal(!refused.ok && refused.code, CLOSED_LOOP_REFUSAL.NO_WRITES);
+  }
+  assert.equal(runWrites.refused, 2);
+});
+
+test("an interrupted call charged less than the run's cap leaves the other flows the rest, and its own flow its share less the count", () => {
+  const runWrites = new RunDevWriteLedger(10);
+  const stopped = flowOf(runWrites, 4);
+  const other = flowOf(runWrites, 4);
+  assert.ok(stopped.reserve(undefined).ok);
+  stopped.settle(entry({ devWrites: 3 }));
+  stopped.chargeRunWrites(3);
+  assert.equal(stopped.budget(undefined).devWritesLeft, 1);
+  assert.equal(other.budget(undefined).devWritesLeft, 4);
+  assert.ok(other.reserve(undefined).ok);
+});

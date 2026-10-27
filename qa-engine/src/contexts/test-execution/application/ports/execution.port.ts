@@ -5,5 +5,5 @@ import type { DevWriteRequest } from "../../domain/dev-write-request.ts";
 
 export interface ExecutionPort {
   /** Bare AbortSignal or richer opts bag; absent is specDir only. */
-  execute(specDir: string, opts?: AbortSignal | ExecutionOpts): Promise<{ verdict: RunVerdict; cases: QaCase[]; logs: string; devWrites?: number; devWriteRequests?: DevWriteRequest[]; sessionRequests?: DevWriteRequest[] }>;
+  execute(specDir: string, opts?: AbortSignal | ExecutionOpts): Promise<{ verdict: RunVerdict; cases: QaCase[]; logs: string; devWrites?: number; unfinishedTests?: number; devWriteRequests?: DevWriteRequest[]; sessionRequests?: DevWriteRequest[] }>;
 }

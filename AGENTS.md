@@ -265,8 +265,12 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   granted the calls its own time runs at the per-call time (the run's total is the sum of its flows', `qa.closedLoop.maxCalls` an optional
   ceiling they then share), time per call (also bounded by the run deadline) and one run-level cap on DEV writes, never derived from the plan, that holds across the
   flows together (one run ledger checked and charged under the account lease refuses every write once it is spent, whatever share a flow has
-  left; every flow keeps its share and loop; an uncountable call is charged the run's whole remainder; refusals in `gateSignals.closedLoop.writesRefused`) (counted by the capture block's ledger in `fixtures.ts`, a spec must import its `test` from
-  there; only a write to one of the run's DEV origins counts, and never the traffic that keeps the run's own session alive: a POST of a form body whose
+  left; every flow keeps its share and loop, a replacement sidekick inheriting what the flow's calls were counted; an uncountable call is charged the run's whole remainder; refusals in `gateSignals.closedLoop.writesRefused`) (counted by the capture block's ledger in `fixtures.ts`, a spec must import its `test` from
+  there. The ledger exists from the test's start and is rewritten atomically (temp file, rename) on every DEV write sent (`pending`, raised before the request leaves) and answered
+  (`writes`), with `done` at the test's finish, so a call that is stopped (its session ended, its time ran out, it was cancelled, the child crashed) has left what it did: the runner counts the
+  tests that began from its own stream reporter, waits (bounded, `CHILD_EXIT_WAIT_MS`) for the killed child to exit before it reads, and charges a finished test its `writes` and an unfinished one its `writes` plus
+  `pending`, marking the result with the count of unfinished tests (`unfinishedTests`); no test began and no ledger left is 0, and a forged, oversized or unreadable ledger, or a begun test with none, is unknown and charged the run's
+  remainder as before; a ledger without a version is the earlier seed's and reads as finished. Only a write to one of the run's DEV origins counts, and never the traffic that keeps the run's own session alive: a POST of a form body whose
   `grant_type` is `refresh_token` or `authorization_code` (RFC 6749) to a DEV origin other than the app's own, the identity provider's token exchange
   and refresh, which the ledger records apart as `sessionRequests` and the call's span as `qayaba.tool.dev_session_requests`; every other request
   to the identity provider, any other grant and a body that cannot be read still count), a ledger of every call's sha256, revoked when the run ends. Scratch specs live in `e2e/.qa-probe/` and are swept

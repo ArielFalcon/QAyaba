@@ -34,7 +34,7 @@ interface Rig {
   events: string[];
 }
 
-async function rig(t: TestContext, over: { devWrites?: number; runDevWrites?: number; uncounted?: boolean; devWriteRequests?: DevWriteRequest[] } = {}): Promise<Rig> {
+async function rig(t: TestContext, over: { devWrites?: number; runDevWrites?: number; uncounted?: boolean; devWriteRequests?: DevWriteRequest[]; script?: Array<{ devWrites: number; unfinishedTests?: number; stopped?: boolean }> } = {}): Promise<Rig> {
   const base = mkdtempSync(join(tmpdir(), "closed-loop-flow-"));
   t.after(() => rmSync(base, { recursive: true, force: true }));
   const mirrorDir = join(base, "mirror");
@@ -57,6 +57,8 @@ async function rig(t: TestContext, over: { devWrites?: number; runDevWrites?: nu
       execute: async (dir, opts) => {
         r.events.push("execute");
         r.executed.push({ specDir: dir, opts: opts as ExecutionOpts });
+        const scripted = over.script?.shift();
+        if (scripted?.stopped) return { verdict: "infra-error", cases: [], logs: "playwright runner aborted by operator cancel — killed", devWrites: scripted.devWrites, ...(scripted.unfinishedTests !== undefined ? { unfinishedTests: scripted.unfinishedTests } : {}) };
         return { verdict: "pass", cases: [{ name: "loads", status: "pass" }], logs: "", ...(over.uncounted ? {} : { devWrites: over.devWrites ?? 1 }), ...(over.devWriteRequests ? { devWriteRequests: over.devWriteRequests } : {}) };
       },
     },
@@ -327,4 +329,33 @@ test("the calls the run granted count only the flows whose loop can run a spec",
   r.run.openFlow(r.flowInput({ delegationId: "run-9-flow-none", flowId: "none", limits: { maxCalls: 5, maxDevWrites: 0 } }));
   r.run.openFlow(flowOf(r, 0, 2));
   assert.equal(r.run.signals().granted, 2);
+});
+
+test("a replacement sidekick of a flow inherits what the first one's aborted call was counted, and the flow cannot be opened again", async (t) => {
+  const r = await rig(t, { runDevWrites: 20, script: [{ devWrites: 3, unfinishedTests: 1, stopped: true }] });
+  const flow = r.run.openFlow(flowOf(r, 0, 4))!;
+  r.writeWorkspace("flows/login.spec.ts", SPEC);
+  bind(r, "side-a", "run-9-flow-f0");
+  const aborted = await call(r, "side-a");
+  assert.ok(aborted.ok);
+  r.registry.unbindSession("side-a");
+  bind(r, "side-b", "run-9-flow-f0");
+  const next = await call(r, "side-b");
+  assert.ok(next.ok, "the replacement is not refused for writes the first one never sent");
+  assert.equal(flow.signals().devWrites, 4, "the flow's share is spent by what was counted, 3 by the aborted call and 1 by the next");
+  assert.equal(r.run.signals().devWrites, 4);
+  assert.throws(() => r.run.openFlow(flowOf(r, 0, 4)), /already open/, "a replacement shares the flow's loop; it never gets a second one");
+});
+
+test("an aborted call charges the flow and the run only what was counted, so the flows beside it keep their share", async (t) => {
+  const r = await rig(t, { runDevWrites: 20, script: [{ devWrites: 3, unfinishedTests: 1, stopped: true }] });
+  r.run.openFlow(flowOf(r, 0, 4));
+  const other = r.run.openFlow(flowOf(r, 1, 4))!;
+  r.writeWorkspace("flows/login.spec.ts", SPEC);
+  bind(r, "side-0", "run-9-flow-f0");
+  bind(r, "side-1", "run-9-flow-f1");
+  assert.ok((await call(r, "side-0")).ok);
+  assert.equal(r.run.signals().devWrites, 3);
+  assert.equal(other.runWritesLeft(), 17);
+  assert.ok((await call(r, "side-1")).ok, "the other flow is admitted");
 });

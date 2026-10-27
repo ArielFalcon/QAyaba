@@ -29,6 +29,9 @@ export const DEFAULT_E2E_TIMEOUT_MS = 900_000;
 
 export const DEFAULT_CLEANUP_TIMEOUT_MS = 300_000;
 
+/* How long a stopped child (timed out or cancelled) is waited for after it is killed: the ledgers the count is read from are final only once its processes are gone, and a child that never exits must not hold the run. */
+export const CHILD_EXIT_WAIT_MS = 5_000;
+
 /* What is kept of a Playwright run's stderr: enough for any real run's log, bounded because the specs are agent-written code and may write without limit. */
 export const E2E_STDERR_KEEP_CHARS = 500_000;
 
@@ -170,6 +173,8 @@ export interface E2eExecuteDeps {
     failureCaptureDir?: string;
   }): Promise<E2eRunOutput>;
   defaultTimeoutMs?: number;
+  /* How long a killed child is waited for before the ledgers are read. Absent: CHILD_EXIT_WAIT_MS. */
+  exitWaitMs?: number;
   /* A directory for the failure dumps of one run, inside the run's work dir, and the root the strict reader walks from. Absent (a fake runner): runE2E makes a temp dir of its own. */
   allocateFailureDir?(): { dir: string; root: string; dispose(): void };
   /* OPTIONAL diagnostic sink for a secret-redaction audit trail (src/orchestrator/sanitizer.ts's recordAudit/SECRET_AUDIT — a security-boundary concern this module does not import directly, to stay src/-free). Absent ⇒ no audit recorded (safe for every unit test that doesn't care about it). The engine-root shell (run-engine-factory.ts) binds the REAL recordAudit into createDefaultE2eExecuteDeps's returned object, so production behavior is unchanged. */
@@ -190,6 +195,8 @@ export interface E2eRunResult {
   note?: string;
   /* Mutating requests the specs sent to DEV, as the fixtures counted them; absent when nothing trustworthy was counted. */
   devWrites?: number;
+  /* How many of the tests behind that count had not finished when the run ended (stopped, crashed): each is charged its answered writes plus the requests it still had out. Absent when every test finished. */
+  unfinishedTests?: number;
   /* The requests behind that count, by method and origin and pathname, at most MAX_DEV_WRITE_REQUESTS distinct; present with a count the fixtures recorded requests for. */
   devWriteRequests?: DevWriteRequest[];
   /* The requests that keep the run's own session alive (an identity provider's token exchange or refresh), which the fixtures kept apart from the writes and did not count, by method and origin and pathname, at most MAX_DEV_WRITE_REQUESTS distinct; present with a count when the fixtures recorded any. */
@@ -230,10 +237,12 @@ export async function runE2E(
     };
   }
 
-  const onEvent = (opts.onCase || opts.onRunning || opts.onDiscovered)
+  /* The tests that began, from the runner's own stream reporter: a count can be believed only when every one of them left a ledger. */
+  let begun = 0;
+  const onEvent = (opts.onCase || opts.onRunning || opts.onDiscovered || opts.countWrites)
     ? (ev: StreamEvent): void => {
         if (ev.phase === "discovered") opts.onDiscovered?.(ev.title, ev.file);
-        else if (ev.phase === "testbegin") opts.onRunning?.(ev.title);
+        else if (ev.phase === "testbegin") { begun++; opts.onRunning?.(ev.title); }
         else if (ev.phase === "testend") {
           const st = streamStatusToCase(ev.status);
           if (st) opts.onCase?.({ name: ev.title, status: st, ...(ev.durationMs !== undefined ? { durationMs: ev.durationMs } : {}) });
@@ -301,11 +310,13 @@ export async function runE2E(
     clearTimeout(timer);
     if (onAbort) opts.signal?.removeEventListener("abort", onAbort);
   }
+  /* A run that was stopped here is not over until its child is: the fixtures rewrite the ledgers as the tests go, and the last rewrite is the one that counts. The wait is bounded, so a child that never exits cannot hold the run. */
+  if (opts.countWrites && (out === timedOut || out === abortedOut)) await exitedWithin(runPromise, deps.exitWaitMs ?? CHILD_EXIT_WAIT_MS);
   const { report, logs, ran } = out;
-  /* The ledger is read before any early return, but only believed for a run that finished and whose report says how many tests ran: a stopped run has no ledger for the test it was running, and a ledger short of the tests that ran has lost some, so the writes of either are unknown and the caller charges the whole cap (see readDevWrites). */
+  /* The ledger is read before any early return. How many tests it must cover is what the run says it ran: the report's executed tests for a run that reported, the tests that began for one that did not (stopped, crashed, no report); a ledger short of that has lost a test, so the count is unknown and the caller charges the whole cap (see readDevWrites). */
   const ledger = opts.countWrites ? readDevWrites(failureCaptureDir, failureCaptureRoot) : undefined;
-  const counted = (result: E2eRunResult, executed?: number): E2eRunResult =>
-    ledger === undefined || executed === undefined || ledger.files < executed ? result : { ...result, devWrites: ledger.writes, ...(ledger.requests.length > 0 ? { devWriteRequests: ledger.requests } : {}), ...(ledger.sessionRequests.length > 0 ? { sessionRequests: ledger.sessionRequests } : {}) };
+  const counted = (result: E2eRunResult, tests: number): E2eRunResult =>
+    ledger === undefined || ledger.files < tests ? result : { ...result, devWrites: ledger.writes, ...(ledger.unfinished > 0 ? { unfinishedTests: ledger.unfinished } : {}), ...(ledger.requests.length > 0 ? { devWriteRequests: ledger.requests } : {}), ...(ledger.sessionRequests.length > 0 ? { sessionRequests: ledger.sessionRequests } : {}) };
 
   /* Single sanitizeText pass: a separate containsSecrets() pre-check is redundant with this SAME detection result (mirrors code-execution.runner.ts's own AMENDMENT-1 simplification) — the warn fires under the exact same condition as before, just derived from one call instead of two. */
   const sanitized = sanitizeText(logs);
@@ -323,7 +334,7 @@ export async function runE2E(
       /* mutation-scope:begin no-report-outcome */
       cases: [],
       logs: sanitized.text || "the E2E runner produced no report (it crashed before reporting results)",
-    });
+    }, begun);
   }
 
   /* The observer is told once per run, after the report is parsed and its cases are harvested and redacted, so the spans it synthesizes can carry each case's runtime evidence. It never alters the verdict; a fault in it is logged and ignored. */
@@ -430,13 +441,15 @@ export async function runE2E(
   }
 }
 
-/* The writes to DEV the specs of a run sent, from the ledger files the fixtures left in the failure-capture directory, the requests they recorded behind the count (method, origin and pathname, re-derived here and redacted, so a query never leaves), and how many files that was (one per test that ran). The directory is the child's, so it is read strictly (see readRunOutputDir) and all or nothing: a missing, forged, oversized or unreadable file makes the whole count unknown (undefined) and never a smaller one. The counter itself runs inside the suite's own fixtures, which is agent-editable code, so a ledger is evidence of what the spec did only against an honest spec; the hard bound on what a call can do to DEV is the call cap times the per-call time, and the egress filter. */
+/* The writes to DEV the specs of a run sent, from the ledger files the fixtures left in the failure-capture directory, the requests they recorded behind the count (method, origin and pathname, re-derived here and redacted, so a query never leaves), how many files that was (one per test that began) and how many of those tests had not finished. The seed writes a test's ledger when the test starts and rewrites it on every write (see config/e2e/fixtures.ts), so a test that was killed has left what it did: a finished test is charged its answered `writes`, an unfinished one its `writes` plus the requests it still had out (`pending`, which may have reached DEV). A ledger without a version is the earlier seed's, written when the test finished. The directory is the child's, so it is read strictly (see readRunOutputDir) and all or nothing: a forged, oversized or unreadable file makes the whole count unknown (undefined) and never a smaller one; a directory with no ledger at all is a count of none, which the caller believes only for a run in which no test began. The counter itself runs inside the suite's own fixtures, which is agent-editable code, so a ledger is evidence of what the spec did only against an honest spec; the hard bound on what a call can do to DEV is the call cap times the per-call time, and the egress filter. A write sent outside any test (a module's top level, a worker's setup) is in no ledger. */
 const LEDGER_FILE_RE = /^ledger-[A-Za-z0-9_-]+\.json$/;
 const LEDGER_LIMITS: RunOutputLimits = { maxFileBytes: 16_384, maxTotalBytes: 4 * 1024 * 1024, maxFiles: 4_096 };
 const MAX_LEDGER_WRITES = 1_000_000;
 /* What one ledger file may record: the seed keeps the first MAX_DEV_WRITE_REQUESTS of a test's writes, each URL cut at 300 characters. */
 const MAX_LEDGER_URL_CHARS = 300;
 const WRITE_METHOD_RE = /^(?:POST|PUT|PATCH|DELETE)$/;
+/* The ledger version the seed writes now; a ledger with none is version 1. */
+const LEDGER_VERSION = 2;
 
 /* One recorded request, or a throw that makes the whole ledger untrusted: a method that does not write, or a URL that is not one. */
 function ledgerRequest(raw: unknown): { method: string; url: string } {
@@ -448,28 +461,50 @@ function ledgerRequest(raw: unknown): { method: string; url: string } {
   return { method, url: sanitizeText(`${parsed.origin}${parsed.pathname}`).text };
 }
 
-function readDevWrites(dir: string | undefined, root: string | undefined): { writes: number; files: number; requests: DevWriteRequest[]; sessionRequests: DevWriteRequest[] } | undefined {
+/* A count that is a whole number within what a ledger may hold, or a throw that makes the ledger untrusted. */
+function ledgerCount(raw: unknown): number {
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0 || raw > MAX_LEDGER_WRITES) throw new Error("not a count");
+  return raw;
+}
+
+function readDevWrites(dir: string | undefined, root: string | undefined): { writes: number; files: number; unfinished: number; requests: DevWriteRequest[]; sessionRequests: DevWriteRequest[] } | undefined {
   if (dir === undefined) return undefined;
   const base = root ?? dir;
   const files = readRunOutputDir({ mirrorDir: base, specDir: base }, relative(base, dir) || ".", (name) => LEDGER_FILE_RE.test(name), (_name, bytes) => {
-    const parsed = JSON.parse(bytes.toString("utf8")) as { writes?: unknown; requests?: unknown; sessionRequests?: unknown };
-    const writes = parsed.writes;
-    if (typeof writes !== "number" || !Number.isInteger(writes) || writes < 0 || writes > MAX_LEDGER_WRITES) throw new Error("not a count");
+    const parsed = JSON.parse(bytes.toString("utf8")) as { v?: unknown; writes?: unknown; pending?: unknown; done?: unknown; requests?: unknown; sessionRequests?: unknown };
+    const writes = ledgerCount(parsed.writes);
+    let pending = 0;
+    let done = true;
+    if (parsed.v !== undefined) {
+      if (parsed.v !== LEDGER_VERSION || typeof parsed.done !== "boolean") throw new Error("not a ledger this runner reads");
+      pending = ledgerCount(parsed.pending);
+      done = parsed.done;
+    }
     const recorded = parsed.requests ?? [];
     if (!Array.isArray(recorded) || recorded.length > MAX_DEV_WRITE_REQUESTS || recorded.length > writes) throw new Error("not a list of the counted requests");
     const session = parsed.sessionRequests ?? [];
     if (!Array.isArray(session) || session.length > MAX_DEV_WRITE_REQUESTS) throw new Error("not a list of the session requests");
-    return { writes, requests: recorded.map(ledgerRequest), sessionRequests: session.map(ledgerRequest) };
+    return { writes, pending, done, requests: recorded.map(ledgerRequest), sessionRequests: session.map(ledgerRequest) };
   }, LEDGER_LIMITS);
-  if (files === undefined || files.length === 0) return undefined;
+  if (files === undefined) return undefined;
   const requests: DevWriteRequest[] = [];
   const sessionRequests: DevWriteRequest[] = [];
   for (const file of files) {
     for (const r of file.requests) noteDevWriteRequest(requests, r.method, r.url);
     for (const r of file.sessionRequests) noteDevWriteRequest(sessionRequests, r.method, r.url);
   }
-  return { writes: files.reduce((sum, f) => sum + f.writes, 0), files: files.length, requests, sessionRequests };
+  return { writes: files.reduce((sum, f) => sum + f.writes + (f.done ? 0 : f.pending), 0), files: files.length, unfinished: files.filter((f) => !f.done).length, requests, sessionRequests };
 /* mutation-scope:begin output-readers */
+}
+
+/* Waits for the suite run to settle, at most `ms`: it settles when the killed child has exited. A rejection is the caller's to see elsewhere. */
+async function exitedWithin(run: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([run.then(() => undefined, () => undefined), new Promise<void>((resolve) => { timer = setTimeout(resolve, ms); })]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function redactCaseByValue(c: QaCase): void {
@@ -838,12 +873,15 @@ export function createDefaultE2eExecuteDeps(
   actionTimeoutMs?: string,
   /* The read of the report the child left, a seam so that a test can see when it is made. `root` is the directory the strict reader walks from. */
   readReport: (jsonPath: string, root: string) => PlaywrightReportRead = (jsonPath, root) => readPlaywrightReport(jsonPath, MAX_PLAYWRIGHT_REPORT_BYTES, root),
+  /* How long a killed child is waited for before its ledgers are read (CHILD_EXIT_WAIT_MS). */
+  exitWaitMs: number = CHILD_EXIT_WAIT_MS,
 ): E2eExecuteDeps {
   if (!exec) {
     throw new Error("[qa] createDefaultE2eExecuteDeps requires an execution launcher — there is no safe default (the specs are agent-written code).");
   }
   return {
     defaultTimeoutMs,
+    exitWaitMs,
     allocateFailureDir: () => {
       const dir = exec.allocDir("failures", ["dumps"]);
       return { dir: join(dir, "dumps"), root: exec.workDir(), dispose: () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ } } };
@@ -897,19 +935,28 @@ export function createDefaultE2eExecuteDeps(
           fn();
         };
 
-        const ms = timeoutMs ?? defaultTimeoutMs;
-        const timer = setTimeout(() => {
+        /* A stopped run (timed out or cancelled) kills the child's tree and then waits, for a bounded time, for the child to exit before it settles: the ledgers it leaves are final only once its processes are gone. Its report is never read. */
+        let stopping = false;
+        let exited!: () => void;
+        const exit = new Promise<void>((resolve) => { exited = resolve; });
+        const stop = (what: string): void => {
+          if (stopping || settled) return;
+          stopping = true;
+          clearTimeout(timer);
+          if (onAbort) signal?.removeEventListener("abort", onAbort);
           processKill.killTree(child);
           closeDumps(false);
-          settle(() => resolve({ report: {}, logs: `playwright runner timed out after ${ms}ms — killed\n${stderr.text()}`, ran: false }));
-        }, ms);
+          let wait: ReturnType<typeof setTimeout> | undefined;
+          void Promise.race([exit, new Promise<void>((resolve) => { wait = setTimeout(resolve, exitWaitMs); })]).then(() => {
+            clearTimeout(wait);
+            settle(() => resolve({ report: {}, logs: `${what}\n${stderr.text()}`, ran: false }));
+          });
+        };
+        const ms = timeoutMs ?? defaultTimeoutMs;
+        const timer = setTimeout(() => stop(`playwright runner timed out after ${ms}ms — killed`), ms);
 
         const onAbort = signal
-          ? () => {
-              processKill.killTree(child);
-              closeDumps(false);
-              settle(() => resolve({ report: {}, logs: `playwright runner aborted by operator cancel — killed\n${stderr.text()}`, ran: false }));
-            }
+          ? () => stop("playwright runner aborted by operator cancel — killed")
           : undefined;
         if (onAbort) signal!.addEventListener("abort", onAbort, { once: true });
 
@@ -919,10 +966,11 @@ export function createDefaultE2eExecuteDeps(
         child.stderr!.on("data", (d: string) => stderr.append(d));
         child.on("error", (err) => { closeDumps(false); try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ } settle(() => reject(err)); });
         child.on("close", (code, signal) => {
-          /* The child is gone, and the path it was handed is the one thing it could still have changed: the report is read strictly (see readPlaywrightReport), never waited on and never followed. A run that is settled already (it timed out or the operator cancelled, and the child was killed) is waited for by nobody, so its report is not read: parsing one made slow on purpose would only hold the orchestrator after the deadline. */
-          const read = settled ? undefined : readReport(jsonPath, workRoot);
-          closeDumps(!settled);
+          /* The child is gone, and the path it was handed is the one thing it could still have changed: the report is read strictly (see readPlaywrightReport), never waited on and never followed. A run that is stopped already (it timed out or the operator cancelled, and the child was killed) is waited for by nobody, so its report is not read: parsing one made slow on purpose would only hold the orchestrator after the deadline. */
+          const read = settled || stopping ? undefined : readReport(jsonPath, workRoot);
+          closeDumps(!settled && !stopping);
           try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ }
+          exited();
           if (read === undefined) return;
           const refusal = !read.ran && "reason" in read ? `\n[qa] the Playwright report was not read (${read.reason}); this run has no result.` : "";
           settle(() => resolve({ report: read.ran ? read.report : {}, logs: stderr.text() + refusal, ran: read.ran, exitCode: code ?? undefined, ...(signal ? { signal } : {}) }));

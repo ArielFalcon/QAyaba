@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
+import { RunDevWriteLedger } from "@contexts/test-execution/domain/run-dev-write-ledger.ts";
 import { CLOSED_LOOP_REFUSAL, RUN_SPEC_FLOW_AGENT, RunSpecCapability } from "@contexts/test-execution/domain/run-spec-capability.ts";
 import { MAX_REPORTED_TESTS, MAX_TITLE_CHARS, RunSpecUseCase, escapeGrep, type RunSpecDeps } from "@contexts/test-execution/application/run-spec.use-case.ts";
 import type { SpecExecutionRequest, SpecExecutionResult } from "@contexts/test-execution/domain/spec-executor.ts";
@@ -555,4 +556,52 @@ test("a call whose tests all passed keeps no failure facts", async (t) => {
   const h = harness(t);
   await call(h, "flows/a.spec.ts");
   assert.equal(h.capability.ledger[0]!.failures, undefined);
+});
+
+/* A call that was stopped (its session ended, its time ran out, it was cancelled) leaves the tests that began with the writes they had sent, counted by the runner from their ledgers. */
+const INTERRUPTED = (devWrites: number | undefined, unfinishedTests?: number): SpecExecutionResult => ({
+  verdict: "infra-error", cases: [], logs: "playwright runner timed out after 60000ms — killed",
+  ...(devWrites !== undefined ? { devWrites } : {}), ...(unfinishedTests !== undefined ? { unfinishedTests } : {}),
+});
+
+function withRunLedger(t: TestContext, cap: number): { h: Harness; runWrites: RunDevWriteLedger } {
+  const runWrites = new RunDevWriteLedger(cap);
+  const capability = new RunSpecCapability({ runId: "run-1", limits: { ...LIMITS, maxDevWrites: cap }, expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0, runWrites });
+  capability.bindSession("ses-1");
+  return { h: harness(t, { capability }), runWrites };
+}
+
+test("an interrupted call is charged exactly the writes its ledgers counted, says so, and the next call is admitted", async (t) => {
+  const { h, runWrites } = withRunLedger(t, 5);
+  h.next.result = INTERRUPTED(3, 1);
+  const attrs: Record<string, unknown> = {};
+  const first = await new RunSpecUseCase(h.deps).run({ sessionId: "ses-1", agent: RUN_SPEC_FLOW_AGENT, path: "flows/a.spec.ts" }, undefined, { setAttrs: (a) => Object.assign(attrs, a) });
+  assert.ok(first.ok);
+  assert.equal(runWrites.used, 3, "what the ledgers counted, not the run's whole remainder");
+  assert.equal(first.report.budget.devWritesLeft, 2);
+  assert.equal(attrs["qayaba.tool.dev_writes"], 3);
+  assert.match(first.report.note ?? "", /1 test/);
+  assert.doesNotMatch(first.report.note ?? "", /could not be counted/);
+  h.next.result = { verdict: "pass", cases: [{ name: "t", status: "pass" }], logs: "", devWrites: 1 };
+  const second = await call(h, "flows/a.spec.ts");
+  assert.ok(second.ok, "the writes left are still the run's to spend");
+  assert.equal(runWrites.used, 4);
+});
+
+test("an interrupted call whose writes could not be counted still charges the run's whole remainder", async (t) => {
+  const { h, runWrites } = withRunLedger(t, 5);
+  h.next.result = INTERRUPTED(undefined);
+  const first = await call(h, "flows/a.spec.ts");
+  assert.ok(first.ok);
+  assert.match(first.report.note ?? "", /could not be counted/);
+  assert.equal(runWrites.left(), 0);
+  const second = await call(h, "flows/a.spec.ts");
+  assert.ok(!second.ok && second.code === CLOSED_LOOP_REFUSAL.NO_WRITES);
+});
+
+test("a call that sent only session requests charges the run nothing", async (t) => {
+  const { h, runWrites } = withRunLedger(t, 5);
+  h.next.result = { verdict: "pass", cases: [{ name: "t", status: "pass" }], logs: "", devWrites: 0, sessionRequests: [{ method: "POST", url: "https://id.example.com/oauth/token", count: 2 }] };
+  assert.ok((await call(h, "flows/a.spec.ts")).ok);
+  assert.equal(runWrites.used, 0);
 });
