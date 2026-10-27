@@ -51,7 +51,7 @@ Source: campaign run `run-ed28973-mvqy1s7l-64c65862` (name-webapp ed28973: 3 com
 | T17 | S15 | re-check after T1, T2 | pending | |
 | T18 | S16 | delegated (parallel, worktree): independent unit, route-table extractor/loader/classifier | done; independent verifier running; gaps: `links` not rendered in the Context Pack section, a `loadChildren` binding imported from another module stays unresolved | main 50040e55, cdaf19e2, 4f2a5a71, b4af274d; gate 0 failed, matrix 0 findings |
 | T19 | S17 | delegated (parallel, worktree): independent unit, prompt and coordination sections | in progress | |
-| T20 | S18 | inline after the validation run (small) | pending | |
+| T20 | S18 | inline (small) | done (RED observed) | 850d878a; npm test 11853, 0 failed |
 | T21 | S15, run findings | delegated read-only diagnosis | done: S15 holds (detail page via `dev.routeSamples`); `blocked` = pushback coercion of an honest `unmet`; 4 use cases resolved by the amendment; DEV-write cap spent by IdP token refresh (L25) | |
 | T11 | S6 optimisations: review each flow as it returns, no retry of a recapture that failed unchanged, wait for the lease instead of refusing | after T1–T9 | pending | |
 
