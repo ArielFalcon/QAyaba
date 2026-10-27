@@ -207,7 +207,6 @@ export async function regenerateAtGap(
   enrichment: GenerationEnrichment,
   origin: Exclude<CorrectionOrigin, typeof CORRECTION_ORIGIN.REVIEW>,
   evidence?: readonly EvidenceFinding[],
-  omitted?: number,
 ): Promise<GapRegeneration> {
   const { input, trail, workspace, services } = ctx;
   const { acceptance, integrityCounters, snapshotPort, runDeadlinePort, suiteChangedFiles, snapshotSuite, acceptanceScope } = services;
@@ -217,7 +216,7 @@ export async function regenerateAtGap(
   /* mutation-scope:begin delivered-before-coverage-regen */
   const deliveredBefore = state.generation.delivered;
   /* mutation-scope:end delivered-before-coverage-regen */
-  const regenerated = await regenerate(state, ctx, undefined, enrichment, origin, evidence, omitted);
+  const regenerated = await regenerate(state, ctx, undefined, enrichment, origin, evidence);
   const regen = regenerated.output;
   const { leadCorrections } = regenerated;
   await services.confinement.enforce();
@@ -293,7 +292,7 @@ async function recheckOrNone(recheck: () => Promise<BundleMutationResult | null>
  */
 export async function closeSurvivors(state: Readonly<RunState>, ctx: WorkspaceRunContext, regen: GapRegeneration): Promise<SurvivorClosure | undefined> {
   const { deps, input, workspace } = ctx;
-  const routed = state.coverage.survivorRuns.slice(0, MAX_GAP_SURVIVORS);
+  const routed = state.coverage.survivorRuns;
   const changed = regen.changedSpecFiles ?? [];
   if (regen.outcome !== "accepted" || routed.length === 0 || changed.length === 0 || !deps.objectiveSignal.recheckSurvivors) return undefined;
   const changedSet = new Set(changed);
@@ -338,25 +337,20 @@ export async function recountAfter(state: Readonly<RunState>, ctx: WorkspaceRunC
   };
 }
 
-/* The most units of a gap the lead is shown, as many as the gap text lists of each kind. */
-const MAX_GAP_FILES = 10;
-const MAX_GAP_ARMS = 20;
-
 /* One unit of the gap: what the lead is shown, and the structured finding the orchestrator routes by the file it names. */
 export interface GapUnit {
   text: string;
   finding: CorrectionFinding;
 }
 
-/* The first `max` of the groups' items taken one group at a time, round-robin, so no group crowds the others out; what the cap leaves out is counted. */
-function spreadAcross<T>(groups: ReadonlyMap<string, readonly T[]>, max: number): { picked: T[]; omitted: number } {
+/* The items of the groups taken one group at a time, round-robin, so the first of each group come first and no group crowds the others out. Every item is kept. */
+function interleave<T>(groups: ReadonlyMap<string, readonly T[]>): T[] {
   const lists = [...groups.values()];
-  const total = lists.reduce((n, list) => n + list.length, 0);
   const picked: T[] = [];
-  for (let round = 0; picked.length < max && picked.length < total; round++) {
-    for (const list of lists) if (round < list.length && picked.length < max) picked.push(list[round]!);
+  for (let round = 0; lists.some((list) => round < list.length); round++) {
+    for (const list of lists) if (round < list.length) picked.push(list[round]!);
   }
-  return { picked, omitted: total - picked.length };
+  return picked;
 }
 
 function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<string, T[]> {
@@ -368,30 +362,22 @@ function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<string, 
 /*
  * The gap as separate units, one per file with uncovered changed lines and one per decision arm no test ran: the lead routes findings
  * by number, so each number must name one unit it can hand to a flow, and each unit names its file so the orchestrator can route it by
- * the use case that file seeds. When the caps cut the gap, files are taken across use cases and arms across files, not in measurement
- * order, and the count left out is returned for the lead to be told.
+ * the use case that file seeds. Every unit is kept: files are listed across use cases and arms across files, so what comes first is
+ * the breadth of the gap, and the lead's turn gives them up as references to their files only when its window cannot hold them.
  */
-export function gapUnits(uncovered: CoverageOutcome["uncovered"], arms: CoverageOutcome["untakenArms"], candidates: RunState["grounding"]["candidates"]): { units: GapUnit[]; omitted: number } {
+export function gapUnits(uncovered: CoverageOutcome["uncovered"], arms: CoverageOutcome["untakenArms"], candidates: RunState["grounding"]["candidates"]): GapUnit[] {
   const owner = (file: string): string => (candidates ?? []).find((c) => c.seeds.some((seed) => seed.file === file))?.id ?? "";
-  const files = spreadAcross(groupBy(uncovered, (u) => owner(u.file)), MAX_GAP_FILES);
-  const taken = spreadAcross(groupBy(arms, (u) => u.file), MAX_GAP_ARMS);
-  return {
-    units: [
-      ...files.picked.map((u) => {
-        const text = renderCoverageGap([u], undefined, candidates);
-        return { text, finding: { text, file: u.file } };
-      }),
-      ...taken.picked.map((u) => {
-        const text = `decision arm on a changed line that NO test ran: ${u.file}:${u.line} ${u.kind}: ${u.arm}`;
-        return { text, finding: { text, file: u.file, line: u.line } };
-      }),
-    ],
-    omitted: files.omitted + taken.omitted,
-  };
+  return [
+    ...interleave(groupBy(uncovered, (u) => owner(u.file))).map((u) => {
+      const text = renderCoverageGap([u], candidates);
+      return { text, finding: { text, file: u.file } };
+    }),
+    ...interleave(groupBy(arms, (u) => u.file)).map((u) => {
+      const text = `decision arm on a changed line that NO test ran: ${u.file}:${u.line} ${u.kind}: ${u.arm}`;
+      return { text, finding: { text, file: u.file, line: u.line } };
+    }),
+  ];
 }
-
-/* The most surviving mutants the lead is shown, as many as the gap text lists. */
-const MAX_GAP_SURVIVORS = 10;
 
 /*
  * The findings of a gap: one per unit, carrying the file it names so the orchestrator routes it by the use case that file seeds, then
@@ -402,24 +388,36 @@ const MAX_GAP_SURVIVORS = 10;
 export function gapFindings(gap: string, units: readonly GapUnit[], survived: readonly SurvivedMutant[]): EvidenceFinding[] | undefined {
   const findings: EvidenceFinding[] = [
     ...(units.length > 0 ? units.map((u) => ({ finding: u.finding })) : survived.length > 0 && gap ? [{ finding: { text: gap } }] : []),
-    ...survived.slice(0, MAX_GAP_SURVIVORS).flatMap((m) =>
+    ...survived.flatMap((m) =>
       (m.specFiles && m.specFiles.length > 0 ? m.specFiles : [undefined]).map((spec) => ({ finding: { text: renderSurvivedMutant(m, spec), ...(spec ? { spec } : {}) } })),
     ),
   ];
   return findings.length > 0 ? findings : undefined;
 }
 
+/*
+ * The gap as references, for an author whose prompt is over its window: the files the gap is about and how many of its units each
+ * holds, and the files whose changed code survived a mutant. The units themselves are what the window could not hold.
+ */
+export function gapReference(units: readonly GapUnit[], survived: readonly SurvivedMutant[]): string {
+  const byFile = new Map<string, number>();
+  for (const unit of units) byFile.set(unit.finding.file ?? "", (byFile.get(unit.finding.file ?? "") ?? 0) + 1);
+  const files = [...byFile].map(([file, count]) => `- ${file}: ${count} unit(s) (changed lines or decision arms no test ran)`);
+  const mutated = [...new Set(survived.map((m) => m.file))].map((file) => `- ${file}: a mutant of its changed code that no test noticed`);
+  return [...files, ...mutated].join("\n");
+}
+
 /* A regeneration at the coverage gap: its units routed by the file each names, the surviving mutants by the spec that reached them; an author that has no lead reads the gap whole, survivors included. */
-function regenerateAtCoverageGap(state: Readonly<RunState>, ctx: WorkspaceRunContext, base: string, items: { units: readonly GapUnit[]; omitted: number }, survived: readonly SurvivedMutant[]): Promise<GapRegeneration> {
-  const gap = [base, renderSurvivedMutants(survived, MAX_GAP_SURVIVORS)].filter(Boolean).join("\n\n");
-  return regenerateAtGap(state, ctx, { coverageGap: gap, coverageGapItems: items.units.map((u) => u.text) }, CORRECTION_ORIGIN.COVERAGE, gapFindings(base, items.units, survived), items.omitted);
+function regenerateAtCoverageGap(state: Readonly<RunState>, ctx: WorkspaceRunContext, base: string, units: readonly GapUnit[], survived: readonly SurvivedMutant[]): Promise<GapRegeneration> {
+  const gap = [base, renderSurvivedMutants(survived)].filter(Boolean).join("\n\n");
+  return regenerateAtGap(state, ctx, { coverageGap: gap, coverageGapReference: gapReference(units, survived), coverageGapItems: units.map((u) => u.text) }, CORRECTION_ORIGIN.COVERAGE, gapFindings(base, units, survived));
 }
 
 /* Enforce-mode one-shot coverage regeneration at the uncovered lines and the arms no test ran; it runs at most once per run and is independent of the FixLoop budget. The whole-suite re-measure that decides coverage is the single final re-measure before decide. */
 export async function regenerateForCoverage(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { uncovered, untakenArms } = state.coverage;
   const survived = survivorsOf(state);
-  const gap = [renderCoverageGap(uncovered, undefined, state.grounding.candidates), renderBranchGap(untakenArms)].filter(Boolean).join("\n\n");
+  const gap = [renderCoverageGap(uncovered, state.grounding.candidates), renderBranchGap(untakenArms)].filter(Boolean).join("\n\n");
   const regen = await regenerateAtCoverageGap(state, ctx, gap, gapUnits(uncovered, untakenArms, state.grounding.candidates), survived);
   const survivorClosure = await closeSurvivors(state, ctx, regen);
   const coverage = await recountAfter(state, ctx, regen);

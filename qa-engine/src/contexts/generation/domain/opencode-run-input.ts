@@ -29,6 +29,8 @@ export interface OpencodeRunInput {
   fixCases?: QaCase[];
   reviewCorrections?: string[];
   coverageGap?: string;
+  /* The gap as references to its files, shown in place of `coverageGap` when the prompt is over the author's window. */
+  coverageGapReference?: string;
   /* The intent lock's violations of the previous turn, as facts: rule, clause, and what the contract held before and after. Absent when the previous turn broke no contract. */
   contractFeedback?: readonly { rule: string; file: string; clauseId: string; before: string; after: string }[];
   selectorContradictions?: string[];

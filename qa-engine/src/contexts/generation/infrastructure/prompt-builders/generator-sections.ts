@@ -540,31 +540,33 @@ function renderReviewerCorrections(ctx: PromptContext): SectionRender {
 
 function renderCoverageGap(ctx: PromptContext): SectionRender {
   const { input, isGenerationMode, hasFailureTree, treeInPrompt, groundingUncoveredEscape: GROUNDING_UNCOVERED_ESCAPE } = ctx;
-  const coverageContent = input.coverageGap && isGenerationMode
-    ? [
-        `## Cover the change (HIGH priority)`,
-        ``,
-        `The tests ran green but did NOT exercise all of what this commit changed (the lines or decision`,
-        `arms below). Extend or add tests so each is actually executed and asserted (covering ≠ asserting —`,
-        `assert the behavior of the changed code, do not just touch the line). An arm the page cannot be`,
-        `brought to through the UI against DEV (one only a mocked network could provoke) is not a case:`,
-        `leave it and say why in your verdict note.`,
-        ``,
-        ...(treeInPrompt
-          ? [
-              `Resolve any new selectors from the injected grounding above — do NOT re-navigate routes it already covers.`,
-              GROUNDING_UNCOVERED_ESCAPE,
-              ``,
-            ]
-          : []),
-        input.coverageGap,
-        ``,
-      ].join("\n")
-    : "";
+  const sectionOf = (gap: string): string => [
+    `## Cover the change (HIGH priority)`,
+    ``,
+    `The tests ran green but did NOT exercise all of what this commit changed (the lines or decision`,
+    `arms below). Extend or add tests so each is actually executed and asserted (covering ≠ asserting —`,
+    `assert the behavior of the changed code, do not just touch the line). An arm the page cannot be`,
+    `brought to through the UI against DEV (one only a mocked network could provoke) is not a case:`,
+    `leave it and say why in your verdict note.`,
+    ``,
+    ...(treeInPrompt
+      ? [
+          `Resolve any new selectors from the injected grounding above — do NOT re-navigate routes it already covers.`,
+          GROUNDING_UNCOVERED_ESCAPE,
+          ``,
+        ]
+      : []),
+    gap,
+    ``,
+  ].join("\n");
+  const coverageContent = input.coverageGap && isGenerationMode ? sectionOf(input.coverageGap) : "";
   const coverageClaims: PromptClaim[] = coverageContent && treeInPrompt
     ? [claim.directs("consult", hasFailureTree ? "dom-failure" : "dom-live"), claim.directs("use-browser-for-uncovered-route")]
     : [];
-  return { content: coverageContent, claims: coverageClaims, shedAs: "critical-recap" };
+  /* Every unit of the gap is listed while the prompt fits the window; over it, the gap is the files it is about and how many units each holds. */
+  const reference = input.coverageGapReference;
+  const degrade = coverageContent && reference ? referenceDegrade(sectionOf(`${reference}\n(The lines and arms themselves are ${NOT_SHOWN}.)`), input.coverageGap!.split("\n").length) : undefined;
+  return { content: coverageContent, claims: coverageClaims, shedAs: "critical-recap", ...(degrade ? { degrade } : {}) };
 }
 
 /* A-2b: the deltas the intent lock found in the previous turn, as facts of this one. Sanitized, and never an order: the generator decides how to restore what its bytes weakened. */

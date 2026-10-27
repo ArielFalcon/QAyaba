@@ -1,4 +1,4 @@
-/* Renders uncovered changed lines as the enforce-mode regeneration prompt. Pure; no I/O; never throws. */
+/* Renders uncovered changed lines as the enforce-mode regeneration prompt. Every file, arm and mutant is listed: a prompt over its role's window gives them up as references to their files (the window fit rule), never a count. Pure; no I/O; never throws. */
 import type { SurvivedMutant } from "./coverage-collector.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { entryKey } from "@kernel/change-reach.ts";
@@ -36,7 +36,7 @@ function uncoveredWithin(candidate: UseCaseCandidate, uncovered: Uncovered): Unc
  * regeneration is aimed at a use case; lines no candidate holds stay under their own heading. Without candidates the text is the
  * ungrouped one.
  */
-function renderGroupedGap(uncovered: Uncovered, candidates: readonly UseCaseCandidate[], max: number): string {
+function renderGroupedGap(uncovered: Uncovered, candidates: readonly UseCaseCandidate[]): string {
   const sections: string[] = [];
   const claimed = new Map<string, Set<number>>();
   for (const candidate of candidates) {
@@ -47,29 +47,27 @@ function renderGroupedGap(uncovered: Uncovered, candidates: readonly UseCaseCand
       u.lines.forEach((line) => set.add(line));
       claimed.set(u.file, set);
     }
-    sections.push(`${candidate.id} (${entryKey(candidate.entry)}):\n${held.slice(0, max).map((u) => `  - ${u.file}: lines ${compactRanges(u.lines)}`).join("\n")}${held.length > max ? `\n  …and ${held.length - max} more file(s)` : ""}`);
+    sections.push(`${candidate.id} (${entryKey(candidate.entry)}):\n${held.map((u) => `  - ${u.file}: lines ${compactRanges(u.lines)}`).join("\n")}`);
   }
   const rest = uncovered.map((u) => ({ file: u.file, lines: u.lines.filter((line) => !claimed.get(u.file)?.has(line)) })).filter((u) => u.lines.length > 0);
-  if (rest.length > 0) sections.push(`other changed lines:\n${rest.slice(0, max).map((u) => `  - ${u.file}: lines ${compactRanges(u.lines)}`).join("\n")}${rest.length > max ? `\n  …and ${rest.length - max} more file(s)` : ""}`);
+  if (rest.length > 0) sections.push(`other changed lines:\n${rest.map((u) => `  - ${u.file}: lines ${compactRanges(u.lines)}`).join("\n")}`);
   return `changed lines NOT exercised by any test, by use case:\n${sections.join("\n")}`;
 }
 
-export function renderCoverageGap(uncovered: Uncovered, max = 10, candidates: readonly UseCaseCandidate[] = []): string {
+export function renderCoverageGap(uncovered: Uncovered, candidates: readonly UseCaseCandidate[] = []): string {
   if (uncovered.length === 0) return "all changed lines are covered by the tests";
-  if (candidates.some((c) => uncoveredWithin(c, uncovered).length > 0)) return renderGroupedGap(uncovered, candidates, max);
-  const lines = uncovered.slice(0, max).map((u) => `- ${u.file}: lines ${compactRanges(u.lines)}`);
-  const more = uncovered.length > max ? `\n…and ${uncovered.length - max} more file(s)` : "";
-  return `changed lines NOT exercised by any test:\n${lines.join("\n")}${more}`;
+  if (candidates.some((c) => uncoveredWithin(c, uncovered).length > 0)) return renderGroupedGap(uncovered, candidates);
+  const lines = uncovered.map((u) => `- ${u.file}: lines ${compactRanges(u.lines)}`);
+  return `changed lines NOT exercised by any test:\n${lines.join("\n")}`;
 }
 
 type Untaken = { file: string; line: number; kind: string; arm: string }[];
 
 /* Renders the arms on changed lines no test ran, for a coverage or branch-case regeneration; empty when every arm ran. */
-export function renderBranchGap(untaken: Untaken, max = 20): string {
+export function renderBranchGap(untaken: Untaken): string {
   if (untaken.length === 0) return "";
-  const lines = untaken.slice(0, max).map((u) => `- ${u.file}:${u.line} ${u.kind}: ${u.arm}`);
-  const more = untaken.length > max ? `\n…and ${untaken.length - max} more arm(s)` : "";
-  return `decision arms on changed lines that NO test ran (each is a behaviour the change decides, reached by a test when the page can be brought to that state through the UI against DEV):\n${lines.join("\n")}${more}`;
+  const lines = untaken.map((u) => `- ${u.file}:${u.line} ${u.kind}: ${u.arm}`);
+  return `decision arms on changed lines that NO test ran (each is a behaviour the change decides, reached by a test when the page can be brought to that state through the UI against DEV):\n${lines.join("\n")}`;
 }
 
 /* A mutant of the changed code that no test noticed, as the fact it is: the line ran under the spec, the mutation was applied and no test failed. */
@@ -80,9 +78,8 @@ export function renderSurvivedMutant(m: SurvivedMutant, specFile?: string): stri
 }
 
 /* The surviving mutants as one gap text for an author that has no lead to route them; empty when none survived. */
-export function renderSurvivedMutants(survived: readonly SurvivedMutant[], max = 10): string {
+export function renderSurvivedMutants(survived: readonly SurvivedMutant[]): string {
   if (survived.length === 0) return "";
-  const lines = survived.slice(0, max).map((m) => `- ${renderSurvivedMutant(m, m.specFiles?.join(", "))}`);
-  const more = survived.length > max ? `\n…and ${survived.length - max} more mutant(s)` : "";
-  return `mutants of the changed code that ran under a test and that no test noticed:\n${lines.join("\n")}${more}`;
+  const lines = survived.map((m) => `- ${renderSurvivedMutant(m, m.specFiles?.join(", "))}`);
+  return `mutants of the changed code that ran under a test and that no test noticed:\n${lines.join("\n")}`;
 }

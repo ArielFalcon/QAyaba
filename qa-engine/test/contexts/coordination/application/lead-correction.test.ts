@@ -135,11 +135,10 @@ test("a coverage finding is sent to the flow that covers its file whatever the l
   assert.deepEqual(placed.orders.map((o) => [o.flowId, o.indices]), [["cart", [0]], ["login", [1]]]);
 });
 
-test("a coverage-only turn shows the lead every flow with the use cases it covers, and how many units of the gap were left out", () => {
-  const text = renderLeadCorrection(redaction, covering, [{ text: "src/shared.ts lines 1-2", file: "src/shared.ts" }], CORRECTION_ORIGIN.COVERAGE, 5);
-  for (const needle of ["cart", "uc-/cart", "login", "uc-/login", "src/shared.ts lines 1-2"]) assert.ok(text.includes(needle), needle);
-  assert.ok(text.includes("5 further unit"));
-  assert.ok(!renderLeadCorrection(redaction, covering, [{ text: "x", file: "src/shared.ts" }], CORRECTION_ORIGIN.COVERAGE).includes("further unit"));
+test("a coverage-only turn shows the lead every flow with the use cases it covers, and the unit it must place", () => {
+  const text = renderLeadCorrection(redaction, covering, [{ text: "src/shared.ts lines 1-2", file: "src/shared.ts" }], CORRECTION_ORIGIN.COVERAGE);
+  for (const needle of ["cart", "uc-/cart", "login", "uc-/login", "src/shared.ts lines 1-2"]) assert.ok(needle && text.includes(needle), needle);
+  assert.doesNotMatch(text, /left out|not listed/);
 });
 
 test("flaky findings are told a test passed on retry, and are facts the lead does not rebut", () => {

@@ -67,11 +67,11 @@ const findings: CorrectionFinding[] = flowsToCorrect.map((f) => ({ text: `${f.sp
 
 test("a long spec reaches the correction whole while the window holds it, and over it gives way as a reference, the last flow first", () => {
   assert.ok(renderLeadCorrection(redaction, flowsToCorrect, findings).includes("/login-done"));
-  const whole = assembleLeadCorrection(redaction, flowsToCorrect, findings, undefined, 0, roomy);
+  const whole = assembleLeadCorrection(redaction, flowsToCorrect, findings, undefined, roomy);
   assert.ok(whole.text.includes("/cart-done") && whole.text.includes("/login-done"));
   assert.doesNotMatch(whole.text, /cut at \d+ characters/);
 
-  const prompt = assembleLeadCorrection(redaction, flowsToCorrect, findings, undefined, 0, windowOf(bytesOf(whole.text) - 3_000));
+  const prompt = assembleLeadCorrection(redaction, flowsToCorrect, findings, undefined, windowOf(bytesOf(whole.text) - 3_000));
   assert.ok(prompt.text.includes("/cart-done"));
   assert.equal(prompt.text.includes("/login-done"), false);
   assert.match(prompt.text, /flows\/login\.spec\.ts \(222 line\(s\)\)[^\n]*not shown here, to fit the window/);
@@ -82,5 +82,47 @@ test("a spec that fits is byte-identical whatever the window knows", () => {
   const flows = [flow("cart", { spec: "test('total', async () => {});" })];
   assert.equal(assembleLeadReview(redaction, flows, turn).text, assembleLeadReview(redaction, flows, turn, undefined, roomy).text);
   const under = [{ ...flowsToCorrect[0]!, spec: "test('total', ...)" }];
-  assert.equal(assembleLeadCorrection(redaction, under, [findings[0]!]).text, assembleLeadCorrection(redaction, under, [findings[0]!], undefined, 0, roomy).text);
+  assert.equal(assembleLeadCorrection(redaction, under, [findings[0]!]).text, assembleLeadCorrection(redaction, under, [findings[0]!], undefined, roomy).text);
+});
+
+/* A coverage gap: one unit per changed file, each text naming the lines no test ran. */
+const gapFiles = Array.from({ length: 60 }, (_, i) => `src/area-${i}/module-${i}.ts`);
+const gapUnits: CorrectionFinding[] = gapFiles.map((file, i) => ({ text: `changed lines NOT exercised by any test, by use case:\n  - ${file}: lines ${i + 1}-${i + 9}`, file }));
+const placedFlows: FlowUnderCorrection[] = [
+  { id: "cart", objective: "the cart flow", specFile: "flows/cart.spec.ts", sessionOpen: true, spec: specOf("cart"), candidates: ["uc-cart"], seedFiles: gapFiles.slice(0, 30) },
+  { id: "login", objective: "the login flow", specFile: "flows/login.spec.ts", sessionOpen: true, spec: specOf("login"), candidates: ["uc-login"], seedFiles: gapFiles.slice(30, 40) },
+];
+
+test("every unit of a coverage gap reaches the lead whole while the lead's window holds it, however many the gap has", () => {
+  const prompt = assembleLeadCorrection(redaction, placedFlows, gapUnits, "coverage", roomy);
+  for (const [i, unit] of gapUnits.entries()) assert.ok(prompt.text.includes(`${i + 1}. ${unit.text}`), `unit ${i + 1}`);
+  assert.doesNotMatch(prompt.text, /left out|not listed/);
+});
+
+test("over the lead's window the units no flow owns give way to the files they are about, every number still named and the omission recorded", () => {
+  const whole = assembleLeadCorrection(redaction, [], gapUnits, "coverage", roomy);
+  const prompt = assembleLeadCorrection(redaction, [], gapUnits, "coverage", windowOf(Math.floor(bytesOf(whole.text) * 0.7)));
+  assert.equal(prompt.windowFit?.outcome, "fits");
+  for (const file of gapFiles) assert.ok(prompt.text.includes(file), file);
+  assert.doesNotMatch(prompt.text, /lines \d+-\d+/, "the units' own text is a reference now");
+  assert.doesNotMatch(prompt.text, /left out|not corrected/);
+  for (const number of [1, 17, 60]) assert.match(prompt.text, new RegExp(`\\b${number}\\b`));
+  assert.deepEqual(prompt.sectionItems["unrouted"]?.omissions, [{ class: "truncation", reason: WINDOW_FIT_REASON, count: 60 }]);
+});
+
+test("a window that holds less still names every file of the gap with the findings it numbers, the findings of one file together", () => {
+  const sharedFiles = gapUnits.map((unit, i) => ({ ...unit, file: gapFiles[i % 20]! }));
+  const prompt = assembleLeadCorrection(redaction, [], sharedFiles, "coverage", windowOf(1));
+  for (const file of gapFiles.slice(0, 20)) assert.ok(prompt.text.includes(file), file);
+  assert.ok(prompt.text.includes(`${gapFiles[0]}: findings 1, 21, 41 (3)`));
+  assert.ok(prompt.text.includes(`${gapFiles[19]}: findings 20, 40, 60 (3)`));
+  assert.equal(prompt.windowFit?.degraded[0]?.step, 2);
+});
+
+test("a window that holds nothing more shows a flow's own units by file after its spec gave way, the findings still numbered under the flow", () => {
+  const prompt = assembleLeadCorrection(redaction, placedFlows, gapUnits, "coverage", windowOf(1));
+  assert.equal(prompt.text.includes("/cart-done"), false, "the spec gave way");
+  for (const file of gapFiles.slice(0, 40)) assert.ok(prompt.text.includes(file), file);
+  assert.deepEqual(prompt.windowFit?.degraded.map((d) => d.id), ["unrouted", "flows"]);
+  assert.deepEqual(prompt.sectionItems["flows"]?.omissions, [{ class: "truncation", reason: WINDOW_FIT_REASON, count: 2 }, { class: "truncation", reason: WINDOW_FIT_REASON, count: 40 }]);
 });

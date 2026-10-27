@@ -103,7 +103,7 @@ export interface CoordinationGateSignal {
   /* The lead's review of the flows: its turns, the decisions admitted, and those the orchestrator refused. Absent when the lead reviewed nothing. */
   review?: { turns: number; accepted: number; revised: number; replaced: number; dropped: number; refused: number };
   /* The reviewer's corrections the lead routed: its turns, the findings sent to flows and those no flow took, the flows revised or replaced, and the findings it rebutted, and the maintenance flows it opened for specs no flow of the plan owns. Absent when there was none. */
-  corrections?: { turns: number; routed: number; unrouted: number; revised: number; replaced: number; rebutted: number; maintained?: number; omitted?: number };
+  corrections?: { turns: number; routed: number; unrouted: number; revised: number; replaced: number; rebutted: number; maintained?: number };
 }
 
 /* The settings an app declared, with every limit it left out taken from the defaults. */

@@ -25,6 +25,11 @@ export interface GenerationEnrichment {
    */
   coverageGapItems?: readonly string[];
   /**
+   * The same gap as references (the files it is about and how many units each holds): what an author's prompt shows of it when the
+   * whole gap does not fit the author's window.
+   */
+  coverageGapReference?: string;
+  /**
    * The intent lock's violations of the turn before this one (A-2b): what the contract held before and
    * after, handed back as facts so the generator can repair the weakening it introduced. Structural
    * mirror of the domain's ContractFeedback: this barrel carries no cross-context type.

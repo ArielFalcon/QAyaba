@@ -202,8 +202,6 @@ export interface CorrectionPromptContext {
   owner: readonly (string | undefined)[];
   /* The origin's heading and lead, and whether its findings are a judgment the lead may rebut. */
   origin: { heading: string; lead: string; rebuttable: boolean };
-  /* How many further units of the gap this turn does not list. */
-  omitted: number;
   scrub(text: string): string;
 }
 
@@ -211,7 +209,46 @@ const looseFindings = (ctx: CorrectionPromptContext): number[] => ctx.findings.f
 
 const findingLine = (ctx: CorrectionPromptContext, index: number): string => `${index + 1}. ${ctx.scrub(ctx.findings[index]!.text)}`;
 
-function correctionFlowBlocks(ctx: CorrectionPromptContext, referenced: ReadonlySet<FlowUnderCorrection> = new Set()): string[] {
+/* How much of each finding a correction turn shows: its text, or only the file (and line) it is about, or the files with the numbers of the findings about them. */
+type FindingDetail = "whole" | "located" | "grouped";
+
+/* Ascending finding numbers as ranges: 3, 4, 5, 9 is "3-5, 9". */
+function numberRanges(numbers: readonly number[]): string {
+  const parts: string[] = [];
+  for (let at = 0; at < numbers.length; at++) {
+    let end = at;
+    while (numbers[end + 1] === numbers[end]! + 1) end++;
+    parts.push(end === at ? `${numbers[at]}` : `${numbers[at]}-${numbers[end]}`);
+    at = end;
+  }
+  return parts.join(", ");
+}
+
+const where = (finding: CorrectionFinding): string => `${finding.file}${finding.line !== undefined ? `:${finding.line}` : ""}`;
+
+/*
+ * The lines of a list of findings (by position), numbered as the lead cites them. Whole, each is its text. Over the window a finding that
+ * names a changed file is shown by that file alone ("located"), then the findings of one file together with their numbers ("grouped"):
+ * the number still names the finding, and the flow it is routed to is sent its text whole. A finding that names no file is always whole.
+ */
+function findingLines(ctx: CorrectionPromptContext, indices: readonly number[], detail: FindingDetail): string[] {
+  const located = (i: number): boolean => detail !== "whole" && ctx.findings[i]!.file !== undefined;
+  if (detail !== "grouped") return indices.map((i) => (located(i) ? `${i + 1}. ${ctx.scrub(where(ctx.findings[i]!))}` : findingLine(ctx, i)));
+  const byFile = new Map<string, number[]>();
+  for (const i of indices.filter(located)) byFile.set(ctx.findings[i]!.file!, [...(byFile.get(ctx.findings[i]!.file!) ?? []), i + 1]);
+  const grouped = [...byFile].map(([file, numbers]) => `- ${ctx.scrub(file)}: ${numbers.length === 1 ? `finding ${numbers[0]}` : `findings ${numberRanges(numbers)} (${numbers.length})`}`);
+  return [...grouped, ...indices.filter((i) => !located(i)).map((i) => findingLine(ctx, i))];
+}
+
+/* A note that comes with a list the window shortened. */
+const SHORTENED = `Findings are shown by the file they are about: their text is ${NOT_SHOWN}. Each flow is sent its findings whole.`;
+
+/* How many of these findings a smaller detail shows by file alone. */
+const locatable = (ctx: CorrectionPromptContext, indices: readonly number[]): number => indices.filter((i) => ctx.findings[i]!.file !== undefined).length;
+
+const windowFitOmission = (count: number): { class: "truncation"; reason: typeof WINDOW_FIT_REASON; count: number } => ({ class: "truncation", reason: WINDOW_FIT_REASON, count });
+
+function correctionFlowBlocks(ctx: CorrectionPromptContext, referenced: ReadonlySet<FlowUnderCorrection> = new Set(), detail: FindingDetail = "whole"): string[] {
   return ctx.flows.flatMap((flow) => {
     const own = ctx.findings.flatMap((_, i) => (ctx.owner[i] === flow.id ? [i] : []));
     if (own.length === 0) return [];
@@ -219,10 +256,33 @@ function correctionFlowBlocks(ctx: CorrectionPromptContext, referenced: Readonly
       `### Flow \`${flow.id}\` (${flow.specFile})`,
       `Objective: ${ctx.scrub(flow.objective)}`,
       ...(flow.candidates?.length ? [`Use cases it covers: ${flow.candidates.join(", ")}`] : []),
-      ["Findings on its spec:", ...own.map((i) => findingLine(ctx, i))].join("\n"),
+      ["Findings on its spec:", ...(detail !== "whole" && locatable(ctx, own) > 0 ? [SHORTENED] : []), ...findingLines(ctx, own, detail)].join("\n"),
       flow.spec === undefined ? "Spec: not readable." : referenced.has(flow) ? specReference(ctx.scrub, flow.specFile, flow.spec) : ["Spec:", "```ts", ctx.scrub(flow.spec), "```"].join("\n"),
     ].join("\n")];
   });
+}
+
+/* The flows' section over the window: the specs give way first (the last flow's first), then the findings the flows own are shown by file, then grouped by file. */
+function flowsDegrade(ctx: CorrectionPromptContext): (step: number) => SectionDegradation | undefined {
+  const owned = ctx.flows.filter((flow) => ctx.findings.some((_, i) => ctx.owner[i] === flow.id));
+  const withSpec = owned.filter((flow) => flow.spec !== undefined);
+  const ownedIndices = ctx.findings.flatMap((_, i) => (ctx.owner[i] === undefined ? [] : [i]));
+  const shortened = locatable(ctx, ownedIndices);
+  return (step) => {
+    const render = (referenced: ReadonlySet<FlowUnderCorrection>, detail: FindingDetail, specs: number): SectionDegradation => ({
+      content: correctionFlowBlocks(ctx, referenced, detail).join("\n\n"),
+      omissions: [...(specs > 0 ? [windowFitOmission(specs)] : []), ...(detail !== "whole" ? [windowFitOmission(shortened)] : [])],
+    });
+    if (step <= withSpec.length) return render(new Set(withSpec.slice(withSpec.length - step)), "whole", step);
+    if (shortened === 0 || step > withSpec.length + 2) return undefined;
+    return render(new Set(withSpec), step === withSpec.length + 1 ? "located" : "grouped", withSpec.length);
+  };
+}
+
+/* The findings that cite no flow over the window: shown by file, then grouped by file. */
+function unroutedDegrade(ctx: CorrectionPromptContext, render: (detail: FindingDetail) => string): (step: number) => SectionDegradation | undefined {
+  const shortened = locatable(ctx, looseFindings(ctx));
+  return (step) => (shortened === 0 || step > 2 ? undefined : { content: render(step === 1 ? "located" : "grouped"), omissions: [windowFitOmission(shortened)] });
 }
 
 /* The correction turn: the flows with the findings that cite them, numbered, and the findings that cite no flow. */
@@ -231,12 +291,11 @@ export const LEAD_CORRECTION_SECTIONS: readonly PromptSectionDef<CorrectionPromp
     id: "correction",
     priority: 10, stability: "run", reason: "Where the findings come from and whether the lead may rebut them (b18630b1)",
     applies: () => true,
-    render: ({ origin, omitted }) => ({
+    render: ({ origin }) => ({
       content: [
         `## ${origin.heading}`,
         origin.lead,
         origin.rebuttable ? "" : "These are facts the run observed: each one is corrected, none is rebutted.",
-        omitted > 0 ? `${omitted} further unit(s) of the gap are not listed in this turn: the run records the count as left out and no one corrects them now.` : "",
       ].filter(Boolean).join("\n\n"),
     }),
   }),
@@ -244,7 +303,7 @@ export const LEAD_CORRECTION_SECTIONS: readonly PromptSectionDef<CorrectionPromp
     id: "flows",
     priority: 20, stability: "run", reason: "Each flow with the findings that cite its spec (31223b33)",
     applies: (ctx) => correctionFlowBlocks(ctx).length > 0,
-    render: (ctx) => ({ content: correctionFlowBlocks(ctx).join("\n\n"), degrade: specsDegrade(ctx.flows.filter((flow) => ctx.findings.some((_, i) => ctx.owner[i] === flow.id)), (referenced) => correctionFlowBlocks(ctx, referenced).join("\n\n")) }),
+    render: (ctx) => ({ content: correctionFlowBlocks(ctx).join("\n\n"), degrade: flowsDegrade(ctx) }),
   }),
   /* Where a finding about a source file goes is decided by the use cases a flow covers, so with findings to place every flow is listed with them. */
   section({
@@ -263,7 +322,8 @@ export const LEAD_CORRECTION_SECTIONS: readonly PromptSectionDef<CorrectionPromp
       const instruction = ctx.origin.rebuttable
         ? "Name the flow each one belongs to, or rebut it."
         : "Name the flow each one belongs to: an order lists the numbers of the findings the flow is to take. One no flow takes is recorded unrouted and no one corrects it.";
-      return { content: ["### Findings that cite no flow", instruction, ...looseFindings(ctx).map((i) => findingLine(ctx, i))].join("\n") };
+      const render = (detail: FindingDetail): string => ["### Findings that cite no flow", instruction, ...(detail !== "whole" && locatable(ctx, looseFindings(ctx)) > 0 ? [SHORTENED] : []), ...findingLines(ctx, looseFindings(ctx), detail)].join("\n");
+      return { content: render("whole"), degrade: unroutedDegrade(ctx, render) };
     },
   }),
 ];

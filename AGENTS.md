@@ -321,7 +321,8 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   arms of their decisions that never ran) each go to the lead as
   facts it routes to their flows and never rebuts (the coverage gap as one finding per file and per arm, each carrying `file`/`line`
   and owned by the one flow covering a use case that file seeds; a file seeding an uncovered use case opens a `cand-<use case>` flow;
-  gap caps are spread across units and what they omit is counted; surviving mutants join the same gap regeneration as findings on the
+  every unit is kept, listed across use cases and files, and over the lead's window the units give way to references by file with the
+  numbers of their findings, recorded as `window-fit`; surviving mutants join the same gap regeneration as findings on the
   spec that reached them); what no flow takes follows
   the same rule, and once the run's budget of corrections through the lead is spent the findings are recorded unrouted ("lead
   correction budget spent") and nothing regenerates. The run's acceptance of the round is unchanged. The run releases the pass after the review and in its `finally`. DEV access: every action holds its account's lease (`DevLease`, an `AccountLock`

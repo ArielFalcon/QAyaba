@@ -34,32 +34,12 @@ test("renderCoverageGap: many files — one line per file, in input order", () =
   );
 });
 
-test("renderCoverageGap: over the max (default 10) truncates and reports the remainder count", () => {
+test("renderCoverageGap: every file is listed, however many the gap has", () => {
   const uncovered = Array.from({ length: 12 }, (_, i) => ({ file: `src/f${i}.ts`, lines: [1] }));
-  const out = renderCoverageGap(uncovered);
-  const lines = out.split("\n");
-  assert.equal(lines.length, 12);
+  const lines = renderCoverageGap(uncovered).split("\n");
+  assert.equal(lines.length, 13);
   assert.equal(lines[0], "changed lines NOT exercised by any test:");
-  assert.equal(lines[11], "…and 2 more file(s)");
-});
-
-test("renderCoverageGap: a custom max truncates at the caller's own bound", () => {
-  const uncovered = [
-    { file: "src/a.ts", lines: [1] },
-    { file: "src/b.ts", lines: [2] },
-    { file: "src/c.ts", lines: [3] },
-  ];
-  const out = renderCoverageGap(uncovered, 2);
-  assert.equal(out, "changed lines NOT exercised by any test:\n- src/a.ts: lines 1\n- src/b.ts: lines 2\n…and 1 more file(s)");
-});
-
-test("renderCoverageGap: exactly at the max — no truncation trailer", () => {
-  const uncovered = [
-    { file: "src/a.ts", lines: [1] },
-    { file: "src/b.ts", lines: [2] },
-  ];
-  const out = renderCoverageGap(uncovered, 2);
-  assert.equal(out, "changed lines NOT exercised by any test:\n- src/a.ts: lines 1\n- src/b.ts: lines 2");
+  assert.equal(lines[12], "- src/f11.ts: lines 1");
 });
 
 /* ── Grouped by the use case whose seeds hold the lines ── */
@@ -72,7 +52,6 @@ const cand = (id: string, route: string, file: string, start: number, end: numbe
 test("renderCoverageGap: with candidates, the uncovered lines are grouped under the candidate whose seeds hold them", () => {
   const out = renderCoverageGap(
     [{ file: "src/a.ts", lines: [2, 3, 12, 40] }],
-    10,
     [cand("uc-1", "/one", "src/a.ts", 1, 5), cand("uc-2", "/two", "src/a.ts", 10, 20)],
   );
   assert.equal(out, "changed lines NOT exercised by any test, by use case:\nuc-1 (page /one):\n  - src/a.ts: lines 2-3\nuc-2 (page /two):\n  - src/a.ts: lines 12\nother changed lines:\n  - src/a.ts: lines 40");
@@ -80,8 +59,8 @@ test("renderCoverageGap: with candidates, the uncovered lines are grouped under 
 
 test("renderCoverageGap: candidates that hold none of the uncovered lines leave the ungrouped text as it was", () => {
   const plain = renderCoverageGap([{ file: "src/a.ts", lines: [40] }]);
-  assert.equal(renderCoverageGap([{ file: "src/a.ts", lines: [40] }], 10, [cand("uc-1", "/one", "src/a.ts", 1, 5)]), plain);
-  assert.equal(renderCoverageGap([{ file: "src/a.ts", lines: [40] }], 10, []), plain);
+  assert.equal(renderCoverageGap([{ file: "src/a.ts", lines: [40] }], [cand("uc-1", "/one", "src/a.ts", 1, 5)]), plain);
+  assert.equal(renderCoverageGap([{ file: "src/a.ts", lines: [40] }], []), plain);
 });
 
 test("renderBranchGap: the arms on changed lines no test ran, one line each with where and which arm; nothing when every arm ran", () => {
@@ -94,15 +73,17 @@ test("renderBranchGap: the arms on changed lines no test ran, one line each with
   assert.deepEqual(items, ["- src/store.ts:57 if: else", "- src/store.html:12 conditional: false"]);
 });
 
-test("renderBranchGap: over the max truncates and reports the remainder count", () => {
-  const arms = Array.from({ length: 4 }, (_, i) => ({ file: "src/a.ts", line: i + 1, kind: "if", arm: "else" }));
-  assert.equal(renderBranchGap(arms, 2).split("\n").at(-1), "…and 2 more arm(s)");
+test("renderBranchGap: every arm is listed, however many the gap has", () => {
+  const arms = Array.from({ length: 24 }, (_, i) => ({ file: "src/a.ts", line: i + 1, kind: "if", arm: "else" }));
+  const lines = renderBranchGap(arms).split("\n");
+  assert.equal(lines.length, 25);
+  assert.equal(lines.at(-1), "- src/a.ts:24 if: else");
 });
 
 test("renderCoverageGap: a candidate seeded by a whole file holds that file's uncovered lines", () => {
   const candidate: UseCaseCandidate = { id: "uc-1", entry: { kind: "page", repo: "web", route: "/orders" }, tier: "direct", basis: "implementation", evidence: [], seeds: [{ file: "src/a.ts", symbol: "*" }], confidence: 1, reachability: "page", pages: [], existingSpecs: [] };
 
-  const out = renderCoverageGap([{ file: "src/a.ts", lines: [4, 5] }, { file: "src/b.ts", lines: [1] }], 10, [candidate]);
+  const out = renderCoverageGap([{ file: "src/a.ts", lines: [4, 5] }, { file: "src/b.ts", lines: [1] }], [candidate]);
 
   assert.match(out, /uc-1 \(page \/orders\):\n  - src\/a\.ts: lines 4-5/);
   assert.match(out, /other changed lines:\n  - src\/b\.ts: lines 1/);
@@ -113,10 +94,9 @@ test("a surviving mutant is rendered as the fact that its line ran under the spe
   for (const part of ["flows/a.spec.ts", "src/store.ts:12", "negate condition", "x === 1", "!(x === 1)"]) assert.ok(text.includes(part), part);
 });
 
-test("the surviving mutants of a gap are listed up to a cap with the number left out, and none render nothing", () => {
+test("every surviving mutant of a gap is listed, and none render nothing", () => {
   assert.equal(renderSurvivedMutants([]), "");
-  const many = Array.from({ length: 4 }, (_, i) => ({ file: "src/a.ts", line: i + 1, operator: "swap" }));
-  const text = renderSurvivedMutants(many, 2);
-  assert.ok(text.includes("src/a.ts:1") && text.includes("src/a.ts:2") && !text.includes("src/a.ts:3"));
-  assert.match(text, /2 more/);
+  const many = Array.from({ length: 14 }, (_, i) => ({ file: "src/a.ts", line: i + 1, operator: "swap" }));
+  const text = renderSurvivedMutants(many);
+  for (const line of [1, 2, 13, 14]) assert.ok(text.includes(`src/a.ts:${line} `), String(line));
 });

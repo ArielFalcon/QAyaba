@@ -1891,18 +1891,6 @@ test("a flow opened for a use case is held to the run's flow cap, and a second f
   await second.pass!.release();
 });
 
-test("the lead is told how many units of the gap a turn leaves out", async () => {
-  const lead = leadCiting([ACCEPT_ALL, NO_ORDERS], CITING_PLAN);
-  const r = rig();
-  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, candidates: SEEDED }));
-  if (outcome.action !== "fanout") return assert.fail("fanout expected");
-  await outcome.pass!.correct([{ text: "src/cart.ts not exercised", file: "src/cart.ts" }], CORRECTION_ORIGIN.COVERAGE, 7);
-  await outcome.pass!.release();
-  assert.match(lead.asked[1]!, /7 further unit/);
-  assert.equal(outcome.pass!.tally().omitted, 7, "the count the lead is told is recorded");
-  assert.ok(r.events.some((e) => /7 further unit/.test(e.reason ?? "")));
-});
-
 const DROP_EVERYTHING = { kind: "fanout", flows: [], dropped: [{ candidate: "uc-/cart", basis: "no-observable-change", reason: "only a stylesheet changed" }] };
 const SECOND_PLAN = { plan: { kind: "fanout", flows: [{ id: "cart", objective: "the cart total", candidates: ["uc-/cart"] }] } };
 

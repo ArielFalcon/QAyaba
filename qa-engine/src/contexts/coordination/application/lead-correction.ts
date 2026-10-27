@@ -158,17 +158,17 @@ export function routeOfFinding(finding: CorrectionFinding, flows: readonly FlowU
 }
 
 /* The correction turn's prompt, as data: the flows and the findings numbered, assembled from the registered sections. How to route them and the answer's shape are the lead's role prompt. */
-export function assembleLeadCorrection(redaction: RedactionPort, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW, omitted = 0, fit?: (bytes: number) => WindowFitOutcome): AssembledPrompt {
+export function assembleLeadCorrection(redaction: RedactionPort, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW, fit?: (bytes: number) => WindowFitOutcome): AssembledPrompt {
   const text = ORIGIN_TEXT[origin];
   return assembleDefs(
     LEAD_CORRECTION_SECTIONS,
-    { flows, findings, owner: findings.map((finding) => flowOfFinding(finding, flows)), origin: { heading: text.heading, lead: text.lead, rebuttable: rebuttable(origin) }, omitted, scrub: (value) => redaction.redact(value) },
+    { flows, findings, owner: findings.map((finding) => flowOfFinding(finding, flows)), origin: { heading: text.heading, lead: text.lead, rebuttable: rebuttable(origin) }, scrub: (value) => redaction.redact(value) },
     { separator: "\n\n", ...(fit ? { fit } : {}) },
   );
 }
 
-export function renderLeadCorrection(redaction: RedactionPort, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW, omitted = 0): string {
-  return assembleLeadCorrection(redaction, flows, findings, origin, omitted).text;
+export function renderLeadCorrection(redaction: RedactionPort, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): string {
+  return assembleLeadCorrection(redaction, flows, findings, origin).text;
 }
 
 /*
