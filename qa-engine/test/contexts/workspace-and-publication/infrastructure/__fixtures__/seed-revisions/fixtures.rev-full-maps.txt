@@ -455,9 +455,17 @@ function networkUrl(raw: string): string { try { const u = new URL(raw); const u
 // scheme://*.suffix[:port], the run's DEV origins), matched by host and port as the egress filter matches them; a page's
 // own requests to other hosts (analytics, error reporters) write nothing to DEV. Without a readable list every write
 // counts. The first DEV_WRITE_REQUESTS_CAP counted requests of a test are recorded beside its count, by method and
-// origin + pathname (never the query or the body).
+// origin + pathname (never the query or the body). The requests that keep the run's own session alive are not writes
+// to DEV: a page holding the saved session asks its identity provider for tokens by itself (RFC 6749 section 3.2: a POST to
+// the token endpoint whose form body names a grant_type, section 4.1.3 for a code, section 6 for a refresh), so a read-only
+// spec would spend the budget on them. Such a request is kept apart, in `sessionRequests` beside the same record, when it is
+// a POST of the browser's page or context with a form body of the grant `authorization_code` or `refresh_token`, to a DEV
+// origin other than the app's own (the identity provider is another declared origin; a token endpoint on the app's own
+// origin counts). Every other request to the identity provider (a password change, a registration, a logout, any other
+// grant) still counts, and so does one whose body cannot be read.
 let devWrites = 0;
 let devWriteRequests: Array<{ method: string; url: string }> = [];
+let sessionRequests: Array<{ method: string; url: string }> = [];
 const DEV_WRITE_REQUESTS_CAP = 20;
 const countedContexts = new WeakSet<object>();
 const countedApis = new WeakSet<object>();
@@ -491,10 +499,26 @@ function isDevWrite(raw: string | undefined): boolean {
     return devOrigins.some((o) => o.port === port && (o.wildcard ? host.endsWith('.' + o.host) : host === o.host));
   } catch { return true; }
 }
-function noteDevWrite(method: string, raw: string | undefined): void {
+const SESSION_GRANTS = new Set(['authorization_code', 'refresh_token']);
+// Whether a POST to `raw` with this body is the session being kept alive: a token request of a grant the page makes by
+// itself, to a DEV origin other than the one the run launched with. Needs the DEV origins to be readable (the identity
+// provider is one of them) and the body to be a form; anything else is a write.
+function isSessionRequest(method: string, raw: string | undefined, body: string | null | undefined): boolean {
+  if (!devOrigins || method !== 'POST' || raw === undefined || typeof body !== 'string' || body === '') return false;
+  try {
+    if (!launchBaseUrl || new URL(raw).origin === new URL(launchBaseUrl).origin) return false;
+    const grant = new URLSearchParams(body).get('grant_type');
+    return grant !== null && SESSION_GRANTS.has(grant);
+  } catch { return false; }
+}
+function noteDevWrite(method: string, raw: string | undefined, body?: string | null): void {
   if (!isDevWrite(raw)) return;
-  devWrites++;
   const url = raw === undefined ? '' : networkUrl(raw);
+  if (url && isSessionRequest(method, raw, body)) {
+    if (sessionRequests.length < DEV_WRITE_REQUESTS_CAP) sessionRequests.push({ method, url });
+    return;
+  }
+  devWrites++;
   if (url && devWriteRequests.length < DEV_WRITE_REQUESTS_CAP) devWriteRequests.push({ method, url });
 }
 interface WriteCountable { fetch(target: unknown, options?: { method?: string }): Promise<unknown> }
@@ -529,6 +553,7 @@ async function qaFailureCaptureStart(page: QaCapturePage, request: QaCaptureRequ
   lastDataAt = 0;
   devWrites = 0;
   devWriteRequests = [];
+  sessionRequests = [];
   if (process.env.PW_COUNT_DEV_WRITES === '1') {
     try {
       const context = page.context();
@@ -540,7 +565,9 @@ async function qaFailureCaptureStart(page: QaCapturePage, request: QaCaptureRequ
             if (!/^(?:POST|PUT|PATCH|DELETE)$/.test(method)) return;
             let url: string | undefined;
             try { url = r.url(); } catch {}
-            noteDevWrite(method, url);
+            let body: string | null | undefined;
+            try { body = r.postData(); } catch {}
+            noteDevWrite(method, url, body);
           } catch {}
         });
         countWrites(context.request);
@@ -594,7 +621,7 @@ async function qaFailureCaptureFinish(page: QaCapturePage, testInfo: QaCaptureTe
       const { writeFileSync } = await import("node:fs");
       const { join } = await import("node:path");
       const id = String(testInfo.testId ?? testInfo.title).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60);
-      writeFileSync(join(dir, 'ledger-w' + testInfo.workerIndex + '-' + id + '-r' + testInfo.retry + '.json'), JSON.stringify(devWriteRequests.length > 0 ? { writes: devWrites, requests: devWriteRequests } : { writes: devWrites }));
+      writeFileSync(join(dir, 'ledger-w' + testInfo.workerIndex + '-' + id + '-r' + testInfo.retry + '.json'), JSON.stringify({ writes: devWrites, ...(devWriteRequests.length > 0 ? { requests: devWriteRequests } : {}), ...(sessionRequests.length > 0 ? { sessionRequests } : {}) }));
     } catch { /* best effort — the count is a bound on the spec, never a test failure */ }
   }
   const expected = testInfo.status === testInfo.expectedStatus;

@@ -27,7 +27,7 @@ function loadCapture(): Promise<Capture> {
 const DEV = "https://dev.example.com";
 const DEV_ORIGINS = JSON.stringify([DEV, "https://*.api.example.com:8443"]);
 
-interface Sent { method: string; url: string }
+interface Sent { method: string; url: string; body?: string | null | "throws" }
 interface ApiCall { target: string; method: string }
 
 /* One test: the browser context finishes `browser` requests and the `request` fixture fetches `api`; returns the ledger the counter left. */
@@ -47,7 +47,7 @@ async function ledgerOf(opts: { browser?: Sent[]; api?: ApiCall[]; origins?: str
     const { start, finish } = await loadCapture();
     opts.afterLoad?.();
     await start(page, request);
-    for (const sent of opts.browser ?? []) for (const fn of finished) fn({ method: () => sent.method, url: () => sent.url });
+    for (const sent of opts.browser ?? []) for (const fn of finished) fn({ method: () => sent.method, url: () => sent.url, postData: () => { if (sent.body === "throws") throw new Error("body unavailable"); return sent.body ?? null; } });
     for (const call of opts.api ?? []) await request.fetch(call.target, { method: call.method });
     await finish(page, { status: "passed", expectedStatus: "passed", titlePath: ["", "orders.spec.ts", "lists orders"], project: { name: "desktop" }, file: "/e2e/orders.spec.ts", retry: 0, testId: "t1", workerIndex: 0 });
     const ledger = readdirSync(dir).find((n) => n.startsWith("ledger-"));
@@ -114,4 +114,52 @@ test("a spec that rewrites the launch environment after the fixtures loaded stil
     api: [{ target: "/api/orders", method: "PUT" }],
   });
   assert.deepEqual(ledger, { writes: 2, requests: [{ method: "POST", url: `${DEV}/api/orders` }, { method: "PUT", url: `${DEV}/api/orders` }] });
+});
+
+/* The identity provider the page keeps the saved session alive with is one of the run's DEV origins (the app's login needs it declared), so its token requests reach the counter. */
+const IDP = "https://id.example.com";
+const WITH_IDP = JSON.stringify([DEV, IDP]);
+const TOKEN = `${IDP}/oauth/token`;
+const REFRESH = "grant_type=refresh_token&refresh_token=r&client_id=web";
+const CODE = "grant_type=authorization_code&code=c&redirect_uri=https%3A%2F%2Fdev.example.com%2F&code_verifier=v";
+
+test("a page's token refresh to the identity provider is session traffic: it spends no write and is recorded apart", async () => {
+  const ledger = await ledgerOf({ origins: WITH_IDP, browser: [{ method: "POST", url: `${TOKEN}?x=1`, body: REFRESH }, { method: "POST", url: TOKEN, body: REFRESH }, { method: "POST", url: TOKEN, body: CODE }] });
+  assert.deepEqual(ledger, { writes: 0, sessionRequests: [{ method: "POST", url: TOKEN }, { method: "POST", url: TOKEN }, { method: "POST", url: TOKEN }] });
+});
+
+test("every other write still counts beside the session traffic: the app's, the identity provider's other endpoints, and anything that is not a plain token request to it", async () => {
+  const ledger = await ledgerOf({
+    origins: WITH_IDP,
+    browser: [
+      { method: "POST", url: TOKEN, body: REFRESH },
+      { method: "POST", url: `${DEV}/api/orders`, body: "item=1" },
+      { method: "POST", url: `${DEV}/oauth/token`, body: REFRESH },
+      { method: "POST", url: `${IDP}/account/password`, body: "password=new&confirm=new" },
+      { method: "POST", url: `${IDP}/register`, body: "user=u" },
+      { method: "POST", url: TOKEN, body: "grant_type=password&username=u&password=p" },
+      { method: "POST", url: TOKEN, body: JSON.stringify({ grant_type: "refresh_token" }) },
+      { method: "POST", url: TOKEN, body: null },
+      { method: "POST", url: TOKEN, body: "throws" },
+      { method: "PUT", url: TOKEN, body: REFRESH },
+      { method: "DELETE", url: TOKEN, body: REFRESH },
+    ],
+  });
+  assert.equal(ledger.writes, 10);
+  assert.deepEqual(ledger.sessionRequests, [{ method: "POST", url: TOKEN }]);
+  assert.deepEqual((ledger.requests as Array<{ url: string }>).map((r) => r.url), [`${DEV}/api/orders`, `${DEV}/oauth/token`, `${IDP}/account/password`, `${IDP}/register`, TOKEN, TOKEN, TOKEN, TOKEN, TOKEN, TOKEN]);
+});
+
+test("a token request without a readable list of origins is never session traffic, the closed reading", async () => {
+  for (const origins of [undefined, "not json"]) {
+    const ledger = await ledgerOf({ origins, browser: [{ method: "POST", url: TOKEN, body: REFRESH }] });
+    assert.equal(ledger.writes, 1, `origins ${JSON.stringify(origins)}`);
+  }
+});
+
+test("a test records at most the cap of session requests, and the write count is not touched by them", async () => {
+  const browser = Array.from({ length: 25 }, () => ({ method: "POST", url: TOKEN, body: REFRESH }));
+  const ledger = await ledgerOf({ origins: WITH_IDP, browser });
+  assert.equal(ledger.writes, 0);
+  assert.equal((ledger.sessionRequests as unknown[]).length, MAX_DEV_WRITE_REQUESTS);
 });

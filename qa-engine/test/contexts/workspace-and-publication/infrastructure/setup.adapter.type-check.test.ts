@@ -28,7 +28,7 @@ function realAdapter(): SetupAdapter {
 }
 
 /* Playwright is not installed in this template, so its types are a hand-written stand-in covering exactly the API the block touches; @types/node is the real one. */
-const PLAYWRIGHT_TYPES_STAND_IN = `export interface Request { resourceType(): string; url(): string; method(): string; failure(): { errorText?: string } | null }
+const PLAYWRIGHT_TYPES_STAND_IN = `export interface Request { resourceType(): string; url(): string; method(): string; postData(): string | null; failure(): { errorText?: string } | null }
 export interface Response { status(): number; url(): string; request(): Request }
 export interface ConsoleMessage { type(): string; text(): string }
 export interface Locator { ariaSnapshot(options?: { timeout?: number }): Promise<string>; first(): Locator; innerText(options?: { timeout?: number }): Promise<string>; count(): Promise<number> }
