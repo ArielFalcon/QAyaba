@@ -378,6 +378,17 @@ test("buildContextPack: with every candidate uncapturable nothing is captured, n
   for (const route of ["/product/:id", "/users/{id}"]) assert.ok(logs.some((message) => message.includes(route)), `the log names ${route}`);
 });
 
+test("buildContextPack: every route left out is one log line, marked as explaining how the capture went", async () => {
+  const lines: Array<{ message: string; ship: boolean | undefined }> = [];
+  const deps = { ...capturingDeps([]), log: (message: string, how?: { ship: true }) => lines.push({ message, ship: how?.ship }) };
+  await buildContextPack({ routes: ["/a", "/product/:id", "/users/{id}", "/orders/:id"], ...PACK_INPUT }, deps);
+  const left = lines.filter((line) => /not capturable/i.test(line.message));
+  assert.equal(left.length, 1);
+  assert.equal(left[0]!.ship, true);
+  for (const route of ["/product/:id", "/users/{id}", "/orders/:id"]) assert.ok(left[0]!.message.includes(route), route);
+  assert.ok(left[0]!.message.includes("3 route(s)"));
+});
+
 test("buildContextPack: nothing is logged as not capturable when every candidate can be captured", async () => {
   const logs: string[] = [];
   await buildContextPack({ routes: ["/a", "/b"], ...PACK_INPUT }, capturingDeps([], (message) => logs.push(message)));

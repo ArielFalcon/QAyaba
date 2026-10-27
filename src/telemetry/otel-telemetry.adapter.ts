@@ -127,6 +127,8 @@ export class OtelTelemetry implements TelemetryPort {
   private readonly instruments: InstrumentTable;
   private readonly sanitize: (text: string) => string;
   private readonly resolved = new WeakMap<object, Resolved>();
+  /* Roots (`root: true`) started and not yet ended, by span id: a run's root stays here while its phases run. */
+  private readonly openRoots = new Map<string, Context>();
   private readonly instrumentCache = new Map<string, (value: number, attrs?: Attributes) => void>();
   private droppedAttributes = 0;
   private droppedMeasurements = 0;
@@ -170,6 +172,7 @@ export class OtelTelemetry implements TelemetryPort {
       let otelCtx = trace.setSpan(parentCtx, span);
       if (scope) otelCtx = otelCtx.setValue(SCOPE_KEY, scope);
       otelCtx = otelCtx.setValue(CAPTURE_KEY, capture);
+      if (opts.root) this.openRoots.set(spanContext.spanId, otelCtx);
       return new Handle(this, span, { traceId: spanContext.traceId, spanId: spanContext.spanId }, otelCtx, scope, capture);
     } catch (error) {
       this.fault("startSpan", error);
@@ -228,27 +231,34 @@ export class OtelTelemetry implements TelemetryPort {
     }
   }
 
-  /* The active span's capture mode and context, or undefined when no span is active. The console tap needs both: the
-     mode decides whether and how much to export, the context carries the trace and span ids into the record. */
-  activeLogSpan(): { mode: CaptureMode; context: Context } | undefined {
+  /* Where a log record belongs: the ambient span's context, else the run root that is open. A run's phases and its engine
+     callbacks often run with no ambient span (a phase span is never made ambient), so the single open root stands in for
+     them; with none or several open a record has no run to join. The mode decides whether and how much leaves, the
+     context carries the trace and span ids into the record. */
+  logTarget(): { mode: CaptureMode; context: Context } | undefined {
     try {
-      const ctx = this.deps.contextManager.active();
-      if (!trace.getSpan(ctx)) return undefined;
+      const ambient = this.deps.contextManager.active();
+      const ctx = trace.getSpan(ambient) ? ambient : this.openRoots.size === 1 ? [...this.openRoots.values()][0] : undefined;
+      if (ctx === undefined) return undefined;
       const inherited = ctx.getValue(CAPTURE_KEY);
       return { mode: isCaptureMode(inherited) ? inherited : this.captureMode, context: ctx };
     } catch (error) {
-      this.fault("activeLogSpan", error);
+      this.fault("logTarget", error);
       return undefined;
     }
   }
 
-  /* Redact a console line through the active span's run scope and the outbound sanitizer, then cap it. undefined: do not export. */
-  redactActive(text: string, cap: number): string | undefined {
+  /* The capture mode of a record that belongs to no run (a warning at boot). */
+  get processCaptureMode(): CaptureMode {
+    return this.captureMode;
+  }
+
+  /* Redact and cap a log line through the run scope held by `context`, then the outbound sanitizer. undefined: do not export. */
+  redactIn(context: Context | undefined, text: string, cap: number): string | undefined {
     try {
-      const ctx = this.deps.contextManager.active();
-      return this.safeText(text, ctx.getValue(SCOPE_KEY) as RedactionScope | undefined, cap);
+      return this.safeText(text, context?.getValue(SCOPE_KEY) as RedactionScope | undefined, cap);
     } catch (error) {
-      this.fault("redactActive", error);
+      this.fault("redactIn", error);
       return undefined;
     }
   }
@@ -274,6 +284,10 @@ export class OtelTelemetry implements TelemetryPort {
   }
 
   /* ---- used by Handle ---- */
+
+  closeRoot(spanId: string): void {
+    this.openRoots.delete(spanId);
+  }
 
   register(object: object, otelCtx: Context): void {
     this.resolved.set(object, { otelCtx });
@@ -536,6 +550,7 @@ class Handle implements SpanHandle {
   end(endTime?: number): void {
     if (this.ended) return;
     this.ended = true;
+    this.owner.closeRoot(this.ids.spanId);
     try {
       this.span.end(this.owner.hr(endTime));
     } catch (error) {

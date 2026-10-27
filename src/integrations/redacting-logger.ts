@@ -5,7 +5,7 @@ import type { RedactionPort } from "../../qa-engine/src/shared-kernel/ports/reda
 
 /*
  * The shell's LoggerPort. A line is redacted before it is handed to the JSON logger, so the rotating file, the console
- * mirror and the OTel tap behind the console all receive redacted text: the message and every string in the fields go
+ * mirror and the log shipper (below) all receive redacted text: the message and every string in the fields go
  * through the redaction port (the orchestrator's environment secrets and the secret patterns by value, and the run's own
  * account secrets when a run's scope is active). A redaction that throws drops the line: one fallback line says so, and
  * the raw text is never written.
@@ -60,6 +60,30 @@ function redactFields(level: LogLevel, fields: LogFields, redact: (text: string)
   return out;
 }
 
+/* A line that was redacted and is to leave the process for the log store. */
+export interface ShippedLine {
+  readonly level: LogLevel;
+  readonly message: string;
+  readonly fields: Readonly<Record<string, unknown>>;
+}
+export type LogShipper = (line: ShippedLine) => void;
+
+let shipper: LogShipper | undefined;
+
+/* The telemetry bootstrap installs the one shipper that turns a redacted line into a log record joined to its run; undefined removes it. */
+export function installLogShipper(next: LogShipper | undefined): void {
+  shipper = next;
+}
+
+/* Which lines leave for the log store. Tempo holds what happened, as structured spans; the store holds how it happened.
+   A warning or an error is always how (something went off the expected path). An info or debug line is shipped only when
+   its call site says so with `ship: true`: it explains something no span records. `ship: false` withholds a warning that
+   only restates a span fact. The field is a routing flag: it is consumed here and never written to the line. */
+function shipsToStore(level: LogLevel, flag: unknown): boolean {
+  if (typeof flag === "boolean") return flag;
+  return level === "warn" || level === "error";
+}
+
 export function createRedactingLogger(deps: RedactingLoggerDeps = {}): LoggerPort {
   const sink = deps.sink ?? logJson;
   const redactor = deps.redactor ?? ((): Pick<RedactionPort, "redact"> => new RedactionPortAdapter());
@@ -68,14 +92,22 @@ export function createRedactingLogger(deps: RedactingLoggerDeps = {}): LoggerPor
   const write = (level: LogLevel, message: string, fields?: LogFields): void => {
     let safeMessage: string;
     let safeFields: Record<string, unknown>;
+    const { ship, ...rest } = { ...bound, ...fields } as Record<string, unknown>;
     try {
       const port = redactor();
       const redact = (text: string): string => port.redact(text);
       safeMessage = redact(message);
-      safeFields = redactFields(level, { ...bound, ...fields }, redact);
+      safeFields = redactFields(level, rest, redact);
     } catch {
       sink("error", "[logger] redaction failed; a log line was dropped");
       return;
+    }
+    if (shipper !== undefined && shipsToStore(level, ship)) {
+      try {
+        shipper({ level, message: safeMessage, fields: safeFields });
+      } catch {
+        /* Shipping a line never breaks the caller. */
+      }
     }
     /* Debug lines go to the shipped file only, as the per-run sinks do: the console stays the operator's view. */
     if (level === "debug") sink(level, safeMessage, safeFields, false);

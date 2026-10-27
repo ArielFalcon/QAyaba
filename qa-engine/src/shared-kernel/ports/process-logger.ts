@@ -6,7 +6,8 @@ const CONSOLE_METHOD = { debug: "debug", info: "log", warn: "warn", error: "erro
 
 function consoleLogger(bound: LogFields): LoggerPort {
   const write = (level: LogLevel) => (message: string, fields?: LogFields): void => {
-    console[CONSOLE_METHOD[level]](message, ...Object.values({ ...bound, ...fields }));
+    const { ship: _routing, ...shown } = { ...bound, ...fields };
+    console[CONSOLE_METHOD[level]](message, ...Object.values(shown));
   };
   return { debug: write("debug"), info: write("info"), warn: write("warn"), error: write("error"), child: (more) => consoleLogger({ ...bound, ...more }) };
 }

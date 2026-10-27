@@ -689,6 +689,35 @@ and by pattern like the output. It is null for an answered turn, for one that st
 before the column (schema 2). `GET /api/v1/runs/:id/turns` serves it as `partialText`.
 Q3 and Q4 need no content at all; F3's "62k reasoning" replay needs `full`, or the reference.
 
+### 8.5 What Loki holds (log roles)
+
+Tempo holds **what happened**, as structured spans, events and attributes. Loki holds **how it happened**: detail that
+explains a span and has no structured home. It never repeats a fact a span already records, and it carries no noise.
+
+The orchestrator's lines reach Loki from the logging port itself (`createRedactingLogger`), not from a console tap. A
+line is redacted once by the port, then the shipper (`src/telemetry/log-shipper.ts`) redacts it again through the run's
+scope, caps it by capture mode (`off` ships nothing, `metadata` 1 KB, `full` 4 KB) and places it: in the ambient span, else
+in the one open run root (a phase span is never ambient, so a phase's own lines would otherwise be unplaced), else with
+no trace (a process line). A failed redaction drops the record and never exports the raw line. docker and the rotating
+file still receive every line.
+
+Which lines ship is decided by role, with one reserved field on the call (`ship`, consumed by the port):
+
+| Role | Example | Shipped |
+|---|---|---|
+| Restates a span or attribute | enqueue/finished lines, suite-store counts, `npm ci` skipped, `DOM captured N lines`, `N API contracts included`, SSE stream closed, background-failure counts, code-graph call counts | no (`info`, the default) |
+| Explains how something went and has no structured home | the Context Pack's routes left out (one line, grouped by reason), a failed or empty DOM capture with its reason, a degraded capture, the gated-app note, the pre-exec ambiguity text | yes (`warn`, or `info` with `ship: true`) |
+| Something went off the expected path | any `warn` or `error` | yes (`ship: false` withholds a warning that only restates a span fact) |
+
+A repeated per-item line becomes one line carrying the list. A new call site picks its role by asking whether a span
+already records the fact: if so it logs at `info` and ships nothing.
+
+OpenCode's logs reach Loki through the agents collector at WARN and above (provider failures, tool errors, stream
+errors; its INFO chatter is dropped there), and the collector copies the session id out of the body into
+`opencode.session_id` so a failure is found by the session the orchestrator's turn span records. OpenCode's own trace id
+joins no run. The backend health probe pushes one line per process to prove the write path, then watches Loki's
+append-failure counter, so the store holds no line per poll.
+
 ---
 
 ## 9. Security and trust
@@ -1208,7 +1237,7 @@ reliable, deterministic; trust over features; local operability on a Mac.
 | R3 | Does `empty_output_guard` gate? | **Grader only.** It becomes a gate only if it ever fails on real data, and then as a governance-sensitive change in its own commit. | The invariant already exists (no-op → `skipped`, zero specs → `E-NO-DECISION`, "approved is never a no-op"). A second gate on the same condition adds a path that can disagree with the first, and AGENTS.md rules out piling up LLM-free gates without evidence. |
 | R5 | Do we upgrade OpenCode (1.17.7 → 1.19.3) for better telemetry? | **No.** The telemetry components (OTel JS 2.12 / 0.223, Collector 0.163.0, otel-lgtm 0.37.0, Langfuse 4.63.0) are adopted at their latest versions. | A source diff of both tags found no telemetry gain in OpenCode: the same `ai` 6.0.168, the same `experimental.openTelemetry`, no step timestamps, the same tool-list API, no trace context in `ToolContext`. Moving a pin costs a re-recorded agent-list fixture, re-run smokes and new behaviour risk on the execution path, for no telemetry gain. Revisit when the runtime ships GenAI semconv or step timestamps. |
 | R4 | How long are records kept? | **`run_spans` 30 days, like `agent_turns`. Campaign-tagged runs keep both for 180 days.** `QA_TELEMETRY_RETENTION_DAYS` and `QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS` override them. `run_scores` are never pruned (they are tiny). | Campaign runs are the eval baselines that later graders and judges re-score (principle 8). Ordinary runs are diagnostic and lose value fast. |
-| R6 | Where do logs live, and for how long? | **OpenCode's own logs and the orchestrator's console lines go to Loki through the two existing collectors; OpenCode's spans are dropped.** Logs are kept 180 days (`config/otel/loki-config.yaml`), the campaign window. | OpenCode's spans cannot be joined to a run: 1.17.7 ignores `traceparent` and puts every span in one rootless process trace (verified live). Its logs are the useful part; the collector strips and stamps them like spans. A log cannot carry the campaign tag, so the only window that never cuts a campaign's logs early is the longest one, and a log line is cheap. The tap exports only while a span is active and under the run's capture mode, so `runs.logs`/`run_events` stay the API's record. |
+| R6 | Where do logs live, and for how long? | **OpenCode's own logs and the orchestrator's explanatory log lines go to Loki through the two existing collectors; OpenCode's spans are dropped.** Logs are kept 180 days (`config/otel/loki-config.yaml`), the campaign window. | OpenCode's spans cannot be joined to a run: 1.17.7 ignores `traceparent` and puts every span in one rootless process trace (verified live). Its logs are the useful part; the collector strips and stamps them like spans. A log cannot carry the campaign tag, so the only window that never cuts a campaign's logs early is the longest one, and a log line is cheap. The logging port ships only the lines whose role is "how" (§8.5) under the run's capture mode, so `runs.logs`/`run_events` stay the API's record. |
 
 ## 18. Adversarial review resolution (2026-10-17)
 

@@ -98,6 +98,9 @@ processors:
           - 'delete_matching_keys(log.attributes, "^gen_ai\\.(input\\.messages|output\\.messages|system_instructions|tool\\.call\\.arguments|tool\\.call\\.result)$")'
           - 'delete_matching_keys(log.attributes, "^ai\\.(prompt.*|response\\..*|toolCall\\.(args|result))$")'
           - set(log.attributes["qayaba.trust"], "agent")
+          # OpenCode names the session inside the message body, and its own process-wide trace id joins nothing. The id
+          # becomes an attribute so a provider failure or tool error is found by the session the orchestrator's turn span records.
+          - 'set(log.attributes["opencode.session_id"], ExtractPatterns(log.body, "session\\.id\\W+(?P<id>ses_[A-Za-z0-9]+)")["id"]) where IsString(log.body) and IsMatch(log.body, "session\\.id\\W+ses_")'
 
   # A trace of one process, without a root or a link to the run it served, is not evidence. Dropping it keeps Tempo
   # readable and costs nothing the orchestrator's own attempt span does not already carry.

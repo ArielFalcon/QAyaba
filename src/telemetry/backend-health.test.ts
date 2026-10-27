@@ -147,13 +147,48 @@ test("the result is cached for the ttl, concurrent callers share one probe, and 
   const calls: string[] = [];
   const { m, clock } = monitor(healthyRoutes(), { calls });
   const pushes = (): number => calls.filter((c) => c === "POST lgtm:3100/loki/api/v1/push").length;
+  const metricsReads = (): number => calls.filter((c) => c === "GET lgtm:3100/metrics").length;
   await Promise.all([m.get(), m.get(), m.get()]);
-  assert.equal(pushes(), 1);
+  assert.equal(metricsReads(), 1);
   await m.get();
-  assert.equal(pushes(), 1);
+  assert.equal(metricsReads(), 1);
   clock.t += 31_000;
   await m.get();
-  assert.equal(pushes(), 2);
+  assert.equal(metricsReads(), 2);
+  assert.equal(pushes(), 1);
+});
+
+test("the write path is proven by one push, not one per poll: later probes watch Loki's append-failure counter", async () => {
+  const calls: string[] = [];
+  let failures = 0;
+  const routes = healthyRoutes({ "GET lgtm:3100/metrics": () => ({ status: 200, body: `${lokiMetrics(0, 0.5)}loki_distributor_ingester_append_failures_total{ingester="a"} ${failures}\n` }) });
+  const { m, clock } = monitor(routes, { calls });
+  const pushes = (): number => calls.filter((c) => c === "POST lgtm:3100/loki/api/v1/push").length;
+  assert.equal((await m.get())?.loki.status, "ok");
+  clock.t += 31_000;
+  assert.equal((await m.get())?.loki.status, "ok");
+  clock.t += 31_000;
+  assert.equal((await m.get())?.loki.status, "ok");
+  assert.equal(pushes(), 1);
+  failures = 2;
+  clock.t += 31_000;
+  const h = await m.get();
+  assert.equal(h?.loki.status, "degraded");
+  assert.match(h?.loki.reason ?? "", /append/i);
+  assert.equal(pushes(), 1);
+});
+
+test("a write probe that failed is tried again on the next poll until one is accepted", async () => {
+  const calls: string[] = [];
+  let status = 500;
+  const { m, clock } = monitor(healthyRoutes({ "POST lgtm:3100/loki/api/v1/push": () => ({ status }) }), { calls });
+  assert.equal((await m.get())?.loki.status, "down");
+  status = 204;
+  clock.t += 31_000;
+  assert.equal((await m.get())?.loki.status, "ok");
+  clock.t += 31_000;
+  await m.get();
+  assert.equal(calls.filter((c) => c === "POST lgtm:3100/loki/api/v1/push").length, 2);
 });
 
 test("peek never waits: it answers nothing before the first probe finishes, then the cached result", async () => {

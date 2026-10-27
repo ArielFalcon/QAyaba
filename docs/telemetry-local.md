@@ -29,7 +29,7 @@ own (Loki's WAL disk guard once rejected every push for ~50 minutes while the ex
 
 | Backend | Checked | Not healthy when |
 |---|---|---|
-| Loki | `/ready`; one real push of a probe line (`job=qayaba-health-probe`); `/metrics` WAL disk; newest line of this service (informational) | not ready or the push is rejected: `down` (reason carries Loki's answer, e.g. `Ingester is shutting down`); the disk-full counter grew since the last probe, or WAL disk >= 85%: `degraded` |
+| Loki | `/ready`; one real push of a probe line per process (`job=qayaba-health-probe`, repeated only while it fails); `/metrics` WAL disk and the ingester append-failure counter; newest line of this service (informational) | not ready or the push is rejected: `down` (reason carries Loki's answer, e.g. `Ingester is shutting down`); the disk-full or append-failure counter grew since the last probe, or WAL disk >= 85%: `degraded` |
 | Tempo | `/ready`; a search for this service's traces in the last 24 h (informational newest time) | not ready: `down`; search failing or spans discarded since the last probe: `degraded` |
 | Collector | its own metrics (`:8888`, trusted collector only) | unreachable: `down`; `otelcol_exporter_send_failed_*` grew since the last probe, or the exporter queue >= 90% full: `degraded` |
 
@@ -70,10 +70,11 @@ metadata, with dots replaced by underscores):
 {service_name="qayaba-orchestrator"} | trace_id="..."   # copy the id from the run's trace in Tempo
 ```
 
-The orchestrator's console lines (`[qa] ...`, the grounding adapters' warnings) are exported only while a span is active
-and under the run's capture mode: `off` sends nothing, `metadata` caps a line at 1 KB, `full` at 4 KB. Boot,
-`/api/health` polling and any line outside a span stay in docker's json-file log. Loki is a viewing aid: nothing reads it
-programmatically, and `runs.logs`/`run_events` remain the API's record.
+The orchestrator ships log lines from its logging port, under the run's capture mode: `off` sends nothing, `metadata`
+caps a line at 1 KB, `full` at 4 KB. Only lines that explain how something went are shipped (every `warn`/`error`, and
+`info` lines whose call site sets `ship: true`); a line that restates a span stays in docker's json-file log
+(`docs/observability-design.md` §8.5). Loki is a viewing aid: nothing reads it programmatically, and
+`runs.logs`/`run_events` remain the API's record.
 
 A rotating copy of each collector's traces is written to the `otel-debug` volume (`/var/lib/otel-debug/traces.jsonl` for
 the trusted collector, `agents-traces.jsonl` for the untrusted one; 100 MB x 3 files each). The `debug` exporter is
@@ -157,7 +158,7 @@ trusted port to the agents. Each receiver is therefore its own service with its 
   `gen_ai.usage.input_tokens` and `max_tokens` are untouched) and values (bearer and basic tokens, connection URLs with a
   password, GitHub, Google, Slack, npm and AWS keys, JWTs, private keys). It is a second layer behind the orchestrator's
   own sanitizer, not a replacement. A log body is a message, not a prompt; Loki truncates any line over 64 KB.
-- The orchestrator's log record inherits the active span's `trace_id` and `span_id`, so Tempo and Loki can be read side by
+- The orchestrator's log record inherits the ambient (or the open run root's) `trace_id` and `span_id`, so Tempo and Loki can be read side by
   side. OpenCode's logs carry its own process trace ids, which are not a qayaba trace; the session id, where present, is
   the only join to a run. The orchestrator's `invoke_agent` span carries the same id as `gen_ai.conversation.id`, and
   `agent_turns.session_id` stores it, so a log line with `session_id` joins to its turn. That is correlation, not a

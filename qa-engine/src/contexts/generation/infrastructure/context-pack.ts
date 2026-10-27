@@ -4,7 +4,7 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { capDomLines, captureDomForRoutes, defaultCaptureDomDeps, MAX_ROUTES, MAX_ROUTES_PER_CHANGE, REDIRECT_ADVISORY_INTRO } from "./dom-snapshot.ts";
 import type { CapturedPage, CaptureDomDeps, CaptureRoutesInput, PageDelivery } from "./dom-snapshot.ts";
-import { loggableRoute, loggableRoutes } from "./loggable-route.ts";
+import { loggableRoutes } from "./loggable-route.ts";
 import type { ArchitectureContext, ApiOperation } from "../domain/generation-input.ts";
 import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-element.ts";
 import { classifyRoutes, ROUTE_REASON } from "../../../shared-kernel/route-capturability.ts";
@@ -149,14 +149,15 @@ export interface ContextPackDeps {
   domDeps: CaptureDomDeps;
   /* The app's declared page per route template (dev.routeSamples): opened when no link the site showed fits the template, for an app that navigates without links. App data, never inferred. */
   routeSamples?: Readonly<Record<string, string>>;
-  log?: (msg: string) => void;
+  /* `how` marks a line that explains how the capture went and no span records: it is shipped to the log store (docs/observability-design.md, log roles). */
+  log?: (msg: string, how?: { ship: true }) => void;
 }
 
 
 export const defaultContextPackDeps: ContextPackDeps = {
   captureDomForRoutes,
   domDeps: defaultCaptureDomDeps,
-  log: (msg) => engineLog.info(msg),
+  log: (msg, how) => engineLog.info(msg, how),
 };
 
 
@@ -445,7 +446,7 @@ export async function buildContextPack(
     try {
       await deps.captureDomForRoutes(pairs.flatMap((pair) => [pair.page, pair.sibling]), { ...base, onPages: (reported) => { for (const page of reported) seen.set(page.route, page); } }, deps.domDeps);
     } catch (err) {
-      log(`[qa] context-pack: DOM capture of the declared template pages beside their missing siblings FAILED (${err instanceof Error ? err.message : String(err)}) — the declared pages are kept unchecked`);
+      log(`[qa] context-pack: DOM capture of the declared template pages beside their missing siblings FAILED (${err instanceof Error ? err.message : String(err)}) — the declared pages are kept unchecked`, { ship: true });
       return { missing: [], ungrounded: [] };
     }
     const missing = pairs
@@ -497,7 +498,7 @@ export async function buildContextPack(
         try {
           await capture([...instances.keys()], { ...base, instanceOf: instances });
         } catch (err) {
-          log(`[qa] context-pack: DOM capture of the pages found for route templates FAILED (${err instanceof Error ? err.message : String(err)}) — those templates are not grounded`);
+          log(`[qa] context-pack: DOM capture of the pages found for route templates FAILED (${err instanceof Error ? err.message : String(err)}) — those templates are not grounded`, { ship: true });
         }
       }
       if (captures.length > 0) {
@@ -552,10 +553,10 @@ export async function buildContextPack(
         ].join("\n");
         log(`[qa] context-pack: DOM captured ${kept.length} lines for ${renderedRoutes} route(s)${dropped > 0 ? ` (${dropped} omitted)` : ""}`);
       } else {
-        log(`[qa] context-pack: DOM capture returned nothing for routes [${loggableRoutes(firstPass)}] — grounding skipped`);
+        log(`[qa] context-pack: DOM capture returned nothing for routes [${loggableRoutes(firstPass)}] — grounding skipped`, { ship: true });
       }
     } catch (err) {
-      log(`[qa] context-pack: DOM capture FAILED (${err instanceof Error ? err.message : String(err)}) — grounding skipped`);
+      log(`[qa] context-pack: DOM capture FAILED (${err instanceof Error ? err.message : String(err)}) — grounding skipped`, { ship: true });
       /* The links were never read: a template that was to be opened through them is unopened for that reason. */
       for (const template of reachableTemplates) instanceOfTemplate.set(template, undefined);
     }
@@ -576,7 +577,13 @@ export async function buildContextPack(
         return reason === undefined ? [] : [{ route: entry.route, reason }];
       })
     : [];
-  for (const entry of notCaptured) log(`[qa] context-pack: route not capturable, left out of the capture: ${loggableRoute(entry.route)} (${entry.reason})`);
+  if (notCaptured.length > 0) {
+    /* One line for the whole set, grouped by why: how the capture fell short has no home in a span, and a line per route is noise. */
+    const byReason = new Map<string, string[]>();
+    for (const entry of notCaptured) byReason.set(entry.reason, [...(byReason.get(entry.reason) ?? []), entry.route]);
+    const groups = [...byReason].map(([reason, routes]) => `${reason}: ${loggableRoutes(routes)}`);
+    log(`[qa] context-pack: ${notCaptured.length} route(s) not capturable, left out of the capture (${groups.join("; ")})`, { ship: true });
+  }
 
   let contractSection = "";
   const relevantOps = filterRelevantContracts(input.contextMap, input.prChangedFiles);

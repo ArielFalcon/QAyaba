@@ -1,7 +1,7 @@
 /* End-to-end verification of the stores behind the collectors, from the orchestrator's own network (docs/telemetry-local.md).
 
    The orchestrator's OTLP export only proves the collector accepted a batch; the collector -> Loki/Tempo leg fails on its own (a Loki WAL disk guard rejected every push for ~50 minutes while the export looked fine). This monitor asks the backends directly:
-   - Loki: /ready, then ONE real push of a probe line (a ready ingester that rejects writes is down), then its /metrics (WAL disk usage, and whether the disk-full failure counter grew since the last probe), then the newest line of this service (informational).
+   - Loki: /ready, then ONE real push of a probe line per process (a ready ingester that rejects writes is down; later polls watch the append-failure counter instead of writing), then its /metrics (WAL disk usage, and whether the disk-full failure counter grew since the last probe), then the newest line of this service (informational).
    - Tempo: /ready, then a search for recent traces (the read path answering), informational newest trace time.
    - Collectors: their internal Prometheus metrics, when configured: growth of `otelcol_exporter_send_failed_*` since the last probe, and the exporter queue's fill.
    Counters are lifetime values, so a failure is judged only by growth between two probes; the first probe judges nothing from them.
@@ -105,6 +105,8 @@ export class BackendHealthMonitor {
   private cached: { at: number; value: TelemetryBackendsHealth } | undefined;
   private inFlight: Promise<TelemetryBackendsHealth> | undefined;
   private readonly lastCounters = new Map<string, number>();
+  /* Set by the first accepted write probe; the probe line is pushed once per process. */
+  private writeProven = false;
 
   constructor(private readonly deps: BackendHealthDeps) {
     this.ttlMs = deps.ttlMs ?? BACKEND_HEALTH_TTL_MS;
@@ -179,14 +181,24 @@ export class BackendHealthMonitor {
     if (ready.status !== 200) return { status: "down", reasons: [`Loki is not ready (HTTP ${ready.status})`] };
 
     const nowMs = this.deps.now();
-    const probeLine = JSON.stringify({ streams: [{ stream: { job: "qayaba-health-probe" }, values: [[`${BigInt(nowMs) * 1_000_000n}`, "telemetry health probe"]] }] });
-    const push = await this.call(`${base}/loki/api/v1/push`, { method: "POST", headers: { "content-type": "application/json" }, body: probeLine });
-    if (!push) return { status: "down", reasons: ["Loki is ready but the write probe got no answer"] };
-    if (push.status < 200 || push.status >= 300) return { status: "down", reasons: [`Loki is ready but rejects writes (HTTP ${push.status}): ${clip(push.body)}`] };
+    /* One accepted push proves the write path; it is not repeated, so the store holds no line per poll. From then on a
+       ready ingester that starts rejecting writes shows in its append-failure counter, read below. */
+    if (!this.writeProven) {
+      const probeLine = JSON.stringify({ streams: [{ stream: { job: "qayaba-health-probe" }, values: [[`${BigInt(nowMs) * 1_000_000n}`, "telemetry health probe"]] }] });
+      const push = await this.call(`${base}/loki/api/v1/push`, { method: "POST", headers: { "content-type": "application/json" }, body: probeLine });
+      if (!push) return { status: "down", reasons: ["Loki is ready but the write probe got no answer"] };
+      if (push.status < 200 || push.status >= 300) return { status: "down", reasons: [`Loki is ready but rejects writes (HTTP ${push.status}): ${clip(push.body)}`] };
+      this.writeProven = true;
+    }
 
     const verdict: Verdict = { status: "ok", reasons: [] };
     const metrics = await this.call(`${base}/metrics`, { method: "GET" });
     if (metrics && metrics.status === 200) {
+      const appendFailed = this.growth("loki.append_failures", sumMetric(metrics.body, /^loki_distributor_ingester_append_failures_total$/));
+      if (appendFailed !== undefined && appendFailed > 0) {
+        verdict.status = "degraded";
+        verdict.reasons.push(`Loki failed ${appendFailed} ingester append(s) since the last probe`);
+      }
       const usage = sumMetric(metrics.body, /^loki_ingester_wal_disk_usage_percent$/);
       if (usage !== undefined) verdict.diskUsedRatio = usage;
       const grew = this.growth("loki.wal_disk_full", sumMetric(metrics.body, /^loki_ingester_wal_disk_full_failures_total$/));

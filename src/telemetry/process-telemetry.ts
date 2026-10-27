@@ -8,11 +8,11 @@ export const TELEMETRY_SHUTDOWN_TIMEOUT_MS = 5000;
 let handle: TelemetryHandle | undefined;
 
 export function processTelemetry(env: Record<string, string | undefined>): TelemetryHandle {
-  handle ??= createTelemetry({ env, registerGlobal: true, captureConsole: true });
+  handle ??= createTelemetry({ env, registerGlobal: true, shipLogs: true });
   return handle;
 }
 
 export function resetProcessTelemetryForTests(): void {
-  handle?.stopConsoleTap();
+  handle?.stopLogShipping();
   handle = undefined;
 }

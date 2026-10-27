@@ -5,6 +5,8 @@ export type LogLevel = "debug" | "info" | "warn" | "error";
 /* Extra structured data of a line. A field named `error` accepts any thrown value: the adapter renders it as a redacted message (and its stack, redacted, at `debug`). */
 export type LogFields = Readonly<Record<string, unknown>>;
 
+/* Reserved field `ship`: routes a line to the log store (Loki), which holds how something happened and never repeats a fact a span records. warn and error ship by default; `ship: true` on an info line says it explains something no span records; `ship: false` withholds a warning that only restates a span fact. The adapter consumes it; it is never written to the line. */
+
 export interface LoggerPort {
   debug(message: string, fields?: LogFields): void;
   info(message: string, fields?: LogFields): void;

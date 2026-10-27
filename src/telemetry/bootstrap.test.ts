@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { InMemorySpanExporter, type SpanExporter, type ReadableSpan } from "@opentelemetry/sdk-trace-base";
 import { ExportResultCode, type ExportResult } from "@opentelemetry/core";
 import { createTelemetry, type BootstrapDeps } from "./bootstrap";
+import { createRedactingLogger } from "../integrations/redacting-logger";
 import type { LogRecordExporter, ReadableLogRecord } from "@opentelemetry/sdk-logs";
 import type { RunSpanRow } from "../server/persistence/repositories/telemetry.repository";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
@@ -224,7 +225,7 @@ test("the handle exposes the clock the telemetry was built on, in both modes, so
   assert.equal(typeof off.clock.now(), "number");
 });
 
-test("an endpoint configures a log exporter, and the console tap exports a line only inside a span", async () => {
+test("an endpoint configures a log exporter, and a shipped line leaves through the logging port with the run's trace", async () => {
   const exported: ReadableLogRecord[] = [];
   const logExporter: LogRecordExporter = {
     export: (records, cb) => { exported.push(...records); cb({ code: ExportResultCode.SUCCESS }); },
@@ -235,12 +236,13 @@ test("an endpoint configures a log exporter, and the console tap exports a line 
   const { base } = deps({ OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318" }, {
     traceExporterFactory: () => new InMemorySpanExporter(),
     logExporterFactory: (url) => { seen.push(url); return logExporter; },
-    captureConsole: true,
+    shipLogs: true,
   });
   const handle = createTelemetry(base);
   try {
-    console.log("outside a span");
-    handle.telemetry.withSpan("run", { captureMode: "metadata" }, () => { console.log("inside a span"); });
+    const log = createRedactingLogger({ sink: () => {}, redactor: () => ({ redact: (text: string) => text }) });
+    log.info("an info line the call site did not ask to ship");
+    handle.telemetry.withSpan("run", { captureMode: "metadata" }, () => { log.warn("inside a span"); });
   } finally {
     await handle.shutdown(1000);
   }

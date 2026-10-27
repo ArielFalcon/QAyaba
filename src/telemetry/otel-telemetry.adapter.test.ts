@@ -40,17 +40,28 @@ function harness(opts: { captureMode?: CaptureMode; maxCaptureMode?: CaptureMode
   return { telemetry, clock, spans, byName, exporter };
 }
 
-test("the console tap reads the active span's capture mode, context and run scope", () => {
+test("a log record is placed in the ambient span and redacted through its run scope", () => {
   const { telemetry } = harness();
-  assert.equal(telemetry.activeLogSpan(), undefined);
+  assert.equal(telemetry.logTarget(), undefined);
   telemetry.withSpan("run", { captureMode: "metadata", secrets: { redact: (text) => text.replace("hunter2", "[redacted]") } }, () => {
-    const span = telemetry.activeLogSpan();
-    assert.equal(span?.mode, "metadata");
-    assert.ok(span?.context);
-    assert.equal(telemetry.redactActive("value hunter2", 1024), "value [redacted]");
-    assert.equal(telemetry.redactActive("word ".repeat(500), 10), "word word ");
+    const target = telemetry.logTarget();
+    assert.equal(target?.mode, "metadata");
+    assert.equal(telemetry.redactIn(target?.context, "value hunter2", 1024), "value [redacted]");
+    assert.equal(telemetry.redactIn(target?.context, "word ".repeat(500), 10), "word word ");
   });
-  assert.equal(telemetry.activeLogSpan(), undefined);
+  assert.equal(telemetry.logTarget(), undefined);
+});
+
+test("with no ambient span a log record joins the single open root, and none once it ends or a second root is open", () => {
+  const { telemetry } = harness();
+  const root = telemetry.startSpan("qayaba.run", { root: true, captureMode: "metadata" });
+  assert.equal(telemetry.logTarget()?.mode, "metadata");
+  const other = telemetry.startSpan("other", { root: true });
+  assert.equal(telemetry.logTarget(), undefined);
+  other.end();
+  assert.ok(telemetry.logTarget());
+  root.end();
+  assert.equal(telemetry.logTarget(), undefined);
 });
 
 test("every span takes its start and end from the injected clock, so a clock jump lands exactly", () => {
