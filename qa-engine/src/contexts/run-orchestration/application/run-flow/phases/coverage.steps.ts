@@ -60,7 +60,7 @@ export async function coverageExclusionsOf(state: Readonly<RunState>, ctx: Works
   const diff = state.classification.diff;
   if (diff === undefined || diff === "" || input.triggerRepo) return undefined;
   const files = changedCodeFiles(diff);
-  const byDesign = unreachableByDesign({ files, scope: state.grounding.changeScope, candidates: state.grounding.candidates, facts: state.grounding.routeAvailability?.facts ?? [] });
+  const byDesign = unreachableByDesign({ files, diff, scope: state.grounding.changeScope, candidates: state.grounding.candidates, facts: state.grounding.routeAvailability?.facts ?? [] });
   const decided = new Set(byDesign.map((e) => e.file));
   const undecided = files.filter((file) => !decided.has(file));
   let support: ReturnType<typeof testSupportFiles> = [];

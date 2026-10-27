@@ -419,14 +419,15 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
   }
 
   async importersOf(repoDir: string, files: readonly string[]): Promise<Result<ImportersReport, CodeGraphUnavailable>> {
-    if (files.length === 0) return ok({ indexedSha: this.indexOf(repoDir)?.sha ?? "", files: [] });
-    const answered = await this.read<{ files: FileImporters[]; truncated: boolean }>(repoDir, { op: "importers", files: [...files] });
+    if (files.length === 0) return ok({ indexedSha: this.indexOf(repoDir)?.sha ?? "", files: [], dynamicLoaders: { files: [], complete: true } });
+    const answered = await this.read<{ files: FileImporters[]; dynamicLoaders: ImportersReport["dynamicLoaders"]; truncated: boolean }>(repoDir, { op: "importers", files: [...files] });
     if (!answered.ok) return answered;
     /* A file the reader's bound on files left out was never read: it is not indexed as far as the caller can tell. */
     const read = new Map(answered.value.value.files.map((f) => [f.file, f]));
     return ok({
       indexedSha: answered.value.sha,
-      files: files.map((file) => read.get(file) ?? { file, indexed: false, importers: [], complete: false }),
+      files: files.map((file) => read.get(file) ?? { file, indexed: false, importers: [], users: [], namedBy: [], complete: false }),
+      dynamicLoaders: answered.value.value.dynamicLoaders,
     });
   }
 

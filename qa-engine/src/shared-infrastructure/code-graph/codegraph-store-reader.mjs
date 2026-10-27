@@ -23,9 +23,11 @@
  *   (`excludeFiles`: files whose code is never a caller, the walk's or the fan-in's: the test files of the repo's languages.)
  *   {"op":"routes"}                                         → {"routes":[{name,file,line,target?:{file,symbol,kind}}]}
  *   {"op":"find","symbols":[{"file":"a.ts","symbol":"f"}]}  → {"symbols":[...as symbols],"truncated":bool}
- *   {"op":"importers","files":["a.ts"]}                     → {"files":[{file,indexed,importers:["<file>"],complete}],"truncated":bool}
- *     (the files whose code imports `a.ts` or a symbol it declares, sorted; `indexed` is false for a file the store holds no node of,
- *     `complete` false when its importers were cut to the bound; `truncated` says the request's files were cut to the bound.)
+ *   {"op":"importers","files":["a.ts"]}                     → {"files":[{file,indexed,importers,users,namedBy:["<file>"],complete}],"dynamicLoaders":{files:["<file>"],complete},"truncated":bool}
+ *     (`importers`: the files whose code imports `a.ts` or a symbol it declares; `users`: the files with an edge of any kind to it or a symbol it
+ *     declares; `namedBy`: the files with a reference the index could not resolve that names it or a symbol of it; all sorted.
+ *     `indexed` is false for a file the store holds no node of, `complete` false when any list was cut to the bound. `dynamicLoaders`: the files
+ *     that load a module by a name the index cannot resolve; `truncated` says the request's files were cut to the bound.)
  *   {"op":"ping"}                                           → {"ready":true} (the store opens and is of the pinned version)
  */
 
@@ -117,15 +119,52 @@ function symbolsOf(db, files) {
   return out.sort(byPosition);
 }
 
-/* The files that import each file, or a symbol it declares; an import edge's source is the importing file (or a namespace of it), its target the file or the declared symbol. */
+/* Names that load a module, a class or a file by a name the index cannot resolve (a dynamic import, a require, a reflective class load): the engine records such a call as an unresolved reference without the module it names. */
+const DYNAMIC_LOAD_NAMES = ["import", "require", "forName", "loadClass", "import_module", "__import__"];
+/* The nodes that are not something a file declares: the file itself and its import and export statements. */
+const NOT_DECLARED_KINDS = ["file", "import", "export"];
+
+const stemOf = (file) => {
+  const base = file.slice(file.lastIndexOf("/") + 1);
+  const dot = base.lastIndexOf(".");
+  return dot > 0 ? base.slice(0, dot) : base;
+};
+
+/*
+ * For each file, who uses it, read three ways so that none of them alone has to be complete:
+ *   importers: the files whose code imports it or a symbol it declares (an import edge);
+ *   users: the files with an edge of any kind (a call, a reference, an instantiation, an inheritance, a re-export) to it or to a symbol it declares;
+ *   namedBy: the files holding a reference the index could not resolve whose name is the file's own or a symbol it declares.
+ * Plus, once for the repo, the files that load a module by a name the index cannot resolve (`dynamicLoaders`): any of them may load any file.
+ */
 function importersOf(db, files) {
   const heldStmt = db.prepare("SELECT 1 AS held FROM nodes WHERE file_path = ? LIMIT 1");
   const importersStmt = db.prepare("SELECT DISTINCT s.file_path AS file FROM edges e JOIN nodes s ON s.id = e.source JOIN nodes t ON t.id = e.target WHERE e.kind = 'imports' AND t.file_path = ? AND s.file_path <> t.file_path ORDER BY s.file_path LIMIT ?");
+  const usersStmt = db.prepare("SELECT DISTINCT s.file_path AS file FROM edges e JOIN nodes s ON s.id = e.source JOIN nodes t ON t.id = e.target WHERE t.file_path = ? AND s.file_path <> t.file_path ORDER BY s.file_path LIMIT ?");
+  const declaredStmt = db.prepare(`SELECT DISTINCT name FROM nodes WHERE file_path = ? AND kind NOT IN (${NOT_DECLARED_KINDS.map(() => "?").join(",")})`);
+  const namedByNameStmt = db.prepare("SELECT DISTINCT file_path AS file FROM unresolved_refs WHERE file_path <> ? AND (reference_name = ? OR name_tail = ?) ORDER BY file_path LIMIT ?");
+  /* A module is named by its path, whose last segment is the file's stem. */
+  const namedByStemStmt = db.prepare("SELECT DISTINCT file_path AS file FROM unresolved_refs WHERE file_path <> ? AND instr(reference_name, ?) > 0 ORDER BY file_path LIMIT ?");
+  const read = (stmt, ...params) => {
+    const rows = stmt.all(...params, MAX_IMPORTERS + 1);
+    return { files: rows.slice(0, MAX_IMPORTERS).map((r) => r.file), complete: rows.length <= MAX_IMPORTERS };
+  };
   return files.map((file) => {
-    if (heldStmt.get(file) === undefined) return { file, indexed: false, importers: [], complete: false };
-    const rows = importersStmt.all(file, MAX_IMPORTERS + 1);
-    return { file, indexed: true, importers: rows.slice(0, MAX_IMPORTERS).map((r) => r.file), complete: rows.length <= MAX_IMPORTERS };
+    if (heldStmt.get(file) === undefined) return { file, indexed: false, importers: [], users: [], namedBy: [], complete: false };
+    const importers = read(importersStmt, file);
+    const users = read(usersStmt, file);
+    const names = [...new Set([stemOf(file), ...declaredStmt.all(file, ...NOT_DECLARED_KINDS).map((r) => r.name)])];
+    const named = [read(namedByStemStmt, file, stemOf(file)), ...names.map((name) => read(namedByNameStmt, file, name, name))];
+    const namedBy = [...new Set(named.flatMap((n) => n.files))].sort(compare);
+    return { file, indexed: true, importers: importers.files, users: users.files, namedBy, complete: importers.complete && users.complete && named.every((n) => n.complete) };
   });
+}
+
+/* The files holding a call that loads a module by a name the index cannot resolve. */
+function dynamicLoadersOf(db) {
+  const marks = DYNAMIC_LOAD_NAMES.map(() => "?").join(",");
+  const rows = db.prepare(`SELECT DISTINCT file_path AS file FROM unresolved_refs WHERE reference_name IN (${marks}) OR name_tail IN (${marks}) OR reference_name LIKE 'import(%' OR reference_name LIKE 'require(%' ORDER BY file_path LIMIT ?`).all(...DYNAMIC_LOAD_NAMES, ...DYNAMIC_LOAD_NAMES, MAX_IMPORTERS + 1);
+  return { files: rows.slice(0, MAX_IMPORTERS).map((r) => r.file), complete: rows.length <= MAX_IMPORTERS };
 }
 
 /* The distinct {file, symbol} references of a request, at most MAX_SEEDS of them, cut like `strings`. */
@@ -365,7 +404,7 @@ switch (request.op) {
   }
   case "importers": {
     const files = strings(request.files, MAX_FILES, "files");
-    answer = { files: importersOf(db, files.items), truncated: files.truncated };
+    answer = { files: importersOf(db, files.items), dynamicLoaders: dynamicLoadersOf(db), truncated: files.truncated };
     break;
   }
   case "find": {

@@ -7,7 +7,7 @@ import { initialRunState, type RunState } from "@contexts/run-orchestration/appl
 import type { WorkspaceRunContext } from "@contexts/run-orchestration/application/run-flow/run-context.ts";
 import type { CoverageExclusions } from "@contexts/objective-signal/application/index.ts";
 import type { ChangeScope } from "@contexts/change-analysis/domain/change-scope.ts";
-import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import { FILE_SEED_SYMBOL, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { ImportersReport } from "@kernel/code/index.ts";
@@ -20,8 +20,10 @@ const CHECKOUT = "src/app/checkout.ts";
 
 const section = (path: string) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -0,0 +1,2 @@\n+a\n+b\n`;
 const DIFF = section(CHECKOUT) + section(PREVIEW) + section(HELPER);
+/* The preview page with a second hunk: a module-level statement at line 20. */
+const PREVIEW_WITH_STATEMENT = `diff --git a/${PREVIEW} b/${PREVIEW}\n--- a/${PREVIEW}\n+++ b/${PREVIEW}\n@@ -0,0 +1,2 @@\n+a\n+b\n@@ -0,0 +20 @@\n+customElements.define("x", X);\n`;
 
-const seed = (file: string) => ({ file, symbol: "S" });
+const seed = (file: string) => ({ file, symbol: "S", range: { start: 1, end: 10 } });
 const candidate = (route: string, files: string[]): UseCaseCandidate => ({
   id: `uc-${route}`,
   entry: { kind: "page", repo: "o/app", route },
@@ -60,11 +62,9 @@ function stateOf(overrides: { facts?: RouteAvailabilityFact[]; candidates?: UseC
   return state;
 }
 
-const importers = (files: ImportersReport["files"]): ImportersReport => ({ indexedSha: "abc", files });
-const HELPER_IMPORTERS = importers([
-  { file: CHECKOUT, indexed: true, importers: ["src/app/app.ts"], complete: true },
-  { file: HELPER, indexed: true, importers: ["src/app/a.spec.ts", "src/app/b.spec.ts"], complete: true },
-]);
+const importers = (files: ImportersReport["files"], dynamicLoaders: ImportersReport["dynamicLoaders"] = { files: [], complete: true }): ImportersReport => ({ indexedSha: "abc", files, dynamicLoaders });
+const usedBy = (file: string, by: string[], extra: Partial<ImportersReport["files"][number]> = {}): ImportersReport["files"][number] => ({ file, indexed: true, importers: by, users: by, namedBy: [], complete: true, ...extra });
+const HELPER_IMPORTERS = importers([usedBy(CHECKOUT, ["src/app/app.ts"]), usedBy(HELPER, ["src/app/a.spec.ts", "src/app/b.spec.ts"])]);
 
 function ctxOf(codeGraph?: Partial<CodeGraphPort>, extra: { triggerRepo?: string } = {}) {
   const measured: unknown[] = [];
@@ -104,7 +104,7 @@ test("a file reached by an unavailable route and by an available one stays count
 });
 
 test("a file imported by a test and by production code stays counted", async () => {
-  const { ctx } = ctxOf({ importersOf: async () => ok(importers([{ file: HELPER, indexed: true, importers: ["src/app/a.spec.ts", "src/app/page.ts"], complete: true }])) });
+  const { ctx } = ctxOf({ importersOf: async () => ok(importers([usedBy(HELPER, ["src/app/a.spec.ts", "src/app/page.ts"])])) });
 
   assert.equal(await coverageExclusionsOf(stateOf({ facts: [] }), ctx), undefined);
 });
@@ -116,6 +116,27 @@ test("without the route facts, the import edges or an answering graph, every fil
   const state = stateOf();
   state.grounding = { ...state.grounding, routeAvailability: undefined, changeScope: undefined };
   assert.equal(await coverageExclusionsOf(state, ctxOf().ctx), undefined, "no scope and no facts");
+});
+
+test("a test-only importer list does not make a file test support when production code uses it without an import edge, or loads modules dynamically", async () => {
+  const onlyTests = usedBy(HELPER, ["src/app/a.spec.ts"]);
+  /* a same-package class: the production caller is an edge of another kind, or a reference the index could not resolve */
+  assert.equal(await coverageExclusionsOf(stateOf({ facts: [] }), ctxOf({ importersOf: async () => ok(importers([{ ...onlyTests, users: ["src/app/a.spec.ts", "src/app/service.ts"] }])) }).ctx), undefined, "an edge of another kind");
+  assert.equal(await coverageExclusionsOf(stateOf({ facts: [] }), ctxOf({ importersOf: async () => ok(importers([{ ...onlyTests, namedBy: ["src/app/service.ts"] }])) }).ctx), undefined, "an unresolved reference naming it");
+  /* a lazily loaded component: only its spec imports it, and the routes file loads it by a name the index cannot resolve */
+  assert.equal(await coverageExclusionsOf(stateOf({ facts: [] }), ctxOf({ importersOf: async () => ok(importers([onlyTests], { files: ["src/app/app.routes.ts"], complete: true })) }).ctx), undefined, "a dynamic loader");
+});
+
+test("a changed line outside the symbols a native-only page reaches, or a symbol no use case reaches, keeps the file counted", async () => {
+  const graph = { importersOf: async () => ok(importers([])) };
+  /* a module-level statement at line 20, past the symbol spanning lines 1-10 */
+  const moduleLevel = stateOf();
+  moduleLevel.classification = { ...moduleLevel.classification, diff: section(CHECKOUT) + PREVIEW_WITH_STATEMENT + section(HELPER) } as RunState["classification"];
+  assert.equal(await coverageExclusionsOf(moduleLevel, ctxOf(graph).ctx), undefined);
+  /* a second changed symbol that only a map-linked whole-file seed stands for */
+  const wholeFile = stateOf({ candidates: [candidate("/checkout", [CHECKOUT]), { ...candidate("/upload-menu/preview", [PREVIEW]), seeds: [seed(PREVIEW), { file: PREVIEW, symbol: FILE_SEED_SYMBOL }] }] });
+  wholeFile.grounding = { ...wholeFile.grounding, changeScope: { ...scopeOf([CHECKOUT, PREVIEW]), repos: [{ ...scopeOf([CHECKOUT, PREVIEW]).repos[0]!, seeds: [seed(CHECKOUT), seed(PREVIEW), { file: PREVIEW, symbol: "Other", range: { start: 11, end: 20 } }] }] } };
+  assert.equal(await coverageExclusionsOf(wholeFile, ctxOf(graph).ctx), undefined);
 });
 
 test("a cross-repo run, whose diff is withheld, leaves nothing out", async () => {

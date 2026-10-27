@@ -154,13 +154,18 @@ export interface GraphRoute {
   target?: LocalSymbolRef & { kind: string };
 }
 
-/** The files that import one file, read from the index's import edges (an import of the file itself or of a symbol it declares, an alias or a barrel resolved to the declaring file by the engine). Test files are included: telling them apart is the caller's. */
+/** Who uses one file, read from the index three ways, because each alone can miss a use. Test files are included: telling them apart is the caller's. */
 export interface FileImporters {
   file: string;
   /** Whether the index holds the file at all; a file it does not hold has no importers to read, which proves nothing. */
   indexed: boolean;
+  /** The files whose code imports the file or a symbol it declares (an alias or a barrel resolved to the declaring file by the engine). */
   importers: string[];
-  /** False when the list was cut to the reader's bound: it is then a lower bound. */
+  /** The files with an edge of any kind (call, reference, instantiation, inheritance, re-export) to the file or a symbol it declares: a use needing no import statement, as a same-package class does. */
+  users: string[];
+  /** The files holding a reference the index could not resolve that names the file or a symbol it declares. */
+  namedBy: string[];
+  /** False when any list was cut to the reader's bound: they are then lower bounds. */
   complete: boolean;
 }
 
@@ -168,4 +173,6 @@ export interface ImportersReport {
   indexedSha: string;
   /** One entry per file asked for, in the order asked; a file past the reader's bound on files is `indexed: false`. */
   files: FileImporters[];
+  /** The files that load a module by a name the index cannot resolve (a dynamic import, a require, a reflective load), which may load any file; `complete` false when the list was cut. */
+  dynamicLoaders: { files: string[]; complete: boolean };
 }

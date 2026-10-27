@@ -1119,11 +1119,72 @@ test("importersOf names the files that import each file, tests included, from th
     if (!answered.ok) return;
     assert.equal(answered.value.indexedSha, h.sha);
     assert.deepEqual(answered.value.files, [
-      { file: page, indexed: true, importers: ["web/src/app/app.routes.ts", spec], complete: true },
-      { file: FORMAT, indexed: true, importers: [page, "web/src/app/profile/profile.page.ts"], complete: true },
-      { file: spec, indexed: true, importers: [], complete: true },
-      { file: "web/src/app/no-such-file.ts", indexed: false, importers: [], complete: false },
+      { file: page, indexed: true, importers: ["web/src/app/app.routes.ts", spec], users: ["web/src/app/app.routes.ts", spec], namedBy: ["web/src/app/app.routes.ts", spec], complete: true },
+      { file: FORMAT, indexed: true, importers: [page, "web/src/app/profile/profile.page.ts"], users: [page, "web/src/app/profile/profile.page.ts"], namedBy: [], complete: true },
+      { file: spec, indexed: true, importers: [], users: [], namedBy: [], complete: true },
+      { file: "web/src/app/no-such-file.ts", indexed: false, importers: [], users: [], namedBy: [], complete: false },
     ]);
+    assert.deepEqual(answered.value.dynamicLoaders, { files: [], complete: true });
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+/* A store with a helper only a spec imports, in the shape the pinned engine leaves for a use it cannot see as an import. */
+const HELPER_FILE = "web/src/app/shared/helper.ts";
+const HELPER_SPEC = "web/src/app/shared/helper.spec.ts";
+function storeWithHelper(root: string, extra: (db: DatabaseSync) => void): string {
+  const store = join(root, "helper.db");
+  copyFileSync(STORE, store);
+  const db = new DatabaseSync(store);
+  const node = db.prepare("INSERT INTO nodes (id, kind, name, qualified_name, file_path, language, start_line, end_line, start_column, end_column, updated_at) VALUES (?, ?, ?, ?, ?, 'typescript', 1, 5, 0, 0, 0)");
+  node.run("file:helper", "file", "helper.ts", HELPER_FILE, HELPER_FILE);
+  node.run("function:helper", "function", "buildHelper", "buildHelper", HELPER_FILE);
+  node.run("file:helper-spec", "file", "helper.spec.ts", HELPER_SPEC, HELPER_SPEC);
+  node.run("function:helper-spec", "function", "specCase", "specCase", HELPER_SPEC);
+  db.prepare("INSERT INTO edges (source, target, kind) VALUES (?, ?, ?)").run("file:helper-spec", "function:helper", "imports");
+  extra(db);
+  db.close();
+  return store;
+}
+const importersFrom = async (h: Harness, store: string) => {
+  h.engine.store = store;
+  await h.adapter.syncTo(h.mirror, h.sha);
+  const answered = await h.adapter.importersOf!(h.mirror, [HELPER_FILE]);
+  assert.equal(answered.ok, true);
+  return answered.ok ? answered.value : undefined;
+};
+
+test("importersOf reports a use that needs no import statement: an edge of another kind from production code", async () => {
+  const h = harness();
+  try {
+    const store = storeWithHelper(h.root, (db) => {
+      /* a same-package class: the index links the call, not an import */
+      db.prepare("INSERT INTO edges (source, target, kind) VALUES (?, ?, ?)").run("class:ddba1a21d9494dfc68fa6376e98b123e", "function:helper", "calls");
+    });
+
+    const report = await importersFrom(h, store);
+
+    assert.deepEqual(report?.files, [{ file: HELPER_FILE, indexed: true, importers: [HELPER_SPEC], users: ["web/src/app/orders/orders.page.ts", HELPER_SPEC], namedBy: [], complete: true }]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("importersOf reports the production files that name a file the index could not link, and the ones that load modules by an unresolved name", async () => {
+  const h = harness();
+  try {
+    const store = storeWithHelper(h.root, (db) => {
+      const unresolved = db.prepare("INSERT INTO unresolved_refs (from_node_id, reference_name, reference_kind, line, col, file_path, language, status, name_tail) VALUES (?, ?, ?, 1, 0, ?, 'typescript', 'failed', ?)");
+      unresolved.run("constant:048f76842968940f49e69e3086fc228a", "buildHelper", "calls", "web/src/app/app.routes.ts", "buildHelper");
+      unresolved.run("constant:048f76842968940f49e69e3086fc228a", "import().then", "calls", "web/src/app/lazy.routes.ts", "then");
+      unresolved.run("constant:048f76842968940f49e69e3086fc228a", "import", "calls", "web/src/app/lazy.routes.ts", "import");
+    });
+
+    const report = await importersFrom(h, store);
+
+    assert.deepEqual(report?.files[0]?.namedBy, ["web/src/app/app.routes.ts"]);
+    assert.deepEqual(report?.dynamicLoaders, { files: ["web/src/app/lazy.routes.ts"], complete: true });
   } finally {
     rmSync(h.root, { recursive: true, force: true });
   }
@@ -1152,7 +1213,7 @@ test("importersOf of a repo the run did not index answers unavailable", async ()
   const h = harness();
   try {
     assert.equal((await h.adapter.importersOf!(h.mirror, [FORMAT])).ok, false);
-    assert.deepEqual(await h.adapter.importersOf!(h.mirror, []), { ok: true, value: { indexedSha: "", files: [] } });
+    assert.deepEqual(await h.adapter.importersOf!(h.mirror, []), { ok: true, value: { indexedSha: "", files: [], dynamicLoaders: { files: [], complete: true } } });
   } finally {
     rmSync(h.root, { recursive: true, force: true });
   }

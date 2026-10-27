@@ -703,10 +703,12 @@ that catches nothing. The objective signal that breaks the circle is **change-co
 - **Changed files that are no gap of the suite** leave the measurement whole (their lines, branches, missing cases and mutants) and are recorded apart with why,
   decided once per run from its facts (`coverageExclusionsOf`, `objective-signal/domain/coverage-exclusions.ts`), never by a name pattern, and handed to every
   measurement and recount of the run (`opts.exclusions`): `unreachableByDesign` (a web run cannot load the file because the change made every route that reaches
-  it unavailable: each changed symbol of the file reaches a use case, every use case it reaches is a page whose route-availability fact is `change-introduced`,
-  and no symbol of it is partial or pruned at a hub; the routes are recorded) and `testSupportFiles` (every importer of the file, by the code graph's import
-  edges, is a test file of the app, with no production importer; the importer count is recorded). A file reached by an available route as well, imported by
-  production code, with no importer read, or whose facts are missing or partial stays counted, as before.
+  it unavailable: each changed symbol of the file reaches a use case by name (a map-linked whole-file seed vouches for no symbol), every use case it reaches is a
+  page whose route-availability fact is `change-introduced`, no symbol of it is partial or pruned at a hub, and every changed line of the file lies inside the range of
+  one of those symbols, so a changed top-level statement keeps it counted; the routes are recorded) and `testSupportFiles` (every user of the file is a test file of
+  the app: the code graph's import edges, its edges of any other kind, and the references it could not resolve that name the file or a symbol of it, with no
+  production user and no production file that loads modules by a name the index cannot resolve, such as a dynamic `import()`; the importer count is recorded). A file reached by an available route as well, used by
+  production code, with no user read, or whose facts are missing or partial stays counted, as before.
 - A browser run maps covered bundle bytes to repository files only through source maps the page's
   scripts carry (inline, fetched from the URL their `sourceMappingURL` names, or `<script>.map` when
   they name none), fetched through the browser context so a DEV gate's credentials reach them. When the dumps held
