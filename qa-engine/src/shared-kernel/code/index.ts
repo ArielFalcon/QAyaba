@@ -130,11 +130,13 @@ export interface WalkCost {
  * A walk's answer, ordered by (depth, file, line, symbol). `truncated` says what a seed reached is a lower bound: a seed is
  * partial (the expansion budget left part of its frontier open) or the change had more seeds than the reader takes.
  * `partialSeeds` names the partial ones, `hubNodes` the nodes pruned at the fan-in limit, `routes` the route nodes reached.
- * `indexedSha` is the commit of the index it read. `seedBasis` says what the depth-0 symbols stand for.
+ * `indexedSha` is the commit of the index it read. `seedBasis` says what the depth-0 symbols stand for. `containers` names the
+ * classes the walk lifted from a changed member: not changed themselves, but what names one (a route's guard) is touched.
  */
 export interface ImpactReport {
   indexedSha: string;
   symbols: ImpactedSymbol[];
+  containers?: LocalSymbolRef[];
   truncated: boolean;
   seedBasis: SeedBasis;
   partialSeeds?: LocalSymbolRef[];

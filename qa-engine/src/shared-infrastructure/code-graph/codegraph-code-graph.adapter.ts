@@ -364,9 +364,11 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
         closure: { symbols: [{ file: h.file, symbol: h.symbol, kind: h.kind, depth: h.depth, confidence: 1 }, ...this.symbolsOf(h.closure.nodes, () => undefined)], complete: h.closure.complete },
       }));
     const partialSeeds = uniqueRefs(answer.seeds.filter((s) => s.status === "partial"));
+    const containers = uniqueRefs(answer.nodes.filter((n) => n.depth === 0 && n.via !== undefined && n.kind !== "route" && !this.deps.isTestFile(n.file)).map((n) => ({ file: n.file, symbol: n.symbol })));
     return ok({
       indexedSha: walked.value.sha,
       symbols: this.symbolsOf(answer.nodes, seedRef),
+      ...(containers.length > 0 ? { containers } : {}),
       truncated: answer.truncated || cut || partialSeeds.length > 0,
       seedBasis: basis,
       partialSeeds,

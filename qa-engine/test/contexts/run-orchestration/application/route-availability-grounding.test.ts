@@ -57,6 +57,11 @@ test("a hub the walk did not expand still reaches the guards its closure holds, 
   assert.equal((await closure(false))?.complete, false);
 });
 
+test("the class a changed method belongs to is in the closure, so a guard named by its class is reached when one of its methods changes", async () => {
+  const closure = await availabilityGroundingOf(stateWithDiff(), ctxWith({ indexedSha: HEAD, symbols: [symbol("canActivate", 0)], containers: [{ file: "src/guards/native.ts", symbol: "NativeOnlyGuard" }], truncated: false, seedBasis: "lines" }, [])).changeClosure?.();
+  assert.deepEqual(closure, { symbols: [{ file: "src/guards/native.ts", symbol: "canActivate" }, { file: "src/guards/native.ts", symbol: "NativeOnlyGuard" }], complete: true });
+});
+
 test("a route the change governs becomes a direct route-config use case; one already named keeps its id and gains the fact", () => {
   const introduced = (route: string) => ({ route, outcome: { kind: "redirected" as const, to: "/home", mechanism: "client" as const }, sessionAttached: true, basis: { class: "change-introduced" as const, via: "route-declaration" as const, at: "src/app.routes.ts:102" } });
   const named = { id: "uc-held", entry: { kind: "page" as const, repo: "org/web", route: "/upload-menu/confirm" }, tier: "indirect" as const, basis: "graph" as const, evidence: ["graph path"], seeds: [], confidence: 0.8, reachability: "page" as const, pages: [], existingSpecs: [] };

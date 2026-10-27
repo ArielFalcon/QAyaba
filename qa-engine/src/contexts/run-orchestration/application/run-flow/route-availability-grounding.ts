@@ -75,8 +75,10 @@ export function availabilityGroundingOf(state: Readonly<RunState>, ctx: Workspac
         const hubs = walked.value.hubNodes ?? [];
         const reached = [...walked.value.symbols, ...hubs.flatMap((hub) => hub.closure.symbols)];
         const atBound = reached.some((symbol) => symbol.depth >= CHANGE_CLOSURE_POLICY.depth);
+        /* A guard is named by its class: one whose method changed is touched by the change. */
+        const containers = walked.value.containers ?? [];
         return {
-          symbols: reached.map((symbol) => ({ file: symbol.file, symbol: symbol.symbol })),
+          symbols: [...reached, ...containers].map((symbol) => ({ file: symbol.file, symbol: symbol.symbol })),
           /* Seeds from no symbol at all may be an index that does not hold the changed files: nothing is proven unreached from them. */
           complete: !walked.value.truncated && hubs.every((hub) => hub.closure.complete) && !atBound && walked.value.seedBasis !== "none",
         };

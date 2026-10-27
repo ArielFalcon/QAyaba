@@ -427,6 +427,31 @@ test("a reached value or class no code calls is reached through the code of the 
   }
 });
 
+test("the class a changed method belongs to is reported among the containers the change touches, never among the changed symbols", async () => {
+  const h = harness();
+  try {
+    const store = join(h.root, "container.db");
+    copyFileSync(STORE, store);
+    const db = new DatabaseSync(store);
+    const guard = "web/src/app/auth/auth.guard.ts";
+    const insert = db.prepare("INSERT INTO nodes (id, kind, name, qualified_name, file_path, language, start_line, end_line, start_column, end_column, updated_at) VALUES (?, ?, ?, ?, ?, 'typescript', ?, ?, 0, 0, 0)");
+    insert.run("class:guard", "class", "AuthGuard", "AuthGuard", guard, 1, 10);
+    insert.run("method:canActivate", "method", "canActivate", "AuthGuard::canActivate", guard, 3, 5);
+    db.prepare("INSERT INTO edges (source, target, kind) VALUES ('class:guard', 'method:canActivate', 'contains')").run();
+    db.close();
+    h.engine.store = store;
+    await h.adapter.syncTo(h.mirror, h.sha);
+
+    const report = await h.adapter.impactedSymbols(h.mirror, BlastRadius.of(Sha.of(h.sha), [guard], new Map([[guard, new Set([4])]])), BUDGET);
+
+    assert.ok(report.ok);
+    assert.deepEqual(report.value.containers, [{ file: guard, symbol: "AuthGuard" }]);
+    assert.deepEqual(report.value.symbols.filter((s) => s.depth === 0).map((s) => s.symbol), ["canActivate"]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
 test("a function passed by reference is reached from the function it is passed to", async () => {
   const h = harness();
   try {
