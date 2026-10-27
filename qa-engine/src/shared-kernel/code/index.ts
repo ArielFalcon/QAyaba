@@ -76,7 +76,7 @@ export interface WalkPolicy {
 }
 
 /*
- * Measured on one Angular index (name-webapp, the seeds of a 3-commit run, depth 3), test-file callers excluded: the p99 fan-in
+ * Measured on one Angular index (the seeds of a 3-commit run, depth 3), test-file callers excluded: the p99 fan-in
  * is 12, which leaves one hub and reaches 13 of the change's 15 pages, where a limit of 5 (the p95 with test callers) loses 9;
  * above 64 sit only the app-wide services; a complete walk took 209 to 457 expansions. One index is the whole evidence: re-measure
  * on another stack with the walk profile before moving a value.
