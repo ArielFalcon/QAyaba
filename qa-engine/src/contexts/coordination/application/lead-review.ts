@@ -12,11 +12,14 @@ import { assembleDefs, type AssembledPrompt } from "@kernel/prompt-sections.ts";
 import { flowCovers, type AdmissionSet } from "./plan-coverage.ts";
 import { FLOW_OUTCOME } from "./flow-outcomes.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
-import { LEAD_REVIEW_SECTIONS, MAX_SPEC_CHARS, type CandidateGaps, type FlowUnderReview, type SidekickAnswer } from "./coordination-sections/lead-turn-sections.ts";
+import { LEAD_REVIEW_SECTIONS, MAX_SPEC_CHARS, type CandidateGaps, type FailureBytes, type FlowUnderReview, type SidekickAnswer } from "./coordination-sections/lead-turn-sections.ts";
+
+/* How the instruction that sends a spec back qualifies its last failure. */
+const FAILURE_INSTRUCTION_NOTE: Record<FailureBytes, string> = { current: "", earlier: ", seen on earlier bytes", "no-spec": ", while the flow held no spec" };
 import { lastJsonObjectWhere } from "@kernel/last-json-object.ts";
 import { sha256Hex } from "@kernel/content-hash.ts";
 
-export { MAX_SPEC_CHARS, type CandidateGaps, type FlowUnderReview, type SidekickAnswer };
+export { MAX_SPEC_CHARS, type CandidateGaps, type FailureBytes, type FlowUnderReview, type SidekickAnswer };
 
 export const REVIEW_ACTION = {
   ACCEPT: "accept",
@@ -117,7 +120,7 @@ const ACTIONS = new Set<string>(Object.values(REVIEW_ACTION));
 
 /* What the orchestrator tells a sidekick whose spec was accepted before it passed. */
 function verifyInstruction(redaction: RedactionPort, flow: FlowUnderReview): string {
-  const failure = flow.runSpec?.lastFailure ? ` Its last failure${flow.runSpec.lastFailureCurrent === true ? "" : ", seen on earlier bytes"}: ${redaction.redact(flow.runSpec.lastFailure)}` : "";
+  const failure = flow.runSpec?.lastFailure ? ` Its last failure${FAILURE_INSTRUCTION_NOTE[flow.runSpec.lastFailureOn ?? "earlier"]}: ${redaction.redact(flow.runSpec.lastFailure)}` : "";
   return `Your spec has not passed run_spec on its current bytes.${failure} Run it, make it pass without weakening an assertion, and report again.`;
 }
 

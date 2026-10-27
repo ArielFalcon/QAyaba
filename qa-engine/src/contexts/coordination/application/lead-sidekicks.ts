@@ -31,7 +31,7 @@ import { candidatePagesOf, pageRoutesOf, type UseCaseCandidate } from "@kernel/u
 import { admissionSetOf, flowCovers, honorContradictedDrops, impliedNoopDrops, MAX_PLAN_ROUNDS, planCoverage, assembleReplanRequest, unvisitedBy, type AdmissionSet, type PlanCoverage } from "./plan-coverage.ts";
 import type { CandidateClaim, DelegationResult } from "./delegation-result.ts";
 import { classifyDelegationFailure } from "./delegation-failure-class.ts";
-import { admitLeadReview, candidateGapsOf, assembleLeadReview, MAX_REVIEW_TURNS, REVIEW_ACTION, withSpecDigests, type FlowUnderReview, type ReviewOrder, type SeenSpecs } from "./lead-review.ts";
+import { admitLeadReview, candidateGapsOf, assembleLeadReview, MAX_REVIEW_TURNS, REVIEW_ACTION, withSpecDigests, type FailureBytes, type FlowUnderReview, type ReviewOrder, type SeenSpecs } from "./lead-review.ts";
 import type { CoordinationTelemetryEvent, CoordinationTelemetryPort } from "./coordination-telemetry.ts";
 import { PLAN_SNAPSHOT_KIND, type PlanSnapshotCandidate, type PlanSnapshotFlow, type PlanSnapshotKind, type PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port.ts";
 import { authorTask } from "./author-task.ts";
@@ -839,8 +839,8 @@ export class LeadSidekicks {
     const delivered = report.outcome.kind === FLOW_OUTCOME.DELIVERED;
     const spec = delivered && this.deps.readSpec ? await this.deps.readSpec({ mirrorDir: input.mirrorDir, specDir: input.specDir }, flow.specFile).catch(() => undefined) : undefined;
     const lastFailure = lastCall?.status === "failed" ? describeFailure(lastCall.failures) : undefined;
-    /* A failure is the spec's current one only when the bytes that failed are the bytes the working copy holds now. */
-    const lastFailureCurrent = lastCall !== undefined && spec !== undefined && lastCall.sha256 === sha256Hex(spec);
+    /* A failure is the spec's current one only when the bytes that failed are the bytes the working copy holds now; with no spec held, there are no current bytes to compare. */
+    const lastFailureOn: FailureBytes = spec === undefined ? "no-spec" : lastCall !== undefined && lastCall.sha256 === sha256Hex(spec) ? "current" : "earlier";
     const last = entry?.last;
     return {
       id: flow.id,
@@ -848,7 +848,7 @@ export class LeadSidekicks {
       acceptance: flow.acceptance,
       outcome: report.outcome,
       answer: last?.answerMiss ? { kind: last.answerMiss } : { kind: "read", ...(last?.summary ? { summary: last.summary } : {}), concerns: last?.concerns ?? [] },
-      ...(loop ? { runSpec: { calls: ledger.length, maxCalls: loop.limits.maxCalls, ...(lastCall ? { lastStatus: lastCall.status } : {}), ...(lastFailure ? { lastFailure, lastFailureCurrent } : {}) } } : {}),
+      ...(loop ? { runSpec: { calls: ledger.length, maxCalls: loop.limits.maxCalls, ...(lastCall ? { lastStatus: lastCall.status } : {}), ...(lastFailure ? { lastFailure, lastFailureOn } : {}) } } : {}),
       verified: loop ? await loop.isClosed().catch(() => false) : false,
       ...(entry?.appDefect ? { appDefect: entry.appDefect } : {}),
       sessionOpen: entry?.session !== undefined,
@@ -1237,7 +1237,7 @@ function orchestratorFacts(entry: LiveFlow, currentSha?: string): string {
   const lastCall = entry.loop?.ledger().at(-1);
   const lastRun = lastCall?.status;
   /* A call's outcome is about the spec as it is now only when the bytes it ran are those the working copy holds. */
-  const ofEarlierBytes = lastCall !== undefined && lastCall.sha256 !== currentSha ? ", on an earlier version of your spec" : "";
+  const ofEarlierBytes = lastCall !== undefined && currentSha !== undefined && lastCall.sha256 !== currentSha ? ", on an earlier version of your spec" : "";
   const kind = authoringFailureFeedback(entry.failure);
   const facts = [
     entry.loop ? (lastRun ? `- The last run_spec call ended ${lastRun}${ofEarlierBytes}.` : "- No run_spec call of yours was seen.") : "",

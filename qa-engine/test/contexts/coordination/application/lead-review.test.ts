@@ -10,6 +10,7 @@ import {
   renderLeadReview,
   REVIEW_ACTION,
   withSpecDigests,
+  type FailureBytes,
   type FlowUnderReview,
   type SeenSpecs,
 } from "@contexts/coordination/application/lead-review.ts";
@@ -208,18 +209,21 @@ test("an answer the orchestrator could not read, or a foreign brief's, is stated
 
 test("a run_spec failure is the last failure only when it was seen on the bytes the spec holds now, otherwise it is labelled as earlier bytes", () => {
   const runSpec = { calls: 3, maxCalls: 8, lastStatus: "failed", lastFailure: "locator not found" };
-  const current = renderLeadReview(redaction, [flow({ verified: false, runSpec: { ...runSpec, lastFailureCurrent: true } })], { turn: 1, maxTurns: 3 });
+  const current = renderLeadReview(redaction, [flow({ verified: false, runSpec: { ...runSpec, lastFailureOn: "current" } })], { turn: 1, maxTurns: 3 });
   assert.match(current, /^Last failure: locator not found$/m);
-  const earlier = renderLeadReview(redaction, [flow({ verified: false, runSpec: { ...runSpec, lastFailureCurrent: false } })], { turn: 1, maxTurns: 3 });
+  const earlier = renderLeadReview(redaction, [flow({ verified: false, runSpec: { ...runSpec, lastFailureOn: "earlier" } })], { turn: 1, maxTurns: 3 });
   assert.doesNotMatch(earlier, /^Last failure: /m);
   assert.match(earlier, /Last failure \(seen on earlier bytes[^)]*\): locator not found/);
+  const none = renderLeadReview(redaction, [flow({ verified: false, runSpec: { ...runSpec, lastFailureOn: "no-spec" } })], { turn: 1, maxTurns: 3 });
+  assert.doesNotMatch(none, /earlier bytes/);
+  assert.match(none, /Last failure \(the flow holds no spec\): locator not found/);
 });
 
 test("the instruction that sends an unverified spec back names its last failure as of earlier bytes unless it was seen on the current ones", () => {
-  const unverified = (lastFailureCurrent: boolean) => flow({ verified: false, runSpec: { calls: 1, maxCalls: 8, lastStatus: "failed", lastFailure: "boom", lastFailureCurrent } });
+  const unverified = (lastFailureOn: FailureBytes) => flow({ verified: false, runSpec: { calls: 1, maxCalls: 8, lastStatus: "failed", lastFailure: "boom", lastFailureOn } });
   const sent = (f: FlowUnderReview): string => admitLeadReview(redaction, answer([{ flow: "cart", action: "accept" }]), [f], { revisionsAllowed: true }).orders[0]!.instruction;
-  assert.match(sent(unverified(false)), /last failure, seen on earlier bytes: boom/);
-  assert.match(sent(unverified(true)), /last failure: boom/);
+  assert.match(sent(unverified("earlier")), /last failure, seen on earlier bytes: boom/);
+  assert.match(sent(unverified("current")), /last failure: boom/);
 });
 
 test("a flow whose spec bytes the lead was already shown in this session carries a digest instead of the spec; changed bytes are sent in full", () => {

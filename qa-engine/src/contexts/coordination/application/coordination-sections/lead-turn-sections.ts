@@ -18,6 +18,16 @@ export type SidekickAnswer =
   | { kind: "unreadable" }
   | { kind: "foreign-brief" };
 
+/* Which bytes a flow's last run_spec failure was seen on: the spec it holds now, an earlier version of it, or no spec at all (it delivered none, or it could not be read). */
+export type FailureBytes = "current" | "earlier" | "no-spec";
+
+/* How each case qualifies the failure it shows the lead. */
+export const FAILURE_BYTES_NOTE: Record<FailureBytes, string> = {
+  current: "",
+  earlier: " (seen on earlier bytes, not the spec it holds now)",
+  "no-spec": " (the flow holds no spec)",
+};
+
 export interface FlowUnderReview {
   id: string;
   objective: string;
@@ -25,8 +35,8 @@ export interface FlowUnderReview {
   outcome: FlowOutcome;
   /* What the sidekick answered, or why the orchestrator holds no answer of its. */
   answer: SidekickAnswer;
-  /* What the orchestrator saw of the flow's run_spec calls; absent when the flow has no loop. `lastFailureCurrent` is whether the failure was seen on the bytes the spec holds now. */
-  runSpec?: { calls: number; maxCalls: number; lastStatus?: string; lastFailure?: string; lastFailureCurrent?: boolean };
+  /* What the orchestrator saw of the flow's run_spec calls; absent when the flow has no loop. `lastFailureOn` says which bytes its last failure was seen on. */
+  runSpec?: { calls: number; maxCalls: number; lastStatus?: string; lastFailure?: string; lastFailureOn?: FailureBytes };
   /* Whether the spec the flow holds now is the one its last run_spec call passed on. */
   verified: boolean;
   /* The app defect the flow's run showed, when one did. */
@@ -94,7 +104,7 @@ function runSpecLine(scrub: (text: string) => string, flow: FlowUnderReview): st
   const verified = flow.verified ? "the spec it holds now is the one that passed" : "the spec it holds now has NOT passed run_spec";
   return [
     `run_spec: ${calls} of ${maxCalls} calls used${lastStatus ? `; last call ${lastStatus}` : ""}; ${verified}.`,
-    lastFailure ? `Last failure${flow.runSpec.lastFailureCurrent === true ? "" : " (seen on earlier bytes, not the spec it holds now)"}: ${scrub(lastFailure)}` : "",
+    lastFailure ? `Last failure${FAILURE_BYTES_NOTE[flow.runSpec.lastFailureOn ?? "earlier"]}: ${scrub(lastFailure)}` : "",
   ].filter(Boolean).join("\n");
 }
 
