@@ -20,6 +20,8 @@ import { readFailureReason, readOwnedSpecFile, type OwnedSpecRead } from "../../
 import { parsePlaywrightReport } from "./playwright-report.ts";
 import { PLAYWRIGHT_INFRA_RE } from "../../../shared-kernel/playwright-infra.ts";
 import { openDumpBridge } from "./run-dump-bridge.ts";
+import { readObservations } from "./observation-reader.ts";
+import type { ObservedPage } from "@contexts/objective-signal/application/index.ts";
 import { activeExecScope } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import { MAX_DEV_WRITE_REQUESTS, noteDevWriteRequest, type DevWriteRequest } from "../domain/dev-write-request.ts";
 
@@ -74,6 +76,8 @@ export interface E2eExecuteOptions {
   faultOperations?: ReadonlyArray<{ verb: string; pattern: string }>;
   /* One edit of one served script, as JSON, for the mutation pass (the seed's fixture reads it from PW_MUTANT). */
   mutant?: string;
+  /* Have the fixtures record, for each test that ran, the requests its page depended on and the accessible tree it ended on (PW_OBSERVE); they come back as `observations`. */
+  observe?: boolean;
   signal?: AbortSignal;
   timeoutMs?: number;
   project?: string;
@@ -153,6 +157,7 @@ export interface E2eExecuteDeps {
     faultInject?: boolean;
     faultOperations?: ReadonlyArray<{ verb: string; pattern: string }>;
     mutant?: string;
+    observe?: boolean;
     project?: string;
     specFiles?: string[];
     retries?: number;
@@ -189,6 +194,8 @@ export interface E2eRunResult {
   devWriteRequests?: DevWriteRequest[];
   /* The requests that keep the run's own session alive (an identity provider's token exchange or refresh), which the fixtures kept apart from the writes and did not count, by method and origin and pathname, at most MAX_DEV_WRITE_REQUESTS distinct; present with a count when the fixtures recorded any. */
   sessionRequests?: DevWriteRequest[];
+  /* The page each case that ran ended on, when the run was asked to observe and every observation file could be read (never a part of them). */
+  observations?: ObservedPage[];
 }
 
 /* Why a report that says every test passed is not believed, or undefined when how the child ended gives no reason to doubt it. Both the status and the signal come from the process, never from the report or the logs, so they are safe to say. */
@@ -256,6 +263,7 @@ export async function runE2E(
     faultInject: opts.faultInject,
     ...(opts.faultOperations !== undefined ? { faultOperations: opts.faultOperations } : {}),
     ...(opts.mutant !== undefined ? { mutant: opts.mutant } : {}),
+    ...(opts.observe ? { observe: true } : {}),
     /* No project unless one is configured: the repo owns its playwright.config.ts, so every project it defines runs. The seed keeps its login setup project out of a suite run itself (it is defined only under PW_AUTH_SETUP). */
     project: opts.project,
     testIdAttribute: opts.testIdAttribute,
@@ -403,12 +411,16 @@ export async function runE2E(
 
   tell(report, qaCases);
 
+  /* Read after the names are redacted: an observation is tied to the name a caller will see. */
+  const observations = opts.observe && failureCaptureDir ? readObservations(failureCaptureDir, failureCaptureRoot ?? failureCaptureDir, qaCases.map((c) => c.name), failureDumpsOf) : undefined;
+
   return counted({
     sha: opts.namespace,
     verdict: parsed.verdict,
     passed: parsed.passed,
     cases: qaCases,
     logs: sanitized.text,
+    ...(observations ? { observations } : {}),
   }, parsed.executed);
   } finally {
     if (disposeFailureDir) disposeFailureDir();
@@ -692,7 +704,7 @@ export function matchFailureDumps(caseName: string, dumps: FailureDump[]): Failu
 }
 
 /* Every dump of a case, its first project first and, within a project, the latest retry first. */
-function failureDumpsOf(caseName: string, dumps: FailureDump[]): FailureDump[] {
+export function failureDumpsOf<T extends FailureDump>(caseName: string, dumps: T[]): T[] {
   const caseSegs = titleSegments(caseName);
   const candidates = dumps.filter((d) => {
     if (!d.title || !segmentsAreTail(caseSegs, titleSegments(d.title))) return false;
@@ -836,7 +848,7 @@ export function createDefaultE2eExecuteDeps(
       const dir = exec.allocDir("failures", ["dumps"]);
       return { dir: join(dir, "dumps"), root: exec.workDir(), dispose: () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ } } };
     },
-    runSuite: ({ dir, baseUrl, namespace, geolocation, dataState, testIdAttribute, faultInject, faultOperations, mutant, project, specFiles, retries, grep, countWrites, cleanupPass, signal, timeoutMs, onEvent, failureCaptureDir }) =>
+    runSuite: ({ dir, baseUrl, namespace, geolocation, dataState, testIdAttribute, faultInject, faultOperations, mutant, observe, project, specFiles, retries, grep, countWrites, cleanupPass, signal, timeoutMs, onEvent, failureCaptureDir }) =>
       new Promise((resolve, reject) => {
         /* The specs to run, as a file the orchestrator writes (root-owned, read-only to the sandbox): the child is told which files by an exact list, never by a pattern. */
         const testListPath = specFiles !== undefined && specFiles.length > 0 ? exec.writeScript("spec-list.txt", specListContent(specFiles)) : undefined;
@@ -868,7 +880,7 @@ export function createDefaultE2eExecuteDeps(
           profile: "suite",
           commandClass: "playwright-test",
           ...(geolocation ? { geolocation } : {}),
-          extraEnv: { PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), ...(countWrites ? { PW_COUNT_DEV_WRITES: "1", PW_COVERAGE: "0" } : {}), ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(faultInject ? { QA_FAULT_INJECT: "1", ...(faultOperations !== undefined && faultOperations.length > 0 ? { QA_FAULT_INJECT_OPERATIONS: JSON.stringify(faultOperations.slice(0, 64).map(({ verb, pattern }) => ({ verb, pattern }))) } : {}) } : {}), ...(mutant ? { PW_MUTANT: mutant } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}), ...(failureCaptureDir && dataState ? { PW_DATA_STATE: JSON.stringify(dataState) } : {}) },
+          extraEnv: { PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), ...(countWrites ? { PW_COUNT_DEV_WRITES: "1", PW_COVERAGE: "0" } : {}), ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(faultInject ? { QA_FAULT_INJECT: "1", ...(faultOperations !== undefined && faultOperations.length > 0 ? { QA_FAULT_INJECT_OPERATIONS: JSON.stringify(faultOperations.slice(0, 64).map(({ verb, pattern }) => ({ verb, pattern }))) } : {}) } : {}), ...(mutant ? { PW_MUTANT: mutant } : {}), ...(observe ? { PW_OBSERVE: "1" } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}), ...(failureCaptureDir && dataState ? { PW_DATA_STATE: JSON.stringify(dataState) } : {}) },
         });
 
         const stderr = new BoundedOutputTail(E2E_STDERR_KEEP_CHARS);

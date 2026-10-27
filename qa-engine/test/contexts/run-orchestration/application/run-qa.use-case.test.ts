@@ -7,6 +7,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { QaCase } from "@kernel/qa-case.ts";
+import type { ObservedDifference } from "@kernel/observed-difference.ts";
 import { RunQaUseCase, type RunQaUseCaseDeps } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
 import { renderBlastRadiusSignal } from "@contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts";
 import { FixLoop } from "@contexts/run-orchestration/domain/fix-loop.aggregate.ts";
@@ -9637,7 +9638,7 @@ const SURVIVOR_SITE = {
 };
 const SURVIVED = { file: "src/a.ts", line: 9, operator: "negate condition", specFiles: ["a.spec.ts"], original: "ok", replacement: "!(ok)" };
 
-function survivorRun(recheck: NonNullable<ObjectiveSignalPort["recheckSurvivors"]>) {
+function survivorRun(recheck: NonNullable<ObjectiveSignalPort["recheckSurvivors"]>, survivor: typeof SURVIVED & { moved?: ObservedDifference } = SURVIVED) {
   const real = realCoverageWorkspace();
   const turns: string[] = [];
   const { ports, savedOutcomes } = stubPorts({
@@ -9652,7 +9653,7 @@ function survivorRun(recheck: NonNullable<ObjectiveSignalPort["recheckSurvivors"
       ratio: 1,
       uncovered: [],
       untakenArms: [],
-      bundleMutation: { applied: 1, killed: 0, survived: [SURVIVED] },
+      bundleMutation: { applied: 1, killed: 0, survived: [survivor] },
       survivorRuns: [{ site: SURVIVOR_SITE, specFiles: ["a.spec.ts"] }],
       measurement: { changedLines: 4, coveredChanged: 4, changedFiles: 1, mappedFiles: 1 },
     }),
@@ -9677,6 +9678,24 @@ test("an accepted regeneration a surviving mutant drove re-applies that mutant t
     assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.survivorClosure, { routed: 1, judged: 1, closed: 1, open: [] });
     assert.ok(!turns[1]!.includes(SURVIVOR_SITE.script.url), "the served script a mutant edits never reaches an agent");
     assert.equal(out.decision.sideEffect, "pr");
+  } finally {
+    real.cleanup();
+  }
+});
+
+test("the regeneration a surviving mutant drove is handed the observable the mutation moved, and the record keeps it without the mutant's script or edit", async () => {
+  const moved: ObservedDifference = { kind: "moved", requests: { added: ["GET https://api.maps.example/styles/v1/acme/dark"], removed: ["GET https://api.maps.example/styles/v1/acme/light"] }, dom: { added: [], removed: [] }, tests: ["a.spec.ts › a works"] };
+  const { real, turns, savedOutcomes, useCase } = survivorRun(async () => ({ applied: 1, killed: 1, survived: [] }), { ...SURVIVED, moved });
+  try {
+    await useCase.run({ ...baseInput, runId: "survivor-moved" });
+
+    assert.equal(turns.length, 2, "the first pass and the one regeneration the survivor drove");
+    assert.ok(turns[1]!.includes("GET https://api.maps.example/styles/v1/acme/dark"), "the request only the mutation made reaches the author");
+    assert.ok(turns[1]!.includes("GET https://api.maps.example/styles/v1/acme/light"), "the request only the original made reaches the author");
+    assert.ok(!turns[1]!.includes(SURVIVOR_SITE.script.url), "the served script a mutant edits never reaches an agent");
+    const recorded = savedOutcomes.at(-1)!.gateSignals.bundleMutation;
+    assert.deepEqual(recorded?.survived[0]?.moved, moved);
+    assert.ok(!JSON.stringify(recorded).includes(SURVIVOR_SITE.script.url), "nor the record");
   } finally {
     real.cleanup();
   }

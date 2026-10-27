@@ -682,6 +682,29 @@ test("recheckSurvivors() applies the survivors again through the mutation oracle
   assert.equal(await build(false).recheckSurvivors(survivors, "/e2e", "run-closure", ["pays"]), null);
 });
 
+test("measure() asks the mutation oracle to observe and records what each survivor moved, which holds no served script; the re-check of survivors does not observe", async () => {
+  const site = { file: "src/checkout.ts", line: 1, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x", sourceLine: "if (x) pay();", ranIn: ["flows-pay-spec-ts-x-0-0.json"] };
+  const moved = { kind: "moved" as const, requests: { added: ["GET https://api.example/styles/dark"], removed: [] }, dom: { added: [], removed: [] }, tests: ["flows/pay.spec.ts › pays"] };
+  const options: unknown[] = [];
+  const mutation = {
+    measure: async (_mutants: unknown, _specDir: string, _namespace: string, _baselineCases: string[], opts?: unknown) => {
+      options.push(opts);
+      return { applied: 1, killed: 0, survived: [{ file: "src/checkout.ts", line: 1, operator: "negate condition", moved }] };
+    },
+  };
+  const adapter = new ObjectiveSignalPortAdapter(
+    { collector: fakeCollector({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }], mutationSites: [site] }), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }), mutation },
+    { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage, namespace: "run-7" },
+  );
+
+  const result = await adapter.measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), "/e2e", SAMPLE_DIFF, ["pays"], { caseFiles: ["flows/pay.spec.ts"] });
+  await adapter.recheckSurvivors([{ site, specFiles: ["flows/new.spec.ts"] }], "/e2e", "run-closure", ["pays"]);
+
+  assert.deepEqual(options, [{ observe: true }, undefined]);
+  assert.deepEqual(result.bundleMutation?.survived[0]?.moved, moved);
+  assert.equal(JSON.stringify(result.bundleMutation).includes("https://dev/main.js"), false);
+});
+
 test("measure() asks no mutation when no site is on a changed line, coverage measured nothing, or no mutation oracle is wired", async () => {
   let asked = 0;
   const mutation = { measure: async () => { asked++; return null; } };

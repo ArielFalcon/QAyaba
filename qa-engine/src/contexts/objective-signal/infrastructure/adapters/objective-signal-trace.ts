@@ -23,14 +23,17 @@ function candidateAttrs(perCandidate: readonly CandidateCoverage[]) {
   };
 }
 
-/* How many mutants were judged and noticed, and how many survivors a spec reached (so they can reach its flow) and how many none did. */
+/* How many mutants were judged and noticed, how many survivors a spec reached (so they can reach its flow) and how many none did, and, when the survivors were observed, how many moved an observable, moved none and could not be compared. */
 function survivorAttrs(m: BundleMutationOutcome) {
   const routed = m.survived.filter((s) => (s.specFiles?.length ?? 0) > 0).length;
+  const observed = m.survived.filter((s) => s.moved !== undefined);
+  const kindOf = (kind: "moved" | "unmoved" | "unobserved"): number => observed.filter((s) => s.moved?.kind === kind).length;
   return {
     "qayaba.mutation.applied": m.applied,
     "qayaba.mutation.killed": m.killed,
     "qayaba.mutation.survivors_routed": routed,
     "qayaba.mutation.survivors_without_spec": m.survived.length - routed,
+    ...(observed.length > 0 ? { "qayaba.mutation.survivors_moved": kindOf("moved"), "qayaba.mutation.survivors_unmoved": kindOf("unmoved"), "qayaba.mutation.survivors_unobserved": kindOf("unobserved") } : {}),
   };
 }
 

@@ -998,7 +998,7 @@ export function buildEngineRootDeps(
   const mutation = valueOraclePolicy === "off" || isCode
     ? undefined
     : new BundleMutationOracleAdapter(
-        ({ dir, baseUrl, namespace, mutant, specFiles }) => runE2E(dir, { baseUrl, namespace, mutant, specFiles, retries: 0 }, e2eExecuteDeps),
+        ({ dir, baseUrl, namespace, mutant, specFiles, observe }) => runE2E(dir, { baseUrl, namespace, specFiles, retries: 0, ...(mutant !== undefined ? { mutant } : {}), ...(observe ? { observe: true } : {}) }, e2eExecuteDeps),
         countInjectedResponses,
         app.dev?.baseUrl ?? "",
       );

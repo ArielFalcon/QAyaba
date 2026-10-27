@@ -550,6 +550,22 @@ function countWrites(api: WriteCountable | undefined): void {
   };
 }
 
+// Page observation, on only when the orchestrator asks (PW_OBSERVE=1: the re-run of a mutant of the served script and the
+// unmutated re-run it is compared with). For each test that ran, the requests its page depended on (the resource types of
+// PAGE_DEPENDENT_TYPES, whatever the host) by method and origin + pathname with a count, never the query, the fragment, the
+// body, the headers or the cookies, at most OBSERVED_REQUESTS_CAP distinct, and the accessible tree the page ended on. The
+// orchestrator diffs the two runs' records and tells the author which observable the mutation moved.
+let observedRequests: Array<{ method: string; url: string; count: number }> = [];
+const OBSERVED_REQUESTS_CAP = 100;
+function noteObservedRequest(method: string, raw: string, resourceType: string): void {
+  if (!isPageDependent(resourceType)) return;
+  const url = networkUrl(raw);
+  if (!url) return;
+  const same = observedRequests.find((r) => r.method === method && r.url === url);
+  if (same) same.count++;
+  else if (observedRequests.length < OBSERVED_REQUESTS_CAP) observedRequests.push({ method, url, count: 1 });
+}
+
 async function qaFailureCaptureStart(page: QaCapturePage, request: QaCaptureRequest): Promise<void> {
   if (!process.env.QA_FAILURE_CAPTURE_DIR) return; // no-op when capture is disabled (zero overhead)
   errorResponses = [];                               // reset unconditionally so reused pages never cross-attribute
@@ -561,6 +577,12 @@ async function qaFailureCaptureStart(page: QaCapturePage, request: QaCaptureRequ
   devWrites = 0;
   devWriteRequests = [];
   sessionRequests = [];
+  observedRequests = [];
+  if (process.env.PW_OBSERVE === '1') {
+    try {
+      page.on('request', (r) => { try { noteObservedRequest(r.method(), r.url(), r.resourceType()); } catch {} });
+    } catch {}
+  }
   if (process.env.PW_COUNT_DEV_WRITES === '1') {
     try {
       const context = page.context();
@@ -630,6 +652,19 @@ async function qaFailureCaptureFinish(page: QaCapturePage, testInfo: QaCaptureTe
       const id = String(testInfo.testId ?? testInfo.title).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60);
       writeFileSync(join(dir, 'ledger-w' + testInfo.workerIndex + '-' + id + '-r' + testInfo.retry + '.json'), JSON.stringify({ writes: devWrites, ...(devWriteRequests.length > 0 ? { requests: devWriteRequests } : {}), ...(sessionRequests.length > 0 ? { sessionRequests } : {}) }));
     } catch { /* best effort — the count is a bound on the spec, never a test failure */ }
+  }
+  if (process.env.PW_OBSERVE === '1' && testInfo.status !== 'skipped') {
+    try {
+      const { writeFileSync } = await import("node:fs");
+      const { join, basename } = await import("node:path");
+      const id = String(testInfo.testId ?? testInfo.title).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60);
+      let tree: string | undefined;
+      try { tree = await page.locator("body").ariaSnapshot(); } catch { /* the page is gone: the requests alone */ }
+      writeFileSync(
+        join(dir, 'observed-w' + testInfo.workerIndex + '-' + id + '-r' + testInfo.retry + '.json'),
+        JSON.stringify({ project: testInfo.project.name, file: basename(testInfo.file ?? ""), title: testInfo.titlePath.filter(Boolean).slice(1).join(" › "), retry: testInfo.retry, requests: observedRequests, ...(tree !== undefined ? { yaml: tree } : {}) }),
+      );
+    } catch { /* best effort — the observation is a signal, never a test failure */ }
   }
   const expected = testInfo.status === testInfo.expectedStatus;
   // A passing test still dumps when the page raised an uncaught error. Network evidence describes a

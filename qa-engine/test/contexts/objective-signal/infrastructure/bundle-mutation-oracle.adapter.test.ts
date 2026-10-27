@@ -27,7 +27,7 @@ test("each mutant re-runs its spec files under its own namespace with its edit, 
   const results = [{ verdict: "fail", cases: [fail("shows missing"), pass("other")] }, { verdict: "pass", cases: [pass("shows missing")] }];
   const oracle = new BundleMutationOracleAdapter(
     async ({ namespace, mutant: m, specFiles }) => {
-      runs.push({ namespace, mutant: JSON.parse(m), specFiles });
+      runs.push({ namespace, mutant: JSON.parse(m!), specFiles });
       return results[runs.length - 1]!;
     },
     () => 1,
@@ -89,7 +89,7 @@ test("a surviving mutant keeps the spec files that reached it and the edit it ma
 
 test("a mutant that names the tests that reached it hands them to the suite's mutation fixture, and one that names none re-runs every test of its spec files", async () => {
   const sent: Array<{ tests?: string[] }> = [];
-  const oracle = new BundleMutationOracleAdapter(async ({ mutant: m }) => (sent.push(JSON.parse(m)), { verdict: "pass", cases: [pass("t")] }), () => 1, "https://dev.example");
+  const oracle = new BundleMutationOracleAdapter(async ({ mutant: m }) => (sent.push(JSON.parse(m!)), { verdict: "pass", cases: [pass("t")] }), () => 1, "https://dev.example");
 
   await oracle.measure([{ ...mutant(10), tests: ["flows-a-spec-ts-x"] }, mutant(12)], "/e2e", "run", ["t"]);
 

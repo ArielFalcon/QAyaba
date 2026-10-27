@@ -8,6 +8,7 @@ import type { AgentBrowserGateSignal } from "./agent-browser.ts";
 import type { CoordinationGateSignal } from "./coordination.ts";
 import type { NoopKind } from "./noop-kind.ts";
 import type { RouteAvailabilityGateSignal } from "./route-availability.ts";
+import type { ObservedDifference } from "./observed-difference.ts";
 
 export type ErrorClass = string | null;
 
@@ -30,8 +31,8 @@ export interface RunOutcome {
     branchCoverage?: { changed: number; taken: number };
     /* What the change-coverage counted beside its ratio: the changed lines it took for code (`executableLines`), those it left out as no code, the changed files no loaded script mapped, the changed files it left out as no gap of the suite (`unreachableByDesign`: only reached through routes the change made unavailable, with those routes; `testSupportFiles`: only test files import them, with how many do), and, when a killed mutant's re-run added to it, the lines the passing tests ran by themselves and the lines and arms only a killed mutant made run. Absent when nothing was measured. */
     changeCoverage?: { executableLines: number; notExecutableLines?: number; notLoadedFiles?: string[]; unreachableByDesign?: { file: string; routes: string[] }[]; testSupportFiles?: { file: string; importers: number }[]; coveredByExecution?: number; provenByMutation?: number; armsProvenByMutation?: number };
-    /* What the mutants of the changed code in the served script did: judged, noticed by a test, and where the others are; the sites on changed lines that were no candidate, counted by why (`skippedSites`), and the mutants that re-ran every test of their spec files (`rerunsBySpecFile`). A signal, never a gate; absent when no mutant was judged. */
-    bundleMutation?: { applied: number; killed: number; survived: { file: string; line: number; operator: string }[]; skippedSites?: { count: number; reasons: Partial<Record<string, number>> }; rerunsBySpecFile?: number };
+    /* What the mutants of the changed code in the served script did: judged, noticed by a test, and where the others are; the sites on changed lines that were no candidate, counted by why (`skippedSites`), and the mutants that re-ran every test of their spec files (`rerunsBySpecFile`); a survivor carries `moved`, the request or line of the accessible tree the mutation moved between the same tests run with and without it, or that none did. A signal, never a gate; absent when no mutant was judged. */
+    bundleMutation?: { applied: number; killed: number; survived: { file: string; line: number; operator: string; moved?: ObservedDifference }[]; skippedSites?: { count: number; reasons: Partial<Record<string, number>> }; rerunsBySpecFile?: number };
     /* What the one regeneration from the arms of the changed code no test ran did: its outcome, the arms before and after it, and how many spec files it changed kept their new bytes or were given their prior ones back (absent when it changed none). A signal, never a gate; absent when it did not run. */
     branchCases?: { outcome: "accepted" | "empty" | "rejected" | "capped"; armsBefore: number; armsAfter?: number; kept?: number; restored?: number };
     /* Whether the regeneration the surviving mutants drove made a test notice them: routed, judged (re-applied and reached a page), closed (a test now fails under it) and the ones still open. A signal, never a gate; absent when no accepted regeneration answered a survivor. */

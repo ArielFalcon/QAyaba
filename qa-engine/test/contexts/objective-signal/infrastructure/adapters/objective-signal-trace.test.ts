@@ -61,6 +61,31 @@ test("the coverage span counts the surviving mutants a spec reached and those no
   assert.equal(attrs["qayaba.mutation.survivors_without_spec"], 2);
 });
 
+test("the coverage span counts the survivors whose mutation moved an observable, those it moved none of and those whose runs were not compared; a pass that observed none states none", async () => {
+  const moved = { kind: "moved" as const, requests: { added: ["GET https://api.example/styles/dark"], removed: [] }, dom: { added: [], removed: [] }, tests: ["a.spec.ts › t"] };
+  const survived = [
+    { file: "src/a.ts", line: 1, operator: "swap", moved },
+    { file: "src/a.ts", line: 2, operator: "swap", moved: { kind: "unmoved" as const, tests: 1 } },
+    { file: "src/a.ts", line: 3, operator: "swap", moved: { kind: "unobserved" as const, reason: "baseline" as const } },
+    { file: "src/a.ts", line: 4, operator: "swap", moved },
+  ];
+  const measureWith = async (list: typeof survived | Array<{ file: string; line: number; operator: string }>) => {
+    const inner: ObjectiveSignalPort = { measure: async () => ({ status: "pass", ratio: 1, bundleMutation: { applied: 4, killed: 0, survived: list } }), blocks: () => false };
+    const telemetry = new Recorder();
+    await new TracedObjectiveSignalPort(inner, telemetry).measure(BlastRadius.of(Sha.of("abc1234"), []), "/e2e");
+    return telemetry.attrs.find((a) => "qayaba.mutation.applied" in a)!;
+  };
+
+  const attrs = await measureWith(survived);
+  assert.equal(attrs["qayaba.mutation.survivors_moved"], 2);
+  assert.equal(attrs["qayaba.mutation.survivors_unmoved"], 1);
+  assert.equal(attrs["qayaba.mutation.survivors_unobserved"], 1);
+  assert.equal(attrs["qayaba.mutation.survivors_routed"] !== undefined, true, "the counts that were there stay");
+
+  const unasked = await measureWith([{ file: "src/a.ts", line: 1, operator: "swap" }]);
+  assert.equal("qayaba.mutation.survivors_moved" in unasked, false);
+});
+
 test("the coverage span counts the mutation sites left out per reason and how each mutant's re-run was scoped, even when no mutant was judged", async () => {
   const mutantSelection = { skippedSites: { count: 3, reasons: { "not-in-source-line": 2, "no-source-line": 1 } }, rerunsByTest: 0, rerunsBySpecFile: 0 };
   const inner: ObjectiveSignalPort = { measure: async () => ({ status: "pass", ratio: 1, mutantSelection }), blocks: () => false };

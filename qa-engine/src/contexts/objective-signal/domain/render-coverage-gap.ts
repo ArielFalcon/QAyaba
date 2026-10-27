@@ -1,5 +1,6 @@
 /* Renders uncovered changed lines as the enforce-mode regeneration prompt. Every file, arm and mutant is listed: a prompt over its role's window gives them up as references to their files (the window fit rule), never a count. Pure; no I/O; never throws. */
 import type { SurvivedMutant } from "./coverage-collector.ts";
+import type { ObservedDifference } from "@kernel/observed-difference.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { entryKey } from "@kernel/change-reach.ts";
 
@@ -74,7 +75,27 @@ export function renderBranchGap(untaken: Untaken): string {
 export function renderSurvivedMutant(m: SurvivedMutant, specFile?: string): string {
   const ran = specFile ? `ran under ${specFile}` : "ran under a test";
   const edit = m.original !== undefined && m.replacement !== undefined ? `, ${JSON.stringify(m.original)} replaced by ${JSON.stringify(m.replacement)}` : "";
-  return `mutant of the changed code that NO test noticed: ${m.file}:${m.line} ${ran}; the mutation (${m.operator}${edit}) was applied to the served script and no test failed, so the test reaches this line and asserts nothing that depends on it`;
+  const fact = `mutant of the changed code that NO test noticed: ${m.file}:${m.line} ${ran}; the mutation (${m.operator}${edit}) was applied to the served script and no test failed, so the test reaches this line and asserts nothing that depends on it`;
+  const observed = m.moved ? renderObservedDifference(m.moved) : "";
+  return observed ? `${fact}; ${observed}` : fact;
+}
+
+/* The items of a list, each quoted so a line of the tree or a path is read as one item. */
+const quoted = (items: readonly string[]): string => items.map((item) => JSON.stringify(item)).join(", ");
+
+/* What the mutation moved, as the fact it is: the same tests were run with and without it and their pages compared. Empty when the runs were not compared. */
+export function renderObservedDifference(d: ObservedDifference): string {
+  if (d.kind === "unobserved") return "";
+  if (d.kind === "unmoved") {
+    return `no observable moved: the requests (method, origin and pathname) and the accessible tree at the end of ${d.tests} test${d.tests === 1 ? "" : "s"} were the same with the mutation and without it, so what it changes is in neither`;
+  }
+  const parts: string[] = [];
+  if (d.requests.added.length > 0) parts.push(`requests made only with the mutation: ${quoted(d.requests.added)}`);
+  if (d.requests.removed.length > 0) parts.push(`requests made only without it: ${quoted(d.requests.removed)}`);
+  if (d.dom.added.length > 0) parts.push(`accessible tree lines shown only with the mutation: ${quoted(d.dom.added)}`);
+  if (d.dom.removed.length > 0) parts.push(`accessible tree lines shown only without it: ${quoted(d.dom.removed)}`);
+  const more = d.omitted ? `; ${d.omitted} more not listed` : "";
+  return `the same test${d.tests.length === 1 ? "" : "s"} run with and without the mutation (${d.tests.join(", ")}) moved this observable, which an assertion can tell the mutant from the original by: ${parts.join("; ")}${more}`;
 }
 
 /* The surviving mutants as one gap text for an author that has no lead to route them; empty when none survived. */

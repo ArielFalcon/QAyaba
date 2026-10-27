@@ -6,6 +6,7 @@ import { RUN_MODES, type RunMode, type TestTarget, type TriggerSource } from "@k
 import { RUN_ENGINE_STATUSES, engineStatus, type RunEngineStatus, type RunVerdict } from "@kernel/run-verdict";
 import type { CaseStatus, QaCase } from "@kernel/qa-case";
 import type { RouteAvailabilityGateSignal } from "@kernel/route-availability";
+import type { ObservedDifference } from "@kernel/observed-difference";
 
 export { RUN_MODES, RUN_ENGINE_STATUSES, engineStatus };
 export type { RunMode, TestTarget, TriggerSource, RunEngineStatus, RunVerdict, CaseStatus, QaCase };
@@ -168,7 +169,7 @@ export interface RunOutcome {
     branchCoverage?: { changed: number; taken: number };
     /* What the mutants of the changed code did; absent when none was judged. A signal, never a gate. */
     changeCoverage?: { executableLines: number; notExecutableLines?: number; notLoadedFiles?: string[]; coveredByExecution?: number; provenByMutation?: number; armsProvenByMutation?: number; unreachableByDesign?: { file: string; routes: string[] }[]; testSupportFiles?: { file: string; importers: number }[] };
-    bundleMutation?: { applied: number; killed: number; survived: { file: string; line: number; operator: string }[] };
+    bundleMutation?: { applied: number; killed: number; survived: { file: string; line: number; operator: string; moved?: ObservedDifference }[] };
     /* What the one regeneration from the arms of the changed code no test ran did: its outcome, the arms before and after it, and how many spec files it changed kept their new bytes or were given their prior ones back (absent when it changed none). A signal, never a gate; absent when it did not run. */
     branchCases?: { outcome: "accepted" | "empty" | "rejected" | "capped"; armsBefore: number; armsAfter?: number; kept?: number; restored?: number };
     /* Whether the regeneration the surviving mutants drove made a test notice them: routed, judged, closed and the ones still open. A signal, never a gate; absent when no accepted regeneration answered a survivor. */

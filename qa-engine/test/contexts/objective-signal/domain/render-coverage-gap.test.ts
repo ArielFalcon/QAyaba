@@ -100,3 +100,34 @@ test("every surviving mutant of a gap is listed, and none render nothing", () =>
   const text = renderSurvivedMutants(many);
   for (const line of [1, 2, 13, 14]) assert.ok(text.includes(`src/a.ts:${line} `), String(line));
 });
+
+const SURVIVOR = { file: "src/map-shell.ts", line: 67, operator: "negate condition", original: 'theme === "dark"', replacement: '!(theme === "dark")' };
+
+test("a surviving mutant that moved a request is rendered with the request that moved, in which direction and in which test", () => {
+  const text = renderSurvivedMutant(
+    { ...SURVIVOR, moved: { kind: "moved", requests: { added: ["GET https://api.maps.example/styles/v1/acme/dark"], removed: ["GET https://api.maps.example/styles/v1/acme/light"] }, dom: { added: [], removed: [] }, tests: ["map.spec.ts › applies the theme"] } },
+    "map.spec.ts",
+  );
+  for (const part of ["GET https://api.maps.example/styles/v1/acme/dark", "GET https://api.maps.example/styles/v1/acme/light", "map.spec.ts › applies the theme", "only with the mutation", "only without it"]) assert.ok(text.includes(part), part);
+  assert.ok(text.includes("src/map-shell.ts:67"), "the survivor itself is still stated");
+});
+
+test("a surviving mutant that moved a line of the accessible tree names the line and the number of items the rendering left out", () => {
+  const text = renderSurvivedMutant({ ...SURVIVOR, moved: { kind: "moved", requests: { added: [], removed: [] }, dom: { added: ["button: Dark theme [pressed]"], removed: [] }, tests: ["a.spec.ts › t"], omitted: 3 } });
+  assert.ok(text.includes("button: Dark theme [pressed]"));
+  assert.match(text, /3 more/);
+});
+
+test("a surviving mutant that moved nothing the runs observed says so, naming what was compared", () => {
+  const text = renderSurvivedMutant({ ...SURVIVOR, moved: { kind: "unmoved", tests: 2 } });
+  assert.match(text, /no observable moved/i);
+  assert.match(text, /requests/);
+  assert.match(text, /accessible tree/);
+  assert.match(text, /2 test/);
+});
+
+test("a survivor with no observation, or one whose runs could not be compared, is rendered exactly as before", () => {
+  const before = renderSurvivedMutant(SURVIVOR, "flows/a.spec.ts");
+  assert.equal(renderSurvivedMutant({ ...SURVIVOR, moved: { kind: "unobserved", reason: "baseline" } }, "flows/a.spec.ts"), before);
+  assert.doesNotMatch(before, /moved|observable/);
+});

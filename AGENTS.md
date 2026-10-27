@@ -742,6 +742,19 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   `gateSignals.bundleMutation` holds `{ applied, killed, survived[] }`, plus `skippedSites { count, reasons }`
   (sites left out, by `no-source-line` or `not-in-source-line`) and `rerunsBySpecFile` (mutants whose tests
   could not be told) when there are any, beside the response oracle's `valueScore`, whose meaning is unchanged.
+  **What a survivor moved** (signal, never a gate): the survivor's finding says which observable the mutation changed, because an author
+  that knows only the line cannot write the assertion that kills it. Each mutant's re-run is observed (`PW_OBSERVE=1`: the capture block of the seed's
+  `fixtures.ts` records, per test that ran, the requests its page depended on by method + origin + pathname with a count, never the query, fragment,
+  body, headers or cookies, at most 100 distinct, and the accessible tree it ended on, in `observed-*.json` of the failure-capture directory), and the
+  survivors are compared with ONE unmutated re-run of their spec files, observed the same way (namespace `<ns>-obs`, retries 0, run beside the mutants'
+  re-runs, nothing else added; unmutated re-run of the same tests instead of the suite's own execution because the app's state differs between executions
+  and only the paired runs differ in the mutation alone). Only tests that passed in both runs are compared; how many times a request was made is not
+  compared. `survived[].moved` is `{ kind: "moved", requests: { added, removed }, dom: { added, removed }, tests, omitted? }` (at most 10 items a list,
+  a line cut at 200 characters), `{ kind: "unmoved", tests }` (the finding says no request and no tree line moved, so what the mutation changes is in neither)
+  or `{ kind: "unobserved", reason }` (a re-run left no observation, the unmutated one could not run, or no test passed in both: nothing is said). The
+  runner reads the files strictly and all or nothing (`test-execution/infrastructure/observation-reader.ts`), re-derives every request as method + origin +
+  pathname and redacts every line by value and by pattern; the difference holds requests and tree lines of the pages and nothing of the mutant. The span
+  counts `qayaba.mutation.survivors_moved|unmoved|unobserved`. The re-check of survivors after a regeneration (survivor closure) does not observe.
 - **Survivor closure** (signal, never a gate): a surviving mutant routed to a coverage or branch-case
   regeneration is, once that regeneration is accepted, applied again to the specs it changed and judged
   against their passing cases (`closeSurvivors`, `survivor-closure.ts`): a regenerated test counts as
