@@ -18,6 +18,12 @@ test("an answer of the contract is read with its findings and a writes-nothing r
   assert.equal(result.exploration?.id, "q1");
 });
 
+test("an answer is read from the last exploration object, past narration braces and earlier objects", () => {
+  const result = readExploreResult(redaction, `I opened \`{route, tree}\` and {"seen":"/cart"} then ${answer()}`, brief);
+  assert.equal(result.status, "completed");
+  assert.equal(result.exploration?.findings.length, 1);
+});
+
 test("an unanswered question is a result with concerns, not a failure", () => {
   const result = readExploreResult(redaction, answer({ status: "unanswered", findings: [] }), brief);
   assert.equal(result.status, "completed-with-concerns");

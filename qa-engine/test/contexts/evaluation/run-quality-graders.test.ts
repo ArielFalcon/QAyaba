@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { gradeEvidence } from "@contexts/evaluation/domain/graders.ts";
 import type { ContextEvidence, RunEvaluationEvidence } from "@contexts/evaluation/domain/run-evaluation-evidence.ts";
+import { UNREADABLE_ANSWER } from "@kernel/unreadable-answer.ts";
 import { evidence } from "./evidence-fixtures.ts";
 
 const score = (name: string, over: Partial<RunEvaluationEvidence>) => gradeEvidence(evidence(over), [name]).find((s) => s.name === name);
@@ -88,6 +89,12 @@ test("sidekick_report_consistent says nothing when no report can be checked agai
   assert.equal(score("sidekick_report_consistent", { sidekickReports: [] }), undefined);
   assert.equal(score("sidekick_report_consistent", { sidekickReports: [report("failed", undefined)] }), undefined);
   assert.equal(score("sidekick_report_consistent", { sidekickReports: [report("needs-lead", "passed"), report("completed-with-concerns", "failed")] }), undefined);
+});
+
+test("sidekick_report_consistent never reads an answer that could not be read as a report of failure", () => {
+  const unreadable = { delegationId: "run-1-flow-cart", attempt: 1, status: UNREADABLE_ANSWER, lastRunSpec: "passed" };
+  assert.equal(score("sidekick_report_consistent", { sidekickReports: [unreadable] }), undefined);
+  assert.equal(score("sidekick_report_consistent", { sidekickReports: [unreadable, { ...unreadable, delegationId: "run-1-flow-b", status: "completed" }] })?.value, true);
 });
 
 test("a run that has not finished is graded by none of them", () => {

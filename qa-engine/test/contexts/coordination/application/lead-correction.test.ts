@@ -52,6 +52,9 @@ test("a flow with findings the lead did not name is sent them with the orchestra
 
 test("a finding that cites one flow is never moved to another", () => {
   const answer = JSON.stringify({ corrections: [{ flow: "login", action: "revise", findings: [1], instruction: "x" }] });
+  const narrated = admitLeadCorrection(redaction, `Looking at \`{flow, findings}\` and {"seen":true}: ${answer}`, flows, findings);
+  assert.equal(narrated.readable, true);
+  assert.ok(narrated.orders.some((o) => o.flowId === "login"));
   const admitted = admitLeadCorrection(redaction, answer, flows, findings);
   assert.deepEqual(admitted.orders.find((o) => o.flowId === "login")!.findings, ["flows/login.spec.ts asserts only the URL"]);
   assert.deepEqual(admitted.orders.find((o) => o.flowId === "cart")!.findings, ["the total is never asserted"]);

@@ -446,7 +446,7 @@ const contradicts = (status: string, last: string): boolean => ((status === "fai
 
 /*
  * Whether every sidekick report agrees with what its flow's last run_spec call showed. A report the orchestrator cannot check (no
- * call yet, or a needs-lead hand-off or a completion with concerns, which claim neither way) is not graded; silent when none is left.
+ * call yet, or a needs-lead hand-off or a completion with concerns, which claim neither way, or an unreadable answer, which reported nothing) is not graded; silent when none is left.
  */
 const sidekickReportConsistent: Grader = {
   names: ["sidekick_report_consistent"],

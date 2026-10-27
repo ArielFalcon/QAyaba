@@ -59,6 +59,13 @@ test("a spec longer than the review holds is cut, and says so", () => {
   assert.match(text, /cut at \d+ characters/);
 });
 
+test("a review is read from the last object that holds one, past narration braces and earlier objects", () => {
+  const text = `Considering \`{flow, action}\` and {"notes":"first"} here is my review: ${answer([{ flow: "cart", action: "accept" }])}`;
+  const admitted = admitLeadReview(redaction, text, [flow()], { revisionsAllowed: true });
+  assert.equal(admitted.readable, true);
+  assert.deepEqual(admitted.accepted, ["cart"]);
+});
+
 test("on the last turn the lead is told it can only accept or drop", () => {
   assert.match(renderLeadReview(redaction, [flow()], { turn: 3, maxTurns: 3 }), /last review/i);
 });

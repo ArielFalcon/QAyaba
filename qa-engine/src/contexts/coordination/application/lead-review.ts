@@ -12,6 +12,7 @@ import { candidateLine, type UseCaseCandidate } from "@kernel/use-case-candidate
 import { flowCovers, type AdmissionSet } from "./plan-coverage.ts";
 import { FLOW_OUTCOME, type FlowOutcome } from "./flow-outcomes.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
+import { lastJsonObjectWhere } from "@kernel/last-json-object.ts";
 
 export const REVIEW_ACTION = {
   ACCEPT: "accept",
@@ -141,35 +142,6 @@ export function renderLeadReview(redaction: RedactionPort, flows: readonly FlowU
   ].filter(Boolean).join("\n\n");
 }
 
-/* The first JSON object in the text, string- and escape-aware. */
-export function firstJsonObject(text: string): unknown {
-  const start = text.indexOf("{");
-  if (start < 0) return undefined;
-  let depth = 0;
-  let inString = false;
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i];
-    if (inString) {
-      if (ch === "\\") i++;
-      else if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') inString = true;
-    else if (ch === "{" || ch === "[") depth++;
-    else if (ch === "}" || ch === "]") {
-      depth--;
-      if (depth === 0) {
-        try {
-          return JSON.parse(text.slice(start, i + 1));
-        } catch {
-          return undefined;
-        }
-      }
-    }
-  }
-  return undefined;
-}
-
 function textOf(redaction: RedactionPort, value: unknown, max: number): string {
   return typeof value === "string" ? redaction.redact(value).trim().slice(0, max) : "";
 }
@@ -184,8 +156,8 @@ function verifyInstruction(redaction: RedactionPort, flow: FlowUnderReview): str
 
 export function admitLeadReview(redaction: RedactionPort, output: string, flows: readonly FlowUnderReview[], opts: { revisionsAllowed: boolean }): ReviewAdmission {
   const admission: ReviewAdmission = { readable: false, orders: [], accepted: [], dropped: [], refused: [] };
-  const raw = firstJsonObject(output);
-  if (!raw || typeof raw !== "object" || !Array.isArray((raw as { review?: unknown }).review)) return admission;
+  const raw = lastJsonObjectWhere(output, (o) => Array.isArray(o.review)) as { review: unknown[] } | undefined;
+  if (!raw) return admission;
   admission.readable = true;
   const byId = new Map(flows.map((flow) => [flow.id, flow]));
   const seen = new Set<string>();
@@ -196,7 +168,7 @@ export function admitLeadReview(redaction: RedactionPort, output: string, flows:
     admission.orders.push({ flowId: flow.id, action: effective, instruction });
   };
 
-  for (const entry of (raw as { review: unknown[] }).review) {
+  for (const entry of raw.review) {
     if (!entry || typeof entry !== "object") continue;
     const e = entry as Record<string, unknown>;
     const flow = typeof e.flow === "string" ? byId.get(e.flow) : undefined;

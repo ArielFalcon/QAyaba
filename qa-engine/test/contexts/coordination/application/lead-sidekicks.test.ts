@@ -1,6 +1,7 @@
 import { pageCandidate, pageCandidates } from "../../../support/use-case-candidate.ts";
 import { PLAN_DOWNGRADE } from "@contexts/coordination/application/lead-plan.ts";
 import { AUTHORING_REFUSAL } from "@kernel/coordination.ts";
+import { UNREADABLE_ANSWER } from "@kernel/unreadable-answer.ts";
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/lead-correction.ts";
 import { test } from "node:test";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
@@ -496,6 +497,19 @@ test("a flow whose sidekick did not deliver is not tried again on its own: witho
   assert.match(outcome.aggregated.incompleteFlows[0]!.reason ?? "", /no selector found/);
   assert.equal(r.executed.filter((e) => e.brief.delegationId === "run-1-flow-cart").length, 1);
   assert.equal(outcome.aggregated.specs.includes("flows/cart.spec.ts"), false, "a sidekick that wrote nothing delivers nothing");
+});
+
+test("a sidekick answer that could not be read is recorded as unreadable, not as a reported failure", async () => {
+  const r = rig({ answers: { cart: [{ status: "failed", summary: "sidekick output was not a valid DelegationResult", filesChanged: [], readMiss: "unreadable" }] }, hasFile: new Set(["login"]) });
+  await r.coordinator.coordinate(input(r));
+  const turn = r.events.find((e) => /flow cart turn 1/.test(e.reason ?? ""));
+  assert.equal(turn?.failureClass, UNREADABLE_ANSWER);
+  assert.equal(turn?.sidekickStatus, UNREADABLE_ANSWER);
+  const reported = rig({ answers: { cart: [{ status: "failed", summary: "no selector found", filesChanged: [] }] }, hasFile: new Set(["login"]) });
+  await reported.coordinator.coordinate(input(reported));
+  const said = reported.events.find((e) => /flow cart turn 1/.test(e.reason ?? ""));
+  assert.equal(said?.failureClass, "failed");
+  assert.equal(said?.sidekickStatus, "failed");
 });
 
 for (const ended of [

@@ -5,19 +5,24 @@
  * "sidekick status=<DelegationStatus>" and can never distinguish a pushback-blocked delegation from
  * a completed one that claimed files never verified on disk.
  *
+ * An output that held no DelegationResult is its own class: the sidekick reported nothing, so it is neither a reported failure nor a blocked contract.
+ *
  * Returns undefined when the delegation is NOT a contract failure: a clean completion, or an
  * intentional needs-lead handoff (the sidekick recognizing its own limits is not a broken contract).
  */
-import type { DelegationStatus } from "./delegation-result.ts";
+import { UNREADABLE_ANSWER } from "@kernel/unreadable-answer.ts";
+import type { DelegationResult, DelegationStatus } from "./delegation-result.ts";
 
-export const DELEGATION_FAILURE_CLASSES = ["failed", "blocked", "claimed-files-missing"] as const;
+export const DELEGATION_FAILURE_CLASSES = ["failed", "blocked", "claimed-files-missing", UNREADABLE_ANSWER] as const;
 export type DelegationFailureClass = (typeof DELEGATION_FAILURE_CLASSES)[number];
 
 export function classifyDelegationFailure(
   status: DelegationStatus,
   claimedFileCount: number,
   verifiedFileCount: number,
+  readMiss?: DelegationResult["readMiss"],
 ): DelegationFailureClass | undefined {
+  if (readMiss) return readMiss;
   if (status === "failed") return "failed";
   if (status === "blocked") return "blocked";
   if (

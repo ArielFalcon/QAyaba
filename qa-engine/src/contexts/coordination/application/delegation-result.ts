@@ -1,6 +1,7 @@
 import type { AcceptanceReportDefect, AcceptanceReportEntry } from "./acceptance-report.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 import type { Exploration } from "./exploration.ts";
+import type { UNREADABLE_ANSWER } from "@kernel/unreadable-answer.ts";
 
 export const DELEGATION_STATUSES = [
   "completed",
@@ -51,6 +52,8 @@ export interface DelegationResult {
   /** An explore sidekick's findings, as it reported them: the orchestrator verifies each before the lead sees it. */
   readonly exploration?: Exploration;
   readonly testCorrect?: { readonly cause: "env" | "app"; readonly reason: string };
+  /** Set when the output held no DelegationResult at all: the result is a failure the orchestrator inferred, not one the sidekick reported. */
+  readonly readMiss?: typeof UNREADABLE_ANSWER;
 }
 
 export function belongsToBrief(result: DelegationResult, delegationId: string, runId: string): boolean {

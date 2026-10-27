@@ -197,7 +197,7 @@ export const ATTRIBUTES = {
   "qayaba.agent.abandoned": bool("The attempt kept running after its turn was abandoned."),
   "qayaba.agent.end": str("How the turn ended: completed, exhausted, timeout, aborted or failed."),
   "qayaba.delegation.id": str("The sidekick delegation id.", "high"),
-  "qayaba.delegation.status": str("What the sidekick reported its turn came to: completed, completed-with-concerns, needs-lead, blocked or failed."),
+  "qayaba.delegation.status": str("What the sidekick reported its turn came to: completed, completed-with-concerns, needs-lead, blocked or failed; `unreadable` when its output held no answer of the contract, which is not a failure it reported."),
   "qayaba.delegation.last_run_spec": str("How the flow's last run_spec call ended when the sidekick reported: passed, failed, timedOut or error."),
   "qayaba.usage.source": str("How complete the token sum is: steps, final-message or none."),
   "qayaba.agent.steps.used": int("Steps the turn used."),

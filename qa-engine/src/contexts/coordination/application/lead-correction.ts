@@ -9,7 +9,8 @@
  * Pure: no clock, no file, no model.
  */
 
-import { REVIEW_ACTION, MAX_INSTRUCTION_CHARS, MAX_SPEC_CHARS, firstJsonObject } from "./lead-review.ts";
+import { REVIEW_ACTION, MAX_INSTRUCTION_CHARS, MAX_SPEC_CHARS } from "./lead-review.ts";
+import { lastJsonObjectWhere } from "@kernel/last-json-object.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 
 const MAX_REF_CHARS = 400;
@@ -195,8 +196,8 @@ export function admitLeadCorrection(redaction: RedactionPort, output: string, fl
   const admission: CorrectionAdmission = { readable: false, orders: [], rebuttals: [], unrouted: [], refused: [] };
   const owner = findings.map((finding) => flowOfFinding(finding, flows));
   const byId = new Map(flows.map((flow) => [flow.id, flow]));
-  const raw = firstJsonObject(output) as { corrections?: unknown; rebuttals?: unknown } | undefined;
-  const readable = raw !== undefined && typeof raw === "object" && (Array.isArray(raw.corrections) || Array.isArray(raw.rebuttals));
+  const raw = lastJsonObjectWhere(output, (o) => Array.isArray(o.corrections) || Array.isArray(o.rebuttals)) as { corrections?: unknown; rebuttals?: unknown } | undefined;
+  const readable = raw !== undefined;
   admission.readable = readable;
   const routed = new Map<string, { action: CorrectionOrder["action"]; instruction: string; extra: Set<number> }>();
   const rebutted = new Set<number>();

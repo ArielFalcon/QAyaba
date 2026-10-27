@@ -88,3 +88,8 @@ test("pushback allows relative project path under code-mode root '.'", () => {
   });
   assert.equal(ok.status, "completed");
 });
+
+test("classifyDelegationFailure: an answer that could not be read is its own class, apart from a reported failure", () => {
+  assert.equal(classifyDelegationFailure("failed", 0, 0, "unreadable"), "unreadable");
+  assert.equal(classifyDelegationFailure("failed", 0, 0), "failed");
+});

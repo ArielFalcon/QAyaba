@@ -668,7 +668,7 @@ export class LeadSidekicks {
       workspaceUntouched = collected.proposalsTotal === 0;
       if (collected.proposalsTotal > 0) proposals = { flowId: flow.id, changes: collected.proposals, total: collected.proposalsTotal };
     }
-    const failureClass = classifyDelegationFailure(result.status, result.filesChanged.length, copied ? 1 : 0);
+    const failureClass = classifyDelegationFailure(result.status, result.filesChanged.length, copied ? 1 : 0, result.readMiss);
     const { loop } = entry;
     const ledger = loop?.ledger() ?? [];
     const lastCall = ledger.at(-1);
@@ -677,11 +677,11 @@ export class LeadSidekicks {
       action: "delegate",
       sidekickKind,
       tier,
-      reason: `flow ${flow.id} turn ${attempt}: sidekick status=${result.status}${copied ? ", file taken back" : ""}`,
+      reason: result.readMiss ? `flow ${flow.id} turn ${attempt}: sidekick answer ${result.readMiss}${copied ? ", file taken back" : ""}` : `flow ${flow.id} turn ${attempt}: sidekick status=${result.status}${copied ? ", file taken back" : ""}`,
       delegationId,
       attempt,
       ...(failureClass ? { failureClass } : {}),
-      sidekickStatus: result.status,
+      sidekickStatus: result.readMiss ?? result.status,
       ...(lastCall ? { lastRunSpec: lastCall.status } : {}),
     });
 

@@ -170,7 +170,8 @@ test's entry **deterministically** from the `specMetas` you return in your closi
 JSON. Editing the file yourself creates a second, non-deterministic writer that the
 orchestrator's write then has to reconcile (and a corrupt edit silently discards prior
 metadata). Instead, for every spec you wrote/updated, include one entry in `specMetas`:
-`{ file, flow, objective, targets }` (one objective = one test).
+`{ file, flow, objective, targets }` (one objective = one test). This is part of the run's own task's
+closing verdict only: a flow's result is its closing block (below), which has no `specMetas`.
 
 ### 6. Self-review (an independent reviewer judges you afterwards)
 
@@ -187,10 +188,11 @@ orchestrator checks, never your reasons: `execution` with the spec file (or case
 on the current bytes, `contract` with `<spec path>#<clause>` for an assertion the contract still
 holds. A rebuttal it cannot check withdraws nothing.
 
-## Stop when the spec is written or the no-op is declared — then emit the verdict
+## Stop when the spec is written or the no-op is declared — then emit the closing block
 
 Once your specs are written, or you have declared a no-op, you are DONE generating. Spend the rest of
-the turn on ONE thing: the closing JSON verdict below. Do NOT re-explore, re-run the suite, or keep
+the turn on ONE thing: the closing JSON of your turn (the verdict under "Final output" for the run's own
+task, the block under "Closing block of a flow" for a flow). Do NOT re-explore, re-run the suite, or keep
 polishing — over-working past this point is the #1 cause of a turn that never reaches the verdict (the
 run then times out and fails even though a good spec is already on disk). The verdict is your LAST action.
 
@@ -232,7 +234,8 @@ with this block instead — the reason is what makes an empty list a decision:
 
 ## Closing block of a flow
 
-A flow ends with ONLY this block (the whole result of the delegation):
+A flow ends with ONLY this block (the whole result of the delegation). It is the one closing JSON of
+the turn: a flow never also emits the `{"specs":…}` verdict of "Final output", before or after it.
 
 ```text
 {"delegationId":"...","runId":"...","status":"completed"|"completed-with-concerns"|"blocked"|"needs-lead"|"failed","summary":"...","filesChanged":[{"path":"..."}],"evidence":[],"validation":[{"id":"...","ok":true}],"acceptance":[{"criterion":1,"status":"met"|"unmet"|"unverified","note":"..."}],"assumptions":[],"concerns":[],"unresolvedQuestions":[],"recommendation":"accept"|"review"|"retry"|"escalate"}

@@ -151,6 +151,13 @@ The answer is untrusted, and the orchestrator's facts decide over it:
   that could not be read): its status is its word, the bytes are what the run judges;
 - a flow the answer does not name, or an answer that cannot be read or runs out of its time, leaves the flows as they are.
 
+How an agent's closing JSON is read (sidekick results, the lead's review and correction answers, explore answers): the LAST top-level object
+of the output that has the shape of that contract (`shared-kernel/last-json-object.ts`), whatever narration or earlier objects
+come before it; braces in prose never hide it. A sidekick output with no DelegationResult is a failed result marked `readMiss: unreadable`:
+still not a success, files still taken back, but recorded with failure class and `qayaba.delegation.status` `unreadable` instead of
+`failed`, so it is never counted as a failure the sidekick reported (the `sidekick_report_consistent` grader does not read it as one).
+A flow sidekick's prompt carries one closing contract, the DelegationResult block.
+
 Every revision carries the orchestrator's facts beside the lead's instruction. A sidekick that writes nothing and says
 why (the change needs no test of its own) is a declined flow, not a failure. When every flow comes back empty, the run ends `E-NO-DECISION`; the lead does not take the change over. The review is counted in
 `gateSignals.coordination.review { turns, accepted, revised, replaced, dropped, refused }` and each decision is a

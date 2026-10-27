@@ -2,7 +2,7 @@
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import type { DelegationResult } from "./delegation-result.ts";
-import { extractJsonObject } from "./delegation-reading.ts";
+import { lastJsonObjectWhere } from "@kernel/last-json-object.ts";
 import { EXPLORE_FINDING_KIND, EXPLORE_STATUS, MAX_FINDING_CHARS, MAX_FINDINGS, MAX_REF_CHARS, type ExploreFinding, type ExploreFindingKind, type ExploreStatus } from "./exploration.ts";
 
 const KINDS: readonly string[] = Object.values(EXPLORE_FINDING_KIND);
@@ -64,7 +64,7 @@ function findingOf(raw: unknown, redaction: RedactionPort): ExploreFinding | und
 
 /* The delegation result an explore sidekick's output came to; the findings it kept ride on `exploration`. */
 export function readExploreResult(redaction: RedactionPort, output: string, brief: DelegationBrief): DelegationResult {
-  const raw = extractJsonObject(output);
+  const raw = lastJsonObjectWhere(output, (o) => Array.isArray(o.findings) || typeof o.id === "string");
   if (typeof raw !== "object" || raw === null) return failed(brief, "explore output was not a valid exploration result", redaction);
   const o = raw as Record<string, unknown>;
   if (o.id !== questionIdOf(brief.delegationId)) return failed(brief, "explore result did not belong to this question", redaction);
