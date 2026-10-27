@@ -88,6 +88,10 @@ signed-in app (see below); without either, no sidekick can author and the run en
    then is not sent, below); both are recorded (`gateSignals.coordination`
    `capacity`, `notAdmitted`, `oversize`, and a `lead-decision` event carrying `qayaba.coordination.flows_not_admitted` /
    `flows_oversize`).
+   A route the run's capture saw sent away by the change itself (classified `change-introduced`, see "Route availability" in
+   `AGENTS.md`) is a direct use case of basis `route-config`: its evidence names the route table entry and where the
+   browser ends, and a drop of it as `no-observable-change` or `needs-unavailable-state` is refused, since the run observed
+   the changed behaviour with its own client (`dropRefusal`).
 3. **Author.** Each sidekick's brief carries the Live DOM of its flow's pages (by address, or by the map template a
    page was opened from), cut from the run's Context Pack and bounded; a flow whose pages the pack did not read gets
    none. The brief states the change the flow must exercise in one section, cut from the run's change map

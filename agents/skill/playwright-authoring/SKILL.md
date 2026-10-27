@@ -51,6 +51,8 @@ fact it lacks. Read the specific reference below only when the test needs that p
   file uploads — for apps that use them.
 - **`locators-and-waiting.md`** — fine-grained locator and waiting patterns, and how to
   diagnose flakiness (trace viewer). Applies to every app.
+- **`route-availability.md`** — when the prompt's Route availability section lists a route
+  your flow opens: how to assert where it ends, by why it is unavailable.
 
 ## Structure of a spec
 
