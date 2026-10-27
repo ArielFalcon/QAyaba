@@ -131,6 +131,22 @@ test("a lead window that holds no hunk still carries the whole change map and ev
   assert.ok(section.includes("src/cart/cart.ts:3-3") && section.includes("src/cart/cart.css:7-7"));
 });
 
+test("the plan prompt shows a hunk holding a changed decision before the other hunks of its class", () => {
+  const diff =
+    fileDiff("src/cart/cart.ts", [{ start: 10, added: ["export const label = 'cart';"] }, { start: 40, added: ["if (items.length > 0) show();"] }]) +
+    fileDiff("src/shop/shop.ts", [{ start: 5, added: ["export const shop = 1;"] }]);
+  const decisions = [{ file: "src/cart/cart.ts", line: 40, kind: "if" as const, arms: [{ label: "then", line: 40 }, { label: "else" }] }];
+  const order = (planning: OpencodeRunInput["planning"]): number[] => {
+    const shown = fenced(diffSection(buildPromptAssembled(input(diff, { planning }))));
+    return ["if (items.length > 0) show();", "export const label = 'cart';", "export const shop = 1;"].map((line) => shown.indexOf(line));
+  };
+  const ranked = order({ ...PLANNING, decisions });
+  assert.ok(ranked.every((at) => at >= 0));
+  assert.ok(ranked[0]! < ranked[1]! && ranked[1]! < ranked[2]!, "the decision's hunk first, then diff order");
+  const plain = order(PLANNING);
+  assert.ok(plain[1]! < plain[0]!, "without a listing, diff order");
+});
+
 test("an authoring turn's diff is not the plan's: it shows the test file's body as before", () => {
   const diff = fileDiff("src/cart/cart.ts", [{ start: 1, added: ["export const total = 3;"] }]) + fileDiff("src/cart/cart.spec.ts", [{ start: 1, added: ["it('totals the cart', () => {});"] }]);
 

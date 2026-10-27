@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { buildChangeMap } from "@kernel/change-map.ts";
 import { sliceFor, unassignedOf } from "@kernel/change-slice.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import { decisionRankOf, type ChangedDecision } from "@kernel/changed-decision.ts";
 
 function fileDiff(path: string, hunks: ReadonlyArray<{ start: number; added: number; removed?: number }>): string {
   const body = hunks.map((h) => {
@@ -118,6 +119,16 @@ test("owned hunks rank code, then other kinds, then styles, then diff order; a d
   const ranked = sliceFor(map, diff, ["uc-a"], { decisionRank: (h) => (h.file === "src/shop.ts" ? 0 : 1) });
   assert.deepEqual(order(ranked).slice(0, 3), ["src/shop.ts:10", "src/cart.ts:3", "src/cart.ts:40"]);
   assert.deepEqual(order(sliceFor(map, diff, ["uc-a"])), order(sliceFor(map, diff, ["uc-a"])));
+});
+
+test("the rank of a decision listing puts the hunks holding a changed decision first within their class, the rest in diff order", () => {
+  const diff = page + cart + shop;
+  const a = candidate("uc-a", [{ file: "src/page.html", symbol: "*" }, { file: "src/cart.ts", symbol: "*" }, { file: "src/shop.ts", symbol: "*" }]);
+  const map = buildChangeMap({ diff, candidates: [a] });
+  const decisions: ChangedDecision[] = [{ file: "src/cart.ts", line: 41, kind: "if", arms: [{ label: "then", line: 41 }, { label: "else" }] }];
+  const ranked = sliceFor(map, diff, ["uc-a"], { decisionRank: decisionRankOf(decisions) });
+  assert.deepEqual(ranked.owned.map((o) => `${o.hunk.file}:${o.hunk.newStart}`), ["src/cart.ts:40", "src/cart.ts:3", "src/shop.ts:10", "src/page.html:1"]);
+  assert.deepEqual(sliceFor(map, diff, ["uc-a"], { decisionRank: decisionRankOf([]) }).owned.map((o) => `${o.hunk.file}:${o.hunk.newStart}`), ["src/cart.ts:3", "src/cart.ts:40", "src/shop.ts:10", "src/page.html:1"]);
 });
 
 test("with no slices, the unassigned part is the whole diff", () => {

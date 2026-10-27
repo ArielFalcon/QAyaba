@@ -9,7 +9,7 @@
       "directives": 1
     },
     "flow-author-brief/full": {
-      "bytes": 3085,
+      "bytes": 3328,
       "directives": 5
     },
     "flow-author-brief/plain": {
@@ -83,7 +83,7 @@
     "qa-lead": 16161
   },
   "lastIncrease": {
-    "reason": "the full author brief cell carries the change slice (files, preloaded hunk, reference) and a known fact in place of the proofs section",
+    "reason": "the full author brief carries the static decision listing of its owned hunks (S6)",
     "budgets": [
       "flow-author-brief/full:bytes"
     ]

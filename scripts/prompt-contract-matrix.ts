@@ -956,6 +956,7 @@ export function buildCoordinationMatrix(root: string = ROOT): CoordinationCell[]
           files: [{ path: "src/cart.ts", kind: "typescript", added: 1, removed: 1, origins: ["graph"] }, { path: "src/cart.css", kind: "other", added: 3, removed: 0, origins: ["map-link"] }],
           hunks: [{ path: "src/cart.ts", start: 10, end: 10, added: 1, removed: 1, kind: "typescript", code: true, candidateIds: ["uc-00000001"], text: "@@ -10 +10 @@\n-const total = 0;\n+const total = items.length;" }],
           references: ["src/cart.css:1-3 (+3 -0, other, not preloaded: the brief would not fit the author's window)"],
+          decisions: [{ file: "src/cart.ts", line: 10, kind: "logical", arms: [{ label: "right of && evaluated", line: 10 }, { label: "&& short-circuited" }] }],
         },
         suite: ["flows/checkout.spec.ts: checkout completes"],
       })),

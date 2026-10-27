@@ -1494,6 +1494,20 @@ test("a flow's brief carries the use cases it cites with the changed code, and t
   assert.equal(cartFlowSnapshot.outcome?.kind, "delivered");
 });
 
+test("the change's decision listing reaches the planning turn and the brief of the flow whose hunk holds the decision", async () => {
+  const r = rig();
+  const diff = ["diff --git a/src/cart.ts b/src/cart.ts", "--- a/src/cart.ts", "+++ b/src/cart.ts", "@@ -3,2 +3,3 @@", " keep", "+const total = n > 0 ? n : 0;", " keep"].join("\n");
+  const decisions = [{ file: "src/cart.ts", line: 4, kind: "conditional" as const, arms: [{ label: "true", line: 4 }, { label: "false", line: 4 }] }];
+  const candidates = [pageCandidate("/cart", ["src/cart.ts::total", "page /cart"], { seeds: [{ file: "src/cart.ts", symbol: "total", range: { start: 1, end: 9 } }] })];
+  const seen: PlanningLimits[] = [];
+  const plan = planOf([{ ...cartFlow, candidates: ["uc-/cart"] }]);
+  const outcome = await r.coordinator.coordinate(input(r, { candidates, change: { diffs: [diff], decisions }, plan: async (p) => (seen.push(p), { plan, parsed: true, timedOut: false }) }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  assert.deepEqual(seen[0]!.decisions, decisions);
+  const brief = r.executed.find((e) => e.brief.delegationId === "run-1-flow-cart")!.brief;
+  assert.deepEqual(brief.change?.decisions, decisions);
+});
+
 test("a flow's briefs carry no candidates when the run derived none", async () => {
   const r = rig();
   await r.coordinator.coordinate(input(r));

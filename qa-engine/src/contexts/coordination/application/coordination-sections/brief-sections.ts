@@ -13,6 +13,9 @@ import type { EvidenceRef } from "../evidence-ref.ts";
 import { CANDIDATE_CLAIMS } from "../delegation-result.ts";
 import { MAX_FINDINGS } from "../exploration.ts";
 import { questionIdOf } from "./explore-ids.ts";
+import { decisionText } from "@kernel/changed-decision.ts";
+
+export const BRIEF_DECISIONS_SECTION_ID = "decisions";
 
 /* One brief and the scrub every free-form field of it passes at this egress. */
 export interface BriefPromptContext {
@@ -177,6 +180,19 @@ export const AUTHOR_BRIEF_SECTIONS: readonly PromptSectionDef<BriefPromptContext
     priority: 70,
     applies: ({ brief }) => withCandidates(brief),
     render: ({ brief, scrub }) => ({ content: changeText(brief, scrub) }),
+  }),
+  section({
+    /* The static listing's decisions in the flow's owned hunks: the cases a suite that only renders the page would leave untested. */
+    id: BRIEF_DECISIONS_SECTION_ID,
+    priority: 72,
+    applies: ({ brief }) => withCandidates(brief) && (brief.change?.decisions?.length ?? 0) > 0,
+    render: ({ brief, scrub }) => ({
+      content: [
+        "## Decisions in this flow's changed code",
+        "Each arm is a case of the change: write a test for every arm the page can be brought to through the UI.",
+        ...brief.change!.decisions!.map((decision) => `- ${scrub(decisionText(decision))}`),
+      ].join("\n"),
+    }),
   }),
   section({
     id: "artifacts",

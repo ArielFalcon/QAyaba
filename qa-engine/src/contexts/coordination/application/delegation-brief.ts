@@ -4,6 +4,7 @@ import type { AcceptanceCriterion } from "./coordination-context.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 import { SIDEKICK_AUTHORITY, type SidekickAuthority } from "./authority.ts";
 import type { FileKind } from "@kernel/change-map.ts";
+import type { ChangedDecision } from "@kernel/changed-decision.ts";
 
 export interface DelegationScope {
   readonly readablePaths: readonly string[];
@@ -66,6 +67,8 @@ export interface BriefChange {
   hunks: BriefHunk[];
   /* What is not preloaded, one line each: `path:start-end (+a -r, kind, why)`. */
   references: string[];
+  /* The changed decisions (static listing) whose head an owned hunk holds, preloaded or not, in hunk rank order; absent when none. */
+  decisions?: ChangedDecision[];
 }
 
 export interface DelegationBrief {
@@ -157,5 +160,6 @@ function scrubChange(change: BriefChange, scrub: (text: string) => string): Brie
     files: change.files.map((file) => ({ ...file, path: scrub(file.path), origins: [...file.origins] })),
     hunks: change.hunks.map((hunk) => ({ ...hunk, path: scrub(hunk.path), candidateIds: [...hunk.candidateIds], text: scrub(hunk.text) })),
     references: change.references.map(scrub),
+    ...(change.decisions ? { decisions: change.decisions.map((d) => ({ ...d, file: scrub(d.file), arms: d.arms.map((arm) => ({ ...arm, label: scrub(arm.label) })) })) } : {}),
   };
 }

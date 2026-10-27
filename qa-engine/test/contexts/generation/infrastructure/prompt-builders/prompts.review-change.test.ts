@@ -97,6 +97,30 @@ test("over the reviewer's window, owned non-code goes to references first, then 
   for (const ref of ["src/cart.css:1-21", "src/other.ts:7-27", "src/cart.ts:40-60", "src/cart.ts:3-23"]) assert.ok(tight.text.includes(ref), `${ref} is referenced by file and range`);
 });
 
+test("over the reviewer's window, an unassigned hunk holding a changed decision becomes a reference after the unassigned code that holds none", () => {
+  const diff = DIFF + fileDiff("src/more.ts", [{ start: 5, added: 20 }]);
+  const MORE = "+new src/more.ts 5";
+  const map = buildChangeMap({ diff, candidates: [candidate] });
+  const slice = sliceFor(map, diff, ["uc-cart"]);
+  const decisionView: ReviewChangeView = {
+    files: map.files,
+    flows: [{ specFile: "flows/cart.spec.ts", candidateIds: ["uc-cart"], owned: slice.owned }],
+    unassigned: unassignedOf(map, diff, [slice]),
+    hunkless: [],
+    referenced: [],
+    decisions: [{ file: "src/more.ts", line: 6, kind: "logical", arms: [{ label: "right of && evaluated", line: 6 }, { label: "&& short-circuited" }] }],
+  };
+  const review = mkReview({ diff, changeView: decisionView });
+  const full = Buffer.byteLength(buildReviewerPromptAssembled(review).text, "utf8");
+  let split = false;
+  for (let limit = full; limit > full - 3_000; limit -= 16) {
+    const text = buildReviewerPromptAssembled(review, { fit: ({ bytes }) => (bytes <= limit ? "fits" : "over") }).text;
+    if (!text.includes(MORE)) assert.equal(text.includes(UNASSIGNED), false, `the decision's hunk left before the other unassigned code at ${limit}`);
+    if (text.includes(MORE) && !text.includes(UNASSIGNED)) split = true;
+  }
+  assert.ok(split, "a window reached holds the decision's hunk and not the other unassigned code");
+});
+
 test("an unknown fit preloads every owned and unassigned hunk", () => {
   const a = buildReviewerPromptAssembled(mkReview({ changeView: view() }), { fit: () => "unknown" });
   for (const line of [OWNED_CODE, OWNED_LOW_RANK_CODE, OWNED_STYLE, UNASSIGNED]) assert.ok(a.text.includes(line), line);

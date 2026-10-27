@@ -6,6 +6,7 @@
  */
 import { buildChangeMap } from "@kernel/change-map.ts";
 import { sliceFor, unassignedOf } from "@kernel/change-slice.ts";
+import { decisionRankOf, type ChangedDecision } from "@kernel/changed-decision.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import { sectionPath } from "@kernel/diff-hunks.ts";
 import { resolveSpecReference } from "@kernel/spec-path.ts";
@@ -21,6 +22,8 @@ export interface ReviewChangeInput {
   flows: ReadonlyArray<{ specFile: string; candidates: readonly string[] }>;
   specsUnderReview: readonly string[];
   specRelDir: string;
+  /* The decisions on the diff's changed lines (static listing of the run's working copy): a flow's hunks holding one rank first. */
+  decisions?: readonly ChangedDecision[];
 }
 
 export function reviewChangeViewOf(input: ReviewChangeInput): ReviewChangeView | undefined {
@@ -31,7 +34,9 @@ export function reviewChangeViewOf(input: ReviewChangeInput): ReviewChangeView |
   if (underReview.length === 0) return undefined;
 
   const map = buildChangeMap({ diff, candidates });
-  const slices = underReview.map((flow) => ({ specFile: flow.specFile, slice: sliceFor(map, diff, flow.candidates) }));
+  const decisions = input.decisions ?? [];
+  const decisionRank = decisionRankOf(decisions);
+  const slices = underReview.map((flow) => ({ specFile: flow.specFile, slice: sliceFor(map, diff, flow.candidates, { decisionRank }) }));
   if (slices.every(({ slice }) => slice.owned.length === 0)) return undefined;
 
   const onlyReferenced = new Set(map.files.filter((file) => file.isTest || file.fileClass === "generated" || file.fileClass === "low-relevance").map((file) => file.path));
@@ -48,5 +53,6 @@ export function reviewChangeViewOf(input: ReviewChangeInput): ReviewChangeView |
     hunkless,
     /* Every slice references each hunk it does not own; the ones only ever referenced are the same in all of them. */
     referenced: slices[0]!.slice.references.filter((ref) => ref.why === "test-file" || ref.why === "generated" || ref.why === "low-relevance"),
+    ...(decisions.length > 0 ? { decisions } : {}),
   };
 }

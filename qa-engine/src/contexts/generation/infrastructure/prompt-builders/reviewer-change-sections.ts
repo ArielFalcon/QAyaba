@@ -6,6 +6,7 @@
  */
 import { changeFileLine, type ChangeMapFile } from "@kernel/change-map.ts";
 import { hunkLineCounts } from "@kernel/diff-hunks.ts";
+import { decisionRankOf } from "@kernel/changed-decision.ts";
 import type { DiffHunk } from "@kernel/diff-parser/diff-parser.service.ts";
 import type { PromptSectionDef, SectionRender } from "./prompt-sections.ts";
 import type { HunkReference } from "@kernel/change-slice.ts";
@@ -65,12 +66,15 @@ const bytes = (text: string): number => Buffer.byteLength(text, "utf8");
 
 /*
  * The order parts of the change become references when the prompt does not fit, first to last: non-code before code; among each,
- * the hunkless sections and unassigned hunks (last in the diff first) before what a flow owns; a flow's owned hunks from its lowest
- * rank up, taken across the flows rank by rank.
+ * the hunkless sections and unassigned hunks (those holding no changed decision before those holding one, each last in the diff
+ * first) before what a flow owns; a flow's owned hunks from its lowest rank up (a slice ranks a hunk holding a changed decision
+ * first), taken across the flows rank by rank.
  */
 export function degradationOrder(view: ReviewChangeView): ChangeItem[] {
   const hunklessItems = view.hunkless.map((h, position) => ({ key: hunklessKey(position), code: false, savingBytes: bytes(h.section) }));
-  const unassigned = [...view.unassigned].reverse().map((u) => ({
+  const decisionRank = decisionRankOf(view.decisions ?? []);
+  const lastInDiffFirst = [...view.unassigned].reverse();
+  const unassigned = [...lastInDiffFirst.filter((u) => decisionRank(u.hunk) !== 0), ...lastInDiffFirst.filter((u) => decisionRank(u.hunk) === 0)].map((u) => ({
     key: unassignedKey(u.index),
     code: isCode(u.kind),
     savingBytes: bytes(diffBlock([u.hunk])) - bytes(hunkReference(u.hunk, u.kind, DEGRADED_WHY)),

@@ -7,7 +7,8 @@
  * redacts every text.
  */
 import { buildChangeMap } from "@kernel/change-map.ts";
-import { sliceFor, type ChangeSlice, type HunkReference, type SliceOptions } from "@kernel/change-slice.ts";
+import { sliceFor, type ChangeSlice, type HunkReference } from "@kernel/change-slice.ts";
+import { decisionRankOf, decisionsInHunk, type ChangedDecision } from "@kernel/changed-decision.ts";
 import { classifyPath, FILE_CLASS_ORDER } from "@kernel/file-classes.ts";
 import { hunkLineCounts } from "@kernel/diff-hunks.ts";
 import { entryKey, type ChangedSymbol } from "@kernel/change-reach.ts";
@@ -24,6 +25,8 @@ export const MAX_PROOF_STEPS = 8;
 export interface ChangeFacts {
   diffs: readonly string[];
   subject?: string;
+  /* The decisions on the changed lines of the first diff (the run's own working copy), from the static listing. */
+  decisions?: readonly ChangedDecision[];
 }
 
 /* A reach path longer than the bound keeps where it starts (the change) and where it ends (the page), and says how many steps it left out between them. */
@@ -78,7 +81,10 @@ const REFERENCE_WHY: Record<HunkReference["why"], string> = {
 /* The class rank of a path: code first, then other kinds, styles, generated and low-relevance files. */
 const classRank = (path: string): number => FILE_CLASS_ORDER.indexOf(classifyPath(path));
 
-function hunksOf(slice: ChangeSlice): Array<BriefHunk & { rank: number }> {
+/* An owned hunk with its class rank and the listed decisions whose head it holds. */
+type RankedHunk = BriefHunk & { rank: number; held: ChangedDecision[] };
+
+function hunksOf(slice: ChangeSlice, listed: readonly ChangedDecision[]): RankedHunk[] {
   return slice.owned.map((owned) => {
     const { added, removed } = hunkLineCounts(owned.hunk);
     return {
@@ -92,20 +98,21 @@ function hunksOf(slice: ChangeSlice): Array<BriefHunk & { rank: number }> {
       candidateIds: owned.candidateIds,
       text: [owned.hunk.header, ...owned.hunk.lines].join("\n"),
       rank: classRank(owned.hunk.file),
+      held: decisionsInHunk(listed, owned.hunk),
     };
   });
 }
 
 /*
  * The candidates a flow carries and its slice of the change. The slice of each diff of the change is cut for the flow's candidates;
- * owned hunks of every diff are merged by class rank, keeping each slice's own order. References are the hunks of the flow's own
- * files that the slice does not own. No candidate: no change.
+ * owned hunks of every diff are merged by class rank, then decision rank, keeping each slice's own order. The decisions the change
+ * names are the listed ones whose head an owned hunk holds. References are the hunks of the flow's own files that the slice does not
+ * own. No candidate: no change.
  */
 export function briefChangeFor(
   flow: Pick<PlannedFlow, "routes" | "candidates">,
   candidates: readonly UseCaseCandidate[] | undefined,
   facts: ChangeFacts,
-  options: SliceOptions = {},
 ): { candidates: BriefCandidate[]; change?: BriefChange } {
   const all = candidates ?? [];
   const cited = flow.candidates.flatMap((id) => all.filter((c) => c.id === id));
@@ -114,22 +121,29 @@ export function briefChangeFor(
   if (picked.length === 0) return { candidates: [] };
   const ids = picked.map((c) => c.id);
   const files: BriefChangeFile[] = [];
-  const hunks: Array<BriefHunk & { rank: number }> = [];
+  const hunks: RankedHunk[] = [];
   const references: string[] = [];
-  for (const diff of facts.diffs) {
-    if (diff.trim() === "") continue;
+  facts.diffs.forEach((diff, position) => {
+    if (diff.trim() === "") return;
+    /* The listing reads the run's own working copy: it places decisions of the first diff only. */
+    const listed = position === 0 ? (facts.decisions ?? []) : [];
     const map = buildChangeMap({ diff, candidates: all });
-    const slice = sliceFor(map, diff, ids, options);
+    const slice = sliceFor(map, diff, ids, { decisionRank: decisionRankOf(listed) });
     const own = map.files.filter((file) => file.seededBy.some((id) => ids.includes(id)));
     const ownPaths = new Set(own.map((file) => file.path));
     files.push(...own.map((file) => ({ path: file.path, kind: file.kind, added: file.added, removed: file.removed, origins: originsOf(file.path, picked) })));
-    hunks.push(...hunksOf(slice));
+    hunks.push(...hunksOf(slice, listed));
     references.push(...slice.references.filter((ref) => ownPaths.has(ref.path)).map((ref) => referenceLine(ref, REFERENCE_WHY[ref.why])));
-  }
-  /* A stable sort: within a class each slice keeps its own order (decision rank, then diff order). */
-  const ranked = hunks.map((hunk, i) => ({ hunk, i })).sort((a, b) => a.hunk.rank - b.hunk.rank || a.i - b.i).map(({ hunk: { rank: _rank, ...hunk } }) => hunk);
+  });
+  /* A stable sort: within a class and decision rank each slice keeps its own order (diff order). */
+  const order = hunks.map((hunk, i) => ({ hunk, i })).sort((a, b) => a.hunk.rank - b.hunk.rank || Number(a.hunk.held.length === 0) - Number(b.hunk.held.length === 0) || a.i - b.i);
+  const ranked = order.map(({ hunk: { rank: _rank, held: _held, ...hunk } }) => hunk);
   files.sort((a, b) => classRank(a.path) - classRank(b.path));
-  return { candidates: picked.map((c) => briefCandidateOf(c, facts)), change: { files, hunks: ranked, references } };
+  const rankedDecisions = order.flatMap(({ hunk }) => hunk.held);
+  return {
+    candidates: picked.map((c) => briefCandidateOf(c, facts)),
+    change: { files, hunks: ranked, references, ...(rankedDecisions.length > 0 ? { decisions: rankedDecisions } : {}) },
+  };
 }
 
 const NOT_PRELOADED = "not preloaded: the brief would not fit the author's window";

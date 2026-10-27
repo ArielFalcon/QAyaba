@@ -1,6 +1,7 @@
 /* How a run is coordinated, as the layers around it share it: the limits of the lead/sidekick coordination and what a run records about it. */
 
 import type { OwnedSliceSize, UseCaseCandidate } from "./use-case-candidate.ts";
+import type { ChangedDecision } from "./changed-decision.ts";
 
 /* The shapes of the plan a lead emits when it is asked for one. */
 export const LEAD_PLAN_KIND = {
@@ -29,6 +30,8 @@ export interface PlanningLimits {
   otherCandidates?: number;
   /* The part of the change each candidate's flow would own (its owned slice), by candidate id: so the lead groups candidates into flows of a workable size. */
   candidateSlices?: Readonly<Record<string, OwnedSliceSize>>;
+  /* The decisions on the changed lines of the run's own diff, from the static listing: the plan's diff shows the hunks holding one first. Absent: none was listed. */
+  decisions?: readonly ChangedDecision[];
 }
 
 export type { OwnedSliceSize };

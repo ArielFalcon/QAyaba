@@ -5,6 +5,7 @@
  */
 import type { ChangeMapFile } from "@kernel/change-map.ts";
 import type { HunkReference, OwnedHunk, UnassignedHunk } from "@kernel/change-slice.ts";
+import type { ChangedDecision } from "@kernel/changed-decision.ts";
 
 /* One flow under review: its spec, the use cases it cites, and the hunks its slice owns, ranked. */
 export interface ReviewFlowSlice {
@@ -29,4 +30,6 @@ export interface ReviewChangeView {
   hunkless: HunklessSection[];
   /* The hunks that are only ever referenced (app test files, generated and low-relevance files), in diff order. */
   referenced: HunkReference[];
+  /* The decisions on the change's changed lines (static listing): over the window, the hunks holding one are the last of their kind to become references. Absent: none was listed. */
+  decisions?: readonly ChangedDecision[];
 }

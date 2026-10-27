@@ -11,6 +11,7 @@
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { sha256Hex } from "@kernel/content-hash.ts";
+import type { ChangedDecision } from "@kernel/changed-decision.ts";
 import type { AssembledPrompt } from "@kernel/prompt-sections.ts";
 import { posix } from "node:path";
 import { PROBE_REL_DIR } from "@contexts/test-execution/application/index.ts";
@@ -128,8 +129,8 @@ export interface CoordinateInput {
   existingSpecs?: readonly string[];
   /* The use cases the change makes testable: the planning turn is told their pages, those no admitted flow visits are reported, and each flow's brief carries the evidence of the pages it visits. */
   candidates?: readonly UseCaseCandidate[];
-  /* What the briefs quote of the change: the diff of each repo of the change and the anchor commit's subject. */
-  change?: { diffs: readonly string[]; subject?: string };
+  /* What the briefs quote of the change: the diff of each repo of the change, the anchor commit's subject, and the decisions on the changed lines of the first diff (the static listing of the run's own working copy). */
+  change?: { diffs: readonly string[]; subject?: string; decisions?: readonly ChangedDecision[] };
   /* The run's deadline, when one is armed. */
   deadline?: { remainingMs(): number | undefined };
   /* The planning turn, asked for with the limits the plan will be held to. Absent: this run's generation cannot plan. */
@@ -302,6 +303,7 @@ export class LeadSidekicks {
       ...(admission.required.length > 0 ? { candidates: admission.required } : {}),
       ...(admission.others > 0 ? { otherCandidates: admission.others } : {}),
       ...(candidateSlices ? { candidateSlices } : {}),
+      ...(input.change?.decisions?.length ? { decisions: input.change.decisions } : {}),
     });
     /* The lead's planning session, when the plan kept it: its review of the flows is asked there, and it ends with the pass. */
     let leadHanded = false;
@@ -677,7 +679,11 @@ export class LeadSidekicks {
       ...(mode === SIDEKICK_AUTHORING.UNAUTHENTICATED_BROWSER ? ["playwright"] : []),
       ...(entry.geolocation ? ["set_geolocation"] : []),
     ];
-    const derived = briefChangeFor(flow, input.candidates, { diffs: input.change?.diffs ?? [], ...(input.change?.subject !== undefined ? { subject: input.change.subject } : {}) });
+    const derived = briefChangeFor(flow, input.candidates, {
+      diffs: input.change?.diffs ?? [],
+      ...(input.change?.subject !== undefined ? { subject: input.change.subject } : {}),
+      ...(input.change?.decisions !== undefined ? { decisions: input.change.decisions } : {}),
+    });
     const build = (change: BriefChange | undefined): DelegationBrief =>
       createDelegationBrief({
         redaction: this.deps.redaction,

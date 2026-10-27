@@ -7,6 +7,8 @@ import { renderSidekickBrief } from "@contexts/coordination/application/sidekick
 import { readDelegationResult } from "@contexts/coordination/application/delegation-reading.ts";
 import { FILE_SEED_SYMBOL, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import type { ContextFit } from "@kernel/context-budget.ts";
+import type { ChangedDecision } from "@kernel/changed-decision.ts";
+import { BRIEF_DECISIONS_SECTION_ID } from "@contexts/coordination/application/coordination-sections/brief-sections.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { pageCandidate } from "../../../support/use-case-candidate.ts";
 
@@ -122,6 +124,31 @@ test("the author's brief renders no section that has nothing to state, and its r
   for (const empty of ["acceptance", "facts", "artifacts", "validation", "change"]) assert.equal(empty in sectionSizes, false, empty);
   assert.ok(!text.includes("(none)\n") && !text.includes("Validation plan"));
   for (const field of ['"evidence"', '"validation"', '"assumptions"']) assert.ok(!text.includes(field), field);
+});
+
+const DECISIONS: ChangedDecision[] = [
+  { file: "src/cart.ts", line: 41, kind: "conditional", arms: [{ label: "true", line: 41 }, { label: "false", line: 42 }] },
+  { file: "src/orders.ts", line: 1, kind: "if", arms: [{ label: "then", line: 1 }, { label: "else" }] },
+];
+
+test("a hunk holding a changed decision is preloaded first, and the change names the decisions of its owned hunks only", () => {
+  const { change } = briefChangeFor(flow, [cart(), orders], { diffs: [DIFF], decisions: DECISIONS });
+  assert.deepEqual(change!.hunks.map((h) => `${h.path}:${h.start}`), ["src/cart.ts:40", "src/cart.ts:2", "src/util/money.ts:5", "src/cart.html:1"]);
+  assert.deepEqual(change!.decisions, [DECISIONS[0]]);
+  const plain = briefChangeFor(flow, [cart(), orders], { diffs: [DIFF] }).change!;
+  assert.deepEqual(plain.hunks.map((h) => `${h.path}:${h.start}`), ["src/cart.ts:2", "src/cart.ts:40", "src/util/money.ts:5", "src/cart.html:1"]);
+  assert.equal(plain.decisions, undefined);
+});
+
+test("the author's brief names each decision of its hunks with its line, kind and every arm, and has no decisions section without one", () => {
+  const derived = briefChangeFor(flow, [cart(), orders], { diffs: [DIFF], decisions: DECISIONS });
+  const { text, sectionSizes } = renderSidekickBrief(redaction, briefOf({ candidates: derived.candidates, change: derived.change! }));
+  assert.ok((sectionSizes[BRIEF_DECISIONS_SECTION_ID] ?? 0) > 0);
+  const line = text.split("\n").find((l) => l.includes("src/cart.ts:41"));
+  assert.ok(line && line.includes("conditional") && line.includes("true") && line.includes("41") && line.includes("false") && line.includes("42"), line);
+  assert.ok(!text.includes("src/orders.ts:1"), "another flow's decision is not this flow's");
+  const bare = briefChangeFor(flow, [cart(), orders], { diffs: [DIFF] });
+  assert.equal(BRIEF_DECISIONS_SECTION_ID in renderSidekickBrief(redaction, briefOf({ candidates: bare.candidates, change: bare.change! })).sectionSizes, false);
 });
 
 test("a known fact says where it was read", () => {

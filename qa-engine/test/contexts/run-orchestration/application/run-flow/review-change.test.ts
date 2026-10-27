@@ -33,6 +33,17 @@ test("a planned review gets the slice of each flow under review, every changed f
   assert.deepEqual(view.referenced.map((r) => `${r.path}:${r.start}-${r.end} ${r.why}`), ["src/cart.test.ts:1-4 test-file"]);
 });
 
+test("a flow's hunk holding a changed decision is its first, and the view carries the listing for the degradation order", () => {
+  const wide = pageCandidate("/cart", undefined, { id: "uc-cart", seeds: [{ file: "src/cart.ts", symbol: "total", range: { start: 1, end: 60 } }] });
+  const decisions = [{ file: "src/cart.ts", line: 40, kind: "if" as const, arms: [{ label: "then", line: 40 }, { label: "else" }] }];
+  const owned = (listed?: typeof decisions) =>
+    reviewChangeViewOf({ diff: DIFF, candidates: [wide, shop], flows: FLOWS, specsUnderReview: ["flows/cart.spec.ts"], specRelDir: "e2e", ...(listed ? { decisions: listed } : {}) });
+  const ranked = owned(decisions);
+  assert.deepEqual(ranked?.flows[0]!.owned.map((o) => `${o.hunk.file}:${o.hunk.newStart}`), ["src/cart.ts:40", "src/cart.ts:3"]);
+  assert.deepEqual(ranked?.decisions, decisions);
+  assert.deepEqual(owned()?.flows[0]!.owned.map((o) => `${o.hunk.file}:${o.hunk.newStart}`), ["src/cart.ts:3", "src/cart.ts:40"]);
+});
+
 test("a flow's spec is matched whether or not it is spelled with the spec directory", () => {
   const view = reviewChangeViewOf({ diff: DIFF, candidates: [cart], flows: [{ specFile: "e2e/flows/cart.spec.ts", candidates: ["uc-cart"] }], specsUnderReview: ["flows/cart.spec.ts"], specRelDir: "e2e" });
   assert.deepEqual(view?.flows.map((f) => f.specFile), ["e2e/flows/cart.spec.ts"]);

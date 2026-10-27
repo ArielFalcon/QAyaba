@@ -70,6 +70,7 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
             change: {
               diffs: [...(classificationDiff ? [classificationDiff] : []), ...(state.classification.companions ?? []).map((companion) => companion.diff)],
               ...(classificationIntent?.message ? { subject: classificationIntent.message } : {}),
+              ...(classificationDiff && state.grounding.changedDecisions.length > 0 ? { decisions: state.grounding.changedDecisions } : {}),
             },
           }
         : {}),

@@ -222,6 +222,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
         flows: state.generation.flowCandidates,
         specsUnderReview: reviewCases.map((c) => c.file ?? c.name),
         specRelDir: specRelDirOf(specRoot),
+        decisions: state.grounding.changedDecisions,
       });
       reviewResult = await deps.review.review(workspace.specDir, reviewCases, classificationDiff, {
         ...baseReviewEnrichment,

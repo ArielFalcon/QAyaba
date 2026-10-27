@@ -82,6 +82,13 @@ signed-in app (see below); without either, no sidekick can author and the run en
    where the expected behavior comes from (the declared contract operation, the commit's stated intent, the diff); the
    files its use cases seed, each with its kind, added and removed lines and origin (`map-link`, `graph`, `shared`); and
    the slice's owned hunks, redacted and never cut, code first, then hunks holding a changed decision, then diff order.
+   The changed decisions come from the static decision listing grounding makes of the run's own working copy before
+   anything runs (`shared-infrastructure/decision-listing.ts`, through the lister the language registry declares per
+   language: JavaScript and TypeScript today; a language with none lists nothing, and a file that does not parse lists
+   nothing and is named on the `qayaba.change.decisions` span). A section of its own names every decision whose head an
+   owned hunk holds, preloaded or not, as `file:line kind: arm (line N), …` (an implicit else or a short circuit has no
+   code of its own), and asks for a test per arm the page can be brought to through the UI; a flow with none has no
+   such section.
    Every owned hunk is preloaded while the brief fits the author's window (`ContextBudget.fit`: prompt plus the working
    room the turn needs, for the model the session runs on); when it does not, owned non-code hunks and then the
    lowest-ranked code hunks are named as `file:start-end (+a -r, kind, why)` instead, and an unknown window preloads
@@ -108,8 +115,8 @@ If nothing could be coordinated (no plan, no time, nobody to author with) the ru
 The planning turn sees the whole change even when it is large, and nothing of it is cut blind. Its `## Commit diff` section
 carries the change map first: every changed file once, with its added and removed lines, its kind (the language
 registry's), its relevance class, whether it is an app test file, and the use cases its changed code seeds. Then come the
-hunks in rank order (code, other kinds, style sheets, then diff order; a decision rank joins when the static decision
-listing lands), as many as fit the lead's own window by the fit rule (prompt plus the lead's working room within its
+hunks in rank order (code, other kinds, style sheets; within each, the hunks holding a changed decision of the static
+listing first, then diff order), as many as fit the lead's own window by the fit rule (prompt plus the lead's working room within its
 window, `ContextBudget`) without passing the assembler's budget. Every hunk not shown is named as a reference,
 `path:start-end` with its lines, kind and why: past the window, or in an app test file, a generated file or a low-relevance
 file, which are only ever named. An unknown window holds nothing back (`plan-diff.ts`, `plan-diff-section.ts`). It is told the pages
@@ -256,8 +263,9 @@ app test files, generated and low-relevance files named as references. The arms 
 missing-case and citation rules are unchanged. When no flow under review owns any hunk, or the run had no plan (code, manual,
 complete, exhaustive), it keeps the whole diff: it never sees less than the change. Nothing is cut silently: when the prompt does
 not fit the reviewer's window (the run's `ContextBudget` fit: prompt plus the working room its turn needs), whole hunks become
-`path:start-end` references, non-code first, then the unassigned code, then each flow's code from its lowest rank; an unknown
-window shows everything, and the review is never split.
+`path:start-end` references, non-code first, then the unassigned code, then each flow's code from its lowest rank; within the
+unassigned code the hunks holding a changed decision go last, and a flow's slice ranks its hunks holding one first, so they
+are the last of their kind to go. An unknown window shows everything, and the review is never split.
 
 ## The reviewer's corrections
 

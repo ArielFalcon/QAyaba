@@ -14,6 +14,7 @@ import { assemblerBudgetBytes } from "@kernel/context-budget.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 import { redactForModel } from "./prompt-text.ts";
 import { planDiff } from "../../domain/plan-diff.ts";
+import { decisionRankOf } from "@kernel/changed-decision.ts";
 import { PlanDiffSection } from "./plan-diff-section.ts";
 
 /* Whether a prompt of this many bytes leaves its role the working room its turn needs in the role's window (the run's ContextBudget). */
@@ -145,7 +146,7 @@ export function derivePromptContext(input: OpencodeRunInput, opts: BuildPromptAs
   /* Only a signal that names symbols is an explored blast radius. One of co-change files alone says which files tend to move together, so it claims nothing explored; a signal that arrives without the flag cannot prove it names symbols and is read the same way. */
   const planningTurn = isGenerationMode && input.target === "e2e" && Boolean(input.planning) && !isReGen;
   const promptRole = planningTurn ? "lead" : "author";
-  const planDiffSection = planningTurn && input.mode === "diff" ? new PlanDiffSection(planDiff(input.diff, input.planning?.candidates ?? [])) : undefined;
+  const planDiffSection = planningTurn && input.mode === "diff" ? new PlanDiffSection(planDiff(input.diff, input.planning?.candidates ?? [], { decisionRank: decisionRankOf(input.planning?.decisions ?? []) })) : undefined;
   const staticSignalHasSymbols = Boolean(input.staticSignal && isGenerationMode) && input.staticSignalHasSymbols === true;
 
   return {
