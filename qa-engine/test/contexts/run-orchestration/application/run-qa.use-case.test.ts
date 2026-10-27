@@ -9658,6 +9658,20 @@ test("a re-applied mutant that reached no page is not judged: the closure counts
   }
 });
 
+test("a survivor re-check that throws never ends the run: the closure counts the survivor routed and judged none", async () => {
+  const { real, savedOutcomes, useCase } = survivorRun(async () => {
+    throw new Error("DEV unreachable");
+  });
+  try {
+    const out = await useCase.run({ ...baseInput, runId: "survivor-throws" });
+
+    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.survivorClosure, { routed: 1, judged: 0, closed: 0, open: [] });
+    assert.equal(out.decision.sideEffect, "pr", "survivor closure is a signal, never a gate");
+  } finally {
+    real.cleanup();
+  }
+});
+
 test("the killed mutants the coverage counted are handed to the recount, and the run records what the coverage counted beside its ratio", async () => {
   const real = realCoverageWorkspace();
   const recounts: unknown[] = [];

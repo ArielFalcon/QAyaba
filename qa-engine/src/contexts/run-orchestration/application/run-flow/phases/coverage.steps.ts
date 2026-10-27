@@ -6,7 +6,7 @@ import { faultAimOf } from "../fault-aim.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { hasGreenBytes } from "@kernel/run-verdict.ts";
 import type { GenerationEnrichment } from "@contexts/generation/application/index.ts";
-import { renderBranchGap, renderCoverageGap, renderSurvivedMutant, renderSurvivedMutants, survivorClosureOf, survivorRechecks, type CoverageMeasurement, type CoverageRerun, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
+import { renderBranchGap, renderCoverageGap, renderSurvivedMutant, renderSurvivedMutants, survivorClosureOf, survivorRechecks, type BundleMutationResult, type CoverageMeasurement, type CoverageRerun, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import { runOf, type BranchCasesOutcome, type CoverageOutcome, type RunState } from "../run-state.ts";
@@ -212,6 +212,16 @@ export async function regenerateAtGap(
   return { outcome: "accepted", run, acceptanceCalls, leadCorrections, changedSpecFiles, ...(recountable ? { reruns: [{ namespace, specFiles: changedSpecFiles }] } : {}) };
 }
 
+/* A re-check that fails judged nothing: the closure is a signal, so its fault is logged and never ends the run. */
+async function recheckOrNone(recheck: () => Promise<BundleMutationResult | null>): Promise<BundleMutationResult | null> {
+  try {
+    return await recheck();
+  } catch (err) {
+    engineLog.warn(`[qa] survivor closure: the re-check of the surviving mutants failed; none is judged (${err instanceof Error ? err.message : String(err)})`);
+    return null;
+  }
+}
+
 /*
  * Whether an accepted regeneration answered the surviving mutants routed to it: each is applied again to the specs it changed, judged
  * against those specs' passing cases. The proof of a regenerated test is that the fault it was asked about now fails it; until then it
@@ -224,7 +234,7 @@ export async function closeSurvivors(state: Readonly<RunState>, ctx: WorkspaceRu
   if (regen.outcome !== "accepted" || routed.length === 0 || changed.length === 0 || !deps.objectiveSignal.recheckSurvivors) return undefined;
   const changedSet = new Set(changed);
   const baselineCases = regen.run.cases.filter((c) => c.status === "pass" && changedSet.has(c.file ?? c.name)).map((c) => c.name);
-  const result = baselineCases.length > 0 ? await deps.objectiveSignal.recheckSurvivors(survivorRechecks(routed, changed), workspace.specDir, `${input.runId}-closure`, baselineCases) : null;
+  const result = baselineCases.length > 0 ? await recheckOrNone(() => deps.objectiveSignal.recheckSurvivors!(survivorRechecks(routed, changed), workspace.specDir, `${input.runId}-closure`, baselineCases)) : null;
   const closure = survivorClosureOf(routed.length, result);
   engineLog.info(`[qa] survivor closure: ${closure.closed} of ${closure.routed} surviving mutant(s) now noticed by a test (${closure.judged} judged)`);
   return closure;
