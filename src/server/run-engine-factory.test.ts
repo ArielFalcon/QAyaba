@@ -1,4 +1,4 @@
-import { test, mock } from "node:test";
+import { test, type TestContext } from "node:test";
 import type { ContextHealRunRequest } from "@contexts/run-orchestration/application/index";
 import { buildAppCatalog, buildPublishWorkspace } from "./engine-root";
 import { FoldRunOutcome, type LearningStorePort } from "@contexts/cross-run-learning/application/index";
@@ -2006,7 +2006,7 @@ test("a generation that ran out of steps ends exhausted and is never sent a repa
  * the real transport policy and the wrapper chain the factory composes. Advancing the clock by the
  * budget the change's tier allows is all it takes for the generator's turn to be stopped and classified.
  */
-async function generateOnAHungTransport(diff: string, advanceMs: number): Promise<{ result: Awaited<ReturnType<ReturnType<typeof buildEngineRootDeps>["generationUseCase"]["author"]>>; persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] }> {
+async function generateOnAHungTransport(t: TestContext, diff: string, advanceMs: number): Promise<{ result: Awaited<ReturnType<ReturnType<typeof buildEngineRootDeps>["generationUseCase"]["author"]>>; persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] }> {
   const persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] = [];
   let prompting = false;
   const base = createAgentDeps(
@@ -2025,28 +2025,36 @@ async function generateOnAHungTransport(diff: string, advanceMs: number): Promis
     "qa-bot-abc1234-runTime",
     { mode: "diff" },
   );
-  mock.timers.enable({ apis: ["setTimeout"] });
+  /* The test's own mock timers: the real setTimeout is back when the test ends, whatever this helper was doing then. */
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     const generating = config.generationUseCase.author({
       repo: "org/demo", sha: "abc1234", diff, mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", namespace: "ns",
       target: "e2e", mode: "diff", appName: "factory-time-budget", runId: "run-factory-time",
     });
-    while (!prompting) await new Promise<void>((resolve) => setImmediate(resolve));
-    mock.timers.tick(advanceMs);
-    /* A turn that outlives the clock never answers, so the wait is bounded: a few turns of the event loop, then the failure says so instead of hanging. */
-    let settled: Awaited<typeof generating> | undefined;
-    void generating.then((r) => { settled = r; });
-    for (let i = 0; i < 50 && settled === undefined; i++) await new Promise<void>((resolve) => setImmediate(resolve));
-    if (settled === undefined) throw new Error(`the generator's turn was still running after ${advanceMs}ms`);
-    return { result: settled, persisted };
+    /* Every wait is bounded and ends when the turn does, so a turn that fails before it prompts reaches the test as its own error. */
+    let outcome: { result: Awaited<typeof generating> } | { error: unknown } | undefined;
+    generating.then((result) => { outcome = { result }; }, (error: unknown) => { outcome = { error }; });
+    const turnsOfTheEventLoop = async (until: () => boolean) => {
+      for (let i = 0; i < 50 && outcome === undefined && !until(); i++) await new Promise<void>((resolve) => setImmediate(resolve));
+    };
+    await turnsOfTheEventLoop(() => prompting);
+    if (outcome && "error" in outcome) throw outcome.error;
+    if (!prompting) throw new Error("the generator's turn never reached the transport's prompt");
+    t.mock.timers.tick(advanceMs);
+    /* A turn that outlives the clock never answers: the failure says so instead of hanging. */
+    await turnsOfTheEventLoop(() => false);
+    if (outcome === undefined) throw new Error(`the generator's turn was still running after ${advanceMs}ms`);
+    if ("error" in outcome) throw outcome.error;
+    return { result: outcome.result, persisted };
   } finally {
-    mock.timers.reset();
+    t.mock.timers.reset();
   }
 }
 
-test("a tiny diff's generator turn is stopped at the time its tier allows and ends time-budget, through the whole wrapper chain", async () => {
+test("a tiny diff's generator turn is stopped at the time its tier allows and ends time-budget, through the whole wrapper chain", async (t) => {
   const budget = DIFF_TIME_BUDGET_MS.tiny as number;
-  const { result, persisted } = await generateOnAHungTransport("d", budget);
+  const { result, persisted } = await generateOnAHungTransport(t, "d", budget);
   assert.equal(result.end, GENERATION_END.TIME_BUDGET);
   assert.deepEqual(result.specs, []);
   assert.equal(result.note, renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs: budget }), "the note names the budget the turn was held to");

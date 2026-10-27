@@ -1,5 +1,5 @@
 /* What the transport policy reports to a trace: attempts, the model that answered, the error class, the limits and the hash of the bytes sent. Observing must change nothing about how a prompt ends. */
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { AgentTimeoutError } from "@kernel/domain-error.ts";
@@ -20,8 +20,10 @@ function transport(promptSession: RawAgentTransport["promptSession"]): RawAgentT
   return { createSession: async () => ({ id: "sess-t" }), promptSession, abortSession: async () => {}, deleteSession: async () => {} };
 }
 
-function observed(raw: RawAgentTransport, collab: Partial<Parameters<typeof createAgentDeps>[1]> = {}) {
+/* The breaker is module state the whole worker shares: each test starts it closed and leaves it closed. */
+function observed(t: TestContext, raw: RawAgentTransport, collab: Partial<Parameters<typeof createAgentDeps>[1]> = {}) {
   resetCircuit();
+  t.after(() => resetCircuit());
   const events: AttemptEvent[] = [];
   const turns: AgentTurnEvent[] = [];
   const deps = createAgentDeps(raw, {
@@ -37,8 +39,8 @@ function observed(raw: RawAgentTransport, collab: Partial<Parameters<typeof crea
   return { deps, events, turns };
 }
 
-test("a prompt that is answered reports one attempt, from start to end, with the model that answered and the usage", async () => {
-  const { deps, events } = observed(transport(async () => answered()));
+test("a prompt that is answered reports one attempt, from start to end, with the model that answered and the usage", async (t) => {
+  const { deps, events } = observed(t, transport(async () => answered()));
   const session = await deps.open("qa-author", "/w", { model: "prov/asked-model", descriptor: { runId: "r1", role: "qa-author" } });
   assert.equal(await session.prompt("hello"), "done");
 
@@ -55,8 +57,8 @@ test("a prompt that is answered reports one attempt, from start to end, with the
   assert.equal(end.errorType, undefined);
 });
 
-test("the persisted turn names the model asked for and the one that answered, the attempt, and the hash of the bytes sent", async () => {
-  const { deps, turns } = observed(transport(async () => answered()));
+test("the persisted turn names the model asked for and the one that answered, the attempt, and the hash of the bytes sent", async (t) => {
+  const { deps, turns } = observed(t, transport(async () => answered()));
   const session = await deps.open("qa-author", "/w", { model: "prov/asked-model", descriptor: { runId: "r1", role: "qa-author" } });
   await session.prompt("hello world", { sectionHashes: { task: "abc" }, sectionSizes: { task: 11 } });
 
@@ -73,8 +75,8 @@ test("the persisted turn names the model asked for and the one that answered, th
   assert.equal(turn.limitFired, null);
 });
 
-test("the hash is of the bytes actually sent: the run's secrets are already out of them", async () => {
-  const { deps, turns } = observed(transport(async () => answered()));
+test("the hash is of the bytes actually sent: the run's secrets are already out of them", async (t) => {
+  const { deps, turns } = observed(t, transport(async () => answered()));
   const secrets = createRunSecretScope();
   secrets.addAccountSecrets(["s3cr3t-passw0rd"]);
   await withRunSecretScope(secrets, async () => {
@@ -86,9 +88,9 @@ test("the hash is of the bytes actually sent: the run's secrets are already out 
   assert.ok(!turn.promptText.includes("s3cr3t-passw0rd"));
 });
 
-test("a primary-model fault that the fallback recovers is two attempts, the second marked, and the turn says the fallback answered", async () => {
+test("a primary-model fault that the fallback recovers is two attempts, the second marked, and the turn says the fallback answered", async (t) => {
   let calls = 0;
-  const { deps, events, turns } = observed(
+  const { deps, events, turns } = observed(t, 
     transport(async () => {
       calls += 1;
       if (calls === 1) throw Object.assign(new Error("socket closed"), { code: "ECONNRESET" });
@@ -112,8 +114,8 @@ test("a primary-model fault that the fallback recovers is two attempts, the seco
   assert.equal(turns[0]!.errorType, "socket_closed");
 });
 
-test("a provider error embedded in the answer is classified, reaches the attempt, and rides the thrown error", async () => {
-  const { deps, events } = observed(transport(async () => ({ parts: [], agentError: { name: "APIError", data: { statusCode: 429, message: "You exceeded your current quota" } } })));
+test("a provider error embedded in the answer is classified, reaches the attempt, and rides the thrown error", async (t) => {
+  const { deps, events } = observed(t, transport(async () => ({ parts: [], agentError: { name: "APIError", data: { statusCode: 429, message: "You exceeded your current quota" } } })));
   const session = await deps.open("qa-author", "/w", { descriptor: { runId: "r1", role: "qa-author" } });
   await assert.rejects(session.prompt("hello"), (err: unknown) => carriedAgentErrorType(err) === "quota_exceeded" && !("agentErrorType" in (err as object)));
   const end = events.find((e) => e.kind === "end");
@@ -122,8 +124,8 @@ test("a provider error embedded in the answer is classified, reaches the attempt
   assert.equal(events.filter((e) => e.kind === "end").length, 1, "an attempt ends once");
 });
 
-test("a prompt cut by its own time limit reports which limit it was, and the turn is recorded as timed out", async () => {
-  const { deps, events, turns } = observed(transport(() => new Promise(() => {})));
+test("a prompt cut by its own time limit reports which limit it was, and the turn is recorded as timed out", async (t) => {
+  const { deps, events, turns } = observed(t, transport(() => new Promise(() => {})));
   const session = await deps.open("qa-author", "/w", { descriptor: { runId: "r1", role: "qa-author" } });
   await assert.rejects(session.prompt("hello", { timeoutMs: 5, timeLimit: "repair-cap" }), AgentTimeoutError);
 
@@ -141,8 +143,8 @@ test("a prompt cut by its own time limit reports which limit it was, and the tur
   assert.equal(end.abandoned, true);
 });
 
-test("the limit that applies is named by its source: the prompt's, else the session's, else the host's", async () => {
-  const { deps, turns } = observed(transport(async () => answered()));
+test("the limit that applies is named by its source: the prompt's, else the session's, else the host's", async (t) => {
+  const { deps, turns } = observed(t, transport(async () => answered()));
   const session = await deps.open("qa-author", "/w", { timeoutMs: 4_000, timeLimit: "session-timeout", descriptor: { runId: "r1", role: "qa-judge" } });
   await session.prompt("a");
   await session.prompt("b", { timeoutMs: 3_000 });
@@ -152,22 +154,22 @@ test("the limit that applies is named by its source: the prompt's, else the sess
   assert.equal(turns[2]!.limitApplied, "session-timeout");
 });
 
-test("a turn that used every step it had is recorded as cut by the step cap", async () => {
-  const { deps, turns } = observed(transport(async () => answered({ parts: [{ type: "text", text: "CRITICAL - MAXIMUM STEPS REACHED" }] })), { takeTurnCalls: () => ({ stepsUsed: 25 }) as never, maxStepsFor: () => 25 });
+test("a turn that used every step it had is recorded as cut by the step cap", async (t) => {
+  const { deps, turns } = observed(t, transport(async () => answered({ parts: [{ type: "text", text: "CRITICAL - MAXIMUM STEPS REACHED" }] })), { takeTurnCalls: () => ({ stepsUsed: 25 }) as never, maxStepsFor: () => 25 });
   const session = await deps.open("qa-author", "/w", { descriptor: { runId: "r1", role: "qa-author" } });
   await session.prompt("hello", { stepLimit: 25 });
   assert.equal(turns[0]!.ended, "exhausted");
   assert.equal(turns[0]!.limitFired, "step-cap");
 });
 
-test("an abort from the caller is recorded as a cancel", async () => {
+test("an abort from the caller is recorded as a cancel", async (t) => {
   const controller = new AbortController();
   let failPrompt: (err: Error) => void = () => {};
   const raw: RawAgentTransport = {
     ...transport(() => new Promise((_resolve, reject) => { failPrompt = reject; })),
     abortSession: async () => failPrompt(new Error("the session was aborted")),
   };
-  const { deps, turns } = observed(raw);
+  const { deps, turns } = observed(t, raw);
   const session = await deps.open("qa-author", "/w", { signal: controller.signal, descriptor: { runId: "r1", role: "qa-author" } });
   const pending = session.prompt("hello");
   await new Promise((resolve) => setImmediate(resolve));
@@ -178,14 +180,15 @@ test("an abort from the caller is recorded as a cancel", async () => {
   assert.equal(turns[0]!.errorType, "aborted");
 });
 
-test("a limit an outer layer fired (the stall watchdog) is recorded on the turn the inner layer closes", async () => {
-  const { deps, turns } = observed(transport(() => new Promise(() => {})), { outerLimit: () => "stall" });
+test("a limit an outer layer fired (the stall watchdog) is recorded on the turn the inner layer closes", async (t) => {
+  const { deps, turns } = observed(t, transport(() => new Promise(() => {})), { outerLimit: () => "stall" });
   const session = await deps.open("qa-author", "/w", { descriptor: { runId: "r1", role: "qa-author" } });
   await assert.rejects(session.prompt("hello", { timeoutMs: 5 }));
   assert.equal(turns[0]!.limitFired, "stall");
 });
 
-test("observing changes nothing: the same prompts end the same way with the hook, with a throwing hook, and without one", async () => {
+test("observing changes nothing: the same prompts end the same way with the hook, with a throwing hook, and without one", async (t) => {
+  t.after(() => resetCircuit());
   async function run(collab: Partial<Parameters<typeof createAgentDeps>[1]>): Promise<{ outcomes: string[]; rows: unknown[] }> {
     resetCircuit();
     let calls = 0;
@@ -217,12 +220,12 @@ test("observing changes nothing: the same prompts end the same way with the hook
   assert.deepEqual(throwing.rows, plain.rows);
 });
 
-test("an error whose cause chain loops reaches the caller as it is, and the breaker still counts the failure", async () => {
+test("an error whose cause chain loops reaches the caller as it is, and the breaker still counts the failure", async (t) => {
   const a = new Error("looping fault");
   const b = new Error("inner");
   (a as { cause?: unknown }).cause = b;
   (b as { cause?: unknown }).cause = a;
-  const { deps, events } = observed(transport(async () => { throw a; }));
+  const { deps, events } = observed(t, transport(async () => { throw a; }));
   const session = await deps.open("qa-author", "/w", { descriptor: { runId: "r1", role: "qa-author" } });
   let reachedCaller = 0;
   for (let i = 0; i < CIRCUIT_THRESHOLD; i++) {
