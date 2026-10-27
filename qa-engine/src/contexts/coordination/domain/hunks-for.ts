@@ -3,6 +3,7 @@
  * must exercise, without the rest of the diff. Pure.
  */
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
+import { hunksOverlapping } from "@kernel/diff-hunks.ts";
 import type { ChangedSymbol } from "@kernel/change-reach.ts";
 
 /* The most hunks returned for one candidate, and the most lines kept of one. */
@@ -14,9 +15,7 @@ const parser = new DiffParserService();
 /* Each hunk as `file`, its header and its lines, cut at `MAX_HUNK_LINES` with the count left out; a hunk shared by several seeds appears once, in diff order. */
 export function hunksFor(diff: string, seeds: readonly ChangedSymbol[]): string[] {
   if (diff === "" || seeds.length === 0) return [];
-  return parser
-    .hunks(diff)
-    .filter((hunk) => seeds.some((seed) => seed.file === hunk.file && (seed.range === undefined || (seed.range.start <= hunk.newEnd && hunk.newStart <= seed.range.end))))
+  return hunksOverlapping(parser.hunks(diff), seeds)
     .slice(0, MAX_HUNKS)
     .map((hunk) => {
       const kept = hunk.lines.slice(0, MAX_HUNK_LINES);

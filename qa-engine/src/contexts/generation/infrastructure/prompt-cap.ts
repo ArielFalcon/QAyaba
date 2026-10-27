@@ -10,44 +10,19 @@
  * hard-slices that one section. capText is flat prose truncation with no file-awareness.
  * capDiff is the only diff capper; nothing in src/ keeps a copy.
  */
-import { diffGitHeaderPath } from "@kernel/diff-parser/diff-parser.service.ts";
+import { changeFileLine } from "@kernel/change-map.ts";
+import { sectionPath, sectionStat } from "@kernel/diff-hunks.ts";
+import { isLowRelevance, isStyleSheet } from "@kernel/file-classes.ts";
 
 export const MAX_PROMPT_DIFF_CHARS = 50_000;
 
-const LOW_RELEVANCE_PATTERNS = [
-  /^(package-lock|yarn\.lock|pnpm-lock|Pipfile\.lock|Cargo\.lock|go\.sum|composer\.lock|poetry\.lock|Gemfile\.lock)$/i,
-  /\.(generated|gen|pb|pb\.go|pb_grpc\.go|swagger\.json|openapi\.json|openapi\.yaml)$/i,
-  /\bgenerated?\b/i,
-  /\.snap$/i,
-  /\.(png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|pdf|zip|tar|gz)$/i,
-  /\/(dist|build|\.cache|__pycache__|\.next|\.nuxt|\.out|target)\/[^/]+\.(js|css|map|ts)$/i,
-  /\.map$/i,
-  /^(CHANGELOG|CHANGES|HISTORY)\.(md|txt)$/i,
-];
-
-function isLowRelevance(filePath: string): boolean {
-  const basename = filePath.split("/").pop() ?? filePath;
-  return LOW_RELEVANCE_PATTERNS.some((p) => p.test(filePath) || p.test(basename));
-}
-
-/* A style sheet changes how a page looks; the code beside it decides what the page does. */
-const STYLE_SHEET = /\.(css|scss|sass|less|styl)$/i;
-
 /* One line for a section left out: its path, its added and removed lines, and whether the file is new or deleted. */
 function omittedLine(section: string, file: string): string {
-  let added = 0;
-  let removed = 0;
-  for (const line of section.split("\n")) {
-    if (line.startsWith("+") && !line.startsWith("+++")) added++;
-    else if (line.startsWith("-") && !line.startsWith("---")) removed++;
-  }
-  const status = /^new file mode/m.test(section) ? ", new file" : /^deleted file mode/m.test(section) ? ", deleted" : "";
-  return `- ${file} (+${added} -${removed}${status})`;
+  return changeFileLine({ path: file, ...sectionStat(section) });
 }
 
 export function extractDiffFilePath(section: string): string {
-  const header = /^diff --git .*$/m.exec(section)?.[0];
-  return header ? (diffGitHeaderPath(header) ?? "") : "";
+  return sectionPath(section);
 }
 
 const DIFF_HEADER_START_RE = /^diff --git /;
@@ -68,7 +43,7 @@ export function capDiff(diff: string, maxChars: number = MAX_PROMPT_DIFF_CHARS):
     const filePath = extractDiffFilePath(s);
     if (isLowRelevance(filePath)) {
       lowRelevance.push(s);
-    } else if (STYLE_SHEET.test(filePath)) {
+    } else if (isStyleSheet(filePath)) {
       styleSheets.push(s);
     } else {
       highRelevance.push(s);
