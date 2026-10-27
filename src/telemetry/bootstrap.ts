@@ -26,6 +26,8 @@ import { LedgerSpanProcessor, type RunSpanStore } from "./ledger";
 import { EVENT_LOOP_DELAY_BOUNDARIES_MS, SUSPEND_DURATION_BOUNDARIES_S } from "./host-health";
 import { OtelTelemetry, type CaptureMode } from "./otel-telemetry.adapter";
 import { createLogShipper } from "./log-shipper";
+import { PromptBodyExporter } from "./prompt-body-logs";
+import { registerPromptBodyHost } from "./with-prompt-bodies";
 
 export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5000;
 const METRIC_EXPORT_INTERVAL_MS = 60_000;
@@ -207,6 +209,11 @@ export function createTelemetry(deps: BootstrapDeps): TelemetryHandle {
       processors: [new BatchLogRecordProcessor({ exporter, ...config.otlp.batch })],
     });
     if (deps.shipLogs) {
+      /* Turn bodies share the log pipeline and its gate: the composition roots only. */
+      registerPromptBodyHost({
+        exporter: new PromptBodyExporter({ logger: loggerProvider.getLogger("qayaba"), redact: (text) => adapter.redactIn(adapter.logTarget()?.context, text, Number.POSITIVE_INFINITY) }),
+        activeMode: () => adapter.logTarget()?.mode,
+      });
       installLogShipper(
         createLogShipper({
           logger: loggerProvider.getLogger("qayaba"),
@@ -240,6 +247,7 @@ export function createTelemetry(deps: BootstrapDeps): TelemetryHandle {
     /* Stop mirroring first, then commit the local ledger before anything that can hang. */
     stopLogShipping();
     stopLogShipping = () => {};
+    registerPromptBodyHost(undefined);
     ledger.flush();
     const stop = async (): Promise<void> => {
       await provider.forceFlush();

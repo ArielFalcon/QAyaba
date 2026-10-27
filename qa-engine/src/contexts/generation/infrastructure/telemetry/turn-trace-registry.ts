@@ -7,7 +7,7 @@
  */
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { TurnLimit } from "@kernel/turn-limit.ts";
-import type { SpanHandle } from "@kernel/telemetry/telemetry.port.ts";
+import type { SpanHandle, TelemetryContext } from "@kernel/telemetry/telemetry.port.ts";
 import type { ServerToolCall, ToolAttemptDirectory } from "../../domain/tool-link.ts";
 import type { AttemptEvent } from "../agent-transport-policy.ts";
 import type { TurnProbe } from "./turn-probe.ts";
@@ -96,6 +96,11 @@ export class AgentTurnTraces implements ToolAttemptDirectory {
   /* The attempt span the session's turn is in right now: where a tool call the orchestrator serves for the session hangs. */
   attemptSpan(sessionId: string): SpanHandle | undefined {
     return this.bySession.get(sessionId)?.current?.liveAttempt();
+  }
+
+  /* The turn span the session's turn in flight is, for a record that links to it. */
+  turnContext(sessionId: string): TelemetryContext | undefined {
+    return this.bySession.get(sessionId)?.current?.turnContext();
   }
 
   noteToolCall(sessionId: string, call: ServerToolCall): void {

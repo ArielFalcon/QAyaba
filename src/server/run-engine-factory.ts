@@ -72,6 +72,8 @@ import type { ArchitectureContext } from "@contexts/generation/application/index
 import { contextMapValidity, parseNameStatusZ, type ChangedFile } from "@contexts/run-orchestration/application/index";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { CONTEXT_MAP_MAX_AGE_MS, contextMapResultCount, type ContextProvenance } from "@kernel/telemetry/context-provenance";
+import { withPromptBodies } from "../telemetry/with-prompt-bodies";
+import { hashStaticPrompts } from "./effective-config";
 import { withTurnTelemetry } from "@contexts/generation/infrastructure/telemetry/with-turn-telemetry";
 import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
 import type { StepIntentContext } from "@contexts/generation/application/index";
@@ -1541,7 +1543,7 @@ export function engineAgentDeps(deps: Pick<RunEngineFactoryDeps, "getAgentDeps" 
   );
   /* The turn span sits outside the stall watchdog, so it sees a watchdog's abort. Without a telemetry port the stack is returned as it is. */
   if (!deps.telemetry) return stack;
-  return withTurnTelemetry(stack, {
+  const traced = withTurnTelemetry(stack, {
     telemetry: deps.telemetry,
     clock: deps.clock ?? SYSTEM_CLOCK,
     intent: turn?.intent ?? DEFAULT_STEP_INTENT,
@@ -1549,6 +1551,15 @@ export function engineAgentDeps(deps: Pick<RunEngineFactoryDeps, "getAgentDeps" 
     stepLimitFor: (agent) => maxStepsFromConfig(agent),
     agentConfig: (agent) => agentConfigFacts(agent),
   });
+  /* The turn's prompt and output bodies go to Loki beside its trace, only for a run that asked for full capture (src/telemetry/prompt-body-logs.ts). */
+  return withPromptBodies(traced, { staticHash: staticPromptDigest, traces: agentTurnTraces });
+}
+
+let staticDigest: string | null | undefined;
+/* The digest of the static prompt layers, read once: they are files of the image. */
+function staticPromptDigest(): string | null {
+  if (staticDigest === undefined) staticDigest = hashStaticPrompts(qayabaRoot());
+  return staticDigest;
 }
 
 export function createRunEngineFactory(

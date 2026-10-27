@@ -125,7 +125,7 @@ The orchestrator reads its environment once, in `loadSettings(env)`. An empty va
 | `OTEL_BSP_MAX_QUEUE_SIZE` | - | integer | `2048` | - | Most spans queued for export. |
 | `OTEL_BSP_MAX_EXPORT_BATCH_SIZE` | - | integer | `512` | - | Most spans in one export. |
 | `OTEL_BSP_EXPORT_TIMEOUT` | - | integer | `30000` | - | Milliseconds an export may take. |
-| `QA_TELEMETRY_MAX_CAPTURE` | - | enum: off \| metadata \| full | `metadata` | - | The most content a run's trace may carry, whatever a request asks for. |
+| `QA_TELEMETRY_MAX_CAPTURE` | - | enum: off \| metadata \| full | `metadata` | - | The most content a run's trace may carry, whatever a request asks for. `full` also sends each agent turn's prompt and output bodies to Loki (never to Tempo). |
 | `QA_TELEMETRY_LOKI_URL` | - | url | - | - | Address of the log store, probed by the telemetry health check. |
 | `QA_TELEMETRY_TEMPO_URL` | - | url | - | - | Address of the trace store, probed by the telemetry health check. |
 | `QA_TELEMETRY_COLLECTOR_METRICS_URLS` | - | list | - | - | Comma-separated collector metrics addresses, probed by the telemetry health check. |

@@ -129,7 +129,7 @@ export const SETTINGS_REGISTRY: readonly SettingDef[] = [
   entry({ env: "OTEL_BSP_MAX_QUEUE_SIZE", key: "-", group: "telemetry", type: "integer", default: "2048", description: "Most spans queued for export." }),
   entry({ env: "OTEL_BSP_MAX_EXPORT_BATCH_SIZE", key: "-", group: "telemetry", type: "integer", default: "512", description: "Most spans in one export." }),
   entry({ env: "OTEL_BSP_EXPORT_TIMEOUT", key: "-", group: "telemetry", type: "integer", default: "30000", description: "Milliseconds an export may take." }),
-  entry({ env: "QA_TELEMETRY_MAX_CAPTURE", key: "-", group: "telemetry", type: "enum", values: ["off", "metadata", "full"], default: "metadata", description: "The most content a run's trace may carry, whatever a request asks for." }),
+  entry({ env: "QA_TELEMETRY_MAX_CAPTURE", key: "-", group: "telemetry", type: "enum", values: ["off", "metadata", "full"], default: "metadata", description: "The most content a run's trace may carry, whatever a request asks for. `full` also sends each agent turn's prompt and output bodies to Loki (never to Tempo)." }),
   entry({ env: "QA_TELEMETRY_LOKI_URL", key: "-", group: "telemetry", type: "url", description: "Address of the log store, probed by the telemetry health check." }),
   entry({ env: "QA_TELEMETRY_TEMPO_URL", key: "-", group: "telemetry", type: "url", description: "Address of the trace store, probed by the telemetry health check." }),
   entry({ env: "QA_TELEMETRY_COLLECTOR_METRICS_URLS", key: "-", group: "telemetry", type: "list", description: "Comma-separated collector metrics addresses, probed by the telemetry health check." }),

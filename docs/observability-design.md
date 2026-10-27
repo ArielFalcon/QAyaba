@@ -718,6 +718,36 @@ errors; its INFO chatter is dropped there), and the collector copies the session
 joins no run. The backend health probe pushes one line per process to prove the write path, then watches Loki's
 append-failure counter, so the store holds no line per poll.
 
+#### Turn bodies in Loki (the HOW of a turn)
+
+Tempo says what a turn did (sizes, hashes, section bytes, usage); Loki keeps how it was asked and what it answered. In
+`full` capture each agent turn's prompt and output go to Loki as log records carrying the turn span's trace and span ids,
+and **never as span attributes** (`gen_ai.input.messages` / `gen_ai.output.messages` stay unwired; a test pins that no
+body reaches a span in any mode). No new setting: the gate is the one that already exists, the run's capture mode capped by
+`QA_TELEMETRY_MAX_CAPTURE`. `off` and `metadata` export nothing, so a default run stores no body in Loki. Prompts carry
+repository source and diffs, which is why this stays the deliberate `full` act and is not turned on for every run.
+
+Records (`src/telemetry/prompt-body-logs.ts`, attribute `qayaba.body.kind`), one JSON line each, at most 64 KB serialized:
+
+| Kind | Body |
+|---|---|
+| `prompt_turn` | `session`, `agent`, `role`, `round`, `repair`, `static_hash`, and `sections[]` in prompt order: `{id, hash, bytes, stored: here \| earlier \| dropped}`. No text. |
+| `prompt_section` | `{id, hash, chunk, chunks, text}`: a section's redacted text, written once per run (trace) the first time its hash is seen; a later turn lists it as `earlier`. |
+| `turn_output` | `{hash, chunk, chunks, text}`: the answer text of the turn. |
+
+Space: static layers (`agents/AGENTS.md`, `agent/*.md`, `skill/`) never pass through the prompt text; `static_hash` is their
+digest and the bytes are in the repository at that digest. Section boundaries come from the assembler's own `sectionSizes`
+and `sectionHashes`; a slice is used only when its hash equals the assembler's, otherwise the prompt is stored whole (keyed by
+its own hash). A body over 256 K characters is cut and marked `truncated`; a longer line is split into numbered chunks.
+Governance: every body goes through the run's by-value scope and the outbound sanitizer first; a failed redaction drops the
+record and the section is not remembered as stored.
+
+Measured on run `run-ed28973-mvqc7x8j-2da31df4` (8 turns): prompts 202 KB + outputs 50 KB = 253 KB of bodies. Per-run section
+dedup saved nothing there (0 repeated sections: the lead, author and reviewer prompts share no section bytes; the two author
+turns share about 1.8 KB of 15 KB, but author prompts carry no `sectionHashes`, so they are stored whole), and the turn records
+add about 1.4% of listing. Dedup pays on runs with revise/replace rounds and reviewer rounds that re-send the same grounding;
+on this run the cost of `full` is about the raw 253 KB per run (roughly a fifth of that after Loki compression).
+
 ---
 
 ## 9. Security and trust

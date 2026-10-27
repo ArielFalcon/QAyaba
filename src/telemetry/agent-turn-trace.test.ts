@@ -136,6 +136,19 @@ const twoSteps: RigOptions["promptSession"] = async ({ stream, clock }) => {
   return answered();
 };
 
+test("a full-capture turn puts no prompt or output body on any span (bodies go to Loki, see prompt-body-logs.ts)", async () => {
+  const body = "PROMPT-BODY-NEVER-ON-A-SPAN";
+  const answer = "OUTPUT-BODY-NEVER-ON-A-SPAN";
+  const full = traceHarness({ captureMode: "full" });
+  const fullRig = rig({ promptSession: async () => answered({ parts: [{ type: "text", text: answer }] }), telemetry: full.telemetry });
+  const session = await fullRig.deps.open("qa-author", CWD, { descriptor: { runId: "run-1", role: "qa-author" } });
+  await session.prompt(body, { sectionSizes: { task: body.length }, sectionHashes: { task: "h" } });
+  await session.dispose();
+  const everything = JSON.stringify(full.spans().map((s) => [s.attributes, s.events.map((e) => e.attributes)]));
+  assert.ok(full.spans().length > 0);
+  assert.ok(!everything.includes(body) && !everything.includes(answer));
+});
+
 test("a turn is invoke_agent -> attempt -> chat and execute_tool, with the calls' own times and the steps' receive times marked", async () => {
   const r = rig({ promptSession: twoSteps });
   await twoStepTurn(r);

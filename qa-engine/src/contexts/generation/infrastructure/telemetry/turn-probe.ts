@@ -177,6 +177,11 @@ export class TurnProbe {
     recordDeliveredContextSpans(telemetry, prompt.sectionItems, prompt.sectionSizes);
   }
 
+  /* The turn span's position in its trace: what a record about this turn (a body stored beside the trace) links to. */
+  turnContext(): TelemetryContext {
+    return this.span.context();
+  }
+
   /* True once the prompt has settled for its caller and no attempt is left open: nothing more will be told. */
   isDone(): boolean {
     return this.settled && [...this.attempts.values()].every((a) => a.spanEnded);
