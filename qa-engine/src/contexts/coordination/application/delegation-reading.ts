@@ -3,7 +3,7 @@ import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import { jsonObjectsIn } from "@kernel/last-json-object.ts";
 import { UNREADABLE_ANSWER } from "@kernel/unreadable-answer.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
-import { belongsToBrief, CANDIDATE_CLAIMS, DELEGATION_RECOMMENDATIONS, type CandidateClaim, type CandidateClaimStatus, DELEGATION_STATUSES, type DelegationRecommendation, type DelegationResult, type DelegationStatus } from "./delegation-result.ts";
+import { ANSWER_MISS, belongsToBrief, CANDIDATE_CLAIMS, DELEGATION_RECOMMENDATIONS, type CandidateClaim, type CandidateClaimStatus, DELEGATION_STATUSES, type AnswerMiss, type DelegationRecommendation, type DelegationResult, type DelegationStatus } from "./delegation-result.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 import { readAcceptanceReport } from "./acceptance-report.ts";
 import { applyPushback } from "./pushback.ts";
@@ -89,7 +89,7 @@ function testCorrectOf(value: unknown, redaction: RedactionPort): { testCorrect?
   return { testCorrect: { cause, reason: redaction.redact(reason).trim().slice(0, MAX_CLAIM_CHARS) } };
 }
 
-function failedResult(brief: DelegationBrief, summary: string, redaction: RedactionPort, readMiss?: typeof UNREADABLE_ANSWER): DelegationResult {
+function failedResult(brief: DelegationBrief, summary: string, redaction: RedactionPort, answerMiss: AnswerMiss): DelegationResult {
   const safe = redaction.redact(summary);
   return {
     delegationId: brief.delegationId,
@@ -112,7 +112,8 @@ function failedResult(brief: DelegationBrief, summary: string, redaction: Redact
     unresolvedQuestions: [],
     recommendation: "escalate",
     acceptance: [],
-    ...(readMiss ? { readMiss } : {}),
+    ...(answerMiss === ANSWER_MISS.UNREADABLE ? { readMiss: UNREADABLE_ANSWER } : {}),
+    answerMiss,
   };
 }
 
@@ -129,9 +130,9 @@ function lastDelegationResult(output: string, brief: DelegationBrief, redaction:
 /* The delegation result a sidekick's output came to. */
 export function readDelegationResult(output: string, brief: DelegationBrief, redaction: RedactionPort): DelegationResult {
   const parsed = lastDelegationResult(output, brief, redaction);
-  if (!parsed) return failedResult(brief, "sidekick output was not a valid DelegationResult", redaction, UNREADABLE_ANSWER);
+  if (!parsed) return failedResult(brief, "sidekick output was not a valid DelegationResult", redaction, ANSWER_MISS.UNREADABLE);
   if (!belongsToBrief(parsed, brief.delegationId, brief.runId)) {
-    return failedResult(brief, "sidekick result did not belong to this brief", redaction);
+    return failedResult(brief, "sidekick result did not belong to this brief", redaction, ANSWER_MISS.FOREIGN_BRIEF);
   }
   const illegal = parsed.filesChanged.filter((f) => !isPathWithinWritableRoots(f.path, brief.scope.writablePaths));
   if (illegal.length > 0) {

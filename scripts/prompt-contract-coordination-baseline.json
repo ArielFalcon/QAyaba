@@ -48,8 +48,16 @@
       "bytes": 551,
       "directives": 0
     },
+    "lead-feedback/plain": {
+      "bytes": 128,
+      "directives": 0
+    },
     "lead-plan-rejected/malformed": {
       "bytes": 305,
+      "directives": 0
+    },
+    "lead-replan/refused-drop": {
+      "bytes": 674,
       "directives": 0
     },
     "lead-review/last-turn-with-gaps": {
@@ -59,6 +67,10 @@
     "lead-review/turn-1": {
       "bytes": 702,
       "directives": 1
+    },
+    "lead-review/unreadable-answer-unchanged-spec": {
+      "bytes": 421,
+      "directives": 0
     }
   },
   "staticLayers": {

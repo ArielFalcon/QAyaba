@@ -143,7 +143,17 @@ flow's `run_spec` facts (calls used, the last call's status and failure, whether
 passed) and the spec it delivered, read through the confined reader and bounded. When the plan had use cases to answer
 for, the turn also names those no flow covers and those whose covering flows all ran `run_spec` and none holds a spec
 that passed it (`candidateGapsOf`); a candidate covered only by a flow without `run_spec` is not called unproven, and one
-the lead dropped with a reason is not named. It answers per flow:
+the lead dropped with a reason is not named.
+
+The turn says whose statement each line is. A sidekick answer the reader could not read, or one addressed to another brief
+(`DelegationResult.answerMiss`), is stated as the orchestrator's own fact ("Sidekick answer: the orchestrator could not read
+it"), never under "Sidekick says" or "Sidekick concerns". A `run_spec` failure is shown as the last failure only when the
+ledger's `sha256` is that of the spec bytes the confined reader returns now; otherwise it is labelled as seen on earlier
+bytes, in the review, in the instruction that sends an unverified spec back, and in the facts added to a revision. The
+lead's session remembers what it was shown (`withSpecDigests`): a flow whose spec bytes are those shown in an earlier turn
+carries a line, "unchanged since review turn N" with the sha256 and the line count, instead of the spec. The turns of the
+lead (this one, the correction, the re-plan, the refusal and the exploration outcome) pass their section sizes and hashes to
+the transport, as the sidekick's brief and its feedback do. It answers per flow:
 
 - `accept`;
 - `revise`: its instruction goes to the SAME sidekick session, which is kept, with the flow's workspace, `run_spec`

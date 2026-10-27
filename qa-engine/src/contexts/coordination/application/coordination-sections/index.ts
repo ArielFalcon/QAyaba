@@ -1,6 +1,8 @@
 /* Every role prompt the coordination context assembles, by name, with the registry its sections come from. A prompt of a role is built from one of these registries through the shared assembler and from nowhere else; the registry-rule test holds the source to that. */
 import type { PromptSectionDef } from "@kernel/prompt-sections.ts";
 import { AUTHOR_BRIEF_SECTIONS, EXPLORE_BRIEF_SECTIONS } from "./brief-sections.ts";
+import { FEEDBACK_SECTIONS } from "./feedback-sections.ts";
+import { REPLAN_SECTIONS } from "./replan-sections.ts";
 import { EXPLORE_OUTCOME_SECTIONS, LEAD_CORRECTION_SECTIONS, LEAD_REVIEW_SECTIONS, REFUSED_CORRECTION_SECTIONS, REJECTED_PLAN_SECTIONS } from "./lead-turn-sections.ts";
 
 export const COORDINATION_PROMPTS = {
@@ -16,6 +18,10 @@ export const COORDINATION_PROMPTS = {
   "lead-plan-rejected": REJECTED_PLAN_SECTIONS,
   /* The one request that sends a refused correction answer back to the lead. */
   "lead-correction-refused": REFUSED_CORRECTION_SECTIONS,
+  /* The one request that sends a plan that left use cases unresolved back to the lead. */
+  "lead-replan": REPLAN_SECTIONS,
+  /* What the lead sends a sidekick after its brief: feedback and the contract reminder. */
+  "lead-feedback": FEEDBACK_SECTIONS,
   /* The lead's turn after the exploration it asked for. */
   "lead-explore-outcome": EXPLORE_OUTCOME_SECTIONS,
 } as const satisfies Record<string, readonly PromptSectionDef<never>[]>;

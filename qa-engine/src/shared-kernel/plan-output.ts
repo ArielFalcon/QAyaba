@@ -17,9 +17,15 @@ export interface PlanOutput {
   lead?: LeadSessionHandle;
 }
 /** The lead's planning session, held open for its next turn: asked read-only, a turn out of its time answers `timedOut`. */
+export interface LeadTurnOpts {
+  timeoutMs: number;
+  /** The sizes and hashes of the sections the turn's prompt was assembled from; only for the trace. */
+  sectionSizes?: Record<string, number>;
+  sectionHashes?: Record<string, string>;
+}
 export interface LeadSessionHandle {
-  ask(text: string, opts: { timeoutMs: number }): Promise<{ output: string; timedOut: boolean }>;
+  ask(text: string, opts: LeadTurnOpts): Promise<{ output: string; timedOut: boolean }>;
   /** Asks the lead for its plan after the exploration it requested, read as a planning turn is read. */
-  askForPlan(text: string, opts: { timeoutMs: number }): Promise<Pick<PlanOutput, "plan" | "explore" | "noopReason" | "parsed" | "timedOut">>;
+  askForPlan(text: string, opts: LeadTurnOpts): Promise<Pick<PlanOutput, "plan" | "explore" | "noopReason" | "parsed" | "timedOut">>;
   dispose(): Promise<void>;
 }

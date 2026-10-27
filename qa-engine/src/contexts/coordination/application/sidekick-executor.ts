@@ -3,10 +3,12 @@ import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import type { DelegationResult } from "./delegation-result.ts";
+import { assembleDefs, type AssembledPrompt } from "@kernel/prompt-sections.ts";
+import { FEEDBACK_SECTIONS } from "./coordination-sections/feedback-sections.ts";
 import { delegatingKindSpec, type SidekickKind } from "./sidekick-kinds.ts";
 
 export interface SidekickRender {
-  (brief: DelegationBrief): { text: string; sectionSizes: Record<string, number> };
+  (brief: DelegationBrief): { text: string; sectionSizes: Record<string, number>; sectionHashes?: Record<string, string> };
 }
 
 export interface SidekickExecutorDeps {
@@ -38,6 +40,11 @@ export interface SidekickSession {
   ask(instruction: string, opts?: { timeoutMs?: number }): Promise<DelegationResult>;
   /* Ends the session. Idempotent. */
   dispose(): Promise<void>;
+}
+
+/* What the lead sends a sidekick after its brief, as the registered sections assemble it. */
+export function assembleSidekickFeedback(redaction: RedactionPort, feedback: string, contract: string): AssembledPrompt {
+  return assembleDefs(FEEDBACK_SECTIONS, { feedback, contract, scrub: (value: string) => redaction.redact(value) }, { separator: "\n\n" });
 }
 
 export class SidekickExecutor {
@@ -74,20 +81,22 @@ export class SidekickExecutor {
       disposed = true;
       await session.dispose();
     };
+    const feedbackOf = (feedback: string) => assembleSidekickFeedback(this.deps.redaction, feedback, contract);
     const contract = `Respond with the SAME JSON output contract for delegationId=${brief.delegationId} runId=${brief.runId}.`;
     try {
       const assembled = render(brief);
       /* A fresh session that has seen nothing gets the brief and any feedback in one prompt: answering the brief on its own first would spend the flow's budget on work that is then thrown away. */
-      const text = opts.feedback
-        ? [assembled.text, ``, `## Feedback from lead`, this.deps.redaction.redact(opts.feedback), ``, contract].join("\n")
-        : assembled.text;
-      const { output } = await session.prompt(text, { sectionSizes: assembled.sectionSizes });
+      const feedback = opts.feedback ? feedbackOf(opts.feedback) : undefined;
+      const text = feedback ? [assembled.text, feedback.text].join("\n\n") : assembled.text;
+      const sectionSizes = { ...assembled.sectionSizes, ...feedback?.sectionSizes };
+      const sectionHashes = { ...assembled.sectionHashes, ...feedback?.sectionHashes };
+      const { output } = await session.prompt(text, { sectionSizes, ...(Object.keys(sectionHashes).length > 0 ? { sectionHashes } : {}) });
       const first = read(output);
       return {
         first,
         ask: async (instruction, askOpts) => {
-          const followUp = [`## Feedback from lead`, this.deps.redaction.redact(instruction), ``, contract].join("\n");
-          const answer = await session.prompt(followUp, askOpts?.timeoutMs !== undefined ? { timeoutMs: askOpts.timeoutMs } : {});
+          const followUp = feedbackOf(instruction);
+          const answer = await session.prompt(followUp.text, { sectionSizes: followUp.sectionSizes, ...(followUp.sectionHashes ? { sectionHashes: followUp.sectionHashes } : {}), ...(askOpts?.timeoutMs !== undefined ? { timeoutMs: askOpts.timeoutMs } : {}) });
           return read(answer.output);
         },
         dispose,

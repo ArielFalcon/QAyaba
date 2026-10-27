@@ -17,7 +17,6 @@ const isRegistry = (file: string): boolean => /\/coordination-sections\//.test(f
  * Modules that still write a role prompt's heading outside a registry. The list only shrinks: moving a prompt into a registry
  * removes its module here, and a module that stops writing a heading must leave the list (the last case below).
  *  - the generation renderers are helpers the generator and reviewer registries call to render their sections' bodies;
- *  - the lead's re-plan request and the sidekick's follow-up feedback are prompts of the coordination context built by hand.
  */
 const HELPERS_OF_REGISTERED_SECTIONS: readonly string[] = [
   "generation/domain/changed-values.ts",
@@ -32,10 +31,7 @@ const HELPERS_OF_REGISTERED_SECTIONS: readonly string[] = [
   "generation/infrastructure/prompt-builders/review-render.ts",
   "generation/infrastructure/prompt-builders/task-builders.ts",
 ];
-const PENDING_MIGRATION: readonly string[] = [
-  "coordination/application/plan-coverage.ts",
-  "coordination/application/sidekick-executor.ts",
-];
+const PENDING_MIGRATION: readonly string[] = [];
 
 function sourcesUnder(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {

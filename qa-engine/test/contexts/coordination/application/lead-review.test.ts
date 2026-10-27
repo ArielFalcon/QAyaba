@@ -9,7 +9,9 @@ import {
   MAX_SPEC_CHARS,
   renderLeadReview,
   REVIEW_ACTION,
+  withSpecDigests,
   type FlowUnderReview,
+  type SeenSpecs,
 } from "@contexts/coordination/application/lead-review.ts";
 import { FLOW_OUTCOME } from "@contexts/coordination/application/flow-outcomes.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
@@ -22,7 +24,7 @@ function flow(over: Partial<FlowUnderReview> = {}): FlowUnderReview {
     objective: "the cart total",
     acceptance: ["the total adds the line prices"],
     outcome: { id: over.id ?? "cart", kind: FLOW_OUTCOME.DELIVERED, specs: [`flows/${over.id ?? "cart"}.spec.ts`] },
-    concerns: [],
+    answer: { kind: "read", concerns: [] },
     verified: true,
     sessionOpen: true,
     runSpec: { calls: 2, maxCalls: 8, lastStatus: "passed" },
@@ -37,7 +39,7 @@ test("the review shows the lead, per flow, what it asked for, what came of it, t
   const text = renderLeadReview(redaction, 
     [
       flow(),
-      flow({ id: "login", objective: "sign in works", outcome: { id: "login", kind: FLOW_OUTCOME.FAILED, reason: "failed: the button never appeared" }, verified: false, runSpec: { calls: 3, maxCalls: 8, lastStatus: "failed", lastFailure: "locator('Sign in') not found on /login" }, spec: undefined, summary: "could not find the button", concerns: ["the page may differ on DEV"] }),
+      flow({ id: "login", objective: "sign in works", outcome: { id: "login", kind: FLOW_OUTCOME.FAILED, reason: "failed: the button never appeared" }, verified: false, runSpec: { calls: 3, maxCalls: 8, lastStatus: "failed", lastFailure: "locator('Sign in') not found on /login" }, spec: undefined, answer: { kind: "read", summary: "could not find the button", concerns: ["the page may differ on DEV"] } }),
     ],
     { turn: 1, maxTurns: 3 },
   );
@@ -191,4 +193,51 @@ test("the review names the use cases left uncovered and unproven, and without th
   assert.ok(!text.includes("uc-/cart"), "a use case a passing flow covers is not named");
   assert.match(text, /2 less direct/);
   assert.ok(!renderLeadReview(redaction, [flow()], { turn: 1, maxTurns: 3 }).includes("uc-/orders"));
+});
+
+test("an answer the orchestrator could not read, or a foreign brief's, is stated as the orchestrator's fact and never as what the sidekick says or concerns", () => {
+  for (const kind of ["unreadable", "foreign-brief"] as const) {
+    const text = renderLeadReview(redaction, [flow({ answer: { kind } })], { turn: 1, maxTurns: 3 });
+    assert.ok(!/Sidekick says|Sidekick concerns/.test(text), kind);
+    assert.match(text, /Sidekick answer: the orchestrator/, kind);
+  }
+  const read = renderLeadReview(redaction, [flow({ answer: { kind: "read", summary: "done", concerns: ["flaky"] } })], { turn: 1, maxTurns: 3 });
+  assert.match(read, /Sidekick says: done/);
+  assert.match(read, /Sidekick concerns: flaky/);
+});
+
+test("a run_spec failure is the last failure only when it was seen on the bytes the spec holds now, otherwise it is labelled as earlier bytes", () => {
+  const runSpec = { calls: 3, maxCalls: 8, lastStatus: "failed", lastFailure: "locator not found" };
+  const current = renderLeadReview(redaction, [flow({ verified: false, runSpec: { ...runSpec, lastFailureCurrent: true } })], { turn: 1, maxTurns: 3 });
+  assert.match(current, /^Last failure: locator not found$/m);
+  const earlier = renderLeadReview(redaction, [flow({ verified: false, runSpec: { ...runSpec, lastFailureCurrent: false } })], { turn: 1, maxTurns: 3 });
+  assert.doesNotMatch(earlier, /^Last failure: /m);
+  assert.match(earlier, /Last failure \(seen on earlier bytes[^)]*\): locator not found/);
+});
+
+test("the instruction that sends an unverified spec back names its last failure as of earlier bytes unless it was seen on the current ones", () => {
+  const unverified = (lastFailureCurrent: boolean) => flow({ verified: false, runSpec: { calls: 1, maxCalls: 8, lastStatus: "failed", lastFailure: "boom", lastFailureCurrent } });
+  const sent = (f: FlowUnderReview): string => admitLeadReview(redaction, answer([{ flow: "cart", action: "accept" }]), [f], { revisionsAllowed: true }).orders[0]!.instruction;
+  assert.match(sent(unverified(false)), /last failure, seen on earlier bytes: boom/);
+  assert.match(sent(unverified(true)), /last failure: boom/);
+});
+
+test("a flow whose spec bytes the lead was already shown in this session carries a digest instead of the spec; changed bytes are sent in full", () => {
+  const seen: SeenSpecs = new Map();
+  const first = withSpecDigests([flow({ spec: "a\nb\nc" })], seen, 1);
+  assert.equal(first[0]!.spec, "a\nb\nc");
+  const second = withSpecDigests([flow({ spec: "a\nb\nc" })], seen, 2);
+  assert.equal(second[0]!.spec, undefined);
+  assert.deepEqual({ ...second[0]!.specUnchanged!, sha256: undefined }, { sinceTurn: 1, sha256: undefined, lines: 3 });
+  const text = renderLeadReview(redaction, second, { turn: 2, maxTurns: 3 });
+  assert.match(text, /Spec: unchanged since review turn 1 \(sha256 [0-9a-f]{12}, 3 lines\)/);
+  assert.ok(!text.includes("```ts"));
+  const third = withSpecDigests([flow({ spec: "a\nb\nd" })], seen, 3);
+  assert.equal(third[0]!.spec, "a\nb\nd");
+  assert.equal(third[0]!.specUnchanged, undefined);
+  assert.equal(withSpecDigests([flow({ spec: "a\nb\nd" })], seen, 4)[0]!.specUnchanged?.sinceTurn, 3, "the digest names the turn that last showed these bytes");
+});
+
+test("a spec the lead cannot be shown stays as it is: no digest for a flow with no spec", () => {
+  assert.equal(withSpecDigests([flow({ spec: undefined })], new Map(), 1)[0]!.specUnchanged, undefined);
 });

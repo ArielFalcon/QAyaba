@@ -12,16 +12,21 @@ import type { FlowOutcome } from "../flow-outcomes.ts";
 /* The longest spec a review or correction turn shows the lead. */
 export const MAX_SPEC_CHARS = 8_000;
 
+/* What the sidekick's last answer came to, and whose words the statement is: only a read answer carries the sidekick's own. */
+export type SidekickAnswer =
+  | { kind: "read"; summary?: string; concerns: readonly string[] }
+  | { kind: "unreadable" }
+  | { kind: "foreign-brief" };
+
 export interface FlowUnderReview {
   id: string;
   objective: string;
   acceptance: readonly string[];
   outcome: FlowOutcome;
-  /* What the sidekick said of its last answer. */
-  summary?: string;
-  concerns: readonly string[];
-  /* What the orchestrator saw of the flow's run_spec calls; absent when the flow has no loop. */
-  runSpec?: { calls: number; maxCalls: number; lastStatus?: string; lastFailure?: string };
+  /* What the sidekick answered, or why the orchestrator holds no answer of its. */
+  answer: SidekickAnswer;
+  /* What the orchestrator saw of the flow's run_spec calls; absent when the flow has no loop. `lastFailureCurrent` is whether the failure was seen on the bytes the spec holds now. */
+  runSpec?: { calls: number; maxCalls: number; lastStatus?: string; lastFailure?: string; lastFailureCurrent?: boolean };
   /* Whether the spec the flow holds now is the one its last run_spec call passed on. */
   verified: boolean;
   /* The app defect the flow's run showed, when one did. */
@@ -30,6 +35,8 @@ export interface FlowUnderReview {
   sessionOpen: boolean;
   /* The spec the flow delivered, as it is in the working copy. */
   spec?: string;
+  /* Set instead of `spec` when the lead was shown these same bytes in an earlier turn of this session. */
+  specUnchanged?: { sinceTurn: number; sha256: string; lines: number };
 }
 
 /* The use cases a review names: those no flow answers for, and those whose answering flows all ran run_spec and none holds a spec that passed it. A use case a flow without run_spec answers for is not called unproven: nothing says so. A use case the lead dropped with a reason is not named. */
@@ -87,7 +94,7 @@ function runSpecLine(scrub: (text: string) => string, flow: FlowUnderReview): st
   const verified = flow.verified ? "the spec it holds now is the one that passed" : "the spec it holds now has NOT passed run_spec";
   return [
     `run_spec: ${calls} of ${maxCalls} calls used${lastStatus ? `; last call ${lastStatus}` : ""}; ${verified}.`,
-    lastFailure ? `Last failure: ${scrub(lastFailure)}` : "",
+    lastFailure ? `Last failure${flow.runSpec.lastFailureCurrent === true ? "" : " (seen on earlier bytes, not the spec it holds now)"}: ${scrub(lastFailure)}` : "",
   ].filter(Boolean).join("\n");
 }
 
@@ -97,12 +104,27 @@ function flowBlock(scrub: (text: string) => string, flow: FlowUnderReview): stri
     `Objective: ${scrub(flow.objective)}`,
     flow.acceptance.length > 0 ? ["Acceptance:", ...flow.acceptance.map((a, i) => `${i + 1}. ${scrub(a)}`)].join("\n") : "",
     `Outcome: ${flow.outcome.kind}${flow.outcome.reason ? ` (${scrub(flow.outcome.reason)})` : ""}`,
-    flow.summary ? `Sidekick says: ${scrub(flow.summary)}` : "",
-    flow.concerns.length > 0 ? `Sidekick concerns: ${flow.concerns.map((concern) => scrub(concern)).join("; ")}` : "",
+    ...answerLines(scrub, flow.answer),
     runSpecLine(scrub, flow),
     flow.appDefect ? `App defect shown by its run: ${scrub(flow.appDefect)}. It is reported as it ran and is never sent back to be made green.` : "",
-    flow.spec !== undefined ? ["Spec:", "```ts", cut(scrub(flow.spec), MAX_SPEC_CHARS), "```"].join("\n") : "Spec: none delivered.",
+    specBlock(scrub, flow),
   ].filter(Boolean).join("\n");
+}
+
+/* The sidekick's words only when it said something the orchestrator read; otherwise the orchestrator's own statement of why there is none. */
+function answerLines(scrub: (text: string) => string, answer: SidekickAnswer): string[] {
+  if (answer.kind === "unreadable") return ["Sidekick answer: the orchestrator could not read it (its output held no result of the contract)."];
+  if (answer.kind === "foreign-brief") return ["Sidekick answer: the orchestrator did not admit it (it answered another brief)."];
+  return [
+    answer.summary ? `Sidekick says: ${scrub(answer.summary)}` : "",
+    answer.concerns.length > 0 ? `Sidekick concerns: ${answer.concerns.map((concern) => scrub(concern)).join("; ")}` : "",
+  ];
+}
+
+function specBlock(scrub: (text: string) => string, flow: FlowUnderReview): string {
+  if (flow.spec !== undefined) return ["Spec:", "```ts", cut(scrub(flow.spec), MAX_SPEC_CHARS), "```"].join("\n");
+  if (flow.specUnchanged) return `Spec: unchanged since review turn ${flow.specUnchanged.sinceTurn} (sha256 ${flow.specUnchanged.sha256}, ${flow.specUnchanged.lines} lines); it is not sent again.`;
+  return "Spec: none delivered.";
 }
 
 function candidatesBlock(scrub: (text: string) => string, gaps: CandidateGaps, last: boolean): string {

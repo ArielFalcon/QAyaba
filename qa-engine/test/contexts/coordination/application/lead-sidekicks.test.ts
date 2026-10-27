@@ -26,7 +26,8 @@ import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import type { DelegationCollection, DelegationWorkspace, DelegationWorkspaceRequest } from "@contexts/coordination/domain/delegation-workspace.ts";
 import type { DelegationWorkspacePort } from "@contexts/coordination/application/ports/delegation-workspace.port.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle, FlowLedgerEntry, FlowLoopHandle, FlowLoopOpenInput, GeolocationHandle } from "@contexts/agent-tools/application/index.ts";
-import type { PlanOutput } from "@kernel/plan-output.ts";
+import type { LeadTurnOpts, PlanOutput } from "@kernel/plan-output.ts";
+import { sha256Hex } from "@kernel/content-hash.ts";
 import { AGENT_TOOL, SIDEKICK_KIND, sidekickKindSpec } from "@contexts/coordination/application/sidekick-kinds.ts";
 import type { GeoLocation } from "@kernel/geolocation.ts";
 
@@ -200,11 +201,13 @@ function input(r: Rig, over: Partial<CoordinateInput> = {}): CoordinateInput {
 }
 
 /* A lead whose planning session answers its review turns with these answers in order (the last repeats), and records what it was asked. */
-function leadWith(answers: unknown[][], plan: Record<string, unknown> = FANOUT_PLAN): { plan: CoordinateInput["plan"]; asked: string[]; disposed: () => number } {
+function leadWith(answers: unknown[][], plan: Record<string, unknown> = FANOUT_PLAN): { plan: CoordinateInput["plan"]; asked: string[]; turnOpts: LeadTurnOpts[]; disposed: () => number } {
   const asked: string[] = [];
+  const turnOpts: LeadTurnOpts[] = [];
   let disposed = 0;
   return {
     asked,
+    turnOpts,
     disposed: () => disposed,
     plan: async () => ({
       plan,
@@ -212,8 +215,9 @@ function leadWith(answers: unknown[][], plan: Record<string, unknown> = FANOUT_P
       timedOut: false,
       lead: {
         askForPlan: noPlanAnswer,
-        ask: async (text: string) => {
+        ask: async (text: string, opts: LeadTurnOpts) => {
           asked.push(text);
+          turnOpts.push(opts);
           const review = answers[Math.min(asked.length - 1, answers.length - 1)]!;
           return { output: JSON.stringify({ review }), timedOut: false };
         },
@@ -1848,4 +1852,68 @@ test("findings a turn left unrouted say why as a code, and the pass's own leave-
   assert.equal(summary?.routes?.unrouted, 2);
   assert.deepEqual(summary?.unroutedReasons, ["no-flow-took"]);
   assert.ok(r.events.some((e) => e.unroutedReasons?.[0] === "left-by-caller" && e.findings === 1));
+});
+
+test("a review turn hands the lead's transport the sizes and hashes of the sections it was assembled from", async () => {
+  const lead = leadWith([[{ flow: "cart", action: "accept" }, { flow: "login", action: "accept" }]]);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  assert.ok("flows" in (lead.turnOpts[0]!.sectionSizes ?? {}));
+  assert.ok("flows" in (lead.turnOpts[0]!.sectionHashes ?? {}));
+});
+
+test("a sidekick answer the reader could not read reaches the lead as the orchestrator's statement, not as what the sidekick says", async () => {
+  const lead = leadWith([[{ flow: "cart", action: "accept" }, { flow: "login", action: "accept" }]]);
+  const r = rig({ answers: { cart: [{ status: "failed", summary: "sidekick output was not a valid DelegationResult", filesChanged: [], readMiss: "unreadable", answerMiss: "unreadable" }] } });
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  const cart = lead.asked[0]!.split("### Flow").find((block) => block.includes("`cart`"))!;
+  assert.doesNotMatch(cart, /Sidekick says|Sidekick concerns/);
+  assert.match(cart, /Sidekick answer: the orchestrator could not read it/);
+});
+
+test("a run_spec failure is the flow's last failure only when its sha256 is that of the spec the working copy holds now", async () => {
+  const lead = leadWith([[{ flow: "cart", action: "accept" }, { flow: "login", action: "accept" }]]);
+  const r = rig();
+  r.deps.readSpec = async (_root, file) => `// ${file}\ntest('works', async () => {});`;
+  r.closedLoop.openFlow = ((original) => (flowInput: FlowLoopOpenInput) => {
+    const handle = original(flowInput)!;
+    const sha256 = flowInput.flowId === "cart" ? sha256Hex(`// flows/cart.spec.ts\ntest('works', async () => {});`) : "sha-of-earlier-bytes";
+    r.flowLoops.at(-1)!.ledger.push({ path: flowInput.specFile, sha256, status: "failed", devWrites: 0, failures: [{ detail: `failure of ${flowInput.flowId}` }] });
+    return { ...handle, isClosed: async () => true };
+  })(r.closedLoop.openFlow);
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  assert.match(lead.asked[0]!, /^Last failure: failure of cart$/m);
+  assert.match(lead.asked[0]!, /Last failure \(seen on earlier bytes[^)]*\): failure of login/);
+});
+
+test("a second review turn does not send a spec again whose bytes the lead already saw, and sends the one that changed", async () => {
+  const lead = leadWith([[{ flow: "cart", action: "revise", instruction: "Assert the total row." }, { flow: "login", action: "accept" }], [{ flow: "cart", action: "accept" }, { flow: "login", action: "accept" }]]);
+  const r = rig();
+  r.deps.readSpec = async (_root, file) => `// ${file} v${r.executed.filter((e) => e.asked && file.includes(e.brief.delegationId.replace(/^.*-flow-/, ""))).length}\ntest('works', async () => {});`;
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  assert.equal(lead.asked.length, 2);
+  const [first, second] = lead.asked;
+  assert.ok(first!.includes("// flows/cart.spec.ts v0") && first!.includes("// flows/login.spec.ts v0"));
+  assert.ok(second!.includes("// flows/cart.spec.ts v1"), "the revised spec is sent in full");
+  assert.ok(!second!.includes("// flows/login.spec.ts"), "the unchanged spec is not sent again");
+  assert.match(second!, /Spec: unchanged since review turn 1 \(sha256 [0-9a-f]{12}, 2 lines\)/);
+});
+
+test("the sidekick is told its last run_spec call ended on an earlier version of its spec when the bytes it ran are not the ones the working copy holds", async () => {
+  const lead = leadWith([[{ flow: "cart", action: "revise", instruction: "Fix it." }], []]);
+  const r = rig({ hasFile: new Set(["login"]) });
+  r.deps.readSpec = async () => "now";
+  r.closedLoop.openFlow = ((original) => (flowInput: FlowLoopOpenInput) => {
+    const handle = original(flowInput)!;
+    r.flowLoops.at(-1)!.ledger.push({ path: flowInput.specFile, sha256: "older", status: "failed", devWrites: 0 });
+    return handle;
+  })(r.closedLoop.openFlow);
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  const cart = r.executed.filter((e) => e.brief.delegationId === "run-1-flow-cart");
+  assert.match(cart[1]!.opts.feedback ?? "", /The last run_spec call ended failed, on an earlier version of your spec\./);
 });

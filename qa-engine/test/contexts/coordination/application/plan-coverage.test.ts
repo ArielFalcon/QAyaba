@@ -1,7 +1,7 @@
 /* Which candidates of the change a lead's plan covers, drops with a reason, or leaves unresolved; and how the admission set is chosen. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_ADMISSION_CANDIDATES, admissionSetOf, planCoverage, renderReplanRequest } from "@contexts/coordination/application/plan-coverage.ts";
+import { MAX_ADMISSION_CANDIDATES, admissionSetOf, assembleReplanRequest, planCoverage, renderReplanRequest } from "@contexts/coordination/application/plan-coverage.ts";
 import { DROP_BASIS, type PlanDrop } from "@contexts/coordination/application/lead-plan.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { pageCandidate } from "../../../support/use-case-candidate.ts";
@@ -114,4 +114,11 @@ test("shared seeds change neither who covers a candidate nor how an already-cove
   const bare = seeded("/cart", ["src/cart.css"], { sharedSeeds: shared });
   const coverage = planCoverage({ flows: [{ routes: ["/cart"], candidates: [] }], dropped: [dropOf(held, DROP_BASIS.ALREADY_COVERED)] }, [held, bare]);
   assert.deepEqual([coverage.covered.map((c) => c.id), coverage.dropped.map((d) => d.candidate.id)], [[bare.id], [held.id]]);
+});
+
+test("the re-plan request is assembled from the registered sections, which report their sizes and hashes", () => {
+  const assembled = assembleReplanRequest(new PatternRedactionAdapter(), [pageCandidate("/orders", ["src/orders.ts::list", "page /orders"])]);
+  assert.deepEqual(Object.keys(assembled.sectionSizes), ["unresolved", "answer"]);
+  assert.deepEqual(Object.keys(assembled.sectionHashes ?? {}), ["unresolved", "answer"]);
+  assert.equal(assembled.text, renderReplanRequest(new PatternRedactionAdapter(), [pageCandidate("/orders", ["src/orders.ts::list", "page /orders"])]));
 });

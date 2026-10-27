@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { SidekickExecutor } from "@contexts/coordination/application/sidekick-executor.ts";
 import { createDelegationBrief } from "@contexts/coordination/application/delegation-brief.ts";
-import type { OpenSessionOpts } from "@kernel/ports/agent-runtime.port.ts";
+import type { AgentPromptOpts, OpenSessionOpts } from "@kernel/ports/agent-runtime.port.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
@@ -80,4 +80,20 @@ test("a sidekick session whose first answer throws is disposed before the error 
   });
   await assert.rejects(sidekick.open(brief, { cwd: "/w", kind: "author" }), /boom/);
   assert.equal(disposed, 1);
+});
+
+test("the lead's feedback is a registered section: the follow-up and the first prompt carry its sizes and hashes beside the brief's", async () => {
+  const seen: Array<{ text: string; opts: AgentPromptOpts | undefined }> = [];
+  const sidekick = new SidekickExecutor({ redaction,
+    runtime: { openSession: async () => ({ prompt: async (text: string, opts?: AgentPromptOpts) => { seen.push({ text, opts }); return { output: RESULT }; }, dispose: async () => {} }) },
+  });
+  const session = await sidekick.open(brief, { cwd: "/m", kind: "author", feedback: "Assert the total row." });
+  assert.ok(seen[0]!.text.includes("## Feedback from lead\nAssert the total row."));
+  assert.ok("lead-feedback" in (seen[0]!.opts?.sectionSizes ?? {}));
+  assert.ok("lead-feedback" in (seen[0]!.opts?.sectionHashes ?? {}));
+  await session.ask("Try the other page.");
+  assert.ok(seen[1]!.text.startsWith("## Feedback from lead\nTry the other page."));
+  assert.deepEqual(Object.keys(seen[1]!.opts?.sectionSizes ?? {}), ["lead-feedback", "feedback-contract"]);
+  assert.deepEqual(Object.keys(seen[1]!.opts?.sectionHashes ?? {}), ["lead-feedback", "feedback-contract"]);
+  await session.dispose();
 });

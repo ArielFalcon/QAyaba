@@ -199,3 +199,14 @@ test("a turn that asks to explore keeps its session open and the lead's answer t
   await result.lead!.dispose();
   assert.equal(seen.disposed, 1);
 });
+
+test("a follow-up turn of the lead hands the transport the sizes and hashes of the sections it was assembled from", async () => {
+  const { ports, seen } = build({ output: "the plan" }, { specs: [], parsed: true, plan: FANOUT });
+  const result = await new GenerateTestsUseCase(ports).plan(planInput());
+  await result.lead!.ask("REVIEW", { timeoutMs: 1_000, sectionSizes: { flows: 12 }, sectionHashes: { flows: "abc" } });
+  assert.deepEqual(seen.prompts[1]!.opts?.sectionSizes, { flows: 12 });
+  assert.deepEqual(seen.prompts[1]!.opts?.sectionHashes, { flows: "abc" });
+  await result.lead!.ask("PLAN AGAIN", { timeoutMs: 1_000 });
+  assert.equal(seen.prompts[2]!.opts?.sectionSizes, undefined);
+  await result.lead!.dispose();
+});

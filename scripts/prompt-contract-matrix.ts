@@ -56,7 +56,9 @@ import {
   assembleLeadReview,
   assembleRefusedCorrection,
   assembleRejectedPlanRequest,
+  assembleReplanRequest,
   assembleSidekickBrief,
+  assembleSidekickFeedback,
   createDelegationBrief,
   type CorrectionOrigin,
 } from "@contexts/coordination/application/index.ts";
@@ -905,9 +907,10 @@ function coordinationBriefs() {
 }
 
 function coordinationReviewFixtures() {
-  const flow = { id: "cart", objective: "the cart lists items", acceptance: ["adding an item shows it"], outcome: { kind: "delivered" }, summary: "wrote it", concerns: [], runSpec: { calls: 2, maxCalls: 5, lastStatus: "passed" }, verified: true, sessionOpen: true, spec: "test('lists items', async () => {});" };
+  const flow = { id: "cart", objective: "the cart lists items", acceptance: ["adding an item shows it"], outcome: { kind: "delivered" }, answer: { kind: "read", summary: "wrote it", concerns: [] }, runSpec: { calls: 2, maxCalls: 5, lastStatus: "passed" }, verified: true, sessionOpen: true, spec: "test('lists items', async () => {});" };
   const candidate = { id: "uc-00000001", entry: { kind: "page", route: "/cart" }, tier: "direct", basis: "graph", evidence: ["cart.ts::total"], seeds: [], changedFiles: [{ file: "src/cart.ts", addedLines: 4 }], confidence: 1, reachability: "page", pages: ["/cart"], existingSpecs: [] };
-  return { flows: [flow, { ...flow, id: "orders", verified: false, appDefect: "500 on /orders" }] as never, gaps: { required: [candidate], unvisited: [candidate], unproven: [], others: 1 } as never };
+  const unchanged = [{ ...flow, answer: { kind: "unreadable" }, spec: undefined, specUnchanged: { sinceTurn: 1, sha256: "0123456789ab", lines: 1 } }] as never;
+  return { candidate: candidate as never, unchanged, flows: [flow, { ...flow, id: "orders", verified: false, appDefect: "500 on /orders" }] as never, gaps: { required: [candidate], unvisited: [candidate], unproven: [], others: 1 } as never };
 }
 
 /* Every coordination prompt over the shapes that change what it carries. */
@@ -937,6 +940,9 @@ export function buildCoordinationMatrix(root: string = ROOT): CoordinationCell[]
     { prompt: "lead-review", variant: "turn-1", role: "qa-lead", assembled: assembleLeadReview(MATRIX_REDACTION, review.flows, { turn: 1, maxTurns: 3 }) },
     { prompt: "lead-review", variant: "last-turn-with-gaps", role: "qa-lead", assembled: assembleLeadReview(MATRIX_REDACTION, review.flows, { turn: 3, maxTurns: 3 }, review.gaps) },
     ...(Object.values(CORRECTION_ORIGIN) as CorrectionOrigin[]).map((origin) => ({ prompt: "lead-correction", variant: origin, role: "qa-lead" as const, assembled: assembleLeadCorrection(MATRIX_REDACTION, correctionFlows, findings, origin) })),
+    { prompt: "lead-review", variant: "unreadable-answer-unchanged-spec", role: "qa-lead", assembled: assembleLeadReview(MATRIX_REDACTION, review.unchanged, { turn: 2, maxTurns: 3 }) },
+    { prompt: "lead-replan", variant: "refused-drop", role: "qa-lead", assembled: assembleReplanRequest(MATRIX_REDACTION, [review.candidate], [{ candidate: review.candidate, basis: "no-observable-change", why: "its changed code is executable" }] as never) },
+    { prompt: "lead-feedback", variant: "plain", role: "qa-author", assembled: assembleSidekickFeedback(MATRIX_REDACTION, "Assert the total row, not the count.", "Respond with the SAME JSON output contract for delegationId=d runId=r.") },
     { prompt: "lead-correction-refused", variant: "plain", role: "qa-lead", assembled: assembleRefusedCorrection([{ flowId: "cart", finding: 3, reason: "the finding is not one of the turn's" }], 2) },
     { prompt: "lead-plan-rejected", variant: "malformed", role: "qa-lead", assembled: assembleRejectedPlanRequest("malformed", 4) },
     { prompt: "lead-explore-outcome", variant: "answered", role: "qa-lead", assembled: assembleExploreOutcome(MATRIX_REDACTION, outcome as never) },

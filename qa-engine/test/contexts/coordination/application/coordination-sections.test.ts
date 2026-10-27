@@ -56,7 +56,7 @@ const briefCell = (assembled: AssembledPrompt, delegation: LintCell["delegation"
 const asBrief = (defs: typeof AUTHOR_BRIEF_SECTIONS, brief: DelegationBrief): AssembledPrompt => assembleDefs(defs, { brief, scrub: (text) => redaction.redact(text) }, { separator: "\n\n" });
 
 test("every coordination prompt reports a size and a hash for each section it carries, under the same ids", () => {
-  const flows = [{ id: "one", objective: "o", acceptance: [], outcome: { kind: FLOW_OUTCOME.DELIVERED }, concerns: [], verified: true, sessionOpen: true, spec: "test()" }];
+  const flows = [{ id: "one", objective: "o", acceptance: [], outcome: { kind: FLOW_OUTCOME.DELIVERED }, answer: { kind: "read", concerns: [] }, verified: true, sessionOpen: true, spec: "test()" }];
   const prompts: Record<string, AssembledPrompt> = {
     review: assembleLeadReview(redaction, flows as never, { turn: 1, maxTurns: 3 }),
     correction: assembleLeadCorrection(redaction, [{ id: "one", objective: "o", specFile: "flows/one.spec.ts", sessionOpen: true }], [{ text: "bad", spec: "flows/one.spec.ts" }]),
@@ -140,5 +140,5 @@ test("the registry names every coordination prompt and each of its sections once
     const ids = defs.map((def) => def.id);
     assert.equal(new Set(ids).size, ids.length, `${name}: duplicate section id`);
   }
-  assert.deepEqual(Object.keys(COORDINATION_PROMPTS).sort(), ["explore-brief", "flow-author-brief", "lead-correction", "lead-correction-refused", "lead-explore-outcome", "lead-plan-rejected", "lead-review"]);
+  assert.deepEqual(Object.keys(COORDINATION_PROMPTS).sort(), ["explore-brief", "flow-author-brief", "lead-correction", "lead-correction-refused", "lead-explore-outcome", "lead-feedback", "lead-plan-rejected", "lead-replan", "lead-review"]);
 });

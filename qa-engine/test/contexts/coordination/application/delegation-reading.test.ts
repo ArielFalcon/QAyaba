@@ -44,3 +44,11 @@ test("a result for another brief and a write outside writablePaths keep failing 
   assert.equal(outside.status, "blocked");
   assert.equal(outside.readMiss, undefined);
 });
+
+test("an output with no readable result and a result addressed to another brief are each marked as the orchestrator's statement, a reported failure is not", () => {
+  assert.equal(readDelegationResult("no json here", brief, redaction).answerMiss, "unreadable");
+  const foreign = readDelegationResult(closing({ delegationId: "run-1-flow-other" }), brief, redaction);
+  assert.equal(foreign.status, "failed");
+  assert.equal(foreign.answerMiss, "foreign-brief");
+  assert.equal(readDelegationResult(closing({ status: "failed", summary: "no selector found", recommendation: "escalate" }), brief, redaction).answerMiss, undefined);
+});

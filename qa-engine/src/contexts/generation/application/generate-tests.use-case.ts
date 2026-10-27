@@ -2,6 +2,7 @@
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import type { AgentRuntimePort, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import { AUTHOR_SIDEKICK, LEAD_AGENT, openSidekickSession } from "@kernel/sidekick-session.ts";
+import type { LeadTurnOpts } from "@kernel/plan-output.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
 import type { PromptRenderingPort } from "./ports/prompt-rendering.port.ts";
@@ -93,9 +94,9 @@ export interface PlanResult {
 /* The lead's planning session, held open for its next turn. */
 export interface LeadSession {
   /* Asks the lead again, read-only; a turn that runs out of its time answers `timedOut` with no output. */
-  ask(text: string, opts: { timeoutMs: number }): Promise<{ output: string; timedOut: boolean }>;
+  ask(text: string, opts: LeadTurnOpts): Promise<{ output: string; timedOut: boolean }>;
   /* Asks the lead again for its plan, read-only, and reads the answer as a planning turn is read: a plan, a declared no-op, a second exploration request, or an answer no verdict could be read from. */
-  askForPlan(text: string, opts: { timeoutMs: number }): Promise<{ plan?: Record<string, unknown>; explore?: unknown[]; noopReason?: string; parsed: boolean; timedOut: boolean }>;
+  askForPlan(text: string, opts: LeadTurnOpts): Promise<{ plan?: Record<string, unknown>; explore?: unknown[]; noopReason?: string; parsed: boolean; timedOut: boolean }>;
   /* Ends the session. Idempotent. */
   dispose(): Promise<void>;
 }
@@ -159,7 +160,14 @@ export class GenerateTestsUseCase {
     if (!continues) await dispose();
     const ask: LeadSession["ask"] = async (text, askOpts) => {
       try {
-        const answer = await session.prompt(text, { finalStepOnly: true, withoutWrites: true, timeoutMs: askOpts.timeoutMs, timeLimit: "prompt-budget" });
+        const answer = await session.prompt(text, {
+          finalStepOnly: true,
+          withoutWrites: true,
+          timeoutMs: askOpts.timeoutMs,
+          timeLimit: "prompt-budget",
+          ...(askOpts.sectionSizes ? { sectionSizes: askOpts.sectionSizes } : {}),
+          ...(askOpts.sectionHashes ? { sectionHashes: askOpts.sectionHashes } : {}),
+        });
         return { output: answer.output, timedOut: false };
       } catch (err) {
         if (!isAgentTimeoutError(err)) throw err;

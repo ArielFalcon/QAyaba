@@ -12,10 +12,11 @@ import { assembleDefs, type AssembledPrompt } from "@kernel/prompt-sections.ts";
 import { flowCovers, type AdmissionSet } from "./plan-coverage.ts";
 import { FLOW_OUTCOME } from "./flow-outcomes.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
-import { LEAD_REVIEW_SECTIONS, MAX_SPEC_CHARS, type CandidateGaps, type FlowUnderReview } from "./coordination-sections/lead-turn-sections.ts";
+import { LEAD_REVIEW_SECTIONS, MAX_SPEC_CHARS, type CandidateGaps, type FlowUnderReview, type SidekickAnswer } from "./coordination-sections/lead-turn-sections.ts";
 import { lastJsonObjectWhere } from "@kernel/last-json-object.ts";
+import { sha256Hex } from "@kernel/content-hash.ts";
 
-export { MAX_SPEC_CHARS, type CandidateGaps, type FlowUnderReview };
+export { MAX_SPEC_CHARS, type CandidateGaps, type FlowUnderReview, type SidekickAnswer };
 
 export const REVIEW_ACTION = {
   ACCEPT: "accept",
@@ -81,6 +82,29 @@ export function assembleLeadReview(redaction: RedactionPort, flows: readonly Flo
   return assembleDefs(LEAD_REVIEW_SECTIONS, { flows, turn, ...(gaps ? { gaps } : {}), scrub: (text) => redaction.redact(text) }, { separator: "\n\n" });
 }
 
+/* What the lead was shown of each flow's spec in a session: the review turn and the bytes' sha256. */
+export type SeenSpecs = Map<string, { turn: number; sha256: string }>;
+
+const SHA_SHOWN = 12;
+
+/*
+ * The flows as one review turn shows them: a flow whose spec bytes are those the lead was last shown in this session carries a digest
+ * (since which turn, sha256, line count) instead of the spec. `seen` is the session's memory and is updated with what this turn shows.
+ */
+export function withSpecDigests(flows: readonly FlowUnderReview[], seen: SeenSpecs, turn: number): FlowUnderReview[] {
+  return flows.map((flow) => {
+    if (flow.spec === undefined) return flow;
+    const sha256 = sha256Hex(flow.spec);
+    const before = seen.get(flow.id);
+    if (before?.sha256 === sha256) {
+      const { spec, ...rest } = flow;
+      return { ...rest, specUnchanged: { sinceTurn: before.turn, sha256: sha256.slice(0, SHA_SHOWN), lines: spec.split("\n").length } };
+    }
+    seen.set(flow.id, { turn, sha256 });
+    return flow;
+  });
+}
+
 export function renderLeadReview(redaction: RedactionPort, flows: readonly FlowUnderReview[], turn: { turn: number; maxTurns: number }, gaps?: CandidateGaps): string {
   return assembleLeadReview(redaction, flows, turn, gaps).text;
 }
@@ -93,7 +117,7 @@ const ACTIONS = new Set<string>(Object.values(REVIEW_ACTION));
 
 /* What the orchestrator tells a sidekick whose spec was accepted before it passed. */
 function verifyInstruction(redaction: RedactionPort, flow: FlowUnderReview): string {
-  const failure = flow.runSpec?.lastFailure ? ` Its last failure: ${redaction.redact(flow.runSpec.lastFailure)}` : "";
+  const failure = flow.runSpec?.lastFailure ? ` Its last failure${flow.runSpec.lastFailureCurrent === true ? "" : ", seen on earlier bytes"}: ${redaction.redact(flow.runSpec.lastFailure)}` : "";
   return `Your spec has not passed run_spec on its current bytes.${failure} Run it, make it pass without weakening an assertion, and report again.`;
 }
 

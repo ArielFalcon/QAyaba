@@ -54,7 +54,13 @@ export interface DelegationResult {
   readonly testCorrect?: { readonly cause: "env" | "app"; readonly reason: string };
   /** Set when the output held no DelegationResult at all: the result is a failure the orchestrator inferred, not one the sidekick reported. */
   readonly readMiss?: typeof UNREADABLE_ANSWER;
+  /** Set when the result is the orchestrator's own statement about an answer it could not take (unreadable, or addressed to another brief): its summary and concerns are the orchestrator's words, never the sidekick's. */
+  readonly answerMiss?: AnswerMiss;
 }
+
+/** Why the orchestrator holds no answer of the sidekick's: the output held no DelegationResult, or the one it held answered a different brief. */
+export const ANSWER_MISS = { UNREADABLE: "unreadable", FOREIGN_BRIEF: "foreign-brief" } as const;
+export type AnswerMiss = (typeof ANSWER_MISS)[keyof typeof ANSWER_MISS];
 
 export function belongsToBrief(result: DelegationResult, delegationId: string, runId: string): boolean {
   return result.delegationId === delegationId && result.runId === runId;

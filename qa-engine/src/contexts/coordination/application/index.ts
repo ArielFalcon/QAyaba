@@ -74,6 +74,8 @@ export { authorTask } from "./author-task.ts";
 export { assembleSidekickBrief, renderSidekickBrief } from "./sidekick-prompt.ts";
 export { assembleExploreBrief } from "./explore-kind.ts";
 export { assembleLeadReview } from "./lead-review.ts";
+export { assembleReplanRequest } from "./plan-coverage.ts";
+export { assembleSidekickFeedback } from "./sidekick-executor.ts";
 export { assembleLeadCorrection, assembleRefusedCorrection } from "./lead-correction.ts";
 export { assembleExploreOutcome } from "./explore-round.ts";
 export { assembleRejectedPlanRequest } from "./lead-plan.ts";

@@ -10,6 +10,8 @@
  */
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
+import { sha256Hex } from "@kernel/content-hash.ts";
+import type { AssembledPrompt } from "@kernel/prompt-sections.ts";
 import { posix } from "node:path";
 import { PROBE_REL_DIR } from "@contexts/test-execution/application/index.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
@@ -26,23 +28,23 @@ import { briefCandidatesFor } from "./brief-candidates.ts";
 import { proofsFor } from "./change-proofs.ts";
 import { entryKey } from "@kernel/change-reach.ts";
 import { candidatePagesOf, pageRoutesOf, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
-import { admissionSetOf, flowCovers, honorContradictedDrops, impliedNoopDrops, MAX_PLAN_ROUNDS, planCoverage, renderReplanRequest, unvisitedBy, type AdmissionSet, type PlanCoverage } from "./plan-coverage.ts";
+import { admissionSetOf, flowCovers, honorContradictedDrops, impliedNoopDrops, MAX_PLAN_ROUNDS, planCoverage, assembleReplanRequest, unvisitedBy, type AdmissionSet, type PlanCoverage } from "./plan-coverage.ts";
 import type { CandidateClaim, DelegationResult } from "./delegation-result.ts";
 import { classifyDelegationFailure } from "./delegation-failure-class.ts";
-import { admitLeadReview, candidateGapsOf, MAX_REVIEW_TURNS, renderLeadReview, REVIEW_ACTION, type FlowUnderReview, type ReviewOrder } from "./lead-review.ts";
+import { admitLeadReview, candidateGapsOf, assembleLeadReview, MAX_REVIEW_TURNS, REVIEW_ACTION, withSpecDigests, type FlowUnderReview, type ReviewOrder, type SeenSpecs } from "./lead-review.ts";
 import type { CoordinationTelemetryEvent, CoordinationTelemetryPort } from "./coordination-telemetry.ts";
 import { PLAN_SNAPSHOT_KIND, type PlanSnapshotCandidate, type PlanSnapshotFlow, type PlanSnapshotKind, type PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port.ts";
 import { authorTask } from "./author-task.ts";
 import { SIDEKICK_KIND, SIDEKICK_TIER, type SidekickKind, type SidekickTier } from "./sidekick-kinds.ts";
 import { admitExploreRequest } from "./explore-request.ts";
-import { renderExploreOutcome, runExploreRound } from "./explore-round.ts";
+import { assembleExploreOutcome, runExploreRound } from "./explore-round.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 import { evidenceFromEmptyRead, evidenceFromPackDataRoutes } from "./evidence-from.ts";
 import { observationConflictIn } from "./evidence-precedence.ts";
 import { AUTHORING_FAILURE, authoringFailureFeedback, classifyAuthoringFailure, type AuthoringFailure } from "./authoring-failure.ts";
 import { FanOutDispatcher, FLOW_RESULT, type TimerPort } from "./fan-out-dispatcher.ts";
 import { aggregateFlowOutcomes, FLOW_OUTCOME, type AggregatedFlows, type FlowOutcome } from "./flow-outcomes.ts";
-import { admitLeadPlan, LEAD_PLAN_KIND, PLAN_DOWNGRADE, PLAN_REJECTED, renderRejectedPlanRequest, type AdmittedFlow, type AdmittedPlan } from "./lead-plan.ts";
+import { admitLeadPlan, LEAD_PLAN_KIND, PLAN_DOWNGRADE, PLAN_REJECTED, assembleRejectedPlanRequest, type AdmittedFlow, type AdmittedPlan } from "./lead-plan.ts";
 import { resolveSidekickModel } from "./resolve-sidekick-model.ts";
 import { SIDEKICK_AUTHORING, sidekickAuthoring, sidekickDeniedTools, type SidekickAuthoringMode } from "./sidekick-authoring.ts";
 import type { SidekickExecutor, SidekickSession } from "./sidekick-executor.ts";
@@ -51,7 +53,7 @@ import { namesTemplatePage } from "@contexts/generation/application/index.ts";
 import type { HarnessFacts } from "@kernel/grounding.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import { candidateFlowId, candidateFlowOf, maintenanceFlowId, maintenanceFlowOf, seedsNoCandidate, specNamedBy, uncoveredCandidateOf } from "./maintenance-flow.ts";
-import { CORRECTION_ORIGIN, admitLeadCorrection, correctionPreamble, routeOfFinding, renderLeadCorrection, renderRefusedCorrection, type CorrectionOrigin, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type CorrectionFinding } from "./lead-correction.ts";
+import { CORRECTION_ORIGIN, admitLeadCorrection, correctionPreamble, routeOfFinding, assembleLeadCorrection, assembleRefusedCorrection, type CorrectionOrigin, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type CorrectionFinding } from "./lead-correction.ts";
 
 /* The flow's slice of the Context Pack, as a brief field, or nothing when the pack did not read its pages. */
 const pagesOf = (pack: string | undefined, routes: readonly string[]): { pages: string } | undefined => {
@@ -393,7 +395,8 @@ export class LeadSidekicks {
     this.record(input, { kind: "lead-decision", reason: `plan: not admitted (${downgrade}); asking the lead once more with the reason` });
     let answered: Awaited<ReturnType<LeadSessionHandle["askForPlan"]>>;
     try {
-      answered = await lead.askForPlan(renderRejectedPlanRequest(downgrade, settings.maxFlows), { timeoutMs: Math.max(1, left === undefined ? settings.planBudgetMs : Math.min(settings.planBudgetMs, left)) });
+      const request = assembleRejectedPlanRequest(downgrade, settings.maxFlows);
+      answered = await lead.askForPlan(request.text, turnOpts(request, Math.max(1, left === undefined ? settings.planBudgetMs : Math.min(settings.planBudgetMs, left))));
     } catch (err) {
       if (isRunDeadlineError(err)) throw err;
       this.record(input, { kind: "lead-decision", reason: `plan: the lead's corrected plan turn failed (${err instanceof Error ? err.message : String(err)}); the refusal stands` });
@@ -435,7 +438,8 @@ export class LeadSidekicks {
     this.record(input, { kind: "lead-decision", reason: `plan: asking the lead once more for ${firstCoverage.unresolved.length} use case(s) it neither covers nor drops: ${firstCoverage.unresolved.map((c) => c.id).join(", ")}` });
     let answered: Awaited<ReturnType<LeadSessionHandle["askForPlan"]>>;
     try {
-      answered = await lead.askForPlan(renderReplanRequest(this.deps.redaction, firstCoverage.unresolved, firstCoverage.refused), { timeoutMs: Math.max(1, left === undefined ? settings.planBudgetMs : Math.min(settings.planBudgetMs, left)) });
+      const request = assembleReplanRequest(this.deps.redaction, firstCoverage.unresolved, firstCoverage.refused);
+      answered = await lead.askForPlan(request.text, turnOpts(request, Math.max(1, left === undefined ? settings.planBudgetMs : Math.min(settings.planBudgetMs, left))));
     } catch (err) {
       if (isRunDeadlineError(err)) throw err;
       this.record(input, { kind: "lead-decision", reason: `plan: the lead's second plan turn failed (${err instanceof Error ? err.message : String(err)}); the first plan stands` });
@@ -491,7 +495,8 @@ export class LeadSidekicks {
     /* A cancelled run spends no further turn of the lead: it has no plan to admit, and the caller reads the cancellation. */
     if (input.signal?.aborted) return { planned: { parsed: false, timedOut: false, lead } };
     const left = this.remaining(input);
-    const answered = await lead.askForPlan(renderExploreOutcome(this.deps.redaction, outcome), { timeoutMs: Math.max(1, left === undefined ? input.settings.planBudgetMs : Math.min(input.settings.planBudgetMs, left)) });
+    const followUp = assembleExploreOutcome(this.deps.redaction, outcome);
+    const answered = await lead.askForPlan(followUp.text, turnOpts(followUp,Math.max(1, left === undefined ? input.settings.planBudgetMs : Math.min(input.settings.planBudgetMs, left))));
     /* One round per run: a second request is not a plan. */
     if (answered.explore !== undefined) {
       this.record(input, { kind: "lead-decision", reason: "explore: the lead asked to explore a second time, which a run does not allow" });
@@ -727,6 +732,8 @@ export class LeadSidekicks {
   private async review(lead: LeadSessionHandle, flows: AdmittedFlow[], parallel: number, context: FlowContext, live: Map<string, LiveFlow>, reports: Map<string, FlowReport>, tally: ReviewTally, decided: PlanDecision): Promise<void> {
     const { input } = context;
     const dropped = new Set(decided.coverage.dropped.map((d) => d.candidate.id));
+    /* What this lead session was shown of each flow's spec: a spec whose bytes it has seen is not sent again. */
+    const seen: SeenSpecs = new Map();
     for (let turn = 1; turn <= MAX_REVIEW_TURNS; turn++) {
       const room = this.room(input);
       if (room !== undefined && room < MIN_FLOW_MS) break;
@@ -734,7 +741,8 @@ export class LeadSidekicks {
       const gaps = candidateGapsOf(decided.admission, dropped, flows.map((flow, i) => ({ routes: flow.routes, candidates: flow.candidates, review: underReview[i]! })));
       let reply: { output: string; timedOut: boolean };
       try {
-        reply = await lead.ask(renderLeadReview(this.deps.redaction, underReview, { turn, maxTurns: MAX_REVIEW_TURNS }, gaps), { timeoutMs: Math.min(input.settings.planBudgetMs, room ?? input.settings.planBudgetMs) });
+        const request = assembleLeadReview(this.deps.redaction, withSpecDigests(underReview, seen, turn), { turn, maxTurns: MAX_REVIEW_TURNS }, gaps);
+        reply = await lead.ask(request.text, turnOpts(request, Math.min(input.settings.planBudgetMs, room ?? input.settings.planBudgetMs)));
       } catch (err) {
         /* The run's own time spent ends the run; any other failure of the lead's turn leaves the flows as they are. */
         if (isRunDeadlineError(err)) throw err;
@@ -781,7 +789,7 @@ export class LeadSidekicks {
 
   /* One revision the lead ordered: its instruction, with the orchestrator's facts, to the sidekick's own session; or to a fresh one, on the escalated capability. */
   private async revise(entry: LiveFlow, order: ReviewOrder, timeoutMs: number, context: FlowContext, signal: AbortSignal): Promise<FlowReport> {
-    const instruction = [order.instruction, orchestratorFacts(entry)].filter(Boolean).join("\n");
+    const instruction = [order.instruction, orchestratorFacts(entry, await this.currentSpecSha(entry, context.input))].filter(Boolean).join("\n");
     if (order.action === REVIEW_ACTION.REVISE && entry.session) {
       const result = await this.untilStopped(entry, entry.session.ask(instruction, { timeoutMs: Math.max(1, timeoutMs) }), signal);
       return this.assess(entry, context, result, signal);
@@ -817,6 +825,12 @@ export class LeadSidekicks {
     }
   }
 
+  /* The sha256 of the flow's spec as the working copy holds it now, read through the confined reader; undefined when it cannot be read. */
+  private async currentSpecSha(entry: LiveFlow, input: CoordinateInput): Promise<string | undefined> {
+    const spec = this.deps.readSpec ? await this.deps.readSpec({ mirrorDir: input.mirrorDir, specDir: input.specDir }, entry.flow.specFile).catch(() => undefined) : undefined;
+    return spec === undefined ? undefined : sha256Hex(spec);
+  }
+
   /* A flow as the lead's review is shown it: the orchestrator's facts first, the sidekick's word beside them. */
   private async underReview(flow: AdmittedFlow, entry: LiveFlow | undefined, report: FlowReport, input: CoordinateInput): Promise<FlowUnderReview> {
     const loop = entry?.loop;
@@ -825,14 +839,16 @@ export class LeadSidekicks {
     const delivered = report.outcome.kind === FLOW_OUTCOME.DELIVERED;
     const spec = delivered && this.deps.readSpec ? await this.deps.readSpec({ mirrorDir: input.mirrorDir, specDir: input.specDir }, flow.specFile).catch(() => undefined) : undefined;
     const lastFailure = lastCall?.status === "failed" ? describeFailure(lastCall.failures) : undefined;
+    /* A failure is the spec's current one only when the bytes that failed are the bytes the working copy holds now. */
+    const lastFailureCurrent = lastCall !== undefined && spec !== undefined && lastCall.sha256 === sha256Hex(spec);
+    const last = entry?.last;
     return {
       id: flow.id,
       objective: flow.objective,
       acceptance: flow.acceptance,
       outcome: report.outcome,
-      ...(entry?.last?.summary ? { summary: entry.last.summary } : {}),
-      concerns: entry?.last?.concerns ?? [],
-      ...(loop ? { runSpec: { calls: ledger.length, maxCalls: loop.limits.maxCalls, ...(lastCall ? { lastStatus: lastCall.status } : {}), ...(lastFailure ? { lastFailure } : {}) } } : {}),
+      answer: last?.answerMiss ? { kind: last.answerMiss } : { kind: "read", ...(last?.summary ? { summary: last.summary } : {}), concerns: last?.concerns ?? [] },
+      ...(loop ? { runSpec: { calls: ledger.length, maxCalls: loop.limits.maxCalls, ...(lastCall ? { lastStatus: lastCall.status } : {}), ...(lastFailure ? { lastFailure, lastFailureCurrent } : {}) } } : {}),
       verified: loop ? await loop.isClosed().catch(() => false) : false,
       ...(entry?.appDefect ? { appDefect: entry.appDefect } : {}),
       sessionOpen: entry?.session !== undefined,
@@ -883,9 +899,9 @@ export class LeadSidekicks {
       const cited = (input.candidates ?? []).filter((c) => flowCovers(flow, c));
       return { id: flow.id, objective: flow.objective, specFile: flow.specFile, sessionOpen: live.get(flow.id)!.session !== undefined, candidates: cited.map((c) => c.id), seedFiles: [...new Set(cited.flatMap((c) => c.seeds.map((seed) => seed.file)))], ...(spec !== undefined ? { spec } : {}) };
     }));
-    const askLead = async (request: string, again: boolean): Promise<string> => {
+    const askLead = async (request: AssembledPrompt, again: boolean): Promise<string> => {
       try {
-        const answer = await lead.ask(request, { timeoutMs: Math.min(input.settings.planBudgetMs, this.room(input) ?? input.settings.planBudgetMs) });
+        const answer = await lead.ask(request.text, turnOpts(request, Math.min(input.settings.planBudgetMs, this.room(input) ?? input.settings.planBudgetMs)));
         if (answer.timedOut) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): the lead ran out of its time${again ? "; its first answer stands" : "; each flow is sent its own findings"}` });
         else return answer.output;
       } catch (err) {
@@ -894,7 +910,7 @@ export class LeadSidekicks {
       }
       return "";
     };
-    const output = await askLead(renderLeadCorrection(this.deps.redaction, under, findings, origin, omitted), false);
+    const output = await askLead(assembleLeadCorrection(this.deps.redaction, under, findings, origin, omitted), false);
     tally.turns += 1;
     let admission = admitLeadCorrection(this.deps.redaction, output, under, findings, origin);
     for (const r of admission.refused) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): ${r.flowId ? `flow ${r.flowId} ` : ""}${r.finding ? `finding ${r.finding} ` : ""}not taken: ${r.reason}` });
@@ -902,7 +918,7 @@ export class LeadSidekicks {
     const roomAgain = this.room(input);
     if (admission.refused.length > 0 && admission.unrouted.length > 0 && !state.released && !input.signal?.aborted && (roomAgain === undefined || roomAgain >= MIN_FLOW_MS)) {
       this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): ${admission.refused.length} part(s) of the answer not admitted; asking the lead once more with the reasons` });
-      const again = await askLead(renderRefusedCorrection(admission.refused, findings.length), true);
+      const again = await askLead(assembleRefusedCorrection(admission.refused, findings.length), true);
       tally.turns += 1;
       const second = admitLeadCorrection(this.deps.redaction, again, under, findings, origin);
       if (second.readable && second.unrouted.length <= admission.unrouted.length) {
@@ -1211,12 +1227,20 @@ function emptyReadEvidence(redaction: RedactionPort, ledger: readonly FlowLedger
 
 const MAX_FACTS_CHARS = 2_000;
 
+/* The options of a lead turn: its time, and the sizes and hashes of the sections its prompt was assembled from, so the transport's trace can split the turn. */
+function turnOpts(assembled: AssembledPrompt, timeoutMs: number): { timeoutMs: number; sectionSizes: Record<string, number>; sectionHashes?: Record<string, string> } {
+  return { timeoutMs, sectionSizes: assembled.sectionSizes, ...(assembled.sectionHashes ? { sectionHashes: assembled.sectionHashes } : {}) };
+}
+
 /* What the orchestrator adds to an instruction of the lead's: what it saw of the flow's last run_spec call, the kind of failure it met, and the reads that disagree. */
-function orchestratorFacts(entry: LiveFlow): string {
-  const lastRun = entry.loop?.ledger().at(-1)?.status;
+function orchestratorFacts(entry: LiveFlow, currentSha?: string): string {
+  const lastCall = entry.loop?.ledger().at(-1);
+  const lastRun = lastCall?.status;
+  /* A call's outcome is about the spec as it is now only when the bytes it ran are those the working copy holds. */
+  const ofEarlierBytes = lastCall !== undefined && lastCall.sha256 !== currentSha ? ", on an earlier version of your spec" : "";
   const kind = authoringFailureFeedback(entry.failure);
   const facts = [
-    entry.loop ? (lastRun ? `- The last run_spec call ended ${lastRun}.` : "- No run_spec call of yours was seen.") : "",
+    entry.loop ? (lastRun ? `- The last run_spec call ended ${lastRun}${ofEarlierBytes}.` : "- No run_spec call of yours was seen.") : "",
     kind ? `- ${kind}` : "",
     entry.conflict ? `- Two reads of the same page disagree: ${entry.conflict}. An empty read there is no evidence that DEV has no data, so it is no reason to decline the flow or to assert that the page is empty.` : "",
     entry.refusal ? `- The file could not be taken back: ${entry.refusal}` : "",

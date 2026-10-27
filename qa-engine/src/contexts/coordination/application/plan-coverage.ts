@@ -9,7 +9,9 @@ import { namesTemplatePage } from "@contexts/generation/application/index.ts";
 import { DROP_BASIS, type PlanDrop } from "./lead-plan.ts";
 import { LanguageRegistry } from "@kernel/language-id.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
-import { candidateLine, candidatePagesOf, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import { candidatePagesOf, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import { assembleDefs, type AssembledPrompt } from "@kernel/prompt-sections.ts";
+import { REPLAN_SECTIONS } from "./coordination-sections/replan-sections.ts";
 
 /* The most candidates a plan is required to answer for; the ones past it are shown as a count. */
 export const MAX_ADMISSION_CANDIDATES = 12;
@@ -110,16 +112,12 @@ export function planCoverage(plan: { flows: readonly PlannedFlow[]; dropped: rea
   return refused.length > 0 ? { ...coverage, refused } : coverage;
 }
 
-/* The question the lead is asked when its plan leaves candidates unresolved: facts about the candidates and what a plan must do with each. The shape of the answer is the lead's role prompt. */
+/* The question the lead is asked when its plan leaves candidates unresolved, assembled from the registered sections: facts about the candidates and what a plan must do with each. The shape of the answer is the lead's role prompt. */
+export function assembleReplanRequest(redaction: RedactionPort, unresolved: readonly UseCaseCandidate[], refused: NonNullable<PlanCoverage["refused"]> = []): AssembledPrompt {
+  const refusals = new Map(refused.map((r) => [r.candidate.id, { basis: r.basis, why: r.why }]));
+  return assembleDefs(REPLAN_SECTIONS, { unresolved, refusals, scrub: (text) => redaction.redact(text) }, { separator: "\n" });
+}
+
 export function renderReplanRequest(redaction: RedactionPort, unresolved: readonly UseCaseCandidate[], refused: NonNullable<PlanCoverage["refused"]> = []): string {
-  const refusals = new Map(refused.map((r) => [r.candidate.id, r]));
-  return [
-    "## Use cases your plan leaves unresolved",
-    "The change makes these use cases testable. No flow of your plan cites their id or visits their pages, and none is listed as dropped with a basis and a reason the run's facts allow:",
-    ...unresolved.map((candidate) => {
-      const refusal = refusals.get(candidate.id);
-      return `- ${redaction.redact(candidateLine(candidate))}${refusal ? ` | your drop (${refusal.basis}) is refused: ${redaction.redact(refusal.why)}` : ""}`;
-    }),
-    "Answer with your whole plan again: give a flow to each one (its id in the flow's \"candidates\"), or list it in \"dropped\" with a \"basis\" of the plan contract and the reason it needs no test. This is the only other plan turn of this run; answer with a plan of flows.",
-  ].join("\n");
+  return assembleReplanRequest(redaction, unresolved, refused).text;
 }
