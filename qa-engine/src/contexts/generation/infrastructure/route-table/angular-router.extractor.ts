@@ -10,7 +10,13 @@ import ts from "typescript";
 export type RawValue = { literal: string } | { ref: string; member?: string; module?: string } | { opaque: true };
 
 /* A guard as written: a name (a call's callee for a guard factory) with the module it is imported from, or an inline function. */
-export type RawGuard = { name: string; module?: string; local: boolean } | { inline: true; text: string };
+export type RawGuard = { name: string; imported?: string; module?: string; local: boolean } | { inline: true; text: string };
+
+/* What an import brings in: the module it names and the export it takes there (`default` for a default import, `*` for a namespace). */
+export interface RawImport {
+  module: string;
+  imported: string;
+}
 
 /* A table an entry's children come from that is not inline: a lazily loaded module (and the export it takes), or a named array of this file or of an imported module. */
 export interface RawChildRef {
@@ -38,10 +44,12 @@ export interface RawRouteFile {
   tables: Array<{ name: string; exported: boolean; entries: RawEntry[] }>;
   /* String constants this file declares: `X` for `const X = 'v'`, `X.k` for an object literal's or an enum's string member. */
   constants: Map<string, string>;
-  /* Local name → module specifier of each import. */
-  imports: Map<string, string>;
+  /* Local name → the module and the export of each import. */
+  imports: Map<string, RawImport>;
   /* The names this file declares at its top level. */
   declared: Set<string>;
+  /* The declared name a `default` export is (`export default function f`, `export default f`), when it has one. */
+  defaultExport?: string;
 }
 
 /* The keys of the router's Route configuration beside `path`: an object with a path and one of these is a route. */
@@ -87,8 +95,9 @@ export function parseAngularRouteFile(file: string, source: string): RawRouteFil
   const diagnostics = (sf as unknown as { parseDiagnostics?: readonly unknown[] }).parseDiagnostics ?? [];
   if (diagnostics.length > 0) return undefined;
   const line = (pos: number): number => sf.getLineAndCharacterOfPosition(pos).line + 1;
-  const imports = new Map<string, string>();
+  const imports = new Map<string, RawImport>();
   const declared = new Set<string>();
+  let defaultExport: string | undefined;
   const constants = new Map<string, string>();
   const stringOf = (e: ts.Expression): string | undefined => {
     const b = bare(e);
@@ -98,10 +107,10 @@ export function parseAngularRouteFile(file: string, source: string): RawRouteFil
     if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
       const module = statement.moduleSpecifier.text;
       const clause = statement.importClause;
-      if (clause?.name) imports.set(clause.name.text, module);
+      if (clause?.name) imports.set(clause.name.text, { module, imported: "default" });
       const bindings = clause?.namedBindings;
-      if (bindings && ts.isNamedImports(bindings)) for (const element of bindings.elements) imports.set(element.name.text, module);
-      if (bindings && ts.isNamespaceImport(bindings)) imports.set(bindings.name.text, module);
+      if (bindings && ts.isNamedImports(bindings)) for (const element of bindings.elements) imports.set(element.name.text, { module, imported: (element.propertyName ?? element.name).text });
+      if (bindings && ts.isNamespaceImport(bindings)) imports.set(bindings.name.text, { module, imported: "*" });
     } else if (ts.isVariableStatement(statement)) {
       for (const decl of statement.declarationList.declarations) {
         if (!ts.isIdentifier(decl.name)) continue;
@@ -127,23 +136,30 @@ export function parseAngularRouteFile(file: string, source: string): RawRouteFil
       }
     } else if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name) {
       declared.add(statement.name.text);
+      if ((statement.modifiers ?? []).some((m) => m.kind === ts.SyntaxKind.DefaultKeyword)) defaultExport = statement.name.text;
+    } else if (ts.isExportAssignment(statement) && !statement.isExportEquals && ts.isIdentifier(statement.expression)) {
+      defaultExport = statement.expression.text;
     }
   }
   const valueOf = (e: ts.Expression): RawValue => {
     const literal = stringOf(e);
     if (literal !== undefined) return { literal };
     const b = bare(e);
-    if (ts.isIdentifier(b)) return { ref: b.text, ...(imports.has(b.text) ? { module: imports.get(b.text)! } : {}) };
+    if (ts.isIdentifier(b)) return { ref: b.text, ...(imports.has(b.text) ? { module: imports.get(b.text)!.module } : {}) };
     if (ts.isPropertyAccessExpression(b) && ts.isIdentifier(b.expression)) {
       const object = b.expression.text;
-      return { ref: object, member: b.name.text, ...(imports.has(object) ? { module: imports.get(object)! } : {}) };
+      return { ref: object, member: b.name.text, ...(imports.has(object) ? { module: imports.get(object)!.module } : {}) };
     }
     return { opaque: true };
   };
   const guardOf = (e: ts.Expression): RawGuard => {
     const b = bare(e);
     const callee = ts.isCallExpression(b) ? bare(b.expression) : b;
-    if (ts.isIdentifier(callee)) return { name: callee.text, local: declared.has(callee.text), ...(imports.has(callee.text) ? { module: imports.get(callee.text)! } : {}) };
+    if (ts.isIdentifier(callee)) {
+      const bound = imports.get(callee.text);
+      /* A name is the export it takes from its module, not the local alias it is bound to. */
+      return { name: bound?.imported ?? callee.text, local: declared.has(callee.text), ...(bound !== undefined ? { module: bound.module } : {}) };
+    }
     return { inline: true, text: b.getText(sf).replace(/\s+/g, " ") };
   };
   /* The module a `loadChildren` imports and the export its `.then` takes, read from the first dynamic import of its initializer. */
@@ -208,7 +224,7 @@ export function parseAngularRouteFile(file: string, source: string): RawRouteFil
           nested.add(b);
           entry.children = entriesOf(b);
         } else if (ts.isIdentifier(b)) {
-          entry.childRef = { name: b.text, ...(imports.has(b.text) ? { module: imports.get(b.text)! } : {}) };
+          entry.childRef = { name: b.text, ...(imports.has(b.text) ? { module: imports.get(b.text)!.module } : {}) };
         } else {
           entry.childRef = { unresolved: true };
         }
@@ -234,5 +250,5 @@ export function parseAngularRouteFile(file: string, source: string): RawRouteFil
     ts.forEachChild(node, (child) => visit(child, next));
   };
   visit(sf, { name: "", exported: false });
-  return { tables, constants, imports, declared };
+  return { tables, constants, imports, declared, ...(defaultExport !== undefined ? { defaultExport } : {}) };
 }

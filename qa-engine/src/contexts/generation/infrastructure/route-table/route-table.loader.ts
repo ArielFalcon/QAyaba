@@ -1,7 +1,7 @@
 /*
  * Builds an app's route table from its source files with the extractor the language registry declares for its framework: each
  * file read once, the string constants a path names resolved through the file that declares them, a guard placed at the file that
- * declares it, and a child table that is not inline (a lazily loaded module, a named array) attached under the entry that loads
+ * declares the export it imports (never at a file that only re-exports it), and a child table that is not inline (a lazily loaded module, a named array) attached under the entry that loads
  * it. Relative modules only: a module of an installed package is external, any other (an alias the extractor cannot follow) is
  * left unplaced. The reader decides which commit the files are read at. Bounded, fail-open: what cannot be read is unresolved.
  */
@@ -72,7 +72,11 @@ export async function loadRouteTable(syntax: RouteTableSyntax, candidates: reado
     const pkg = packageOf(guard.module);
     if (pkg !== undefined) return dependencies.has(pkg) ? { name: guard.name, external: true } : { name: guard.name };
     const target = await moduleFile(file, guard.module);
-    return target === undefined ? { name: guard.name } : { name: guard.name, file: target };
+    if (target === undefined) return { name: guard.name };
+    /* Placed only at a file that declares the export the import takes: a barrel that re-exports it is not where it lives. */
+    const declaring = await parse(target);
+    const name = guard.name === "default" ? declaring?.defaultExport : guard.name;
+    return name !== undefined && declaring?.declared.has(name) === true ? { name, file: target } : { name: guard.name };
   };
   /* The tables other files load as children, so that they are not roots: `file\0name`. */
   const referenced = new Set<string>();
