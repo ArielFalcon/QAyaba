@@ -138,7 +138,14 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     const changeDiff = diffWithoutTestFiles(diff).diff;
     const base = opts?.namespace ?? this.ctx.namespace ?? br.sha.toString();
     const rewritten = [...new Set(reruns.flatMap((r) => r.specFiles))];
-    const sources: DumpSource[] = [{ namespace: base, exceptSpecFiles: rewritten }, ...reruns.map((r) => ({ namespace: r.namespace }))];
+    /* Reruns are in the order they ran: a spec re-run again is read from its latest rerun only, so an earlier rerun's dumps of it never count. */
+    const rerunSources = reruns.flatMap((r, i): DumpSource[] => {
+      const later = new Set(reruns.slice(i + 1).flatMap((x) => x.specFiles));
+      const current = r.specFiles.filter((file) => !later.has(file));
+      if (current.length === 0) return [];
+      return [current.length === r.specFiles.length ? { namespace: r.namespace } : { namespace: r.namespace, onlySpecFiles: current }];
+    });
+    const sources: DumpSource[] = [{ namespace: base, exceptSpecFiles: rewritten }, ...rerunSources];
     /* A proof holds only for the spec bytes that killed its mutant: the re-run spec files are not those any more. */
     const proofs = (opts?.proofs ?? []).map((p) => ({ ...p, specFiles: p.specFiles.filter((file) => !rewritten.includes(file)) })).filter((p) => p.specFiles.length > 0);
     const proofSources = proofs.map(({ namespace, specFiles, ...mutant }) => ({ namespace, onlySpecFiles: specFiles, mutant }));

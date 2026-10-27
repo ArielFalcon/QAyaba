@@ -220,11 +220,13 @@ export async function recountAfter(state: Readonly<RunState>, ctx: WorkspaceRunC
   const { deps, input, cfg, workspace } = ctx;
   const spent = withAcceptanceCalls(state.coverage, regen.acceptanceCalls);
   if (regen.outcome !== "accepted") return spent;
-  const accepted = acceptedRegeneration(spent);
+  /* Every accepted regeneration's re-runs are carried, so a recount reads each rewritten spec from the dumps of the bytes now delivered, not only the current regeneration's. */
+  const reruns = [...state.coverage.reruns, ...(regen.reruns ?? [])];
+  const accepted = { ...acceptedRegeneration(spent), reruns };
   const { coverageNamespace } = state.fixLoop;
   const recount =
     regen.reruns && deps.objectiveSignal.recount
-      ? await deps.objectiveSignal.recount(BlastRadius.of(input.sha, state.classification.intent?.changedFiles ?? []), workspace.specDir, state.classification.diff, regen.reruns, {
+      ? await deps.objectiveSignal.recount(BlastRadius.of(input.sha, state.classification.intent?.changedFiles ?? []), workspace.specDir, state.classification.diff, reruns, {
           ...(coverageNamespace ? { namespace: coverageNamespace } : {}),
           ...(state.coverage.mutantProofs.length > 0 ? { proofs: state.coverage.mutantProofs } : {}),
         })

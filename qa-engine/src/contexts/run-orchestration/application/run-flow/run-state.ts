@@ -20,7 +20,7 @@ import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
 import type { FixLoopStage } from "../../domain/fix-loop.aggregate.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import type { BundleMutationOutcome, CandidateCoverage, CandidateValue, CausalLabel, MutantProof, UntakenArm, ValueStats } from "@contexts/objective-signal/application/index.ts";
+import type { BundleMutationOutcome, CandidateCoverage, CandidateValue, CausalLabel, CoverageRerun, MutantProof, UntakenArm, ValueStats } from "@contexts/objective-signal/application/index.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunEvidence } from "../../domain/run-decision.service.ts";
 import type { EndReason } from "./end-reason.ts";
@@ -210,6 +210,8 @@ export interface CoverageOutcome {
   mutantProofs: MutantProof[];
   /** What the coverage counted beside its ratio (code lines, lines left out, files not loaded, what only a killed mutant ran); undefined when nothing was measured. */
   changeCoverage: RunOutcome["gateSignals"]["changeCoverage"];
+  /** The re-runs of every regeneration accepted so far, in the order they ran: a recount reads these specs from them and the rest from the base namespace, so it describes the bytes under review however many regenerations came before. */
+  reruns: CoverageRerun[];
   /** Acceptances spent so far; each names its namespace by it. */
   acceptanceCalls: number;
   /** An accepted regeneration rewrote specs after the last measurement: the coverage ratio is then stale. */
@@ -424,6 +426,7 @@ export function initialRunState(): RunState {
       bundleMutation: undefined,
       mutantProofs: [],
       changeCoverage: undefined,
+      reruns: [],
       acceptanceCalls: 0,
       acceptedRegenAfterMeasure: false,
       coverageStale: false,

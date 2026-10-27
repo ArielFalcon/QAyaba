@@ -615,6 +615,16 @@ test("recount() measures the change again over the dumps on disk: the first run'
   assert.equal(oracleCalls, 0, "a recount re-runs nothing");
 });
 
+test("recount() reads a spec re-run twice from its latest re-run only", async () => {
+  const asked: unknown[] = [];
+  const collector: CoverageCollectorPort = { collect: async () => ({ covered: [] }), recollect: async (_dir, sources) => (asked.push(sources), { covered: [{ file: "src/checkout.ts", lines: [1] }] }) };
+  const oracle = fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" });
+  const adapter = new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService(), oracle }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage });
+  const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
+  await adapter.recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "r-acc0", specFiles: ["a.spec.ts", "b.spec.ts"] }, { namespace: "r-acc1", specFiles: ["a.spec.ts"] }, { namespace: "r-acc2", specFiles: ["a.spec.ts"] }], { namespace: "r" });
+  assert.deepEqual(asked, [[{ namespace: "r", exceptSpecFiles: ["a.spec.ts", "b.spec.ts"] }, { namespace: "r-acc0", onlySpecFiles: ["b.spec.ts"] }, { namespace: "r-acc2" }]]);
+});
+
 test("recount() has nothing to say with coverage off, without a diff, or with a collector that cannot add namespaces", async () => {
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
   const oracle = fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" });
