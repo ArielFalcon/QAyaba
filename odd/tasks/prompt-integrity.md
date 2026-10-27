@@ -34,12 +34,12 @@ Decisions applied by owner authorization (L14), each the recommendation given: Q
 | T2 (U1) | S1 | delegated (parallel, worktree) | done | d7d44b57 |
 | T3 (U3) | S3 | delegated (parallel, worktree) | done | 52eeb9a7, 1d03927a |
 | T4 (U2) | S2 | delegated | done | 93e73b3d, 28b09367 |
-| T9 | S11 | delegated, phase 1 (parallel) | done on integrate; main waits for phase-2 consumers (kernel-owners) | cf71e714 |
-| T10 | S12 | delegated, phase 1 (parallel) | done on integrate | dae0592f |
-| T5 | S4 | delegated, phase 2, after T9+T10 | pending | |
-| T11 | S15 | delegated, phase 2, after T9+T10 | pending | |
-| T12 | S13, S14 | delegated, phase 2, after T9+T10 | pending | |
-| T7 | S5 | delegated, phase 2, after T9 | pending | |
+| T9 | S11 | delegated, phase 1 (parallel) | done | cf71e714 |
+| T10 | S12 | delegated, phase 1 (parallel) | done | dae0592f |
+| T5 | S4 | delegated, phase 2, after T9+T10 | done (decision rank waits for T8) | 813c9fa6, 3294e1bc |
+| T11 | S15 | delegated, phase 2, after T9+T10 | done | d614dec2 |
+| T12 | S13, S14 | delegated, phase 2, after T9+T10 | done | f337e8a5, 3294e1bc |
+| T7 | S5 | delegated, phase 2, after T9 | done | c486ffb5 |
 | T8 | S6 | delegated, phase 3, after T5 | pending | |
 | T6 | S9, S10 | delegated, phase 3, last (touches every section definition) | pending | |
 
@@ -62,3 +62,4 @@ Route evidence: each phase's units are independent behaviours with disjoint main
 - L13 (2026-10-27, user, verbatim, Q6/Q-g): "Me parece bien, la duda es que pasa cuando el prompt es muy cercano al máximo de contexto, que no le deje espacio para analizar, o peor que sea más grande? Esto es lo que debe resolver el sistema de escalado." Decision: no byte budget per flow slice. Fit rule: prompt + expected working room <= the model's live window, the working room estimated from telemetry (per-step session growth x the role's usual steps), never a fixed share. Degradation order: owned non-code to references, then lowest-ranked code to references, then the lead is asked to split the flow, and a prompt whose minimal form (map + references) still does not fit is not sent and is recorded. Unknown window: preload all owned content and record it. One delivery rule for all grounding: preload what the role owns and will very likely use, reference the rest.
 - L14 (2026-10-27, user, verbatim): "Si, aplica la recomendación de maxFlows que das. Con eso resuelto puedes implementar todo". The remaining questions take the recommendations given (listed above S11-S15's decision paragraph).
 - L15 (2026-10-27, progress): T9 and T10 integrated on integrate/prompt-integrity. Gate: static 0, matrix 0/0, npm test 11541 pass, 1 fail = kernel-owners (change-map, change-slice, file-classes need a second consumer; T5/T7 provide it), so main is not fast-forwarded yet. T10 deleted the model catalog, the dead PromptBudgetPort and 4 shell exceptions; budgets reach phase 2 as `contextBudget` on EngineRootDeps/GenerationApi/CoordinationApi. S4 reworded to the S12 fit rule (no byte budget). Separately, main 751bfad1 keeps two run-engine-factory tests off the network (a real git clone hung a suite for 5 h). Next: phase 2 (T5, T11, T12, T7) from the integrate branch.
+- L16 (2026-10-27, progress): phase 2 integrated (T5, T7, T11, T12). Seams fixed at integration: one contextBudget on LeadSidekicks; one PromptFit callback ({bytes, role}) for the lead plan and the reviewer; matrix baselines re-recorded (plan section grows by the capacity line and the change map; reviewer planned cells new). Gate: static 0, matrix 0/0 (19 coordination prompts), npm test 11561 pass, 0 fail; kernel-owners green. Open: decision rank (S6/T8) unset in briefs and plan diff; a minimal brief still over the window is sent with a warning (L13 asks not to send and split: T12's oversize amendment covers flows the lead can split); browser run total (150) still caps per-flow browser grants on very large plans. Next: phase 3 (T8, then T6).
