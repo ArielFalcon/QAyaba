@@ -15,6 +15,7 @@ import type { MutantSelectionRecord } from "../../domain/objective-signal.ts";
 import { RepoReader } from "../../../../shared-infrastructure/repo-reader.ts";
 import { MAX_SPEC_SOURCE_BYTES } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { diffWithoutTestFiles } from "../../domain/diff-without-test-files.ts";
+import { diffWithoutFiles, excludedFilesOf, type CoverageExclusions } from "../../domain/coverage-exclusions.ts";
 import { diffChangedFiles, perCandidateCoverage } from "../../domain/per-candidate-coverage.ts";
 
 export interface ObjectiveSignalPortCollaborators {
@@ -65,6 +66,19 @@ function measurementOf(cc: ChangeCoverage | null, skipped: CoverageMeasurement["
   return { ...counts, unmeasured: unmappable ? "no-source-maps" : "no-changed-file-mapped" };
 }
 
+/* What the measurement left out as no gap of the suite, recorded apart; nothing when it left none. */
+function recordedExclusions(exclusions: CoverageExclusions | undefined): Pick<CoverageMeasurement, "unreachableByDesign" | "testSupportFiles"> {
+  return {
+    ...(exclusions?.unreachableByDesign.length ? { unreachableByDesign: exclusions.unreachableByDesign } : {}),
+    ...(exclusions?.testSupportFiles.length ? { testSupportFiles: exclusions.testSupportFiles } : {}),
+  };
+}
+
+/* The change a measurement counts: the commit's diff without its test files and without the files the run's facts say are no gap of the suite. */
+function changeDiffOf(diff: string | undefined, exclusions: CoverageExclusions | undefined): string | undefined {
+  return diff ? diffWithoutFiles(diffWithoutTestFiles(diff).diff, excludedFilesOf(exclusions)) : undefined;
+}
+
 /* The source line of a changed file, each file read once per measurement through `readSource`. */
 function sourceLines(readSource: (file: string) => string | undefined): SourceLineOf {
   const lines = new Map<string, string[] | undefined>();
@@ -112,7 +126,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
       return { status: this.deps.decide.decide(null, this.ctx.policy), ratio: null };
     }
     /* The change is its own code: the repo's test files a commit carries are neither collected nor counted, or a suite would be measured against the unit tests it never runs (or, on the code target, credited with the lines those tests run of themselves). */
-    const changeDiff = diff ? diffWithoutTestFiles(diff).diff : undefined;
+    const changeDiff = changeDiffOf(diff, opts?.exclusions);
     /* Per-call changed files from the live diff. Composition-time collectors often hold a static empty list; absent diff → collector constructor value. */
     const changedFiles = changeDiff !== undefined ? [...parseDiffHunks(changeDiff).keys()] : undefined;
     const willAssemble = this.ctx.assembleChangeCoverage !== undefined && !!diff;
@@ -144,8 +158,8 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     /* Per use case: figures beside the aggregate, which stays the only one that decides. */
     const candidates = opts?.candidates ?? [];
     const measurement: CoverageMeasurement = candidates.length > 0
-      ? { ...aggregate, perCandidate: perCandidateCoverage({ candidates, diff: changeDiff, coverage: cc, aggregate: aggregate.unmeasured, crossRepo: opts?.crossRepo === true }) }
-      : aggregate;
+      ? { ...aggregate, ...recordedExclusions(opts?.exclusions), perCandidate: perCandidateCoverage({ candidates, diff: changeDiff, coverage: cc, aggregate: aggregate.unmeasured, crossRepo: opts?.crossRepo === true }) }
+      : { ...aggregate, ...recordedExclusions(opts?.exclusions) };
 
 
     return {
@@ -206,10 +220,10 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     return this.deps.decide.blocks(status, this.ctx.policy);
   }
 
-  async recount(br: BlastRadius, specDir: string, diff: string | undefined, reruns: readonly CoverageRerun[], opts?: { namespace?: string; proofs?: readonly MutantProof[] }): Promise<CoverageRecount | null> {
+  async recount(br: BlastRadius, specDir: string, diff: string | undefined, reruns: readonly CoverageRerun[], opts?: { namespace?: string; proofs?: readonly MutantProof[]; exclusions?: CoverageExclusions }): Promise<CoverageRecount | null> {
     const { recollect } = this.deps.collector;
     if (this.ctx.policy.mode === "off" || !diff || !this.ctx.assembleChangeCoverage || !recollect) return null;
-    const changeDiff = diffWithoutTestFiles(diff).diff;
+    const changeDiff = changeDiffOf(diff, opts?.exclusions)!;
     const base = opts?.namespace ?? this.ctx.namespace ?? br.sha.toString();
     const { sources, rewritten } = latestDumpsOf(base, reruns);
     /* A proof holds only for the spec bytes that killed its mutant: the re-run spec files are not those any more. */
@@ -224,7 +238,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
       ratio: cc.measured ? cc.overall.ratio : null,
       uncovered: cc.uncovered,
       untakenArms: cc.untakenArms ?? [],
-      measurement: measurementOf(cc, undefined, report.scripts),
+      measurement: { ...measurementOf(cc, undefined, report.scripts), ...recordedExclusions(opts?.exclusions) },
     };
   }
 }

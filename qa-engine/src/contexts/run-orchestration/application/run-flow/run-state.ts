@@ -22,7 +22,7 @@ import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
 import type { FixLoopStage } from "../../domain/fix-loop.aggregate.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import type { BundleMutationOutcome, CandidateCoverage, CandidateValue, CausalLabel, CoverageRerun, MutantProof, MutantRun, SurvivorClosure, UntakenArm, ValueStats } from "@contexts/objective-signal/application/index.ts";
+import type { BundleMutationOutcome, CandidateCoverage, CandidateValue, CausalLabel, CoverageExclusions, CoverageRerun, MutantProof, MutantRun, SurvivorClosure, UntakenArm, ValueStats } from "@contexts/objective-signal/application/index.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunEvidence } from "../../domain/run-decision.service.ts";
 import type { EndReason } from "./end-reason.ts";
@@ -238,6 +238,8 @@ export interface CoverageOutcome {
   coverageStale: boolean;
   /** The same bytes make the value score describe a suite that is no longer on disk. The oracle stays signal-only: stale is recorded, never a gate. */
   valueStale: boolean;
+  /** The changed files the run's facts say are no gap of the suite (reached only through routes the change made unavailable, imported only by tests), decided once at the first measurement and handed to every later one so they leave the same change out; undefined when none was decided. */
+  exclusions: CoverageExclusions | undefined;
 }
 
 /** The round in progress: what a step hands to the next one of the same round. */
@@ -452,6 +454,7 @@ export function initialRunState(): RunState {
       acceptedRegenAfterMeasure: false,
       coverageStale: false,
       valueStale: false,
+      exclusions: undefined,
     },
     review: { session: undefined, reviewerApproved: true, reviewerApprovedForOutcome: undefined, finalReviewerCorrections: [], missingCases: [], reviewerSignal: undefined },
     decided: undefined,

@@ -20,6 +20,8 @@ export type { CoverageStatus } from "../domain/decide-coverage.service.ts";
 export { MAX_FAULT_INJECTION_COUNTER_BYTES, MAX_FAULT_INJECTION_COUNTER_FILES, MAX_V8_DUMP_BYTES, MAX_V8_DUMP_FILES, MAX_V8_DUMPS_TOTAL_BYTES, sanitizeFaultCounter, sanitizeV8Dump } from "../domain/dump-sanitizers.ts";
 export { labelFailure } from "../domain/causal-label.ts";
 export type { CausalLabel, CausalMatchers, CausalScope, CausalFlow } from "../domain/causal-label.ts";
+export { changedCodeFiles, testSupportFiles, unreachableByDesign } from "../domain/coverage-exclusions.ts";
+export type { CoverageExclusions, ReachScope, TestSupportFile, UnreachableByDesign } from "../domain/coverage-exclusions.ts";
 export { perCandidateCoverage } from "../domain/per-candidate-coverage.ts";
 export type { CandidateCoverage, CandidateUnmeasured } from "../domain/per-candidate-coverage.ts";
 export { operationKey } from "../domain/fault-injection-score.ts";

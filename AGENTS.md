@@ -689,6 +689,13 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   script maps is not loaded, and its non-blank added lines count as uncovered (`notLoadedFiles`), unless no script can hold it
   (neither a declared language nor a kind of file the run's maps reach, such as a document or a style sheet): that is not changed code. Native reports keep
   every added line. `gateSignals.changeCoverage` records these counts beside the ratio.
+- **Changed files that are no gap of the suite** leave the measurement whole (their lines, branches, missing cases and mutants) and are recorded apart with why,
+  decided once per run from its facts (`coverageExclusionsOf`, `objective-signal/domain/coverage-exclusions.ts`), never by a name pattern, and handed to every
+  measurement and recount of the run (`opts.exclusions`): `unreachableByDesign` (a web run cannot load the file because the change made every route that reaches
+  it unavailable: each changed symbol of the file reaches a use case, every use case it reaches is a page whose route-availability fact is `change-introduced`,
+  and no symbol of it is partial or pruned at a hub; the routes are recorded) and `testSupportFiles` (every importer of the file, by the code graph's import
+  edges, is a test file of the app, with no production importer; the importer count is recorded). A file reached by an available route as well, imported by
+  production code, with no importer read, or whose facts are missing or partial stays counted, as before.
 - A browser run maps covered bundle bytes to repository files only through source maps the page's
   scripts carry (inline, fetched from the URL their `sourceMappingURL` names, or `<script>.map` when
   they name none), fetched through the browser context so a DEV gate's credentials reach them. When the dumps held

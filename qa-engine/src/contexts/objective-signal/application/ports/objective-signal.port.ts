@@ -3,6 +3,7 @@ import type { CandidateValue, FaultAim, ValueStats } from "../../domain/fault-in
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import type { BundleMutationOutcome, CoverageMeasurement, CoverageRecount, CoverageRerun, MutantSelectionRecord, UntakenArm } from "../../domain/objective-signal.ts";
 import type { BundleMutationResult, MutantProof, MutantRun } from "../../domain/coverage-collector.ts";
+import type { CoverageExclusions } from "../../domain/coverage-exclusions.ts";
 
 export interface ObjectiveSignalPort {
   /**
@@ -21,6 +22,8 @@ export interface ObjectiveSignalPort {
    * `opts.faultAim` is what the response oracle may corrupt and for which use cases; without it the oracle gives no score
    * (`valueScore` null) and `valueByCandidate` is absent. It is a signal and never gates.
    * `opts.caseFiles` are the spec files of this run's passing cases: a bundle mutant re-runs the ones whose tests reached it.
+   * `opts.exclusions` are the changed files that are not a gap of the suite (reached only through routes the change made unavailable,
+   * or imported only by tests): they leave the diff before anything is collected, counted or mutated, and the measurement records them apart.
    * `opts.namespace` overrides the dump namespace for the regen's second
    * measure(); the first measurement is untouched.
    * `opts.reruns` are later executions of some spec files, in the order they ran: the measurement then reads the latest dumps of
@@ -33,7 +36,7 @@ export interface ObjectiveSignalPort {
    * `mutantSelection` says how the mutants were chosen (the sites on changed lines left out because their source line does not hold
    * what they mutate, by why, and how many mutants re-run only the tests that reached them); absent when no mutant was looked for.
    */
-  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[]; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; faultAim?: FaultAim; reruns?: readonly CoverageRerun[] }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; valueByCandidate?: CandidateValue[]; valueStats?: ValueStats; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[]; untakenArms?: UntakenArm[]; bundleMutation?: BundleMutationOutcome; mutantSelection?: MutantSelectionRecord; mutantProofs?: MutantProof[]; survivorRuns?: MutantRun[]; measurement?: CoverageMeasurement }>;
+  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[]; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; faultAim?: FaultAim; reruns?: readonly CoverageRerun[]; exclusions?: CoverageExclusions }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; valueByCandidate?: CandidateValue[]; valueStats?: ValueStats; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[]; untakenArms?: UntakenArm[]; bundleMutation?: BundleMutationOutcome; mutantSelection?: MutantSelectionRecord; mutantProofs?: MutantProof[]; survivorRuns?: MutantRun[]; measurement?: CoverageMeasurement }>;
   /**
    * Single source of truth for whether a measured status blocks publish.
    * Only "enforce" + "fail" blocks; "unknown" never blocks regardless of mode.
@@ -51,5 +54,5 @@ export interface ObjectiveSignalPort {
    * was judged. Absent on a port with no mutation pass. A signal, never a gate.
    */
   recheckSurvivors?(survivors: readonly MutantRun[], specDir: string, namespace: string, baselineCases: readonly string[]): Promise<BundleMutationResult | null>;
-  recount?(br: BlastRadius, specDir: string, diff: string | undefined, reruns: readonly CoverageRerun[], opts?: { namespace?: string; proofs?: readonly MutantProof[] }): Promise<CoverageRecount | null>;
+  recount?(br: BlastRadius, specDir: string, diff: string | undefined, reruns: readonly CoverageRerun[], opts?: { namespace?: string; proofs?: readonly MutantProof[]; exclusions?: CoverageExclusions }): Promise<CoverageRecount | null>;
 }

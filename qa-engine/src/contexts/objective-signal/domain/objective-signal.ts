@@ -1,6 +1,7 @@
 import type { SkippedSites } from "./select-mutants.ts";
 import type { SurvivedMutant } from "./coverage-collector.ts";
 import type { AggregateUnmeasured, CandidateCoverage } from "./per-candidate-coverage.ts";
+import type { TestSupportFile, UnreachableByDesign } from "./coverage-exclusions.ts";
 
 /** What a change-coverage measurement counted, and why a measurement that decides nothing did not. */
 export interface CoverageMeasurement {
@@ -16,6 +17,10 @@ export interface CoverageMeasurement {
   notExecutableLines?: number;
   /** Changed files no loaded script maps: their non-blank lines are counted, and uncovered. */
   notLoadedFiles?: string[];
+  /** Changed files a web run cannot load by the change's own design (only reached through routes the change made unavailable) and the routes: left out of every count, recorded apart. Absent when none. */
+  unreachableByDesign?: UnreachableByDesign[];
+  /** Changed files only test files import: left out of every count, recorded apart. Absent when none. */
+  testSupportFiles?: TestSupportFile[];
   /** With a killed mutant's dumps added: the covered lines the passing tests ran by themselves, and the lines and arms only a killed mutant's re-run ran. `coveredChanged` holds both. */
   coveredByExecution?: number;
   provenByMutation?: number;

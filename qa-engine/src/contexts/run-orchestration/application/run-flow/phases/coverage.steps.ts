@@ -6,7 +6,7 @@ import { faultAimOf } from "../fault-aim.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { hasGreenBytes } from "@kernel/run-verdict.ts";
 import type { GenerationEnrichment } from "@contexts/generation/application/index.ts";
-import { renderBranchGap, renderCoverageGap, renderSurvivedMutant, renderSurvivedMutants, survivorClosureOf, survivorRechecks, type BundleMutationResult, type CoverageMeasurement, type CoverageRerun, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
+import { changedCodeFiles, renderBranchGap, renderCoverageGap, renderSurvivedMutant, renderSurvivedMutants, survivorClosureOf, survivorRechecks, testSupportFiles, unreachableByDesign, type BundleMutationResult, type CoverageExclusions, type CoverageMeasurement, type CoverageRerun, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import { runOf, type BranchCasesOutcome, type CoverageOutcome, type RunState } from "../run-state.ts";
@@ -31,6 +31,8 @@ export function changeCoverageOf(m: CoverageMeasurement | undefined): CoverageOu
     executableLines: m.changedLines,
     ...(m.notExecutableLines !== undefined ? { notExecutableLines: m.notExecutableLines } : {}),
     ...(m.notLoadedFiles ? { notLoadedFiles: m.notLoadedFiles } : {}),
+    ...(m.unreachableByDesign ? { unreachableByDesign: m.unreachableByDesign } : {}),
+    ...(m.testSupportFiles ? { testSupportFiles: m.testSupportFiles } : {}),
     ...(m.coveredByExecution !== undefined ? { coveredByExecution: m.coveredByExecution } : {}),
     ...(m.provenByMutation !== undefined ? { provenByMutation: m.provenByMutation } : {}),
     ...(m.armsProvenByMutation !== undefined ? { armsProvenByMutation: m.armsProvenByMutation } : {}),
@@ -45,6 +47,31 @@ export const announcesCoverage = (state: Readonly<RunState>, ctx: WorkspaceRunCo
 
 export async function announceCoverage(_state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   ctx.deps.observer?.onStep("coverage");
+}
+
+/*
+ * The changed files that are no gap of the suite, from the run's own facts: those only reached through routes the change made
+ * unavailable (the grounding's change scope, its use cases and the route availability classification), then, of the rest, those
+ * only test files import (the code graph's import edges). A fact that is missing or partial leaves the file counted; a graph that
+ * cannot answer is said and leaves every file counted. Undefined when nothing is left out.
+ */
+export async function coverageExclusionsOf(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<CoverageExclusions | undefined> {
+  const { deps, input } = ctx;
+  const diff = state.classification.diff;
+  if (diff === undefined || diff === "" || input.triggerRepo) return undefined;
+  const files = changedCodeFiles(diff);
+  const byDesign = unreachableByDesign({ files, scope: state.grounding.changeScope, candidates: state.grounding.candidates, facts: state.grounding.routeAvailability?.facts ?? [] });
+  const decided = new Set(byDesign.map((e) => e.file));
+  const undecided = files.filter((file) => !decided.has(file));
+  let support: ReturnType<typeof testSupportFiles> = [];
+  if (deps.codeGraph?.importersOf && undecided.length > 0) {
+    const importers = await deps.codeGraph.importersOf(deps.codeGraphRepoDir ?? ctx.services.specRoot.mirrorDir, undecided);
+    if (importers.ok) support = testSupportFiles(importers.value, decided);
+    else engineLog.warn(`[qa] change-coverage: the code graph could not say who imports the changed files (${importers.error.reason}); none is taken for test support.`);
+  }
+  if (byDesign.length === 0 && support.length === 0) return undefined;
+  engineLog.info(`[qa] change-coverage: left out as no gap of the suite: ${byDesign.length} file(s) only reached through routes the change made unavailable, ${support.length} test support file(s).`);
+  return { unreachableByDesign: byDesign, testSupportFiles: support };
 }
 
 export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
@@ -71,12 +98,13 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
   const { coverageNamespace, coverageReruns } = state.fixLoop;
   /* The response oracle corrupts only the operations the change reaches; with no scope it has nothing to corrupt. */
   const faultAim = faultAimOf({ scope: state.grounding.changeScope, candidates: state.grounding.candidates, flowCandidates: state.generation.flowCandidates });
+  const exclusions = await coverageExclusionsOf(state, ctx);
   const signal = await deps.objectiveSignal.measure(
     runBlastRadius,
     workspace.specDir,
     input.triggerRepo ? undefined : diff,
     baselineCases,
-    ...(coverageNamespace || coverageReruns.length > 0 || caseFiles.length > 0 || state.grounding.candidates.length > 0 || faultAim !== undefined
+    ...(coverageNamespace || coverageReruns.length > 0 || caseFiles.length > 0 || state.grounding.candidates.length > 0 || faultAim !== undefined || exclusions !== undefined
       ? [{
           ...(coverageNamespace ? { namespace: coverageNamespace } : {}),
           ...(coverageReruns.length > 0 ? { reruns: coverageReruns } : {}),
@@ -84,6 +112,7 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
           ...(state.grounding.candidates.length > 0 ? { candidates: state.grounding.candidates } : {}),
           ...(input.triggerRepo ? { crossRepo: true } : {}),
           ...(faultAim ? { faultAim } : {}),
+          ...(exclusions ? { exclusions } : {}),
         }]
       : []),
   );
@@ -108,6 +137,7 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
         mutantProofs: signal.mutantProofs ?? [],
         survivorRuns: signal.survivorRuns ?? [],
         changeCoverage: changeCoverageOf(signal.measurement),
+        exclusions,
         /*
          * Ask the port: only enforce+fail blocks. Unknown/pass never block. Do not
          * re-implement the mode check here.
@@ -294,6 +324,7 @@ export async function recountAfter(state: Readonly<RunState>, ctx: WorkspaceRunC
       ? await deps.objectiveSignal.recount(BlastRadius.of(input.sha, state.classification.intent?.changedFiles ?? []), workspace.specDir, state.classification.diff, [...coverageReruns, ...reruns], {
           ...(coverageNamespace ? { namespace: coverageNamespace } : {}),
           ...(state.coverage.mutantProofs.length > 0 ? { proofs: state.coverage.mutantProofs } : {}),
+          ...(state.coverage.exclusions ? { exclusions: state.coverage.exclusions } : {}),
         })
       : null;
   if (!recount) return { ...accepted, untakenArmsCurrent: false };

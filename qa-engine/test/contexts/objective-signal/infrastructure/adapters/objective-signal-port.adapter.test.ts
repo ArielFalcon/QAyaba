@@ -827,3 +827,104 @@ test("recount() adds the proofs of the spec files it did not re-run, and keeps t
   assert.equal(counted?.ratio, 1);
   assert.equal(partial, null);
 });
+
+/* ── changed files that are no gap of the suite ─────────────────────────────────────────────── */
+
+const EXCLUDED_DIFF = [
+  SAMPLE_DIFF,
+  "diff --git a/src/preview.page.ts b/src/preview.page.ts",
+  "+++ b/src/preview.page.ts",
+  "@@ -0,0 +1,3 @@",
+  "+if (native) open();",
+  "+close();",
+  "+done();",
+  "diff --git a/src/store.spec-helper.ts b/src/store.spec-helper.ts",
+  "+++ b/src/store.spec-helper.ts",
+  "@@ -0,0 +1,2 @@",
+  "+export const seed = 1;",
+  "+export const reset = 2;",
+].join("\n");
+
+const EXCLUSIONS = {
+  unreachableByDesign: [{ file: "src/preview.page.ts", routes: ["/upload-menu/preview"] }],
+  testSupportFiles: [{ file: "src/store.spec-helper.ts", importers: 2 }],
+};
+
+function excludedRig(onCollect?: (files?: string[]) => void) {
+  const report: CoverageReport = {
+    covered: [{ file: "src/checkout.ts", lines: [1, 2] }],
+    executable: [{ file: "src/checkout.ts", lines: [1, 2] }],
+    branches: [{ file: "src/preview.page.ts", line: 1, column: 0, kind: "if", arms: [{ label: "then", taken: false }, { label: "else", taken: false }] }],
+    mutationSites: [
+      { file: "src/preview.page.ts", line: 1, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "native", sourceLine: "if (native) open();", ranIn: ["flows-a-spec-ts-x-0-0.json"] },
+    ],
+  };
+  const mutated: number[] = [];
+  const mutation = { measure: async (mutants: Array<{ site: { line: number } }>) => (mutated.push(mutants.length), { applied: mutants.length, killed: 0, survived: [] }) };
+  const adapter = new ObjectiveSignalPortAdapter(
+    {
+      collector: { collect: async (_dir, _ns, files) => (onCollect?.(files), report), recollect: async (_dir, _sources, files) => (onCollect?.(files), report) },
+      decide: new DecideCoverageService(),
+      oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }),
+      mutation,
+    },
+    { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage },
+  );
+  return { adapter, mutated, br: BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]) };
+}
+
+test("measure() counts neither a file only reached through routes the change made unavailable nor test support, and records both apart with why", async () => {
+  const collected: Array<string[] | undefined> = [];
+  const { adapter, br, mutated } = excludedRig((files) => collected.push(files));
+
+  const result = await adapter.measure(br, "/e2e", EXCLUDED_DIFF, ["pays"], { caseFiles: ["flows/a.spec.ts"], exclusions: EXCLUSIONS });
+
+  assert.deepEqual(collected, [["src/checkout.ts"]], "nothing of the excluded files is collected");
+  assert.equal(result.ratio, 1);
+  assert.equal(result.status, "pass");
+  assert.equal(result.measurement?.changedLines, 2);
+  assert.equal(result.measurement?.changedBranches, undefined, "no decision of an excluded file is an arm to take");
+  assert.equal(result.untakenArms, undefined);
+  assert.deepEqual(result.uncovered, []);
+  assert.equal(result.measurement?.notLoadedFiles, undefined);
+  assert.deepEqual(result.measurement?.unreachableByDesign, EXCLUSIONS.unreachableByDesign);
+  assert.deepEqual(result.measurement?.testSupportFiles, EXCLUSIONS.testSupportFiles);
+  assert.deepEqual(mutated, [], "no mutant is made of an excluded file's site");
+});
+
+test("measure() without exclusions counts those files as before: not loaded, uncovered, with their arms and mutants", async () => {
+  const { adapter, br, mutated } = excludedRig();
+
+  const result = await adapter.measure(br, "/e2e", EXCLUDED_DIFF, ["pays"], { caseFiles: ["flows/a.spec.ts"] });
+
+  assert.equal(result.ratio, 2 / 7);
+  assert.deepEqual(result.measurement?.notLoadedFiles, ["src/preview.page.ts", "src/store.spec-helper.ts"]);
+  assert.equal(result.measurement?.changedBranches, 2);
+  assert.equal(result.measurement?.unreachableByDesign, undefined);
+  assert.equal(result.measurement?.testSupportFiles, undefined);
+  assert.deepEqual(mutated, [1]);
+});
+
+test("recount() leaves the same files out and records them", async () => {
+  const collected: Array<string[] | undefined> = [];
+  const { adapter, br } = excludedRig((files) => collected.push(files));
+
+  const result = await adapter.recount!(br, "/e2e", EXCLUDED_DIFF, [{ namespace: "run-acc0", specFiles: ["flows/a.spec.ts"] }], { exclusions: EXCLUSIONS });
+
+  assert.deepEqual(collected, [["src/checkout.ts"]]);
+  assert.equal(result?.ratio, 1);
+  assert.deepEqual(result?.untakenArms, []);
+  assert.deepEqual(result?.measurement.unreachableByDesign, EXCLUSIONS.unreachableByDesign);
+  assert.deepEqual(result?.measurement.testSupportFiles, EXCLUSIONS.testSupportFiles);
+});
+
+test("measure() whose every changed file is excluded has no changed lines and never blocks", async () => {
+  const onlyExcluded = EXCLUDED_DIFF.slice(EXCLUDED_DIFF.indexOf("diff --git a/src/preview.page.ts"));
+  const { adapter, br } = excludedRig();
+
+  const result = await adapter.measure(br, "/e2e", onlyExcluded, [], { exclusions: EXCLUSIONS });
+
+  assert.equal(result.status, "unknown");
+  assert.equal(result.measurement?.unmeasured, "no-changed-lines");
+  assert.equal(adapter.blocks(result.status), false);
+});
