@@ -929,20 +929,32 @@ async function runWithNetworkDump(opts: { status: "pass" | "fail"; networkErrors
   return { cases: run.cases as QaCase[] };
 }
 
-test("harvest folds dump.networkErrors onto a PASSING case, strips the query string, and caps the count", async () => {
+test("harvest folds dump.networkErrors onto a FAILED case, strips the query string, and caps the count", async () => {
   const entries = Array.from({ length: 12 }, (_, i) => ({
     url: i === 0 ? "https://api.example.com/orders?token=secret" : `https://api.example.com/orders/${i}`,
     status: 404,
   }));
-  const { cases } = await runWithNetworkDump({ status: "pass", networkErrors: entries });
-  const passed = cases.find((c) => c.status === "pass");
-  assert.ok(passed, "the passing case must be present");
-  const ne = passed.networkErrors;
-  assert.ok(ne, "networkErrors must fold onto a passing case");
+  const { cases } = await runWithNetworkDump({ status: "fail", networkErrors: entries });
+  const failed = cases.find((c) => c.status === "fail");
+  assert.ok(failed, "the failed case must be present");
+  const ne = failed.networkErrors;
+  assert.ok(ne, "networkErrors must fold onto a failed case");
   assert.equal(ne.length, 10, "networkErrors must be capped at 10");
   assert.ok(ne.every((e) => !e.url.includes("?") && !e.url.includes("token")), "a query string (and its secret) must never appear");
   assert.equal(ne[0]!.url, "https://api.example.com/orders", "the URL is reduced to origin+pathname");
-  assert.equal(passed.networkClass, "other", "no denied host / 5xx / DNS shape -> other");
+  assert.equal(failed.networkClass, "other", "no denied host / 5xx / DNS shape -> other");
+});
+
+test("a PASSING case carries neither network errors nor a network class, even when a dump lists a refused host", async () => {
+  const { cases } = await runWithNetworkDump({
+    status: "pass",
+    networkErrors: [{ url: "https://errors.tracker.example/envelope", errorText: "net::ERR_FAILED", resourceType: "fetch" }],
+    denied: ["errors.tracker.example"],
+  });
+  const passed = cases.find((c) => c.status === "pass");
+  assert.ok(passed);
+  assert.equal(passed.networkErrors, undefined);
+  assert.equal(passed.networkClass, undefined);
 });
 
 test("networkClass is egress when a network-error host is in the run's denied list", async () => {

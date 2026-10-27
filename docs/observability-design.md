@@ -560,16 +560,16 @@ for an id nobody can export would be noise. This deviates from brief §4.2, deli
 - **Execution evidence.** The synthesized case span carries the evidence the report cannot:
   `qayaba.test.http_status`, `qayaba.test.network_error_count` and `qayaba.test.network_class`
   (`egress | backend | dns | other`), matched to the case from the harvested dumps. The failure-capture
-  block also writes a dump for a **passing** test that showed evidence (a console error, a failed request
-  or a 5xx **of a request the page depends on**) and records `requestfailed` entries with the URL reduced
+  block also writes a dump for a **passing** test that raised an uncaught page error (never for network
+  evidence alone) and, for a failed attempt, records `requestfailed` entries with the URL reduced
   to origin + pathname, so a query string never reaches the dump. The page depends on a request by its resource type, never
   its host: a document, fetch, xhr, script or style sheet counts whatever origin it goes to (the suite's
   network reaches only the declared origins, so a refused one is the egress diagnosis); everything
   else that failed (error-tracking and analytics beacons, a map vendor's events, the browser's own
   background traffic, an image or font) is counted apart in the dump's `backgroundNetwork`
   (`{ count, hosts }`, at most five host names, logged once per run), is not a network error and never
-  makes a passing test dump. `network_error_count` and `network_class` therefore count only page-dependent
-  failures. `network_class` is derived: a host in the run's denied list is `egress`, a 5xx is `backend`,
+  makes a passing test dump. `network_error_count` and `network_class` describe a failure: they count only
+  page-dependent failures of a failed attempt, so a refused telemetry fetch of a passing test carries neither. `network_class` is derived: a host in the run's denied list is `egress`, a 5xx is `backend`,
   a name-resolution error is `dns`.
 - **Validation.** One child per check: `typecheck|lint|list|manifest`, with an ok flag and an error
   count. Also the catalog gate (fabricated test-id count) and the ambiguity advisory

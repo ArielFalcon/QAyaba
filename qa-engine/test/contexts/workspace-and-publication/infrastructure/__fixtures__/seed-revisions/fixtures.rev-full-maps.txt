@@ -540,10 +540,10 @@ async function qaFailureCaptureFinish(page: QaCapturePage, testInfo: QaCaptureTe
     } catch { /* best effort — the count is a bound on the spec, never a test failure */ }
   }
   const expected = testInfo.status === testInfo.expectedStatus;
-  // A passing test still dumps when the page showed evidence (a console error, a failed request or a
-  // 5xx, of a request the page depends on) — the evidence is real even when the assertions passed. Only an
-  // expected result with no evidence returns early.
-  const hasEvidence = runtimeErrors.some((e) => e.type === "pageerror") || failedRequests.length > 0 || errorResponses.some((e) => e.status >= 500 && isPageDependent(e.resourceType));
+  // A passing test still dumps when the page raised an uncaught error. Network evidence describes a
+  // failure: a passing attempt never dumps for it and never reports network errors, because a telemetry
+  // fetch the egress filter refused is background noise of a test that worked.
+  const hasEvidence = runtimeErrors.some((e) => e.type === "pageerror");
   if (expected && !hasEvidence) return;
   try {
     const { writeFileSync } = await import("node:fs");
@@ -660,6 +660,7 @@ async function qaFailureCaptureFinish(page: QaCapturePage, testInfo: QaCaptureTe
         if (networkErrors.length >= NETWORK_ERRORS_CAP) break;
       }
     } catch { networkErrors = []; }
+    if (expected) networkErrors = [];
     writeFileSync(
       join(dir, `${safeProject}__${hash}__${testInfo.retry}.json`),
       JSON.stringify({ project, file, title, retry: testInfo.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors, ...(backgroundFailures.count > 0 ? { backgroundNetwork: backgroundFailures } : {}), settle, resultCount }),

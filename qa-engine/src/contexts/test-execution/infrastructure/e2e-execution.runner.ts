@@ -376,7 +376,7 @@ export async function runE2E(
     if (dump?.httpStatus !== undefined) qa.httpStatus = dump.httpStatus;
     if (dump?.finalUrl !== undefined) qa.finalUrl = dump.finalUrl;
     if (dump?.runtimeErrors !== undefined) qa.runtimeErrors = dump.runtimeErrors;
-    if (dump?.networkErrors !== undefined) {
+    if (c.status !== "pass" && dump?.networkErrors !== undefined) {
       qa.networkErrors = dump.networkErrors;
       qa.networkClass = deriveNetworkClass(dump.networkErrors, deniedHosts);
     }

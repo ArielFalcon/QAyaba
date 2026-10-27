@@ -1193,7 +1193,7 @@ test("the afterEach body remains a no-op when QA_FAILURE_CAPTURE_DIR is unset, e
    writes a dump for a PASSING test that showed evidence, without an aria snapshot.
  */
 
-test("a passing test with a failed request dumps a stripped networkErrors URL and no aria snapshot", async () => {
+test("a passing test with only a failed request writes no dump: network evidence describes a failure", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-netpass-"));
   try {
     const captureDir = join(dir, "dumps");
@@ -1221,12 +1221,7 @@ test("a passing test with a failed request dumps a stripped networkErrors URL an
       else process.env.QA_FAILURE_CAPTURE_DIR = prev;
     }
 
-    const dumps = readdirSync(captureDir);
-    assert.equal(dumps.length, 1, "a passing test with a failed request must write a dump");
-    const body = JSON.parse(readFileSync(join(captureDir, dumps[0]!), "utf8"));
-    assert.equal(body.networkErrors[0].url, "https://dev.example/api/x", "the query string must not reach the dump");
-    assert.equal(body.yaml, "", "a passing test with evidence needs no aria snapshot");
-    assert.equal(body.httpStatus, undefined, "a failed request is not an attributed httpStatus");
+    assert.deepEqual(readdirSync(captureDir), [], "a passing test with only network evidence writes no dump");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

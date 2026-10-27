@@ -27,7 +27,7 @@ const APP = "https://app.example";
 interface Failure { url: string; type: string; status?: number }
 
 /* One test attempt: the page fails the given requests (status: answered with it; none: the request failed), then the capture runs. Returns the dump it wrote, if any. */
-async function attempt(opts: { failures: Failure[]; expected?: boolean; finalUrl?: string }): Promise<Record<string, unknown> | undefined> {
+async function attempt(opts: { failures: Failure[]; expected?: boolean; finalUrl?: string; pageError?: boolean }): Promise<Record<string, unknown> | undefined> {
   const dir = mkdtempSync(join(tmpdir(), "seed-network-"));
   const saved = { dir: process.env.QA_FAILURE_CAPTURE_DIR, base: process.env.PW_BASE_URL };
   process.env.QA_FAILURE_CAPTURE_DIR = dir;
@@ -46,6 +46,7 @@ async function attempt(opts: { failures: Failure[]; expected?: boolean; finalUrl
       if (f.status === undefined) for (const fn of handlers.requestfailed ?? []) fn(request);
       else for (const fn of handlers.response ?? []) fn({ url: () => f.url, status: () => f.status, request: () => request });
     }
+    if (opts.pageError) for (const fn of handlers.pageerror ?? []) fn(new Error("boom"));
     const expected = opts.expected ?? true;
     await finish(page, { status: expected ? "passed" : "failed", expectedStatus: "passed", titlePath: ["", "orders.spec.ts", "lists orders"], project: { name: "desktop" }, file: "/e2e/orders.spec.ts", retry: 0, testId: "t1", workerIndex: 0 });
     const files = readdirSync(dir).filter((n) => n.endsWith(".json"));
@@ -68,6 +69,16 @@ test("a passing test whose only failed requests are third-party beacons writes n
   assert.equal(await attempt({ failures: BEACONS }), undefined);
 });
 
+test("a passing test whose telemetry fetch was refused writes no failure dump: network evidence describes a failure", async () => {
+  assert.equal(await attempt({ failures: [{ url: "https://errors.tracker.example/api/1/envelope", type: "fetch" }, { url: "https://errors.tracker.example/api/2", type: "xhr", status: 502 }] }), undefined);
+});
+
+test("a passing test that raised an uncaught page error still dumps, without network errors", async () => {
+  const dump = await attempt({ failures: [{ url: "https://errors.tracker.example/api/1/envelope", type: "fetch" }], pageError: true });
+  assert.equal((dump?.runtimeErrors as unknown[]).length, 1);
+  assert.deepEqual(dump?.networkErrors, []);
+});
+
 test("a failing test counts fire-and-forget failures apart and keeps them out of its network errors", async () => {
   const dump = await attempt({ failures: [...BEACONS, { url: `${APP}/api/orders?page=1`, type: "fetch" }], expected: false });
   assert.deepEqual(dump?.networkErrors, [{ url: `${APP}/api/orders`, errorText: "net::ERR_FAILED", resourceType: "fetch" }]);
@@ -77,6 +88,7 @@ test("a failing test counts fire-and-forget failures apart and keeps them out of
 test("a failed script or fetch the page needs is a network error whatever its origin, so an undeclared one can be diagnosed", async () => {
   const dump = await attempt({
     failures: [{ url: "https://api.backend.example:8443/orders", type: "fetch" }, { url: "https://eu.cdn.example/app.js", type: "script" }, { url: "https://cdn.example/site.css", type: "stylesheet" }],
+    expected: false,
   });
   assert.deepEqual((dump?.networkErrors as { url: string }[]).map((e) => e.url), ["https://api.backend.example:8443/orders", "https://eu.cdn.example/app.js", "https://cdn.example/site.css"]);
   assert.equal(dump?.backgroundNetwork, undefined);
@@ -91,8 +103,8 @@ test("a failed image, font or beacon of the app's own origin is background, not 
   assert.equal((dump?.backgroundNetwork as { count: number }).count, 2);
 });
 
-test("a same-origin 5xx of a foreground request is still attributed and recorded", async () => {
-  const dump = await attempt({ failures: [{ url: `${APP}/api/orders`, type: "fetch", status: 503 }] });
+test("a same-origin 5xx of a foreground request is still attributed and recorded on a failed attempt", async () => {
+  const dump = await attempt({ failures: [{ url: `${APP}/api/orders`, type: "fetch", status: 503 }], expected: false });
   assert.equal(dump?.httpStatus, 503);
   assert.deepEqual(dump?.networkErrors, [{ url: `${APP}/api/orders`, status: 503, resourceType: "fetch" }]);
   assert.equal(dump?.backgroundNetwork, undefined);
