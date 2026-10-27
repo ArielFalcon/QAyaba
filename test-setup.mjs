@@ -19,6 +19,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installTrackedTreeWriteGuard } from "./scripts/test-write-guard.mjs";
+import { installGlobalTimerGuard, runsTestsInThisProcess } from "./scripts/test-global-guard.mjs";
 
 // The JSON logger gets the same treatment through QAYABA_LOG_DIR: a test that logs must never write
 // into, or prune, the running service's data/logs.
@@ -43,3 +44,10 @@ process.env.QA_EXEC_SANDBOX ??= "best-effort";
 process.env.QA_EGRESS_MODE ??= "warn";
 
 installTrackedTreeWriteGuard(import.meta.dirname);
+
+// A test that leaves the timers or the clock replaced fails the next test that starts, by name, instead of hanging a
+// shared worker far from the cause (scripts/test-global-guard.mjs).
+if (runsTestsInThisProcess()) {
+  const { beforeEach, afterEach } = await import("node:test");
+  installGlobalTimerGuard({ beforeEach, afterEach }, import.meta.dirname);
+}

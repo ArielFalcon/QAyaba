@@ -74,8 +74,16 @@ A test file therefore shares its process, its globals and its module state with 
 worker, and its history database (`test-setup.mjs` gives one per worker, not per file):
 
 - **Restore what you change.** `process.env`, `globalThis.fetch`, a `mock.method` made outside `t.mock`,
-  a timer, a module-level registry (`set…`/`install…`/`register…`): put back what was there in a
+  a timer, a module-level registry (`set…`/`install…`/`register…`) or breaker (the agent transport's circuit, `resetCircuit`): put back what was there in a
   `finally` or `t.after`. Prefer `t.mock`, which restores itself when the test ends.
+- **Mock time with `t.mock.timers`, never the global `mock.timers`.** node:test resets `t.mock` when the
+  test ends, even one that failed or timed out while its work was still running; the global `mock` is the
+  worker's, and a test that fails before its `finally`, or whose work goes on after it ended, leaves
+  `setTimeout` mocked for every file after it, where a wait on it never ends. A wait loop in a test is
+  bounded and also ends when the work it waits on fails. `test-setup.mjs` enforces the rule
+  (`scripts/test-global-guard.mjs`): a test that starts with `setTimeout`, `setInterval`, `setImmediate`,
+  `Date` or `node:timers` still replaced fails, naming the replacement and the last test that ended before
+  it, and the originals are put back for the rest of the worker.
 - **Do not assume a module's state is fresh.** Loading a module may wire state (the OpenCode client wires
   the event-stream opener and the runtime model assignments on import); a test that needs it unwired sets
   that up itself and puts it back.
