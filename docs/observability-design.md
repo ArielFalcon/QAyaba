@@ -272,6 +272,7 @@ qayaba.run
 ├─ qayaba.phase.fix_loop          rounds as children: regenerate → validate → execute
 ├─ qayaba.phase.coverage          status, ratio, changed/covered lines, policy; coverage regen child
 │  ├─ qayaba.coverage.measure     changed/covered lines, changed/mapped files, changed/taken branches, judged/killed mutants, why nothing was measured
+│  ├─ qayaba.coverage.survivor_recheck  surviving mutants re-applied after the regeneration that answered them: rechecked, judged, closed
 │  └─ qayaba.coverage.recount     the same counts after an accepted regeneration, from the dumps on disk
 ├─ qayaba.phase.review            invoke_agent qa-reviewer per round, review-dom grounding
 ├─ qayaba.phase.decide            verdict, decision pr|issue|shadow|none

@@ -1,7 +1,9 @@
 /*
  * The change-coverage measurement as a span: `qayaba.coverage.measure`, a child of the phase that is open, with the decision, what it counted
- * and why a measurement that decides nothing did not; a recount over dumps already on disk is `qayaba.coverage.recount`, with what it counted.
- * A decorator: what the port returns, and what it throws, is returned and thrown as it was, and a port that cannot recount stays one that cannot.
+ * and why a measurement that decides nothing did not; a recount over dumps already on disk is `qayaba.coverage.recount`, with what it counted;
+ * the surviving mutants applied again after a regeneration answered them are `qayaba.coverage.survivor_recheck`, with how many it judged and
+ * how many a test now notices. A decorator: what the port returns, and what it throws, is returned and thrown as it was, and a port that
+ * cannot recount or re-apply survivors stays one that cannot.
  */
 
 import { startRunChildSpan } from "../../../../shared-infrastructure/telemetry/run-spans.ts";
@@ -48,6 +50,7 @@ function countsOf(m: CoverageMeasurement | undefined): Record<string, string | n
 
 export class TracedObjectiveSignalPort implements ObjectiveSignalPort {
   readonly recount?: ObjectiveSignalPort["recount"];
+  readonly recheckSurvivors?: ObjectiveSignalPort["recheckSurvivors"];
 
   constructor(
     private readonly inner: ObjectiveSignalPort,
@@ -60,6 +63,26 @@ export class TracedObjectiveSignalPort implements ObjectiveSignalPort {
         try {
           const result = await recount.apply(inner, args);
           span.setAttrs(result ? { "qayaba.coverage.status": result.status, ...(result.ratio !== null ? { "qayaba.coverage.ratio": result.ratio } : {}), ...countsOf(result.measurement) } : {});
+          span.end();
+          return result;
+        } catch (err) {
+          span.recordError(err);
+          span.end();
+          throw err;
+        }
+      };
+    }
+    const recheckSurvivors = inner.recheckSurvivors;
+    if (recheckSurvivors) {
+      this.recheckSurvivors = async (...args) => {
+        const span = startRunChildSpan(this.telemetry, "qayaba.coverage.survivor_recheck");
+        try {
+          const result = await recheckSurvivors.apply(inner, args);
+          span.setAttrs({
+            "qayaba.mutation.survivors_rechecked": args[0].length,
+            "qayaba.mutation.survivors_judged": result?.applied ?? 0,
+            "qayaba.mutation.survivors_closed": result?.killed ?? 0,
+          });
           span.end();
           return result;
         } catch (err) {

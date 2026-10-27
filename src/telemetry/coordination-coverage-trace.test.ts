@@ -140,3 +140,29 @@ test("a recount of the change-coverage is its own span with what it counted, and
 
   assert.equal(new TracedObjectiveSignalPort({ measure: inner.measure, blocks: inner.blocks }, h.telemetry).recount, undefined);
 });
+
+test("a re-application of the surviving mutants is its own span with how many were re-applied, judged and noticed, and a port with no mutation pass stays one without", async () => {
+  const h = traceHarness();
+  const site = { file: "src/a.ts", line: 9, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x", ranIn: ["d"] };
+  const survivors = [{ site, specFiles: ["a.spec.ts"] }, { site: { ...site, line: 12 }, specFiles: ["a.spec.ts"] }];
+  const judged = { applied: 2, killed: 1, survived: [{ file: "src/a.ts", line: 12, operator: "negate condition" }] };
+  const asked: unknown[] = [];
+  const inner: ObjectiveSignalPort = {
+    measure: async () => ({ status: "unknown", ratio: null }),
+    blocks: () => false,
+    recheckSurvivors: async (...args) => (asked.push(args), judged),
+  };
+
+  const result = await inPhase(h, "qayaba.phase.coverage", () => new TracedObjectiveSignalPort(inner, h.telemetry).recheckSurvivors!(survivors, "/e2e", "r-closure", ["a works"]));
+
+  assert.equal(result, judged);
+  assert.deepEqual(asked, [[survivors, "/e2e", "r-closure", ["a works"]]]);
+  const span = h.only("qayaba.coverage.survivor_recheck");
+  assert.equal(span.parentSpanContext?.spanId, h.only("qayaba.phase.coverage").spanContext().spanId);
+  assert.equal(span.attributes["qayaba.mutation.survivors_rechecked"], 2);
+  assert.equal(span.attributes["qayaba.mutation.survivors_judged"], 2);
+  assert.equal(span.attributes["qayaba.mutation.survivors_closed"], 1);
+  assert.equal(JSON.stringify(span.attributes).includes("https://dev/main.js"), false, "the served script never leaves the process");
+
+  assert.equal(new TracedObjectiveSignalPort({ measure: inner.measure, blocks: inner.blocks }, h.telemetry).recheckSurvivors, undefined);
+});
