@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { QaCase } from "@kernel/qa-case.ts";
 import { RunQaUseCase, type RunQaUseCaseDeps } from "@contexts/run-orchestration/application/run-qa.use-case.ts";
 import { renderBlastRadiusSignal } from "@contexts/change-analysis/infrastructure/adapters/blast-radius-signal.ts";
 import { FixLoop } from "@contexts/run-orchestration/domain/fix-loop.aggregate.ts";
@@ -9568,7 +9569,7 @@ test("signal mode: a green run with arms no test ran regenerates once with those
     assert.ok(turns[1]!.includes("src/a.ts:3 if: else") && turns[1]!.includes("src/a.ts:7 logical: right of || evaluated"), "the regeneration is given the arms");
     assert.ok(!turns[1]!.includes("all changed lines are covered"), "an arms-only gap says nothing of the lines");
     assert.deepEqual(recounts, [[true, [{ namespace: "branch-cases-signal-acc0", specFiles: ["a.spec.ts"] }], {}]]);
-    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2, armsAfter: 1 });
+    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2, armsAfter: 1, kept: 1, restored: 0 });
     assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCoverage, { changed: 6, taken: 5 }, "the recount is what the run records");
     assert.equal(savedOutcomes.at(-1)!.gateSignals.coverageRatio, 1);
   } finally {
@@ -9705,6 +9706,133 @@ test("the killed mutants the coverage counted are handed to the recount, and the
   }
 });
 
+/* ── A gap regeneration is accepted spec file by spec file: one failing spec does not throw away a green one ── */
+
+/* A workspace whose first pass writes two specs and whose regeneration rewrites both and creates a third. */
+function twoSpecWorkspace(): { specDir: string; prepare: WorkspacePort["prepare"]; generate: AuthorPort["author"]; cleanup: () => void } {
+  const dir = mkdtempSync(join(tmpdir(), "qa-per-file-"));
+  const specDir = join(dir, "e2e");
+  let calls = 0;
+  return {
+    specDir,
+    prepare: async () => fakeHandle({ specDir, mirrorDir: dir }),
+    generate: async () => {
+      calls += 1;
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "a.spec.ts"), `// a, generation ${calls}\n`);
+      writeFileSync(join(specDir, "b.spec.ts"), `// b, generation ${calls}\n`);
+      if (calls > 1) writeFileSync(join(specDir, "c.spec.ts"), `// c, generation ${calls}\n`);
+      return scriptedGeneration({ specs: calls > 1 ? ["a.spec.ts", "b.spec.ts", "c.spec.ts"] : ["a.spec.ts", "b.spec.ts"] });
+    },
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+function perFileRun(acceptanceCases: QaCase[]) {
+  const ws = twoSpecWorkspace();
+  const turns: string[] = [];
+  const rechecks: unknown[] = [];
+  const recounts: unknown[] = [];
+  const firstCases: QaCase[] = [
+    { name: "a works", status: "pass", file: "a.spec.ts" },
+    { name: "b works", status: "pass", file: "b.spec.ts" },
+  ];
+  const { ports, savedOutcomes } = stubPorts({
+    prepare: ws.prepare,
+    generate: async (...args) => {
+      turns.push(JSON.stringify(args));
+      return ws.generate(...args);
+    },
+    execute: async (_dir, opts) => {
+      const accepting = (opts as { namespace?: string } | undefined)?.namespace?.includes("-acc") ?? false;
+      if (!accepting) return { verdict: "pass" as const, cases: firstCases, logs: "" };
+      return { verdict: acceptanceCases.every((c) => c.status === "pass") ? ("pass" as const) : ("fail" as const), cases: acceptanceCases, logs: "" };
+    },
+    measure: async () => ({
+      status: "pass" as const,
+      ratio: 0.9,
+      uncovered: [],
+      untakenArms: ARMS,
+      bundleMutation: { applied: 1, killed: 0, survived: [{ ...SURVIVED, specFiles: ["a.spec.ts", "b.spec.ts"] }] },
+      survivorRuns: [{ site: SURVIVOR_SITE, specFiles: ["a.spec.ts", "b.spec.ts"] }],
+      measurement: { changedLines: 10, coveredChanged: 9, changedFiles: 1, mappedFiles: 1, changedBranches: 6, takenBranches: 4 },
+    }),
+    recount: async (_br, _specDir, _diff, reruns) => {
+      recounts.push(reruns);
+      return { status: "pass" as const, ratio: 1, uncovered: [], untakenArms: [ARMS[1]!], measurement: { changedLines: 10, coveredChanged: 10, changedFiles: 1, mappedFiles: 1, changedBranches: 6, takenBranches: 5 } };
+    },
+    recheckSurvivors: async (survivors, _specDir, _namespace, baselineCases) => {
+      rechecks.push([survivors.map((s) => s.specFiles), baselineCases]);
+      return { applied: 1, killed: 1, survived: [] };
+    },
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false, coveragePolicyMode: "signal", coverageBranchCases: "regenerate" } });
+  return { ws, turns, rechecks, recounts, savedOutcomes, useCase };
+}
+
+test("a branch regeneration whose acceptance fails in one spec file keeps the spec file whose cases all passed and gives the others their prior bytes back", async () => {
+  const { ws, turns, rechecks, savedOutcomes, useCase } = perFileRun([
+    { name: "a works", status: "pass", file: "a.spec.ts" },
+    { name: "a else arm", status: "pass", file: "a.spec.ts" },
+    { name: "b works", status: "fail", file: "b.spec.ts", detail: "expected 1 row" },
+    { name: "c works", status: "fail", file: "c.spec.ts", detail: "expected 1 row" },
+  ]);
+  try {
+    const out = await useCase.run({ ...baseInput, runId: "per-file" });
+
+    assert.equal(turns.length, 2, "the first pass and the one branch regeneration");
+    assert.equal(readFileSync(join(ws.specDir, "a.spec.ts"), "utf8"), "// a, generation 2\n", "the all-green file keeps its new bytes");
+    assert.equal(readFileSync(join(ws.specDir, "b.spec.ts"), "utf8"), "// b, generation 1\n", "the failing file gets the bytes that last ran green");
+    assert.throws(() => readFileSync(join(ws.specDir, "c.spec.ts")), "the failing file the turn created is removed");
+    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2, kept: 1, restored: 2 });
+    assert.deepEqual(rechecks, [[[["a.spec.ts"]], ["a works", "a else arm"]]], "the survivor is judged on the kept file and its passing cases only");
+    assert.equal(out.decision.verdict, "pass", "the suite on disk is the kept file and the prior bytes, all green");
+    assert.equal(out.decision.sideEffect, "pr", "every delivered spec's bytes hold a green proof");
+  } finally {
+    ws.cleanup();
+  }
+});
+
+test("a branch regeneration whose acceptance is green in every spec file is accepted whole, as before", async () => {
+  const { ws, recounts, savedOutcomes, useCase } = perFileRun([
+    { name: "a works", status: "pass", file: "a.spec.ts" },
+    { name: "b works", status: "pass", file: "b.spec.ts" },
+    { name: "c works", status: "pass", file: "c.spec.ts" },
+  ]);
+  try {
+    const out = await useCase.run({ ...baseInput, runId: "per-file-green" });
+
+    assert.equal(readFileSync(join(ws.specDir, "b.spec.ts"), "utf8"), "// b, generation 2\n");
+    assert.equal(readFileSync(join(ws.specDir, "c.spec.ts"), "utf8"), "// c, generation 2\n");
+    assert.deepEqual(recounts, [[{ namespace: "per-file-green-acc0", specFiles: ["b.spec.ts", "c.spec.ts", "a.spec.ts"] }]], "the recount reads every kept file from the acceptance's dumps");
+    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2, armsAfter: 1, kept: 3, restored: 0 });
+    assert.equal(out.decision.sideEffect, "pr");
+  } finally {
+    ws.cleanup();
+  }
+});
+
+test("a branch regeneration whose acceptance fails in every spec file is rejected and restored whole, as before", async () => {
+  const { ws, recounts, rechecks, savedOutcomes, useCase } = perFileRun([
+    { name: "a works", status: "fail", file: "a.spec.ts" },
+    { name: "b works", status: "fail", file: "b.spec.ts" },
+    { name: "c works", status: "fail", file: "c.spec.ts" },
+  ]);
+  try {
+    const out = await useCase.run({ ...baseInput, runId: "per-file-red" });
+
+    assert.equal(readFileSync(join(ws.specDir, "a.spec.ts"), "utf8"), "// a, generation 1\n");
+    assert.equal(readFileSync(join(ws.specDir, "b.spec.ts"), "utf8"), "// b, generation 1\n");
+    assert.throws(() => readFileSync(join(ws.specDir, "c.spec.ts")));
+    assert.deepEqual(recounts, [], "nothing is recounted");
+    assert.deepEqual(rechecks, [], "no survivor is judged");
+    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "rejected", armsBefore: 2, armsAfter: 2, kept: 0, restored: 3 });
+    assert.equal(out.decision.sideEffect, "pr", "the first suite still stands green");
+  } finally {
+    ws.cleanup();
+  }
+});
+
 test("no branch regeneration without arms, with the branch cases off, or when the enforce-mode coverage regeneration already carries them", async () => {
   const cases: ReadonlyArray<[string, Partial<{ untakenArms: typeof ARMS; mode: "signal" | "enforce"; branchCases: "regenerate" | "off" | undefined; status: "pass" | "fail" }>, number]> = [
     ["no arms", { untakenArms: [], mode: "signal", branchCases: "regenerate", status: "pass" }, 1],
@@ -9779,7 +9907,7 @@ test("an accepted branch regeneration the port cannot recount leaves the arms af
 
     await useCase.run({ ...baseInput, runId: "branch-cases-no-recount" });
 
-    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2 });
+    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2, kept: 1, restored: 0 });
   } finally {
     real.cleanup();
   }

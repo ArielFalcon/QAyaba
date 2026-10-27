@@ -689,7 +689,16 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   measurement regenerates for coverage instead, with the same arms in its gap). It goes through acceptance
   like any regeneration; an accepted one is recounted from the dumps already on disk (the first run's minus
   those of the re-run spec files, plus the acceptance's), never by re-running DEV.
-  `gateSignals.branchCases { outcome, armsBefore, armsAfter? }`. A run deadline spent during it is the
+  `gateSignals.branchCases { outcome, armsBefore, armsAfter?, kept?, restored? }`.
+- **Per-file acceptance**: a regeneration (gap, flaky or review correction) that changed spec files only is
+  accepted file by file (`RegenerationAcceptance`, `independentSpecs`): when its acceptance run fails, every
+  spec file whose cases all passed (or whose bytes already hold a `run_spec` proof) stands, and every other
+  changed file gets its prior bytes, cases and delivery back. Only the kept files get a proof, so the bytes on
+  disk are still the last that ran green, file by file, and the suite store captures only those; survivor
+  closure is judged on the kept files. With none kept, or a changed file the specs import, it is accepted or
+  rejected whole. A partial acceptance is not recounted yet (the namespace holds the restored files' dumps).
+  `kept`/`restored` are counted on the regeneration's gate signal and its `regeneration_acceptance` span event.
+  The fix loop's iterative rounds adopt a failing execution whole, as before. A run deadline spent during it is the
   run's degrade (`deadline-after-proof`), as for the coverage regeneration.
 - **Missing cases**: the reviewer gets the arms still untaken and may cite one (`arm`, `[missing-case]`).
   A cited arm the run listed is recorded (`gateSignals.missingCases`) and shown in the PR or Issue; it

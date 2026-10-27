@@ -290,7 +290,13 @@ Rules, from the brief §2.1 and the OTel spec:
   attempt carries the evidence.
 - Point occurrences are **span events**: `retry`, `strict_mode_violation`, `step_budget_exhausted`,
   `circuit_opened`, `fallback_model_used`, `truncation_applied`, `redaction_applied`,
-  `host_suspended`, `egress_denied`, `deadline_armed`.
+  `host_suspended`, `egress_denied`, `deadline_armed`, `regeneration_acceptance`.
+- **Regeneration acceptance.** Each acceptance of a gap, flaky or review regeneration adds a
+  `regeneration_acceptance` event to the open phase span: `qayaba.regeneration.origin` (`coverage`, `flaky`,
+  `review`), `.kept_files` (the changed spec files whose new bytes stand) and `.restored_files` (those given
+  their prior bytes back, a created one removed). A regeneration that changed spec files only is accepted file
+  by file, so a failing acceptance run can keep some files and restore others; one that changed a file the
+  specs import, or kept none, is accepted or rejected whole.
 - **Phase outcome.** `qayaba.phase.outcome` records how a phase that makes a decision ended. The fix
   loop adds `qayaba.fix_loop.rounds`, `.failing_before`, `.failing_after`, `.absent_selectors` (first
   round), `.specs_changed` and `.spec_sha_before`/`.spec_sha_after` (sha256 over the sorted spec set,
@@ -306,7 +312,7 @@ Rules, from the brief §2.1 and the OTel spec:
   `qayaba.flaky.tail_reason` (`flaky-green-bytes`), `.cases`, `.data_instability` (first attempt read an
   empty data state on a page the Context Pack read with results, or a count other than the pack's, on a settled page), `.timing` and
   `.outcome` (`no-flaky-case`, `no-pass`, or the correction's `accepted`/`empty`/`rejected`/`capped`), and
-  `gateSignals.flakyTriage { cases, dataInstability, timing, outcome }`. Its findings carry the `flaky`
+  `gateSignals.flakyTriage { cases, dataInstability, timing, outcome, kept?, restored? }`. Its findings carry the `flaky`
   correction origin ("passed on retry"), counted in the lead's correction budget.
 - **Impact walk.** The code-graph walks of the change run under one `WalkPolicy` (`shared-kernel/code`): depth, a
   fan-in limit (the index's own in-degree percentile with test-file callers left out, clamped to a floor and a

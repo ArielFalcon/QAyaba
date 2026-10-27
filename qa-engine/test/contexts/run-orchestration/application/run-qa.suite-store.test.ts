@@ -155,6 +155,39 @@ test("a spec the reviewer's correction round rewrote is executed by its acceptan
   assert.equal(green.get("flows/a.spec.ts"), sha256("a v2, executed by acceptance"), "the hash is that of the bytes the acceptance executed");
 });
 
+test("a correction round whose acceptance fails in one spec file keeps the green one, and the store captures only bytes that ran green", async () => {
+  const r = rig();
+  let reviews = 0;
+  let executions = 0;
+  const out = await new RunQaUseCase(r.deps({
+    ...served({
+      author: async (_specDir, _signal, _diff, enrichment) => {
+        if (enrichment?.reviewCorrections !== undefined) {
+          r.write("flows/a.spec.ts", "a v2, green in its acceptance");
+          r.write("flows/b.spec.ts", "b v2, red in its acceptance");
+        }
+        return scriptedGeneration({ specs: ["flows/a.spec.ts", "flows/b.spec.ts"] });
+      },
+    }),
+    review: { review: async () => (reviews++ === 0 ? { approved: false, corrections: ["assert the total"], blockingCount: 1, parsed: true } : { approved: true, corrections: [], blockingCount: 0, parsed: true }) },
+    execution: {
+      execute: async () => {
+        executions += 1;
+        if (executions === 1) return { verdict: "pass", cases: PASSING, logs: "" };
+        return { verdict: "fail", cases: [{ name: "a", status: "pass", file: "flows/a.spec.ts" }, { name: "b", status: "fail", file: "flows/b.spec.ts" }], logs: "" };
+      },
+    },
+  })).run(INPUT);
+
+  assert.equal(out.decision.verdict, "pass");
+  assert.equal(out.decision.sideEffect, "pr", "the reviewed suite is the kept file and the prior bytes of the other, all green");
+  assert.equal(reviews, 2, "the kept correction is judged by the next round");
+  assert.equal(readFileSync(join(r.ws.specDir, "flows/b.spec.ts"), "utf8"), "b v1", "the failing file gets the bytes that last ran green");
+  const green = r.captured[0]!.executedGreen;
+  assert.equal(green.get("flows/a.spec.ts"), sha256("a v2, green in its acceptance"), "the kept file is captured with the bytes its acceptance ran green");
+  assert.equal(green.get("flows/b.spec.ts"), sha256("b v1"), "the restored file is captured with the bytes the first pass ran green");
+});
+
 test("a fingerprint that cannot be taken fails the run closed: the store cannot prove the bytes it would publish", async () => {
   const r = rig();
   r.store.fingerprint = async () => {

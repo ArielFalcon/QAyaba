@@ -26,7 +26,7 @@ import { closedLoopSignal, contractFindingText, correctionBudgetSpent, correctTh
 import { CORRECTION_ORIGIN, type CorrectionFinding } from "@contexts/coordination/application/index.ts";
 import { resolveTested } from "./fix-loop.steps.ts";
 import { reviewChangeViewOf } from "../review-change.ts";
-import { branchCoverageOf, changeCoverageOf } from "./coverage.steps.ts";
+import { branchCoverageOf, changeCoverageOf, traceAcceptedFiles } from "./coverage.steps.ts";
 import { addDroppedRejection, addReviewStats, annotateReviewPhase, newReviewTally, readReviewedSpecs, rebuttalEvidence, recordReviewDecision } from "./review-services.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
@@ -439,6 +439,8 @@ export async function reviewCorrect(state: Readonly<RunState>, ctx: WorkspaceRun
     changedSpecFiles: cur.changedSpecFiles,
     namespace: `${input.runId}-acc${acceptanceCalls++}`,
     snapshot: cur.snapshot,
+    /* A turn that changed no file the specs import is accepted spec file by spec file. */
+    independentSpecs: cur.changedSupportFiles.length === 0,
     ...(closedLoop ? { closedLoop } : {}),
     deadline: runDeadlinePort,
     validate: validateAccepted(state, ctx),
@@ -536,12 +538,15 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
     if (outcome.executedSpecs.length === 0) integrityCounters.proofReused += 1;
     coverage = acceptedRegeneration(coverage);
     session.armsCurrent = false;
-    const changedSet = new Set(changedSpecFiles);
+    /* A spec file the acceptance gave its prior bytes back keeps its prior delivery and cases: only the kept files are the turn's. */
+    if (outcome.restored.length > 0) rollbackDelivered(state, deliveredBefore, outcome.restored);
+    traceAcceptedFiles(ctx, CORRECTION_ORIGIN.REVIEW, { kept: outcome.kept.length, restored: outcome.restored.length });
+    const keptSet = new Set(outcome.kept);
     const realCases = outcome.execution?.cases ?? [];
     if (realCases.length > 0) {
-      /* Replace the changed files' cases with the acceptance execution's real cases; unchanged files keep theirs. */
-      run = { ...run, cases: [...run.cases.filter((c) => !changedSet.has(c.file ?? c.name)), ...realCases] };
-      session.reviewCases = [...realCases, ...session.reviewCases.filter((c: QaCase) => !changedSet.has(c.file ?? c.name))];
+      /* Replace the kept files' cases with the acceptance execution's real cases; every other file keeps its own. */
+      run = { ...run, cases: [...run.cases.filter((c) => !keptSet.has(c.file ?? c.name)), ...realCases] };
+      session.reviewCases = [...realCases, ...session.reviewCases.filter((c: QaCase) => !keptSet.has(c.file ?? c.name))];
     }
     /* Proof reuse executed nothing: the existing cases already describe the bytes on disk. */
     session.round += 1;
@@ -552,6 +557,7 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
     });
   }
   rollbackDelivered(state, deliveredBefore);
+  if (outcome) traceAcceptedFiles(ctx, CORRECTION_ORIGIN.REVIEW, { kept: 0, restored: changedSpecFiles.length });
   session.reviewerApproved = false;
   session.finalReviewerCorrections = reviewResult.corrections;
   if (outcome?.kind === "cap") integrityCounters.capHit = true;

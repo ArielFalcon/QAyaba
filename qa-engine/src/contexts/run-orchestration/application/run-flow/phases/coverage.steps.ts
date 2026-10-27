@@ -134,7 +134,11 @@ export const regeneratesForBranchCases = (state: Readonly<RunState>, ctx: Worksp
     untakenArms: state.coverage.untakenArms.length + survivorsOf(state).length,
   }) === "regenerate";
 
-/* How a gap regeneration ended; `reruns` names the acceptance's own dumps when every spec it changed executed in it, so the coverage can be recounted from them; `changedSpecFiles` are the specs an accepted one changed. */
+/*
+ * How a gap regeneration ended; `reruns` names the acceptance's own dumps when every spec it kept executed in it and none it gave back
+ * left dumps there, so the coverage can be recounted from them; `changedSpecFiles` are the specs an accepted one changed and kept;
+ * `files` counts the spec files the turn changed whose new bytes stand and those given their prior bytes back.
+ */
 export interface GapRegeneration {
   outcome: BranchCasesOutcome["outcome"];
   run: NonNullable<RunState["execution"]["run"]>;
@@ -142,13 +146,28 @@ export interface GapRegeneration {
   leadCorrections: number;
   reruns?: CoverageRerun[];
   changedSpecFiles?: string[];
+  files?: { kept: number; restored: number };
+}
+
+/* What one acceptance kept and gave back, as an event on the open phase's span. Observability never changes the run. */
+export function traceAcceptedFiles(ctx: WorkspaceRunContext, origin: CorrectionOrigin, files: { kept: number; restored: number }): void {
+  try {
+    ctx.trail.spans.event("regeneration_acceptance", {
+      "qayaba.regeneration.origin": origin,
+      "qayaba.regeneration.kept_files": files.kept,
+      "qayaba.regeneration.restored_files": files.restored,
+    });
+  } catch (err) {
+    engineLog.error(`[qa] the regeneration's acceptance could not be traced (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /*
  * One regeneration at a gap of the change: its changed specs go through acceptance, so they execute green (or reuse a proof) before
- * they stand. A turn that delivers nothing, or whose specs are rejected or capped, keeps the first measurement and restores the prior
- * bytes. A throw propagates; a spent run deadline is the one the policy degrades (this step runs after a green suite), so the first
- * measurement stands.
+ * they stand. A turn that changed spec files only is accepted file by file: the spec files whose cases all passed stand and the others
+ * get their prior bytes, cases and delivery back. A turn that delivers nothing, or whose specs are rejected or capped, keeps the first
+ * measurement and restores the prior bytes. A throw propagates; a spent run deadline is the one the policy degrades (this step runs
+ * after a green suite), so the first measurement stands.
  */
 export async function regenerateAtGap(
   state: Readonly<RunState>,
@@ -188,6 +207,7 @@ export async function regenerateAtGap(
     changedSpecFiles,
     namespace,
     snapshot,
+    independentSpecs: changedFiles.every(isSpecFile),
     ...(closedLoop ? { closedLoop } : {}),
     deadline: runDeadlinePort,
     validate: validateAccepted(state, ctx),
@@ -198,19 +218,31 @@ export async function regenerateAtGap(
     rollbackDelivered(state, deliveredBefore);
     if (outcome.kind === "rejected") integrityCounters.rejected += 1;
     else integrityCounters.capHit = true;
-    return { outcome: outcome.kind === "rejected" ? "rejected" : "capped", run, acceptanceCalls, leadCorrections };
+    const files = { kept: 0, restored: changedSpecFiles.length };
+    traceAcceptedFiles(ctx, origin, files);
+    return { outcome: outcome.kind === "rejected" ? "rejected" : "capped", run, acceptanceCalls, leadCorrections, files };
   }
   integrityCounters.acceptances += 1;
   if (outcome.executedSpecs.length === 0) integrityCounters.proofReused += 1;
+  const kept = [...outcome.kept];
+  /* A spec file given its prior bytes back keeps its prior cases and delivery: only the kept files' are the turn's. */
+  if (outcome.restored.length > 0) rollbackDelivered(state, deliveredBefore, outcome.restored);
   if (outcome.execution?.cases.length) {
-    const changedSet = new Set(changedSpecFiles);
-    run = { ...run, cases: [...run.cases.filter((c) => !changedSet.has(c.file ?? c.name)), ...outcome.execution.cases] };
+    const keptSet = new Set(kept);
+    run = { ...run, cases: [...run.cases.filter((c) => !keptSet.has(c.file ?? c.name)), ...outcome.execution.cases] };
   }
-  /* A spec whose proof was reused left no dumps here: the coverage cannot be recounted without it. */
+  const files = { kept: kept.length, restored: outcome.restored.length };
+  traceAcceptedFiles(ctx, origin, files);
+  /*
+   * A spec whose proof was reused left no dumps here: the coverage cannot be recounted without it. A spec file given back left dumps
+   * of bytes no longer on disk under the namespace, which a recount reads whole: it is not recounted either.
+   */
   const executed = new Set(outcome.executedSpecs);
-  const recountable = changedSpecFiles.every((file) => executed.has(file));
-  return { outcome: "accepted", run, acceptanceCalls, leadCorrections, changedSpecFiles, ...(recountable ? { reruns: [{ namespace, specFiles: changedSpecFiles }] } : {}) };
+  const recountable = outcome.restored.length === 0 && kept.every((file) => executed.has(file));
+  return { outcome: "accepted", run, acceptanceCalls, leadCorrections, changedSpecFiles: kept, files, ...(recountable ? { reruns: [{ namespace, specFiles: kept }] } : {}) };
 }
+
+const isSpecFile = (file: string): boolean => file.endsWith(".spec.ts");
 
 /* A re-check that fails judged nothing: the closure is a signal, so its fault is logged and never ends the run. */
 async function recheckOrNone(recheck: () => Promise<BundleMutationResult | null>): Promise<BundleMutationResult | null> {
@@ -371,7 +403,7 @@ export async function regenerateForBranchCases(state: Readonly<RunState>, ctx: W
   return {
     update: {
       execution: withRun(state.execution, regen.run),
-      coverage: { ...coverage, ...(survivorClosure ? { survivorClosure } : {}), branchCases: { outcome: regen.outcome, armsBefore, ...(armsAfter !== undefined ? { armsAfter } : {}) } },
+      coverage: { ...coverage, ...(survivorClosure ? { survivorClosure } : {}), branchCases: { outcome: regen.outcome, armsBefore, ...(armsAfter !== undefined ? { armsAfter } : {}), ...regen.files } },
       loops: { ...state.loops, leadCorrections: state.loops.leadCorrections + regen.leadCorrections },
     },
   };

@@ -7,6 +7,7 @@
  */
 
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
+import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
 import { mergeDeliveredSpecs, type DeliveredPass, type DeliveryOrigin } from "../../domain/helpers/delivered-specs.ts";
 import type { CoverageOutcome, ExecutionOutcome, RunFacts, RunState } from "./run-state.ts";
@@ -29,8 +30,14 @@ export function mergeDelivered(state: Readonly<RunState>, produced: DeliveredPas
   state.generation.delivered = mergeDeliveredSpecs(state.generation.delivered, produced, source);
 }
 
-export function rollbackDelivered(state: Readonly<RunState>, snapshot: readonly DeliveredSpec[]): void {
-  state.generation.delivered = snapshot;
+/* With `files`, only those are rolled back (an acceptance that kept the others): each takes back the entry it had before, and one created since goes. */
+export function rollbackDelivered(state: Readonly<RunState>, snapshot: readonly DeliveredSpec[], files?: readonly string[]): void {
+  if (files === undefined) {
+    state.generation.delivered = snapshot;
+    return;
+  }
+  const back = new Set(files.map(normalizeSpecPath));
+  state.generation.delivered = [...state.generation.delivered.filter((d) => !back.has(d.file)), ...snapshot.filter((d) => back.has(d.file))];
 }
 
 /* proof: the sha256 of the bytes that executed green, by spec path; a later green execution of the file replaces it. */

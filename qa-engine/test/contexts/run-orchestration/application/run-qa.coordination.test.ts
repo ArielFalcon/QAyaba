@@ -719,7 +719,7 @@ test("a flaky case whose first attempt read an empty data state reaches its flow
   assert.match(kept.seen.corrected[0]![0]!.text, /passed on retry/);
   assert.match(kept.seen.corrected[0]![0]!.text, /depends on live data/);
   assert.doesNotMatch(kept.seen.corrected[0]![0]!.text, /location/, "the remedy names no app concept");
-  assert.deepEqual(result.outcome?.gateSignals.flakyTriage, { cases: 1, dataInstability: 1, timing: 0, outcome: "accepted" });
+  assert.deepEqual(result.outcome?.gateSignals.flakyTriage, { cases: 1, dataInstability: 1, timing: 0, outcome: "accepted", kept: 1, restored: 0 });
   assert.equal(r.calls.filter((c) => c === "generate").length, 0, "no cold author");
   assert.deepEqual(flaky.calls.slice(1).map((c) => c.retries), [0], "the corrected spec stands only if it executes green without a retry");
   assert.equal(result.decision.verdict, "flaky", "a spec that passed once after a flaky run does not make the run publishable");
@@ -734,7 +734,7 @@ test("a flaky case that read an empty state on a page the pack has no results fo
   const flaky = flakyOnce([flakyCase({ failureResultCount: 0, finalUrl: "https://dev/restaurants", failureSettle: { inFlight: 0, treeStable: true } })]);
   const result = await new RunQaUseCase(r.deps({ execution: flaky.execution })).run(INPUT);
   assert.doesNotMatch(kept.seen.corrected[0]![0]!.text, /live data/);
-  assert.deepEqual(result.outcome?.gateSignals.flakyTriage, { cases: 1, dataInstability: 0, timing: 1, outcome: "accepted" });
+  assert.deepEqual(result.outcome?.gateSignals.flakyTriage, { cases: 1, dataInstability: 0, timing: 1, outcome: "accepted", kept: 1, restored: 0 });
 });
 
 test("the coverage a flaky run records is recounted from the corrected bytes the triage accepted, after the first measurement", async () => {

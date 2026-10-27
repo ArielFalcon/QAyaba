@@ -59,7 +59,7 @@ export async function triageFlakyCases(state: Readonly<RunState>, ctx: Workspace
   return {
     update: {
       execution: withRun(state.execution, regen.run),
-      coverage: { ...recounted, flakyTriage: { ...found, outcome: regen.outcome } },
+      coverage: { ...recounted, flakyTriage: { ...found, outcome: regen.outcome, ...regen.files } },
       loops: { ...state.loops, leadCorrections: state.loops.leadCorrections + regen.leadCorrections },
     },
   };

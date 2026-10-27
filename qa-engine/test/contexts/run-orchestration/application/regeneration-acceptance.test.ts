@@ -24,7 +24,7 @@ const deadline = (remainingMs?: number): RunDeadlinePort => ({
 interface Harness {
   service: RegenerationAcceptance;
   snapshot: SuiteRestorePort;
-  restores: Array<{ created: readonly string[] }>;
+  restores: Array<{ created: readonly string[]; files: readonly string[] }>;
   executed: Array<{ specFiles: string[]; retries: number; namespace: string }>;
   ledgered: Array<{ file: string; sha256: string; bytes?: Uint8Array }>;
   execute: ExecutionPort["execute"];
@@ -36,7 +36,7 @@ function harness(): Harness {
   const ledgered: Harness["ledgered"] = [];
   const snapshot: SuiteRestorePort = {
     snapshot: async (_dir, files) => ({ files: new Map(files.map((f) => [f, bytesOf(`now:${f}`)])) }),
-    restore: async (_dir, _snap, created) => { restores.push({ created }); },
+    restore: async (_dir, snap, created) => { restores.push({ created, files: [...snap.files.keys()] }); },
   };
   const service = new RegenerationAcceptance({
     snapshot,
@@ -275,4 +275,143 @@ test("a contract rejection carries its violations out, and restores the pre-turn
   assert.deepEqual(outcome.kind === "rejected" ? outcome.violations : undefined, violations);
   assert.equal(h.restores.length, 1, "a rejected regeneration is rolled back, violations or not");
   assert.deepEqual(h.executed, [], "the contract is checked before any DEV time is spent");
+});
+
+/* Per spec file: a regeneration that changed only spec files is judged file by file, so one failing spec does not throw away a green one. */
+const caseOf = (file: string, status: "pass" | "fail" | "flaky", name = file): { name: string; status: "pass" | "fail" | "flaky"; file: string } => ({ name, status, file });
+
+test("a regeneration whose execution fails in one spec file keeps every spec file whose cases all passed and restores only the others", async () => {
+  const h = harness();
+  const outcome = await h.service.accept({
+    specDir: "/w/e2e",
+    changedSpecFiles: ["flows/green.spec.ts", "flows/red.spec.ts", "flows/created.spec.ts"],
+    namespace: "run-1-acc0",
+    snapshot: snapshotOf(["flows/green.spec.ts", "flows/red.spec.ts"]),
+    independentSpecs: true,
+    deadline: deadline(60_000),
+    validate,
+    execute: async () => ({
+      verdict: "fail",
+      cases: [caseOf("flows/green.spec.ts", "pass", "green a"), caseOf("flows/green.spec.ts", "pass", "green b"), caseOf("flows/red.spec.ts", "pass", "red a"), caseOf("flows/red.spec.ts", "fail", "red b"), caseOf("flows/created.spec.ts", "fail")],
+      logs: "",
+    }),
+  });
+
+  assert.equal(outcome.kind, "accepted");
+  if (outcome.kind === "accepted") {
+    assert.deepEqual(outcome.kept, ["flows/green.spec.ts"]);
+    assert.deepEqual(outcome.restored, ["flows/red.spec.ts", "flows/created.spec.ts"]);
+    assert.deepEqual(outcome.executedSpecs, ["flows/green.spec.ts"], "only the kept files' dumps describe bytes on disk");
+    assert.equal(outcome.execution?.verdict, "pass", "the execution the caller merges is the kept files' own, all green");
+    assert.deepEqual(outcome.execution?.cases.map((c) => c.name), ["green a", "green b"]);
+    assert.deepEqual(outcome.proof.map((p) => p.file), ["flows/green.spec.ts"]);
+  }
+  assert.deepEqual(h.ledgered.map((l) => l.file), ["flows/green.spec.ts"], "only the kept file's green bytes get a proof");
+  assert.deepEqual(h.restores, [{ created: ["flows/created.spec.ts"], files: ["flows/red.spec.ts"] }], "the failing file gets its prior bytes back and the created failing file is removed; the green file is left as it is");
+});
+
+test("a spec file whose bytes already hold a green proof is kept when another spec file of the regeneration fails", async () => {
+  const h = harness();
+  const closedLoop: Pick<ClosedLoopHandle, "isClosed"> = { isClosed: async (files) => files.includes("flows/proven.spec.ts") };
+  const outcome = await h.service.accept({
+    specDir: "/w/e2e",
+    changedSpecFiles: ["flows/proven.spec.ts", "flows/red.spec.ts"],
+    namespace: "run-1-acc0",
+    snapshot: snapshotOf(["flows/proven.spec.ts", "flows/red.spec.ts"]),
+    independentSpecs: true,
+    closedLoop,
+    deadline: deadline(60_000),
+    validate,
+    execute: async () => ({ verdict: "fail", cases: [caseOf("flows/red.spec.ts", "fail")], logs: "" }),
+  });
+
+  assert.equal(outcome.kind, "accepted");
+  if (outcome.kind === "accepted") {
+    assert.deepEqual(outcome.kept, ["flows/proven.spec.ts"]);
+    assert.deepEqual(outcome.restored, ["flows/red.spec.ts"]);
+    assert.deepEqual(outcome.executedSpecs, [], "the kept file was not executed here: its proof was reused");
+  }
+  assert.deepEqual(h.restores, [{ created: [], files: ["flows/red.spec.ts"] }]);
+});
+
+test("a regeneration with no spec file all green is rejected and restored whole, as before", async () => {
+  const h = harness();
+  const outcome = await h.service.accept({
+    specDir: "/w/e2e",
+    changedSpecFiles: ["flows/a.spec.ts", "flows/b.spec.ts"],
+    namespace: "run-1-acc0",
+    snapshot: snapshotOf(["flows/a.spec.ts", "flows/b.spec.ts"]),
+    independentSpecs: true,
+    deadline: deadline(60_000),
+    validate,
+    execute: async () => ({ verdict: "fail", cases: [caseOf("flows/a.spec.ts", "fail"), caseOf("flows/b.spec.ts", "flaky")], logs: "" }),
+  });
+
+  assert.equal(outcome.kind, "rejected");
+  if (outcome.kind === "rejected") assert.equal(outcome.execution?.verdict, "fail");
+  assert.deepEqual(h.restores, [{ created: [], files: ["flows/a.spec.ts", "flows/b.spec.ts"] }]);
+  assert.equal(h.ledgered.length, 0);
+});
+
+test("a fully green regeneration of independent specs is accepted whole, as before", async () => {
+  const h = harness();
+  const outcome = await h.service.accept({
+    specDir: "/w/e2e",
+    changedSpecFiles: ["flows/a.spec.ts", "flows/b.spec.ts"],
+    namespace: "run-1-acc0",
+    snapshot: snapshotOf(["flows/a.spec.ts"]),
+    independentSpecs: true,
+    deadline: deadline(60_000),
+    validate,
+    execute: async () => ({ verdict: "pass", cases: [caseOf("flows/a.spec.ts", "pass"), caseOf("flows/b.spec.ts", "pass")], logs: "" }),
+  });
+
+  assert.equal(outcome.kind, "accepted");
+  if (outcome.kind === "accepted") {
+    assert.deepEqual(outcome.kept, ["flows/a.spec.ts", "flows/b.spec.ts"]);
+    assert.deepEqual(outcome.restored, []);
+    assert.deepEqual(outcome.executedSpecs, ["flows/a.spec.ts", "flows/b.spec.ts"]);
+  }
+  assert.deepEqual(h.ledgered.map((l) => l.file), ["flows/a.spec.ts", "flows/b.spec.ts"]);
+  assert.equal(h.restores.length, 0);
+});
+
+test("a failure no spec file can be blamed for rejects the whole regeneration, even of independent specs", async () => {
+  const unattributed = [
+    { name: "a failing case with no file", cases: [caseOf("flows/a.spec.ts", "pass"), { name: "setup", status: "fail" as const }] },
+    { name: "a failing execution whose cases all passed", cases: [caseOf("flows/a.spec.ts", "pass"), caseOf("flows/b.spec.ts", "pass")] },
+  ];
+  for (const { name, cases } of unattributed) {
+    const h = harness();
+    const outcome = await h.service.accept({
+      specDir: "/w/e2e",
+      changedSpecFiles: ["flows/a.spec.ts", "flows/b.spec.ts"],
+      namespace: "run-1-acc0",
+      snapshot: snapshotOf(["flows/a.spec.ts", "flows/b.spec.ts"]),
+      independentSpecs: true,
+      deadline: deadline(60_000),
+      validate,
+      execute: async () => ({ verdict: "fail", cases, logs: "" }),
+    });
+    assert.equal(outcome.kind, "rejected", name);
+    assert.equal(h.restores.length, 1, name);
+    assert.deepEqual(h.restores[0]!.files, ["flows/a.spec.ts", "flows/b.spec.ts"], name);
+  }
+});
+
+test("a regeneration that changed a file the specs import is judged whole: one failing spec restores them all", async () => {
+  const h = harness();
+  const outcome = await h.service.accept({
+    specDir: "/w/e2e",
+    changedSpecFiles: ["flows/a.spec.ts", "flows/b.spec.ts"],
+    namespace: "run-1-acc0",
+    snapshot: snapshotOf(["flows/a.spec.ts", "flows/b.spec.ts"]),
+    deadline: deadline(60_000),
+    validate,
+    execute: async () => ({ verdict: "fail", cases: [caseOf("flows/a.spec.ts", "pass"), caseOf("flows/b.spec.ts", "fail")], logs: "" }),
+  });
+
+  assert.equal(outcome.kind, "rejected");
+  assert.equal(h.restores.length, 1);
+  assert.equal(h.ledgered.length, 0);
 });

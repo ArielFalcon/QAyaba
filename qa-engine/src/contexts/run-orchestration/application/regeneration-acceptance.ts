@@ -4,13 +4,17 @@
  * is accepted only after it validates and its changed specs execute green (or reuse a proof), and the
  * green bytes are fingerprinted into the run's proof ledger; a regeneration that is not accepted has
  * its pre-turn bytes restored and the files its turn created removed, so the bytes on disk always
- * equal the last bytes that executed green. An iterative fix-loop round may adopt a failing execution
+ * equal the last bytes that executed green. A regeneration that changed spec files only
+ * (`independentSpecs`) is judged file by file: when its execution fails, every spec file whose cases
+ * all passed (or whose bytes already hold a proof) is kept and only the others are restored; with none
+ * kept it is rejected whole. An iterative fix-loop round may adopt a failing execution
  * (`adoptFailures`): its bytes and cases stand while the loop repairs them, but only green bytes get a
  * proof, so nothing can publish them. Built once per run; the run's own counter caps how many
  * acceptance executions one run spends, and the run's deadline bounds each of them.
  */
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { MAX_ACCEPTANCE_EXECUTIONS } from "../../../shared-kernel/derive-cycle-backstop.ts";
 import type { ContractFeedback } from "../domain/contract-feedback.ts";
@@ -36,6 +40,10 @@ export type AcceptanceOutcome =
       execution?: { verdict: RunVerdict; cases: readonly QaCase[]; logs: string };
       /** path → sha256 of the accepted (green) bytes, for the proof ledger. */
       proof: readonly AcceptanceProofEntry[];
+      /** The changed files whose new bytes stand: every one, unless the acceptance was judged per spec file. */
+      kept: readonly string[];
+      /** The changed files given their pre-turn bytes back (a created one removed) because a case of theirs did not pass; empty unless judged per spec file. */
+      restored: readonly string[];
     }
   | {
       kind: "rejected";
@@ -73,6 +81,11 @@ export interface AcceptanceInput {
    * infra-error and the cap still reject and restore, and only green bytes reach the proof ledger.
    */
   adoptFailures?: boolean;
+  /**
+   * The turn changed spec files only (no file they import), so each stands or falls on its own cases: a failing execution
+   * keeps every spec file whose cases all passed and restores the others. Absent: the regeneration is accepted or rejected whole.
+   */
+  independentSpecs?: boolean;
   /** No time left: an execution that would start throws the run's deadline error. */
   deadline: RunDeadlinePort;
   validate: ValidationPort["validate"];
@@ -140,25 +153,34 @@ export class RegenerationAcceptance {
 
     /* 6. Execute only the changed/generated specs, once, under their own namespace. */
     let execution: { verdict: RunVerdict; cases: readonly QaCase[]; logs: string } | undefined;
+    let kept: readonly string[] = input.changedSpecFiles;
+    let restored: readonly string[] = [];
+    let executedSpecs: readonly string[] = toExecute;
     if (toExecute.length > 0) {
       this.executions += 1;
       const result = await input.execute(input.specDir, { specFiles: toExecute, retries: 0, namespace: input.namespace });
-      if (result.verdict !== "pass" && (!input.adoptFailures || result.verdict === "infra-error")) {
-        await restore();
-        return {
-          kind: "rejected",
-          reason: `execution ended ${result.verdict}`,
-          execution: { verdict: result.verdict, cases: result.cases, logs: result.logs },
-        };
-      }
       execution = { verdict: result.verdict, cases: result.cases, logs: result.logs };
+      if (result.verdict !== "pass" && (!input.adoptFailures || result.verdict === "infra-error")) {
+        const split = input.independentSpecs && result.verdict !== "infra-error" ? greenSpecFiles(input.changedSpecFiles, toExecute, result.cases) : undefined;
+        if (!split) {
+          await restore();
+          return { kind: "rejected", reason: `execution ended ${result.verdict}`, execution };
+        }
+        /* 6b. Per spec file: the failing files get their pre-turn bytes back; the green ones stand on their own cases. */
+        const back = new Map([...input.snapshot.files].filter(([file]) => split.restored.includes(file)));
+        await this.deps.snapshot.restore(input.specDir, { files: back }, created.filter((file) => split.restored.includes(file)));
+        ({ kept, restored } = split);
+        executedSpecs = toExecute.filter((file) => kept.includes(file));
+        const keptCases = result.cases.filter((c) => c.file !== undefined && executedSpecs.some((file) => sameSpec(file, c.file!)));
+        execution = { verdict: "pass", cases: keptCases, logs: result.logs };
+      }
     }
 
     /* 7. Fingerprint the accepted bytes and record the proof ledger. Only green bytes get a proof: a fix-loop round may adopt a failing execution, but nothing may publish it. */
     const proof: AcceptanceProofEntry[] = [];
     if (execution === undefined || execution.verdict === "pass") {
-      const accepted = await this.deps.snapshot.snapshot(input.specDir, [...input.changedSpecFiles]);
-      for (const file of input.changedSpecFiles) {
+      const accepted = await this.deps.snapshot.snapshot(input.specDir, [...kept]);
+      for (const file of kept) {
         const bytes = accepted.files.get(file);
         if (bytes !== undefined) proof.push({ file, sha256: this.deps.fingerprint(bytes), bytes });
       }
@@ -167,9 +189,11 @@ export class RegenerationAcceptance {
 
     return {
       kind: "accepted",
-      executedSpecs: toExecute,
+      executedSpecs,
       ...(execution ? { execution } : {}),
       proof,
+      kept,
+      restored,
     };
   }
 
@@ -179,4 +203,24 @@ export class RegenerationAcceptance {
     const described = deadline.describe?.();
     throw new RunDeadlineExceededError(described?.budgetMs ?? 0, described?.label ?? "unarmed", "acceptance", "before-turn");
   }
+}
+
+const sameSpec = (a: string, b: string): boolean => normalizeSpecPath(a) === normalizeSpecPath(b);
+
+/*
+ * The changed spec files a failing execution leaves standing: a file whose proof was reused (not executed here) and an executed
+ * file with at least one case, every one of them passed. Undefined when the failure cannot be laid on spec files (a case that did
+ * not pass names no executed file, or no case failed at all) or when no file is left standing: the regeneration is then rejected whole.
+ */
+function greenSpecFiles(changed: readonly string[], executed: readonly string[], cases: readonly QaCase[]): { kept: string[]; restored: string[] } | undefined {
+  const failing = cases.filter((c) => c.status !== "pass");
+  if (failing.length === 0 || failing.some((c) => c.file === undefined || !executed.some((file) => sameSpec(file, c.file!)))) return undefined;
+  const green = (file: string): boolean => {
+    if (!executed.includes(file)) return true;
+    const own = cases.filter((c) => c.file !== undefined && sameSpec(file, c.file));
+    return own.length > 0 && own.every((c) => c.status === "pass");
+  };
+  const kept = changed.filter(green);
+  if (kept.length === 0) return undefined;
+  return { kept, restored: changed.filter((file) => !kept.includes(file)) };
 }

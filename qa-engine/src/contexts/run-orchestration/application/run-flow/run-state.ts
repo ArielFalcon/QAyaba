@@ -165,6 +165,9 @@ export interface BranchCasesOutcome {
   outcome: "accepted" | "empty" | "rejected" | "capped";
   armsBefore: number;
   armsAfter?: number;
+  /* The spec files the turn changed whose new bytes stand, and those given their prior bytes back; absent when the turn changed none. */
+  kept?: number;
+  restored?: number;
 }
 
 /* What the flaky triage found and did: the flaky cases by class and the outcome of the correction routed to their flows ("no-pass": no lead's pass to route through). */
@@ -173,6 +176,9 @@ export interface FlakyTriageOutcome {
   dataInstability: number;
   timing: number;
   outcome: "no-pass" | "accepted" | "empty" | "rejected" | "capped";
+  /* The spec files the correction changed whose new bytes stand, and those given their prior bytes back; absent when it changed none. */
+  kept?: number;
+  restored?: number;
 }
 
 /* What the coverage phase measured; the review phase's acceptances add to the counter and the stale re-measure replaces the measurement or marks it stale. */
