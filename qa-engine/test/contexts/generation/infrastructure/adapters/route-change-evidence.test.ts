@@ -32,6 +32,7 @@ interface Scenario {
   closure?: ChangeClosure;
   /* The route the capture opened; `/login` by default. */
   route?: string;
+  crossRepo?: boolean;
 }
 
 /* Runs the change evidence over a scratch working copy and classifies the `/login` redirect with it, the way the grounding does. */
@@ -49,7 +50,7 @@ async function classifyWith(scenario: Scenario) {
       baseRef: "base",
       readAtRef: async (_ref, file) => base[file],
       ...(scenario.closure !== undefined ? { closure: async () => scenario.closure } : {}),
-      crossRepo: false,
+      crossRepo: scenario.crossRepo ?? false,
     });
     const opened = { ...navigation, route: scenario.route ?? navigation.route };
     return classifyRouteAvailability({ navigation: opened, evidence: evidenceOf(opened), context: { controlRendered: true } })?.basis;
@@ -181,4 +182,48 @@ test("a guard behind a barrel that a complete closure does not reach is unreache
   assert.equal(clear?.class, "pre-existing");
   /* A symbol of the same name at the barrel is not the guard: the barrel only re-exports it. */
   assert.equal((await run(unrelated("src/app/core/guards/index.ts")))?.class, "pre-existing");
+});
+
+const linksOf = (basis: { class: string } | undefined): readonly string[] => (basis?.class === "unexplained" ? ((basis as { links?: readonly string[] }).links ?? []) : []);
+
+test("an unexplained route names the specifier its route table could not resolve", async () => {
+  /* The configuration declares no `paths`, so the aliased import of the guard and of the path constant resolve to nothing. */
+  const basis = await classifyWith({
+    route: "/upload-menu/preview",
+    head: { ...ALIASED, "tsconfig.json": "{}", [ROUTES_FILE]: aliasedRoutes(true) },
+    base: { [ROUTES_FILE]: aliasedRoutes(false) },
+    changed: [ROUTES_FILE],
+  });
+  assert.equal(basis?.class, "unexplained");
+  const links = linksOf(basis);
+  assert.ok(links.some((link) => link.includes("@core/router/models/routes.model") && link.includes(ROUTES_FILE)), `links: ${links.join(" | ")}`);
+  assert.ok(links.some((link) => link.includes("nativeOnlyGuard") && link.includes("@core/guards")), `links: ${links.join(" | ")}`);
+});
+
+test("an unexplained route says why there is no route table at all", async () => {
+  const basis = await classifyWith({ head: { [ROUTES_FILE]: aliasedRoutes(true) }, changed: [ROUTES_FILE], crossRepo: true });
+  assert.equal(basis?.class, "unexplained");
+  assert.ok(linksOf(basis).some((link) => link.includes("another repository")), `links: ${linksOf(basis).join(" | ")}`);
+});
+
+test("an unexplained route names the loadChildren it could not follow and the guard it could not place", async () => {
+  const routes = [
+    "import { Routes } from '@angular/router';",
+    "import { guestGuard } from './auth';",
+    "const loginFeature = wire(import('./a'), import('./b'));",
+    "export const routes: Routes = [",
+    "  { path: 'login', canActivate: [guestGuard], loadChildren: loginFeature.loadChildren },",
+    "];",
+    "",
+  ].join("\n");
+  const basis = await classifyWith({
+    route: "/login/step",
+    head: { "src/app/app.routes.ts": routes, "src/app/auth/index.ts": "export * from './missing';\n" },
+    base: { "src/app/app.routes.ts": routes },
+    changed: ["src/app/app.routes.ts"],
+    closure: { symbols: [], complete: true },
+  });
+  const links = linksOf(basis);
+  assert.ok(links.some((link) => link.includes("loadChildren") && link.includes("loginFeature")), `links: ${links.join(" | ")}`);
+  assert.ok(links.some((link) => link.includes("guestGuard")), `links: ${links.join(" | ")}`);
 });

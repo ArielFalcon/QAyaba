@@ -36,6 +36,8 @@ export interface RouteChangeEvidence {
   declaration: DeclarationEvidence;
   /* Absent when the run's walk gave no route facts: rules that need it fall to `unexplained`. */
   guards?: GuardEvidence;
+  /* The links of the route table that could not be followed (where and what), or why there is no table; recorded on an unexplained route so that the missing evidence names its cause. */
+  unresolved?: readonly string[];
   /* E3: the change reaches the page's own implementation (not its declaration). */
   implements: boolean;
 }
@@ -140,7 +142,9 @@ function basisOf(nav: RouteNavigation, outcome: UnavailableOutcome, evidence: Ro
   if (guards === undefined || guards.status === "partial") missing.push("guard-reach");
   if (isLoginPage(nav.route, context.loginPath) && nav.sessionAttached === undefined) missing.push("session");
   if (context.changeElsewhere === true) missing.push("change-repo");
-  return { class: "unexplained", missing };
+  /* The cause of a declaration or guard evidence that is missing: the specific link the route table could not follow. */
+  const links = missing.includes("declaration") || missing.includes("guard-reach") ? evidence.unresolved ?? [] : [];
+  return { class: "unexplained", missing, ...(links.length > 0 ? { links } : {}) };
 }
 
 /* The classes of one capture's routes, in the order given: the control of rule 2 is any route of the capture that rendered at its own address with content. */

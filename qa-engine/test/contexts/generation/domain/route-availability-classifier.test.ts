@@ -7,6 +7,7 @@ import {
   type RouteChangeEvidence,
   type RouteNavigation,
 } from "@contexts/generation/domain/route-availability-classifier.ts";
+import { routeAvailabilitySignal } from "@kernel/route-availability.ts";
 
 /* A settled read of `/upload-menu/preview` that ended on `/home`, client-side, with the run's session. */
 const redirected = (over: Partial<RouteNavigation> = {}): RouteNavigation => ({
@@ -132,6 +133,16 @@ test("rule 10 does not hold for a page whose implementation the change reaches",
 test("rule 11: with no evidence at all the route is unexplained and says what was missing", () => {
   const fact = classify({ navigation: redirected({ route: "/login/callback" }) });
   assert.deepEqual(fact?.basis, { class: "unexplained", missing: ["declaration", "guard-reach"] });
+});
+
+test("rule 11: an unexplained route carries the links its evidence could not follow, only while declaration or guard reach is what is missing", () => {
+  const links = ["src/app.routes.ts:12 guard authGuard is unplaced: `@core/guards` matches no `paths` entry"];
+  const fact = classify({ navigation: redirected({ route: "/login/callback" }), evidence: { ...unknownEvidence, unresolved: links } });
+  assert.deepEqual(fact?.basis, { class: "unexplained", missing: ["declaration", "guard-reach"], links });
+  assert.deepEqual(routeAvailabilitySignal(1, [fact!]).facts[0]?.links, links);
+  /* Proven evidence leaves nothing to name: the unresolved links of an entry the route does not depend on are not attached. */
+  const elsewhere = classify({ navigation: redirected({ route: "/" }), evidence: { ...provenUnchanged, unresolved: links }, context: { loginPath: "/login", controlRendered: true, changeElsewhere: true } });
+  assert.deepEqual(elsewhere?.basis, { class: "unexplained", missing: ["change-repo"] });
 });
 
 test("a server redirect and an undetermined one are told apart from a client-side one", () => {

@@ -35,8 +35,8 @@ export type AvailabilityBasis =
   | { class: "environment"; why: "login-without-session" | "session-rejected" | "dev-gate" | "data-missing" }
   /* `session-consistent`: the app's declared login page sends a signed-in session away. `unchanged`: the route table entries that decide the route (`at`) and its guards are the same at the base and at head, and no changed symbol reaches them; that proves the redirect is not caused by this change, not that it is intended. */
   | { class: "pre-existing"; why: "session-consistent" | "unchanged"; at?: string }
-  /* `missing` names the evidence that was absent or partial. */
-  | { class: "unexplained"; missing: readonly AvailabilityEvidenceId[] };
+  /* `missing` names the evidence that was absent or partial; `links` the specific links of the route table that could not be followed (a specifier, a guard, a loadChildren binding) or why there is no table, when that is why. */
+  | { class: "unexplained"; missing: readonly AvailabilityEvidenceId[]; links?: readonly string[] };
 
 export interface RouteAvailabilityFact {
   /* The address the capture opened (a page of a template when `template` is set). */
@@ -63,7 +63,7 @@ export interface RouteAvailabilityGateSignal {
   read: number;
   unavailable: number;
   byClass: Partial<Record<AvailabilityClass, number>>;
-  facts: Array<{ route: string; class: AvailabilityClass; why: string; to?: string }>;
+  facts: Array<{ route: string; class: AvailabilityClass; why: string; to?: string; links?: readonly string[] }>;
   omitted: number;
 }
 
@@ -97,6 +97,7 @@ export function routeAvailabilitySignal(read: number, facts: readonly RouteAvail
     class: fact.basis.class,
     why: availabilityWhy(fact.basis),
     ...(fact.outcome.kind === "redirected" ? { to: fact.outcome.to } : {}),
+    ...(fact.basis.class === "unexplained" && fact.basis.links !== undefined ? { links: fact.basis.links } : {}),
   }));
   return { read, unavailable: facts.length, byClass, facts: listed, omitted: Math.max(0, facts.length - listed.length) };
 }

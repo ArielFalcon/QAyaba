@@ -428,9 +428,13 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   `generation/infrastructure/route-table/`; the head through the confined reader, the base through the mirror's `fileAt`),
   and a route's own entry, every entry that can match before it and the fallbacks are compared, import-only hunks aside,
   with parent guards inherited by lazy children. Whether a changed symbol reaches a guard a route lists is one optional
-  fact, the code graph's closure of the change (depth 6), complete or not. A framework with no extractor, an unreadable base,
-  a partial closure or a cross-repo run leaves the route `unexplained`; "unchanged" says not caused by this change, never
-  that it pre-existed. The Context Pack states each class and why (`Route availability`); a route the change governs
+  fact, the code graph's closure of the change (depth 6), complete or not. The table follows the language's own module
+  semantics on each side (`route-table/module-resolver.ts`: the nearest tsconfig the registry declares, `paths`, `baseUrl` and
+  its `extends` chain, resolved by the compiler's resolver; renames, named re-exports and `export *` barrels followed to the
+  one declaration, a `loadChildren` binding followed to its one static dynamic `import()`), places a guard only at the file that
+  declares the name it imports, and leaves what does not come down to one declaration unresolved. A framework with no extractor,
+  an unreadable base, an unresolved link, a partial closure or a cross-repo run leaves the route `unexplained` and names the
+  link in `links`; "unchanged" says not caused by this change, never that it pre-existed. The Context Pack states each class and why (`Route availability`); a route the change governs
   becomes a `route-config` use case whose drop as `no-observable-change` or `needs-unavailable-state` is refused; the
   reviewer may cite a fact (`{"kind":"availability","ref":"<route>"}`, verified against the run's facts); the fix loop
   settles a failure that ended where its route sends the client by the fact's class, with no re-read (a correction, an

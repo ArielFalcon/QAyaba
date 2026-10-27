@@ -33,6 +33,8 @@ export interface RouteEntry {
   children?: RouteEntry[];
   /* A lazily loaded child table: its entries once the extractor read them; `unresolved` when it could not. */
   lazy?: { children?: RouteEntry[]; unresolved?: true };
+  /* The links of this entry the extractor could not follow (its path, a guard it could not place, the table it loads), each naming where and what did not resolve. Not part of the signature. */
+  unresolved?: string[];
 }
 
 /* The root tables of an app (normally one). */
@@ -47,7 +49,8 @@ export interface MatchStep {
   fallbacks: RouteEntry[];
 }
 
-export type RouteMatch = { steps: MatchStep[] } | { unknown: string };
+/* `unknown`: why the match cannot be told; `links` the unresolved links of the entries that stopped it. */
+export type RouteMatch = { steps: MatchStep[] } | { unknown: string; links: string[] };
 
 const isWildcard = (entry: RouteEntry): boolean => entry.path === "**";
 const segmentsOf = (path: string): string[] => path.split(/[?#]/)[0]!.split("/").filter((s) => s !== "");
@@ -81,7 +84,11 @@ function matchIn(table: readonly RouteEntry[], segments: readonly string[]): Rou
     const step: MatchStep = { entry, before: [...before], fallbacks };
     if (!match.descend) return { steps: [step] };
     const children = childTable(entry);
-    if (children === undefined) return { unknown: `${entry.file}:${entry.line} loads its children from a table that could not be read` };
+    if (children === undefined) {
+      const unknown = `${entry.file}:${entry.line} loads its children from a table that could not be read`;
+      const own = [...before, entry].flatMap((e) => e.unresolved ?? []);
+      return { unknown, links: own.length > 0 ? own : [unknown] };
+    }
     const rest = segments.slice(match.consumed);
     const below = matchIn(children, rest);
     if (below !== undefined && "unknown" in below) return below;
@@ -101,6 +108,43 @@ export function matchRoute(table: RouteTable, route: string): RouteMatch | undef
     if (match !== undefined) return match;
   }
   return undefined;
+}
+
+/* The unresolved links of the entries of a table that may take the address (their path or matcher could not be read), through the levels it descends. */
+function maybeLinks(table: readonly RouteEntry[], segments: readonly string[], out: string[]): void {
+  for (const entry of table) {
+    const match = entryMatch(entry, segments);
+    if (match === "no") continue;
+    if (match === "maybe") out.push(...(entry.unresolved ?? []));
+    else if (match.descend) maybeLinks(childTable(entry) ?? [], segments.slice(match.consumed), out);
+  }
+}
+
+/* The most unresolved links a route's evidence names; the rest are counted in one closing entry. */
+export const MAX_UNRESOLVED_LINKS = 8;
+
+/*
+ * The links the extractor could not follow in the entries that decide `route` at head and at the base (a path or a guard it could
+ * not resolve, a child table it could not read), each naming where and what, or why no entry takes the route at all. In the
+ * order met, without repeats; what passes the bound is counted.
+ */
+export function unresolvedLinks(head: RouteTable, base: RouteTable, route: string): string[] {
+  const links: string[] = [];
+  const tables = [head, base];
+  const matches = tables.map((table) => matchRoute(table, route));
+  if (matches.every((match) => match === undefined)) links.push(`no entry of the route table takes ${route}`);
+  matches.forEach((match, i) => {
+    if (match === undefined) {
+      /* Nothing took the address: the entries whose path could not be read are the ones that may have. */
+      for (const root of tables[i]!.roots) maybeLinks(root, segmentsOf(route), links);
+    } else if ("unknown" in match) {
+      links.push(...match.links);
+    } else {
+      for (const step of match.steps) for (const entry of [...step.before, step.entry]) links.push(...(entry.unresolved ?? []));
+    }
+  });
+  const distinct = [...new Set(links)];
+  return distinct.length <= MAX_UNRESOLVED_LINKS ? distinct : [...distinct.slice(0, MAX_UNRESOLVED_LINKS), `${distinct.length - MAX_UNRESOLVED_LINKS} more unresolved links`];
 }
 
 /* Every guard the deciding entries list: the matched entries' own (a parent's apply to its children) and those of the entries that could match before them. */

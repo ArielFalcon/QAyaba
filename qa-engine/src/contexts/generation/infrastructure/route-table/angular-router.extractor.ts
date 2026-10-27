@@ -26,6 +26,8 @@ export interface RawChildRef {
   module?: string;
   name?: string;
   unresolved?: true;
+  /* Why the extractor could not name the table, when `unresolved`. */
+  why?: string;
 }
 
 export interface RawEntry {
@@ -198,19 +200,21 @@ export function parseAngularRouteFile(file: string, source: string): RawRouteFil
     const b = bare(init);
     const bound = ts.isIdentifier(b) ? b : ts.isPropertyAccessExpression(b) && ts.isIdentifier(b.expression) ? b.expression : undefined;
     const source = bound === undefined ? init : initializers.get(bound.text);
-    if (source === undefined) return { unresolved: true };
-    const imports: ts.CallExpression[] = [];
+    if (source === undefined) return { unresolved: true, why: `${bound!.text} is not a top-level const of this file` };
+    const dynamic: ts.CallExpression[] = [];
     let name: string | undefined;
     const visit = (node: ts.Node): void => {
-      if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) imports.push(node);
+      if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) dynamic.push(node);
       /* `.then((m) => m.ROUTES)`: the export is the property the arrow's body reads. */
       if (name === undefined && ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) && node.parent !== undefined && ts.isArrowFunction(node.parent) && node.parent.body === node) name = node.name.text;
       ts.forEachChild(node, visit);
     };
     visit(source);
-    const arg = imports.length === 1 ? imports[0]!.arguments[0] : undefined;
+    const arg = dynamic.length === 1 ? dynamic[0]!.arguments[0] : undefined;
     const module = arg !== undefined && (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) ? arg.text : undefined;
-    return module === undefined ? { unresolved: true } : { module, ...(name !== undefined ? { name } : {}) };
+    const what = bound === undefined ? "its function" : `${bound.text}'s initializer`;
+    if (dynamic.length !== 1) return { unresolved: true, why: `${what} holds ${dynamic.length} dynamic import() calls, not exactly one` };
+    return module === undefined ? { unresolved: true, why: `${what} imports a specifier that is not a static string` } : { module, ...(name !== undefined ? { name } : {}) };
   };
   const nested = new Set<ts.Node>();
   const entriesOf = (array: ts.ArrayLiteralExpression): RawEntry[] => {
@@ -261,7 +265,7 @@ export function parseAngularRouteFile(file: string, source: string): RawRouteFil
           const bound = imports.get(b.text);
           entry.childRef = bound === undefined ? { name: b.text } : { name: bound.imported, module: bound.module };
         } else {
-          entry.childRef = { unresolved: true };
+          entry.childRef = { unresolved: true, why: "children is neither an array literal nor the name of an array" };
         }
       }
       const lazy = init("loadChildren");
