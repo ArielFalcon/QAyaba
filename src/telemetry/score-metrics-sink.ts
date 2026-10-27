@@ -10,7 +10,7 @@
 
 import { appLogger } from "../integrations/redacting-logger";
 import type { ScoreSinkPort } from "@contexts/evaluation/application/index.ts";
-import { COVERAGE_CLASSES } from "@contexts/evaluation/application/index";
+import { GRADER_CATALOG } from "@contexts/evaluation/application/index";
 import type { Score } from "@contexts/evaluation/application/index";
 import { ERROR_CLASSES } from "@kernel/error-class";
 import { RUN_PHASES } from "@kernel/run-step";
@@ -18,8 +18,8 @@ import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 
 /* The categorical scores whose values are a closed set. Any other categorical score is not emitted. */
 const CLOSED_CLASSES: ReadonlyMap<string, ReadonlySet<string>> = new Map([
-  ["furthest_phase", new Set(RUN_PHASES)],
-  ["change_coverage", new Set(COVERAGE_CLASSES)],
+  /* Every categorical score whose catalog entry declares its categories: the catalog is the one source of the closed sets. */
+  ...GRADER_CATALOG.flatMap((s) => (s.dataType === "CATEGORICAL" && s.categories ? [[s.name, new Set(s.categories)] as const] : [])),
   /* An infra-error's class, plus the two values the grader emits without one. */
   ["infra_error", new Set([...ERROR_CLASSES, "unclassified", "cancelled"])],
 ]);

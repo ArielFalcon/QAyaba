@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ScoreMetricsSink, composeScoreSinks } from "./score-metrics-sink";
 import { traceHarness } from "./trace-harness";
-import type { Score } from "@contexts/evaluation/application/index";
+import { GRADER_CATALOG, type Score } from "@contexts/evaluation/application/index";
 import type { RecordMeasurement } from "@kernel/telemetry/telemetry.port";
 
 const RUN = "run-0f1e2d3c";
@@ -48,6 +48,14 @@ test("numeric and boolean scores become gauge measurements with catalog and run 
   assert.equal(byName.get("spec_pass_rate")?.attrs["qayaba.app"], "name-webapp");
   assert.equal(byName.get("spec_pass_rate")?.attrs["qayaba.verdict"], "pass");
   for (const m of gauges) assert.ok(!JSON.stringify(m.attrs).includes(RUN), "the run id never becomes a label");
+});
+
+test("every categorical score whose catalog entry declares its categories is counted, with no list of its own", () => {
+  const h = traceHarness();
+  const declared = GRADER_CATALOG.filter((s) => s.dataType === "CATEGORICAL" && s.categories && s.categories.length > 0);
+  sinkOf(h).emit(RUN, declared.map((s) => score(s.name, s.categories![0]!, "CATEGORICAL")));
+  const classes = h.measurements.filter((m) => m.name === "qayaba.eval.class");
+  assert.deepEqual(classes.map((m) => [m.attrs["qayaba.eval.name"], m.attrs["qayaba.eval.value"]]), declared.map((s) => [s.name, s.categories![0]]));
 });
 
 test("only closed-set categorical scores are counted, and budget_exhaustion's free string is never emitted", () => {
