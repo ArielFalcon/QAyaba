@@ -1,0 +1,45 @@
+# prompt-integrity
+
+Objective: every role's prompt states only what is true for its own turn, is built from the one section registry, and gives each flow author the slice of the change it must exercise, so generated suites catch defects instead of asserting render smoke.
+Branch: main (integration worktree `../qayaba-integrate`, branch `integrate/prompt-integrity`). Delivery: work-unit commits, ff-merge to main. Test runner: `LC_ALL=C node --import ./test-setup.mjs --import tsx --test <file>` (Node v24); full gate per AGENTS.md.
+
+## Specs
+
+Source: the prompt audit of runs `run-ed28973-mvqc7x8j-2da31df4` and `run-ed28973-mvqd9fda-955d5933`, the root-cause plan (engram `plan/prompt-findings-root-cause`) and the prompt-management research (L4). Paths are evidence at HEAD 82e1eaeb.
+
+- **S1 Reviewer spec block (finding 2).** The reviewer's spec list holds each spec file once, deduplicated by the kernel spec path (`shared-kernel/spec-path.ts`), never per test case (`review-port.adapter.ts:71-72`). Whether spec contents are inline or must be read is ONE typed outcome computed once (`deriveReviewerContext`); the instruction line (`reviewer-sections.ts:63`, "The spec contents are provided in this prompt — no need to read files.") and the specs section (`review-render.ts:69`, "( spec contents exceed 40000 bytes — read each file with the read tool )") both render from it, so they can never contradict. The instruction's reference to inline contents is a prompt-contract artifact reference (R13), linted. A matrix cell covers the over-cap reviewer.
+- **S2 Lead review states the orchestrator's facts as the orchestrator's (findings 3, 5).** A sidekick answer the reader could not read is rendered as an orchestrator fact, never under "Sidekick says / Sidekick concerns" (`delegation-reading.ts:92-116` → `lead-review.ts:102-103`). A `run_spec` failure is presented as the last failure only when its ledger sha256 equals the current spec bytes read through the confined reader; otherwise it is labelled as a failure of earlier bytes (`lead-sidekicks.ts:827`, `lead-review.ts:82-92`; also `orchestratorFacts` and `verifyInstruction`). A flow whose spec bytes did not change since the lead last saw them in this session is not re-sent: its line states it is unchanged since review turn N with its sha and line count (assumption pending Q5: a short digest line is always sent). The orchestrator-facts-decide rule is unchanged.
+- **S3 Shared seeds (finding 1b, data side of 1).** A graph walk cut by its budget marks every seed a hub (`reach-proof.ts:123-131`), so pages reached only through hubs get no code seed. A candidate whose page a hub reaches carries that hub's `file::symbol` and changed range as `sharedSeeds` (optional, additive on `UseCaseCandidate`); a hub alone still never creates a candidate and `seeds` keeps its meaning (coverage ownership, per-candidate coverage, gap routing, causal label unchanged). `dropRefusal` checks a `no-observable-change` drop against `seeds ∪ sharedSeeds` code files (`plan-coverage.ts:54-58`); a contradicted drop takes the existing one re-ask, then `dropsContradicted` path, never an infra-error. The lead's candidate line names shared seeds with kind, added lines and pages reached. The `qayaba.change.candidates` span counts shared seeds.
+- **S4 Brief from the change slice (findings 1, 6).** Each flow author's brief carries one section naming the change it must exercise: per file path, language-registry kind, added lines and origin (map-link, graph, shared); symbols with ranges; hunks ordered code first, then hunks holding a changed decision, then diff order, under a byte budget (Q6) with omitted hunks named as `file:range`. The duplicated proofs section goes. Known facts are filtered to the flow's own pages and say where they were read. A section with no items is not rendered. Author contract fields with no consumer are resolved per Q2.
+- **S5 Reviewer slice (finding 4).** Blocked on Q1.
+- **S6 Static decision listing per language (finding 1, phase 2).** Blocked on Q3.
+- **S7 One prompt engine (research point 1).** Every role prompt (lead plan, lead review, lead correction, explore, flow-author brief, generator, reviewer) is assembled from registered section definitions (`PromptSectionDef`, `prompt-sections.ts`) through the assembler, so sizes, hashes, budgets and the prompt-contract lint apply to all of them. A lint/arch rule fails when a role prompt is built outside the registry. The prompt-contract matrix covers the coordination prompts.
+- **S8 Brief contract (research point 2).** A delegation brief is linted for its contract: an objective, the return shape, the boundary (what it may write and must not do) and the tools it holds; each is present exactly once and states only what the turn grants.
+- **S9 Stable prefix (research point 3).** Within each role's prompt, sections that do not vary per run come first and run-varying facts last; no timestamp, run id or unordered-key serialization in the stable prefix. A test proves the stable prefix is byte-identical across two runs with different facts. Cache-read tokens per turn are reported per role.
+- **S10 Every section earns its place (research point 4).** Each registered section declares the observed failure or contract it exists for (a short reason, optionally a run id); the lint fails on a section with none. Removing a section is measured by a campaign.
+
+## Tasks
+
+| ID | Specs | Route | Status | Commit |
+|---|---|---|---|---|
+| T1 (U0) | S7, S8 | delegated (parallel, worktree) | pending | |
+| T2 (U1) | S1 | delegated (parallel, worktree) | pending | |
+| T3 (U3) | S3 | delegated (parallel, worktree) | pending | |
+| T4 (U2) | S2 | delegated, after T1 | pending | |
+| T5 (U4) | S4 | delegated, after T1+T3, needs Q2, Q6 | pending | |
+| T6 (U7) | S9, S10 | delegated, after T1+T2 | pending | |
+| T7 (U5) | S5 | blocked Q1 | pending | |
+| T8 (U6) | S6 | blocked Q3 | pending | |
+
+Route evidence: T1–T3 are independent units of behaviour with disjoint edit surfaces (coordination prompt assembly; reviewer spec block; change-analysis candidates), each several files and 100+ lines (Writer trigger, parallelism). The prompt-contract matrix and its baseline are shared: each unit adds its own cells, the parent re-records the baseline at integration.
+
+Open owner questions: Q1 reviewer judged on slices + changed-file list instead of the whole diff for planned runs; Q2 remove the author `evidence`/`validation`/`assumptions` fields or give them a shape and a consumer; Q3 static decision listing for JS/TS only, declared through the language registry; Q4 truncated walk hits creating candidates or a different walk budget; Q5 lead session compaction risk when unchanged specs are not re-sent; Q6 byte budget of the change slice per brief.
+
+## Log
+
+- L1 (2026-10-27, user, verbatim): "Pasale estos 6 descubrimientos y el contexto necesario a un agente opus 5.5 con esfuerzo xhigh para que lo analice y haga un plan de corrección que ataque los problemas raíces de estos hallazgos"
+- L2 (2026-10-27, user, verbatim): "no sé si fuera buena idea hacer un 'motor de prompts' para poder configurarlo mejor y de forma mantenible que se adapte a los cambios y a las fases del proyecto. Evalúa si la idea encaja o si aquí no aplica, también lanza una búsqueda en internet sobre como manejan estas gestiones de prompts dinámicos y prompt engineering las empresas líderes del sector"
+- L3 (2026-10-27, user, verbatim): "Me parece bien que mejores el plan del agente para que incorpores los 4 puntos que recomiendas. Luego lanza las implementaciones en paralelo como siempre."
+- L4 Research (sources): Anthropic "Effective context engineering for AI agents" (2025-09-29), "How we built our multi-agent research system" (2025-06-13); Manus context-engineering lessons (2025-07-18); Cognition "Don't Build Multi-Agents" (2025-06-12); Hamel Husain evals FAQ. Verdict: finish the existing registry migration; BAML/POML, DSPy/GEPA and external prompt platforms as source of truth are out of scope.
+- L5 Both audited runs predate the run-signal-integrity batch; every finding was re-checked at HEAD 82e1eaeb. The "not a valid DelegationResult" occurrence is probably fixed by the JSON scanner; its structural cause (S2) is not.
+- L6 Campaign capture ceiling `QA_TELEMETRY_MAX_CAPTURE=full` set in the operator's `.env` (confirmed through `docker compose config`); applies at the next `doppler run -- docker compose up -d`.
