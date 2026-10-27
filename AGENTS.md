@@ -115,7 +115,7 @@ Seams are pinned by `src/server/seam-parity.contract.test.ts`.
 
 `RunQaUseCase` (`qa-engine/src/contexts/run-orchestration/application/run-qa.use-case.ts`)
 is the only engine; webhook (`src/server/webhook-handler.ts`, wired by `src/server/wire-app.ts`) and CLI (`src/cli.ts`) both enter through
-`enqueueTrackedRun`. It walks a table of 47 named steps in 15 phases (`application/run-flow/run-steps.ts`, ids in `step-ids.ts`); a step returns one closed outcome (go on, go to a step, or end the run for a reason), every end goes through `finalizeRun` (`run-flow/finalize-run.ts`), the only place a run is saved, published, learned from and pruned, and every fault a step lets escape is classified by `failure-policy.ts` into rethrow, end, carry on or degrade. `diff` mode:
+`enqueueTrackedRun`. It walks a table of 50 named steps in 15 phases (`application/run-flow/run-steps.ts`, ids in `step-ids.ts`); a step returns one closed outcome (go on, go to a step, or end the run for a reason), every end goes through `finalizeRun` (`run-flow/finalize-run.ts`), the only place a run is saved, published, learned from and pruned, and every fault a step lets escape is classified by `failure-policy.ts` into rethrow, end, carry on or degrade. `diff` mode:
 
 1. **Gate** — wait until DEV serves this SHA (`dev.versionUrl`; skipped when absent).
 2. **Classify** — checkout, diff + message, `classifyCommit` (Conventional Commits
@@ -135,7 +135,12 @@ is the only engine; webhook (`src/server/webhook-handler.ts`, wired by `src/serv
    `--fix-dry-run`, written by the orchestrator through the confined writer); what they leave goes to at most
    `MAX_STATIC_FIX_ROUNDS` repair turns, run while the run has delivered specs to repair. Still failing → `invalid`.
 7. **Execute** — Playwright against DEV → `pass`/`fail`/`flaky` (pass only on retry =
-   flaky → quarantine). DEV down → `infra-error`.
+   flaky → quarantine). DEV down → `infra-error`. A flaky run still has green bytes: coverage and review
+   run on it (the review is advisory), and `triage-flaky-cases` sends the flaky cases to the lead as
+   corrections (origin `flaky`, inside the correction budget, recounted after); a case is called data
+   instability only with Context Pack evidence (`gateSignals.flakyTriage`). The run stays quarantined.
+   The failure capture reports the network class and count only for failed attempts, and a failed
+   request is page-dependent by its resource type (document, fetch, xhr, script, stylesheet), never by host.
 8. **Change-coverage** — did the green run exercise the diff's changed lines? (below)
 9. **Decide** — green + approved + coverage not blocking → PR. Rejected/`fail`/`invalid`
    → Issue. A reviewer that could not be reached (its session failed, or it returned nothing) judged
@@ -144,7 +149,8 @@ is the only engine; webhook (`src/server/webhook-handler.ts`, wired by `src/serv
    a row log an observe-only audit finding). A reviewer that answered unreadably is still a fail-closed
    parse miss. The reviewer's findings are evidence-bound: a blocking correction must cite a contract
    clause, an execution of this run or a DOM fact, the orchestrator verifies the citation
-   (`review-finding-filter.service.ts`) and only a verified blocking finding blocks — an uncited,
+   (`review-finding-filter.service.ts`; a cited or rebutted spec is resolved by `resolveCitedSpec` /
+   `resolveSpecReference` in `shared-kernel/spec-path.ts`, never compared raw) and only a verified blocking finding blocks — an uncited,
    out-of-scope or DOM-only one is advisory telemetry, never sent to the author. A finding that cites
    an arm of the changed code no test ran (`{"kind":"arm","ref":"<file>:<line>"}`, tagged
    `[missing-case]`) is a missing case: it is taken out before that filter whatever the integrity switch,
@@ -247,7 +253,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   only sets the limits. The lead grounds deterministically (no agent turn), the plan turn's
   diff names the app's own test files instead of showing them (`LanguageRegistry.isTestFile`), it is the read-only `qa-lead` agent (no write, shell, fetch, `run_spec`, authenticated browser, location or Playwright tool, by its roster entry), and it explores with the code-graph tools. Before it plans it may ask once for exploration (at most 3 questions): read-only `qa-explore` sidekicks answer them in the run's working copy with the code graph and the authenticated browser, and the orchestrator labels every finding verified, contradicted or unverified from what it holds itself (the Context Pack, the browser's own ledger, the code graph) before the lead sees it; the lead then plans in the same session. A diff over the prompt cap keeps every whole file section that fits
   (code before style sheets) and lists each one left out with its added and removed lines (`prompt-cap.ts`), and the plan turn is told the
-  use cases the change makes testable (`PlanningLimits.candidates`): the plan must cite each direct one in a flow's `candidates` or list it in `dropped` with a reason, otherwise the lead is asked once more in its open session, and what is still unresolved is recorded `unplanned` on the plan snapshot and as a `lead-decision` event (`plan-coverage.ts`). The plan is untrusted: `admitLeadPlan` keeps only what its shape and the
+  use cases the change makes testable (`PlanningLimits.candidates`): the plan must cite each direct one in a flow's `candidates` or list it in `dropped` with a reason and a typed basis (`no-observable-change`, `already-covered`, `needs-unavailable-state`; a basis the run's facts contradict is asked about once, then honoured and recorded in `gateSignals.coordination.dropsContradicted`, never an infra-error; a map-linked candidate carries a whole-file seed per linking file, shown with its kind and added lines), otherwise the lead is asked once more in its open session, and what is still unresolved is recorded `unplanned` on the plan snapshot and as a `lead-decision` event (`plan-coverage.ts`). The plan is untrusted: `admitLeadPlan` keeps only what its shape and the
   run's limits allow (`maxFlows`, a deterministic spec path `e2e/flows/<slug>.spec.ts` per flow, the lead's own write lists ignored) and
   refuses the run with a recorded reason otherwise (`E-NO-AUTHOR`; no author is run in the lead's place). Each sidekick works in a plain bounded copy of what the run may read
   (`<mirrors>/.qa-delegations/<run>/<delegation>`, `DelegationWorkspacePort`); only the files its brief names (`writablePaths`) are taken
@@ -279,7 +285,10 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   static gate's errors (one finding per error block), a failing execution's cases in the fix loop (and the contract deltas of a
   round the intent lock refused), the pre-execution selector contradictions and the change-coverage gap (the changed lines no test ran and the
   arms of their decisions that never ran) each go to the lead as
-  facts it routes to their flows and never rebuts (the coverage gap as one finding per file and per arm); what no flow takes follows
+  facts it routes to their flows and never rebuts (the coverage gap as one finding per file and per arm, each carrying `file`/`line`
+  and owned by the one flow covering a use case that file seeds; a file seeding an uncovered use case opens a `cand-<use case>` flow;
+  gap caps are spread across units and what they omit is counted; surviving mutants join the same gap regeneration as findings on the
+  spec that reached them); what no flow takes follows
   the same rule, and once the run's budget of corrections through the lead is spent the findings are recorded unrouted ("lead
   correction budget spent") and nothing regenerates. The run's acceptance of the round is unchanged. The run releases the pass after the review and in its `finally`. DEV access: every action holds its account's lease (`DevLease`, an `AccountLock`
   whose read-only concurrency is gated by the proxy; the proxy has no read-only mode yet, so today every action is exclusive).
@@ -435,7 +444,9 @@ threat-model header first) and a canary-before-promote hot-swap.
   files over it, so seed upgrades reach apps) and reconciles with git (untracked: store wins; tracked and
   unchanged since the entry was admitted: unpublished change overlaid; tracked and different: git wins,
   except a warm-seeded entry, which is pinned and wins over git). A stored copy that no longer matches its
-  hash is rewritten by the next capture that holds the file. A restored
+  hash is rewritten by the next capture that holds the file. `restore` returns a digest of what it laid down
+  (`qayaba.suite_store.restored_digest`); `campaign-report`/`campaign-compare` mark a replicate whose digest differs from
+  replicate 1 invalid, and one with no digest "isolation unknown". A restored
   login that fails to sign in is demoted and the stock seed takes its place. Store faults are off-path
   (logged, never a verdict). Context-map, session state, credentials and `.qa-probe/` never enter it.
   `deleteApp` with purge removes it (`suite:<name>`); a plain delete keeps it, like the mirror. Under
@@ -536,6 +547,8 @@ threat-model header first) and a canary-before-promote hot-swap.
   also redacted **by value** (`shared-kernel/run-secret-redaction.ts`: one scope per run,
   applied in both redaction paths and at the agent transport before the patterns look).
 - **Logging is redacted at the port.** Production code logs through `LoggerPort` (`appLogger` in the shell, `engineLog` in the engine); the redacting adapter redacts the message and every field before `logJson` writes. A raw `console` call is a test failure (`src/no-console.test.ts`).
+- **Tempo holds what happened, Loki how it happened.** Logs ship from the port (`src/telemetry/log-shipper.ts`), never by tapping the console: `warn`/`error` ship, `info` ships only with `{ ship: true }` for a fact no span records, and a per-item line becomes one line. Agent turn bodies (prompt, sections, output) go to Loki only in `full` capture, redacted first, never as span attributes; a failed redaction drops the body (`src/telemetry/prompt-body-logs.ts`). Coordination events carry structured `qayaba.coordination.*` attributes, not facts held in reason strings.
+- **Agent output is read through one scanner.** `@kernel/last-json-object` (`jsonObjectsIn`, `lastJsonObjectWhere`) takes the last object that matches the contract; nothing takes the first `{`. An unreadable sidekick answer is recorded `unreadable`, distinct from `failed`, and fails closed.
 - **One settings object.** The shell reads its environment in `loadSettings`; a new variable is a registry entry (`src/settings/registry.ts`) with a type, default and description, and `npm run settings:gen` regenerates `docs/settings.md`. A secret is marked `secret: true`: it never has a documented default and a dump of the settings shows it as `[set]`.
 - **Everything in English**; comments describe the final state, not the process.
 
@@ -643,6 +656,9 @@ that catches nothing. The objective signal that breaks the circle is **change-co
 - **Missing cases**: the reviewer gets the arms still untaken and may cite one (`arm`, `[missing-case]`).
   A cited arm the run listed is recorded (`gateSignals.missingCases`) and shown in the PR or Issue; it
   never blocks or rejects.
+- **Graders** (`qa-engine/src/contexts/evaluation`, `GRADER_VERSION`): no two graders score the same fact, none scores an empty
+  denominator, and a boolean that saturates becomes a ratio. Whether the suite has value is answered by `mutation_kill_rate`,
+  `change_coverage_ratio`, `branch_coverage_ratio`, `defect_found`, `survivors_routed` and `review_verdict`.
 
 - **Causal label and calibration** (record only, never a gate): `gateSignals.causal` labels a failure by whether the change reaches it, `coverageByCandidate` and `valueByCandidate`/`valueStats` hold the per-use-case coverage and kill rates, and `npm run fault-calibrate` gives each campaign variant a calibration verdict. The response oracle corrupts only the operations the change reaches and writes no score without a scope.
 
