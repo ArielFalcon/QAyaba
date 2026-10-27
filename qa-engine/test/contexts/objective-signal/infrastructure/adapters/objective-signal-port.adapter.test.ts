@@ -670,7 +670,7 @@ test("recount() measures the change again over the dumps on disk: the first run'
 
   const result = await adapter.recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "run-acc0", specFiles: ["flows/a.spec.ts"] }, { namespace: "run-acc1", specFiles: ["flows/b.spec.ts"] }], { namespace: "run-ns" });
 
-  assert.deepEqual(asked, [["/e2e", [{ namespace: "run-ns", exceptSpecFiles: ["flows/a.spec.ts", "flows/b.spec.ts"] }, { namespace: "run-acc0" }, { namespace: "run-acc1" }]]]);
+  assert.deepEqual(asked, [["/e2e", [{ namespace: "run-ns", exceptSpecFiles: ["flows/a.spec.ts", "flows/b.spec.ts"] }, { namespace: "run-acc0", onlySpecFiles: ["flows/a.spec.ts"] }, { namespace: "run-acc1", onlySpecFiles: ["flows/b.spec.ts"] }]]]);
   assert.equal(result?.status, "pass");
   assert.equal(result?.ratio, 1);
   assert.deepEqual(result?.uncovered, []);
@@ -686,7 +686,18 @@ test("recount() reads a spec re-run twice from its latest re-run only", async ()
   const adapter = new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService(), oracle }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage });
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
   await adapter.recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "r-acc0", specFiles: ["a.spec.ts", "b.spec.ts"] }, { namespace: "r-acc1", specFiles: ["a.spec.ts"] }, { namespace: "r-acc2", specFiles: ["a.spec.ts"] }], { namespace: "r" });
-  assert.deepEqual(asked, [[{ namespace: "r", exceptSpecFiles: ["a.spec.ts", "b.spec.ts"] }, { namespace: "r-acc0", onlySpecFiles: ["b.spec.ts"] }, { namespace: "r-acc2" }]]);
+  assert.deepEqual(asked, [[{ namespace: "r", exceptSpecFiles: ["a.spec.ts", "b.spec.ts"] }, { namespace: "r-acc0", onlySpecFiles: ["b.spec.ts"] }, { namespace: "r-acc2", onlySpecFiles: ["a.spec.ts"] }]]);
+});
+
+test("recount() reads a re-run's namespace for its own spec files only: a spec run there and given its prior bytes back never counts", async () => {
+  const asked: unknown[] = [];
+  const collector: CoverageCollectorPort = { collect: async () => ({ covered: [] }), recollect: async (_dir, sources) => (asked.push(sources), { covered: [{ file: "src/checkout.ts", lines: [1] }] }) };
+  const oracle = fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" });
+  const adapter = new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService(), oracle }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage });
+  const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
+  /* The acceptance under r-acc0 ran a.spec.ts and b.spec.ts; only a.spec.ts was kept, so b.spec.ts is read from the first run. */
+  await adapter.recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "r-acc0", specFiles: ["a.spec.ts"] }], { namespace: "r" });
+  assert.deepEqual(asked, [[{ namespace: "r", exceptSpecFiles: ["a.spec.ts"] }, { namespace: "r-acc0", onlySpecFiles: ["a.spec.ts"] }]]);
 });
 
 test("recount() has nothing to say with coverage off, without a diff, or with a collector that cannot add namespaces", async () => {

@@ -696,7 +696,8 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   changed file gets its prior bytes, cases and delivery back. Only the kept files get a proof, so the bytes on
   disk are still the last that ran green, file by file, and the suite store captures only those; survivor
   closure is judged on the kept files. With none kept, or a changed file the specs import, it is accepted or
-  rejected whole. A partial acceptance is not recounted yet (the namespace holds the restored files' dumps).
+  rejected whole. The recount reads the kept files from the acceptance's dumps (a re-run's namespace is read for
+  its own spec files only) and the restored files from the dumps of the bytes they were given back.
   `kept`/`restored` are counted on the regeneration's gate signal and its `regeneration_acceptance` span event.
   The fix loop's iterative rounds adopt a failing execution whole, as before. A run deadline spent during it is the
   run's degrade (`deadline-after-proof`), as for the coverage regeneration.

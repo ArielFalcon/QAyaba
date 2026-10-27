@@ -50,7 +50,7 @@ export interface MutantSelectionRecord {
   rerunsBySpecFile: number;
 }
 
-/** The dumps a re-run of some spec files wrote, under its own namespace. */
+/** The dumps a re-run of some spec files wrote, under its own namespace. Only the dumps of `specFiles` are read from it: a spec the same execution ran whose bytes were then given back left dumps there that describe nothing on disk. */
 export interface CoverageRerun {
   namespace: string;
   specFiles: readonly string[];

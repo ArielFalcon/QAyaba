@@ -9771,7 +9771,7 @@ function perFileRun(acceptanceCases: QaCase[]) {
 }
 
 test("a branch regeneration whose acceptance fails in one spec file keeps the spec file whose cases all passed and gives the others their prior bytes back", async () => {
-  const { ws, turns, rechecks, savedOutcomes, useCase } = perFileRun([
+  const { ws, turns, rechecks, recounts, savedOutcomes, useCase } = perFileRun([
     { name: "a works", status: "pass", file: "a.spec.ts" },
     { name: "a else arm", status: "pass", file: "a.spec.ts" },
     { name: "b works", status: "fail", file: "b.spec.ts", detail: "expected 1 row" },
@@ -9784,7 +9784,8 @@ test("a branch regeneration whose acceptance fails in one spec file keeps the sp
     assert.equal(readFileSync(join(ws.specDir, "a.spec.ts"), "utf8"), "// a, generation 2\n", "the all-green file keeps its new bytes");
     assert.equal(readFileSync(join(ws.specDir, "b.spec.ts"), "utf8"), "// b, generation 1\n", "the failing file gets the bytes that last ran green");
     assert.throws(() => readFileSync(join(ws.specDir, "c.spec.ts")), "the failing file the turn created is removed");
-    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2, kept: 1, restored: 2 });
+    assert.deepEqual(recounts, [[{ namespace: "per-file-acc0", specFiles: ["a.spec.ts"] }]], "the recount uses the kept file's dumps; the others are read from the dumps of the bytes they were given back");
+    assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2, armsAfter: 1, kept: 1, restored: 2 });
     assert.deepEqual(rechecks, [[[["a.spec.ts"]], ["a works", "a else arm"]]], "the survivor is judged on the kept file and its passing cases only");
     assert.equal(out.decision.verdict, "pass", "the suite on disk is the kept file and the prior bytes, all green");
     assert.equal(out.decision.sideEffect, "pr", "every delivered spec's bytes hold a green proof");

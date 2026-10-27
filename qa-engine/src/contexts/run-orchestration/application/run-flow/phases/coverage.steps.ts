@@ -135,8 +135,8 @@ export const regeneratesForBranchCases = (state: Readonly<RunState>, ctx: Worksp
   }) === "regenerate";
 
 /*
- * How a gap regeneration ended; `reruns` names the acceptance's own dumps when every spec it kept executed in it and none it gave back
- * left dumps there, so the coverage can be recounted from them; `changedSpecFiles` are the specs an accepted one changed and kept;
+ * How a gap regeneration ended; `reruns` names the acceptance's own dumps of the specs it kept when every one of them executed in it,
+ * so the coverage can be recounted from them; `changedSpecFiles` are the specs an accepted one changed and kept;
  * `files` counts the spec files the turn changed whose new bytes stand and those given their prior bytes back.
  */
 export interface GapRegeneration {
@@ -234,11 +234,11 @@ export async function regenerateAtGap(
   const files = { kept: kept.length, restored: outcome.restored.length };
   traceAcceptedFiles(ctx, origin, files);
   /*
-   * A spec whose proof was reused left no dumps here: the coverage cannot be recounted without it. A spec file given back left dumps
-   * of bytes no longer on disk under the namespace, which a recount reads whole: it is not recounted either.
+   * A spec whose proof was reused left no dumps here: the coverage cannot be recounted without it. A spec file given back is not named,
+   * so its dumps here are never read: it is counted from the dumps of the bytes it was given back.
    */
   const executed = new Set(outcome.executedSpecs);
-  const recountable = outcome.restored.length === 0 && kept.every((file) => executed.has(file));
+  const recountable = kept.every((file) => executed.has(file));
   return { outcome: "accepted", run, acceptanceCalls, leadCorrections, changedSpecFiles: kept, files, ...(recountable ? { reruns: [{ namespace, specFiles: kept }] } : {}) };
 }
 

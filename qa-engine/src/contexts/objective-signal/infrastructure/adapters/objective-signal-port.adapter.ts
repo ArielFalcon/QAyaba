@@ -84,6 +84,21 @@ function workingCopySource(repoDir: string): (file: string) => string | undefine
   };
 }
 
+/*
+ * The latest dumps of every spec file: the base namespace without the re-run spec files, then each re-run's namespace for the spec
+ * files it re-ran. Reruns are in the order they ran: a spec re-run again is read from its latest rerun only, so an earlier rerun's
+ * dumps of it never count; and a rerun's namespace is read for its own spec files only, never whole.
+ */
+function latestDumpsOf(base: string, reruns: readonly CoverageRerun[]): { sources: DumpSource[]; rewritten: string[] } {
+  const rewritten = [...new Set(reruns.flatMap((r) => r.specFiles))];
+  const rerunSources = reruns.flatMap((r, i): DumpSource[] => {
+    const later = new Set(reruns.slice(i + 1).flatMap((x) => x.specFiles));
+    const current = r.specFiles.filter((file) => !later.has(file));
+    return current.length === 0 ? [] : [{ namespace: r.namespace, onlySpecFiles: current }];
+  });
+  return { sources: [{ namespace: base, exceptSpecFiles: rewritten }, ...rerunSources], rewritten };
+}
+
 export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
   constructor(
     private readonly deps: ObjectiveSignalPortCollaborators,
@@ -181,15 +196,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     if (this.ctx.policy.mode === "off" || !diff || !this.ctx.assembleChangeCoverage || !recollect) return null;
     const changeDiff = diffWithoutTestFiles(diff).diff;
     const base = opts?.namespace ?? this.ctx.namespace ?? br.sha.toString();
-    const rewritten = [...new Set(reruns.flatMap((r) => r.specFiles))];
-    /* Reruns are in the order they ran: a spec re-run again is read from its latest rerun only, so an earlier rerun's dumps of it never count. */
-    const rerunSources = reruns.flatMap((r, i): DumpSource[] => {
-      const later = new Set(reruns.slice(i + 1).flatMap((x) => x.specFiles));
-      const current = r.specFiles.filter((file) => !later.has(file));
-      if (current.length === 0) return [];
-      return [current.length === r.specFiles.length ? { namespace: r.namespace } : { namespace: r.namespace, onlySpecFiles: current }];
-    });
-    const sources: DumpSource[] = [{ namespace: base, exceptSpecFiles: rewritten }, ...rerunSources];
+    const { sources, rewritten } = latestDumpsOf(base, reruns);
     /* A proof holds only for the spec bytes that killed its mutant: the re-run spec files are not those any more. */
     const proofs = (opts?.proofs ?? []).map((p) => ({ ...p, specFiles: p.specFiles.filter((file) => !rewritten.includes(file)) })).filter((p) => p.specFiles.length > 0);
     const proofSources = proofs.map(({ namespace, specFiles, ...mutant }) => ({ namespace, onlySpecFiles: specFiles, mutant }));
