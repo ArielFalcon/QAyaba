@@ -2105,10 +2105,18 @@ test("createRunEngineFactory's returned closure threads the namespace argument i
 
 /* ── Dispatch integration with the REAL production factory (runner.test.ts pins the seam with a fake port) ── */
 
+/* A run through the real factory with a mirror seam that fails the checkout at once: no git, no network. */
+function offlineRealFactory(): ReturnType<typeof createRunEngineFactory> {
+  const noCheckout = async (): Promise<never> => {
+    throw new Error("no mirror in this test");
+  };
+  return createRunEngineFactory({ getAgentDeps: stubAgentDeps, mirrorRoot: join(tmpdir(), "qayaba-no-mirror"), mirror: { ensureMirror: noCheckout, ensureMirrorAtBranch: noCheckout } });
+}
+
 test("engineFactory (real production factory) is invoked and drives the run to completion", async () => {
   const queue = new JobQueue();
   let factoryInvoked = false;
-  const realFactory = createRunEngineFactory({ getAgentDeps: stubAgentDeps });
+  const realFactory = offlineRealFactory();
   const id = enqueueTrackedRun(
     queue,
     { app: "factory-dispatch-real", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
@@ -2173,7 +2181,7 @@ test("buildEngineRootDeps's coverage collector for a code:true app runs best-eff
 test("the runner reaches the real factory and never bypasses it", async () => {
   const queue = new JobQueue();
   let factoryInvoked = false;
-  const realFactory = createRunEngineFactory({ getAgentDeps: stubAgentDeps });
+  const realFactory = offlineRealFactory();
   const id = enqueueTrackedRun(
     queue,
     { app: "factory-dispatch-manual", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
