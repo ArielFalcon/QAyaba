@@ -208,6 +208,18 @@ export function declarationEvidence(head: RouteTable, base: RouteTable, route: s
     if (removed.length > 0) return { status: "changed", at: `${at(removed[removed.length - 1]!)} (removed at head)` };
     return { status: "changed", at: at(added[0] ?? chainNow[chainNow.length - 1]!) };
   }
+  /*
+   * The same text can resolve its guards to other declarations (an import or a tsconfig alias repointed): placed on both sides and
+   * different, the route is changed; a side that could not place one cannot tell, so it is unknown.
+   */
+  const placements = (chain: readonly RouteEntry[]): string[] => chain.flatMap((entry) => entry.guards.map((guard) => `${guard.file ?? "?"}::${guard.name}`));
+  const placedNow = placements(chainNow);
+  const placedBefore = placements(chainBefore);
+  if (placedNow.join(",") !== placedBefore.join(",")) {
+    const unplaced = (chain: readonly RouteEntry[]): boolean => chain.some((entry) => entry.guards.some((guard) => guard.file === undefined && guard.external !== true));
+    if (unplaced(chainNow) || unplaced(chainBefore)) return { status: "unknown" };
+    return { status: "changed", at: at(own) };
+  }
   const sameLevels = (pick: (step: MatchStep) => RouteEntry[]): boolean =>
     now.steps.length === before.steps.length && now.steps.every((step, i) => signatures(pick(step)) === signatures(pick(before.steps[i]!)));
   if (!sameLevels((step) => step.before) || !sameLevels((step) => step.fallbacks)) return { status: "unknown" };

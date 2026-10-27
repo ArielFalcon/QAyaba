@@ -111,6 +111,32 @@ test("a changed symbol reaching a listed guard reaches the route; a complete clo
   assert.deepEqual(guardEvidence([], undefined), { status: "unreached" });
 });
 
+test("a route whose unchanged entry now resolves its guard to another declaration is changed, never unchanged", async () => {
+  const routes = [
+    "import { Routes } from '@angular/router';",
+    "import { guestGuard } from '@g/guard';",
+    "",
+    "export const routes: Routes = [",
+    "  { path: 'login', canActivate: [guestGuard], component: LoginPage },",
+    "];",
+    "",
+  ].join("\n");
+  const tsconfig = (target: string): string => `{ "compilerOptions": { "baseUrl": ".", "paths": { "@g/*": ["${target}/*"] } } }`;
+  const files: Record<string, string> = {
+    "src/app/app.routes.ts": routes,
+    "src/old/guard.ts": "export const guestGuard = () => true;\n",
+    "src/new/guard.ts": "export const guestGuard = () => false;\n",
+  };
+  const dir = repoWith({ "package.json": PACKAGE, ...files, "tsconfig.json": tsconfig("src/new") });
+  try {
+    const tables = await routeTablesOf({ mirrorDir: dir, changedFiles: ["tsconfig.json"], readAtBase: async (file) => (file === "tsconfig.json" ? tsconfig("src/old") : file === "package.json" ? PACKAGE : files[file]) });
+    assert.ok(tables);
+    assert.equal(declarationEvidence(tables.head, tables.base, "/login").status, "changed");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 /* A repo whose specifiers go through the tsconfig: `paths` inherited through an `extends` chain, `baseUrl` imports, renames and barrels. */
 async function tablesOf(files: Record<string, string>) {
   const dir = repoWith({ "package.json": PACKAGE, ...files });
