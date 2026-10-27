@@ -249,6 +249,20 @@ test("a dump of exactly the production cap is read, and one byte more leaves the
   });
 });
 
+/* An unminified DEV bundle leaves dumps of tens of megabytes: the largest one a run of the reference app left weighed 25.8 MiB, and one replicate of the same suite left a bigger one, which the old 32 MiB cap turned into a set that was not used at all and a coverage that read "no changed file mapped". */
+test("a dump of 34 MiB, past the size an unminified page leaves, is read beside the rest of the set", async () => {
+  await withRun(async (r) => {
+    writeDump(r.e2e, "good.json");
+    const path = writeDump(r.e2e, "big.json");
+
+    writeFileSync(path, paddedDump(34 * 1024 * 1024));
+    const { value, warnings } = await capturing(() => readV8Dumps(r.e2e, NS));
+
+    assert.equal(value.length, 2, "the big dump and the one beside it are both used");
+    assert.deepEqual(warnings, []);
+  });
+});
+
 /* The cap is a number of bytes, so the boundary is shown with small limits; the production limits are the defaults of the same parameter. */
 test("a dump of exactly the file cap is read and one byte more leaves the whole set unused", async () => {
   await withRun(async (r) => {
@@ -442,12 +456,14 @@ test("a dump whose source map is made to be slow to decode is given up on once t
 
 test("the limits on the dumps of a run keep a freeze to some seconds: the time they are given is a few seconds, and the dump that is parsed in the thread is some tens of megabytes at the most", () => {
   const MIB = 1024 * 1024;
-  const largestMeasured = 19 * MIB;
+  /* The largest dump a run of the reference app left, of an unminified DEV bundle: the page's scripts and their source maps. */
+  const largestMeasured = 26 * MIB;
 
   assert.ok(V8_DECODE_BUDGET_MS >= 2_000 && V8_DECODE_BUDGET_MS <= 15_000, `${V8_DECODE_BUDGET_MS} ms`);
-  /* A dump of nothing but empty arrays costs some fifteen times its size in heap and a second of parse for every 12 MiB. */
-  assert.ok(MAX_V8_DUMP_BYTES >= largestMeasured * 1.5 && MAX_V8_DUMP_BYTES <= 32 * MIB, `${MAX_V8_DUMP_BYTES} bytes`);
-  assert.ok(MAX_V8_DUMPS_TOTAL_BYTES >= 50 * largestMeasured && MAX_V8_DUMPS_TOTAL_BYTES <= 1024 * MIB, `${MAX_V8_DUMPS_TOTAL_BYTES} bytes`);
+  /* A dump of nothing but empty arrays costs some fifteen times its size in heap and a second of parse for every 12 MiB, so the ceiling is what the worst shape at the cap may hold: 96 MiB of it is 1.4 GB of the 2.24 GB heap Node sizes for this container, and the real shape measured 3.5 times its size. */
+  assert.ok(MAX_V8_DUMP_BYTES >= largestMeasured * 1.5 && MAX_V8_DUMP_BYTES <= 96 * MIB, `${MAX_V8_DUMP_BYTES} bytes`);
+  /* The budget of a run's dumps together holds some forty of the largest measured, and the clock is what bounds the time they may take: a page of an unminified build is tens of megabytes, so the bytes a run may leave are counted in dumps of that size, not in the smallest ones. */
+  assert.ok(MAX_V8_DUMPS_TOTAL_BYTES >= 20 * largestMeasured && MAX_V8_DUMPS_TOTAL_BYTES <= 1024 * MIB, `${MAX_V8_DUMPS_TOTAL_BYTES} bytes`);
   assert.ok(MAX_COVERAGE_REPORT_BYTES <= 32 * MIB, `${MAX_COVERAGE_REPORT_BYTES} bytes`);
 });
 
