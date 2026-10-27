@@ -109,6 +109,8 @@ export function parseAngularRouteFile(file: string, source: string): RawRouteFil
     exports.set(hasModifier(statement, ts.SyntaxKind.DefaultKeyword) ? "default" : name, { local: name });
   };
   const constants = new Map<string, string>();
+  /* The initializer of each top-level `const` of this file, by name. */
+  const initializers = new Map<string, ts.Expression>();
   const stringOf = (e: ts.Expression): string | undefined => {
     const b = bare(e);
     return ts.isStringLiteral(b) || ts.isNoSubstitutionTemplateLiteral(b) ? b.text : undefined;
@@ -141,6 +143,7 @@ export function parseAngularRouteFile(file: string, source: string): RawRouteFil
         exportDeclared(statement, decl.name.text);
         if (decl.initializer === undefined) continue;
         const name = decl.name.text;
+        if ((statement.declarationList.flags & ts.NodeFlags.Const) !== 0) initializers.set(name, decl.initializer);
         const literal = stringOf(decl.initializer);
         if (literal !== undefined) constants.set(name, literal);
         const init = bare(decl.initializer);
@@ -186,20 +189,27 @@ export function parseAngularRouteFile(file: string, source: string): RawRouteFil
     }
     return { inline: true, text: b.getText(sf).replace(/\s+/g, " ") };
   };
-  /* The module a `loadChildren` imports and the export its `.then` takes, read from the first dynamic import of its initializer. */
+  /*
+   * The module a `loadChildren` imports and the export its `.then` takes. A `loadChildren` that is a binding of this file
+   * (`x`, or `x.loadChildren`, where `x` is a top-level const) is read at the binding's initializer, whatever call builds it.
+   * Either way it must hold exactly one dynamic `import()`, and with a static specifier; anything else is unresolved.
+   */
   const lazyOf = (init: ts.Expression): RawChildRef => {
-    let module: string | undefined;
+    const b = bare(init);
+    const bound = ts.isIdentifier(b) ? b : ts.isPropertyAccessExpression(b) && ts.isIdentifier(b.expression) ? b.expression : undefined;
+    const source = bound === undefined ? init : initializers.get(bound.text);
+    if (source === undefined) return { unresolved: true };
+    const imports: ts.CallExpression[] = [];
     let name: string | undefined;
     const visit = (node: ts.Node): void => {
-      if (module === undefined && ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-        const arg = node.arguments[0];
-        if (arg !== undefined && ts.isStringLiteral(arg)) module = arg.text;
-      }
+      if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) imports.push(node);
       /* `.then((m) => m.ROUTES)`: the export is the property the arrow's body reads. */
       if (name === undefined && ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) && node.parent !== undefined && ts.isArrowFunction(node.parent) && node.parent.body === node) name = node.name.text;
       ts.forEachChild(node, visit);
     };
-    visit(init);
+    visit(source);
+    const arg = imports.length === 1 ? imports[0]!.arguments[0] : undefined;
+    const module = arg !== undefined && (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) ? arg.text : undefined;
     return module === undefined ? { unresolved: true } : { module, ...(name !== undefined ? { name } : {}) };
   };
   const nested = new Set<ts.Node>();

@@ -159,6 +159,52 @@ test("a specifier the configuration does not resolve leaves the path and the gua
   assert.deepEqual(declarationEvidence(none!.head, none!.base, "/upload-menu/preview"), { status: "unknown" });
 });
 
+/* A route table whose lazy section is loaded through a binding initialised from a call, whatever the call is named. */
+const LOGIN_ROUTES = "export const LOGIN_ROUTES: Routes = [\n  { path: 'step', component: StepPage },\n];\n";
+const boundRoutes = (loadChildren: string, binding: string): string =>
+  [
+    "import { Routes } from '@angular/router';",
+    "import { somewhere } from './elsewhere';",
+    "",
+    binding,
+    "",
+    "export const routes: Routes = [",
+    `  { path: 'login', ${loadChildren} },`,
+    "  { path: 'home', component: HomePage },",
+    "];",
+    "",
+  ].join("\n");
+const helperBinding = "const loginFeature = wire(() => import('./login/login.routes'), { name: 'login' });";
+
+test("a lazy section loaded through a binding initialised from a call is the table of its one dynamic import", async () => {
+  for (const loadChildren of ["loadChildren: loginFeature.loadChildren", "loadChildren: loginFeature"]) {
+    const tables = await tablesOf({ "src/app/login/login.routes.ts": LOGIN_ROUTES, "src/app/app.routes.ts": boundRoutes(loadChildren, helperBinding) });
+    const match = matchRoute(tables!.head, "/login/step");
+    assert.ok(match && "steps" in match, loadChildren);
+    assert.equal(match.steps.length, 2);
+  }
+});
+
+test("a binding that does not come down to exactly one static dynamic import leaves the lazy section unresolved", async () => {
+  const bindings = [
+    "const loginFeature = wire(() => import('./login/login.routes'), () => import('./login/login.routes'));",
+    "const loginFeature = wire(() => import(somewhere));",
+    "const loginFeature = wire({ name: 'login' });",
+    "const loginFeature = somewhere;",
+  ];
+  for (const binding of bindings) {
+    const tables = await tablesOf({ "src/app/login/login.routes.ts": LOGIN_ROUTES, "src/app/app.routes.ts": boundRoutes("loadChildren: loginFeature.loadChildren", binding) });
+    assert.ok("unknown" in (matchRoute(tables!.head, "/login/step") ?? {}), binding);
+  }
+  /* The same holds for a function written in place. */
+  const twice = "loadChildren: () => Promise.all([import('./login/login.routes'), import('./login/other.routes')])";
+  const inline = await tablesOf({ "src/app/login/login.routes.ts": LOGIN_ROUTES, "src/app/app.routes.ts": boundRoutes(twice, "") });
+  assert.ok("unknown" in (matchRoute(inline!.head, "/login/step") ?? {}));
+  /* A binding imported from another module is not followed. */
+  const imported = await tablesOf({ "src/app/login/login.routes.ts": LOGIN_ROUTES, "src/app/app.routes.ts": boundRoutes("loadChildren: somewhere.loadChildren", "") });
+  assert.ok("unknown" in (matchRoute(imported!.head, "/login/step") ?? {}));
+});
+
 test("baseUrl alone resolves an import written from the repository root, and a package dependency stays external", async () => {
   const routes = [
     "import { Routes } from '@angular/router';",
