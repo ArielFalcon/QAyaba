@@ -3,7 +3,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildPromptAssembled, type AssembledPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { COMMIT_DIFF_HEADING } from "@contexts/generation/infrastructure/prompt-builders/prompt-text.ts";
-import { MAX_PROMPT_DIFF_CHARS } from "@contexts/generation/infrastructure/prompt-cap.ts";
 import { fileKindOf } from "@kernel/change-map.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
@@ -77,7 +76,7 @@ test("a plan prompt with no known window shows every readable hunk whole, past t
     fileDiff("src/catalog/catalog.ts", [{ start: 1, added: big }]) +
     fileDiff("src/cart/cart.ts", [{ start: 40, added: ["export const lastLine = 1;"] }]) +
     fileDiff("src/cart/cart.spec.ts", [{ start: 5, added: ["it('totals the cart', () => {});"] }]);
-  assert.ok(diff.length > MAX_PROMPT_DIFF_CHARS, "the fixture is over the cut the plan path no longer applies");
+  assert.ok(diff.length > 50_000, "the fixture is over the 50 KB cut no path applies any more");
 
   const section = diffSection(buildPromptAssembled(input(diff)));
 

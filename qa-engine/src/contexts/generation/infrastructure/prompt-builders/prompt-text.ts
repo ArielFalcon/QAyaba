@@ -1,7 +1,7 @@
 /* Text helpers every prompt builder shares: model-bound redaction, the capped diff, the commit message and the step-limit fact. Never import src/. */
 
 import { sanitizeText, assertNoSecretLeak, type RedactionMode } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
-import { capText, capDiff, extractDiffFilePath } from "../prompt-cap.ts";
+import { capText, extractDiffFilePath } from "../prompt-cap.ts";
 import type { CommitIntent } from "../../domain/generation-input.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 
@@ -21,7 +21,7 @@ export function redactForModel(text: string): string {
   return sanitizeText(text, "model").text;
 }
 
-/* THE single way to embed a commit diff into any prompt: capped FIRST (capDiff needs raw `diff --git` boundaries to split/rank files), then secret-scrubbed. Each section is redacted AND guarded (assertNoSecretLeak) independently, with that section's own mode. A diff with no file header at all (several unit-test fixtures pass raw, header-less snippets as `diff`) has no file to key a mode off, so the whole text keeps the prior "model" mode — unchanged for those callers. */
+/* THE single way to embed a commit diff into any prompt: secret-scrubbed section by section on the raw `diff --git` boundaries. Each section is redacted AND guarded (assertNoSecretLeak) independently, with that section's own mode. A diff with no file header at all (several unit-test fixtures pass raw, header-less snippets as `diff`) has no file to key a mode off, so the whole text keeps the prior "model" mode — unchanged for those callers. */
 const CODE_FILE_EXTENSIONS = new Set([
   /* Every language this system's watched apps and self-maintenance target today (see AGENTS.md's "Java + JavaScript/TypeScript" scope note) plus common ecosystems, so a diff hunk touching source code keeps model-mode's narrower, code-aware redaction instead of the config-file default. */
   "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "java", "go", "rs", "kt", "cs", "rb", "php", "swift",
@@ -39,8 +39,9 @@ const DIFF_HEADER_RE = /^diff --git /;
 /* The heading of the diff section of a prompt. The judges read the diff back out of a stored prompt by it (src/server/judge-evidence.ts), so the heading is one constant. */
 export const COMMIT_DIFF_HEADING = "## Commit diff";
 
-export function cappedDiffText(diff: string): string {
-  return redactedDiffText(capDiff(diff));
+/* The commit diff as a prompt section: its heading and the redacted diff in one fence, whole. A prompt over its role's window gives hunks of it up as references (diffWindowDegrade); no character count cuts it. */
+export function commitDiffBlock(diff: string): string {
+  return [COMMIT_DIFF_HEADING, "```diff", redactedDiffText(diff), "```"].join("\n");
 }
 
 /* A diff, or part of one, redacted for a model section by section by each file's kind, and never cut. */

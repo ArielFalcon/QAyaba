@@ -6,14 +6,15 @@ import { readConfinedSpecFile, type SpecRoot } from "../../../../shared-infrastr
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { capText } from "../prompt-cap.ts";
 import type { ReviewInput } from "../../domain/generation-input.ts";
-import { COMMIT_DIFF_HEADING, cappedDiffText } from "./prompt-text.ts";
+import { COMMIT_DIFF_HEADING, redactedDiffText } from "./prompt-text.ts";
 
 /* Whether the review judges a commit's change by flow under review (a planned e2e diff run with a change view) instead of its whole diff. */
 export function reviewsByFlow(input: ReviewInput): input is ReviewInput & { changeView: NonNullable<ReviewInput["changeView"]> } {
   return input.mode === "diff" && input.target !== "code" && input.changeView !== undefined;
 }
 
-export function reviewObjective(input: ReviewInput): { subject: string; heading: string; body: string[]; targetNoun: string } {
+/* `diff` is set when the objective carries the whole commit diff: the part of it a prompt over its window gives up first. */
+export function reviewObjective(input: ReviewInput): { subject: string; heading: string; body: string[]; targetNoun: string; diff?: string } {
   if (input.mode === "manual") {
     const g = sanitizeText(((input.guidance ?? "").trim() || "(no guidance was provided)")).text;
     return {
@@ -37,9 +38,9 @@ export function reviewObjective(input: ReviewInput): { subject: string; heading:
   const commitDiffObjective = () => ({
     subject: "this commit",
     heading: COMMIT_DIFF_HEADING,
-    /* Cap BEFORE sanitizing: capDiff splits on diff file-header boundaries and must see the raw structure; sanitizeText only redacts secret-shaped substrings. */
-    body: ["```diff", cappedDiffText(input.diff), "```"],
+    body: ["```diff", redactedDiffText(input.diff), "```"],
     targetNoun: "the change",
+    diff: input.diff,
   });
   /* A planned run's change is given by flow under review in the sections that follow (reviewer-change-sections.ts), never cut: no whole diff here. */
   if (reviewsByFlow(input)) {

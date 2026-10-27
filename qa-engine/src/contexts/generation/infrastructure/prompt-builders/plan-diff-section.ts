@@ -8,7 +8,8 @@
  */
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 import { changeFileLine } from "@kernel/change-map.ts";
-import { pieceLocation, type PlanDiff, type PlanDiffPiece, type PlanReferenceWhy } from "../../domain/plan-diff.ts";
+import { WINDOW_FIT_REASON, type SectionDegradation } from "@kernel/prompt-sections.ts";
+import { pieceLocation, planDiff, type PlanDiff, type PlanDiffPiece, type PlanReferenceWhy } from "../../domain/plan-diff.ts";
 import { COMMIT_DIFF_HEADING, diffSectionMode, redactedDiffOf } from "./prompt-text.ts";
 
 const WHY_TEXT: Readonly<Record<PlanReferenceWhy, string>> = {
@@ -115,4 +116,32 @@ export class PlanDiffSection {
       ...(references.length > 0 ? [REFERENCES_INTRO, ...references] : []),
     ];
   }
+}
+
+/* The most steps the window fit rule takes through a diff's ranked pieces: a diff of more pieces gives up several at a step, so a very large one is fitted in a bounded number of renders. */
+const MAX_DIFF_STEPS = 64;
+
+/*
+ * The smaller renders of a commit diff for a prompt over its role's window (`Section.degrade`): the change map of every changed file,
+ * the ranked pieces still shown and every other piece named by `path:start-end`, the lowest-ranked piece first. The first step
+ * already names the app's test files, generated files and low-relevance files instead of showing them. `within` puts the section
+ * back into the text that carries it (the identity when the diff section is the whole text). Planned lazily: a prompt that fits
+ * never parses its diff.
+ */
+export function diffWindowDegrade(diff: string, within: (section: string) => string = (section) => section): (step: number) => SectionDegradation | undefined {
+  let planned: { section: PlanDiffSection; references: number } | undefined;
+  return (step) => {
+    if (!planned) {
+      const plan = planDiff(diff, []);
+      planned = { section: new PlanDiffSection(plan), references: plan.referenceOnly.length };
+    }
+    const { section, references } = planned;
+    /* With nothing set apart by kind, showing every piece beside the change map would only add to the whole diff. */
+    const first = references > 0 ? section.pieces : section.pieces - 1;
+    if (first < 0) return undefined;
+    const perStep = Math.max(1, Math.floor(section.pieces / MAX_DIFF_STEPS));
+    if (step > Math.ceil(first / perStep) + 1) return undefined;
+    const shown = Math.max(0, first - (step - 1) * perStep);
+    return { content: within(section.render(shown)), omissions: [{ class: "truncation", reason: WINDOW_FIT_REASON, count: section.pieces - shown + references }] };
+  };
 }

@@ -14,7 +14,7 @@ import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import type { MilestoneOutcome, StepMilestone } from "@contexts/generation/domain/step-limit.ts";
 import { harnessFactLines, type HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 import type { OpencodeRunInput } from "../../domain/opencode-run-input.ts";
-import { COMMIT_DIFF_HEADING, cappedDiffText, redactForModel } from "./prompt-text.ts";
+import { commitDiffBlock, redactForModel } from "./prompt-text.ts";
 
 /* Facts only: what the harness is configured with, what the suite's shared fixtures export and declare, and what its Playwright config declares. Every value is sanitized; nothing here directs the agent. Absent facts render no section. */
 export function renderHarnessFacts(facts: HarnessFacts, e2eRelDir: string): string {
@@ -184,8 +184,7 @@ export function buildDiffSection(input: OpencodeRunInput): string {
   if (input.target === "code") return "";
   if (input.mode !== "diff") return "";
   if (isReGenTurn(input)) return "";
-  /* Cap BEFORE sanitizing: capDiff splits on diff file-header boundaries and must see the raw structure; sanitizeText only redacts secret-shaped substrings. */
-  return [COMMIT_DIFF_HEADING, "```diff", cappedDiffText(input.diff), "```"].join("\n");
+  return commitDiffBlock(input.diff);
 }
 
 /* At most this many violations reach one prompt; the rest are counted so the agent knows the list is abridged. */

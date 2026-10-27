@@ -28,6 +28,8 @@ export interface SectionDegradation {
   content: string;
   omissions: readonly Omission[];
   itemIds?: readonly string[];
+  /* The claims this render makes besides the section's own (a smaller render can provide a fact the whole one never needed to declare, such as the references that stand for a diff). */
+  claims?: readonly PromptClaim[];
 }
 
 /* What the window fit rule did to one section: the last step it took and the bytes before and after. */
@@ -313,7 +315,8 @@ export function assembleSections(sections: Section[], opts: AssembleOpts = {}): 
     if (r.dropped || !r.content) continue;
     sectionSizes[r.section.id] = Buffer.byteLength(r.content, "utf8");
     sectionHashes[r.section.id] = sha256Hex(redactByValue(r.content));
-    if (r.section.claims?.length) claims[r.section.id] = r.section.claims;
+    const renderClaims = [...(r.section.claims ?? []), ...(r.degradation?.claims ?? [])];
+    if (renderClaims.length) claims[r.section.id] = renderClaims;
     if (inPrefix && band(r.section) === 0) stablePrefixBytes += (parts.length > 0 ? separatorBytes : 0) + sectionSizes[r.section.id]!;
     else inPrefix = false;
     parts.push(r.content);

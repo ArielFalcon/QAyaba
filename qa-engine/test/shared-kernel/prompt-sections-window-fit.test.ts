@@ -71,6 +71,18 @@ test("a prompt that fits its role's window is assembled byte for byte as without
   assert.deepEqual(assembled.windowFit, { outcome: "fits", degraded: [] });
 });
 
+test("a render the window chose adds its claims to the section's own, and a whole render adds none", () => {
+  const own = { kind: "provides", fact: "existing-suite" } as const;
+  const added = { kind: "provides", fact: "diff" } as const;
+  const section = makeSection("diff", "volatile", "x".repeat(400), {
+    claims: [own],
+    degrade: (step) => (step === 1 ? { content: "(references)", omissions: [{ class: "truncation", reason: WINDOW_FIT_REASON, count: 1 }], claims: [added] } : undefined),
+  });
+
+  assert.deepEqual(assembleSections([section]).claims["diff"], [own]);
+  assert.deepEqual(assembleSections([section], { fit: windowOf(50) }).claims["diff"], [own, added]);
+});
+
 test("a prompt still over with every step taken is sent degraded and says it is over", () => {
   const sections = [makeSection("task", "task", "## Task\n" + "t".repeat(500)), pagedSection("pack", ["/a"])];
 

@@ -6,7 +6,7 @@
  */
 import { WINDOW_FIT_REASON, type SectionDegradation } from "@kernel/prompt-sections.ts";
 import type { Omission } from "@kernel/telemetry/section-meta.ts";
-import { domPageCount, referenceDomPages } from "@contexts/generation/domain/pack-pages.ts";
+import { availabilityFactCount, domPageCount, referenceAvailabilityFacts, referenceDomPages } from "./pack-pages.ts";
 
 const windowFit = (count: number, route?: string): Omission => ({ class: "truncation", reason: WINDOW_FIT_REASON, count, ...(route !== undefined ? { route } : {}) });
 
@@ -32,6 +32,28 @@ export function domPagesDegrade(opts: {
       content: opts.wrap(text),
       omissions: [...(opts.omissions ?? []), ...left.map((page) => windowFit(page.lines, page.route))],
       itemIds: (opts.itemIds ?? []).filter((id) => !leftRoutes.some((prefix) => id.startsWith(prefix))),
+    };
+  };
+}
+
+/*
+ * The Context Pack over the window: its Live DOM gives way page by page (the lowest-ranked page first), then its availability
+ * facts, the last-listed fact first, each named by a count. `liveDom` is the heading of the DOM section.
+ */
+export function packDegrade(opts: { pack: string; liveDom: string; itemIds?: readonly string[]; omissions?: readonly Omission[] }): (step: number) => SectionDegradation | undefined {
+  const pages = domPageCount(opts.pack, { section: opts.liveDom });
+  const dom = domPagesDegrade({ dom: opts.pack, wrap: (text) => text, section: opts.liveDom, ...(opts.itemIds ? { itemIds: opts.itemIds } : {}), ...(opts.omissions ? { omissions: opts.omissions } : {}) });
+  const facts = availabilityFactCount(opts.pack);
+  return (step) => {
+    if (step <= pages) return dom(step);
+    const count = step - pages;
+    if (count > facts) return undefined;
+    const base = pages > 0 ? dom(pages) : undefined;
+    const { text, left } = referenceAvailabilityFacts(base?.content ?? opts.pack, count);
+    return {
+      content: text,
+      omissions: [...(base?.omissions ?? opts.omissions ?? []), windowFit(left)],
+      ...((base?.itemIds ?? opts.itemIds) ? { itemIds: base?.itemIds ?? opts.itemIds } : {}),
     };
   };
 }

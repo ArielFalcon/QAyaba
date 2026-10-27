@@ -15,10 +15,11 @@ import type { AgentRole } from "@kernel/agent-role.ts";
 import { renderStepLimit } from "./prompt-text.ts";
 import { reviewObjective, reviewSpecsOutcome, type ReviewSpecContents } from "./review-render.ts";
 import type { PromptSectionDef, SectionRender } from "./prompt-sections.ts";
+import type { SectionDegradation } from "@kernel/prompt-sections.ts";
 import { REVIEWER_CHANGE_SECTIONS } from "./reviewer-change-sections.ts";
-import { countByDirectory, domPagesDegrade, NOT_SHOWN, referenceDegrade, stepsDegrade } from "./window-fit-references.ts";
+import { diffWindowDegrade } from "./plan-diff-section.ts";
+import { countByDirectory, domPagesDegrade, NOT_SHOWN, referenceDegrade, stepsDegrade } from "../../domain/window-fit-references.ts";
 import { availabilityLine } from "../../domain/route-availability-section.ts";
-import { MAX_AVAILABILITY_FACTS_RECORDED } from "@kernel/route-availability.ts";
 
 /* The reviewer's statement of its own cap is a section of its own, apart from the generator's. */
 export const REVIEWER_STEP_LIMIT_SECTION_ID = "reviewer-step-limit";
@@ -196,14 +197,19 @@ function renderMissingCases({ input }: ReviewerContext): SectionRender {
 /* The run's availability facts: where the browser ends on each route the capture could not show at its own address, and why. A finding that a spec claims to cover such a route but never asserts where it ends can cite one. */
 function renderRouteAvailability({ input }: ReviewerContext): SectionRender {
   const facts = input.routeAvailability ?? [];
+  const head = [
+    `## Route availability — classified by the orchestrator from this run's capture`,
+    `A finding about where one of these routes ends may cite "citation":{"kind":"availability","ref":"<route>"} with the route as listed.`,
+  ];
+  /* Over the window: first each route with its class (a citation still names one), then each class with how many routes it holds. */
+  const asRoutes = [...head, `Where each ends and why is ${NOT_SHOWN}; each route with its class:`, ...facts.map((fact) => sanitizeText(`- ${fact.route}: ${fact.basis.class}`, "model").text)].join("\n");
+  const byClass = new Map<string, number>();
+  for (const fact of facts) byClass.set(fact.basis.class, (byClass.get(fact.basis.class) ?? 0) + 1);
+  const asCounts = [...head, `The ${facts.length} route(s) are ${NOT_SHOWN}; by class:`, ...[...byClass].map(([cls, count]) => `- ${cls}: ${count}`)].join("\n");
   return {
-    content: [
-      `## Route availability — classified by the orchestrator from this run's capture`,
-      `A finding about where one of these routes ends may cite "citation":{"kind":"availability","ref":"<route>"} with the route as listed.`,
-      ...facts.slice(0, MAX_AVAILABILITY_FACTS_RECORDED).map((fact) => sanitizeText(availabilityLine(fact), "model").text),
-    ].join("\n"),
-    maxBytes: 4_000,
+    content: [...head, ...facts.map((fact) => sanitizeText(availabilityLine(fact), "model").text)].join("\n"),
     overflow: "summarize",
+    degrade: stepsDegrade([{ content: asRoutes, items: facts.length }, { content: asCounts, items: facts.length }]),
   };
 }
 
@@ -242,6 +248,11 @@ function renderSpecChange(ctx: ReviewerContext): SectionRender {
   return { content, degrade: referenceDegrade([...head, `The change (${lines} line(s)) is ${NOT_SHOWN}: judge it from the specs under review.`].join("\n"), lines) };
 }
 
+const referencesTheDiff = (degrade: (step: number) => SectionDegradation | undefined) => (step: number): SectionDegradation | undefined => {
+  const next = degrade(step);
+  return next === undefined ? undefined : { ...next, claims: [claim.provides("diff")] };
+};
+
 export const REVIEWER_SECTIONS: readonly PromptSectionDef<ReviewerContext>[] = [
   { id: "reviewer-role-framing", tier: "stable-prefix", priority: 1, stability: "static", reason: "Reviewer independence: it judges the tests on their own merit, without the generator's reasoning (bd29f624)", applies: () => true, render: renderRoleFraming },
   { id: "reviewer-instructions", tier: "stable-prefix", priority: 2, stability: "static", reason: "Keeps the reviewer in its lane: no UI fact from memory, no rejection over the existing suite (875a6004, 8fea750c)", applies: () => true, render: renderInstructions },
@@ -252,7 +263,8 @@ export const REVIEWER_SECTIONS: readonly PromptSectionDef<ReviewerContext>[] = [
     tier: "semi-stable",
     priority: 1, stability: "run", reason: "What the tests must prove in this run: the change, the guidance or the targeted flow",
     applies: () => true,
-    render: ({ obj }) => ({ content: [obj.heading, ...obj.body].join("\n"), language: "verbatim", overflow: "summarize" }),
+    /* The commit diff is whole; over the window its hunks give way as `path:start-end` references, and the references say where the diff is (a claim only that render needs). */
+    render: ({ obj }) => ({ content: [obj.heading, ...obj.body].join("\n"), language: "verbatim", overflow: "summarize", ...(obj.diff !== undefined ? { degrade: referencesTheDiff(diffWindowDegrade(obj.diff)) } : {}) }),
   },
   /* A planned run's change by flow under review, in place of the whole diff the objective carries otherwise. */
   ...REVIEWER_CHANGE_SECTIONS,

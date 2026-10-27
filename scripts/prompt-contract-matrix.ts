@@ -795,8 +795,8 @@ export async function matrixDigests(): Promise<DigestSet> {
 const REVIEW_MODES = ["diff", "complete", "exhaustive", "manual"] as const;
 const REVIEW_TARGETS = ["e2e", "code"] as const;
 
-/* A reviewer input whose spec contents together exceed the inline cap, written under `mirror`. */
-export function overCapReviewerInput(mirror: string): ReviewInput {
+/* A reviewer input whose spec contents are large (two specs of about 25 KB), written under `mirror`. */
+export function largeSpecsReviewerInput(mirror: string): ReviewInput {
   mkdirSync(join(mirror, "e2e", "flows"), { recursive: true });
   const specs = ["big-a.spec.ts", "big-b.spec.ts"].map((name) => `flows/${name}`);
   for (const spec of specs) writeFileSync(join(mirror, "e2e", spec), `import { test } from './fixtures';\n${"// padding line to grow the spec\n".repeat(700)}test('big', async () => {});\n`);
@@ -847,9 +847,11 @@ export function reviewerDigests(): DigestSet {
         set.digests.push(assemblyDigest(buildReviewerPromptAssembled(input, MATRIX_REVIEWER_WINDOW)));
       }
     }
-    /* The specs together exceed the inline cap: the instruction and the specs section both send the reviewer to read the files. */
-    set.keys.push("reviewer|over-cap");
-    set.digests.push(assemblyDigest(buildReviewerPromptAssembled(overCapReviewerInput(mirror), MATRIX_REVIEWER_WINDOW)));
+    /* Large specs: inlined whole while the window holds them; over the window the instruction and the specs section both send the reviewer to read the files. */
+    set.keys.push("reviewer|large-specs");
+    set.digests.push(assemblyDigest(buildReviewerPromptAssembled(largeSpecsReviewerInput(mirror), MATRIX_REVIEWER_WINDOW)));
+    set.keys.push("reviewer|large-specs|over-window");
+    set.digests.push(assemblyDigest(buildReviewerPromptAssembled(largeSpecsReviewerInput(mirror), { ...MATRIX_REVIEWER_WINDOW, fit: () => "over" })));
     /* A planned run: the change by flow under review instead of the whole diff, every part shown, then every part referenced (a window it does not fit). */
     const planned = plannedReviewerInput(mirror);
     set.keys.push("reviewer|planned");

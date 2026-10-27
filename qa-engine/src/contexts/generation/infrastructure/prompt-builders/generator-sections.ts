@@ -18,7 +18,7 @@ import {
 import { STEP_MILESTONE_SECTION_ID } from "@contexts/generation/domain/step-limit.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import type { PromptContext } from "./generator-context.ts";
-import { domPagesDegrade, NOT_SHOWN, referenceDegrade } from "./window-fit-references.ts";
+import { NOT_SHOWN, packDegrade, referenceDegrade } from "../../domain/window-fit-references.ts";
 import { WINDOW_FIT_REASON } from "@kernel/prompt-sections.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import {
@@ -40,6 +40,8 @@ import {
 } from "./generator-renderers.ts";
 import { CODE_TOOLS, renderStepLimit } from "./prompt-text.ts";
 import { buildTask } from "./task-builders.ts";
+import { diffWindowDegrade } from "./plan-diff-section.ts";
+import { commitDiffBlock } from "./prompt-text.ts";
 import type { PromptSectionDef, SectionRender } from "./prompt-sections.ts";
 
 /* What the working rules call the API contracts a Context Pack holds, when it holds them. */
@@ -270,7 +272,7 @@ function renderAppLogin(ctx: PromptContext): SectionRender {
   return { content: appLoginContent, shedAs: "critical-recap" };
 }
 
-/* The pack whole; over the window its Live DOM gives way page by page, the lowest-ranked page first, each named by its route. */
+/* The pack whole; over the window its Live DOM gives way page by page, the lowest-ranked page first, each named by its route, then its availability facts, the last-ranked first, counted. */
 function renderContextPack(ctx: PromptContext): SectionRender {
   const { input, contextPackContent, contextPackClaims } = ctx;
   return {
@@ -279,10 +281,9 @@ function renderContextPack(ctx: PromptContext): SectionRender {
     claims: contextPackClaims,
     ...(input.contextPackItemIds ? { itemIds: input.contextPackItemIds } : {}),
     ...(input.contextPackOmissions ? { omissions: input.contextPackOmissions } : {}),
-    degrade: domPagesDegrade({
-      dom: contextPackContent,
-      wrap: (pack) => pack,
-      section: PACK_HEADINGS.liveDom,
+    degrade: packDegrade({
+      pack: contextPackContent,
+      liveDom: PACK_HEADINGS.liveDom,
       ...(input.contextPackItemIds ? { itemIds: input.contextPackItemIds } : {}),
       ...(input.contextPackOmissions ? { omissions: input.contextPackOmissions } : {}),
     }),
@@ -548,7 +549,10 @@ function renderContractFeedback(ctx: PromptContext): SectionRender {
 function renderTask(ctx: PromptContext): SectionRender {
   const { input, mapInjected, blastRadiusGrounded, assembly } = ctx;
   const task = buildTask(input, { mapInjected, blastRadiusGrounded, suiteListed: assembly.suiteListed, reaskObjective: assembly.reaskObjective });
-  return { content: task.text, claims: task.claims };
+  /* The task carries the commit diff only on a code run's diff turn: whole, and over the window its hunks give way as references inside the task's own text. */
+  const whole = task.diff !== undefined ? commitDiffBlock(task.diff) : undefined;
+  const degrade = task.diff !== undefined && whole !== undefined ? diffWindowDegrade(task.diff, (section) => task.text.replace(whole, () => section)) : undefined;
+  return { content: task.text, claims: task.claims, ...(degrade ? { degrade } : {}) };
 }
 
 /* Every definition appears in the order the prompt lists its sections. A definition whose `applies` is false leaves nothing in the assembled prompt. */
@@ -654,7 +658,8 @@ export const GENERATOR_SECTIONS: readonly PromptSectionDef<PromptContext>[] = [
     tier: "task",
     priority: 2, stability: "run", reason: "The commit diff a diff run's first pass tests, relevance-ordered (178a8ea2)",
     applies: (ctx) => ctx.isGenerationMode && ctx.input.target !== "code" && ctx.input.mode === "diff" && !ctx.isReGen,
-    render: (ctx) => ({ content: ctx.planDiff ? ctx.planDiff.render(ctx.planDiffShown) : buildDiffSection(ctx.input), shedAs: "semi-stable", claims: [claim.provides("diff")] }),
+    /* The lead's planning diff is fitted to its window by the builder (planDiffShown); the author's is whole, and over the window gives hunks up as references. */
+    render: (ctx) => ({ content: ctx.planDiff ? ctx.planDiff.render(ctx.planDiffShown) : buildDiffSection(ctx.input), shedAs: "semi-stable", claims: [claim.provides("diff")], ...(ctx.planDiff ? {} : { degrade: diffWindowDegrade(ctx.input.diff) }) }),
   },
   /* The cap the runtime enforces for this turn, when the host resolved one: a fact of its own, then, on a turn that writes tests, the step by which it should have written something. Both close the prompt. */
   {

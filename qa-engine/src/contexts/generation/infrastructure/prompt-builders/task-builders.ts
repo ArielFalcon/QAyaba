@@ -7,7 +7,7 @@ import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import { claim, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { isTestWritingTurn } from "@contexts/generation/domain/step-limit.ts";
 import type { OpencodeRunInput } from "../../domain/opencode-run-input.ts";
-import { CODE_TOOLS, COMMIT_DIFF_HEADING, cappedDiffText, renderCommitMessage } from "./prompt-text.ts";
+import { CODE_TOOLS, commitDiffBlock, renderCommitMessage } from "./prompt-text.ts";
 
 /* What a turn that writes tests says about the outcome its tests assert. The question is asked where the turn has no supplied, undisputed objective to go by; the rule against weakening a test is stated on every turn that writes tests, whether or not the question is asked, and by no other section. */
 export const OBJECTIVE_HEADING = `## Objective — commit to this BEFORE writing`;
@@ -101,6 +101,8 @@ export function buildContextTask(input: OpencodeRunInput): string {
 export interface TaskParts {
   text: string;
   claims: PromptClaim[];
+  /* The commit diff the text carries as its diff block (commitDiffBlock), when it carries one: what the window fit rule gives up first. */
+  diff?: string;
 }
 
 /* The changed-files line every diff-shaped task carries. */
@@ -191,17 +193,14 @@ function buildCodeTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
     `Cross-check against the diff: if the code does more than the message claims, test what the code`,
     `actually changes, not just what the message promises.`,
     ``,
-    COMMIT_DIFF_HEADING,
-    "```diff",
-    cappedDiffText(input.diff),
-    "```",
+    commitDiffBlock(input.diff),
     ``,
     `Test the changed logic DIRECTLY (no web, no browser, no Playwright): call the changed functions/`,
     `modules and assert behavior + edge cases. Match the repo's existing test framework and conventions.`,
     ``,
     objective.text,
   ].join("\n");
-  return { text, claims: [claim.provides("diff"), claim.directs("consult", "diff"), ...objective.claims] };
+  return { text, claims: [claim.provides("diff"), claim.directs("consult", "diff"), ...objective.claims], diff: input.diff };
 }
 
 /* A cross-repo change is read from the service's staged snapshot, never from its working copy: the block that says so declares the fact. */
