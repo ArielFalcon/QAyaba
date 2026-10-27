@@ -45,6 +45,8 @@ export const ARTIFACT_REFERENCES: readonly ArtifactReference[] = [
   { artifact: "existing-suite", pattern: new RegExp(`\\bsuite (?:listed|listing)\\b|${escape(PROMPT_HEADINGS.existingSuiteManifest)}`, "i"), provider: { facts: ["existing-suite"] } },
   { artifact: "learned-rules", pattern: /\b(?:learned|proven|experimental) rules\b/i, provider: { facts: ["learned-rules"] } },
   { artifact: "exemplars", pattern: /\btest templates\b|\bexemplars?\b/i, provider: { facts: ["exemplars"] } },
+  /* The reviewer's instruction that the spec contents are in the prompt: true only while the specs section inlines them. */
+  { artifact: "spec-contents", pattern: /\bspec contents are provided in this prompt\b/i, provider: { facts: ["spec-contents-inline"] } },
   /* The block a structural signal of co-change files alone renders under its own title. */
   { artifact: "co-change", pattern: new RegExp(escape(PROMPT_HEADINGS.coChangeFiles), "i"), provider: { facts: ["co-change"] } },
 ];

@@ -43,7 +43,19 @@ export function reviewObjective(input: ReviewInput): { subject: string; heading:
 
 const REVIEW_SPECS_MAX_BYTES = 40_000;
 
+/* Whether the specs section carries the spec contents (`inline`) or only their names, to be read from the working copy (`read`). Computed once per prompt: the instruction line and the section both render from it. */
+export type ReviewSpecContents = "inline" | "read";
+
+export interface ReviewSpecsOutcome {
+  readonly text: string;
+  readonly contents: ReviewSpecContents;
+}
+
 export function renderReviewSpecs(input: ReviewInput): string {
+  return reviewSpecsOutcome(input).text;
+}
+
+export function reviewSpecsOutcome(input: ReviewInput): ReviewSpecsOutcome {
   const rel = (s: string) => (input.e2eRelDir ? `${input.e2eRelDir}/${s}` : s);
   /* The specs are the names the generator reported: each is read through the confined reader, so one that leaves the spec directory is judged from the placeholder below, never from what it points at. */
   const root: SpecRoot = { mirrorDir: input.mirrorDir, specDir: join(input.mirrorDir, input.e2eRelDir) };
@@ -66,11 +78,14 @@ export function renderReviewSpecs(input: ReviewInput): string {
         `[qa] WARNING: the combined contents of ${input.specs.length} spec(s) exceed the ${REVIEW_SPECS_MAX_BYTES}-byte inline cap — ` +
           `the reviewer will read files itself instead of judging inlined contents (weaker determinism).`,
       );
-      return `## Specs to review\n\n${input.specs.map((n, i) => `${i + 1}. ${rel(n)}`).join("\n")}\n\n( spec contents exceed ${REVIEW_SPECS_MAX_BYTES} bytes — read each file with the read tool )`;
+      return {
+        contents: "read",
+        text: `## Specs to review\n\n${input.specs.map((n, i) => `${i + 1}. ${rel(n)}`).join("\n")}\n\n( spec contents exceed ${REVIEW_SPECS_MAX_BYTES} bytes — read each file with the read tool )`,
+      };
     }
     contents.push(block);
   }
-  return `## Specs to review (${contents.length} file(s) — contents provided inline)\n\n${contents.join("\n\n")}`;
+  return { contents: "inline", text: `## Specs to review (${contents.length} file(s) — contents provided inline)\n\n${contents.join("\n\n")}` };
 }
 
 /** Renders a deterministic RUNTIME EXECUTION RESULT section from the orchestrator's evidence (HTTP status codes and final URLs captured during test execution). This is evidence the reviewer can use to distinguish an app defect (5xx) from a test defect — captured by the orchestrator, not inferred from the generator's reasoning, so reviewer independence is preserved. Output is bounded at 4000 chars total; per-case detail is capped at 500 chars. finalUrl is sanitized via sanitizeText before being included in the prompt (prevents secrets in redirect URLs from leaking to the reviewer model). */

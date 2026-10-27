@@ -13,6 +13,7 @@ import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import { renderLearnedRulesForReviewer } from "@contexts/cross-run-learning/application/index.ts";
 import { promptFactsOpts } from "@contexts/generation/application/index.ts";
 import { renderExecutionResult, type ExecutionResultCase } from "@contexts/generation/infrastructure/prompt-builders/review-render.ts";
+import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import { rethrowIfRunDeadline } from "@kernel/run-deadline.ts";
 import { openSidekickSession, REVIEW_SIDEKICK } from "@kernel/sidekick-session.ts";
 
@@ -68,8 +69,8 @@ export class ReviewPortAdapter implements ReviewPort {
   }> {
     const { runtime, rendering, verdicts } = this.deps;
 
-    /* Specs under review = case file/name; cases are the only per-spec identity at this seam. */
-    const specs = cases.map((c) => c.file ?? c.name);
+    /* Specs under review = case file/name, one entry per spec file (many cases run in one file); cases are the only per-spec identity at this seam. */
+    const specs = [...new Set(cases.map((c) => normalizeSpecPath(c.file ?? c.name) || (c.file ?? c.name)))];
     const stepLimit = await this.collaborators.stepLimitFor?.("reviewer");
 
     const reviewInput: ReviewInput = {

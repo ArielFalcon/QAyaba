@@ -1,7 +1,7 @@
 /* The sections of a reviewer prompt, in prompt order, and the context they render from. The reviewer is independent of the generator: it sees the diff, the specs and the orchestrator's evidence, never the generator's reasoning. Never import src/. */
 
 import { sanitizeText } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
-import { claim, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { claim, SPEC_CONTENTS_INLINE_FACT, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import {
   REVIEWER_PROMPT_VERSION,
   REVIEW_CORRECTIONS_MAX,
@@ -11,7 +11,7 @@ import {
 import type { ReviewInput } from "../../domain/generation-input.ts";
 import { roleWindowBytes } from "./model-window-catalog.ts";
 import { renderStepLimit } from "./prompt-text.ts";
-import { renderReviewSpecs, reviewObjective } from "./review-render.ts";
+import { reviewObjective, reviewSpecsOutcome, type ReviewSpecContents } from "./review-render.ts";
 import type { PromptSectionDef, SectionRender } from "./prompt-sections.ts";
 
 /* The reviewer's statement of its own cap is a section of its own, apart from the generator's. */
@@ -24,16 +24,18 @@ export interface ReviewerContext {
   readonly budgetBytes: number;
   readonly changeType: string;
   readonly specBlock: string;
+  /* The one outcome of whether the specs section holds the spec contents; the instructions and the section both render from it. */
+  readonly specContents: ReviewSpecContents;
   readonly kind: string;
   readonly obj: ReturnType<typeof reviewObjective>;
 }
 
 export function deriveReviewerContext(input: ReviewInput): ReviewerContext {
   const changeType = input.intent?.type ?? input.mode;
-  const specBlock = renderReviewSpecs(input);
+  const { text: specBlock, contents: specContents } = reviewSpecsOutcome(input);
   const kind = input.target === "code" ? "tests" : "E2E tests";
   const obj = reviewObjective(input);
-  return { input, budgetBytes: roleWindowBytes("qa-reviewer"), changeType, specBlock, kind, obj };
+  return { input, budgetBytes: roleWindowBytes("qa-reviewer"), changeType, specBlock, specContents, kind, obj };
 }
 
 function renderRoleFraming(ctx: ReviewerContext): SectionRender {
@@ -54,13 +56,16 @@ function renderRoleFraming(ctx: ReviewerContext): SectionRender {
 }
 
 function renderInstructions(ctx: ReviewerContext): SectionRender {
-  const { input, obj } = ctx;
+  const { input, obj, specContents } = ctx;
+  const specsInstruction = specContents === "inline"
+    ? `1. The spec contents are provided in this prompt — no need to read files.`
+    : `1. The spec contents are not in this prompt — read each listed spec file with the read tool.`;
   const rulesInstruction = input.learnedRules
     ? [`7. Also REJECT if any spec violates an app-specific reject-on-sight rule provided in this prompt.`]
     : [];
   const instructionsContent = [
     `## Instructions`,
-    `1. The spec contents are provided in this prompt — no need to read files.`,
+    specsInstruction,
     `2. Apply the test-value-review skill from BOTH perspectives (value + robustness).`,
     `3. Answer: could ${obj.targetNoun} be BROKEN and these tests STILL be green?`,
     `4. Be strict — a single anti-pattern in any spec means rejection.`,
@@ -74,6 +79,7 @@ function renderInstructions(ctx: ReviewerContext): SectionRender {
       + ` context only: never reject a spec because an existing suite file does not cover this change.`,
     ...rulesInstruction,
   ].join("\n");
+  /* The instruction refers to the spec contents only while the specs section provides them (R13: `spec-contents-inline`). */
   return { content: instructionsContent, cacheable: true };
 }
 
@@ -214,7 +220,7 @@ export const REVIEWER_SECTIONS: readonly PromptSectionDef<ReviewerContext>[] = [
   { id: "reviewer-dom", tier: "volatile", priority: 1, applies: ({ input }) => Boolean(input.domSnapshot), render: renderDom },
   /* VOLATILE: runtime execution evidence. Deterministic orchestrator evidence (HTTP status codes + final URLs captured via page.on('response')) injected BEFORE the spec contents so the reviewer can weigh the objective server-error signal before reading test code. Priority 1.5 — after DOM grounding (which grounds UI facts) but before specs themselves. Absent when the run produced no execution evidence (first-time generate, code mode, etc.). */
   { id: "reviewer-execution-result", tier: "volatile", priority: 1.5, applies: ({ input }) => Boolean(input.executionResult), render: ({ input }) => ({ content: input.executionResult ?? "" }) },
-  { id: "reviewer-specs", tier: "volatile", priority: 2, applies: () => true, render: ({ specBlock }) => ({ content: specBlock, maxBytes: 44_000, overflow: "summarize" }) },
+  { id: "reviewer-specs", tier: "volatile", priority: 2, applies: () => true, render: ({ specBlock, specContents }) => ({ content: specBlock, maxBytes: 44_000, overflow: "summarize", ...(specContents === "inline" ? { claims: [claim.provides(SPEC_CONTENTS_INLINE_FACT)] } : {}) }) },
   { id: "reviewer-existing-suite", tier: "volatile", priority: 3, applies: ({ input }) => Boolean(input.existingSpecFiles?.length), render: renderExistingSuite },
   {
     id: "reviewer-learned-rules",

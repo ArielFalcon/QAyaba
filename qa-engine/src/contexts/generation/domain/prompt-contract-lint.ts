@@ -38,7 +38,9 @@ export type FactId =
   | "staged-service-snapshot"
   /* The reviewer's reply is one bare JSON object, and an empty corrections list beside an approval is a complete answer. */
   | "bare-json-reply"
-  | "empty-corrections-valid";
+  | "empty-corrections-valid"
+  /* The reviewer's specs section holds the spec contents themselves, not only the names of the files. */
+  | "spec-contents-inline";
 
 export type ClaimAction =
   | "read"
@@ -130,6 +132,7 @@ export const STEP_LIMIT_SECTION_ID = "step-limit" satisfies FactId;
 export const CLOSED_LOOP_SECTION_ID = "closed-loop" satisfies FactId;
 export const AGENT_BROWSER_SECTION_ID = "agent-browser" satisfies FactId;
 export const GEOLOCATION_SECTION_ID = "geolocation" satisfies FactId;
+export const SPEC_CONTENTS_INLINE_FACT = "spec-contents-inline" satisfies FactId;
 export const LEAD_PLAN_SECTION_ID = "lead-plan" satisfies FactId;
 
 /* Facts that exactly one section may provide: a second copy is a duplicated source of truth. */

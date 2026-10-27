@@ -775,6 +775,14 @@ export async function matrixDigests(): Promise<DigestSet> {
 const REVIEW_MODES = ["diff", "complete", "exhaustive", "manual"] as const;
 const REVIEW_TARGETS = ["e2e", "code"] as const;
 
+/* A reviewer input whose spec contents together exceed the inline cap, written under `mirror`. */
+export function overCapReviewerInput(mirror: string): ReviewInput {
+  mkdirSync(join(mirror, "e2e", "flows"), { recursive: true });
+  const specs = ["big-a.spec.ts", "big-b.spec.ts"].map((name) => `flows/${name}`);
+  for (const spec of specs) writeFileSync(join(mirror, "e2e", spec), `import { test } from './fixtures';\n${"// padding line to grow the spec\n".repeat(700)}test('big', async () => {});\n`);
+  return { diff: "diff --git a/src/cart.ts b/src/cart.ts\n+export const total = 1;\n", specs, mirrorDir: mirror, e2eRelDir: "e2e", appName: "shop", mode: "diff", target: "e2e", baseUrl: "http://localhost:3000" };
+}
+
 /* The reviewer prompts over every mode, target and combination of its six optional inputs; the step limit alternates. */
 export function reviewerDigests(): DigestSet {
   const mirror = mkdtempSync(join(tmpdir(), "prompt-digests-"));
@@ -809,6 +817,9 @@ export function reviewerDigests(): DigestSet {
         set.digests.push(assemblyDigest(buildReviewerPromptAssembled(input)));
       }
     }
+    /* The specs together exceed the inline cap: the instruction and the specs section both send the reviewer to read the files. */
+    set.keys.push("reviewer|over-cap");
+    set.digests.push(assemblyDigest(buildReviewerPromptAssembled(overCapReviewerInput(mirror))));
     return set;
   } finally {
     rmSync(mirror, { recursive: true, force: true });
