@@ -69,7 +69,9 @@ signed-in app (see below); without either, no sidekick can author and the run en
    flow covers a candidate when it cites its id (`candidates`) or visits one of its pages, and the lead may drop one with a
    typed basis and a reason (`dropped`; `DROP_BASIS`: `no-observable-change`, `already-covered`, `needs-unavailable-state`). The orchestrator holds the basis
    to the facts it has (`dropRefusal`, `plan-coverage.ts`): `no-observable-change` is refused when a seed of the candidate is
-   executable code of a declared language (`LanguageRegistry`, a test file excluded), `already-covered` when no spec of the suite
+   executable code of a declared language (`LanguageRegistry`, a test file excluded) or when the candidate's pages made data requests
+   while the run's capture read them (the Context Pack's `Requests the pages made` section, read back by `recordedRequestsFor`; the
+   refusal names the first three), `already-covered` when no spec of the suite
    is linked to the candidate; a drop with no basis of the set, or a refused one, leaves the candidate unresolved and goes back
    to the lead in the one amendment turn with the fact that contradicts it. The fact is a signal, not proof (a refactor, a
    type-only or a comment edit changes code and nothing a browser observes), so it applies to every no-op shape (`{"kind":"noop"}`, which
@@ -93,7 +95,8 @@ signed-in app (see below); without either, no sidekick can author and the run en
    browser ends, and a drop of it as `no-observable-change` or `needs-unavailable-state` is refused, since the run observed
    the changed behaviour with its own client (`dropRefusal`).
 3. **Author.** Each sidekick's brief carries the Live DOM of its flow's pages (by address, or by the map template a
-   page was opened from), cut from the run's Context Pack and bounded; a flow whose pages the pack did not read gets
+   page was opened from) and the data requests those pages made while they were captured, cut from the run's Context Pack
+   (`packPagesFor`); over the author's window the pages give way first, then those requests, last fact first, as a count; a flow whose pages the pack did not read gets
    none. The brief states the change the flow must exercise in one section, cut from the run's change map
    (`brief-change.ts`, over the kernel's `buildChangeMap` and `sliceFor`): every use case the flow must exercise (those its
    plan cites, then those its routes name), each with its id, its reach path, its changed symbols with their ranges and

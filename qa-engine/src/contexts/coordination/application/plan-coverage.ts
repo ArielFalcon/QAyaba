@@ -50,19 +50,37 @@ export interface PlanCoverage {
 /* Whether a changed file is executable code of a declared language (a test file, a style sheet or a template is not). */
 const isCodeFile = (file: string): boolean => LanguageRegistry.languageForFile(file) !== null && !LanguageRegistry.isTestFile(file);
 
+/* The facts besides the candidate's own that a drop is held to. */
+export interface PlanFacts {
+  /* The data requests the run's capture recorded while it read the candidate's pages, each as the Context Pack states it (method, origin and path, with a count); none when it recorded none. */
+  recordedRequests?(candidate: UseCaseCandidate): readonly string[];
+}
+
+/* The most recorded requests a refusal names; it counts the rest. */
+const MAX_NAMED_REQUESTS = 3;
+
+/* The fact that a candidate's pages made requests while the run's capture read them: a page that asks the network for something is not one whose behaviour a browser cannot observe. */
+function requestsFact(recorded: readonly string[]): string {
+  const named = recorded.slice(0, MAX_NAMED_REQUESTS).join(", ");
+  const more = recorded.length - MAX_NAMED_REQUESTS;
+  return `its pages made ${recorded.length} request(s) while the run's capture read them (${named}${more > 0 ? `, and ${more} more` : ""}; the Context Pack lists them), which a browser observes`;
+}
+
 /*
  * Why the facts the orchestrator holds contradict a drop's basis, or undefined when they do not. `no-observable-change` is refused
- * when a seed of the candidate, or a shared seed (changed code a hub carries to its page), is executable code; `already-covered` when no spec of the suite is linked to the candidate;
+ * when a seed of the candidate, or a shared seed (changed code a hub carries to its page), is executable code, or when the candidate's
+ * pages made requests while the run's capture read them (`recorded`); `already-covered` when no spec of the suite is linked to the candidate;
  * `needs-unavailable-state` names a state the orchestrator cannot see, so it stands.
  */
-export function dropRefusal(candidate: UseCaseCandidate, basis: PlanDrop["basis"]): string | undefined {
+export function dropRefusal(candidate: UseCaseCandidate, basis: PlanDrop["basis"], recorded: readonly string[] = []): string | undefined {
   /* A route the change governs that the run's own capture saw sent away: its changed behaviour was observed with the run's client, and it needs no state the run lacks. */
   if (candidate.basis === "route-config" && (basis === DROP_BASIS.NO_OBSERVABLE_CHANGE || basis === DROP_BASIS.NEEDS_UNAVAILABLE_STATE)) {
     return `the run observed this route's changed behaviour with its own client (${candidate.evidence[0] ?? "the change governs where it sends the browser"})`;
   }
   if (basis === DROP_BASIS.NO_OBSERVABLE_CHANGE) {
     const code = [...new Set([...candidate.seeds, ...(candidate.sharedSeeds ?? [])].map((seed) => seed.file).filter(isCodeFile))];
-    return code.length > 0 ? `its changed code is executable (${code.slice(0, 3).join(", ")}), which a browser can observe` : undefined;
+    const facts = [...(code.length > 0 ? [`its changed code is executable (${code.slice(0, 3).join(", ")}), which a browser can observe`] : []), ...(recorded.length > 0 ? [requestsFact(recorded)] : [])];
+    return facts.length > 0 ? facts.join("; ") : undefined;
   }
   if (basis === DROP_BASIS.ALREADY_COVERED) return candidate.existingSpecs.length === 0 ? "no spec of the suite is linked to it" : undefined;
   return undefined;
@@ -99,7 +117,7 @@ export function flowCovers(flow: PlannedFlow, candidate: UseCaseCandidate): bool
   return flow.candidates.includes(candidate.id) || candidatePagesOf(candidate).some((page) => flow.routes.some((route) => namesTemplatePage(page, route)));
 }
 
-export function planCoverage(plan: { flows: readonly PlannedFlow[]; dropped: readonly PlanDrop[] }, admission: readonly UseCaseCandidate[]): PlanCoverage {
+export function planCoverage(plan: { flows: readonly PlannedFlow[]; dropped: readonly PlanDrop[] }, admission: readonly UseCaseCandidate[], facts: PlanFacts = {}): PlanCoverage {
   const coverage: PlanCoverage = { covered: [], dropped: [], unresolved: [] };
   const refused: NonNullable<PlanCoverage["refused"]> = [];
   for (const candidate of admission) {
@@ -108,7 +126,7 @@ export function planCoverage(plan: { flows: readonly PlannedFlow[]; dropped: rea
       continue;
     }
     const drop = plan.dropped.find((d) => d.candidate === candidate.id && d.reason !== "");
-    const why = drop ? dropRefusal(candidate, drop.basis) : undefined;
+    const why = drop ? dropRefusal(candidate, drop.basis, facts.recordedRequests?.(candidate)) : undefined;
     if (drop && why === undefined) coverage.dropped.push({ candidate, reason: `${drop.basis}: ${drop.reason}` });
     else {
       coverage.unresolved.push(candidate);

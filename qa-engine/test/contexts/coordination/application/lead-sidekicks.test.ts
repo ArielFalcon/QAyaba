@@ -1926,6 +1926,26 @@ test("a plan whose drops stay contradicted after the one more asking is the lead
   assert.equal(allowed.replans.length, 0);
 });
 
+test("a drop of a use case whose pages made requests while the run captured them is refused with the request named, and the lead's persistence is honored and recorded", async () => {
+  const requested = "GET https://maps.example/styles/v1/owner/theme-a";
+  const pack = [`### ${PACK_HEADINGS.liveDom}`, "route /cart:", "  heading: Cart", "", `### ${PACK_HEADINGS.requests} (data requests)`, `- /cart: ${requested}`].join("\n");
+  const style = seededPage("/cart", "src/cart.css");
+
+  const stubborn = leadCiting([ACCEPT_ALL], DROP_EVERYTHING, { plan: DROP_EVERYTHING });
+  const r = rig();
+  const kept = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: stubborn.plan, closedLoop: undefined, candidates: [style], contextPack: pack }));
+  assert.equal(kept.action, "noop");
+  assert.equal(stubborn.replans.length, 1, "the lead was asked once more");
+  assert.ok(stubborn.replans[0]!.includes(requested), "the lead is shown the request that contradicts its drop");
+  assert.ok(kept.signal.dropsContradicted?.[0]?.why.includes(requested), "the contradiction on the record names it");
+
+  const quiet = rig();
+  const unasked = leadCiting([ACCEPT_ALL], DROP_EVERYTHING);
+  const noop = await new LeadSidekicks(quiet.deps).coordinate(input(quiet, { plan: unasked.plan, closedLoop: undefined, candidates: [style], contextPack: `### ${PACK_HEADINGS.liveDom}\nroute /cart:\n  heading: Cart` }));
+  assert.equal(noop.action, "noop");
+  assert.equal(unasked.replans.length, 0, "a pack that recorded no request on its pages holds the drop to nothing more");
+});
+
 test("the explicit no-op shape is held to the same facts: asked once with the fact, then honored and recorded", async () => {
   const asked: string[] = [];
   const plan: CoordinateInput["plan"] = async () => ({
