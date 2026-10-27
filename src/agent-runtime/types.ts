@@ -16,7 +16,18 @@ export interface AgentRuntimeConfig {
     reviewer: RoleAssignment;
     chat: RoleAssignment;
   };
+  /*
+   * The tiers whose model is the tier's default, not a choice an operator made. A role on such a tier runs on the model its
+   * own agent declares (`modelForRole`); a tier not listed here was chosen and applies to all its roles. Absent: every tier was chosen.
+   */
+  defaulted?: readonly AssignmentTier[];
 }
+
+/* The three model tiers an operator configures; each runs one or more roles. */
+export type AssignmentTier = "primary" | "reviewer" | "chat";
+
+/* The model `agents/opencode.json` declares for an agent name; absent when it declares none. */
+export type DeclaredModels = (agent: string) => string | undefined;
 
 export type AgentRuntimeStatus = "stopped" | "starting" | "healthy" | "degraded" | "failed" | "needs_config";
 
@@ -123,11 +134,27 @@ export function roleForAgentName(agent: string): AgentRole {
   return role;
 }
 
-export function assignmentForRole(config: AgentRuntimeConfig, role: AgentRole): RoleAssignment {
-  if (role === "reviewer") return config.assignments.reviewer;
-  if (role === "chat") return config.assignments.chat;
+export function tierForRole(role: AgentRole): AssignmentTier {
+  if (role === "reviewer") return "reviewer";
+  if (role === "chat") return "chat";
   /* Reflector is a cheap read-only transform: it rides the chat tier, not the primary author. */
-  if (role === "reflector") return config.assignments.chat;
+  if (role === "reflector") return "chat";
   /* The roles that plan, explore, author and maintain run on the `primary` assignment: the tier the operator configures for the agents that do the run's work. */
-  return config.assignments.primary;
+  return "primary";
+}
+
+export function assignmentForRole(config: AgentRuntimeConfig, role: AgentRole): RoleAssignment {
+  return config.assignments[tierForRole(role)];
+}
+
+/*
+ * The one resolution of the model a role runs on, for the session it opens, for the context window it is sized by and for
+ * the reviewer's independence: the operator's tier model when the operator chose one, else the model the role's own agent
+ * declares in agents/opencode.json, else the tier's default. A model a caller asks for on a session wins over all of these
+ * and is applied by the caller.
+ */
+export function modelForRole(config: AgentRuntimeConfig, role: AgentRole, declared: DeclaredModels): string {
+  const assignment = assignmentForRole(config, role);
+  if (!config.defaulted?.includes(tierForRole(role))) return assignment.model;
+  return declared(AGENT_NAME_FOR_ROLE[role]) ?? assignment.model;
 }

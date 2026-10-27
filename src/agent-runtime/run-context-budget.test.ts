@@ -51,3 +51,19 @@ test("installing again replaces the run's windows: a run never keeps what it rea
 
   assert.equal(run.windowTokens("author"), undefined);
 });
+
+test("the window of a role on a defaulted tier is the one of the model its agent declares", () => {
+  const declared = (agent: string): string | undefined => (agent === "qa-lead" ? "p/declared-lead" : undefined);
+  const run = new RunContextBudget(declared);
+  run.install({ windows: { "p/main": 300_000, "p/declared-lead": 90_000 }, config: { ...config, defaulted: ["primary"] }, stepLimits: {}, history: [] });
+
+  assert.equal(run.windowTokens("lead"), 90_000);
+  assert.equal(run.windowTokens("author"), 300_000, "the author declares nothing: the tier's model");
+});
+
+test("an operator's model for the tier sizes every role of the tier, whatever its agent declares", () => {
+  const run = new RunContextBudget(() => "p/declared");
+  run.install({ windows: { "p/main": 300_000, "p/declared": 90_000 }, config, stepLimits: {}, history: [] });
+
+  assert.equal(run.windowTokens("lead"), 300_000);
+});

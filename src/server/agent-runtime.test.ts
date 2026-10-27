@@ -154,6 +154,20 @@ test("applyConfig accepts a shared reviewer model and logs the warning once", as
   }
 });
 
+test("applyConfig stores only the tiers an operator chose, so a default never reads as a choice at the next boot", async () => {
+  const restarts: AgentProvider[] = [];
+  const env: Record<string, string | undefined> = { OPENCODE_API_KEY: "open-key" };
+  const fs = memoryFs("OPENCODE_API_KEY=open-key\n");
+  const manager = createAgentRuntimeManager({ env, fs, strategies: { opencode: strategy("opencode", restarts) } });
+
+  await manager.applyConfig({ assignments: { reviewer: { provider: "opencode", model: "opencode-go/minimax-m3" } } });
+
+  assert.match(fs.content, /^AGENT_REVIEWER_MODEL=opencode-go\/minimax-m3$/m);
+  assert.doesNotMatch(fs.content, /AGENT_PRIMARY_MODEL|AGENT_CHAT_MODEL/);
+  assert.deepEqual(manager.current().defaulted, ["primary", "chat"]);
+  assert.deepEqual(providerConfig("opencode", env).defaulted, ["primary", "chat"], "the next boot reads the same tiers as chosen");
+});
+
 test("applyConfig logs no warning when the reviewer runs another model", async () => {
   const restarts: AgentProvider[] = [];
   const base = strategy("opencode", restarts);

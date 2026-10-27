@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   configFromEnv,
+  providerConfig,
   validateAgentRuntimeConfig,
   publicAgentConfig,
   reviewerIndependence,
@@ -26,7 +27,7 @@ test("configFromEnv ignores runtime mode and provider selection variables and yi
     AGENT_CHAT_PROVIDER: "other",
   });
   assert.deepEqual(withSelectors, plain);
-  assert.deepEqual(Object.keys(withSelectors), ["assignments"]);
+  assert.deepEqual(Object.keys(withSelectors), ["assignments", "defaulted"]);
 });
 
 test("a retired runtime selector in the environment is reported, one warning per variable", () => {
@@ -113,4 +114,17 @@ test("a missing key or an empty model still produces an error", () => {
   assert.equal(result.ok, false);
   assert.match(result.errors.join("\n"), /OPENCODE_API_KEY is required/);
   assert.match(result.errors.join("\n"), /primary model is required/);
+});
+
+test("providerConfig marks the tiers no AGENT_<TIER>_MODEL names as defaulted", () => {
+  const cfg = providerConfig("opencode", { AGENT_PRIMARY_MODEL: "opencode-go/chosen" });
+  assert.deepEqual(cfg.defaulted, ["reviewer", "chat"]);
+  assert.equal(cfg.assignments.primary.model, "opencode-go/chosen");
+});
+
+test("the reviewer's independence compares the models the author and the reviewer actually run on", () => {
+  const declared = (agent: string): string | undefined => (agent === "qa-author" ? "opencode-go/judge" : undefined);
+  const cfg = { ...providerConfig("opencode", { AGENT_REVIEWER_MODEL: "opencode-go/judge" }), defaulted: ["primary"] as const };
+  assert.equal(reviewerIndependence(cfg, declared), "shared-model");
+  assert.equal(reviewerIndependence(cfg, () => undefined), "distinct-model");
 });

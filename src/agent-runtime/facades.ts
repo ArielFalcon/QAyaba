@@ -12,8 +12,11 @@ import {
   ModelWindows,
   StepLimits,
   assignmentForRole,
+  modelForRole,
   roleForAgentName,
 } from "./types";
+import type { DeclaredModels } from "./types";
+import { declaredAgentModel } from "./declared-model";
 
 /*
  * The one facade over the agent runtimes: every role is opened on the strategy its assignment names. The host runs
@@ -23,6 +26,7 @@ export class AgentRuntimeFacade implements AgentFacade {
   constructor(
     private readonly strategies: Record<AgentProvider, AgentRuntimeStrategy>,
     readonly config: AgentRuntimeConfig,
+    private readonly declaredModels: DeclaredModels = declaredAgentModel,
   ) {}
 
   /* The runtimes this facade was given a strategy for. */
@@ -35,8 +39,11 @@ export class AgentRuntimeFacade implements AgentFacade {
       open: async (agent, cwd, opts) => {
         const role = roleForAgentName(agent);
         const assignment = assignmentForRole(this.config, role);
-        /* The assignment picks the provider; a model the caller asked for wins over the assignment's default. */
-        const session: AgentSession = await this.strategies[assignment.provider].openSession(role, cwd, { ...opts, model: opts?.model ?? assignment.model });
+        /* The assignment picks the provider; a model the caller asked for wins over the one the role resolves to. */
+        const session: AgentSession = await this.strategies[assignment.provider].openSession(role, cwd, {
+          ...opts,
+          model: opts?.model ?? modelForRole(this.config, role, this.declaredModels),
+        });
         return session;
       },
       cleanupOrphans: async (maxAgeMs) => {

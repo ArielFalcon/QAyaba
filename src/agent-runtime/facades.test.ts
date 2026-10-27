@@ -174,3 +174,37 @@ test("the facade does not read a provider that runs no role", async () => {
   assert.equal(limits.reviewer, 25);
   assert.deepEqual(otherReads, []);
 });
+
+/* The models agents/opencode.json declares, as the facade reads them: lead on a model other than the primary tier's default. */
+const DECLARED: Record<string, string> = { "qa-lead": "opencode-go/declared-lead", "qa-author": CONFIG.assignments.primary.model };
+const declared = (agent: string): string | undefined => DECLARED[agent];
+/* The primary and chat tiers hold their defaults; the reviewer tier was chosen by the operator. */
+const DEFAULTED_CONFIG: AgentRuntimeConfig = { ...CONFIG, defaulted: ["primary", "chat"] };
+
+async function openedModel(config: AgentRuntimeConfig, agent: string, opts?: { model?: string }): Promise<string | undefined> {
+  const models: Array<string | undefined> = [];
+  const facade = new AgentRuntimeFacade({ opencode: strategy("opencode", [], models) }, config, declared);
+  await (await facade.deps().open(agent, "/tmp/repo", opts)).dispose();
+  return models[0];
+}
+
+test("an agent on a defaulted tier opens on the model its own opencode.json entry declares", async () => {
+  assert.equal(await openedModel(DEFAULTED_CONFIG, "qa-lead"), "opencode-go/declared-lead");
+});
+
+test("an operator's model for the tier wins over the model the agent declares", async () => {
+  const overridden: AgentRuntimeConfig = { ...CONFIG, defaulted: ["chat"] };
+  assert.equal(await openedModel(overridden, "qa-lead"), CONFIG.assignments.primary.model);
+});
+
+test("the model a caller asks for wins over the one the agent declares", async () => {
+  assert.equal(await openedModel(DEFAULTED_CONFIG, "qa-lead", { model: "opencode-go/escalated" }), "opencode-go/escalated");
+});
+
+test("an agent whose declared model is its tier's default opens on that model, as before", async () => {
+  assert.equal(await openedModel(DEFAULTED_CONFIG, "qa-author"), CONFIG.assignments.primary.model);
+});
+
+test("an agent that declares no model opens on its tier's model", async () => {
+  assert.equal(await openedModel(DEFAULTED_CONFIG, "qa-explore"), CONFIG.assignments.primary.model);
+});

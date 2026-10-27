@@ -8,7 +8,8 @@ import { AGENT_ROLES, type AgentRole } from "@kernel/agent-role";
 import { ContextBudget, tokensOfBytes } from "@kernel/context-budget";
 import type { ContextWindowPort } from "@kernel/ports/context-window.port";
 import { estimateWorkingRoom, turnSample, type TurnSample, type WorkingRoomEstimate } from "@kernel/working-room";
-import { assignmentForRole, AGENT_NAME_FOR_ROLE, type AgentRuntimeConfig, type ModelWindows, type StepLimits } from "./types";
+import { modelForRole, AGENT_NAME_FOR_ROLE, type AgentRuntimeConfig, type DeclaredModels, type ModelWindows, type StepLimits } from "./types";
+import { declaredAgentModel } from "./declared-model";
 
 /* The recorded turns the working room is estimated from, newest first. */
 export const WORKING_ROOM_HISTORY_TURNS = 400;
@@ -64,7 +65,7 @@ export class RunContextBudget implements ContextWindowPort {
   private room: WorkingRoomEstimate = { forRole: () => undefined };
   readonly budget: ContextBudget;
 
-  constructor() {
+  constructor(private readonly declaredModels: DeclaredModels = declaredAgentModel) {
     this.budget = new ContextBudget(this, { forRole: (role) => this.room.forRole(role) });
   }
 
@@ -75,7 +76,7 @@ export class RunContextBudget implements ContextWindowPort {
   }
 
   windowTokens(role: AgentRole, model?: string): number | undefined {
-    const assigned = this.config ? assignmentForRole(this.config, role).model : undefined;
+    const assigned = this.config ? modelForRole(this.config, role, this.declaredModels) : undefined;
     if (model === undefined) return assigned === undefined ? undefined : positiveWindow(this.windows[assigned]);
     /* A model the caller picked: as written, else under the provider of the role's own model. */
     return positiveWindow(this.windows[model]) ?? (assigned === undefined ? undefined : positiveWindow(this.windows[`${providerPrefix(assigned)}${model}`]));

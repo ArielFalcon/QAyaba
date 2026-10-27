@@ -1,5 +1,6 @@
-import { AGENT_PROVIDERS } from "./types";
-import type { AgentProvider, AgentRuntimeConfig, AgentProviderHealth, RoleAssignment } from "./types";
+import { AGENT_PROVIDERS, assignmentForRole, modelForRole } from "./types";
+import type { AgentProvider, AgentRuntimeConfig, AgentProviderHealth, AssignmentTier, DeclaredModels, RoleAssignment } from "./types";
+import { declaredAgentModel } from "./declared-model";
 import { activeEnvironment } from "../settings/active";
 
 export type KeyPresence = Record<AgentProvider, boolean>;
@@ -18,7 +19,8 @@ export interface PublicAgentConfig {
   health?: Record<AgentProvider, AgentProviderHealth>;
 }
 
-const DEFAULT_MODELS: Record<AgentProvider, Record<keyof AgentRuntimeConfig["assignments"], string>> = {
+/* The model of a tier no operator chose, for a role whose own agent declares none in agents/opencode.json (a role that declares one runs on it: `modelForRole`). */
+const DEFAULT_MODELS: Record<AgentProvider, Record<AssignmentTier, string>> = {
   opencode: {
     /* Must match agents/opencode.json qa-author. */
     primary: "opencode-go/deepseek-v4.1-flash",
@@ -31,7 +33,9 @@ const DEFAULT_MODELS: Record<AgentProvider, Record<keyof AgentRuntimeConfig["ass
 
 const KEY_NAME: Record<AgentProvider, string> = { opencode: "OPENCODE_API_KEY" };
 
-/* Every role runs on `provider`; each model comes from AGENT_<ROLE>_MODEL or the provider's default. */
+const TIERS: readonly AssignmentTier[] = ["primary", "reviewer", "chat"];
+
+/* Every role runs on `provider`; each tier's model comes from AGENT_<TIER>_MODEL or the provider's default, and a tier on its default is recorded as defaulted. */
 export function providerConfig(provider: AgentProvider, env: Record<string, string | undefined> = activeEnvironment()): AgentRuntimeConfig {
   return {
     assignments: {
@@ -39,6 +43,7 @@ export function providerConfig(provider: AgentProvider, env: Record<string, stri
       reviewer: assignment(provider, "reviewer", env),
       chat: assignment(provider, "chat", env),
     },
+    defaulted: TIERS.filter((tier) => !env[modelEnvKey(tier)]),
   };
 }
 
@@ -68,18 +73,19 @@ export function keyPresence(env: Record<string, string | undefined> = activeEnvi
 
 export type ReviewerIndependence = "shared-model" | "distinct-model";
 
-/* The single derivation of whether the reviewer judges with the generator's own model. */
-export function reviewerIndependence(config: AgentRuntimeConfig): ReviewerIndependence {
-  const { primary, reviewer } = config.assignments;
-  return reviewer.provider === primary.provider && reviewer.model === primary.model ? "shared-model" : "distinct-model";
+/* The single derivation of whether the reviewer judges with the generator's own model: the models the author and the reviewer run on, not the tiers' defaults. */
+export function reviewerIndependence(config: AgentRuntimeConfig, declared: DeclaredModels = declaredAgentModel): ReviewerIndependence {
+  const sameProvider = assignmentForRole(config, "reviewer").provider === assignmentForRole(config, "author").provider;
+  return sameProvider && modelForRole(config, "reviewer", declared) === modelForRole(config, "author", declared) ? "shared-model" : "distinct-model";
 }
 
 function reviewerSharesModelWarnings(config: AgentRuntimeConfig): string[] {
   if (reviewerIndependence(config) === "distinct-model") return [];
-  const { primary, reviewer } = config.assignments;
+  const generator = assignmentForRole(config, "author");
+  const reviewer = assignmentForRole(config, "reviewer");
   return [
-    `reviewer (${reviewer.provider}/${reviewer.model}) runs the same model as primary ` +
-      `(${primary.provider}/${primary.model}): the review is not an independent judgment`,
+    `reviewer (${reviewer.provider}/${modelForRole(config, "reviewer", declaredAgentModel)}) runs the same model as primary ` +
+      `(${generator.provider}/${modelForRole(config, "author", declaredAgentModel)}): the review is not an independent judgment`,
   ];
 }
 
@@ -108,9 +114,12 @@ export function publicAgentConfig(
   };
 }
 
-function assignment(provider: AgentProvider, role: keyof AgentRuntimeConfig["assignments"], env: Record<string, string | undefined>): RoleAssignment {
-  const envKey = `AGENT_${role.toUpperCase()}_MODEL`;
-  return { provider, model: env[envKey] || DEFAULT_MODELS[provider][role] };
+function modelEnvKey(tier: AssignmentTier): string {
+  return `AGENT_${tier.toUpperCase()}_MODEL`;
+}
+
+function assignment(provider: AgentProvider, tier: AssignmentTier, env: Record<string, string | undefined>): RoleAssignment {
+  return { provider, model: env[modelEnvKey(tier)] || DEFAULT_MODELS[provider][tier] };
 }
 
 function visibleRoles(): Array<keyof AgentRuntimeConfig["assignments"]> {

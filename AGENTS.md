@@ -438,7 +438,12 @@ facade. The agents are the lead (`qa-lead`, plans and reviews, read-only), the a
 (`qa-author`, the one agent that writes tests, for a flow or for the run's own task), the
 explorer (`qa-explore`, read-only, asked for by the lead before it plans) and the reviewer
 (`qa-reviewer`), beside the maintainer, assistant, reflector and proposer. `agents/opencode.json`
-is the source of truth for the roster, models and per-role step limits (`maxSteps`). Prompt layers:
+is the source of truth for the roster, models and per-role step limits (`maxSteps`). A role's model resolves in one place (`modelForRole`,
+`src/agent-runtime/types.ts`), for the session it opens, for the context window its prompts are fitted to and for the reviewer-independence
+record: a model the caller asks for (an escalated replacement) > the operator's `AGENT_<TIER>_MODEL` (or the model saved from the Agent
+Runtime view) for the tier the role rides (`primary`, `reviewer`, `chat`) > the model the role's own agent declares in `agents/opencode.json` >
+the tier's default. A tier no operator chose is `defaulted` in the runtime config and yields to each agent's declared model; only the
+tiers an operator chose are written to the env store. Prompt layers:
 `agents/AGENTS.md` (shared rules) → `agents/agent/*.md` (per-role procedure + JSON contract) →
 `agents/skill/` (on-demand craft). Static layers are linted against assembled prompts
 (prompt-contract lint) and size-budgeted.

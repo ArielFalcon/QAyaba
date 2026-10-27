@@ -11,6 +11,7 @@ import {
 import { AgentRuntimeFacade } from "../agent-runtime/facades";
 import { AGENT_PROVIDERS } from "../agent-runtime/types";
 import type {
+  AssignmentTier,
   AgentFacade,
   AgentProvider,
   AgentProviderHealth,
@@ -40,7 +41,7 @@ export interface CreateAgentRuntimeManagerOptions {
 }
 
 const PROVIDERS = AGENT_PROVIDERS;
-const ROLES: Array<keyof AgentRuntimeConfig["assignments"]> = ["primary", "reviewer", "chat"];
+const ROLES: AssignmentTier[] = ["primary", "reviewer", "chat"];
 
 
 const redactionPort = new RedactionPortAdapter();
@@ -98,7 +99,8 @@ export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions
       await validateAssignedModels(next, opts.strategies);
 
       const runtimeVars = configEnvVars(next);
-      applyEnvVars({ ...apiKeyVars, ...runtimeVars }, { fs, env });
+      /* Only the tiers an operator chose are stored: a stored default would read as a choice at the next boot and override what each agent declares. */
+      applyEnvVars({ ...apiKeyVars, ...configEnvVars(next, ROLES.filter((tier) => !next.defaulted?.includes(tier))) }, { fs, env });
       config = next;
 
 
@@ -164,7 +166,9 @@ async function validateAssignedModels(
 }
 
 function mergeConfig(current: AgentRuntimeConfig, input: AgentConfigUpdate): AgentRuntimeConfig {
-  return { assignments: overlayAssignments(current.assignments, input.assignments) };
+  /* A tier the update names is now the operator's choice; every other tier keeps how it was set. */
+  const defaulted = (current.defaulted ?? []).filter((tier) => input.assignments?.[tier] === undefined);
+  return { assignments: overlayAssignments(current.assignments, input.assignments), defaulted };
 }
 
 function overlayAssignments(
@@ -185,12 +189,15 @@ function apiKeyEnvVars(input: AgentConfigUpdate): Record<string, string> {
   return vars;
 }
 
-function configEnvVars(config: AgentRuntimeConfig): Record<string, string> {
-  return {
-    AGENT_PRIMARY_MODEL: config.assignments.primary.model,
-    AGENT_REVIEWER_MODEL: config.assignments.reviewer.model,
-    AGENT_CHAT_MODEL: config.assignments.chat.model,
-  };
+const MODEL_ENV: Record<AssignmentTier, string> = {
+  primary: "AGENT_PRIMARY_MODEL",
+  reviewer: "AGENT_REVIEWER_MODEL",
+  chat: "AGENT_CHAT_MODEL",
+};
+
+/* The model variables of `tiers` (default: all). */
+function configEnvVars(config: AgentRuntimeConfig, tiers: readonly AssignmentTier[] = ROLES): Record<string, string> {
+  return Object.fromEntries(tiers.map((tier) => [MODEL_ENV[tier], config.assignments[tier].model]));
 }
 
 function changedProviders(
