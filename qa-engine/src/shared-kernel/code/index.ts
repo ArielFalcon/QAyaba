@@ -153,3 +153,19 @@ export interface GraphRoute {
   path: string;
   target?: LocalSymbolRef & { kind: string };
 }
+
+/** The files that import one file, read from the index's import edges (an import of the file itself or of a symbol it declares, an alias or a barrel resolved to the declaring file by the engine). Test files are included: telling them apart is the caller's. */
+export interface FileImporters {
+  file: string;
+  /** Whether the index holds the file at all; a file it does not hold has no importers to read, which proves nothing. */
+  indexed: boolean;
+  importers: string[];
+  /** False when the list was cut to the reader's bound: it is then a lower bound. */
+  complete: boolean;
+}
+
+export interface ImportersReport {
+  indexedSha: string;
+  /** One entry per file asked for, in the order asked; a file past the reader's bound on files is `indexed: false`. */
+  files: FileImporters[];
+}

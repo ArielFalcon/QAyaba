@@ -1105,3 +1105,55 @@ test("a page two changed symbols reach through the same caller is credited to bo
     rmSync(h.root, { recursive: true, force: true });
   }
 });
+
+test("importersOf names the files that import each file, tests included, from the index's import edges", async () => {
+  const h = harness();
+  try {
+    await h.adapter.syncTo(h.mirror, h.sha);
+    const page = "web/src/app/orders/orders.page.ts";
+    const spec = "web/src/app/orders/orders.page.spec.ts";
+
+    const answered = await h.adapter.importersOf!(h.mirror, [page, FORMAT, spec, "web/src/app/no-such-file.ts"]);
+
+    assert.equal(answered.ok, true);
+    if (!answered.ok) return;
+    assert.equal(answered.value.indexedSha, h.sha);
+    assert.deepEqual(answered.value.files, [
+      { file: page, indexed: true, importers: ["web/src/app/app.routes.ts", spec], complete: true },
+      { file: FORMAT, indexed: true, importers: [page, "web/src/app/profile/profile.page.ts"], complete: true },
+      { file: spec, indexed: true, importers: [], complete: true },
+      { file: "web/src/app/no-such-file.ts", indexed: false, importers: [], complete: false },
+    ]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("importersOf over more files than the reader bound leaves the rest unread, never read as having no importer", async () => {
+  const h = harness();
+  try {
+    await h.adapter.syncTo(h.mirror, h.sha);
+    const files = [FORMAT, ...Array.from({ length: 2100 }, (_, i) => `zz/f${String(i).padStart(4, "0")}.ts`)];
+
+    const answered = await h.adapter.importersOf!(h.mirror, files);
+
+    assert.equal(answered.ok, true);
+    if (!answered.ok) return;
+    assert.equal(answered.value.files.length, files.length);
+    assert.equal(answered.value.files[0]!.importers.length, 2);
+    const unread = answered.value.files.filter((f) => f.file !== FORMAT && f.indexed === false && f.complete === false);
+    assert.equal(unread.length, 2100);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("importersOf of a repo the run did not index answers unavailable", async () => {
+  const h = harness();
+  try {
+    assert.equal((await h.adapter.importersOf!(h.mirror, [FORMAT])).ok, false);
+    assert.deepEqual(await h.adapter.importersOf!(h.mirror, []), { ok: true, value: { indexedSha: "", files: [] } });
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});

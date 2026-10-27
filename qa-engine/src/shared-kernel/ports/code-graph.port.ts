@@ -2,7 +2,7 @@
 
 import type { Result } from "@kernel/result.ts";
 import type { BlastRadius } from "@kernel/blast-radius.ts";
-import type { CodeGraphIndexRecord, CodeGraphUnavailable, GraphRoute, ImpactBudget, ImpactReport, LocalSymbolRef } from "@kernel/code/index.ts";
+import type { CodeGraphIndexRecord, CodeGraphUnavailable, GraphRoute, ImpactBudget, ImpactReport, ImportersReport, LocalSymbolRef } from "@kernel/code/index.ts";
 
 export interface CodeGraphPort {
   /** Builds or refreshes the run's index of the repo at `sha`. Never throws: a failure is a record with outcome `failed` or `timeout`, and the queries then answer unavailable. The run's abort signal, when given, ends the engine's processes, this build's and those of the run's later queries. */
@@ -16,4 +16,7 @@ export interface CodeGraphPort {
 
   /** The routes the engine recognised, test files excluded. */
   routes(repoDir: string): Promise<Result<GraphRoute[], CodeGraphUnavailable>>;
+
+  /** The files that import each named file, test files included. Absent on a port whose index holds no import edges: a consumer then proves nothing from imports. */
+  importersOf?(repoDir: string, files: readonly string[]): Promise<Result<ImportersReport, CodeGraphUnavailable>>;
 }

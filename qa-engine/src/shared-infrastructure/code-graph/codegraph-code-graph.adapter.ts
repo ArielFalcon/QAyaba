@@ -19,7 +19,7 @@ import { err, ok, type Result } from "../../shared-kernel/result.ts";
 import type { BlastRadius, TouchedLines } from "../../shared-kernel/blast-radius.ts";
 import type { CodeGraphPort } from "../../shared-kernel/ports/code-graph.port.ts";
 import type { CodeExplorePort, ExploreAnswer } from "../../shared-kernel/ports/code-explore.port.ts";
-import { expansionBudget, type CodeGraphIndexRecord, type CodeGraphUnavailable, type GraphRoute, type HubNode, type ImpactReport, type ImpactedSymbol, type IndexOutcome, type LocalSymbolRef, type ReachedRoute, type SeedBasis, type SeedReach, type WalkCost, type WalkPolicy } from "../../shared-kernel/code/index.ts";
+import { expansionBudget, type CodeGraphIndexRecord, type CodeGraphUnavailable, type FileImporters, type GraphRoute, type HubNode, type ImpactReport, type ImpactedSymbol, type ImportersReport, type IndexOutcome, type LocalSymbolRef, type ReachedRoute, type SeedBasis, type SeedReach, type WalkCost, type WalkPolicy } from "../../shared-kernel/code/index.ts";
 import type { Sandbox } from "../process-sandbox/sandbox.ts";
 import type { SandboxedBinaryRunner } from "../process-sandbox/sandboxed-binary-runner.ts";
 import { CODEGRAPH_ENGINE, storePathOf, type CodegraphEngine, type EngineFailure, type EngineStatus } from "./codegraph-engine.ts";
@@ -416,6 +416,18 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
     const answer = await this.deps.engine.explore(entry.workspace, terms, maxFiles, this.runSignal);
     if (!answer.ok) return err({ reason: answer.error.reason });
     return ok({ text: answer.value, indexedSha: entry.sha });
+  }
+
+  async importersOf(repoDir: string, files: readonly string[]): Promise<Result<ImportersReport, CodeGraphUnavailable>> {
+    if (files.length === 0) return ok({ indexedSha: this.indexOf(repoDir)?.sha ?? "", files: [] });
+    const answered = await this.read<{ files: FileImporters[]; truncated: boolean }>(repoDir, { op: "importers", files: [...files] });
+    if (!answered.ok) return answered;
+    /* A file the reader's bound on files left out was never read: it is not indexed as far as the caller can tell. */
+    const read = new Map(answered.value.value.files.map((f) => [f.file, f]));
+    return ok({
+      indexedSha: answered.value.sha,
+      files: files.map((file) => read.get(file) ?? { file, indexed: false, importers: [], complete: false }),
+    });
   }
 
   async routes(repoDir: string): Promise<Result<GraphRoute[], CodeGraphUnavailable>> {

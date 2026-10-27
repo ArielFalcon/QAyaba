@@ -23,6 +23,9 @@
  *   (`excludeFiles`: files whose code is never a caller, the walk's or the fan-in's: the test files of the repo's languages.)
  *   {"op":"routes"}                                         → {"routes":[{name,file,line,target?:{file,symbol,kind}}]}
  *   {"op":"find","symbols":[{"file":"a.ts","symbol":"f"}]}  → {"symbols":[...as symbols],"truncated":bool}
+ *   {"op":"importers","files":["a.ts"]}                     → {"files":[{file,indexed,importers:["<file>"],complete}],"truncated":bool}
+ *     (the files whose code imports `a.ts` or a symbol it declares, sorted; `indexed` is false for a file the store holds no node of,
+ *     `complete` false when its importers were cut to the bound; `truncated` says the request's files were cut to the bound.)
  *   {"op":"ping"}                                           → {"ready":true} (the store opens and is of the pinned version)
  */
 
@@ -44,6 +47,7 @@ const TOP_LEVEL_CODE_KINDS = ["function", "class", "component"];
 /* Where a method's behaviour lives for whoever references the type: its class (a route references the component, not its method). */
 const CONTAINER_KINDS = ["class", "component", "interface"];
 const MAX_FILES = 2000;
+const MAX_IMPORTERS = 1000;
 const MAX_SEEDS = 2000;
 const MAX_DEPTH = 6;
 const MAX_NODES = 5000;
@@ -111,6 +115,17 @@ function symbolsOf(db, files) {
   const out = [];
   for (const file of files) for (const row of stmt.all(file, ...seedKinds)) out.push(symbolRow(row));
   return out.sort(byPosition);
+}
+
+/* The files that import each file, or a symbol it declares; an import edge's source is the importing file (or a namespace of it), its target the file or the declared symbol. */
+function importersOf(db, files) {
+  const heldStmt = db.prepare("SELECT 1 AS held FROM nodes WHERE file_path = ? LIMIT 1");
+  const importersStmt = db.prepare("SELECT DISTINCT s.file_path AS file FROM edges e JOIN nodes s ON s.id = e.source JOIN nodes t ON t.id = e.target WHERE e.kind = 'imports' AND t.file_path = ? AND s.file_path <> t.file_path ORDER BY s.file_path LIMIT ?");
+  return files.map((file) => {
+    if (heldStmt.get(file) === undefined) return { file, indexed: false, importers: [], complete: false };
+    const rows = importersStmt.all(file, MAX_IMPORTERS + 1);
+    return { file, indexed: true, importers: rows.slice(0, MAX_IMPORTERS).map((r) => r.file), complete: rows.length <= MAX_IMPORTERS };
+  });
 }
 
 /* The distinct {file, symbol} references of a request, at most MAX_SEEDS of them, cut like `strings`. */
@@ -346,6 +361,11 @@ switch (request.op) {
   case "symbols": {
     const files = strings(request.files, MAX_FILES, "files");
     answer = { symbols: symbolsOf(db, files.items), truncated: files.truncated };
+    break;
+  }
+  case "importers": {
+    const files = strings(request.files, MAX_FILES, "files");
+    answer = { files: importersOf(db, files.items), truncated: files.truncated };
     break;
   }
   case "find": {
