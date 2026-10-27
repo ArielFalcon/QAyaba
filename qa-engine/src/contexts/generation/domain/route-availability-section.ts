@@ -1,9 +1,9 @@
 /*
  * The Context Pack's availability section: one fact per route the capture could not show at its own address, with where the
- * browser ended and why, in plain words and no directive. The change's own unavailabilities come first. Pure; the caller redacts.
+ * browser ended and why, in plain words and no directive. The change's own unavailabilities come first. Pure; the caller writes the
+ * heading and redacts.
  */
 import { outcomeText, MAX_AVAILABILITY_FACTS_RECORDED, type AvailabilityBasis, type AvailabilityClass, type RouteAvailabilityFact } from "@kernel/route-availability.ts";
-import { PACK_HEADINGS } from "./prompt-headings.ts";
 
 const ORDER: readonly AvailabilityClass[] = ["change-introduced", "regression-candidate", "environment", "pre-existing", "unexplained"];
 
@@ -56,16 +56,15 @@ export function availabilityLine(fact: RouteAvailabilityFact): string {
   return `- ${label}: ${where}. ${availabilityReason(fact.basis)}`;
 }
 
-/* The section, or "" when no route was unavailable. */
-export function renderAvailabilitySection(facts: readonly RouteAvailabilityFact[]): string {
-  if (facts.length === 0) return "";
+/* The section's body under its heading, or no line when no route was unavailable. */
+export function availabilitySectionLines(facts: readonly RouteAvailabilityFact[]): string[] {
+  if (facts.length === 0) return [];
   const ordered = [...facts].sort((a, b) => ORDER.indexOf(a.basis.class) - ORDER.indexOf(b.basis.class));
   const listed = ordered.slice(0, MAX_AVAILABILITY_FACTS_RECORDED).map(availabilityLine);
   const more = ordered.length - listed.length;
   return [
-    `### ${PACK_HEADINGS.availability}`,
     "Routes this run's capture did not show at their own address, each with where the browser ended and why.",
     ...listed,
     ...(more > 0 ? [`(+${more} more)`] : []),
-  ].join("\n");
+  ];
 }

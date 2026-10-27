@@ -19,7 +19,7 @@ import { renderChangedValues, valuesWithMoreNodesThanLines, type ObservedPage } 
 import type { ChangedLiteral } from "../../../shared-kernel/diff-parser/changed-literal.ts";
 import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import { classifyPackAvailability, type PackAvailabilityInput } from "./pack-availability.ts";
-import { renderAvailabilitySection } from "../domain/route-availability-section.ts";
+import { availabilitySectionLines } from "../domain/route-availability-section.ts";
 export { PACK_HEADINGS };
 
 const SECTION_FACTS: ReadonlyArray<readonly [string, FactId]> = [
@@ -637,7 +637,8 @@ export async function buildContextPack(
       };
 
   const routeAvailability = domPack && input.availability !== undefined ? await classifyPackAvailability(input.availability, pages.values(), reportedRoutes, log) : undefined;
-  const availabilitySection = routeAvailability !== undefined ? sanitizeText(renderAvailabilitySection(routeAvailability.facts), "model").text : "";
+  const availabilityLines = availabilitySectionLines(routeAvailability?.facts ?? []);
+  const availabilitySection = availabilityLines.length > 0 ? sanitizeText([`### ${PACK_HEADINGS.availability}`, ...availabilityLines].join("\n"), "model").text : "";
   const sections = [
     { text: domSection, held: "the live DOM of the routes it covers" },
     { text: changedValuesSection, held: "what the captured pages show of the values the change added and removed" },
