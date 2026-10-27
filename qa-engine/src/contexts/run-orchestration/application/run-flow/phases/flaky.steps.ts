@@ -5,9 +5,9 @@ import { CORRECTION_ORIGIN } from "@contexts/coordination/application/index.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import { runOf, type RunState } from "../run-state.ts";
-import { withAcceptanceCalls, withRun } from "../reducers.ts";
+import { withRun } from "../reducers.ts";
 import { FLAKY_CLASS, triageFlaky } from "../../../domain/flaky-triage.ts";
-import { regenerateAtGap } from "./coverage.steps.ts";
+import { recountAfter, regenerateAtGap } from "./coverage.steps.ts";
 import { flakyFindings } from "./generation-services.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
@@ -29,9 +29,11 @@ function annotate(ctx: WorkspaceRunContext, attrs: Parameters<WorkspaceRunContex
 
 /*
  * Reads each flaky case's first attempt and routes it, as a finding naming its spec, to the flow that owns the spec through the lead's
- * pass (the same path the execution's failures take, inside the same correction budget). What the flows change goes through the
- * acceptance every regeneration goes through: it stands only if it validates and executes green on its own, with no retry. A run with
- * no pass to route through, or with nothing to read, only records what it saw: no cold author is asked.
+ * pass, as one more correction after the measurement (inside the same correction budget). It runs after the coverage measurement and
+ * its regenerations and before the review, so what it changes is counted again like any regeneration (`recountAfter`) and the
+ * measurement the reviewer and the record describe is of the bytes under review. What the flows change goes through the acceptance
+ * every regeneration goes through: it stands only if it validates and executes green on its own, with no retry. A run with no pass to
+ * route through, or with nothing to read, only records what it saw: no cold author is asked.
  */
 export async function triageFlakyCases(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const triage = triageFlaky(runOf(state).cases, state.grounding.confirmedDataRoutes);
@@ -42,16 +44,22 @@ export async function triageFlakyCases(state: Readonly<RunState>, ctx: Workspace
     "qayaba.flaky.data_instability": classCount(FLAKY_CLASS.DATA_INSTABILITY),
     "qayaba.flaky.timing": classCount(FLAKY_CLASS.TIMING),
   };
-  if (triage.length === 0 || !ctx.trail.coordinatedPass) {
-    annotate(ctx, { ...counts, "qayaba.flaky.outcome": triage.length === 0 ? "no-flaky-case" : "no-pass" });
+  if (triage.length === 0) {
+    annotate(ctx, { ...counts, "qayaba.flaky.outcome": "no-flaky-case" });
     return;
   }
-  const regen = await regenerateAtGap(state, ctx, {}, CORRECTION_ORIGIN.EXECUTION, flakyFindings(triage));
+  const found = { cases: triage.length, dataInstability: classCount(FLAKY_CLASS.DATA_INSTABILITY), timing: classCount(FLAKY_CLASS.TIMING) };
+  if (!ctx.trail.coordinatedPass) {
+    annotate(ctx, { ...counts, "qayaba.flaky.outcome": "no-pass" });
+    return { update: { coverage: { ...state.coverage, flakyTriage: { ...found, outcome: "no-pass" } } } };
+  }
+  const regen = await regenerateAtGap(state, ctx, {}, CORRECTION_ORIGIN.FLAKY, flakyFindings(triage));
   annotate(ctx, { ...counts, "qayaba.flaky.outcome": regen.outcome });
+  const recounted = await recountAfter(state, ctx, regen);
   return {
     update: {
       execution: withRun(state.execution, regen.run),
-      coverage: withAcceptanceCalls(state.coverage, regen.acceptanceCalls),
+      coverage: { ...recounted, flakyTriage: { ...found, outcome: regen.outcome } },
       loops: { ...state.loops, leadCorrections: state.loops.leadCorrections + regen.leadCorrections },
     },
   };

@@ -39,6 +39,7 @@ export interface OutcomeExtras {
   changeCoverage?: RunOutcome["gateSignals"]["changeCoverage"];
   bundleMutation?: RunOutcome["gateSignals"]["bundleMutation"];
   branchCases?: RunOutcome["gateSignals"]["branchCases"];
+  flakyTriage?: RunOutcome["gateSignals"]["flakyTriage"];
   missingCases?: string[];
   note?: string;
   rulesRetrieved?: string[];
@@ -185,6 +186,7 @@ export function toRunOutcome(
       ...(extra?.changeCoverage ? { changeCoverage: extra.changeCoverage } : {}),
       ...(extra?.bundleMutation ? { bundleMutation: extra.bundleMutation } : {}),
       ...(extra?.branchCases ? { branchCases: extra.branchCases } : {}),
+      ...(extra?.flakyTriage ? { flakyTriage: extra.flakyTriage } : {}),
       ...(extra?.missingCases?.length ? { missingCases: extra.missingCases } : {}),
       reviewerCorrections: extra?.reviewerCorrections ?? [],
       /* Conditional-spread: true undefined survives when no reviewer-unavailable rationale exists. */

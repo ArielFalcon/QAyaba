@@ -164,6 +164,14 @@ export interface BranchCasesOutcome {
   armsAfter?: number;
 }
 
+/* What the flaky triage found and did: the flaky cases by class and the outcome of the correction routed to their flows ("no-pass": no lead's pass to route through). */
+export interface FlakyTriageOutcome {
+  cases: number;
+  dataInstability: number;
+  timing: number;
+  outcome: "no-pass" | "accepted" | "empty" | "rejected" | "capped";
+}
+
 /* What the coverage phase measured; the review phase's acceptances add to the counter and the stale re-measure replaces the measurement or marks it stale. */
 export interface CoverageOutcome {
   /** Unknown never blocks; only the port's own reading of the mode and status sets it. */
@@ -194,6 +202,8 @@ export interface CoverageOutcome {
   untakenArmsCurrent: boolean;
   /** What the branch-case regeneration did; undefined when it did not run. A signal, never a gate. */
   branchCases: BranchCasesOutcome | undefined;
+  /** What the flaky triage found and did; undefined when the run was not flaky or had no flaky case. A signal, never a gate. */
+  flakyTriage: FlakyTriageOutcome | undefined;
   /** What the mutants of the changed code did; undefined when none was judged. A signal, never a gate. */
   bundleMutation: BundleMutationOutcome | undefined;
   /** The killed mutants whose re-runs the coverage counts, so a recount counts them again; empty when none added a line. */
@@ -410,6 +420,7 @@ export function initialRunState(): RunState {
       untakenArms: [],
       untakenArmsCurrent: false,
       branchCases: undefined,
+      flakyTriage: undefined,
       bundleMutation: undefined,
       mutantProofs: [],
       changeCoverage: undefined,

@@ -1,7 +1,10 @@
-/* Why a case passed only on retry. A flaky case's first attempt is evidence: when its failure point read an empty data state, or one other than the pack read, while the same bytes passed on retry, DEV's data moved between attempts and the spec depends on it; anything else is timing. */
+/* Why a case passed only on retry. A flaky case's first attempt is evidence: when its failure point read an empty data state, on a page the pack read with results, or one other than the pack read, while the same bytes passed on retry, DEV's data moved between attempts and the spec depends on it; anything else is timing. */
 
 import type { QaCase } from "@kernel/qa-case.ts";
 import { dataStateDiffers, packCountAt, type ConfirmedDataRoutes } from "./failure-data-state.ts";
+
+/** The flaky triage routes its findings through the lead once per run. */
+export const MAX_FLAKY_TRIAGE_CORRECTIONS = 1;
 
 export const FLAKY_CLASS = { DATA_INSTABILITY: "data-instability", TIMING: "timing" } as const;
 export type FlakyClass = (typeof FLAKY_CLASS)[keyof typeof FLAKY_CLASS];

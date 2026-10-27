@@ -298,10 +298,15 @@ Rules, from the brief §2.1 and the OTel spec:
   false positive (a failing run the loop turned green by changing the spec) a query rather than a
   manual investigation.
 - **Flaky tail.** A run whose final execution is `flaky` has green bytes, so change-coverage and the
-  reviewer run for it; it is still quarantined. The `triage-flaky-cases` step records
+  reviewer run for it; it is still quarantined. The `triage-flaky-cases` step runs after the coverage
+  measurement and its regenerations and before the review, as one more correction: what its flows change is
+  recounted from the dumps like any regeneration, so the measurement the reviewer and the record describe is of
+  the bytes under review. It records
   `qayaba.flaky.tail_reason` (`flaky-green-bytes`), `.cases`, `.data_instability` (first attempt read an
-  empty data state, or one other than the Context Pack read, on a settled page), `.timing` and
-  `.outcome` (`no-flaky-case`, `no-pass`, or the correction's `accepted`/`empty`/`rejected`/`capped`).
+  empty data state on a page the Context Pack read with results, or a count other than the pack's, on a settled page), `.timing` and
+  `.outcome` (`no-flaky-case`, `no-pass`, or the correction's `accepted`/`empty`/`rejected`/`capped`), and
+  `gateSignals.flakyTriage { cases, dataInstability, timing, outcome }`. Its findings carry the `flaky`
+  correction origin ("passed on retry"), counted in the lead's correction budget.
 
 ### 4.3 Root attributes
 

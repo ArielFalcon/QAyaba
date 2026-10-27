@@ -216,7 +216,7 @@ export async function regenerateAtGap(
  * informs and never touches the decision; under signal it is the measurement, and only the value score stays stale. Without a recount
  * the arms are not current.
  */
-async function recountAfter(state: Readonly<RunState>, ctx: WorkspaceRunContext, regen: GapRegeneration): Promise<CoverageOutcome> {
+export async function recountAfter(state: Readonly<RunState>, ctx: WorkspaceRunContext, regen: GapRegeneration): Promise<CoverageOutcome> {
   const { deps, input, cfg, workspace } = ctx;
   const spent = withAcceptanceCalls(state.coverage, regen.acceptanceCalls);
   if (regen.outcome !== "accepted") return spent;

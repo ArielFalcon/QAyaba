@@ -7,6 +7,7 @@ import { MAX_STATIC_FIX_ROUNDS } from "@kernel/derive-cycle-backstop.ts";
 import { MAX_REVIEW_ROUNDS } from "@contexts/run-orchestration/domain/review-action.ts";
 import { MAX_PRE_EXEC_REGENERATIONS } from "@contexts/run-orchestration/domain/pre-exec-regen.ts";
 import { MAX_COVERAGE_REGENERATIONS } from "@contexts/run-orchestration/domain/coverage-regen.ts";
+import { MAX_FLAKY_TRIAGE_CORRECTIONS } from "@contexts/run-orchestration/domain/flaky-triage.ts";
 
 test("the budget is the sum of the caps of every loop that corrects through the lead", () => {
   const maxRetries = 3;
@@ -14,7 +15,7 @@ test("the budget is the sum of the caps of every loop that corrects through the 
   const reviewCorrections = MAX_REVIEW_ROUNDS * 2;
   assert.equal(
     leadCorrectionBudget({ maxRetries }),
-    MAX_STATIC_FIX_ROUNDS + MAX_PRE_EXEC_REGENERATIONS + maxRetries + MAX_COVERAGE_REGENERATIONS + reviewCorrections,
+    MAX_STATIC_FIX_ROUNDS + MAX_PRE_EXEC_REGENERATIONS + maxRetries + MAX_COVERAGE_REGENERATIONS + MAX_FLAKY_TRIAGE_CORRECTIONS + reviewCorrections,
   );
 });
 

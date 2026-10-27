@@ -703,22 +703,58 @@ test("a flaky run whose reviewer cannot be reached is still quarantined, not an 
   assert.notEqual(result.outcome?.errorClass, "E-REVIEWER-UNAVAILABLE");
 });
 
+/* A Context Pack that read the restaurants page with three results. */
+const PACK_READ_RESTAURANTS = { ground: async () => ({ packConfirmedDataRoutes: [{ path: "/restaurants", resultCount: 3 }] }) };
+
 test("a flaky case whose first attempt read an empty data state reaches its flow as DEV data instability", async () => {
   let r!: Rig;
   let kept!: ReturnType<typeof keptPass>;
   r = rig(() => delivered(kept.pass));
   kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
   const flaky = flakyOnce([flakyCase({ failureResultCount: 0, finalUrl: "https://dev/restaurants", failureSettle: { inFlight: 0, treeStable: true } })]);
-  const result = await new RunQaUseCase(r.deps({ execution: flaky.execution })).run(INPUT);
-  assert.deepEqual(kept.seen.origins, [CORRECTION_ORIGIN.EXECUTION]);
+  const result = await new RunQaUseCase(r.deps({ execution: flaky.execution, preGenerationGrounding: PACK_READ_RESTAURANTS })).run(INPUT);
+  assert.deepEqual(kept.seen.origins, [CORRECTION_ORIGIN.FLAKY]);
   assert.equal(kept.seen.corrected[0]?.length, 1);
   assert.equal(kept.seen.corrected[0]![0]!.spec, "flows/a.spec.ts", "the finding is owned by the spec's flow");
   assert.match(kept.seen.corrected[0]![0]!.text, /passed on retry/);
   assert.match(kept.seen.corrected[0]![0]!.text, /depends on live data/);
+  assert.doesNotMatch(kept.seen.corrected[0]![0]!.text, /location/, "the remedy names no app concept");
+  assert.deepEqual(result.outcome?.gateSignals.flakyTriage, { cases: 1, dataInstability: 1, timing: 0, outcome: "accepted" });
   assert.equal(r.calls.filter((c) => c === "generate").length, 0, "no cold author");
   assert.deepEqual(flaky.calls.slice(1).map((c) => c.retries), [0], "the corrected spec stands only if it executes green without a retry");
   assert.equal(result.decision.verdict, "flaky", "a spec that passed once after a flaky run does not make the run publishable");
   assert.equal(result.decision.sideEffect, "quarantine");
+});
+
+test("a flaky case that read an empty state on a page the pack has no results for is timing, not data instability", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
+  const flaky = flakyOnce([flakyCase({ failureResultCount: 0, finalUrl: "https://dev/restaurants", failureSettle: { inFlight: 0, treeStable: true } })]);
+  const result = await new RunQaUseCase(r.deps({ execution: flaky.execution })).run(INPUT);
+  assert.doesNotMatch(kept.seen.corrected[0]![0]!.text, /live data/);
+  assert.deepEqual(result.outcome?.gateSignals.flakyTriage, { cases: 1, dataInstability: 0, timing: 1, outcome: "accepted" });
+});
+
+test("the coverage a flaky run records is recounted from the corrected bytes the triage accepted, after the first measurement", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
+  const flaky = flakyOnce([flakyCase()]);
+  const order: string[] = [];
+  const result = await new RunQaUseCase(r.deps({
+    execution: flaky.execution,
+    config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false, coveragePolicyMode: "signal" },
+    objectiveSignal: {
+      measure: async () => (order.push("measure"), { status: "pass" as const, ratio: 0.5, uncovered: [], untakenArms: [] }),
+      recount: async (_br, _dir, _diff, reruns) => (order.push(`recount:${reruns.map((x) => x.namespace).join(",")}`), { status: "pass" as const, ratio: 1, uncovered: [], untakenArms: [], measurement: { changedLines: 4, coveredChanged: 4, changedFiles: 1, mappedFiles: 1 } }),
+      blocks: () => false,
+    },
+  })).run(INPUT);
+  assert.deepEqual(order, ["measure", "recount:coord-run-acc0"], "the correction is measured after the first measurement, from its own dumps");
+  assert.equal(result.outcome?.gateSignals.coverageRatio, 1, "the record describes the bytes under review");
 });
 
 test("a flaky case with no data state to blame is routed as timing", async () => {
@@ -740,7 +776,7 @@ test("when the lead's correction budget is spent the flaky findings stay unroute
   const flaky = flakyOnce([flakyCase()]);
   const result = await new RunQaUseCase(r.deps({ execution: flaky.execution, config: SPENT })).run(INPUT);
   assert.deepEqual(kept.seen.corrected, []);
-  assert.deepEqual(kept.seen.left.map((l) => [l.origin, l.reason]), [[CORRECTION_ORIGIN.EXECUTION, "lead correction budget spent"]]);
+  assert.deepEqual(kept.seen.left.map((l) => [l.origin, l.reason]), [[CORRECTION_ORIGIN.FLAKY, "lead correction budget spent"]]);
   assert.equal(r.calls.filter((c) => c === "generate").length, 0);
   assert.equal(result.decision.verdict, "flaky");
 });

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CORRECTION_ORIGIN, DEFAULT_CORRECTION_INSTRUCTION, admitLeadCorrection, flowOfFinding, renderLeadCorrection, type FlowUnderCorrection, type CorrectionFinding } from "@contexts/coordination/application/lead-correction.ts";
+import { CORRECTION_ORIGIN, DEFAULT_CORRECTION_INSTRUCTION, admitLeadCorrection, correctionPreamble, flowOfFinding, renderLeadCorrection, type FlowUnderCorrection, type CorrectionFinding } from "@contexts/coordination/application/lead-correction.ts";
 import { REVIEW_ACTION } from "@contexts/coordination/application/lead-review.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
@@ -137,4 +137,11 @@ test("a coverage-only turn shows the lead every flow with the use cases it cover
   for (const needle of ["cart", "uc-/cart", "login", "uc-/login", "src/shared.ts lines 1-2"]) assert.ok(text.includes(needle), needle);
   assert.ok(text.includes("5 further unit"));
   assert.ok(!renderLeadCorrection(redaction, covering, [{ text: "x", file: "src/shared.ts" }], CORRECTION_ORIGIN.COVERAGE).includes("further unit"));
+});
+
+test("flaky findings are told a test passed on retry, and are facts the lead does not rebut", () => {
+  assert.match(correctionPreamble(CORRECTION_ORIGIN.FLAKY), /passed on retry/);
+  assert.doesNotMatch(correctionPreamble(CORRECTION_ORIGIN.FLAKY), /and it failed\./);
+  const observed: CorrectionFinding[] = [{ text: "test \"total\" failed its first attempt and passed on retry", spec: "flows/cart.spec.ts" }];
+  assert.match(renderLeadCorrection(redaction, flows, observed, CORRECTION_ORIGIN.FLAKY), /none is rebutted/);
 });

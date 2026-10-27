@@ -21,7 +21,7 @@ const WRITERS: Record<string, Record<string, readonly string[]>> = {
     addRetries: ["run-flow/phases/execute.steps.ts", "run-flow/phases/fix-loop.steps.ts", "run-flow/phases/review.steps.ts"],
   },
   coverage: {
-    withAcceptanceCalls: ["run-flow/phases/coverage.steps.ts", "run-flow/phases/flaky.steps.ts", "run-flow/phases/review.steps.ts"],
+    withAcceptanceCalls: ["run-flow/phases/coverage.steps.ts", "run-flow/phases/review.steps.ts"],
     acceptedRegeneration: ["run-flow/phases/coverage.steps.ts", "run-flow/phases/review.steps.ts"],
     remeasured: ["run-flow/phases/coverage.steps.ts", "run-flow/phases/review.steps.ts"],
   },

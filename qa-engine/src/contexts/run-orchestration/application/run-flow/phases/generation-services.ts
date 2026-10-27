@@ -125,7 +125,7 @@ export function flakyFindings(triage: readonly FlakyCaseTriage[]): EvidenceFindi
     const subject = `test "${c.name}"${c.file ? ` in ${c.file}` : ""} failed its first attempt and passed on retry; ${evidence}`;
     const detail = c.detail ? ` (${cutDetail(c.detail)})` : "";
     const remedy = flakyClass === FLAKY_CLASS.DATA_INSTABILITY
-      ? "DEV's data changed between attempts, so the spec depends on live data. Stop depending on it: fix the location the spec runs at and derive every expected value from what the page shows when the test runs."
+      ? "DEV's data changed between attempts, so the spec depends on live data. Stop depending on it: derive every expected value from what the page shows when the test runs, or pin the state the app lets a test pin."
       : "the page was not in the state the assertion waited for. Wait on the state the page shows (a web-first assertion on the settled result), never on a fixed delay.";
     return { finding: { text: `${subject}${detail}: ${remedy}`, ...(c.file ? { spec: c.file } : {}) } };
   });

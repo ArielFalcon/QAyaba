@@ -25,6 +25,7 @@ export const CORRECTION_ORIGIN = {
   REVIEW: "review",
   STATIC_GATE: "static-gate",
   EXECUTION: "execution",
+  FLAKY: "flaky",
   COVERAGE: "coverage",
   PRE_EXEC: "pre-exec",
 } as const;
@@ -45,6 +46,11 @@ const ORIGIN_TEXT: Record<CorrectionOrigin, { heading: string; lead: string; sid
     heading: "The run's failing tests",
     lead: "The run executed the specs your sidekicks delivered against DEV and these failed. Each finding is what the execution reported, or a fact the orchestrator found in the failure.",
     sidekick: "The run executed your spec against DEV and it failed. What the orchestrator observed:",
+  },
+  flaky: {
+    heading: "Tests that passed only on retry",
+    lead: "The run executed the specs your sidekicks delivered against DEV and these failed their first attempt and passed on retry. Each finding is what the first attempt showed.",
+    sidekick: "The run executed your spec against DEV: it failed its first attempt and passed on retry. What the orchestrator observed:",
   },
   coverage: {
     heading: "Changed lines no test exercised",

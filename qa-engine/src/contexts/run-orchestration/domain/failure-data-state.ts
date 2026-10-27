@@ -27,13 +27,14 @@ export function contradictsPack(c: QaCase, confirmed: ConfirmedDataRoutes): bool
 }
 
 /*
- * Whether a case's failure point shows DEV's data differing from what the pack read or from nothing at all: a settled capture that
- * read an empty data state, or a count other than the pack's on that page. A page still changing at the capture is a moment of a
- * render, not DEV's data state, so it shows nothing.
+ * Whether a case's failure point shows DEV's data differing from what the pack read: a settled capture that read an empty data state
+ * on a page the pack read with results, or a count other than the pack's on that page. An empty state with no pack evidence that the
+ * page normally has results is what a test that asserts an empty state legitimately reads, so it shows nothing. A page still changing
+ * at the capture is a moment of a render, not DEV's data state, so it shows nothing either.
  */
 export function dataStateDiffers(c: QaCase, confirmed: ConfirmedDataRoutes): boolean {
   if (c.failureResultCount === undefined || failureUnsettled(c.failureSettle)) return false;
-  if (c.failureResultCount === 0) return true;
+  if (c.failureResultCount === 0) return contradictsPack(c, confirmed);
   const known = packCountAt(c, confirmed);
   return known !== undefined && known !== c.failureResultCount;
 }
