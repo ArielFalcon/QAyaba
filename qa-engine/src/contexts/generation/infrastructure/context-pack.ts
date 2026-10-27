@@ -17,6 +17,9 @@ import { changedValueFactIds, domItemIds, itemId } from "../../../shared-kernel/
 import type { Omission } from "@kernel/telemetry/section-meta.ts";
 import { renderChangedValues, valuesWithMoreNodesThanLines, type ObservedPage } from "../domain/changed-values.ts";
 import type { ChangedLiteral } from "../../../shared-kernel/diff-parser/changed-literal.ts";
+import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
+import { classifyPackAvailability, type PackAvailabilityInput } from "./pack-availability.ts";
+import { renderAvailabilitySection } from "../domain/route-availability-section.ts";
 export { PACK_HEADINGS };
 
 const SECTION_FACTS: ReadonlyArray<readonly [string, FactId]> = [
@@ -71,6 +74,9 @@ export interface ContextPackInput {
 
   /* false → no live-DOM capture, no route ranking, no redirect advisory, no "not capturable" list (an A/B arm; default true). Contracts and the pack header stay. */
   domPack?: boolean;
+
+  /* Classify why a captured route was not available at its own address. Absent → no classification and no availability section. */
+  availability?: PackAvailabilityInput;
 }
 
 /* What the pack was made from, for the trace: nothing here reaches the agent or the verdict. */
@@ -136,6 +142,8 @@ export interface ContextPackAssembly {
   trace?: ContextPackTrace;
   /* The added values whose changed-value line states more nodes on a route than unchanged lines hold them. Absent when none does. */
   changedValuesWithMoreNodes?: string[];
+  /* Why each captured route that was not available at its own address was not, and how many routes the capture read. Absent when the pack did not classify. */
+  routeAvailability?: { read: number; facts: RouteAvailabilityFact[] };
 }
 
 /* mutation-scope:begin context-pack-deps */
@@ -628,14 +636,17 @@ export async function buildContextPack(
         omittedLines: 0,
       };
 
+  const routeAvailability = domPack && input.availability !== undefined ? await classifyPackAvailability(input.availability, pages.values(), reportedRoutes, log) : undefined;
+  const availabilitySection = routeAvailability !== undefined ? sanitizeText(renderAvailabilitySection(routeAvailability.facts), "model").text : "";
   const sections = [
     { text: domSection, held: "the live DOM of the routes it covers" },
     { text: changedValuesSection, held: "what the captured pages show of the values the change added and removed" },
     { text: redirectSection, held: "the pages reached by redirect (advisory)" },
+    { text: availabilitySection, held: "why the routes not shown at their own address were not" },
     { text: contractSection, held: "the API contracts relevant to this objective" },
   ].filter(hasText);
   if (sections.length === 0) {
-    return { text: undefined, domBytes: 0, contractBytes: 0, trace };
+    return { text: undefined, domBytes: 0, contractBytes: 0, trace, ...(routeAvailability !== undefined ? { routeAvailability } : {}) };
   }
   /* The list of routes left out accompanies a pack that has something to say; it is no reason to make one. */
   sections.push(...[{ text: renderNotCapturable(notCaptured), held: "the routes not capturable, with why" }].filter(hasText));
@@ -652,5 +663,5 @@ export async function buildContextPack(
   ].join("\n");
 
   const text = packHeader + parts.join("\n\n");
-  return { text, domBytes, contractBytes, trace, ...(moreNodes.length > 0 ? { changedValuesWithMoreNodes: moreNodes } : {}) };
+  return { text, domBytes, contractBytes, trace, ...(moreNodes.length > 0 ? { changedValuesWithMoreNodes: moreNodes } : {}), ...(routeAvailability !== undefined ? { routeAvailability } : {}) };
 }

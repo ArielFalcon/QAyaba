@@ -16,6 +16,7 @@ import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { recordRunFact } from "../reducers.ts";
 import { carryOn } from "../failure-policy.ts";
+import { availabilityGroundingOf } from "../route-availability-grounding.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
 
@@ -95,6 +96,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
   let groundingMoreNodes: readonly string[] = [];
   let groundingConfirmedDataRoutes: RunState["grounding"]["confirmedDataRoutes"];
   let groundingChangedDecisions: RunState["grounding"]["changedDecisions"] = [];
+  let groundingRouteAvailability: RunState["grounding"]["routeAvailability"];
   if (deps.preGenerationGrounding) {
     deps.observer?.onStep("generate", PRE_GENERATION_GROUNDING_STEP_DETAIL);
     try {
@@ -104,7 +106,9 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
         crossRepoImpact: state.grounding.crossRepoImpact,
         candidates: state.grounding.candidates,
         hubPages: hubPagesOf(state.grounding.changeScope),
+        ...availabilityGroundingOf(state, ctx),
       });
+      groundingRouteAvailability = grounding.routeAvailability;
       groundingContextPack = grounding.contextPack;
       groundingContextPackItemIds = grounding.contextPackItemIds;
       groundingContextPackOmissions = grounding.contextPackOmissions;
@@ -137,6 +141,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
         moreNodes: groundingMoreNodes,
         confirmedDataRoutes: groundingConfirmedDataRoutes,
         changedDecisions: groundingChangedDecisions,
+        routeAvailability: groundingRouteAvailability,
       },
     },
   };

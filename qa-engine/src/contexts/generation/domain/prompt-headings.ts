@@ -44,6 +44,8 @@ export const PACK_HEADINGS = {
   contracts: "Relevant API contracts",
   notCapturable: "Routes not capturable",
   redirected: "Pages reached by redirect",
+  /* Why the routes the capture could not show at their own address were not. */
+  availability: "Route availability",
   /* What the captured pages say of the labels the change added and removed. */
   changedValues: "Changed values",
 } as const;
