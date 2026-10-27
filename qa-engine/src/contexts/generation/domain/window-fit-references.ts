@@ -38,33 +38,67 @@ export function domPagesDegrade(opts: {
   };
 }
 
+/* The pack's sections of facts in the order they give way over the window, the last-listed fact of each first, and what each section's facts are. */
+const PACK_FACT_SECTIONS: ReadonlyArray<{ heading: string; noun: string }> = [
+  { heading: PACK_HEADINGS.availability, noun: "route" },
+  { heading: PACK_HEADINGS.requests, noun: "request" },
+  { heading: PACK_HEADINGS.contracts, noun: "contract" },
+];
+
 /*
  * The Context Pack over the window: its Live DOM gives way page by page (the lowest-ranked page first), then its availability
- * facts, then its API contracts, the last-listed fact first, each named by a count. `liveDom` is the heading of the DOM section.
+ * facts, then the requests its pages made, then its API contracts, the last-listed fact first, each named by a count. `liveDom` is the
+ * heading of the DOM section.
  */
 export function packDegrade(opts: { pack: string; liveDom: string; itemIds?: readonly string[]; omissions?: readonly Omission[] }): (step: number) => SectionDegradation | undefined {
   const pages = domPageCount(opts.pack, { section: opts.liveDom });
   const dom = domPagesDegrade({ dom: opts.pack, wrap: (text) => text, section: opts.liveDom, ...(opts.itemIds ? { itemIds: opts.itemIds } : {}), ...(opts.omissions ? { omissions: opts.omissions } : {}) });
-  const facts = sectionFactCount(opts.pack, PACK_HEADINGS.availability);
-  const contracts = sectionFactCount(opts.pack, PACK_HEADINGS.contracts);
+  const sections = PACK_FACT_SECTIONS.map((section) => ({ ...section, facts: sectionFactCount(opts.pack, section.heading) }));
+  const total = sections.reduce((sum, section) => sum + section.facts, 0);
   return (step) => {
     if (step <= pages) return dom(step);
     const count = step - pages;
-    if (count > facts + contracts) return undefined;
+    if (count > total) return undefined;
     const base = pages > 0 ? dom(pages) : undefined;
-    const availability = referenceSectionFacts(base?.content ?? opts.pack, PACK_HEADINGS.availability, Math.min(count, facts), "route");
-    const dropContracts = count > facts ? referenceSectionFacts(availability.text, PACK_HEADINGS.contracts, count - facts, "contract") : undefined;
+    let text = base?.content ?? opts.pack;
+    let remaining = count;
+    let left = 0;
+    const droppedContracts: string[] = [];
+    for (const section of sections) {
+      const given = referenceSectionFacts(text, section.heading, Math.min(remaining, section.facts), section.noun);
+      text = given.text;
+      remaining -= given.left;
+      left += given.left;
+      if (section.heading === PACK_HEADINGS.contracts) droppedContracts.push(...given.dropped);
+    }
     const ids = base?.itemIds ?? opts.itemIds;
     /* A contract left out is no longer an item the pack supplies. */
-    const droppedOps = (dropContracts?.dropped ?? []).flatMap((line) => {
+    const droppedOps = droppedContracts.flatMap((line) => {
       const name = /^- `([^`]*)`/.exec(line)?.[1];
       return name === undefined ? [] : [itemId.op(name)];
     });
     return {
-      content: dropContracts?.text ?? availability.text,
-      omissions: [...(base?.omissions ?? opts.omissions ?? []), windowFit(availability.left + (dropContracts?.left ?? 0))],
+      content: text,
+      omissions: [...(base?.omissions ?? opts.omissions ?? []), windowFit(left)],
       ...(ids ? { itemIds: ids.filter((id) => !droppedOps.includes(id)) } : {}),
     };
+  };
+}
+
+/*
+ * A flow's pages over the window: they give way page by page (the last page first), then the requests those pages made, the last
+ * fact first, each named by a count. `wrap` puts the pages back under their head.
+ */
+export function pagesDegrade(opts: { dom: string; wrap: (dom: string) => string }): (step: number) => SectionDegradation | undefined {
+  const pages = domPageCount(opts.dom);
+  const dom = domPagesDegrade(opts);
+  const facts = sectionFactCount(opts.dom, PACK_HEADINGS.requests);
+  return (step) => {
+    if (step <= pages) return dom(step);
+    if (step - pages > facts) return undefined;
+    const base = pages > 0 ? dom(pages) : undefined;
+    const given = referenceSectionFacts(base?.content ?? opts.wrap(opts.dom), PACK_HEADINGS.requests, step - pages, "request");
+    return { content: given.text, omissions: [...(base?.omissions ?? []), windowFit(given.left)] };
   };
 }
 

@@ -1,4 +1,5 @@
 /* What one DOM capture reports of a route, as the capture script writes it and the grounding reads it. */
+import type { ObservedRequest } from "@kernel/observed-requests.ts";
 
 export interface NodeAttr {
   key: string;
@@ -15,6 +16,12 @@ export interface RepeatedName {
   group: string;
   of: number;
   scope: string[];
+}
+
+/* The data requests (fetch, XHR) a page's code made while it was captured, as the kernel ledger keeps them: method + origin + pathname with a count, and how many the safety bounds left out. */
+export interface PageRequests {
+  listed: ObservedRequest[];
+  omitted: number;
 }
 
 export interface RouteSnapshot {
@@ -60,4 +67,6 @@ export interface RouteSnapshot {
   documentPath?: string;
   /* Whether the capture opened the route with the run's saved session. */
   sessionAttached?: boolean;
+  /* The data requests the page made while it was captured. Absent when it made none. */
+  requests?: PageRequests;
 }

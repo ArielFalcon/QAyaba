@@ -48,6 +48,8 @@ export const PACK_HEADINGS = {
   availability: "Route availability",
   /* What the captured pages say of the labels the change added and removed. */
   changedValues: "Changed values",
+  /* The data requests each captured page made while it was captured. */
+  requests: "Requests the pages made",
 } as const;
 
 /* The artifacts only some prompts assemble: static role text is unconditional, so it must not name any of them. */

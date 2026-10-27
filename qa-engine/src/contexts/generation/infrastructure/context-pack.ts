@@ -20,6 +20,7 @@ import type { ChangedLiteral } from "../../../shared-kernel/diff-parser/changed-
 import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
 import { classifyPackAvailability, type PackAvailabilityInput } from "./pack-availability.ts";
 import { availabilitySectionLines } from "../domain/route-availability-section.ts";
+import { requestsSectionLines, REQUESTS_SECTION_INTRO } from "../domain/pack-requests.ts";
 export { PACK_HEADINGS };
 
 const SECTION_FACTS: ReadonlyArray<readonly [string, FactId]> = [
@@ -524,6 +525,12 @@ export async function buildContextPack(
 
   const moreNodes = changedValuesSection === "" ? [] : valuesWithMoreNodesThanLines(input.changedLiterals ?? [], observedPages);
 
+  /* The data requests each page of the report made while it was captured, whatever the origin: a fact of the page, so a claim that it asks the network for nothing can be held against it. The same pattern redaction every pack text passes (the run's secrets were taken out by value where the capture's output entered). */
+  const requestLines = requestsSectionLines(
+    [...pages.values()].flatMap((page) => (page.requests !== undefined && reportedRoutes.has(page.route) ? [{ route: page.route, ...(page.template !== undefined ? { template: page.template } : {}), requests: page.requests }] : [])),
+  );
+  const requestsSection = requestLines.length > 0 ? sanitizeText([`### ${PACK_HEADINGS.requests} ${REQUESTS_SECTION_INTRO}`, ...requestLines].join("\n"), "model").text : "";
+
   const domBytes = Buffer.byteLength(domSection, "utf8");
   const contractBytes = Buffer.byteLength(contractSection, "utf8");
   const trace: ContextPackTrace = domPack
@@ -557,6 +564,7 @@ export async function buildContextPack(
   const sections = [
     { text: domSection, held: "the live DOM of the routes it covers" },
     { text: changedValuesSection, held: "what the captured pages show of the values the change added and removed" },
+    { text: requestsSection, held: "the data requests the captured pages made" },
     { text: redirectSection, held: "the pages reached by redirect (advisory)" },
     { text: availabilitySection, held: "why the routes not shown at their own address were not" },
     { text: contractSection, held: "the API contracts relevant to this objective" },

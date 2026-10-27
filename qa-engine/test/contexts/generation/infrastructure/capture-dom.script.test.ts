@@ -18,6 +18,7 @@ interface StubPage {
   text?: string | null;
   dataRequestInFlight?: boolean;
   anchors?: string[];
+  requests?: { type: string; method?: string; url: string; failed?: boolean }[];
   elements?: { testId?: string; id?: string; tag?: string }[];
 }
 
@@ -163,4 +164,53 @@ test("no read of the result text waits less than the floor, however little of th
   const { innerTextTimeouts } = runCapture({ env: stateEnv(TEXT_STATE), page: { text: "0 resultados", aria: "- text: empty" } });
   assert.ok(innerTextTimeouts.length >= 2);
   assert.ok(innerTextTimeouts.every((ms) => ms >= CAPTURE_LIMITS.minDataStateReadMs), `timeouts ${innerTextTimeouts.join(",")}`);
+});
+
+/* What a page asks the network on opening: its code's data requests, a style sheet and an image (assets, not asked of the network by the page's code), and a request that never completes. */
+const STYLE_URL = "https://maps.example/styles/v1/owner/theme-a";
+const REQUEST_PAGE: StubPage = {
+  requests: [
+    { type: "fetch", url: `${STYLE_URL}?access=sensitive-value#frag` },
+    { type: "xhr", url: `${STYLE_URL}?access=another` },
+    { type: "xhr", method: "POST", url: `${BASE_URL}/api/orders` },
+    { type: "stylesheet", url: `${BASE_URL}/theme.css` },
+    { type: "image", url: "https://cdn.example/logo.png" },
+    { type: "fetch", url: "https://blocked.example/ping", failed: true },
+    { type: "fetch", url: "data:text/plain,hello" },
+  ],
+};
+
+test("a route reports the data requests its page made as method, origin and path with a count, never the query or the fragment", () => {
+  const requests = runCapture({ page: REQUEST_PAGE }).lines[0]!.requests as Record<string, unknown>[];
+  assert.deepEqual(requests, [
+    { method: "GET", url: STYLE_URL, count: 2 },
+    { method: "POST", url: `${BASE_URL}/api/orders`, count: 1 },
+    { method: "GET", url: "https://blocked.example/ping", count: 1, failed: true },
+  ]);
+  assert.equal(JSON.stringify(requests).includes("sensitive-value"), false);
+});
+
+test("a route whose page made no data request reports none", () => {
+  const line = runCapture({ page: { requests: [{ type: "image", url: "https://cdn.example/a.png" }] } }).lines[0]!;
+  assert.equal("requests" in line, false);
+  assert.equal("requestsOmitted" in line, false);
+});
+
+test("the requests of one route are not carried into the next", () => {
+  const { lines } = runCapture({ input: { routes: ["/", "/shop"] }, page: { requests: [{ type: "fetch", url: `${BASE_URL}/api/a` }] } });
+  assert.deepEqual(lines.map((line) => (line.requests as unknown[]).length), [1, 1]);
+  assert.deepEqual((lines[1]!.requests as { count: number }[]).map((r) => r.count), [1]);
+});
+
+test("a page that asks for more distinct requests than the limit is held to it and the rest is counted", () => {
+  const requests = Array.from({ length: 5 }, (_, i) => ({ type: "fetch", url: `${BASE_URL}/api/r${i}` }));
+  const line = runCapture({ page: { requests }, limits: { maxRequestsPerRoute: 3 } }).lines[0]!;
+  assert.equal((line.requests as unknown[]).length, 3);
+  assert.equal(line.requestsOmitted, 2);
+});
+
+test("an address longer than the limit is cut by the script before it is reported", () => {
+  const long = `${BASE_URL}/${"x".repeat(60)}`;
+  const requests = runCapture({ page: { requests: [{ type: "fetch", url: long }] }, limits: { maxHrefChars: 40 } }).lines[0]!.requests as { url: string }[];
+  assert.ok(requests[0]!.url.length <= 40 + BASE_URL.length);
 });

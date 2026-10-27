@@ -5,6 +5,7 @@ import { AsyncResource } from "node:async_hooks";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { redactByValue } from "../../../shared-kernel/run-secret-redaction.ts";
+import { MAX_LOGGED_REQUESTS, RequestLedger, requestAddress, type ObservedRequest } from "@kernel/observed-requests.ts";
 import type { ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { BoundedWholeOutput } from "../../../shared-kernel/process-sandbox/bounded-whole-output.ts";
@@ -17,7 +18,7 @@ import { MAX_LINK_LENGTH, MAX_LINKS_PER_PAGE, sameOriginPathnames } from "../dom
 import { loggableRoutes } from "./loggable-route.ts";
 import { dataStateRouteFor } from "../domain/data-state-route.ts";
 import { parseAriaSnapshot, parseAriaSnapshotWithState } from "../domain/aria-snapshot.ts";
-import type { NodeAttr, RepeatedName, RouteSnapshot } from "../domain/route-snapshot.ts";
+import type { NodeAttr, PageRequests, RepeatedName, RouteSnapshot } from "../domain/route-snapshot.ts";
 import type { RouteNavigation } from "../domain/route-availability-classifier.ts";
 import { pathOnly } from "@kernel/route-availability.ts";
 
@@ -423,6 +424,8 @@ export interface CapturedPage {
   nodes?: readonly string[];
   /* What the availability classification reads of the page's navigation. */
   navigation?: RouteNavigation;
+  /* The data requests the page made while it was captured. Absent when it made none. */
+  requests?: PageRequests;
 }
 
 /* What one captured page supplied and lost, for the trace: the kept nodes and test ids (within the node safety bound), the node→test-id map, and how many the bound left out. What a prompt shows of the page is the window's to decide, and its prompt records what the window left out. */
@@ -491,6 +494,7 @@ export async function captureDomForRoutes(
         ...(snap.captureAttempts !== undefined ? { captureAttempts: snap.captureAttempts } : {}),
         dataStateUnconfirmed: dataStateUnconfirmed(snap),
         navigation: navigationOf(template === undefined ? snap : { ...snap, template }),
+        ...(snap.requests !== undefined ? { requests: snap.requests } : {}),
       };
     }));
     const reported = snaps
@@ -638,6 +642,7 @@ export const CAPTURE_LIMITS = {
   maxHrefChars: MAX_HREF_CHARS,
   maxRepeatedPerRoute: MAX_REPEATED_PER_ROUTE,
   maxNamesResolved: MAX_NAMES_RESOLVED,
+  maxRequestsPerRoute: MAX_LOGGED_REQUESTS,
   maxScopeChars: MAX_SCOPE_CHARS,
   maxScopeDepth: MAX_SCOPE_DEPTH,
 } as const;
@@ -691,6 +696,26 @@ function repeatedFrom(value: unknown): RepeatedName[] | undefined {
     out.push({ group: group.slice(0, 2 * MAX_SCOPE_CHARS), of, scope: names });
   }
   return out.length > 0 ? out : undefined;
+}
+
+/*
+ * The requests the script reported for a route, read through the kernel ledger so they are kept and bounded as the authenticated browser's
+ * are: a request is method + origin + pathname whatever the script sent (a query or fragment it left on is dropped), a method that is not
+ * a token, an address that is not http(s) or a count that is not a whole number is not believed, and past the ledger's bounds a new
+ * distinct request is only counted. `omitted` adds what the script itself left out. Undefined when nothing was reported.
+ */
+function requestsFrom(value: unknown, scriptOmitted: unknown): PageRequests | undefined {
+  const ledger = new RequestLedger();
+  for (const entry of Array.isArray(value) ? value : []) {
+    const { method, url, count, failed } = (entry ?? {}) as { method?: unknown; url?: unknown; count?: unknown; failed?: unknown };
+    if (typeof method !== "string" || !/^[A-Za-z]{1,16}$/.test(method) || typeof url !== "string" || !Number.isInteger(count) || (count as number) < 1) continue;
+    const address = requestAddress(url);
+    if (address === undefined || (address.protocol !== "http:" && address.protocol !== "https:")) continue;
+    ledger.addListed(method.toUpperCase(), address.address, failed === true, count as number);
+  }
+  if (Number.isInteger(scriptOmitted) && (scriptOmitted as number) > 0) ledger.addOmitted(scriptOmitted as number);
+  const { listed, omitted } = ledger.drain();
+  return listed.length === 0 && omitted === 0 ? undefined : { listed, omitted };
 }
 
 /* The routes the capture script wrote, one JSON object per line (an earlier script wrote one array, still read). A line cut by a kill is not a route; output with no readable line throws, and the capture reports it unparseable. */
@@ -833,7 +858,7 @@ export function createCaptureDomDeps(
           if (finished) return;
           try {
             /* The page decides what it shows, and it can show the account's password: the run's secrets are taken out of the document by value before it is read (a JSON-escaped spelling of each is replaced too). */
-            const raw = captureLines(redactByValue(stdout.text())) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; hrefs?: unknown; repeated?: unknown; absent?: unknown; ms?: unknown; dataState?: unknown; ready?: unknown; resultExpected?: unknown; resultCount?: unknown; emptyConfirmed?: unknown; effectiveLocation?: unknown; captureAttempts?: unknown } & RawNavigationFacts>;
+            const raw = captureLines(redactByValue(stdout.text())) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; hrefs?: unknown; repeated?: unknown; absent?: unknown; ms?: unknown; dataState?: unknown; ready?: unknown; resultExpected?: unknown; resultCount?: unknown; emptyConfirmed?: unknown; effectiveLocation?: unknown; captureAttempts?: unknown; requests?: unknown; requestsOmitted?: unknown } & RawNavigationFacts>;
             const read = new Set(raw.map((r) => r.route));
             const unread = routes.filter((route) => !read.has(route));
             if (unread.length > 0) engineLog.warn(`[qa] WARNING: DOM capture ended before it read ${unread.length} route(s) [${loggableRoutes(unread)}] — those routes are not grounded.`);
@@ -876,6 +901,8 @@ export function createCaptureDomDeps(
               const captureAttempts = captureAttemptsOf(r.captureAttempts);
               if (captureAttempts !== undefined) snap.captureAttempts = captureAttempts;
               Object.assign(snap, navigationFactsOf(r));
+              const requests = requestsFrom(r.requests, r.requestsOmitted);
+              if (requests !== undefined) snap.requests = requests;
               return snap;
             }));
           } catch {

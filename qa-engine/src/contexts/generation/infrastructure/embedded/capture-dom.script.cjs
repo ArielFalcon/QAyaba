@@ -1,7 +1,7 @@
 // @ts-check
 /* The capture of a page's DOM for the orchestrator, run as its own node process through the execution launcher (profile "suite"). Its input is PW_CAPTURE_INPUT (JSON: baseUrl, routes, probe, limits) and the PW_* / DEV_ENV_* names of its environment; its output is one JSON line per route on stdout. The page it reads is untrusted: every bound in `limits` caps what a page can make it report. PLAYWRIGHT_PATH is prepended by buildCaptureScript. */
 /**
- * @typedef {{ navigationTimeoutMs: number, settleTimeoutMs: number, defaultDataStateWaitMs: number, retryDataStateWaitMs: number, minDataStateReadMs: number, maxLinksPerPage: number, maxHrefChars: number, maxRepeatedPerRoute: number, maxNamesResolved: number, maxScopeChars: number, maxScopeDepth: number }} CaptureLimits
+ * @typedef {{ navigationTimeoutMs: number, settleTimeoutMs: number, defaultDataStateWaitMs: number, retryDataStateWaitMs: number, minDataStateReadMs: number, maxLinksPerPage: number, maxHrefChars: number, maxRepeatedPerRoute: number, maxNamesResolved: number, maxRequestsPerRoute: number, maxScopeChars: number, maxScopeDepth: number }} CaptureLimits
  * @typedef {{ type: string, text: string }} RuntimeError
  * @typedef {{ readySelector?: string, resultSelector?: string, resultTextSelector?: string, locationSelector?: string, timeoutMs?: number }} DataStateSettings
  * @typedef {{ key: string, testId?: string, id?: string, name?: string, href?: string, inputType?: string, nameFallback?: string }} RawAttr
@@ -50,9 +50,37 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
     const dataRequestsInFlight = new Set();
     /** @param {any} request */
     function isDataRequest(request) { try { const type = request.resourceType(); return type === "fetch" || type === "xhr"; } catch(_r) { return false; } }
-    page.on("request", function(/** @type {any} */ request) { if (isDataRequest(request)) dataRequestsInFlight.add(request); });
+    /* The data requests (fetch, XHR) the page's code made since the route was opened, as method + origin + pathname with a count: the query, the fragment, the userinfo and every body and header stay in the browser. The page is untrusted, so at most limits.maxRequestsPerRoute distinct ones are kept, each address within limits.maxHrefChars, and the rest is only counted. A request that failed (refused by the egress filter, the network or the page) is marked. */
+    /** @type {Map<string, { method: string, url: string, count: number, failed: boolean }>} */
+    let routeRequests = new Map();
+    let requestsOmitted = 0;
+    /** @type {WeakMap<object, string>} */
+    const requestKeys = new WeakMap();
+    /** @param {any} request */
+    function noteRequest(request) {
+      try {
+        if (!isDataRequest(request)) return;
+        const parsed = new URL(request.url());
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return;
+        const method = String(request.method()).toUpperCase();
+        const address = (parsed.origin + parsed.pathname).slice(0, limits.maxHrefChars);
+        const key = method + " " + address;
+        const held = routeRequests.get(key);
+        if (held) held.count++;
+        else if (routeRequests.size < limits.maxRequestsPerRoute) routeRequests.set(key, { method: method, url: address, count: 1, failed: false });
+        else { requestsOmitted++; return; }
+        requestKeys.set(request, key);
+      } catch(_r) { /* a request the script cannot read is not kept */ }
+    }
+    /** @param {any} request */
+    function noteFailed(request) {
+      const key = requestKeys.get(request);
+      const held = key === undefined ? undefined : routeRequests.get(key);
+      if (held) held.failed = true;
+    }
+    page.on("request", function(/** @type {any} */ request) { if (isDataRequest(request)) dataRequestsInFlight.add(request); noteRequest(request); });
     page.on("requestfinished", function(/** @type {any} */ request) { dataRequestsInFlight.delete(request); });
-    page.on("requestfailed", function(/** @type {any} */ request) { dataRequestsInFlight.delete(request); });
+    page.on("requestfailed", function(/** @type {any} */ request) { dataRequestsInFlight.delete(request); noteFailed(request); });
     /* The app's declared data-state selectors (dev.dataState), read from the child's env: readiness/result/location per route path, keyed like the routes the capture is asked for. */
     /** @type {Record<string, DataStateSettings> | any} */
     let stateRoutes = null;
@@ -122,6 +150,8 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
     async function readRoute(route, retry) {
       currentRouteErrors = [];
       dataRequestsInFlight.clear();
+      routeRequests = new Map();
+      requestsOmitted = 0;
       const routeStartedAt = Date.now();
       try {
         const response = await page.goto(new URL(route, baseUrl).toString(), { waitUntil: "domcontentloaded", timeout: limits.navigationTimeoutMs });
@@ -348,6 +378,8 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
         }
         /** @type {Record<string, any>} */
         const entry = { route, yaml, rawAttrs, testIdRawList, testIdAttr, settled, runtimeErrors: currentRouteErrors, finalUrl, hrefs, repeated, absent, ms: Date.now() - routeStartedAt, ...navigation };
+        if (routeRequests.size > 0) entry.requests = Array.from(routeRequests.values()).map(function(r) { return r.failed ? { method: r.method, url: r.url, count: r.count, failed: true } : { method: r.method, url: r.url, count: r.count }; });
+        if (requestsOmitted > 0) entry.requestsOmitted = requestsOmitted;
         if (dataState) {
           entry.dataState = true;
           if (ready !== undefined) entry.ready = ready;

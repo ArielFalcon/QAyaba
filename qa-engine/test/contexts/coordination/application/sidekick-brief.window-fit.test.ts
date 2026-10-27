@@ -75,3 +75,20 @@ test("the executor sends the brief rendered with the fit rule it is given", asyn
   await sidekick.execute(brief, { cwd: "/w", kind: "author", fit: windowOf(bytesOf(whole.text) - 20_000) });
   assert.equal(sent[1]!.includes("end-79"), false, "over the window the listing gave way");
 });
+
+const REQUEST_FACTS = Array.from({ length: 40 }, (_, i) => `- /cart: GET https://api.example/v${i}/resource`);
+const PAGES_WITH_REQUESTS = [PAGES, "", `### ${PACK_HEADINGS.requests} (data requests)`, ...REQUEST_FACTS].join("\n");
+
+test("the requests of the flow's pages reach the brief whole while the window holds them, and over it give way after the pages, last fact first, as a count", () => {
+  const brief = createDelegationBrief({ ...base, pages: PAGES_WITH_REQUESTS });
+  const whole = assembleSidekickBrief(redaction, brief, roomy);
+  assert.ok(whole.text.includes("https://api.example/v39/resource"));
+
+  const over = assembleSidekickBrief(redaction, brief, windowOf(bytesOf(whole.text) - 16_500));
+  assert.match(over.text, /route \/checkout:\n {2}\(this page's 300 line\(s\) are not shown here, to fit the window\)/, "the pages gave way first");
+  assert.match(over.text, /route \/cart:\n {2}\(this page's 300 line\(s\) are not shown here, to fit the window\)/, "every page gave way before a request did");
+  assert.ok(over.text.includes("https://api.example/v0/resource"), "the first fact stays");
+  assert.equal(over.text.includes("https://api.example/v39/resource"), false, "the last fact gave way");
+  assert.match(over.text, /\(\d+ more request\(s\) are not shown here, to fit the window\)/);
+  assert.ok(over.sectionItems["context-pack"]?.omissions.some((o) => o.reason === WINDOW_FIT_REASON && o.route === undefined));
+});

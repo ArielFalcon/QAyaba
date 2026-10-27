@@ -57,6 +57,12 @@ const chromium = {
                 url = target;
                 record({ goto: target });
                 if (page.dataRequestInFlight) for (const handler of handlers.request || []) handler({ resourceType: () => "fetch" });
+                /* `requests`: what the page asks the network on opening; one marked `failed` is then reported failed. */
+                for (const spec of page.requests || []) {
+                  const request = { resourceType: () => spec.type, method: () => spec.method || "GET", url: () => spec.url };
+                  for (const handler of handlers.request || []) handler(request);
+                  if (spec.failed) for (const handler of handlers.requestfailed || []) handler(request);
+                }
               },
               async waitForLoadState() {},
               url: () => url,

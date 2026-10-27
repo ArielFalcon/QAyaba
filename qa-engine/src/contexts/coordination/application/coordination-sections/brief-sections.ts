@@ -4,7 +4,7 @@
  * and must not do) and the tools it holds; the prompt-contract lint holds it to that (R17) and to stating only what its turn
  * grants (R18). One tier: the static sections (the tools) open the brief, then the run's facts by priority.
  */
-import { claim, countByDirectory, domPagesDegrade, harnessFactLines, NOT_SHOWN, stepsDegrade, suiteEntryFile } from "@contexts/generation/application/index.ts";
+import { claim, countByDirectory, harnessFactLines, NOT_SHOWN, pagesDegrade, stepsDegrade, suiteEntryFile } from "@contexts/generation/application/index.ts";
 import type { PromptSectionDef, SectionRender } from "@kernel/prompt-sections.ts";
 import type { PromptClaim } from "@kernel/prompt-claim.ts";
 import { ACCEPTANCE_STATUSES } from "../acceptance-report.ts";
@@ -179,8 +179,8 @@ export const AUTHOR_BRIEF_SECTIONS: readonly PromptSectionDef<BriefPromptContext
     applies: ({ brief }) => Boolean(brief.pages),
     render: ({ brief }) => {
       const wrap = (pages: string): string => ["## Pages of this flow (from the run's Context Pack)", pages].join("\n");
-      /* Whole pages; over the window the last page gives way first, named by its route. */
-      return { content: wrap(brief.pages!), degrade: domPagesDegrade({ dom: brief.pages!, wrap }) };
+      /* Whole pages; over the window the last page gives way first, named by its route, then the requests those pages made, last fact first. */
+      return { content: wrap(brief.pages!), degrade: pagesDegrade({ dom: brief.pages!, wrap }) };
     },
   }),
   section({
