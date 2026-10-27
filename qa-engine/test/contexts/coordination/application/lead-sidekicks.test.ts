@@ -372,7 +372,7 @@ test("the planning turn is given the limits the plan is held to, and one that ra
   const seen: PlanningLimits[] = [];
   const timedOut = await r.coordinator.coordinate(input(r, { plan: async (p) => (seen.push(p), { parsed: false, timedOut: true }) }));
   assert.equal(timedOut.action === "refused" ? timedOut.refusal : undefined, AUTHORING_REFUSAL.PLAN_TIMED_OUT);
-  assert.deepEqual(seen[0], { maxFlows: DEFAULT_COORDINATION_SETTINGS.maxFlows, maxParallel: DEFAULT_COORDINATION_SETTINGS.maxParallel, budgetMs: DEFAULT_COORDINATION_SETTINGS.planBudgetMs });
+  assert.deepEqual(seen[0], { maxParallel: DEFAULT_COORDINATION_SETTINGS.maxParallel, flowBudgetMs: DEFAULT_COORDINATION_SETTINGS.flowBudgetMs.opencode, budgetMs: DEFAULT_COORDINATION_SETTINGS.planBudgetMs });
   const nothing = await r.coordinator.coordinate(input(r, { plan: async () => ({ parsed: true, timedOut: false }) }));
   assert.equal(nothing.action === "refused" ? nothing.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${PLAN_DOWNGRADE.NO_PLAN}`);
   assert.equal(r.executed.length, 0);
@@ -438,7 +438,8 @@ test("a flow is given its own run_spec loop, staged at the probe path of its fil
   assert.equal(await cart.input.stage(), ".qa-probe/cart.spec.ts");
   assert.deepEqual(r.staged, ["run-1-flow-cart:e2e/flows/cart.spec.ts->.qa-probe/cart.spec.ts"]);
   assert.ok(r.flowLoops.every((l) => l.closed === 1));
-  assert.deepEqual([...r.shares].sort(), [["run-1-flow-cart", 30], ["run-1-flow-login", 30]]);
+  /* The browser's 60 calls split to 30 a flow, but a flow's 8 minutes run at most 16 calls of 30 seconds. */
+  assert.deepEqual([...r.shares].sort(), [["run-1-flow-cart", 16], ["run-1-flow-login", 16]]);
 });
 
 test("a sidekick is told its tool budgets in the task: the run_spec share of its flow and the browser's", async () => {
@@ -446,7 +447,7 @@ test("a sidekick is told its tool budgets in the task: the run_spec share of its
   await r.coordinator.coordinate(input(r));
   const task = r.executed.find((e) => e.brief.delegationId === "run-1-flow-cart")!.brief.task;
   assert.match(task, /run_spec: at most 4 calls/);
-  assert.match(task, /at most 30 authbrowser_\* calls/);
+  assert.match(task, /at most 16 authbrowser_\* calls/);
   assert.match(task, /e2e\/flows\/cart\.spec\.ts/);
   const bare = rig();
   await bare.coordinator.coordinate(input(bare, { closedLoop: undefined }));
@@ -1942,4 +1943,70 @@ test("the sidekick is told its last run_spec call ended on an earlier version of
   if (outcome.action === "fanout") await outcome.pass?.release();
   const cart = r.executed.filter((e) => e.brief.delegationId === "run-1-flow-cart");
   assert.match(cart[1]!.opts.feedback ?? "", /The last run_spec call ended failed, on an earlier version of your spec\./);
+});
+
+/* A one-hunk diff of each file: `added` lines added and one removed. */
+const diffOf = (files: Record<string, number>): string =>
+  Object.entries(files).map(([file, added]) => [`diff --git a/${file} b/${file}`, `--- a/${file}`, `+++ b/${file}`, `@@ -1,1 +1,${added} @@`, "-old", ...Array.from({ length: added }, (_, i) => `+line ${i}`)].join("\n")).join("\n");
+const ORDERS_FLOW = { id: "orders", objective: "the order list", candidates: ["uc-/orders"] };
+const CITING_THREE = { kind: "fanout", flows: [...CITING_PLAN.flows, ORDERS_FLOW] };
+
+test("the planning turn is told the run's capacity from its time and parallel flows, and the change each candidate would own", async () => {
+  const r = rig();
+  const seen: PlanningLimits[] = [];
+  /* 63 min left, 3 for the plan: 60, a quarter kept, 45 min of 10 min flows is 4 waves of 2. */
+  const settings = { ...DEFAULT_COORDINATION_SETTINGS, maxParallel: 2, flowBudgetMs: { opencode: 10 * 60_000 } };
+  await r.coordinator.coordinate(input(r, { settings, deadline: { remainingMs: () => 63 * 60_000 }, candidates: SEEDED, change: { diffs: [diffOf({ "src/cart.ts": 3, "src/login.ts": 1 })] }, plan: async (p) => (seen.push(p), { parsed: false, timedOut: true }) }));
+  assert.equal(seen[0]!.capacity, 8);
+  assert.deepEqual(seen[0]!.candidateSlices?.["uc-/cart"], { hunks: 1, added: 3, removed: 1 });
+  assert.deepEqual(seen[0]!.candidateSlices?.["uc-/orders"], { hunks: 0, added: 0, removed: 0 });
+  const ceiling: PlanningLimits[] = [];
+  await rig().coordinator.coordinate(input(r, { settings: { ...settings, maxFlows: 3 }, deadline: { remainingMs: () => 63 * 60_000 }, plan: async (p) => (ceiling.push(p), { parsed: false, timedOut: true }) }));
+  assert.equal(ceiling[0]!.capacity, 3, "the app's ceiling bounds it");
+});
+
+test("flows past the run's capacity, the use cases only they covered and a contradicted drop are asked of the lead in one amendment turn; what is still past it is recorded not admitted", async () => {
+  const plan = { ...CITING_THREE, dropped: [{ candidate: "uc-/checkout", basis: "no-observable-change", reason: "only a stylesheet changed" }] };
+  const lead = leadCiting([ACCEPT_ALL], plan, { plan });
+  const r = rig({ hasFile: new Set(["cart", "login"]) });
+  const settings = { ...DEFAULT_COORDINATION_SETTINGS, maxParallel: 2, maxFlows: 2 };
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { settings, plan: lead.plan, closedLoop: undefined, candidates: [...SEEDED, seededPage("/checkout", "src/checkout.ts")] }));
+  if (outcome.action !== "fanout") return assert.fail(`fanout expected, got ${outcome.action}`);
+  await outcome.pass?.release();
+  assert.equal(lead.replans.length, 1, "one amendment turn, never one per kind of question");
+  const amendment = lead.replans[0]!;
+  assert.match(amendment, /orders/, "the flow past the capacity is named");
+  assert.match(amendment, /uc-\/orders/, "the use case only that flow covered is unresolved");
+  assert.match(amendment, /src\/checkout\.ts/, "the fact that contradicts the drop is shown");
+  assert.match(amendment, /\b2\b/, "the capacity is stated");
+  assert.equal(outcome.signal.capacity, 2);
+  assert.deepEqual(outcome.signal.notAdmitted, ["orders"]);
+  assert.deepEqual(r.plans.at(-1)!.flows.map((f) => f.id), ["cart", "login"]);
+  assert.ok(r.events.some((e) => e.kind === "lead-decision" && /not admitted/.test(e.reason ?? "") && /orders/.test(e.reason ?? "")));
+});
+
+test("an admitted flow whose owned change alone does not fit an author's window is asked of the lead to split, in the same one amendment turn", async () => {
+  const windows = { windowTokens: () => 1_000 };
+  const room = { forRole: () => ({ growthTokensPerStep: 100, steps: 5, basis: "history" as const, samples: 3 }) };
+  const lead = leadCiting([ACCEPT_ALL], CITING_PLAN, { plan: CITING_PLAN });
+  const r = rig();
+  const coordinator = new LeadSidekicks({ ...r.deps, contextBudget: new ContextBudget(windows, room) });
+  /* 500 tokens of room leaves 500 of a 1,000-token window: 400 added lines of cart are well over 2,000 bytes. */
+  const outcome = await coordinator.coordinate(input(r, { plan: lead.plan, closedLoop: undefined, candidates: SEEDED.slice(0, 2), change: { diffs: [diffOf({ "src/cart.ts": 400, "src/login.ts": 2 })] } }));
+  if (outcome.action !== "fanout") return assert.fail(`fanout expected, got ${outcome.action}`);
+  await outcome.pass?.release();
+  assert.equal(lead.replans.length, 1);
+  assert.match(lead.replans[0]!, /cart/);
+  assert.doesNotMatch(lead.replans[0]!, /\blogin\b/, "a flow that fits is not asked about");
+  assert.deepEqual(outcome.signal.oversize, ["cart"]);
+});
+
+test("a plan within the run's capacity, answering for every candidate, with flows that fit is admitted with no amendment turn", async () => {
+  const lead = leadCiting([ACCEPT_ALL], CITING_PLAN);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, candidates: SEEDED.slice(0, 2) }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  assert.equal(lead.replans.length, 0);
+  assert.equal(outcome.signal.notAdmitted, undefined);
+  assert.equal(outcome.signal.oversize, undefined);
 });

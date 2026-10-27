@@ -1328,7 +1328,7 @@ test("plan() hands the use case the input a first pass has, with the limits of t
     },
   });
   const adapter = new GenerationTurnsAdapter(useCase, { ...STATIC_CONTEXT, guidance: "cover the cart" });
-  const planning = { maxFlows: 4, maxParallel: 2, budgetMs: 120_000 };
+  const planning = { capacity: 4, maxParallel: 2, budgetMs: 120_000 };
   const result = await adapter.plan("/mirrors/org/app/e2e", undefined, "the diff", { sha: "abc1234", runId: "run-9", planning });
   assert.deepEqual(result.plan, { kind: "single" });
   assert.equal(seen.length, 1);
@@ -1353,7 +1353,7 @@ test("plan() forwards a plan turn that ran out of time and one that gave a no-op
   for (const outcome of outcomes) {
     const useCase = Object.assign(new GenerateTestsUseCase(fakeAuthoringPorts()), { plan: async () => outcome });
     const adapter = new GenerationTurnsAdapter(useCase, { ...STATIC_CONTEXT});
-    const result = await adapter.plan("/mirrors/org/app/e2e", undefined, "diff", { sha: "abc1234", planning: { maxFlows: 3, maxParallel: 2, budgetMs: 60_000 } });
+    const result = await adapter.plan("/mirrors/org/app/e2e", undefined, "diff", { sha: "abc1234", planning: { capacity: 3, maxParallel: 2, budgetMs: 60_000 } });
     assert.equal(result.timedOut, outcome.timedOut);
     assert.equal(result.noopReason, "noopReason" in outcome ? outcome.noopReason : undefined);
   }

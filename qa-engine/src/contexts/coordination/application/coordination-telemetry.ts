@@ -61,6 +61,10 @@ export interface CoordinationTelemetryEvent {
   /** The bases of the plan's drops, and whether the run's facts contradicted them. */
   readonly dropBases?: readonly string[];
   readonly dropContradicted?: boolean;
+  /** The flows the run could author when its plan was admitted, the flows past it that were not admitted, and the admitted flows too large for one author's window, by id. */
+  readonly capacity?: number;
+  readonly notAdmitted?: readonly string[];
+  readonly oversize?: readonly string[];
   /** What the lead decided about a flow (accept, revise, replace, drop), whether the orchestrator did not take it as given, and the code of why. */
   readonly decision?: string;
   readonly overridden?: boolean;

@@ -13,7 +13,7 @@ const deps = {
   places: { barcelona: BARCELONA, madrid: MADRID },
 };
 
-const limits = { maxFlows: 6, maxParallel: 3, flowBudgetMs: 600_000, remainingMs: 3_600_000, reserveMs: 600_000, minFlowMs: 60_000, runSpecCalls: 8, runSpecDevWrites: 20, browserCalls: 150 };
+const limits = { maxParallel: 3, flowBudgetMs: 600_000, remainingMs: 3_600_000, reserveMs: 600_000, minFlowMs: 60_000, runSpecCalls: 8, runSpecDevWrites: 20, browserCalls: 150 };
 
 const flow = (id: string, location: unknown) => ({ id, objective: `check ${id}`, acceptance: [`${id} works`], routes: [`/${id}`], location });
 

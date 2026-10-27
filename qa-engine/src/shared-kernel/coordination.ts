@@ -1,6 +1,6 @@
 /* How a run is coordinated, as the layers around it share it: the limits of the lead/sidekick coordination and what a run records about it. */
 
-import type { UseCaseCandidate } from "./use-case-candidate.ts";
+import type { OwnedSliceSize, UseCaseCandidate } from "./use-case-candidate.ts";
 
 /* The shapes of the plan a lead emits when it is asked for one. */
 export const LEAD_PLAN_KIND = {
@@ -13,10 +13,12 @@ export type LeadPlanKind = (typeof LEAD_PLAN_KIND)[keyof typeof LEAD_PLAN_KIND];
 
 /* What the lead's planning turn is told about the plan it may give: the numbers the orchestrator will hold it to. */
 export interface PlanningLimits {
-  /* The most flows the plan may name. */
-  maxFlows: number;
+  /* The flows the run can author (the flows that run at once x the full flow budgets left in the run, bounded by the app's ceiling); a plan's flows past it are not admitted and are asked of the lead again. Absent: nothing bounds them. */
+  capacity?: number;
   /* The most flows that run at once. */
   maxParallel: number;
+  /* The longest one flow may take. */
+  flowBudgetMs?: number;
   /* The longest the planning turn may take. */
   budgetMs: number;
   /* The places the app declares, when it declares a location: a flow may name one. Absent: the plan names no location. */
@@ -25,7 +27,11 @@ export interface PlanningLimits {
   candidates?: readonly UseCaseCandidate[];
   /* How many less direct use cases the change reaches that the plan is not required to cover. */
   otherCandidates?: number;
+  /* The part of the change each candidate's flow would own (its owned slice), by candidate id: so the lead groups candidates into flows of a workable size. */
+  candidateSlices?: Readonly<Record<string, OwnedSliceSize>>;
 }
+
+export type { OwnedSliceSize };
 
 /* The longest one flow may take, by the runtime its sidekick runs on. */
 export interface FlowBudgets {
@@ -35,8 +41,8 @@ export interface FlowBudgets {
 export interface CoordinationSettings {
   /* The most flows that run at once. */
   maxParallel: number;
-  /* The most flows a plan may name. */
-  maxFlows: number;
+  /* The app's ceiling on flows, for cost; absent: the run's time alone bounds them. */
+  maxFlows?: number;
   /* The longest the lead's planning turn may take. */
   planBudgetMs: number;
   flowBudgetMs: FlowBudgets;
@@ -44,7 +50,6 @@ export interface CoordinationSettings {
 
 export const DEFAULT_COORDINATION_SETTINGS: CoordinationSettings = {
   maxParallel: 3,
-  maxFlows: 6,
   planBudgetMs: 180_000,
   flowBudgetMs: { opencode: 480_000 },
 };
@@ -82,6 +87,12 @@ export interface CoordinationGateSignal {
   incomplete: number;
   /* What the sidekicks authored with ("authenticated-browser", "run-spec-only", "unauthenticated-browser", or why none ran). */
   authoring?: string;
+  /* The flows the run could author when its plan was admitted; absent when nothing bounded them. */
+  capacity?: number;
+  /* The flows of the plan past that capacity after the lead was asked about them, by id: not authored. Absent when there was none. */
+  notAdmitted?: string[];
+  /* The admitted flows whose owned change alone does not fit an author's window after the lead was asked to split them, by id. Absent when there was none. */
+  oversize?: string[];
   /* The drops the run's facts contradicted (a code file with added lines, no spec linked) that the lead kept when asked once more, per candidate: honored, never an error, counted by graders and the campaign report. Absent when there was none. */
   dropsContradicted?: Array<{ candidate: string; basis: string; why: string }>;
   /* The lead's review of the flows: its turns, the decisions admitted, and those the orchestrator refused. Absent when the lead reviewed nothing. */
@@ -100,7 +111,7 @@ export function resolveCoordinationSettings(configured?: {
   const d = DEFAULT_COORDINATION_SETTINGS;
   return {
     maxParallel: configured?.maxParallel ?? d.maxParallel,
-    maxFlows: configured?.maxFlows ?? d.maxFlows,
+    ...(configured?.maxFlows !== undefined ? { maxFlows: configured.maxFlows } : {}),
     planBudgetMs: configured?.planBudgetMs ?? d.planBudgetMs,
     flowBudgetMs: {
       opencode: configured?.flowBudgetMs?.opencode ?? d.flowBudgetMs.opencode,

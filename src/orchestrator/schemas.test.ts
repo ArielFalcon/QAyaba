@@ -385,7 +385,10 @@ test("qa.coordination is absent unless an app sets it, accepts only the lead-sid
   const limitsOnly = AppConfigSchema.parse({ ...base, qa: { ...base.qa, coordination: { maxFlows: 4 } } });
   assert.deepEqual(limitsOnly.qa.coordination, { maxFlows: 4 });
 
-  for (const bad of [{ maxParallel: 0 }, { maxParallel: 7 }, { maxFlows: 1 }, { maxFlows: 13 }, { maxFlows: 2.5 }, { planBudgetMs: 1_000 }, { flowBudgetMs: { opencode: 1_000 } }]) {
+  /* `maxFlows` is a ceiling for cost, so any positive whole number of flows is one: the run's time bounds the rest. */
+  assert.deepEqual(AppConfigSchema.parse({ ...base, qa: { ...base.qa, coordination: { maxFlows: 40 } } }).qa.coordination, { maxFlows: 40 });
+
+  for (const bad of [{ maxParallel: 0 }, { maxParallel: 7 }, { maxFlows: 0 }, { maxFlows: 2.5 }, { planBudgetMs: 1_000 }, { flowBudgetMs: { opencode: 1_000 } }]) {
     assert.throws(() => AppConfigSchema.parse({ ...base, qa: { ...base.qa, coordination: bad } }), JSON.stringify(bad));
   }
 });

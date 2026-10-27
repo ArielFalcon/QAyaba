@@ -30,7 +30,7 @@ const input = (over: Partial<OpencodeRunInput> = {}): OpencodeRunInput => ({
   intent: { type: "feat", breaking: false, message: "feat(cart): show the total", changedFiles: ["src/cart.ts"] },
   ...over,
 });
-const PLANNING = { maxFlows: 5, maxParallel: 2, budgetMs: 240_000 };
+const PLANNING = { capacity: 5, maxParallel: 2, budgetMs: 240_000 };
 const review: ReviewInput = { diff: "+x\n", specs: ["flows/a.spec.ts"], mirrorDir: "/mirrors/org__app", e2eRelDir: "e2e", appName: "shop", mode: "diff" };
 
 test("the lead's plan prompt is budgeted by the lead's own window, an authoring prompt by the author's", () => {

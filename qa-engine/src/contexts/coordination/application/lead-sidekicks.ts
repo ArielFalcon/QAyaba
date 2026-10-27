@@ -29,7 +29,10 @@ import { assembleSidekickBrief } from "./sidekick-prompt.ts";
 import type { ContextBudget, ContextFit } from "@kernel/context-budget.ts";
 import { entryKey } from "@kernel/change-reach.ts";
 import { candidatePagesOf, pageRoutesOf, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
-import { admissionSetOf, flowCovers, honorContradictedDrops, impliedNoopDrops, MAX_PLAN_ROUNDS, planCoverage, assembleReplanRequest, unvisitedBy, type AdmissionSet, type PlanCoverage } from "./plan-coverage.ts";
+import { admissionSetOf, flowCovers, honorContradictedDrops, impliedNoopDrops, MAX_PLAN_ROUNDS, needsAmendment, planCoverage, assembleReplanRequest, unvisitedBy, type AdmissionSet, type PlanAmendment, type PlanCoverage } from "./plan-coverage.ts";
+import { candidateSlicesOf, changeViewOf, ownedSliceOf, type ChangeView } from "./owned-slices.ts";
+import { flowCapacity } from "./flow-capacity.ts";
+import type { ContextBudget } from "@kernel/context-budget.ts";
 import type { CandidateClaim, DelegationResult } from "./delegation-result.ts";
 import { classifyDelegationFailure } from "./delegation-failure-class.ts";
 import { admitLeadReview, candidateGapsOf, assembleLeadReview, MAX_REVIEW_TURNS, REVIEW_ACTION, withSpecDigests, type FailureBytes, type FlowUnderReview, type ReviewOrder, type SeenSpecs } from "./lead-review.ts";
@@ -87,6 +90,8 @@ export interface LeadSidekicksDeps {
   now?: () => number;
   /* The model a fresh sidekick the lead's review starts on a flow runs with; absent: the same as the first. */
   escalatedModel?: string;
+  /* The run's context budget: an admitted flow whose owned change alone does not fit an author's window is asked of the lead to split. Absent, or an unknown window: no flow is too large. */
+  contextBudget?: ContextBudget;
   /* The spec a flow delivered, as it is in the run's working copy, read through the confined reader; absent or unreadable: the review shows none. */
   readSpec?(root: { mirrorDir: string; specDir: string }, specFile: string): Promise<string | undefined>;
   /* The spec file, relative to the spec directory, that a flow's id names. */
@@ -287,13 +292,19 @@ export class LeadSidekicks {
     await this.sweep().catch((err: unknown) => engineLog.error(`[qa] sweeping the delegation workspaces failed (the run goes on): ${err instanceof Error ? err.message : String(err)}`));
     const locations = input.geolocation?.placeNames() ?? [];
     const admission = admissionSetOf(input.candidates);
+    const change = changeViewOf(input.change?.diffs, input.candidates);
+    const candidateSlices = change && admission.required.length > 0 ? candidateSlicesOf(change, admission.required) : undefined;
+    /* The capacity the plan is told, as it will stand once the planning turn has taken its time. */
+    const capacity = this.capacity(input, parallel, before === undefined ? undefined : before - settings.planBudgetMs);
     let planned = await input.plan({
-      maxFlows: settings.maxFlows,
+      ...(capacity !== undefined ? { capacity } : {}),
       maxParallel: parallel,
+      flowBudgetMs: settings.flowBudgetMs.opencode,
       budgetMs: settings.planBudgetMs,
       ...(locations.length > 0 ? { locations } : {}),
       ...(admission.required.length > 0 ? { candidates: admission.required } : {}),
       ...(admission.others > 0 ? { otherCandidates: admission.others } : {}),
+      ...(candidateSlices ? { candidateSlices } : {}),
     });
     /* The lead's planning session, when the plan kept it: its review of the flows is asked there, and it ends with the pass. */
     let leadHanded = false;
@@ -319,14 +330,33 @@ export class LeadSidekicks {
       if (admitted.kind === LEAD_PLAN_KIND.FANOUT || (admitted.kind === LEAD_PLAN_KIND.NOOP && admitted.dropped !== undefined)) {
         /* A plan is held to the facts once: a drop they contradict returns it to the lead with the fact; what the lead keeps after that is its decision. */
         coverage = planCoverage({ flows: admitted.kind === LEAD_PLAN_KIND.FANOUT ? admitted.flows : [], dropped: admitted.dropped ?? [] }, admission.required);
-        const replanned = await this.replan(input, planned.lead, admitted, coverage, admission, parallel);
-        admitted = replanned.plan;
-        coverage = honorContradictedDrops(replanned.coverage);
+        const amended = await this.amendPlan(input, planned.lead, admitted, coverage, admission, parallel, change);
+        admitted = amended.plan;
+        coverage = honorContradictedDrops(amended.coverage);
         this.reportContradicted(input, coverage);
       }
       const contradicted = contradictionsOf(coverage);
-      const withContradictions = { ...base, ...(contradicted.length > 0 ? { dropsContradicted: contradicted } : {}) };
-      this.record(input, { kind: "proposal", action: admitted.kind === LEAD_PLAN_KIND.FANOUT ? "delegate" : "direct", reason: describePlan(admitted), ...(admitted.kind === LEAD_PLAN_KIND.NOOP && admitted.dropped && admitted.dropped.length > 0 ? { dropBases: [...new Set(admitted.dropped.map((d) => d.basis))], dropContradicted: contradicted.length > 0 } : {}) });
+      /* What the amendment turn could not settle about the flows: those still past the capacity are not authored, those still too large are authored with references. */
+      const flowFacts = admitted.kind === LEAD_PLAN_KIND.FANOUT ? this.flowAmendment(admitted, change, input) : {};
+      const notAdmitted = flowFacts.notAdmitted?.map((flow) => flow.id) ?? [];
+      const oversize = flowFacts.oversize?.map((flow) => flow.id) ?? [];
+      this.reportFlowsUnsettled(input, flowFacts);
+      const withContradictions = {
+        ...base,
+        ...(contradicted.length > 0 ? { dropsContradicted: contradicted } : {}),
+        ...(flowFacts.capacity !== undefined ? { capacity: flowFacts.capacity } : {}),
+        ...(notAdmitted.length > 0 ? { notAdmitted } : {}),
+        ...(oversize.length > 0 ? { oversize } : {}),
+      };
+      this.record(input, {
+        kind: "proposal",
+        action: admitted.kind === LEAD_PLAN_KIND.FANOUT ? "delegate" : "direct",
+        reason: describePlan(admitted),
+        ...(admitted.kind === LEAD_PLAN_KIND.NOOP && admitted.dropped && admitted.dropped.length > 0 ? { dropBases: [...new Set(admitted.dropped.map((d) => d.basis))], dropContradicted: contradicted.length > 0 } : {}),
+        ...(flowFacts.capacity !== undefined ? { capacity: flowFacts.capacity } : {}),
+        ...(notAdmitted.length > 0 ? { notAdmitted } : {}),
+        ...(oversize.length > 0 ? { oversize } : {}),
+      });
       if (admitted.kind === LEAD_PLAN_KIND.NOOP) {
         this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.NOOP, [], admitted.reason, undefined, contradicted.length > 0 ? { admission, coverage } : undefined);
         return { action: "noop", reason: admitted.reason, signal: { ...withContradictions, plan: LEAD_PLAN_KIND.NOOP, authoring: authoringName } };
@@ -354,14 +384,14 @@ export class LeadSidekicks {
     return admitLeadPlan(
       raw,
       {
-        maxFlows: settings.maxFlows,
+        ...(settings.maxFlows !== undefined ? { ceiling: settings.maxFlows } : {}),
         maxParallel: parallel,
         flowBudgetMs: settings.flowBudgetMs.opencode,
         ...(remaining !== undefined ? { remainingMs: remaining } : {}),
         reserveMs: remaining === undefined ? 0 : this.reserve(remaining),
         minFlowMs: MIN_FLOW_MS,
-        ...(loop ? { runSpecCalls: loop.maxCalls, runSpecDevWrites: loop.maxDevWrites } : {}),
-        ...(input.agentBrowser ? { browserCalls: input.agentBrowser.limits.maxCalls } : {}),
+        ...(loop ? { runSpecCalls: loop.maxCalls, runSpecDevWrites: loop.maxDevWrites, runSpecPerCallMs: loop.perCallMs } : {}),
+        ...(input.agentBrowser ? { browserCalls: input.agentBrowser.limits.maxCalls, browserPerCallMs: input.agentBrowser.limits.perCallMs } : {}),
       },
       {
         redaction: this.deps.redaction,
@@ -388,7 +418,7 @@ export class LeadSidekicks {
     this.record(input, { kind: "lead-decision", reason: `plan: not admitted (${downgrade}); asking the lead once more with the reason` });
     let answered: Awaited<ReturnType<LeadSessionHandle["askForPlan"]>>;
     try {
-      const request = assembleRejectedPlanRequest(downgrade, settings.maxFlows);
+      const request = assembleRejectedPlanRequest(downgrade);
       answered = await lead.askForPlan(request.text, turnOpts(request, Math.max(1, left === undefined ? settings.planBudgetMs : Math.min(settings.planBudgetMs, left))));
     } catch (err) {
       if (isRunDeadlineError(err)) throw err;
@@ -406,32 +436,38 @@ export class LeadSidekicks {
   }
 
   /*
-   * A flow plan that leaves use cases unresolved goes back to the lead in its open session, once (`MAX_PLAN_ROUNDS`). Its answer
-   * replaces the plan only when it is a flow plan the run admits; otherwise, and when no session, time or round is left, the plan
-   * stands and what it leaves unresolved is recorded as unplanned. Never a refusal, never a second round.
+   * The one amendment turn: a plan that leaves use cases unresolved (a drop the facts contradict among them), names flows past the
+   * run's capacity, or admits a flow too large for one author goes back to the lead in its open session, once (`MAX_PLAN_ROUNDS`),
+   * with every one of those facts in the same request. Its answer replaces the plan only when it is a flow plan the run admits;
+   * otherwise, and when no session, time or round is left, the plan stands and what is still unsettled is recorded (unplanned use
+   * cases, flows not admitted, flows too large). Never a refusal, never a second round.
    */
-  private async replan(
+  private async amendPlan(
     input: CoordinateInput,
     lead: LeadSessionHandle | undefined,
     first: Extract<AdmittedPlan, { kind: typeof LEAD_PLAN_KIND.FANOUT | typeof LEAD_PLAN_KIND.NOOP }>,
     firstCoverage: PlanCoverage,
     admission: AdmissionSet,
     parallel: number,
+    change: ChangeView | undefined,
   ): Promise<{ plan: AdmittedPlan; coverage: PlanCoverage }> {
     const stands = { plan: first as AdmittedPlan, coverage: firstCoverage };
+    const flows = first.kind === LEAD_PLAN_KIND.FANOUT ? this.flowAmendment(first, change, input) : {};
     /* A plan of no flows is asked again only for a drop the facts contradict: the lead's other no-ops stand as they always did. */
-    const needed = first.kind === LEAD_PLAN_KIND.NOOP ? (firstCoverage.refused?.length ?? 0) > 0 : firstCoverage.unresolved.length > 0;
+    const needed = first.kind === LEAD_PLAN_KIND.NOOP ? (firstCoverage.refused?.length ?? 0) > 0 : needsAmendment(firstCoverage.unresolved, flows);
     if (!needed || !lead || MAX_PLAN_ROUNDS < 2 || input.signal?.aborted) return stands;
     const { settings } = input;
     const left = this.remaining(input);
+    const asked = amendmentSummary(firstCoverage, flows);
     if (left !== undefined && left < settings.planBudgetMs + MIN_RESERVE_MS + MIN_FLOW_MS * 2) {
-      this.record(input, { kind: "lead-decision", reason: `plan: ${firstCoverage.unresolved.length} use case(s) unresolved and too little of the run is left to ask the lead again` });
+      this.record(input, { kind: "lead-decision", reason: `plan: ${asked} and too little of the run is left to ask the lead again` });
       return stands;
     }
-    this.record(input, { kind: "lead-decision", reason: `plan: asking the lead once more for ${firstCoverage.unresolved.length} use case(s) it neither covers nor drops: ${firstCoverage.unresolved.map((c) => c.id).join(", ")}` });
+    this.record(input, { kind: "lead-decision", reason: `plan: asking the lead once more, in one amendment turn, about ${asked}` });
     let answered: Awaited<ReturnType<LeadSessionHandle["askForPlan"]>>;
     try {
-      const request = assembleReplanRequest(this.deps.redaction, firstCoverage.unresolved, firstCoverage.refused);
+      const slices = change && admission.required.length > 0 ? { slices: candidateSlicesOf(change, firstCoverage.unresolved) } : {};
+      const request = assembleReplanRequest(this.deps.redaction, firstCoverage.unresolved, firstCoverage.refused, { ...flows, ...slices });
       answered = await lead.askForPlan(request.text, turnOpts(request, Math.max(1, left === undefined ? settings.planBudgetMs : Math.min(settings.planBudgetMs, left))));
     } catch (err) {
       if (isRunDeadlineError(err)) throw err;
@@ -1012,7 +1048,7 @@ export class LeadSidekicks {
 
   /*
    * The maintenance flows a correction turn opens: one per spec that findings no flow took name, when the spec lies inside the spec
-   * directory, is readable in the working copy, and the run's flow cap has room. The flow is added to the pass's pool, so a later
+   * directory, is readable in the working copy, and the app's flow ceiling, when it sets one, has room. The flow is added to the pass's pool, so a later
    * finding on that spec is routed to it like any other. A spec that gets none is left with its findings unrouted, the reason recorded.
    */
   private async maintenanceFor(input: CoordinateInput, pool: AdmittedFlow[], live: Map<string, LiveFlow>, findings: readonly CorrectionFinding[], candidates: readonly number[], origin: CorrectionOrigin, room: number | undefined): Promise<Array<{ flow: AdmittedFlow; indices: number[] }>> {
@@ -1027,8 +1063,8 @@ export class LeadSidekicks {
     const skip = (spec: string, why: string): void => this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): no maintenance flow for ${spec}: ${why}` });
     for (const [spec, indices] of bySpec) {
       if (pool.some((flow) => flow.specFile === spec)) continue;
-      if (pool.length >= input.settings.maxFlows) {
-        skip(spec, `the run already has ${pool.length} flow(s), the most its settings allow (maxFlows ${input.settings.maxFlows})`);
+      if (input.settings.maxFlows !== undefined && pool.length >= input.settings.maxFlows) {
+        skip(spec, `the run already has ${pool.length} flow(s), the ceiling its app sets (maxFlows ${input.settings.maxFlows})`);
         continue;
       }
       const source = this.deps.readSpec ? await this.deps.readSpec({ mirrorDir: input.mirrorDir, specDir: input.specDir }, spec).catch(() => undefined) : "";
@@ -1057,7 +1093,7 @@ export class LeadSidekicks {
 
   /*
    * The flows a correction turn opens for use cases the plan did not cover: one per candidate that findings about a changed file
-   * no flow took are seeded by and no flow of the pass covers (dropped or unplanned). Within the run's flow cap and time, a fresh
+   * no flow took are seeded by and no flow of the pass covers (dropped or unplanned). Within the app's flow ceiling and the run's time, a fresh
    * sidekick writes the flow's deterministic spec; a finding whose file seeds no candidate is left to the caller, unrouted.
    */
   private async candidateFlowsFor(input: CoordinateInput, pool: AdmittedFlow[], findings: readonly CorrectionFinding[], indices: readonly number[], origin: CorrectionOrigin, room: number | undefined): Promise<Array<{ flow: AdmittedFlow; indices: number[] }>> {
@@ -1071,8 +1107,8 @@ export class LeadSidekicks {
     if (!proto) return opened;
     for (const [candidate, taken] of byCandidate) {
       const skip = (why: string): void => this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): no flow for use case ${candidate.id}: ${why}` });
-      if (pool.length >= input.settings.maxFlows) {
-        skip(`the run already has ${pool.length} flow(s), the most its settings allow (maxFlows ${input.settings.maxFlows})`);
+      if (input.settings.maxFlows !== undefined && pool.length >= input.settings.maxFlows) {
+        skip(`the run already has ${pool.length} flow(s), the ceiling its app sets (maxFlows ${input.settings.maxFlows})`);
         continue;
       }
       const id = candidateFlowId(candidate, new Set(pool.map((f) => f.id)));
@@ -1134,6 +1170,61 @@ export class LeadSidekicks {
 
   private reserve(remaining: number): number {
     return Math.max(MIN_RESERVE_MS, Math.floor(remaining * RESERVE_SHARE));
+  }
+
+  /* The flows the run can author with `remaining` of its time (the reserve kept) and the app's ceiling; undefined when nothing bounds them. */
+  private capacity(input: CoordinateInput, parallel: number, remaining: number | undefined): number | undefined {
+    return flowCapacity({
+      maxParallel: parallel,
+      flowBudgetMs: input.settings.flowBudgetMs.opencode,
+      ...(remaining !== undefined ? { remainingMs: remaining, reserveMs: this.reserve(remaining) } : { reserveMs: 0 }),
+      minFlowMs: MIN_FLOW_MS,
+      ...(input.settings.maxFlows !== undefined ? { ceiling: input.settings.maxFlows } : {}),
+    });
+  }
+
+  /*
+   * What an admitted fan-out leaves unsettled about its flows: the capacity it was admitted under, the flows past it, and the
+   * admitted flows whose owned change (the slice of the use cases each cites or visits) alone does not fit an author's window. A
+   * window the run does not know makes no flow too large.
+   */
+  private flowAmendment(plan: Extract<AdmittedPlan, { kind: typeof LEAD_PLAN_KIND.FANOUT }>, change: ChangeView | undefined, input: CoordinateInput): PlanAmendment {
+    const budget = this.deps.contextBudget;
+    const oversize = change && budget
+      ? plan.flows.flatMap((flow) => {
+          const ids = [...new Set([...flow.candidates, ...(input.candidates ?? []).filter((c) => flowCovers(flow, c)).map((c) => c.id)])];
+          if (ids.length === 0) return [];
+          const { bytes, ...size } = ownedSliceOf(change, ids);
+          return size.hunks > 0 && budget.fit({ prompt: { bytes }, role: "author" }).outcome === "over" ? [{ id: flow.id, size }] : [];
+        })
+      : [];
+    return {
+      ...(plan.capacity !== undefined ? { capacity: plan.capacity } : {}),
+      ...(plan.notAdmitted.length > 0 ? { notAdmitted: plan.notAdmitted } : {}),
+      ...(oversize.length > 0 ? { oversize } : {}),
+    };
+  }
+
+  /* The flows the amendment turn did not settle: said in the run's decisions, never silent. */
+  private reportFlowsUnsettled(input: CoordinateInput, flows: PlanAmendment): void {
+    const notAdmitted = flows.notAdmitted ?? [];
+    if (notAdmitted.length > 0) {
+      this.record(input, {
+        kind: "lead-decision",
+        ...(flows.capacity !== undefined ? { capacity: flows.capacity } : {}),
+        notAdmitted: notAdmitted.map((flow) => flow.id),
+        candidateIds: [...new Set(notAdmitted.flatMap((flow) => flow.candidates))],
+        reason: `plan: ${notAdmitted.length} flow(s) past the run's capacity of ${flows.capacity ?? 0} were not admitted and are not authored: ${notAdmitted.map((flow) => flow.id).join(", ")}`.slice(0, 1_000),
+      });
+    }
+    const oversize = flows.oversize ?? [];
+    if (oversize.length > 0) {
+      this.record(input, {
+        kind: "lead-decision",
+        oversize: oversize.map((flow) => flow.id),
+        reason: `plan: ${oversize.length} flow(s) own more of the change than an author's window holds and were kept whole; their briefs carry the rest as references: ${oversize.map((flow) => flow.id).join(", ")}`.slice(0, 1_000),
+      });
+    }
   }
 
   private async closeSession(entry: LiveFlow | undefined): Promise<void> {
@@ -1229,6 +1320,16 @@ function routingSummary(findings: readonly CorrectionFinding[], under: readonly 
 /* The drops of a plan the facts contradict and the lead kept, as the run's signal carries them. */
 function contradictionsOf(coverage: PlanCoverage): Array<{ candidate: string; basis: string; why: string }> {
   return coverage.dropped.flatMap((d) => (d.contradicted ? [{ candidate: d.candidate.id, basis: d.contradicted.basis, why: d.contradicted.why }] : []));
+}
+
+/* What an amendment turn asks about, in words for the run's decisions. */
+function amendmentSummary(coverage: PlanCoverage, flows: PlanAmendment): string {
+  const parts = [
+    ...(coverage.unresolved.length > 0 ? [`${coverage.unresolved.length} use case(s) it neither covers nor drops (${coverage.unresolved.map((c) => c.id).join(", ")})`] : []),
+    ...((flows.notAdmitted?.length ?? 0) > 0 ? [`${flows.notAdmitted!.length} flow(s) past the run's capacity of ${flows.capacity ?? 0} (${flows.notAdmitted!.map((f) => f.id).join(", ")})`] : []),
+    ...((flows.oversize?.length ?? 0) > 0 ? [`${flows.oversize!.length} flow(s) too large for one author (${flows.oversize!.map((f) => f.id).join(", ")})`] : []),
+  ];
+  return parts.join("; ").slice(0, 900);
 }
 
 function describePlan(plan: AdmittedPlan): string {

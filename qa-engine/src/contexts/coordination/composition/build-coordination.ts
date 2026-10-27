@@ -75,6 +75,7 @@ export function buildCoordination(deps: CoordinationDeps): CoordinationApi {
       telemetry: coordinationTelemetry,
       ...(deps.planSnapshots && deps.sanitize ? { planSnapshots: sanitizedPlanSnapshots(deps.planSnapshots, deps.sanitize) } : {}),
       specFileFor: deps.specFileFor,
+      ...(deps.contextBudget ? { contextBudget: deps.contextBudget } : {}),
       ...(deps.codeGraph && deps.codeGraphRepoDir ? { graphHolds: (ref) => graphHoldsSymbol(deps.codeGraph!, deps.codeGraphRepoDir!, ref) } : {}),
       /* What a sidekick wrote is untrusted: the lead's review reads it through the confined reader, and an unreadable spec is shown as none. */
       readSpec: async (root, specFile) => {

@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import {
   admitLeadPlan,
   DROP_BASIS,
+  MIN_BROWSER_CALLS_PER_FLOW,
+  MIN_RUN_SPEC_CALLS_PER_FLOW,
+  MIN_RUN_SPEC_DEV_WRITES_PER_FLOW,
   LEAD_PLAN_KIND,
   PLAN_DOWNGRADE,
   PLAN_REJECTED,
@@ -20,8 +23,8 @@ const deps: PlanDeps = {
   specFileFor: (id) => `flows/${id}.spec.ts`,
 };
 
+/* 3 at once and (60 - 10) min / 10 min = 5 full waves: room for 15 flows. */
 const limits: PlanLimits = {
-  maxFlows: 6,
   maxParallel: 3,
   flowBudgetMs: 10 * 60_000,
   remainingMs: 60 * 60_000,
@@ -112,9 +115,8 @@ test("an id that slugs to nothing still names a file, and two flows that slug al
   assert.equal(dup.kind === PLAN_REJECTED ? dup.downgrade : undefined, PLAN_DOWNGRADE.DUPLICATE);
 });
 
-test("more flows than the cap, no flows and an unreadable plan all go back to the lead, each with its reason", () => {
+test("no flows and an unreadable plan go back to the lead, each with its reason", () => {
   const cases: Array<[string, unknown, string]> = [
-    ["over the cap", fanout(...Array.from({ length: limits.maxFlows + 1 }, (_, i) => flow(`f${i}`))), PLAN_DOWNGRADE.OVER_LIMIT],
     ["no flows", fanout(), PLAN_DOWNGRADE.EMPTY],
     ["a flow that is not an object", fanout(flow("a"), "b"), PLAN_DOWNGRADE.MALFORMED],
     ["a flow with no objective", fanout(flow("a"), { id: "b", objective: "  " }), PLAN_DOWNGRADE.MALFORMED],
@@ -130,9 +132,34 @@ test("more flows than the cap, no flows and an unreadable plan all go back to th
   }
 });
 
-test("the plan may use exactly the flows the cap allows", () => {
-  const flows = admitted(admitLeadPlan(fanout(...Array.from({ length: limits.maxFlows }, (_, i) => flow(`f${i}`))), limits, deps));
-  assert.equal(flows.length, limits.maxFlows);
+test("the run's capacity is the flows that run at once times the full flow budgets that fit in what is left after the reserve", () => {
+  const plan = admitLeadPlan(fanout(flow("a")), limits, deps);
+  assert.equal(plan.kind === LEAD_PLAN_KIND.FANOUT ? plan.capacity : undefined, 15);
+  /* 16 min left, 10 kept: 6 min is under one full flow budget but enough for a flow to work, so one wave. */
+  const tight = admitLeadPlan(fanout(flow("a")), { ...limits, remainingMs: 16 * 60_000 }, deps);
+  assert.equal(tight.kind === LEAD_PLAN_KIND.FANOUT ? tight.capacity : undefined, 3);
+  const { remainingMs: _, ...noDeadline } = limits;
+  const unbounded = admitLeadPlan(fanout(flow("a")), noDeadline, deps);
+  assert.equal(unbounded.kind === LEAD_PLAN_KIND.FANOUT ? unbounded.capacity : "absent", undefined, "no deadline and no ceiling bound nothing");
+});
+
+test("a plan over the run's capacity is never rejected: its first flows are admitted in plan order and the rest are named as not admitted", () => {
+  const plan = admitLeadPlan(fanout(...Array.from({ length: 5 }, (_, i) => flow(`f${i}`, { candidates: [`uc-${i}`] }))), { ...limits, remainingMs: 16 * 60_000 }, deps);
+  assert.deepEqual(admitted(plan).map((f) => f.id), ["f0", "f1", "f2"]);
+  assert.deepEqual(plan.kind === LEAD_PLAN_KIND.FANOUT ? plan.notAdmitted : undefined, [
+    { id: "f3", objective: "check f3", candidates: ["uc-3"] },
+    { id: "f4", objective: "check f4", candidates: ["uc-4"] },
+  ]);
+});
+
+test("an app's ceiling bounds the capacity below what the time allows, and a plan within it names nothing not admitted", () => {
+  const plan = admitLeadPlan(fanout(flow("a"), flow("b"), flow("c")), { ...limits, ceiling: 2 }, deps);
+  assert.deepEqual(admitted(plan).map((f) => f.id), ["a", "b"]);
+  assert.equal(plan.kind === LEAD_PLAN_KIND.FANOUT ? plan.capacity : undefined, 2);
+  assert.deepEqual(plan.kind === LEAD_PLAN_KIND.FANOUT ? plan.notAdmitted.map((f) => f.id) : undefined, ["c"]);
+  const within = admitLeadPlan(fanout(...Array.from({ length: 15 }, (_, i) => flow(`f${i}`))), limits, deps);
+  assert.equal(admitted(within).length, 15);
+  assert.deepEqual(within.kind === LEAD_PLAN_KIND.FANOUT ? within.notAdmitted : undefined, []);
 });
 
 test("text the plan carries is cleaned and bounded, and routes are paths or nothing", () => {
@@ -182,9 +209,6 @@ test("each flow's time is its share of what is left of the run after the reserve
   /* 3 flows, 3 parallel: one wave. 6 min left after the reserve is under a flow's 10. */
   const tight = admitted(admitLeadPlan(fanout(flow("a"), flow("b"), flow("c")), { ...limits, remainingMs: 16 * 60_000 }, deps));
   assert.ok(tight.every((f) => f.budgetMs === 6 * 60_000));
-  /* 6 flows, 3 parallel: two waves, so half of it each. */
-  const waves = admitted(admitLeadPlan(fanout(...Array.from({ length: 6 }, (_, i) => flow(`f${i}`))), { ...limits, remainingMs: 16 * 60_000 }, deps));
-  assert.ok(waves.every((f) => f.budgetMs === 3 * 60_000));
 });
 
 test("a run with no deadline gives each flow the full time a flow may take", () => {
@@ -199,24 +223,31 @@ test("when the run has too little time left for a flow to do anything, the lead 
   assert.equal(plan.kind === PLAN_REJECTED ? plan.downgrade : undefined, PLAN_DOWNGRADE.NO_TIME);
 });
 
-test("the run's tool calls are shared out among the flows, and a flow gets none it was not given", () => {
-  const flows = admitted(admitLeadPlan(fanout(flow("a"), flow("b"), flow("c")), limits, deps));
-  assert.ok(flows.every((f) => f.runSpecCalls === Math.floor(limits.runSpecCalls! / 3)));
-  assert.ok(flows.every((f) => f.runSpecDevWrites === Math.floor(limits.runSpecDevWrites! / 3)));
-  assert.ok(flows.every((f) => f.browserCalls === Math.floor(limits.browserCalls! / 3)));
-  assert.ok(flows.length * flows[0]!.runSpecCalls <= limits.runSpecCalls!, "the shares never add up to more than the run's");
+test("each flow is granted its share of the run's tool calls, never less than a useful minimum", () => {
+  const few = admitted(admitLeadPlan(fanout(flow("a"), flow("b")), limits, deps));
+  assert.ok(few.every((f) => f.runSpecCalls === Math.floor(limits.runSpecCalls! / 2)));
+  assert.ok(few.every((f) => f.runSpecDevWrites === Math.floor(limits.runSpecDevWrites! / 2)));
+  assert.ok(few.every((f) => f.browserCalls === Math.floor(limits.browserCalls! / 2)));
+  /* 12 flows: 8 run_spec calls, 20 writes and 150 browser calls would split to 0, 1 and 12 a flow. */
+  const many = admitted(admitLeadPlan(fanout(...Array.from({ length: 12 }, (_, i) => flow(`f${i}`))), limits, deps));
+  assert.equal(many.length, 12, "a plan run_spec cannot split among its flows is not rejected");
+  assert.ok(many.every((f) => f.runSpecCalls === MIN_RUN_SPEC_CALLS_PER_FLOW));
+  assert.ok(many.every((f) => f.runSpecDevWrites === MIN_RUN_SPEC_DEV_WRITES_PER_FLOW));
+  assert.ok(many.every((f) => f.browserCalls === MIN_BROWSER_CALLS_PER_FLOW));
+});
+
+test("a flow is never granted more calls than its own time can run, nor a minimum above what the run was granted", () => {
+  /* 10 min a flow, 4 min a run_spec call and 2 min a browser call: 2 and 5 calls fit. */
+  const timed = admitted(admitLeadPlan(fanout(flow("a")), { ...limits, runSpecPerCallMs: 4 * 60_000, browserPerCallMs: 2 * 60_000 }, deps));
+  assert.deepEqual([timed[0]!.runSpecCalls, timed[0]!.browserCalls], [2, 5]);
+  const stingy = admitted(admitLeadPlan(fanout(...Array.from({ length: 4 }, (_, i) => flow(`f${i}`))), { ...limits, runSpecCalls: 1, runSpecDevWrites: 0, browserCalls: 2 }, deps));
+  assert.ok(stingy.every((f) => f.runSpecCalls === 1 && f.runSpecDevWrites === 0 && f.browserCalls === 2));
 });
 
 test("a run that was not granted run_spec or the browser gives its flows none", () => {
   const { runSpecCalls: _a, runSpecDevWrites: _b, browserCalls: _c, ...bare } = limits;
   const flows = admitted(admitLeadPlan(fanout(flow("a"), flow("b")), bare, deps));
   assert.ok(flows.every((f) => f.runSpecCalls === 0 && f.runSpecDevWrites === 0 && f.browserCalls === 0));
-});
-
-test("when run_spec cannot give every flow a call, the lead does the work", () => {
-  const plan = admitLeadPlan(fanout(...Array.from({ length: 5 }, (_, i) => flow(`f${i}`))), { ...limits, runSpecCalls: 3 }, deps);
-  assert.equal(plan.kind, PLAN_REJECTED);
-  assert.equal(plan.kind === PLAN_REJECTED ? plan.downgrade : undefined, PLAN_DOWNGRADE.NO_CALLS);
 });
 
 test("no more flows run at once than the parallel limit or the flows themselves", () => {

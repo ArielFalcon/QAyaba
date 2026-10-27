@@ -8,7 +8,7 @@ import { AgentTimeoutError, AgentUnavailableError } from "@kernel/domain-error.t
 import type { AgentRole } from "@kernel/agent-role.ts";
 import type { AgentPromptOpts, OpenSessionOpts } from "@kernel/ports/agent-runtime.port.ts";
 
-const PLANNING = { maxFlows: 5, maxParallel: 2, budgetMs: 180_000 };
+const PLANNING = { capacity: 5, maxParallel: 2, budgetMs: 180_000 };
 
 function planInput(over: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
   return {
@@ -112,7 +112,7 @@ test("a turn that comes back without a plan closes its session at once", async (
 test("the prompt is the generator's own for this input, with its planning limits", async () => {
   const { ports, seen } = build({ output: "x" }, { specs: [], parsed: true, plan: FANOUT });
   await new GenerateTestsUseCase(ports).plan(planInput());
-  assert.equal(seen.rendered[0]!.planning?.maxFlows, PLANNING.maxFlows);
+  assert.equal(seen.rendered[0]!.planning?.capacity, PLANNING.capacity);
   assert.equal(seen.prompts[0]!.text, "PLAN_PROMPT");
 });
 

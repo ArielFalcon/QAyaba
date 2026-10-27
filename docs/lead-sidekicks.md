@@ -15,7 +15,7 @@ can author, there is no time, or the coordination fails, the run ends `infra-err
 qa:
   coordination:
     maxParallel: 3           # flows authored at once (1-6)
-    maxFlows: 6              # flows a plan may name (2-12)
+    maxFlows: 12             # optional ceiling on flows, for cost (absent: none; the run's time bounds them)
     planBudgetMs: 180000     # the lead's planning turn
     flowBudgetMs:            # one flow, per runtime
       opencode: 480000
@@ -40,7 +40,15 @@ signed-in app (see below); without either, no sidekick can author and the run en
    planning session, review included, is denied Playwright: DEV is read by the sidekicks.
 2. **Admit.** `admitLeadPlan` treats the plan as untrusted. It slugs the ids, assigns each flow the spec path
    `e2e/flows/<slug>.spec.ts` itself (any write list the lead names is ignored), caps the sizes, and refuses
-   duplicates and more than `maxFlows`. A plan that cannot be admitted goes back to the lead once, in its open session, with the
+   duplicates. It never refuses a plan for its number of flows: the run's **capacity** (`flow-capacity.ts`) is `maxParallel` x the full
+   `flowBudgetMs` that fit in what is left of the run after the reserve (at least one wave while a flow still has `MIN_FLOW_MS`),
+   bounded by the app's optional `maxFlows` ceiling, and unbounded with neither a deadline nor a ceiling. The plan's first flows up
+   to the capacity are admitted in plan order; the rest are named `notAdmitted` and asked of the lead in the amendment turn (below).
+   Each admitted flow is granted its share of the run's `run_spec` calls, `run_spec` writes to DEV and authenticated-browser calls,
+   never under a useful minimum (`MIN_RUN_SPEC_CALLS_PER_FLOW` 3: write and run, correct once, confirm;
+   `MIN_RUN_SPEC_DEV_WRITES_PER_FLOW` 2; `MIN_BROWSER_CALLS_PER_FLOW` 20: read each page and drive one form), never a minimum above
+   the run's own total, and never more calls than the flow's own time runs at the tool's per-call time, so a plan of many flows no
+   longer splits a run total down to 0 calls a flow. The authenticated browser's own run total still bounds every call it serves. A plan that cannot be admitted goes back to the lead once, in its open session, with the
    reason (`renderRejectedPlanRequest`); a no-op or an admitted answer replaces it, and anything else ends the run `E-NO-AUTHOR` with
    the first reason recorded (`refusal: plan-rejected:<reason>`); a plan of one flow is a fan-out of one, and a fan-out of no flow whose use cases are dropped
    with a basis and a reason is the lead's declared no-op (the run is `skipped` with those reasons); with no reasoned, based drop it is refused `empty`. The plan must answer for each direct
@@ -50,15 +58,22 @@ signed-in app (see below); without either, no sidekick can author and the run en
    to the facts it has (`dropRefusal`, `plan-coverage.ts`): `no-observable-change` is refused when a seed of the candidate is
    executable code of a declared language (`LanguageRegistry`, a test file excluded), `already-covered` when no spec of the suite
    is linked to the candidate; a drop with no basis of the set, or a refused one, leaves the candidate unresolved and goes back
-   to the lead in the one re-plan turn with the fact that contradicts it. The fact is a signal, not proof (a refactor, a
+   to the lead in the one amendment turn with the fact that contradicts it. The fact is a signal, not proof (a refactor, a
    type-only or a comment edit changes code and nothing a browser observes), so it applies to every no-op shape (`{"kind":"noop"}`, which
    drops each use case on `no-observable-change`, a fan-out of no flow, and the drops inside a fan-out): a drop the lead keeps after the
    one re-ask stands (a no-op stays `skipped`, a fan-out keeps its flows) and is recorded per candidate with its basis and the contradicting fact
    (`gateSignals.coordination.dropsContradicted`, `contradicted` on the plan snapshot's candidate, a `lead-decision` event); it is never an infra error. The planning turn lists the candidates, each with the specs the suite already holds for it and what the manifest
-   declares each one checks (`candidateLine`), so the lead plans from that instead of opening them. A plan that leaves one unresolved is returned to the lead once, in
-   its open session (`MAX_PLAN_ROUNDS`); a second answer that is a plan of flows replaces the first. A candidate still
-   unresolved is admitted as it stands, recorded `unplanned` on the plan snapshot and as a `lead-decision` event, and named
-   in every review turn (`plan-coverage.ts`).
+   declares each one checks and the part of the diff its flow would own (`candidateLine`; its owned slice from the change map,
+   `owned-slices.ts`: hunks, added and removed lines), so the lead plans from that instead of opening them and groups use cases into
+   flows of a workable size; the section states the run's capacity. **One amendment turn** (`MAX_PLAN_ROUNDS`): a plan that leaves a
+   use case unresolved (a refused drop among them), names flows past the capacity, or admits a flow whose owned change alone does
+   not fit an author's window (the run's `ContextBudget`; an unknown window makes no flow too large) is returned to the lead once, in
+   its open session, with all of those facts in the same request (`renderReplanRequest`); a second answer that is a plan of flows
+   replaces the first. A candidate still unresolved is admitted as it stands, recorded `unplanned` on the plan snapshot and as a
+   `lead-decision` event, and named in every review turn (`plan-coverage.ts`). Flows still past the capacity are not authored, and
+   flows still too large are authored with the rest of their change as references; both are recorded (`gateSignals.coordination`
+   `capacity`, `notAdmitted`, `oversize`, and a `lead-decision` event carrying `qayaba.coordination.flows_not_admitted` /
+   `flows_oversize`).
 3. **Author.** Each sidekick's brief carries the Live DOM of its flow's pages (by address, or by the map template a
    page was opened from), cut from the run's Context Pack and bounded; a flow whose pages the pack did not read gets
    none. The brief states the change the flow must exercise in one section, cut from the run's change map
@@ -120,7 +135,7 @@ Every prompt of this context is assembled from registered section definitions (`
 
 | Mode | When | Tools |
 |---|---|---|
-| `authenticated-browser` | the app has a login and the run was granted the authenticated browser | `run_spec` for its own flow, `authbrowser_*` with a share of the run's caps |
+| `authenticated-browser` | the app has a login and the run was granted the authenticated browser | `run_spec` for its own flow, `authbrowser_*` with its per-flow grant |
 | `run-spec-only` | a login and only the closed loop | `run_spec` for its own flow |
 | `unauthenticated-browser` | no login | the plain browser; one flow at a time (the browser is one shared process) |
 | `excluded` | a login with neither grant | none: the run ends `E-NO-AUTHOR` |
@@ -265,7 +280,7 @@ findings, the run asks the lead, in the same planning session, instead of regene
    (confined to a `*.spec.ts` inside the spec directory, never a hidden directory such as the probe one), its own `run_spec` loop
    with the share of a plan flow, and the same release as every flow. All unrouted findings that name the same spec go to that one
    flow, and a later finding on it is routed to it through the lead like any other. It is bounded: at most one per spec, within
-   `maxFlows` (counting the plan's flows and the maintenance flows already opened) and the run's time reserve, and only for a
+   the app's `maxFlows` ceiling when it sets one (counting the plan's flows and the maintenance flows already opened) and the run's time reserve, and only for a
    spec the working copy can read; without room the findings stay unrouted and the reason is a `lead-decision` event. What it delivers
    joins the round like the flows' deliveries. It is counted in `corrections.maintained`.
    A finding that names a changed source file (a coverage finding: `CorrectionFinding.file`, and `line` for an arm) is owned by

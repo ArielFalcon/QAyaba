@@ -138,9 +138,9 @@ test("a coordinated run hands the coordinator what the run knows: its identity, 
   assert.ok(input!.closedLoop && input!.agentBrowser, "both grants");
   assert.deepEqual(input!.settings, DEFAULT_COORDINATION_SETTINGS);
   /* The planning closure asks the generation port, with the run's enrichment and the limits. */
-  const planned = await input!.plan!({ maxFlows: 4, maxParallel: 2, budgetMs: 60_000 });
+  const planned = await input!.plan!({ capacity: 4, maxParallel: 2, budgetMs: 60_000 });
   assert.equal(planned.parsed, true);
-  assert.deepEqual(r.planned[0]!.planning, { maxFlows: 4, maxParallel: 2, budgetMs: 60_000 });
+  assert.deepEqual(r.planned[0]!.planning, { capacity: 4, maxParallel: 2, budgetMs: 60_000 });
   assert.equal(r.planned[0]!.runId, "coord-run");
   assert.ok(r.planned[0]!.closedLoop && r.planned[0]!.agentBrowser, "the plan turn is told the tool budgets like any generation");
 });

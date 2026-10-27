@@ -43,13 +43,16 @@ export function renderClosedLoop(limits: ClosedLoopLimits): string {
 export function renderLeadPlan(limits: PlanningLimits): string {
   return [
     `## ${PROMPT_HEADINGS.leadPlan}`,
-    `This turn asks for a plan, not for specs: write no file. A plan names at most ${limits.maxFlows} flows, and ${limits.maxParallel} are written at once.`,
+    `This turn asks for a plan, not for specs: write no file. ${limits.maxParallel} flows are written at once${limits.flowBudgetMs !== undefined ? `, each in at most ${Math.round(limits.flowBudgetMs / 60_000)} minutes` : ""}.`,
+    limits.capacity !== undefined
+      ? `The run has time for ${limits.capacity} flows this pass: flows past that many in your plan are not authored and are asked of you once more.`
+      : `No limit of the run bounds the number of flows: name the flows the change needs.`,
     `The orchestrator ends this turn after ${Math.round(limits.budgetMs / 1000)} seconds; a turn ended before its plan JSON delivers no plan, and the run ends with nothing authored.`,
     ...(limits.locations?.length ? [`The app's locations a flow may name: ${limits.locations.join(", ")}.`] : []),
     ...(limits.candidates?.length
       ? [
-          `The change makes these use cases testable (id | entry | reach | evidence | specs the suite holds):`,
-          ...limits.candidates.map((candidate) => `- ${sanitizeText(candidateLine(candidate)).text}`),
+          `The change makes these use cases testable (id | entry | reach | changed files | the part of the diff its flow would own | evidence | specs the suite holds); a flow owns the parts of the use cases it covers, so group them into flows of a size one author can work through:`,
+          ...limits.candidates.map((candidate) => `- ${sanitizeText(candidateLine(candidate, limits.candidateSlices?.[candidate.id])).text}`),
           ...(limits.otherCandidates ? [`${limits.otherCandidates} less direct use case(s) are not listed and need no flow.`] : []),
           `Give a flow to each one whose behaviour the change alters and cite its id in the flow's "candidates", or list it in "dropped" with a "basis" of the plan contract and the reason it needs no test; one the plan neither covers nor drops is asked of you once more.`,
         ]

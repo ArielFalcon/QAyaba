@@ -18,7 +18,7 @@ import { LEAD_PLAN_KIND } from "@kernel/coordination.ts";
 import type { OpencodeRunInput } from "@contexts/generation/domain/opencode-run-input.ts";
 
 
-const PLANNING = { maxFlows: 5, maxParallel: 2, budgetMs: 240_000 };
+const PLANNING = { capacity: 5, maxParallel: 2, budgetMs: 240_000 };
 
 function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
   return {
@@ -59,7 +59,7 @@ test("a planning turn carries the plan contract in a section of its own, in ever
 
 test("the section states the limits the orchestrator holds the plan to, and the lead's role prompt names every shape a plan may take", () => {
   const section = sectionOf(assemble({ planning: PLANNING }))!;
-  for (const n of [PLANNING.maxFlows, PLANNING.maxParallel]) assert.ok(section.text.includes(String(n)), String(n));
+  for (const n of [PLANNING.capacity, PLANNING.maxParallel]) assert.ok(section.text.includes(String(n)), String(n));
   const prompt = readFileSync(join(process.cwd(), "agents", "agent", "qa-lead.md"), "utf8");
   for (const kind of Object.values(LEAD_PLAN_KIND)) assert.ok(prompt.includes(`"${kind}"`), kind);
   for (const key of ["plan", "kind", "flows", "id", "objective", "acceptance", "routes"]) assert.ok(prompt.includes(`"${key}"`), key);
@@ -75,6 +75,17 @@ test("the use cases the change makes testable are named with their ids, and the 
   const plain = sectionOf(assemble({ planning: PLANNING }))!;
   assert.equal(plain.text.includes("/order"), false);
   assert.equal(plain.text.includes("uc-"), false);
+});
+
+test("each use case is named with the part of the change its flow would own, and a run with no bound on flows states no number of them", () => {
+  const candidates = [pageCandidate("/order"), pageCandidate("/cart")];
+  const sized = sectionOf(assemble({ planning: { ...PLANNING, candidates, candidateSlices: { "uc-/order": { hunks: 7, added: 412, removed: 30 } } } }))!;
+  const orderLine = sized.text.split("\n").find((line) => line.includes("uc-/order"))!;
+  for (const n of ["7", "412", "30"]) assert.ok(orderLine.includes(n), n);
+  const cartLine = sized.text.split("\n").find((line) => line.includes("uc-/cart"))!;
+  assert.equal(cartLine.includes("412"), false, "a size belongs to its own use case");
+  const { capacity: _, ...unbounded } = PLANNING;
+  assert.equal(sectionOf(assemble({ planning: unbounded }))!.text.includes(String(PLANNING.capacity)), false);
 });
 
 test("no planning turn, no section: the prompt is what it always was", () => {

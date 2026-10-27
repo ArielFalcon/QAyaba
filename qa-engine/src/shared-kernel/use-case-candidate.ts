@@ -86,13 +86,29 @@ function sharedSeedsText(shared: readonly SharedSeed[]): string {
   return `shared with other pages: ${text.join(", ")}${shared.length > MAX_LINE_FILES ? `, +${shared.length - MAX_LINE_FILES} more` : ""}`;
 }
 
-/* One line that names a candidate to the lead: id, entry, how directly the change reaches it, the changed files that seed it, the evidence path and the specs the suite already holds for it, each with what its manifest declares it checks. Unsanitized: the caller redacts. */
-export function candidateLine(candidate: UseCaseCandidate): string {
+/* The size of the change a flow would own (its owned slice): the hunks and the lines they add and remove. */
+export interface OwnedSliceSize {
+  hunks: number;
+  added: number;
+  removed: number;
+}
+
+/* An owned slice as the lead reads it. */
+export function ownedSliceText(size: OwnedSliceSize): string {
+  return `owns ${size.hunks} hunk${size.hunks === 1 ? "" : "s"} (+${size.added} -${size.removed})`;
+}
+
+/*
+ * One line that names a candidate to the lead: id, entry, how directly the change reaches it, the changed files that seed it, the
+ * part of the diff its flow would own when the run read the diff, the evidence path and the specs the suite already holds for it,
+ * each with what its manifest declares it checks. Unsanitized: the caller redacts.
+ */
+export function candidateLine(candidate: UseCaseCandidate, slice?: OwnedSliceSize): string {
   const evidence = candidate.evidence.join(" > ");
   const cut = evidence.length > MAX_LINE_EVIDENCE_CHARS ? `${evidence.slice(0, MAX_LINE_EVIDENCE_CHARS)}...` : evidence;
   const specs = candidate.existingSpecs.slice(0, MAX_LINE_SPECS).map((file) => specWithObjectives(file, candidate.specObjectives?.[file])).join(", ");
   const files = candidate.changedFiles ?? [];
   const changed = files.length > 0 ? `changed: ${files.slice(0, MAX_LINE_FILES).map(changedFileText).join(", ")}${files.length > MAX_LINE_FILES ? `, +${files.length - MAX_LINE_FILES} more file(s)` : ""}` : "";
   const shared = sharedSeedsText(candidate.sharedSeeds ?? []);
-  return [candidate.id, entryKey(candidate.entry), `${candidate.tier}, ${candidate.reachability}`, changed, shared, cut, specs !== "" ? `specs: ${specs}` : "no spec yet"].filter((part) => part !== "").join(" | ");
+  return [candidate.id, entryKey(candidate.entry), `${candidate.tier}, ${candidate.reachability}`, changed, shared, slice ? ownedSliceText(slice) : "", cut, specs !== "" ? `specs: ${specs}` : "no spec yet"].filter((part) => part !== "").join(" | ");
 }

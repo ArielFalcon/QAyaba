@@ -2,8 +2,9 @@
  * What the orchestrator makes of the plan the lead emitted. The plan is the lead's word: it names flows and says what each
  * must check, and that is all of it that is kept. Where a sidekick may write, what each flow may take of the run's time and tool
  * calls, and how many flows run at once are decided here from the plan's shape and the run's limits, never from anything the
- * plan says about them (a "readOnly" or "mutates" tag, a path list, a scope). A plan that cannot be admitted as it stands is not
- * guessed at: the plan is rejected and the reason is returned for the run to record.
+ * plan says about them (a "readOnly" or "mutates" tag, a path list, a scope). A plan that cannot be read as it stands is not
+ * guessed at: the plan is rejected and the reason is returned for the run to record. A plan of more flows than the run's capacity
+ * is not rejected: its first flows are admitted in plan order and the rest are named, for the lead to be asked about.
  * Pure: no clock, no file, no model.
  */
 
@@ -13,6 +14,9 @@ import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import { assembleDefs, type AssembledPrompt } from "@kernel/prompt-sections.ts";
 import { REJECTED_PLAN_SECTIONS } from "./coordination-sections/lead-turn-sections.ts";
 import { SIDEKICK_KIND, type SidekickKind } from "./sidekick-kinds.ts";
+import { flowCapacity, MIN_BROWSER_CALLS_PER_FLOW, MIN_RUN_SPEC_CALLS_PER_FLOW, MIN_RUN_SPEC_DEV_WRITES_PER_FLOW, perFlowGrant } from "./flow-capacity.ts";
+
+export { MIN_BROWSER_CALLS_PER_FLOW, MIN_RUN_SPEC_CALLS_PER_FLOW, MIN_RUN_SPEC_DEV_WRITES_PER_FLOW };
 
 export { LEAD_PLAN_KIND, type LeadPlanKind };
 
@@ -21,32 +25,28 @@ export const PLAN_DOWNGRADE = {
   NO_PLAN: "no-plan",
   MALFORMED: "malformed",
   EMPTY: "empty",
-  OVER_LIMIT: "over-limit",
   DUPLICATE: "duplicate-flow",
   NO_TIME: "no-time",
-  NO_CALLS: "no-calls",
 } as const;
 export type PlanDowngrade = (typeof PLAN_DOWNGRADE)[keyof typeof PLAN_DOWNGRADE];
 
 /* What each refusal tells the lead it got wrong, as facts; the plan contract it already holds says the shapes. */
-const DOWNGRADE_FACTS: Readonly<Record<PlanDowngrade, (maxFlows: number) => string>> = {
+const DOWNGRADE_FACTS: Readonly<Record<PlanDowngrade, () => string>> = {
   [PLAN_DOWNGRADE.NO_PLAN]: () => "the answer held no plan JSON object",
   [PLAN_DOWNGRADE.MALFORMED]: () => "it is not one of the plan shapes: a kind, a field or a field's type is not the contract's",
   [PLAN_DOWNGRADE.EMPTY]: () => "it is a fan-out with no flow and no use case dropped with a basis and a reason; a change that needs no test is a noop with its reason",
-  [PLAN_DOWNGRADE.OVER_LIMIT]: (maxFlows) => `it names more than ${maxFlows} flows`,
   [PLAN_DOWNGRADE.DUPLICATE]: () => "two of its flows have the same id",
-  [PLAN_DOWNGRADE.NO_TIME]: () => "the run has too little time left for that many flows",
-  [PLAN_DOWNGRADE.NO_CALLS]: () => "the run has too few run_spec calls left for that many flows",
+  [PLAN_DOWNGRADE.NO_TIME]: () => "the run has too little time left for any flow",
 };
 
 /* The one request that sends a refused plan back to the lead: why it was refused (by its code and in words), and what to answer. */
-export function assembleRejectedPlanRequest(downgrade: string, maxFlows: number): AssembledPrompt {
-  const fact = (DOWNGRADE_FACTS as Record<string, ((n: number) => string) | undefined>)[downgrade]?.(maxFlows) ?? "it could not be admitted";
+export function assembleRejectedPlanRequest(downgrade: string): AssembledPrompt {
+  const fact = (DOWNGRADE_FACTS as Record<string, (() => string) | undefined>)[downgrade]?.() ?? "it could not be admitted";
   return assembleDefs(REJECTED_PLAN_SECTIONS, { downgrade, fact }, { separator: "\n\n" });
 }
 
-export function renderRejectedPlanRequest(downgrade: string, maxFlows: number): string {
-  return assembleRejectedPlanRequest(downgrade, maxFlows).text;
+export function renderRejectedPlanRequest(downgrade: string): string {
+  return assembleRejectedPlanRequest(downgrade).text;
 }
 
 export const MAX_FLOW_ID_CHARS = 48;
@@ -64,8 +64,8 @@ export const MAX_CANDIDATE_ID_CHARS = 64;
 export const ROUTE = /^\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]*$/;
 
 export interface PlanLimits {
-  /* The most flows a plan may name. */
-  maxFlows: number;
+  /* The app's ceiling on flows, for cost; absent: only the run's time bounds them (`flowCapacity`). */
+  ceiling?: number;
   /* The most flows that run at once. */
   maxParallel: number;
   /* The most time one flow may take. */
@@ -80,6 +80,9 @@ export interface PlanLimits {
   runSpecCalls?: number;
   runSpecDevWrites?: number;
   browserCalls?: number;
+  /* The longest one call of each tool may take: a flow is granted no more calls than its time can run. */
+  runSpecPerCallMs?: number;
+  browserPerCallMs?: number;
 }
 
 export interface PlanDeps {
@@ -122,7 +125,15 @@ export type AdmittedPlan =
   /* `dropped` is set when the no-op is a plan of no flows whose every use case is dropped: the drops are checked against the run's facts like any plan's. */
   | { kind: typeof LEAD_PLAN_KIND.NOOP; reason: string; dropped?: PlanDrop[] }
   | { kind: typeof PLAN_REJECTED; downgrade: PlanDowngrade }
-  | { kind: typeof LEAD_PLAN_KIND.FANOUT; flows: AdmittedFlow[]; parallel: number; dropped: PlanDrop[] };
+  /* `capacity` is the flows the run could author (absent: nothing bounds them); `notAdmitted` the flows past it, in plan order. */
+  | { kind: typeof LEAD_PLAN_KIND.FANOUT; flows: AdmittedFlow[]; parallel: number; dropped: PlanDrop[]; capacity?: number; notAdmitted: NotAdmittedFlow[] };
+
+/* A flow of the plan past the run's capacity: what the lead is shown of it when it is asked about it, and what the run records. */
+export interface NotAdmittedFlow {
+  id: string;
+  objective: string;
+  candidates: string[];
+}
 
 /*
  * Why a use case needs no test, from a closed set the orchestrator can hold to its facts (`plan-coverage.ts`): the change leaves
@@ -238,11 +249,6 @@ function rawFlowOf(value: unknown, places: Readonly<Record<string, GeoLocation>>
   };
 }
 
-/* The share of a run total each of `count` flows may use. Undefined when the run has no such tool. */
-function shareOf(total: number | undefined, count: number): number | undefined {
-  return total === undefined ? undefined : Math.floor(total / count);
-}
-
 export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps): AdmittedPlan {
   if (raw === undefined) return reject(PLAN_DOWNGRADE.NO_PLAN);
   if (!isRecord(raw)) return reject(PLAN_DOWNGRADE.MALFORMED);
@@ -259,7 +265,6 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
     if (drops.length === 0) return reject(PLAN_DOWNGRADE.EMPTY);
     return { kind: LEAD_PLAN_KIND.NOOP, reason: drops.map((drop) => `${drop.candidate}: ${drop.reason}`).join("; ").slice(0, MAX_NOOP_REASON_CHARS), dropped: drops };
   }
-  if (raw.flows.length > limits.maxFlows) return reject(PLAN_DOWNGRADE.OVER_LIMIT);
   const flows: RawFlow[] = [];
   for (const entry of raw.flows) {
     const flow = rawFlowOf(entry, deps.places ?? {}, deps.redaction);
@@ -268,7 +273,19 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
   }
   if (new Set(flows.map((flow) => flow.id)).size !== flows.length) return reject(PLAN_DOWNGRADE.DUPLICATE);
 
-  const count = flows.length;
+  const capacity = flowCapacity({
+    maxParallel: limits.maxParallel,
+    flowBudgetMs: limits.flowBudgetMs,
+    ...(limits.remainingMs !== undefined ? { remainingMs: limits.remainingMs } : {}),
+    reserveMs: limits.reserveMs,
+    minFlowMs: limits.minFlowMs,
+    ...(limits.ceiling !== undefined ? { ceiling: limits.ceiling } : {}),
+  });
+  if (capacity === 0) return reject(PLAN_DOWNGRADE.NO_TIME);
+  const taken = capacity === undefined ? flows : flows.slice(0, capacity);
+  const notAdmitted = flows.slice(taken.length).map((flow) => ({ id: flow.id, objective: flow.objective, candidates: flow.candidates }));
+
+  const count = taken.length;
   const parallel = Math.min(limits.maxParallel, count);
   const waves = Math.ceil(count / parallel);
   const budgetMs =
@@ -277,16 +294,17 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
       : Math.min(limits.flowBudgetMs, Math.floor((limits.remainingMs - limits.reserveMs) / waves));
   if (budgetMs < limits.minFlowMs) return reject(PLAN_DOWNGRADE.NO_TIME);
 
-  const runSpecCalls = shareOf(limits.runSpecCalls, count);
-  if (runSpecCalls !== undefined && runSpecCalls < 1) return reject(PLAN_DOWNGRADE.NO_CALLS);
-  const runSpecDevWrites = shareOf(limits.runSpecDevWrites, count) ?? 0;
-  const browserCalls = shareOf(limits.browserCalls, count) ?? 0;
+  const runSpecCalls = perFlowGrant({ total: limits.runSpecCalls, flows: count, minimum: MIN_RUN_SPEC_CALLS_PER_FLOW, flowBudgetMs: budgetMs, ...(limits.runSpecPerCallMs !== undefined ? { perCallMs: limits.runSpecPerCallMs } : {}) });
+  const runSpecDevWrites = perFlowGrant({ total: limits.runSpecDevWrites, flows: count, minimum: MIN_RUN_SPEC_DEV_WRITES_PER_FLOW });
+  const browserCalls = perFlowGrant({ total: limits.browserCalls, flows: count, minimum: MIN_BROWSER_CALLS_PER_FLOW, flowBudgetMs: budgetMs, ...(limits.browserPerCallMs !== undefined ? { perCallMs: limits.browserPerCallMs } : {}) });
 
   return {
     kind: LEAD_PLAN_KIND.FANOUT,
     parallel,
     dropped: dropsOf(raw.dropped, deps.redaction),
-    flows: flows.map((flow) => {
+    ...(capacity !== undefined ? { capacity } : {}),
+    notAdmitted,
+    flows: taken.map((flow) => {
       const specFile = deps.specFileFor(flow.id);
       return {
         id: flow.id,
@@ -298,7 +316,7 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
         specFile,
         writablePaths: [`${deps.specRelDir.replace(/\/+$/, "")}/${specFile}`],
         budgetMs,
-        runSpecCalls: runSpecCalls ?? 0,
+        runSpecCalls,
         runSpecDevWrites,
         browserCalls,
         ...(flow.location !== undefined ? { location: flow.location } : {}),

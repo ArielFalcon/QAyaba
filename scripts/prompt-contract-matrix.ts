@@ -968,9 +968,10 @@ export function buildCoordinationMatrix(root: string = ROOT): CoordinationCell[]
     ...(Object.values(CORRECTION_ORIGIN) as CorrectionOrigin[]).map((origin) => ({ prompt: "lead-correction", variant: origin, role: "qa-lead" as const, assembled: assembleLeadCorrection(MATRIX_REDACTION, correctionFlows, findings, origin) })),
     { prompt: "lead-review", variant: "unreadable-answer-unchanged-spec", role: "qa-lead", assembled: assembleLeadReview(MATRIX_REDACTION, review.unchanged, { turn: 2, maxTurns: 3 }) },
     { prompt: "lead-replan", variant: "refused-drop", role: "qa-lead", assembled: assembleReplanRequest(MATRIX_REDACTION, [review.candidate], [{ candidate: review.candidate, basis: "no-observable-change", why: "its changed code is executable" }] as never) },
+    { prompt: "lead-replan", variant: "flows-past-capacity-and-oversize", role: "qa-lead", assembled: assembleReplanRequest(MATRIX_REDACTION, [], [], { capacity: 2, notAdmitted: [{ id: "orders", objective: "the order list", candidates: ["uc-1a2b3c4d"] }], oversize: [{ id: "cart", size: { hunks: 14, added: 900, removed: 120 } }] }) },
     { prompt: "lead-feedback", variant: "plain", role: "qa-author", assembled: assembleSidekickFeedback(MATRIX_REDACTION, "Assert the total row, not the count.", "Respond with the SAME JSON output contract for delegationId=d runId=r.") },
     { prompt: "lead-correction-refused", variant: "plain", role: "qa-lead", assembled: assembleRefusedCorrection([{ flowId: "cart", finding: 3, reason: "the finding is not one of the turn's" }], 2) },
-    { prompt: "lead-plan-rejected", variant: "malformed", role: "qa-lead", assembled: assembleRejectedPlanRequest("malformed", 4) },
+    { prompt: "lead-plan-rejected", variant: "malformed", role: "qa-lead", assembled: assembleRejectedPlanRequest("malformed") },
     { prompt: "lead-explore-outcome", variant: "answered", role: "qa-lead", assembled: assembleExploreOutcome(MATRIX_REDACTION, outcome as never) },
   ];
   const staticByRole = new Map<CoordinationCell["role"], LintSection[]>();

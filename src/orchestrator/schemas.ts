@@ -324,7 +324,7 @@ export const AppConfigSchema = z
       coordination: z
         .object({
           maxParallel: z.number().int().min(1).max(6).optional(),
-          maxFlows: z.number().int().min(2).max(12).optional(),
+          maxFlows: z.number().int().min(1).optional(),
           planBudgetMs: z.number().int().min(30_000).max(900_000).optional(),
           flowBudgetMs: z
             .object({

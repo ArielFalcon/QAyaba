@@ -1,12 +1,14 @@
 /*
  * Which use cases of the change a lead's plan answers for. The admission set is the candidates the change reaches directly and
  * a browser can reach; a plan answers for one when a flow cites its id or visits one of its pages, or lists it as dropped with a
- * reason. What a plan leaves unresolved is asked of the lead once more (`renderReplanRequest`) and, still unresolved, is recorded
- * as unplanned. Pure: no clock, no file, no model.
+ * reason. What a plan leaves unresolved is asked of the lead once more (`renderReplanRequest`), in the one amendment turn that also
+ * names the flows past the run's capacity and those too large for one author, and, still unresolved, is recorded as unplanned.
+ * Pure: no clock, no file, no model.
  */
 
 import { namesTemplatePage } from "@contexts/generation/application/index.ts";
-import { DROP_BASIS, type PlanDrop } from "./lead-plan.ts";
+import { DROP_BASIS, type NotAdmittedFlow, type PlanDrop } from "./lead-plan.ts";
+import type { OwnedSliceSize } from "@kernel/use-case-candidate.ts";
 import { LanguageRegistry } from "@kernel/language-id.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import { candidatePagesOf, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
@@ -112,12 +114,41 @@ export function planCoverage(plan: { flows: readonly PlannedFlow[]; dropped: rea
   return refused.length > 0 ? { ...coverage, refused } : coverage;
 }
 
-/* The question the lead is asked when its plan leaves candidates unresolved, assembled from the registered sections: facts about the candidates and what a plan must do with each. The shape of the answer is the lead's role prompt. */
-export function assembleReplanRequest(redaction: RedactionPort, unresolved: readonly UseCaseCandidate[], refused: NonNullable<PlanCoverage["refused"]> = []): AssembledPrompt {
-  const refusals = new Map(refused.map((r) => [r.candidate.id, { basis: r.basis, why: r.why }]));
-  return assembleDefs(REPLAN_SECTIONS, { unresolved, refusals, scrub: (text) => redaction.redact(text) }, { separator: "\n" });
+/* What the amendment turn asks about besides the use cases: the flows past the run's capacity, the flows too large for one author, and the change each candidate would own. */
+export interface PlanAmendment {
+  capacity?: number;
+  notAdmitted?: readonly NotAdmittedFlow[];
+  oversize?: ReadonlyArray<{ id: string; size: OwnedSliceSize }>;
+  slices?: Readonly<Record<string, OwnedSliceSize>>;
 }
 
-export function renderReplanRequest(redaction: RedactionPort, unresolved: readonly UseCaseCandidate[], refused: NonNullable<PlanCoverage["refused"]> = []): string {
-  return assembleReplanRequest(redaction, unresolved, refused).text;
+/* Whether a plan has anything to amend: a use case it leaves unresolved, a flow past the capacity or a flow too large for one author. */
+export function needsAmendment(unresolved: readonly UseCaseCandidate[], amendment: PlanAmendment): boolean {
+  return unresolved.length > 0 || (amendment.notAdmitted?.length ?? 0) > 0 || (amendment.oversize?.length ?? 0) > 0;
+}
+
+/*
+ * The one amendment request the lead is asked, assembled from the registered sections: the candidates its plan leaves unresolved
+ * (with the fact that refuses a drop), the flows not admitted and the flows too large, and what a plan must do with each. The shape
+ * of the answer is the lead's role prompt.
+ */
+export function assembleReplanRequest(redaction: RedactionPort, unresolved: readonly UseCaseCandidate[], refused: NonNullable<PlanCoverage["refused"]> = [], amendment: PlanAmendment = {}): AssembledPrompt {
+  const refusals = new Map(refused.map((r) => [r.candidate.id, { basis: r.basis, why: r.why }]));
+  return assembleDefs(
+    REPLAN_SECTIONS,
+    {
+      unresolved,
+      refusals,
+      ...(amendment.slices ? { slices: amendment.slices } : {}),
+      ...(amendment.capacity !== undefined ? { capacity: amendment.capacity } : {}),
+      notAdmitted: amendment.notAdmitted ?? [],
+      oversize: amendment.oversize ?? [],
+      scrub: (text) => redaction.redact(text),
+    },
+    { separator: "\n" },
+  );
+}
+
+export function renderReplanRequest(redaction: RedactionPort, unresolved: readonly UseCaseCandidate[], refused: NonNullable<PlanCoverage["refused"]> = [], amendment: PlanAmendment = {}): string {
+  return assembleReplanRequest(redaction, unresolved, refused, amendment).text;
 }

@@ -19,3 +19,8 @@ test("the defaults themselves are never shared with a resolved setting", () => {
   settings.flowBudgetMs.opencode = 1;
   assert.notEqual(DEFAULT_COORDINATION_SETTINGS.flowBudgetMs.opencode, 1);
 });
+
+test("an app that sets no ceiling on flows has none: the run's time alone bounds them", () => {
+  assert.equal(resolveCoordinationSettings({ maxParallel: 2 }).maxFlows, undefined);
+  assert.equal("maxFlows" in DEFAULT_COORDINATION_SETTINGS, false);
+});
