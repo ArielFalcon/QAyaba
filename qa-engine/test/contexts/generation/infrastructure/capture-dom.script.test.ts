@@ -19,6 +19,7 @@ interface StubPage {
   dataRequestInFlight?: boolean;
   anchors?: string[];
   requests?: { type: string; method?: string; url: string; failed?: boolean }[];
+  responses?: { type?: string; method?: string; url: string; status?: number; contentType?: string; body?: string; bodyBytes?: number; bodyError?: boolean }[];
   elements?: { testId?: string; id?: string; tag?: string }[];
 }
 
@@ -213,4 +214,105 @@ test("an address longer than the limit is cut by the script before it is reporte
   const long = `${BASE_URL}/${"x".repeat(60)}`;
   const requests = runCapture({ page: { requests: [{ type: "fetch", url: long }] }, limits: { maxHrefChars: 40 } }).lines[0]!.requests as { url: string }[];
   assert.ok(requests[0]!.url.length <= 40 + BASE_URL.length);
+});
+
+/* What a page's code read as JSON: the shape of each answer (its operation, how many items, the names of the keys its items carry), never a value. */
+const json = (value: unknown): string => JSON.stringify(value);
+const answer = (path: string, value: unknown, extra: Record<string, unknown> = {}): { url: string; body: string } & Record<string, unknown> => ({ url: `${BASE_URL}${path}`, body: json(value), ...extra });
+type Shape = { method: string; url: string; items: number; keys: string[]; complete: boolean };
+const shapesOf = (page: StubPage, limits?: Record<string, unknown>): Shape[] | undefined => runCapture({ page, ...(limits ? { limits } : {}) }).lines[0]!.shapes as Shape[] | undefined;
+
+test("a route reports the keys and the item count of each JSON answer its page read, never a value or a query", () => {
+  const items = [{ id: 1, name: "private-value-1", category: "k1" }, { id: 2, name: "private-value-2", extra: true }];
+  const line = runCapture({ page: { responses: [answer("/api/items?lat=40.1&token=sensitive-value", items)] } }).lines[0]!;
+  assert.deepEqual(line.shapes, [{ method: "GET", url: `${BASE_URL}/api/items`, items: 2, keys: ["category", "extra", "id", "name"], complete: true }]);
+  assert.equal(JSON.stringify(line).includes("private-value"), false);
+  assert.equal(JSON.stringify(line.shapes).includes("sensitive-value"), false);
+});
+
+test("a key whose value is null is a key the items carry", () => {
+  assert.deepEqual(shapesOf({ responses: [answer("/api/items", [{ id: 1, category: null }])] })?.[0]?.keys, ["category", "id"]);
+});
+
+test("the items of an answer are the root array, the array a root object holds, or the array an object one level down holds, else the root object itself", () => {
+  const rows = [{ a: 1 }, { b: 2 }];
+  const shaped = shapesOf({ responses: [answer("/root-array", rows), answer("/wrapped", { total: 2, data: rows }), answer("/nested", { meta: { page: 1 }, payload: { list: rows } }), answer("/single", { id: 1, name: "x" })] })!;
+  assert.deepEqual(shaped.map((s) => [s.items, s.keys]), [[2, ["a", "b"]], [2, ["a", "b"]], [2, ["a", "b"]], [1, ["id", "name"]]]);
+});
+
+test("of several arrays of objects, the one with the most elements is the items", () => {
+  const shaped = shapesOf({ responses: [answer("/many", { featured: [{ f: 1 }], all: [{ a: 1 }, { a: 2 }, { a: 3 }] })] })!;
+  assert.deepEqual([shaped[0]!.items, shaped[0]!.keys], [3, ["a"]]);
+});
+
+test("an answer that is an empty list reports no item, and no key", () => {
+  assert.deepEqual(shapesOf({ responses: [answer("/api/items", [])] }), [{ method: "GET", url: `${BASE_URL}/api/items`, items: 0, keys: [], complete: true }]);
+});
+
+test("answers to one operation with different queries are one shape: their items added up and their keys joined", () => {
+  const shaped = shapesOf({ responses: [answer("/api/items?page=1", [{ id: 1 }]), answer("/api/items?page=2", [{ id: 2, extra: 1 }, { id: 3 }])] })!;
+  assert.deepEqual(shaped, [{ method: "GET", url: `${BASE_URL}/api/items`, items: 3, keys: ["extra", "id"], complete: true }]);
+});
+
+test("only a successful JSON answer to a GET the page's code made is read", () => {
+  const shaped = shapesOf({
+    responses: [
+      answer("/api/post", [{ a: 1 }], { method: "POST" }),
+      answer("/api/missing", [{ a: 1 }], { status: 404 }),
+      answer("/api/text", [{ a: 1 }], { contentType: "text/html" }),
+      answer("/api/script.js", [{ a: 1 }], { type: "script" }),
+      answer("/api/ok", [{ a: 1 }], { contentType: "application/problem+json; charset=utf-8" }),
+    ],
+  })!;
+  assert.deepEqual(shaped.map((s) => s.url), [`${BASE_URL}/api/ok`]);
+});
+
+test("a body that is not JSON, or cannot be read, reports no shape", () => {
+  assert.equal(shapesOf({ responses: [{ url: `${BASE_URL}/api/bad`, body: "{not json" }, { url: `${BASE_URL}/api/gone`, bodyError: true }] }), undefined);
+});
+
+test("an answer is read from every origin the browser reached", () => {
+  assert.equal(shapesOf({ responses: [{ url: "https://api.example/v1/items?x=1", body: json([{ id: 1 }]) }] })?.[0]?.url, "https://api.example/v1/items");
+});
+
+test("a page that read more distinct operations than the limit is held to it and the rest is counted", () => {
+  const responses = Array.from({ length: 5 }, (_, i) => answer(`/api/r${i}`, [{ id: i }]));
+  const line = runCapture({ page: { responses }, limits: { maxShapesPerRoute: 3 } }).lines[0]!;
+  assert.equal((line.shapes as unknown[]).length, 3);
+  assert.equal(line.shapesOmitted, 2);
+});
+
+test("an answer with more keys than the limit keeps the limit and says its keys are not all of them", () => {
+  const item = Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`k${i}`, i]));
+  const [shape] = shapesOf({ responses: [answer("/api/items", [item])] }, { maxShapeKeys: 4 })!;
+  assert.equal(shape!.keys.length, 4);
+  assert.equal(shape!.complete, false);
+});
+
+test("a key longer than the limit is not kept and the keys are said to be incomplete", () => {
+  const [shape] = shapesOf({ responses: [answer("/api/items", [{ id: 1, [`k${"x".repeat(80)}`]: 1 }])] }, { maxShapeKeyChars: 20 })!;
+  assert.deepEqual(shape!.keys, ["id"]);
+  assert.equal(shape!.complete, false);
+});
+
+test("an answer with more items than the limit reads the first ones and says its keys are not all of them, with the true count", () => {
+  const items = Array.from({ length: 10 }, (_, i) => (i === 9 ? { id: i, late: true } : { id: i }));
+  const [shape] = shapesOf({ responses: [answer("/api/items", items)] }, { maxShapeItems: 4 })!;
+  assert.equal(shape!.items, 10);
+  assert.deepEqual(shape!.keys, ["id"]);
+  assert.equal(shape!.complete, false);
+});
+
+test("a body over the limit is not read and is counted as left out", () => {
+  const line = runCapture({ page: { responses: [{ url: `${BASE_URL}/api/big`, bodyBytes: 500 }] }, limits: { maxShapeBodyBytes: 100 } }).lines[0]!;
+  assert.equal("shapes" in line, false);
+  assert.equal(line.shapesOmitted, 1);
+});
+
+test("the shapes of one route are not carried into the next, and a page that read no JSON reports none", () => {
+  const { lines } = runCapture({ input: { routes: ["/", "/shop"] }, page: { responses: [answer("/api/a", [{ id: 1 }])] } });
+  assert.deepEqual(lines.map((l) => (l.shapes as unknown[]).length), [1, 1]);
+  const quiet = runCapture({ page: { requests: [{ type: "fetch", url: `${BASE_URL}/api/a` }] } }).lines[0]!;
+  assert.equal("shapes" in quiet, false);
+  assert.equal("shapesOmitted" in quiet, false);
 });

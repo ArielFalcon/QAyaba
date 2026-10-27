@@ -5,7 +5,7 @@ import { AsyncResource } from "node:async_hooks";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { redactByValue } from "../../../shared-kernel/run-secret-redaction.ts";
-import { MAX_LOGGED_REQUESTS, RequestLedger, requestAddress, type ObservedRequest } from "@kernel/observed-requests.ts";
+import { MAX_LOGGED_PATH_CHARS, MAX_LOGGED_REQUESTS, RequestLedger, requestAddress, type ObservedRequest } from "@kernel/observed-requests.ts";
 import type { ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { BoundedWholeOutput } from "../../../shared-kernel/process-sandbox/bounded-whole-output.ts";
@@ -18,7 +18,7 @@ import { MAX_LINK_LENGTH, MAX_LINKS_PER_PAGE, sameOriginPathnames } from "../dom
 import { loggableRoutes } from "./loggable-route.ts";
 import { dataStateRouteFor } from "../domain/data-state-route.ts";
 import { parseAriaSnapshot, parseAriaSnapshotWithState } from "../domain/aria-snapshot.ts";
-import type { NodeAttr, PageRequests, RepeatedName, RouteSnapshot } from "../domain/route-snapshot.ts";
+import type { DataShape, NodeAttr, PageDataShapes, PageRequests, RepeatedName, RouteSnapshot } from "../domain/route-snapshot.ts";
 import type { RouteNavigation } from "../domain/route-availability-classifier.ts";
 import { pathOnly } from "@kernel/route-availability.ts";
 
@@ -426,6 +426,8 @@ export interface CapturedPage {
   navigation?: RouteNavigation;
   /* The data requests the page made while it was captured. Absent when it made none. */
   requests?: PageRequests;
+  /* The shapes of the JSON responses the page's code read while it was captured. Absent when none was read. */
+  shapes?: PageDataShapes;
 }
 
 /* What one captured page supplied and lost, for the trace: the kept nodes and test ids (within the node safety bound), the node→test-id map, and how many the bound left out. What a prompt shows of the page is the window's to decide, and its prompt records what the window left out. */
@@ -495,6 +497,7 @@ export async function captureDomForRoutes(
         dataStateUnconfirmed: dataStateUnconfirmed(snap),
         navigation: navigationOf(template === undefined ? snap : { ...snap, template }),
         ...(snap.requests !== undefined ? { requests: snap.requests } : {}),
+        ...(snap.shapes !== undefined ? { shapes: snap.shapes } : {}),
       };
     }));
     const reported = snaps
@@ -631,6 +634,14 @@ export function captureTimeoutMs(routes: readonly string[], dataState?: CaptureD
 /* The longest a link's whole address may be for the script to report it: the pathname the orchestrator keeps is held to MAX_LINK_LENGTH, so this leaves room for the origin and a query. */
 const MAX_HREF_CHARS = MAX_LINK_LENGTH * 4;
 
+/* The bounds on the shapes of the JSON answers a page read (the page decides what it answers with, and the script reads the body in the browser's process): the distinct operations kept for a page, the keys kept for an operation, the longest key kept, the items of one answer scanned for keys, the largest body read, and the longest wait for the bodies a page asked for before the route is reported. */
+export const MAX_SHAPES_PER_ROUTE = 50;
+export const MAX_SHAPE_KEYS = 100;
+export const MAX_SHAPE_KEY_CHARS = 64;
+export const MAX_SHAPE_ITEMS = 1_000;
+export const MAX_SHAPE_BODY_BYTES = 4 * 1024 * 1024;
+export const SHAPE_READ_TIMEOUT_MS = 3_000;
+
 /* The bounds the capture script holds the page to, handed to it in its input: the page decides what it shows, so these cap what it can make the script report. */
 export const CAPTURE_LIMITS = {
   navigationTimeoutMs: NAVIGATION_TIMEOUT_MS,
@@ -643,6 +654,12 @@ export const CAPTURE_LIMITS = {
   maxRepeatedPerRoute: MAX_REPEATED_PER_ROUTE,
   maxNamesResolved: MAX_NAMES_RESOLVED,
   maxRequestsPerRoute: MAX_LOGGED_REQUESTS,
+  maxShapesPerRoute: MAX_SHAPES_PER_ROUTE,
+  maxShapeKeys: MAX_SHAPE_KEYS,
+  maxShapeKeyChars: MAX_SHAPE_KEY_CHARS,
+  maxShapeItems: MAX_SHAPE_ITEMS,
+  maxShapeBodyBytes: MAX_SHAPE_BODY_BYTES,
+  shapeReadTimeoutMs: SHAPE_READ_TIMEOUT_MS,
   maxScopeChars: MAX_SCOPE_CHARS,
   maxScopeDepth: MAX_SCOPE_DEPTH,
 } as const;
@@ -715,6 +732,42 @@ function requestsFrom(value: unknown, scriptOmitted: unknown): PageRequests | un
   }
   if (Number.isInteger(scriptOmitted) && (scriptOmitted as number) > 0) ledger.addOmitted(scriptOmitted as number);
   const { listed, omitted } = ledger.drain();
+  return listed.length === 0 && omitted === 0 ? undefined : { listed, omitted };
+}
+
+/* A name of a field the capture keeps: letters, digits and the few marks field names use, no space, no control character, none of the other. */
+const FIELD_NAME = /^[\p{L}\p{N}_$.@:-]+$/u;
+const CUT_MARK = "…[cut]";
+
+/*
+ * The shapes of the JSON answers the script reported for a route. Nothing the script sent is believed past its form: the operation is
+ * method + origin + pathname (a query or fragment left on is dropped, an address past MAX_LOGGED_PATH_CHARS is cut and says so), the
+ * item count a whole number, a key a name of a field within MAX_SHAPE_KEY_CHARS and at most MAX_SHAPE_KEYS of them. A key that was
+ * dropped, cut off by the bound, or a shape the script itself called incomplete, makes the shape incomplete: a key missing from it
+ * is then no proof of anything. Past MAX_SHAPES_PER_ROUTE operations the rest is only counted, with what the script left out.
+ * Undefined when nothing was reported.
+ */
+function shapesFrom(value: unknown, scriptOmitted: unknown): PageDataShapes | undefined {
+  const listed: DataShape[] = [];
+  const seen = new Set<string>();
+  let omitted = Number.isInteger(scriptOmitted) && (scriptOmitted as number) > 0 ? (scriptOmitted as number) : 0;
+  for (const entry of Array.isArray(value) ? value : []) {
+    const { method, url, items, keys, complete } = (entry ?? {}) as { method?: unknown; url?: unknown; items?: unknown; keys?: unknown; complete?: unknown };
+    if (typeof method !== "string" || !/^[A-Za-z]{1,16}$/.test(method) || typeof url !== "string" || !Number.isInteger(items) || (items as number) < 0 || !Array.isArray(keys)) continue;
+    const address = requestAddress(url);
+    if (address === undefined || (address.protocol !== "http:" && address.protocol !== "https:")) continue;
+    const operation = address.address.length <= MAX_LOGGED_PATH_CHARS ? address.address : `${address.address.slice(0, MAX_LOGGED_PATH_CHARS)}${CUT_MARK}`;
+    const identity = `${method.toUpperCase()} ${operation}`;
+    if (seen.has(identity)) continue;
+    if (listed.length >= MAX_SHAPES_PER_ROUTE) {
+      omitted += 1;
+      continue;
+    }
+    seen.add(identity);
+    const named = [...new Set(keys.filter((key): key is string => typeof key === "string" && key.length <= MAX_SHAPE_KEY_CHARS && FIELD_NAME.test(key)))].sort();
+    const kept = named.slice(0, MAX_SHAPE_KEYS);
+    listed.push({ method: method.toUpperCase(), url: operation, items: items as number, keys: kept, complete: complete === true && kept.length === new Set(keys).size });
+  }
   return listed.length === 0 && omitted === 0 ? undefined : { listed, omitted };
 }
 
@@ -858,7 +911,7 @@ export function createCaptureDomDeps(
           if (finished) return;
           try {
             /* The page decides what it shows, and it can show the account's password: the run's secrets are taken out of the document by value before it is read (a JSON-escaped spelling of each is replaced too). */
-            const raw = captureLines(redactByValue(stdout.text())) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; hrefs?: unknown; repeated?: unknown; absent?: unknown; ms?: unknown; dataState?: unknown; ready?: unknown; resultExpected?: unknown; resultCount?: unknown; emptyConfirmed?: unknown; effectiveLocation?: unknown; captureAttempts?: unknown; requests?: unknown; requestsOmitted?: unknown } & RawNavigationFacts>;
+            const raw = captureLines(redactByValue(stdout.text())) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; hrefs?: unknown; repeated?: unknown; absent?: unknown; ms?: unknown; dataState?: unknown; ready?: unknown; resultExpected?: unknown; resultCount?: unknown; emptyConfirmed?: unknown; effectiveLocation?: unknown; captureAttempts?: unknown; requests?: unknown; requestsOmitted?: unknown; shapes?: unknown; shapesOmitted?: unknown } & RawNavigationFacts>;
             const read = new Set(raw.map((r) => r.route));
             const unread = routes.filter((route) => !read.has(route));
             if (unread.length > 0) engineLog.warn(`[qa] WARNING: DOM capture ended before it read ${unread.length} route(s) [${loggableRoutes(unread)}] — those routes are not grounded.`);
@@ -903,6 +956,8 @@ export function createCaptureDomDeps(
               Object.assign(snap, navigationFactsOf(r));
               const requests = requestsFrom(r.requests, r.requestsOmitted);
               if (requests !== undefined) snap.requests = requests;
+              const shapes = shapesFrom(r.shapes, r.shapesOmitted);
+              if (shapes !== undefined) snap.shapes = shapes;
               return snap;
             }));
           } catch {

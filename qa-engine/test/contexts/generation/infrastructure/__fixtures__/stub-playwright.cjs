@@ -63,6 +63,22 @@ const chromium = {
                   for (const handler of handlers.request || []) handler(request);
                   if (spec.failed) for (const handler of handlers.requestfailed || []) handler(request);
                 }
+                /* `responses`: the answers the page reads on opening; `body` is the JSON text the network returned (or `bodyBytes` bytes of filler), `bodyError` a body that cannot be read. */
+                for (const spec of page.responses || []) {
+                  const request = { resourceType: () => spec.type || "fetch", method: () => spec.method || "GET", url: () => spec.url };
+                  const response = {
+                    request: () => request,
+                    url: () => spec.url,
+                    status: () => spec.status || 200,
+                    headers: () => ({ "content-type": spec.contentType || "application/json" }),
+                    body: async () => {
+                      if (spec.bodyError) throw new Error("no body");
+                      return Buffer.from(spec.bodyBytes ? "x".repeat(spec.bodyBytes) : spec.body ?? "null");
+                    },
+                  };
+                  for (const handler of handlers.request || []) handler(request);
+                  for (const handler of handlers.response || []) handler(response);
+                }
               },
               async waitForLoadState() {},
               url: () => url,

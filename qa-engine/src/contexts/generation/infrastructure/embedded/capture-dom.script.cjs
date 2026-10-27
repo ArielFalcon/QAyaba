@@ -1,7 +1,7 @@
 // @ts-check
 /* The capture of a page's DOM for the orchestrator, run as its own node process through the execution launcher (profile "suite"). Its input is PW_CAPTURE_INPUT (JSON: baseUrl, routes, probe, limits) and the PW_* / DEV_ENV_* names of its environment; its output is one JSON line per route on stdout. The page it reads is untrusted: every bound in `limits` caps what a page can make it report. PLAYWRIGHT_PATH is prepended by buildCaptureScript. */
 /**
- * @typedef {{ navigationTimeoutMs: number, settleTimeoutMs: number, defaultDataStateWaitMs: number, retryDataStateWaitMs: number, minDataStateReadMs: number, maxLinksPerPage: number, maxHrefChars: number, maxRepeatedPerRoute: number, maxNamesResolved: number, maxRequestsPerRoute: number, maxScopeChars: number, maxScopeDepth: number }} CaptureLimits
+ * @typedef {{ navigationTimeoutMs: number, settleTimeoutMs: number, defaultDataStateWaitMs: number, retryDataStateWaitMs: number, minDataStateReadMs: number, maxLinksPerPage: number, maxHrefChars: number, maxRepeatedPerRoute: number, maxNamesResolved: number, maxRequestsPerRoute: number, maxShapesPerRoute: number, maxShapeKeys: number, maxShapeKeyChars: number, maxShapeItems: number, maxShapeBodyBytes: number, shapeReadTimeoutMs: number, maxScopeChars: number, maxScopeDepth: number }} CaptureLimits
  * @typedef {{ type: string, text: string }} RuntimeError
  * @typedef {{ readySelector?: string, resultSelector?: string, resultTextSelector?: string, locationSelector?: string, timeoutMs?: number }} DataStateSettings
  * @typedef {{ key: string, testId?: string, id?: string, name?: string, href?: string, inputType?: string, nameFallback?: string }} RawAttr
@@ -78,9 +78,90 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
       const held = key === undefined ? undefined : routeRequests.get(key);
       if (held) held.failed = true;
     }
+    /* The shapes of the JSON answers the page's code read since the route was opened: for each operation (GET, origin + pathname, no query) how many items it returned and the names of the top-level keys its items carry; no value ever leaves the browser. An item is an element of the array of objects the root (or an object one level down) holds, the one with the most elements, else the root object itself. The page is untrusted, so the bounds in limits cap the operations, the body read, the items scanned and the keys kept, and `complete` says the keys are those of every item. */
+    /** @type {Map<string, { method: string, url: string, items: number, keys: Set<string>, complete: boolean, read: boolean }>} */
+    let routeShapes = new Map();
+    let shapesOmitted = 0;
+    /** @type {Set<Promise<void>>} */
+    const shapeReads = new Set();
+    /** @param {unknown} value @returns {boolean} */
+    function isObject(value) { return typeof value === "object" && value !== null && !Array.isArray(value); }
+    /**
+     * @param {unknown} root
+     * @returns {Record<string, unknown>[]}
+     */
+    function itemsOf(root) {
+      if (Array.isArray(root)) return root.filter(isObject);
+      if (!isObject(root)) return [];
+      const record = /** @type {Record<string, unknown>} */ (root);
+      /** @type {Record<string, unknown>[]} */
+      let best = [];
+      /** @param {unknown} value */
+      const consider = function(value) {
+        if (!Array.isArray(value)) return;
+        const objects = value.filter(isObject);
+        if (objects.length > best.length) best = objects;
+      };
+      Object.keys(record).forEach(function(k) { consider(record[k]); });
+      if (best.length === 0) {
+        Object.keys(record).forEach(function(k) {
+          const inner = record[k];
+          if (isObject(inner)) Object.keys(/** @type {object} */ (inner)).forEach(function(n) { consider(/** @type {Record<string, unknown>} */ (inner)[n]); });
+        });
+      }
+      return best.length === 0 ? [record] : best;
+    }
+    /** @param {any} response */
+    function noteShape(response) {
+      try {
+        const request = response.request();
+        if (!isDataRequest(request) || String(request.method()).toUpperCase() !== "GET") return;
+        const status = response.status();
+        if (status < 200 || status >= 300) return;
+        if (String((response.headers() || {})["content-type"] || "").toLowerCase().indexOf("json") === -1) return;
+        const parsed = new URL(response.url());
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return;
+        const address = (parsed.origin + parsed.pathname).slice(0, limits.maxHrefChars);
+        const key = "GET " + address;
+        const shapes = routeShapes;
+        let found = shapes.get(key);
+        if (!found) {
+          if (shapes.size >= limits.maxShapesPerRoute) { shapesOmitted++; return; }
+          found = { method: "GET", url: address, items: 0, keys: new Set(), complete: true, read: false };
+          shapes.set(key, found);
+        }
+        const held = found;
+        const reading = response.body().then(function(/** @type {Buffer} */ body) {
+          if (shapes !== routeShapes) return;
+          if (body.length > limits.maxShapeBodyBytes) { if (!held.read) shapes.delete(key); shapesOmitted++; return; }
+          const items = itemsOf(JSON.parse(body.toString("utf8")));
+          held.items += items.length;
+          held.read = true;
+          for (let i = 0; i < items.length; i++) {
+            if (i >= limits.maxShapeItems) { held.complete = false; break; }
+            const names = Object.keys(items[i]);
+            for (let n = 0; n < names.length; n++) {
+              if (names[n].length > limits.maxShapeKeyChars || (held.keys.size >= limits.maxShapeKeys && !held.keys.has(names[n]))) { held.complete = false; continue; }
+              held.keys.add(names[n]);
+            }
+          }
+        }).catch(function() { if (!held.read && shapes === routeShapes) shapes.delete(key); });
+        shapeReads.add(reading);
+        reading.finally(function() { shapeReads.delete(reading); });
+      } catch(_r) { /* an answer the script cannot read is not kept */ }
+    }
+    /* Waits for the answers read so far, for at most limits.shapeReadTimeoutMs: a body that never finishes is not waited on. */
+    async function settleShapeReads() {
+      if (shapeReads.size === 0) return;
+      /** @type {any} */
+      let timer;
+      await Promise.race([Promise.allSettled(Array.from(shapeReads)), new Promise(function(resolve) { timer = setTimeout(resolve, limits.shapeReadTimeoutMs); })]);
+      clearTimeout(timer);
+    }
     page.on("request", function(/** @type {any} */ request) { if (isDataRequest(request)) dataRequestsInFlight.add(request); noteRequest(request); });
     page.on("requestfinished", function(/** @type {any} */ request) { dataRequestsInFlight.delete(request); });
     page.on("requestfailed", function(/** @type {any} */ request) { dataRequestsInFlight.delete(request); noteFailed(request); });
+    page.on("response", noteShape);
     /* The app's declared data-state selectors (dev.dataState), read from the child's env: readiness/result/location per route path, keyed like the routes the capture is asked for. */
     /** @type {Record<string, DataStateSettings> | any} */
     let stateRoutes = null;
@@ -152,6 +233,9 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
       dataRequestsInFlight.clear();
       routeRequests = new Map();
       requestsOmitted = 0;
+      routeShapes = new Map();
+      shapesOmitted = 0;
+      shapeReads.clear();
       const routeStartedAt = Date.now();
       try {
         const response = await page.goto(new URL(route, baseUrl).toString(), { waitUntil: "domcontentloaded", timeout: limits.navigationTimeoutMs });
@@ -380,6 +464,10 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
         const entry = { route, yaml, rawAttrs, testIdRawList, testIdAttr, settled, runtimeErrors: currentRouteErrors, finalUrl, hrefs, repeated, absent, ms: Date.now() - routeStartedAt, ...navigation };
         if (routeRequests.size > 0) entry.requests = Array.from(routeRequests.values()).map(function(r) { return r.failed ? { method: r.method, url: r.url, count: r.count, failed: true } : { method: r.method, url: r.url, count: r.count }; });
         if (requestsOmitted > 0) entry.requestsOmitted = requestsOmitted;
+        await settleShapeReads();
+        const shapes = Array.from(routeShapes.values()).filter(function(e) { return e.read; }).map(function(e) { return { method: e.method, url: e.url, items: e.items, keys: Array.from(e.keys).sort(), complete: e.complete }; });
+        if (shapes.length > 0) entry.shapes = shapes;
+        if (shapesOmitted > 0) entry.shapesOmitted = shapesOmitted;
         if (dataState) {
           entry.dataState = true;
           if (ready !== undefined) entry.ready = ready;

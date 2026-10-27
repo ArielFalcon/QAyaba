@@ -24,6 +24,27 @@ export interface PageRequests {
   omitted: number;
 }
 
+/*
+ * The shape of one JSON response a page's code read while it was captured: the operation (method + origin + pathname, as the request
+ * ledger keeps them), how many items it returned and the names of the top-level keys its items carry (the union over the items read).
+ * Key names and counts only: no value, no query, no body. An item is the root object, or an element of the array of objects the root
+ * (or an object one level down) holds, the one with the most elements. `complete` says the keys are those of every item: not cut by the
+ * bound on items read or on keys kept, so that a key absent from them is absent from the response.
+ */
+export interface DataShape {
+  method: string;
+  url: string;
+  items: number;
+  keys: string[];
+  complete: boolean;
+}
+
+/* The response shapes of a page, and how many the capture's safety bounds left out. */
+export interface PageDataShapes {
+  listed: DataShape[];
+  omitted: number;
+}
+
 export interface RouteSnapshot {
   route: string;
   nodes?: string[];
@@ -69,4 +90,6 @@ export interface RouteSnapshot {
   sessionAttached?: boolean;
   /* The data requests the page made while it was captured. Absent when it made none. */
   requests?: PageRequests;
+  /* The shapes of the JSON responses the page's code read while it was captured. Absent when none was read. */
+  shapes?: PageDataShapes;
 }
