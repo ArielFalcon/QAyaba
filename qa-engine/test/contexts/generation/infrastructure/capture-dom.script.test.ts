@@ -219,13 +219,13 @@ test("an address longer than the limit is cut by the script before it is reporte
 /* What a page's code read as JSON: the shape of each answer (its operation, how many items, the names of the keys its items carry), never a value. */
 const json = (value: unknown): string => JSON.stringify(value);
 const answer = (path: string, value: unknown, extra: Record<string, unknown> = {}): { url: string; body: string } & Record<string, unknown> => ({ url: `${BASE_URL}${path}`, body: json(value), ...extra });
-type Shape = { method: string; url: string; items: number; keys: string[]; complete: boolean };
+type Shape = { method: string; url: string; items: number; keys: string[]; names: string[]; complete: boolean };
 const shapesOf = (page: StubPage, limits?: Record<string, unknown>): Shape[] | undefined => runCapture({ page, ...(limits ? { limits } : {}) }).lines[0]!.shapes as Shape[] | undefined;
 
 test("a route reports the keys and the item count of each JSON answer its page read, never a value or a query", () => {
   const items = [{ id: 1, name: "private-value-1", category: "k1" }, { id: 2, name: "private-value-2", extra: true }];
   const line = runCapture({ page: { responses: [answer("/api/items?lat=40.1&token=sensitive-value", items)] } }).lines[0]!;
-  assert.deepEqual(line.shapes, [{ method: "GET", url: `${BASE_URL}/api/items`, items: 2, keys: ["category", "extra", "id", "name"], complete: true }]);
+  assert.deepEqual(line.shapes, [{ method: "GET", url: `${BASE_URL}/api/items`, items: 2, keys: ["category", "extra", "id", "name"], names: ["category", "extra", "id", "name"], complete: true }]);
   assert.equal(JSON.stringify(line).includes("private-value"), false);
   assert.equal(JSON.stringify(line.shapes).includes("sensitive-value"), false);
 });
@@ -246,12 +246,12 @@ test("of several arrays of objects, the one with the most elements is the items"
 });
 
 test("an answer that is an empty list reports no item, and no key", () => {
-  assert.deepEqual(shapesOf({ responses: [answer("/api/items", [])] }), [{ method: "GET", url: `${BASE_URL}/api/items`, items: 0, keys: [], complete: true }]);
+  assert.deepEqual(shapesOf({ responses: [answer("/api/items", [])] }), [{ method: "GET", url: `${BASE_URL}/api/items`, items: 0, keys: [], names: [], complete: true }]);
 });
 
 test("answers to one operation with different queries are one shape: their items added up and their keys joined", () => {
   const shaped = shapesOf({ responses: [answer("/api/items?page=1", [{ id: 1 }]), answer("/api/items?page=2", [{ id: 2, extra: 1 }, { id: 3 }])] })!;
-  assert.deepEqual(shaped, [{ method: "GET", url: `${BASE_URL}/api/items`, items: 3, keys: ["extra", "id"], complete: true }]);
+  assert.deepEqual(shaped, [{ method: "GET", url: `${BASE_URL}/api/items`, items: 3, keys: ["extra", "id"], names: ["extra", "id"], complete: true }]);
 });
 
 test("only a successful JSON answer to a GET the page's code made is read", () => {
@@ -273,6 +273,41 @@ test("a body that is not JSON, or cannot be read, reports no shape", () => {
 
 test("an answer is read from every origin the browser reached", () => {
   assert.equal(shapesOf({ responses: [{ url: "https://api.example/v1/items?x=1", body: json([{ id: 1 }]) }] })?.[0]?.url, "https://api.example/v1/items");
+});
+
+/* The names of the fields a response carries at every depth: what lets a field a consumer expects be told absent from the whole answer, not only from the top level of its items. */
+const COLLECTION = { type: "Collection", total: 1, items: [{ id: 1, geometry: { type: "Point", coordinates: [1, 2] }, properties: { title: "private-value", detail: { nested: [{ deep: true }] } } }] };
+
+test("a response reports the names of the fields it carries at every depth, envelope and items alike, never a value", () => {
+  const [shape] = shapesOf({ responses: [answer("/api/collection", COLLECTION)] })!;
+  assert.deepEqual(shape!.keys, ["geometry", "id", "properties"]);
+  assert.deepEqual(shape!.names, ["coordinates", "deep", "detail", "geometry", "id", "items", "nested", "properties", "title", "total", "type"]);
+  assert.equal(shape!.complete, true);
+  assert.equal(JSON.stringify(shape).includes("private-value"), false);
+});
+
+test("a name that only a later item or a later answer to the operation carries is in the names", () => {
+  const [shape] = shapesOf({ responses: [answer("/api/items?page=1", [{ id: 1 }, { id: 2, extra: { late: 1 } }]), answer("/api/items?page=2", [{ id: 3, other: { more: 1 } }])] })!;
+  assert.deepEqual(shape!.names, ["extra", "id", "late", "more", "other"]);
+});
+
+test("more names than the limit keep the limit and say the names are not all of them", () => {
+  const item = { id: 1, nested: Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`n${i}`, i])) };
+  const [shape] = shapesOf({ responses: [answer("/api/items", [item])] }, { maxShapeNames: 4 })!;
+  assert.equal(shape!.names.length, 4);
+  assert.equal(shape!.complete, false);
+});
+
+test("a response nested deeper than the limit is read down to it and says its names are not all of them", () => {
+  const [shape] = shapesOf({ responses: [answer("/api/items", [{ a: { b: { c: { d: 1 } } } }])] }, { maxShapeDepth: 3 })!;
+  assert.deepEqual(shape!.names, ["a", "b", "c"]);
+  assert.equal(shape!.complete, false);
+});
+
+test("a name longer than the limit is not kept in the names and they are said to be incomplete", () => {
+  const [shape] = shapesOf({ responses: [answer("/api/items", [{ id: 1, inner: { [`k${"x".repeat(80)}`]: 1 } }])] }, { maxShapeKeyChars: 20 })!;
+  assert.deepEqual(shape!.names, ["id", "inner"]);
+  assert.equal(shape!.complete, false);
 });
 
 test("a page that read more distinct operations than the limit is held to it and the rest is counted", () => {

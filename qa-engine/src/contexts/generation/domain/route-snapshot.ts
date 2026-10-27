@@ -26,16 +26,19 @@ export interface PageRequests {
 
 /*
  * The shape of one JSON response a page's code read while it was captured: the operation (method + origin + pathname, as the request
- * ledger keeps them), how many items it returned and the names of the top-level keys its items carry (the union over the items read).
- * Key names and counts only: no value, no query, no body. An item is the root object, or an element of the array of objects the root
- * (or an object one level down) holds, the one with the most elements. `complete` says the keys are those of every item: not cut by the
- * bound on items read or on keys kept, so that a key absent from them is absent from the response.
+ * ledger keeps them), how many items it returned, the names of the top-level keys its items carry (the union over the items read) and
+ * the names of the fields the whole answer carries at every depth, envelope and items alike (arrays read through). Key names and counts
+ * only: no value, no query, no body. An item is the root object, or an element of the array of objects the root (or an object one level
+ * down) holds, the one with the most elements. `complete` says the keys and the names are those of every item and of the whole answer:
+ * not cut by the bound on items read, on keys or names kept, or on depth, so that a name absent from them is absent from the response.
  */
 export interface DataShape {
   method: string;
   url: string;
   items: number;
   keys: string[];
+  /* The names at every depth, sorted; a superset of `keys`. */
+  names: string[];
   complete: boolean;
 }
 

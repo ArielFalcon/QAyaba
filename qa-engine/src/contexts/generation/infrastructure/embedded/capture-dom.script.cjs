@@ -1,7 +1,7 @@
 // @ts-check
 /* The capture of a page's DOM for the orchestrator, run as its own node process through the execution launcher (profile "suite"). Its input is PW_CAPTURE_INPUT (JSON: baseUrl, routes, probe, limits) and the PW_* / DEV_ENV_* names of its environment; its output is one JSON line per route on stdout. The page it reads is untrusted: every bound in `limits` caps what a page can make it report. PLAYWRIGHT_PATH is prepended by buildCaptureScript. */
 /**
- * @typedef {{ navigationTimeoutMs: number, settleTimeoutMs: number, defaultDataStateWaitMs: number, retryDataStateWaitMs: number, minDataStateReadMs: number, maxLinksPerPage: number, maxHrefChars: number, maxRepeatedPerRoute: number, maxNamesResolved: number, maxRequestsPerRoute: number, maxShapesPerRoute: number, maxShapeKeys: number, maxShapeKeyChars: number, maxShapeItems: number, maxShapeBodyBytes: number, shapeReadTimeoutMs: number, maxScopeChars: number, maxScopeDepth: number }} CaptureLimits
+ * @typedef {{ navigationTimeoutMs: number, settleTimeoutMs: number, defaultDataStateWaitMs: number, retryDataStateWaitMs: number, minDataStateReadMs: number, maxLinksPerPage: number, maxHrefChars: number, maxRepeatedPerRoute: number, maxNamesResolved: number, maxRequestsPerRoute: number, maxShapesPerRoute: number, maxShapeKeys: number, maxShapeKeyChars: number, maxShapeNames: number, maxShapeDepth: number, maxShapeItems: number, maxShapeBodyBytes: number, shapeReadTimeoutMs: number, maxScopeChars: number, maxScopeDepth: number }} CaptureLimits
  * @typedef {{ type: string, text: string }} RuntimeError
  * @typedef {{ readySelector?: string, resultSelector?: string, resultTextSelector?: string, locationSelector?: string, timeoutMs?: number }} DataStateSettings
  * @typedef {{ key: string, testId?: string, id?: string, name?: string, href?: string, inputType?: string, nameFallback?: string }} RawAttr
@@ -78,8 +78,8 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
       const held = key === undefined ? undefined : routeRequests.get(key);
       if (held) held.failed = true;
     }
-    /* The shapes of the JSON answers the page's code read since the route was opened: for each operation (GET, origin + pathname, no query) how many items it returned and the names of the top-level keys its items carry; no value ever leaves the browser. An item is an element of the array of objects the root (or an object one level down) holds, the one with the most elements, else the root object itself. The page is untrusted, so the bounds in limits cap the operations, the body read, the items scanned and the keys kept, and `complete` says the keys are those of every item. */
-    /** @type {Map<string, { method: string, url: string, items: number, keys: Set<string>, complete: boolean, read: boolean }>} */
+    /* The shapes of the JSON answers the page's code read since the route was opened: for each operation (GET, origin + pathname, no query) how many items it returned the names of the top-level keys its items carry and the names of the fields the whole answer carries at every depth; no value ever leaves the browser. An item is an element of the array of objects the root (or an object one level down) holds, the one with the most elements, else the root object itself. The page is untrusted, so the bounds in limits cap the operations, the body read, the items scanned, the keys kept, the names kept and the depth read, and `complete` says the keys and the names are those of every item and of the whole answer. */
+    /** @type {Map<string, { method: string, url: string, items: number, keys: Set<string>, names: Set<string>, complete: boolean, read: boolean }>} */
     let routeShapes = new Map();
     let shapesOmitted = 0;
     /** @type {Set<Promise<void>>} */
@@ -111,6 +111,35 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
       }
       return best.length === 0 ? [record] : best;
     }
+    /**
+     * The names of the fields a whole answer carries at every depth, arrays read through (their elements are the objects below them), objects read down to limits.maxShapeDepth. Names only: a value is never kept. What a bound cuts makes the answer incomplete.
+     * @param {unknown} root
+     * @param {{ names: Set<string>, complete: boolean }} held
+     */
+    function noteNames(root, held) {
+      /** @type {Array<[unknown, number]>} */
+      const pending = [[root, 1]];
+      while (pending.length > 0) {
+        const entry = /** @type {[unknown, number]} */ (pending.pop());
+        const value = entry[0];
+        const depth = entry[1];
+        if (Array.isArray(value)) {
+          if (value.length > limits.maxShapeItems) held.complete = false;
+          const upto = Math.min(value.length, limits.maxShapeItems);
+          for (let i = 0; i < upto; i++) if (typeof value[i] === "object" && value[i] !== null) pending.push([value[i], depth]);
+        } else if (isObject(value)) {
+          if (depth > limits.maxShapeDepth) { held.complete = false; continue; }
+          const record = /** @type {Record<string, unknown>} */ (value);
+          const names = Object.keys(record);
+          for (let n = 0; n < names.length; n++) {
+            if (names[n].length > limits.maxShapeKeyChars || (held.names.size >= limits.maxShapeNames && !held.names.has(names[n]))) { held.complete = false; continue; }
+            held.names.add(names[n]);
+            const child = record[names[n]];
+            if (typeof child === "object" && child !== null) pending.push([child, depth + 1]);
+          }
+        }
+      }
+    }
     /** @param {any} response */
     function noteShape(response) {
       try {
@@ -127,14 +156,15 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
         let found = shapes.get(key);
         if (!found) {
           if (shapes.size >= limits.maxShapesPerRoute) { shapesOmitted++; return; }
-          found = { method: "GET", url: address, items: 0, keys: new Set(), complete: true, read: false };
+          found = { method: "GET", url: address, items: 0, keys: new Set(), names: new Set(), complete: true, read: false };
           shapes.set(key, found);
         }
         const held = found;
         const reading = response.body().then(function(/** @type {Buffer} */ body) {
           if (shapes !== routeShapes) return;
           if (body.length > limits.maxShapeBodyBytes) { if (!held.read) shapes.delete(key); shapesOmitted++; return; }
-          const items = itemsOf(JSON.parse(body.toString("utf8")));
+          const parsed = JSON.parse(body.toString("utf8"));
+          const items = itemsOf(parsed);
           held.items += items.length;
           held.read = true;
           for (let i = 0; i < items.length; i++) {
@@ -145,6 +175,7 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
               held.keys.add(names[n]);
             }
           }
+          noteNames(parsed, held);
         }).catch(function() { if (!held.read && shapes === routeShapes) shapes.delete(key); });
         shapeReads.add(reading);
         reading.finally(function() { shapeReads.delete(reading); });
@@ -465,7 +496,7 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
         if (routeRequests.size > 0) entry.requests = Array.from(routeRequests.values()).map(function(r) { return r.failed ? { method: r.method, url: r.url, count: r.count, failed: true } : { method: r.method, url: r.url, count: r.count }; });
         if (requestsOmitted > 0) entry.requestsOmitted = requestsOmitted;
         await settleShapeReads();
-        const shapes = Array.from(routeShapes.values()).filter(function(e) { return e.read; }).map(function(e) { return { method: e.method, url: e.url, items: e.items, keys: Array.from(e.keys).sort(), complete: e.complete }; });
+        const shapes = Array.from(routeShapes.values()).filter(function(e) { return e.read; }).map(function(e) { return { method: e.method, url: e.url, items: e.items, keys: Array.from(e.keys).sort(), names: Array.from(e.names).sort(), complete: e.complete }; });
         if (shapes.length > 0) entry.shapes = shapes;
         if (shapesOmitted > 0) entry.shapesOmitted = shapesOmitted;
         if (dataState) {

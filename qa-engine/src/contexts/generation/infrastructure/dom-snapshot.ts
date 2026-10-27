@@ -638,6 +638,9 @@ const MAX_HREF_CHARS = MAX_LINK_LENGTH * 4;
 export const MAX_SHAPES_PER_ROUTE = 50;
 export const MAX_SHAPE_KEYS = 100;
 export const MAX_SHAPE_KEY_CHARS = 64;
+/* The names kept for an operation at every depth (a response carries more names than its items carry keys), and the object nesting read down to. */
+export const MAX_SHAPE_NAMES = 400;
+export const MAX_SHAPE_DEPTH = 12;
 export const MAX_SHAPE_ITEMS = 1_000;
 export const MAX_SHAPE_BODY_BYTES = 4 * 1024 * 1024;
 export const SHAPE_READ_TIMEOUT_MS = 3_000;
@@ -657,6 +660,8 @@ export const CAPTURE_LIMITS = {
   maxShapesPerRoute: MAX_SHAPES_PER_ROUTE,
   maxShapeKeys: MAX_SHAPE_KEYS,
   maxShapeKeyChars: MAX_SHAPE_KEY_CHARS,
+  maxShapeNames: MAX_SHAPE_NAMES,
+  maxShapeDepth: MAX_SHAPE_DEPTH,
   maxShapeItems: MAX_SHAPE_ITEMS,
   maxShapeBodyBytes: MAX_SHAPE_BODY_BYTES,
   shapeReadTimeoutMs: SHAPE_READ_TIMEOUT_MS,
@@ -742,9 +747,9 @@ const CUT_MARK = "…[cut]";
 /*
  * The shapes of the JSON answers the script reported for a route. Nothing the script sent is believed past its form: the operation is
  * method + origin + pathname (a query or fragment left on is dropped, an address past MAX_LOGGED_PATH_CHARS is cut and says so), the
- * item count a whole number, a key a name of a field within MAX_SHAPE_KEY_CHARS and at most MAX_SHAPE_KEYS of them. A key that was
- * dropped, cut off by the bound, or a shape the script itself called incomplete, makes the shape incomplete: a key missing from it
- * is then no proof of anything. Past MAX_SHAPES_PER_ROUTE operations the rest is only counted, with what the script left out.
+ * item count a whole number, a key a name of a field within MAX_SHAPE_KEY_CHARS and at most MAX_SHAPE_KEYS of them, a name at any depth
+ * the same within MAX_SHAPE_NAMES. A key or a name that was dropped, cut off by the bound, a report without the names, or a shape the
+ * script itself called incomplete, makes the shape incomplete: a key or a name missing from it is then no proof of anything. Past MAX_SHAPES_PER_ROUTE operations the rest is only counted, with what the script left out.
  * Undefined when nothing was reported.
  */
 function shapesFrom(value: unknown, scriptOmitted: unknown): PageDataShapes | undefined {
@@ -752,7 +757,7 @@ function shapesFrom(value: unknown, scriptOmitted: unknown): PageDataShapes | un
   const seen = new Set<string>();
   let omitted = Number.isInteger(scriptOmitted) && (scriptOmitted as number) > 0 ? (scriptOmitted as number) : 0;
   for (const entry of Array.isArray(value) ? value : []) {
-    const { method, url, items, keys, complete } = (entry ?? {}) as { method?: unknown; url?: unknown; items?: unknown; keys?: unknown; complete?: unknown };
+    const { method, url, items, keys, names: reportedNames, complete } = (entry ?? {}) as { method?: unknown; url?: unknown; items?: unknown; keys?: unknown; names?: unknown; complete?: unknown };
     if (typeof method !== "string" || !/^[A-Za-z]{1,16}$/.test(method) || typeof url !== "string" || !Number.isInteger(items) || (items as number) < 0 || !Array.isArray(keys)) continue;
     const address = requestAddress(url);
     if (address === undefined || (address.protocol !== "http:" && address.protocol !== "https:")) continue;
@@ -766,7 +771,11 @@ function shapesFrom(value: unknown, scriptOmitted: unknown): PageDataShapes | un
     seen.add(identity);
     const named = [...new Set(keys.filter((key): key is string => typeof key === "string" && key.length <= MAX_SHAPE_KEY_CHARS && FIELD_NAME.test(key)))].sort();
     const kept = named.slice(0, MAX_SHAPE_KEYS);
-    listed.push({ method: method.toUpperCase(), url: operation, items: items as number, keys: kept, complete: complete === true && kept.length === new Set(keys).size });
+    const reported: unknown[] = Array.isArray(reportedNames) ? reportedNames : [];
+    const namedAtDepth = [...new Set(reported.filter((name): name is string => typeof name === "string" && name.length <= MAX_SHAPE_KEY_CHARS && FIELD_NAME.test(name)))].sort();
+    const keptNames = namedAtDepth.slice(0, MAX_SHAPE_NAMES);
+    const namesWhole = Array.isArray(reportedNames) && keptNames.length === new Set(reported).size;
+    listed.push({ method: method.toUpperCase(), url: operation, items: items as number, keys: kept, names: keptNames, complete: complete === true && namesWhole && kept.length === new Set(keys).size });
   }
   return listed.length === 0 && omitted === 0 ? undefined : { listed, omitted };
 }

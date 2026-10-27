@@ -14,7 +14,7 @@ const ALL = "https://app.example/api/items";
 const BY_REGION = "https://app.example/api/items/by-region/ES";
 const COMMON = ["address", "id", "name", "price", "region"];
 
-const shape = (url: string, items: number, keys: string[], opts: { method?: string; complete?: boolean } = {}): DataShape => ({ method: opts.method ?? "GET", url, items, keys, complete: opts.complete ?? true });
+const shape = (url: string, items: number, keys: string[], opts: { method?: string; complete?: boolean } = {}): DataShape => ({ method: opts.method ?? "GET", url, items, keys, names: keys, complete: opts.complete ?? true });
 const page = (shapes: DataShape[], extra: Partial<PageShapes> = {}): PageShapes => ({ route: "/browse", shapes: { listed: shapes, omitted: 0 }, ...extra });
 
 test("a key that one source's items carry and the items of a source of the same kind carry in none is a possible contradiction, naming both sources", () => {

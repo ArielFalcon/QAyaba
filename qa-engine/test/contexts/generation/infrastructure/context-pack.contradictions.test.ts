@@ -9,7 +9,7 @@ import { REDACTED } from "@kernel/ports/redaction.port.ts";
 const ALL = "https://app.example/api/items";
 const BY_REGION = "https://app.example/api/items/by-region/ES";
 const COMMON = ["address", "id", "name", "price", "region"];
-const shape = (url: string, items: number, keys: string[]): DataShape => ({ method: "GET", url, items, keys, complete: true });
+const shape = (url: string, items: number, keys: string[]): DataShape => ({ method: "GET", url, items, keys, names: keys, complete: true });
 
 function captureDeps(pages: CapturedPage[], report = "route /browse:\n  heading: Browse\nroute /home:\n  heading: Home"): ContextPackDeps {
   return {
