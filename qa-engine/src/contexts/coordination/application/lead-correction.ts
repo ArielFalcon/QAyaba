@@ -145,8 +145,8 @@ function namesSpecIn(text: string, spec: string): boolean {
 
 /*
  * Whether two repository-relative paths name one file: equality of the one canonical form (`normalizeSpecPath`), never a suffix. The diff,
- * the seeds and the coverage gap all spell a changed file from the repository root, so `src/index.ts` and `packages/a/src/index.ts`
- * are two files in a monorepo.
+ * the seeds and the coverage gap all spell a changed file from the repository root, so a file and a same-named file under another
+ * package of a monorepo are two files.
  */
 export function sameFile(a: string, b: string): boolean {
   return normalizeSpecPath(a) === normalizeSpecPath(b);
