@@ -582,3 +582,76 @@ test("when the lead's correction budget is spent the reviewer's findings stay un
   await new RunQaUseCase(alone.deps({ review: rejectingOnce(["flows/a.spec.ts never asserts the total"]), config: SPENT })).run(INPUT);
   assert.equal(alone.enrichments.filter((e) => e.reviewCorrections !== undefined).length, 1, "without a pass the author regenerates as before");
 });
+
+/* ── A mutant that survived a line a delivered test executed: the test reached the change and checked nothing ── */
+
+const SIGNAL_BRANCH_CASES = { needsReview: false, shadow: false, onFailure: "github-issue" as const, maxRetries: 2, isCode: false, coveragePolicyMode: "signal" as const, coverageBranchCases: "regenerate" as const };
+const survivor = (line: number, specFiles?: string[]) => ({ file: "src/list.ts", line, operator: "negate condition", original: "n > 0", replacement: "!(n > 0)", ...(specFiles ? { specFiles } : {}) });
+const withSurvivors = (survived: ReturnType<typeof survivor>[], killed = 0) => ({
+  measure: async () => ({ status: "pass" as const, ratio: 1, bundleMutation: { applied: survived.length + killed, killed, survived } }),
+  blocks: () => false,
+});
+function coordinatedRig() {
+  let kept!: ReturnType<typeof keptPass>;
+  const r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
+  return { r, kept };
+}
+
+test("a surviving mutant reaches the lead as a finding owned by the spec that reached it, in the one regeneration of the run, without any untaken arm", async () => {
+  const { r, kept } = coordinatedRig();
+  const result = await new RunQaUseCase(r.deps({ objectiveSignal: withSurvivors([survivor(4, ["flows/a.spec.ts"])]), config: SIGNAL_BRANCH_CASES })).run(INPUT);
+  assert.deepEqual(kept.seen.origins, [CORRECTION_ORIGIN.COVERAGE], "one regeneration");
+  const [finding] = kept.seen.corrected[0]!;
+  assert.equal(finding!.spec, "flows/a.spec.ts");
+  assert.ok(finding!.text.includes("src/list.ts:4") && finding!.text.includes("negate condition"));
+  assert.equal(result.outcome?.verdict, "pass", "a survivor never changes the verdict");
+});
+
+test("a mutant reached by two specs is told to each, and one no spec reached is still told to the lead without an owner", async () => {
+  const { r, kept } = coordinatedRig();
+  await new RunQaUseCase(r.deps({ objectiveSignal: withSurvivors([survivor(4, ["flows/a.spec.ts", "flows/b.spec.ts"]), survivor(9)]), config: SIGNAL_BRANCH_CASES })).run(INPUT);
+  assert.deepEqual(kept.seen.corrected[0]!.map((f) => f.spec), ["flows/a.spec.ts", "flows/b.spec.ts", undefined]);
+});
+
+test("survivors join the arms no test ran in the same regeneration instead of opening another", async () => {
+  const { r, kept } = coordinatedRig();
+  const objectiveSignal = {
+    blocks: () => false,
+    measure: async () => ({ status: "pass" as const, ratio: 1, untakenArms: [{ file: "src/list.ts", line: 7, kind: "if", arm: "the then" }], bundleMutation: { applied: 1, killed: 0, survived: [survivor(4, ["flows/a.spec.ts"])] } }),
+  };
+  await new RunQaUseCase(r.deps({ objectiveSignal, config: SIGNAL_BRANCH_CASES })).run(INPUT);
+  assert.equal(kept.seen.corrected.length, 1);
+  assert.equal(kept.seen.corrected[0]!.length, 2, "the arm and the survivor");
+});
+
+test("killed mutants, and a measurement with no mutants, produce no regeneration", async () => {
+  for (const objectiveSignal of [withSurvivors([], 3), { measure: async () => ({ status: "pass" as const, ratio: 1 }), blocks: () => false }]) {
+    const { r, kept } = coordinatedRig();
+    await new RunQaUseCase(r.deps({ objectiveSignal, config: SIGNAL_BRANCH_CASES })).run(INPUT);
+    assert.deepEqual(kept.seen.corrected, []);
+    assert.equal(r.calls.filter((c) => c === "generate").length, 0);
+  }
+});
+
+test("survivors with the branch cases off regenerate nothing", async () => {
+  const { r, kept } = coordinatedRig();
+  const { coverageBranchCases: _on, ...off } = SIGNAL_BRANCH_CASES;
+  await new RunQaUseCase(r.deps({ objectiveSignal: withSurvivors([survivor(4, ["flows/a.spec.ts"])]), config: off })).run(INPUT);
+  assert.deepEqual(kept.seen.corrected, []);
+});
+
+test("when the lead's correction budget is spent the survivors stay unrouted and no cold author regenerates them", async () => {
+  const { r, kept } = coordinatedRig();
+  await new RunQaUseCase(r.deps({ objectiveSignal: withSurvivors([survivor(4, ["flows/a.spec.ts"])]), config: { ...SIGNAL_BRANCH_CASES, maxRetries: SPENT.maxRetries } })).run(INPUT);
+  assert.deepEqual(kept.seen.corrected, []);
+  assert.deepEqual(kept.seen.left, [{ count: 1, origin: CORRECTION_ORIGIN.COVERAGE, reason: "lead correction budget spent" }]);
+  assert.equal(r.calls.filter((c) => c === "generate").length, 0);
+});
+
+test("a run the lead authored alone is given the survivors in its gap text", async () => {
+  const r = rig();
+  await new RunQaUseCase(r.deps({ objectiveSignal: withSurvivors([survivor(4, ["flows/a.spec.ts"])]), config: SIGNAL_BRANCH_CASES })).run(INPUT);
+  const gap = r.enrichments.find((e) => e.coverageGap !== undefined);
+  assert.match(gap?.coverageGap ?? "", /src\/list\.ts:4/);
+});

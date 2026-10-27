@@ -42,4 +42,6 @@ export interface ValueOracleResult {
 /* A mutant of the served script to re-run, with the spec files whose tests reached it. */
 export interface MutantRun { site: MutationSite; specFiles: string[]; }
 /* What the mutants did: how many reached a page and were judged, how many a test noticed, and where the others are. */
-export interface BundleMutationResult { applied: number; killed: number; survived: { file: string; line: number; operator: string }[]; proofs?: MutantProof[]; }
+/* A mutant no test noticed: where it was applied and the mutation. `specFiles` are the spec files whose tests reached the line (the ones that ran the mutated code and checked nothing that depended on it); `original` and `replacement` are the text before and after the edit, on one line and cut. */
+export interface SurvivedMutant { file: string; line: number; operator: string; specFiles?: string[]; original?: string; replacement?: string; }
+export interface BundleMutationResult { applied: number; killed: number; survived: SurvivedMutant[]; proofs?: MutantProof[]; }

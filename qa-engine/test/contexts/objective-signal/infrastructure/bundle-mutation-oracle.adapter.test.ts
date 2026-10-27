@@ -39,7 +39,7 @@ test("each mutant re-runs its spec files under its own namespace with its edit, 
   assert.deepEqual(result, {
     applied: 2,
     killed: 1,
-    survived: [{ file: "src/store.ts", line: 12, operator: "negate condition" }],
+    survived: [{ file: "src/store.ts", line: 12, operator: "negate condition", specFiles: ["flows/b.spec.ts"], original: "x === 1", replacement: "!(x === 1)" }],
     proofs: [{ namespace: "run-1-mut0", specFiles: ["flows/a.spec.ts"], url: "https://dev.example/main.js", sha256: "abc", edit: { start: 10, end: 20, replacement: "!(x === 1)" }, original: "x === 1" }],
   }, "the killed mutant's proof names its re-run and the spec files whose tests failed");
   assert.deepEqual(runs.map((r) => [r.namespace, r.specFiles]), [["run-1-mut0", ["flows/a.spec.ts"]], ["run-1-mut1", ["flows/b.spec.ts"]]]);
@@ -69,4 +69,19 @@ test("no mutant, no passing test or no DEV address runs nothing", async () => {
   assert.equal(await new BundleMutationOracleAdapter(run, () => 1, "https://dev.example").measure([mutant(1)], "/e2e", "run", []), null);
   assert.equal(await new BundleMutationOracleAdapter(run, () => 1, "").measure([mutant(1)], "/e2e", "run", ["t"]), null);
   assert.equal(ran, 0);
+});
+
+test("a surviving mutant keeps the spec files that reached it and the edit it made, on one line and cut", async () => {
+  const long = `${"a".repeat(300)}\n  b`;
+  const m = mutant(5);
+  m.site.original = long;
+  m.site.edit = { ...m.site.edit, replacement: `!(${long})` };
+  const oracle = new BundleMutationOracleAdapter(async () => ({ verdict: "pass", cases: [pass("t")] }), () => 1, "https://dev.example");
+
+  const result = await oracle.measure([m], "/e2e", "run", ["t"]);
+
+  const [survivor] = result!.survived;
+  assert.deepEqual(survivor!.specFiles, ["flows/a.spec.ts"]);
+  assert.ok(!/\n/.test(survivor!.original!) && !/\n/.test(survivor!.replacement!), "single line");
+  assert.ok(survivor!.original!.length <= 121 && survivor!.replacement!.length <= 121, "cut");
 });

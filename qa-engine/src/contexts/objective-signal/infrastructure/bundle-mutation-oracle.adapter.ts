@@ -8,6 +8,14 @@ type RunMutant = (args: { dir: string; baseUrl: string; namespace: string; mutan
 /* How many responses the re-run of `namespace` mutated; undefined when that cannot be told. */
 type CountMutated = (e2eDir: string, namespace: string) => number | undefined;
 
+/* The longest text of an edit a finding or a record carries. */
+const MAX_EDIT_TEXT_CHARS = 120;
+/* Source text on one line and cut: it is shown to an author and persisted, never inlined whole. */
+const oneLine = (text: string): string => {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > MAX_EDIT_TEXT_CHARS ? `${flat.slice(0, MAX_EDIT_TEXT_CHARS)}…` : flat;
+};
+
 export class BundleMutationOracleAdapter implements BundleMutationPort {
   constructor(
     private readonly runMutant: RunMutant,
@@ -42,7 +50,7 @@ export class BundleMutationOracleAdapter implements BundleMutationPort {
         killed++;
         const failedFiles = [...new Set(noticed.flatMap((c) => (c.file ? [c.file] : [])))];
         proofs.push({ namespace: mutantNamespace, specFiles: failedFiles.length > 0 ? failedFiles : specFiles, url: site.script.url, sha256: site.script.sha256, edit: site.edit, original: site.original });
-      } else survived.push({ file: site.file, line: site.line, operator: site.operator });
+      } else survived.push({ file: site.file, line: site.line, operator: site.operator, specFiles, original: oneLine(site.original), replacement: oneLine(site.edit.replacement) });
     }
     return applied > 0 ? { applied, killed, survived, ...(proofs.length > 0 ? { proofs } : {}) } : null;
   }

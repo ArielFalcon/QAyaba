@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
-import { renderBranchGap, renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
+import { renderBranchGap, renderCoverageGap, renderSurvivedMutant, renderSurvivedMutants } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
 
 /* Enforce-mode regen's coverage-gap renderer. Expected outputs are hand-written against
    ObjectiveSignalPort.measure()'s return shape — `uncovered?: {file; lines: number[]}[]`, no
@@ -106,4 +106,17 @@ test("renderCoverageGap: a candidate seeded by a whole file holds that file's un
 
   assert.match(out, /uc-1 \(page \/orders\):\n  - src\/a\.ts: lines 4-5/);
   assert.match(out, /other changed lines:\n  - src\/b\.ts: lines 1/);
+});
+
+test("a surviving mutant is rendered as the fact that its line ran under the spec, the mutation applied and no test failed", () => {
+  const text = renderSurvivedMutant({ file: "src/store.ts", line: 12, operator: "negate condition", original: "x === 1", replacement: "!(x === 1)" }, "flows/a.spec.ts");
+  for (const part of ["flows/a.spec.ts", "src/store.ts:12", "negate condition", "x === 1", "!(x === 1)"]) assert.ok(text.includes(part), part);
+});
+
+test("the surviving mutants of a gap are listed up to a cap with the number left out, and none render nothing", () => {
+  assert.equal(renderSurvivedMutants([]), "");
+  const many = Array.from({ length: 4 }, (_, i) => ({ file: "src/a.ts", line: i + 1, operator: "swap" }));
+  const text = renderSurvivedMutants(many, 2);
+  assert.ok(text.includes("src/a.ts:1") && text.includes("src/a.ts:2") && !text.includes("src/a.ts:3"));
+  assert.match(text, /2 more/);
 });

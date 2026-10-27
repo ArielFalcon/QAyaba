@@ -46,3 +46,17 @@ test("a measurement without candidates adds no candidate attribute", async () =>
   await new TracedObjectiveSignalPort(inner, telemetry).measure(BlastRadius.of(Sha.of("abc1234"), []), "/e2e");
   assert.ok(!telemetry.attrs.some((a) => "qayaba.coverage.candidates" in a));
 });
+
+test("the coverage span counts the surviving mutants a spec reached and those none did", async () => {
+  const survived = [
+    { file: "src/a.ts", line: 1, operator: "swap", specFiles: ["flows/a.spec.ts"] },
+    { file: "src/a.ts", line: 2, operator: "swap", specFiles: [] },
+    { file: "src/a.ts", line: 3, operator: "swap" },
+  ];
+  const inner: ObjectiveSignalPort = { measure: async () => ({ status: "pass", ratio: 1, bundleMutation: { applied: 4, killed: 1, survived } }), blocks: () => false };
+  const telemetry = new Recorder();
+  await new TracedObjectiveSignalPort(inner, telemetry).measure(BlastRadius.of(Sha.of("abc1234"), []), "/e2e");
+  const attrs = telemetry.attrs.find((a) => "qayaba.mutation.applied" in a)!;
+  assert.equal(attrs["qayaba.mutation.survivors_routed"], 1);
+  assert.equal(attrs["qayaba.mutation.survivors_unrouted"], 2);
+});

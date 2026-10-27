@@ -1,3 +1,4 @@
+import type { SurvivedMutant } from "./coverage-collector.ts";
 import type { AggregateUnmeasured, CandidateCoverage } from "./per-candidate-coverage.ts";
 
 /** What a change-coverage measurement counted, and why a measurement that decides nothing did not. */
@@ -36,7 +37,7 @@ export interface UntakenArm {
 export interface BundleMutationOutcome {
   applied: number;
   killed: number;
-  survived: { file: string; line: number; operator: string }[];
+  survived: SurvivedMutant[];
 }
 
 /** The dumps a re-run of some spec files wrote, under its own namespace. */

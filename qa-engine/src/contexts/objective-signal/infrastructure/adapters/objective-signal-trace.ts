@@ -7,7 +7,7 @@
 import { startRunChildSpan } from "../../../../shared-infrastructure/telemetry/run-spans.ts";
 import type { TelemetryPort } from "../../../../shared-kernel/telemetry/telemetry.port.ts";
 import type { CandidateCoverage } from "../../domain/per-candidate-coverage.ts";
-import type { CoverageMeasurement } from "../../domain/objective-signal.ts";
+import type { BundleMutationOutcome, CoverageMeasurement } from "../../domain/objective-signal.ts";
 import type { ObjectiveSignalPort } from "../../application/ports/objective-signal.port.ts";
 
 /* How many candidates were measured and, per reason, how many were not: `reason: count`, once each. */
@@ -18,6 +18,17 @@ function candidateAttrs(perCandidate: readonly CandidateCoverage[]) {
     "qayaba.coverage.candidates": perCandidate.length,
     "qayaba.coverage.candidates_measured": perCandidate.filter((c) => c.ratio !== null).length,
     "qayaba.coverage.candidates_unmeasured": [...reasons].map(([reason, count]) => `${reason}: ${count}`),
+  };
+}
+
+/* How many mutants were judged and noticed, and how many survivors a spec reached (so they can reach its flow) and how many none did. */
+function survivorAttrs(m: BundleMutationOutcome) {
+  const routed = m.survived.filter((s) => (s.specFiles?.length ?? 0) > 0).length;
+  return {
+    "qayaba.mutation.applied": m.applied,
+    "qayaba.mutation.killed": m.killed,
+    "qayaba.mutation.survivors_routed": routed,
+    "qayaba.mutation.survivors_unrouted": m.survived.length - routed,
   };
 }
 
@@ -66,7 +77,7 @@ export class TracedObjectiveSignalPort implements ObjectiveSignalPort {
       const result = await this.inner.measure(...args);
       span.setAttrs({
         "qayaba.coverage.status": result.status,
-        ...(result.bundleMutation ? { "qayaba.mutation.applied": result.bundleMutation.applied, "qayaba.mutation.killed": result.bundleMutation.killed } : {}),
+        ...(result.bundleMutation ? survivorAttrs(result.bundleMutation) : {}),
         ...(result.ratio !== null ? { "qayaba.coverage.ratio": result.ratio } : {}),
         ...countsOf(result.measurement),
       });

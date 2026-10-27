@@ -67,6 +67,8 @@ export const ATTRIBUTES = {
   "qayaba.coverage.changed_branches": int("Arms of the decisions on changed lines (then/else, both sides of a conditional, a short circuit, each switch clause); absent when no decision was seen on a changed line."),
   "qayaba.coverage.taken_branches": int("Arms of the decisions on changed lines that ran in at least one test."),
   "qayaba.mutation.applied": int("Mutants of the changed code in the served script that reached a page and were judged; absent when none was."),
+  "qayaba.mutation.survivors_routed": int("Surviving mutants a delivered spec's tests reached: each is sent, owned by that spec, in the run's one gap regeneration."),
+  "qayaba.mutation.survivors_unrouted": int("Surviving mutants no spec was recorded as reaching: they are told to the lead without an owner."),
   "qayaba.mutation.killed": int("Judged mutants a test that passed before noticed (it failed)."),
   "qayaba.coverage.candidates": int("Use cases the change makes testable that the coverage measurement was asked about."),
   "qayaba.coverage.candidates_measured": int("Use cases that got a coverage ratio."),

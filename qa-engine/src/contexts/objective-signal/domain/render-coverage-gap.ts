@@ -1,4 +1,5 @@
 /* Renders uncovered changed lines as the enforce-mode regeneration prompt. Pure; no I/O; never throws. */
+import type { SurvivedMutant } from "./coverage-collector.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { entryKey } from "@kernel/change-reach.ts";
 
@@ -69,4 +70,19 @@ export function renderBranchGap(untaken: Untaken, max = 20): string {
   const lines = untaken.slice(0, max).map((u) => `- ${u.file}:${u.line} ${u.kind}: ${u.arm}`);
   const more = untaken.length > max ? `\n…and ${untaken.length - max} more arm(s)` : "";
   return `decision arms on changed lines that NO test ran (each is a behaviour the change decides, reached by a test when the page can be brought to that state through the UI against DEV):\n${lines.join("\n")}${more}`;
+}
+
+/* A mutant of the changed code that no test noticed, as the fact it is: the line ran under the spec, the mutation was applied and no test failed. */
+export function renderSurvivedMutant(m: SurvivedMutant, specFile?: string): string {
+  const ran = specFile ? `ran under ${specFile}` : "ran under a test";
+  const edit = m.original !== undefined && m.replacement !== undefined ? `, ${JSON.stringify(m.original)} replaced by ${JSON.stringify(m.replacement)}` : "";
+  return `mutant of the changed code that NO test noticed: ${m.file}:${m.line} ${ran}; the mutation (${m.operator}${edit}) was applied to the served script and no test failed, so the test reaches this line and asserts nothing that depends on it`;
+}
+
+/* The surviving mutants as one gap text for an author that has no lead to route them; empty when none survived. */
+export function renderSurvivedMutants(survived: readonly SurvivedMutant[], max = 10): string {
+  if (survived.length === 0) return "";
+  const lines = survived.slice(0, max).map((m) => `- ${renderSurvivedMutant(m, m.specFiles?.join(", "))}`);
+  const more = survived.length > max ? `\n…and ${survived.length - max} more mutant(s)` : "";
+  return `mutants of the changed code that ran under a test and that no test noticed:\n${lines.join("\n")}${more}`;
 }
