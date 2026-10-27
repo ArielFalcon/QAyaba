@@ -32,11 +32,11 @@ Branch: main (owner rule: single branch, governance changes as own commits). Del
 | T7 | S7 | delegated (parallel, worktree) | done (integrated) | e4da2972 |
 | T8 | S8 | delegated (parallel, worktree) | done (integrated) | 582c5349, 87c5f184 |
 
-| T9 | S9 | delegated (parallel, worktree) | pending | |
-| T10 | S10 | delegated (parallel, worktree) | pending | |
-| T11 | S11 | delegated (parallel, worktree) | pending | |
-| T12 | S12 | delegated (parallel, worktree) | pending | |
-| T13 | S13 | delegated (parallel, worktree) | pending | |
+| T9 | S9 | delegated (parallel, worktree) | done | e301167e |
+| T10 | S10 | delegated (parallel, worktree) | done | 9942b581 |
+| T11 | S11 | delegated (parallel, worktree) | done | f00f633b |
+| T12 | S12 | delegated (parallel, worktree) | done | a70727aa, dbbcd823, 1287552f |
+| T13 | S13 | delegated (parallel, worktree) | done | 319c2ebe |
 Route evidence: Writer trigger (a) — eight independent units with their own tests; overlapping files (coverage.steps.ts, lead-sidekicks.ts, maintenance-flow.ts) → isolated worktrees, parent merges.
 
 ## Log
@@ -49,3 +49,5 @@ Route evidence: Writer trigger (a) — eight independent units with their own te
 - L6 Independent evaluation (Opus, xhigh). Blockers: (1) T7 egress unreachable — page-dependent = declared origin = egress allowlist; (2) T4 contradicted no-op ends E-NO-AUTHOR, violating "Honor the explicit no-op", and the explicit noop shape skips the check; (3) T2 reviewer/author/plan verdicts still parsed by src/integrations/verdict-parse.ts first-span scanner; (4) T1 an approved review can be recorded as a dropped rejection, grader flags designed drops. High: T1 rebuttal verifier compares raw paths. Medium: T6 coverage measured on stale bytes after flaky correction; T4 sameFile suffix match. One correction batch (C1–C5) follows; advisories recorded, not fixed: T5 survivors not re-measured, T8 compares to replicate 1 not the seeded snapshot, T6 budget invariant, file-identity variants elsewhere.
 - L7 Correction batch C1–C5 integrated (5e3e2425, e23ac437, c6b43549, 1d5eb6a0, 29b8d0eb, f4b14737, 3efe9526). Gate: static OK; npm test 11448 pass / 0 fail. Bounded recheck: defects 1–7 fixed and structural. New blocker introduced by C5 (not eligible for another correction under the bounds): recountAfter rebuilds coverage from the base namespace plus only the current regeneration's reruns, so a branch-case regeneration followed by an accepted flaky triage recounts the first regenerated spec on its old bytes (coverage.steps.ts:219-231, objective-signal recount :139-141). Signal-only (flaky runs are quarantined). Needs owner decision.
 - L8 (2026-10-27, user, verbatim): "Respecto a tu diagnóstico de telemetría, Loki debe guardar logs complementarios a la información que brinda Tempo. La idea es que Tempo tenga "que hizo" y Loki "como lo hizo". Por lo que debería guardar de ser posible y óptimo los prompts de las fases, hallazgos importantes que no encajen bien en el sistema estructurado de Tempo, su objetivo es complementar la información de Tempo, no repetir de forma no estructurada lo que ya Tempo cubre. También debe evitar guardar ruido o demasiado texto innecesario para no acumular y consumir tanto espacio ineficientemente. Respecto a los otros problemas detectados, haz lo mismo de antes, agentes con worktrees"
+- L9 (2026-10-27, user, verbatim): "Lanza un agente para corregir el bloqueante de C5 detectado con la solución que propones." Covered by T9 (e301167e: coverage.reruns carries every accepted rerun; recount keeps the latest rerun per spec file; RED observed on the previous code).
+- L10 T9–T13 integrated; cross-unit fixes dbbcd823 (evidence reads the renamed survivors attribute), 1287552f (categorical score classes derived from GRADER_CATALOG), 524127bf (cancelled-run test no longer on a real timer). AGENTS.md updated. Open owner decisions: T11 per-run section dedup saved 0% on a real run; whether campaigns run in `full` capture (~250 KB of prompt text per run). Residual advisories: context_fresh needs a per-route stale mark; Langfuse type change for context_*; T5 survivors not re-measured; T8 compares to replicate 1; qa-author.md carries two closing contracts; accepted flaky corrections are discarded; log shipper ships without a trace when several run roots are open; graph reach does not follow template/style files.
