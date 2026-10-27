@@ -8226,10 +8226,11 @@ async function coordinationReviewOutcome(opts: {
   return telemetry.events.find((event) => event.kind === "outcome")?.reviewOutcome;
 }
 
-const FLAKY_RUN: ExecutionPort["execute"] = async () => ({ verdict: "flaky", cases: [{ name: "checkout", status: "flaky" as const }], logs: "" });
+/* An execution that ends invalid-for-judgment: DEV is down, so no test ran and nothing reaches the review. */
+const UNREVIEWABLE_RUN: ExecutionPort["execute"] = async () => ({ verdict: "infra-error", cases: [], logs: "" });
 
 test("the coordination outcome reports the review as not applicable when the run needed one and none looked at it", async () => {
-  assert.equal(await coordinationReviewOutcome({ needsReview: true, execute: FLAKY_RUN }), "n/a");
+  assert.equal(await coordinationReviewOutcome({ needsReview: true, execute: UNREVIEWABLE_RUN }), "n/a");
 });
 
 test("the coordination outcome reports the reviewer's verdict when the review step dispatched one", async () => {

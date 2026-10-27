@@ -11,6 +11,7 @@ import { classifyFailure } from "@kernel/failure-detail-class.ts";
 import { decideProgress, bestRound, isLikelyRealBug, type RoundResult } from "./helpers/progress-gate.ts";
 import type { ContradictionOrigin, SpecSelectorFindings } from "@kernel/selector-findings.ts";
 import type { ContractFeedback } from "./contract-feedback.ts";
+import { contradictsPack } from "./failure-data-state.ts";
 import { fixLoopAction, type FixLoopNext, type FixLoopStep, type FixLoopStop } from "./fix-loop-action.ts";
 
 
@@ -221,22 +222,6 @@ function mergeAcceptedRound(current: FixLoopRun, outcome: Extract<FixLoopAccepta
         ? "flaky"
         : "pass";
   return { verdict, cases };
-}
-
-function pathnameOf(url: string | undefined): string | undefined {
-  if (url === undefined) return undefined;
-  try {
-    return new URL(url).pathname;
-  } catch {
-    return undefined;
-  }
-}
-
-/* A failed case whose failure point read an empty data state on a page the Context Pack read with results: two observations of the same page disagree, so the failure is no evidence against the test. */
-function contradictsPack(c: QaCase, confirmed: readonly { path: string; resultCount: number }[] | undefined): boolean {
-  if (!confirmed?.length || c.failureResultCount !== 0) return false;
-  const path = pathnameOf(c.finalUrl);
-  return path !== undefined && confirmed.some((route) => route.path === path && route.resultCount > 0);
 }
 
 function buildFailureDomLines(failureDom: string | undefined): string[] {

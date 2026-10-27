@@ -297,6 +297,11 @@ Rules, from the brief §2.1 and the OTel spec:
   `qayaba.review.rounds`, `.model_rounds`, `.blocking` and `.correction_class`. This is what makes a
   false positive (a failing run the loop turned green by changing the spec) a query rather than a
   manual investigation.
+- **Flaky tail.** A run whose final execution is `flaky` has green bytes, so change-coverage and the
+  reviewer run for it; it is still quarantined. The `triage-flaky-cases` step records
+  `qayaba.flaky.tail_reason` (`flaky-green-bytes`), `.cases`, `.data_instability` (first attempt read an
+  empty data state, or one other than the Context Pack read, on a settled page), `.timing` and
+  `.outcome` (`no-flaky-case`, `no-pass`, or the correction's `accepted`/`empty`/`rejected`/`capped`).
 
 ### 4.3 Root attributes
 

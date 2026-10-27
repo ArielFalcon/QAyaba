@@ -41,6 +41,7 @@ export const STEP_IDS = [
   "fix-reexecute",
   "settle-fix-loop",
   "fingerprint-green-suite",
+  "triage-flaky-cases",
   "announce-coverage",
   "measure-coverage",
   "regenerate-for-coverage",

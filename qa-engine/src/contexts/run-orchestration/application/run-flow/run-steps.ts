@@ -21,7 +21,8 @@ import {
 } from "./phases/generate.steps.ts";
 import { announceExecution, checkHealth, executeSpecs, prepareExecuteAuth, staticFixRound, validateStatically } from "./phases/execute.steps.ts";
 import { fingerprintGreenSuite, fixAccept, fixAdjudicate, fixReexecute, fixRegenerate, fixTriage, runFixLoop, settleFixLoop } from "./phases/fix-loop.steps.ts";
-import { announceCoverage, announcesCoverage, measureCoverage, measuresCoverage, regenerateForBranchCases, regenerateForCoverage, regeneratesForBranchCases, regeneratesForCoverage } from "./phases/coverage.steps.ts";
+import { triageFlakyCases, triagesFlaky } from "./phases/flaky.steps.ts";
+import { announceCoverage,announcesCoverage, measureCoverage, measuresCoverage, regenerateForBranchCases, regenerateForCoverage, regeneratesForBranchCases, regeneratesForCoverage } from "./phases/coverage.steps.ts";
 import { releaseCoordinatedPass, remeasureStaleCoverage, remeasuresStaleCoverage, reviewCorrect, reviewInProgress, reviewResolve, reviewRound, reviewSettle, reviewTests, reviewsRun } from "./phases/review.steps.ts";
 import { decideRun, guardFinalProof, guardsFinalProof } from "./phases/decide.steps.ts";
 import { armRunDeadline, classifyChange, indexMirror, waitForDeploy } from "./phases/opening.steps.ts";
@@ -67,6 +68,7 @@ export const IN_WORKSPACE: ReadonlyArray<FlowStep<RunState, WorkspaceRunContext>
   { id: "fix-reexecute", writes: ["fixLoop", "loops"], runs: (state) => state.fixLoop.session?.stage === "reexecute", run: fixReexecute },
   { id: "settle-fix-loop", writes: ["execution", "fixLoop"], runs: (state) => state.fixLoop.session !== undefined, run: settleFixLoop },
   { id: "fingerprint-green-suite", writes: [], run: fingerprintGreenSuite },
+  { id: "triage-flaky-cases", writes: ["coverage", "degraded", "execution", "loops"], class: "proven", runs: triagesFlaky, run: triageFlakyCases },
   { id: "announce-coverage", writes: [], phase: "coverage", runs: announcesCoverage, run: announceCoverage },
   { id: "measure-coverage", writes: ["coverage"], runs: measuresCoverage, run: measureCoverage },
   { id: "regenerate-for-coverage", writes: ["coverage", "degraded", "execution", "loops"], class: "proven", runs: regeneratesForCoverage, run: regenerateForCoverage },

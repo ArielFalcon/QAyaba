@@ -4,6 +4,7 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import { faultAimOf } from "../fault-aim.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
+import { hasGreenBytes } from "@kernel/run-verdict.ts";
 import { correctionClassOf } from "@contexts/generation/application/index.ts";
 import { renderSpecChanges, sameReviewedSpecs, type ReviewSpecText } from "@contexts/generation/application/index.ts";
 import { detectArchetype } from "@contexts/cross-run-learning/application/index.ts";
@@ -34,7 +35,10 @@ export const reviewsTests = (ctx: Pick<WorkspaceRunContext, "cfg" | "input">): b
 
 /* Also gated on generating: a regression run never invokes the reviewer (nothing new to judge; decide()'s !generating branch already wins). */
 export const reviewsRun = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean =>
-  runOf(state).verdict === "pass" && reviewsTests(ctx) && state.classification.generating;
+  hasGreenBytes(runOf(state).verdict) && reviewsTests(ctx) && state.classification.generating;
+
+/* A review of a run that is not a pass (a flaky one) is advice: the run is quarantined whatever it concludes, so it never ends the run. */
+const advisoryReview = (session: ReviewSession): boolean => session.finalRunVerdict !== "pass";
 
 /* What the terminal exits of the review know about the run so far. */
 async function exitFactsOf(state: Readonly<RunState>, ctx: WorkspaceRunContext) {
@@ -325,6 +329,11 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
    */
   if (reviewResult.unavailable) {
     annotateReviewPhase(ctx, reviewStats, session.lastCorrectionClass, "unavailable");
+    /* A flaky run is quarantined whatever the reviewer says: a reviewer that could not be reached leaves it unapproved, not an infra-error. */
+    if (advisoryReview(session)) {
+      session.reviewerApproved = false;
+      return goto("review-settle");
+    }
     return end("reviewer-unavailable", { rationale: reviewResult.rationale, passedCases: reviewCases.length, ...(await exitFactsOf(state, ctx)) });
   }
   /*
@@ -490,6 +499,11 @@ export async function reviewResolve(state: Readonly<RunState>, ctx: WorkspaceRun
        * was possible and the turn delivered nothing, so opening an Issue would accuse a test the reviewer never
        * justified, and publishing would ignore the finding: the engine reports that it could not settle it.
        */
+      /* A flaky run is quarantined whatever the reviewer says: a finding the run could not settle leaves it unapproved. */
+      if (advisoryReview(session)) {
+        session.reviewerApproved = false;
+        return goto("review-settle");
+      }
       return end("review-disputed", { disputed: settled.disputed, passedCases: session.reviewCases.filter((c) => c.status === "pass").length, ...(await exitFactsOf(state, ctx)) });
     } else {
       session.reviewerApproved = false;

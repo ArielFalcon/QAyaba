@@ -655,3 +655,106 @@ test("a run the lead authored alone is given the survivors in its gap text", asy
   const gap = r.enrichments.find((e) => e.coverageGap !== undefined);
   assert.match(gap?.coverageGap ?? "", /src\/list\.ts:4/);
 });
+
+/* ── a run whose final execution is flaky: green after a retry ───────────────────────────────── */
+
+/* A case that failed its first attempt and passed on retry. */
+const flakyCase = (over: Partial<QaCase> = {}): QaCase => ({ name: "lists the restaurants", status: "flaky", file: "flows/a.spec.ts", detail: "expected 3 rows, received 0", ...over });
+
+/* An execution that ends flaky with these cases, and passes the specs an acceptance executes afterwards. */
+function flakyOnce(cases: QaCase[]) {
+  const calls: Array<{ retries?: number }> = [];
+  return {
+    calls,
+    execution: { execute: async (_dir: string, opts?: { retries?: number }) => {
+      calls.push({ retries: opts?.retries });
+      return calls.length === 1
+        ? { verdict: "flaky" as const, cases, logs: "" }
+        : { verdict: "pass" as const, cases: cases.map((c) => ({ name: c.name, status: "pass" as const, file: c.file! })), logs: "" };
+    } },
+  };
+}
+
+test("a flaky run is measured and reviewed like a pass, and is still quarantined", async () => {
+  const r = rig();
+  let measured = 0;
+  let reviewed = 0;
+  const flaky = flakyOnce([flakyCase()]);
+  const result = await new RunQaUseCase(r.deps({
+    execution: flaky.execution,
+    objectiveSignal: { measure: async () => (measured++, { status: "unknown" as const, ratio: null }), blocks: () => false },
+    review: { review: async () => (reviewed++, { approved: true, corrections: [], blockingCount: 0, parsed: true }) },
+  })).run(INPUT);
+  assert.equal(measured, 1, "the change-coverage of the green bytes is measured");
+  assert.equal(reviewed, 1, "the reviewer judges the specs");
+  assert.equal(result.decision.verdict, "flaky");
+  assert.equal(result.decision.sideEffect, "quarantine");
+});
+
+test("a flaky run whose reviewer cannot be reached is still quarantined, not an infra-error", async () => {
+  const r = rig();
+  const flaky = flakyOnce([flakyCase()]);
+  const result = await new RunQaUseCase(r.deps({
+    execution: flaky.execution,
+    review: { review: async () => ({ approved: false, corrections: [], blockingCount: 0, parsed: false, unavailable: true }) },
+  })).run(INPUT);
+  assert.equal(result.decision.verdict, "flaky");
+  assert.equal(result.decision.sideEffect, "quarantine");
+  assert.notEqual(result.outcome?.errorClass, "E-REVIEWER-UNAVAILABLE");
+});
+
+test("a flaky case whose first attempt read an empty data state reaches its flow as DEV data instability", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
+  const flaky = flakyOnce([flakyCase({ failureResultCount: 0, finalUrl: "https://dev/restaurants", failureSettle: { inFlight: 0, treeStable: true } })]);
+  const result = await new RunQaUseCase(r.deps({ execution: flaky.execution })).run(INPUT);
+  assert.deepEqual(kept.seen.origins, [CORRECTION_ORIGIN.EXECUTION]);
+  assert.equal(kept.seen.corrected[0]?.length, 1);
+  assert.equal(kept.seen.corrected[0]![0]!.spec, "flows/a.spec.ts", "the finding is owned by the spec's flow");
+  assert.match(kept.seen.corrected[0]![0]!.text, /passed on retry/);
+  assert.match(kept.seen.corrected[0]![0]!.text, /depends on live data/);
+  assert.equal(r.calls.filter((c) => c === "generate").length, 0, "no cold author");
+  assert.deepEqual(flaky.calls.slice(1).map((c) => c.retries), [0], "the corrected spec stands only if it executes green without a retry");
+  assert.equal(result.decision.verdict, "flaky", "a spec that passed once after a flaky run does not make the run publishable");
+  assert.equal(result.decision.sideEffect, "quarantine");
+});
+
+test("a flaky case with no data state to blame is routed as timing", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
+  const flaky = flakyOnce([flakyCase({ detail: "locator not found" })]);
+  await new RunQaUseCase(r.deps({ execution: flaky.execution })).run(INPUT);
+  assert.match(kept.seen.corrected[0]![0]!.text, /Wait on the state the page shows/);
+  assert.doesNotMatch(kept.seen.corrected[0]![0]!.text, /live data/);
+});
+
+test("when the lead's correction budget is spent the flaky findings stay unrouted and no cold author is asked", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: [], rebuttals: [], unrouted: [] }));
+  const flaky = flakyOnce([flakyCase()]);
+  const result = await new RunQaUseCase(r.deps({ execution: flaky.execution, config: SPENT })).run(INPUT);
+  assert.deepEqual(kept.seen.corrected, []);
+  assert.deepEqual(kept.seen.left.map((l) => [l.origin, l.reason]), [[CORRECTION_ORIGIN.EXECUTION, "lead correction budget spent"]]);
+  assert.equal(r.calls.filter((c) => c === "generate").length, 0);
+  assert.equal(result.decision.verdict, "flaky");
+});
+
+test("a pass run is not triaged for flakiness, and a failing run still goes through the fix loop", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
+  const green = await new RunQaUseCase(r.deps()).run(INPUT);
+  assert.equal(green.decision.verdict, "pass");
+  assert.equal(kept.seen.corrected.length, 0, "nothing to correct on a pass");
+  const failing = await new RunQaUseCase(r.deps({ execution: failingOnce([FAILED_A]) })).run({ ...INPUT, runId: "coord-run-fail" });
+  assert.equal(failing.decision.verdict, "pass");
+  assert.deepEqual(kept.seen.origins, [CORRECTION_ORIGIN.EXECUTION]);
+  assert.match(kept.seen.corrected[0]![0]!.text, /failed/);
+});

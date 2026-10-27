@@ -1,9 +1,11 @@
 /* The coverage phase of a run: the change-coverage measurement of a green execution and at most one regeneration at its gap: in enforce mode at the uncovered lines (with the arms no test ran), otherwise, with the branch cases on, at the arms no test ran. The mutants of the changed code that ran under a test and that no test noticed are part of that gap: the test reached the change and checked nothing. */
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
-import { CORRECTION_ORIGIN, type CorrectionFinding } from "@contexts/coordination/application/index.ts";
+import { CORRECTION_ORIGIN, type CorrectionFinding, type CorrectionOrigin } from "@contexts/coordination/application/index.ts";
 import { faultAimOf } from "../fault-aim.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
+import { hasGreenBytes } from "@kernel/run-verdict.ts";
+import type { GenerationEnrichment } from "@contexts/generation/application/index.ts";
 import { renderBranchGap, renderCoverageGap, renderSurvivedMutant, renderSurvivedMutants, type CoverageMeasurement, type CoverageRerun, type SurvivedMutant } from "@contexts/objective-signal/application/index.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
@@ -16,7 +18,7 @@ import { branchCasesAction, coverageRegenAction } from "../../../domain/coverage
 type Result = Promise<StepOutcome<RunState>>;
 
 /* A context run executes nothing (its pass is synthetic), so it has no coverage or value to measure. */
-export const measuresCoverage = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean => runOf(state).verdict === "pass" && ctx.input.mode !== "context";
+export const measuresCoverage = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean => hasGreenBytes(runOf(state).verdict) && ctx.input.mode !== "context";
 
 /* The arms of the decisions on changed lines a measurement counted, and how many ran; undefined when it saw none. */
 export const branchCoverageOf = (m: CoverageMeasurement | undefined): CoverageOutcome["branchCoverage"] =>
@@ -132,7 +134,7 @@ export const regeneratesForBranchCases = (state: Readonly<RunState>, ctx: Worksp
   }) === "regenerate";
 
 /* How a gap regeneration ended; `reruns` names the acceptance's own dumps when every spec it changed executed in it, so the coverage can be recounted from them. */
-interface GapRegeneration {
+export interface GapRegeneration {
   outcome: BranchCasesOutcome["outcome"];
   run: NonNullable<RunState["execution"]["run"]>;
   acceptanceCalls: number;
@@ -146,7 +148,14 @@ interface GapRegeneration {
  * bytes. A throw propagates; a spent run deadline is the one the policy degrades (this step runs after a green suite), so the first
  * measurement stands.
  */
-async function regenerateAtGap(state: Readonly<RunState>, ctx: WorkspaceRunContext, base: string, items: { units: readonly GapUnit[]; omitted: number }, survived: readonly SurvivedMutant[]): Promise<GapRegeneration> {
+export async function regenerateAtGap(
+  state: Readonly<RunState>,
+  ctx: WorkspaceRunContext,
+  enrichment: GenerationEnrichment,
+  origin: Exclude<CorrectionOrigin, typeof CORRECTION_ORIGIN.REVIEW>,
+  evidence?: readonly EvidenceFinding[],
+  omitted?: number,
+): Promise<GapRegeneration> {
   const { input, trail, workspace, services } = ctx;
   const { acceptance, integrityCounters, snapshotPort, runDeadlinePort, suiteChangedFiles, snapshotSuite, acceptanceScope } = services;
   let { acceptanceCalls } = state.coverage;
@@ -155,9 +164,7 @@ async function regenerateAtGap(state: Readonly<RunState>, ctx: WorkspaceRunConte
   /* mutation-scope:begin delivered-before-coverage-regen */
   const deliveredBefore = state.generation.delivered;
   /* mutation-scope:end delivered-before-coverage-regen */
-  /* An author that has no lead reads the gap whole, survivors included. */
-  const gap = [base, renderSurvivedMutants(survived, MAX_GAP_SURVIVORS)].filter(Boolean).join("\n\n");
-  const regenerated = await regenerate(state, ctx, undefined, { coverageGap: gap, coverageGapItems: items.units.map((u) => u.text) }, CORRECTION_ORIGIN.COVERAGE, gapFindings(base, items.units, survived), items.omitted);
+  const regenerated = await regenerate(state, ctx, undefined, enrichment, origin, evidence, omitted);
   const regen = regenerated.output;
   const { leadCorrections } = regenerated;
   await services.confinement.enforce();
@@ -304,12 +311,18 @@ export function gapFindings(gap: string, units: readonly GapUnit[], survived: re
   return findings.length > 0 ? findings : undefined;
 }
 
+/* A regeneration at the coverage gap: its units routed by the file each names, the surviving mutants by the spec that reached them; an author that has no lead reads the gap whole, survivors included. */
+function regenerateAtCoverageGap(state: Readonly<RunState>, ctx: WorkspaceRunContext, base: string, items: { units: readonly GapUnit[]; omitted: number }, survived: readonly SurvivedMutant[]): Promise<GapRegeneration> {
+  const gap = [base, renderSurvivedMutants(survived, MAX_GAP_SURVIVORS)].filter(Boolean).join("\n\n");
+  return regenerateAtGap(state, ctx, { coverageGap: gap, coverageGapItems: items.units.map((u) => u.text) }, CORRECTION_ORIGIN.COVERAGE, gapFindings(base, items.units, survived), items.omitted);
+}
+
 /* Enforce-mode one-shot coverage regeneration at the uncovered lines and the arms no test ran; it runs at most once per run and is independent of the FixLoop budget. The whole-suite re-measure that decides coverage is the single final re-measure before decide. */
 export async function regenerateForCoverage(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { uncovered, untakenArms } = state.coverage;
   const survived = survivorsOf(state);
   const gap = [renderCoverageGap(uncovered, undefined, state.grounding.candidates), renderBranchGap(untakenArms)].filter(Boolean).join("\n\n");
-  const regen = await regenerateAtGap(state, ctx, gap, gapUnits(uncovered, untakenArms, state.grounding.candidates), survived);
+  const regen = await regenerateAtCoverageGap(state, ctx, gap, gapUnits(uncovered, untakenArms, state.grounding.candidates), survived);
   return { update: { execution: withRun(state.execution, regen.run), coverage: await recountAfter(state, ctx, regen), loops: { ...state.loops, coverageRegen: state.loops.coverageRegen + 1, leadCorrections: state.loops.leadCorrections + regen.leadCorrections } } };
 }
 
@@ -317,7 +330,7 @@ export async function regenerateForCoverage(state: Readonly<RunState>, ctx: Work
 export async function regenerateForBranchCases(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const armsBefore = state.coverage.untakenArms.length;
   const survived = survivorsOf(state);
-  const regen = await regenerateAtGap(state, ctx, renderBranchGap(state.coverage.untakenArms), gapUnits([], state.coverage.untakenArms, []), survived);
+  const regen = await regenerateAtCoverageGap(state, ctx, renderBranchGap(state.coverage.untakenArms), gapUnits([], state.coverage.untakenArms, []), survived);
   const coverage = await recountAfter(state, ctx, regen);
   const armsAfter = regen.outcome !== "accepted" ? armsBefore : coverage.untakenArmsCurrent ? coverage.untakenArms.length : undefined;
   return {

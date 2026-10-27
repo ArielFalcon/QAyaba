@@ -17,6 +17,15 @@ export type RunVerdict = "pass" | "fail" | "flaky" | "invalid" | "infra-error" |
 export const RUN_ENGINE_STATUSES = { SUCCESS: "success", ERROR: "error" } as const;
 export type RunEngineStatus = (typeof RUN_ENGINE_STATUSES)[keyof typeof RUN_ENGINE_STATUSES];
 
+/*
+ * Whether the executed bytes ran green, possibly after a retry: `pass`, or `flaky` (a case failed its first attempt and passed on
+ * retry). The steps after the execution that judge the bytes (change-coverage, the reviewer) apply to both; only `pass` publishes,
+ * is accepted into the suite store or is learned from.
+ */
+export function hasGreenBytes(verdict: RunVerdict | null | undefined): boolean {
+  return verdict === "pass" || verdict === "flaky";
+}
+
 /* Fail-safe: a null/undefined verdict is ERROR. */
 export function engineStatus(verdict: RunVerdict | null | undefined): RunEngineStatus {
   return verdict == null || verdict === "infra-error" || verdict === "invalid"

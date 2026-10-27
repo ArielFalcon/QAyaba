@@ -14,6 +14,7 @@ import { PROBE_REL_DIR } from "@contexts/test-execution/application/index.ts";
 import type { GenerationEnrichment, GenerationOutput } from "@contexts/generation/application/index.ts";
 import type { CoordinatedPass } from "@contexts/coordination/application/index.ts";
 import { CORRECTION_ORIGIN, authorTargetOf, dispatchAuthor, type CorrectionOrigin, type CorrectionFinding } from "@contexts/coordination/application/index.ts";
+import { FLAKY_CLASS, type FlakyCaseTriage } from "../../../domain/flaky-triage.ts";
 import { leadCorrectionAction, leadCorrectionBudget } from "../../../domain/lead-correction-budget.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
@@ -111,6 +112,23 @@ export function staticGateFindings(errors: readonly string[]): EvidenceFinding[]
   return errors.map((error) => error.trim()).filter(Boolean).map((error) => ({
     finding: { text: `the static gate refused the spec: ${cutDetail(error)}` },
   }));
+}
+
+/*
+ * The flaky cases of a green run, one finding each, naming the spec that holds the case so the lead routes it to its flow: the
+ * first attempt failed and the same bytes passed on retry, which is no state to publish from. What the flow is told to change
+ * follows the class: a spec that read DEV's data differently between attempts stops depending on it, any other waits on what the
+ * page shows.
+ */
+export function flakyFindings(triage: readonly FlakyCaseTriage[]): EvidenceFinding[] {
+  return triage.map(({ case: c, class: flakyClass, evidence }) => {
+    const subject = `test "${c.name}"${c.file ? ` in ${c.file}` : ""} failed its first attempt and passed on retry; ${evidence}`;
+    const detail = c.detail ? ` (${cutDetail(c.detail)})` : "";
+    const remedy = flakyClass === FLAKY_CLASS.DATA_INSTABILITY
+      ? "DEV's data changed between attempts, so the spec depends on live data. Stop depending on it: fix the location the spec runs at and derive every expected value from what the page shows when the test runs."
+      : "the page was not in the state the assertion waited for. Wait on the state the page shows (a web-first assertion on the settled result), never on a fixed delay.";
+    return { finding: { text: `${subject}${detail}: ${remedy}`, ...(c.file ? { spec: c.file } : {}) } };
+  });
 }
 
 /* The findings a regeneration's evidence names: one per failing case, contradiction and contract delta, and one per unit of the uncovered gap. */

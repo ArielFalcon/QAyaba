@@ -17,11 +17,11 @@ const REDUCERS = "run-flow/reducers.ts";
 /* Per top-level field of the state: each reducer that writes it, and the modules allowed to import that reducer. */
 const WRITERS: Record<string, Record<string, readonly string[]>> = {
   execution: {
-    withRun: ["run-flow/phases/execute.steps.ts", "run-flow/phases/fix-loop.steps.ts", "run-flow/phases/coverage.steps.ts", "run-flow/phases/review.steps.ts"],
+    withRun: ["run-flow/phases/execute.steps.ts", "run-flow/phases/fix-loop.steps.ts", "run-flow/phases/coverage.steps.ts", "run-flow/phases/flaky.steps.ts", "run-flow/phases/review.steps.ts"],
     addRetries: ["run-flow/phases/execute.steps.ts", "run-flow/phases/fix-loop.steps.ts", "run-flow/phases/review.steps.ts"],
   },
   coverage: {
-    withAcceptanceCalls: ["run-flow/phases/coverage.steps.ts", "run-flow/phases/review.steps.ts"],
+    withAcceptanceCalls: ["run-flow/phases/coverage.steps.ts", "run-flow/phases/flaky.steps.ts", "run-flow/phases/review.steps.ts"],
     acceptedRegeneration: ["run-flow/phases/coverage.steps.ts", "run-flow/phases/review.steps.ts"],
     remeasured: ["run-flow/phases/coverage.steps.ts", "run-flow/phases/review.steps.ts"],
   },

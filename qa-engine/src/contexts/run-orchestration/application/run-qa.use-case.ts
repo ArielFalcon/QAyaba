@@ -386,7 +386,7 @@ export class RunQaUseCase {
       degrade: async (reason, err, stepId, current) => {
         /* Nothing can correct through the coordinated pass from here on, and the run publishes next. */
         await baseCtx.host.closeCoordinatedPass();
-        return degradeFailedStep(reason, err, stepId, current, { reviewRequired: reviewsTests(baseCtx) && current.classification.generating, endOf: (endReason, cause) => failureEnd(endReason, cause, baseCtx, state) });
+        return degradeFailedStep(reason, err, stepId, current, { reviewRequired: reviewsTests(baseCtx) && current.classification.generating && current.execution.run?.verdict === "pass", endOf: (endReason, cause) => failureEnd(endReason, cause, baseCtx, state) });
       },
       enter: (phase: RunPhase) => trail.phases.enter(phase),
       record: (event) => {
