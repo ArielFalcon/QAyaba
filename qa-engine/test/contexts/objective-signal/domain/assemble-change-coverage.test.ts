@@ -443,3 +443,40 @@ test("a collection that cannot tell code from the rest counts every added line, 
   assert.equal(cc.notExecutable, undefined);
   assert.equal(cc.notLoaded, undefined);
 });
+
+test("a changed file no script can hold (a document, a style sheet) is not counted, while an unloaded file of a kind the scripts map stays uncovered", () => {
+  const diff = [
+    "diff --git a/README.md b/README.md",
+    "--- a/README.md",
+    "+++ b/README.md",
+    "@@ -0,0 +1,2 @@",
+    "+# Menus",
+    "+Daily menus near you.",
+    "diff --git a/src/card.scss b/src/card.scss",
+    "--- a/src/card.scss",
+    "+++ b/src/card.scss",
+    "@@ -0,0 +1 @@",
+    "+.card { color: red; }",
+    "diff --git a/src/detail.html b/src/detail.html",
+    "--- a/src/detail.html",
+    "+++ b/src/detail.html",
+    "@@ -0,0 +1 @@",
+    "+<p>{{ day }}</p>",
+    "diff --git a/src/list.html b/src/list.html",
+    "--- a/src/list.html",
+    "+++ b/src/list.html",
+    "@@ -0,0 +1 @@",
+    "+<ul></ul>",
+    "diff --git a/src/lazy.ts b/src/lazy.ts",
+    "--- a/src/lazy.ts",
+    "+++ b/src/lazy.ts",
+    "@@ -0,0 +1 @@",
+    "+go();",
+  ].join("\n");
+  const report: CoverageReport = { covered: [{ file: "src/list.html", lines: [1] }], executable: [{ file: "src/list.html", lines: [1] }] };
+
+  const cc = assembleChangeCoverage(diff, report);
+
+  assert.deepEqual(cc.overall, { changedLines: 3, coveredChanged: 1, ratio: 1 / 3 }, "list.html line 1, detail.html line 1 and lazy.ts line 1");
+  assert.deepEqual(cc.notLoaded, [{ file: "src/detail.html", lines: [1] }, { file: "src/lazy.ts", lines: [1] }]);
+});

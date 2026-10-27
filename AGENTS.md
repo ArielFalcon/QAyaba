@@ -652,7 +652,8 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   registry's `isTestFile`) are neither collected nor counted. A browser run counts only the changed lines a loaded
   script holds code for (a segment of its source map maps to the line; a script served as written: its non-blank
   lines), so imports, types, comments and blank lines are left out (`notExecutableLines`); a changed file no loaded
-  script maps is not loaded, and its non-blank added lines count as uncovered (`notLoadedFiles`). Native reports keep
+  script maps is not loaded, and its non-blank added lines count as uncovered (`notLoadedFiles`), unless no script can hold it
+  (neither a declared language nor a kind of file the run's maps reach, such as a document or a style sheet): that is not changed code. Native reports keep
   every added line. `gateSignals.changeCoverage` records these counts beside the ratio.
 - A browser run maps covered bundle bytes to repository files only through source maps the page's
   scripts carry (inline, fetched from the URL their `sourceMappingURL` names, or `<script>.map` when
