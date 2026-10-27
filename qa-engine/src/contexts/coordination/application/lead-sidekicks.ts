@@ -28,6 +28,7 @@ import { createDelegationBrief, type DelegationBrief } from "./delegation-brief.
 import { briefChangeFor, fitBriefChange, type BriefChange } from "./brief-change.ts";
 import { assembleSidekickBrief } from "./sidekick-prompt.ts";
 import type { ContextBudget, ContextFit } from "@kernel/context-budget.ts";
+import type { WindowFitOutcome } from "@kernel/prompt-sections.ts";
 import { entryKey } from "@kernel/change-reach.ts";
 import { candidatePagesOf, pageRoutesOf, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { admissionSetOf, flowCovers, honorContradictedDrops, impliedNoopDrops, MAX_PLAN_ROUNDS, needsAmendment, planCoverage, assembleReplanRequest, unvisitedBy, type AdmissionSet, type PlanAmendment, type PlanCoverage } from "./plan-coverage.ts";
@@ -656,23 +657,23 @@ export class LeadSidekicks {
    */
   private async freshTurn(entry: LiveFlow, context: FlowContext, signal: AbortSignal, timeoutMs: number, feedback?: string): Promise<FlowReport> {
     const model = resolveSidekickModel(entry.tier, this.deps.escalatedModel);
-    const { brief, contextFit } = this.briefOf(entry, context, model);
+    const { brief, contextFit, fit } = this.briefOf(entry, context, model);
     if (contextFit?.outcome === "over") return this.overWindow(entry, context.input, contextFit);
-    const result = await this.openSession(entry, context, brief, model, contextFit, signal, timeoutMs, feedback);
+    const result = await this.openSession(entry, context, brief, model, contextFit, fit, signal, timeoutMs, feedback);
     return this.assess(entry, context, result, signal);
   }
 
   /* The flow whose minimal brief does not fit: nothing is sent, the decision is recorded, and a spec it delivered earlier stays delivered. */
   private overWindow(entry: LiveFlow, input: CoordinateInput, fit: ContextFit): FlowReport {
     const { flow } = entry;
-    const reason = `its brief, with all its change named by reference, is ${fit.promptTokens} tokens and its turn needs ${fit.workingRoomTokens ?? 0} tokens of working room, over the author's window of ${fit.windowTokens ?? 0} tokens; it was not sent`;
+    const reason = `its brief, with all its change named by reference and its suite listing and pages given up to the window, is ${fit.promptTokens} tokens and its turn needs ${fit.workingRoomTokens ?? 0} tokens of working room, over the author's window of ${fit.windowTokens ?? 0} tokens; it was not sent`;
     engineLog.warn(`[qa] flow ${flow.id}: ${reason}`);
     this.record(input, { kind: "lead-decision", flowId: flow.id, overWindow: [flow.id], contextFit: fit, delegationId: entry.delegationId, reason: `flow ${flow.id}: ${reason}` });
     return this.keepDelivered(entry, { outcome: { id: flow.id, kind: FLOW_OUTCOME.OVER_WINDOW, reason }, proposals: undefined });
   }
 
   /* A fresh sidekick session on the brief, with the feedback when there is some; the session is kept on the flow. */
-  private async openSession(entry: LiveFlow, context: FlowContext, brief: DelegationBrief, model: string | undefined, contextFit: ContextFit | undefined, signal: AbortSignal, timeoutMs: number, feedback?: string): Promise<DelegationResult> {
+  private async openSession(entry: LiveFlow, context: FlowContext, brief: DelegationBrief, model: string | undefined, contextFit: ContextFit | undefined, fit: ((bytes: number) => WindowFitOutcome) | undefined, signal: AbortSignal, timeoutMs: number, feedback?: string): Promise<DelegationResult> {
     const session = await this.deps.sidekick.open(brief, {
       cwd: entry.workspace.dir,
       kind: entry.flow.kind,
@@ -682,6 +683,7 @@ export class LeadSidekicks {
       delegationId: entry.delegationId,
       denyTools: sidekickDeniedTools(context.mode, entry.loop !== undefined),
       ...(contextFit ? { contextFit } : {}),
+      ...(fit ? { fit } : {}),
       ...(feedback ? { feedback } : {}),
     });
     /* A session that opened after its flow was stopped or released belongs to nobody: it is closed at once. */
@@ -698,7 +700,7 @@ export class LeadSidekicks {
    * hunks are preloaded while the whole brief fits the author's window (the model the session runs on); what does not fit is named
    * by file and range. The fit it was judged by rides on the turn's telemetry.
    */
-  private briefOf(entry: LiveFlow, context: FlowContext, model: string | undefined): { brief: DelegationBrief; contextFit?: ContextFit } {
+  private briefOf(entry: LiveFlow, context: FlowContext, model: string | undefined): { brief: DelegationBrief; contextFit?: ContextFit; fit?: (bytes: number) => WindowFitOutcome } {
     const { input, mode } = context;
     const { flow } = entry;
     const browser = mode === SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER && input.agentBrowser !== undefined;
@@ -735,14 +737,22 @@ export class LeadSidekicks {
       });
     const budget = this.deps.contextBudget;
     if (!budget) return { brief: build(derived.change) };
-    const measure = (change: BriefChange | undefined): ContextFit =>
-      budget.fit({ prompt: { bytes: Buffer.byteLength(assembleSidekickBrief(this.deps.redaction, build(change)).text, "utf8") }, role: "author", ...(model ? { model } : {}) });
-    if (!derived.change) return { brief: build(undefined), contextFit: measure(undefined) };
+    const fitOf = (bytes: number): ContextFit => budget.fit({ prompt: { bytes }, role: "author", ...(model ? { model } : {}) });
+    const fit = (bytes: number): WindowFitOutcome => fitOf(bytes).outcome;
+    /* The owned hunks give way first, judged on the whole brief; once they are all references, the sections that can (the suite listing, then the flow's pages) give way to the window as the brief is rendered, and the fit it is sent with is the one it comes to then. */
+    const measure = (change: BriefChange | undefined): ContextFit => fitOf(Buffer.byteLength(assembleSidekickBrief(this.deps.redaction, build(change)).text, "utf8"));
+    const rendered = (brief: DelegationBrief): ContextFit => fitOf(Buffer.byteLength(assembleSidekickBrief(this.deps.redaction, brief, fit).text, "utf8"));
+    if (!derived.change) {
+      const brief = build(undefined);
+      return { brief, contextFit: rendered(brief), fit };
+    }
     const fitted = fitBriefChange(derived.change, measure);
-    if (fitted.referenced > 0 && fitted.fit.outcome !== "over") {
+    const brief = build(fitted.change);
+    const contextFit = rendered(brief);
+    if (fitted.referenced > 0 && contextFit.outcome !== "over") {
       engineLog.warn(`[qa] flow ${flow.id}'s brief fits the author's window with ${fitted.referenced} owned hunk(s) named by file and range instead of preloaded (${fitted.change.hunks.length} preloaded)`);
     }
-    return { brief: build(fitted.change), contextFit: fitted.fit };
+    return { brief, contextFit, fit };
   }
 
   /* What one turn of a sidekick came to, from what the orchestrator sees: the workspace, the flow's run_spec ledger and the Context Pack's reads. */
@@ -833,7 +843,7 @@ export class LeadSidekicks {
       const gaps = candidateGapsOf(decided.admission, dropped, flows.map((flow, i) => ({ routes: flow.routes, candidates: flow.candidates, review: underReview[i]! })));
       let reply: { output: string; timedOut: boolean };
       try {
-        const request = assembleLeadReview(this.deps.redaction, withSpecDigests(underReview, seen, turn), { turn, maxTurns: MAX_REVIEW_TURNS }, gaps);
+        const request = assembleLeadReview(this.deps.redaction, withSpecDigests(underReview, seen, turn), { turn, maxTurns: MAX_REVIEW_TURNS }, gaps, this.leadFit());
         reply = await lead.ask(request.text, turnOpts(request, Math.min(input.settings.planBudgetMs, room ?? input.settings.planBudgetMs)));
       } catch (err) {
         /* The run's own time spent ends the run; any other failure of the lead's turn leaves the flows as they are. */
@@ -943,8 +953,15 @@ export class LeadSidekicks {
       verified: loop ? await loop.isClosed().catch(() => false) : false,
       ...(entry?.appDefect ? { appDefect: entry.appDefect } : {}),
       sessionOpen: entry?.session !== undefined,
+      specFile: flow.specFile,
       ...(spec !== undefined ? { spec } : {}),
     };
+  }
+
+  /* The lead's window fit rule for a prompt of its own turns: whether a prompt of this many bytes leaves the lead the working room its turn needs. Absent a budget, nothing is degraded. */
+  private leadFit(): ((bytes: number) => WindowFitOutcome) | undefined {
+    const budget = this.deps.contextBudget;
+    return budget ? (bytes) => budget.fit({ prompt: { bytes }, role: "lead" }).outcome : undefined;
   }
 
   /* The pass, kept open: corrections are asked of the lead's planning session and carried out by the flows' sidekicks. */
@@ -1001,7 +1018,7 @@ export class LeadSidekicks {
       }
       return "";
     };
-    const output = await askLead(assembleLeadCorrection(this.deps.redaction, under, findings, origin, omitted), false);
+    const output = await askLead(assembleLeadCorrection(this.deps.redaction, under, findings, origin, omitted, this.leadFit()), false);
     tally.turns += 1;
     let admission = admitLeadCorrection(this.deps.redaction, output, under, findings, origin);
     for (const r of admission.refused) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): ${r.flowId ? `flow ${r.flowId} ` : ""}${r.finding ? `finding ${r.finding} ` : ""}not taken: ${r.reason}` });

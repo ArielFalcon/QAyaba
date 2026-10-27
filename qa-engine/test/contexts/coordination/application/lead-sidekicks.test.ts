@@ -1056,6 +1056,27 @@ test("a flow's brief preloads its changed code while it fits the author's window
   assert.equal(tight.opts.contextFit?.outcome, "fits");
 });
 
+test("a flow's brief over the author's window gives its suite listing up to the window before the flow is called over-window, and the turn is handed the fit rule", async () => {
+  const existingSpecs = Array.from({ length: 200 }, (_, i) => `flows/area-${i % 4}/flow-${i}.spec.ts — flow: f${i}, objective: ${"checks the page. ".repeat(20)}`);
+  const plan = planOf([cartFlow]);
+  const noRoom = { forRole: () => ({ growthTokensPerStep: 0, steps: 0, basis: "cold-start" as const, samples: 0 }) };
+  const run = async (windowTokens: number) => {
+    const r = rig();
+    r.coordinator = new LeadSidekicks({ ...r.deps, contextBudget: new ContextBudget({ windowTokens: () => windowTokens }, noRoom) });
+    const outcome = await r.coordinator.coordinate(input(r, { existingSpecs, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+    if (outcome.action === "fanout") await outcome.pass?.release();
+    return r.executed.find((e) => e.brief.delegationId === "run-1-flow-cart");
+  };
+  const whole = await run(10_000_000);
+  assert.ok(whole && whole.opts.fit !== undefined, "the turn is handed the fit rule");
+  const wholeTokens = whole.opts.contextFit!.promptTokens;
+
+  const tight = await run(Math.floor(wholeTokens * 0.6));
+  assert.ok(tight, "the brief is sent: its suite listing gave way instead of the flow being dropped");
+  assert.equal(tight.opts.contextFit?.outcome, "fits");
+  assert.ok(tight.opts.contextFit!.promptTokens < wholeTokens, "the fit it was judged by is that of the brief as it is rendered");
+});
+
 test("every flow of a large plan gets its loop and the calls its own time can run, while the run's DEV-write cap stays what it was", async () => {
   const run = async (count: number) => {
     const r = rig({ hasFile: new Set() });

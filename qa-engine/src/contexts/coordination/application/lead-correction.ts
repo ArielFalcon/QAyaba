@@ -10,7 +10,7 @@
  */
 
 import { REVIEW_ACTION, MAX_INSTRUCTION_CHARS } from "./lead-review.ts";
-import { assembleDefs, type AssembledPrompt } from "@kernel/prompt-sections.ts";
+import { assembleDefs, type AssembledPrompt, type WindowFitOutcome } from "@kernel/prompt-sections.ts";
 import { LEAD_CORRECTION_SECTIONS, REFUSED_CORRECTION_SECTIONS, type CorrectionFinding, type FlowUnderCorrection } from "./coordination-sections/lead-turn-sections.ts";
 
 export type { CorrectionFinding, FlowUnderCorrection };
@@ -158,12 +158,12 @@ export function routeOfFinding(finding: CorrectionFinding, flows: readonly FlowU
 }
 
 /* The correction turn's prompt, as data: the flows and the findings numbered, assembled from the registered sections. How to route them and the answer's shape are the lead's role prompt. */
-export function assembleLeadCorrection(redaction: RedactionPort, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW, omitted = 0): AssembledPrompt {
+export function assembleLeadCorrection(redaction: RedactionPort, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW, omitted = 0, fit?: (bytes: number) => WindowFitOutcome): AssembledPrompt {
   const text = ORIGIN_TEXT[origin];
   return assembleDefs(
     LEAD_CORRECTION_SECTIONS,
     { flows, findings, owner: findings.map((finding) => flowOfFinding(finding, flows)), origin: { heading: text.heading, lead: text.lead, rebuttable: rebuttable(origin) }, omitted, scrub: (value) => redaction.redact(value) },
-    { separator: "\n\n" },
+    { separator: "\n\n", ...(fit ? { fit } : {}) },
   );
 }
 

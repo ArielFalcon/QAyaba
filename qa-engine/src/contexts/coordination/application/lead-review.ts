@@ -9,18 +9,18 @@
  * Pure: no clock, no file, no model.
  */
 
-import { assembleDefs, type AssembledPrompt } from "@kernel/prompt-sections.ts";
+import { assembleDefs, type AssembledPrompt, type WindowFitOutcome } from "@kernel/prompt-sections.ts";
 import { flowCovers, type AdmissionSet } from "./plan-coverage.ts";
 import { FLOW_OUTCOME } from "./flow-outcomes.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
-import { LEAD_REVIEW_SECTIONS, MAX_SPEC_CHARS, type CandidateGaps, type FailureBytes, type FlowUnderReview, type NoWritesLeft, type SidekickAnswer } from "./coordination-sections/lead-turn-sections.ts";
+import { LEAD_REVIEW_SECTIONS, type CandidateGaps, type FailureBytes, type FlowUnderReview, type NoWritesLeft, type SidekickAnswer } from "./coordination-sections/lead-turn-sections.ts";
 
 /* How the instruction that sends a spec back qualifies its last failure. */
 const FAILURE_INSTRUCTION_NOTE: Record<FailureBytes, string> = { current: "", earlier: ", seen on earlier bytes", "no-spec": ", while the flow held no spec" };
 import { lastJsonObjectWhere } from "@kernel/last-json-object.ts";
 import { sha256Hex } from "@kernel/content-hash.ts";
 
-export { MAX_SPEC_CHARS, type CandidateGaps, type FailureBytes, type FlowUnderReview, type NoWritesLeft, type SidekickAnswer };
+export { type CandidateGaps, type FailureBytes, type FlowUnderReview, type NoWritesLeft, type SidekickAnswer };
 
 export const REVIEW_ACTION = {
   ACCEPT: "accept",
@@ -82,9 +82,9 @@ export function candidateGapsOf(
   return unvisited.length > 0 || unproven.length > 0 ? { required: admission.required, unvisited, unproven, others: admission.others } : undefined;
 }
 
-/* The review turn's prompt, as data: the flows as the orchestrator knows them and the use cases no passing flow covers, assembled from the registered sections. How to judge them and the answer's shape are the lead's role prompt. */
-export function assembleLeadReview(redaction: RedactionPort, flows: readonly FlowUnderReview[], turn: { turn: number; maxTurns: number }, gaps?: CandidateGaps): AssembledPrompt {
-  return assembleDefs(LEAD_REVIEW_SECTIONS, { flows, turn, ...(gaps ? { gaps } : {}), scrub: (text) => redaction.redact(text) }, { separator: "\n\n" });
+/* The review turn's prompt, as data: the flows as the orchestrator knows them and the use cases no passing flow covers, assembled from the registered sections. How to judge them and the answer's shape are the lead's role prompt. `fit` is the lead's window fit rule: over it the specs give way as references, the last flow's first; absent, nothing is degraded. */
+export function assembleLeadReview(redaction: RedactionPort, flows: readonly FlowUnderReview[], turn: { turn: number; maxTurns: number }, gaps?: CandidateGaps, fit?: (bytes: number) => WindowFitOutcome): AssembledPrompt {
+  return assembleDefs(LEAD_REVIEW_SECTIONS, { flows, turn, ...(gaps ? { gaps } : {}), scrub: (text) => redaction.redact(text) }, { separator: "\n\n", ...(fit ? { fit } : {}) });
 }
 
 /* What the lead was shown of each flow's spec in a session: the review turn and the bytes' sha256. */

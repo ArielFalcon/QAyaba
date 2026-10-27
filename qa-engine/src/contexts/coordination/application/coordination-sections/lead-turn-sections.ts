@@ -4,13 +4,11 @@
  * lead's role prompt. Sections are ordered by priority alone (one tier) and joined by a blank line.
  */
 import { candidateLine, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
-import type { PromptSectionDef } from "@kernel/prompt-sections.ts";
+import { WINDOW_FIT_REASON, type PromptSectionDef, type SectionDegradation } from "@kernel/prompt-sections.ts";
+import { NOT_SHOWN } from "@contexts/generation/application/index.ts";
 import { FINDING_VERIFICATION } from "../explore-verification.ts";
 import type { VerifiedExploration } from "../explore-verification.ts";
 import type { FlowOutcome } from "../flow-outcomes.ts";
-
-/* The longest spec a review or correction turn shows the lead. */
-export const MAX_SPEC_CHARS = 8_000;
 
 /* What the sidekick's last answer came to, and whose words the statement is: only a read answer carries the sidekick's own. */
 export type SidekickAnswer =
@@ -51,8 +49,9 @@ export interface FlowUnderReview {
   appDefect?: string;
   /* Whether the sidekick's session is still open for a follow-up. */
   sessionOpen: boolean;
-  /* The spec the flow delivered, as it is in the working copy. */
+  /* The spec the flow delivered, as it is in the working copy, and the file it is in. */
   spec?: string;
+  specFile?: string;
   /* Set instead of `spec` when the lead was shown these same bytes in an earlier turn of this session. */
   specUnchanged?: { sinceTurn: number; sha256: string; lines: number };
 }
@@ -92,9 +91,15 @@ export interface FlowUnderCorrection {
 /* One tier for a lead turn's sections, ordered by priority; a closing instruction is the turn's recap and says so. */
 const section = <C>(def: Omit<PromptSectionDef<C>, "tier"> & { tier?: PromptSectionDef<C>["tier"] }): PromptSectionDef<C> => ({ tier: "task", ...def });
 
-function cut(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max)}\n… (cut at ${max} characters)` : text;
+/* The specs of a turn's flows, whole; over the lead's window the last flow's spec gives way first, each as a reference to its file and its lines. `render` writes the section with the flows at `referenced` shown that way. */
+function specsDegrade<F extends { spec?: string }>(flows: readonly F[], render: (referenced: ReadonlySet<F>) => string): (step: number) => SectionDegradation | undefined {
+  const withSpec = flows.filter((flow) => flow.spec !== undefined);
+  return (step) => (step > withSpec.length ? undefined : { content: render(new Set(withSpec.slice(withSpec.length - step))), omissions: [{ class: "truncation", reason: WINDOW_FIT_REASON, count: step }] });
 }
+
+/* A spec the window left out: where it is and how long. */
+const specReference = (scrub: (text: string) => string, file: string | undefined, spec: string): string =>
+  `Spec: ${scrub(file ?? "the flow's spec")} (${spec.split("\n").length} line(s)) is ${NOT_SHOWN}; read it in the working copy.`;
 
 /* ── review ── */
 
@@ -118,7 +123,7 @@ function runSpecLine(scrub: (text: string) => string, flow: FlowUnderReview): st
   ].filter(Boolean).join("\n");
 }
 
-function flowBlock(scrub: (text: string) => string, flow: FlowUnderReview): string {
+function flowBlock(scrub: (text: string) => string, flow: FlowUnderReview, specShown = true): string {
   return [
     `### Flow \`${flow.id}\``,
     `Objective: ${scrub(flow.objective)}`,
@@ -127,7 +132,7 @@ function flowBlock(scrub: (text: string) => string, flow: FlowUnderReview): stri
     ...answerLines(scrub, flow.answer),
     runSpecLine(scrub, flow),
     flow.appDefect ? `App defect shown by its run: ${scrub(flow.appDefect)}. It is reported as it ran and is never sent back to be made green.` : "",
-    specBlock(scrub, flow),
+    specBlock(scrub, flow, specShown),
   ].filter(Boolean).join("\n");
 }
 
@@ -141,8 +146,8 @@ function answerLines(scrub: (text: string) => string, answer: SidekickAnswer): s
   ];
 }
 
-function specBlock(scrub: (text: string) => string, flow: FlowUnderReview): string {
-  if (flow.spec !== undefined) return ["Spec:", "```ts", cut(scrub(flow.spec), MAX_SPEC_CHARS), "```"].join("\n");
+function specBlock(scrub: (text: string) => string, flow: FlowUnderReview, shown: boolean): string {
+  if (flow.spec !== undefined) return shown ? ["Spec:", "```ts", scrub(flow.spec), "```"].join("\n") : specReference(scrub, flow.specFile, flow.spec);
   if (flow.specUnchanged) return `Spec: unchanged since review turn ${flow.specUnchanged.sinceTurn} (sha256 ${flow.specUnchanged.sha256}, ${flow.specUnchanged.lines} lines); it is not sent again.`;
   return "Spec: none delivered.";
 }
@@ -174,7 +179,10 @@ export const LEAD_REVIEW_SECTIONS: readonly PromptSectionDef<ReviewPromptContext
     id: "flows",
     priority: 20, stability: "run", reason: "Each flow's outcome, run_spec facts and spec: the facts that decide over the lead's answer (6fceb8e3)",
     applies: ({ flows }) => flows.length > 0,
-    render: (ctx) => ({ content: ctx.flows.map((flow) => flowBlock(ctx.scrub, flow)).join("\n\n") }),
+    render: (ctx) => {
+      const blocks = (referenced: ReadonlySet<FlowUnderReview>): string => ctx.flows.map((flow) => flowBlock(ctx.scrub, flow, !referenced.has(flow))).join("\n\n");
+      return { content: blocks(new Set()), degrade: specsDegrade(ctx.flows, blocks) };
+    },
   }),
   section({
     id: "candidates",
@@ -202,7 +210,7 @@ const looseFindings = (ctx: CorrectionPromptContext): number[] => ctx.findings.f
 
 const findingLine = (ctx: CorrectionPromptContext, index: number): string => `${index + 1}. ${ctx.scrub(ctx.findings[index]!.text)}`;
 
-function correctionFlowBlocks(ctx: CorrectionPromptContext): string[] {
+function correctionFlowBlocks(ctx: CorrectionPromptContext, referenced: ReadonlySet<FlowUnderCorrection> = new Set()): string[] {
   return ctx.flows.flatMap((flow) => {
     const own = ctx.findings.flatMap((_, i) => (ctx.owner[i] === flow.id ? [i] : []));
     if (own.length === 0) return [];
@@ -211,7 +219,7 @@ function correctionFlowBlocks(ctx: CorrectionPromptContext): string[] {
       `Objective: ${ctx.scrub(flow.objective)}`,
       ...(flow.candidates?.length ? [`Use cases it covers: ${flow.candidates.join(", ")}`] : []),
       ["Findings on its spec:", ...own.map((i) => findingLine(ctx, i))].join("\n"),
-      flow.spec !== undefined ? ["Spec:", "```ts", cut(ctx.scrub(flow.spec), MAX_SPEC_CHARS), "```"].join("\n") : "Spec: not readable.",
+      flow.spec === undefined ? "Spec: not readable." : referenced.has(flow) ? specReference(ctx.scrub, flow.specFile, flow.spec) : ["Spec:", "```ts", ctx.scrub(flow.spec), "```"].join("\n"),
     ].join("\n")];
   });
 }
@@ -235,7 +243,7 @@ export const LEAD_CORRECTION_SECTIONS: readonly PromptSectionDef<CorrectionPromp
     id: "flows",
     priority: 20, stability: "run", reason: "Each flow with the findings that cite its spec (31223b33)",
     applies: (ctx) => correctionFlowBlocks(ctx).length > 0,
-    render: (ctx) => ({ content: correctionFlowBlocks(ctx).join("\n\n") }),
+    render: (ctx) => ({ content: correctionFlowBlocks(ctx).join("\n\n"), degrade: specsDegrade(ctx.flows.filter((flow) => ctx.findings.some((_, i) => ctx.owner[i] === flow.id)), (referenced) => correctionFlowBlocks(ctx, referenced).join("\n\n")) }),
   }),
   /* Where a finding about a source file goes is decided by the use cases a flow covers, so with findings to place every flow is listed with them. */
   section({

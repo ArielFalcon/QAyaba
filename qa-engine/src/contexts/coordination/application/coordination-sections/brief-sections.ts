@@ -4,8 +4,8 @@
  * and must not do) and the tools it holds; the prompt-contract lint holds it to that (R17) and to stating only what its turn
  * grants (R18). One tier: the static sections (the tools) open the brief, then the run's facts by priority.
  */
-import { claim, harnessFactLines } from "@contexts/generation/application/index.ts";
-import type { PromptSectionDef } from "@kernel/prompt-sections.ts";
+import { claim, countByDirectory, domPagesDegrade, harnessFactLines, NOT_SHOWN, stepsDegrade, suiteEntryFile } from "@contexts/generation/application/index.ts";
+import type { PromptSectionDef, SectionRender } from "@kernel/prompt-sections.ts";
 import type { PromptClaim } from "@kernel/prompt-claim.ts";
 import { ACCEPTANCE_STATUSES } from "../acceptance-report.ts";
 import { briefTools, type DelegationBrief } from "../delegation-brief.ts";
@@ -84,20 +84,23 @@ function changeText(brief: DelegationBrief, scrub: (text: string) => string): st
 /* A fact the run holds, with where it was read and how sure the run is of it. */
 const factLine = (scrub: (text: string) => string) => (fact: EvidenceRef): string => `- ${scrub(fact.summary)} (read by ${fact.source}, ${fact.confidence})`;
 
-/* How many suite lines a brief lists, and the longest of them; the rest are counted. */
-export const BRIEF_MAX_SUITE_LINES = 30;
-export const BRIEF_MAX_SUITE_LINE_CHARS = 300;
-
 const harnessLines = ({ brief, scrub }: BriefPromptContext): string[] => (brief.harnessFacts ? harnessFactLines(brief.harnessFacts, brief.specRelDir ?? "e2e", scrub) : []);
 
-function suiteText({ brief, scrub }: BriefPromptContext): string {
-  const suite = brief.suite ?? [];
-  const shown = suite.slice(0, BRIEF_MAX_SUITE_LINES).map((line) => {
-    const flat = scrub(line).replace(/\s+/g, " ").trim();
-    return `- ${flat.length > BRIEF_MAX_SUITE_LINE_CHARS ? `${flat.slice(0, BRIEF_MAX_SUITE_LINE_CHARS - 1)}…` : flat}`;
-  });
-  const more = suite.length - shown.length;
-  return ["## Specs the suite already holds", ...shown, ...(more > 0 ? [`(+${more} more)`] : [])].join("\n");
+const SUITE_HEADING = "## Specs the suite already holds";
+
+/* Every spec the suite holds, one scrubbed line each. The lines come from the grounding, which already sanitizes and bounds them (suite-listing.ts). */
+function suiteRender({ brief, scrub }: BriefPromptContext): SectionRender {
+  const lines = (brief.suite ?? []).map((line) => scrub(line).replace(/\s+/g, " ").trim());
+  const files = lines.map(suiteEntryFile);
+  /* Over the window: each spec by its file, then the files counted by directory. */
+  const byFile = [SUITE_HEADING, `What each spec checks is ${NOT_SHOWN}; the specs by file:`, ...files.map((file) => `- ${file}`)].join("\n");
+  const byDirectory = [SUITE_HEADING, `The ${files.length} spec(s) are ${NOT_SHOWN}; by directory:`, ...countByDirectory(files)].join("\n");
+  return {
+    content: [SUITE_HEADING, ...lines.map((line) => `- ${line}`)].join("\n"),
+    /* The listing keeps the author from duplicating a spec: the first thing to give way, before the pages it writes from. */
+    shedAs: "volatile",
+    degrade: stepsDegrade([{ content: byFile, items: lines.length }, { content: byDirectory, items: lines.length }]),
+  };
 }
 
 const withCandidates = (brief: DelegationBrief): boolean => brief.candidates !== undefined && brief.candidates.length > 0;
@@ -166,14 +169,18 @@ export const AUTHOR_BRIEF_SECTIONS: readonly PromptSectionDef<BriefPromptContext
     id: "suite",
     priority: 44, stability: "run", reason: "The specs the suite holds, so a flow author does not duplicate one (f67ef0c3)",
     applies: ({ brief }) => (brief.suite?.length ?? 0) > 0,
-    render: (ctx) => ({ content: suiteText(ctx) }),
+    render: suiteRender,
   }),
   section({
     /* The flow's slice of the run's Context Pack, under the id the prompt-contract lint knows that artifact by. */
     id: "context-pack",
     priority: 50, stability: "run", reason: "The flow's pages from the run's Context Pack, so selectors are transcribed (fee9fc05)",
     applies: ({ brief }) => Boolean(brief.pages),
-    render: ({ brief }) => ({ content: ["## Pages of this flow (from the run's Context Pack)", brief.pages!].join("\n") }),
+    render: ({ brief }) => {
+      const wrap = (pages: string): string => ["## Pages of this flow (from the run's Context Pack)", pages].join("\n");
+      /* Whole pages; over the window the last page gives way first, named by its route. */
+      return { content: wrap(brief.pages!), degrade: domPagesDegrade({ dom: brief.pages!, wrap }) };
+    },
   }),
   section({
     id: "change",

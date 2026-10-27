@@ -5,6 +5,7 @@
  */
 import type { AgentRole } from "@kernel/agent-role.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
+import type { WindowFitOutcome } from "@kernel/prompt-sections.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import { readDelegationResult } from "./delegation-reading.ts";
 import type { DelegationResult } from "./delegation-result.ts";
@@ -54,7 +55,8 @@ interface SidekickKindBase {
 /* A kind the lead briefs for one flow: the brief is a `DelegationBrief` and the answer a `DelegationResult`. */
 export interface DelegatingKindSpec extends SidekickKindBase {
   readonly id: typeof SIDEKICK_KIND.AUTHOR | typeof SIDEKICK_KIND.EXPLORE;
-  render(redaction: RedactionPort, brief: DelegationBrief): { text: string; sectionSizes: Record<string, number>; stablePrefixBytes?: number };
+  /* `fit` is the window fit rule of the model the session runs on: a brief over it gives its degradable sections up as references. */
+  render(redaction: RedactionPort, brief: DelegationBrief, fit?: (bytes: number) => WindowFitOutcome): { text: string; sectionSizes: Record<string, number>; stablePrefixBytes?: number };
   parse(redaction: RedactionPort, output: string, brief: DelegationBrief): DelegationResult;
 }
 
@@ -72,7 +74,7 @@ const AUTHOR: DelegatingKindSpec = {
   tiers: [SIDEKICK_TIER.STANDARD, SIDEKICK_TIER.ESCALATED],
   workspace: SIDEKICK_WORKSPACE.ISOLATED_SPEC_FILE,
   budget: SIDEKICK_BUDGET.FLOW,
-  render: (redaction, brief) => renderSidekickBrief(redaction, brief),
+  render: (redaction, brief, fit) => renderSidekickBrief(redaction, brief, fit),
   parse: (redaction, output, brief) => readDelegationResult(output, brief, redaction),
 };
 

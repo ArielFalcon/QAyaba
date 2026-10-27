@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createDelegationBrief } from "@contexts/coordination/application/delegation-brief.ts";
-import { renderSidekickBrief, BRIEF_MAX_SUITE_LINES } from "@contexts/coordination/application/sidekick-prompt.ts";
+import { renderSidekickBrief } from "@contexts/coordination/application/sidekick-prompt.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
 const redaction = new PatternRedactionAdapter();
@@ -26,11 +26,10 @@ test("a brief with neither carries neither section", () => {
   assert.equal(sectionSizes["suite"], undefined);
 });
 
-test("the suite listing is bounded in lines, which are one line each and scrubbed", () => {
-  const suite = Array.from({ length: BRIEF_MAX_SUITE_LINES + 7 }, (_, i) => `s${i}.spec.ts — flow: a\nsecond line sk-ant-api03-${"a".repeat(40)}`);
+test("the suite listing is one scrubbed line per spec, however many", () => {
+  const suite = Array.from({ length: 37 }, (_, i) => `s${i}.spec.ts — flow: a\nsecond line sk-ant-api03-${"a".repeat(40)}`);
   const { text } = renderSidekickBrief(redaction, createDelegationBrief({ ...base, suite }));
   const lines = text.split("\n").filter((line) => line.startsWith("- s"));
-  assert.equal(lines.length, BRIEF_MAX_SUITE_LINES);
-  assert.ok(text.includes("(+7 more)"));
+  assert.equal(lines.length, suite.length);
   assert.ok(!text.includes("sk-ant-api03-aaaa"));
 });

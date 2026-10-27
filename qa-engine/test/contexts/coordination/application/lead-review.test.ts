@@ -6,7 +6,6 @@ import assert from "node:assert/strict";
 import {
   admitLeadReview,
   candidateGapsOf,
-  MAX_SPEC_CHARS,
   renderLeadReview,
   REVIEW_ACTION,
   withSpecDigests,
@@ -52,14 +51,6 @@ test("the review shows the lead, per flow, what it asked for, what came of it, t
 test("the lead's role prompt names every review action the orchestrator admits", () => {
   const prompt = readFileSync(join(process.cwd(), "agents", "agent", "qa-lead.md"), "utf8");
   for (const action of Object.values(REVIEW_ACTION)) assert.ok(prompt.includes(`\`${action}\``), action);
-});
-
-test("a spec longer than the review holds is cut, and says so", () => {
-  const line = "  await expect(page.getByRole('row')).toHaveCount(3);\n";
-  const spec = line.repeat(Math.ceil((MAX_SPEC_CHARS + 500) / line.length));
-  const text = renderLeadReview(redaction, [flow({ spec })], { turn: 1, maxTurns: 3 });
-  assert.ok(!text.includes(spec));
-  assert.match(text, /cut at \d+ characters/);
 });
 
 test("a review is read from the last object that holds one, past narration braces and earlier objects", () => {

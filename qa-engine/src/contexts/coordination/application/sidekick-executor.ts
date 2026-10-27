@@ -4,7 +4,7 @@ import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import type { DelegationResult } from "./delegation-result.ts";
-import { assembleDefs, type AssembledPrompt } from "@kernel/prompt-sections.ts";
+import { assembleDefs, type AssembledPrompt, type WindowFitOutcome } from "@kernel/prompt-sections.ts";
 import { FEEDBACK_SECTIONS } from "./coordination-sections/feedback-sections.ts";
 import { delegatingKindSpec, type SidekickKind } from "./sidekick-kinds.ts";
 
@@ -33,6 +33,8 @@ export interface SidekickExecuteOpts {
   denyTools?: readonly string[];
   /** How the brief fits the window of the model the session runs on, for the first turn's telemetry. */
   contextFit?: ContextFit;
+  /** The window fit rule of the model the session runs on: the brief is rendered with it, so a brief over the window gives its degradable sections up as references. Absent, nothing is degraded. */
+  fit?: (bytes: number) => WindowFitOutcome;
 }
 
 /* A sidekick's session, held open after its first answer so that the lead's follow-up reaches the session that did the work. */
@@ -64,7 +66,7 @@ export class SidekickExecutor {
   async open(brief: DelegationBrief, opts: SidekickExecuteOpts): Promise<SidekickSession> {
     const spec = delegatingKindSpec(opts.kind);
     const role = spec.role;
-    const render: SidekickRender = this.deps.render ?? ((b) => spec.render(this.deps.redaction, b));
+    const render: SidekickRender = this.deps.render ?? ((b) => spec.render(this.deps.redaction, b, opts.fit));
     const read = (output: string): DelegationResult => spec.parse(this.deps.redaction, output, brief);
     const session = await this.deps.runtime.openSession(role, opts.cwd, {
       signal: opts.signal,
