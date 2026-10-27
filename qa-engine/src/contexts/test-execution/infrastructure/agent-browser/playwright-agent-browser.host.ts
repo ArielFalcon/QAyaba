@@ -87,7 +87,7 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
   private readonly lostPages = new Set<string>();
   private readonly byPage = new WeakMap<PwPage, PageEntry>();
   /* Blocks and notes no page could be told of (a request of a page that is gone, a tab closed on its own). */
-  private readonly loose: { blocked: BlockedRequest[]; notes: string[]; requests: RequestLog } = { blocked: [], notes: [], requests: new RequestLog() };
+  private readonly loose: { blocked: BlockedRequest[]; notes: string[] } = { blocked: [], notes: [] };
   private creatingPage = false;
   private closed = false;
   /* Counts the times what is being built stopped being the thing wanted (a reset, a browser that died): a build that finds it moved on discards what it made. */
@@ -259,7 +259,6 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
     if (/^https?:/.test(url)) entry.lastGoodUrl = url;
     const blocked = [...this.loose.blocked.splice(0), ...entry.blocked.splice(0)];
     const notes = [...this.loose.notes.splice(0), ...entry.notes.splice(0)];
-    entry.requests.absorb(this.loose.requests.drain());
     return {
       url,
       title,
@@ -410,9 +409,9 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
     return page ? this.byPage.get(page) : undefined;
   }
 
-  /* Keeps the request for the page's next answer: method, origin and pathname only. */
+  /* Keeps the request for its own page's next answer: method, origin and pathname only. A request no page can be named for is listed to no session. */
   private recordRequest(request: PwRequest, decision: GuardDecision): void {
-    (this.entryOf(request)?.requests ?? this.loose.requests).record({ method: request.method(), url: request.url() }, decision);
+    this.entryOf(request)?.requests.record({ method: request.method(), url: request.url() }, decision);
   }
 
   private recordBlock(request: PwRequest, detail: string, reason: BlockedRequest["reason"]): void {

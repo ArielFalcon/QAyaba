@@ -254,8 +254,9 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   the session's previous action, from the route handler that already judges every request (`test-execution/domain/agent-browser-request-log.ts`,
   pure, nothing written): method + origin + pathname with a count, never the query, fragment, body, headers, cookies or userinfo; a request
   to an origin the run declares is listed (`blocked` when the guard refused its route or method), one to any other host is only counted per
-  host with no path; the log is bounded against an endless polling page (`MAX_LOGGED_REQUESTS`, `MAX_LOGGED_HOSTS`) and the answer states the
-  `omitted` number; the answer passes the same `redact` as the rest (run secrets by value, then the patterns). A page that says the session is gone (login path, 401 document, a password
+  host with no path; only requests attributed to the answering session's own page are kept (an unattributable one, a popup's, is listed to no session); the log is bounded
+  against an endless polling page and hostile address lengths (`MAX_LOGGED_REQUESTS`, `MAX_LOGGED_HOSTS`, `MAX_LOGGED_PATH_CHARS`: a longer address is cut
+  and marked, `MAX_LOGGED_TOTAL_CHARS`, all enforced when a request is recorded) and the answer states the `omitted` number; the answer passes the same `redact` as the rest (run secrets by value, then the patterns). A page that says the session is gone (login path, 401 document, a password
   field on a page that was not asked for) makes the tool error with `session invalidated`, asks the auth port to sign in again (at
   most twice per run) and resets the browser. Each call holds the test account's lease (`AccountLock`, the same key as `run_spec`)
   and a bounded wait answers `DEV busy`. A session of a flow of a plan spends only its flow's share (the calls the flow's time runs), so

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRouteGuard } from "@contexts/test-execution/domain/agent-browser-route-guard.ts";
 import { BrowserActionError, type BrowserAction } from "@contexts/test-execution/domain/agent-browser-host.ts";
-import { MAX_LOGGED_HOSTS, MAX_LOGGED_REQUESTS } from "@contexts/test-execution/domain/agent-browser-request-log.ts";
+import { MAX_LOGGED_HOSTS, MAX_LOGGED_PATH_CHARS, MAX_LOGGED_REQUESTS, MAX_LOGGED_TOTAL_CHARS } from "@contexts/test-execution/domain/agent-browser-request-log.ts";
 import { PlaywrightAgentBrowserHost } from "@contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts";
 import type { LaunchedBrowser, PwBrowser, PwContext, PwContextOptions, PwDialog, PwFrame, PwGeolocation, PwLocator, PwPage, PwRequest, PwResponse, PwRoute, PwWebSocketRoute, SessionMaterial } from "@contexts/test-execution/domain/playwright-types.ts";
 
@@ -603,16 +603,34 @@ test("a page that never stops asking is bounded: past the bound a new distinct r
   assert.equal(state.requests.omitted, 30 + 5);
 });
 
-test("each session is told only of its own page's requests, and a request no page can be named for goes to the next answer of any session", async () => {
+test("each session is told only of its own page's requests, and a request no page can be named for is listed to no session", async () => {
   const { browser, call } = setup();
   await call("s1", { kind: "snapshot" });
   await call("s2", { kind: "snapshot" });
-  const [first, second] = [...browser.contexts[0]!.pages];
+  const [first] = [...browser.contexts[0]!.pages];
   await browser.contexts[0]!.request(first, "GET", `${BASE}/api/one`);
-  await browser.contexts[0]!.request(undefined, "GET", `${BASE}/api/loose`);
+  await browser.contexts[0]!.request(undefined, "GET", `${BASE}/api/popup`);
   const s2 = await call("s2", { kind: "snapshot" });
-  assert.deepEqual(s2.requests.listed.map((r) => r.url), [`${BASE}/api/loose`]);
+  assert.deepEqual(s2.requests, { listed: [], otherHosts: [], omitted: 0 });
   const s1 = await call("s1", { kind: "snapshot" });
   assert.deepEqual(s1.requests.listed.map((r) => r.url), [`${BASE}/api/one`]);
-  assert.ok(second);
+  assert.equal(JSON.stringify(s1.requests).includes("popup"), false);
+});
+
+test("a page that asks for huge paths cannot make the answer grow without bound: each path is cut and marked, the total is bounded, and the excess is counted as omitted", async () => {
+  const { browser, call } = setup();
+  await call("s1", { kind: "snapshot" });
+  const context = browser.contexts[0]!;
+  const page = pageOf(browser);
+  const huge = "x".repeat(100_000);
+  for (let i = 0; i < 300; i += 1) await context.request(page, "GET", `${BASE}/p/${i}/${huge}`);
+  const state = await call("s1", { kind: "snapshot" });
+  assert.ok(state.requests.listed.every((r) => r.url.length <= MAX_LOGGED_PATH_CHARS + 20), "a path is cut");
+  assert.match(state.requests.listed[0]!.url, /cut/, "and says it was");
+  assert.ok(JSON.stringify(state.requests).length < MAX_LOGGED_TOTAL_CHARS + 20_000, "the total is bounded");
+  assert.equal(state.requests.listed.length + state.requests.omitted, 300, "every request is either listed or counted as omitted");
+  assert.ok(state.requests.omitted > 0);
+  const hostile = "h".repeat(100_000);
+  await context.request(page, "GET", `https://${hostile}.example.org/x`);
+  assert.ok(JSON.stringify((await call("s1", { kind: "snapshot" })).requests).length < 5_000, "a long host name is cut too");
 });
