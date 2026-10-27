@@ -1,4 +1,5 @@
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
+import type { ReviewChangeView } from "./review-change-view.ts";
 
 export type CommitType =
   | "feat" | "fix" | "perf" | "refactor" | "chore"
@@ -89,4 +90,6 @@ export interface ReviewInput {
   untakenArms?: { file: string; line: number; kind: string; arm: string }[];
   /* The step limit the runtime enforces for the reviewer's session. Absent = the runtime enforces none or could not be read, and no prompt states one. */
   stepLimit?: number;
+  /* On a run with a plan whose flows under review own part of the change: the change by flow, given instead of the whole diff. Absent: the objective is the whole diff. */
+  changeView?: ReviewChangeView;
 }

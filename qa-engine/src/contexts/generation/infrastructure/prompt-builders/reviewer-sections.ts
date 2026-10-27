@@ -14,6 +14,7 @@ import type { AgentRole } from "@kernel/agent-role.ts";
 import { renderStepLimit } from "./prompt-text.ts";
 import { reviewObjective, reviewSpecsOutcome, type ReviewSpecContents } from "./review-render.ts";
 import type { PromptSectionDef, SectionRender } from "./prompt-sections.ts";
+import { REVIEWER_CHANGE_SECTIONS } from "./reviewer-change-sections.ts";
 
 /* The reviewer's statement of its own cap is a section of its own, apart from the generator's. */
 export const REVIEWER_STEP_LIMIT_SECTION_ID = "reviewer-step-limit";
@@ -29,6 +30,8 @@ export interface ReviewerContext {
   readonly specContents: ReviewSpecContents;
   readonly kind: string;
   readonly obj: ReturnType<typeof reviewObjective>;
+  /* The parts of a planned run's change shown as references because the prompt did not fit the reviewer's window; empty otherwise. */
+  readonly degraded: ReadonlySet<string>;
 }
 
 export interface BuildReviewerPromptOpts {
@@ -36,6 +39,8 @@ export interface BuildReviewerPromptOpts {
   budgetBytes?: number;
   /** The run's context window of a role, in tokens. Absent, or unknown for the reviewer: the prompt is not cut. */
   windowTokens?: (role: AgentRole) => number | undefined;
+  /** Whether a prompt of this many bytes fits a role's window with the working room its turn needs. Absent, or unknown: every part of the change is shown. */
+  fits?: (role: AgentRole, bytes: number) => "fits" | "over" | "unknown";
 }
 
 export function deriveReviewerContext(input: ReviewInput, opts: BuildReviewerPromptOpts = {}): ReviewerContext {
@@ -43,7 +48,7 @@ export function deriveReviewerContext(input: ReviewInput, opts: BuildReviewerPro
   const { text: specBlock, contents: specContents } = reviewSpecsOutcome(input);
   const kind = input.target === "code" ? "tests" : "E2E tests";
   const obj = reviewObjective(input);
-  return { input, budgetBytes: opts.budgetBytes ?? assemblerBudgetBytes(opts.windowTokens?.("reviewer")), changeType, specBlock, specContents, kind, obj };
+  return { input, budgetBytes: opts.budgetBytes ?? assemblerBudgetBytes(opts.windowTokens?.("reviewer")), changeType, specBlock, specContents, kind, obj, degraded: new Set() };
 }
 
 function renderRoleFraming(ctx: ReviewerContext): SectionRender {
@@ -224,6 +229,8 @@ export const REVIEWER_SECTIONS: readonly PromptSectionDef<ReviewerContext>[] = [
     applies: () => true,
     render: ({ obj }) => ({ content: [obj.heading, ...obj.body].join("\n"), language: "verbatim", maxBytes: 56_000, overflow: "summarize" }),
   },
+  /* A planned run's change by flow under review, in place of the whole diff the objective carries otherwise. */
+  ...REVIEWER_CHANGE_SECTIONS,
   /* VOLATILE: DOM grounding (priority 1 — first in VOLATILE so it precedes the spec contents that reference it; the instructions refer to it position-independently as "the Live DEV DOM section"). 20,000B mirrors the reviewer-corrections idiom; overflow:"summarize" for a visible-marker truncation instead of a silent whole-section drop. */
   { id: "reviewer-dom", tier: "volatile", priority: 1, applies: ({ input }) => Boolean(input.domSnapshot), render: renderDom },
   /* VOLATILE: runtime execution evidence. Deterministic orchestrator evidence (HTTP status codes + final URLs captured via page.on('response')) injected BEFORE the spec contents so the reviewer can weigh the objective server-error signal before reading test code. Priority 1.5 — after DOM grounding (which grounds UI facts) but before specs themselves. Absent when the run produced no execution evidence (first-time generate, code mode, etc.). */

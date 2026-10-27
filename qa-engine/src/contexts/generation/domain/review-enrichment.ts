@@ -1,5 +1,6 @@
 import type { RetrievedRule } from "@kernel/learned-rule.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import type { ReviewChangeView } from "./review-change-view.ts";
 
 /**
  * `priorCorrections` lets the next review judge convergence on previously
@@ -30,6 +31,8 @@ export interface ReviewEnrichment {
    * distinguishable from a test defect without asking the generator. Absent: the prompt carries none.
    */
   executionEvidence?: { verdict: string; cases: readonly QaCase[] };
+  /* On a run with a plan: the change by flow under review, which the reviewer receives instead of the whole diff. */
+  changeView?: ReviewChangeView;
   /** Per-run id for the reviewer SSE session (separate from the generator's). */
   runId?: string;
 }

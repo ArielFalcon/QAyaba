@@ -150,6 +150,24 @@ test("review() maps enrichment.domSnapshot onto ReviewInput.domSnapshot verbatim
   assert.equal(seenInput?.domSnapshot, "route /owners:\n  heading: Owners");
 });
 
+test("review() hands enrichment.changeView to the reviewer prompt, and omits it when the run had none", async () => {
+  const seen: Array<ReviewInput["changeView"]> = [];
+  const rendering: PromptRenderingPort = {
+    ...fakeRendering(),
+    renderReviewer: (input) => { seen.push((input as ReviewInput).changeView); return { text: "reviewer-prompt", sectionSizes: {} }; },
+  };
+  const verdicts = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
+  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
+    diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
+  });
+  const changeView: NonNullable<ReviewInput["changeView"]> = { files: [], flows: [{ specFile: "flows/a.spec.ts", candidateIds: ["uc-a"], owned: [] }], unassigned: [], hunkless: [], referenced: [] };
+
+  await adapter.review("/mirrors/org/app/e2e", cases, undefined, { changeView });
+  await adapter.review("/mirrors/org/app/e2e", cases, undefined, {});
+
+  assert.deepEqual(seen, [changeView, undefined]);
+});
+
 test("review() with absent enrichment.domSnapshot omits it from ReviewInput (never fabricated)", async () => {
   let seenInput: { domSnapshot?: string } | undefined;
   const rendering: PromptRenderingPort = {

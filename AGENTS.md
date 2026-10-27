@@ -147,7 +147,12 @@ is the only engine; webhook (`src/server/webhook-handler.ts`, wired by `src/serv
    nothing, which is not a rejection: the run ends as a persisted `infra-error` `E-REVIEWER-UNAVAILABLE`
    (the reviewer's reason on the run record and in the log, no PR and no Issue, nothing learned; three in
    a row log an observe-only audit finding). A reviewer that answered unreadably is still a fail-closed
-   parse miss. The reviewer's findings are evidence-bound: a blocking correction must cite a contract
+   parse miss. On a run with a plan the reviewer is given, instead of the whole diff, the slice of each
+   flow under review, every changed file (path, kind, added/removed) and, in full under a heading of its
+   own, every part of the diff no flow under review holds (`run-flow/review-change.ts`,
+   `reviewer-change-sections.ts`); with nothing assigned, or no plan, it keeps the whole diff. A prompt
+   over the reviewer's window turns whole hunks into `path:start-end` references (non-code first, then
+   the lowest-ranked code), never a split review (`docs/lead-sidekicks.md`). The reviewer's findings are evidence-bound: a blocking correction must cite a contract
    clause, an execution of this run or a DOM fact, the orchestrator verifies the citation
    (`review-finding-filter.service.ts`; a cited or rebutted spec is resolved by `resolveCitedSpec` /
    `resolveSpecReference` in `shared-kernel/spec-path.ts`, never compared raw) and only a verified blocking finding blocks — an uncited,

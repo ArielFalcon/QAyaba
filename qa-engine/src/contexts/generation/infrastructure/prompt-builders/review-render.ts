@@ -8,6 +8,11 @@ import { capText } from "../prompt-cap.ts";
 import type { ReviewInput } from "../../domain/generation-input.ts";
 import { COMMIT_DIFF_HEADING, cappedDiffText } from "./prompt-text.ts";
 
+/* Whether the review judges a commit's change by flow under review (a planned e2e diff run with a change view) instead of its whole diff. */
+export function reviewsByFlow(input: ReviewInput): input is ReviewInput & { changeView: NonNullable<ReviewInput["changeView"]> } {
+  return input.mode === "diff" && input.target !== "code" && input.changeView !== undefined;
+}
+
 export function reviewObjective(input: ReviewInput): { subject: string; heading: string; body: string[]; targetNoun: string } {
   if (input.mode === "manual") {
     const g = sanitizeText(((input.guidance ?? "").trim() || "(no guidance was provided)")).text;
@@ -36,6 +41,19 @@ export function reviewObjective(input: ReviewInput): { subject: string; heading:
     body: ["```diff", cappedDiffText(input.diff), "```"],
     targetNoun: "the change",
   });
+  /* A planned run's change is given by flow under review in the sections that follow (reviewer-change-sections.ts), never cut: no whole diff here. */
+  if (reviewsByFlow(input)) {
+    return {
+      subject: "this commit",
+      heading: `## Objective — this commit, by the flow each spec was planned for`,
+      body: [
+        `Each spec under review was planned for a flow, and the next sections give the part of the commit that flow`,
+        `must exercise, every changed file, and in full the part of the commit no flow under review was assigned.`,
+        `Judge each spec against its flow's part of the change; the rest is context it was not asked to cover.`,
+      ],
+      targetNoun: "the change",
+    };
+  }
   if (input.mode === "diff" || input.target === "code") return commitDiffObjective();
   engineLog.warn(`[qa] reviewObjective: unhandled review mode ${JSON.stringify(input.mode)} — defaulting to the commit-diff objective`);
   return commitDiffObjective();

@@ -91,6 +91,7 @@ export class ReviewPortAdapter implements ReviewPort {
       ...(enrichment?.untakenArms?.length ? { untakenArms: [...enrichment.untakenArms] } : {}),
       ...(enrichment?.executionEvidence ? { executionResult: renderExecutionResult({ verdict: enrichment.executionEvidence.verdict, cases: enrichment.executionEvidence.cases.map(executionResultCase) }) } : {}),
       ...(enrichment?.runId ? { runId: enrichment.runId } : {}),
+      ...(enrichment?.changeView ? { changeView: enrichment.changeView } : {}),
       /* The limit the runtime enforces for the reviewer's session. Absent -> omitted, never a made-up number. */
       ...(stepLimit !== undefined ? { stepLimit } : {}),
     };

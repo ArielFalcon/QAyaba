@@ -213,6 +213,20 @@ own index: it admits the terms, picks the repo and the file cap, redacts the ans
 marker says what was left out), and the answer carries the commit of the index it came from (AGENTS.md, Code-graph tools).
 The tool is the lead's when it authors alone too.
 
+## What the reviewer is shown of the change
+
+The reviewer of a planned run judges each spec against its own flow's part of the change, not against the whole commit diff
+(`run-flow/review-change.ts` builds it from the kernel change map and slices; `reviewer-change-sections.ts` renders it). It is
+given: the slice of each flow under review (the hunks that flow's use cases own, ranked); every changed file with its language
+kind and added and removed lines; and, in full, every part of the diff no flow under review holds (a hunk only a flow that
+delivered nothing owns, a hunk no candidate seeds, a deletion), under a heading saying no flow under review was assigned it, with
+app test files, generated and low-relevance files named as references. The arms no test ran reach it as before, so the
+missing-case and citation rules are unchanged. When no flow under review owns any hunk, or the run had no plan (code, manual,
+complete, exhaustive), it keeps the whole diff: it never sees less than the change. Nothing is cut silently: when the prompt does
+not fit the reviewer's window (the run's `ContextBudget` fit: prompt plus the working room its turn needs), whole hunks become
+`path:start-end` references, non-code first, then the unassigned code, then each flow's code from its lowest rank; an unknown
+window shows everything, and the review is never split.
+
 ## The reviewer's corrections
 
 A pass whose flows delivered, with the lead's planning session, is not closed when the coordination ends: the run keeps it

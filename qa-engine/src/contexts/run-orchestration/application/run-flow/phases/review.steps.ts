@@ -25,6 +25,7 @@ import { reviewRequired } from "../../../domain/review-required.ts";
 import { closedLoopSignal, contractFindingText, correctionBudgetSpent, correctThroughLead, mayCorrectThroughLead, regenerateByAuthor } from "./generation-services.ts";
 import { CORRECTION_ORIGIN, type CorrectionFinding } from "@contexts/coordination/application/index.ts";
 import { resolveTested } from "./fix-loop.steps.ts";
+import { reviewChangeViewOf } from "../review-change.ts";
 import { branchCoverageOf, changeCoverageOf } from "./coverage.steps.ts";
 import { addDroppedRejection, addReviewStats, annotateReviewPhase, newReviewTally, readReviewedSpecs, rebuttalEvidence, recordReviewDecision } from "./review-services.ts";
 
@@ -214,6 +215,14 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
       const specChanges = previousRoundSpecs
         ? renderSpecChanges(previousRoundSpecs, reviewedSpecs)
         : "";
+      /* On a run with a plan, the reviewer judges the change by flow under review instead of the whole diff; absent, the whole diff. */
+      const changeView = reviewChangeViewOf({
+        diff: classificationDiff ?? "",
+        candidates: state.grounding.candidates,
+        flows: state.generation.flowCandidates,
+        specsUnderReview: reviewCases.map((c) => c.file ?? c.name),
+        specRelDir: specRelDirOf(specRoot),
+      });
       reviewResult = await deps.review.review(workspace.specDir, reviewCases, classificationDiff, {
         ...baseReviewEnrichment,
         ...(previousRoundCorrections ? { priorCorrections: previousRoundCorrections } : {}),
@@ -223,6 +232,7 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
         ...(session.armsCurrent ? { untakenArms: state.coverage.untakenArms } : {}),
         /* The run's own execution of the specs under review: the reviewer weighs a 5xx or a redirect against the test instead of guessing. */
         ...(reviewCases.length > 0 ? { executionEvidence: { verdict: run.verdict, cases: reviewCases } } : {}),
+        ...(changeView ? { changeView } : {}),
       });
       reviewStats.modelRounds++;
       addReviewStats(reviewStats, reviewResult.stats);

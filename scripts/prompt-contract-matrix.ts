@@ -65,6 +65,8 @@ import {
 import { DEFAULT_CLOSED_LOOP_LIMITS } from "@kernel/closed-loop.ts";
 import { DEFAULT_AGENT_BROWSER_LIMITS } from "@kernel/agent-browser.ts";
 import { DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
+import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import { reviewChangeViewOf } from "@contexts/run-orchestration/application/run-flow/review-change.ts";
 import { LISTING_MAX_DO_NOT_REWRITE, LISTING_MAX_UNNAMED_EDITABLE } from "@contexts/generation/application/index.ts";
 import { formatSuiteEntry } from "@contexts/generation/application/index.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
@@ -801,6 +803,16 @@ export function overCapReviewerInput(mirror: string): ReviewInput {
   return { diff: "diff --git a/src/cart.ts b/src/cart.ts\n+export const total = 1;\n", specs, mirrorDir: mirror, e2eRelDir: "e2e", appName: "shop", mode: "diff", target: "e2e", baseUrl: "http://localhost:3000" };
 }
 
+/* A planned run's reviewer input: one flow under review owns part of the change, another file and an app test file are assigned to no flow. */
+export function plannedReviewerInput(mirror: string): ReviewInput {
+  const file = (path: string, start: number, added: string[]): string =>
+    [`diff --git a/${path} b/${path}`, `--- a/${path}`, `+++ b/${path}`, `@@ -${start},1 +${start},${added.length + 1} @@`, " const shown = true;", ...added.map((line) => `+${line}`), ""].join("\n");
+  const diff = file("src/cart.ts", 3, ["export const total = (n: number) => (n > 0 ? n : 0);"]) + file("src/cart.css", 1, [".cart-total { font-weight: bold; }"]) + file("src/shop.ts", 10, ["export const list = [];"]) + file("src/cart.test.ts", 1, ["test('total', () => {});"]);
+  const candidate = { id: "uc-cart", entry: { kind: "page", repo: "org/web", route: "/cart" }, tier: "direct", basis: "implementation", evidence: ["page /cart"], seeds: [{ file: "src/cart.ts", symbol: "total", range: { start: 1, end: 6 } }, { file: "src/cart.css", symbol: "*" }], confidence: 1, reachability: "page", pages: ["/cart"], existingSpecs: [] } as UseCaseCandidate;
+  const changeView = reviewChangeViewOf({ diff, candidates: [candidate], flows: [{ specFile: "flows/cart.spec.ts", candidates: ["uc-cart"] }], specsUnderReview: ["flows/cart.spec.ts"], specRelDir: "e2e" });
+  return { diff, specs: ["flows/cart.spec.ts"], mirrorDir: mirror, e2eRelDir: "e2e", appName: "shop", mode: "diff", target: "e2e", baseUrl: "http://localhost:3000", ...(changeView ? { changeView } : {}) };
+}
+
 /* The reviewer prompts over every mode, target and combination of its six optional inputs; the step limit alternates. */
 export function reviewerDigests(): DigestSet {
   const mirror = mkdtempSync(join(tmpdir(), "prompt-digests-"));
@@ -838,6 +850,12 @@ export function reviewerDigests(): DigestSet {
     /* The specs together exceed the inline cap: the instruction and the specs section both send the reviewer to read the files. */
     set.keys.push("reviewer|over-cap");
     set.digests.push(assemblyDigest(buildReviewerPromptAssembled(overCapReviewerInput(mirror), MATRIX_REVIEWER_WINDOW)));
+    /* A planned run: the change by flow under review instead of the whole diff, every part shown, then every part referenced (a window it does not fit). */
+    const planned = plannedReviewerInput(mirror);
+    set.keys.push("reviewer|planned");
+    set.digests.push(assemblyDigest(buildReviewerPromptAssembled(planned, MATRIX_REVIEWER_WINDOW)));
+    set.keys.push("reviewer|planned|over-window");
+    set.digests.push(assemblyDigest(buildReviewerPromptAssembled(planned, { ...MATRIX_REVIEWER_WINDOW, fits: () => "over" })));
     return set;
   } finally {
     rmSync(mirror, { recursive: true, force: true });

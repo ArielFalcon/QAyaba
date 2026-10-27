@@ -17,7 +17,7 @@ import { RunQaUseCase, type RunQaInput, type RunQaUseCaseDeps } from "@contexts/
 import type { CoordinateInput, CoordinateResult, CoordinatedPass, PassCorrection } from "@contexts/coordination/application/lead-sidekicks.ts";
 import { CORRECTION_ORIGIN, type CorrectionOrigin, type CorrectionFinding } from "@contexts/coordination/application/lead-correction.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle } from "@contexts/agent-tools/application/index.ts";
-import type { GenerationEnrichment } from "@contexts/generation/application/index.ts";
+import type { GenerationEnrichment, ReviewEnrichment } from "@contexts/generation/application/index.ts";
 import type { PlanOutput } from "@kernel/plan-output.ts";
 import { leadCorrectionBudget } from "@contexts/run-orchestration/domain/lead-correction-budget.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
@@ -793,4 +793,26 @@ test("a pass run is not triaged for flakiness, and a failing run still goes thro
   assert.equal(failing.decision.verdict, "pass");
   assert.deepEqual(kept.seen.origins, [CORRECTION_ORIGIN.EXECUTION]);
   assert.match(kept.seen.corrected[0]![0]!.text, /failed/);
+});
+
+test("the reviewer of a planned run is handed the change by flow under review, and a run with no plan none", async () => {
+  const diff = ["diff --git a/src/cart.ts b/src/cart.ts", "--- a/src/cart.ts", "+++ b/src/cart.ts", "@@ -3,1 +3,2 @@", " ctx", "+export const total = 1;", "@@ -40,1 +41,2 @@", " ctx", "+export const far = 2;", ""].join("\n");
+  const candidates = [pageCandidate("/cart", undefined, { id: "uc-cart", seeds: [{ file: "src/cart.ts", symbol: "total", range: { start: 1, end: 6 } }] })];
+  const changeScope = { resolve: async () => ({ repos: [], reach: [], hubs: [], disagreements: [], omitted: 0, degraded: [] }), candidates: async () => candidates };
+  const changeAnalysis = { classify: async () => ({ action: "generate" as const, reason: "diff touches src/cart.ts", diff }) };
+  const seen: Array<ReviewEnrichment | undefined> = [];
+  const review = { review: async (_dir: string, _cases: readonly QaCase[], _diff?: string, enrichment?: ReviewEnrichment) => (seen.push(enrichment), { approved: true, corrections: [], blockingCount: 0, parsed: true }) };
+
+  const planned = rig(() => ({ ...authored(), flowCandidates: [{ specFile: "flows/a.spec.ts", candidates: ["uc-cart"] }] }));
+  await new RunQaUseCase(planned.deps({ changeScope, changeAnalysis, review })).run(INPUT);
+  const view = seen[0]?.changeView;
+  assert.ok(view, "the planned review has the change by flow");
+  assert.deepEqual(view.flows.map((f) => ({ specFile: f.specFile, owned: f.owned.map((o) => o.hunk.newStart) })), [{ specFile: "flows/a.spec.ts", owned: [3] }]);
+  assert.deepEqual(view.unassigned.map((u) => u.hunk.newStart), [41]);
+  assert.deepEqual(view.files.map((f) => f.path), ["src/cart.ts"]);
+
+  seen.length = 0;
+  await new RunQaUseCase(rig().deps({ changeScope, changeAnalysis, review })).run(INPUT);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0]?.changeView, undefined, "a run with no plan keeps the whole diff");
 });

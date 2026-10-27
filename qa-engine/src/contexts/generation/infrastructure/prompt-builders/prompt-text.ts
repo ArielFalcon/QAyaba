@@ -40,7 +40,11 @@ const DIFF_HEADER_RE = /^diff --git /;
 export const COMMIT_DIFF_HEADING = "## Commit diff";
 
 export function cappedDiffText(diff: string): string {
-  const capped = capDiff(diff);
+  return redactedDiffText(capDiff(diff));
+}
+
+/* A diff, or part of one, redacted for a model section by section by each file's kind, and never cut. */
+export function redactedDiffText(capped: string): string {
   const sections = capped.split(/^(?=diff --git )/m);
   const hasFileHeader = sections.some((s) => DIFF_HEADER_RE.test(s));
   if (!hasFileHeader) {

@@ -8,7 +8,10 @@ import type { OpencodeRunInput } from "../../domain/opencode-run-input.ts";
 import { assemble, type AssembledPrompt } from "./context-assembler.ts";
 import { derivePromptContext, withAssembly, type Assembly, type BuildPromptAssembledOpts } from "./generator-context.ts";
 import { GENERATOR_SECTIONS, SUITE_LISTING_SECTION_ID } from "./generator-sections.ts";
+import { engineLog } from "@kernel/ports/process-logger.ts";
 import { renderSections } from "./prompt-sections.ts";
+import { reviewsByFlow } from "./review-render.ts";
+import { degradationOrder } from "./reviewer-change-sections.ts";
 import { REVIEWER_MISSING_CASES_SECTION_ID, REVIEWER_SECTIONS, deriveReviewerContext, type BuildReviewerPromptOpts } from "./reviewer-sections.ts";
 
 export type { AssembledPrompt };
@@ -56,9 +59,35 @@ export function buildPrompt(input: OpencodeRunInput): string {
   return buildPromptAssembled(input).text;
 }
 
+/*
+ * A planned run's reviewer prompt that does not fit the reviewer's window (the prompt plus the working room its turn needs) shows
+ * parts of the change as references, in degradationOrder, until it fits; an unknown fit shows everything. The review is never split:
+ * a prompt still over the window with every part referenced is sent as it is, and the fit it records says so.
+ */
 export function buildReviewerPromptAssembled(input: ReviewInput, opts: BuildReviewerPromptOpts = {}): AssembledPrompt {
   const ctx = deriveReviewerContext(input, opts);
-  return assemble(renderSections(REVIEWER_SECTIONS, ctx), { budgetBytes: ctx.budgetBytes });
+  const assembleWith = (degraded: ReadonlySet<string>): AssembledPrompt => assemble(renderSections(REVIEWER_SECTIONS, { ...ctx, degraded }), { budgetBytes: ctx.budgetBytes });
+  let assembled = assembleWith(ctx.degraded);
+  const fits = opts.fits;
+  if (!fits || !reviewsByFlow(input)) return assembled;
+  const over = (bytes: number): boolean => fits("reviewer", bytes) === "over";
+  if (!over(Buffer.byteLength(assembled.text, "utf8"))) return assembled;
+  const order = degradationOrder(input.changeView);
+  const degraded = new Set<string>();
+  let next = 0;
+  while (next < order.length) {
+    /* Estimated from each part's saving, then checked against the assembled prompt. */
+    let estimate = Buffer.byteLength(assembled.text, "utf8");
+    while (next < order.length && over(estimate)) {
+      const item = order[next++]!;
+      degraded.add(item.key);
+      estimate -= item.savingBytes;
+    }
+    assembled = assembleWith(degraded);
+    if (!over(Buffer.byteLength(assembled.text, "utf8"))) return assembled;
+  }
+  engineLog.warn(`[qa] the reviewer prompt is over the reviewer's window with every part of the change shown as a reference; it is sent whole, never split.`);
+  return assembled;
 }
 
 export function buildReviewerPrompt(input: ReviewInput): string {

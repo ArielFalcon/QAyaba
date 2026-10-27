@@ -30,6 +30,7 @@ export type { ReviewPort } from "./ports/review.port.ts";
 export type { VerdictParserPort } from "./ports/verdict-parser.port.ts";
 export type { GroundingChange } from "../domain/grounding-change.ts";
 export type { ReviewEnrichment } from "../domain/review-enrichment.ts";
+export type { ReviewChangeView, ReviewFlowSlice, HunklessSection } from "../domain/review-change-view.ts";
 export type { ArchitectureContext, CommitIntent, ReviewInput, StepLimitFor, StepLimitRole } from "../domain/generation-input.ts";
 export type { GenerationOutput } from "../domain/generation.ts";
 export type { GroundingResult } from "../domain/pre-generation-grounding.ts";
