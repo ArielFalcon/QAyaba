@@ -247,15 +247,12 @@ test("with an app ceiling on the run's calls, the flows share it, never under th
   assert.ok(stingy.every((f) => f.runSpecCalls === 1 && f.browserCalls === 2), "a minimum is never above the app's ceiling");
 });
 
-test("the flows' DEV writes never promise more than the run's DEV-write cap together: later flows get what is left, possibly none", () => {
+test("every flow's DEV-write share is its fair share of the run's cap or the useful minimum, never above the cap and never cut to 0 by plan order", () => {
   const writesOf = (count: number, cap: number) => admitted(admitLeadPlan(fanout(...Array.from({ length: count }, (_, i) => flow(`f${i}`))), { ...limits, runSpecDevWrites: cap }, deps)).map((f) => f.runSpecDevWrites);
-  const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
-  assert.deepEqual(writesOf(2, 20), [10, 10], "a share each while the cap allows it");
-  /* 12 flows x the minimum of 2 is 24, more than 20: the first ten get their minimum and the last two get none. */
-  const many = writesOf(12, 20);
-  assert.equal(sum(many), 20);
-  assert.deepEqual(many, [...Array.from({ length: 10 }, () => MIN_RUN_SPEC_DEV_WRITES_PER_FLOW), 0, 0]);
-  assert.deepEqual(writesOf(4, 1), [1, 0, 0, 0]);
+  assert.deepEqual(writesOf(2, 20), [10, 10]);
+  /* 12 flows x the minimum of 2 is more than 20: every flow keeps its minimum, and the run's one ledger refuses writes past 20. */
+  assert.deepEqual(writesOf(12, 20), Array.from({ length: 12 }, () => MIN_RUN_SPEC_DEV_WRITES_PER_FLOW));
+  assert.deepEqual(writesOf(4, 1), [1, 1, 1, 1], "a minimum is never above the cap");
   assert.deepEqual(writesOf(4, 0), [0, 0, 0, 0]);
 });
 

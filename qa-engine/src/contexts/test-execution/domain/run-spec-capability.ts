@@ -192,6 +192,12 @@ export class RunSpecCapability {
     this.init.runWrites?.charge(writes);
   }
 
+  /* Charges the run's count with everything it has left: a call whose writes could not be counted fails closed for the whole run. */
+  chargeRunRemainder(): void {
+    const run = this.init.runWrites;
+    run?.charge(run.left());
+  }
+
   /* Takes one call from the budget, or says why there is none. The call it returns is the only one in flight until `settle`. */
   reserve(deadlineLeftMs: number | undefined): CallReservation | ClosedLoopRefusal {
     if (this.revoked) return refuse(CLOSED_LOOP_REFUSAL.REVOKED, "run_spec is no longer available: the run it belonged to has ended");

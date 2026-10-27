@@ -297,17 +297,11 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
 
   const runSpecCalls = perFlowGrant({ held: limits.runSpecPerCallMs !== undefined, flows: count, minimum: MIN_RUN_SPEC_CALLS_PER_FLOW, flowBudgetMs: budgetMs, ...(limits.runSpecPerCallMs !== undefined ? { perCallMs: limits.runSpecPerCallMs } : {}), ...(limits.runSpecCallsCeiling !== undefined ? { ceiling: limits.runSpecCallsCeiling } : {}) });
   /*
-   * The DEV-write cap protects DEV's data: it is never derived from the plan, and the flows' writes together never promise more than
-   * it. Each flow in plan order is granted its share out of what is left, so when every flow's minimum does not fit, the last flows
-   * get what remains, possibly none.
+   * The DEV-write cap protects DEV's data and is never derived from the plan. Every flow is granted the same share of it (its fair
+   * share, never under the useful minimum, never above the cap), never cut to 0 by its place in the plan: the run's one write ledger
+   * refuses every write once the cap is spent, whichever flow asks.
    */
-  const writeShare = perFlowGrant({ held: limits.runSpecDevWrites !== undefined, ceiling: limits.runSpecDevWrites ?? 0, flows: count, minimum: MIN_RUN_SPEC_DEV_WRITES_PER_FLOW });
-  let writesLeft = limits.runSpecDevWrites ?? 0;
-  const devWritesOf = (): number => {
-    const granted = Math.min(writeShare, writesLeft);
-    writesLeft -= granted;
-    return granted;
-  };
+  const runSpecDevWrites = perFlowGrant({ held: limits.runSpecDevWrites !== undefined, ceiling: limits.runSpecDevWrites ?? 0, flows: count, minimum: MIN_RUN_SPEC_DEV_WRITES_PER_FLOW });
   const browserCalls = perFlowGrant({ held: limits.browserPerCallMs !== undefined, flows: count, minimum: MIN_BROWSER_CALLS_PER_FLOW, flowBudgetMs: budgetMs, ...(limits.browserPerCallMs !== undefined ? { perCallMs: limits.browserPerCallMs } : {}), ...(limits.browserCallsCeiling !== undefined ? { ceiling: limits.browserCallsCeiling } : {}) });
 
   return {
@@ -329,7 +323,7 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
         writablePaths: [`${deps.specRelDir.replace(/\/+$/, "")}/${specFile}`],
         budgetMs,
         runSpecCalls,
-        runSpecDevWrites: devWritesOf(),
+        runSpecDevWrites,
         browserCalls,
         ...(flow.location !== undefined ? { location: flow.location } : {}),
       };

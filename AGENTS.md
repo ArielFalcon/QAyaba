@@ -224,8 +224,8 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   sessions the agent transport reports for the run (`ClosedLoopRegistry`); the budget is granted per flow of a plan only, so a run-level author holds none: each flow is
   granted the calls its own time runs at the per-call time (the run's total is the sum of its flows', `qa.closedLoop.maxCalls` an optional
   ceiling they then share), time per call (also bounded by the run deadline) and one run-level cap on DEV writes, never derived from the plan, that holds across the
-  flows together (one run ledger checked and charged under the account lease; the flows' shares never add up past it, so the last flows of a large plan
-  may get none and then no loop; refusals in `gateSignals.closedLoop.writesRefused`) (counted by the capture block's ledger in `fixtures.ts`, a spec must import its `test` from
+  flows together (one run ledger checked and charged under the account lease refuses every write once it is spent, whatever share a flow has
+  left; every flow keeps its share and loop; an uncountable call is charged the run's whole remainder; refusals in `gateSignals.closedLoop.writesRefused`) (counted by the capture block's ledger in `fixtures.ts`, a spec must import its `test` from
   there), a ledger of every call's sha256, revoked when the run ends. Scratch specs live in `e2e/.qa-probe/` and are swept
   after every generation: never delivered, stored or validated. When `loopClosed` (every delivered spec's current bytes are those
   whose last call passed) the regenerations that only repeat that work are skipped; the declared no-op, `E-NO-DECISION` /

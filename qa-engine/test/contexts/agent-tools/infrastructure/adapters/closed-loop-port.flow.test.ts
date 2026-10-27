@@ -33,7 +33,7 @@ interface Rig {
   events: string[];
 }
 
-async function rig(t: TestContext, over: { devWrites?: number; runDevWrites?: number } = {}): Promise<Rig> {
+async function rig(t: TestContext, over: { devWrites?: number; runDevWrites?: number; uncounted?: boolean } = {}): Promise<Rig> {
   const base = mkdtempSync(join(tmpdir(), "closed-loop-flow-"));
   t.after(() => rmSync(base, { recursive: true, force: true }));
   const mirrorDir = join(base, "mirror");
@@ -56,7 +56,7 @@ async function rig(t: TestContext, over: { devWrites?: number; runDevWrites?: nu
       execute: async (dir, opts) => {
         r.events.push("execute");
         r.executed.push({ specDir: dir, opts: opts as ExecutionOpts });
-        return { verdict: "pass", cases: [{ name: "loads", status: "pass" }], logs: "", devWrites: over.devWrites ?? 1 };
+        return { verdict: "pass", cases: [{ name: "loads", status: "pass" }], logs: "", ...(over.uncounted ? {} : { devWrites: over.devWrites ?? 1 }) };
       },
     },
     cleanup: { cleanup: async (_dir, o) => void r.cleaned.push(o.namespace) },
@@ -282,12 +282,38 @@ test("flows racing for the run's last DEV write never send more than the run's c
   assert.equal(ran?.ok ? ran.report.budget.devWritesLeft : -1, 0, "the budget a flow is told is the run's real remainder");
 });
 
-test("a flow opened once the run's DEV writes are spent is granted none, whatever its share", async (t) => {
+test("a flow opened once the run's DEV writes are spent keeps its loop and its share; its calls are refused while the run's cap is spent, and it is told so", async (t) => {
   const r = await rig(t, { runDevWrites: 1 });
   r.run.openFlow(flowOf(r, 0, 1));
   bind(r, "side-0", "run-9-flow-f0");
   r.writeWorkspace("flows/login.spec.ts", SPEC);
   assert.ok((await call(r, "side-0")).ok);
   const late = r.run.openFlow(flowOf(r, 1, 2))!;
-  assert.equal(late.limits.maxDevWrites, 0);
+  assert.equal(late.limits.maxDevWrites, 2);
+  assert.equal(late.runWritesLeft(), 0);
+  bind(r, "side-1", "run-9-flow-f1");
+  const refused = await call(r, "side-1");
+  assert.equal(!refused.ok ? refused.code : "", "no-writes");
+  assert.equal(!refused.ok ? refused.budget.devWritesLeft : -1, 0);
+  assert.equal(r.run.signals().writesRefused, 1);
+});
+
+test("a call whose writes could not be counted is charged the run's whole remainder, not only its flow's share", async (t) => {
+  const r = await rig(t, { runDevWrites: 10, uncounted: true });
+  r.run.openFlow(flowOf(r, 0, 2));
+  r.run.openFlow(flowOf(r, 1, 2));
+  bind(r, "side-0", "run-9-flow-f0");
+  bind(r, "side-1", "run-9-flow-f1");
+  r.writeWorkspace("flows/login.spec.ts", SPEC);
+  assert.ok((await call(r, "side-0")).ok);
+  const next = await call(r, "side-1");
+  assert.equal(!next.ok ? next.code : "", "no-writes", "nothing of the run's cap is left for another flow");
+  assert.equal(r.run.signals().writesRefused, 1);
+});
+
+test("the calls the run granted count only the flows whose loop can run a spec", async (t) => {
+  const r = await rig(t, { runDevWrites: 10 });
+  r.run.openFlow(r.flowInput({ delegationId: "run-9-flow-none", flowId: "none", limits: { maxCalls: 5, maxDevWrites: 0 } }));
+  r.run.openFlow(flowOf(r, 0, 2));
+  assert.equal(r.run.signals().granted, 2);
 });

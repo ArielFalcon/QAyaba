@@ -168,6 +168,7 @@ function rig(scriptOver: Partial<Script> = {}): Rig {
       const handle: FlowLoopHandle = {
         limits: { maxCalls: input.limits.maxCalls, perCallMs: 60_000, maxDevWrites: input.limits.maxDevWrites },
         signals: () => ({ calls: entry.ledger.length, devWrites: 0 }),
+        runWritesLeft: () => r.closedLoop.limits.maxDevWrites,
         ledger: () => entry.ledger,
         isClosed: async () => false,
         close: async () => { entry.closed += 1; },
@@ -447,11 +448,22 @@ test("a sidekick is told its tool budgets in the task: the run_spec share of its
   await r.coordinator.coordinate(input(r));
   const task = r.executed.find((e) => e.brief.delegationId === "run-1-flow-cart")!.brief.task;
   assert.match(task, /run_spec: at most 8 calls/);
+  assert.match(task, /up to 6 requests that write to DEV while the run's shared cap lasts \(12 left now\)/);
   assert.match(task, /at most 16 authbrowser_\* calls/);
   assert.match(task, /e2e\/flows\/cart\.spec\.ts/);
   const bare = rig();
   await bare.coordinator.coordinate(input(bare, { closedLoop: undefined }));
   assert.match(bare.executed[0]!.brief.task, /cannot run the spec/);
+});
+
+test("an app that allows no writes to DEV gives its flows no run_spec loop, and their briefs and the run's decisions say so", async () => {
+  const r = rig();
+  r.closedLoop.limits = { ...r.closedLoop.limits, maxDevWrites: 0 };
+  await r.coordinator.coordinate(input(r));
+  assert.equal(r.flowLoops.length, 0);
+  const task = r.executed.find((e) => e.brief.delegationId === "run-1-flow-cart")!.brief.task;
+  assert.match(task, /the app allows no requests that write to DEV/);
+  assert.ok(r.events.some((e) => e.flowId === "cart" && /the app allows no requests that write to DEV/.test(e.reason)));
 });
 
 test("the tools a sidekick is denied are the code-navigation server and the plain browser, and run_spec only when its flow has no loop", async () => {
@@ -1024,7 +1036,7 @@ test("a flow's brief preloads its changed code while it fits the author's window
   assert.equal(tight.opts.contextFit?.outcome, "fits");
 });
 
-test("every flow of a large plan is granted the calls its own time can run, while the flows' DEV writes together never pass the run's unchanged cap", async () => {
+test("every flow of a large plan gets its loop and the calls its own time can run, while the run's DEV-write cap stays what it was", async () => {
   const run = async (count: number) => {
     const r = rig({ hasFile: new Set() });
     const devWritesCap = r.closedLoop.limits.maxDevWrites;
@@ -1036,13 +1048,9 @@ test("every flow of a large plan is granted the calls its own time can run, whil
   const flowMs = DEFAULT_COORDINATION_SETTINGS.flowBudgetMs.opencode;
   for (const count of [2, 10]) {
     const { r, devWritesCap } = await run(count);
-    /* 12 writes: a share of 6 each for 2 flows; for 10 flows the minimum of 2 for the first 6, and none left for the other 4. */
-    const withWrites = Math.min(count, Math.floor(devWritesCap / Math.max(Math.floor(devWritesCap / count), MIN_RUN_SPEC_DEV_WRITES_PER_FLOW)));
-    assert.equal(r.flowLoops.length, withWrites, `${count} flows: a loop for each flow the cap leaves writes to`);
-    assert.ok(r.flowLoops.reduce((sum, l) => sum + l.input.limits.maxDevWrites, 0) <= devWritesCap, "the flows' writes together never pass the run's cap");
-    const withheld = r.executed.filter((e) => /requests that write to DEV are all granted to other flows/.test(e.brief.task));
-    assert.equal(withheld.length, count - withWrites, "a flow left no write is told it cannot run the spec, and why");
-    assert.ok(withheld.every((e) => !(e.brief.tools ?? []).includes("run_spec")));
+    /* 12 writes: a share of 6 each for 2 flows; for 10 flows each keeps the minimum of 2, and the run's one ledger refuses writes past 12. */
+    assert.equal(r.flowLoops.length, count, `${count} flows: every flow gets its loop`);
+    assert.ok(r.flowLoops.every((l) => l.input.limits.maxDevWrites === Math.max(Math.floor(devWritesCap / count), Math.min(devWritesCap, MIN_RUN_SPEC_DEV_WRITES_PER_FLOW))), `${count} flows: each its share`);
     assert.ok(r.flowLoops.every((l) => l.input.limits.maxCalls === Math.floor(flowMs / r.closedLoop.limits.perCallMs)), `${count} flows: run_spec by each flow's time`);
     assert.ok(r.shares.every(([, calls]) => calls === Math.floor(flowMs / r.agentBrowser.limits.perCallMs)), `${count} flows: browser by each flow's time`);
     assert.ok(r.shares.reduce((sum, [, calls]) => sum + calls, 0) > r.agentBrowser.limits.maxCalls || count < 10, "the grants add up past the browser's own total");

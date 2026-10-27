@@ -24,9 +24,9 @@ export function authorTask(
       ? `Authoring location: ${formatGeoLocation(geolocation.current())}; the app's default is ${formatGeoLocation(geolocation.facts().default)}.${places.length > 0 ? ` Places it declares: ${places.join(", ")}.` : ""}${browserUsesLocation} run_spec and the suite run at the app's default. A spec that depends on a location must call setLocation(context, latitude, longitude) from the suite's fixtures with the coordinates.`
       : "",
     loop
-      ? `run_spec: at most ${loop.limits.maxCalls} calls, ${Math.round(loop.limits.perCallMs / 1000)} seconds each, ${loop.limits.maxDevWrites} requests that write to DEV in all. It runs ${flow.writablePaths[0]} and no other file. Run it until it passes, then finish.`
+      ? `run_spec: at most ${loop.limits.maxCalls} calls, ${Math.round(loop.limits.perCallMs / 1000)} seconds each, up to ${loop.limits.maxDevWrites} requests that write to DEV while the run's shared cap lasts (${loop.runWritesLeft()} left now). It runs ${flow.writablePaths[0]} and no other file. Run it until it passes, then finish.`
       : writesWithheld
-        ? "You cannot run the spec: the run's requests that write to DEV are all granted to other flows or spent. Verify it by reading the pages and the grounding."
+        ? "You cannot run the spec: the app allows no requests that write to DEV, so run_spec is not granted. Verify it by reading the pages and the grounding."
         : "You cannot run the spec: verify it by reading the pages and the grounding.",
     browserCallMs !== undefined && flow.browserCalls > 0
       ? `Authenticated browser: at most ${flow.browserCalls} authbrowser_* calls, ${Math.round(browserCallMs / 1000)} seconds each. It reads DEV as the test account and never writes.`

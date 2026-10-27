@@ -218,7 +218,7 @@ interface LiveFlow {
   workspace: DelegationWorkspace;
   request: DelegationWorkspaceRequest;
   loop?: FlowLoopHandle;
-  /* Set when the run held run_spec but none of its writes to DEV were left for this flow, so it got no loop. */
+  /* Set when the run held run_spec but the app allows no writes to DEV, so the flow got no loop. */
   writesWithheld?: true;
   geolocation?: FlowGeolocationHandle;
   session?: SidekickSession;
@@ -627,7 +627,7 @@ export class LeadSidekicks {
     live.set(flow.id, entry);
     const probePath = `${PROBE_REL_DIR}/${posix.basename(flow.specFile)}`;
     if (input.closedLoop && flow.runSpecCalls > 0) {
-      /* A run_spec call is refused once its writes to DEV are spent, and what a call will write is known only after it ran: a flow left no write of the run's cap gets no loop, and its brief says why. */
+      /* A flow's share is 0 only when the app allows no writes to DEV at all; every other flow gets its loop, and the run's one write ledger refuses writes once the run's cap is spent. */
       const loop = flow.runSpecDevWrites > 0
         ? input.closedLoop.openFlow({
             delegationId,
@@ -638,11 +638,10 @@ export class LeadSidekicks {
             stage: async () => ((await this.deps.workspaces.stage(workspace, request, flow.writablePaths[0]!, probePath)) ? probePath : undefined),
           })
         : undefined;
-      if (loop && loop.limits.maxDevWrites > 0) entry.loop = loop;
-      else {
-        await loop?.close();
+      if (loop) entry.loop = loop;
+      else if (flow.runSpecDevWrites === 0) {
         entry.writesWithheld = true;
-        this.record(input, { kind: "lead-decision", flowId: flow.id, delegationId, reason: `flow ${flow.id}: no run_spec loop, the run's writes to DEV are all granted to other flows or spent` });
+        this.record(input, { kind: "lead-decision", flowId: flow.id, delegationId, reason: `flow ${flow.id}: no run_spec loop, the app allows no requests that write to DEV` });
       }
     }
     if (context.mode === SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER && input.agentBrowser && flow.browserCalls > 0) {

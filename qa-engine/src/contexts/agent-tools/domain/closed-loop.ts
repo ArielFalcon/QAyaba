@@ -67,6 +67,8 @@ export interface FlowLoopHandle {
   /** What the flow's prompt states about the tool: its own share. */
   limits: ClosedLoopLimits;
   signals(): ClosedLoopSignals;
+  /** The writes to DEV the run's shared cap has left now, for every flow together. */
+  runWritesLeft(): number;
   /** What the orchestrator saw the flow's calls do, oldest first. */
   ledger(): readonly FlowLedgerEntry[];
   /** Whether the spec the sidekick holds now is the one whose last call passed. */

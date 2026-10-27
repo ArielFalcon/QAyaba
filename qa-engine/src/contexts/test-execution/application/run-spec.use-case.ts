@@ -214,7 +214,8 @@ export class RunSpecUseCase {
           if (typeof timeoutMs !== "number") return timeoutMs;
           began = true;
           const ran = await this.executeAndClean(rel, grep, reservation.namespace, timeoutMs, stop);
-          capability.chargeRunWrites(ran.devWrites);
+          if (ran.writesUncounted) capability.chargeRunRemainder();
+          else capability.chargeRunWrites(ran.devWrites);
           return ran;
         },
         stop,
@@ -244,7 +245,7 @@ export class RunSpecUseCase {
     return { ok: true, report: { status, tests, passedTests, budget: capability.budget(deadline?.remainingMs()), ...(note !== undefined ? { note } : {}), ...(sessionLost ? { sessionLost: true as const } : {}) } };
   }
 
-  private async executeAndClean(rel: string, grep: string | undefined, namespace: string, timeoutMs: number, stop: AbortSignal | undefined): Promise<{ status: RunSpecStatus; tests: RunSpecTestReport[]; passedTests: number; devWrites: number; failures: RunSpecFailureFact[]; note?: string; sessionLost?: boolean }> {
+  private async executeAndClean(rel: string, grep: string | undefined, namespace: string, timeoutMs: number, stop: AbortSignal | undefined): Promise<{ status: RunSpecStatus; tests: RunSpecTestReport[]; passedTests: number; devWrites: number; writesUncounted?: true; failures: RunSpecFailureFact[]; note?: string; sessionLost?: boolean }> {
     let result: SpecExecutionResult | undefined;
     let failure: string | undefined;
     try {
@@ -281,7 +282,7 @@ export class RunSpecUseCase {
     }
     /* A run whose writes could not be counted (an older fixtures file, a ledger the child spoiled or never left, a run that was stopped) is charged the whole budget that was left: the count comes from the suite's own fixtures, which is code the agent can edit, so an absent or unbelievable count is never read as "none". */
     if (result.devWrites === undefined) notes.push("the requests it sent to DEV could not be counted; the whole write budget that was left was charged");
-    return { status, tests, passedTests, devWrites: result.devWrites ?? this.deps.capability.budget(this.deps.deadline?.remainingMs()).devWritesLeft, failures, ...(notes.length > 0 ? { note: notes.join("; ") } : {}), ...(sessionLost ? { sessionLost } : {}) };
+    return { status, tests, passedTests, devWrites: result.devWrites ?? this.deps.capability.budget(this.deps.deadline?.remainingMs()).devWritesLeft, ...(result.devWrites === undefined ? { writesUncounted: true as const } : {}), failures, ...(notes.length > 0 ? { note: notes.join("; ") } : {}), ...(sessionLost ? { sessionLost } : {}) };
   }
 
   /* The sha256 of the spec as it stands now, read strictly, or undefined when it is gone or cannot be read. */

@@ -157,7 +157,8 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
       signals: () => ({
         calls: capability.calls + [...flows.values()].reduce((sum, c) => sum + c.calls, 0),
         devWrites: capability.devWrites + [...flows.values()].reduce((sum, c) => sum + c.devWrites, 0),
-        ...(flows.size > 0 ? { granted: [...flows.values()].reduce((sum, c) => sum + c.limits.maxCalls, 0) } : {}),
+        /* A loop whose flow may send no write to DEV can run no spec: its calls are not counted as granted. */
+        ...(flows.size > 0 ? { granted: [...flows.values()].reduce((sum, c) => sum + (c.limits.maxDevWrites > 0 ? c.limits.maxCalls : 0), 0) } : {}),
         ...(runWrites.refused > 0 ? { writesRefused: runWrites.refused } : {}),
       }),
       close: async () => {
@@ -188,8 +189,8 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
     const left = this.deps.deadline?.remainingMs();
     const capability = new RunSpecCapability({
       runId: `${input.runId}-${flow.flowId}`,
-      /* The flow's share of writes, never more than the run has left when the flow opens: what its brief states is what it may send. */
-      limits: { maxCalls: flow.limits.maxCalls, perCallMs: this.deps.setting.limits.perCallMs, maxDevWrites: Math.min(flow.limits.maxDevWrites, runWrites.left()) },
+      /* The flow's own share of writes; the run's one ledger refuses every write past the run's cap, whatever share is left. */
+      limits: { maxCalls: flow.limits.maxCalls, perCallMs: this.deps.setting.limits.perCallMs, maxDevWrites: flow.limits.maxDevWrites },
       expiresAtMs: now() + (left !== undefined && left > 0 ? left : DEFAULT_LOOP_TTL_MS),
       now,
       agents: new Set([RUN_SPEC_FLOW_AGENT]),
@@ -240,6 +241,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
     const handle: FlowLoopHandle = {
       limits: capability.limits,
       signals: () => ({ calls: capability.calls, devWrites: capability.devWrites }),
+      runWritesLeft: () => runWrites.left(),
       ledger: () => capability.ledger.map((e) => ({ path: e.path, sha256: e.sha256, status: e.status, devWrites: e.devWrites, ...(e.failures ? { failures: e.failures } : {}) })),
       isClosed: async () => loopClosed(capability.ledger, new Map([[only, currentSha256(workspace, only)]])),
       close: async () => {
