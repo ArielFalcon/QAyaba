@@ -23,6 +23,8 @@ export interface ClosedLoopSignals {
   calls: number;
   /** Mutating requests the executed specs sent to DEV. */
   devWrites: number;
+  /** The calls the run's flows were granted, together: the run's derived total. Absent when no flow opened a loop. */
+  granted?: number;
 }
 
 /** What a flow's loop is opened with: its own share of the run's calls and writes, the sidekick's workspace its spec is read from, and the one spec it may run. */

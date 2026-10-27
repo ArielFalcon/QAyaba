@@ -1250,6 +1250,8 @@ export function buildEngineRootDeps(
                 maxCalls: app.qa.closedLoop?.maxCalls ?? DEFAULT_CLOSED_LOOP_LIMITS.maxCalls,
                 perCallMs: app.qa.closedLoop?.perCallMs ?? DEFAULT_CLOSED_LOOP_LIMITS.perCallMs,
                 maxDevWrites: app.qa.closedLoop?.maxDevWrites ?? DEFAULT_CLOSED_LOOP_LIMITS.maxDevWrites,
+                /* The app's maxCalls is a ceiling on its flows' calls together; absent, each flow is granted what its time can run. */
+                ...(app.qa.closedLoop?.maxCalls !== undefined ? { callsCeiling: app.qa.closedLoop.maxCalls } : {}),
               },
             },
             generatorRuntimeCanCall: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "author").provider === "opencode" : false),

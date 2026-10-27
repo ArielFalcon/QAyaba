@@ -286,10 +286,12 @@ export const AppConfigSchema = z
 
       iterationBudget: z.number().int().positive().optional(),
       /*
-       * The run_spec closed loop: lets the generator execute a spec it wrote against DEV while it is still authoring, within
-       * these caps (calls per run, the longest one call, mutating requests to DEV per run), so that it delivers specs it has
-       * seen pass. On unless `enabled` is false; an absent limit takes the default (8 calls, 120s, 20 writes). Needs the OpenCode
-       * runtime and an app whose login the saved session covers; a run can be forced on or off for an A/B.
+       * The run_spec closed loop: lets the author of each flow of a plan execute a spec it wrote against DEV while it is still
+       * authoring, so that it delivers specs it has seen pass. Each flow is granted the calls its own time runs at `perCallMs`
+       * (default 120s), so the run's total is the sum of its flows' grants; `maxCalls` is an optional ceiling on that total, which
+       * the flows then share (absent: none). `maxDevWrites` (default 20) caps the mutating requests to DEV of the whole run, never
+       * derived from the plan. On unless `enabled` is false. Needs the OpenCode runtime and an app whose login the saved session
+       * covers; a run can be forced on or off for an A/B.
        */
       closedLoop: z
         .object({

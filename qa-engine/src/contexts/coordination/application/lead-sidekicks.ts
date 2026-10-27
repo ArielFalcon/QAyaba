@@ -389,8 +389,9 @@ export class LeadSidekicks {
         ...(remaining !== undefined ? { remainingMs: remaining } : {}),
         reserveMs: remaining === undefined ? 0 : this.reserve(remaining),
         minFlowMs: MIN_FLOW_MS,
-        ...(loop ? { runSpecCalls: loop.maxCalls, runSpecDevWrites: loop.maxDevWrites, runSpecPerCallMs: loop.perCallMs } : {}),
-        ...(input.agentBrowser ? { browserCalls: input.agentBrowser.limits.maxCalls, browserPerCallMs: input.agentBrowser.limits.perCallMs } : {}),
+        /* Each flow is granted the calls its time can run; the run's call totals are the sum of those grants unless the app set a ceiling. */
+        ...(loop ? { runSpecPerCallMs: loop.perCallMs, runSpecDevWrites: loop.maxDevWrites, ...(loop.callsCeiling !== undefined ? { runSpecCallsCeiling: loop.callsCeiling } : {}) } : {}),
+        ...(input.agentBrowser ? { browserPerCallMs: input.agentBrowser.limits.perCallMs } : {}),
       },
       {
         redaction: this.deps.redaction,

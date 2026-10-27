@@ -198,6 +198,7 @@ test("a call that gave up waiting for the account does not use a call of its flo
   await held;
   const again = await useCase.call(flowCall);
   assert.equal(again.ok, true, "the flow's one call is still there");
+  assert.equal(again.budget.callsLeft, 0, "what is left is told for the flow's own share");
 });
 
 test("a call whose session ends while it waits for the account is not spent", async () => {
@@ -483,7 +484,7 @@ test("a sign-in that throws counts as one that failed", async () => {
   assert.equal(res.ok === false && res.code, AGENT_BROWSER_REFUSAL.SESSION_INVALIDATED);
   if (!res.ok) assert.match(res.message, /could not be renewed/);
   assert.equal(host.resets, 0);
-  assert.deepEqual(capability.signal, { calls: 1, blocks: 0, invalidations: 1, renewals: 0 });
+  assert.deepEqual(capability.signal, { calls: 1, blocks: 0, invalidations: 1, renewals: 0, granted: 5 }, "the explore share the setup granted");
   assert.equal(capability.canRenew(), true, "one failed attempt of two");
 });
 

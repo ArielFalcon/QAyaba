@@ -154,6 +154,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
       signals: () => ({
         calls: capability.calls + [...flows.values()].reduce((sum, c) => sum + c.calls, 0),
         devWrites: capability.devWrites + [...flows.values()].reduce((sum, c) => sum + c.devWrites, 0),
+        ...(flows.size > 0 ? { granted: [...flows.values()].reduce((sum, c) => sum + c.limits.maxCalls, 0) } : {}),
       }),
       close: async () => {
         if (closed) return;

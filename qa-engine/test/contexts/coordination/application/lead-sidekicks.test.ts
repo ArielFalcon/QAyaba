@@ -1,5 +1,5 @@
 import { pageCandidate, pageCandidates } from "../../../support/use-case-candidate.ts";
-import { PLAN_DOWNGRADE } from "@contexts/coordination/application/lead-plan.ts";
+import { PLAN_DOWNGRADE, MIN_RUN_SPEC_DEV_WRITES_PER_FLOW } from "@contexts/coordination/application/lead-plan.ts";
 import { AUTHORING_REFUSAL } from "@kernel/coordination.ts";
 import { UNREADABLE_ANSWER } from "@kernel/unreadable-answer.ts";
 import { CORRECTION_ORIGIN } from "@contexts/coordination/application/lead-correction.ts";
@@ -433,12 +433,12 @@ test("a flow is given its own run_spec loop, staged at the probe path of its fil
   assert.equal(r.flowLoops.length, 2);
   const cart = r.flowLoops.find((l) => l.input.flowId === "cart")!;
   assert.equal(cart.input.specFile, "flows/cart.spec.ts");
-  assert.equal(cart.input.limits.maxCalls, 4, "the run's eight calls shared between two flows");
+  assert.equal(cart.input.limits.maxCalls, 8, "a flow's eight minutes run eight calls of a minute");
   assert.equal(cart.input.limits.maxDevWrites, 6);
   assert.equal(await cart.input.stage(), ".qa-probe/cart.spec.ts");
   assert.deepEqual(r.staged, ["run-1-flow-cart:e2e/flows/cart.spec.ts->.qa-probe/cart.spec.ts"]);
   assert.ok(r.flowLoops.every((l) => l.closed === 1));
-  /* The browser's 60 calls split to 30 a flow, but a flow's 8 minutes run at most 16 calls of 30 seconds. */
+  /* A flow's 8 minutes run 16 browser calls of 30 seconds. */
   assert.deepEqual([...r.shares].sort(), [["run-1-flow-cart", 16], ["run-1-flow-login", 16]]);
 });
 
@@ -446,7 +446,7 @@ test("a sidekick is told its tool budgets in the task: the run_spec share of its
   const r = rig();
   await r.coordinator.coordinate(input(r));
   const task = r.executed.find((e) => e.brief.delegationId === "run-1-flow-cart")!.brief.task;
-  assert.match(task, /run_spec: at most 4 calls/);
+  assert.match(task, /run_spec: at most 8 calls/);
   assert.match(task, /at most 16 authbrowser_\* calls/);
   assert.match(task, /e2e\/flows\/cart\.spec\.ts/);
   const bare = rig();
@@ -1022,6 +1022,27 @@ test("a flow's brief preloads its changed code while it fits the author's window
   assert.ok(tight.brief.change!.hunks.length < 6 && tight.brief.change!.hunks.length > 0);
   assert.equal(tight.brief.change!.references.filter((ref) => /^src\/cart\.ts:\d+-\d+ /.test(ref)).length, 6 - tight.brief.change!.hunks.length);
   assert.equal(tight.opts.contextFit?.outcome, "fits");
+});
+
+test("every flow of a large plan is granted the calls its own time can run, while the run's DEV-write cap stays what it was whatever the plan's size", async () => {
+  const run = async (count: number) => {
+    const r = rig({ hasFile: new Set() });
+    const devWritesCap = r.closedLoop.limits.maxDevWrites;
+    const flows = Array.from({ length: count }, (_, i) => ({ id: `f${i}`, objective: `flow ${i}` }));
+    const outcome = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: planOf(flows), parsed: true, timedOut: false }) }));
+    if (outcome.action === "fanout") await outcome.pass?.release();
+    return { r, devWritesCap };
+  };
+  const flowMs = DEFAULT_COORDINATION_SETTINGS.flowBudgetMs.opencode;
+  for (const count of [2, 10]) {
+    const { r, devWritesCap } = await run(count);
+    assert.equal(r.flowLoops.length, count);
+    assert.ok(r.flowLoops.every((l) => l.input.limits.maxCalls === Math.floor(flowMs / r.closedLoop.limits.perCallMs)), `${count} flows: run_spec by each flow's time`);
+    assert.ok(r.shares.every(([, calls]) => calls === Math.floor(flowMs / r.agentBrowser.limits.perCallMs)), `${count} flows: browser by each flow's time`);
+    assert.ok(r.shares.reduce((sum, [, calls]) => sum + calls, 0) > r.agentBrowser.limits.maxCalls || count < 10, "the grants add up past the browser's own total");
+    assert.equal(r.closedLoop.limits.maxDevWrites, devWritesCap, "the run's DEV-write cap is not raised");
+    assert.ok(r.flowLoops.every((l) => l.input.limits.maxDevWrites === Math.max(Math.floor(devWritesCap / count), Math.min(devWritesCap, MIN_RUN_SPEC_DEV_WRITES_PER_FLOW))), `${count} flows: DEV writes are the cap's share`);
+  }
 });
 
 test("a flow whose brief is over the author's known window even with all its change named by reference is not sent, and is recorded as an undelivered flow", async () => {
@@ -1631,7 +1652,7 @@ test("a maintenance flow gets its own run_spec loop on the spec, and a later fin
   await outcome.pass!.correct([{ text: "flows/old.spec.ts never asserts the total", spec: "e2e/flows/old.spec.ts" }]);
   const loop = r.flowLoops.at(-1)!;
   assert.equal(loop.input.specFile, "flows/old.spec.ts");
-  assert.equal(loop.input.limits.maxCalls, 4, "the share of a plan flow");
+  assert.equal(loop.input.limits.maxCalls, 8, "what a plan flow's eight minutes run at a minute a call");
   await outcome.pass!.correct([{ text: "flows/old.spec.ts still fails", spec: "e2e/flows/old.spec.ts" }]);
   assert.equal(opened(r, OLD_SPEC_ID).length, 1, "never a second maintenance flow for the same spec");
   assert.ok(r.executed.some((e) => e.asked && e.brief.delegationId === `run-1-flow-${OLD_SPEC_ID}`), "the same sidekick is asked");

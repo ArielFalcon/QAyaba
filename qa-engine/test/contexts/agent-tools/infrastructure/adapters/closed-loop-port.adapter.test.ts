@@ -157,7 +157,7 @@ test("the counts are the capability's", async (t) => {
   bindFlow(r);
   await callOf(r);
   await callOf(r);
-  assert.deepEqual(handle.signals(), { calls: 2, devWrites: 2 });
+  assert.deepEqual(handle.signals(), { calls: 2, devWrites: 2, granted: 4 }, "the calls the flow was granted");
 });
 
 test("sweeping removes the probe directory and leaves the suite alone; a link in its place goes without being followed", async (t) => {

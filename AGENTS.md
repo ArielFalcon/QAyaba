@@ -221,13 +221,14 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   `QA_TOOLS_TOKEN`); the orchestrator runs the spec once (sandbox profile `suite`, retries 0, a fresh session copy, namespace
   `<runId>-rs<n>`, a cleanup pass after every call, per-account lock) and answers with a bounded, redacted report, never raw
   output. The capability (`test-execution/domain/run-spec-capability.ts`) is the orchestrator's, bound to the flow-author
-  sessions the agent transport reports for the run (`ClosedLoopRegistry`); the budget is granted per flow of a plan only, so a run-level author holds none: caps on calls, time per call (also bounded by the
-  run deadline) and DEV writes (counted by the capture block's ledger in `fixtures.ts`, a spec must import its `test` from
+  sessions the agent transport reports for the run (`ClosedLoopRegistry`); the budget is granted per flow of a plan only, so a run-level author holds none: each flow is
+  granted the calls its own time runs at the per-call time (the run's total is the sum of its flows', `qa.closedLoop.maxCalls` an optional
+  ceiling they then share), time per call (also bounded by the run deadline) and one run-level cap on DEV writes, never derived from the plan (each flow's writes are a share of it) (counted by the capture block's ledger in `fixtures.ts`, a spec must import its `test` from
   there), a ledger of every call's sha256, revoked when the run ends. Scratch specs live in `e2e/.qa-probe/` and are swept
   after every generation: never delivered, stored or validated. When `loopClosed` (every delivered spec's current bytes are those
   whose last call passed) the regenerations that only repeat that work are skipped; the declared no-op, `E-NO-DECISION` /
   `E-STEP-BUDGET` / `E-TIME-BUDGET` and the single coverage or branch-case regeneration are unchanged. The `Run spec budget` prompt
-  section (facts only) exists only when granted. `gateSignals.closedLoop { calls, devWrites, closed }`.
+  section (facts only) exists only when granted. `gateSignals.closedLoop { calls, devWrites, closed, granted }`.
 - **Authenticated browser (`authbrowser_*`)** — on unless `qa.agentBrowser.enabled: false`, and skipped for a run with no saved session (or a run asks: `--agent-browser on|off`,
   `agentBrowser` on `POST /api/v1/runs`). The author (`qa-author`) and the explorer (`qa-explore`, read-only) get four custom tools
   (`agents/tool/authbrowser.ts`: navigate, snapshot, click, type) that POST to the same internal listener as `run_spec`
@@ -240,7 +241,9 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   { calls, blocks, invalidations, renewals }` counts them. A page that says the session is gone (login path, 401 document, a password
   field on a page that was not asked for) makes the tool error with `session invalidated`, asks the auth port to sign in again (at
   most twice per run) and resets the browser. Each call holds the test account's lease (`AccountLock`, the same key as `run_spec`)
-  and a bounded wait answers `DEV busy`. The session is bound by `AgentBrowserRegistry` to the sessions the agent transport reports
+  and a bounded wait answers `DEV busy`. A session of a flow of a plan spends only its flow's share (the calls the flow's time runs), so
+  the run's total for its flows is the sum of their shares (`gateSignals.agentBrowser.granted`); the run's own total holds the sessions bound
+  to no flow. The session is bound by `AgentBrowserRegistry` to the sessions the agent transport reports
   for the author or the explorer of the run; the capability is revoked, the browser closed and its work dir removed when the run ends, and
   a boot sweep ends a browser a previous process left. A prompt of an authoring session the run did not grant hides the tools
   (a per-prompt `tools` map, `openCodePromptBody`). The `Authenticated browser budget` prompt section (facts only) exists only
@@ -261,7 +264,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   kinds, styles) that fit the lead's own window by the fit rule; every other hunk is named `path:start-end` with why, never cut blind
   (`plan-diff.ts`, `plan-diff-section.ts`), and the plan turn is told the
   use cases the change makes testable (`PlanningLimits.candidates`): the plan must cite each direct one in a flow's `candidates` or list it in `dropped` with a reason and a typed basis (`no-observable-change`, `already-covered`, `needs-unavailable-state`; a basis the run's facts contradict is asked about once, then honoured and recorded in `gateSignals.coordination.dropsContradicted`, never an infra-error; a map-linked candidate carries a whole-file seed per linking file, shown with its kind and added lines), otherwise the lead is asked once more in its open session, and what is still unresolved is recorded `unplanned` on the plan snapshot and as a `lead-decision` event (`plan-coverage.ts`). The plan is untrusted: `admitLeadPlan` keeps only what its shape and the
-  run's limits allow (flows up to the capacity in plan order, never a whole plan refused for its size; per-flow `run_spec` and browser grants with a useful minimum, bounded by the flow's time; a deterministic spec path `e2e/flows/<slug>.spec.ts` per flow, the lead's own write lists ignored) and
+  run's limits allow (flows up to the capacity in plan order, never a whole plan refused for its size; per-flow `run_spec` and browser grants, the calls each flow's time runs, so the run's call totals are derived from the admitted flows; a deterministic spec path `e2e/flows/<slug>.spec.ts` per flow, the lead's own write lists ignored) and
   refuses the run with a recorded reason otherwise (`E-NO-AUTHOR`; no author is run in the lead's place). Each sidekick works in a plain bounded copy of what the run may read
   (`<mirrors>/.qa-delegations/<run>/<delegation>`, `DelegationWorkspacePort`); only the files its brief names (`writablePaths`) are taken
   back, through `spec-path-confinement`, and anything else it changed is listed as a proposal and never applied. Each brief carries

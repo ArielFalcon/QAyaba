@@ -53,6 +53,8 @@ export class AgentBrowserCapability {
   private readonly sessions = new Set<string>();
   private revoked = false;
   private calls_ = 0;
+  /* Calls of the sessions bound to no flow, held to the run's own total. */
+  private unsharedCalls = 0;
   private blocks_ = 0;
   private invalidations_ = 0;
   private renewals_ = 0;
@@ -75,10 +77,14 @@ export class AgentBrowserCapability {
   }
 
   get signal(): AgentBrowserGateSignal {
-    return { calls: this.calls_, blocks: this.blocks_, invalidations: this.invalidations_, renewals: this.renewals_ };
+    const granted = [...this.shares.values()].reduce((sum, s) => sum + s.share, 0);
+    return { calls: this.calls_, blocks: this.blocks_, invalidations: this.invalidations_, renewals: this.renewals_, ...(this.shares.size > 0 ? { granted } : {}) };
   }
 
-  /* Gives a flow of a plan the calls it may make out of the run's: the sessions bound for it spend from this and from the run's alike. */
+  /*
+   * Gives a flow of a plan (or an explore question) the calls it may make: the sessions bound for it spend from this share alone, so
+   * one flow's calls never starve another's and the run's total for its flows is the sum of their shares.
+   */
   setShare(delegationId: string, calls: number): void {
     this.shares.set(delegationId, { share: Math.max(0, Math.floor(calls)), used: 0 });
   }
@@ -126,28 +132,41 @@ export class AgentBrowserCapability {
     return undefined;
   }
 
-  callsLeft(): number {
-    return Math.max(0, this.limits.maxCalls - this.calls_);
+  /* The calls the session may still make: its flow's share left, or for a session bound to no flow what is left of the run's own total. */
+  callsLeft(sessionId?: string): number {
+    const share = this.shareOf(sessionId);
+    return share ? Math.max(0, share.share - share.used) : Math.max(0, this.limits.maxCalls - this.unsharedCalls);
   }
 
-  /* Takes one call from the budget, or says why there is none. A session bound for a flow also spends from the flow's share, and a flow with no share has no calls. */
+  /* Takes one call from the budget, or says why there is none. A session bound for a flow spends from the flow's share alone, and a flow with no share has no calls; any other session spends from the run's own total. */
   reserve(sessionId?: string): { ok: true; callNumber: number } | AgentBrowserRefusal {
     if (this.revoked) return refuse(AGENT_BROWSER_REFUSAL.REVOKED, "the authenticated browser is no longer available: the run it belonged to has ended");
-    if (this.calls_ >= this.limits.maxCalls) return refuse(AGENT_BROWSER_REFUSAL.NO_CALLS, `the ${this.limits.maxCalls} authenticated browser calls of this run are spent`);
-    const flow = sessionId === undefined ? undefined : this.flowOfSession.get(sessionId);
-    const share = flow === undefined ? undefined : (this.shares.get(flow) ?? { share: 0, used: 0 });
-    if (share && share.used >= share.share) return refuse(AGENT_BROWSER_REFUSAL.NO_CALLS, `the ${share.share} authenticated browser calls of this flow are spent`);
-    if (share) share.used += 1;
+    const share = this.shareOf(sessionId);
+    if (share) {
+      if (share.used >= share.share) return refuse(AGENT_BROWSER_REFUSAL.NO_CALLS, `the ${share.share} authenticated browser calls of this flow are spent`);
+      share.used += 1;
+    } else {
+      if (this.unsharedCalls >= this.limits.maxCalls) return refuse(AGENT_BROWSER_REFUSAL.NO_CALLS, `the ${this.limits.maxCalls} authenticated browser calls of this run are spent`);
+      this.unsharedCalls += 1;
+    }
     this.calls_ += 1;
     return { ok: true, callNumber: this.calls_ };
   }
 
   /* Gives back a call `reserve` took when it never began (it timed out waiting for the account, or its session ended first): nothing ran, so the run's calls and its flow's share are not spent. */
   refund(sessionId?: string): void {
-    const flow = sessionId === undefined ? undefined : this.flowOfSession.get(sessionId);
-    const share = flow === undefined ? undefined : this.shares.get(flow);
-    if (share && share.used > 0) share.used -= 1;
+    const share = this.shareOf(sessionId);
+    if (share) {
+      if (share.used > 0) share.used -= 1;
+    } else if (this.unsharedCalls > 0) this.unsharedCalls -= 1;
     if (this.calls_ > 0) this.calls_ -= 1;
+  }
+
+  /* The share a session spends from: its flow's (a flow given none has a share of 0), or none for a session bound to no flow. */
+  private shareOf(sessionId: string | undefined): { share: number; used: number } | undefined {
+    const flow = sessionId === undefined ? undefined : this.flowOfSession.get(sessionId);
+    if (flow === undefined) return undefined;
+    return this.shares.get(flow) ?? { share: 0, used: 0 };
   }
 
   recordBlocks(count: number): void {

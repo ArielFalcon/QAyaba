@@ -1,8 +1,8 @@
 /*
  * How many flows a run can author, and what each flow is granted, derived from the run's own numbers: the flows that run at once,
  * the time one flow may take and what is left of the run after the reserve. An app may set a ceiling for cost; nothing else caps the
- * count. A flow's tool grants are its share of the run's totals, never under a useful minimum, and never more calls than the flow's
- * own time can run. Pure: no clock, no file, no model.
+ * count. A flow's tool grant is primary: the calls its own time can run, so the run's total is the sum of its flows' grants; an
+ * app's ceiling on a total turns the grant into a share of it, never under a useful minimum. Pure: no clock, no file, no model.
  */
 
 export interface CapacityInput {
@@ -38,35 +38,43 @@ export function flowCapacity(input: CapacityInput): number | undefined {
 }
 
 /*
- * The run_spec calls a flow is granted at least, when the run was granted that many: write the spec and run it, correct it once, and
+ * The run_spec calls a flow is granted at least out of an app's ceiling, when the ceiling allows that many: write the spec and run it, correct it once, and
  * run the corrected bytes to see them pass. Fewer and a flow cannot close its own loop.
  */
 export const MIN_RUN_SPEC_CALLS_PER_FLOW = 3;
-/* The requests that write to DEV a flow's specs may send at least, when the run was granted that many: one per run of a spec that submits a form, for the run that fails and the run that passes. */
+/* The requests that write to DEV a flow's specs may send at least, when the run's DEV-write cap allows that many: one per run of a spec that submits a form, for the run that fails and the run that passes. */
 export const MIN_RUN_SPEC_DEV_WRITES_PER_FLOW = 2;
 /*
- * The authenticated browser calls a flow is granted at least, when the run was granted that many: open and read each page the flow
+ * The authenticated browser calls a flow is granted at least out of an app's ceiling, when the ceiling allows that many: open and read each page the flow
  * visits, and drive one form through it (navigate, snapshot, a few clicks and types, the snapshot after).
  */
 export const MIN_BROWSER_CALLS_PER_FLOW = 20;
 
 export interface GrantInput {
-  /* The run's total of the tool; absent when the run was not granted it. */
-  total?: number;
-  /* The flows that share it. */
+  /* Whether the run holds the tool at all. */
+  held: boolean;
+  /* A ceiling on the run's total of the tool, which the flows then share; absent: the run's total is the sum of the flows' grants. */
+  ceiling?: number;
+  /* The flows that share a ceiling. */
   flows: number;
-  /* The useful minimum a flow is granted, never above the run's total. */
+  /* The useful minimum a flow is granted out of a ceiling, never above it. */
   minimum: number;
   /* The flow's own time and the longest one call may take: a flow is granted no more calls than its time can run. Absent: no such bound. */
   flowBudgetMs?: number;
   perCallMs?: number;
 }
 
-/* What one flow is granted of a run's tool: 0 when the run has none; else its share, never under the minimum the run's total allows, never over what the flow's time can run (at least one call). */
+/*
+ * What one flow is granted of a run's tool: 0 when the run does not hold it. The flow's grant is primary: with no ceiling it is the
+ * calls the flow's own time can run (the minimum when nothing bounds the time), and the run's total is the sum of its flows'. With a
+ * ceiling it is the flow's share of it, never under the minimum the ceiling allows; never over what the flow's time can run (at
+ * least one call).
+ */
 export function perFlowGrant(input: GrantInput): number {
-  if (input.total === undefined || input.total <= 0) return 0;
-  const share = Math.floor(input.total / Math.max(1, input.flows));
-  const granted = Math.max(share, Math.min(input.total, input.minimum));
-  if (input.flowBudgetMs === undefined || input.perCallMs === undefined || input.perCallMs <= 0) return granted;
-  return Math.min(granted, Math.max(1, Math.floor(input.flowBudgetMs / input.perCallMs)));
+  if (!input.held) return 0;
+  const byTime = input.flowBudgetMs !== undefined && input.perCallMs !== undefined && input.perCallMs > 0 ? Math.max(1, Math.floor(input.flowBudgetMs / input.perCallMs)) : undefined;
+  if (input.ceiling === undefined) return byTime ?? input.minimum;
+  if (input.ceiling <= 0) return 0;
+  const shared = Math.max(Math.floor(input.ceiling / Math.max(1, input.flows)), Math.min(input.ceiling, input.minimum));
+  return byTime === undefined ? shared : Math.min(shared, byTime);
 }

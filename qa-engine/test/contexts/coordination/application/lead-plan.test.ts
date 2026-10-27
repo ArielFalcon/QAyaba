@@ -23,17 +23,19 @@ const deps: PlanDeps = {
   specFileFor: (id) => `flows/${id}.spec.ts`,
 };
 
-/* 3 at once and (60 - 10) min / 10 min = 5 full waves: room for 15 flows. */
+/* 3 at once and (60 - 10) min / 10 min = 5 full waves: room for 15 flows. A flow's 10 min run 5 run_spec calls of 2 min and 20 browser calls of 30 s. */
 const limits: PlanLimits = {
   maxParallel: 3,
   flowBudgetMs: 10 * 60_000,
   remainingMs: 60 * 60_000,
   reserveMs: 10 * 60_000,
   minFlowMs: 60_000,
-  runSpecCalls: 8,
+  runSpecPerCallMs: 2 * 60_000,
   runSpecDevWrites: 20,
-  browserCalls: 150,
+  browserPerCallMs: 30_000,
 };
+const RUN_SPEC_BY_TIME = 5;
+const BROWSER_BY_TIME = 20;
 
 const flow = (id: string, extra: Record<string, unknown> = {}) => ({
   id,
@@ -75,8 +77,8 @@ test("a plan of one flow is admitted as a fan-out of one flow, one at a time", (
   const flows = admitted(plan);
   assert.deepEqual(flows.map((f) => f.id), ["only"]);
   assert.deepEqual(flows[0]!.routes, ["/only"]);
-  assert.equal(flows[0]!.runSpecCalls, limits.runSpecCalls);
-  assert.equal(flows[0]!.browserCalls, limits.browserCalls);
+  assert.equal(flows[0]!.runSpecCalls, RUN_SPEC_BY_TIME);
+  assert.equal(flows[0]!.browserCalls, BROWSER_BY_TIME);
 });
 
 test("a fan-out is admitted flow by flow, each with the spec file its slugged id names", () => {
@@ -223,29 +225,41 @@ test("when the run has too little time left for a flow to do anything, the lead 
   assert.equal(plan.kind === PLAN_REJECTED ? plan.downgrade : undefined, PLAN_DOWNGRADE.NO_TIME);
 });
 
-test("each flow is granted its share of the run's tool calls, never less than a useful minimum", () => {
-  const few = admitted(admitLeadPlan(fanout(flow("a"), flow("b")), limits, deps));
-  assert.ok(few.every((f) => f.runSpecCalls === Math.floor(limits.runSpecCalls! / 2)));
-  assert.ok(few.every((f) => f.runSpecDevWrites === Math.floor(limits.runSpecDevWrites! / 2)));
-  assert.ok(few.every((f) => f.browserCalls === Math.floor(limits.browserCalls! / 2)));
-  /* 12 flows: 8 run_spec calls, 20 writes and 150 browser calls would split to 0, 1 and 12 a flow. */
-  const many = admitted(admitLeadPlan(fanout(...Array.from({ length: 12 }, (_, i) => flow(`f${i}`))), limits, deps));
-  assert.equal(many.length, 12, "a plan run_spec cannot split among its flows is not rejected");
-  assert.ok(many.every((f) => f.runSpecCalls === MIN_RUN_SPEC_CALLS_PER_FLOW));
-  assert.ok(many.every((f) => f.runSpecDevWrites === MIN_RUN_SPEC_DEV_WRITES_PER_FLOW));
-  assert.ok(many.every((f) => f.browserCalls === MIN_BROWSER_CALLS_PER_FLOW));
-});
-
-test("a flow is never granted more calls than its own time can run, nor a minimum above what the run was granted", () => {
+test("without an app ceiling, each flow is granted the calls its own time can run, however many flows the plan holds", () => {
+  for (const count of [1, 2, 12]) {
+    const flows = admitted(admitLeadPlan(fanout(...Array.from({ length: count }, (_, i) => flow(`f${i}`))), limits, deps));
+    assert.equal(flows.length, count);
+    assert.ok(flows.every((f) => f.runSpecCalls === RUN_SPEC_BY_TIME && f.browserCalls === BROWSER_BY_TIME), `${count} flow(s)`);
+  }
   /* 10 min a flow, 4 min a run_spec call and 2 min a browser call: 2 and 5 calls fit. */
   const timed = admitted(admitLeadPlan(fanout(flow("a")), { ...limits, runSpecPerCallMs: 4 * 60_000, browserPerCallMs: 2 * 60_000 }, deps));
   assert.deepEqual([timed[0]!.runSpecCalls, timed[0]!.browserCalls], [2, 5]);
-  const stingy = admitted(admitLeadPlan(fanout(...Array.from({ length: 4 }, (_, i) => flow(`f${i}`))), { ...limits, runSpecCalls: 1, runSpecDevWrites: 0, browserCalls: 2 }, deps));
-  assert.ok(stingy.every((f) => f.runSpecCalls === 1 && f.runSpecDevWrites === 0 && f.browserCalls === 2));
+});
+
+test("with an app ceiling on the run's calls, the flows share it, never under the useful minimum the ceiling allows nor over their own time", () => {
+  const capped = { ...limits, runSpecCallsCeiling: 8, browserCallsCeiling: 150 };
+  const few = admitted(admitLeadPlan(fanout(flow("a"), flow("b")), capped, deps));
+  assert.ok(few.every((f) => f.runSpecCalls === Math.min(RUN_SPEC_BY_TIME, 8 / 2) && f.browserCalls === BROWSER_BY_TIME));
+  /* 12 flows: 8 run_spec calls and 150 browser calls would split to 0 and 12 a flow. */
+  const many = admitted(admitLeadPlan(fanout(...Array.from({ length: 12 }, (_, i) => flow(`f${i}`))), capped, deps));
+  assert.ok(many.every((f) => f.runSpecCalls === MIN_RUN_SPEC_CALLS_PER_FLOW && f.browserCalls === Math.min(BROWSER_BY_TIME, MIN_BROWSER_CALLS_PER_FLOW)));
+  const stingy = admitted(admitLeadPlan(fanout(...Array.from({ length: 4 }, (_, i) => flow(`f${i}`))), { ...limits, runSpecCallsCeiling: 1, browserCallsCeiling: 2 }, deps));
+  assert.ok(stingy.every((f) => f.runSpecCalls === 1 && f.browserCalls === 2), "a minimum is never above the app's ceiling");
+});
+
+test("a flow's DEV writes are its share of the run's DEV-write cap, never a minimum above it, whatever the plan's size", () => {
+  const few = admitted(admitLeadPlan(fanout(flow("a"), flow("b")), limits, deps));
+  assert.ok(few.every((f) => f.runSpecDevWrites === Math.floor(limits.runSpecDevWrites! / 2)));
+  const many = admitted(admitLeadPlan(fanout(...Array.from({ length: 12 }, (_, i) => flow(`f${i}`))), limits, deps));
+  assert.ok(many.every((f) => f.runSpecDevWrites === MIN_RUN_SPEC_DEV_WRITES_PER_FLOW));
+  for (const cap of [0, 1]) {
+    const stingy = admitted(admitLeadPlan(fanout(...Array.from({ length: 4 }, (_, i) => flow(`f${i}`))), { ...limits, runSpecDevWrites: cap }, deps));
+    assert.ok(stingy.every((f) => f.runSpecDevWrites === cap), `a cap of ${cap}`);
+  }
 });
 
 test("a run that was not granted run_spec or the browser gives its flows none", () => {
-  const { runSpecCalls: _a, runSpecDevWrites: _b, browserCalls: _c, ...bare } = limits;
+  const { runSpecPerCallMs: _a, runSpecDevWrites: _b, browserPerCallMs: _c, ...bare } = limits;
   const flows = admitted(admitLeadPlan(fanout(flow("a"), flow("b")), bare, deps));
   assert.ok(flows.every((f) => f.runSpecCalls === 0 && f.runSpecDevWrites === 0 && f.browserCalls === 0));
 });

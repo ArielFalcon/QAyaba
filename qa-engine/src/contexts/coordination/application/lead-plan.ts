@@ -76,13 +76,14 @@ export interface PlanLimits {
   reserveMs: number;
   /* Less than this and a flow cannot read the brief, write a spec and try it once. */
   minFlowMs: number;
-  /* The run's totals for the tools a flow may be given; absent when the run was not granted the tool. */
-  runSpecCalls?: number;
-  runSpecDevWrites?: number;
-  browserCalls?: number;
-  /* The longest one call of each tool may take: a flow is granted no more calls than its time can run. */
+  /* The longest one call of each tool may take, present exactly when the run holds the tool: a flow is granted the calls its time can run. */
   runSpecPerCallMs?: number;
   browserPerCallMs?: number;
+  /* The app's ceilings on the run's calls of each tool, which the flows then share; absent: the run's total is the sum of the flows' grants. */
+  runSpecCallsCeiling?: number;
+  browserCallsCeiling?: number;
+  /* The run's cap on the requests that write to DEV, which the flows share; absent when the run does not hold run_spec. */
+  runSpecDevWrites?: number;
 }
 
 export interface PlanDeps {
@@ -294,9 +295,10 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
       : Math.min(limits.flowBudgetMs, Math.floor((limits.remainingMs - limits.reserveMs) / waves));
   if (budgetMs < limits.minFlowMs) return reject(PLAN_DOWNGRADE.NO_TIME);
 
-  const runSpecCalls = perFlowGrant({ total: limits.runSpecCalls, flows: count, minimum: MIN_RUN_SPEC_CALLS_PER_FLOW, flowBudgetMs: budgetMs, ...(limits.runSpecPerCallMs !== undefined ? { perCallMs: limits.runSpecPerCallMs } : {}) });
-  const runSpecDevWrites = perFlowGrant({ total: limits.runSpecDevWrites, flows: count, minimum: MIN_RUN_SPEC_DEV_WRITES_PER_FLOW });
-  const browserCalls = perFlowGrant({ total: limits.browserCalls, flows: count, minimum: MIN_BROWSER_CALLS_PER_FLOW, flowBudgetMs: budgetMs, ...(limits.browserPerCallMs !== undefined ? { perCallMs: limits.browserPerCallMs } : {}) });
+  const runSpecCalls = perFlowGrant({ held: limits.runSpecPerCallMs !== undefined, flows: count, minimum: MIN_RUN_SPEC_CALLS_PER_FLOW, flowBudgetMs: budgetMs, ...(limits.runSpecPerCallMs !== undefined ? { perCallMs: limits.runSpecPerCallMs } : {}), ...(limits.runSpecCallsCeiling !== undefined ? { ceiling: limits.runSpecCallsCeiling } : {}) });
+  /* The DEV-write cap protects DEV's data: it is never derived from the plan, and every flow's writes are a share of it. */
+  const runSpecDevWrites = perFlowGrant({ held: limits.runSpecDevWrites !== undefined, ceiling: limits.runSpecDevWrites ?? 0, flows: count, minimum: MIN_RUN_SPEC_DEV_WRITES_PER_FLOW });
+  const browserCalls = perFlowGrant({ held: limits.browserPerCallMs !== undefined, flows: count, minimum: MIN_BROWSER_CALLS_PER_FLOW, flowBudgetMs: budgetMs, ...(limits.browserPerCallMs !== undefined ? { perCallMs: limits.browserPerCallMs } : {}), ...(limits.browserCallsCeiling !== undefined ? { ceiling: limits.browserCallsCeiling } : {}) });
 
   return {
     kind: LEAD_PLAN_KIND.FANOUT,

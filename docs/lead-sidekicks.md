@@ -44,11 +44,16 @@ signed-in app (see below); without either, no sidekick can author and the run en
    `flowBudgetMs` that fit in what is left of the run after the reserve (at least one wave while a flow still has `MIN_FLOW_MS`),
    bounded by the app's optional `maxFlows` ceiling, and unbounded with neither a deadline nor a ceiling. The plan's first flows up
    to the capacity are admitted in plan order; the rest are named `notAdmitted` and asked of the lead in the amendment turn (below).
-   Each admitted flow is granted its share of the run's `run_spec` calls, `run_spec` writes to DEV and authenticated-browser calls,
-   never under a useful minimum (`MIN_RUN_SPEC_CALLS_PER_FLOW` 3: write and run, correct once, confirm;
-   `MIN_RUN_SPEC_DEV_WRITES_PER_FLOW` 2; `MIN_BROWSER_CALLS_PER_FLOW` 20: read each page and drive one form), never a minimum above
-   the run's own total, and never more calls than the flow's own time runs at the tool's per-call time, so a plan of many flows no
-   longer splits a run total down to 0 calls a flow. The authenticated browser's own run total still bounds every call it serves. A plan that cannot be admitted goes back to the lead once, in its open session, with the
+   Each admitted flow's grant is primary (`perFlowGrant`, `flow-capacity.ts`): it is granted the `run_spec` and authenticated-browser
+   calls its own time runs at the tool's per-call time, so the run's call totals are derived, the sum of its flows' grants, and no
+   later flow of a large plan starves. Each grant is still bounded by the flow's time and every call by the run's deadline. An
+   app's `qa.closedLoop.maxCalls` is an optional ceiling on the flows' `run_spec` calls together, which they then share, never
+   under a useful minimum the ceiling allows (`MIN_RUN_SPEC_CALLS_PER_FLOW` 3: write and run, correct once, confirm). The run's
+   cap on writes to DEV (`qa.closedLoop.maxDevWrites`) protects DEV's data and is never derived: each flow's writes are its share
+   of it, never a minimum above it (`MIN_RUN_SPEC_DEV_WRITES_PER_FLOW` 2). A browser session of a flow spends its flow's share alone;
+   the browser's own run total (`DEFAULT_AGENT_BROWSER_LIMITS.maxCalls`) holds only the sessions bound to no flow and is the base an
+   explore question's share is cut from. The derived totals are recorded: `gateSignals.closedLoop.granted` and
+   `gateSignals.agentBrowser.granted`. A plan that cannot be admitted goes back to the lead once, in its open session, with the
    reason (`renderRejectedPlanRequest`); a no-op or an admitted answer replaces it, and anything else ends the run `E-NO-AUTHOR` with
    the first reason recorded (`refusal: plan-rejected:<reason>`); a plan of one flow is a fan-out of one, and a fan-out of no flow whose use cases are dropped
    with a basis and a reason is the lead's declared no-op (the run is `skipped` with those reasons); with no reasoned, based drop it is refused `empty`. The plan must answer for each direct

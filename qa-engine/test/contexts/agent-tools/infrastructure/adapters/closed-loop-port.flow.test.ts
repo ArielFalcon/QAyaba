@@ -187,13 +187,14 @@ test("the run sees a flow's pass for the file that was copied back, as long as i
   assert.equal(await r.run.isClosed(["flows/login.spec.ts"]), false);
 });
 
-test("the run's counts include its flows' calls and writes", async (t) => {
+test("the run's counts include its flows' calls and writes, and the calls its flows were granted", async (t) => {
   const r = await rig(t);
   r.run.openFlow(r.flowInput());
+  r.run.openFlow(r.flowInput({ delegationId: "run-9-flow-other", flowId: "other", limits: { maxCalls: 4, maxDevWrites: 3 } }));
   r.writeWorkspace("flows/login.spec.ts", SPEC);
   bind(r);
   await call(r);
-  assert.deepEqual(r.run.signals(), { calls: 1, devWrites: 1 });
+  assert.deepEqual(r.run.signals(), { calls: 1, devWrites: 1, granted: 6 });
 });
 
 test("closing a flow revokes its right and forgets its loop, and the run keeps what the flow did in its counts", async (t) => {

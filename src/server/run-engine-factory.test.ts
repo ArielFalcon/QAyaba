@@ -3700,7 +3700,7 @@ test("an e2e app composes the run_spec loop only when the host has a registry, d
   const registry = new ClosedLoopRegistry();
   const withLoop = buildEngineRootDeps(app, { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff" });
   assert.equal(withLoop.closedLoop?.registry, registry);
-  assert.deepEqual(withLoop.closedLoop?.setting, { enabled: true, limits: { maxCalls: 3, perCallMs: 120_000, maxDevWrites: 20 } });
+  assert.deepEqual(withLoop.closedLoop?.setting, { enabled: true, limits: { maxCalls: 3, perCallMs: 120_000, maxDevWrites: 20, callsCeiling: 3 } }, "the app's maxCalls is a ceiling on its flows' calls");
   assert.equal(withLoop.closedLoop?.account, "loop-app/LOOP_USER");
   assert.equal(withLoop.closedLoop?.generatorRuntimeCanCall(), true);
 });
@@ -3710,6 +3710,7 @@ test("the loop is on for an app that says nothing, off for one that turns it off
   const registry = new ClosedLoopRegistry();
   const silent = buildEngineRootDeps(cfg("loop-default"), { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff" });
   assert.equal(silent.closedLoop?.setting.enabled, true);
+  assert.equal(silent.closedLoop?.setting.limits.callsCeiling, undefined, "an app that sets no maxCalls leaves its flows' total derived");
   const optedOut = { ...cfg("loop-off"), qa: { ...cfg("loop-off").qa, closedLoop: { enabled: false } } };
   const off = buildEngineRootDeps(optedOut, { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff" });
   assert.equal(off.closedLoop?.setting.enabled, false);

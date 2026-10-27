@@ -481,15 +481,15 @@ The result is `detail.acceptance` of the arm's probe report (`validate`, `runs[]
 
 `qa.closedLoop.enabled` (or `--closed-loop on` of the campaign / `npm run qa`, or `closedLoop: true` on `POST /api/v1/runs`) lets the OpenCode generator execute a spec it wrote
 while it authors (`docs/execution-sandbox.md`, "The run_spec tool"). It ships **off**: the A/B is two campaigns that differ only in `--closed-loop on` and `--closed-loop off`
-(`--arms B`, same cases, same warm snapshot). Read `gateSignals.closedLoop { calls, devWrites, closed }` in each pipeline arm's probe report (`closedLoop` field): `closed` is whether every delivered spec was
+(`--arms B`, same cases, same warm snapshot). Read `gateSignals.closedLoop { calls, devWrites, closed, granted }` in each pipeline arm's probe report (`closedLoop` field): `closed` is whether every delivered spec was
 seen passing in its final bytes, which is what skips the static-fix rounds, the pre-exec corrective regeneration and the fix loop's regeneration. Compare cost, wall time, steps and the rubric score of the valid
-replicates; the loop adds DEV load (calls and writes are capped per run: `maxCalls` 8, `perCallMs` 120000, `maxDevWrites` 20 by default).
+replicates; the loop adds DEV load (each flow is granted the calls its time runs at `perCallMs` 120000, `maxCalls` is an optional ceiling on the flows' calls together, and writes are capped per run at `maxDevWrites` 20 by default).
 
 ### The authenticated agent browser: A/B
 
 `qa.agentBrowser.enabled` (or `--agent-browser on` of the campaign / `npm run qa`, or `agentBrowser: true` on `POST /api/v1/runs`) lets the OpenCode authoring agents read DEV signed in as the test account, through tools the
 orchestrator serves (`docs/execution-sandbox.md`, "The authenticated agent browser"). It ships **off**: the A/B is two campaigns that differ only in `--agent-browser on` and `--agent-browser off` (`--arms B`, same cases, same
-warm snapshot, the same `--closed-loop` choice in both). Read `gateSignals.agentBrowser { calls, blocks, invalidations, renewals }` in each pipeline arm's probe report (the `agentBrowser` field, and the "Authenticated browser"
+warm snapshot, the same `--closed-loop` choice in both). Read `gateSignals.agentBrowser { calls, blocks, invalidations, renewals, granted }` in each pipeline arm's probe report (the `agentBrowser` field, and the "Authenticated browser"
 lines of its markdown): `blocks` counts the requests the guard refused (a write the agent tried, a closed route, an outside origin) and `invalidations` the calls that found the session gone. Compare cost, wall time, steps, the number
 of reads of the source before the first write, and the rubric score of the valid replicates; the browser adds DEV load (calls per run are capped at 150 by default, time per call at 30 s) and one Chromium process per run. The tools
 are hidden from the prompts of a session the run did not grant them (a per-prompt `tools` map), so the `off` arm carries no trace of them.

@@ -111,22 +111,22 @@ export class AgentBrowserUseCase {
     };
     const stop = callSignal && this.deps.signal ? AbortSignal.any([callSignal, this.deps.signal]) : (callSignal ?? this.deps.signal);
     const refused = capability.authorize(request.sessionId, request.agent);
-    if (refused) return this.refusal(refused.code, refused.message);
+    if (refused) return this.refusal(refused.code, refused.message, request.sessionId);
 
     const action = this.actionOf(request);
-    if ("message" in action) return this.refusal(AGENT_BROWSER_REFUSAL.INVALID_REQUEST, action.message);
+    if ("message" in action) return this.refusal(AGENT_BROWSER_REFUSAL.INVALID_REQUEST, action.message, request.sessionId);
     tell({ "qayaba.browser.action": action.kind });
     if (action.kind === "navigate") {
       const decision = this.deps.guard.decide({ method: "GET", url: action.url });
       if (!decision.allow) {
         tell({ "qayaba.browser.blocks": 1, "qayaba.browser.block_reasons": [decision.reason] });
         capability.recordBlocks(1);
-        return this.refusal(AGENT_BROWSER_REFUSAL.BLOCKED, `${decision.detail}; the browser does not open it`);
+        return this.refusal(AGENT_BROWSER_REFUSAL.BLOCKED, `${decision.detail}; the browser does not open it`, request.sessionId);
       }
     }
 
     const reservation = capability.reserve(request.sessionId);
-    if (!reservation.ok) return this.refusal(reservation.code, reservation.message);
+    if (!reservation.ok) return this.refusal(reservation.code, reservation.message, request.sessionId);
 
     const waitSignal = AbortSignal.any([...(stop ? [stop] : []), (this.deps.leaseWaitSignal ?? AbortSignal.timeout.bind(AbortSignal))(capability.limits.leaseWaitMs)]);
     /* Whether the call got the account and began: one that did not is given back, not spent. */
@@ -142,17 +142,17 @@ export class AgentBrowserUseCase {
           tell({ "qayaba.lease.wait_ms": Math.max(0, now() - asked) });
           /* What was true when the call asked may not be true when it gets the account: the run may have ended or run out of time. */
           const gone = capability.authorize(request.sessionId, request.agent);
-          if (gone) return this.refusal(gone.code, gone.message);
+          if (gone) return this.refusal(gone.code, gone.message, request.sessionId);
           began = true;
           return this.perform(request.sessionId, action, stop, tell);
         },
         waitSignal,
       );
     } catch (err) {
-      if (stop?.aborted) return this.refusal(AGENT_BROWSER_REFUSAL.FAILED, "the call was cancelled");
-      if (waitSignal.aborted) return this.refusal(AGENT_BROWSER_REFUSAL.BUSY, "DEV busy: the test account is in use by another step of this run; try again in a moment");
+      if (stop?.aborted) return this.refusal(AGENT_BROWSER_REFUSAL.FAILED, "the call was cancelled", request.sessionId);
+      if (waitSignal.aborted) return this.refusal(AGENT_BROWSER_REFUSAL.BUSY, "DEV busy: the test account is in use by another step of this run; try again in a moment", request.sessionId);
       engineLog.error(`[qa] authenticated browser call ${reservation.callNumber} failed in the harness: ${err instanceof Error ? err.message : String(err)}`);
-      return this.refusal(AGENT_BROWSER_REFUSAL.FAILED, "the browser could not complete the call");
+      return this.refusal(AGENT_BROWSER_REFUSAL.FAILED, "the browser could not complete the call", request.sessionId);
     } finally {
       if (!waited) tell({ "qayaba.lease.wait_ms": Math.max(0, now() - asked) });
       if (!began) capability.refund(request.sessionId);
@@ -168,9 +168,9 @@ export class AgentBrowserUseCase {
     try {
       state = await host.perform(sessionId, action, { signal, timeoutMs, ...(geolocation ? { geolocation } : {}), ...(capability.isReadOnly(sessionId) ? { readOnly: true } : {}) });
     } catch (err) {
-      if (err instanceof BrowserActionError) return this.refusal(AGENT_BROWSER_REFUSAL.FAILED, err.message);
+      if (err instanceof BrowserActionError) return this.refusal(AGENT_BROWSER_REFUSAL.FAILED, err.message, sessionId);
       engineLog.error(`[qa] authenticated browser action failed: ${err instanceof Error ? err.message : String(err)}`);
-      return this.refusal(AGENT_BROWSER_REFUSAL.FAILED, "the browser could not complete the call");
+      return this.refusal(AGENT_BROWSER_REFUSAL.FAILED, "the browser could not complete the call", sessionId);
     }
 
     capability.recordBlocks(state.blocked.length);
@@ -183,12 +183,12 @@ export class AgentBrowserUseCase {
       { url: state.url, requestedPath: state.requestedPath, viaNavigation: action.kind === "navigate", passwordFieldVisible: state.passwordFieldVisible, ...(state.documentStatus !== undefined ? { documentStatus: state.documentStatus } : {}) },
       { ...(this.deps.loginPath !== undefined ? { loginPath: this.deps.loginPath } : {}) },
     );
-    if (lost) return this.invalidated(lost.detail, signal, tell);
+    if (lost) return this.invalidated(sessionId, lost.detail, signal, tell);
     this.noteRead(sessionId, state.url);
-    return this.report(state);
+    return this.report(state, sessionId);
   }
 
-  private async invalidated(detail: string, signal: AbortSignal, tell: (attrs: Attrs) => void): Promise<AgentBrowserResponse> {
+  private async invalidated(sessionId: string, detail: string, signal: AbortSignal, tell: (attrs: Attrs) => void): Promise<AgentBrowserResponse> {
     const { capability, host, session } = this.deps;
     let renewed: boolean | undefined;
     if (session && capability.canRenew()) {
@@ -205,7 +205,7 @@ export class AgentBrowserUseCase {
     const next = renewed
       ? "The session was renewed; navigate again to continue."
       : "The session could not be renewed; do not rely on this browser for the rest of the run and use what the task supplies.";
-    return this.refusal(AGENT_BROWSER_REFUSAL.SESSION_INVALIDATED, `session invalidated: ${this.deps.redact(detail)}. ${next}`);
+    return this.refusal(AGENT_BROWSER_REFUSAL.SESSION_INVALIDATED, `session invalidated: ${this.deps.redact(detail)}. ${next}`, sessionId);
   }
 
   /* The page the browser showed, by its path, goes to the session's ledger; an address that cannot be read as one leaves no entry. */
@@ -217,13 +217,13 @@ export class AgentBrowserUseCase {
     }
   }
 
-  private report(state: PageState): AgentBrowserResponse {
+  private report(state: PageState, sessionId: string): AgentBrowserResponse {
     const { redact, capability } = this.deps;
     const truncated = state.snapshot.length > MAX_SNAPSHOT_CHARS;
     const notes = [...state.notes.map(redact)];
     if (truncated) notes.push(`the page tree was cut at ${MAX_SNAPSHOT_CHARS} characters`);
-    const left = capability.callsLeft();
-    if (left <= LOW_CALLS) notes.push(`${left} authenticated browser call(s) left in this run`);
+    const left = capability.callsLeft(sessionId);
+    if (left <= LOW_CALLS) notes.push(`${left} authenticated browser call(s) left`);
     return {
       ok: true,
       page: {
@@ -238,8 +238,9 @@ export class AgentBrowserUseCase {
     };
   }
 
-  private refusal(code: AgentBrowserRefusalCode, message: string): AgentBrowserResponse {
-    return { ok: false, code, message: this.deps.redact(message), budget: { callsLeft: this.deps.capability.callsLeft() } };
+  /* A refusal, with the calls the asking session may still make. */
+  private refusal(code: AgentBrowserRefusalCode, message: string, sessionId: string): AgentBrowserResponse {
+    return { ok: false, code, message: this.deps.redact(message), budget: { callsLeft: this.deps.capability.callsLeft(sessionId) } };
   }
 
   /* The browser action a request names, or why it is not one. A navigation's address is resolved against the app's base. */
