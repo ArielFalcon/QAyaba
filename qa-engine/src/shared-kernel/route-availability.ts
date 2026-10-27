@@ -48,6 +48,12 @@ export interface RouteAvailabilityFact {
   basis: AvailabilityBasis;
 }
 
+/* The symbols the code graph's walk from the change's symbols reached (the changed symbols included), and whether that walk was complete: not cut by its budget and with no symbol at its depth bound. The input of E2. */
+export interface ChangeClosure {
+  symbols: ReadonlyArray<{ file: string; symbol: string }>;
+  complete: boolean;
+}
+
 /* The most facts the gate signal lists; the rest are counted. */
 export const MAX_AVAILABILITY_FACTS_RECORDED = 16;
 
