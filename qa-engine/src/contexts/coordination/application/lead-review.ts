@@ -3,7 +3,8 @@
  * orchestrator saw of the flow's run_spec calls and the spec the sidekick wrote, and answers per flow: accept it, send an
  * instruction to the same sidekick (revise), start a fresh sidekick on it (replace), or drop it. The answer is the lead's word and
  * is admitted here against the orchestrator's facts, which decide over it: a spec that has not passed run_spec on its current
- * bytes is not accepted while a review turn is left (when its last call failed, even with no call left to run it again); an app defect is never sent back to be made green;
+ * bytes is not accepted while a review turn is left and the flow can run it (when its last call failed, even with no call left to
+ * run it again; never once its run_spec is refused for writes, since no call can run then); an app defect is never sent back to be made green;
  * a delivered spec is not dropped (it is already in the working copy, and the run's execution and the reviewer judge it).
  * Pure: no clock, no file, no model.
  */
@@ -12,14 +13,14 @@ import { assembleDefs, type AssembledPrompt } from "@kernel/prompt-sections.ts";
 import { flowCovers, type AdmissionSet } from "./plan-coverage.ts";
 import { FLOW_OUTCOME } from "./flow-outcomes.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
-import { LEAD_REVIEW_SECTIONS, MAX_SPEC_CHARS, type CandidateGaps, type FailureBytes, type FlowUnderReview, type SidekickAnswer } from "./coordination-sections/lead-turn-sections.ts";
+import { LEAD_REVIEW_SECTIONS, MAX_SPEC_CHARS, type CandidateGaps, type FailureBytes, type FlowUnderReview, type NoWritesLeft, type SidekickAnswer } from "./coordination-sections/lead-turn-sections.ts";
 
 /* How the instruction that sends a spec back qualifies its last failure. */
 const FAILURE_INSTRUCTION_NOTE: Record<FailureBytes, string> = { current: "", earlier: ", seen on earlier bytes", "no-spec": ", while the flow held no spec" };
 import { lastJsonObjectWhere } from "@kernel/last-json-object.ts";
 import { sha256Hex } from "@kernel/content-hash.ts";
 
-export { MAX_SPEC_CHARS, type CandidateGaps, type FailureBytes, type FlowUnderReview, type SidekickAnswer };
+export { MAX_SPEC_CHARS, type CandidateGaps, type FailureBytes, type FlowUnderReview, type NoWritesLeft, type SidekickAnswer };
 
 export const REVIEW_ACTION = {
   ACCEPT: "accept",
@@ -47,6 +48,7 @@ export const REVIEW_OVERRIDE = {
   NOTHING_DELIVERED: "nothing-delivered",
   UNVERIFIED_SENT_BACK: "unverified-sent-back",
   UNVERIFIED_NO_TURN: "unverified-no-turn-left",
+  UNVERIFIED_NO_WRITES: "unverified-no-writes",
   APP_DEFECT: "app-defect",
   NO_TURN_LEFT: "no-turn-left",
   NEEDS_INSTRUCTION: "needs-instruction",
@@ -155,10 +157,15 @@ export function admitLeadReview(redaction: RedactionPort, output: string, flows:
           refuse(flow.id, action, REVIEW_OVERRIDE.NOTHING_DELIVERED, "nothing was delivered to accept");
           break;
         }
-        /* Sent back: a spec whose last call failed, or one the flow can still run that has not passed on its current bytes. */
+        /* Sent back: a spec whose last call failed, or one the flow can still run that has not passed on its current bytes. A flow refused for writes can run nothing: sending it back would only ask for a pass no call can give, so the run's execution and fix loop judge it. */
         const lastFailed = flow.runSpec?.lastStatus === "failed";
         const canRun = flow.runSpec !== undefined && flow.runSpec.calls < flow.runSpec.maxCalls;
         if (flow.verified || flow.appDefect !== undefined || !(lastFailed || canRun)) {
+          admission.accepted.push(flow.id);
+          break;
+        }
+        if (flow.runSpec?.noWritesLeft !== undefined) {
+          refuse(flow.id, action, REVIEW_OVERRIDE.UNVERIFIED_NO_WRITES, "the spec has not passed run_spec on its current bytes and its run_spec is refused for writes, so it cannot run again; the run's execution and fix loop judge it");
           admission.accepted.push(flow.id);
           break;
         }

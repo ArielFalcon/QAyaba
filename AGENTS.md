@@ -287,7 +287,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   `run_spec` facts and the delivered spec (through the confined reader), and answers per flow `accept`, `revise` (its instruction to the
   SAME sidekick session, which is kept with its workspace and loop until the pass ends), `replace` (a fresh sidekick on the escalated
   model) or `drop`. Its answer is untrusted and the orchestrator's facts decide over it: an `accept` of a spec that has not passed
-  `run_spec` on its current bytes is sent back while it can run and a turn is left; an app defect (5xx, uncaught runtime error, by the
+  `run_spec` on its current bytes is sent back while it can run and a turn is left (a flow refused for writes cannot run: the review's facts say so and its accept stands); an app defect (5xx, uncaught runtime error, by the
   fixed rules of `authoring-failure.ts`) is never sent back to be made green (the spec that showed it is delivered); what a sidekick wrote is taken back whatever its turn ended in; a
   delivered spec is never dropped. Every revision carries the orchestrator's facts (the failure kind of the last `run_spec` call, and
   the two reads when a flow's empty read contradicts a page the Context Pack read with results, which also refuses that flow's

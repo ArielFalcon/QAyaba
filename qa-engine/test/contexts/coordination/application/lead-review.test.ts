@@ -163,6 +163,35 @@ test("an accept of a spec whose last run_spec call failed is sent back even when
   assert.match(admitted.orders[0]!.instruction, /expected 3, got 0/);
 });
 
+test("an accept of an unverified spec whose run_spec is refused for writes is not sent back: it cannot run, and the run's execution judges it", () => {
+  for (const noWritesLeft of ["flow", "run"] as const) {
+    for (const lastStatus of ["failed", "passed"]) {
+      const refused = flow({ verified: false, runSpec: { calls: 3, maxCalls: 8, lastStatus, noWritesLeft, ...(lastStatus === "failed" ? { lastFailure: "expected 3, got 0" } : {}) } });
+      const admitted = admitLeadReview(redaction, answer([{ flow: "cart", action: "accept" }]), [refused], { revisionsAllowed: true });
+      assert.deepEqual(admitted.orders, [], `${noWritesLeft}/${lastStatus}: no send-back`);
+      assert.deepEqual(admitted.accepted, ["cart"], `${noWritesLeft}/${lastStatus}: accepted`);
+      assert.deepEqual(admitted.refused.map((r) => r.code), ["unverified-no-writes"], `${noWritesLeft}/${lastStatus}: the gap is recorded`);
+    }
+  }
+});
+
+test("a revise the lead itself orders for a flow refused for writes still reaches its sidekick", () => {
+  const refused = flow({ verified: false, runSpec: { calls: 3, maxCalls: 8, lastStatus: "failed", noWritesLeft: "flow" } });
+  const admitted = admitLeadReview(redaction, answer([{ flow: "cart", action: "revise", instruction: "assert the empty state" }]), [refused], { revisionsAllowed: true });
+  assert.equal(admitted.orders[0]?.action, REVIEW_ACTION.REVISE);
+  assert.equal(admitted.orders[0]?.instruction, "assert the empty state");
+});
+
+test("the review states that a flow's run_spec is refused for writes, by its own share or by the run's cap", () => {
+  const byShare = renderLeadReview(redaction, [flow({ verified: false, runSpec: { calls: 3, maxCalls: 8, lastStatus: "passed", noWritesLeft: "flow" } })], { turn: 1, maxTurns: 3 });
+  assert.match(byShare, /refused for writes/);
+  assert.match(byShare, /this flow's share/);
+  const byRun = renderLeadReview(redaction, [flow({ verified: false, runSpec: { calls: 3, maxCalls: 8, lastStatus: "passed", noWritesLeft: "run" } })], { turn: 1, maxTurns: 3 });
+  assert.match(byRun, /refused for writes/);
+  assert.match(byRun, /the run's cap/);
+  assert.doesNotMatch(renderLeadReview(redaction, [flow()], { turn: 1, maxTurns: 3 }), /refused for writes/);
+});
+
 const required = [pageCandidate("/cart"), pageCandidate("/login"), pageCandidate("/orders"), pageCandidate("/shops/:city")];
 const ADMISSION = { required, others: 0 };
 

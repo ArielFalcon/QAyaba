@@ -224,7 +224,9 @@ The answer is untrusted, and the orchestrator's facts decide over it:
 
 - an `accept` of a spec that has not passed `run_spec` on its current bytes, while the flow can still run it and a turn
   is left, is turned into a `revise` carrying the failure the orchestrator saw; on the last turn it stands and the run's
-  execution judges it;
+  execution judges it. A flow whose `run_spec` is refused for writes (its own share of DEV writes spent, or the run's cap)
+  cannot run it: the review's facts say so, its `accept` stands (`unverified-no-writes`), and the run's execution and fix
+  loop judge the spec;
 - an app defect is never sent back to be made green (`revise`/`replace` refused);
 - a delivered spec is never dropped: it is already in the working copy, and the run's execution and the reviewer judge it.
   A spec the sidekick wrote is taken back after every turn whatever the turn ended in (`needs-lead`, `failed`, an answer

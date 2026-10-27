@@ -35,7 +35,7 @@ import { candidateSlicesOf, changeViewOf, ownedSliceOf, type ChangeView } from "
 import { flowCapacity } from "./flow-capacity.ts";
 import type { CandidateClaim, DelegationResult } from "./delegation-result.ts";
 import { classifyDelegationFailure } from "./delegation-failure-class.ts";
-import { admitLeadReview, candidateGapsOf, assembleLeadReview, MAX_REVIEW_TURNS, REVIEW_ACTION, withSpecDigests, type FailureBytes, type FlowUnderReview, type ReviewOrder, type SeenSpecs } from "./lead-review.ts";
+import { admitLeadReview, candidateGapsOf, assembleLeadReview, MAX_REVIEW_TURNS, REVIEW_ACTION, withSpecDigests, type FailureBytes, type FlowUnderReview, type NoWritesLeft, type ReviewOrder, type SeenSpecs } from "./lead-review.ts";
 import type { CoordinationTelemetryEvent, CoordinationTelemetryPort } from "./coordination-telemetry.ts";
 import { PLAN_SNAPSHOT_KIND, type PlanSnapshotCandidate, type PlanSnapshotFlow, type PlanSnapshotKind, type PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port.ts";
 import { authorTask } from "./author-task.ts";
@@ -939,7 +939,7 @@ export class LeadSidekicks {
       acceptance: flow.acceptance,
       outcome: report.outcome,
       answer: last?.answerMiss ? { kind: last.answerMiss } : { kind: "read", ...(last?.summary ? { summary: last.summary } : {}), concerns: last?.concerns ?? [] },
-      ...(loop ? { runSpec: { calls: ledger.length, maxCalls: loop.limits.maxCalls, ...(lastCall ? { lastStatus: lastCall.status } : {}), ...(lastFailure ? { lastFailure, lastFailureOn } : {}) } } : {}),
+      ...(loop ? { runSpec: { calls: ledger.length, maxCalls: loop.limits.maxCalls, ...(lastCall ? { lastStatus: lastCall.status } : {}), ...(lastFailure ? { lastFailure, lastFailureOn } : {}), ...noWritesLeftOf(loop) } } : {}),
       verified: loop ? await loop.isClosed().catch(() => false) : false,
       ...(entry?.appDefect ? { appDefect: entry.appDefect } : {}),
       sessionOpen: entry?.session !== undefined,
@@ -1375,6 +1375,13 @@ function describePlan(plan: AdmittedPlan): string {
 function knownFactsOf(redaction: RedactionPort, input: Pick<CoordinateInput, "confirmedDataRoutes">, routes?: readonly string[]): EvidenceRef[] {
   const pages = (input.confirmedDataRoutes ?? []).filter((page) => routes === undefined || routes.some((route) => namesTemplatePage(route, page.path) || namesTemplatePage(page.path, route)));
   return pages.length > 0 ? evidenceFromPackDataRoutes(redaction, pages) : [];
+}
+
+/* Whose writes to DEV are spent when the flow's next run_spec call would be refused for writes: its own share first, then the run's cap every flow shares; nothing while it can still run. */
+function noWritesLeftOf(loop: FlowLoopHandle): { noWritesLeft?: NoWritesLeft } {
+  if (loop.signals().devWrites >= loop.limits.maxDevWrites) return { noWritesLeft: "flow" };
+  if (loop.runWritesLeft() <= 0) return { noWritesLeft: "run" };
+  return {};
 }
 
 /* The pages the flow's run_spec calls read empty at a failure point, each once. */

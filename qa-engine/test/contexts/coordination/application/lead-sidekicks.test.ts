@@ -634,6 +634,26 @@ test("an accept of a spec that has not passed run_spec on its current bytes is s
   assert.equal(outcome.signal.review?.accepted, 1);
 });
 
+test("a flow whose run_spec is refused for writes is not sent back to pass it: the lead is told, and its accept stands", async () => {
+  for (const spent of ["flow", "run"] as const) {
+    const lead = leadWith([[{ flow: "cart", action: "accept" }, { flow: "login", action: "accept" }], []]);
+    const r = rig();
+    r.closedLoop.openFlow = ((original) => (flowInput: FlowLoopOpenInput) => {
+      const handle = original(flowInput)!;
+      if (flowInput.flowId !== "cart") return { ...handle, isClosed: async () => true };
+      r.flowLoops.at(-1)!.ledger.push({ path: flowInput.specFile, sha256: "b", status: "failed", devWrites: flowInput.limits.maxDevWrites, failures: [{ detail: "Expected: 3 Received: 0", path: "/cart" }] });
+      return spent === "flow"
+        ? { ...handle, signals: () => ({ calls: 1, devWrites: flowInput.limits.maxDevWrites }) }
+        : { ...handle, runWritesLeft: () => 0 };
+    })(r.closedLoop.openFlow);
+    const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan }));
+    if (outcome.action === "fanout") await outcome.pass?.release();
+    assert.equal(r.executed.filter((e) => e.brief.delegationId === "run-1-flow-cart").length, 1, `${spent}: the flow is not sent back`);
+    assert.match(lead.asked[0] ?? "", /refused for writes/, `${spent}: the review states it`);
+    assert.equal(outcome.action === "fanout" ? outcome.signal.review?.accepted : -1, 2, `${spent}: both accepts stand`);
+  }
+});
+
 test("each turn of a flow records what the sidekick reported beside how its flow's last run_spec call ended", async () => {
   const r = rig({ answers: { cart: [{ status: "failed" as const, summary: "gave up", filesChanged: [], writes: true }] }, hasFile: new Set(["login"]) });
   r.closedLoop.openFlow = ((original) => (flowInput: FlowLoopOpenInput) => {

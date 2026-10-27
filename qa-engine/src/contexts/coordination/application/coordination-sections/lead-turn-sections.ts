@@ -28,6 +28,14 @@ export const FAILURE_BYTES_NOTE: Record<FailureBytes, string> = {
   "no-spec": " (the flow holds no spec)",
 };
 
+/* Whose writes to DEV are spent when a flow's run_spec is refused for writes: the flow's own share, or the run's cap shared by every flow. */
+export type NoWritesLeft = "flow" | "run";
+
+const NO_WRITES_LEFT_NOTE: Record<NoWritesLeft, string> = {
+  flow: "this flow's share of writes to DEV is spent",
+  run: "the run's cap of writes to DEV is spent",
+};
+
 export interface FlowUnderReview {
   id: string;
   objective: string;
@@ -35,8 +43,8 @@ export interface FlowUnderReview {
   outcome: FlowOutcome;
   /* What the sidekick answered, or why the orchestrator holds no answer of its. */
   answer: SidekickAnswer;
-  /* What the orchestrator saw of the flow's run_spec calls; absent when the flow has no loop. `lastFailureOn` says which bytes its last failure was seen on. */
-  runSpec?: { calls: number; maxCalls: number; lastStatus?: string; lastFailure?: string; lastFailureOn?: FailureBytes };
+  /* What the orchestrator saw of the flow's run_spec calls; absent when the flow has no loop. `lastFailureOn` says which bytes its last failure was seen on. `noWritesLeft` is set once a call of the flow is refused for writes to DEV: its own share is spent (`flow`) or the run's cap is (`run`), so it cannot run again. */
+  runSpec?: { calls: number; maxCalls: number; lastStatus?: string; lastFailure?: string; lastFailureOn?: FailureBytes; noWritesLeft?: NoWritesLeft };
   /* Whether the spec the flow holds now is the one its last run_spec call passed on. */
   verified: boolean;
   /* The app defect the flow's run showed, when one did. */
@@ -106,6 +114,7 @@ function runSpecLine(scrub: (text: string) => string, flow: FlowUnderReview): st
   return [
     `run_spec: ${calls} of ${maxCalls} calls used${lastStatus ? `; last call ${lastStatus}` : ""}; ${verified}.`,
     lastFailure ? `Last failure${FAILURE_BYTES_NOTE[flow.runSpec.lastFailureOn ?? "earlier"]}: ${scrub(lastFailure)}` : "",
+    flow.runSpec.noWritesLeft ? `run_spec is refused for writes: ${NO_WRITES_LEFT_NOTE[flow.runSpec.noWritesLeft]}, so this flow cannot run its spec again; the run's execution and fix loop judge it.` : "",
   ].filter(Boolean).join("\n");
 }
 
