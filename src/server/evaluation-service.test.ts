@@ -460,6 +460,16 @@ test("the campaign listing carries the labels, replicate, status and grading sta
   assert.deepEqual(service.campaignRuns(campaign, { arm: "y" }).runs.map((r) => r.id), [b]);
 });
 
+test("the campaign listing carries the digest of the suite each run restored, and none for a run that recorded none", () => {
+  const campaign = `digest-camp-${Date.now()}`;
+  const a = campaignRun(campaign, { arm: "x" }, 1);
+  const b = campaignRun(campaign, { arm: "x" }, 2);
+  const service = createEvaluationService({ log: quiet, restoredDigest: (id) => (id === a ? "d-a" : null) });
+  const byId = new Map(service.campaignRuns(campaign, {}).runs.map((r) => [r.id, r]));
+  assert.equal(byId.get(a)!.restoredDigest, "d-a");
+  assert.equal("restoredDigest" in byId.get(b)!, false);
+});
+
 test("a run that is not part of a campaign is never listed in one", () => {
   const r = getHistory().runs.createRecord({ target: "e2e", app: "eval-campaign", sha: "abcdef1234", mode: "diff" });
   assert.equal(createEvaluationService({ log: quiet }).campaignRuns("anything", {}).runs.some((x) => x.id === r.id), false);

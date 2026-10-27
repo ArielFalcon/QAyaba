@@ -457,7 +457,8 @@ results), or the re-run could not execute against DEV.
 `campaign.md` compares each replicate with the first one of the same case and arm: a different digest means the replicate started from
 another suite (a run still going when the store was seeded, a spec an earlier replicate left behind), so it is marked **invalid** with that
 reason and left out of the summary and the rubric. A run with no digest (a record from before it existed, or spans that could not be read)
-reads `ok (isolation unknown)`, never invalid; if the first replicate has none, nothing can be compared. The campaign itself is strictly
+reads `ok (isolation unknown)`, never invalid; if the first replicate has none, nothing can be compared. `npm run campaign-report` (API-tagged campaigns, `GET /campaigns/:id/runs` with each run's optional `restoredDigest`) applies the same
+check per variant and lists the replicates it leaves out in `comparison.md` and `comparison.json` (`contaminated`, `isolationUnknown`). The campaign itself is strictly
 sequential (each arm-run waits for an idle queue, then seeds the store, before it starts). **A run launched by hand as a replicate** (`npm run qa`,
 `POST /api/v1/runs`) is not: it must not be enqueued while another run is going or queued, and the suite store must be restored to the
 warm snapshot (`warm-suite seed-store`) before each one; otherwise the digest comparison above is what reveals the contamination, after the fact.

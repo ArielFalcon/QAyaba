@@ -12,7 +12,7 @@ const catalog = {
   ],
 };
 
-type Row = { id: string; arm: string; replicate: number; evaluationStatus?: "pending" | "complete"; pass: number; auth: number };
+type Row = { id: string; arm: string; replicate: number; evaluationStatus?: "pending" | "complete"; pass: number; auth: number; digest?: string };
 function service(rows: Row[], complete = true, judgeStatus?: "experimental" | "calibrated"): { deps: CompareDeps; out: string[]; written: Map<string, string>; gets: string[] } {
   const out: string[] = [];
   const written = new Map<string, string>();
@@ -21,7 +21,7 @@ function service(rows: Row[], complete = true, judgeStatus?: "experimental" | "c
     get: async (path) => {
       gets.push(path);
       if (path === "/api/v1/campaigns/c1/runs") {
-        return { schemaVersion: 1, campaignId: "c1", complete, runs: rows.map((r) => ({ id: r.id, variant: { arm: r.arm }, replicate: r.replicate, status: "done", evaluationStatus: r.evaluationStatus ?? "complete" })) };
+        return { schemaVersion: 1, campaignId: "c1", complete, runs: rows.map((r) => ({ id: r.id, variant: { arm: r.arm }, replicate: r.replicate, status: "done", evaluationStatus: r.evaluationStatus ?? "complete", ...(r.digest !== undefined ? { restoredDigest: r.digest } : {}) })) };
       }
       if (path === "/api/v1/evaluations/catalog") {
         return judgeStatus ? { ...catalog, scores: [...catalog.scores, { name: "spec_relevance", dataType: "BOOLEAN", polarity: "higher_better", graderVersion: "judge-spec_relevance@1", status: judgeStatus }] } : catalog;
@@ -112,4 +112,36 @@ test("an LLM judge's score is compared only once the catalog says the judge is c
   assert.ok(experimental.runs.every((r) => !r.scores.some((x) => x.name === "spec_relevance")));
   const calibrated = await collectCampaign("c1", service(rows(), true, "calibrated").deps);
   assert.ok(calibrated.runs.every((r) => r.scores.some((x) => x.name === "spec_relevance")));
+});
+
+const withDigests = (digests: Record<string, string | undefined>): Row[] => rows().map((r) => (digests[r.id] !== undefined ? { ...r, digest: digests[r.id]! } : r));
+
+test("a replicate that restored another suite than its variant's first replicate is left out of the statistics and listed with the reason", async () => {
+  const digests = { c1: "d", c2: "d", c3: "OTHER", t1: "e", t2: "e", t3: "e" };
+  const s = service(withDigests(digests));
+  assert.equal(await runCompare(["--campaign", "c1", "--baseline", "variant.arm=control", "--out", "/o", "--iterations", "50"], s.deps), 0);
+  const json = JSON.parse(s.written.get("/o/comparison.json")!);
+  assert.equal(json.runsCompared, 5);
+  assert.deepEqual(json.contaminated.map((c: { runId: string }) => c.runId), ["c3"]);
+  assert.match(json.contaminated[0].reason, /restored suite differs from replicate 1/);
+  assert.equal(s.gets.some((g) => g.includes("/c3/")), false, "an invalid replicate is not even graded into the comparison");
+  assert.ok(s.out.some((l) => l.includes("c3") && l.includes("restored suite")));
+  assert.match(s.written.get("/o/comparison.md")!, /c3/);
+});
+
+test("runs with no recorded digest are isolation unknown, compared as before, and reported", async () => {
+  const s = service(rows());
+  assert.equal(await runCompare(["--campaign", "c1", "--out", "/o", "--iterations", "50"], s.deps), 0);
+  const json = JSON.parse(s.written.get("/o/comparison.json")!);
+  assert.equal(json.runsCompared, 6);
+  assert.deepEqual(json.contaminated, []);
+  assert.equal(json.isolationUnknown.length, 6);
+});
+
+test("variants are compared each with their own first replicate, never with another variant's", async () => {
+  const s = service(withDigests({ c1: "d", c2: "d", c3: "d", t1: "e", t2: "e", t3: "e" }));
+  assert.equal(await runCompare(["--campaign", "c1", "--out", "/o", "--iterations", "50"], s.deps), 0);
+  const json = JSON.parse(s.written.get("/o/comparison.json")!);
+  assert.deepEqual(json.contaminated, []);
+  assert.equal(json.isolationUnknown.length, 0);
 });

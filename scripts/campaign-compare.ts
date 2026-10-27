@@ -19,6 +19,7 @@ import {
   type CampaignComparison, type CampaignRun, type RunScore,
 } from "@contexts/evaluation/application/index.ts";
 import { CAMPAIGN_ID_PATTERN } from "../src/contract/campaign.ts";
+import { isolationReasons } from "./campaign-report.ts";
 
 export interface CompareArguments {
   campaign: string;
@@ -88,11 +89,23 @@ const encode = encodeURIComponent;
 const FETCH_CONCURRENCY = 8;
 
 /* The campaign's graded runs with their scores, and the runs left out because they are not graded. */
-export async function collectCampaign(campaignId: string, deps: Pick<CompareDeps, "get">): Promise<{ listing: CampaignRuns; runs: CampaignRun[]; ungraded: string[] }> {
+export interface IsolationFinding { runId: string; variant: Record<string, string>; replicate: number; reason: string }
+
+/* Every replicate starts from the same suite as its variant's first one; one that restored another set is a different experiment. The first replicate is the reference whether or not it is graded. */
+export function judgeIsolation(listing: CampaignRuns): { contaminated: IsolationFinding[]; unknown: string[] } {
+  const reasons = isolationReasons(listing.runs, (r) => JSON.stringify(Object.entries(r.variant).sort(([a], [b]) => (a < b ? -1 : 1))), (r) => r.replicate, (r) => r.restoredDigest);
+  const contaminated = listing.runs.flatMap((r, i) => (reasons[i] === null ? [] : [{ runId: r.id, variant: r.variant, replicate: r.replicate, reason: reasons[i]! }]));
+  const unknown = listing.runs.filter((r, i) => reasons[i] === null && r.restoredDigest === undefined).map((r) => r.id);
+  return { contaminated, unknown };
+}
+
+export async function collectCampaign(campaignId: string, deps: Pick<CompareDeps, "get">): Promise<{ listing: CampaignRuns; runs: CampaignRun[]; ungraded: string[]; contaminated: IsolationFinding[]; isolationUnknown: string[] }> {
   const listing = CampaignRunsSchema.parse(await deps.get(`/api/v1/campaigns/${encode(campaignId)}/runs`));
   const catalog = EvaluationCatalogSchema.parse(await deps.get("/api/v1/evaluations/catalog"));
-  const graded = listing.runs.filter((r) => r.evaluationStatus === "complete");
-  const ungraded = listing.runs.filter((r) => r.evaluationStatus !== "complete").map((r) => r.id);
+  const { contaminated, unknown } = judgeIsolation(listing);
+  const left = new Set(contaminated.map((c) => c.runId));
+  const graded = listing.runs.filter((r) => r.evaluationStatus === "complete" && !left.has(r.id));
+  const ungraded = listing.runs.filter((r) => r.evaluationStatus !== "complete" && !left.has(r.id)).map((r) => r.id);
   const runs: CampaignRun[] = new Array(graded.length);
   let next = 0;
   const worker = async (): Promise<void> => {
@@ -110,7 +123,7 @@ export async function collectCampaign(campaignId: string, deps: Pick<CompareDeps
     }
   };
   await Promise.all(Array.from({ length: Math.min(FETCH_CONCURRENCY, graded.length) }, worker));
-  return { listing, runs, ungraded };
+  return { listing, runs, ungraded, contaminated, isolationUnknown: unknown };
 }
 
 export interface CompareReport {
@@ -120,6 +133,10 @@ export interface CompareReport {
   runsListed: number;
   runsCompared: number;
   ungraded: string[];
+  /* Runs left out because they restored another suite than their variant's first replicate, with why. */
+  contaminated: IsolationFinding[];
+  /* Runs with no restored digest: their isolation cannot be judged. */
+  isolationUnknown: string[];
 }
 
 export async function runCompare(argv: readonly string[], deps: CompareDeps): Promise<number> {
@@ -129,14 +146,19 @@ export async function runCompare(argv: readonly string[], deps: CompareDeps): Pr
     return 2;
   }
   try {
-    const { listing, runs, ungraded } = await collectCampaign(parsed.campaign, deps);
+    const { listing, runs, ungraded, contaminated, isolationUnknown } = await collectCampaign(parsed.campaign, deps);
     if (listing.runs.length === 0) {
       deps.out(`error: the service holds no run for campaign '${parsed.campaign}'`);
       return 1;
     }
     const comparison = compareCampaign(runs, { campaignId: parsed.campaign, baseline: parsed.baseline, seed: parsed.seed, iterations: parsed.iterations });
-    const report: CompareReport = { comparison, complete: listing.complete, runsListed: listing.runs.length, runsCompared: runs.length, ungraded };
-    const markdown = renderComparisonMarkdown(comparison, { complete: listing.complete });
+    const report: CompareReport = { comparison, complete: listing.complete, runsListed: listing.runs.length, runsCompared: runs.length, ungraded, contaminated, isolationUnknown };
+    const markdown = [
+      renderComparisonMarkdown(comparison, { complete: listing.complete }),
+      ...(contaminated.length > 0 ? ["", "## Replicates left out: not the same start", "", ...contaminated.map((c) => `- ${c.runId} (replicate ${c.replicate}, ${Object.entries(c.variant).map(([k, v]) => `${k}=${v}`).join(", ")}): ${c.reason}`)] : []),
+      ...(isolationUnknown.length > 0 ? ["", `Isolation unknown (no restored digest recorded): ${isolationUnknown.length} run(s).`] : []),
+    ].join("\n");
+    for (const c of contaminated) deps.out(`warning: run ${c.runId} is left out of the statistics: ${c.reason}`);
     if (ungraded.length > 0) deps.out(`warning: ${ungraded.length} run(s) are not graded yet and are left out: ${ungraded.slice(0, 5).join(", ")}${ungraded.length > 5 ? ", ..." : ""}`);
     if (parsed.out !== undefined) {
       deps.writeText(join(parsed.out, "comparison.md"), markdown);

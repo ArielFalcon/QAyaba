@@ -83,7 +83,7 @@ const evaluation: EvaluationService = {
   regradeJob: (id) => (id === "job-1" ? { jobId: id, status: "running", runs: 2, graded: 1, failed: [{ runId: "r2", error: "boom" }], startedAt: "2026-10-17T10:00:00.000Z" } : undefined),
   campaignRuns: (campaignId, variant) => {
     const rows = [
-      { id: "run-1", variant: { arm: "control" }, replicate: 1, status: "done" as const, evaluationStatus: "complete" as const, verdict: "pass" },
+      { id: "run-1", variant: { arm: "control" }, replicate: 1, status: "done" as const, evaluationStatus: "complete" as const, verdict: "pass", restoredDigest: "d1" },
       { id: "run-2", variant: { arm: "treatment" }, replicate: 1, status: "done" as const, evaluationStatus: "pending" as const },
     ].filter((r) => Object.entries(variant).every(([k, v]) => (r.variant as Record<string, string>)[k] === v));
     return { campaignId, runs: rows, complete: rows.length > 0 && rows.every((r) => r.evaluationStatus === "complete") };
@@ -323,6 +323,8 @@ test("GET /campaigns/:id/runs lists the runs, filters by variant labels and says
   assert.equal(all.json.campaignId, "ab-1");
   assert.equal(all.json.runs.length, 2);
   assert.equal(all.json.complete, false);
+  assert.equal(all.json.runs[0].restoredDigest, "d1", "the restored digest reaches the listing");
+  assert.equal("restoredDigest" in all.json.runs[1], false);
   const control = await call("GET", "/api/v1/campaigns/ab-1/runs?variant.arm=control");
   assert.deepEqual(control.json.runs.map((r: { id: string }) => r.id), ["run-1"]);
   assert.equal(control.json.complete, true);

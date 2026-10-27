@@ -666,6 +666,8 @@ export const CampaignRunsSchema = z.object({
       status: RunStatusSchema,
       verdict: RunVerdictSchema.optional(),
       evaluationStatus: z.enum(["pending", "complete", "failed"]),
+      /* The digest of the suite store set the run restored (span qayaba.suite_store.restored_digest); absent when the run recorded none. */
+      restoredDigest: z.string().optional(),
     }),
   ),
   /* True when every run of the campaign is done and graded (the server does not know the matrix the client requested). */

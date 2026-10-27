@@ -94,15 +94,26 @@ const hasSuiteStore = (r: ArmRunResult): boolean => r.runId !== null;
  * its isolation is unknown.
  */
 export function withIsolation(results: readonly ArmRunResult[]): ArmRunResult[] {
-  const reference = new Map<string, ArmRunResult>();
-  for (const r of results) {
-    const known = reference.get(caseArmKey(r));
-    if (known === undefined || r.replicate < known.replicate) reference.set(caseArmKey(r), r);
+  const reasons = isolationReasons(results, caseArmKey, (r) => r.replicate, (r) => r.restoredDigest);
+  return results.map((r, i) => (reasons[i] === null ? r : { ...r, invalidReplicate: true, invalidReasons: [...r.invalidReasons, reasons[i]!] }));
+}
+
+/**
+ * The one comparison both campaign reports use: per item, the reason it started from another suite than the first replicate of its group
+ * (`group` names the case and arm, or the variant), or null when it did not or cannot be judged (no digest of its own or of the reference).
+ */
+export function isolationReasons<T>(items: readonly T[], group: (item: T) => string, replicate: (item: T) => number, digest: (item: T) => string | null | undefined): Array<string | null> {
+  const reference = new Map<string, T>();
+  for (const item of items) {
+    const known = reference.get(group(item));
+    if (known === undefined || replicate(item) < replicate(known)) reference.set(group(item), item);
   }
-  return results.map((r) => {
-    const first = reference.get(caseArmKey(r))!;
-    if (first === r || typeof r.restoredDigest !== "string" || typeof first.restoredDigest !== "string" || r.restoredDigest === first.restoredDigest) return r;
-    return { ...r, invalidReplicate: true, invalidReasons: [...r.invalidReasons, `the restored suite differs from replicate ${first.replicate}'s (digest ${r.restoredDigest.slice(0, 12)} against ${first.restoredDigest.slice(0, 12)}): the suite store was not reset between them`] };
+  return items.map((item) => {
+    const first = reference.get(group(item))!;
+    const own = digest(item);
+    const firstDigest = digest(first);
+    if (first === item || typeof own !== "string" || typeof firstDigest !== "string" || own === firstDigest) return null;
+    return `the restored suite differs from replicate ${replicate(first)}'s (digest ${own.slice(0, 12)} against ${firstDigest.slice(0, 12)}): the suite store was not reset between them`;
   });
 }
 

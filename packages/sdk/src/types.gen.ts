@@ -1663,6 +1663,7 @@ export interface components {
                 verdict?: "pass" | "fail" | "flaky" | "invalid" | "infra-error" | "skipped";
                 /** @enum {string} */
                 evaluationStatus: "pending" | "complete" | "failed";
+                restoredDigest?: string;
             }[];
             complete: boolean;
         };

@@ -163,9 +163,20 @@ export interface RegradeJobView {
   finishedAt?: string;
 }
 
+/* The digest the run's suite-store restore span carries; null when there is no such span or it cannot be read. */
+function restoredDigestFromSpans(runId: string): string | null {
+  try {
+    const span = getHistory().telemetry.listRunSpans(runId).find((s) => s.name === "qayaba.suite_store.restore");
+    const digest = span === undefined ? undefined : (JSON.parse(span.attrs) as Record<string, unknown>)["qayaba.suite_store.restored_digest"];
+    return typeof digest === "string" ? digest : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface CampaignRunsView {
   campaignId: string;
-  runs: CampaignRunView[];
+  runs: Array<CampaignRunView & { restoredDigest?: string }>;
   complete: boolean;
 }
 
@@ -192,6 +203,8 @@ export interface EvaluationServiceDeps {
   runs?: RunSelectorPort;
   /* Every run of a campaign with its grading status. Default: the history. */
   campaignRows?: (campaignId: string) => CampaignRunRow[];
+  /* The digest of the suite a run restored, null when it recorded none. Default: the restore span in the history. */
+  restoredDigest?: (runId: string) => string | null;
   sink?: ScoreSinkPort;
   /* The LLM judges the catalog lists and a regrade may name. Absent: no judge is listed and a regrade naming one is refused. */
   judges?: JudgeRegradePort & { catalog(): JudgeCatalogEntry[] };
@@ -268,7 +281,9 @@ export function createEvaluationService(deps: EvaluationServiceDeps = {}): Evalu
       };
     },
     campaignRuns(campaignId, variant) {
-      return { campaignId, ...campaignRunsView((deps.campaignRows ?? ((id) => getHistory().runs.listCampaignRuns(id)))(campaignId), variant) };
+      const view = campaignRunsView((deps.campaignRows ?? ((id) => getHistory().runs.listCampaignRuns(id)))(campaignId), variant);
+      const digestOf = deps.restoredDigest ?? restoredDigestFromSpans;
+      return { campaignId, ...view, runs: view.runs.map((r) => { const digest = digestOf(r.id); return digest === null ? r : { ...r, restoredDigest: digest }; }) };
     },
     recoverInterrupted() {
       return getHistory().evaluations.failInterruptedRegradeJobs(now());
