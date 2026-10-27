@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { GRADER_CATALOG, specOfScore, scoreOf, STEP_INTENTS, CONTEXT_SOURCES, MAX_SCORE_COMMENT_CHARS, isGradedName } from "@contexts/evaluation/domain/grader-catalog.ts";
+import { GRADER_CATALOG, specOfScore, scoreOf, STEP_INTENTS, CONTEXT_SOURCES, MAX_SCORE_COMMENT_CHARS, isGradedName, isCatalogName } from "@contexts/evaluation/domain/grader-catalog.ts";
 import { GRADERS, gradeEvidence } from "@contexts/evaluation/domain/graders.ts";
 import { RUN_PHASES } from "@kernel/run-step.ts";
 import { evidence } from "./evidence-fixtures.ts";
@@ -59,4 +59,11 @@ test("pending catalog entries are not graded names, graded ones are", () => {
   assert.equal(isGradedName("selector_stability"), false);
   assert.equal(isGradedName("spec_pass_rate"), true);
   assert.equal(isGradedName("nonsense"), false);
+});
+
+test("the value graders are in the catalog, the merged duplicates are not, and the context ratios are numeric", () => {
+  for (const name of ["mutation_kill_rate", "change_coverage_ratio", "branch_coverage_ratio", "review_verdict", "defect_found", "survivors_routed", "flaky_triage", "drops_contradicted"]) assert.equal(isGradedName(name), true, name);
+  for (const name of ["auth_overhead", "plan_route_coverage", "delivered_route_coverage"]) assert.equal(isCatalogName(name), false, name);
+  assert.equal(specOfScore("context_complete")?.dataType, "NUMERIC");
+  assert.equal(specOfScore("context_fresh")?.dataType, "NUMERIC");
 });

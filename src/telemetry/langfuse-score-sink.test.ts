@@ -122,7 +122,7 @@ test("a boolean goes as 0 or 1 and a category as its string, each with its own d
 
 test("a comment is redacted and capped before it leaves, and an absent one is not sent", async () => {
   const { sink, calls } = rig();
-  await sink.emit("run-1", [score({ name: "infra_error", value: "none", dataType: "CATEGORICAL", comment: `password hunter2 ${"x".repeat(2_000)}` }), score({ name: "auth_overhead", value: 0.1, dataType: "NUMERIC" })], RUN_END);
+  await sink.emit("run-1", [score({ name: "infra_error", value: "none", dataType: "CATEGORICAL", comment: `password hunter2 ${"x".repeat(2_000)}` }), score({ name: "closed_loop_refusals", value: 0.1, dataType: "NUMERIC" })], RUN_END);
   const [first, second] = posted(calls);
   assert.ok(!String(first!.body!.comment).includes("hunter2"));
   assert.ok(String(first!.body!.comment).length <= MAX_SCORE_COMMENT_CHARS);
@@ -149,7 +149,7 @@ test("the score configs are created once per catalog score, skipping those that 
   const created = calls.filter((c) => c.method === "POST" && c.url.endsWith("/api/public/score-configs")).map((c) => c.body!);
   const byName = new Map(created.map((b) => [b.name as string, b]));
   assert.ok(!byName.has("spec_pass_rate"), "an existing config is not created again");
-  assert.deepEqual(byName.get("auth_overhead"), { name: "auth_overhead", dataType: "NUMERIC", minValue: 0, maxValue: 1 });
+  assert.deepEqual(byName.get("closed_loop_refusals"), { name: "closed_loop_refusals", dataType: "NUMERIC", minValue: 0, maxValue: 1 });
   assert.deepEqual(byName.get("empty_output_guard"), { name: "empty_output_guard", dataType: "BOOLEAN" });
   const phase = byName.get("furthest_phase") as { categories: Array<{ label: string; value: number }> };
   assert.ok(phase.categories.length > 3);
@@ -173,7 +173,7 @@ test("existing configs are read across pages", async () => {
     if (call.method !== "GET") return { status: 200, body: { id: "x" } };
     const page = Number(new URL(call.url).searchParams.get("page"));
     pages.push(page);
-    return { status: 200, body: { data: [{ id: `id-${page}`, name: page === 1 ? "spec_pass_rate" : "auth_overhead" }], meta: { page, limit: 1, totalItems: 2, totalPages: 2 } } };
+    return { status: 200, body: { data: [{ id: `id-${page}`, name: page === 1 ? "spec_pass_rate" : "closed_loop_refusals" }], meta: { page, limit: 1, totalItems: 2, totalPages: 2 } } };
   });
   await sink.ensureScoreConfigs();
   assert.deepEqual(pages, [1, 2]);
@@ -181,7 +181,7 @@ test("existing configs are read across pages", async () => {
 
 test("a Langfuse outage never throws and is counted in the health; no score is posted while the configs are not ensured", async () => {
   const { sink, calls } = rig(() => new Error("connect ECONNREFUSED 10.0.0.2:3000"));
-  await sink.emit("run-1", [score({ name: "spec_pass_rate", value: 1, dataType: "NUMERIC" }), score({ name: "auth_overhead", value: 1, dataType: "NUMERIC" })], RUN_END);
+  await sink.emit("run-1", [score({ name: "spec_pass_rate", value: 1, dataType: "NUMERIC" }), score({ name: "closed_loop_refusals", value: 1, dataType: "NUMERIC" })], RUN_END);
   assert.equal(posted(calls).length, 0, "no score goes before its config exists");
   const health = sink.status();
   assert.equal(health.configured, true);
@@ -213,10 +213,10 @@ test("a partial ensure keeps scores back, so no score of one name lands both wit
   let failing = true;
   const { sink, calls, time } = rig((call) => {
     if (call.method === "GET" && call.url.includes("score-configs")) return { status: 200, body: { data: [], meta: { totalPages: 1 } } };
-    if (call.url.endsWith("/api/public/score-configs")) return failing && call.body!.name === "auth_overhead" ? { status: 400, body: { message: "bad" } } : { status: 200, body: { id: `cfg-${String(call.body!.name)}` } };
+    if (call.url.endsWith("/api/public/score-configs")) return failing && call.body!.name === "closed_loop_refusals" ? { status: 400, body: { message: "bad" } } : { status: 200, body: { id: `cfg-${String(call.body!.name)}` } };
     return { status: 200 };
   });
-  const scores = [score({ name: "spec_pass_rate", value: 1, dataType: "NUMERIC" }), score({ name: "auth_overhead", value: 0.1, dataType: "NUMERIC" })];
+  const scores = [score({ name: "spec_pass_rate", value: 1, dataType: "NUMERIC" }), score({ name: "closed_loop_refusals", value: 0.1, dataType: "NUMERIC" })];
   await sink.emit("run-1", scores, RUN_END);
   assert.equal(posted(calls).length, 0, "one config failed, so nothing is posted");
   failing = false;

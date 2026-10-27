@@ -231,6 +231,25 @@ export function specCountsOf(record: Pick<RunRecord, "specs" | "cases" | "verdic
   return { generated, valid, passed: valid === null ? undefined : countPassedSpecs(specNames, record.cases, valid, record.verdict ?? null) };
 }
 
+/* The surviving bundle mutants a delivered spec reached and the total, from the newest coverage measurement that counted them. */
+function survivorsOf(spans: readonly LedgerSpan[]): { routed: number; total: number } | undefined {
+  for (const span of [...spans].reverse()) {
+    if (span.name !== "qayaba.coverage.measure") continue;
+    const a = attrsOf(span);
+    const routed = a["qayaba.mutation.survivors_routed"];
+    const unrouted = a["qayaba.mutation.survivors_unrouted"];
+    if (typeof routed === "number" && typeof unrouted === "number") return { routed, total: routed + unrouted };
+  }
+  return undefined;
+}
+
+/* The failing cases by the reach the causal label gave them; undefined when the run kept no label. */
+function causalOf(causal: NonNullable<RunOutcome["gateSignals"]["causal"]> | undefined): { inReach: number; outOfReach: number; unknown: number } | undefined {
+  if (!causal) return undefined;
+  const count = (reach: "in-reach" | "out-of-reach" | "unknown"): number => causal.cases.filter((c) => c.reach === reach).length;
+  return { inReach: count("in-reach"), outOfReach: count("out-of-reach"), unknown: count("unknown") };
+}
+
 function stepIntentsOf(spans: readonly LedgerSpan[]): Record<string, number> | undefined {
   const counts: Record<string, number> = {};
   for (const s of spans.filter(isChat)) {
@@ -313,8 +332,11 @@ function changedElementOf(delivered: readonly DeliveredContextSource[]): { chang
 
 /* Freshness provenance, from the produced spans' stale/dom-changed attrs. Absent (undefined) while no source recorded provenance. */
 function freshnessOf(spans: readonly LedgerSpan[], relevantIds: readonly string[]): ContextFreshness | undefined {
-  const stale: Array<{ source: string; reason: string }> = [];
+  const stale: Array<{ source: string; reason: string; routes?: string[] }> = [];
   let domChanged: boolean | undefined;
+  /* The span flag names no page: the change is then not attributable to pages. */
+  let domChangedUnscoped = false;
+  const changedRoutes = new Set<string>();
   let any = false;
   /* The DOM ids of every capture, by route. Two captures of the same route that disagree mean the
    * page changed between them (R4: the grounding pack saw 0 results and the review saw 11). */
@@ -323,20 +345,23 @@ function freshnessOf(spans: readonly LedgerSpan[], relevantIds: readonly string[
   for (const span of spans) {
     if (!span.name.startsWith("qayaba.context.")) continue;
     const attrs = attrsOf(span);
+    const ids = attrs["qayaba.context.item_ids"];
     if (attrs["qayaba.context.stale"] === true) {
       const source = attrs["qayaba.context.source"];
       const reason = attrs["qayaba.context.stale_reason"];
       if (typeof source === "string") {
-        stale.push({ source, reason: typeof reason === "string" ? reason : "stale" });
+        /* The pages the stale source delivered: the stale mark covers the capture, so those are the pages it can have cost. */
+        const routes = [...new Set(asStringArray(ids).flatMap((id) => (id.startsWith("dom:") ? [id.slice(4, id.indexOf("#", 4) < 0 ? undefined : id.indexOf("#", 4))] : id.startsWith("route:") ? [id.slice("route:".length)] : [])))];
+        stale.push({ source, reason: typeof reason === "string" ? reason : "stale", ...(routes.length > 0 ? { routes } : {}) });
         any = true;
       }
     }
     if (attrs["qayaba.context.dom_changed"] === true) {
       domChanged = true;
+      domChangedUnscoped = true;
       any = true;
     }
     if (span.name !== "qayaba.context.dom-capture") continue;
-    const ids = attrs["qayaba.context.item_ids"];
     if (!Array.isArray(ids)) continue;
     const perRoute = new Map<string, Set<string>>();
     for (const id of ids) {
@@ -355,16 +380,16 @@ function freshnessOf(spans: readonly LedgerSpan[], relevantIds: readonly string[
       byRoute.set(route, captures);
     }
   }
-  for (const captures of byRoute.values()) {
+  for (const [route, captures] of byRoute) {
     if (captures.length < 2) continue;
     const first = captures[0]!.join("|");
     if (captures.some((ids) => ids.join("|") !== first)) {
       domChanged = true;
+      changedRoutes.add(route);
       any = true;
-      break;
     }
   }
-  return any ? { stale, domChanged } : undefined;
+  return any ? { stale, domChanged, ...(!domChangedUnscoped && changedRoutes.size > 0 ? { domChangedRoutes: [...changedRoutes] } : {}) } : undefined;
 }
 
 /* The content the agent re-read even though the prompt already held it, summed over the turns that measured it. */
@@ -481,6 +506,13 @@ export class HistoryEvidenceAdapter implements EvidencePort {
             killedCount: g.killedCount,
             catalogGateFailClosed: g.catalogGateFailClosed,
             droppedRejections: g.reviewer?.droppedRejections,
+            coverageRatio: g.coverageRatio ?? undefined,
+            branchCoverage: g.branchCoverage,
+            bundleMutation: g.bundleMutation ? { applied: g.bundleMutation.applied, killed: g.bundleMutation.killed } : undefined,
+            survivors: survivorsOf(spans),
+            flakyTriage: g.flakyTriage,
+            reviewer: g.reviewer ? { approved: g.reviewer.approved, rounds: g.reviewer.rounds, modelRounds: g.reviewer.modelRounds } : undefined,
+            causal: causalOf(g.causal),
           }
         : undefined,
       limit: facts?.limitFired ? { fired: facts.limitFired, role: facts.limitRole ?? undefined, intent: limitIntentOf(spans, facts.limitRole ?? undefined) } : undefined,

@@ -24,7 +24,7 @@ export { ComparisonError, DEFAULT_BOOTSTRAP_ITERATIONS, DEFAULT_SEED, compareCam
 export type { CampaignComparison, CampaignRun, RunScore } from "../domain/campaign-comparison.ts";
 export { campaignRunsView } from "../domain/campaign-runs.ts";
 export type { CampaignRunRow, CampaignRunView } from "../domain/campaign-runs.ts";
-export { COVERAGE_CLASSES, GRADER_CATALOG, MAX_SCORE_COMMENT_CHARS, specOfScore } from "../domain/grader-catalog.ts";
+export { COVERAGE_CLASSES, GRADER_CATALOG, GRADER_VERSION, MAX_SCORE_COMMENT_CHARS, specOfScore } from "../domain/grader-catalog.ts";
 export type { ScoreSpec } from "../domain/grader-catalog.ts";
 export { gradeEvidence } from "../domain/graders.ts";
 export { DEFAULT_CALIBRATION, calibrate, splitOfRun } from "../domain/judge-calibration.ts";

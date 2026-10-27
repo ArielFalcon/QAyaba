@@ -127,7 +127,7 @@ const infraError: Grader = {
 };
 
 const stepIntent: Grader = {
-  names: ["step_intent_mix", "auth_overhead"],
+  names: ["step_intent_mix"],
   grade: (e) => {
     if (!e.finished || !e.stepIntents) return [];
     const counts: Record<string, number> = Object.fromEntries(STEP_INTENTS.map((i) => [i, 0]));
@@ -137,10 +137,7 @@ const stepIntent: Grader = {
     }
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     if (total === 0) return [];
-    return [
-      ...STEP_INTENTS.map((i) => ({ name: `step_intent_mix.${i}`, value: ratio(counts[i] ?? 0, total) })),
-      { name: "auth_overhead", value: ratio(counts.auth ?? 0, total), comment: `${counts.auth ?? 0} of ${total} steps` },
-    ];
+    return STEP_INTENTS.map((i) => ({ name: `step_intent_mix.${i}`, value: ratio(counts[i] ?? 0, total), ...(i === "auth" ? { comment: `${counts.auth ?? 0} of ${total} steps` } : {}) }));
   },
 };
 
@@ -187,21 +184,50 @@ const focusedDomRatio = (ctx: ContextEvidence, refs: ReturnType<typeof reference
   return ratio(relevant.filter((id) => referenced.has(id)).length, relevant.length);
 };
 
-/* The `source:reason:count` losses that make a delivered source incomplete: truncation on a change-relevant item only. */
-const completenessLosses = (ctx: ContextEvidence): string[] => {
+const routePath = (id: string): string => (id.startsWith("route:") ? id.slice("route:".length) : id);
+
+/* The change-relevant pages the context grades are ratios over: the ranked routes, else the routes the sources delivered. */
+const changePages = (ctx: ContextEvidence): string[] => [...new Set((ctx.relevantIds.length > 0 ? ctx.relevantIds : deliveredOfKind(ctx, "route")).map(routePath))];
+
+/* One truncation on change-relevant content: its `source:reason:count` label and the pages it cost (`all` when it is not attributable to one). */
+interface ContextLoss {
+  label: string;
+  pages: readonly string[] | "all";
+}
+
+/* The truncations that cost change-relevant content. A cut on a page the change does not reach never counts. */
+const completenessLosses = (ctx: ContextEvidence): ContextLoss[] => {
   const relevantIds = new Set(ctx.relevantIds);
-  const relevantPaths = new Set(ctx.relevantIds.map((id) => (id.startsWith("route:") ? id.slice("route:".length) : id)));
-  const losses: string[] = [];
+  const relevantPaths = new Set(ctx.relevantIds.map(routePath));
+  const losses: ContextLoss[] = [];
   for (const source of ctx.delivered) {
     for (const omission of source.omissions) {
       if (omission.class !== "truncation") continue;
-      const section = omission.reason === "section-cap" || omission.reason === "section-shed";
-      const relevant = section || (omission.route !== undefined ? relevantPaths.has(omission.route) : source.ids.some((id) => relevantIds.has(id)));
-      if (relevant) losses.push(`${source.source}:${omission.reason}:${omission.count}`);
+      const label = `${source.source}:${omission.reason}:${omission.count}`;
+      if (omission.reason === "section-cap" || omission.reason === "section-shed") losses.push({ label, pages: "all" });
+      else if (omission.route !== undefined) {
+        if (relevantPaths.has(omission.route)) losses.push({ label, pages: [omission.route] });
+      } else {
+        const hit = source.ids.filter((id) => relevantIds.has(id));
+        if (hit.length > 0) losses.push({ label, pages: hit.map(routePath) });
+      }
     }
   }
   return losses;
 };
+
+/* The share of the pages that no loss touches; the labels of the losses that touched a page. */
+function untouchedShare(pages: readonly string[], losses: readonly ContextLoss[]): { value: number; labels: string[] } {
+  const touched = new Set<string>();
+  const labels: string[] = [];
+  for (const loss of losses) {
+    const hit = loss.pages === "all" ? pages : pages.filter((page) => loss.pages.includes(page));
+    if (hit.length === 0) continue;
+    labels.push(loss.label);
+    for (const page of hit) touched.add(page);
+  }
+  return { value: ratio(pages.length - touched.size, pages.length), labels };
+}
 
 const contextUtilization: Grader = {
   names: ["context_utilization"],
@@ -230,6 +256,8 @@ const contextUtilization: Grader = {
       parts.push(`${kind} ${hit}/${d.length}`);
       scores.push({ name: `context_utilization.${kind}`, value: ratio(hit, d.length) });
     }
+    /* Nothing of an extractable kind was delivered: the overall ratio has no denominator. */
+    if (unionDelivered === 0) return [];
     const comment = `scope=all-delivered; ${parts.join("; ")}${notProvided.length > 0 ? `; referenced_not_provided: ${notProvided.slice(0, 10).join(",")}${notProvided.length > 10 ? ",…" : ""}` : ""}`;
     return [{ name: "context_utilization", value: ratio(unionReferenced, unionDelivered), comment }, ...scores];
   }),
@@ -275,8 +303,10 @@ const contextComplete: Grader = {
   grade: finishedOnly((e) => {
     const ctx = e.context;
     if (!ctx || ctx.delivered.length === 0) return [];
-    const losses = completenessLosses(ctx);
-    return [{ name: "context_complete", value: losses.length === 0, ...(losses.length > 0 ? { comment: losses.join("; ") } : {}) }];
+    const pages = changePages(ctx);
+    if (pages.length === 0) return [];
+    const { value, labels } = untouchedShare(pages, completenessLosses(ctx));
+    return [{ name: "context_complete", value, ...(labels.length > 0 ? { comment: `${Math.round((1 - value) * pages.length)} of ${pages.length} change pages lost content: ${labels.join("; ")}` } : {}) }];
   }),
 };
 
@@ -285,10 +315,13 @@ const contextFresh: Grader = {
   grade: finishedOnly((e) => {
     const ctx = e.context;
     if (!ctx || ctx.delivered.length === 0 || ctx.freshness === undefined) return [];
-    const stale = ctx.freshness.stale ?? [];
-    const domChanged = ctx.freshness.domChanged === true;
-    const reasons = [...stale.map((s) => `${s.source}:${s.reason}`), ...(domChanged ? ["dom-changed"] : [])];
-    return [{ name: "context_fresh", value: reasons.length === 0, ...(reasons.length > 0 ? { comment: reasons.join("; ") } : {}) }];
+    const pages = changePages(ctx);
+    if (pages.length === 0) return [];
+    /* A staleness or change not attributed to pages (a whole source gone stale) touches every change page. */
+    const losses: ContextLoss[] = (ctx.freshness.stale ?? []).map((s) => ({ label: `${s.source}:${s.reason}`, pages: s.routes ? s.routes.map(routePath) : "all" }));
+    if (ctx.freshness.domChanged === true) losses.push({ label: "dom-changed", pages: ctx.freshness.domChangedRoutes ? ctx.freshness.domChangedRoutes.map(routePath) : "all" });
+    const { value, labels } = untouchedShare(pages, losses);
+    return [{ name: "context_fresh", value, ...(labels.length > 0 ? { comment: `${Math.round((1 - value) * pages.length)} of ${pages.length} change pages not fresh: ${labels.join("; ")}` } : {}) }];
   }),
 };
 
@@ -315,43 +348,55 @@ function graphPagesOf(e: Evidence): Set<string> {
   return new Set(ids.flatMap((id, i) => (basis[i] === "graph" ? [id.startsWith(ROUTE_PREFIX) ? id.slice(ROUTE_PREFIX.length) : id] : [])));
 }
 
+type PlanFlows = NonNullable<Evidence["plan"]>["flows"];
+
+const reaches = (routes: readonly string[], flows: PlanFlows): string[] => routes.filter((route) => flows.some((f) => f.visits.includes(route)));
+
 /*
- * How much of the change's pages the plan reached, and how much of it a passing spec reached; unreached pages are the comment.
- * The pages the call graph proved are also scored apart (`*_graph_route_coverage`), so graph pages can be told from the map's.
+ * The pages the call graph proved alone, scored apart from the whole plan's reach (`*_graph_route_coverage`) so graph pages can be
+ * told from the map's: how many the plan reached, and how many a passing spec reached. The comment lists the unreached ones.
  */
-const planReach: Grader = {
-  names: ["plan_route_coverage", "delivered_route_coverage", "plan_graph_route_coverage", "delivered_graph_route_coverage"],
+const planGraphReach: Grader = {
+  names: ["plan_graph_route_coverage", "delivered_graph_route_coverage"],
   grade: finishedOnly((e) => {
     const plan = fanoutPlan(e);
     if (!plan || plan.changeRoutes.length === 0) return [];
     const proven = graphPagesOf(e);
     const graphRoutes = plan.changeRoutes.filter((route) => proven.has(route));
-    const reach = (routes: readonly string[], flows: typeof plan.flows): RawScore["value"] => ratio(routes.filter((route) => flows.some((f) => f.visits.includes(route))).length, routes.length);
-    const missed = (routes: readonly string[], flows: typeof plan.flows): string[] => routes.filter((route) => !flows.some((f) => f.visits.includes(route)));
-    const score = (name: string, routes: readonly string[], flows: typeof plan.flows, lead: string): RawScore => {
-      const unreached = missed(routes, flows);
-      return { name, value: reach(routes, flows), ...(unreached.length > 0 ? { comment: `${lead}: ${unreached.join(", ")}` } : {}) };
+    if (graphRoutes.length === 0) return [];
+    const score = (name: string, flows: PlanFlows, lead: string): RawScore => {
+      const unreached = graphRoutes.filter((route) => reaches([route], flows).length === 0);
+      return { name, value: ratio(graphRoutes.length - unreached.length, graphRoutes.length), ...(unreached.length > 0 ? { comment: `${lead}: ${unreached.join(", ")}` } : {}) };
     };
-    const scores: RawScore[] = [score("plan_route_coverage", plan.changeRoutes, plan.flows, "no flow visits")];
-    if (graphRoutes.length > 0) scores.push(score("plan_graph_route_coverage", graphRoutes, plan.flows, "no flow visits"));
+    const scores: RawScore[] = [score("plan_graph_route_coverage", plan.flows, "no flow visits")];
     if (plan.flows.some((f) => f.passed === undefined)) return scores;
-    const passing = plan.flows.filter((f) => f.passed === true);
-    scores.push(score("delivered_route_coverage", plan.changeRoutes, passing, "no passing spec visits"));
-    if (graphRoutes.length > 0) scores.push(score("delivered_graph_route_coverage", graphRoutes, passing, "no passing spec visits"));
+    scores.push(score("delivered_graph_route_coverage", plan.flows.filter((f) => f.passed === true), "no passing spec visits"));
     return scores;
   }),
 };
 
 /*
- * How many of the use cases the plan had to answer for it planned, and how many a passing spec delivered, per candidate. A candidate is
+ * How much of what the plan had to answer for it planned, and how much a passing spec delivered. The unit is the use case (candidate):
  * planned when a flow answers for it, delivered when such a flow's spec passed the final execution; a sidekick's claim never scores. The
- * comment lists every candidate by id and state (delivered, planned, unplanned, dropped with its reason).
+ * comment lists every candidate by id and state (delivered, planned, unplanned, dropped with its reason). A plan that kept no candidates
+ * (a run recorded before they were) is graded the same way over the change's pages: reached when a flow visits it, delivered when a passing
+ * flow does, the unreached pages the comment.
  */
-const planCandidates: Grader = {
+const planCoverage: Grader = {
   names: ["plan_candidate_coverage", "delivered_candidate_coverage"],
   grade: finishedOnly((e) => {
     const plan = fanoutPlan(e);
-    if (!plan || plan.candidates.length === 0) return [];
+    if (!plan) return [];
+    const settled = plan.flows.every((f) => f.passed !== undefined);
+    if (plan.candidates.length === 0) {
+      if (plan.changeRoutes.length === 0) return [];
+      const byPage = (name: string, flows: PlanFlows, lead: string): RawScore => {
+        const reached = reaches(plan.changeRoutes, flows);
+        const unreached = plan.changeRoutes.filter((route) => !reached.includes(route));
+        return { name, value: ratio(reached.length, plan.changeRoutes.length), comment: `by change page, no candidates recorded${unreached.length > 0 ? `; ${lead}: ${unreached.join(", ")}` : ""}` };
+      };
+      return [byPage("plan_candidate_coverage", plan.flows, "no flow visits"), ...(settled ? [byPage("delivered_candidate_coverage", plan.flows.filter((f) => f.passed === true), "no passing spec visits")] : [])];
+    }
     const flowsOf = (id: string): typeof plan.flows => plan.flows.filter((f) => f.candidates.some((c) => c.id === id));
     const planned = plan.candidates.filter((c) => c.state === "planned");
     const stateOf = (c: (typeof plan.candidates)[number]): string => {
@@ -361,7 +406,7 @@ const planCandidates: Grader = {
     };
     const comment = { comment: plan.candidates.map((c) => `${c.id}: ${stateOf(c)}`).join("; ") };
     const scores: RawScore[] = [{ name: "plan_candidate_coverage", value: ratio(planned.length, plan.candidates.length), ...comment }];
-    if (plan.flows.some((f) => f.passed === undefined)) return scores;
+    if (!settled) return scores;
     const delivered = plan.candidates.filter((c) => stateOf(c) === "delivered");
     scores.push({ name: "delivered_candidate_coverage", value: ratio(delivered.length, plan.candidates.length), ...comment });
     return scores;
@@ -466,6 +511,100 @@ const sidekickReportConsistent: Grader = {
   }),
 };
 
+/* ---- do the tests find bugs: mutation, coverage, review, causal label, triage ---- */
+
+/* Bundle mutants noticed by a test / mutants judged. Silent when none was judged: a ratio over nothing is not a 0. */
+const mutationKillRate: Grader = {
+  names: ["mutation_kill_rate"],
+  grade: finishedOnly((e) => {
+    const m = e.signals?.bundleMutation;
+    if (!m || m.applied <= 0) return [];
+    return [{ name: "mutation_kill_rate", value: ratio(m.killed, m.applied), comment: `${m.killed} of ${m.applied} bundle mutants killed` }];
+  }),
+};
+
+/* The changed-line ratio the engine measured; silent when its decision was `unknown` or it recorded no ratio. */
+const changeCoverageRatio: Grader = {
+  names: ["change_coverage_ratio"],
+  grade: finishedOnly((e) => {
+    const s = e.signals;
+    if (!s || s.coverageStatus === undefined || s.coverageStatus === "unknown" || s.coverageRatio === undefined) return [];
+    return [{ name: "change_coverage_ratio", value: s.coverageRatio }];
+  }),
+};
+
+/* The arms of the decisions on changed lines that ran / the arms seen; silent without a decision on a changed line, or when coverage was `unknown`. */
+const branchCoverageRatio: Grader = {
+  names: ["branch_coverage_ratio"],
+  grade: finishedOnly((e) => {
+    const s = e.signals;
+    if (!s || s.coverageStatus === "unknown" || !s.branchCoverage || s.branchCoverage.changed <= 0) return [];
+    return [{ name: "branch_coverage_ratio", value: ratio(s.branchCoverage.taken, s.branchCoverage.changed), comment: `${s.branchCoverage.taken} of ${s.branchCoverage.changed} arms ran` }];
+  }),
+};
+
+/*
+ * The review's final verdict against the model's own. A model rejection whose every blocking finding the evidence filter dropped read as an
+ * approval: `approved-over-model-rejection`, with the reasons the findings were dropped for in the comment. Silent when no reviewer phase ran.
+ */
+const reviewVerdict: Grader = {
+  names: ["review_verdict"],
+  grade: finishedOnly((e) => {
+    const reviewer = e.signals?.reviewer;
+    if (!reviewer) return [];
+    const dropped = e.signals?.droppedRejections;
+    const overruled = reviewer.approved && dropped !== undefined && dropped.rounds > 0;
+    const reasons = dropped ? Object.entries(dropped.reasons).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([reason, n]) => `${reason} ×${n}`) : [];
+    return [{ name: "review_verdict", value: !reviewer.approved ? "rejected" : overruled ? "approved-over-model-rejection" : "approved", ...(dropped ? { comment: `${dropped.rounds} model rejection(s) lost every blocking finding: ${reasons.join(", ")}` } : {}) }];
+  }),
+};
+
+/*
+ * How many failing cases the causal label puts in the change's reach (what the tests found). A passing run found none; a run whose
+ * failures carry no label (not decided, or recorded before the label) says nothing.
+ */
+const defectFound: Grader = {
+  names: ["defect_found"],
+  grade: finishedOnly((e) => {
+    if (e.verdict === "pass") return [{ name: "defect_found", value: 0 }];
+    const causal = e.signals?.causal;
+    if (!causal) return [];
+    return [{ name: "defect_found", value: causal.inReach, comment: `${causal.inReach} in the change's reach, ${causal.outOfReach} out of reach, ${causal.unknown} unknown` }];
+  }),
+};
+
+/* The surviving mutants a delivered spec reached (so they reached its flow) / all survivors. Silent when there was no survivor. */
+const survivorsRouted: Grader = {
+  names: ["survivors_routed"],
+  grade: finishedOnly((e) => {
+    const s = e.signals?.survivors;
+    if (!s || s.total <= 0) return [];
+    return [{ name: "survivors_routed", value: ratio(s.routed, s.total), comment: `${s.routed} of ${s.total} surviving mutants reached a delivered spec` }];
+  }),
+};
+
+/* The class of a flaky run's cases: DEV data instability, timing, both or neither. Silent for a run that was not flaky. */
+const flakyTriage: Grader = {
+  names: ["flaky_triage"],
+  grade: finishedOnly((e) => {
+    const t = e.signals?.flakyTriage;
+    if (!t) return [];
+    const value = t.dataInstability > 0 && t.timing > 0 ? "mixed" : t.dataInstability > 0 ? "data-instability" : t.timing > 0 ? "timing" : "unclassified";
+    return [{ name: "flaky_triage", value, comment: `${t.cases} flaky case(s): ${t.dataInstability} data instability, ${t.timing} timing; correction ${t.outcome}` }];
+  }),
+};
+
+/* The drops of a use case the run's facts contradicted and the lead kept: how many, and which. Graded for every plan of flows (0 when none). */
+const dropsContradicted: Grader = {
+  names: ["drops_contradicted"],
+  grade: finishedOnly((e) => {
+    const plan = fanoutPlan(e);
+    if (!plan) return [];
+    const ids = plan.candidates.filter((c) => c.state === "dropped" && c.contradicted !== undefined).map((c) => c.id);
+    return [{ name: "drops_contradicted", value: ids.length, ...(ids.length > 0 ? { comment: ids.join(", ") } : {}) }];
+  }),
+};
+
 export const GRADERS: readonly Grader[] = [
   emptyOutputGuard,
   furthestPhase,
@@ -475,6 +614,14 @@ export const GRADERS: readonly Grader[] = [
   approvalConsistent,
   changeCoverage,
   mutationValue,
+  mutationKillRate,
+  changeCoverageRatio,
+  branchCoverageRatio,
+  reviewVerdict,
+  defectFound,
+  survivorsRouted,
+  flakyTriage,
+  dropsContradicted,
   infraError,
   stepIntent,
   contextUtilization,
@@ -482,8 +629,8 @@ export const GRADERS: readonly Grader[] = [
   contextComplete,
   contextFresh,
   noopConsistent,
-  planReach,
-  planCandidates,
+  planGraphReach,
+  planCoverage,
   candidateRecall,
   flowDeliveryRate,
   changePagesGrounded,

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createEvaluationService } from "./evaluation-service";
-import { judgeCatalog } from "@contexts/evaluation/application/index";
+import { GRADER_VERSION, judgeCatalog } from "@contexts/evaluation/application/index";
 import { HistoryEvidenceAdapter, countPassedSpecs, defaultEvidenceDeps } from "./evaluation-evidence";
 import { buildRunViewExtras, type RunViewDeps } from "./run-view";
 import Database from "better-sqlite3";
@@ -92,7 +92,7 @@ test("the default is the latest grader version per name and ?versions=all lists 
   const latest = service.evaluation(id, false)!.scores.filter((s) => s.name === "spec_pass_rate");
   assert.deepEqual(latest.map((s) => s.graderVersion), ["10"], "10 is newer than 1 even though it sorts before it as text");
   const all = service.evaluation(id, true)!.scores.filter((s) => s.name === "spec_pass_rate");
-  assert.deepEqual(all.map((s) => s.graderVersion).sort(), ["0", "10", "2"]);
+  assert.deepEqual(all.map((s) => s.graderVersion).sort(), ["0", "10", GRADER_VERSION]);
 });
 
 test("grading the same run twice leaves one stored score per name and version", async () => {

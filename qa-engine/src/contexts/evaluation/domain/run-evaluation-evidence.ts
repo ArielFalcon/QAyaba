@@ -29,9 +29,11 @@ export interface DeliveredContextSource {
 /* Freshness provenance, absent until Track A batch 4 records it. Absent means the fresh score is omitted, never false. */
 export interface ContextFreshness {
   /* Sources that were stale when the generator used them, each with its reason. */
-  stale: Array<{ source: string; reason: string }>;
+  stale: Array<{ source: string; reason: string; routes?: string[] }>;
   /* The change-relevant DOM differed between two captures of the same page. */
   domChanged: boolean | undefined;
+  /* The pages whose captures differed, when every sign of it named its pages; absent means `domChanged` is not attributable to pages. */
+  domChangedRoutes?: string[];
 }
 
 /* The grounding evidence a context grader reads: delivered sources, the change-relevant subset, what the agent referenced and
@@ -152,6 +154,20 @@ export interface RunEvaluationEvidence {
         catalogGateFailClosed: number | undefined;
         /* Review rounds whose model rejection lost every blocking finding to the evidence filter (the round then read as an approval), with the findings lost per reason; undefined when none did. */
         droppedRejections: { rounds: number; reasons: Readonly<Record<string, number>> } | undefined;
+        /* The changed-line coverage ratio the engine measured; undefined when it measured none. */
+        coverageRatio?: number | undefined;
+        /* The arms of the decisions on changed lines and how many ran; undefined when no decision was seen. */
+        branchCoverage?: { changed: number; taken: number } | undefined;
+        /* The mutants of the changed code in the served script: judged and noticed by a test; undefined when none was judged. */
+        bundleMutation?: { applied: number; killed: number } | undefined;
+        /* The surviving mutants a delivered spec's tests reached (so they reached its flow) and the total; undefined when the run recorded no survivor count. */
+        survivors?: { routed: number; total: number } | undefined;
+        /* The flaky cases of a flaky run by class, and what the correction came to; undefined when the run was not flaky. */
+        flakyTriage?: { cases: number; dataInstability: number; timing: number; outcome: string } | undefined;
+        /* The reviewer's final verdict (the effective one) and its rounds; undefined when no reviewer phase ran. */
+        reviewer?: { approved: boolean; rounds: number; modelRounds: number } | undefined;
+        /* The failing cases by the causal label's reach; undefined when no case failed or the run was not labelled. */
+        causal?: { inReach: number; outOfReach: number; unknown: number } | undefined;
       }
     | undefined;
   /* The limit that ended the run, when one did: the limit, the role it stopped and the intent of that turn's last step (undefined when unknown). */

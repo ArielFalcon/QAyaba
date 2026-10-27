@@ -93,7 +93,7 @@ test("a subset regrade removes only the named base names and their suffix expans
   await withoutSteps.execute("run-1", { graders: ["step_intent_mix"] });
   const after = store.list("run-1", { allVersions: true }).map((s) => s.name);
   assert.equal(after.some((n) => n.startsWith("step_intent_mix")), false);
-  assert.ok(after.includes("spec_pass_rate") && after.includes("auth_overhead"));
+  assert.ok(after.includes("spec_pass_rate") && after.includes("spec_validity_rate"));
 });
 
 test("a failed regrade keeps a complete evaluation complete", async () => {

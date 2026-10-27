@@ -355,3 +355,43 @@ test("no reference evidence without a reference for the change or when the plan 
   assert.equal((await new HistoryEvidenceAdapter(deps({ getRunPlan: () => kept }), () => references).load("run-1"))!.reference, undefined);
   assert.equal((await new HistoryEvidenceAdapter(deps({ getRunPlan: () => kept }), () => []).load("run-1"))!.reference, undefined);
 });
+
+const outcomeOf = (gateSignals: Record<string, unknown>) => ({ runId: "run-1", app: "demo", sha: "abcdef1", mode: "diff", target: "e2e", verdict: "fail", errorClass: null, gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0, ...gateSignals }, rulesRetrieved: [], at: "2026-10-19T00:00:00.000Z" }) as unknown as NonNullable<ReturnType<EvidenceDeps["getRunOutcome"]>>;
+
+test("the outcome's coverage, mutation, review, triage and causal signals reach the evidence, and the survivors come from the newest coverage measurement", async () => {
+  const measure = (routed: number, unrouted: number) => ({ name: "qayaba.coverage.measure", spanId: `m${routed}`, parentSpanId: null, attrs: JSON.stringify({ "qayaba.mutation.survivors_routed": routed, "qayaba.mutation.survivors_unrouted": unrouted }) });
+  const outcome = outcomeOf({
+    coverageRatio: 0.5,
+    branchCoverage: { changed: 4, taken: 2 },
+    bundleMutation: { applied: 3, killed: 1, survived: [] },
+    flakyTriage: { cases: 2, dataInstability: 1, timing: 1, outcome: "accepted" },
+    reviewer: { rounds: 2, modelRounds: 1, approved: true, corrections: 0, blocking: 0, durationMs: 1, promptBytes: 1, outputTokens: null, costUsd: null, steps: null, preCheckRejects: 0, skippedRounds: 0 },
+    causal: { reach: "in-reach", basis: "page", via: [], reason: "", cases: [{ name: "a", reach: "in-reach", basis: "page" }, { name: "b", reach: "out-of-reach", basis: "none" }, { name: "c", reach: "in-reach", basis: "flow" }] },
+  });
+  const e = (await new HistoryEvidenceAdapter(deps({ getRunOutcome: () => outcome, runSpans: () => [measure(0, 1), measure(1, 2)] })).load("run-1"))!;
+  assert.deepEqual(e.signals?.survivors, { routed: 1, total: 3 }, "the newest measurement stands");
+  assert.deepEqual(e.signals?.causal, { inReach: 2, outOfReach: 1, unknown: 0 });
+  assert.deepEqual(e.signals?.bundleMutation, { applied: 3, killed: 1 });
+  assert.deepEqual(e.signals?.reviewer, { approved: true, rounds: 2, modelRounds: 1 });
+  assert.equal(e.signals?.coverageRatio, 0.5);
+  assert.deepEqual(e.signals?.branchCoverage, { changed: 4, taken: 2 });
+  assert.equal(e.signals?.flakyTriage?.dataInstability, 1);
+});
+
+test("a run that recorded none of those signals leaves them undefined", async () => {
+  const e = (await new HistoryEvidenceAdapter(deps({ getRunOutcome: () => outcomeOf({}) })).load("run-1"))!;
+  assert.equal(e.signals?.survivors, undefined);
+  assert.equal(e.signals?.causal, undefined);
+  assert.equal(e.signals?.bundleMutation, undefined);
+  assert.equal(e.signals?.reviewer, undefined);
+  assert.equal(e.signals?.coverageRatio, undefined);
+});
+
+test("freshness names the pages whose captures differed and the pages a stale source delivered", async () => {
+  const capture = (id: string, ids: string[]) => ({ name: "qayaba.context.dom-capture", spanId: id, parentSpanId: null, attrs: JSON.stringify({ "qayaba.context.item_ids": ids, ...(id === "c2" ? { "qayaba.context.stale": true, "qayaba.context.source": "dom-capture", "qayaba.context.stale_reason": "data-state-unconfirmed" } : {}) }) });
+  const ranking = { name: "qayaba.context.route-ranking", spanId: "r", parentSpanId: null, attrs: JSON.stringify({ "qayaba.context.relevant_ids": ["route:/a", "route:/b"] }) };
+  const e = (await new HistoryEvidenceAdapter(deps({ runSpans: () => [ranking, capture("c1", ["dom:/a#x", "dom:/b#y"]), capture("c2", ["dom:/a#x2", "dom:/b#y", "dom:/other#z"])] })).load("run-1"))!;
+  assert.deepEqual(e.context?.freshness?.domChangedRoutes, ["/a"]);
+  assert.equal(e.context?.freshness?.domChanged, true);
+  assert.deepEqual(e.context?.freshness?.stale[0]?.routes?.sort(), ["/a", "/b", "/other"]);
+});

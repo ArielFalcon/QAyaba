@@ -220,7 +220,7 @@ test("the latest annotation is chosen by parsed time, not by string order, and b
 });
 
 test("a trace is resolved to its run once per import, however many labels it has", async () => {
-  const lf = await fakeLangfuse({ scores: ["spec_pass_rate", "auth_overhead", "spec_validity_rate"].map((name) => annotation({ traceId: "a".repeat(32), name, value: 1 })).concat([annotation({ traceId: "z".repeat(32), name: "spec_pass_rate", value: 1 }), annotation({ traceId: "z".repeat(32), name: "auth_overhead", value: 1 })]) });
+  const lf = await fakeLangfuse({ scores: ["spec_pass_rate", "closed_loop_refusals", "spec_validity_rate"].map((name) => annotation({ traceId: "a".repeat(32), name, value: 1 })).concat([annotation({ traceId: "z".repeat(32), name: "spec_pass_rate", value: 1 }), annotation({ traceId: "z".repeat(32), name: "closed_loop_refusals", value: 1 })]) });
   try {
     const { d } = deps(lf.baseUrl);
     const lookups: string[] = [];
@@ -254,7 +254,7 @@ test("a label is stored with the catalog's data type, and one whose type or rang
       annotation({ traceId: "a".repeat(32), name: "spec_pass_rate", dataType: "BOOLEAN", value: 1 }),
       annotation({ traceId: "a".repeat(32), name: "approval_consistent", dataType: "NUMERIC", value: 1 }),
       annotation({ traceId: "a".repeat(32), name: "spec_validity_rate", value: 1.5 }),
-      annotation({ traceId: "a".repeat(32), name: "auth_overhead", value: -0.1 }),
+      annotation({ traceId: "a".repeat(32), name: "closed_loop_refusals", value: -0.1 }),
       annotation({ traceId: "a".repeat(32), name: "mutation_value", value: 0.75 }),
       annotation({ traceId: "a".repeat(32), name: "empty_output_guard", dataType: "BOOLEAN", value: 0 }),
     ],

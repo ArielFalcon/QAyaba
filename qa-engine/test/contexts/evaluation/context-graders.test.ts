@@ -67,7 +67,7 @@ test("R4 focused utilization groups the relevant routes by component and omits D
 });
 
 test("R4 is complete: the node-cap truncation is on /home, which is not change-relevant", () => {
-  assert.equal(score(evidence({ context: r4Context() }), "context_complete")?.value, true);
+  assert.equal(score(evidence({ context: r4Context() }), "context_complete")?.value, 1);
 });
 
 test("a truncation on a change-relevant page is incomplete, with source:reason:count", () => {
@@ -81,11 +81,11 @@ test("a truncation on a change-relevant page is incomplete, with source:reason:c
     },
   });
   const s = score(e, "context_complete");
-  assert.equal(s?.value, false);
+  assert.equal(s?.value, 2 / 3, "one of the three change pages lost content");
   assert.match(s?.comment ?? "", /context-pack:node-cap:40/);
 });
 
-test("a section cap makes context_complete false even when the section delivered no ids", () => {
+test("a section cap makes context_complete 0 even when the section delivered no ids", () => {
   const e = evidence({
     context: {
       ...r4Context(),
@@ -93,7 +93,7 @@ test("a section cap makes context_complete false even when the section delivered
     },
   });
   const s = score(e, "context_complete");
-  assert.equal(s?.value, false);
+  assert.equal(s?.value, 0, "a cut that names no page costs every change page");
   assert.match(s?.comment ?? "", /context-pack:section-cap:10/);
 });
 
@@ -120,7 +120,28 @@ test("context_complete is omitted when nothing was delivered", () => {
 
 test("R4 is stale: the map sha mismatched and the change-relevant DOM changed between captures", () => {
   const e = evidence({ context: r4Context() });
-  assert.equal(score(e, "context_fresh")?.value, false);
+  assert.equal(score(e, "context_fresh")?.value, 0, "neither signal names a page, so each costs every change page");
+});
+
+test("context_fresh counts the change pages a stale source or a changed capture touched, not the whole run", () => {
+  const fresh = (freshness: NonNullable<ContextEvidence["freshness"]>) => score(evidence({ context: { ...r4Context(), freshness } }), "context_fresh");
+  const stale = fresh({ stale: [{ source: "context-pack", reason: "data-state-unconfirmed", routes: ["/restaurantes/:province/:city", "/home"] }], domChanged: false });
+  assert.equal(stale?.value, 2 / 3, "the unrelated /home page does not count");
+  const changed = fresh({ stale: [], domChanged: true, domChangedRoutes: ["/restaurantes", "/restaurantes/:province"] });
+  assert.equal(changed?.value, 1 / 3);
+  assert.match(changed?.comment ?? "", /dom-changed/);
+  assert.equal(fresh({ stale: [{ source: "context-pack", reason: "data-state-unconfirmed", routes: ["/home"] }], domChanged: false })?.value, 1, "a stale page nobody changes is no loss");
+});
+
+test("context_complete and context_fresh are omitted when the change has no page to count over", () => {
+  const noPages = { ...r4Context(), relevantIds: [], relevantGroups: [], delivered: [{ source: "context-pack", ids: [], bytes: 1, omitted: 1, omissions: [{ class: "truncation" as const, reason: "section-cap", count: 1 }] }] };
+  assert.equal(score(evidence({ context: noPages }), "context_complete"), undefined);
+  assert.equal(score(evidence({ context: noPages }), "context_fresh"), undefined);
+});
+
+test("a delivered context with no extractable item has no overall utilization to grade", () => {
+  const ctx = { ...r4Context(), delivered: [{ source: "context-pack", ids: ["fact:/x#a:present"], bytes: 1, omitted: 0, omissions: [] }] };
+  assert.equal(score(evidence({ context: ctx }), "context_utilization"), undefined);
 });
 
 test("context_fresh is omitted when no provenance was recorded", () => {

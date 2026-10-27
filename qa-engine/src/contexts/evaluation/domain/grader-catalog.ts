@@ -13,7 +13,7 @@ import type { RawScore, Score, ScoreDataType, ScorePolarity } from "./score.ts";
 /* The longest comment a score carries: it is read by people and travels to a sink, never a free-form log. */
 export const MAX_SCORE_COMMENT_CHARS = 500;
 
-export const GRADER_VERSION = "2";
+export const GRADER_VERSION = "3";
 
 export const STEP_INTENTS = ["auth", "explore", "write_spec", "run_spec", "review", "other"] as const;
 export type StepIntent = (typeof STEP_INTENTS)[number];
@@ -22,6 +22,11 @@ export const CONTEXT_SOURCES = ["route", "dom", "op", "file"] as const;
 export const CONTEXT_FOCUSED_SOURCES = ["route", "dom", "op"] as const;
 
 export const COVERAGE_CLASSES = ["pass", "fail", "unknown"] as const;
+
+/* The review's final verdict against the model's: `approved-over-model-rejection` is a run the evidence filter turned from a model rejection into an approval. */
+export const REVIEW_VERDICTS = ["approved", "rejected", "approved-over-model-rejection"] as const;
+
+export const FLAKY_CLASSES = ["data-instability", "timing", "mixed", "unclassified"] as const;
 
 export interface ScoreSpec {
   name: string;
@@ -45,18 +50,23 @@ export const GRADER_CATALOG: readonly ScoreSpec[] = [
   spec({ name: "selector_stability", dataType: "NUMERIC", polarity: "higher_better", range: UNIT, state: "pending" }),
   spec({ name: "budget_exhaustion", dataType: "CATEGORICAL", polarity: "none" }),
   spec({ name: "step_intent_mix", dataType: "NUMERIC", polarity: "none", range: UNIT, suffixes: STEP_INTENTS }),
-  spec({ name: "auth_overhead", dataType: "NUMERIC", polarity: "lower_better", range: UNIT }),
   spec({ name: "approval_consistent", dataType: "BOOLEAN", polarity: "higher_better" }),
   spec({ name: "context_utilization", dataType: "NUMERIC", polarity: "higher_better", range: UNIT, suffixes: CONTEXT_SOURCES }),
   spec({ name: "context_utilization_focused", dataType: "NUMERIC", polarity: "higher_better", range: UNIT, suffixes: CONTEXT_FOCUSED_SOURCES }),
-  spec({ name: "context_complete", dataType: "BOOLEAN", polarity: "higher_better" }),
-  spec({ name: "context_fresh", dataType: "BOOLEAN", polarity: "higher_better" }),
+  spec({ name: "context_complete", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
+  spec({ name: "context_fresh", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
   spec({ name: "noop_consistent", dataType: "BOOLEAN", polarity: "higher_better" }),
   spec({ name: "change_coverage", dataType: "CATEGORICAL", polarity: "none", categories: COVERAGE_CLASSES }),
   spec({ name: "mutation_value", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
+  spec({ name: "mutation_kill_rate", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
+  spec({ name: "change_coverage_ratio", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
+  spec({ name: "branch_coverage_ratio", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
+  spec({ name: "review_verdict", dataType: "CATEGORICAL", polarity: "none", categories: REVIEW_VERDICTS }),
+  spec({ name: "defect_found", dataType: "NUMERIC", polarity: "none", range: { min: 0 } }),
+  spec({ name: "survivors_routed", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
+  spec({ name: "flaky_triage", dataType: "CATEGORICAL", polarity: "none", categories: FLAKY_CLASSES }),
+  spec({ name: "drops_contradicted", dataType: "NUMERIC", polarity: "lower_better", range: { min: 0 } }),
   spec({ name: "infra_error", dataType: "CATEGORICAL", polarity: "none" }),
-  spec({ name: "plan_route_coverage", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
-  spec({ name: "delivered_route_coverage", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
   spec({ name: "plan_graph_route_coverage", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
   spec({ name: "delivered_graph_route_coverage", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
   spec({ name: "plan_candidate_coverage", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),

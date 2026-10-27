@@ -141,19 +141,20 @@ test("infra_error says nothing for a verdict other than infra-error, unless the 
 });
 
 
-test("step intent shares add to one and auth_overhead is the auth share", () => {
+test("step intent shares add to one and the auth share is the former auth_overhead", () => {
   const scores = gradeEvidence(evidence({ stepIntents: { auth: 1, explore: 1, write_spec: 2 } }));
   const mix = scores.filter((s) => s.name.startsWith("step_intent_mix."));
   assert.equal(mix.length, 6);
   assert.equal(mix.reduce((sum, s) => sum + (s.value as number), 0), 1);
   assert.equal(scores.find((s) => s.name === "step_intent_mix.write_spec")?.value, 0.5);
-  assert.equal(scores.find((s) => s.name === "auth_overhead")?.value, 0.25);
+  assert.equal(scores.find((s) => s.name === "step_intent_mix.auth")?.value, 0.25, "the value auth_overhead had");
+  assert.equal(scores.some((s) => s.name === "auth_overhead"), false, "the duplicate is gone");
 });
 
 test("an intent outside the closed set counts as other, and a run with no step data has no mix", () => {
   const scores = gradeEvidence(evidence({ stepIntents: { weird: 2, auth: 2 } }));
   assert.equal(scores.find((s) => s.name === "step_intent_mix.other")?.value, 0.5);
-  assert.equal(gradeEvidence(evidence()).some((s) => s.name.startsWith("step_intent_mix") || s.name === "auth_overhead"), false);
+  assert.equal(gradeEvidence(evidence()).some((s) => s.name.startsWith("step_intent_mix")), false);
 });
 
 test("naming graders runs only those", () => {

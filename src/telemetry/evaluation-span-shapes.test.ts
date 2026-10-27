@@ -88,7 +88,7 @@ test("step intents are counted from the chat steps of a real traced turn, and th
   assert.deepEqual(e.stepIntents, { explore: 1, write_spec: 1 });
   const scores = gradeEvidence(e);
   assert.equal(scores.find((s) => s.name === "step_intent_mix.write_spec")?.value, 0.5);
-  assert.equal(scores.find((s) => s.name === "auth_overhead")?.value, 0);
+  assert.equal(scores.find((s) => s.name === "step_intent_mix.auth")?.value, 0);
 });
 
 test("the limit's intent is the last step of the limiting turn, found under its attempt span", async () => {

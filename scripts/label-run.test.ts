@@ -60,14 +60,14 @@ test("a label is kept as a human row typed by the judge of its name, with a sani
   assert.equal(main(["--run", "run-1", "--name", "use_case_coverage", "--value", "fail", "--comment", "fee uncovered SECRET"], r.deps), 0);
   assert.deepEqual(r.saved, [{ at: "2026-10-25T12:00:00.000Z", rows: [{ runId: "run-1", name: "use_case_coverage", graderVersion: "human", dataType: "BOOLEAN", polarity: "higher_better", source: "human", value: false, comment: "fee uncovered [redacted]", observationId: null }] }]);
   const numeric = rig();
-  assert.equal(main(["--run", "run-1", "--name", "plan_route_coverage", "--value", "0.5"], numeric.deps), 0);
+  assert.equal(main(["--run", "run-1", "--name", "plan_candidate_coverage", "--value", "0.5"], numeric.deps), 0);
   assert.equal(numeric.saved[0]!.rows[0]!.value, 0.5);
 });
 
 test("a label the score cannot take, of an unknown score or of an unknown run is refused and nothing is kept", () => {
   for (const [argv, code, pattern] of [
     [["--run", "run-1", "--name", "use_case_coverage", "--value", "maybe"], 2, /pass or fail/],
-    [["--run", "run-1", "--name", "plan_route_coverage", "--value", "2"], 2, /out of range/],
+    [["--run", "run-1", "--name", "plan_candidate_coverage", "--value", "2"], 2, /out of range/],
     [["--run", "run-1", "--name", "failure_root_cause", "--value", "gremlins"], 2, /not one of/],
     [["--run", "run-1", "--name", "made_up", "--value", "1"], 2, /neither a score/],
     [["--run", "run-9", "--name", "use_case_coverage", "--value", "pass"], 1, /no run run-9/],
