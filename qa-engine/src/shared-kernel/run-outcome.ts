@@ -31,12 +31,12 @@ export interface RunOutcome {
     changeCoverage?: { executableLines: number; notExecutableLines?: number; notLoadedFiles?: string[]; coveredByExecution?: number; provenByMutation?: number; armsProvenByMutation?: number };
     /* What the mutants of the changed code in the served script did: judged, noticed by a test, and where the others are; the sites on changed lines that were no candidate, counted by why (`skippedSites`), and the mutants that re-ran every test of their spec files (`rerunsBySpecFile`). A signal, never a gate; absent when no mutant was judged. */
     bundleMutation?: { applied: number; killed: number; survived: { file: string; line: number; operator: string }[]; skippedSites?: { count: number; reasons: Partial<Record<string, number>> }; rerunsBySpecFile?: number };
-    /* What the one regeneration from the arms of the changed code no test ran did: its outcome and the arms before and after it. A signal, never a gate; absent when it did not run. */
-    branchCases?: { outcome: "accepted" | "empty" | "rejected" | "capped"; armsBefore: number; armsAfter?: number };
+    /* What the one regeneration from the arms of the changed code no test ran did: its outcome, the arms before and after it, and how many spec files it changed kept their new bytes or were given their prior ones back (absent when it changed none). A signal, never a gate; absent when it did not run. */
+    branchCases?: { outcome: "accepted" | "empty" | "rejected" | "capped"; armsBefore: number; armsAfter?: number; kept?: number; restored?: number };
     /* Whether the regeneration the surviving mutants drove made a test notice them: routed, judged (re-applied and reached a page), closed (a test now fails under it) and the ones still open. A signal, never a gate; absent when no accepted regeneration answered a survivor. */
     survivorClosure?: { routed: number; judged: number; closed: number; open: { file: string; line: number; operator: string }[] };
-    /** The flaky cases of a flaky run (passed only on retry) by class and what the correction routed to their flows became; absent when the run was not flaky. A signal, never a gate. */
-    flakyTriage?: { cases: number; dataInstability: number; timing: number; outcome: "no-pass" | "accepted" | "empty" | "rejected" | "capped" };
+    /** The flaky cases of a flaky run (passed only on retry) by class and what the correction routed to their flows became, with the spec files it changed kept or given their prior bytes back (absent when it changed none); absent when the run was not flaky. A signal, never a gate. */
+    flakyTriage?: { cases: number; dataInstability: number; timing: number; outcome: "no-pass" | "accepted" | "empty" | "rejected" | "capped"; kept?: number; restored?: number };
     /* The reviewer's missing cases: findings that cite an arm of the changed code no test ran. A record, never a gate; absent when there were none. */
     missingCases?: string[];
     /* The value score describes bytes an accepted regeneration rewrote. Signal-only: recorded, never a gate. */
