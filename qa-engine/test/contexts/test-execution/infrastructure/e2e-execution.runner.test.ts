@@ -1440,7 +1440,7 @@ test("harvest keeps every retry's failure-point capture, in retry order, next to
         );
         writeFileSync(
           join(args.failureCaptureDir, `desktop__${hash}__0.json`),
-          JSON.stringify({ project: "desktop", file: netCase.file, title: netCase.title, retry: 0, yaml: "- heading \"Owners\"", finalUrl: "https://dev/owners", httpStatus: 200, settle: { inFlight: 2, quietMs: 10, treeStable: false }, resultCount: 0, runtimeErrors: [{ type: "pageerror", text: "boom" }], networkErrors: [{ url: "https://api/x", status: 502 }] }),
+          JSON.stringify({ project: "desktop", file: netCase.file, title: netCase.title, retry: 0, yaml: "- heading \"Owners\"", finalUrl: "https://dev/owners", httpStatus: 200, settle: { inFlight: 2, quietMs: 10, treeStable: false }, resultCount: 0, runtimeErrors: [{ type: "pageerror", text: "boom" }], networkErrors: [{ url: "https://api/x", status: 502 }], backgroundNetwork: { count: 4, hosts: ["t.example"] } }),
         );
       }
       return {
@@ -1465,6 +1465,8 @@ test("harvest keeps every retry's failure-point capture, in retry order, next to
   assert.equal(first.runtimeErrorCount, 1);
   assert.equal(first.runtimeError, "boom");
   assert.equal(first.networkErrorCount, 1);
+  assert.equal(first.backgroundNetworkCount, 4, "the background failures of the attempt are kept apart from its network errors");
+  assert.equal(attempts[1]!.backgroundNetworkCount, undefined, "an attempt whose dump carried none has none");
   assert.equal(first.domLines, 1);
   assert.match(first.domSha256 ?? "", /^[0-9a-f]{64}$/);
   assert.equal(attempts[1]!.domLines, 2);

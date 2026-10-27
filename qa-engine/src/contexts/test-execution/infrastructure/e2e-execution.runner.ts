@@ -684,6 +684,7 @@ function attemptEvidence(d: FailureDump): FailureAttemptEvidence {
     runtimeErrorCount: d.runtimeErrors?.length ?? 0,
     ...(d.runtimeErrors?.[0] !== undefined ? { runtimeError: d.runtimeErrors[0].text } : {}),
     networkErrorCount: d.networkErrors?.length ?? 0,
+    ...(d.backgroundNetwork !== undefined && d.backgroundNetwork.count > 0 ? { backgroundNetworkCount: d.backgroundNetwork.count } : {}),
     ...(nodes.length > 0 ? { domLines: nodes.length, domSha256: createHash("sha256").update(nodes.join("\n")).digest("hex") } : {}),
   };
 }

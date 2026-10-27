@@ -84,6 +84,8 @@ test("an accept of a spec that has not passed run_spec on its current bytes is s
   assert.equal(sent.orders[0]!.action, REVIEW_ACTION.REVISE);
   assert.match(sent.orders[0]!.instruction, /expected 3, got 0 on \/shops/);
   assert.equal(sent.refused[0]!.flowId, "cart");
+  assert.equal(sent.refused[0]!.code, "unverified-sent-back");
+  assert.equal(sent.orders[0]!.overrideReason, "unverified-sent-back", "the order says it is not what the lead decided");
   const late = admitLeadReview(redaction, answer([{ flow: "cart", action: "accept" }]), [unverified], { revisionsAllowed: false });
   assert.deepEqual(late.orders, []);
   assert.deepEqual(late.accepted, ["cart"], "the run's execution judges it");

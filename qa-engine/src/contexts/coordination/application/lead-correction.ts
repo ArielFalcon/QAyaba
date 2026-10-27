@@ -159,14 +159,20 @@ export function sameFile(a: string, b: string): boolean {
  * asked where it goes.
  */
 export function flowOfFinding(finding: CorrectionFinding, flows: readonly FlowUnderCorrection[]): string | undefined {
+  return routeOfFinding(finding, flows)?.flowId;
+}
+
+/* The flow a finding belongs to and what decided it: the spec it cites or names, or the changed file that seeds a use case the flow covers. */
+export function routeOfFinding(finding: CorrectionFinding, flows: readonly FlowUnderCorrection[]): { flowId: string; by: "spec" | "candidate" } | undefined {
   const names = (path: string, spec: string): boolean => path === spec || path.endsWith(`/${spec}`);
   const cited = finding.spec?.replaceAll("\\", "/");
-  if (cited) return flows.find((flow) => names(cited, flow.specFile))?.id;
+  const bySpec = (id: string | undefined): { flowId: string; by: "spec" } | undefined => (id === undefined ? undefined : { flowId: id, by: "spec" });
+  if (cited) return bySpec(flows.find((flow) => names(cited, flow.specFile))?.id);
   const named = flows.filter((flow) => namesSpecIn(finding.text, flow.specFile));
-  if (named.length > 0) return named.length === 1 ? named[0]!.id : undefined;
+  if (named.length > 0) return named.length === 1 ? bySpec(named[0]!.id) : undefined;
   if (finding.file === undefined) return undefined;
   const seeded = flows.filter((flow) => flow.seedFiles?.some((file) => sameFile(file, finding.file!)));
-  return seeded.length === 1 ? seeded[0]!.id : undefined;
+  return seeded.length === 1 ? { flowId: seeded[0]!.id, by: "candidate" } : undefined;
 }
 
 function cut(text: string, max: number): string {

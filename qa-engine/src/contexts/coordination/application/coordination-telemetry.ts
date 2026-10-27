@@ -16,6 +16,15 @@ export type CoordinationTelemetryKind =
   | "pushback"
   | "outcome";
 
+/* How a correction turn's findings were routed, one count per route; the counts add up to at most the turn's findings (a rebutted finding is in none). */
+export interface CoordinationRouteCounts {
+  readonly spec: number;
+  readonly candidate: number;
+  readonly lead: number;
+  readonly candidateFlow: number;
+  readonly unrouted: number;
+}
+
 export interface CoordinationTelemetryEvent {
   readonly runId: string;
   /** Watched app this event belongs to — lets adaptive signals and audits scope per app instead of mixing the whole fleet. Optional for backward compatibility with ledger lines recorded before this field existed. */
@@ -39,6 +48,23 @@ export interface CoordinationTelemetryEvent {
   readonly sidekickStatus?: string;
   /** How the flow's last run_spec call ended when the sidekick reported, when kind is delegation and the flow called it. */
   readonly lastRunSpec?: string;
+  /** The flow the event is about, and the ids of the use cases it covers (bounded by the exporter). */
+  readonly flowId?: string;
+  readonly candidateIds?: readonly string[];
+  /** What produced the correction the event is about (a `CorrectionOrigin`). */
+  readonly origin?: string;
+  /** A correction turn's findings and how each was routed: by the spec it names, by the changed file that seeds a use case, by the lead's order, by a flow opened for a use case, or not at all. */
+  readonly findings?: number;
+  readonly routes?: CoordinationRouteCounts;
+  /** Why findings stayed unrouted, as distinct codes. */
+  readonly unroutedReasons?: readonly string[];
+  /** The bases of the plan's drops, and whether the run's facts contradicted them. */
+  readonly dropBases?: readonly string[];
+  readonly dropContradicted?: boolean;
+  /** What the lead decided about a flow (accept, revise, replace, drop), whether the orchestrator did not take it as given, and the code of why. */
+  readonly decision?: string;
+  readonly overridden?: boolean;
+  readonly overrideReason?: string;
   /** Pipeline verdict when kind is outcome. */
   readonly finalOutcome?: string;
   /** Reviewer approved/rejected/skipped when kind is outcome. */

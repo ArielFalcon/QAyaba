@@ -52,7 +52,21 @@ export interface ReviewOrder {
   flowId: string;
   action: typeof REVIEW_ACTION.REVISE | typeof REVIEW_ACTION.REPLACE;
   instruction: string;
+  /* Set when the order is not the action the lead gave: why the orchestrator changed it (an `OVERRIDE` code). */
+  overrideReason?: string;
 }
+
+/* The codes of why the orchestrator did not take a lead decision as given. */
+export const REVIEW_OVERRIDE = {
+  NOTHING_DELIVERED: "nothing-delivered",
+  UNVERIFIED_SENT_BACK: "unverified-sent-back",
+  UNVERIFIED_NO_TURN: "unverified-no-turn-left",
+  APP_DEFECT: "app-defect",
+  NO_TURN_LEFT: "no-turn-left",
+  NEEDS_INSTRUCTION: "needs-instruction",
+  DELIVERED_DROP: "delivered-drop",
+  SESSION_GONE: "session-gone",
+} as const;
 
 export interface ReviewAdmission {
   /* Whether the answer could be read at all. */
@@ -62,7 +76,7 @@ export interface ReviewAdmission {
   accepted: string[];
   dropped: Array<{ flowId: string; reason: string }>;
   /* What the lead asked that the orchestrator did not take, and why. */
-  refused: Array<{ flowId: string; action: string; reason: string }>;
+  refused: Array<{ flowId: string; action: string; reason: string; code: string }>;
 }
 
 function cut(text: string, max: number): string {
@@ -161,11 +175,11 @@ export function admitLeadReview(redaction: RedactionPort, output: string, flows:
   admission.readable = true;
   const byId = new Map(flows.map((flow) => [flow.id, flow]));
   const seen = new Set<string>();
-  const refuse = (flowId: string, action: string, reason: string): void => void admission.refused.push({ flowId, action, reason });
-  const order = (flow: FlowUnderReview, action: ReviewOrder["action"], instruction: string): void => {
+  const refuse = (flowId: string, action: string, code: string, reason: string): void => void admission.refused.push({ flowId, action, reason, code });
+  const order = (flow: FlowUnderReview, action: ReviewOrder["action"], instruction: string, overrideReason?: string): void => {
     /* A sidekick whose session is gone cannot be asked again: a fresh one takes the flow. */
     const effective = action === REVIEW_ACTION.REVISE && !flow.sessionOpen ? REVIEW_ACTION.REPLACE : action;
-    admission.orders.push({ flowId: flow.id, action: effective, instruction });
+    admission.orders.push({ flowId: flow.id, action: effective, instruction, ...(overrideReason !== undefined ? { overrideReason } : effective !== action ? { overrideReason: REVIEW_OVERRIDE.SESSION_GONE } : {}) });
   };
 
   for (const entry of raw.review) {
@@ -182,7 +196,7 @@ export function admitLeadReview(redaction: RedactionPort, output: string, flows:
     switch (action) {
       case REVIEW_ACTION.ACCEPT: {
         if (!delivered) {
-          refuse(flow.id, action, "nothing was delivered to accept");
+          refuse(flow.id, action, REVIEW_OVERRIDE.NOTHING_DELIVERED, "nothing was delivered to accept");
           break;
         }
         /* Sent back: a spec whose last call failed, or one the flow can still run that has not passed on its current bytes. */
@@ -193,10 +207,10 @@ export function admitLeadReview(redaction: RedactionPort, output: string, flows:
           break;
         }
         if (opts.revisionsAllowed) {
-          refuse(flow.id, action, "the spec has not passed run_spec on its current bytes; it is sent back with the orchestrator's facts");
-          order(flow, REVIEW_ACTION.REVISE, verifyInstruction(redaction, flow));
+          refuse(flow.id, action, REVIEW_OVERRIDE.UNVERIFIED_SENT_BACK, "the spec has not passed run_spec on its current bytes; it is sent back with the orchestrator's facts");
+          order(flow, REVIEW_ACTION.REVISE, verifyInstruction(redaction, flow), REVIEW_OVERRIDE.UNVERIFIED_SENT_BACK);
         } else {
-          refuse(flow.id, action, "the spec has not passed run_spec on its current bytes and no review turn is left; the run's execution judges it");
+          refuse(flow.id, action, REVIEW_OVERRIDE.UNVERIFIED_NO_TURN, "the spec has not passed run_spec on its current bytes and no review turn is left; the run's execution judges it");
           admission.accepted.push(flow.id);
         }
         break;
@@ -204,15 +218,15 @@ export function admitLeadReview(redaction: RedactionPort, output: string, flows:
       case REVIEW_ACTION.REVISE:
       case REVIEW_ACTION.REPLACE: {
         if (flow.appDefect !== undefined) {
-          refuse(flow.id, action, `the flow showed an app defect (${redaction.redact(flow.appDefect)}), which is never sent back to be made green`);
+          refuse(flow.id, action, REVIEW_OVERRIDE.APP_DEFECT, `the flow showed an app defect (${redaction.redact(flow.appDefect)}), which is never sent back to be made green`);
           break;
         }
         if (!opts.revisionsAllowed) {
-          refuse(flow.id, action, "no review turn is left to judge a revision");
+          refuse(flow.id, action, REVIEW_OVERRIDE.NO_TURN_LEFT, "no review turn is left to judge a revision");
           break;
         }
         if (action === REVIEW_ACTION.REVISE && instruction === "") {
-          refuse(flow.id, action, "a revision needs an instruction");
+          refuse(flow.id, action, REVIEW_OVERRIDE.NEEDS_INSTRUCTION, "a revision needs an instruction");
           break;
         }
         order(flow, action, instruction || "Author this flow again from the brief.");
@@ -220,7 +234,7 @@ export function admitLeadReview(redaction: RedactionPort, output: string, flows:
       }
       case REVIEW_ACTION.DROP: {
         if (delivered) {
-          refuse(flow.id, action, "a delivered spec is already in the working copy; the run's execution and the reviewer judge it");
+          refuse(flow.id, action, REVIEW_OVERRIDE.DELIVERED_DROP, "a delivered spec is already in the working copy; the run's execution and the reviewer judge it");
           break;
         }
         admission.dropped.push({ flowId: flow.id, reason: reason || "dropped by the lead" });

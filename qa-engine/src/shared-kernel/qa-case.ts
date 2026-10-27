@@ -39,6 +39,8 @@ export interface FailureAttemptEvidence {
   /* The first runtime error's text, when there was one. */
   runtimeError?: string;
   networkErrorCount: number;
+  /* Failed background requests (beacons, third-party events) the page made before this attempt failed, which are not network errors of the case. Absent when there were none. */
+  backgroundNetworkCount?: number;
   /* Lines of the parsed accessibility tree and the sha256 of those lines; absent when the dump had no tree. */
   domLines?: number;
   domSha256?: string;

@@ -28,7 +28,7 @@ function survivorAttrs(m: BundleMutationOutcome) {
     "qayaba.mutation.applied": m.applied,
     "qayaba.mutation.killed": m.killed,
     "qayaba.mutation.survivors_routed": routed,
-    "qayaba.mutation.survivors_unrouted": m.survived.length - routed,
+    "qayaba.mutation.survivors_without_spec": m.survived.length - routed,
   };
 }
 

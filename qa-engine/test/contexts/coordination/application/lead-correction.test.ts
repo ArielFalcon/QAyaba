@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CORRECTION_ORIGIN, DEFAULT_CORRECTION_INSTRUCTION, admitLeadCorrection, correctionPreamble, flowOfFinding, renderLeadCorrection, type FlowUnderCorrection, type CorrectionFinding } from "@contexts/coordination/application/lead-correction.ts";
+import { CORRECTION_ORIGIN, DEFAULT_CORRECTION_INSTRUCTION, admitLeadCorrection, correctionPreamble, flowOfFinding, routeOfFinding, renderLeadCorrection, type FlowUnderCorrection, type CorrectionFinding } from "@contexts/coordination/application/lead-correction.ts";
 import { REVIEW_ACTION } from "@contexts/coordination/application/lead-review.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
@@ -147,4 +147,11 @@ test("flaky findings are told a test passed on retry, and are facts the lead doe
   assert.doesNotMatch(correctionPreamble(CORRECTION_ORIGIN.FLAKY), /and it failed\./);
   const observed: CorrectionFinding[] = [{ text: "test \"total\" failed its first attempt and passed on retry", spec: "flows/cart.spec.ts" }];
   assert.match(renderLeadCorrection(redaction, flows, observed, CORRECTION_ORIGIN.FLAKY), /none is rebutted/);
+});
+
+test("a finding is routed by the spec it names or by the changed file that seeds a use case of one flow, and by neither when it names nothing", () => {
+  const seeded: FlowUnderCorrection[] = [{ ...flows[0]!, seedFiles: ["src/cart.ts"] }, flows[1]!];
+  assert.deepEqual(routeOfFinding({ text: "x", spec: "e2e/flows/cart.spec.ts" }, seeded), { flowId: "cart", by: "spec" });
+  assert.deepEqual(routeOfFinding({ text: "x", file: "src/cart.ts" }, seeded), { flowId: "cart", by: "candidate" });
+  assert.equal(routeOfFinding({ text: "x" }, seeded), undefined);
 });

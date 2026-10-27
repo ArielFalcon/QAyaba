@@ -58,5 +58,5 @@ test("the coverage span counts the surviving mutants a spec reached and those no
   await new TracedObjectiveSignalPort(inner, telemetry).measure(BlastRadius.of(Sha.of("abc1234"), []), "/e2e");
   const attrs = telemetry.attrs.find((a) => "qayaba.mutation.applied" in a)!;
   assert.equal(attrs["qayaba.mutation.survivors_routed"], 1);
-  assert.equal(attrs["qayaba.mutation.survivors_unrouted"], 2);
+  assert.equal(attrs["qayaba.mutation.survivors_without_spec"], 2);
 });

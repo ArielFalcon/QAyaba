@@ -9,6 +9,9 @@ import { startRunChildSpan } from "../../../../shared-infrastructure/telemetry/r
 import type { TelemetryPort } from "../../../../shared-kernel/telemetry/telemetry.port.ts";
 import type { CoordinationTelemetryEvent, CoordinationTelemetryPort } from "../../application/coordination-telemetry.ts";
 
+/* The most items of a list an event exports; the registry caps the array again. */
+const MAX_LISTED = 12;
+
 export class TracedCoordinationTelemetry implements CoordinationTelemetryPort {
   constructor(
     private readonly inner: CoordinationTelemetryPort,
@@ -26,6 +29,23 @@ export class TracedCoordinationTelemetry implements CoordinationTelemetryPort {
       ...(event.failureClass ? { "qayaba.coordination.failure_class": event.failureClass } : {}),
       ...(event.sidekickStatus ? { "qayaba.delegation.status": event.sidekickStatus } : {}),
       ...(event.lastRunSpec ? { "qayaba.delegation.last_run_spec": event.lastRunSpec } : {}),
+      ...(event.flowId ? { "qayaba.coordination.flow_id": event.flowId } : {}),
+      ...(event.candidateIds && event.candidateIds.length > 0 ? { "qayaba.coordination.candidate_ids": event.candidateIds.slice(0, MAX_LISTED) } : {}),
+      ...(event.origin ? { "qayaba.coordination.origin": event.origin } : {}),
+      ...(event.findings !== undefined ? { "qayaba.coordination.findings": event.findings } : {}),
+      ...(event.routes ? {
+        "qayaba.coordination.findings_by_spec": event.routes.spec,
+        "qayaba.coordination.findings_by_candidate": event.routes.candidate,
+        "qayaba.coordination.findings_by_lead": event.routes.lead,
+        "qayaba.coordination.findings_by_candidate_flow": event.routes.candidateFlow,
+        "qayaba.coordination.findings_unrouted": event.routes.unrouted,
+      } : {}),
+      ...(event.unroutedReasons && event.unroutedReasons.length > 0 ? { "qayaba.coordination.unrouted_reasons": event.unroutedReasons.slice(0, MAX_LISTED) } : {}),
+      ...(event.dropBases && event.dropBases.length > 0 ? { "qayaba.coordination.drop_bases": event.dropBases.slice(0, MAX_LISTED) } : {}),
+      ...(event.dropContradicted !== undefined ? { "qayaba.coordination.drop_contradicted": event.dropContradicted } : {}),
+      ...(event.decision ? { "qayaba.coordination.decision": event.decision } : {}),
+      ...(event.overridden !== undefined ? { "qayaba.coordination.decision_overridden": event.overridden } : {}),
+      ...(event.overrideReason ? { "qayaba.coordination.override_reason": event.overrideReason } : {}),
     }).end();
   }
 }

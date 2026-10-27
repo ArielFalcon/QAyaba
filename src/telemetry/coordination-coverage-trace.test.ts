@@ -8,6 +8,7 @@ import type { ObjectiveSignalPort } from "@contexts/objective-signal/application
 import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import { Sha } from "@kernel/sha";
 import { BlastRadius } from "@kernel/blast-radius";
+import { lookupAttribute } from "@kernel/telemetry/attribute-registry";
 import { traceHarness } from "./trace-harness";
 
 function inPhase<T>(h: ReturnType<typeof traceHarness>, name: string, fn: () => T): T {
@@ -36,6 +37,29 @@ test("every coordination decision is recorded in the ledger and is a span of the
   assert.equal(span.attributes["qayaba.coordination.failure_class"], "failed");
   assert.equal(span.attributes["qayaba.delegation.status"], "needs-lead");
   assert.equal(span.attributes["qayaba.delegation.last_run_spec"], "passed");
+});
+
+test("a coordination event carries its flow, candidates, routes, drop bases and decision as attributes, with lists bounded and every key registered", () => {
+  const h = traceHarness();
+  const ids = Array.from({ length: 40 }, (_, i) => `uc-${i}`);
+  const event: CoordinationTelemetryEvent = {
+    runId: "r", kind: "lead-decision", reason: "correction (coverage): 3 finding(s) routed", at: 1, flowId: "cart", candidateIds: ids, origin: "coverage", findings: 7,
+    routes: { spec: 1, candidate: 2, lead: 1, candidateFlow: 1, unrouted: 2 }, unroutedReasons: ids, dropBases: ids, dropContradicted: true, decision: "revise", overridden: true, overrideReason: "unverified-sent-back",
+  };
+  inPhase(h, "qayaba.phase.generate", () => new TracedCoordinationTelemetry({ record: () => {} }, h.telemetry).record(event));
+  const a = h.only("qayaba.coordination.event").attributes;
+  assert.equal(a["qayaba.coordination.flow_id"], "cart");
+  assert.equal((a["qayaba.coordination.candidate_ids"] as string[]).length <= 12, true);
+  assert.equal(a["qayaba.coordination.origin"], "coverage");
+  assert.equal(a["qayaba.coordination.findings"], 7);
+  assert.deepEqual([a["qayaba.coordination.findings_by_spec"], a["qayaba.coordination.findings_by_candidate"], a["qayaba.coordination.findings_by_lead"], a["qayaba.coordination.findings_by_candidate_flow"], a["qayaba.coordination.findings_unrouted"]], [1, 2, 1, 1, 2]);
+  assert.equal((a["qayaba.coordination.unrouted_reasons"] as string[]).length <= 6, true);
+  assert.equal((a["qayaba.coordination.drop_bases"] as string[]).length <= 12, true);
+  assert.equal(a["qayaba.coordination.drop_contradicted"], true);
+  assert.equal(a["qayaba.coordination.decision"], "revise");
+  assert.equal(a["qayaba.coordination.decision_overridden"], true);
+  assert.equal(a["qayaba.coordination.override_reason"], "unverified-sent-back");
+  for (const key of Object.keys(a).filter((k) => k.startsWith("qayaba.coordination."))) assert.ok(lookupAttribute(key), `${key} is registered`);
 });
 
 test("the change-coverage measurement is a span with its decision, what it counted and why it decided nothing", async () => {

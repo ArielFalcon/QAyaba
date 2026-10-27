@@ -182,6 +182,7 @@ function captureAttrs(c: FailureAttemptEvidence): Attrs {
     "qayaba.failure.runtime_error_count": c.runtimeErrorCount,
     ...(c.runtimeError !== undefined ? { "qayaba.failure.runtime_error": c.runtimeError } : {}),
     "qayaba.failure.network_error_count": c.networkErrorCount,
+    ...(c.backgroundNetworkCount !== undefined ? { "qayaba.failure.background_network_count": c.backgroundNetworkCount } : {}),
     ...(c.domLines !== undefined ? { "qayaba.failure.dom_lines": c.domLines } : {}),
     ...(c.domSha256 !== undefined ? { "qayaba.failure.dom_sha256": c.domSha256 } : {}),
   };

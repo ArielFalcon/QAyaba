@@ -265,7 +265,7 @@ qayaba.run
 │  ├─ plan qa-lead             (lead+sidekicks: read-only plan turn)
 │  ├─ qayaba.fanout               children: invoke_agent qa-author (overlapping)
 │  ├─ qayaba.merge                links → each delivering sidekick span
-│  └─ qayaba.coordination.event   one per plan/delegation/review decision: kind, action, reason, delegation, attempt, failure class
+│  └─ qayaba.coordination.event   one per plan/delegation/review decision and one summary per correction turn: kind, action, a short reason, delegation, attempt, failure class, and as attributes the flow id, its candidate ids, the correction origin, the lead decision with whether the orchestrator overrode it (and a code why), the plan drops' bases and whether the facts contradicted them, and the turn's findings counted by route (spec, candidate, lead, candidate flow, unrouted) with a bounded list of unrouted reason codes. "Unrouted" belongs to coordination findings only; mutants no spec reached are `qayaba.mutation.survivors_without_spec`
 ├─ qayaba.phase.validate          per check: typecheck | lint | list | manifest (first error: file:line:col rule); catalog gate; ambiguity advisory
 ├─ qayaba.phase.health
 ├─ qayaba.phase.execute           qayaba.spec.execute per spec, qayaba.test per case (synthesized, §6.2)
@@ -570,7 +570,8 @@ for an id nobody can export would be noise. This deviates from brief §4.2, deli
   (`{ count, hosts }`, at most five host names, logged once per run), is not a network error and never
   makes a passing test dump. `network_error_count` and `network_class` describe a failure: they count only
   page-dependent failures of a failed attempt, so a refused telemetry fetch of a passing test carries neither. `network_class` is derived: a host in the run's denied list is `egress`, a 5xx is `backend`,
-  a name-resolution error is `dns`.
+  a name-resolution error is `dns`. The background count of a failed attempt reaches that attempt's span as
+  `qayaba.failure.background_network_count` (only when the dump held some).
 - **Validation.** One child per check: `typecheck|lint|list|manifest`, with an ok flag and an error
   count. Also the catalog gate (fabricated test-id count) and the ambiguity advisory
   (`preExecAmbiguityCatches`).

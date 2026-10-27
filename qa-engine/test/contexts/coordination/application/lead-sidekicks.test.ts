@@ -1798,5 +1798,51 @@ test("a fan-out whose drop the facts contradict keeps its flows when the lead pe
   assert.equal(lead.replans.length, 1);
   assert.deepEqual(outcome.signal.dropsContradicted?.map((c) => c.candidate), ["uc-/cart"]);
   assert.ok(!r.events.some((e) => /neither covered nor dropped/.test(e.reason ?? "")), "it is a kept drop, not an unplanned use case");
+  assert.ok(r.events.some((e) => e.dropContradicted === true && e.dropBases?.includes("no-observable-change")), "the kept drop's basis and contradiction are attributes of its event");
   if (outcome.action === "fanout") await outcome.pass?.release();
+});
+
+test("a flow's turn event names the flow, and a review decision names the flow, the decision and whether the orchestrator took it as given", async () => {
+  const lead = leadWith([[{ flow: "cart", action: "revise", instruction: "try the cart page" }, { flow: "login", action: "revise" }], []]);
+  const r = rig({ answers: { cart: [{ status: "failed", summary: "x", filesChanged: [] }] }, hasFile: new Set(["login"]) });
+  await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan }));
+  const turn = r.events.find((e) => e.kind === "delegation" && e.flowId === "cart");
+  assert.ok(turn, "the turn event carries the flow id as an attribute");
+  const taken = r.events.find((e) => e.kind === "lead-decision" && e.flowId === "cart" && e.decision === "revise");
+  assert.equal(taken?.overridden, false);
+  assert.equal(taken?.overrideReason, undefined);
+  const refused = r.events.find((e) => e.kind === "lead-decision" && e.flowId === "login" && e.decision === "revise");
+  assert.equal(refused?.overridden, true);
+  assert.equal(refused?.overrideReason, "needs-instruction");
+});
+
+test("a correction turn summarises how its findings were routed: by the spec they name, by the lead's order, and not at all", async () => {
+  const order = JSON.stringify({ corrections: [{ flow: "cart", action: "revise", findings: [2], instruction: "cover the arm" }] });
+  const lead = leadAnswering([ACCEPT_ALL, order]);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  await outcome.pass!.correct([{ text: "the total is never asserted", spec: "e2e/flows/cart.spec.ts" }, { text: "decision arm src/a.ts:4 if: the else" }, { text: "decision arm src/a.ts:9 ?: nothing is asked of it", file: "src/a.ts" }], CORRECTION_ORIGIN.COVERAGE);
+  await outcome.pass!.release();
+  const summary = r.events.find((e) => e.origin === CORRECTION_ORIGIN.COVERAGE && e.routes !== undefined);
+  assert.equal(summary?.findings, 3);
+  assert.deepEqual(summary?.routes, { spec: 1, candidate: 0, lead: 1, candidateFlow: 0, unrouted: 1 });
+  assert.deepEqual(summary?.unroutedReasons, ["no-seed-use-case"]);
+  const sent = r.events.find((e) => e.flowId === "cart" && e.decision === "revise" && e.findings === 2);
+  assert.ok(sent, "the flow's order says how many findings it was sent");
+  assert.ok(r.events.every((e) => !/^correction/.test(e.reason ?? "") || e.origin === CORRECTION_ORIGIN.COVERAGE), "every correction event names its origin");
+});
+
+test("findings a turn left unrouted say why as a code, and the pass's own leave-unrouted call is told apart", async () => {
+  const lead = leadAnswering([ACCEPT_ALL, OUT_OF_RANGE_ORDER, OUT_OF_RANGE_ORDER]);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  await outcome.pass!.correct(LOOSE_ARMS, CORRECTION_ORIGIN.COVERAGE);
+  outcome.pass!.leaveUnrouted([{ text: "x" }], CORRECTION_ORIGIN.COVERAGE, "lead correction budget spent");
+  await outcome.pass!.release();
+  const summary = r.events.find((e) => e.routes !== undefined && e.origin === CORRECTION_ORIGIN.COVERAGE);
+  assert.equal(summary?.routes?.unrouted, 2);
+  assert.deepEqual(summary?.unroutedReasons, ["no-flow-took"]);
+  assert.ok(r.events.some((e) => e.unroutedReasons?.[0] === "left-by-caller" && e.findings === 1));
 });

@@ -475,6 +475,7 @@ test("each attempt carries the failure-point capture of its own retry, and a pas
       runtimeErrorCount: 2,
       runtimeError: "TypeError: cannot read properties of undefined",
       networkErrorCount: 3,
+      backgroundNetworkCount: 5,
       domLines: 12,
       domSha256: "a".repeat(64),
     }],
@@ -491,6 +492,8 @@ test("each attempt carries the failure-point capture of its own retry, and a pas
   assert.equal(failed!.attributes["qayaba.failure.runtime_error_count"], 2);
   assert.equal(failed!.attributes["qayaba.failure.runtime_error"], "TypeError: cannot read properties of undefined");
   assert.equal(failed!.attributes["qayaba.failure.network_error_count"], 3);
+  assert.equal(failed!.attributes["qayaba.failure.background_network_count"], 5);
+  assert.equal(passed!.attributes["qayaba.failure.background_network_count"], undefined);
   assert.equal(failed!.attributes["qayaba.failure.dom_lines"], 12);
   assert.equal(failed!.attributes["qayaba.failure.dom_sha256"], "a".repeat(64));
   assert.equal(failed!.attributes["qayaba.failure.captured"], true);
