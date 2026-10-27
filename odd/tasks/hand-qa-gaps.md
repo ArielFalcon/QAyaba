@@ -1,0 +1,28 @@
+# Hand-QA gaps
+
+Close the generic causes the hand QA of run-ed28973-mvr4s6br-7cfce5f0 on DEV showed: a real DEV defect passed green, a use case was dropped as "not observable" while DEV observed it, and all three mutants survived.
+Branch: main (single branch, owner rule). Delivery: work-unit commits on main; push, PR and merge are the owner's. Runner: `LC_ALL=C npm test` (Node v24.11.0), full gate per AGENTS.md plus `npx tsx scripts/prompt-contract-matrix.ts`.
+
+## Specs
+
+- **S1 Differential observation of survivors (L1, L2 item 1).** "Re-run a surviving mutant and diff network and DOM observables against the baseline. Hand the author the observable that moved." When a mutant survives, the orchestrator compares what the page did under the mutant with what it did without it (requests by method + origin + pathname, and the accessible tree of the pages the mutant reached) and hands the regeneration that answers the survivor the observable that moved, as a fact. A survivor with no moved observable is stated as such. The mutant itself (served script, edit) never reaches an agent or the record. Signal, never a gate. Run evidence: `map-shell.component.ts:67` survived while the style request (`api.mapbox.com/styles/v1/...`, a different id per theme) is what the mutant moves.
+- **S2 Request log in the Context Pack (L1, L2 item 2).** "Record non-app-origin requests per route from the DOM capture, not only from the authenticated browser. Refuse "not observable" comments unless a probe backs them." The Context Pack's capture records, per captured route, the requests the page made (method + origin + pathname, never query, body, headers or cookies; bounded and redacted like the authenticated browser's request log), and a flow's brief carries those of its pages. A `no-observable-change` drop, or an author's claim that a page makes no request, is contradicted by a recorded request of that page. Run evidence: the lead dropped the theme map style as "NOT OBSERVABLE" and the delivered spec's header says the page issues no style request; DEV requests it 2-3 s after load on `/map` and `/home`.
+- **S3 Adaptive assertions are flagged (L1, L2 item 3).** "Reviewer rubric on adaptive assertions. Flag expected values derived from the state under test, and conditional arms such as `if (offered.length > 0)`." An assertion guarded by a condition on the state under test is caught deterministically where a rule can see it (the seed's static gate), and the reviewer may cite an assertion whose expected value is read from the state it checks as a verified finding. Run evidence: `cuisine-availability-and-map-dialogs.spec.ts` asserts `excluded.length > 0` and guards the ordering check with `if (offered.length > 0)`, so it passed over a broken contract.
+- **S4 Cross-source contradictions are possible defects (L1, L2 item 5).** "When one page's two data sources disagree (the list shows cuisines, the UI offers none), report it as a possible defect rather than normalising it." Assumption: the facts come from what the orchestrator observed (the capture's responses, the run's own reads), never from a spec's comment. Run evidence: `GET /restaurants/countries/ES` returns no `activeMenuCuisineType` while `GET /restaurants?lat=…` returns 3 cuisines, so all 18 chips are disabled; the run called it data.
+- **S5 Read-only interception to supply a missing state (L1, L2 item 4).** "Use read-only `page.route` to supply missing data. Use it for `needs-unavailable-state` drops." Open: AGENTS.md says the agent exercises the backend through the UI, never the API directly; a spec that fulfils a response tests the frontend against a stated contract, not DEV. Needs the owner's decision before it is built.
+
+## Tasks
+
+| ID | Specs | Route | Status | Evidence |
+|---|---|---|---|---|
+| T1 | S1 | delegated (parallel writer: objective-signal mutation and survivor closure, several files) | pending | |
+| T2 | S2 | delegated (parallel writer: Context Pack capture, pack pages, plan coverage, briefs) | pending | |
+| T3 | S3 | inline (seed lint rules, reviewer citation) | pending | |
+| T4 | S4 | explore first (no generic source of "two data sources of one page" is known yet) | pending | |
+| T5 | S5 | needs the owner's decision | pending | |
+
+## Log
+
+- L1 (2026-10-27) owner: "Abre tareas con esas causas" — answering "¿Abro estas causas como tareas nuevas del documento y las corrijo antes de lanzar la réplica, o lanzo primero la réplica con lo que ya está integrado?"
+- L2 (2026-10-27) the causes, from the hand QA report (read-only, DEV, the run's commit): 1. differential observation of survivors; 2. request log in the Context Pack, refuse "not observable" without a probe; 3. reviewer rubric on adaptive assertions; 4. read-only `page.route` to supply missing data for `needs-unavailable-state`; 5. flag cross-source contradictions as possible defects; 6. session freshness. Item 6 is not a task: `run_spec` renews an expired session (`run-spec.use-case.ts:284`) and the authenticated browser re-signs on invalidation; only the hand replay used a stale file. The DEV defect itself (the geo collection lacks `activeMenuCuisineType`) is the app's, reported to the owner.
+- L3 (2026-10-27) existing guards: `dropRefusal` (`plan-coverage.ts:58`) already refuses a `no-observable-change` drop whose seeds are executable code, but a lead that keeps it is honoured and recorded (`dropsContradicted`); the seed ESLint config (`config/e2e/eslint.config.js`) enables no `playwright/no-conditional-*` rule.
