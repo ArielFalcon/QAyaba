@@ -5,6 +5,7 @@ import {
   FLOW_RESULT,
   type TimerPort,
 } from "@contexts/coordination/application/fan-out-dispatcher.ts";
+import { createAgentDeps, type RawAgentTransport } from "@contexts/generation/infrastructure/agent-transport-policy.ts";
 
 /* A clock the test moves by hand: a timer fires when the clock reaches it, never before. */
 class FakeTimers implements TimerPort {
@@ -130,6 +131,32 @@ test("a flow that runs out of time is stopped through its own signal and the oth
   const results = await run;
   assert.equal(results[0]!.status, FLOW_RESULT.TIMED_OUT);
   assert.deepEqual(results[1], { id: "fast", status: FLOW_RESULT.SETTLED, value: "fast-done" });
+});
+
+test("a flow that runs out of time has its transport session aborted through its signal and not deleted: the holder's dispose is the one delete", async () => {
+  const timers = new FakeTimers();
+  const dispatcher = new FanOutDispatcher({ timers });
+  const calls: string[] = [];
+  const raw: RawAgentTransport = {
+    createSession: async () => ({ id: "sess-flow-budget" }),
+    promptSession: () => new Promise(() => {}),
+    abortSession: async (id) => void calls.push(`abort:${id}`),
+    deleteSession: async (id) => void calls.push(`delete:${id}`),
+  };
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 600_000, getFallbackModel: () => undefined });
+  let session: Awaited<ReturnType<typeof deps.open>> | undefined;
+  const run = dispatcher.run([slot("slow", 500)], { maxParallel: 1 }, async (_flow, signal) => {
+    session = await deps.open("qa-author", "/tmp", { signal });
+    await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+  });
+  await settle();
+  timers.advance(500);
+  const results = await run;
+  await settle();
+  assert.equal(results[0]!.status, FLOW_RESULT.TIMED_OUT);
+  assert.deepEqual(calls, ["abort:sess-flow-budget"], "the session saw the abort and no delete");
+  await session!.dispose();
+  assert.deepEqual(calls, ["abort:sess-flow-budget", "delete:sess-flow-budget"]);
 });
 
 test("a flow that ignores its stop does not hold its place for good", async () => {

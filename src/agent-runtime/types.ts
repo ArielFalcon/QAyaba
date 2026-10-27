@@ -82,7 +82,7 @@ export interface AgentRuntimeStrategy {
     signal?: AbortSignal,
     onRunEvent?: (runId: string, body: RunEventBody) => void,
   ): Promise<void>;
-  cleanupOrphans?(maxAgeMs: number): Promise<number>;
+  cleanupOrphans?(maxIdleMs: number): Promise<number>;
   restart?(opts?: { apiKey?: string; reason?: string; env?: Record<string, string> }): Promise<AgentProviderHealth>;
   dispose?(): void | Promise<void>;
 }

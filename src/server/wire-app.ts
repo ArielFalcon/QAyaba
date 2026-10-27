@@ -36,7 +36,7 @@ import { buildRunViewExtras, defaultRunViewDeps } from "./run-view";
 import { enqueueTrackedRun, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./runner";
 import { codeGraphFor } from "./engine-root";
 import { appAuthDir, appSuiteStoreDir, createRunEngineFactory, resolveCodeSandbox } from "./run-engine-factory";
-import type { ContextHealRunRequest } from "@contexts/run-orchestration/application/index";
+import { longestRunTimeBudgetMs, type ContextHealRunRequest } from "@contexts/run-orchestration/application/index";
 import { egressGateFor } from "./egress-wiring";
 import { SandboxedBinaryRunnerAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter";
 import { ProcessKillAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter";
@@ -382,20 +382,19 @@ export function wireApp(settingsStore: SettingsStore): WiredApp {
   const enqueueWebhookRun: ApiDeps["enqueue"] = (request) => enqueueRunFrom("webhook", request);
 
   /*
-   * Orphan-session sweep threshold. Must always exceed the longest possible agent
-   * turn: when an operator raises OPENCODE_TIMEOUT_MS above 30 min, a live session
-   * would otherwise be deleted mid-prompt. The 5-min buffer covers dispose/teardown.
+   * Orphan-session sweep threshold: how long a session may sit with no prompt in flight and no use before the sweep collects it.
+   * A run holds sessions between two turns of its own (the lead's planning session while the flows author, a flow's session
+   * while the lead reviews), so the threshold is the longest a run can last under the budgets in force, never less than the
+   * agent's own turn limit, plus a buffer for dispose/teardown: a session idle for longer than that belongs to no live run.
    */
-  const MAX_SESSION_AGE_MS = Math.max(
-    30 * 60 * 1000,
-    (settings.agent.timeoutMs ?? 0) + 5 * 60 * 1000,
-  );
+  const SESSION_IDLE_BUFFER_MS = 5 * 60 * 1000;
+  const MAX_SESSION_IDLE_MS = Math.max(longestRunTimeBudgetMs(settings.run.runTimeBudgets), settings.agent.timeoutMs ?? 0) + SESSION_IDLE_BUFFER_MS;
 
   async function cleanupOrphanedSessions(): Promise<void> {
     const deps = currentAgentDeps();
     if (!deps.cleanupOrphans) return;
     try {
-      const cleaned = await deps.cleanupOrphans(MAX_SESSION_AGE_MS);
+      const cleaned = await deps.cleanupOrphans(MAX_SESSION_IDLE_MS);
       if (cleaned > 0) {
         recordIncident({ source: "health-check", severity: "warn", summary: `cleaned up ${cleaned} orphaned OpenCode session(s)` });
       }

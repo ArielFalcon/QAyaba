@@ -133,7 +133,8 @@ export interface AgentDeps {
       descriptor?: AgentOpenDescriptor;
     },
   ): Promise<AgentSession>;
-  cleanupOrphans?(maxAgeMs: number): Promise<number>;
+  /** Deletes the sessions nothing has used for longer than `maxIdleMs` and that have no prompt in flight; returns how many. */
+  cleanupOrphans?(maxIdleMs: number): Promise<number>;
 }
 
 
@@ -238,11 +239,19 @@ export function agentErrorToInfra(error: RawAgentErrorPayload): AgentUnavailable
 }
 
 
+/*
+ * A session a holder (a flow, the lead, a run's pass) has open. `lastUsedAt` is the open and the start and the end of every prompt,
+ * and `inFlight` counts the prompts running: a session is an orphan only when no prompt runs and nothing has used it for longer
+ * than the sweep's threshold, so a session a run still holds between two turns of its own is not one while the threshold is the
+ * longest a run can last.
+ */
 interface SessionEntry {
   id: string;
   agent: string;
   cwd: string;
   openedAt: number;
+  lastUsedAt: number;
+  inFlight: number;
 }
 
 const sessionRegistry = new Map<string, SessionEntry>();
@@ -340,19 +349,23 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
       checkCircuit(TRANSPORT_BREAKER_KEY);
       const created = await countingTransportFailure(() => raw.createSession(cwd));
       const id = created.id;
-      const entry: SessionEntry = { id, agent, cwd, openedAt: Date.now() };
+      const clock = collab.now ?? Date.now;
+      const entry: SessionEntry = { id, agent, cwd, openedAt: clock(), lastUsedAt: clock(), inFlight: 0 };
       sessionRegistry.set(id, entry);
 
-      const onAbort = () => {
-        raw.abortSession(id).catch(() => {});
-        raw.deleteSession(id).catch(() => {});
+      /* The aborts asked of this session that have not finished: the delete waits for them, so it never races a write the runtime is still persisting. */
+      const aborting = new Set<Promise<void>>();
+      const abortRun = (): Promise<void> => {
+        const stopped: Promise<void> = raw.abortSession(id).catch(() => {}).finally(() => aborting.delete(stopped));
+        aborting.add(stopped);
+        return stopped;
       };
+      /* A signal's abort stops what the session is doing and nothing else: its holder still has the session (to ask it again, or to dispose it), and `dispose` is the one place a session is deleted. */
+      const onAbort = () => void abortRun();
       opts?.signal?.addEventListener("abort", onAbort, { once: true });
 
       /* The session's limit, else the transport's default: what a prompt that states no limit of its own is held to. */
       const sessionTimeoutMs = opts?.timeoutMs ?? collab.defaultPromptTimeoutMs;
-
-      const abortRun = () => raw.abortSession(id).catch(() => {});
 
       const defaultOnTurn = opts?.descriptor?.runId
         ? (t: AgentTurnEvent) => {
@@ -370,6 +383,8 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
       const breakerRole = opts?.descriptor?.role ?? agent;
 
       let _round = 0;
+      /* The deletion, made once: a second dispose waits for the first. */
+      let disposal: Promise<void> | undefined;
 
       /* Opens an attempt on the tracker; false when that failed, so the attempt's steps are known to be unobserved. */
       const prepareAttempt = (sessionId: string, attempt: number): Promise<boolean> => {
@@ -403,8 +418,9 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
           checkCircuit(TRANSPORT_BREAKER_KEY);
           checkCircuit(breakerRole);
           const thisRound = _round++;
-          const clock = collab.now ?? Date.now;
           const startedAt = clock();
+          entry.inFlight += 1;
+          entry.lastUsedAt = startedAt;
           /* Set once the prompt has ended without an answer (timeout, abort): the turn is recorded then, so an answer that arrives later must record nothing more and must not start a fallback. */
           let closed = false;
           /* Whether the attempt in flight could be observed completely; unobserved until its preparation says otherwise. */
@@ -596,10 +612,15 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
               else if (!closed && opts?.signal?.aborted) recordUnansweredTurn("aborted");
               throw err;
             })
-            .finally(() => sessionRetryListeners.delete(id));
+            .finally(() => {
+              sessionRetryListeners.delete(id);
+              entry.inFlight -= 1;
+              entry.lastUsedAt = clock();
+            });
         },
-        dispose: async () => {
+        dispose: () => (disposal ??= (async () => {
           try {
+            await Promise.all([...aborting]);
             await raw.deleteSession(id);
           } catch (err) {
             engineLog.warn(`[qa] session ${id} dispose failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -607,14 +628,14 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
             opts?.signal?.removeEventListener("abort", onAbort);
             sessionRegistry.delete(id);
           }
-        },
+        })()),
       };
     },
-    cleanupOrphans: async (maxAgeMs: number) => {
-      const now = Date.now();
+    cleanupOrphans: async (maxIdleMs: number) => {
+      const now = (collab.now ?? Date.now)();
       let cleaned = 0;
       for (const [id, entry] of sessionRegistry) {
-        if (now - entry.openedAt > maxAgeMs) {
+        if (entry.inFlight === 0 && now - entry.lastUsedAt > maxIdleMs) {
           try {
             await raw.deleteSession(id);
           } catch (err) {

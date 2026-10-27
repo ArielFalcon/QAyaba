@@ -140,9 +140,9 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
     return this.startEvents(onActivity, signal, { onRunEvent });
   }
 
-  async cleanupOrphans(maxAgeMs: number): Promise<number> {
+  async cleanupOrphans(maxIdleMs: number): Promise<number> {
     const deps = await this.deps();
-    return deps.cleanupOrphans?.(maxAgeMs) ?? 0;
+    return deps.cleanupOrphans?.(maxIdleMs) ?? 0;
   }
 
   async restart(opts?: { apiKey?: string; env?: Record<string, string> }): Promise<AgentProviderHealth> {

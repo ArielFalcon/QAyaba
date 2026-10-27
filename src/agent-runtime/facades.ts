@@ -46,9 +46,9 @@ export class AgentRuntimeFacade implements AgentFacade {
         });
         return session;
       },
-      cleanupOrphans: async (maxAgeMs) => {
+      cleanupOrphans: async (maxIdleMs) => {
         const counts = await Promise.all(
-          this.providers().map((provider) => this.strategies[provider].cleanupOrphans?.(maxAgeMs) ?? Promise.resolve(0)),
+          this.providers().map((provider) => this.strategies[provider].cleanupOrphans?.(maxIdleMs) ?? Promise.resolve(0)),
         );
         return counts.reduce((sum, count) => sum + count, 0);
       },

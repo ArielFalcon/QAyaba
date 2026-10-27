@@ -55,6 +55,11 @@ export function runTimeBudgetKey(scope: RunTimeBudgetScope): RunTimeBudgetKey {
   return DIFF_KEY_FOR_TIER[diffTier(stat)];
 }
 
+/** The longest any run can last under these budgets: a session a run holds sits idle for less than that, so one idle for longer belongs to no live run. */
+export function longestRunTimeBudgetMs(budgets: RunTimeBudgets): number {
+  return Math.max(...RUN_TIME_BUDGET_KEYS.map((key) => budgets[key]));
+}
+
 function budgetFromEnv(key: RunTimeBudgetKey, raw: string | undefined): number {
   const name = RUN_TIME_BUDGET_ENV[key];
   const text = raw?.trim() ?? "";

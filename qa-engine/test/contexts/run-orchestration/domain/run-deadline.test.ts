@@ -5,6 +5,7 @@ import {
   RUN_TIME_BUDGET_ENV,
   RUN_TIME_BUDGET_KEYS,
   RUN_TIME_BUDGET_MS,
+  longestRunTimeBudgetMs,
   renderRunDeadlineNote,
   resolveRunTimeBudgets,
   runTimeBudgetKey,
@@ -18,6 +19,12 @@ test("every kind of run has a finite default and its own variable", () => {
     assert.match(RUN_TIME_BUDGET_ENV[key], /^QA_RUN_TIME_BUDGET_MS_[A-Z_]+$/, key);
   }
   assert.equal(new Set(Object.values(RUN_TIME_BUDGET_ENV)).size, RUN_TIME_BUDGET_KEYS.length);
+});
+
+test("the longest a run can last is the largest of the budgets in force, an operator's override included", () => {
+  assert.equal(longestRunTimeBudgetMs(resolveRunTimeBudgets({})), Math.max(...Object.values(RUN_TIME_BUDGET_MS)));
+  const raised = resolveRunTimeBudgets({ [RUN_TIME_BUDGET_ENV["diff-tiny"]]: String(10 * RUN_TIME_BUDGET_MS.exhaustive) });
+  assert.equal(longestRunTimeBudgetMs(raised), 10 * RUN_TIME_BUDGET_MS.exhaustive);
 });
 
 test("a bigger change is never given less time than a smaller one", () => {
