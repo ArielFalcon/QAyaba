@@ -55,7 +55,7 @@ export interface ReviewerVerdict {
   /* The effective severity of each correction, in the same order. Absent on older parsers. */
   correctionSeverities?: ("blocking" | "advisory")[];
   /* The evidence each correction cites, in the same order; a hole means that entry cited none. */
-  citations?: ({ kind: "contract" | "execution" | "dom" | "arm"; ref: string } | undefined)[];
+  citations?: ({ kind: "contract" | "execution" | "dom" | "arm" | "availability"; ref: string } | undefined)[];
 
   blockingCount: number;
   valid: boolean;  /* the reviewer JSON satisfied the schema (i.e. `approved` is a clean boolean) */

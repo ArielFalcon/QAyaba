@@ -6,10 +6,14 @@ import type { ReviewChangeView } from "./review-change-view.ts";
  * `priorCorrections` lets the next review judge convergence on previously
  * raised blocking issues instead of inventing new nits.
  */
+import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
+
 export interface ReviewEnrichment {
   priorCorrections?: readonly string[];
   /* The arms of the changed code no delivered test ran, when the measurement describes the bytes under review: the facts a missing case cites. */
   untakenArms?: readonly { file: string; line: number; kind: string; arm: string }[];
+  /* Why the routes the run's capture could not show at their own address were not: the facts an `availability` citation names. */
+  routeAvailability?: readonly RouteAvailabilityFact[];
   /* The spec lines that changed since the prior rejection, already bounded and rendered. */
   specChanges?: string;
   /* Paths of the suite's existing specs: context only, never a target and never a reason to reject. */

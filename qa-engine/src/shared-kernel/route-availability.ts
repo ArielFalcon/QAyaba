@@ -114,7 +114,7 @@ export function factForRoute(facts: readonly RouteAvailabilityFact[], route: str
 
 /* A route's pathname with no query or hash and no trailing slash (the root stays `/`). */
 export function pathOnly(route: string): string {
-  const cut = route.split(/[?#]/)[0] ?? "";
+  const cut = route.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i, "").split(/[?#]/)[0] ?? "";
   const trimmed = cut.replace(/\/+$/, "");
   return trimmed === "" ? "/" : trimmed;
 }

@@ -1,5 +1,6 @@
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import type { ReviewChangeView } from "./review-change-view.ts";
+import type { RouteAvailabilityFact } from "@kernel/route-availability.ts";
 
 export type CommitType =
   | "feat" | "fix" | "perf" | "refactor" | "chore"
@@ -88,6 +89,8 @@ export interface ReviewInput {
   executionResult?: string;
   /* The arms of decisions on changed lines no delivered test ran, as the run's coverage measured them on the bytes under review: the facts a missing-case finding cites. Absent when none was measured or the measurement does not describe these bytes. */
   untakenArms?: { file: string; line: number; kind: string; arm: string }[];
+  /* Why the routes the run's capture could not show at their own address were not. Absent when it classified none. */
+  routeAvailability?: readonly RouteAvailabilityFact[];
   /* The step limit the runtime enforces for the reviewer's session. Absent = the runtime enforces none or could not be read, and no prompt states one. */
   stepLimit?: number;
   /* On a run with a plan whose flows under review own part of the change: the change by flow, given instead of the whole diff. Absent: the objective is the whole diff. */

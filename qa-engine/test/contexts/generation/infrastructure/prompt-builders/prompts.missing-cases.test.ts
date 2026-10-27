@@ -42,3 +42,14 @@ test("without arms the reviewer prompt has no such section", () => {
   assert.equal(REVIEWER_MISSING_CASES_SECTION_ID in buildReviewerPromptAssembled(mkReview()).sectionSizes, false);
   assert.equal(REVIEWER_MISSING_CASES_SECTION_ID in buildReviewerPromptAssembled(mkReview({ untakenArms: [] })).sectionSizes, false);
 });
+
+const AVAILABILITY = [
+  { route: "/upload-menu/preview", outcome: { kind: "redirected" as const, to: "/home", mechanism: "client" as const }, sessionAttached: true, basis: { class: "change-introduced" as const, via: "route-guard" as const, at: "src/app.routes.ts:102" } },
+];
+
+test("the reviewer receives the run's route availability facts in a section of their own, with the citation that names one, and none without facts", () => {
+  const text = sectionText(buildReviewerPromptAssembled(mkReview({ routeAvailability: AVAILABILITY })), "reviewer-route-availability");
+  assert.ok(text.includes("/upload-menu/preview") && text.includes("/home") && text.includes("src/app.routes.ts:102"));
+  assert.ok(text.includes('"kind":"availability"'), "it says how an availability fact is cited");
+  assert.equal("reviewer-route-availability" in buildReviewerPromptAssembled(mkReview()).sectionSizes, false);
+});

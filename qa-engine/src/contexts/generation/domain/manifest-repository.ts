@@ -16,7 +16,7 @@ export interface ReviewJudgment {
   /* The reviewer's own severity per correction, in order, when it stated one. */
   severities?: ("blocking" | "advisory")[];
   /* The evidence each correction cites, in order; a hole means that entry cited none. */
-  citations?: ({ kind: "contract" | "execution" | "dom" | "arm"; ref: string } | undefined)[];
+  citations?: ({ kind: "contract" | "execution" | "dom" | "arm" | "availability"; ref: string } | undefined)[];
 }
 
 export interface PromptSection { heading: string; body: string; }

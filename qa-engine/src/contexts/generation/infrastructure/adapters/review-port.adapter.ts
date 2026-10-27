@@ -89,6 +89,7 @@ export class ReviewPortAdapter implements ReviewPort {
       ...(enrichment?.learnedRules?.length ? { learnedRules: renderLearnedRulesForReviewer(enrichment.learnedRules) } : {}),
       ...(enrichment?.domSnapshot ? { domSnapshot: enrichment.domSnapshot } : {}),
       ...(enrichment?.untakenArms?.length ? { untakenArms: [...enrichment.untakenArms] } : {}),
+      ...(enrichment?.routeAvailability?.length ? { routeAvailability: enrichment.routeAvailability } : {}),
       ...(enrichment?.executionEvidence ? { executionResult: renderExecutionResult({ verdict: enrichment.executionEvidence.verdict, cases: enrichment.executionEvidence.cases.map(executionResultCase) }) } : {}),
       ...(enrichment?.runId ? { runId: enrichment.runId } : {}),
       ...(enrichment?.changeView ? { changeView: enrichment.changeView } : {}),
