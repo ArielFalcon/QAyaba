@@ -18,6 +18,8 @@ import { loggableRoutes } from "./loggable-route.ts";
 import { dataStateRouteFor } from "../domain/data-state-route.ts";
 import { parseAriaSnapshot, parseAriaSnapshotWithState } from "../domain/aria-snapshot.ts";
 import type { NodeAttr, RepeatedName, RouteSnapshot } from "../domain/route-snapshot.ts";
+import type { RouteNavigation } from "../domain/route-availability-classifier.ts";
+import { pathOnly } from "@kernel/route-availability.ts";
 
 const processKill = new ProcessKillAdapter();
 
@@ -414,6 +416,8 @@ export interface CapturedPage {
   dataStateUnconfirmed?: boolean;
   /* The node lines of its tree, one `role: name` each. Absent when the page did not report them. */
   nodes?: readonly string[];
+  /* What the availability classification reads of the page's navigation. */
+  navigation?: RouteNavigation;
 }
 
 /* What one captured page supplied and lost, for the trace: the kept nodes and test ids (within the per-route bound), the node→test-id map, and how many the bound left out. The line cap is the pack's, applied later; `lineKeptNodes`/`lineKeptTestIds` are what that cap left in (absent before it runs). */
@@ -485,6 +489,7 @@ export async function captureDomForRoutes(
         ...(snap.effectiveLocation !== undefined ? { effectiveLocation: snap.effectiveLocation } : {}),
         ...(snap.captureAttempts !== undefined ? { captureAttempts: snap.captureAttempts } : {}),
         dataStateUnconfirmed: dataStateUnconfirmed(snap),
+        navigation: navigationOf(template === undefined ? snap : { ...snap, template }),
       };
     }));
     const reported = snaps
@@ -697,6 +702,58 @@ function captureLines(text: string): unknown[] {
   return entries;
 }
 
+/* What the availability classification reads of one captured route. */
+export function navigationOf(snap: RouteSnapshot): RouteNavigation {
+  const catalog = buildRouteCatalog(snap);
+  let finalPath: string | undefined;
+  try {
+    if (snap.finalUrl !== undefined) finalPath = new URL(snap.finalUrl).pathname;
+  } catch {
+    finalPath = undefined;
+  }
+  /* The document moved on the server when redirects led to it; it stayed where it was asked and the page moved the browser when its own pathname is the route's. */
+  const asked = (() => { try { return new URL(snap.route, "http://q.invalid").pathname; } catch { return undefined; } })();
+  const serverRedirect = snap.serverRedirects !== undefined && snap.serverRedirects > 0
+    ? true
+    : snap.documentPath !== undefined && asked !== undefined && pathOnly(snap.documentPath) === pathOnly(asked)
+      ? false
+      : undefined;
+  return {
+    route: snap.route,
+    ...(snap.template !== undefined ? { template: snap.template } : {}),
+    captureFailed: snap.error !== undefined,
+    settled: snap.settled === true,
+    nodes: snap.nodes?.length ?? 0,
+    ...(finalPath !== undefined ? { finalPath } : {}),
+    ...(snap.documentStatus !== undefined ? { documentStatus: snap.documentStatus } : {}),
+    ...(serverRedirect !== undefined ? { serverRedirect } : {}),
+    ...(snap.sessionAttached !== undefined ? { sessionAttached: snap.sessionAttached } : {}),
+    runtimeError: hasRuntimeErrorSignal(snap.runtimeErrors ?? []),
+    passwordField: catalog.reachedPasswordField === true,
+  };
+}
+
+/* The navigation facts as the script reports them: untrusted until navigationFactsOf has read them. */
+export interface RawNavigationFacts {
+  documentStatus?: unknown;
+  serverRedirects?: unknown;
+  documentPath?: unknown;
+  sessionAttached?: unknown;
+}
+
+/* The longest server redirect chain the readback believes; the script stops counting at it too. */
+const MAX_SERVER_REDIRECTS = 20;
+
+/* The navigation facts of one route as the capture reported them, each kept only when it is well formed: a status is an HTTP status, a redirect count a small whole number, a document path a bounded pathname. */
+export function navigationFactsOf(raw: RawNavigationFacts): Pick<RouteSnapshot, "documentStatus" | "serverRedirects" | "documentPath" | "sessionAttached"> {
+  const out: Pick<RouteSnapshot, "documentStatus" | "serverRedirects" | "documentPath" | "sessionAttached"> = {};
+  if (Number.isInteger(raw.documentStatus) && (raw.documentStatus as number) >= 100 && (raw.documentStatus as number) <= 599) out.documentStatus = raw.documentStatus as number;
+  if (Number.isInteger(raw.serverRedirects) && (raw.serverRedirects as number) >= 0 && (raw.serverRedirects as number) <= MAX_SERVER_REDIRECTS) out.serverRedirects = raw.serverRedirects as number;
+  if (typeof raw.documentPath === "string" && raw.documentPath.startsWith("/") && raw.documentPath.length <= MAX_LINK_LENGTH && !/[\s\\\x00-\x1f\x7f]/.test(raw.documentPath)) out.documentPath = raw.documentPath;
+  if (typeof raw.sessionAttached === "boolean") out.sessionAttached = raw.sessionAttached;
+  return out;
+}
+
 /* What one run of the capture script came to, told to the optional observer once the script is done (or has failed, in which case there are no snapshots): the snapshots it returned, the routes it was asked for, and how much it printed. Read-only; it never changes what the capture returns. */
 export interface DomCaptureReport {
   asked: readonly string[];
@@ -766,7 +823,7 @@ export function createCaptureDomDeps(
           if (finished) return;
           try {
             /* The page decides what it shows, and it can show the account's password: the run's secrets are taken out of the document by value before it is read (a JSON-escaped spelling of each is replaced too). */
-            const raw = captureLines(redactByValue(stdout.text())) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; hrefs?: unknown; repeated?: unknown; absent?: unknown; ms?: unknown; dataState?: unknown; ready?: unknown; resultExpected?: unknown; resultCount?: unknown; effectiveLocation?: unknown; captureAttempts?: unknown }>;
+            const raw = captureLines(redactByValue(stdout.text())) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; hrefs?: unknown; repeated?: unknown; absent?: unknown; ms?: unknown; dataState?: unknown; ready?: unknown; resultExpected?: unknown; resultCount?: unknown; effectiveLocation?: unknown; captureAttempts?: unknown } & RawNavigationFacts>;
             const read = new Set(raw.map((r) => r.route));
             const unread = routes.filter((route) => !read.has(route));
             if (unread.length > 0) engineLog.warn(`[qa] WARNING: DOM capture ended before it read ${unread.length} route(s) [${loggableRoutes(unread)}] — those routes are not grounded.`);
@@ -807,6 +864,7 @@ export function createCaptureDomDeps(
               if (effectiveLocation !== undefined) snap.effectiveLocation = effectiveLocation;
               const captureAttempts = captureAttemptsOf(r.captureAttempts);
               if (captureAttempts !== undefined) snap.captureAttempts = captureAttempts;
+              Object.assign(snap, navigationFactsOf(r));
               return snap;
             }));
           } catch {

@@ -50,4 +50,12 @@ export interface RouteSnapshot {
   effectiveLocation?: string;
   /* How many times the route's data state was read (1, or 2 after the one retry). Set only when a data state matched. */
   captureAttempts?: number;
+  /* The HTTP status of the document the navigation kept. */
+  documentStatus?: number;
+  /* How many server redirects led to that document. */
+  serverRedirects?: number;
+  /* The pathname the document was served at (after the server redirects, before any the page made). */
+  documentPath?: string;
+  /* Whether the capture opened the route with the run's saved session. */
+  sessionAttached?: boolean;
 }
