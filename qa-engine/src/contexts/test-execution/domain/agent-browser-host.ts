@@ -1,5 +1,6 @@
 import type { GuardReason } from "./agent-browser-route-guard.ts";
 import type { GeoLocation } from "@kernel/geolocation.ts";
+import type { ObservedRequests } from "@kernel/observed-requests.ts";
 
 /* What a tool call asks of the browser. A ref is one the last snapshot of the same session gave. */
 export type BrowserAction =
@@ -14,22 +15,7 @@ export interface BlockedRequest {
   detail: string;
 }
 
-/* A request the page made, as method + origin + pathname (no query, fragment, body, headers, cookies or userinfo), with how many times. */
-export interface ObservedRequest {
-  method: string;
-  url: string;
-  count: number;
-  /* The route guard refused it (a closed route, a method that writes). */
-  blocked?: true;
-}
-
-/* The requests the page made since the session's previous action: those to an origin the run declares listed, those to any other host only counted per host. */
-export interface ObservedRequests {
-  listed: ObservedRequest[];
-  otherHosts: { host: string; count: number }[];
-  /* Requests not kept because the page asked for more distinct ones than the safety bound holds. */
-  omitted: number;
-}
+export type { ObservedRequest, ObservedRequests } from "@kernel/observed-requests.ts";
 
 /* What the page looks like after a call. */
 export interface PageState {
