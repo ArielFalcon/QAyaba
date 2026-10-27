@@ -65,24 +65,14 @@ test("every record is linked to the turn's trace and span", () => {
   }
 });
 
-test("a section repeated within a run is exported once; the turn record lists every section in order", () => {
+test("every turn exports its own sections; the turn record lists them in order", () => {
   const s = sink();
   const shared = "GROUNDING ".repeat(50);
   s.exporter.exportPrompt(prompt("full", { grounding: shared, task: "first task" }));
   s.exporter.exportPrompt(prompt("full", { grounding: shared, task: "second task" }, who({}, "c7ad6b7169203332")));
-  const stored = s.bodies("prompt_section").map((b) => b.id);
-  assert.deepEqual(stored, ["grounding", "task", "task"]);
-  const [first, second] = s.bodies("prompt_turn");
-  const view = (turn: Record<string, unknown>) => (turn.sections as Array<{ id: string; stored: string }>).map((x) => `${x.id}:${x.stored}`);
-  assert.deepEqual(view(first!), ["grounding:here", "task:here"]);
-  assert.deepEqual(view(second!), ["grounding:earlier", "task:here"]);
-});
-
-test("the same section in another run is stored again", () => {
-  const s = sink();
-  s.exporter.exportPrompt(prompt("full", { grounding: "shared" }));
-  s.exporter.exportPrompt(prompt("full", { grounding: "shared" }, who({ turn: { traceId: "1af7651916cd43dd8448eb211c80319c", spanId: "d7ad6b7169203333" } })));
-  assert.equal(s.bodies("prompt_section").length, 2);
+  assert.deepEqual(s.bodies("prompt_section").map((b) => b.id), ["grounding", "task", "grounding", "task"]);
+  const ids = (turn: Record<string, unknown>) => (turn.sections as Array<{ id: string }>).map((x) => x.id);
+  assert.deepEqual(s.bodies("prompt_turn").map(ids), [["grounding", "task"], ["grounding", "task"]]);
 });
 
 test("static layers are referenced by their digest and never carried as text", () => {
@@ -93,7 +83,7 @@ test("static layers are referenced by their digest and never carried as text", (
   assert.ok(!JSON.stringify(turn).includes("do it"), "the turn record holds ids, hashes and sizes, not section text");
 });
 
-test("a body whose redaction fails is dropped and not remembered as stored", () => {
+test("a body whose redaction fails is dropped and the turn record says so", () => {
   let fail = true;
   const s = sink((text) => (fail ? undefined : text));
   s.exporter.exportPrompt(prompt("full", { task: "secret-bearing" }));
@@ -101,7 +91,7 @@ test("a body whose redaction fails is dropped and not remembered as stored", () 
   assert.equal(s.bodies("prompt_section").length, 0);
   assert.equal(s.bodies("turn_output").length, 0);
   assert.ok(!s.records.some((r) => String(r.body).includes("secret-bearing")));
-  assert.equal((s.bodies("prompt_turn")[0]!.sections as Array<{ stored: string }>)[0]!.stored, "dropped");
+  assert.equal((s.bodies("prompt_turn")[0]!.sections as Array<{ dropped?: boolean }>)[0]!.dropped, true);
   fail = false;
   s.exporter.exportPrompt(prompt("full", { task: "secret-bearing" }));
   assert.equal(s.bodies("prompt_section").length, 1, "a later turn stores it once redaction works");

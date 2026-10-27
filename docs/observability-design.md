@@ -731,8 +731,8 @@ Records (`src/telemetry/prompt-body-logs.ts`, attribute `qayaba.body.kind`), one
 
 | Kind | Body |
 |---|---|
-| `prompt_turn` | `session`, `agent`, `role`, `round`, `repair`, `static_hash`, and `sections[]` in prompt order: `{id, hash, bytes, stored: here \| earlier \| dropped}`. No text. |
-| `prompt_section` | `{id, hash, chunk, chunks, text}`: a section's redacted text, written once per run (trace) the first time its hash is seen; a later turn lists it as `earlier`. |
+| `prompt_turn` | `session`, `agent`, `role`, `round`, `repair`, `static_hash`, and `sections[]` in prompt order: `{id, hash, bytes, dropped?}`. No text. |
+| `prompt_section` | `{id, hash, chunk, chunks, text}`: a section's redacted text, written with every turn that sends it. |
 | `turn_output` | `{hash, chunk, chunks, text}`: the answer text of the turn. |
 
 Space: static layers (`agents/AGENTS.md`, `agent/*.md`, `skill/`) never pass through the prompt text; `static_hash` is their
@@ -740,13 +740,11 @@ digest and the bytes are in the repository at that digest. Section boundaries co
 and `sectionHashes`; a slice is used only when its hash equals the assembler's, otherwise the prompt is stored whole (keyed by
 its own hash). A body over 256 K characters is cut and marked `truncated`; a longer line is split into numbered chunks.
 Governance: every body goes through the run's by-value scope and the outbound sanitizer first; a failed redaction drops the
-record and the section is not remembered as stored.
+record and the turn record marks the section `dropped`.
 
-Measured on run `run-ed28973-mvqc7x8j-2da31df4` (8 turns): prompts 202 KB + outputs 50 KB = 253 KB of bodies. Per-run section
-dedup saved nothing there (0 repeated sections: the lead, author and reviewer prompts share no section bytes; the two author
-turns share about 1.8 KB of 15 KB, but author prompts carry no `sectionHashes`, so they are stored whole), and the turn records
-add about 1.4% of listing. Dedup pays on runs with revise/replace rounds and reviewer rounds that re-send the same grounding;
-on this run the cost of `full` is about the raw 253 KB per run (roughly a fifth of that after Loki compression).
+Sections are not deduplicated across turns. Measured on two replicates of one commit (`run-ed28973-mvqc7x8j-2da31df4`, 8 turns,
+and `run-ed28973-mvqd9fda-955d5933`, 11 turns), sections repeated across turns were 1.3% and 5.7% of the prompt bytes, which
+Loki's chunk compression already absorbs. A run in `full` stores about 200-300 KB of bodies (roughly a fifth after compression).
 
 ---
 

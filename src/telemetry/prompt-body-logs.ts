@@ -3,7 +3,7 @@
    Rules:
    - A body is never a span attribute. The spans keep sizes, hashes and section bytes; this module is the only exporter of text.
    - The run's capture mode decides: bodies leave only in `full`. `off` and `metadata` export nothing, so the default stays as private as it was.
-   - A prompt is a sequence of sections. Each distinct section (by the hash the assembler computed over its redacted bytes) is exported once per run (per trace); a turn's record lists section ids and hashes in order and says which bodies are in the run's earlier records. The static layers (agents/AGENTS.md, agent/*.md, skill/) never pass through the prompt text: the record carries their digest, the bytes are in the repository at that digest.
+   - A prompt is a sequence of sections, each exported with the turn that sent it; a turn's record lists section ids, hashes and sizes in order. Sections are not deduplicated across turns: on real runs a repeated section was 1-6% of the prompt bytes, which Loki's compression already absorbs. The static layers (agents/AGENTS.md, agent/*.md, skill/) never pass through the prompt text: the record carries their digest, the bytes are in the repository at that digest.
    - Every body is redacted through the run's scope and the outbound sanitizer before it is cut into chunks. A failed redaction drops the record: the raw text is never exported.
    - A record is one Loki line, at most MAX_LINE_BYTES serialized; a longer body is split into numbered chunks. A body over MAX_BODY_CHARS is cut and says so.
    - A fault here never reaches the prompt path. */
@@ -18,9 +18,6 @@ import type { TelemetryContext } from "@kernel/telemetry/telemetry.port";
 export const MAX_LINE_BYTES = 64 * 1024;
 /* One body (a section, an output) is cut here: a body this large is a context dump whose value is its hash and size, which the spans hold. */
 export const MAX_BODY_CHARS = 256 * 1024;
-/* Runs whose exported section hashes are remembered; older ones are forgotten (a later turn of such a run re-exports, which costs space, never correctness). */
-const MAX_RUNS_REMEMBERED = 16;
-
 export type BodyKind = "prompt_turn" | "prompt_section" | "turn_output";
 
 export interface TurnBodyIdentity {
@@ -107,32 +104,23 @@ export function chunkBody(text: string, envelope: (chunk: string, index: number,
 }
 
 export class PromptBodyExporter {
-  /* Section hashes already exported, by run (trace id), in the order the runs were first seen. */
-  private readonly exported = new Map<string, Set<string>>();
-
   constructor(private readonly deps: PromptBodyDeps) {}
 
   exportPrompt(input: PromptBodyInput): void {
     if (input.mode !== "full") return;
     try {
-      const parts = splitSections(input);
-      const seen = this.seenFor(input.who.turn.traceId);
-      const turnOnly = new Set<string>();
       const fresh: Array<{ part: SectionPart; text: string }> = [];
-      const listed: Array<{ id: string; hash: string; bytes: number; stored: "here" | "earlier" | "dropped" }> = [];
-      for (const part of parts) {
-        const known = seen.has(part.hash) || turnOnly.has(part.hash);
-        if (!known) {
-          const redacted = this.deps.redact(part.text.length > MAX_BODY_CHARS ? part.text.slice(0, MAX_BODY_CHARS) : part.text);
-          /* A body that could not be redacted is neither exported nor remembered as exported. */
-          if (redacted === undefined) {
-            listed.push({ id: part.id, hash: part.hash, bytes: Buffer.byteLength(part.text, "utf8"), stored: "dropped" });
-            continue;
-          }
-          fresh.push({ part, text: redacted });
-          turnOnly.add(part.hash);
+      const listed: Array<{ id: string; hash: string; bytes: number; dropped?: true }> = [];
+      for (const part of splitSections(input)) {
+        const redacted = this.deps.redact(part.text.length > MAX_BODY_CHARS ? part.text.slice(0, MAX_BODY_CHARS) : part.text);
+        const bytes = Buffer.byteLength(part.text, "utf8");
+        /* A body that could not be redacted is not exported; the turn record says so. */
+        if (redacted === undefined) {
+          listed.push({ id: part.id, hash: part.hash, bytes, dropped: true });
+          continue;
         }
-        listed.push({ id: part.id, hash: part.hash, bytes: Buffer.byteLength(part.text, "utf8"), stored: known ? "earlier" : "here" });
+        fresh.push({ part, text: redacted });
+        listed.push({ id: part.id, hash: part.hash, bytes });
       }
       const context = spanContextOf(input.who.turn);
       this.emit(context, "prompt_turn", {
@@ -149,7 +137,6 @@ export class PromptBodyExporter {
         const truncated = part.text.length > MAX_BODY_CHARS;
         const chunks = chunkBody(text, (chunk, index, count) => this.sectionRecord(part, chunk, index, count, truncated));
         chunks.forEach((chunk, index) => this.emit(context, "prompt_section", this.sectionRecord(part, chunk, index, chunks.length, truncated)));
-        seen.add(part.hash);
       }
     } catch {
       /* Observability never breaks the prompt. */
@@ -173,16 +160,6 @@ export class PromptBodyExporter {
 
   private sectionRecord(part: SectionPart, text: string, index: number, count: number, truncated: boolean): object {
     return { kind: "prompt_section", id: part.id, hash: part.hash, chunk: index, chunks: count, ...(truncated ? { truncated: true } : {}), text };
-  }
-
-  private seenFor(traceId: string): Set<string> {
-    let seen = this.exported.get(traceId);
-    if (!seen) {
-      seen = new Set();
-      this.exported.set(traceId, seen);
-      if (this.exported.size > MAX_RUNS_REMEMBERED) this.exported.delete(this.exported.keys().next().value as string);
-    }
-    return seen;
   }
 
   private emit(context: Context, kind: BodyKind, body: object): void {
