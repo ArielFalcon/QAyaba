@@ -782,11 +782,14 @@ test("what else a sidekick changed is reported as proposals, counted, and never 
 
 test("nothing is taken back, and no loop or workspace is left, when the run is cancelled", async () => {
   const controller = new AbortController();
-  const hold = new Promise<void>((resolve) => setTimeout(resolve, 5));
+  /* The sidekicks' turns are held until after the abort, so the cancel always lands while they are running. */
+  let release!: () => void;
+  const hold = new Promise<void>((resolve) => (release = resolve));
   const r = rig({ answers: { cart: [{ hold }], login: [{ hold }] } });
   const pending = r.coordinator.coordinate(input(r, { signal: controller.signal }));
   await settle();
   controller.abort();
+  release();
   const outcome = await pending;
   assert.equal(outcome.action === "fanout" ? outcome.aggregated.specs.length : 0, 0);
   assert.equal(r.flowLoops.every((l) => l.closed === 1), true);
