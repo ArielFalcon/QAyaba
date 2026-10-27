@@ -613,9 +613,13 @@ async function loadCaptureModule(dir: string, name: string): Promise<{ beforeEac
   return import(pathToFileURL(modPath).href);
 }
 
-function pageWithContext(requests: { handlers: Array<(r: unknown) => void> }, context: object = {}) {
+/* `handlers` are the listeners for the requests a server answered, `sent` those for the requests as they leave. */
+function pageWithContext(requests: { handlers: Array<(r: unknown) => void>; sent?: Array<(r: unknown) => void> }, context: object = {}) {
   const ctx = context as { on?: (event: string, cb: (r: unknown) => void) => void };
-  ctx.on ??= (event, cb) => { if (event === "requestfinished") requests.handlers.push(cb); };
+  ctx.on ??= (event, cb) => {
+    if (event === "requestfinished") requests.handlers.push(cb);
+    if (event === "request") (requests.sent ??= []).push(cb);
+  };
   return { on() {}, url: () => "http://localhost/", context: () => ctx, locator: () => ({ ariaSnapshot: async () => "" }) };
 }
 
@@ -629,18 +633,22 @@ test("with the counter asked for, a test's mutating requests are written to its 
     const captureDir = join(dir, "dumps");
     mkdirSync(captureDir);
     const mod = await loadCaptureModule(dir, "count");
-    const requests = { handlers: [] as Array<(r: unknown) => void> };
+    const requests: { handlers: Array<(r: unknown) => void>; sent?: Array<(r: unknown) => void> } = { handlers: [] };
     const page = pageWithContext(requests);
     process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
     process.env.PW_COUNT_DEV_WRITES = "1";
     await mod.beforeEachFn({ page });
     assert.equal(requests.handlers.length, 1, "one listener on the test's context for the requests DEV answered");
-    for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]) requests.handlers[0]!({ method: () => method });
+    for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]) {
+      const request = { method: () => method };
+      for (const sent of requests.sent ?? []) sent(request);
+      requests.handlers[0]!(request);
+    }
     await mod.afterEachFn({ page }, passingInfo);
     const files = readdirSync(captureDir);
     assert.equal(files.length, 1, `a passing test leaves only its ledger, got ${JSON.stringify(files)}`);
     assert.match(files[0]!, /^ledger-[A-Za-z0-9_-]+\.json$/);
-    assert.deepEqual(JSON.parse(readFileSync(join(captureDir, files[0]!), "utf8")), { writes: 4 });
+    assert.deepEqual(JSON.parse(readFileSync(join(captureDir, files[0]!), "utf8")), { v: 2, writes: 4, pending: 0, done: true });
   } finally {
     if (prevDir === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR; else process.env.QA_FAILURE_CAPTURE_DIR = prevDir;
     if (prevFlag === undefined) delete process.env.PW_COUNT_DEV_WRITES; else process.env.PW_COUNT_DEV_WRITES = prevFlag;
@@ -720,22 +728,24 @@ test("a write nobody answered is not counted: a browser request the network refu
     mkdirSync(captureDir);
     const mod = await loadCaptureModule(dir, "unanswered");
     const handlers: Record<string, Array<(r: unknown) => void>> = {};
-    const emit = (event: string, method: string) => { for (const cb of handlers[event] ?? []) cb({ method: () => method }); };
+    const emit = (event: string, request: { method(): string }) => { for (const cb of handlers[event] ?? []) cb(request); };
+    const post = { method: () => "POST" };
+    const put = { method: () => "PUT" };
     const request = { fetch: async (target: unknown, _options?: { method?: string }) => { if (target === "/refused") throw new Error("net::ERR_NAME_NOT_RESOLVED"); return { ok: () => true }; } };
     const context = { on: (event: string, cb: (r: unknown) => void) => { (handlers[event] ??= []).push(cb); }, request: { fetch: async () => ({}) } };
     const page = { on() {}, url: () => "http://localhost/", context: () => context, locator: () => ({ ariaSnapshot: async () => "" }) };
     process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
     process.env.PW_COUNT_DEV_WRITES = "1";
     await mod.beforeEachFn({ page, request });
-    emit("request", "POST");
-    emit("requestfailed", "POST");
-    emit("request", "PUT");
-    emit("requestfinished", "PUT");
+    emit("request", post);
+    emit("requestfailed", post);
+    emit("request", put);
+    emit("requestfinished", put);
     await request.fetch("/refused", { method: "POST" }).catch(() => {});
     await request.fetch("/answered", { method: "DELETE" });
     await mod.afterEachFn({ page, request }, passingInfo);
     const [ledger] = readdirSync(captureDir);
-    assert.deepEqual(JSON.parse(readFileSync(join(captureDir, ledger!), "utf8")), { writes: 2 }, "the PUT DEV answered and the DELETE fetch that came back");
+    assert.deepEqual(JSON.parse(readFileSync(join(captureDir, ledger!), "utf8")), { v: 2, writes: 2, pending: 0, done: true }, "the PUT DEV answered and the DELETE fetch that came back; the POST that failed and the fetch that threw left pending");
   } finally {
     if (prevDir === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR; else process.env.QA_FAILURE_CAPTURE_DIR = prevDir;
     if (prevFlag === undefined) delete process.env.PW_COUNT_DEV_WRITES; else process.env.PW_COUNT_DEV_WRITES = prevFlag;
@@ -760,7 +770,7 @@ test("without the counter asked for, a passing test leaves nothing and a page wi
     process.env.PW_COUNT_DEV_WRITES = "1";
     await mod.beforeEachFn({ page: bare });
     await mod.afterEachFn({ page: bare }, passingInfo);
-    assert.deepEqual(JSON.parse(readFileSync(join(captureDir, readdirSync(captureDir)[0]!), "utf8")), { writes: 0 });
+    assert.deepEqual(JSON.parse(readFileSync(join(captureDir, readdirSync(captureDir)[0]!), "utf8")), { v: 2, writes: 0, pending: 0, done: true });
   } finally {
     if (prevDir === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR; else process.env.QA_FAILURE_CAPTURE_DIR = prevDir;
     if (prevFlag === undefined) delete process.env.PW_COUNT_DEV_WRITES; else process.env.PW_COUNT_DEV_WRITES = prevFlag;

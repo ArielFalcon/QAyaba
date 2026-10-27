@@ -453,11 +453,15 @@ function matchDataState(routes: Record<string, { resultSelector?: string; result
 function networkUrl(raw: string): string { try { const u = new URL(raw); const url = u.origin + u.pathname; return url.length > 300 ? url.slice(0, 300) : url; } catch { return ""; } }
 // DEV-write counter, on only when the orchestrator asks (PW_COUNT_DEV_WRITES=1, for a spec it executes on the
 // generator's behalf): the mutating requests (POST, PUT, PATCH, DELETE) of a test's page and context that a server
-// answered, written per test to a ledger file in the capture directory so the orchestrator can hold what a spec does
-// to DEV to a cap. A request nobody answered (refused by the sandbox's egress filter, like an error reporter's
-// beacon, or failed on the network) wrote nothing and is not counted. A context is listened to once however many
-// tests share it. Requests of the API clients (the `request` fixture, `page.request`, `context.request`) are not
-// browser requests, so their fetch is counted too, once it comes back with a response. Only a write to DEV counts: a
+// answered, kept per test in a ledger file in the capture directory so the orchestrator can hold what a spec does
+// to DEV to a cap. The ledger is written when the test starts and rewritten atomically (a temporary file renamed over
+// it) on every change, so a test that is killed has left what it did: `writes` counts the requests a server
+// answered, `pending` the ones sent and not yet answered (raised when the request leaves, before anything waits for
+// its answer), and `done` is set when the test finishes. A request nobody answered (refused by the sandbox's egress
+// filter, like an error reporter's beacon, or failed on the network) is not counted and leaves `pending`. A context
+// is listened to once however many tests share it. Requests of the API clients (the `request` fixture,
+// `page.request`, `context.request`) are not browser requests, so their fetch is counted too, pending while it is
+// out and counted once it comes back with a response. Only a write to DEV counts: a
 // request to one of the origins the orchestrator names in PW_DEV_ORIGINS (a JSON list of scheme://host[:port] or
 // scheme://*.suffix[:port], the run's DEV origins), matched by host and port as the egress filter matches them; a page's
 // own requests to other hosts (analytics, error reporters) write nothing to DEV. Without a readable list every write
@@ -471,8 +475,20 @@ function networkUrl(raw: string): string { try { const u = new URL(raw); const u
 // origin counts). Every other request to the identity provider (a password change, a registration, a logout, any other
 // grant) still counts, and so does one whose body cannot be read.
 let devWrites = 0;
+let devWritesPending = 0;
 let devWriteRequests: Array<{ method: string; url: string }> = [];
 let sessionRequests: Array<{ method: string; url: string }> = [];
+// What each browser write that is out counts as, so its answer or its failure settles the same entry: a write that
+// leaves `pending` when it ends, or the session traffic that never was. Replaced when a test starts.
+let sentWrites = new WeakMap<object, 'write' | 'session'>();
+// The test's ledger: where it is, the temporary file it is rewritten through (the name cannot match a ledger's), whether
+// the test has finished, and which test it belongs to, so a request that outlives its test never moves the next one's pending.
+let ledgerFs: typeof import('node:fs') | undefined;
+let ledgerFile: string | undefined;
+let ledgerTemp: string | undefined;
+let ledgerDone = false;
+let ledgerSeq = 0;
+let ledgerEpoch = 0;
 const DEV_WRITE_REQUESTS_CAP = 20;
 const countedContexts = new WeakSet<object>();
 const countedApis = new WeakSet<object>();
@@ -518,15 +534,89 @@ function isSessionRequest(method: string, raw: string | undefined, body: string 
     return grant !== null && SESSION_GRANTS.has(grant);
   } catch { return false; }
 }
-function noteDevWrite(method: string, raw: string | undefined, body?: string | null): void {
-  if (!isDevWrite(raw)) return;
+// Rewrites the ledger with what the test has counted so far: written beside it and renamed over it, so a reader that
+// finds the file finds one whole state, never a half-written one. Best effort: the count is a bound on the spec, never
+// a test failure.
+function flushLedger(): void {
+  if (!ledgerFs || !ledgerFile || !ledgerTemp) return;
+  try {
+    ledgerFs.writeFileSync(ledgerTemp, JSON.stringify({ v: 2, writes: devWrites, pending: devWritesPending, done: ledgerDone, ...(devWriteRequests.length > 0 ? { requests: devWriteRequests } : {}), ...(sessionRequests.length > 0 ? { sessionRequests } : {}) }));
+    ledgerFs.renameSync(ledgerTemp, ledgerFile);
+  } catch {}
+}
+// Starts the test's ledger: on disk before the test runs anything, with nothing counted and nothing pending. Named by
+// process, worker and sequence, so no two tests of a run share a file.
+async function openLedger(): Promise<void> {
+  ledgerFs = undefined;
+  ledgerFile = undefined;
+  ledgerTemp = undefined;
+  ledgerDone = false;
+  ledgerEpoch++;
+  try {
+    const dir = process.env.QA_FAILURE_CAPTURE_DIR;
+    if (!dir) return;
+    const fs = await import("node:fs");
+    const { join } = await import("node:path");
+    const name = 'p' + process.pid + '-w' + (process.env.TEST_WORKER_INDEX ?? '0') + '-' + ++ledgerSeq;
+    ledgerFile = join(dir, 'ledger-' + name + '.json');
+    ledgerTemp = join(dir, '.ledger-' + name + '.tmp');
+    ledgerFs = fs;
+    flushLedger();
+  } catch { ledgerFs = undefined; }
+}
+// What a request to `raw` counts as, or undefined when it writes nothing to DEV.
+function classifyWrite(method: string, raw: string | undefined, body?: string | null): 'write' | 'session' | undefined {
+  if (!isDevWrite(raw)) return undefined;
+  return raw !== undefined && networkUrl(raw) !== '' && isSessionRequest(method, raw, body) ? 'session' : 'write';
+}
+// A write a server answered: counted and recorded (session traffic is only recorded), and the ledger rewritten.
+function noteAnswered(kind: 'write' | 'session', method: string, raw: string | undefined): void {
   const url = raw === undefined ? '' : networkUrl(raw);
-  if (url && isSessionRequest(method, raw, body)) {
+  if (kind === 'session') {
     if (sessionRequests.length < DEV_WRITE_REQUESTS_CAP) sessionRequests.push({ method, url });
+  } else {
+    devWrites++;
+    if (url && devWriteRequests.length < DEV_WRITE_REQUESTS_CAP) devWriteRequests.push({ method, url });
+  }
+  flushLedger();
+}
+function noteDevWrite(method: string, raw: string | undefined, body?: string | null): void {
+  const kind = classifyWrite(method, raw, body);
+  if (kind) noteAnswered(kind, method, raw);
+}
+interface WriteEvent { method(): string; url(): string; postData(): string | null }
+// A mutating browser request leaves: pending until a server answers it or it fails. Session traffic is never pending.
+function sendBrowserWrite(r: WriteEvent): void {
+  const method = r.method();
+  if (!/^(?:POST|PUT|PATCH|DELETE)$/.test(method)) return;
+  let url: string | undefined;
+  try { url = r.url(); } catch {}
+  let body: string | null | undefined;
+  try { body = r.postData(); } catch {}
+  const kind = classifyWrite(method, url, body);
+  if (!kind) return;
+  sentWrites.set(r, kind);
+  if (kind === 'write') { devWritesPending++; flushLedger(); }
+}
+// The same request answered (counted) or failed (dropped). One that left before this test began is counted when answered.
+function settleBrowserWrite(r: WriteEvent, answered: boolean): void {
+  const method = r.method();
+  if (!/^(?:POST|PUT|PATCH|DELETE)$/.test(method)) return;
+  let url: string | undefined;
+  try { url = r.url(); } catch {}
+  const kind = sentWrites.get(r);
+  if (kind === undefined) {
+    if (answered) {
+      let body: string | null | undefined;
+      try { body = r.postData(); } catch {}
+      noteDevWrite(method, url, body);
+    }
     return;
   }
-  devWrites++;
-  if (url && devWriteRequests.length < DEV_WRITE_REQUESTS_CAP) devWriteRequests.push({ method, url });
+  sentWrites.delete(r);
+  if (kind === 'write') devWritesPending = Math.max(0, devWritesPending - 1);
+  if (answered) noteAnswered(kind, method, url);
+  else flushLedger();
 }
 interface WriteCountable { fetch(target: unknown, options?: { method?: string }): Promise<unknown> }
 function countWrites(api: WriteCountable | undefined): void {
@@ -544,8 +634,20 @@ function countWrites(api: WriteCountable | undefined): void {
       if (typeof target === 'string') url = new URL(target, launchBaseUrl).href;
       else if (request && typeof request.url === 'function') url = (request.url as () => string)();
     } catch {}
-    const response = await original(target, options);
-    if (method) noteDevWrite(method, url);
+    const epoch = ledgerEpoch;
+    const sent = method !== undefined && classifyWrite(method, url) !== undefined;
+    if (sent) { devWritesPending++; flushLedger(); }
+    const leave = (): void => { if (sent && epoch === ledgerEpoch) devWritesPending = Math.max(0, devWritesPending - 1); };
+    let response: unknown;
+    try {
+      response = await original(target, options);
+    } catch (err) {
+      leave();
+      if (sent) flushLedger();
+      throw err;
+    }
+    leave();
+    if (sent) noteAnswered('write', method!, url);
     return response;
   };
 }
@@ -575,8 +677,10 @@ async function qaFailureCaptureStart(page: QaCapturePage, request: QaCaptureRequ
   dataInFlight = 0;
   lastDataAt = 0;
   devWrites = 0;
+  devWritesPending = 0;
   devWriteRequests = [];
   sessionRequests = [];
+  sentWrites = new WeakMap();
   observedRequests = [];
   if (process.env.PW_OBSERVE === '1') {
     try {
@@ -584,21 +688,14 @@ async function qaFailureCaptureStart(page: QaCapturePage, request: QaCaptureRequ
     } catch {}
   }
   if (process.env.PW_COUNT_DEV_WRITES === '1') {
+    await openLedger();
     try {
       const context = page.context();
       if (!countedContexts.has(context)) {
         countedContexts.add(context);
-        context.on('requestfinished', (r) => {
-          try {
-            const method = r.method();
-            if (!/^(?:POST|PUT|PATCH|DELETE)$/.test(method)) return;
-            let url: string | undefined;
-            try { url = r.url(); } catch {}
-            let body: string | null | undefined;
-            try { body = r.postData(); } catch {}
-            noteDevWrite(method, url, body);
-          } catch {}
-        });
+        context.on('request', (r) => { try { sendBrowserWrite(r); } catch {} });
+        context.on('requestfinished', (r) => { try { settleBrowserWrite(r, true); } catch {} });
+        context.on('requestfailed', (r) => { try { settleBrowserWrite(r, false); } catch {} });
         countWrites(context.request);
       }
       countWrites(request);
@@ -646,12 +743,8 @@ async function qaFailureCaptureFinish(page: QaCapturePage, testInfo: QaCaptureTe
   const dir = process.env.QA_FAILURE_CAPTURE_DIR;
   if (!dir) return;                                   // degrade to no-op when the orchestrator did not ask
   if (process.env.PW_COUNT_DEV_WRITES === '1') {
-    try {
-      const { writeFileSync } = await import("node:fs");
-      const { join } = await import("node:path");
-      const id = String(testInfo.testId ?? testInfo.title).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60);
-      writeFileSync(join(dir, 'ledger-w' + testInfo.workerIndex + '-' + id + '-r' + testInfo.retry + '.json'), JSON.stringify({ writes: devWrites, ...(devWriteRequests.length > 0 ? { requests: devWriteRequests } : {}), ...(sessionRequests.length > 0 ? { sessionRequests } : {}) }));
-    } catch { /* best effort — the count is a bound on the spec, never a test failure */ }
+    ledgerDone = true;
+    flushLedger();
   }
   if (process.env.PW_OBSERVE === '1' && testInfo.status !== 'skipped') {
     try {
