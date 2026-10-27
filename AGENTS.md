@@ -344,6 +344,16 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   per flow of a plan — that the `set_geolocation` tool moves for the authenticated browser and the prompts; a plan may name a
   place per flow and a flow without one inherits the lead's. It never enters the delivered suite: a spec whose result depends
   on a location pins it with `setLocation(context, latitude, longitude)`.
+- **Stubbed tests (the one exception to real-DEV-first)** — a state the change handles that DEV cannot be brought to (a
+  `needs-unavailable-state` case: the response it needs is not there and no UI step creates it) may be covered by a test that
+  fulfils only the GET responses it needs with `page.route` / `route.fulfill`, beside, never instead of, the live test of the
+  same page, titled `[stubbed: <the response it states>]`. The orchestrator detects such tests from the delivered specs' syntax
+  tree (`test-execution/domain/stubbed-state.ts`: a route handler, `routeFromHAR`, a script that replaces `fetch`; what it
+  cannot read, such as a helper from another module, counts as stubbed, never as live), records them in
+  `gateSignals.stubbedState { specFiles, tests, violations? }` and a `qayaba.stubbed_state` span, and the PR and Issue list them
+  under "Tested against a stated response, not DEV". A violation (a fulfil no explicit GET check guards, a `continue` that sets
+  the method or body, a HAR replay, a handler outside the file, a spec file whose every test is stubbed) is recorded and
+  listed, never a gate on the verdict. `docs/stubbed-state.md`.
 - **Step limit and milestone** — the author, lead and reviewer prompts state the cap
   their runtime enforces (facts-only `step-limit` section): one live read per run of the
   OpenCode server's resolved agents (`steps`, the deprecated `maxSteps` mapped into it; `stepLimits`
@@ -624,6 +634,10 @@ threat-model header first) and a canary-before-promote hot-swap.
 - **Honor the explicit no-op.** Declared `noop` + reason + zero specs is a valid
   `skipped`. Silence is not a decision (`E-NO-DECISION` / `E-STEP-BUDGET` / `E-TIME-BUDGET`). `approved`
   is never a no-op signal.
+- **A stubbed test never fakes a write and never replaces the live test.** Only GET responses are fulfilled, behind an
+  explicit method check; a write is never fulfilled nor let through changed; a stubbed test sits beside the live test of its
+  page. The reviewer judges it by what the frontend does with the stated response and rejects one that asserts only what it
+  stubbed. Never widen the exception to a write, to a HAR replay or to a test with no live counterpart.
 - **Surface integration errors loudly** — never swallow agent-runtime, runner or git
   errors into an empty result. Throw and log.
 - **Sanitize data leaving the system** — logs → Issue via `src/orchestrator/sanitizer.ts`
