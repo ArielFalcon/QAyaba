@@ -200,3 +200,18 @@ test("the reviewer's missing cases are listed in a PR body and an Issue, and not
   }
   assert.equal(renderPrBody({ isCode: false }), renderPrBody({ isCode: false, missingCases: [] }));
 });
+
+test("a PR body lists every unavailability the change introduced and every possible regression, and nothing for the other classes", () => {
+  const routeAvailability = [
+    { route: "/upload-menu/preview", outcome: { kind: "redirected" as const, to: "/home", mechanism: "client" as const }, basis: { class: "change-introduced" as const, via: "route-declaration" as const, at: "src/app/app.routes.ts:102" } },
+    { route: "/upload-menu/confirm", outcome: { kind: "redirected" as const, to: "/home", mechanism: "client" as const }, basis: { class: "change-introduced" as const, via: "route-guard" as const, at: "src/guards/native.ts::nativeOnlyGuard" } },
+    { route: "/orders", outcome: { kind: "http-error" as const, status: 500 }, basis: { class: "regression-candidate" as const, reach: "implements" as const, runtimeError: true as const } },
+    { route: "/login", outcome: { kind: "redirected" as const, to: "/home", mechanism: "client" as const }, basis: { class: "pre-existing" as const, why: "session-consistent" as const } },
+  ];
+  const pr = renderPrBody({ isCode: false, routeAvailability });
+  assert.match(pr, /Routes this change makes unavailable[^\n]*\n- `\/upload-menu\/preview` ends on \/home \(client-side\): its route table entry changed at src\/app\/app\.routes\.ts:102\n- `\/upload-menu\/confirm` ends on \/home \(client-side\): a changed symbol reaches its guard src\/guards\/native\.ts::nativeOnlyGuard/);
+  assert.match(pr, /Possible regressions[^\n]*\n- `\/orders` ends on HTTP 500: the change reaches the page and it logged a runtime error/);
+  assert.doesNotMatch(pr, /\/login/);
+  assert.match(renderIssue({ verdict: "fail", cases: [failCase()], routeAvailability }), /Routes this change makes unavailable/);
+  assert.equal(renderPrBody({ isCode: false }), renderPrBody({ isCode: false, routeAvailability: [routeAvailability[3]!] }));
+});

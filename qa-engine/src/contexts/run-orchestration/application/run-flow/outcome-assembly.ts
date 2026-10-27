@@ -42,6 +42,7 @@ export interface OutcomeExtras {
   survivorClosure?: RunOutcome["gateSignals"]["survivorClosure"];
   flakyTriage?: RunOutcome["gateSignals"]["flakyTriage"];
   missingCases?: string[];
+  routeAvailability?: RunOutcome["gateSignals"]["routeAvailability"];
   note?: string;
   rulesRetrieved?: string[];
   diffArchetypes?: string[];
@@ -190,6 +191,7 @@ export function toRunOutcome(
       ...(extra?.survivorClosure ? { survivorClosure: extra.survivorClosure } : {}),
       ...(extra?.flakyTriage ? { flakyTriage: extra.flakyTriage } : {}),
       ...(extra?.missingCases?.length ? { missingCases: extra.missingCases } : {}),
+      ...(extra?.routeAvailability ? { routeAvailability: extra.routeAvailability } : {}),
       reviewerCorrections: extra?.reviewerCorrections ?? [],
       /* Conditional-spread: true undefined survives when no reviewer-unavailable rationale exists. */
       ...(extra?.reviewerRationale !== undefined ? { reviewerRationale: extra.reviewerRationale } : {}),

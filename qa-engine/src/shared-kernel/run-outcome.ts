@@ -7,6 +7,7 @@ import type { ClosedLoopGateSignal } from "./closed-loop.ts";
 import type { AgentBrowserGateSignal } from "./agent-browser.ts";
 import type { CoordinationGateSignal } from "./coordination.ts";
 import type { NoopKind } from "./noop-kind.ts";
+import type { RouteAvailabilityGateSignal } from "./route-availability.ts";
 
 export type ErrorClass = string | null;
 
@@ -124,6 +125,8 @@ export interface RunOutcome {
     valueByCandidate?: Array<{ candidateId: string; exposed: number; killed: number; ratio: number | null; unscored?: string }>;
     /* What the corrupted re-run counted: the baseline-passing specs it executed, those exposed to a corrupted response of an operation in reach, those that failed under it and the failures that were the flow breaking. Absent when it measured nothing. Persist-only: the input of the score's calibration. */
     valueStats?: { baseline: number; exposed: number; killed: number; failed: number; flowBreaks: number };
+    /* Why the routes the Context Pack's capture could not show at their own address were not, by class. Absent when the pack did not classify. Persist-only: it reads nothing back into a verdict. */
+    routeAvailability?: RouteAvailabilityGateSignal;
     /* How the run's regeneration acceptance spent its proof ledger: how many regenerations were accepted (and how many of those reused a closed-loop proof instead of executing), how many were rejected, and whether the per-run execution cap was hit. Persist-only; never read by decide/verdict/gate/publish. */
     integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
   };

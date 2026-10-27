@@ -5,6 +5,7 @@ import type { z } from "zod";
 import { RUN_MODES, type RunMode, type TestTarget, type TriggerSource } from "@kernel/run-mode";
 import { RUN_ENGINE_STATUSES, engineStatus, type RunEngineStatus, type RunVerdict } from "@kernel/run-verdict";
 import type { CaseStatus, QaCase } from "@kernel/qa-case";
+import type { RouteAvailabilityGateSignal } from "@kernel/route-availability";
 
 export { RUN_MODES, RUN_ENGINE_STATUSES, engineStatus };
 export type { RunMode, TestTarget, TriggerSource, RunEngineStatus, RunVerdict, CaseStatus, QaCase };
@@ -275,6 +276,8 @@ export interface RunOutcome {
     valueByCandidate?: Array<{ candidateId: string; exposed: number; killed: number; ratio: number | null; unscored?: string }>;
     /* What the corrupted re-run counted: the baseline-passing specs it executed, those exposed to a corrupted response of an operation in reach, those that failed under it and the failures that were the flow breaking. Absent when it measured nothing. Persist-only: the input of the score's calibration. */
     valueStats?: { baseline: number; exposed: number; killed: number; failed: number; flowBreaks: number };
+    /* Why the routes the Context Pack's capture could not show at their own address were not, by class. Persist-only, never a gate. */
+    routeAvailability?: RouteAvailabilityGateSignal;
     /* How the run's regeneration acceptance spent its proof ledger. Persist-only. */
     integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
     /* The test-intent lock: derived clauses, deltas and would-be rejections, with the opacity flag. Persist-only. */
