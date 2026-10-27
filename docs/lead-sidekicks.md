@@ -71,7 +71,8 @@ signed-in app (see below); without either, no sidekick can author and the run en
    its open session, with all of those facts in the same request (`renderReplanRequest`); a second answer that is a plan of flows
    replaces the first. A candidate still unresolved is admitted as it stands, recorded `unplanned` on the plan snapshot and as a
    `lead-decision` event, and named in every review turn (`plan-coverage.ts`). Flows still past the capacity are not authored, and
-   flows still too large are authored with the rest of their change as references; both are recorded (`gateSignals.coordination`
+   flows still too large are authored with the rest of their change as references (a flow whose brief still does not fit
+   then is not sent, below); both are recorded (`gateSignals.coordination`
    `capacity`, `notAdmitted`, `oversize`, and a `lead-decision` event carrying `qayaba.coordination.flows_not_admitted` /
    `flows_oversize`).
 3. **Author.** Each sidekick's brief carries the Live DOM of its flow's pages (by address, or by the map template a
@@ -93,7 +94,12 @@ signed-in app (see below); without either, no sidekick can author and the run en
    room the turn needs, for the model the session runs on); when it does not, owned non-code hunks and then the
    lowest-ranked code hunks are named as `file:start-end (+a -r, kind, why)` instead, and an unknown window preloads
    everything. The fit rides on the turn's span (`qayaba.prompt.context.*`); a brief that had to reference owned code
-   logs a warning. The brief's known facts are those of its own pages, each saying where it was read, its tools are the
+   logs a warning. A brief still over a known window with every owned hunk named by reference (the last step of the
+   degradation order, after the lead was asked to split the flow) is **not sent**: the flow ends `over-window`, an
+   undelivered flow like any other (counted `incomplete`, never an infra error by itself, a spec it delivered earlier stays
+   delivered), named in `gateSignals.coordination.overWindow` and in a `lead-decision` event carrying
+   `qayaba.coordination.flows_over_window` and the fit it was judged by (`qayaba.prompt.context.prompt_tokens`,
+   `window_tokens`, `working_room_tokens`). An unknown window fails open: the brief is sent. The brief's known facts are those of its own pages, each saying where it was read, its tools are the
    ones its turn grants (`read`, `write`, `run_spec` with a loop, `authbrowser`, `playwright` for an app with no login,
    `set_geolocation` with a location), and a section with nothing to state is not rendered. The sidekick reports a
    claim per id (`covered`, `not-covered`, `blocked`), which the plan snapshot keeps beside the flow's outcome and no

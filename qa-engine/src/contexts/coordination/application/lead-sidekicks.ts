@@ -552,6 +552,7 @@ export class LeadSidekicks {
         return p && p.total > 0 ? [p] : [];
       });
       const aggregated = aggregateFlowOutcomes(outcomes);
+      const overWindow = outcomes.filter((o) => o.kind === FLOW_OUTCOME.OVER_WINDOW).map((o) => o.id);
       const known = new Set((input.candidates ?? []).map((c) => c.id));
       const flowCandidates = flows.map((flow) => ({ specFile: flow.specFile, candidates: flow.candidates.filter((id) => known.has(id)) }));
       this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.FANOUT, flows, undefined, outcomes, decided, new Map([...live].flatMap(([id, entry]) => (entry.last?.candidates ? [[id, entry.last.candidates] as const] : []))));
@@ -560,6 +561,7 @@ export class LeadSidekicks {
         flows: flows.length,
         delivered: outcomes.filter((o) => o.kind === FLOW_OUTCOME.DELIVERED).length,
         incomplete: aggregated.incompleteFlows.length,
+        ...(overWindow.length > 0 ? { overWindow } : {}),
         ...(tally.turns > 0 ? { review: tally } : {}),
       };
       for (const p of proposals) this.deps.log?.(`coordination: flow ${p.flowId} changed ${p.total} file(s) it was not given to write; they are proposals and were not applied`);
@@ -634,14 +636,32 @@ export class LeadSidekicks {
     if (context.mode === SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER && input.agentBrowser && flow.browserCalls > 0) {
       input.agentBrowser.grantShare(delegationId, flow.browserCalls);
     }
-    const result = await this.openSession(entry, context, signal, flow.budgetMs);
+    return this.freshTurn(entry, context, signal, flow.budgetMs);
+  }
+
+  /*
+   * A fresh sidekick session on the flow's brief, and what its turn came to. A brief still over the author's known window with all
+   * its change named by reference is not sent: the flow ends over-window, recorded with the numbers it was judged by.
+   */
+  private async freshTurn(entry: LiveFlow, context: FlowContext, signal: AbortSignal, timeoutMs: number, feedback?: string): Promise<FlowReport> {
+    const model = resolveSidekickModel(entry.tier, this.deps.escalatedModel);
+    const { brief, contextFit } = this.briefOf(entry, context, model);
+    if (contextFit?.outcome === "over") return this.overWindow(entry, context.input, contextFit);
+    const result = await this.openSession(entry, context, brief, model, contextFit, signal, timeoutMs, feedback);
     return this.assess(entry, context, result, signal);
   }
 
-  /* A fresh sidekick session on the flow's brief, with the feedback when there is some; the session is kept on the flow. */
-  private async openSession(entry: LiveFlow, context: FlowContext, signal: AbortSignal, timeoutMs: number, feedback?: string): Promise<DelegationResult> {
-    const model = resolveSidekickModel(entry.tier, this.deps.escalatedModel);
-    const { brief, contextFit } = this.briefOf(entry, context, model);
+  /* The flow whose minimal brief does not fit: nothing is sent, the decision is recorded, and a spec it delivered earlier stays delivered. */
+  private overWindow(entry: LiveFlow, input: CoordinateInput, fit: ContextFit): FlowReport {
+    const { flow } = entry;
+    const reason = `its brief, with all its change named by reference, is ${fit.promptTokens} tokens and its turn needs ${fit.workingRoomTokens ?? 0} tokens of working room, over the author's window of ${fit.windowTokens ?? 0} tokens; it was not sent`;
+    engineLog.warn(`[qa] flow ${flow.id}: ${reason}`);
+    this.record(input, { kind: "lead-decision", flowId: flow.id, overWindow: [flow.id], contextFit: fit, delegationId: entry.delegationId, reason: `flow ${flow.id}: ${reason}` });
+    return this.keepDelivered(entry, { outcome: { id: flow.id, kind: FLOW_OUTCOME.OVER_WINDOW, reason }, proposals: undefined });
+  }
+
+  /* A fresh sidekick session on the brief, with the feedback when there is some; the session is kept on the flow. */
+  private async openSession(entry: LiveFlow, context: FlowContext, brief: DelegationBrief, model: string | undefined, contextFit: ContextFit | undefined, signal: AbortSignal, timeoutMs: number, feedback?: string): Promise<DelegationResult> {
     const session = await this.deps.sidekick.open(brief, {
       cwd: entry.workspace.dir,
       kind: entry.flow.kind,
@@ -708,8 +728,8 @@ export class LeadSidekicks {
       budget.fit({ prompt: { bytes: Buffer.byteLength(assembleSidekickBrief(this.deps.redaction, build(change)).text, "utf8") }, role: "author", ...(model ? { model } : {}) });
     if (!derived.change) return { brief: build(undefined), contextFit: measure(undefined) };
     const fitted = fitBriefChange(derived.change, measure);
-    if (fitted.referenced > 0 || fitted.fit.outcome === "over") {
-      engineLog.warn(`[qa] flow ${flow.id}'s brief ${fitted.fit.outcome === "over" ? "is over the author's window even" : "fits the author's window"} with ${fitted.referenced} owned hunk(s) named by file and range instead of preloaded (${fitted.change.hunks.length} preloaded)`);
+    if (fitted.referenced > 0 && fitted.fit.outcome !== "over") {
+      engineLog.warn(`[qa] flow ${flow.id}'s brief fits the author's window with ${fitted.referenced} owned hunk(s) named by file and range instead of preloaded (${fitted.change.hunks.length} preloaded)`);
     }
     return { brief: build(fitted.change), contextFit: fitted.fit };
   }
@@ -857,8 +877,7 @@ export class LeadSidekicks {
     }
     await this.closeSession(entry);
     entry.tier = SIDEKICK_TIER.ESCALATED;
-    const result = await this.openSession(entry, context, signal, timeoutMs, instruction);
-    return this.assess(entry, context, result, signal);
+    return this.freshTurn(entry, context, signal, timeoutMs, instruction);
   }
 
   /*

@@ -96,6 +96,8 @@ export interface CoordinationGateSignal {
   notAdmitted?: string[];
   /* The admitted flows whose owned change alone does not fit an author's window after the lead was asked to split them, by id. Absent when there was none. */
   oversize?: string[];
+  /* The flows whose brief, with all their change named by reference, was still over the author's known window, by id: not sent, and counted incomplete. Absent when there was none. */
+  overWindow?: string[];
   /* The drops the run's facts contradicted (a code file with added lines, no spec linked) that the lead kept when asked once more, per candidate: honored, never an error, counted by graders and the campaign report. Absent when there was none. */
   dropsContradicted?: Array<{ candidate: string; basis: string; why: string }>;
   /* The lead's review of the flows: its turns, the decisions admitted, and those the orchestrator refused. Absent when the lead reviewed nothing. */

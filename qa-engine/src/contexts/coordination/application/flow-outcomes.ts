@@ -14,6 +14,8 @@ export const FLOW_OUTCOME = {
   TIMED_OUT: "timed-out",
   NEEDS_LEAD: "needs-lead",
   FAILED: "failed",
+  /* The flow's brief, with all its change named by reference, was still over the author's known window: it was not sent. */
+  OVER_WINDOW: "over-window",
 } as const;
 export type FlowOutcomeKind = (typeof FLOW_OUTCOME)[keyof typeof FLOW_OUTCOME];
 

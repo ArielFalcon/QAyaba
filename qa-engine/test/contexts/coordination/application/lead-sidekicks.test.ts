@@ -589,6 +589,21 @@ test("a replace starts a fresh sidekick on the escalated model with the brief an
   assert.equal(outcome.action === "fanout" ? outcome.aggregated.incompleteFlows.length : -1, 0);
 });
 
+test("a replace whose brief is over the escalated model's known window is not sent, and the spec the flow already delivered stays delivered", async () => {
+  const lead = leadWith([[{ flow: "cart", action: "replace", instruction: "again" }], []]);
+  const r = rig();
+  /* The standard model's window is unknown (sent, fail open); the escalated one's is far too small for any brief. */
+  const windows = { windowTokens: (_role: string, model?: string) => (model === "escalated/model" ? 10 : undefined) };
+  const noRoom = { forRole: () => ({ growthTokensPerStep: 0, steps: 0, basis: "cold-start" as const, samples: 0 }) };
+  const outcome = await new LeadSidekicks({ ...r.deps, contextBudget: new ContextBudget(windows, noRoom) }).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action !== "fanout") return assert.fail(`fanout expected, got ${outcome.action}`);
+  await outcome.pass?.release();
+  assert.equal(r.executed.filter((e) => e.brief.delegationId === "run-1-flow-cart").length, 1, "the replacement was never sent");
+  assert.deepEqual(outcome.aggregated.specs.sort(), ["flows/cart.spec.ts", "flows/login.spec.ts"]);
+  assert.deepEqual(outcome.aggregated.incompleteFlows, []);
+  assert.ok(r.events.some((e) => e.flowId === "cart" && e.overWindow?.includes("cart")));
+});
+
 test("an accept of a spec that has not passed run_spec on its current bytes is sent back to the same sidekick with the failure the orchestrator saw", async () => {
   const lead = leadWith([[{ flow: "cart", action: "accept" }, { flow: "login", action: "accept" }], []]);
   const r = rig();
@@ -1007,6 +1022,37 @@ test("a flow's brief preloads its changed code while it fits the author's window
   assert.ok(tight.brief.change!.hunks.length < 6 && tight.brief.change!.hunks.length > 0);
   assert.equal(tight.brief.change!.references.filter((ref) => /^src\/cart\.ts:\d+-\d+ /.test(ref)).length, 6 - tight.brief.change!.hunks.length);
   assert.equal(tight.opts.contextFit?.outcome, "fits");
+});
+
+test("a flow whose brief is over the author's known window even with all its change named by reference is not sent, and is recorded as an undelivered flow", async () => {
+  const diff = ["diff --git a/src/cart.ts b/src/cart.ts", "--- a/src/cart.ts", "+++ b/src/cart.ts", ...Array.from({ length: 60 }, (_, i) => [`@@ -${1 + i * 10},1 +${1 + i * 10},2 @@`, " keep", `+  total${i} += price;`]).flat()].join("\n");
+  const candidates = [pageCandidate("/cart", ["page /cart"], { seeds: [{ file: "src/cart.ts", symbol: "total", range: { start: 1, end: 1_000 } }] })];
+  const plan = planOf([{ ...cartFlow, candidates: ["uc-/cart"] }, loginFlow]);
+  const noRoom = { forRole: () => ({ growthTokensPerStep: 0, steps: 0, basis: "cold-start" as const, samples: 0 }) };
+  const run = async (windowTokens: number) => {
+    const r = rig();
+    r.coordinator = new LeadSidekicks({ ...r.deps, contextBudget: new ContextBudget({ windowTokens: () => windowTokens }, noRoom) });
+    const outcome = await r.coordinator.coordinate(input(r, { candidates, change: { diffs: [diff] }, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+    if (outcome.action === "fanout") await outcome.pass?.release();
+    return { r, outcome };
+  };
+  /* The login flow's brief carries no change, so it is the same brief under any window: the window is set just above it. */
+  const wide = await run(10_000_000);
+  const loginTokens = wide.r.executed.find((e) => e.brief.delegationId === "run-1-flow-login")!.opts.contextFit!.promptTokens;
+  const { r, outcome } = await run(loginTokens + 10);
+
+  assert.deepEqual(r.executed.map((e) => e.brief.delegationId), ["run-1-flow-login"], "the cart flow's brief is never sent");
+  if (outcome.action !== "fanout") return assert.fail(`fanout expected, got ${outcome.action}`);
+  assert.equal(outcome.aggregated.end, GENERATION_END.DELIVERED, "one flow over the window does not end the run by itself");
+  assert.deepEqual(outcome.aggregated.incompleteFlows.map((f) => [f.id, f.kind]), [["cart", "over-window"]]);
+  assert.deepEqual(outcome.signal.overWindow, ["cart"]);
+  assert.equal(outcome.signal.incomplete, 1);
+  const recorded = r.events.find((e) => e.kind === "lead-decision" && e.flowId === "cart" && e.contextFit !== undefined);
+  assert.ok(recorded, "the decision is recorded with its numbers");
+  assert.equal(recorded!.contextFit!.windowTokens, loginTokens + 10);
+  assert.equal(recorded!.contextFit!.workingRoomTokens, 0);
+  assert.ok(recorded!.contextFit!.promptTokens > loginTokens + 10);
+  assert.ok(r.disposed.includes("/w/run-1-flow-cart"), "what the flow held is released");
 });
 
 /* A lead whose planning session answers each turn with these raw outputs in order (the last repeats). */

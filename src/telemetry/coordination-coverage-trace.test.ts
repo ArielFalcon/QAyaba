@@ -62,6 +62,19 @@ test("a coordination event carries its flow, candidates, routes, drop bases and 
   for (const key of Object.keys(a).filter((k) => k.startsWith("qayaba.coordination."))) assert.ok(lookupAttribute(key), `${key} is registered`);
 });
 
+test("a flow not sent for its window carries the flow and the fit it was judged by as registered attributes", () => {
+  const h = traceHarness();
+  const event: CoordinationTelemetryEvent = {
+    runId: "r", kind: "lead-decision", reason: "flow cart: not sent", at: 1, flowId: "cart", overWindow: ["cart"],
+    contextFit: { outcome: "over", promptTokens: 9_000, windowTokens: 8_000, workingRoomTokens: 2_000, roomBasis: "history" },
+  };
+  inPhase(h, "qayaba.phase.generate", () => new TracedCoordinationTelemetry({ record: () => {} }, h.telemetry).record(event));
+  const a = h.only("qayaba.coordination.event").attributes;
+  assert.deepEqual(a["qayaba.coordination.flows_over_window"], ["cart"]);
+  assert.deepEqual([a["qayaba.prompt.context.fit"], a["qayaba.prompt.context.prompt_tokens"], a["qayaba.prompt.context.window_tokens"], a["qayaba.prompt.context.working_room_tokens"]], ["over", 9_000, 8_000, 2_000]);
+  for (const key of Object.keys(a).filter((k) => k.startsWith("qayaba."))) assert.ok(lookupAttribute(key), `${key} is registered`);
+});
+
 test("the change-coverage measurement is a span with its decision, what it counted and why it decided nothing", async () => {
   const h = traceHarness();
   const inner: ObjectiveSignalPort = {

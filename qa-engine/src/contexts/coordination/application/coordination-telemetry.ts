@@ -4,6 +4,7 @@ in FileCoordinationTelemetryAdapter (infrastructure/adapters/coordination-teleme
 which wraps CoordinationTelemetryRecorder below and implements the SAME CoordinationTelemetryPort. */
 import type { SidekickKind, SidekickTier } from "./sidekick-kinds.ts";
 import type { CoordinationAction } from "./coordination-decision.ts";
+import type { ContextFit } from "@kernel/context-budget.ts";
 
 /* The actions an event of the lead names: a sidekick's escalation, a stop for a human; ledger lines recorded earlier also hold accept, retry-sidekick and continue-fix-loop. */
 export type LeadDecisionAction = "accept" | "retry-sidekick" | "escalate-sidekick" | "abort-human" | "continue-fix-loop";
@@ -65,6 +66,9 @@ export interface CoordinationTelemetryEvent {
   readonly capacity?: number;
   readonly notAdmitted?: readonly string[];
   readonly oversize?: readonly string[];
+  /** The flows not sent because their minimal brief was over the author's known window, by id, and the fit that brief was judged by (prompt tokens, window, working room). */
+  readonly overWindow?: readonly string[];
+  readonly contextFit?: ContextFit;
   /** What the lead decided about a flow (accept, revise, replace, drop), whether the orchestrator did not take it as given, and the code of why. */
   readonly decision?: string;
   readonly overridden?: boolean;
