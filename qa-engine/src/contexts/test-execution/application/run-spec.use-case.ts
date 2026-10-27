@@ -197,6 +197,7 @@ export class RunSpecUseCase {
     let passedTests = 0;
     let devWrites = 0;
     let devWriteRequests: readonly DevWriteRequest[] = [];
+    let sessionRequests: readonly DevWriteRequest[] = [];
     let failures: RunSpecFailureFact[] = [];
     let note: string | undefined;
     let sessionLost = false;
@@ -228,11 +229,13 @@ export class RunSpecUseCase {
       passedTests = outcome.passedTests;
       devWrites = outcome.devWrites;
       devWriteRequests = outcome.devWriteRequests ?? [];
+      sessionRequests = outcome.sessionRequests ?? [];
       failures = outcome.failures;
       note = outcome.note;
       sessionLost = outcome.sessionLost === true;
       tell({ "qayaba.tool.dev_writes": devWrites });
       if (devWriteRequests.length > 0) tell({ "qayaba.tool.dev_write_requests": devWriteRequests.map(describeDevWriteRequest) });
+      if (sessionRequests.length > 0) tell({ "qayaba.tool.dev_session_requests": sessionRequests.map(describeDevWriteRequest) });
       /* The ledger names the bytes that ran. The file is the agent's to change while the call is out, so what it holds now is read again: a pass is recorded only for a file that is still the one hashed before the run. */
       if (this.sha256Now(rel) !== sha256) {
         if (status === RUN_SPEC_STATUS.PASSED) status = RUN_SPEC_STATUS.ERROR;
@@ -249,7 +252,7 @@ export class RunSpecUseCase {
     return { ok: true, report: { status, tests, passedTests, budget: capability.budget(deadline?.remainingMs()), ...(note !== undefined ? { note } : {}), ...(sessionLost ? { sessionLost: true as const } : {}) } };
   }
 
-  private async executeAndClean(rel: string, grep: string | undefined, namespace: string, timeoutMs: number, stop: AbortSignal | undefined): Promise<{ status: RunSpecStatus; tests: RunSpecTestReport[]; passedTests: number; devWrites: number; devWriteRequests?: readonly DevWriteRequest[]; writesUncounted?: true; failures: RunSpecFailureFact[]; note?: string; sessionLost?: boolean }> {
+  private async executeAndClean(rel: string, grep: string | undefined, namespace: string, timeoutMs: number, stop: AbortSignal | undefined): Promise<{ status: RunSpecStatus; tests: RunSpecTestReport[]; passedTests: number; devWrites: number; devWriteRequests?: readonly DevWriteRequest[]; sessionRequests?: readonly DevWriteRequest[]; writesUncounted?: true; failures: RunSpecFailureFact[]; note?: string; sessionLost?: boolean }> {
     let result: SpecExecutionResult | undefined;
     let failure: string | undefined;
     try {
@@ -286,7 +289,7 @@ export class RunSpecUseCase {
     }
     /* A run whose writes could not be counted (an older fixtures file, a ledger the child spoiled or never left, a run that was stopped) is charged the whole budget that was left: the count comes from the suite's own fixtures, which is code the agent can edit, so an absent or unbelievable count is never read as "none". */
     if (result.devWrites === undefined) notes.push("the requests it sent to DEV could not be counted; the whole write budget that was left was charged");
-    return { status, tests, passedTests, devWrites: result.devWrites ?? this.deps.capability.budget(this.deps.deadline?.remainingMs()).devWritesLeft, ...(result.devWrites === undefined ? { writesUncounted: true as const } : {}), ...(result.devWrites !== undefined && result.devWriteRequests !== undefined ? { devWriteRequests: result.devWriteRequests } : {}), failures, ...(notes.length > 0 ? { note: notes.join("; ") } : {}), ...(sessionLost ? { sessionLost } : {}) };
+    return { status, tests, passedTests, devWrites: result.devWrites ?? this.deps.capability.budget(this.deps.deadline?.remainingMs()).devWritesLeft, ...(result.devWrites === undefined ? { writesUncounted: true as const } : {}), ...(result.devWrites !== undefined && result.devWriteRequests !== undefined ? { devWriteRequests: result.devWriteRequests } : {}), ...(result.devWrites !== undefined && result.sessionRequests !== undefined ? { sessionRequests: result.sessionRequests } : {}), failures, ...(notes.length > 0 ? { note: notes.join("; ") } : {}), ...(sessionLost ? { sessionLost } : {}) };
   }
 
   /* The sha256 of the spec as it stands now, read strictly, or undefined when it is gone or cannot be read. */

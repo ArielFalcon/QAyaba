@@ -236,7 +236,10 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   ceiling they then share), time per call (also bounded by the run deadline) and one run-level cap on DEV writes, never derived from the plan, that holds across the
   flows together (one run ledger checked and charged under the account lease refuses every write once it is spent, whatever share a flow has
   left; every flow keeps its share and loop; an uncountable call is charged the run's whole remainder; refusals in `gateSignals.closedLoop.writesRefused`) (counted by the capture block's ledger in `fixtures.ts`, a spec must import its `test` from
-  there), a ledger of every call's sha256, revoked when the run ends. Scratch specs live in `e2e/.qa-probe/` and are swept
+  there; only a write to one of the run's DEV origins counts, and never the traffic that keeps the run's own session alive: a POST of a form body whose
+  `grant_type` is `refresh_token` or `authorization_code` (RFC 6749) to a DEV origin other than the app's own, the identity provider's token exchange
+  and refresh, which the ledger records apart as `sessionRequests` and the call's span as `qayaba.tool.dev_session_requests`; every other request
+  to the identity provider, any other grant and a body that cannot be read still count), a ledger of every call's sha256, revoked when the run ends. Scratch specs live in `e2e/.qa-probe/` and are swept
   after every generation: never delivered, stored or validated. When `loopClosed` (every delivered spec's current bytes are those
   whose last call passed) the regenerations that only repeat that work are skipped; the declared no-op, `E-NO-DECISION` /
   `E-STEP-BUDGET` / `E-TIME-BUDGET` and the single coverage or branch-case regeneration are unchanged. The `Run spec budget` prompt

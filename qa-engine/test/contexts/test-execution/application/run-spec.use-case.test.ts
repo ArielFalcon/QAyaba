@@ -259,6 +259,18 @@ test("the requests behind a call's writes are kept on its ledger entry and told 
   assert.doesNotMatch(JSON.stringify(response), /api\/orders/);
 });
 
+test("the session requests kept apart from the writes are told to the call's span and charge nothing", async (t) => {
+  const h = harness(t);
+  h.next.result = { verdict: "pass", cases: [{ name: "t", status: "pass" }], logs: "", devWrites: 0, sessionRequests: [{ method: "POST", url: "https://id.example.com/oauth/token", count: 4 }] };
+  const attrs: Record<string, unknown> = {};
+  const response = await new RunSpecUseCase(h.deps).run({ sessionId: "ses-1", agent: RUN_SPEC_FLOW_AGENT, path: "flows/a.spec.ts" }, undefined, { setAttrs: (a) => Object.assign(attrs, a) });
+  assert.ok(response.ok);
+  assert.deepEqual(attrs["qayaba.tool.dev_session_requests"], ["POST https://id.example.com/oauth/token ×4"]);
+  assert.equal(attrs["qayaba.tool.dev_writes"], 0);
+  assert.equal(response.report.budget.devWritesLeft, 5);
+  assert.doesNotMatch(JSON.stringify(response), /oauth/);
+});
+
 test("a spec rewritten while the call ran is not recorded as a pass, whatever the run said", async (t) => {
   const h = harness(t);
   h.next.result = { verdict: "pass", cases: [{ name: "t", status: "pass" }], logs: "", devWrites: 0 };

@@ -187,6 +187,8 @@ export interface E2eRunResult {
   devWrites?: number;
   /* The requests behind that count, by method and origin and pathname, at most MAX_DEV_WRITE_REQUESTS distinct; present with a count the fixtures recorded requests for. */
   devWriteRequests?: DevWriteRequest[];
+  /* The requests that keep the run's own session alive (an identity provider's token exchange or refresh), which the fixtures kept apart from the writes and did not count, by method and origin and pathname, at most MAX_DEV_WRITE_REQUESTS distinct; present with a count when the fixtures recorded any. */
+  sessionRequests?: DevWriteRequest[];
 }
 
 /* Why a report that says every test passed is not believed, or undefined when how the child ended gives no reason to doubt it. Both the status and the signal come from the process, never from the report or the logs, so they are safe to say. */
@@ -295,7 +297,7 @@ export async function runE2E(
   /* The ledger is read before any early return, but only believed for a run that finished and whose report says how many tests ran: a stopped run has no ledger for the test it was running, and a ledger short of the tests that ran has lost some, so the writes of either are unknown and the caller charges the whole cap (see readDevWrites). */
   const ledger = opts.countWrites ? readDevWrites(failureCaptureDir, failureCaptureRoot) : undefined;
   const counted = (result: E2eRunResult, executed?: number): E2eRunResult =>
-    ledger === undefined || executed === undefined || ledger.files < executed ? result : { ...result, devWrites: ledger.writes, ...(ledger.requests.length > 0 ? { devWriteRequests: ledger.requests } : {}) };
+    ledger === undefined || executed === undefined || ledger.files < executed ? result : { ...result, devWrites: ledger.writes, ...(ledger.requests.length > 0 ? { devWriteRequests: ledger.requests } : {}), ...(ledger.sessionRequests.length > 0 ? { sessionRequests: ledger.sessionRequests } : {}) };
 
   /* Single sanitizeText pass: a separate containsSecrets() pre-check is redundant with this SAME detection result (mirrors code-execution.runner.ts's own AMENDMENT-1 simplification) — the warn fires under the exact same condition as before, just derived from one call instead of two. */
   const sanitized = sanitizeText(logs);
@@ -434,21 +436,27 @@ function ledgerRequest(raw: unknown): { method: string; url: string } {
   return { method, url: sanitizeText(`${parsed.origin}${parsed.pathname}`).text };
 }
 
-function readDevWrites(dir: string | undefined, root: string | undefined): { writes: number; files: number; requests: DevWriteRequest[] } | undefined {
+function readDevWrites(dir: string | undefined, root: string | undefined): { writes: number; files: number; requests: DevWriteRequest[]; sessionRequests: DevWriteRequest[] } | undefined {
   if (dir === undefined) return undefined;
   const base = root ?? dir;
   const files = readRunOutputDir({ mirrorDir: base, specDir: base }, relative(base, dir) || ".", (name) => LEDGER_FILE_RE.test(name), (_name, bytes) => {
-    const parsed = JSON.parse(bytes.toString("utf8")) as { writes?: unknown; requests?: unknown };
+    const parsed = JSON.parse(bytes.toString("utf8")) as { writes?: unknown; requests?: unknown; sessionRequests?: unknown };
     const writes = parsed.writes;
     if (typeof writes !== "number" || !Number.isInteger(writes) || writes < 0 || writes > MAX_LEDGER_WRITES) throw new Error("not a count");
     const recorded = parsed.requests ?? [];
     if (!Array.isArray(recorded) || recorded.length > MAX_DEV_WRITE_REQUESTS || recorded.length > writes) throw new Error("not a list of the counted requests");
-    return { writes, requests: recorded.map(ledgerRequest) };
+    const session = parsed.sessionRequests ?? [];
+    if (!Array.isArray(session) || session.length > MAX_DEV_WRITE_REQUESTS) throw new Error("not a list of the session requests");
+    return { writes, requests: recorded.map(ledgerRequest), sessionRequests: session.map(ledgerRequest) };
   }, LEDGER_LIMITS);
   if (files === undefined || files.length === 0) return undefined;
   const requests: DevWriteRequest[] = [];
-  for (const file of files) for (const r of file.requests) noteDevWriteRequest(requests, r.method, r.url);
-  return { writes: files.reduce((sum, f) => sum + f.writes, 0), files: files.length, requests };
+  const sessionRequests: DevWriteRequest[] = [];
+  for (const file of files) {
+    for (const r of file.requests) noteDevWriteRequest(requests, r.method, r.url);
+    for (const r of file.sessionRequests) noteDevWriteRequest(sessionRequests, r.method, r.url);
+  }
+  return { writes: files.reduce((sum, f) => sum + f.writes, 0), files: files.length, requests, sessionRequests };
 /* mutation-scope:begin output-readers */
 }
 

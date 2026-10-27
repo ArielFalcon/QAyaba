@@ -21,4 +21,6 @@ export interface SpecExecutionResult {
   devWrites?: number;
   /* The requests behind that count, by method and origin and pathname. Absent: none recorded. */
   devWriteRequests?: readonly DevWriteRequest[];
+  /* The requests that keep the run's own session alive, which the fixtures did not count as writes. Absent: none recorded. */
+  sessionRequests?: readonly DevWriteRequest[];
 }

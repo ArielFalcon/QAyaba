@@ -4,7 +4,7 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import { InfraError } from "@kernel/domain-error.ts";
 import type { DevWriteRequest } from "../domain/dev-write-request.ts";
 
-interface E2eRunResultShape { verdict: string; cases: QaCase[]; logs: string; devWrites?: number; devWriteRequests?: DevWriteRequest[]; }
+interface E2eRunResultShape { verdict: string; cases: QaCase[]; logs: string; devWrites?: number; devWriteRequests?: DevWriteRequest[]; sessionRequests?: DevWriteRequest[]; }
 type RunE2eFn = (
   specDir: string,
   opts: {
@@ -54,6 +54,6 @@ export class E2eExecutionStrategy implements ExecutionStrategyPort {
      * production callers (this strategy AND the fault-injection oracle's own re-run) depend on
      * that SAME upstream check, so this strategy does not re-derive it.
      */
-    return { verdict: result.verdict as ExecutionResult["verdict"], cases: result.cases, logs: result.logs, ...(result.devWrites !== undefined ? { devWrites: result.devWrites } : {}), ...(result.devWriteRequests !== undefined ? { devWriteRequests: result.devWriteRequests } : {}) };
+    return { verdict: result.verdict as ExecutionResult["verdict"], cases: result.cases, logs: result.logs, ...(result.devWrites !== undefined ? { devWrites: result.devWrites } : {}), ...(result.devWriteRequests !== undefined ? { devWriteRequests: result.devWriteRequests } : {}), ...(result.sessionRequests !== undefined ? { sessionRequests: result.sessionRequests } : {}) };
   }
 }

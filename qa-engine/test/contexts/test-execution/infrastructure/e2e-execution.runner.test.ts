@@ -1562,3 +1562,27 @@ test("runE2E hands the app's declared data state to the suite child", async () =
   await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns" }, deps);
   assert.deepEqual(seen, dataState);
 });
+
+test("runE2E reports the session requests the fixtures kept apart from the writes, merged and with no query, and trusts them like the writes", async () => {
+  const token = "https://id.example.com/oauth/token";
+  const ledger = withLedgerDir({
+    "ledger-0-1.json": JSON.stringify({ writes: 1, requests: [{ method: "POST", url: "https://dev.example.com/api/orders" }], sessionRequests: [{ method: "POST", url: `${token}?x=1` }, { method: "POST", url: token }] }),
+    "ledger-1-1.json": JSON.stringify({ writes: 0, sessionRequests: [{ method: "POST", url: token }] }),
+  });
+  const notAWrite = withLedgerDir({ "ledger-0-1.json": JSON.stringify({ writes: 0, sessionRequests: [{ method: "GET", url: token }] }) });
+  const notAList = withLedgerDir({ "ledger-0-1.json": JSON.stringify({ writes: 0, sessionRequests: "many" }) });
+  try {
+    const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, ledger.deps({ stats: { expected: 2 }, suites: [] }));
+    assert.equal(run.devWrites, 1);
+    assert.deepEqual(run.sessionRequests, [{ method: "POST", url: token, count: 3 }]);
+    for (const deps of [notAWrite.deps(), notAList.deps()]) {
+      const spoiled = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, deps);
+      assert.equal(spoiled.devWrites, undefined);
+      assert.equal(spoiled.sessionRequests, undefined);
+    }
+  } finally {
+    ledger.cleanup();
+    notAWrite.cleanup();
+    notAList.cleanup();
+  }
+});

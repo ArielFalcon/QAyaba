@@ -472,7 +472,8 @@ The join is **in-process**:
    - for run_spec: `qayaba.tool.dev_writes` (the writes to DEV the seed's fixtures counted: a mutating request answered by
      one of the run's DEV origins, `PW_DEV_ORIGINS`) and `qayaba.tool.dev_write_requests` (each counted request as
      `METHOD origin/pathname[ ×count]`, no query or body, redacted, at most 20 distinct; the same list is on the call's
-     ledger entry)
+     ledger entry), and `qayaba.tool.dev_session_requests` (the same shape, for the requests that keep the run's own session
+     alive, an identity provider's token exchange or refresh, which are not writes and are not in the count)
    - the outcome and `qayaba.egress.denied`
    - for authbrowser: the route-guard block reason, the HTTP status and `qayaba.auth.invalidated`
 5. When the SSE tool part for that call completes, the synthesized `execute_tool run_spec` span

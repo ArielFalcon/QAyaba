@@ -42,4 +42,6 @@ export interface ExecutionResult {
   devWrites?: number;
   /** The requests behind `devWrites`, by method and origin and pathname. Absent: none recorded. */
   devWriteRequests?: DevWriteRequest[];
+  /** The requests that keep the run's own session alive, which the fixtures did not count as writes. Absent: none recorded. */
+  sessionRequests?: DevWriteRequest[];
 }
