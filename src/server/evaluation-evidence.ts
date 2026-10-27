@@ -237,8 +237,8 @@ function survivorsOf(spans: readonly LedgerSpan[]): { routed: number; total: num
     if (span.name !== "qayaba.coverage.measure") continue;
     const a = attrsOf(span);
     const routed = a["qayaba.mutation.survivors_routed"];
-    const unrouted = a["qayaba.mutation.survivors_unrouted"];
-    if (typeof routed === "number" && typeof unrouted === "number") return { routed, total: routed + unrouted };
+    const withoutSpec = a["qayaba.mutation.survivors_without_spec"];
+    if (typeof routed === "number" && typeof withoutSpec === "number") return { routed, total: routed + withoutSpec };
   }
   return undefined;
 }

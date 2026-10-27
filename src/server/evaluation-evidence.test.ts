@@ -359,7 +359,7 @@ test("no reference evidence without a reference for the change or when the plan 
 const outcomeOf = (gateSignals: Record<string, unknown>) => ({ runId: "run-1", app: "demo", sha: "abcdef1", mode: "diff", target: "e2e", verdict: "fail", errorClass: null, gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0, ...gateSignals }, rulesRetrieved: [], at: "2026-10-19T00:00:00.000Z" }) as unknown as NonNullable<ReturnType<EvidenceDeps["getRunOutcome"]>>;
 
 test("the outcome's coverage, mutation, review, triage and causal signals reach the evidence, and the survivors come from the newest coverage measurement", async () => {
-  const measure = (routed: number, unrouted: number) => ({ name: "qayaba.coverage.measure", spanId: `m${routed}`, parentSpanId: null, attrs: JSON.stringify({ "qayaba.mutation.survivors_routed": routed, "qayaba.mutation.survivors_unrouted": unrouted }) });
+  const measure = (routed: number, unrouted: number) => ({ name: "qayaba.coverage.measure", spanId: `m${routed}`, parentSpanId: null, attrs: JSON.stringify({ "qayaba.mutation.survivors_routed": routed, "qayaba.mutation.survivors_without_spec": unrouted }) });
   const outcome = outcomeOf({
     coverageRatio: 0.5,
     branchCoverage: { changed: 4, taken: 2 },
