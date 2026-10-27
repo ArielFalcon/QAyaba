@@ -161,12 +161,13 @@ export async function regenerate(
   enrichment: GenerationEnrichment,
   origin: Exclude<CorrectionOrigin, typeof CORRECTION_ORIGIN.REVIEW>,
   evidence?: readonly EvidenceFinding[],
+  omitted = 0,
 ): Promise<Regenerated> {
   const pass = ctx.trail.coordinatedPass;
   const findings = pass ? (evidence ?? findingsOf(enrichment)) : [];
   if (!pass || findings.length === 0) return { output: await regenerateByAuthor(state, ctx, regenerationSignal, enrichment), leadCorrections: 0 };
   if (!mayCorrectThroughLead(state, ctx)) return correctionBudgetSpent(ctx, pass, findings.map((f) => f.finding), origin);
-  return correctThroughLead(state, ctx, pass, findings.map((f) => f.finding), origin);
+  return correctThroughLead(state, ctx, pass, findings.map((f) => f.finding), origin, omitted);
 }
 
 /* The reason recorded for findings a coordinated run no longer sends through the lead. */
@@ -196,8 +197,9 @@ export async function correctThroughLead(
   pass: CoordinatedPass,
   findings: readonly CorrectionFinding[],
   origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW,
+  omitted = 0,
 ): Promise<Regenerated> {
-  const corrected = await pass.correct(findings, origin);
+  const corrected = await pass.correct(findings, origin, omitted);
   /* Recorded after every turn, so however the run ends from here what the lead routed is on its record. */
   ctx.host.recordCorrections();
   const byFlows = await afterGeneration<GenerationOutput>(ctx, {

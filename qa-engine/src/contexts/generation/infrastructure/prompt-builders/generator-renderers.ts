@@ -51,7 +51,7 @@ export function renderLeadPlan(limits: PlanningLimits): string {
           `The change makes these use cases testable (id | entry | reach | evidence | specs the suite holds):`,
           ...limits.candidates.map((candidate) => `- ${sanitizeText(candidateLine(candidate)).text}`),
           ...(limits.otherCandidates ? [`${limits.otherCandidates} less direct use case(s) are not listed and need no flow.`] : []),
-          `Give a flow to each one whose behaviour the change alters and cite its id in the flow's "candidates", or list it in "dropped" with the reason it needs no test; one the plan neither covers nor drops is asked of you once more.`,
+          `Give a flow to each one whose behaviour the change alters and cite its id in the flow's "candidates", or list it in "dropped" with a "basis" of the plan contract and the reason it needs no test; one the plan neither covers nor drops is asked of you once more.`,
         ]
       : []),
     ``,

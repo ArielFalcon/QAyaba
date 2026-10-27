@@ -108,3 +108,33 @@ test("a correction answer that claims an approval or a verdict changes nothing: 
   assert.deepEqual(claiming, plain);
   assert.deepEqual(Object.keys(claiming).sort(), ["orders", "readable", "rebuttals", "refused", "unrouted"]);
 });
+
+const covering: FlowUnderCorrection[] = [
+  { ...flows[0]!, candidates: ["uc-/cart"], seedFiles: ["src/cart.ts", "src/shared.ts"] },
+  { ...flows[1]!, candidates: ["uc-/login"], seedFiles: ["web/src/login.ts", "src/shared.ts"] },
+];
+
+test("a finding about a source file belongs to the one flow that covers a use case the file seeds, a spec it names comes first, and a file two flows share belongs to neither", () => {
+  assert.equal(flowOfFinding({ text: "lines 3-4 are not exercised", file: "src/cart.ts" }, covering), "cart");
+  assert.equal(flowOfFinding({ text: "x", file: "./src/login.ts" }, covering), "login", "a path with a longer prefix or a leading ./ names the same file");
+  assert.equal(flowOfFinding({ text: "x", file: "src/shared.ts" }, covering), undefined);
+  assert.equal(flowOfFinding({ text: "x", file: "src/other.ts" }, covering), undefined);
+  assert.equal(flowOfFinding({ text: "x", file: "src/cart.ts", spec: "e2e/flows/login.spec.ts" }, covering), "login");
+  assert.equal(flowOfFinding({ text: "x", file: "src/cart.ts" }, flows), undefined, "flows that cover nothing own no file");
+});
+
+test("a coverage finding is sent to the flow that covers its file whatever the lead answers, and a shared file is the lead's to place", () => {
+  const gap: CorrectionFinding[] = [{ text: "src/cart.ts lines 3-4", file: "src/cart.ts" }, { text: "src/shared.ts lines 1-2", file: "src/shared.ts" }];
+  const unplaced = admitLeadCorrection(redaction, JSON.stringify({ corrections: [] }), covering, gap, CORRECTION_ORIGIN.COVERAGE);
+  assert.deepEqual(unplaced.orders.map((o) => [o.flowId, o.indices]), [["cart", [0]]]);
+  assert.deepEqual(unplaced.unrouted, [1]);
+  const placed = admitLeadCorrection(redaction, JSON.stringify({ corrections: [{ flow: "login", action: "revise", findings: [2] }] }), covering, gap, CORRECTION_ORIGIN.COVERAGE);
+  assert.deepEqual(placed.orders.map((o) => [o.flowId, o.indices]), [["cart", [0]], ["login", [1]]]);
+});
+
+test("a coverage-only turn shows the lead every flow with the use cases it covers, and how many units of the gap were left out", () => {
+  const text = renderLeadCorrection(redaction, covering, [{ text: "src/shared.ts lines 1-2", file: "src/shared.ts" }], CORRECTION_ORIGIN.COVERAGE, 5);
+  for (const needle of ["cart", "uc-/cart", "login", "uc-/login", "src/shared.ts lines 1-2"]) assert.ok(text.includes(needle), needle);
+  assert.ok(text.includes("5 further unit"));
+  assert.ok(!renderLeadCorrection(redaction, covering, [{ text: "x", file: "src/shared.ts" }], CORRECTION_ORIGIN.COVERAGE).includes("further unit"));
+});

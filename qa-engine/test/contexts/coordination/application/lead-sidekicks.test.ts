@@ -11,6 +11,7 @@ import { DEFAULT_COORDINATION_SETTINGS, type PlanningLimits } from "@kernel/coor
 import { MAX_SESSION_PAGES } from "@kernel/agent-browser.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import {
+  DROPS_CONTRADICTED,
   LeadSidekicks,
   MIN_FLOW_MS,
   type CoordinateInput,
@@ -393,7 +394,7 @@ test("a plan that cannot be admitted is refused with its reason on the signal", 
 
 test("a plan of no flows whose use cases are all dropped with a reason is the lead's declared no-op, its reasons named; one with no reasoned drop is still refused", async () => {
   const r = rig();
-  const dropped = [{ candidate: "uc-aaaa1111", reason: "already proven by the existing spec flows/gate.spec.ts" }, { candidate: "uc-bbbb2222", reason: "not observable on the web build" }];
+  const dropped = [{ candidate: "uc-aaaa1111", basis: "already-covered", reason: "already proven by the existing spec flows/gate.spec.ts" }, { candidate: "uc-bbbb2222", basis: "needs-unavailable-state", reason: "not observable on the web build" }];
   const declared = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: { kind: "fanout", flows: [], dropped }, parsed: true, timedOut: false }) }));
   assert.equal(declared.action, "noop");
   for (const drop of dropped) assert.ok(declared.action === "noop" && declared.reason.includes(drop.candidate) && declared.reason.includes(drop.reason), drop.candidate);
@@ -1383,16 +1384,22 @@ test("a plan that leaves one direct candidate unmentioned asks the lead once mor
   assert.equal(r.events.filter((e) => /unplanned/.test(e.reason ?? "")).length, 0);
 });
 
-test("a candidate dropped with a reason is admitted and kept as dropped; a drop without a reason is unresolved", async () => {
+test("a candidate dropped with a basis and a reason is admitted and kept as dropped; a drop without a reason, or without a basis, is unresolved", async () => {
   const withReason = rig();
-  const dropping = leadReplanning(planOf([cartFlow], [{ candidate: "uc-/login", reason: "only a log line changed" }]), [undefined]);
+  const dropping = leadReplanning(planOf([cartFlow], [{ candidate: "uc-/login", basis: "no-observable-change", reason: "only a log line changed" }]), [undefined]);
   const done = await withReason.coordinator.coordinate(input(withReason, { candidates: pageCandidates(["/cart", "/login"]), plan: dropping.plan }));
   if (done.action === "fanout") await done.pass?.release();
   assert.equal(dropping.replans.length, 0);
-  assert.deepEqual(withReason.plans[0]!.candidates.map((c) => [c.id, c.state, c.reason]), [["uc-/cart", "planned", undefined], ["uc-/login", "dropped", "only a log line changed"]]);
+  assert.deepEqual(withReason.plans[0]!.candidates.map((c) => [c.id, c.state, c.reason]), [["uc-/cart", "planned", undefined], ["uc-/login", "dropped", "no-observable-change: only a log line changed"]]);
+
+  const unbased = rig();
+  const loose = leadReplanning(planOf([cartFlow], [{ candidate: "uc-/login", reason: "only a stylesheet changed" }]), [undefined]);
+  const third = await unbased.coordinator.coordinate(input(unbased, { candidates: pageCandidates(["/cart", "/login"]), plan: loose.plan }));
+  if (third.action === "fanout") await third.pass?.release();
+  assert.equal(loose.replans.length, 1, "a reason with no basis the contract names is asked again");
 
   const without = rig();
-  const silent = leadReplanning(planOf([cartFlow], [{ candidate: "uc-/login", reason: "" }]), [undefined]);
+  const silent = leadReplanning(planOf([cartFlow], [{ candidate: "uc-/login", basis: "no-observable-change", reason: "" }]), [undefined]);
   const second = await without.coordinator.coordinate(input(without, { candidates: pageCandidates(["/cart", "/login"]), plan: silent.plan }));
   if (second.action === "fanout") await second.pass?.release();
   assert.equal(silent.replans.length, 1);
@@ -1616,4 +1623,138 @@ test("leaving findings unrouted by the run's request is recorded and counted", a
   assert.equal(outcome.pass!.tally().unrouted, 2);
   assert.ok(r.events.some((e) => /lead correction budget spent/.test(e.reason ?? "") && /left unrouted/.test(e.reason ?? "")));
   await outcome.pass!.release();
+});
+
+/* A lead whose plan cites candidates, answering its turns with these outputs in order (the last repeats) and recording what it was asked; `second` is what it answers a re-plan request with. */
+function leadCiting(outputs: string[], plan: Record<string, unknown>, second?: Record<string, unknown>): { plan: CoordinateInput["plan"]; asked: string[]; replans: string[] } {
+  const asked: string[] = [];
+  const replans: string[] = [];
+  return {
+    asked,
+    replans,
+    plan: async () => ({
+      plan,
+      parsed: true,
+      timedOut: false,
+      lead: {
+        askForPlan: async (text: string) => { replans.push(text); return { ...(second ?? {}), parsed: second !== undefined, timedOut: false }; },
+        ask: async (text: string) => {
+          asked.push(text);
+          return { output: outputs[Math.min(asked.length - 1, outputs.length - 1)]!, timedOut: false };
+        },
+        dispose: async () => {},
+      },
+    }),
+  };
+}
+
+const seededPage = (route: string, file: string, over: Partial<UseCaseCandidate> = {}): UseCaseCandidate =>
+  pageCandidate(route, undefined, { seeds: [{ file, symbol: "*" }], ...over });
+const CITING_PLAN = { kind: "fanout", flows: [{ id: "cart", objective: "the cart total", candidates: ["uc-/cart"] }, { id: "login", objective: "sign in works", candidates: ["uc-/login"] }] };
+const SEEDED = [seededPage("/cart", "src/cart.ts"), seededPage("/login", "src/login.ts"), seededPage("/orders", "src/orders.ts")];
+
+test("a coverage finding about a file that seeds a use case one flow covers goes to that flow without the lead placing it, and the lead sees every flow with its use cases", async () => {
+  const lead = leadCiting([ACCEPT_ALL, NO_ORDERS], CITING_PLAN);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, candidates: SEEDED }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  const corrected = await outcome.pass!.correct([{ text: "changed lines of src/cart.ts: 4-9 are not exercised", file: "src/cart.ts" }], CORRECTION_ORIGIN.COVERAGE);
+  await outcome.pass!.release();
+  assert.deepEqual([corrected.specs, corrected.unrouted], [["flows/cart.spec.ts"], []]);
+  const asked = r.executed.find((e) => e.asked && e.brief.delegationId === "run-1-flow-cart")!;
+  assert.match(asked.opts.feedback!, /src\/cart\.ts/);
+  assert.equal(r.executed.some((e) => e.asked && e.brief.delegationId === "run-1-flow-login"), false);
+});
+
+test("a coverage turn with findings to place lists every flow with its use cases for the lead", async () => {
+  const lead = leadCiting([ACCEPT_ALL, NO_ORDERS], CITING_PLAN);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, candidates: SEEDED }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  await outcome.pass!.correct([{ text: "a gap with no file" }], CORRECTION_ORIGIN.COVERAGE);
+  await outcome.pass!.release();
+  assert.ok(lead.asked[1]!.includes("uc-/cart") && lead.asked[1]!.includes("uc-/login"));
+});
+
+test("a coverage finding about a file that seeds a use case the plan did not cover opens one flow for that use case, writing its own spec; a file that seeds none stays unrouted with that reason", async () => {
+  const lead = leadCiting([ACCEPT_ALL, NO_ORDERS], CITING_PLAN);
+  const r = rig({ hasFile: new Set(["cart", "login", "cand-orders"]) });
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, candidates: SEEDED }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  const corrected = await outcome.pass!.correct([
+    { text: "changed lines of src/orders.ts: 2-5 are not exercised", file: "src/orders.ts" },
+    { text: "decision arm on a changed line that NO test ran: src/orders.ts:9 if: else", file: "src/orders.ts", line: 9 },
+    { text: "changed lines of src/stray.ts: 1-3 are not exercised", file: "src/stray.ts" },
+  ], CORRECTION_ORIGIN.COVERAGE);
+  const sessions = opened(r, "cand-orders");
+  assert.equal(sessions.length, 1, "one flow for both findings of the use case");
+  const brief = sessions[0]!.brief;
+  assert.deepEqual(brief.scope.writablePaths, ["e2e/flows/cand-orders.spec.ts"]);
+  assert.match(brief.task, /src\/orders\.ts:9/);
+  assert.match(brief.task, /Write the Playwright E2E spec/);
+  assert.doesNotMatch(brief.task, /src\/stray\.ts/);
+  assert.deepEqual(corrected.specs, ["flows/cand-orders.spec.ts"]);
+  assert.deepEqual(corrected.unrouted, [2]);
+  assert.ok(r.events.some((e) => /seeds no use case/.test(e.reason ?? "")), "the reason is on the record");
+  assert.equal(outcome.pass!.tally().maintained, 1);
+  await outcome.pass!.release();
+});
+
+test("a flow opened for a use case is held to the run's flow cap, and a second finding on its file is not given a second flow", async () => {
+  const capped = rig({ hasFile: new Set(["cart", "login", "cand-orders"]) });
+  const settings = { ...DEFAULT_COORDINATION_SETTINGS, maxFlows: 2 };
+  const lead = leadCiting([ACCEPT_ALL, NO_ORDERS], CITING_PLAN);
+  const outcome = await new LeadSidekicks(capped.deps).coordinate(input(capped, { plan: lead.plan, closedLoop: undefined, candidates: SEEDED, settings }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  const corrected = await outcome.pass!.correct([{ text: "src/orders.ts not exercised", file: "src/orders.ts" }], CORRECTION_ORIGIN.COVERAGE);
+  assert.deepEqual(corrected.unrouted, [0]);
+  assert.equal(opened(capped, "cand-orders").length, 0);
+  assert.ok(capped.events.some((e) => /maxFlows/.test(e.reason ?? "")));
+  await outcome.pass!.release();
+
+  const r = rig({ hasFile: new Set(["cart", "login", "cand-orders"]) });
+  const again = leadCiting([ACCEPT_ALL, NO_ORDERS], CITING_PLAN);
+  const second = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: again.plan, closedLoop: undefined, candidates: SEEDED }));
+  if (second.action !== "fanout") return assert.fail("fanout expected");
+  await second.pass!.correct([{ text: "src/orders.ts not exercised", file: "src/orders.ts" }], CORRECTION_ORIGIN.COVERAGE);
+  await second.pass!.correct([{ text: "src/orders.ts still not exercised", file: "src/orders.ts" }], CORRECTION_ORIGIN.COVERAGE);
+  assert.equal(opened(r, "cand-orders").length, 1);
+  await second.pass!.release();
+});
+
+test("the lead is told how many units of the gap a turn leaves out", async () => {
+  const lead = leadCiting([ACCEPT_ALL, NO_ORDERS], CITING_PLAN);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, candidates: SEEDED }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  await outcome.pass!.correct([{ text: "src/cart.ts not exercised", file: "src/cart.ts" }], CORRECTION_ORIGIN.COVERAGE, 7);
+  await outcome.pass!.release();
+  assert.match(lead.asked[1]!, /7 further unit/);
+});
+
+const DROP_EVERYTHING = { kind: "fanout", flows: [], dropped: [{ candidate: "uc-/cart", basis: "no-observable-change", reason: "only a stylesheet changed" }] };
+const SECOND_PLAN = { plan: { kind: "fanout", flows: [{ id: "cart", objective: "the cart total", candidates: ["uc-/cart"] }] } };
+
+test("a plan that drops every use case as unchanged is refused when the candidate's changed code is executable, asked once more, and then run on the plan the lead gives", async () => {
+  const lead = leadCiting([ACCEPT_ALL], DROP_EVERYTHING, SECOND_PLAN);
+  const r = rig({ hasFile: new Set(["cart"]) });
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, candidates: [SEEDED[0]!] }));
+  assert.equal(outcome.action, "fanout", "the cosmetic claim did not end the run");
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  assert.equal(lead.replans.length, 1);
+  assert.ok(lead.replans[0]!.includes("src/cart.ts"), "the lead is told which fact contradicts its drop");
+});
+
+test("a plan whose drops stay contradicted after the one more asking is refused, and a drop the facts allow still ends the run as the lead's no-op", async () => {
+  const stubborn = leadCiting([ACCEPT_ALL], DROP_EVERYTHING, { plan: DROP_EVERYTHING });
+  const r = rig();
+  const refused = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: stubborn.plan, closedLoop: undefined, candidates: [SEEDED[0]!] }));
+  assert.equal(refused.action === "refused" ? refused.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${DROPS_CONTRADICTED}`);
+  assert.equal(stubborn.replans.length, 1, "once, never twice");
+
+  const style = seededPage("/cart", "src/cart.css");
+  const allowed = leadCiting([ACCEPT_ALL], DROP_EVERYTHING);
+  const noop = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: allowed.plan, closedLoop: undefined, candidates: [style] }));
+  assert.equal(noop.action, "noop");
+  assert.equal(allowed.replans.length, 0);
 });

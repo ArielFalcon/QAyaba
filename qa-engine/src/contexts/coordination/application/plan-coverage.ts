@@ -6,7 +6,8 @@
  */
 
 import { namesTemplatePage } from "@contexts/generation/application/index.ts";
-import type { PlanDrop } from "./lead-plan.ts";
+import { DROP_BASIS, type PlanDrop } from "./lead-plan.ts";
+import { LanguageRegistry } from "@kernel/language-id.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import { candidateLine, candidatePagesOf, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 
@@ -38,6 +39,25 @@ export interface PlanCoverage {
   covered: UseCaseCandidate[];
   dropped: Array<{ candidate: UseCaseCandidate; reason: string }>;
   unresolved: UseCaseCandidate[];
+  /* The drops the orchestrator's facts contradict, with why: their candidates are also in `unresolved`. */
+  refused?: Array<{ candidate: UseCaseCandidate; basis: PlanDrop["basis"]; why: string }>;
+}
+
+/* Whether a changed file is executable code of a declared language (a test file, a style sheet or a template is not). */
+const isCodeFile = (file: string): boolean => LanguageRegistry.languageForFile(file) !== null && !LanguageRegistry.isTestFile(file);
+
+/*
+ * Why the facts the orchestrator holds contradict a drop's basis, or undefined when they do not. `no-observable-change` is refused
+ * when a seed of the candidate is executable code; `already-covered` when no spec of the suite is linked to the candidate;
+ * `needs-unavailable-state` names a state the orchestrator cannot see, so it stands.
+ */
+export function dropRefusal(candidate: UseCaseCandidate, basis: PlanDrop["basis"]): string | undefined {
+  if (basis === DROP_BASIS.NO_OBSERVABLE_CHANGE) {
+    const code = [...new Set(candidate.seeds.map((seed) => seed.file).filter(isCodeFile))];
+    return code.length > 0 ? `its changed code is executable (${code.slice(0, 3).join(", ")}), which a browser can observe` : undefined;
+  }
+  if (basis === DROP_BASIS.ALREADY_COVERED) return candidate.existingSpecs.length === 0 ? "no spec of the suite is linked to it" : undefined;
+  return undefined;
 }
 
 /* The page routes `visited` name, as a change page is named: a route is the page or one of its template's. */
@@ -52,24 +72,33 @@ export function flowCovers(flow: PlannedFlow, candidate: UseCaseCandidate): bool
 
 export function planCoverage(plan: { flows: readonly PlannedFlow[]; dropped: readonly PlanDrop[] }, admission: readonly UseCaseCandidate[]): PlanCoverage {
   const coverage: PlanCoverage = { covered: [], dropped: [], unresolved: [] };
+  const refused: NonNullable<PlanCoverage["refused"]> = [];
   for (const candidate of admission) {
     if (plan.flows.some((flow) => flowCovers(flow, candidate))) {
       coverage.covered.push(candidate);
       continue;
     }
     const drop = plan.dropped.find((d) => d.candidate === candidate.id && d.reason !== "");
-    if (drop) coverage.dropped.push({ candidate, reason: drop.reason });
-    else coverage.unresolved.push(candidate);
+    const why = drop ? dropRefusal(candidate, drop.basis) : undefined;
+    if (drop && why === undefined) coverage.dropped.push({ candidate, reason: `${drop.basis}: ${drop.reason}` });
+    else {
+      coverage.unresolved.push(candidate);
+      if (drop && why !== undefined) refused.push({ candidate, basis: drop.basis, why });
+    }
   }
-  return coverage;
+  return refused.length > 0 ? { ...coverage, refused } : coverage;
 }
 
 /* The question the lead is asked when its plan leaves candidates unresolved: facts about the candidates and what a plan must do with each. The shape of the answer is the lead's role prompt. */
-export function renderReplanRequest(redaction: RedactionPort, unresolved: readonly UseCaseCandidate[]): string {
+export function renderReplanRequest(redaction: RedactionPort, unresolved: readonly UseCaseCandidate[], refused: NonNullable<PlanCoverage["refused"]> = []): string {
+  const refusals = new Map(refused.map((r) => [r.candidate.id, r]));
   return [
     "## Use cases your plan leaves unresolved",
-    "The change makes these use cases testable. No flow of your plan cites their id or visits their pages, and none is listed as dropped with a reason:",
-    ...unresolved.map((candidate) => `- ${redaction.redact(candidateLine(candidate))}`),
-    "Answer with your whole plan again: give a flow to each one (its id in the flow's \"candidates\"), or list it in \"dropped\" with the reason it needs no test. This is the only other plan turn of this run; answer with a plan of flows.",
+    "The change makes these use cases testable. No flow of your plan cites their id or visits their pages, and none is listed as dropped with a basis and a reason the run's facts allow:",
+    ...unresolved.map((candidate) => {
+      const refusal = refusals.get(candidate.id);
+      return `- ${redaction.redact(candidateLine(candidate))}${refusal ? ` | your drop (${refusal.basis}) is refused: ${redaction.redact(refusal.why)}` : ""}`;
+    }),
+    "Answer with your whole plan again: give a flow to each one (its id in the flow's \"candidates\"), or list it in \"dropped\" with a \"basis\" of the plan contract and the reason it needs no test. This is the only other plan turn of this run; answer with a plan of flows.",
   ].join("\n");
 }

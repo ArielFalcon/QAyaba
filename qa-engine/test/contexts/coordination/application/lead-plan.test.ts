@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   admitLeadPlan,
+  DROP_BASIS,
   LEAD_PLAN_KIND,
   PLAN_DOWNGRADE,
   PLAN_REJECTED,
@@ -246,14 +247,23 @@ test("a flow that names no route visits the paths its objective and acceptance n
 });
 
 test("a flow keeps the candidate ids it cites and the plan keeps the candidates it drops with a reason", () => {
-  const plan = admitLeadPlan({ kind: "fanout", flows: [flow("cart", { candidates: ["uc-1a2b3c4d", "uc-1a2b3c4d", 7, "  "] })], dropped: [{ candidate: "uc-deadbeef", reason: " only a log line changed " }] }, limits, deps);
+  const plan = admitLeadPlan({ kind: "fanout", flows: [flow("cart", { candidates: ["uc-1a2b3c4d", "uc-1a2b3c4d", 7, "  "] })], dropped: [{ candidate: "uc-deadbeef", basis: "no-observable-change", reason: " only a log line changed " }] }, limits, deps);
   assert.deepEqual(admitted(plan)[0]!.candidates, ["uc-1a2b3c4d"]);
-  assert.deepEqual(plan.kind === LEAD_PLAN_KIND.FANOUT ? plan.dropped : undefined, [{ candidate: "uc-deadbeef", reason: "only a log line changed" }]);
+  assert.deepEqual(plan.kind === LEAD_PLAN_KIND.FANOUT ? plan.dropped : undefined, [{ candidate: "uc-deadbeef", basis: DROP_BASIS.NO_OBSERVABLE_CHANGE, reason: "only a log line changed" }]);
 });
 
-test("a drop without a reason, or without a candidate, is not a drop", () => {
-  const plan = admitLeadPlan({ kind: "fanout", flows: [flow("cart")], dropped: [{ candidate: "uc-1", reason: "" }, { candidate: "uc-2" }, { reason: "r" }, "uc-3"] }, limits, deps);
+test("a drop without a reason, a candidate or a basis of the closed set is not a drop", () => {
+  const basis = DROP_BASIS.ALREADY_COVERED;
+  const plan = admitLeadPlan({ kind: "fanout", flows: [flow("cart")], dropped: [{ candidate: "uc-1", basis, reason: "" }, { candidate: "uc-2", basis }, { basis, reason: "r" }, "uc-3", { candidate: "uc-4", reason: "only a stylesheet changed" }, { candidate: "uc-5", basis: "cosmetic", reason: "r" }] }, limits, deps);
   assert.deepEqual(plan.kind === LEAD_PLAN_KIND.FANOUT ? plan.dropped : undefined, []);
+});
+
+test("a plan of no flows whose every use case is dropped carries its drops, so the facts can be held against them", () => {
+  const dropped = [{ candidate: "uc-1", basis: DROP_BASIS.NEEDS_UNAVAILABLE_STATE, reason: "needs a card reader" }];
+  const plan = admitLeadPlan({ kind: "fanout", flows: [], dropped }, limits, deps);
+  assert.deepEqual(plan.kind === LEAD_PLAN_KIND.NOOP ? plan.dropped : undefined, dropped);
+  const unbased = admitLeadPlan({ kind: "fanout", flows: [], dropped: [{ candidate: "uc-1", reason: "r" }] }, limits, deps);
+  assert.equal(unbased.kind === PLAN_REJECTED ? unbased.downgrade : undefined, PLAN_DOWNGRADE.EMPTY);
 });
 
 test("a plan that names no candidates and drops none is admitted as before", () => {

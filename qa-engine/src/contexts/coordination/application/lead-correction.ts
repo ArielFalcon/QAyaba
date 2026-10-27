@@ -70,6 +70,9 @@ const rebuttable = (origin: CorrectionOrigin): boolean => origin === CORRECTION_
 export interface CorrectionFinding {
   text: string;
   spec?: string;
+  /* The changed source file the finding is about (a coverage gap names code, not a spec), and the line when it names one. */
+  file?: string;
+  line?: number;
 }
 
 export interface FlowUnderCorrection {
@@ -80,6 +83,9 @@ export interface FlowUnderCorrection {
   sessionOpen: boolean;
   /* The spec as the working copy holds it now. */
   spec?: string;
+  /* The ids of the use cases the flow covers and the changed files that seed them: a finding about one of those files is the flow's. */
+  candidates?: readonly string[];
+  seedFiles?: readonly string[];
 }
 
 export interface CorrectionOrder {
@@ -130,16 +136,29 @@ function namesSpecIn(text: string, spec: string): boolean {
   return false;
 }
 
+const normalizedPath = (path: string): string => path.replaceAll("\\", "/").replace(/^\.\//, "");
+
+/* Whether two repository paths name one file, either of them possibly carrying a longer prefix. */
+export function sameFile(a: string, b: string): boolean {
+  const [x, y] = [normalizedPath(a), normalizedPath(b)];
+  return x === y || x.endsWith(`/${y}`) || y.endsWith(`/${x}`);
+}
+
 /*
  * The flow a finding belongs to: the one whose spec its citation names, or failing that the one spec its text names as a whole
- * path. A text that names the specs of several flows belongs to none of them: the lead is asked where it goes.
+ * path, or failing that, for a finding about a changed source file, the one flow that covers a use case that file seeds. A text
+ * that names the specs of several flows, or a file that seeds use cases of several flows, belongs to none of them: the lead is
+ * asked where it goes.
  */
 export function flowOfFinding(finding: CorrectionFinding, flows: readonly FlowUnderCorrection[]): string | undefined {
   const names = (path: string, spec: string): boolean => path === spec || path.endsWith(`/${spec}`);
   const cited = finding.spec?.replaceAll("\\", "/");
   if (cited) return flows.find((flow) => names(cited, flow.specFile))?.id;
   const named = flows.filter((flow) => namesSpecIn(finding.text, flow.specFile));
-  return named.length === 1 ? named[0]!.id : undefined;
+  if (named.length > 0) return named.length === 1 ? named[0]!.id : undefined;
+  if (finding.file === undefined) return undefined;
+  const seeded = flows.filter((flow) => flow.seedFiles?.some((file) => sameFile(file, finding.file!)));
+  return seeded.length === 1 ? seeded[0]!.id : undefined;
 }
 
 function cut(text: string, max: number): string {
@@ -147,7 +166,7 @@ function cut(text: string, max: number): string {
 }
 
 /* The correction turn's prompt, as data: the flows and the findings numbered. How to route them and the answer's shape are the lead's role prompt. */
-export function renderLeadCorrection(redaction: RedactionPort, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): string {
+export function renderLeadCorrection(redaction: RedactionPort, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW, omitted = 0): string {
   const scrub = (text: string): string => redaction.redact(text);
   const owner = findings.map((finding) => flowOfFinding(finding, flows));
   const line = (index: number): string => `${index + 1}. ${scrub(findings[index]!.text)}`;
@@ -157,17 +176,24 @@ export function renderLeadCorrection(redaction: RedactionPort, flows: readonly F
     return [[
       `### Flow \`${flow.id}\` (${flow.specFile})`,
       `Objective: ${scrub(flow.objective)}`,
+      ...(flow.candidates?.length ? [`Use cases it covers: ${flow.candidates.join(", ")}`] : []),
       ["Findings on its spec:", ...own.map(line)].join("\n"),
       flow.spec !== undefined ? ["Spec:", "```ts", cut(scrub(flow.spec), MAX_SPEC_CHARS), "```"].join("\n") : "Spec: not readable.",
     ].join("\n")];
   });
   const loose = findings.flatMap((_, i) => (owner[i] === undefined ? [i] : []));
   const text = ORIGIN_TEXT[origin];
+  /* Where a finding about a source file goes is decided by the use cases a flow covers, so with findings to place every flow is listed with them. */
+  const catalogue = loose.length > 0
+    ? ["### The flows and the use cases they cover", ...flows.map((flow) => `- \`${flow.id}\` (${flow.specFile}): ${flow.candidates?.length ? flow.candidates.join(", ") : "no use case cited"}`)].join("\n")
+    : "";
   return [
     `## ${text.heading}`,
     text.lead,
     rebuttable(origin) ? "" : "These are facts the run observed: each one is corrected, none is rebutted.",
+    omitted > 0 ? `${omitted} further unit(s) of the gap are not listed in this turn: the run records them as left out and no one corrects them now.` : "",
     ...blocks,
+    catalogue,
     loose.length > 0
       ? ["### Findings that cite no flow", rebuttable(origin) ? "Name the flow each one belongs to, or rebut it." : "Name the flow each one belongs to: an order lists the numbers of the findings the flow is to take. One no flow takes is recorded unrouted and no one corrects it.", ...loose.map(line)].join("\n")
       : "",

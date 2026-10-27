@@ -8,7 +8,9 @@
 import { resolveSpecReference } from "@kernel/spec-path.ts";
 import { SIDEKICK_KIND } from "./sidekick-kinds.ts";
 import type { AdmittedFlow } from "./lead-plan.ts";
-import type { CorrectionFinding } from "./lead-correction.ts";
+import { sameFile, type CorrectionFinding } from "./lead-correction.ts";
+import { entryKey } from "@kernel/change-reach.ts";
+import { candidatePagesOf, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 
 /* A path ending in `.spec.ts` inside a text: it ends where the characters of a path do. */
 const SPEC_IN_TEXT = /[A-Za-z0-9._/-]+\.spec\.ts(?![A-Za-z0-9_])/g;
@@ -66,5 +68,62 @@ export function maintenanceFlowOf(input: MaintenanceFlowInput): AdmittedFlow {
     runSpecDevWrites: input.share.runSpecDevWrites,
     browserCalls: input.share.browserCalls,
     maintenance: { findings: [...input.findings], preamble: input.preamble },
+  };
+}
+
+/*
+ * The use case a finding about a changed source file belongs to when no flow of the pass covers it: the first candidate, in the
+ * order the change derived them, one of whose seeds is that file. Undefined when the finding names no file, the file seeds no
+ * candidate, or a flow already covers every candidate it seeds (that flow owns the finding, not a new one).
+ */
+export function uncoveredCandidateOf(finding: CorrectionFinding, candidates: readonly UseCaseCandidate[], covered: (candidate: UseCaseCandidate) => boolean): UseCaseCandidate | undefined {
+  if (finding.file === undefined) return undefined;
+  return candidates.find((candidate) => candidate.seeds.some((seed) => sameFile(seed.file, finding.file!)) && !covered(candidate));
+}
+
+/* Whether the finding names a changed file that seeds no use case of the change: no flow can own it and none can be opened for it. */
+export function seedsNoCandidate(finding: CorrectionFinding, candidates: readonly UseCaseCandidate[]): boolean {
+  return finding.file !== undefined && !candidates.some((candidate) => candidate.seeds.some((seed) => sameFile(seed.file, finding.file!)));
+}
+
+/* The id of the flow opened for an uncovered use case, distinct from the ids already taken. */
+export function candidateFlowId(candidate: UseCaseCandidate, taken: ReadonlySet<string>): string {
+  const slug = candidate.id.replace(/^uc-/, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, MAX_ID_CHARS);
+  const base = `cand-${slug || "case"}`;
+  let id = base;
+  for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
+  return id;
+}
+
+export interface CandidateFlowInput {
+  id: string;
+  candidate: UseCaseCandidate;
+  /* The spec file, relative to the spec directory, that the flow's id names; confined here before anything is opened. */
+  specFile: string;
+  specRelDir: string;
+  findings: readonly string[];
+  preamble: string;
+  share: MaintenanceFlowInput["share"];
+  budgetMs: number;
+}
+
+/* The flow the orchestrator opens for a use case the plan did not cover: a new spec, written by a fresh sidekick, whose only writable path is that spec. */
+export function candidateFlowOf(input: CandidateFlowInput): AdmittedFlow | undefined {
+  const specFile = confinedSpecFile(input.specFile, input.specRelDir);
+  if (specFile === undefined) return undefined;
+  return {
+    id: input.id,
+    kind: SIDEKICK_KIND.AUTHOR,
+    objective: `Exercise the changed code of use case ${input.candidate.id} (${entryKey(input.candidate.entry)}): the run measured changed lines of it that no test of the plan ran.`,
+    acceptance: ["Each finding is exercised by a test that asserts the outcome the change decides, through the pages of the use case."],
+    routes: candidatePagesOf(input.candidate),
+    candidates: [input.candidate.id],
+    specFile,
+    writablePaths: [`${input.specRelDir.replace(/\/+$/, "")}/${specFile}`],
+    budgetMs: input.budgetMs,
+    runSpecCalls: input.share.runSpecCalls,
+    runSpecDevWrites: input.share.runSpecDevWrites,
+    browserCalls: input.share.browserCalls,
+    maintenance: { findings: [...input.findings], preamble: input.preamble, newSpec: true },
   };
 }

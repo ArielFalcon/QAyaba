@@ -13,7 +13,7 @@ export function authorTask(
   const places = geolocation ? Object.keys(geolocation.facts().places).sort() : [];
   const browserUsesLocation = browserCallMs !== undefined && flow.browserCalls > 0 ? " The authenticated browser uses the authoring location." : "";
   return [
-    flow.maintenance
+    flow.maintenance && !flow.maintenance.newSpec
       ? `Correct the existing Playwright E2E spec ${flow.writablePaths[0]}. It is the only file you may write; no flow of this run's plan owns it.`
       : `Write the Playwright E2E spec for ONE flow, as the single file ${flow.writablePaths[0]}. It is the only file you may write.`,
     flow.maintenance ? `Flow: ${flow.id}. ${flow.objective}` : `Flow: ${flow.id}. It proves: ${flow.objective}`,
@@ -28,7 +28,7 @@ export function authorTask(
     browserCallMs !== undefined && flow.browserCalls > 0
       ? `Authenticated browser: at most ${flow.browserCalls} authbrowser_* calls, ${Math.round(browserCallMs / 1000)} seconds each. It reads DEV as the test account and never writes.`
       : "",
-    flow.maintenance
+    flow.maintenance && !flow.maintenance.newSpec
       ? `Finish by emitting the DelegationResult JSON contract from the brief. If you hold the spec right and a finding wrong, change nothing and say why in summary.`
       : `Finish by emitting the DelegationResult JSON contract from the brief. If this flow needs no test of its own, write no file and say why in summary.`,
   ].filter(Boolean).join("\n");

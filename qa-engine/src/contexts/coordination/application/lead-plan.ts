@@ -30,7 +30,7 @@ export type PlanDowngrade = (typeof PLAN_DOWNGRADE)[keyof typeof PLAN_DOWNGRADE]
 const DOWNGRADE_FACTS: Readonly<Record<PlanDowngrade, (maxFlows: number) => string>> = {
   [PLAN_DOWNGRADE.NO_PLAN]: () => "the answer held no plan JSON object",
   [PLAN_DOWNGRADE.MALFORMED]: () => "it is not one of the plan shapes: a kind, a field or a field's type is not the contract's",
-  [PLAN_DOWNGRADE.EMPTY]: () => "it is a fan-out with no flow and no use case dropped with a reason; a change that needs no test is a noop with its reason",
+  [PLAN_DOWNGRADE.EMPTY]: () => "it is a fan-out with no flow and no use case dropped with a basis and a reason; a change that needs no test is a noop with its reason",
   [PLAN_DOWNGRADE.OVER_LIMIT]: (maxFlows) => `it names more than ${maxFlows} flows`,
   [PLAN_DOWNGRADE.DUPLICATE]: () => "two of its flows have the same id",
   [PLAN_DOWNGRADE.NO_TIME]: () => "the run has too little time left for that many flows",
@@ -109,21 +109,35 @@ export interface AdmittedFlow {
   browserCalls: number;
   /* Where the flow authors, when the plan named a declared place or a valid point; absent: the flow inherits the lead's. */
   location?: GeoLocation;
-  /* Set on a maintenance flow only (`maintenance-flow.ts`): an existing spec the plan did not name, corrected for these findings. */
-  maintenance?: { findings: string[]; preamble: string };
+  /* Set on a flow the orchestrator opened for findings (`maintenance-flow.ts`): an existing spec the plan did not name, corrected for these findings, or, with `newSpec`, a spec written for a use case the plan did not cover. */
+  maintenance?: { findings: string[]; preamble: string; newSpec?: true };
 }
 
 /* An admitted plan that names the flows to author, or declares that nothing is worth a test, or is rejected with the reason. */
 export const PLAN_REJECTED = "rejected" as const;
 
 export type AdmittedPlan =
-  | { kind: typeof LEAD_PLAN_KIND.NOOP; reason: string }
+  /* `dropped` is set when the no-op is a plan of no flows whose every use case is dropped: the drops are checked against the run's facts like any plan's. */
+  | { kind: typeof LEAD_PLAN_KIND.NOOP; reason: string; dropped?: PlanDrop[] }
   | { kind: typeof PLAN_REJECTED; downgrade: PlanDowngrade }
   | { kind: typeof LEAD_PLAN_KIND.FANOUT; flows: AdmittedFlow[]; parallel: number; dropped: PlanDrop[] };
 
-/* A use case the lead says needs no test, with the reason it gave. */
+/*
+ * Why a use case needs no test, from a closed set the orchestrator can hold to its facts (`plan-coverage.ts`): the change leaves
+ * nothing a browser can observe, a spec of the suite already proves it, or it needs a state or a capability the run cannot reach.
+ */
+export const DROP_BASIS = {
+  NO_OBSERVABLE_CHANGE: "no-observable-change",
+  ALREADY_COVERED: "already-covered",
+  NEEDS_UNAVAILABLE_STATE: "needs-unavailable-state",
+} as const;
+export type DropBasis = (typeof DROP_BASIS)[keyof typeof DROP_BASIS];
+const DROP_BASES: ReadonlySet<string> = new Set(Object.values(DROP_BASIS));
+
+/* A use case the lead says needs no test: the basis it gave from the closed set, and its reason in words. */
 export interface PlanDrop {
   candidate: string;
+  basis: DropBasis;
   reason: string;
 }
 
@@ -193,7 +207,8 @@ function dropsOf(value: unknown, redaction: RedactionPort): PlanDrop[] {
     if (!isRecord(entry)) continue;
     const [candidate] = candidateIdsOf([entry.candidate]);
     const reason = text(redaction, entry.reason, MAX_ACCEPTANCE_CHARS);
-    if (candidate !== undefined && reason !== "" && !drops.some((d) => d.candidate === candidate)) drops.push({ candidate, reason });
+    const basis = typeof entry.basis === "string" && DROP_BASES.has(entry.basis) ? (entry.basis as DropBasis) : undefined;
+    if (candidate !== undefined && basis !== undefined && reason !== "" && !drops.some((d) => d.candidate === candidate)) drops.push({ candidate, basis, reason });
   }
   return drops.slice(0, MAX_DROPPED);
 }
@@ -240,7 +255,7 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
     /* No flow and every use case it names dropped with a reason: the lead decided nothing is worth a test, as a no-op says. */
     const drops = dropsOf(raw.dropped, deps.redaction);
     if (drops.length === 0) return reject(PLAN_DOWNGRADE.EMPTY);
-    return { kind: LEAD_PLAN_KIND.NOOP, reason: drops.map((drop) => `${drop.candidate}: ${drop.reason}`).join("; ").slice(0, MAX_NOOP_REASON_CHARS) };
+    return { kind: LEAD_PLAN_KIND.NOOP, reason: drops.map((drop) => `${drop.candidate}: ${drop.reason}`).join("; ").slice(0, MAX_NOOP_REASON_CHARS), dropped: drops };
   }
   if (raw.flows.length > limits.maxFlows) return reject(PLAN_DOWNGRADE.OVER_LIMIT);
   const flows: RawFlow[] = [];

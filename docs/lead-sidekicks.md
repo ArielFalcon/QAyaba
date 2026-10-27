@@ -43,10 +43,15 @@ signed-in app (see below); without either, no sidekick can author and the run en
    duplicates and more than `maxFlows`. A plan that cannot be admitted goes back to the lead once, in its open session, with the
    reason (`renderRejectedPlanRequest`); a no-op or an admitted answer replaces it, and anything else ends the run `E-NO-AUTHOR` with
    the first reason recorded (`refusal: plan-rejected:<reason>`); a plan of one flow is a fan-out of one, and a fan-out of no flow whose use cases are dropped
-   with a reason is the lead's declared no-op (the run is `skipped` with those reasons); with no reasoned drop it is refused `empty`. The plan must answer for each direct
+   with a basis and a reason is the lead's declared no-op (the run is `skipped` with those reasons); with no reasoned, based drop it is refused `empty`. The plan must answer for each direct
    use-case candidate of the change that a browser can reach (the admission set, at most `MAX_ADMISSION_CANDIDATES`): a
    flow covers a candidate when it cites its id (`candidates`) or visits one of its pages, and the lead may drop one with a
-   reason (`dropped`); the planning turn lists them, each with the specs the suite already holds for it and what the manifest
+   typed basis and a reason (`dropped`; `DROP_BASIS`: `no-observable-change`, `already-covered`, `needs-unavailable-state`). The orchestrator holds the basis
+   to the facts it has (`dropRefusal`, `plan-coverage.ts`): `no-observable-change` is refused when a seed of the candidate is
+   executable code of a declared language (`LanguageRegistry`, a test file excluded), `already-covered` when no spec of the suite
+   is linked to the candidate; a drop with no basis of the set, or a refused one, leaves the candidate unresolved and goes back
+   to the lead in the one re-plan turn with the fact that contradicts it. A fan-out of no flow whose drops stay contradicted after that
+   turn is refused `plan-rejected:drops-contradicted`. The planning turn lists the candidates, each with the specs the suite already holds for it and what the manifest
    declares each one checks (`candidateLine`), so the lead plans from that instead of opening them. A plan that leaves one unresolved is returned to the lead once, in
    its open session (`MAX_PLAN_ROUNDS`); a second answer that is a plan of flows replaces the first. A candidate still
    unresolved is admitted as it stands, recorded `unplanned` on the plan snapshot and as a `lead-decision` event, and named
@@ -221,8 +226,15 @@ findings, the run asks the lead, in the same planning session, instead of regene
    `maxFlows` (counting the plan's flows and the maintenance flows already opened) and the run's time reserve, and only for a
    spec the working copy can read; without room the findings stay unrouted and the reason is a `lead-decision` event. What it delivers
    joins the round like the flows' deliveries. It is counted in `corrections.maintained`.
-6. Findings that remain (they name no spec, or one outside the spec directory, or no maintenance flow could take them or it
-   delivered nothing) are recorded as unrouted (a `lead-decision` event naming their numbers, an error line in the log and
+   A finding that names a changed source file (a coverage finding: `CorrectionFinding.file`, and `line` for an arm) is owned by
+   the one flow that covers a use case whose seeds hold that file (`flowOfFinding`), whatever the lead answers; a file that seeds use
+   cases of several flows is the lead's to place, and the prompt then lists every flow with its use cases. A file that seeds a use
+   case no flow of the pass covers (dropped or unplanned) opens one flow for that use case, the generalization of the maintenance
+   flow (`candidateFlowOf`, id `cand-<use case>`, the deterministic spec path of its id, the same cap, confinement and time reserve,
+   a fresh sidekick that writes the spec), counted in `corrections.maintained`. When the gap exceeds the caps (`MAX_GAP_FILES`,
+   `MAX_GAP_ARMS`) files are taken across use cases and arms across files, and the lead is told how many units were left out.
+6. Findings that remain (they name no spec, or one outside the spec directory, or a file that seeds no use case of the change, or no
+   maintenance flow could take them or it delivered nothing) are recorded as unrouted (a `lead-decision` event naming their numbers, an error line in the log and
    `corrections.unrouted`) and nobody corrects them: a fresh run-level author, with no flow spec, no `run_spec` history and no
    instruction of the lead's, would repeat the whole first pass cold. Everything the flows delivered goes through the round's
    acceptance, and the lead's rebuttals through the same check as a generator's.
@@ -238,7 +250,7 @@ the sidekick's instruction (`CORRECTION_ORIGIN`, `lead-correction.ts`):
 | `pre-exec` | one per selector contradiction, citing the spec it was attributed to when only one was |
 | `static-gate` | one per error block the gate reported (each names its file) |
 | `execution` | one per failing case of the fix loop, citing its spec, plus one per contract delta of a round the intent lock refused |
-| `coverage` | one per file with uncovered change lines and one per decision arm no test ran (up to the caps the gap text lists), citing no flow |
+| `coverage` | one per file with uncovered change lines and one per decision arm no test ran (up to the caps, spread across use cases and files), each naming its changed file, citing no spec |
 
 These are facts the run observed: the lead is not offered a rebuttal, and one it gives anyway is not taken. What no flow takes
 gets a maintenance flow or stays unrouted, as above, and is not regenerated; the turn's findings are told apart by their position, never by their text, and

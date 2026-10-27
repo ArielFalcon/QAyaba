@@ -1,7 +1,7 @@
 /* The coverage phase of a run: the change-coverage measurement of a green execution and at most one regeneration at its gap: in enforce mode at the uncovered lines (with the arms no test ran), otherwise, with the branch cases on, at the arms no test ran. The mutants of the changed code that ran under a test and that no test noticed are part of that gap: the test reached the change and checked nothing. */
 
 import { engineLog } from "@kernel/ports/process-logger.ts";
-import { CORRECTION_ORIGIN } from "@contexts/coordination/application/index.ts";
+import { CORRECTION_ORIGIN, type CorrectionFinding } from "@contexts/coordination/application/index.ts";
 import { faultAimOf } from "../fault-aim.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { renderBranchGap, renderCoverageGap, renderSurvivedMutant, renderSurvivedMutants, type CoverageMeasurement, type CoverageRerun, type SurvivedMutant } from "@contexts/objective-signal/application/index.ts";
@@ -146,7 +146,7 @@ interface GapRegeneration {
  * bytes. A throw propagates; a spent run deadline is the one the policy degrades (this step runs after a green suite), so the first
  * measurement stands.
  */
-async function regenerateAtGap(state: Readonly<RunState>, ctx: WorkspaceRunContext, base: string, items: readonly string[], survived: readonly SurvivedMutant[]): Promise<GapRegeneration> {
+async function regenerateAtGap(state: Readonly<RunState>, ctx: WorkspaceRunContext, base: string, items: { units: readonly GapUnit[]; omitted: number }, survived: readonly SurvivedMutant[]): Promise<GapRegeneration> {
   const { input, trail, workspace, services } = ctx;
   const { acceptance, integrityCounters, snapshotPort, runDeadlinePort, suiteChangedFiles, snapshotSuite, acceptanceScope } = services;
   let { acceptanceCalls } = state.coverage;
@@ -157,7 +157,7 @@ async function regenerateAtGap(state: Readonly<RunState>, ctx: WorkspaceRunConte
   /* mutation-scope:end delivered-before-coverage-regen */
   /* An author that has no lead reads the gap whole, survivors included. */
   const gap = [base, renderSurvivedMutants(survived, MAX_GAP_SURVIVORS)].filter(Boolean).join("\n\n");
-  const regenerated = await regenerate(state, ctx, undefined, { coverageGap: gap, coverageGapItems: items }, CORRECTION_ORIGIN.COVERAGE, gapFindings(base, items, survived));
+  const regenerated = await regenerate(state, ctx, undefined, { coverageGap: gap, coverageGapItems: items.units.map((u) => u.text) }, CORRECTION_ORIGIN.COVERAGE, gapFindings(base, items.units, survived), items.omitted);
   const regen = regenerated.output;
   const { leadCorrections } = regenerated;
   await services.confinement.enforce();
@@ -237,34 +237,71 @@ async function recountAfter(state: Readonly<RunState>, ctx: WorkspaceRunContext,
 const MAX_GAP_FILES = 10;
 const MAX_GAP_ARMS = 20;
 
+/* One unit of the gap: what the lead is shown, and the structured finding the orchestrator routes by the file it names. */
+export interface GapUnit {
+  text: string;
+  finding: CorrectionFinding;
+}
+
+/* The first `max` of the groups' items taken one group at a time, round-robin, so no group crowds the others out; what the cap leaves out is counted. */
+function spreadAcross<T>(groups: ReadonlyMap<string, readonly T[]>, max: number): { picked: T[]; omitted: number } {
+  const lists = [...groups.values()];
+  const total = lists.reduce((n, list) => n + list.length, 0);
+  const picked: T[] = [];
+  for (let round = 0; picked.length < max && picked.length < total; round++) {
+    for (const list of lists) if (round < list.length && picked.length < max) picked.push(list[round]!);
+  }
+  return { picked, omitted: total - picked.length };
+}
+
+function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const item of items) groups.set(key(item), [...(groups.get(key(item)) ?? []), item]);
+  return groups;
+}
+
 /*
  * The gap as separate units, one per file with uncovered changed lines and one per decision arm no test ran: the lead routes findings
- * by number, so each number must name one unit it can hand to a flow.
+ * by number, so each number must name one unit it can hand to a flow, and each unit names its file so the orchestrator can route it by
+ * the use case that file seeds. When the caps cut the gap, files are taken across use cases and arms across files, not in measurement
+ * order, and the count left out is returned for the lead to be told.
  */
-function gapUnits(uncovered: CoverageOutcome["uncovered"], arms: CoverageOutcome["untakenArms"], candidates: RunState["grounding"]["candidates"]): string[] {
-  return [
-    ...uncovered.slice(0, MAX_GAP_FILES).map((u) => renderCoverageGap([u], undefined, candidates)),
-    ...arms.slice(0, MAX_GAP_ARMS).map((u) => `decision arm on a changed line that NO test ran: ${u.file}:${u.line} ${u.kind}: ${u.arm}`),
-  ];
+export function gapUnits(uncovered: CoverageOutcome["uncovered"], arms: CoverageOutcome["untakenArms"], candidates: RunState["grounding"]["candidates"]): { units: GapUnit[]; omitted: number } {
+  const owner = (file: string): string => (candidates ?? []).find((c) => c.seeds.some((seed) => seed.file === file))?.id ?? "";
+  const files = spreadAcross(groupBy(uncovered, (u) => owner(u.file)), MAX_GAP_FILES);
+  const taken = spreadAcross(groupBy(arms, (u) => u.file), MAX_GAP_ARMS);
+  return {
+    units: [
+      ...files.picked.map((u) => {
+        const text = renderCoverageGap([u], undefined, candidates);
+        return { text, finding: { text, file: u.file } };
+      }),
+      ...taken.picked.map((u) => {
+        const text = `decision arm on a changed line that NO test ran: ${u.file}:${u.line} ${u.kind}: ${u.arm}`;
+        return { text, finding: { text, file: u.file, line: u.line } };
+      }),
+    ],
+    omitted: files.omitted + taken.omitted,
+  };
 }
 
 /* The most surviving mutants the lead is shown, as many as the gap text lists. */
 const MAX_GAP_SURVIVORS = 10;
 
 /*
- * The findings of a gap that has survivors: its units, then one finding per surviving mutant and spec that reached it, carrying that
- * spec so the lead's pass hands it to the flow that owns the spec; a mutant no spec is recorded as reaching has no owner and is told
- * to the lead as it is. Undefined without survivors, so a gap with none is read from its items as it always was.
+ * The findings of a gap: one per unit, carrying the file it names so the orchestrator routes it by the use case that file seeds, then
+ * one per surviving mutant and spec that reached it, carrying that spec so the lead's pass hands it to the flow that owns the spec; a
+ * mutant no spec is recorded as reaching has no owner and is told to the lead as it is. A gap with neither units nor survivors is
+ * read whole as one finding; an empty one gives none.
  */
-export function gapFindings(gap: string, items: readonly string[], survived: readonly SurvivedMutant[]): EvidenceFinding[] | undefined {
-  if (survived.length === 0) return undefined;
-  const units = items.length > 0 ? items : gap ? [gap] : [];
-  return [
-    ...units.map((text) => ({ finding: { text } })),
+export function gapFindings(gap: string, units: readonly GapUnit[], survived: readonly SurvivedMutant[]): EvidenceFinding[] | undefined {
+  const findings: EvidenceFinding[] = [
+    ...(units.length > 0 ? units.map((u) => ({ finding: u.finding })) : survived.length > 0 && gap ? [{ finding: { text: gap } }] : []),
     ...survived.slice(0, MAX_GAP_SURVIVORS).flatMap((m) =>
       (m.specFiles && m.specFiles.length > 0 ? m.specFiles : [undefined]).map((spec) => ({ finding: { text: renderSurvivedMutant(m, spec), ...(spec ? { spec } : {}) } })),
     ),
   ];
+  return findings.length > 0 ? findings : undefined;
 }
 
 /* Enforce-mode one-shot coverage regeneration at the uncovered lines and the arms no test ran; it runs at most once per run and is independent of the FixLoop budget. The whole-suite re-measure that decides coverage is the single final re-measure before decide. */
