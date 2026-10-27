@@ -49,6 +49,8 @@ export interface TurnIdentity {
     sectionItems: Record<string, SectionMeta> | null;
     sectionsDropped: number | undefined;
     budgetBytes: number | undefined;
+    /* Bytes of the stable prefix the prompt opened with; absent when the prompt was not assembled from a registry. */
+    stablePrefixBytes?: number | undefined;
     contextFit: ContextFit | undefined;
   };
 }
@@ -170,6 +172,7 @@ export class TurnProbe {
         "qayaba.prompt.bytes": prompt.bytes,
         ...(prompt.sectionsDropped !== undefined ? { "qayaba.prompt.sections.dropped": prompt.sectionsDropped } : {}),
         ...(prompt.budgetBytes !== undefined ? { "qayaba.prompt.budget_bytes": prompt.budgetBytes } : {}),
+        ...(prompt.stablePrefixBytes !== undefined ? { "qayaba.prompt.stable_prefix.bytes": prompt.stablePrefixBytes } : {}),
         ...contextFitAttrs(prompt.contextFit),
         ...sectionAttrs(prompt.sectionSizes, prompt.sectionHashes),
         [LANGFUSE.attrs.observationType]: langfuseObservationType(GENAI.operations.invokeAgent),

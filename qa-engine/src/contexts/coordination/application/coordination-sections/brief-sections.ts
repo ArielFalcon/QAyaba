@@ -2,7 +2,7 @@
  * The section registries of the delegation briefs: what an author sidekick and an explore sidekick are handed. A brief states four
  * things, each in exactly one section: the objective (what the sidekick is for), the return shape, the boundary (what it may write
  * and must not do) and the tools it holds; the prompt-contract lint holds it to that (R17) and to stating only what its turn
- * grants (R18). Sections are ordered by priority alone: one tier.
+ * grants (R18). One tier: the static sections (the tools) open the brief, then the run's facts by priority.
  */
 import { claim, harnessFactLines } from "@contexts/generation/application/index.ts";
 import type { PromptSectionDef } from "@kernel/prompt-sections.ts";
@@ -44,11 +44,11 @@ const section = (def: Omit<PromptSectionDef<BriefPromptContext>, "tier" | "appli
 
 /* The objective: the sidekick's identity in the run and what it is for. */
 const taskSection = (heading: string, lines: (ctx: BriefPromptContext) => string[]): PromptSectionDef<BriefPromptContext> =>
-  section({ id: "task", priority: 10, render: (ctx) => ({ content: [heading, ...lines(ctx)].join("\n"), claims: [claim.statesContract("objective")] }) });
+  section({ id: "task", priority: 10, stability: "run", reason: "The sidekick's identity in the run and its objective (R17 objective) (9adce82f)", render: (ctx) => ({ content: [heading, ...lines(ctx)].join("\n"), claims: [claim.statesContract("objective")] }) });
 
 const toolsSection = section({
   id: "tools",
-  priority: 95,
+  priority: 95, stability: "static", reason: "The tools its turn grants and only those (R18) (07d8f70b)",
   render: ({ brief }) => {
     const tools = briefTools(brief);
     return {
@@ -115,18 +115,18 @@ function authorReturnShape({ brief }: BriefPromptContext): string {
   ].join("\n");
 }
 
-/* The flow author's brief, in the order its sections have always had. */
+/* The flow author's brief: the tools its turn grants, then its facts in priority order, the return shape last. */
 export const AUTHOR_BRIEF_SECTIONS: readonly PromptSectionDef<BriefPromptContext>[] = [
   taskSection("## Task", ({ brief, scrub }) => [`delegationId: ${brief.delegationId}`, `runId: ${brief.runId}`, `objective: ${scrub(brief.objective)}`, `task: ${scrub(brief.task)}`]),
   section({
     id: "acceptance",
-    priority: 20,
+    priority: 20, stability: "run", reason: "Numbered criteria the author answers with one acceptance entry each (9adce82f)",
     applies: ({ brief }) => brief.acceptanceCriteria.length > 0,
     render: ({ brief, scrub }) => ({ content: ["## Acceptance criteria", ...brief.acceptanceCriteria.map((c, i) => `${i + 1}. ${scrub(c)}`)].join("\n") }),
   }),
   section({
     id: "scope",
-    priority: 30,
+    priority: 30, stability: "run", reason: "The boundary: what it may read and write, and its frozen authority (R17 boundary) (9adce82f)",
     render: ({ brief }) => {
       const { scope, authority } = brief;
       const writes = scope.writablePaths.length > 0;
@@ -152,39 +152,39 @@ export const AUTHOR_BRIEF_SECTIONS: readonly PromptSectionDef<BriefPromptContext
   }),
   section({
     id: "facts",
-    priority: 40,
+    priority: 40, stability: "run", reason: "Facts the run already holds, with source and confidence, so the sidekick does not re-derive them (9adce82f)",
     applies: ({ brief }) => brief.knownFacts.length > 0,
     render: ({ brief, scrub }) => ({ content: ["## Known facts", ...brief.knownFacts.map(factLine(scrub))].join("\n") }),
   }),
   section({
     id: "harness",
-    priority: 42,
+    priority: 42, stability: "run", reason: "Authors read the fixtures and config files the run already held (f67ef0c3)",
     applies: (ctx) => harnessLines(ctx).length > 0,
     render: (ctx) => ({ content: ["## Harness facts", ...harnessLines(ctx)].join("\n") }),
   }),
   section({
     id: "suite",
-    priority: 44,
+    priority: 44, stability: "run", reason: "The specs the suite holds, so a flow author does not duplicate one (f67ef0c3)",
     applies: ({ brief }) => (brief.suite?.length ?? 0) > 0,
     render: (ctx) => ({ content: suiteText(ctx) }),
   }),
   section({
     /* The flow's slice of the run's Context Pack, under the id the prompt-contract lint knows that artifact by. */
     id: "context-pack",
-    priority: 50,
+    priority: 50, stability: "run", reason: "The flow's pages from the run's Context Pack, so selectors are transcribed (fee9fc05)",
     applies: ({ brief }) => Boolean(brief.pages),
     render: ({ brief }) => ({ content: ["## Pages of this flow (from the run's Context Pack)", brief.pages!].join("\n") }),
   }),
   section({
     id: "change",
-    priority: 70,
+    priority: 70, stability: "run", reason: "Suites asserted render smoke: the author gets the use cases and the slice of the change it must exercise (78fc29b1)",
     applies: ({ brief }) => withCandidates(brief),
     render: ({ brief, scrub }) => ({ content: changeText(brief, scrub) }),
   }),
   section({
     /* The static listing's decisions in the flow's owned hunks: the cases a suite that only renders the page would leave untested. */
     id: BRIEF_DECISIONS_SECTION_ID,
-    priority: 72,
+    priority: 72, stability: "run", reason: "The arms of the flow's changed decisions: the cases a render-only suite leaves untested (3a643989)",
     applies: ({ brief }) => withCandidates(brief) && (brief.change?.decisions?.length ?? 0) > 0,
     render: ({ brief, scrub }) => ({
       content: [
@@ -196,12 +196,12 @@ export const AUTHOR_BRIEF_SECTIONS: readonly PromptSectionDef<BriefPromptContext
   }),
   section({
     id: "artifacts",
-    priority: 80,
+    priority: 80, stability: "run", reason: "Artifacts the lead hands the sidekick by path (9adce82f)",
     applies: ({ brief }) => brief.artifactRefs.length > 0,
     render: ({ brief }) => ({ content: ["## Artifacts", ...brief.artifactRefs.map((a) => `- ${a.id}: ${a.path}`)].join("\n") }),
   }),
   toolsSection,
-  section({ id: "contract", priority: 100, render: (ctx) => ({ content: authorReturnShape(ctx), claims: [claim.statesContract("return-shape")] }) }),
+  section({ id: "contract", priority: 100, stability: "run", reason: "The DelegationResult JSON the author closes with, one closing object (R17 return shape) (2d319787)", render: (ctx) => ({ content: authorReturnShape(ctx), claims: [claim.statesContract("return-shape")] }) }),
 ];
 
 /* The explore sidekick's answer: one exploration result for the question, capped. */
@@ -219,25 +219,25 @@ function exploreReturnShape({ brief }: BriefPromptContext): string {
 export const EXPLORE_BRIEF_SECTIONS: readonly PromptSectionDef<BriefPromptContext>[] = [
   section({
     id: "question",
-    priority: 10,
+    priority: 10, stability: "run", reason: "The one question the lead asked, by id (R17 objective) (bb8a4ab2)",
     render: ({ brief, scrub }) => ({ content: ["## Question", `id: ${questionIdOf(brief.delegationId)}`, scrub(brief.objective)].join("\n"), claims: [claim.statesContract("objective")] }),
   }),
-  section({ id: "task", priority: 20, render: ({ brief, scrub }) => ({ content: ["## Task", scrub(brief.task)].join("\n") }) }),
+  section({ id: "task", priority: 20, stability: "run", reason: "What the lead asks of the explore sidekick (bb8a4ab2)", render: ({ brief, scrub }) => ({ content: ["## Task", scrub(brief.task)].join("\n") }) }),
   section({
     id: "facts",
-    priority: 30,
+    priority: 30, stability: "run", reason: "Facts the run already holds, with source and confidence (bb8a4ab2)",
     applies: ({ brief }) => brief.knownFacts.length > 0,
     render: ({ brief, scrub }) => ({ content: ["## Known facts", ...brief.knownFacts.map(factLine(scrub))].join("\n") }),
   }),
   section({
     id: "artifacts",
-    priority: 40,
+    priority: 40, stability: "run", reason: "Artifacts the lead hands the sidekick by path (bb8a4ab2)",
     applies: ({ brief }) => brief.artifactRefs.length > 0,
     render: ({ brief }) => ({ content: ["## Artifacts", ...brief.artifactRefs.map((ref) => `- ${ref.id}: ${ref.path}`)].join("\n") }),
   }),
   section({
     id: "boundary",
-    priority: 50,
+    priority: 50, stability: "run", reason: "Read-only: what it may read, and that it writes nothing (R17 boundary) (07d8f70b)",
     render: ({ brief }) => {
       const writes = brief.scope.writablePaths.length > 0;
       return {
@@ -247,5 +247,5 @@ export const EXPLORE_BRIEF_SECTIONS: readonly PromptSectionDef<BriefPromptContex
     },
   }),
   { ...toolsSection, priority: 60 },
-  section({ id: "contract", priority: 100, render: (ctx) => ({ content: exploreReturnShape(ctx), claims: [claim.statesContract("return-shape")] }) }),
+  section({ id: "contract", priority: 100, stability: "run", reason: "One exploration result for the question, capped at MAX_FINDINGS findings (R17 return shape) (bb8a4ab2)", render: (ctx) => ({ content: exploreReturnShape(ctx), claims: [claim.statesContract("return-shape")] }) }),
 ];

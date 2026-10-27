@@ -82,6 +82,8 @@ export interface AgentPromptOpts {
   /** How many sections the byte budget omitted, and the budget the prompt was assembled to. Only for the trace. */
   sectionsDropped?: number;
   promptBudgetBytes?: number;
+  /** Bytes of the prompt's stable prefix: the sections that do not vary per run, which open it. Only for the trace, read beside the turn's cache-read tokens. */
+  promptStablePrefixBytes?: number;
   /** What each grounding section supplied and lost, from the kept assembly, by section id (pre-redaction). Only for the trace: the delivered span of each grounding source is built from it. */
   sectionItems?: Record<string, SectionMeta> | null;
   /** Whether the prompt fits its role's context window with the working room the turn needs (window, outcome, room). Only for the trace. */

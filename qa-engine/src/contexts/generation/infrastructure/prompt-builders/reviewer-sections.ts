@@ -53,7 +53,7 @@ export function deriveReviewerContext(input: ReviewInput, opts: BuildReviewerPro
 }
 
 function renderRoleFraming(ctx: ReviewerContext): SectionRender {
-  const { input, changeType, kind, obj } = ctx;
+  const { kind, obj } = ctx;
   const roleFramingContent = [
     `<!-- reviewer-prompt-version: ${REVIEWER_PROMPT_VERSION} -->`,
     `## Independent review — judge these ${kind} WITHOUT the generator's reasoning`,
@@ -62,11 +62,13 @@ function renderRoleFraming(ctx: ReviewerContext): SectionRender {
     `generator's thought process. Judge the tests on their own merit using the`,
     `test-value-review skill.`,
     ``,
-    `## Review context`,
-    `- Run type: ${changeType}`,
-    `- Base URL: ${input.baseUrl ?? "(not provided)"}`,
   ].join("\n");
-  return { content: roleFramingContent, cacheable: true };
+  return { content: roleFramingContent };
+}
+
+/* The run's type and the DEV it ran against: facts of the run, rendered apart from the framing and outside the stable prefix. */
+function renderReviewContext({ input, changeType }: ReviewerContext): SectionRender {
+  return { content: [`## Review context`, `- Run type: ${changeType}`, `- Base URL: ${input.baseUrl ?? "(not provided)"}`].join("\n") };
 }
 
 function renderInstructions(ctx: ReviewerContext): SectionRender {
@@ -94,7 +96,7 @@ function renderInstructions(ctx: ReviewerContext): SectionRender {
     ...rulesInstruction,
   ].join("\n");
   /* The instruction refers to the spec contents only while the specs section provides them (R13: `spec-contents-inline`). */
-  return { content: instructionsContent, cacheable: true };
+  return { content: instructionsContent };
 }
 
 function renderOutputContract(ctx: ReviewerContext): SectionRender {
@@ -221,39 +223,41 @@ function renderSpecChange(ctx: ReviewerContext): SectionRender {
 }
 
 export const REVIEWER_SECTIONS: readonly PromptSectionDef<ReviewerContext>[] = [
-  { id: "reviewer-role-framing", tier: "stable-prefix", priority: 1, applies: () => true, render: renderRoleFraming },
-  { id: "reviewer-instructions", tier: "stable-prefix", priority: 2, applies: () => true, render: renderInstructions },
+  { id: "reviewer-role-framing", tier: "stable-prefix", priority: 1, stability: "static", reason: "Reviewer independence: it judges the tests on their own merit, without the generator's reasoning (bd29f624)", applies: () => true, render: renderRoleFraming },
+  { id: "reviewer-instructions", tier: "stable-prefix", priority: 2, stability: "static", reason: "Keeps the reviewer in its lane: no UI fact from memory, no rejection over the existing suite (875a6004, 8fea750c)", applies: () => true, render: renderInstructions },
+  /* First of the run's facts, right after the stable prefix. */
+  { id: "reviewer-review-context", tier: "semi-stable", priority: 0, stability: "run", reason: "The run type and the DEV URL the review is about, kept out of the framing so the stable prefix carries no run fact (bd29f624)", applies: () => true, render: renderReviewContext },
   {
     id: "reviewer-objective",
     tier: "semi-stable",
-    priority: 1,
+    priority: 1, stability: "run", reason: "What the tests must prove in this run: the change, the guidance or the targeted flow",
     applies: () => true,
     render: ({ obj }) => ({ content: [obj.heading, ...obj.body].join("\n"), language: "verbatim", maxBytes: 56_000, overflow: "summarize" }),
   },
   /* A planned run's change by flow under review, in place of the whole diff the objective carries otherwise. */
   ...REVIEWER_CHANGE_SECTIONS,
   /* VOLATILE: DOM grounding (priority 1 — first in VOLATILE so it precedes the spec contents that reference it; the instructions refer to it position-independently as "the Live DEV DOM section"). 20,000B mirrors the reviewer-corrections idiom; overflow:"summarize" for a visible-marker truncation instead of a silent whole-section drop. */
-  { id: "reviewer-dom", tier: "volatile", priority: 1, applies: ({ input }) => Boolean(input.domSnapshot), render: renderDom },
+  { id: "reviewer-dom", tier: "volatile", priority: 1, stability: "run", reason: "UI facts are judged against the live DOM the orchestrator captured, never prior knowledge (875a6004)", applies: ({ input }) => Boolean(input.domSnapshot), render: renderDom },
   /* VOLATILE: runtime execution evidence. Deterministic orchestrator evidence (HTTP status codes + final URLs captured via page.on('response')) injected BEFORE the spec contents so the reviewer can weigh the objective server-error signal before reading test code. Priority 1.5 — after DOM grounding (which grounds UI facts) but before specs themselves. Absent when the run produced no execution evidence (first-time generate, code mode, etc.). */
-  { id: "reviewer-execution-result", tier: "volatile", priority: 1.5, applies: ({ input }) => Boolean(input.executionResult), render: ({ input }) => ({ content: input.executionResult ?? "" }) },
-  { id: "reviewer-specs", tier: "volatile", priority: 2, applies: () => true, render: ({ specBlock, specContents }) => ({ content: specBlock, maxBytes: 44_000, overflow: "summarize", ...(specContents === "inline" ? { claims: [claim.provides(SPEC_CONTENTS_INLINE_FACT)] } : {}) }) },
-  { id: "reviewer-existing-suite", tier: "volatile", priority: 3, applies: ({ input }) => Boolean(input.existingSpecFiles?.length), render: renderExistingSuite },
+  { id: "reviewer-execution-result", tier: "volatile", priority: 1.5, stability: "run", reason: "Runtime server-error evidence, weighed before the test code (f8fa33f8)", applies: ({ input }) => Boolean(input.executionResult), render: ({ input }) => ({ content: input.executionResult ?? "" }) },
+  { id: "reviewer-specs", tier: "volatile", priority: 2, stability: "run", reason: "The specs under review, inline or to be read, from the one outcome the instructions also render from", applies: () => true, render: ({ specBlock, specContents }) => ({ content: specBlock, maxBytes: 44_000, overflow: "summarize", ...(specContents === "inline" ? { claims: [claim.provides(SPEC_CONTENTS_INLINE_FACT)] } : {}) }) },
+  { id: "reviewer-existing-suite", tier: "volatile", priority: 3, stability: "run", reason: "Existing specs as context only: the reviewer judges only what this run delivered (8fea750c)", applies: ({ input }) => Boolean(input.existingSpecFiles?.length), render: renderExistingSuite },
   {
     id: "reviewer-learned-rules",
     tier: "volatile",
-    priority: 3,
+    priority: 3, stability: "run", reason: "The app's reject-on-sight rules from the learning ledger",
     applies: ({ input }) => Boolean(input.learnedRules),
     render: ({ input }) => ({ content: [``, input.learnedRules].join("\n") }),
   },
   /* The arms of the changed code no delivered test ran, measured by the orchestrator: a missing case cites one of them, and it is a record, never a reason to reject. */
-  { id: REVIEWER_MISSING_CASES_SECTION_ID, tier: "volatile", priority: 3, applies: ({ input }) => Boolean(input.untakenArms?.length), render: renderMissingCases },
+  { id: REVIEWER_MISSING_CASES_SECTION_ID, tier: "volatile", priority: 3, stability: "run", reason: "The arms no test ran, so a missing case cites a measured arm and never gates (d717095d)", applies: ({ input }) => Boolean(input.untakenArms?.length), render: renderMissingCases },
   /* VOLATILE: prior-round corrections (priority 4 — convergence context; lowest priority in VOLATILE so it does not crowd out the spec contents or DOM grounding on budget overflow). */
-  { id: "reviewer-prior-corrections", tier: "volatile", priority: 4, applies: ({ input }) => Boolean(input.priorCorrections?.length), render: renderPriorCorrections },
+  { id: "reviewer-prior-corrections", tier: "volatile", priority: 4, stability: "run", reason: "Convergent rounds: approve once the earlier blocking findings are resolved (14ec74b7)", applies: ({ input }) => Boolean(input.priorCorrections?.length), render: renderPriorCorrections },
   /* What the generator changed since the rejection this round answers: the smallest section in the prompt, and the one the round is about. Shed first when the window is tight. */
   {
     id: "reviewer-spec-change",
     tier: "volatile",
-    priority: 5,
+    priority: 5, stability: "run", reason: "A second round judges what changed since its rejection, not the whole suite again (92cfc1ef)",
     applies: ({ input }) => Boolean(input.specChanges) && input.specChanges!.trim() !== "",
     render: renderSpecChange,
   },
@@ -261,9 +265,9 @@ export const REVIEWER_SECTIONS: readonly PromptSectionDef<ReviewerContext>[] = [
   {
     id: REVIEWER_STEP_LIMIT_SECTION_ID,
     tier: "critical-recap",
-    priority: 0,
+    priority: 0, stability: "run", reason: "The cap the reviewer's session runs under, when the host resolved one (78d1bef4)",
     applies: ({ input }) => input.stepLimit !== undefined,
     render: ({ input }) => ({ content: renderStepLimit(input.stepLimit!), claims: [claim.provides("step-limit")] }),
   },
-  { id: "reviewer-output-contract", tier: "critical-recap", priority: 1, applies: () => true, render: renderOutputContract },
+  { id: "reviewer-output-contract", tier: "critical-recap", priority: 1, stability: "static", reason: "One bare JSON verdict with tagged, cited corrections; an uncited finding cannot block (evidence-bound review)", applies: () => true, render: renderOutputContract },
 ];

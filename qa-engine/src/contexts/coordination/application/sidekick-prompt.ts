@@ -16,7 +16,8 @@ export function renderSidekickBrief(redaction: RedactionPort, brief: DelegationB
   text: string;
   sectionSizes: Record<string, number>;
   sectionHashes: Record<string, string>;
+  stablePrefixBytes: number;
 } {
-  const { text, sectionSizes, sectionHashes } = assembleSidekickBrief(redaction, brief);
-  return { text, sectionSizes, sectionHashes: sectionHashes ?? {} };
+  const { text, sectionSizes, sectionHashes, stablePrefixBytes } = assembleSidekickBrief(redaction, brief);
+  return { text, sectionSizes, sectionHashes: sectionHashes ?? {}, stablePrefixBytes };
 }

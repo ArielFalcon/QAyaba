@@ -86,7 +86,6 @@ function renderWorkingRules(ctx: PromptContext): SectionRender {
       : [
           `- Work in the repo's tests folder: ${input.e2eRelDir}/ (source of truth in git). Reuse and improve existing fixtures/specs; do not duplicate.`,
           `- In your closing verdict JSON, include specMetas with {file, flow, objective, targets} for each spec. The orchestrator writes the manifest deterministically from these.`,
-          `- Test-data prefix: ${input.namespace}`,
           `- LIVE DEV URL: ${input.baseUrl ?? "(not provided — ABORT and report infra-error: no base URL)"}`,
           `  In the SPEC files, reach the app via the PW_BASE_URL env var (the orchestrator sets it at run time).`,
           ...(planningTurn
@@ -120,7 +119,12 @@ function renderWorkingRules(ctx: PromptContext): SectionRender {
         ]),
   ];
   const workingRulesContent = workingRulesLines.join("\n");
-  return { content: workingRulesContent, claims: workingRulesClaims(ctx), cacheable: true };
+  return { content: workingRulesContent, claims: workingRulesClaims(ctx) };
+}
+
+/* The run's namespace for the data its tests create: a fact of the run, so it renders apart from the working rules and outside the stable prefix. */
+function renderTestDataPrefix({ input }: PromptContext): SectionRender {
+  return { content: `- Test-data prefix: ${input.namespace}` };
 }
 
 function renderRegenDiscipline(ctx: PromptContext): SectionRender {
@@ -149,7 +153,6 @@ function renderArchMap(ctx: PromptContext): SectionRender {
   return {
     content: [archMap?.text ?? "", ``].join("\n"),
     claims: archMap?.claims ?? [],
-    cacheable: true,
     ...(archMap ? { itemIds: archMap.itemIds, omissions: archMap.omissions } : {}),
   };
 }
@@ -523,20 +526,22 @@ function renderTask(ctx: PromptContext): SectionRender {
 
 /* Every definition appears in the order the prompt lists its sections. A definition whose `applies` is false leaves nothing in the assembled prompt. */
 export const GENERATOR_SECTIONS: readonly PromptSectionDef<PromptContext>[] = [
-  { id: "working-rules", tier: "stable-prefix", priority: 1, applies: () => true, render: renderWorkingRules },
-  { id: "regen-discipline", tier: "stable-prefix", priority: 2, applies: (ctx) => ctx.isReGen, render: renderRegenDiscipline },
-  { id: "arch-map", tier: "semi-stable", priority: 1, applies: (ctx) => Boolean(ctx.input.contextMap), render: renderArchMap },
+  { id: "working-rules", tier: "stable-prefix", priority: 1, stability: "static", reason: "The mode's rules: where the suite lives, the specMetas the manifest is written from, when to read the live page", applies: () => true, render: renderWorkingRules },
+  { id: "regen-discipline", tier: "stable-prefix", priority: 2, stability: "static", reason: "A regeneration re-oriented and re-read the repository instead of answering its correction (RE-1, d45c3cea)", applies: (ctx) => ctx.isReGen, render: renderRegenDiscipline },
+  /* First of the run's facts: the test-data prefix, right after the stable prefix. */
+  { id: "test-data-prefix", tier: "semi-stable", priority: -1, stability: "run", reason: "The run's namespace for the data its tests create, kept out of the working rules so the stable prefix carries no run id", applies: (ctx) => ctx.input.mode !== "context" && !ctx.isCode, render: renderTestDataPrefix },
+  { id: "arch-map", tier: "semi-stable", priority: 1, stability: "run", reason: "The stored context map, so the agent consumes the FE-BE map instead of rebuilding it from files (5298e9ea)", applies: (ctx) => Boolean(ctx.input.contextMap), render: renderArchMap },
   {
     id: HARNESS_FACTS_SECTION_ID,
     tier: "semi-stable",
-    priority: 0,
+    priority: 0, stability: "run", reason: "Authors read the fixtures and the Playwright config on every turn; the run already held them (2ffab22f)",
     applies: (ctx) => ctx.isGenerationMode && Boolean(ctx.input.harnessFacts),
     render: (ctx) => ({ content: renderHarnessFacts(ctx.input.harnessFacts!, ctx.input.e2eRelDir), claims: [claim.provides("harness-facts")] }),
   },
   {
     id: CLOSED_LOOP_SECTION_ID,
     tier: "semi-stable",
-    priority: 0,
+    priority: 0, stability: "run", reason: "States the run_spec budget, and only when the run granted the tool (8301dacb)",
     /* The lead plans with neither tool: a planning turn is not told their budgets. */
     applies: (ctx) => ctx.isGenerationMode && ctx.input.target === "e2e" && Boolean(ctx.input.closedLoop) && !ctx.planningTurn,
     render: (ctx) => ({ content: renderClosedLoop(ctx.input.closedLoop!), claims: [claim.provides("closed-loop")] }),
@@ -544,21 +549,21 @@ export const GENERATOR_SECTIONS: readonly PromptSectionDef<PromptContext>[] = [
   {
     id: AGENT_BROWSER_SECTION_ID,
     tier: "semi-stable",
-    priority: 0,
+    priority: 0, stability: "run", reason: "States the authenticated browser budget, and only when the run granted it (eb23387c)",
     applies: (ctx) => ctx.isGenerationMode && ctx.input.target === "e2e" && Boolean(ctx.input.agentBrowser) && !ctx.planningTurn,
     render: (ctx) => ({ content: renderAgentBrowser(ctx.input.agentBrowser!), claims: [claim.provides("agent-browser")] }),
   },
   {
     id: GEOLOCATION_SECTION_ID,
     tier: "semi-stable",
-    priority: 0,
+    priority: 0, stability: "run", reason: "Where the authoring scope is, so a spec whose result depends on a location pins it (fbca018f)",
     applies: (ctx) => ctx.isGenerationMode && ctx.input.target === "e2e" && Boolean(ctx.input.geolocation),
     render: (ctx) => ({ content: renderGeolocation(ctx.input.geolocation!), claims: [claim.provides("geolocation")] }),
   },
   {
     id: SUITE_LISTING_SECTION_ID,
     tier: "semi-stable",
-    priority: 2,
+    priority: 2, stability: "run", reason: "The specs that already exist, so a flow's spec is updated instead of duplicated; which ones this turn may change",
     applies: (ctx) => ctx.suiteIsListed,
     render: (ctx) => ({
       content: ctx.listingContent,
@@ -566,61 +571,61 @@ export const GENERATOR_SECTIONS: readonly PromptSectionDef<PromptContext>[] = [
       ...(ctx.editableListed ? { overflow: "summarize" as const } : {}),
     }),
   },
-  { id: "static-signal", tier: "semi-stable", priority: 3, applies: (ctx) => Boolean(ctx.input.staticSignal && ctx.isGenerationMode), render: renderStaticSignal },
+  { id: "static-signal", tier: "semi-stable", priority: 3, stability: "run", reason: "Advisory structural or co-change signal of what the change reaches, framed unverified (643c4672)", applies: (ctx) => Boolean(ctx.input.staticSignal && ctx.isGenerationMode), render: renderStaticSignal },
   {
     id: "service-links",
     tier: "semi-stable",
-    priority: 3,
+    priority: 3, stability: "run", reason: "Cross-repo runs: the stitcher's links and contract drift one repository does not show (0c348e62)",
     applies: (ctx) => (Boolean(ctx.input.serviceLinks?.length) || Boolean(ctx.input.contractDrift?.length)) && ctx.isGenerationMode,
     render: renderServiceLinks,
   },
-  { id: "skill-exemplars", tier: "semi-stable", priority: 3, applies: (ctx) => ctx.isGenerationMode && Boolean(ctx.input.skillExemplars?.length), render: renderSkillExemplars },
+  { id: "skill-exemplars", tier: "semi-stable", priority: 3, stability: "run", reason: "Proven test archetypes matched to the change; restored in 8379da09 to give its module a caller, no observed failure behind it", applies: (ctx) => ctx.isGenerationMode && Boolean(ctx.input.skillExemplars?.length), render: renderSkillExemplars },
   {
     id: APP_LOGIN_SECTION_ID,
     tier: "volatile",
-    priority: 0,
+    priority: 0, stability: "run", reason: "The stock login seed did not sign in: the author rewrites auth.setup.ts before the specs",
     applies: (ctx) => Boolean(ctx.input.authSeedUnauthored) && ctx.isGenerationMode && !ctx.isCode,
     render: renderAppLogin,
   },
-  { id: "context-pack", tier: "volatile", priority: 0, applies: (ctx) => ctx.contextPackContent !== "", render: renderContextPack },
+  { id: "context-pack", tier: "volatile", priority: 0, stability: "run", reason: "Live DOM and API contracts the orchestrator captured, so selectors are transcribed, never invented (178a8ea2)", applies: (ctx) => ctx.contextPackContent !== "", render: renderContextPack },
   /* VOLATILE: grounding (DOM snapshot — priority 1 within VOLATILE so it's first and the selectorContradictions section can reference "the tree above" correctly). */
-  { id: "dom-snapshot", tier: "volatile", priority: 1, applies: (ctx) => Boolean(ctx.sanitizedDomSnapshot) && ctx.isGenerationMode, render: renderDomSnapshot },
+  { id: "dom-snapshot", tier: "volatile", priority: 1, stability: "run", reason: "The affected routes' accessibility tree when no Context Pack carries the DOM (71f21e5e)", applies: (ctx) => Boolean(ctx.sanitizedDomSnapshot) && ctx.isGenerationMode, render: renderDomSnapshot },
   {
     id: "selector-contradictions",
     tier: "volatile",
-    priority: 2,
+    priority: 2, stability: "run", reason: "Selectors the catalog gate found fabricated against a settled capture: the one corrective regeneration (875a6004)",
     applies: (ctx) => Boolean(ctx.input.selectorContradictions?.length) && ctx.isGenerationMode,
     render: renderSelectorContradictions,
   },
-  { id: "fix-cases", tier: "volatile", priority: 3, applies: (ctx) => Boolean(ctx.input.fixCases?.length) && ctx.isGenerationMode, render: renderFixCases },
+  { id: "fix-cases", tier: "volatile", priority: 3, stability: "run", reason: "The failing cases of the last execution with their ground truth at failure: what the fix loop corrects", applies: (ctx) => Boolean(ctx.input.fixCases?.length) && ctx.isGenerationMode, render: renderFixCases },
   /* VOLATILE: reviewer corrections (priority 4 — after grounding context is established). */
   {
     id: "reviewer-corrections",
     tier: "volatile",
-    priority: 4,
+    priority: 4, stability: "run", reason: "The reviewer's verified blocking findings a regeneration must answer",
     applies: (ctx) => Boolean(ctx.input.reviewCorrections?.length) && ctx.isGenerationMode,
     render: renderReviewerCorrections,
   },
   {
     id: CONTRACT_FEEDBACK_SECTION_ID,
     tier: "volatile",
-    priority: 4,
+    priority: 4, stability: "run", reason: "The intent lock's contract deltas, handed back to the turn that must restore them (abb73758)",
     applies: (ctx) => Boolean(ctx.input.contractFeedback?.length) && ctx.isGenerationMode,
     render: renderContractFeedback,
   },
-  { id: "coverage-gap", tier: "volatile", priority: 5, applies: (ctx) => Boolean(ctx.input.coverageGap) && ctx.isGenerationMode, render: renderCoverageGap },
+  { id: "coverage-gap", tier: "volatile", priority: 5, stability: "run", reason: "The changed lines and arms no test ran: the one coverage or branch-case regeneration (change-coverage)", applies: (ctx) => Boolean(ctx.input.coverageGap) && ctx.isGenerationMode, render: renderCoverageGap },
   {
     id: "learned-rules",
     tier: "volatile",
-    priority: 2,
+    priority: 2, stability: "run", reason: "Proven rules of the app's cross-run learning ledger",
     applies: (ctx) => Boolean(ctx.input.learnedRules) && ctx.isGenerationMode,
     render: (ctx) => ({ content: [ctx.input.learnedRules, ``].join("\n"), claims: [claim.provides("learned-rules")] }),
   },
-  { id: "task", tier: "task", priority: 1, applies: () => true, render: renderTask },
+  { id: "task", tier: "task", priority: 1, stability: "run", reason: "The turn's task and procedure for its mode, with the run's change and guidance", applies: () => true, render: renderTask },
   {
     id: "diff",
     tier: "task",
-    priority: 2,
+    priority: 2, stability: "run", reason: "The commit diff a diff run's first pass tests, relevance-ordered (178a8ea2)",
     applies: (ctx) => ctx.isGenerationMode && ctx.input.target !== "code" && ctx.input.mode === "diff" && !ctx.isReGen,
     render: (ctx) => ({ content: ctx.planDiff ? ctx.planDiff.render(ctx.planDiffShown) : buildDiffSection(ctx.input), shedAs: "semi-stable", claims: [claim.provides("diff")] }),
   },
@@ -628,21 +633,21 @@ export const GENERATOR_SECTIONS: readonly PromptSectionDef<PromptContext>[] = [
   {
     id: LEAD_PLAN_SECTION_ID,
     tier: "critical-recap",
-    priority: 0,
+    priority: 0, stability: "run", reason: "The plan contract a coordinated run's lead answers with instead of specs (2c566984)",
     applies: (ctx) => ctx.planningTurn,
     render: (ctx) => ({ content: renderLeadPlan(ctx.input.planning!), claims: [claim.provides("lead-plan")] }),
   },
   {
     id: STEP_LIMIT_SECTION_ID,
     tier: "critical-recap",
-    priority: 1,
+    priority: 1, stability: "run", reason: "The cap the runtime enforces, so step exhaustion is classified against the number the prompt stated (78d1bef4)",
     applies: (ctx) => ctx.input.stepLimit !== undefined,
     render: (ctx) => ({ content: renderStepLimit(ctx.input.stepLimit!), claims: [claim.provides("step-limit")] }),
   },
   {
     id: STEP_MILESTONE_SECTION_ID,
     tier: "critical-recap",
-    priority: 2,
+    priority: 2, stability: "run", reason: "Turns spent their step budget without writing: the first spec or a reasoned no-op is due by half the limit (78d1bef4)",
     applies: (ctx) => ctx.milestone !== undefined,
     render: (ctx) => ({ content: renderStepMilestone(ctx.milestone!) }),
   },

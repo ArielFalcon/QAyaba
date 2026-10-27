@@ -38,7 +38,7 @@ test("sectionSizes are forwarded from the assembled result for telemetry", () =>
 test("assemble is called with the budgetBytes passed in (opts forwarded)", () => {
   let seenOpts: unknown = null;
   const adapter = new ContextAssemblerAdapter(
-    (_sections, opts) => { seenOpts = opts; return { text: "", sectionSizes: {}, claims: {}, sectionItems: {} }; },
+    (_sections, opts) => { seenOpts = opts; return { text: "", sectionSizes: {}, claims: {}, sectionItems: {}, stablePrefixBytes: 0 }; },
     (_id, _role, content) => ({ content }) as never,
   );
   adapter.assemble([], { budgetBytes: 9999 });

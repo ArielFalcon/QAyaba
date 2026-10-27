@@ -9,7 +9,7 @@ import { FEEDBACK_SECTIONS } from "./coordination-sections/feedback-sections.ts"
 import { delegatingKindSpec, type SidekickKind } from "./sidekick-kinds.ts";
 
 export interface SidekickRender {
-  (brief: DelegationBrief): { text: string; sectionSizes: Record<string, number>; sectionHashes?: Record<string, string> };
+  (brief: DelegationBrief): { text: string; sectionSizes: Record<string, number>; sectionHashes?: Record<string, string>; stablePrefixBytes?: number };
 }
 
 export interface SidekickExecutorDeps {
@@ -93,13 +93,18 @@ export class SidekickExecutor {
       const text = feedback ? [assembled.text, feedback.text].join("\n\n") : assembled.text;
       const sectionSizes = { ...assembled.sectionSizes, ...feedback?.sectionSizes };
       const sectionHashes = { ...assembled.sectionHashes, ...feedback?.sectionHashes };
-      const { output } = await session.prompt(text, { sectionSizes, ...(Object.keys(sectionHashes).length > 0 ? { sectionHashes } : {}), ...(opts.contextFit ? { contextFit: opts.contextFit } : {}) });
+      const { output } = await session.prompt(text, {
+        sectionSizes,
+        ...(Object.keys(sectionHashes).length > 0 ? { sectionHashes } : {}),
+        ...(assembled.stablePrefixBytes !== undefined ? { promptStablePrefixBytes: assembled.stablePrefixBytes } : {}),
+        ...(opts.contextFit ? { contextFit: opts.contextFit } : {}),
+      });
       const first = read(output);
       return {
         first,
         ask: async (instruction, askOpts) => {
           const followUp = feedbackOf(instruction);
-          const answer = await session.prompt(followUp.text, { sectionSizes: followUp.sectionSizes, ...(followUp.sectionHashes ? { sectionHashes: followUp.sectionHashes } : {}), ...(askOpts?.timeoutMs !== undefined ? { timeoutMs: askOpts.timeoutMs } : {}) });
+          const answer = await session.prompt(followUp.text, { sectionSizes: followUp.sectionSizes, ...(followUp.sectionHashes ? { sectionHashes: followUp.sectionHashes } : {}), promptStablePrefixBytes: followUp.stablePrefixBytes, ...(askOpts?.timeoutMs !== undefined ? { timeoutMs: askOpts.timeoutMs } : {}) });
           return read(answer.output);
         },
         dispose,

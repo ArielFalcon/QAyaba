@@ -1,8 +1,12 @@
-/* A role prompt is built from registered section definitions and from nowhere else. The sign of a prompt built by hand is a markdown heading literal in a module that is not a section registry. The cases check the real tree and, with the same checker, small synthetic sources, so a checker that stopped matching would fail here. */
+/* A role prompt is built from registered section definitions and from nowhere else, and each section states why it is there. The sign of a prompt built by hand is a markdown heading literal in a module that is not a section registry. The cases check the real tree and, with the same checker, small synthetic sources, so a checker that stopped matching would fail here. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import type { PromptSectionDef } from "@kernel/prompt-sections.ts";
+import { GENERATOR_SECTIONS } from "@contexts/generation/infrastructure/prompt-builders/generator-sections.ts";
+import { REVIEWER_SECTIONS } from "@contexts/generation/infrastructure/prompt-builders/reviewer-sections.ts";
+import { COORDINATION_PROMPTS } from "@contexts/coordination/application/coordination-sections/index.ts";
 
 const root = join(import.meta.dirname, "..", "..", "..", "..", "..");
 const SRC = join(root, "qa-engine", "src", "contexts");
@@ -69,4 +73,24 @@ test("the checker flags a prompt written by hand and accepts the same text in a 
   assert.deepEqual(promptsBuiltOutsideRegistry({ "coordination/application/new-turn.ts": prompt }), ["coordination/application/new-turn.ts"]);
   assert.deepEqual(promptsBuiltOutsideRegistry({ "coordination/application/coordination-sections/new-turn.ts": prompt, "generation/infrastructure/prompt-builders/x-sections.ts": prompt }), []);
   assert.deepEqual(promptsBuiltOutsideRegistry({ "coordination/application/plain.ts": "export const x = 'a title is # not a heading';\n" }), []);
+});
+
+/* Every registered section declares the observed failure or the contract it exists for. A section that cannot is a removal candidate, measured by a campaign before it goes. */
+const sectionsWithoutReason = (registries: Record<string, readonly PromptSectionDef<never>[]>): string[] =>
+  Object.entries(registries).flatMap(([name, defs]) => defs.filter((def) => typeof def.reason !== "string" || def.reason.trim() === "").map((def) => `${name}:${def.id}`));
+
+const EVERY_REGISTRY: Record<string, readonly PromptSectionDef<never>[]> = {
+  generator: GENERATOR_SECTIONS as readonly PromptSectionDef<never>[],
+  reviewer: REVIEWER_SECTIONS as readonly PromptSectionDef<never>[],
+  ...COORDINATION_PROMPTS,
+};
+
+test("every registered prompt section states the failure or the contract it exists for", () => {
+  assert.deepEqual(sectionsWithoutReason(EVERY_REGISTRY), []);
+});
+
+test("the reason check flags a section with a blank or missing reason", () => {
+  const section = (id: string, reason: string): PromptSectionDef<never> => ({ id, tier: "task", priority: 0, stability: "run", reason, applies: () => true, render: () => ({ content: id }) });
+  const missing = { ...section("missing", "x"), reason: undefined } as unknown as PromptSectionDef<never>;
+  assert.deepEqual(sectionsWithoutReason({ turn: [section("kept", "a contract"), section("blank", "  "), missing] }), ["turn:blank", "turn:missing"]);
 });

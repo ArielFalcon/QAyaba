@@ -27,7 +27,7 @@ export const REPLAN_SECTIONS: readonly PromptSectionDef<ReplanPromptContext>[] =
   {
     id: "unresolved",
     tier: "task",
-    priority: 10,
+    priority: 10, stability: "run", reason: "A plan must answer for every direct use case of the change (2a8b8e6d)",
     applies: ({ unresolved }) => unresolved.length > 0,
     render: ({ unresolved, refusals, slices, scrub }) => ({
       content: [
@@ -43,7 +43,7 @@ export const REPLAN_SECTIONS: readonly PromptSectionDef<ReplanPromptContext>[] =
   {
     id: "not-admitted",
     tier: "task",
-    priority: 12,
+    priority: 12, stability: "run", reason: "Flows past the run's derived capacity (f337e8a5)",
     applies: ({ notAdmitted }) => notAdmitted.length > 0,
     render: ({ capacity, notAdmitted, scrub }) => ({
       content: [
@@ -57,7 +57,7 @@ export const REPLAN_SECTIONS: readonly PromptSectionDef<ReplanPromptContext>[] =
   {
     id: "oversize",
     tier: "task",
-    priority: 14,
+    priority: 14, stability: "run", reason: "Flows whose owned change does not fit an author's window (f337e8a5)",
     applies: ({ oversize }) => oversize.length > 0,
     render: ({ oversize, scrub }) => ({
       content: [
@@ -70,8 +70,9 @@ export const REPLAN_SECTIONS: readonly PromptSectionDef<ReplanPromptContext>[] =
   },
   {
     id: "answer",
-    tier: "task",
-    priority: 20,
+    /* The closing instruction: the recap that ends the turn, after the facts it answers. */
+    tier: "critical-recap",
+    priority: 20, stability: "static", reason: "The one amendment turn asks for the whole plan again (2a8b8e6d)",
     applies: () => true,
     render: () => ({
       content: 'Answer with your whole plan again: give a flow to each one (its id in the flow\'s "candidates"), or list it in "dropped" with a "basis" of the plan contract and the reason it needs no test. This is the only other plan turn of this run; answer with a plan of flows.',

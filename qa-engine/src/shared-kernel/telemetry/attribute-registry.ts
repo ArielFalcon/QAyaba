@@ -246,6 +246,7 @@ export const ATTRIBUTES = {
   "qayaba.prompt.bytes": metaInt("Size of the prompt in bytes."),
   "qayaba.prompt.sections.dropped": int("Prompt sections dropped to fit the budget."),
   "qayaba.prompt.budget_bytes": int("The byte budget the prompt was assembled to."),
+  "qayaba.prompt.stable_prefix.bytes": int("Bytes of the prompt's stable prefix: the sections whose bytes do not vary per run, which open it. Read beside the turn's cache-read tokens."),
   "qayaba.prompt.context.window_tokens": int("The context window, in tokens, of the model the prompt's role runs on; absent when the runtime reported none."),
   "qayaba.prompt.context.window_unknown": bool("Whether the role's context window was not known, so nothing was cut or split for it."),
   "qayaba.prompt.context.prompt_tokens": int("The prompt's size in tokens, as the fit judged it (bytes / 4)."),

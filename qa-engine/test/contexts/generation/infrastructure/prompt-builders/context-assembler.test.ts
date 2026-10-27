@@ -231,7 +231,7 @@ test("section() helper fills in sensible defaults", () => {
   const s = section("x", "task", "content");
   assert.equal(s.priority, 0);
   assert.equal(s.maxBytes, 0);
-  assert.equal(s.cacheable, false);
+  assert.equal(s.stability, "run");
   assert.equal(s.overflow, "drop");
   assert.equal(s.language, "scaffold");
 });
@@ -240,13 +240,13 @@ test("section() helper accepts explicit overrides", () => {
   const s = section("x", "volatile", "content", {
     priority: 5,
     maxBytes: 1000,
-    cacheable: true,
+    stability: "static",
     overflow: "summarize",
     language: "verbatim",
   });
   assert.equal(s.priority, 5);
   assert.equal(s.maxBytes, 1000);
-  assert.equal(s.cacheable, true);
+  assert.equal(s.stability, "static");
   assert.equal(s.overflow, "summarize");
   assert.equal(s.language, "verbatim");
 });

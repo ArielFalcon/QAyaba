@@ -9,7 +9,7 @@ export interface Section {
   priority: number;
   maxBytes: number;
   content: string | (() => string);
-  cacheable?: boolean;
+  stability?: "static" | "run";
   overflow: "summarize" | "drop";
   language: "scaffold" | "verbatim";
   shedAs?: SectionRole;
@@ -30,9 +30,10 @@ export interface AssembledPrompt {
   sectionHashes?: Record<string, string>;
   droppedSections?: readonly string[];
   budgetBytes?: number;
+  stablePrefixBytes: number;
 }
 
-export type SectionOpts = Partial<Pick<Section, "priority" | "maxBytes" | "cacheable" | "overflow" | "language" | "shedAs" | "claims" | "itemIds" | "omissions">>;
+export type SectionOpts = Partial<Pick<Section, "priority" | "maxBytes" | "stability" | "overflow" | "language" | "shedAs" | "claims" | "itemIds" | "omissions">>;
 
 export interface AssembleOpts {
   budgetBytes?: number;

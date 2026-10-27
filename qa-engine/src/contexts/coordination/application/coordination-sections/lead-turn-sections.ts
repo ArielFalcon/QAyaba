@@ -81,7 +81,8 @@ export interface FlowUnderCorrection {
   seedFiles?: readonly string[];
 }
 
-const section = <C>(def: Omit<PromptSectionDef<C>, "tier">): PromptSectionDef<C> => ({ tier: "task", ...def });
+/* One tier for a lead turn's sections, ordered by priority; a closing instruction is the turn's recap and says so. */
+const section = <C>(def: Omit<PromptSectionDef<C>, "tier"> & { tier?: PromptSectionDef<C>["tier"] }): PromptSectionDef<C> => ({ tier: "task", ...def });
 
 function cut(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}\n… (cut at ${max} characters)` : text;
@@ -154,7 +155,7 @@ function candidatesBlock(scrub: (text: string) => string, gaps: CandidateGaps, l
 export const LEAD_REVIEW_SECTIONS: readonly PromptSectionDef<ReviewPromptContext>[] = [
   section({
     id: "review",
-    priority: 10,
+    priority: 10, stability: "run", reason: "Which review turn this is; the last one can only accept or drop (6fceb8e3)",
     applies: () => true,
     render: (ctx) => ({
       content: [`## Review of the flows (turn ${ctx.turn.turn} of ${ctx.turn.maxTurns})`, isLastReview(ctx) ? "This is the last review: each flow can only be accepted or dropped." : ""].filter(Boolean).join("\n\n"),
@@ -162,13 +163,13 @@ export const LEAD_REVIEW_SECTIONS: readonly PromptSectionDef<ReviewPromptContext
   }),
   section({
     id: "flows",
-    priority: 20,
+    priority: 20, stability: "run", reason: "Each flow's outcome, run_spec facts and spec: the facts that decide over the lead's answer (6fceb8e3)",
     applies: ({ flows }) => flows.length > 0,
     render: (ctx) => ({ content: ctx.flows.map((flow) => flowBlock(ctx.scrub, flow)).join("\n\n") }),
   }),
   section({
     id: "candidates",
-    priority: 30,
+    priority: 30, stability: "run", reason: "The use cases no passing flow covers (2a8b8e6d)",
     applies: ({ gaps }) => gaps !== undefined,
     render: (ctx) => ({ content: candidatesBlock(ctx.scrub, ctx.gaps!, isLastReview(ctx)) }),
   }),
@@ -210,7 +211,7 @@ function correctionFlowBlocks(ctx: CorrectionPromptContext): string[] {
 export const LEAD_CORRECTION_SECTIONS: readonly PromptSectionDef<CorrectionPromptContext>[] = [
   section({
     id: "correction",
-    priority: 10,
+    priority: 10, stability: "run", reason: "Where the findings come from and whether the lead may rebut them (b18630b1)",
     applies: () => true,
     render: ({ origin, omitted }) => ({
       content: [
@@ -223,14 +224,14 @@ export const LEAD_CORRECTION_SECTIONS: readonly PromptSectionDef<CorrectionPromp
   }),
   section({
     id: "flows",
-    priority: 20,
+    priority: 20, stability: "run", reason: "Each flow with the findings that cite its spec (31223b33)",
     applies: (ctx) => correctionFlowBlocks(ctx).length > 0,
     render: (ctx) => ({ content: correctionFlowBlocks(ctx).join("\n\n") }),
   }),
   /* Where a finding about a source file goes is decided by the use cases a flow covers, so with findings to place every flow is listed with them. */
   section({
     id: "catalogue",
-    priority: 25,
+    priority: 25, stability: "run", reason: "The use cases each flow covers, to place a finding about a source file (41cae36e)",
     applies: (ctx) => looseFindings(ctx).length > 0,
     render: (ctx) => ({
       content: ["### The flows and the use cases they cover", ...ctx.flows.map((flow) => `- \`${flow.id}\` (${flow.specFile}): ${flow.candidates?.length ? flow.candidates.join(", ") : "no use case cited"}`)].join("\n"),
@@ -238,7 +239,7 @@ export const LEAD_CORRECTION_SECTIONS: readonly PromptSectionDef<CorrectionPromp
   }),
   section({
     id: "unrouted",
-    priority: 30,
+    priority: 30, stability: "run", reason: "Findings that cite no flow, for the lead to route or rebut (31223b33)",
     applies: (ctx) => looseFindings(ctx).length > 0,
     render: (ctx) => {
       const instruction = ctx.origin.rebuttable
@@ -261,7 +262,7 @@ export interface RejectedPlanPromptContext {
 export const REJECTED_PLAN_SECTIONS: readonly PromptSectionDef<RejectedPlanPromptContext>[] = [
   section({
     id: "rejected-plan",
-    priority: 10,
+    priority: 10, stability: "run", reason: "A refused plan is sent back to the lead once, with the reason (59937113)",
     applies: () => true,
     render: ({ downgrade, fact }) => ({
       content: [
@@ -284,7 +285,7 @@ export interface RefusedCorrectionPromptContext {
 export const REFUSED_CORRECTION_SECTIONS: readonly PromptSectionDef<RefusedCorrectionPromptContext>[] = [
   section({
     id: "refused",
-    priority: 10,
+    priority: 10, stability: "run", reason: "A refused correction answer is sent back once, with why each part was not admitted (f67ef0c3)",
     applies: () => true,
     render: ({ refused, findingCount }) => ({
       content: [
@@ -327,10 +328,12 @@ function findingsText({ skipped, questions, scrub }: ExploreOutcomePromptContext
 
 /* The lead's turn after its exploration: the findings labelled by what the orchestrator checked, and the one answer that is left to give. */
 export const EXPLORE_OUTCOME_SECTIONS: readonly PromptSectionDef<ExploreOutcomePromptContext>[] = [
-  section({ id: "exploration", priority: 10, applies: () => true, render: (ctx) => ({ content: findingsText(ctx) }) }),
+  section({ id: "exploration", priority: 10, stability: "run", reason: "Exploration findings labelled by what the orchestrator verified (bb8a4ab2)", applies: () => true, render: (ctx) => ({ content: findingsText(ctx) }) }),
   section({
     id: "answer",
-    priority: 20,
+    /* The closing instruction: the recap that ends the turn, after the findings it answers. */
+    tier: "critical-recap",
+    priority: 20, stability: "static", reason: "After its one exploration the lead plans and cannot explore again (bb8a4ab2)",
     applies: () => true,
     render: () => ({ content: 'Now answer with your plan: ONLY the JSON object `{"plan":...}` (or the declared no-op). You cannot explore again.' }),
   }),

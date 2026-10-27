@@ -151,7 +151,7 @@ function renderUnassigned({ input, degraded }: ReviewerChangeContext): SectionRe
 
 /* After the objective, before the volatile evidence: the change is what every spec is judged against. */
 export const REVIEWER_CHANGE_SECTIONS: readonly PromptSectionDef<ReviewerChangeContext>[] = [
-  { id: REVIEWER_FLOW_SLICES_SECTION_ID, tier: "semi-stable", priority: 1.1, applies: ({ input }) => reviewsByFlow(input), render: renderFlowSlices },
-  { id: REVIEWER_CHANGED_FILES_SECTION_ID, tier: "semi-stable", priority: 1.2, applies: ({ input }) => reviewsByFlow(input), render: renderChangedFiles },
-  { id: REVIEWER_UNASSIGNED_CHANGE_SECTION_ID, tier: "semi-stable", priority: 1.3, applies: ({ input }) => reviewsByFlow(input), render: renderUnassigned },
+  { id: REVIEWER_FLOW_SLICES_SECTION_ID, tier: "semi-stable", priority: 1.1, stability: "run", reason: "A planned run's reviewer judges each spec against its flow's slice of the change (c486ffb5)", applies: ({ input }) => reviewsByFlow(input), render: renderFlowSlices },
+  { id: REVIEWER_CHANGED_FILES_SECTION_ID, tier: "semi-stable", priority: 1.2, stability: "run", reason: "Every changed file of the commit, each once (c486ffb5)", applies: ({ input }) => reviewsByFlow(input), render: renderChangedFiles },
+  { id: REVIEWER_UNASSIGNED_CHANGE_SECTION_ID, tier: "semi-stable", priority: 1.3, stability: "run", reason: "The change no flow under review holds, in full, so no part of the commit escapes review (c486ffb5)", applies: ({ input }) => reviewsByFlow(input), render: renderUnassigned },
 ];

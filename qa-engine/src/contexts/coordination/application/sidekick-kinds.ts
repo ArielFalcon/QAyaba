@@ -54,7 +54,7 @@ interface SidekickKindBase {
 /* A kind the lead briefs for one flow: the brief is a `DelegationBrief` and the answer a `DelegationResult`. */
 export interface DelegatingKindSpec extends SidekickKindBase {
   readonly id: typeof SIDEKICK_KIND.AUTHOR | typeof SIDEKICK_KIND.EXPLORE;
-  render(redaction: RedactionPort, brief: DelegationBrief): { text: string; sectionSizes: Record<string, number> };
+  render(redaction: RedactionPort, brief: DelegationBrief): { text: string; sectionSizes: Record<string, number>; stablePrefixBytes?: number };
   parse(redaction: RedactionPort, output: string, brief: DelegationBrief): DelegationResult;
 }
 

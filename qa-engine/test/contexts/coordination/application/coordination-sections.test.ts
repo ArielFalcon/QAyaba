@@ -1,4 +1,4 @@
-/* The coordination prompts are assembled from registered section definitions: each reports its section sizes and hashes (the telemetry split), keeps the content and order it always had, and a delegation brief is held to its contract by the prompt-contract lint. */
+/* The coordination prompts are assembled from registered section definitions: each reports its section sizes and hashes (the telemetry split), opens with its static sections and keeps its content, and a delegation brief is held to its contract by the prompt-contract lint. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { lintCell, claim, type LintCell, type LintSection } from "@contexts/generation/application/index.ts";
@@ -73,11 +73,11 @@ test("every coordination prompt reports a size and a hash for each section it ca
   assert.deepEqual(Object.keys(renderExploreBrief(redaction, exploreBrief()).sectionHashes), Object.keys(renderExploreBrief(redaction, exploreBrief()).sectionSizes));
 });
 
-test("the flow author's brief keeps its sections in order, each once, with the boundary and the tools stated apart from the return shape", () => {
+test("the flow author's brief opens with the tools its turn grants, then its sections in order, each once, with the boundary and the tools stated apart from the return shape", () => {
   const { text, sectionSizes } = renderSidekickBrief(redaction, authorBrief());
-  assert.deepEqual(Object.keys(sectionSizes), ["task", "acceptance", "scope", "tools", "contract"]);
+  assert.deepEqual(Object.keys(sectionSizes), ["tools", "task", "acceptance", "scope", "contract"]);
   const headings = text.split("\n").filter((line) => line.startsWith("## "));
-  assert.deepEqual(headings, ["## Task", "## Acceptance criteria", "## Scope", "## Authority (frozen)", "## Tools", "## Output contract"]);
+  assert.deepEqual(headings, ["## Tools", "## Task", "## Acceptance criteria", "## Scope", "## Authority (frozen)", "## Output contract"]);
   assert.equal(text.split("Do NOT write outside writablePaths").length, 2, "the boundary rule is stated once");
   assert.match(text, /- read: /);
   assert.match(text, /- run_spec: /);
@@ -85,7 +85,7 @@ test("the flow author's brief keeps its sections in order, each once, with the b
 
 test("the explore brief keeps its question, task and return shape, and states that the sidekick writes nothing and which tools it holds", () => {
   const { text, sectionSizes } = renderExploreBrief(redaction, exploreBrief());
-  assert.deepEqual(Object.keys(sectionSizes), ["question", "task", "boundary", "tools", "contract"]);
+  assert.deepEqual(Object.keys(sectionSizes), ["tools", "question", "task", "boundary", "contract"]);
   assert.match(text, /You write no file/);
   assert.match(text, /- codegraph: /);
   assert.doesNotMatch(text, /authbrowser/);
@@ -105,7 +105,7 @@ test("a brief missing its return shape is a finding naming the part", () => {
 });
 
 test("a contract part stated in two sections is a finding naming both", () => {
-  const twice = [...AUTHOR_BRIEF_SECTIONS, { id: "restated", tier: "task" as const, priority: 200, applies: () => true, render: () => ({ content: "## Again\nDo NOT write outside writablePaths.", claims: [claim.statesContract("boundary")] }) }];
+  const twice = [...AUTHOR_BRIEF_SECTIONS, { id: "restated", tier: "task" as const, priority: 200, stability: "run" as const, reason: "r", applies: () => true, render: () => ({ content: "## Again\nDo NOT write outside writablePaths.", claims: [claim.statesContract("boundary")] }) }];
   const findings = lintCell(briefCell(asBrief(twice, authorBrief()), { tools: ["read", "write", "run_spec"], writes: true }));
   assert.deepEqual(findings.map((f) => [f.rule, f.part, [...f.sections]]), [["R17", "boundary", ["restated", "scope"]]]);
 });

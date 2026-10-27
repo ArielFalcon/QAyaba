@@ -1,5 +1,6 @@
 /* A prompt is a registry of section definitions rendered from one derived context. Asserted on section ids, tiers, order, claims and sizes, never on prompt wording. */
 import { test } from "node:test";
+import { assembleDefs } from "@kernel/prompt-sections.ts";
 import assert from "node:assert/strict";
 import {
   CLOSED_LOOP_SECTION_ID,
@@ -67,16 +68,34 @@ test("the reviewer states its cap in its own section, never in the generator's",
   assert.equal(limited.sectionSizes[STEP_LIMIT_SECTION_ID], undefined);
 });
 
-test("renderSections keeps the sections that apply, in registry order, with the tier, priority and options each render gives", () => {
+test("renderSections keeps the sections that apply, in registry order, with the tier, priority, stability and options each render gives", () => {
   const registry: readonly PromptSectionDef<{ on: string[] }>[] = [
-    { id: "first", tier: "volatile", priority: 3, applies: (ctx) => ctx.on.includes("first"), render: () => ({ content: "one", maxBytes: 9 }) },
-    { id: "second", tier: "task", priority: 1, applies: (ctx) => ctx.on.includes("second"), render: () => ({ content: "two" }) },
-    { id: "third", tier: "stable-prefix", priority: 0, applies: (ctx) => ctx.on.includes("third"), render: () => ({ content: "three", shedAs: "critical-recap" }) },
+    { id: "first", tier: "volatile", priority: 3, stability: "run", reason: "r", applies: (ctx) => ctx.on.includes("first"), render: () => ({ content: "one", maxBytes: 9 }) },
+    { id: "second", tier: "task", priority: 1, stability: "run", reason: "r", applies: (ctx) => ctx.on.includes("second"), render: () => ({ content: "two" }) },
+    { id: "third", tier: "stable-prefix", priority: 0, stability: "static", reason: "r", applies: (ctx) => ctx.on.includes("third"), render: () => ({ content: "three", shedAs: "critical-recap" }) },
   ];
   const sections = renderSections(registry, { on: ["third", "first"] });
   assert.deepEqual(sections.map((s) => s.id), ["first", "third"]);
   const [first, third] = sections;
-  assert.deepEqual([first?.role, first?.priority, first?.maxBytes], ["volatile", 3, 9]);
-  assert.deepEqual([third?.role, third?.priority, third?.shedAs], ["stable-prefix", 0, "critical-recap"]);
+  assert.deepEqual([first?.role, first?.priority, first?.maxBytes, first?.stability], ["volatile", 3, 9, "run"]);
+  assert.deepEqual([third?.role, third?.priority, third?.shedAs, third?.stability], ["stable-prefix", 0, "critical-recap", "static"]);
   assert.deepEqual(renderSections(registry, { on: [] }), []);
+});
+
+test("assembly opens with the static sections whatever their tier, then the run's facts, and ends with the recap; the stable prefix is measured in bytes", () => {
+  const def = (id: string, tier: PromptSectionDef<{ n: number }>["tier"], priority: number, stability: "static" | "run", content: (ctx: { n: number }) => string): PromptSectionDef<{ n: number }> =>
+    ({ id, tier, priority, stability, reason: "r", applies: () => true, render: (ctx) => ({ content: content(ctx) }) });
+  const registry = [
+    def("run-first", "stable-prefix", 0, "run", ({ n }) => `run ${n}`),
+    def("rules", "semi-stable", 1, "static", () => "rules"),
+    def("contract", "critical-recap", 0, "static", () => "contract"),
+    def("facts", "volatile", 0, "run", ({ n }) => `facts ${n}`),
+    def("task", "task", 0, "static", () => "task"),
+  ];
+  const one = assembleDefs(registry, { n: 1 });
+  const two = assembleDefs(registry, { n: 2 });
+  assert.deepEqual(Object.keys(one.sectionSizes), ["rules", "task", "run-first", "facts", "contract"]);
+  assert.equal(one.stablePrefixBytes, Buffer.byteLength("rules\ntask", "utf8"));
+  assert.equal(one.text.slice(0, one.stablePrefixBytes), two.text.slice(0, two.stablePrefixBytes));
+  assert.equal(assembleDefs(registry.filter((d) => d.stability === "run"), { n: 1 }).stablePrefixBytes, 0);
 });

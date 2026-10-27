@@ -1,4 +1,4 @@
-/* The prompt engine. A prompt is a list of section definitions: each declares the section it is, when it applies to a turn's context and how it renders from it. Assembly renders the sections that apply, orders them by tier and priority, caps and sheds them to the byte budget and reports each survivor's size, hash and claims. Every role's prompt (generator, reviewer, the lead's turns, a delegation brief) is assembled here, so section sizes, hashes, budgets and the prompt-contract lint apply to all of them. Never import src/. */
+/* The prompt engine. A prompt is a list of section definitions: each declares the section it is, why it exists, whether its bytes vary per run, when it applies to a turn's context and how it renders from it. Assembly renders the sections that apply, orders them (the stable prefix first, then the run's facts, then the closing recap; by tier and priority within each), caps and sheds them to the byte budget and reports each survivor's size, hash and claims. Every role's prompt (generator, reviewer, the lead's turns, a delegation brief) is assembled here, so section sizes, hashes, budgets and the prompt-contract lint apply to all of them. Never import src/. */
 import { engineLog } from "./ports/process-logger.ts";
 import { sha256Hex } from "./content-hash.ts";
 import { redactByValue } from "./run-secret-redaction.ts";
@@ -19,6 +19,17 @@ export type SectionRole =
   | "task"
   | "critical-recap";
 
+/*
+ * Whether a section's bytes vary per run. A static section renders the same bytes for every run of the same app and turn shape
+ * (mode, target, which inputs are present): instructions, contracts, fixed rules. A run section carries a fact of the run (its id,
+ * namespace, sha, diff, DOM, findings, budgets). Static sections form the prompt's stable prefix, so a provider's prompt cache can
+ * reuse it across runs; nothing per-run (a timestamp, a run id, a sha, an unordered serialization) may render in one.
+ */
+export type SectionStability = "static" | "run";
+
+/* The closing recap (the contract or instruction that ends a turn) stays last whatever its stability: the answer it asks for is read last. */
+const band = (section: Pick<Section, "role" | "stability">): number => (section.role === "critical-recap" ? 2 : section.stability === "static" ? 0 : 1);
+
 const ROLE_ORDER: Record<SectionRole, number> = {
   "stable-prefix": 1,
   "semi-stable": 2,
@@ -33,7 +44,8 @@ export interface Section {
   priority: number;
   maxBytes: number;
   content: string | (() => string);
-  cacheable?: boolean;
+  /* Absent reads as "run": a section is in the stable prefix only when it says so. */
+  stability?: SectionStability;
   overflow: "summarize" | "drop";
   language: "scaffold" | "verbatim";
   shedAs?: SectionRole;
@@ -45,7 +57,7 @@ export interface Section {
   omissions?: readonly Omission[];
 }
 
-export type SectionOpts = Partial<Pick<Section, "priority" | "maxBytes" | "cacheable" | "overflow" | "language" | "shedAs" | "claims" | "itemIds" | "omissions">>;
+export type SectionOpts = Partial<Pick<Section, "priority" | "maxBytes" | "stability" | "overflow" | "language" | "shedAs" | "claims" | "itemIds" | "omissions">>;
 
 export interface AssembledPrompt {
   text: string;
@@ -62,6 +74,8 @@ export interface AssembledPrompt {
   droppedSections?: readonly string[];
   /* The byte budget the prompt was assembled to; absent when none applied. */
   budgetBytes?: number;
+  /* Bytes of the stable prefix: the static sections that open the prompt, joined, without the separator after them. 0 when the prompt opens with a run fact. */
+  stablePrefixBytes: number;
 }
 
 function truncateToValidUtf8(buf: Buffer, maxBytes: number): string {
@@ -89,6 +103,9 @@ export function assembleSections(sections: Section[], opts: AssembleOpts = {}): 
   const separator = opts.separator ?? "\n";
   const separatorBytes = Buffer.byteLength(separator, "utf8");
   const sorted = [...sections].sort((a, b) => {
+    const ba = band(a);
+    const bb = band(b);
+    if (ba !== bb) return ba - bb;
     const ra = ROLE_ORDER[a.role];
     const rb = ROLE_ORDER[b.role];
     if (ra !== rb) return ra - rb;
@@ -215,6 +232,8 @@ export function assembleSections(sections: Section[], opts: AssembleOpts = {}): 
   }
 
   const parts: string[] = [];
+  let stablePrefixBytes = 0;
+  let inPrefix = true;
   const sectionSizes: Record<string, number> = {};
   const sectionHashes: Record<string, string> = {};
   const claims: Record<string, readonly PromptClaim[]> = {};
@@ -224,6 +243,8 @@ export function assembleSections(sections: Section[], opts: AssembleOpts = {}): 
     sectionSizes[r.section.id] = Buffer.byteLength(r.content, "utf8");
     sectionHashes[r.section.id] = sha256Hex(redactByValue(r.content));
     if (r.section.claims?.length) claims[r.section.id] = r.section.claims;
+    if (inPrefix && band(r.section) === 0) stablePrefixBytes += (parts.length > 0 ? separatorBytes : 0) + sectionSizes[r.section.id]!;
+    else inPrefix = false;
     parts.push(r.content);
   }
 
@@ -255,6 +276,7 @@ export function assembleSections(sections: Section[], opts: AssembleOpts = {}): 
     sectionHashes,
     droppedSections: droppedIds,
     ...(budgetBytes > 0 ? { budgetBytes } : {}),
+    stablePrefixBytes,
   };
 }
 
@@ -270,7 +292,7 @@ export function makeSection(
     content,
     priority: opts.priority ?? 0,
     maxBytes: opts.maxBytes ?? 0,
-    cacheable: opts.cacheable ?? false,
+    stability: opts.stability ?? "run",
     overflow: opts.overflow ?? "drop",
     language: opts.language ?? "scaffold",
     ...(opts.shedAs ? { shedAs: opts.shedAs } : {}),
@@ -281,7 +303,7 @@ export function makeSection(
 }
 
 /* What a section renders: its text, and the options that bound or describe it. */
-export interface SectionRender extends Pick<SectionOpts, "claims" | "itemIds" | "omissions" | "maxBytes" | "overflow" | "shedAs" | "cacheable" | "language"> {
+export interface SectionRender extends Pick<SectionOpts, "claims" | "itemIds" | "omissions" | "maxBytes" | "overflow" | "shedAs" | "language"> {
   content: string;
 }
 
@@ -289,6 +311,10 @@ export interface PromptSectionDef<C> {
   id: string;
   tier: SectionRole;
   priority: number;
+  /* Whether the section's bytes vary per run; a static one opens the prompt, in the stable prefix. */
+  stability: SectionStability;
+  /* The observed failure or the contract the section exists for, in a few words (a run id where one showed it). A section with no reason is a candidate for removal, measured by a campaign. */
+  reason: string;
   /* Whether the section belongs in the prompt of this turn. A section that does not apply renders nothing and leaves no size, claim or item in the assembled prompt. */
   applies(ctx: C): boolean;
   render(ctx: C): SectionRender;
@@ -300,7 +326,7 @@ export function renderSectionDefs<C>(defs: readonly PromptSectionDef<C>[], ctx: 
     .filter((def) => def.applies(ctx))
     .map((def) => {
       const { content, ...opts } = def.render(ctx);
-      return makeSection(def.id, def.tier, content, { priority: def.priority, ...opts });
+      return makeSection(def.id, def.tier, content, { priority: def.priority, stability: def.stability, ...opts });
     });
 }
 

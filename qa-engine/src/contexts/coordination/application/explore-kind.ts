@@ -18,9 +18,9 @@ export function assembleExploreBrief(redaction: RedactionPort, brief: Delegation
   return assembleDefs(EXPLORE_BRIEF_SECTIONS, { brief, scrub: (value) => redaction.redact(value) }, { separator: "\n\n" });
 }
 
-export function renderExploreBrief(redaction: RedactionPort, brief: DelegationBrief): { text: string; sectionSizes: Record<string, number>; sectionHashes: Record<string, string> } {
-  const { text, sectionSizes, sectionHashes } = assembleExploreBrief(redaction, brief);
-  return { text, sectionSizes, sectionHashes: sectionHashes ?? {} };
+export function renderExploreBrief(redaction: RedactionPort, brief: DelegationBrief): { text: string; sectionSizes: Record<string, number>; sectionHashes: Record<string, string>; stablePrefixBytes: number } {
+  const { text, sectionSizes, sectionHashes, stablePrefixBytes } = assembleExploreBrief(redaction, brief);
+  return { text, sectionSizes, sectionHashes: sectionHashes ?? {}, stablePrefixBytes };
 }
 
 function failed(brief: DelegationBrief, summary: string, redaction: RedactionPort): DelegationResult {
