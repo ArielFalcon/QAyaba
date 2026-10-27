@@ -1,0 +1,23 @@
+# Consumer expectation gaps
+Replace hand-qa-gaps T4's similarity rule with a consumer-driven check: a field the frontend's own response type declares, reads and never writes, absent from every complete live response of the operation, is a possible defect. Branch: worktree, landed on `main` after cycle 1 of `odd/tasks/campaign-loop.md`. Strategy: ask-on-risk. Runner: `npm test` (node:test via tsx).
+
+## Specs
+
+- S1. The capture records the key names of a JSON GET response's items at every depth (names only, never values), under the existing shape bounds; a shape a bound cuts is `complete: false` and yields no fact.
+- S2. A live request is tied to the call site that serves it through the existing link resolver and `requestServesOperation`; for an app with no `services[]`, the call site's resolved path is matched against the request directly. Several call sites serving one operation: the intersection of their expectations.
+- S3. A per-language expectation extractor declared in the language registry (like `RouteTableSyntax`), TypeScript first through the compiler: the expected fields of an operation are the fields of the call site's declared response type (an unresolvable third-party reference contributes the properties of its resolved type arguments) that non-test code reads; any write of the field (assignment, object-literal key, spread override) makes it client-owned and drops it. A type it cannot resolve yields no fact.
+- S4. A gap: an expected field K that no complete live response of the operation carries at any depth. It is classified by the provider contract the run already reads: `provider-undeclared`, `provider-declared-absent`, `no-provider-contract`. Another operation of the page carrying K is context on the gap, never a fact of its own.
+- S5. The gap replaces T4's "same kind" similarity rule as the source of `Possible data contradictions`; the Context Pack section, flow briefs, `gateSignals.dataContradictions`, span, PR/Issue section and the reviewer citation (`{"kind":"contradiction","ref":"<path>#<key>"}`, verified against the recorded facts) stay, pointed at the gaps, with the consumer's read sites listed. A signal, never a gate.
+- S6. A T5 stubbed test that fulfils a field an operation's live responses lack is listed in the PR/Issue under the gap it corroborates.
+- S7. Golden rule: nothing app-, framework-pattern- or GeoJSON-specific; no similarity threshold; the expectation comes from the consumer's code, the classification from the provider's contract.
+
+## Tasks
+
+| ID | Specs | Route | Status | Commit |
+|---|---|---|---|---|
+| T1 | S1-S7 | delegated (parallel with campaign-loop F1/F2, disjoint surfaces) | open | |
+
+## Log
+
+- L1 (2026-10-28) source: hand QA of `run-ed28973-mvr4s6br-7cfce5f0` and cycle 1 r1 `run-ed28973-mvra9a3s-09df0987` (`odd/tasks/campaign-loop.md` F3): `GET /restaurants/countries/ES` answers GeoJSON features without `activeMenuCuisineType`, the frontend's `GeoRestaurant` declares and reads it, so the new cuisine UI greys out every cuisine on DEV; T4's top-level similarity rule could not see it. The owner's standing request (campaign-loop L2): "deben ser soluciones robustas y transversales, que arreglen la causa del problema".
+- L2 (2026-10-28) design review (opus xhigh) chose consumer expectation gaps and replacing T4's rule. Fact checked: the orchestrator's mirror of the frontend has no `node_modules`, so library-inferred types (`z.infer`) do not resolve; S3 yields no fact for them (no install added by this feature).
