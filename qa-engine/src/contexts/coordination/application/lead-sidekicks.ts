@@ -32,7 +32,6 @@ import { candidatePagesOf, pageRoutesOf, type UseCaseCandidate } from "@kernel/u
 import { admissionSetOf, flowCovers, honorContradictedDrops, impliedNoopDrops, MAX_PLAN_ROUNDS, needsAmendment, planCoverage, assembleReplanRequest, unvisitedBy, type AdmissionSet, type PlanAmendment, type PlanCoverage } from "./plan-coverage.ts";
 import { candidateSlicesOf, changeViewOf, ownedSliceOf, type ChangeView } from "./owned-slices.ts";
 import { flowCapacity } from "./flow-capacity.ts";
-import type { ContextBudget } from "@kernel/context-budget.ts";
 import type { CandidateClaim, DelegationResult } from "./delegation-result.ts";
 import { classifyDelegationFailure } from "./delegation-failure-class.ts";
 import { admitLeadReview, candidateGapsOf, assembleLeadReview, MAX_REVIEW_TURNS, REVIEW_ACTION, withSpecDigests, type FailureBytes, type FlowUnderReview, type ReviewOrder, type SeenSpecs } from "./lead-review.ts";
@@ -90,8 +89,6 @@ export interface LeadSidekicksDeps {
   now?: () => number;
   /* The model a fresh sidekick the lead's review starts on a flow runs with; absent: the same as the first. */
   escalatedModel?: string;
-  /* The run's context budget: an admitted flow whose owned change alone does not fit an author's window is asked of the lead to split. Absent, or an unknown window: no flow is too large. */
-  contextBudget?: ContextBudget;
   /* The spec a flow delivered, as it is in the run's working copy, read through the confined reader; absent or unreadable: the review shows none. */
   readSpec?(root: { mirrorDir: string; specDir: string }, specFile: string): Promise<string | undefined>;
   /* The spec file, relative to the spec directory, that a flow's id names. */
@@ -100,7 +97,7 @@ export interface LeadSidekicksDeps {
   graphHolds?(ref: string): Promise<boolean>;
   /* The run's deadline as the agents' turns read it; a call may bring its own. Absent: nothing bounds the run's time. */
   deadline?: { remainingMs(): number | undefined };
-  /* The author's window and the working room its turn needs: a brief preloads the flow's changed code while it fits. Absent: the window is unknown and every owned hunk is preloaded. */
+  /* The author's window and the working room its turn needs: a brief preloads the flow's changed code while it fits, and an admitted flow whose owned change alone does not fit is asked of the lead to split. Absent, or an unknown window: every owned hunk is preloaded and no flow is too large. */
   contextBudget?: ContextBudget;
   log?(text: string): void;
 }
