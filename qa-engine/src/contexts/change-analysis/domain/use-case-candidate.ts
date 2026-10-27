@@ -6,7 +6,7 @@
 import { sha256Hex } from "@kernel/content-hash.ts";
 import { entryKey, type EntryPoint, type ReachBasis, type ReachTier } from "@kernel/change-reach.ts";
 import { normalizeRoute, type PageMap } from "./page-files.ts";
-import type { Reachability, UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import { FILE_SEED_SYMBOL, type CandidateChangedFile, type Reachability, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import type { ChangeScope, ReachEntry } from "./change-scope.ts";
 
 export type { Reachability, UseCaseCandidate } from "@kernel/use-case-candidate.ts";
@@ -16,6 +16,8 @@ export interface MapLink {
   repo: string;
   route: string;
   basis: Extract<ReachBasis, "implementation" | "source" | "spec">;
+  /* The changed files that made the map link the page, as the diff names them. */
+  files: readonly string[];
 }
 
 export interface CandidateEnrichment {
@@ -109,6 +111,15 @@ function labelOf(entry: EntryPoint, map: PageMap | undefined): string | undefine
   return isText(route?.name) ? route.name : undefined;
 }
 
+/* The changed files that seed a candidate, once each, with the lines the change added to them in the repo that holds them. */
+function changedFilesOf(seeds: readonly { file: string }[], scope: ChangeScope, repo: string): CandidateChangedFile[] {
+  const repos = [...scope.repos.filter((r) => r.repo === repo), ...scope.repos.filter((r) => r.repo !== repo)];
+  return [...new Set(seeds.map((seed) => seed.file))].sort().map((file) => {
+    const addedLines = repos.map((r) => r.addedLines?.[file]).find((n) => n !== undefined);
+    return { file, ...(addedLines !== undefined ? { addedLines } : {}) };
+  });
+}
+
 export function deriveCandidates(scope: ChangeScope, enrichment: CandidateEnrichment = {}): UseCaseCandidate[] {
   const held = new Set(scope.reach.map((r) => entryKey(r.entry)));
   const linked: ReachEntry[] = (enrichment.mapLinks ?? [])
@@ -118,7 +129,7 @@ export function deriveCandidates(scope: ChangeScope, enrichment: CandidateEnrich
       tier: "direct",
       basis: link.basis,
       evidence: [`the map links page ${link.route} to a changed file (${link.basis})`],
-      seeds: [],
+      seeds: link.files.map((file) => ({ file, symbol: FILE_SEED_SYMBOL })),
       confidence: 1,
     }));
   const entries = [...scope.reach, ...linked];
@@ -135,6 +146,7 @@ export function deriveCandidates(scope: ChangeScope, enrichment: CandidateEnrich
       basis: r.basis,
       evidence: [...r.evidence],
       seeds: [...r.seeds],
+      changedFiles: changedFilesOf(r.seeds, scope, r.entry.repo),
       confidence: r.confidence,
       reachability,
       pages,

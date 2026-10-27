@@ -69,6 +69,8 @@ export interface RankedRoute {
   rank: number;
   relevant: boolean;
   basis?: ChangePageBasis;
+  /* The changed files, spelled as the change gave them, that the map links to the route (its implementation files, its source, the spec of an operation it joins); empty for a route only the call graph reaches. */
+  files: string[];
 }
 
 /* The changed files (spelled as given) the map links to a page of the app: the ones a route declares as an implementation file, which already include the non-code files those declare, or as its source. A single repo only: across repos the changed files are the service's, and nothing here links them. */
@@ -86,21 +88,27 @@ export function filesLinkedToPages(map: RankableMap | undefined, changedFiles: r
 }
 
 export function rankRoutesWithRelevance(routes: readonly string[], map: RankableMap | undefined, change: RankingChange): RankedRoute[] {
-  const changed = change.changedFiles.filter(isText).map(normalize).filter((file) => file !== "");
   const roots = change.stagedRoots?.filter(isText).map(normalize);
   const crossRepo = roots !== undefined;
   const minEqualSegments = crossRepo ? MIN_SEGMENTS_ACROSS_REPOS : MIN_SEGMENTS_IN_A_SINGLE_REPO;
-  const isChanged = (declared: unknown): boolean => {
+  /* The changed files a declared path names, in the change's own spelling. */
+  const changedNamedBy = (declared: unknown): string[] => {
     const path = pathToCompare(declared, roots);
-    return path !== undefined && changed.some((file) => sameFile(path, file, minEqualSegments));
+    return path === undefined ? [] : change.changedFiles.filter(isText).filter((file) => { const n = normalize(file); return n !== "" && sameFile(path, n, minEqualSegments); });
   };
+  const isChanged = (declared: unknown): boolean => changedNamedBy(declared).length > 0;
 
-  const operationsWithChangedSpec = new Set<unknown>(entriesOf(map?.api).filter((operation) => isChanged(operation[ROUTE_LINK_FIELDS.spec])).map((operation) => operation.operationId));
-  const routesJoiningThem = new Set<unknown>(
-    entriesOf(map?.feBe)
-      .filter((link) => typeof link.operationId === "string" && operationsWithChangedSpec.has(link.operationId))
-      .map((link) => link.route),
-  );
+  const specFilesOfOperation = new Map<unknown, string[]>();
+  for (const operation of entriesOf(map?.api)) {
+    const files = changedNamedBy(operation[ROUTE_LINK_FIELDS.spec]);
+    if (files.length > 0) specFilesOfOperation.set(operation.operationId, files);
+  }
+  const specFilesOfRoute = new Map<unknown, string[]>();
+  for (const link of entriesOf(map?.feBe)) {
+    const files = typeof link.operationId === "string" ? specFilesOfOperation.get(link.operationId) : undefined;
+    if (files !== undefined) specFilesOfRoute.set(link.route, [...(specFilesOfRoute.get(link.route) ?? []), ...files]);
+  }
+  const routesJoiningThem = new Set<unknown>(specFilesOfRoute.keys());
 
   /* What one entry of the map says about its route. A path the map lists twice has the better of its entries' ranks, so a bare entry never erases the links of another. */
   const ownRank = (entry: Record<string, unknown>): number => {
@@ -125,6 +133,13 @@ export function rankRoutesWithRelevance(routes: readonly string[], map: Rankable
       reachedByHub.has(route) ? RANK.hub : RANK.rest,
       ...routeEntries.filter((entry) => !crossRepo && entry.path === route).map(ownRank),
     );
+  const linkingFiles = (route: string): string[] => {
+    const own = crossRepo ? [] : routeEntries.filter((entry) => entry.path === route).flatMap((entry) => {
+      const implementationFiles = entry[ROUTE_LINK_FIELDS.implementationFiles];
+      return [...(isPathList(implementationFiles) ? implementationFiles.flatMap(changedNamedBy) : []), ...changedNamedBy(entry[ROUTE_LINK_FIELDS.source])];
+    });
+    return [...new Set([...own, ...(specFilesOfRoute.get(route) ?? [])])];
+  };
   const all = [...new Set([...routes, ...candidatePlace.keys()])];
   return all
     .map((route) => {
@@ -132,7 +147,7 @@ export function rankRoutesWithRelevance(routes: readonly string[], map: Rankable
       const relevant = rank < RANK.hub;
       const place = candidatePlace.get(route);
       const basis = place !== undefined && place.rank === rank && place.basis !== undefined ? place.basis : BASIS_OF_RANK[rank];
-      return { route, rank, relevant, ...(relevant ? { basis: basis! } : {}) };
+      return { route, rank, relevant, ...(relevant ? { basis: basis! } : {}), files: linkingFiles(route) };
     })
     .sort((a, b) => a.rank - b.rank);
 }

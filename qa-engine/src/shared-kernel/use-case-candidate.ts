@@ -2,10 +2,20 @@
  * A use case the change makes testable: an entry point its changed symbols reach, with how directly, the evidence path, whether
  * a browser can reach it, and the specs the suite already holds for it. Derived deterministically from the change's scope.
  */
+import { LanguageRegistry } from "./language-id.ts";
 import { entryKey, type ChangedSymbol, type EntryPoint, type ReachBasis, type ReachTier } from "./change-reach.ts";
 
 /* `page` is a page of the app; `via-page` an operation that some page reaches in the browser (`pages` names them); `backend-only` an operation no page reaches. */
 export type Reachability = "page" | "via-page" | "backend-only";
+
+export interface CandidateChangedFile {
+  file: string;
+  /* Absent when the diff of the file was not read. */
+  addedLines?: number;
+}
+
+/* The seed of a file the map links to a page: no symbol, no range, so every added line of the file is the candidate's. */
+export const FILE_SEED_SYMBOL = "*";
 
 export interface UseCaseCandidate {
   /* `uc-` and 8 hex digits, stable for the same entry point whatever the order the candidates were derived in. */
@@ -15,6 +25,8 @@ export interface UseCaseCandidate {
   basis: ReachBasis;
   evidence: string[];
   seeds: ChangedSymbol[];
+  /* The changed files that seed the candidate, each with the lines the change added to it when the diff was read. Executable lines are only known once a run has measured them, so a count here is of added lines. */
+  changedFiles?: CandidateChangedFile[];
   confidence: number;
   reachability: Reachability;
   pages: string[];
@@ -37,6 +49,7 @@ export function candidatePagesOf(candidate: UseCaseCandidate): string[] {
 }
 
 const MAX_LINE_EVIDENCE_CHARS = 240;
+const MAX_LINE_FILES = 4;
 const MAX_LINE_SPECS = 3;
 const MAX_LINE_OBJECTIVES = 3;
 const MAX_LINE_OBJECTIVE_CHARS = 120;
@@ -49,10 +62,18 @@ function specWithObjectives(file: string, objectives: readonly string[] | undefi
   return declared.length > 0 ? `${file} (declares: ${declared.join("; ")})` : file;
 }
 
-/* One line that names a candidate to the lead: id, entry, how directly the change reaches it, the evidence path and the specs the suite already holds for it, each with what its manifest declares it checks. Unsanitized: the caller redacts. */
+/* A changed file as the lead reads it: its path, the kind the language registry gives it (a declared language, or `other`, which holds styles, templates and data) and the lines the change added to it. */
+function changedFileText(changed: CandidateChangedFile): string {
+  const kind = LanguageRegistry.languageForFile(changed.file) ?? "other";
+  return `${changed.file} (${kind}${changed.addedLines !== undefined ? `, +${changed.addedLines}` : ""})`;
+}
+
+/* One line that names a candidate to the lead: id, entry, how directly the change reaches it, the changed files that seed it, the evidence path and the specs the suite already holds for it, each with what its manifest declares it checks. Unsanitized: the caller redacts. */
 export function candidateLine(candidate: UseCaseCandidate): string {
   const evidence = candidate.evidence.join(" > ");
   const cut = evidence.length > MAX_LINE_EVIDENCE_CHARS ? `${evidence.slice(0, MAX_LINE_EVIDENCE_CHARS)}...` : evidence;
   const specs = candidate.existingSpecs.slice(0, MAX_LINE_SPECS).map((file) => specWithObjectives(file, candidate.specObjectives?.[file])).join(", ");
-  return [candidate.id, entryKey(candidate.entry), `${candidate.tier}, ${candidate.reachability}`, cut, specs !== "" ? `specs: ${specs}` : "no spec yet"].filter((part) => part !== "").join(" | ");
+  const files = candidate.changedFiles ?? [];
+  const changed = files.length > 0 ? `changed: ${files.slice(0, MAX_LINE_FILES).map(changedFileText).join(", ")}${files.length > MAX_LINE_FILES ? `, +${files.length - MAX_LINE_FILES} more file(s)` : ""}` : "";
+  return [candidate.id, entryKey(candidate.entry), `${candidate.tier}, ${candidate.reachability}`, changed, cut, specs !== "" ? `specs: ${specs}` : "no spec yet"].filter((part) => part !== "").join(" | ");
 }

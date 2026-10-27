@@ -60,7 +60,7 @@ test("the label is the map's name for the page", () => {
 });
 
 test("a page the map links to a changed file becomes a direct candidate when the scope does not hold it", () => {
-  const all = deriveCandidates(scopeOf([page("/orders")]), { mapLinks: [{ repo: WEB, route: "/orders", basis: "source" }, { repo: WEB, route: "/profile", basis: "spec" }] });
+  const all = deriveCandidates(scopeOf([page("/orders")]), { mapLinks: [{ repo: WEB, route: "/orders", basis: "source", files: ["web/src/orders.ts"] }, { repo: WEB, route: "/profile", basis: "spec", files: ["web/src/profile.html"] }] });
 
   assert.deepEqual(all.map((c) => c.entry.kind === "page" ? c.entry.route : ""), ["/orders", "/profile"]);
   const profile = all.find((c) => c.entry.kind === "page" && c.entry.route === "/profile")!;
@@ -131,4 +131,30 @@ test("candidates come ordered direct, then indirect, then cross-repo", () => {
   ]));
 
   assert.deepEqual(out.map((c) => c.tier), ["direct", "indirect", "cross-repo"]);
+});
+
+test("a page the map links to changed files is seeded by those files, whole, and shows them with the lines the change added", () => {
+  const scope: ChangeScope = { ...scopeOf([]), repos: [{ repo: WEB, role: "primary", indexedSha: null, changedFiles: [], seeds: [], seedBasis: "none", addedLines: { "web/src/profile.scss": 12 }, entryPoints: [], entryPointsTruncated: false }] };
+
+  const [c] = deriveCandidates(scope, { mapLinks: [{ repo: WEB, route: "/profile", basis: "implementation", files: ["web/src/profile.scss", "web/src/profile.ts"] }] });
+
+  assert.deepEqual(c!.seeds.map((s) => [s.file, s.range]), [["web/src/profile.scss", undefined], ["web/src/profile.ts", undefined]]);
+  assert.deepEqual(c!.changedFiles, [{ file: "web/src/profile.scss", addedLines: 12 }, { file: "web/src/profile.ts" }]);
+});
+
+test("a candidate the call graph proved keeps its seeds and lists their files once", () => {
+  const seeds = [SEED, { ...SEED, symbol: "other", range: { start: 9, end: 12 } }];
+  const [c] = deriveCandidates(scopeOf([page("/orders", { seeds })]));
+
+  assert.deepEqual(c!.seeds, seeds);
+  assert.deepEqual(c!.changedFiles, [{ file: SEED.file }]);
+});
+
+test("the candidate line names the changed files with their kind and added lines, and says nothing about files when none seeds it", () => {
+  const withFiles = candidateLine({ ...deriveCandidates(scopeOf([page("/orders")]))[0]!, changedFiles: [{ file: "web/src/a.scss", addedLines: 7 }, { file: "web/src/a.ts", addedLines: 2 }, { file: "b.java" }] });
+  assert.match(withFiles, /web\/src\/a\.scss \(other, \+7\)/);
+  assert.match(withFiles, /web\/src\/a\.ts \(typescript, \+2\)/);
+  assert.match(withFiles, /b\.java \(java\)/);
+
+  assert.doesNotMatch(candidateLine({ ...deriveCandidates(scopeOf([page("/orders")]))[0]!, changedFiles: [] }), /changed:/);
 });

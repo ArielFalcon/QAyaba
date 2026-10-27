@@ -89,3 +89,15 @@ describe("diffChangedFiles", () => {
     assert.deepEqual(diffChangedFiles(DIFF).sort(), ["web/a.ts", "web/gone.ts"]);
   });
 });
+
+describe("perCandidateCoverage of a candidate seeded by a whole file", () => {
+  it("measures every added line of the file, as the aggregate does", () => {
+    const [only] = perCandidateCoverage(base([candidate("uc-1", [{ file: "web/a.ts", symbol: "*" }])]));
+    assert.deepEqual([only!.changedLines, only!.coveredChanged, only!.ratio, only!.unmeasured], [6, 3, 0.5, undefined]);
+  });
+
+  it("is deletion-only when the file it names was only deleted", () => {
+    const [only] = perCandidateCoverage(base([candidate("uc-1", [{ file: "web/gone.ts", symbol: "*" }])]));
+    assert.deepEqual([only!.changedLines, only!.ratio, only!.unmeasured], [0, null, "deletion-only"]);
+  });
+});

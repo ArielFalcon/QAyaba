@@ -200,3 +200,16 @@ test("candidates exist from the graph's routes alone when no map and no suite ca
 
   assert.deepEqual(candidates.map((c) => [c.entry.kind, c.reachability, c.existingSpecs]), [["page", "page", []]]);
 });
+
+test("a page only the map links to the changed files is seeded by those files and counts the lines the diff added to them", async () => {
+  const STYLE = "web/src/app/orders/orders.page.scss";
+  const g = graph({ impactedSymbols: async () => report([]) });
+  const subject = adapter(g, () => ({ routes: [{ path: "/orders", implementationFiles: [ORDERS, STYLE] }], api: [], feBe: [] }));
+  const touched = new Map([[STYLE, new Set([3, 4, 9])]]);
+  const scope = await subject.resolve({ specDir: "/s", repos: [{ ...front, changedFiles: [STYLE], touchedLines: touched }] });
+
+  const [candidate] = await subject.candidates({ specDir: "/does/not/exist", scope });
+
+  assert.deepEqual(candidate!.seeds.map((s) => [s.file, s.range]), [[STYLE, undefined]]);
+  assert.deepEqual(candidate!.changedFiles, [{ file: STYLE, addedLines: 3 }]);
+});

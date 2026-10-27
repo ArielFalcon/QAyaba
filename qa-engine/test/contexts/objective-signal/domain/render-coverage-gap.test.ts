@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { renderBranchGap, renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
 
 /* Enforce-mode regen's coverage-gap renderer. Expected outputs are hand-written against
@@ -96,4 +97,13 @@ test("renderBranchGap: the arms on changed lines no test ran, one line each with
 test("renderBranchGap: over the max truncates and reports the remainder count", () => {
   const arms = Array.from({ length: 4 }, (_, i) => ({ file: "src/a.ts", line: i + 1, kind: "if", arm: "else" }));
   assert.equal(renderBranchGap(arms, 2).split("\n").at(-1), "…and 2 more arm(s)");
+});
+
+test("renderCoverageGap: a candidate seeded by a whole file holds that file's uncovered lines", () => {
+  const candidate: UseCaseCandidate = { id: "uc-1", entry: { kind: "page", repo: "web", route: "/orders" }, tier: "direct", basis: "implementation", evidence: [], seeds: [{ file: "src/a.ts", symbol: "*" }], confidence: 1, reachability: "page", pages: [], existingSpecs: [] };
+
+  const out = renderCoverageGap([{ file: "src/a.ts", lines: [4, 5] }, { file: "src/b.ts", lines: [1] }], 10, [candidate]);
+
+  assert.match(out, /uc-1 \(page \/orders\):\n  - src\/a\.ts: lines 4-5/);
+  assert.match(out, /other changed lines:\n  - src\/b\.ts: lines 1/);
 });

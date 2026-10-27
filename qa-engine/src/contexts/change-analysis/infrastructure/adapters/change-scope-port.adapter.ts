@@ -122,6 +122,7 @@ export class ChangeScopePortAdapter implements ChangeScopePort {
         changedFiles: [...r.changedFiles],
         seeds: symbols.filter((s) => s.depth === 0).map(changedSymbolOf),
         seedBasis,
+        ...(r.touchedLines ? { addedLines: addedLinesOf(r.touchedLines) } : {}),
         entryPoints: known.entryPoints,
         entryPointsTruncated: known.truncated,
       },
@@ -163,7 +164,7 @@ function mapLinksOf(scope: ChangeScope, map: PageMap): MapLink[] {
   const routes = (map.routes ?? []).flatMap((r) => (typeof r.path === "string" && r.path !== "" ? [r.path] : []));
   if (!primary || routes.length === 0 || primary.changedFiles.length === 0) return [];
   return rankRoutesWithRelevance(routes, map, { changedFiles: primary.changedFiles }).flatMap((ranked) =>
-    ranked.relevant && (ranked.basis === "implementation" || ranked.basis === "source" || ranked.basis === "spec") ? [{ repo: primary.repo, route: ranked.route, basis: ranked.basis }] : [],
+    ranked.relevant && ranked.files.length > 0 && (ranked.basis === "implementation" || ranked.basis === "source" || ranked.basis === "spec") ? [{ repo: primary.repo, route: ranked.route, basis: ranked.basis, files: ranked.files }] : [],
   );
 }
 
@@ -178,8 +179,12 @@ function linksOf(request: ChangeScopeRequest): ReachLink[] {
   return [...byKey.values()];
 }
 
+function addedLinesOf(touched: ReadonlyMap<string, ReadonlySet<number>>): Record<string, number> {
+  return Object.fromEntries([...touched].map(([file, lines]) => [file, lines.size]));
+}
+
 function emptyScope(r: ChangeScopeRepo): RepoScope {
-  return { repo: r.repo, role: r.role, indexedSha: null, changedFiles: [...r.changedFiles], seeds: [], seedBasis: "none", entryPoints: [], entryPointsTruncated: false };
+  return { repo: r.repo, role: r.role, indexedSha: null, changedFiles: [...r.changedFiles], seeds: [], seedBasis: "none", ...(r.touchedLines ? { addedLines: addedLinesOf(r.touchedLines) } : {}), entryPoints: [], entryPointsTruncated: false };
 }
 
 /* Every route the engine recognised in the repo: a handler (it has a method) is an operation, any other is a page. Sorted, de-duplicated, capped. */

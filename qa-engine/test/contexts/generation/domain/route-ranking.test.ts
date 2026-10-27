@@ -427,3 +427,15 @@ test("a candidate page the engine reached through a map-less link keeps that bas
 
   assert.deepEqual(ranked.map((r) => [r.route, r.relevant, r.basis]), [["/shop", true, "implementation"]]);
 });
+
+test("a relevant route names the changed files the map links to it, by implementation, source and the spec of an operation it joins", () => {
+  const map = {
+    routes: [route("/impl", { [IMPLEMENTATION]: ["src/pages/impl.ts", "src/pages/impl.scss"] }), route("/src", { [SOURCE]: "src/pages/src.ts" }), route("/joined"), route("/plain")],
+    api: [{ operationId: "op", [SPEC]: "api/op.yaml" }],
+    feBe: [{ route: "/joined", operationId: "op" }],
+  };
+
+  const ranked = rankRoutesWithRelevance(["/impl", "/src", "/joined", "/plain"], map, { changedFiles: ["src/pages/impl.scss", "src/pages/src.ts", "api/op.yaml", "README.md"] });
+
+  assert.deepEqual(Object.fromEntries(ranked.map((r) => [r.route, r.files])), { "/impl": ["src/pages/impl.scss"], "/src": ["src/pages/src.ts"], "/joined": ["api/op.yaml"], "/plain": [] });
+});

@@ -26,6 +26,8 @@ export interface RepoScope {
   changedFiles: string[];
   seeds: ChangedSymbol[];
   seedBasis: "lines" | "whole-file" | "none";
+  /* The lines the change added to each changed file; absent when the diff was not read. */
+  addedLines?: Record<string, number>;
   /* Every entry point the engine recognised in the repo, sorted and capped. */
   entryPoints: EntryPoint[];
   entryPointsTruncated: boolean;

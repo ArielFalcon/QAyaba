@@ -389,7 +389,7 @@ export async function buildContextPack(
   const derivedRoutes = [...new Set(input.routes ?? [])];
   const ranked: RankedRoute[] = input.prChangedFiles
     ? rankRoutesWithRelevance(derivedRoutes, input.contextMap, { changedFiles: input.prChangedFiles, ...(input.stagedRoots ? { stagedRoots: input.stagedRoots } : {}), ...(input.candidates?.length ? { candidates: input.candidates } : {}), ...(input.hubPages?.length ? { hubPages: input.hubPages } : {}) })
-    : derivedRoutes.map((route) => ({ route, rank: 0, relevant: false }));
+    : derivedRoutes.map((route) => ({ route, rank: 0, relevant: false, files: [] }));
   const deterministicRoutes = ranked.map((entry) => entry.route);
   const relevantRanked = ranked.flatMap((entry) => (entry.relevant && entry.basis !== undefined ? [{ route: entry.route, basis: entry.basis }] : []));
   const relevantMapRoutes = relevantRanked.map((entry) => entry.route);
