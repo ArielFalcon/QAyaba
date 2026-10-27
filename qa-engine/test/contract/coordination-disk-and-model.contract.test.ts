@@ -52,8 +52,6 @@ test("pushback rejects path escape even with code-mode root '.'", () => {
     summary: "hack",
     filesChanged: [{ path: "../secret" }],
     evidence: [],
-    validation: [],
-    assumptions: [],
     concerns: [],
     unresolvedQuestions: [],
     recommendation: "accept",
@@ -70,7 +68,6 @@ test("pushback allows relative project path under code-mode root '.'", () => {
     objective: "x",
     task: "x",
     scope: { readablePaths: ["."], writablePaths: ["."], allowedCommands: [] },
-    validationPlan: [{ id: "v1", description: "ok" }],
   });
   const ok = applyPushback(brief, {
     delegationId: "d1",
@@ -79,8 +76,6 @@ test("pushback allows relative project path under code-mode root '.'", () => {
     summary: "ok",
     filesChanged: [{ path: "src/foo.test.ts" }],
     evidence: [],
-    validation: [{ id: "v1", ok: true }],
-    assumptions: [],
     concerns: [],
     unresolvedQuestions: [],
     recommendation: "accept",

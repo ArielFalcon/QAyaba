@@ -10,6 +10,7 @@ import { GENERATION_END } from "@kernel/generation-end.ts";
 import { DEFAULT_COORDINATION_SETTINGS, type PlanningLimits } from "@kernel/coordination.ts";
 import { MAX_SESSION_PAGES } from "@kernel/agent-browser.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
+import { ContextBudget } from "@kernel/context-budget.ts";
 import {
   LeadSidekicks,
   MIN_FLOW_MS,
@@ -91,7 +92,7 @@ interface Rig {
 function result(brief: DelegationBrief, over: Partial<DelegationResult> = {}): DelegationResult {
   return {
     delegationId: brief.delegationId, runId: brief.runId, status: "completed", summary: "wrote the spec", filesChanged: brief.scope.writablePaths.map((path) => ({ path })),
-    evidence: [], validation: [], assumptions: [], concerns: [], unresolvedQuestions: [], recommendation: "accept", acceptance: [], ...over,
+    evidence: [], concerns: [], unresolvedQuestions: [], recommendation: "accept", acceptance: [], ...over,
   };
 }
 
@@ -969,17 +970,42 @@ test("each sidekick's brief carries the run's harness facts and the specs the su
   assert.equal(bareBrief.suite, undefined);
 });
 
-test("each sidekick's brief carries the evidence for the candidate pages its flow visits, and none of another flow's", async () => {
+test("each sidekick's brief carries the evidence for the candidate pages its flow visits, the facts of its own pages and the tools its turn grants", async () => {
   const r = rig();
   const candidates = [
     pageCandidate("/shops/:city", ["src/util/format.ts::formatMoney", "src/shops/list.page.ts::ShopList", "page /shops/:city"]),
     pageCandidate("/orders", ["src/util/format.ts::formatMoney", "src/orders/orders.page.ts::Orders", "page /orders"]),
   ];
+  const confirmedDataRoutes = [{ path: "/shops/madrid", resultCount: 3 }, { path: "/orders", resultCount: 2 }];
   const plan = { kind: "fanout", flows: [{ id: "shops", objective: "the shop list", routes: ["/shops/madrid"] }, { id: "login", objective: "sign in works", routes: ["/login"] }] };
-  await r.coordinator.coordinate(input(r, { candidates, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  await r.coordinator.coordinate(input(r, { candidates, confirmedDataRoutes, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
   const brief = (flow: string) => r.executed.find((e) => e.brief.delegationId === `run-1-flow-${flow}`)!.brief;
-  assert.deepEqual(brief("shops").proofs, ["/shops/:city: src/util/format.ts::formatMoney > src/shops/list.page.ts::ShopList > page /shops/:city"]);
-  assert.equal(brief("login").proofs, undefined, "a flow that visits no proven page carries no proof");
+  assert.deepEqual(brief("shops").candidates?.map((c) => c.evidence), [["src/util/format.ts::formatMoney", "src/shops/list.page.ts::ShopList", "page /shops/:city"]]);
+  assert.equal(brief("login").candidates, undefined, "a flow that visits no candidate page carries none");
+  assert.deepEqual(brief("shops").knownFacts.map((f) => f.dataRef), ["/shops/madrid"]);
+  assert.deepEqual(brief("login").knownFacts, [], "another flow's page is not this flow's fact");
+  assert.deepEqual(brief("shops").tools, ["read", "write", "run_spec", "authbrowser"]);
+});
+
+test("a flow's brief preloads its changed code while it fits the author's window, names the rest by file and range, and hands the fit to the turn", async () => {
+  const diff = (hunks: number): string => ["diff --git a/src/cart.ts b/src/cart.ts", "--- a/src/cart.ts", "+++ b/src/cart.ts", ...Array.from({ length: hunks }, (_, i) => [`@@ -${1 + i * 50},1 +${1 + i * 50},41 @@`, " keep", ...Array.from({ length: 40 }, (_, j) => `+  total${i} += item${j}.price * quantity;`)]).flat()].join("\n");
+  const candidates = [pageCandidate("/cart", ["page /cart"], { seeds: [{ file: "src/cart.ts", symbol: "total", range: { start: 1, end: 1_000 } }] })];
+  const plan = planOf([{ ...cartFlow, candidates: ["uc-/cart"] }]);
+  const windowed = (windowTokens: number | undefined) => new ContextBudget({ windowTokens: () => windowTokens }, { forRole: () => ({ growthTokensPerStep: 0, steps: 0, basis: "cold-start", samples: 0 }) });
+  const briefWith = async (windowTokens: number | undefined) => {
+    const r = rig();
+    r.coordinator = new LeadSidekicks({ ...r.deps, contextBudget: windowed(windowTokens) });
+    const outcome = await r.coordinator.coordinate(input(r, { candidates, change: { diffs: [diff(6)] }, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+    if (outcome.action === "fanout") await outcome.pass?.release();
+    return r.executed.find((e) => e.brief.delegationId === "run-1-flow-cart")!;
+  };
+  const open = await briefWith(undefined);
+  assert.equal(open.brief.change?.hunks.length, 6, "an unknown window preloads every owned hunk");
+  assert.equal(open.opts.contextFit?.outcome, "unknown");
+  const tight = await briefWith(2_000);
+  assert.ok(tight.brief.change!.hunks.length < 6 && tight.brief.change!.hunks.length > 0);
+  assert.equal(tight.brief.change!.references.filter((ref) => /^src\/cart\.ts:\d+-\d+ /.test(ref)).length, 6 - tight.brief.change!.hunks.length);
+  assert.equal(tight.opts.contextFit?.outcome, "fits");
 });
 
 /* A lead whose planning session answers each turn with these raw outputs in order (the last repeats). */
@@ -1460,7 +1486,7 @@ test("a flow's brief carries the use cases it cites with the changed code, and t
   if (outcome.action === "fanout") await outcome.pass?.release();
   const brief = (flow: string) => r.executed.find((e) => e.brief.delegationId === `run-1-flow-${flow}`)!.brief;
   assert.deepEqual(brief("cart").candidates?.map((c) => c.id), ["uc-/cart"]);
-  assert.ok(brief("cart").candidates?.[0]?.hunks[0]?.includes("+const total = 1;"));
+  assert.ok(brief("cart").change?.hunks[0]?.text.includes("+const total = 1;"));
   assert.equal(brief("login").candidates, undefined, "a flow that cites and visits no use case carries none");
   const cartFlowSnapshot = r.plans.at(-1)!.flows.find((f) => f.id === "cart")!;
   assert.deepEqual(cartFlowSnapshot.candidates, [{ id: "uc-/cart", claimed: "covered" }]);

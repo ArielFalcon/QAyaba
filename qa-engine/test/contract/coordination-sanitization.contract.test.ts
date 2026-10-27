@@ -33,7 +33,6 @@ test("change-analysis evidence, the brief, and the JSONL sink redact an injected
     acceptanceCriteria: [`passes when ${SECRET} is absent`],
     scope: { readablePaths: ["e2e/"], writablePaths: ["e2e/"], allowedCommands: [] },
     knownFacts: [evidence],
-    validationPlan: [{ id: "v1", description: `check ${SECRET}` }],
   });
   assert.doesNotMatch(JSON.stringify(brief), /ghs_supersecretvalue/);
 
@@ -61,8 +60,6 @@ test("an illegal write's replacement summary and concerns redact a secret-bearin
           summary: "wrote it",
           filesChanged: [{ path: "vendor/token: ghs_supersecretvalue.txt" }],
           evidence: [],
-          validation: [],
-          assumptions: [],
           concerns: [],
           unresolvedQuestions: [],
           recommendation: "accept",

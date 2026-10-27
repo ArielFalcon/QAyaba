@@ -75,9 +75,9 @@ test("every coordination prompt reports a size and a hash for each section it ca
 
 test("the flow author's brief keeps its sections in order, each once, with the boundary and the tools stated apart from the return shape", () => {
   const { text, sectionSizes } = renderSidekickBrief(redaction, authorBrief());
-  assert.deepEqual(Object.keys(sectionSizes), ["task", "acceptance", "scope", "facts", "artifacts", "validation", "tools", "contract"]);
+  assert.deepEqual(Object.keys(sectionSizes), ["task", "acceptance", "scope", "tools", "contract"]);
   const headings = text.split("\n").filter((line) => line.startsWith("## "));
-  assert.deepEqual(headings, ["## Task", "## Acceptance criteria", "## Scope", "## Authority (frozen)", "## Known facts", "## Artifacts", "## Validation plan", "## Tools", "## Output contract"]);
+  assert.deepEqual(headings, ["## Task", "## Acceptance criteria", "## Scope", "## Authority (frozen)", "## Tools", "## Output contract"]);
   assert.equal(text.split("Do NOT write outside writablePaths").length, 2, "the boundary rule is stated once");
   assert.match(text, /- read: /);
   assert.match(text, /- run_spec: /);

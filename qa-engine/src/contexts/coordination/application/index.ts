@@ -33,7 +33,6 @@ export {
   type ArtifactReference,
   type DelegationBrief,
   type DelegationScope,
-  type ValidationStep,
 } from "./delegation-brief.ts";
 export {
   belongsToBrief,

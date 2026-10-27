@@ -4,7 +4,6 @@ import { jsonObjectsIn } from "@kernel/last-json-object.ts";
 import { UNREADABLE_ANSWER } from "@kernel/unreadable-answer.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import { ANSWER_MISS, belongsToBrief, CANDIDATE_CLAIMS, DELEGATION_RECOMMENDATIONS, type CandidateClaim, type CandidateClaimStatus, DELEGATION_STATUSES, type AnswerMiss, type DelegationRecommendation, type DelegationResult, type DelegationStatus } from "./delegation-result.ts";
-import type { EvidenceRef } from "./evidence-ref.ts";
 import { readAcceptanceReport } from "./acceptance-report.ts";
 import { applyPushback } from "./pushback.ts";
 import { isPathWithinWritableRoots } from "./path-scope.ts";
@@ -33,16 +32,6 @@ function parseDelegationResult(raw: unknown, brief: DelegationBrief, redaction: 
         .filter((f): f is { path: string } => !!f && typeof f === "object" && typeof (f as { path?: unknown }).path === "string")
         .map((f) => ({ path: f.path }))
     : [];
-  const validation = Array.isArray(o.validation)
-    ? o.validation
-        .filter((v): v is { id: string; ok: boolean } => !!v && typeof v === "object" && typeof (v as { id?: unknown }).id === "string" && typeof (v as { ok?: unknown }).ok === "boolean")
-        .map((v) => ({ id: v.id, ok: v.ok }))
-    : [];
-  const evidence: EvidenceRef[] = Array.isArray(o.evidence)
-    ? o.evidence
-        .filter((e): e is EvidenceRef => !!e && typeof e === "object" && typeof (e as EvidenceRef).id === "string")
-        .map((e) => ({ ...e, summary: typeof e.summary === "string" ? scrub(e.summary) : e.summary }))
-    : [];
   const acceptance = readAcceptanceReport(redaction, o.acceptance, brief.acceptanceCriteria.length);
   return {
     delegationId: o.delegationId,
@@ -50,9 +39,6 @@ function parseDelegationResult(raw: unknown, brief: DelegationBrief, redaction: 
     status: status as DelegationStatus,
     summary: typeof o.summary === "string" ? scrub(o.summary) : "",
     filesChanged,
-    evidence,
-    validation,
-    assumptions: asStringArray(o.assumptions).map(scrub),
     concerns: asStringArray(o.concerns).map(scrub),
     unresolvedQuestions: asStringArray(o.unresolvedQuestions).map(scrub),
     recommendation: recommendation as DelegationRecommendation,
@@ -106,8 +92,6 @@ function failedResult(brief: DelegationBrief, summary: string, redaction: Redact
         confidence: "inferred",
       },
     ],
-    validation: [],
-    assumptions: [],
     concerns: [safe],
     unresolvedQuestions: [],
     recommendation: "escalate",

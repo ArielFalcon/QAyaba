@@ -527,7 +527,6 @@ async function sidekickPrompts(subject: string): Promise<PromptText[]> {
     scope: { readablePaths: ["e2e/"], writablePaths: ["e2e/flows/"], allowedCommands: ["npx playwright test --list"] },
     knownFacts: [{ id: "f1", kind: "execution", source: "runner", summary: "the cart spec timed out", confidence: "observed" }],
     artifactRefs: [{ id: "a1", path: "e2e/flows/cart.spec.ts" }],
-    validationPlan: [{ id: "v1", description: "the spec lists cleanly" }],
   });
   await new SidekickExecutor({ redaction, runtime: recordingRuntime(sent) }).execute(brief, {
     cwd: "/m",

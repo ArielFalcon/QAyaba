@@ -41,7 +41,7 @@ test("the sidekick prompt carries no escalation policy block", () => {
   assert.doesNotMatch(text, /onNeedsLead|onNoProgress|onBudgetExhausted/);
 });
 
-test("renderSidekickBrief includes authority, scope and validation — not a lead transcript", () => {
+test("renderSidekickBrief includes authority and scope — not a lead transcript", () => {
   const { text, sectionSizes } = renderSidekickBrief(redaction, brief());
   assert.match(text, /write smoke spec/);
   assert.match(text, /checkout completes/);
@@ -54,12 +54,12 @@ test("renderSidekickBrief includes authority, scope and validation — not a lea
 /* Model-bound egress: sidekick prompt must scrub free-form brief fields the same way lead/worker
    prompts do via sanitizeText — secrets in guidance/commit message must not reach the provider.
  */
-test("renderSidekickBrief states how the change reaches the flow's pages only when the brief carries proofs", () => {
-  const withProofs = createDelegationBrief({ redaction, delegationId: "d1", runId: "r1", objective: "o", task: "t", scope, proofs: ["/orders: a.ts::f > b.ts::Page > page /orders"] });
-  const { text, sectionSizes } = renderSidekickBrief(redaction, withProofs);
-  assert.match(text, /## How the change reaches this flow's pages[^\n]*\n- \/orders: a\.ts::f > b\.ts::Page > page \/orders/);
-  assert.ok(sectionSizes.proofs! > 0);
-  assert.equal("proofs" in renderSidekickBrief(redaction, brief()).sectionSizes, false);
+test("renderSidekickBrief states how the change reaches a candidate page in the change section alone", () => {
+  const candidates = [{ id: "uc-1", entry: "page /orders", tier: "direct", evidence: ["a.ts::f", "b.ts::Page", "page /orders"], symbols: [], expectedFrom: [{ kind: "diff" as const, ref: "a.ts" }] }];
+  const { text, sectionSizes } = renderSidekickBrief(redaction, createDelegationBrief({ redaction, delegationId: "d1", runId: "r1", objective: "o", task: "t", scope, candidates }));
+  assert.equal(text.split("a.ts::f > b.ts::Page > page /orders").length - 1, 1);
+  assert.ok(sectionSizes.change! > 0);
+  assert.equal("proofs" in sectionSizes, false);
 });
 
 test("renderSidekickBrief redacts secrets in objective, task, knownFacts, and acceptance criteria", () => {
@@ -101,8 +101,6 @@ test("SidekickExecutor opens sidekick session, prompts, disposes, and parses Del
           summary: "wrote smoke",
           filesChanged: [{ path: "e2e/specs/checkout.spec.ts" }],
           evidence: [],
-          validation: [{ id: "v1", ok: true }],
-          assumptions: [],
           concerns: [],
           unresolvedQuestions: [],
           recommendation: "accept",
@@ -137,7 +135,7 @@ test("SidekickExecutor opens sidekick session, prompts, disposes, and parses Del
 /* Free-form DelegationResult fields re-enter lead context / notes — scrub before they leave the
    executor boundary (same sanitizer twin as Issue/prompt egress elsewhere).
  */
-test("SidekickExecutor redacts secrets in DelegationResult summary, concerns, and assumptions", async () => {
+test("SidekickExecutor redacts secrets in DelegationResult summary, concerns and questions, and keeps no evidence of the sidekick's", async () => {
   const secret = "token: ghs_supersecretvalue";
   const session: AgentSession = {
     async prompt() {
@@ -157,8 +155,6 @@ test("SidekickExecutor redacts secrets in DelegationResult summary, concerns, an
               confidence: "observed",
             },
           ],
-          validation: [],
-          assumptions: [`env still has ${secret}`],
           concerns: [`selector near ${secret}`],
           unresolvedQuestions: [`why is ${secret} in the page?`],
           recommendation: "review",
@@ -178,9 +174,8 @@ test("SidekickExecutor redacts secrets in DelegationResult summary, concerns, an
   assert.equal(result.status, "completed-with-concerns");
   assert.doesNotMatch(result.summary, /ghs_supersecretvalue/);
   assert.doesNotMatch(result.concerns.join("\n"), /ghs_supersecretvalue/);
-  assert.doesNotMatch(result.assumptions.join("\n"), /ghs_supersecretvalue/);
   assert.doesNotMatch(result.unresolvedQuestions.join("\n"), /ghs_supersecretvalue/);
-  assert.doesNotMatch(result.evidence.map((e) => e.summary).join("\n"), /ghs_supersecretvalue/);
+  assert.equal(result.evidence, undefined);
   assert.match(result.summary, /\[REDACTED\]/);
 });
 
@@ -197,8 +192,6 @@ test("a retry with feedback is one prompt that carries the brief and the feedbac
           summary: "fixed after feedback",
           filesChanged: [{ path: "e2e/specs/checkout.spec.ts" }],
           evidence: [],
-          validation: [],
-          assumptions: [],
           concerns: ["selector fragile"],
           unresolvedQuestions: [],
           recommendation: "review",
@@ -235,8 +228,6 @@ test("SidekickExecutor rejects a result for a foreign brief as failed", async ()
           summary: "spoof",
           filesChanged: [],
           evidence: [],
-          validation: [],
-          assumptions: [],
           concerns: [],
           unresolvedQuestions: [],
           recommendation: "accept",
@@ -265,8 +256,6 @@ test("SidekickExecutor marks write outside writablePaths as blocked", async () =
           summary: "escaped",
           filesChanged: [{ path: "src/app.ts" }],
           evidence: [],
-          validation: [],
-          assumptions: [],
           concerns: [],
           unresolvedQuestions: [],
           recommendation: "accept",
@@ -308,8 +297,6 @@ test("SidekickExecutor adopts long camelCase and digit-bearing spec paths it wro
             summary: "wrote three specs",
             filesChanged: written.map((path) => ({ path })),
             evidence: [],
-            validation: [],
-            assumptions: [],
             concerns: ["login form echoed token: ghs_supersecretvalue in the DOM"],
             unresolvedQuestions: [],
             recommendation: "review",
@@ -344,8 +331,6 @@ test("SidekickExecutor passes escalated model via OpenSessionOpts without naming
           summary: "architecture ambiguous",
           filesChanged: [],
           evidence: [],
-          validation: [],
-          assumptions: [],
           concerns: [],
           unresolvedQuestions: ["which layout?"],
           recommendation: "escalate",
@@ -386,8 +371,6 @@ async function executeWith(fields: Record<string, unknown>, criteria: readonly s
     summary: "fixed selectors",
     filesChanged: [{ path: "e2e/specs/login.spec.ts" }],
     evidence: [],
-    validation: [],
-    assumptions: [],
     concerns: [],
     unresolvedQuestions: [],
     recommendation: "accept",
@@ -584,7 +567,7 @@ test("the brief numbers each acceptance criterion and asks for a report of every
 test("a brief that carries its flow's pages renders them in a section of their own, and one without renders no such section", () => {
   const withPages = createDelegationBrief({ redaction, delegationId: "d1", runId: "r1", objective: "cover checkout", task: "write smoke spec", scope, pages: "route /cart:\n  button \"Checkout\"" });
   const rendered = renderSidekickBrief(redaction, withPages);
-  assert.ok("pages" in rendered.sectionSizes);
+  assert.ok("context-pack" in rendered.sectionSizes);
   assert.ok(rendered.text.includes("button \"Checkout\""));
-  assert.equal("pages" in renderSidekickBrief(redaction, brief()).sectionSizes, false);
+  assert.equal("context-pack" in renderSidekickBrief(redaction, brief()).sectionSizes, false);
 });

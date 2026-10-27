@@ -37,8 +37,6 @@ function result(overrides: Partial<DelegationResult> = {}): DelegationResult {
     summary: "fixed selectors",
     filesChanged: [{ path: "e2e/specs/login.spec.ts" }],
     evidence: [],
-    validation: [],
-    assumptions: [],
     concerns: [],
     unresolvedQuestions: [],
     recommendation: "accept",
@@ -74,42 +72,13 @@ test("a blocked delegation's summary names the fatal findings", () => {
   assert.match(pushed.summary, /path-outside-scope/);
 });
 
-/* ── validation plan ─────────────────────────────────────────────────────────────────────────── */
-
-test("a completed result missing a planned validation reports it as a missing artifact, naming the step", () => {
-  const findings = validateDelegationAuthority(
-    brief({ validationPlan: [{ id: "typecheck", description: "tsc passes" }] }),
-    result({ validation: [{ id: "lint", ok: true }] }),
-  );
-  assert.deepEqual(findings.map((f) => f.reason), ["missing-artifact"]);
-  assert.match(findings[0]!.detail, /typecheck/);
-});
-
-test("a completed result whose planned validation failed contradicts acceptance, naming the step", () => {
-  const findings = validateDelegationAuthority(
-    brief({ validationPlan: [{ id: "typecheck", description: "tsc passes" }] }),
-    result({ validation: [{ id: "typecheck", ok: false }] }),
-  );
-  assert.deepEqual(findings.map((f) => f.reason), ["acceptance-contradiction"]);
-  assert.match(findings[0]!.detail, /typecheck/);
-});
-
-test("a result that did not complete is not checked against the validation plan or the acceptance report", () => {
-  const b = brief({ validationPlan: [{ id: "typecheck", description: "tsc passes" }] });
+test("a result that did not complete is not checked against the acceptance report", () => {
   for (const status of ["blocked", "needs-lead", "failed"] as const) {
-    assert.deepEqual(reasonsOf(b, result({ status, summary: "stuck", acceptance: [{ criterion: 1, status: "unmet" }] })), [], status);
+    assert.deepEqual(reasonsOf(brief(), result({ status, summary: "stuck", acceptance: [{ criterion: 1, status: "unmet" }] })), [], status);
   }
 });
 
 /* ── non-fatal findings ──────────────────────────────────────────────────────────────────────── */
-
-test("a non-fatal finding downgrades a completed result to completed-with-concerns and keeps its recommendation", () => {
-  const pushed = applyPushback(brief({ validationPlan: [{ id: "typecheck", description: "tsc passes" }] }), result());
-  assert.equal(pushed.status, "completed-with-concerns");
-  assert.equal(pushed.recommendation, "accept");
-  assert.equal(pushed.summary, "fixed selectors");
-  assert.ok(pushed.concerns.some((c) => c.startsWith("missing-artifact")));
-});
 
 test("an acceptance report defect is a non-fatal finding: the result keeps its recommendation but is not a clean completion", () => {
   const defective = result({ acceptanceReportDefect: { reason: "acceptance-report-missing", detail: "no report for 1 criteria", unmet: [] } });
@@ -122,8 +91,8 @@ test("an acceptance report defect is a non-fatal finding: the result keeps its r
 
 test("one fatal finding among non-fatal ones still blocks the delegation", () => {
   const pushed = applyPushback(
-    brief({ validationPlan: [{ id: "typecheck", description: "tsc passes" }] }),
-    result({ filesChanged: [{ path: "src/hack.ts" }] }),
+    brief(),
+    result({ filesChanged: [{ path: "src/hack.ts" }], acceptanceReportDefect: { reason: "acceptance-report-missing", detail: "no report for 1 criteria", unmet: [] } }),
   );
   assert.equal(pushed.status, "blocked");
 });

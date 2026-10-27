@@ -44,8 +44,3 @@ export function hunkLineCounts(hunk: DiffHunk): { added: number; removed: number
 export function hunkOverlapsSeed(hunk: DiffHunk, seed: ChangedSymbol): boolean {
   return seed.file === hunk.file && (seed.range === undefined || (seed.range.start <= hunk.newEnd && hunk.newStart <= seed.range.end));
 }
-
-/* The hunks that overlap at least one seed, in the order given. */
-export function hunksOverlapping(hunks: readonly DiffHunk[], seeds: readonly ChangedSymbol[]): DiffHunk[] {
-  return hunks.filter((hunk) => seeds.some((seed) => hunkOverlapsSeed(hunk, seed)));
-}

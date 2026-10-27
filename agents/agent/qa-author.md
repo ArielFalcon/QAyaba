@@ -235,7 +235,7 @@ with this block instead — the reason is what makes an empty list a decision:
 A flow ends with ONLY this block, never the `specs` verdict above:
 
 ```text
-{"delegationId":"...","runId":"...","status":"completed"|"completed-with-concerns"|"blocked"|"needs-lead"|"failed","summary":"...","filesChanged":[{"path":"..."}],"evidence":[],"validation":[{"id":"...","ok":true}],"acceptance":[{"criterion":1,"status":"met"|"unmet"|"unverified","note":"..."}],"assumptions":[],"concerns":[],"unresolvedQuestions":[],"recommendation":"accept"|"review"|"retry"|"escalate"}
+{"delegationId":"...","runId":"...","status":"completed"|"completed-with-concerns"|"blocked"|"needs-lead"|"failed","summary":"...","filesChanged":[{"path":"..."}],"acceptance":[{"criterion":1,"status":"met"|"unmet"|"unverified","note":"..."}],"concerns":[],"unresolvedQuestions":[],"recommendation":"accept"|"review"|"retry"|"escalate"}
 ```
 
 - `filesChanged` lists EVERY file you wrote or edited (`e2e/...` paths included); a file outside `writablePaths`

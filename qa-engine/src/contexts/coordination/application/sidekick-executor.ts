@@ -1,4 +1,5 @@
 /* Sidekick executor: owns an AgentRuntimePort session for one DelegationBrief. Does not modify GenerateTestsUseCase. Model names stay out of this module — callers pass OpenSessionOpts.model for escalated capacity from external config. Free-form DelegationResult fields are scrubbed on parse — they re-enter lead context / notes. filesChanged paths are authority inputs (scope check, on-disk adoption) and stay raw; they are scrubbed only where echoed into a summary or concern. */
+import type { ContextFit } from "@kernel/context-budget.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
@@ -30,6 +31,8 @@ export interface SidekickExecuteOpts {
   delegationId?: string;
   /** Tools the session's prompts are denied, whatever the sidekick's configuration allows. */
   denyTools?: readonly string[];
+  /** How the brief fits the window of the model the session runs on, for the first turn's telemetry. */
+  contextFit?: ContextFit;
 }
 
 /* A sidekick's session, held open after its first answer so that the lead's follow-up reaches the session that did the work. */
@@ -90,7 +93,7 @@ export class SidekickExecutor {
       const text = feedback ? [assembled.text, feedback.text].join("\n\n") : assembled.text;
       const sectionSizes = { ...assembled.sectionSizes, ...feedback?.sectionSizes };
       const sectionHashes = { ...assembled.sectionHashes, ...feedback?.sectionHashes };
-      const { output } = await session.prompt(text, { sectionSizes, ...(Object.keys(sectionHashes).length > 0 ? { sectionHashes } : {}) });
+      const { output } = await session.prompt(text, { sectionSizes, ...(Object.keys(sectionHashes).length > 0 ? { sectionHashes } : {}), ...(opts.contextFit ? { contextFit: opts.contextFit } : {}) });
       const first = read(output);
       return {
         first,

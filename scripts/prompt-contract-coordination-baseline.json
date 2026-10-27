@@ -9,11 +9,11 @@
       "directives": 1
     },
     "flow-author-brief/full": {
-      "bytes": 2909,
+      "bytes": 3085,
       "directives": 5
     },
     "flow-author-brief/plain": {
-      "bytes": 1637,
+      "bytes": 1477,
       "directives": 2
     },
     "lead-correction-refused/plain": {
@@ -74,8 +74,14 @@
     }
   },
   "staticLayers": {
-    "qa-author": 24736,
+    "qa-author": 24667,
     "qa-explore": 10092,
     "qa-lead": 16161
+  },
+  "lastIncrease": {
+    "reason": "the full author brief cell carries the change slice (files, preloaded hunk, reference) and a known fact in place of the proofs section",
+    "budgets": [
+      "flow-author-brief/full:bytes"
+    ]
   }
 }

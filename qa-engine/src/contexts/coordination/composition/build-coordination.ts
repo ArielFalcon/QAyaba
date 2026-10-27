@@ -86,6 +86,7 @@ export function buildCoordination(deps: CoordinationDeps): CoordinationApi {
       },
       ...(deps.escalatedModel ? { escalatedModel: deps.escalatedModel } : {}),
       ...(delegation.deadline ? { deadline: delegation.deadline } : {}),
+      ...(deps.contextBudget ? { contextBudget: deps.contextBudget } : {}),
     }),
   };
 }

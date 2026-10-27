@@ -25,7 +25,6 @@ test("pushback blocks writes outside scope and foreign briefs", () => {
     task: "t",
     scope,
     acceptanceCriteria: ["ok"],
-    validationPlan: [{ id: "v1", description: "pass" }],
   });
   const blocked = applyPushback(brief, {
     delegationId: "d1",
@@ -34,8 +33,6 @@ test("pushback blocks writes outside scope and foreign briefs", () => {
     summary: "x",
     filesChanged: [{ path: "src/hack.ts" }],
     evidence: [],
-    validation: [{ id: "v1", ok: true }],
-    assumptions: [],
     concerns: [],
     unresolvedQuestions: [],
     recommendation: "accept",

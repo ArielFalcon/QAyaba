@@ -8,7 +8,8 @@ import { claim, harnessFactLines } from "@contexts/generation/application/index.
 import type { PromptSectionDef } from "@kernel/prompt-sections.ts";
 import type { PromptClaim } from "@kernel/prompt-claim.ts";
 import { ACCEPTANCE_STATUSES } from "../acceptance-report.ts";
-import { briefTools, type BriefCandidate, type DelegationBrief } from "../delegation-brief.ts";
+import { briefTools, type DelegationBrief } from "../delegation-brief.ts";
+import type { EvidenceRef } from "../evidence-ref.ts";
 import { CANDIDATE_CLAIMS } from "../delegation-result.ts";
 import { MAX_FINDINGS } from "../exploration.ts";
 import { questionIdOf } from "./explore-ids.ts";
@@ -54,10 +55,12 @@ const toolsSection = section({
   },
 });
 
-const optionalList = (heading: string, items: readonly string[]): string => (items.length === 0 ? `${heading}\n(none)` : [heading, ...items].join("\n"));
-
-/* The use cases this flow must exercise: where the change reaches each, the changed code, and where the expected behavior comes from. */
-function changeText(candidates: readonly BriefCandidate[], scrub: (text: string) => string): string {
+/* The change this flow must exercise: the use cases (how the change reaches each, the changed symbols, where the expected behavior comes from), the flow's files, the owned hunks the brief preloads in rank order and the rest by file and range. */
+function changeText(brief: DelegationBrief, scrub: (text: string) => string): string {
+  const candidates = brief.candidates ?? [];
+  const files = brief.change?.files ?? [];
+  const hunks = brief.change?.hunks ?? [];
+  const references = brief.change?.references ?? [];
   return [
     "## Change this flow must exercise",
     "Expected values come from the contract or the commit's stated intent, never from what the page shows: a page that already shows the new behavior proves nothing about the change.",
@@ -66,10 +69,17 @@ function changeText(candidates: readonly BriefCandidate[], scrub: (text: string)
       candidate.evidence.length > 0 ? `Reached through: ${candidate.evidence.map(scrub).join(" > ")}` : "",
       candidate.symbols.length > 0 ? `Changed symbols: ${candidate.symbols.map(scrub).join("; ")}` : "",
       `Expected behavior comes from: ${candidate.expectedFrom.map((source) => `${source.kind} (${scrub(source.ref)})`).join("; ")}`,
-      ...candidate.hunks.map((hunk) => ["Changed code:", "```diff", scrub(hunk), "```"].join("\n")),
     ].filter(Boolean)),
+    ...(files.length > 0 ? ["### Changed files", ...files.map((file) => `- ${scrub(file.path)} (${file.kind}, +${file.added} -${file.removed}, ${file.origins.join(", ")})`)] : []),
+    ...(hunks.length > 0
+      ? ["### Changed code", ...hunks.map((hunk) => ["```diff", `${scrub(hunk.path)}:${hunk.start}-${hunk.end} (${hunk.kind}, ${hunk.candidateIds.join(", ")})`, scrub(hunk.text), "```"].join("\n"))]
+      : []),
+    ...(references.length > 0 ? ["### Changed code not shown (read it in the repository when you need it)", ...references.map((ref) => `- ${scrub(ref)}`)] : []),
   ].join("\n");
 }
+
+/* A fact the run holds, with where it was read and how sure the run is of it. */
+const factLine = (scrub: (text: string) => string) => (fact: EvidenceRef): string => `- ${scrub(fact.summary)} (read by ${fact.source}, ${fact.confidence})`;
 
 /* How many suite lines a brief lists, and the longest of them; the rest are counted. */
 export const BRIEF_MAX_SUITE_LINES = 30;
@@ -95,7 +105,7 @@ function authorReturnShape({ brief }: BriefPromptContext): string {
   return [
     "## Output contract",
     "End with ONLY JSON:",
-    `{"delegationId":"${brief.delegationId}","runId":"${brief.runId}","status":"completed"|"completed-with-concerns"|"blocked"|"needs-lead"|"failed","summary":"...","filesChanged":[{"path":"..."}],"evidence":[],"validation":[{"id":"...","ok":true}],"acceptance":[{"criterion":1,"status":${ACCEPTANCE_STATUSES.map((st) => JSON.stringify(st)).join("|")},"note":"..."}],${candidates ? `"candidates":[{"id":"uc-...","status":${CANDIDATE_CLAIMS.map((st) => JSON.stringify(st)).join("|")},"spec":"<test title>"}],` : ""}"assumptions":[],"concerns":[],"unresolvedQuestions":[],"recommendation":"accept"|"review"|"retry"|"escalate"}`,
+    `{"delegationId":"${brief.delegationId}","runId":"${brief.runId}","status":"completed"|"completed-with-concerns"|"blocked"|"needs-lead"|"failed","summary":"...","filesChanged":[{"path":"..."}],"acceptance":[{"criterion":1,"status":${ACCEPTANCE_STATUSES.map((st) => JSON.stringify(st)).join("|")},"note":"..."}],${candidates ? `"candidates":[{"id":"uc-...","status":${CANDIDATE_CLAIMS.map((st) => JSON.stringify(st)).join("|")},"spec":"<test title>"}],` : ""}"concerns":[],"unresolvedQuestions":[],"recommendation":"accept"|"review"|"retry"|"escalate"}`,
     "acceptance: one entry for every numbered acceptance criterion, by its number: met only when you checked it holds, unmet when your work does not satisfy it, unverified when you could not check it; [] when there are none. Only an unmet entry reports a failure — concerns are notes.",
     ...(candidates ? ["candidates: one entry for every use case of the Change section, by its id: covered when a test of yours exercises it, not-covered when none does, blocked when you could not. It is your claim; the orchestrator's own run of the spec decides."] : []),
     "This is the only closing JSON of your turn: no other verdict object (such as one with a `specs` list) comes with or after it.",
@@ -108,7 +118,8 @@ export const AUTHOR_BRIEF_SECTIONS: readonly PromptSectionDef<BriefPromptContext
   section({
     id: "acceptance",
     priority: 20,
-    render: ({ brief, scrub }) => ({ content: optionalList("## Acceptance criteria", brief.acceptanceCriteria.map((c, i) => `${i + 1}. ${scrub(c)}`)) }),
+    applies: ({ brief }) => brief.acceptanceCriteria.length > 0,
+    render: ({ brief, scrub }) => ({ content: ["## Acceptance criteria", ...brief.acceptanceCriteria.map((c, i) => `${i + 1}. ${scrub(c)}`)].join("\n") }),
   }),
   section({
     id: "scope",
@@ -121,7 +132,7 @@ export const AUTHOR_BRIEF_SECTIONS: readonly PromptSectionDef<BriefPromptContext
           "## Scope",
           `- readablePaths: ${scope.readablePaths.join(", ") || "(none)"}`,
           `- writablePaths: ${scope.writablePaths.join(", ") || "(none)"}`,
-          `- allowedCommands: ${scope.allowedCommands.join(", ") || "(none)"}`,
+          ...(scope.allowedCommands.length > 0 ? [`- allowedCommands: ${scope.allowedCommands.join(", ")}`] : []),
         ].join("\n"),
         [
           "## Authority (frozen)",
@@ -139,7 +150,8 @@ export const AUTHOR_BRIEF_SECTIONS: readonly PromptSectionDef<BriefPromptContext
   section({
     id: "facts",
     priority: 40,
-    render: ({ brief, scrub }) => ({ content: optionalList("## Known facts", brief.knownFacts.map((f) => `- [${f.confidence}/${f.kind}] ${scrub(f.summary)}`)) }),
+    applies: ({ brief }) => brief.knownFacts.length > 0,
+    render: ({ brief, scrub }) => ({ content: ["## Known facts", ...brief.knownFacts.map(factLine(scrub))].join("\n") }),
   }),
   section({
     id: "harness",
@@ -154,32 +166,23 @@ export const AUTHOR_BRIEF_SECTIONS: readonly PromptSectionDef<BriefPromptContext
     render: (ctx) => ({ content: suiteText(ctx) }),
   }),
   section({
-    id: "pages",
+    /* The flow's slice of the run's Context Pack, under the id the prompt-contract lint knows that artifact by. */
+    id: "context-pack",
     priority: 50,
     applies: ({ brief }) => Boolean(brief.pages),
     render: ({ brief }) => ({ content: ["## Pages of this flow (from the run's Context Pack)", brief.pages!].join("\n") }),
   }),
   section({
-    id: "proofs",
-    priority: 60,
-    applies: ({ brief }) => Boolean(brief.proofs?.length),
-    render: ({ brief, scrub }) => ({ content: ["## How the change reaches this flow's pages (from the run's call graph)", ...brief.proofs!.map((proof) => `- ${scrub(proof)}`)].join("\n") }),
-  }),
-  section({
     id: "change",
     priority: 70,
     applies: ({ brief }) => withCandidates(brief),
-    render: ({ brief, scrub }) => ({ content: changeText(brief.candidates!, scrub) }),
+    render: ({ brief, scrub }) => ({ content: changeText(brief, scrub) }),
   }),
   section({
     id: "artifacts",
     priority: 80,
-    render: ({ brief }) => ({ content: optionalList("## Artifacts", brief.artifactRefs.map((a) => `- ${a.id}: ${a.path}`)) }),
-  }),
-  section({
-    id: "validation",
-    priority: 90,
-    render: ({ brief, scrub }) => ({ content: optionalList("## Validation plan", brief.validationPlan.map((v) => `- ${v.id}: ${scrub(v.description)}`)) }),
+    applies: ({ brief }) => brief.artifactRefs.length > 0,
+    render: ({ brief }) => ({ content: ["## Artifacts", ...brief.artifactRefs.map((a) => `- ${a.id}: ${a.path}`)].join("\n") }),
   }),
   toolsSection,
   section({ id: "contract", priority: 100, render: (ctx) => ({ content: authorReturnShape(ctx), claims: [claim.statesContract("return-shape")] }) }),
@@ -208,7 +211,7 @@ export const EXPLORE_BRIEF_SECTIONS: readonly PromptSectionDef<BriefPromptContex
     id: "facts",
     priority: 30,
     applies: ({ brief }) => brief.knownFacts.length > 0,
-    render: ({ brief, scrub }) => ({ content: ["## Known facts", ...brief.knownFacts.map((fact) => `- [${fact.confidence}/${fact.kind}] ${scrub(fact.summary)}`)].join("\n") }),
+    render: ({ brief, scrub }) => ({ content: ["## Known facts", ...brief.knownFacts.map(factLine(scrub))].join("\n") }),
   }),
   section({
     id: "artifacts",

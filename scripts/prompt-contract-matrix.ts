@@ -950,8 +950,13 @@ export function buildCoordinationMatrix(root: string = ROOT): CoordinationCell[]
       assembled: assembleSidekickBrief(MATRIX_REDACTION, briefs.author({
         tools: ["read", "write", "run_spec", "authbrowser", "set_geolocation"],
         pages: "route /cart:\n  heading \"Cart\"",
-        proofs: ["/cart: src/cart.ts::total > src/CartPage.ts::CartPage > page /cart"],
-        candidates: [{ id: "uc-00000001", entry: "page /cart", tier: "direct", evidence: ["src/cart.ts::total"], symbols: ["src/cart.ts::total (lines 10-14)"], hunks: ["@@ -10 +10 @@\n-const total = 0;\n+const total = items.length;"], expectedFrom: [{ kind: "commit-message", ref: "feat(cart): show the item count" }] }],
+        knownFacts: [{ id: "pack-data:/cart", kind: "grounding", source: "ContextPack", summary: "the Context Pack read 2 results on /cart under the app's declared data state", confidence: "deterministic", dataRef: "/cart" }],
+        candidates: [{ id: "uc-00000001", entry: "page /cart", tier: "direct", evidence: ["src/cart.ts::total", "src/CartPage.ts::CartPage", "page /cart"], symbols: ["total (src/cart.ts:10-14)"], expectedFrom: [{ kind: "commit-message", ref: "feat(cart): show the item count" }] }],
+        change: {
+          files: [{ path: "src/cart.ts", kind: "typescript", added: 1, removed: 1, origins: ["graph"] }, { path: "src/cart.css", kind: "other", added: 3, removed: 0, origins: ["map-link"] }],
+          hunks: [{ path: "src/cart.ts", start: 10, end: 10, added: 1, removed: 1, kind: "typescript", code: true, candidateIds: ["uc-00000001"], text: "@@ -10 +10 @@\n-const total = 0;\n+const total = items.length;" }],
+          references: ["src/cart.css:1-3 (+3 -0, other, not preloaded: the brief would not fit the author's window)"],
+        },
         suite: ["flows/checkout.spec.ts: checkout completes"],
       })),
       delegation: { tools: ["read", "write", "run_spec", "authbrowser", "set_geolocation"], writes: true },

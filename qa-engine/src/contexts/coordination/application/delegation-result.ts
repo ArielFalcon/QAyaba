@@ -36,9 +36,8 @@ export interface DelegationResult {
   readonly status: DelegationStatus;
   readonly summary: string;
   readonly filesChanged: readonly FileChange[];
-  readonly evidence: readonly EvidenceRef[];
-  readonly validation: readonly { readonly id: string; readonly ok: boolean }[];
-  readonly assumptions: readonly string[];
+  /** The orchestrator's own facts about the answer (why it could not be read); never the sidekick's. */
+  readonly evidence?: readonly EvidenceRef[];
   readonly concerns: readonly string[];
   readonly unresolvedQuestions: readonly string[];
   readonly recommendation: DelegationRecommendation;

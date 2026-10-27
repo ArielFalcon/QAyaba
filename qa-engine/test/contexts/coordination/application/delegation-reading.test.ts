@@ -10,7 +10,7 @@ const redaction = new PatternRedactionAdapter();
 const brief = createDelegationBrief({ redaction, delegationId: "run-1-flow-cart", runId: "run-1", objective: "o", task: "t", scope: { readablePaths: [], writablePaths: ["e2e/flows/cart.spec.ts"], allowedCommands: [] } });
 
 const closing = (over: Record<string, unknown> = {}): string =>
-  JSON.stringify({ delegationId: brief.delegationId, runId: brief.runId, status: "completed", summary: "done", filesChanged: [{ path: "e2e/flows/cart.spec.ts" }], evidence: [], validation: [], acceptance: [], assumptions: [], concerns: [], unresolvedQuestions: [], recommendation: "accept", ...over });
+  JSON.stringify({ delegationId: brief.delegationId, runId: brief.runId, status: "completed", summary: "done", filesChanged: [{ path: "e2e/flows/cart.spec.ts" }], evidence: [], acceptance: [], concerns: [], unresolvedQuestions: [], recommendation: "accept", ...over });
 
 test("narration holding brace-bearing code before the closing block does not turn a completed result into a failure", () => {
   const output = ["The capture gives `{name, value, url}` and my helper is `async ({ page }) => {`.", "The last run_spec passed.", "```json", closing(), "```"].join("\n");

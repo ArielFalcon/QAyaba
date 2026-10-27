@@ -1,5 +1,5 @@
 /* External authority checks for DelegationResult. Prompt compliance is not enough: the brief a result
-   answers, its scope, its validation steps and its typed acceptance report are checked here. The
+   answers, its scope and its typed acceptance report are checked here. The
    sidekick's free-text concerns are notes for the lead and never decide anything. */
 import { ACCEPTANCE_REPORT_DEFECTS } from "./acceptance-report.ts";
 import { SIDEKICK_AUTHORITY } from "./authority.ts";
@@ -8,7 +8,6 @@ import { belongsToBrief, type DelegationResult } from "./delegation-result.ts";
 import { isPathWithinWritableRoots } from "./path-scope.ts";
 
 export const PUSHBACK_REASONS = [
-  "missing-artifact",
   "acceptance-contradiction",
   "insufficient-scope",
   "architecture-decision-required",
@@ -43,11 +42,6 @@ export function validateDelegationAuthority(
     findings.push({ reason: "authority-violation", detail: `canExpandScope=${brief.authority.canExpandScope}` });
   }
   if (result.status === "completed" || result.status === "completed-with-concerns") {
-    for (const step of brief.validationPlan) {
-      const hit = result.validation.find((v) => v.id === step.id);
-      if (!hit) findings.push({ reason: "missing-artifact", detail: `validation ${step.id}` });
-      else if (!hit.ok) findings.push({ reason: "acceptance-contradiction", detail: `validation ${step.id} failed` });
-    }
     /* A criterion the sidekick itself reports unmet contradicts acceptance, whatever the shape of its
        report; met and unverified never block. */
     for (const entry of result.acceptance) {

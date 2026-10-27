@@ -35,7 +35,6 @@ test("createDelegationBrief freezes SIDEKICK_AUTHORITY", () => {
   assert.equal(brief.authority.canChallengeBrief, true);
   assert.deepEqual(brief.knownFacts, []);
   assert.deepEqual(brief.artifactRefs, []);
-  assert.deepEqual(brief.validationPlan, []);
 });
 
 test("createDelegationBrief requires delegationId and runId", () => {
@@ -57,8 +56,6 @@ test("DelegationResult cannot belong to another brief", () => {
     summary: "ok",
     filesChanged: [],
     evidence: [],
-    validation: [],
-    assumptions: [],
     concerns: [],
     unresolvedQuestions: [],
     recommendation: "accept",

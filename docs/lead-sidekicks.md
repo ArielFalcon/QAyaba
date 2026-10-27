@@ -61,11 +61,22 @@ signed-in app (see below); without either, no sidekick can author and the run en
    in every review turn (`plan-coverage.ts`).
 3. **Author.** Each sidekick's brief carries the Live DOM of its flow's pages (by address, or by the map template a
    page was opened from), cut from the run's Context Pack and bounded; a flow whose pages the pack did not read gets
-   none. The brief also lists up to `MAX_BRIEF_CANDIDATES` use cases the flow must exercise (those its plan cites, then
-   those its routes name): each with its id, the symbols and the bounded, redacted hunks of the change that reach it, and
+   none. The brief states the change the flow must exercise in one section, cut from the run's change map
+   (`brief-change.ts`, over the kernel's `buildChangeMap` and `sliceFor`): every use case the flow must exercise (those its
+   plan cites, then those its routes name), each with its id, its reach path, its changed symbols with their ranges and
    where the expected behavior comes from (the declared contract operation, the commit's stated intent, the diff); the
-   sidekick reports a claim per id (`covered`, `not-covered`, `blocked`), which the plan snapshot keeps beside the flow's
-   outcome and no grader trusts. `FanOutDispatcher` runs at most `maxParallel` flows. Each has its own abort signal and time
+   files its use cases seed, each with its kind, added and removed lines and origin (`map-link`, `graph`, `shared`); and
+   the slice's owned hunks, redacted and never cut, code first, then hunks holding a changed decision, then diff order.
+   Every owned hunk is preloaded while the brief fits the author's window (`ContextBudget.fit`: prompt plus the working
+   room the turn needs, for the model the session runs on); when it does not, owned non-code hunks and then the
+   lowest-ranked code hunks are named as `file:start-end (+a -r, kind, why)` instead, and an unknown window preloads
+   everything. The fit rides on the turn's span (`qayaba.prompt.context.*`); a brief that had to reference owned code
+   logs a warning. The brief's known facts are those of its own pages, each saying where it was read, its tools are the
+   ones its turn grants (`read`, `write`, `run_spec` with a loop, `authbrowser`, `playwright` for an app with no login,
+   `set_geolocation` with a location), and a section with nothing to state is not rendered. The sidekick reports a
+   claim per id (`covered`, `not-covered`, `blocked`), which the plan snapshot keeps beside the flow's outcome and no
+   grader trusts; its return contract asks for nothing else nobody reads (no evidence, validation or assumptions of its
+   own). `FanOutDispatcher` runs at most `maxParallel` flows. Each has its own abort signal and time
    (`flowBudgetMs`, cut to the run's deadline); a flow that throws does not stop the others.
 4. **Take back.** Each sidekick works in a plain, bounded copy of what the run may read
    (`<mirrors>/.qa-delegations/<run>/<delegation>`). Only the files its brief names (`writablePaths`) are copied
@@ -198,7 +209,7 @@ rules, never by the sidekick's account (`classifyAuthoringFailure`, `authoring-f
   change and its contract, never from the page).
 
 The pages the run's Context Pack read with results (under the app's declared data state) are deterministic facts in
-every sidekick's brief. When a flow's empty read lands on one of them, the two reads disagree: the sidekick's decline is
+the brief of each sidekick whose flow visits them. When a flow's empty read lands on one of them, the two reads disagree: the sidekick's decline is
 not taken, the flow is shown to the lead with the conflict, and any revision is told both reads (`observationConflictIn`). The two reads are not taken under the same conditions (the pack
 reads every route in one shared browser context and waits for the declared data state), so the conflict names a
 difference to look at, not a culprit.

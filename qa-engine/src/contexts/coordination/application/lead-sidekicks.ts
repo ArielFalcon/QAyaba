@@ -23,9 +23,10 @@ import type { LeadSessionHandle, PlanOutput } from "@kernel/plan-output.ts";
 import type { CodeGraphToolsHandle } from "@contexts/agent-tools/application/index.ts";
 import type { DelegationWorkspace, DelegationWorkspaceRequest, WorkspaceChange } from "../domain/delegation-workspace.ts";
 import type { DelegationWorkspacePort } from "./ports/delegation-workspace.port.ts";
-import { createDelegationBrief, type BriefCandidate } from "./delegation-brief.ts";
-import { briefCandidatesFor } from "./brief-candidates.ts";
-import { proofsFor } from "./change-proofs.ts";
+import { createDelegationBrief, type DelegationBrief } from "./delegation-brief.ts";
+import { briefChangeFor, fitBriefChange, type BriefChange } from "./brief-change.ts";
+import { assembleSidekickBrief } from "./sidekick-prompt.ts";
+import type { ContextBudget, ContextFit } from "@kernel/context-budget.ts";
 import { entryKey } from "@kernel/change-reach.ts";
 import { candidatePagesOf, pageRoutesOf, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { admissionSetOf, flowCovers, honorContradictedDrops, impliedNoopDrops, MAX_PLAN_ROUNDS, planCoverage, assembleReplanRequest, unvisitedBy, type AdmissionSet, type PlanCoverage } from "./plan-coverage.ts";
@@ -61,16 +62,6 @@ const pagesOf = (pack: string | undefined, routes: readonly string[]): { pages: 
   return pages === undefined ? undefined : { pages };
 };
 
-const proofsOf = (proofs: readonly UseCaseCandidate[] | undefined, routes: readonly string[]): { proofs: string[] } | undefined => {
-  const lines = proofsFor(proofs, routes);
-  return lines === undefined ? undefined : { proofs: lines };
-};
-
-/* The use cases of the change the flow must exercise, with the changed code that reaches them. */
-const candidatesOf = (flow: AdmittedFlow, input: CoordinateInput): { candidates: BriefCandidate[] } | undefined => {
-  const candidates = briefCandidatesFor(flow, input.candidates, { diffs: input.change?.diffs ?? [], ...(input.change?.subject !== undefined ? { subject: input.change.subject } : {}) });
-  return candidates.length > 0 ? { candidates } : undefined;
-};
 
 /* The pages of the change's candidates, in the order they are offered: the baseline the plan snapshot keeps beside the per-candidate states. */
 const changeRoutesOf = (input: { candidates?: readonly UseCaseCandidate[] }): string[] => pageRoutesOf(input.candidates ?? []);
@@ -104,6 +95,8 @@ export interface LeadSidekicksDeps {
   graphHolds?(ref: string): Promise<boolean>;
   /* The run's deadline as the agents' turns read it; a call may bring its own. Absent: nothing bounds the run's time. */
   deadline?: { remainingMs(): number | undefined };
+  /* The author's window and the working room its turn needs: a brief preloads the flow's changed code while it fits. Absent: the window is unknown and every owned hunk is preloaded. */
+  contextBudget?: ContextBudget;
   log?(text: string): void;
 }
 
@@ -613,7 +606,8 @@ export class LeadSidekicks {
   /* A fresh sidekick session on the flow's brief, with the feedback when there is some; the session is kept on the flow. */
   private async openSession(entry: LiveFlow, context: FlowContext, signal: AbortSignal, timeoutMs: number, feedback?: string): Promise<DelegationResult> {
     const model = resolveSidekickModel(entry.tier, this.deps.escalatedModel);
-    const session = await this.deps.sidekick.open(this.briefOf(entry, context), {
+    const { brief, contextFit } = this.briefOf(entry, context, model);
+    const session = await this.deps.sidekick.open(brief, {
       cwd: entry.workspace.dir,
       kind: entry.flow.kind,
       ...(model ? { model } : {}),
@@ -621,6 +615,7 @@ export class LeadSidekicks {
       timeoutMs: Math.max(1, timeoutMs),
       delegationId: entry.delegationId,
       denyTools: sidekickDeniedTools(context.mode, entry.loop !== undefined),
+      ...(contextFit ? { contextFit } : {}),
       ...(feedback ? { feedback } : {}),
     });
     /* A session that opened after its flow was stopped or released belongs to nobody: it is closed at once. */
@@ -632,25 +627,52 @@ export class LeadSidekicks {
     return session.first;
   }
 
-  private briefOf(entry: LiveFlow, context: FlowContext) {
-    const { input } = context;
+  /*
+   * The flow author's brief: the flow's slice of the change, its own pages' facts and the tools its turn grants. The slice's owned
+   * hunks are preloaded while the whole brief fits the author's window (the model the session runs on); what does not fit is named
+   * by file and range. The fit it was judged by rides on the turn's telemetry.
+   */
+  private briefOf(entry: LiveFlow, context: FlowContext, model: string | undefined): { brief: DelegationBrief; contextFit?: ContextFit } {
+    const { input, mode } = context;
     const { flow } = entry;
-    return createDelegationBrief({
-      redaction: this.deps.redaction,
-      delegationId: entry.delegationId,
-      runId: input.runId,
-      objective: flow.objective,
-      task: authorTask(flow, entry.loop, context.mode === SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER && input.agentBrowser ? input.agentBrowser.limits.perCallMs : undefined, entry.geolocation),
-      acceptanceCriteria: flow.acceptance,
-      scope: { readablePaths: ["."], writablePaths: flow.writablePaths, allowedCommands: [] },
-      knownFacts: knownFactsOf(this.deps.redaction, input),
-      ...(pagesOf(input.contextPack, flow.routes) ?? {}),
-      ...(proofsOf(input.candidates, flow.routes) ?? {}),
-      ...(input.harnessFacts ? { harnessFacts: input.harnessFacts, specRelDir: input.specRelDir } : {}),
-      ...(input.existingSpecs?.length ? { suite: input.existingSpecs } : {}),
-      ...candidatesOf(flow, input),
-      ...(input.devBaseUrl ? { artifactRefs: [{ id: "dev-base-url", path: input.devBaseUrl }] } : {}),
-    });
+    const browser = mode === SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER && input.agentBrowser !== undefined;
+    const tools = [
+      "read",
+      ...(flow.writablePaths.length > 0 ? ["write"] : []),
+      ...(entry.loop ? ["run_spec"] : []),
+      ...(browser ? ["authbrowser"] : []),
+      ...(mode === SIDEKICK_AUTHORING.UNAUTHENTICATED_BROWSER ? ["playwright"] : []),
+      ...(entry.geolocation ? ["set_geolocation"] : []),
+    ];
+    const derived = briefChangeFor(flow, input.candidates, { diffs: input.change?.diffs ?? [], ...(input.change?.subject !== undefined ? { subject: input.change.subject } : {}) });
+    const build = (change: BriefChange | undefined): DelegationBrief =>
+      createDelegationBrief({
+        redaction: this.deps.redaction,
+        delegationId: entry.delegationId,
+        runId: input.runId,
+        objective: flow.objective,
+        task: authorTask(flow, entry.loop, browser ? input.agentBrowser!.limits.perCallMs : undefined, entry.geolocation),
+        acceptanceCriteria: flow.acceptance,
+        scope: { readablePaths: ["."], writablePaths: flow.writablePaths, allowedCommands: [] },
+        knownFacts: knownFactsOf(this.deps.redaction, input, flow.routes),
+        tools,
+        ...(pagesOf(input.contextPack, flow.routes) ?? {}),
+        ...(input.harnessFacts ? { harnessFacts: input.harnessFacts, specRelDir: input.specRelDir } : {}),
+        ...(input.existingSpecs?.length ? { suite: input.existingSpecs } : {}),
+        ...(derived.candidates.length > 0 ? { candidates: derived.candidates } : {}),
+        ...(change ? { change } : {}),
+        ...(input.devBaseUrl ? { artifactRefs: [{ id: "dev-base-url", path: input.devBaseUrl }] } : {}),
+      });
+    const budget = this.deps.contextBudget;
+    if (!budget) return { brief: build(derived.change) };
+    const measure = (change: BriefChange | undefined): ContextFit =>
+      budget.fit({ prompt: { bytes: Buffer.byteLength(assembleSidekickBrief(this.deps.redaction, build(change)).text, "utf8") }, role: "author", ...(model ? { model } : {}) });
+    if (!derived.change) return { brief: build(undefined), contextFit: measure(undefined) };
+    const fitted = fitBriefChange(derived.change, measure);
+    if (fitted.referenced > 0 || fitted.fit.outcome === "over") {
+      engineLog.warn(`[qa] flow ${flow.id}'s brief ${fitted.fit.outcome === "over" ? "is over the author's window even" : "fits the author's window"} with ${fitted.referenced} owned hunk(s) named by file and range instead of preloaded (${fitted.change.hunks.length} preloaded)`);
+    }
+    return { brief: build(fitted.change), contextFit: fitted.fit };
   }
 
   /* What one turn of a sidekick came to, from what the orchestrator sees: the workspace, the flow's run_spec ledger and the Context Pack's reads. */
@@ -1215,8 +1237,10 @@ function describePlan(plan: AdmittedPlan): string {
   return `plan: rejected (${plan.downgrade})`;
 }
 
-function knownFactsOf(redaction: RedactionPort, input: Pick<CoordinateInput, "confirmedDataRoutes">): EvidenceRef[] {
-  return input.confirmedDataRoutes?.length ? evidenceFromPackDataRoutes(redaction, input.confirmedDataRoutes) : [];
+/* The pages the Context Pack read with results, as facts; with routes, only the pages those routes name (a flow's brief states its own pages' facts alone). */
+function knownFactsOf(redaction: RedactionPort, input: Pick<CoordinateInput, "confirmedDataRoutes">, routes?: readonly string[]): EvidenceRef[] {
+  const pages = (input.confirmedDataRoutes ?? []).filter((page) => routes === undefined || routes.some((route) => namesTemplatePage(route, page.path) || namesTemplatePage(page.path, route)));
+  return pages.length > 0 ? evidenceFromPackDataRoutes(redaction, pages) : [];
 }
 
 /* The pages the flow's run_spec calls read empty at a failure point, each once. */
