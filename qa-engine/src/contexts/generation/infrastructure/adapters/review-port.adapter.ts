@@ -58,15 +58,7 @@ export class ReviewPortAdapter implements ReviewPort {
     private readonly collaborators: ReviewPortCollaborators = {},
   ) {}
 
-  async review(specDir: string, cases: readonly QaCase[], diff?: string, enrichment?: ReviewEnrichment): Promise<{
-    approved: boolean;
-    corrections: string[];
-    rationale?: string;
-    blockingCount?: number;
-    parsed?: boolean;
-    unavailable?: boolean;
-    stats?: ReviewStats;
-  }> {
+  async review(specDir: string, cases: readonly QaCase[], diff?: string, enrichment?: ReviewEnrichment): ReturnType<ReviewPort["review"]> {
     const { runtime, rendering, verdicts } = this.deps;
 
     /* Specs under review = case file/name, one entry per spec file (many cases run in one file); cases are the only per-spec identity at this seam. */
@@ -152,6 +144,9 @@ export class ReviewPortAdapter implements ReviewPort {
         ...(judgment.rationale !== undefined ? { rationale: judgment.rationale } : {}),
         ...(judgment.blockingCount !== undefined ? { blockingCount: judgment.blockingCount } : {}),
         ...(judgment.parsed !== undefined ? { parsed: judgment.parsed } : {}),
+        /* The finding filter honors a blocking finding only through its cited evidence. */
+        ...(judgment.severities ? { severities: judgment.severities } : {}),
+        ...(judgment.citations ? { citations: judgment.citations } : {}),
         stats,
       };
     } catch (err) {

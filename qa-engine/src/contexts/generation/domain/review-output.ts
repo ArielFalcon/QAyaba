@@ -62,19 +62,31 @@ export function boundReviewRationale(rationale: string | undefined): string | un
   return bounded === "" ? undefined : bounded;
 }
 
-/** The corrections the generator will be handed: at most REVIEW_CORRECTIONS_MAX, each bounded. */
-export function boundReviewCorrections(
+/**
+ * The corrections the generator will be handed (at most REVIEW_CORRECTIONS_MAX, each bounded), with the severity and citation the reviewer gave each, bounded and ordered as one
+ * list, so the three stay aligned by index. A parallel list the reviewer did not give stays absent.
+ */
+export function boundReviewFindings<C>(
   corrections: readonly string[],
   severities?: readonly ("blocking" | "advisory")[],
-): string[] {
+  citations?: readonly C[],
+): { corrections: string[]; severities?: ("blocking" | "advisory")[]; citations?: C[] } {
   const bounded = corrections.map((correction, index) => ({
     text: boundReviewText(correction, REVIEW_CORRECTION_MAX_CHARS),
-    blocking: severities?.[index] === "blocking",
+    severity: severities?.[index],
+    citation: citations?.[index],
   }));
   /* A count cap must never hide the blocking finding the generator has to fix: blocking entries
    * come first, whatever order the model wrote them in. */
-  const ordered = [...bounded.filter((c) => c.blocking), ...bounded.filter((c) => !c.blocking)];
-  return ordered.map((c) => c.text).filter((text) => text !== "").slice(0, REVIEW_CORRECTIONS_MAX);
+  const blocking = (c: (typeof bounded)[number]): boolean => c.severity === "blocking";
+  const kept = [...bounded.filter(blocking), ...bounded.filter((c) => !blocking(c))]
+    .filter((c) => c.text !== "")
+    .slice(0, REVIEW_CORRECTIONS_MAX);
+  return {
+    corrections: kept.map((c) => c.text),
+    ...(severities ? { severities: kept.map((c) => c.severity ?? "advisory") } : {}),
+    ...(citations ? { citations: kept.map((c) => c.citation as C) } : {}),
+  };
 }
 
 /** Whether an answer exceeded the contract's size, so a caller can say so without keeping the prose. */

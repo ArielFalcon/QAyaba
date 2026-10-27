@@ -7,7 +7,7 @@ import type { GeneratorDeliverable, ReviewJudgment } from "../domain/manifest-re
 import type { SpecMeta } from "@kernel/qa-case.ts";
 import { GENERATION_NOTE_MAX_CHARS } from "../domain/generation-end.ts";
 import { sanitizeText } from "../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
-import { boundReviewCorrections, boundReviewRationale, boundReviewText, reviewAnswerIsOversized, REVIEW_CORRECTION_MAX_CHARS, REVIEW_CORRECTIONS_MAX, REVIEW_RATIONALE_MAX_CHARS, REVIEW_RESPONSE_MAX_CHARS } from "../domain/review-output.ts";
+import { boundReviewFindings, boundReviewRationale, boundReviewText, reviewAnswerIsOversized, REVIEW_CORRECTION_MAX_CHARS, REVIEW_CORRECTIONS_MAX, REVIEW_RATIONALE_MAX_CHARS, REVIEW_RESPONSE_MAX_CHARS } from "../domain/review-output.ts";
 import type { NoopKind } from "@kernel/noop-kind.ts";
 
 /* Redacted at the earliest point, then cut to the note bound: the reason and the output tail end up persisted on the run, where no later stage redacts them. The reason keeps its start, the output keeps its end. */
@@ -124,13 +124,12 @@ export class VerdictParserAdapter implements VerdictParserPort {
       );
     }
     const rationale = boundReviewRationale(r.rationale);
-    /* The caps keep the first REVIEW_CORRECTIONS_MAX entries (blocking first), so the parallel arrays
-       are cut the same way and stay aligned with `corrections`. */
-    const severities = r.correctionSeverities?.slice(0, REVIEW_CORRECTIONS_MAX);
-    const citations = r.citations?.slice(0, REVIEW_CORRECTIONS_MAX);
+    /* One ordering (blocking first) and one cap for the corrections and their parallel lists, so each
+       severity and citation stays with its own correction. */
+    const { corrections, severities, citations } = boundReviewFindings(r.corrections, r.correctionSeverities, r.citations);
     return {
       approved: r.approved,
-      corrections: boundReviewCorrections(r.corrections, r.correctionSeverities),
+      corrections,
       ...(severities ? { severities } : {}),
       ...(citations ? { citations } : {}),
       ...(rationale !== undefined ? { rationale } : {}),

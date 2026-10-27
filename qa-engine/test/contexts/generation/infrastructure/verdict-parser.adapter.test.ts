@@ -262,3 +262,25 @@ test("an approval keeps its rationale, bounded, and is not turned into a rejecti
   assert.ok((j.rationale ?? "").length <= 320);
   assert.match(j.rationale ?? "", /discount/);
 });
+
+test("a blocking finding moved ahead of an advisory one keeps its own severity and citation", () => {
+  const adapter = new VerdictParserAdapter({
+    parseVerdict: () => ({ parsed: true, specs: [] }) as never,
+    parseReviewerVerdict: () => ({
+      approved: false,
+      corrections: ["[missing-case] the empty search is not tested", "[false-positive] b.spec.ts asserts nothing"],
+      correctionSeverities: ["advisory", "blocking"],
+      citations: [{ kind: "arm", ref: "src/search.ts:12" }, { kind: "execution", ref: "b.spec.ts" }],
+      blockingCount: 1,
+      parsed: true,
+      valid: true,
+      issues: [],
+    }) as never,
+  } as never);
+
+  const j = adapter.parseReview("…json…");
+
+  assert.deepEqual(j.corrections, ["[false-positive] b.spec.ts asserts nothing", "[missing-case] the empty search is not tested"]);
+  assert.deepEqual(j.severities, ["blocking", "advisory"]);
+  assert.deepEqual(j.citations, [{ kind: "execution", ref: "b.spec.ts" }, { kind: "arm", ref: "src/search.ts:12" }]);
+});

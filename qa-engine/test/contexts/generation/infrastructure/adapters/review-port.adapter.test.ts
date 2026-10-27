@@ -629,3 +629,24 @@ test("review() hands the reviewer prompt the arms no test ran, and none when the
 
   assert.deepEqual(seen, [arms, undefined]);
 });
+
+test("review() hands on the reviewer's severity and citation of every correction", async () => {
+  const verdicts = fakeVerdicts({
+    approved: false,
+    corrections: ["[false-positive] flows/x.spec.ts asserts nothing"],
+    severities: ["blocking"],
+    citations: [{ kind: "execution", ref: "flows/x.spec.ts" }],
+    blockingCount: 1,
+    parsed: true,
+    valid: true,
+    issues: [],
+  });
+  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering: fakeRendering(), verdicts }, {
+    diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
+  });
+
+  const result = await adapter.review("/mirrors/org/app/e2e", cases);
+
+  assert.deepEqual(result.severities, ["blocking"]);
+  assert.deepEqual(result.citations, [{ kind: "execution", ref: "flows/x.spec.ts" }]);
+});
