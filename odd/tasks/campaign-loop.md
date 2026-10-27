@@ -53,8 +53,14 @@ Branch: main (single branch; governance changes as their own commits). Test runn
 
 | Cycle | Campaign id | Run id | Hypothesis | verdict | line | branch | mutants killed | candidates | wall | cost | Fix (commit) |
 |---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | validation-2026-10-27-c | run-ed28973-mvra9a3s-09df0987 (r1) | hand-qa-gaps T1-T5 + route-availability T18-T25 | fail (E-EXEC-FAIL, 14/16) | n/a (red) | n/a | n/a | 3/3 flows delivered | ~36 min | | |
 
 ## Backlog
+
+- **F1 (r1, proven): a run_spec call killed when its sidekick's session ended forfeits the flow's whole DEV-write share, and the replacement sidekick inherits it.** `run-ed28973-mvra9a3s-09df0987`: flow filter-facets' first sidekick (turn 1840+962 s) ended while its `run_spec` ran; the exec was SIGKILLed at 60.5 s, the call reported no ledger (`writesUncounted` → `chargeRunRemainder`, `run-spec.use-case.ts:220`, span `qayaba.tool.dev_writes=6 outcome=error`); the lead replaced the flow (`override_reason=session-gone`); the replacement's two calls were refused `no-writes`; its spec was delivered unproven and failed 2 cases (clicking an `aria-disabled` chip waits for enabled: `TimeoutError: locator.click`).
+- **F2 (r1, proven): OpenCode sessions the run still holds disappear.** The first filter-facets sidekick's session was gone at review turn 1 (`session-gone`), and the lead's planning session at review turn 2 (`Session not found: ses_e806c2028ffe…`), so the review ended with "the flows stand as they are".
+- **F3 (r1, proven): the data-contradiction rule cannot see the known DEV defect.** The geo collection answers GeoJSON (`items=5 keys=[type,properties,geometry]`, the resource under `properties{id,name,slug,price,cuisineType,relevance,rating}`) while the list answers flat items with `activeMenuCuisineType`; top-level keys share nothing and even unwrapped `properties` share 4 of 16 keys (< 0.8). A threshold tweak would be one more special case: needs a design review (the consumer's declared contract, a service OpenAPI, or the frontend's own reading of the field).
+- **Kept from r1 (signals working):** T22 token requests reported as session requests (`dev_session_requests=POST …/token ×5`, 0 writes); route availability `change-introduced` 3 (the upload routes) and `unexplained` 1; T5 4 stubbed tests in 2 spec files (they fulfil the geo collection with the cuisine field, so they cover the frontend and do not expose the backend defect); lead review turn 1 worked.
 
 ## Log
 
