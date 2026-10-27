@@ -89,7 +89,13 @@ export const MAX_ROUTES = 4;
 export const MAX_ROUTES_PER_CHANGE = 8;
 /* The most pages rendered only for the links they show. */
 export const MAX_LINK_SEEDS = 1;
-export const MAX_NODES_PER_ROUTE = 60;
+/*
+ * The most nodes (and the most test ids) one page reports. It is a safety bound, not a budget: no ordinary page comes near it, and
+ * what a prompt shows of a page is decided by its role's window (the window fit rule degrades pages to references). It holds a page
+ * the orchestrator does not control (an endless list, a tree of millions of nodes) to a size the orchestrator can render and fit;
+ * past it the priority nodes are kept (capDomLines), and what it leaves out is said on the page and counted for the trace.
+ */
+export const MAX_NODES_PER_PAGE = 5_000;
 const MAX_ROUTES_UNION = 12;
 
 /** Normalize an explicit route list the way capture does: trim, dedupe, and keep only the routes a browser can open as written (a template, free text, an interpolation or another host names no single page of the app). Exported so the fan-out keys its per-objective lookups IDENTICALLY to captureDomByRoute's map keys (a mismatch would silently lose grounding). */
@@ -129,8 +135,7 @@ export function normalizeKey(s: string): string {
 const INTERACTIVE_ROLES = ["button", "link", "textbox", "combobox", "checkbox", "radio"];
 const isInteractiveNode = (line: string): boolean => INTERACTIVE_ROLES.some((r) => line.startsWith(`${r}:`));
 
-/* `keptIndices` tells the caller which input lines survived, so a consumer that lines a DOM section back to the pages it
- * attributed (the context pack's line cap) can know exactly which of a page's nodes/test ids the agent actually saw. */
+/* The lines a bound keeps, priority nodes (tables, lists, text) first, then interactive ones, then the rest, in their own order; `keptIndices` names the input lines that survived. */
 export function capDomLines(lines: string[], max: number): { kept: string[]; dropped: number; keptIndices: number[] } {
   if (lines.length <= max) {
     return { kept: lines, dropped: 0, keptIndices: lines.map((_, i) => i) };
@@ -225,7 +230,7 @@ export function buildChangedMarker(
   return "";
 }
 
-/* The node lines of one route's tree: each node with its attribute hint, state and [CHANGED] mark, cut to the node bound with a count of what was left out. */
+/* The node lines of one route's tree: each node with its attribute hint, state and [CHANGED] mark, held to the node safety bound with a count of what it left out. */
     /* mutation-scope:end text-line-split */
 function renderNodeLines(s: RouteSnapshot, allChanged?: ChangedElement[]): string[] {
   const lines: string[] = [];
@@ -236,7 +241,7 @@ function renderNodeLines(s: RouteSnapshot, allChanged?: ChangedElement[]): strin
     if (notShown(c) && c.text !== undefined) lines.push(`  (the changed text "${c.text}" is in ${c.scope![0]} in the source; this page shows no ${c.scope![0]} now)`);
   }
   const all = s.nodes ?? [];
-  const { kept: nodes } = capDomLines(all, MAX_NODES_PER_ROUTE);
+  const { kept: nodes } = capDomLines(all, MAX_NODES_PER_PAGE);
   const attrMap = s.attrs && s.attrs.length > 0
     ? new Map(s.attrs.map((a) => [a.key, a]))
     : null;
@@ -277,7 +282,7 @@ function renderNodeLines(s: RouteSnapshot, allChanged?: ChangedElement[]): strin
     lines.push(`  ${n}${stateSuffix}${repeatedNote}${changedMarker}`);
   /* mutation-scope:begin non-table-overflow-note */
   }
-  if (all.length > nodes.length) lines.push(`  … (${all.length - nodes.length} more non-table elements omitted)`);
+  if (all.length > nodes.length) lines.push(`  … (${all.length - nodes.length} more non-table elements left out by the safety bound of ${MAX_NODES_PER_PAGE} nodes per page)`);
   return lines;
 }
 
@@ -307,8 +312,7 @@ export function formatDomSnapshot(snaps: RouteSnapshot[], changed?: ChangedEleme
     lines.push(...renderNodeLines(s, changed));
     if (s.testIds && s.testIds.size > 0) {
       const entries = [...s.testIds.entries()];
-      const cap = MAX_NODES_PER_ROUTE;
-      const shown = entries.slice(0, cap);
+      const shown = entries.slice(0, MAX_NODES_PER_PAGE);
       const overflow = entries.length - shown.length;
       const parts = shown.map(([v, count]) => count > 1 ? `${v} (×${count})` : v);
       if (overflow > 0) parts.push(`(+${overflow} more)`);
@@ -416,7 +420,7 @@ export interface CapturedPage {
   nodes?: readonly string[];
 }
 
-/* What one captured page supplied and lost, for the trace: the kept nodes and test ids (within the per-route bound), the node→test-id map, and how many the bound left out. The line cap is the pack's, applied later; `lineKeptNodes`/`lineKeptTestIds` are what that cap left in (absent before it runs). */
+/* What one captured page supplied and lost, for the trace: the kept nodes and test ids (within the node safety bound), the node→test-id map, and how many the bound left out. What a prompt shows of the page is the window's to decide, and its prompt records what the window left out. */
 export interface PageDelivery {
   route: string;
   template?: string;
@@ -424,20 +428,16 @@ export interface PageDelivery {
   keptTestIds: string[];
   testIdOfNode: Map<string, string>;
   nodeCapOmitted: number;
-  lineCapOmitted: number;
-  /* The nodes/test ids the global line cap left in, as the pack sets them once the cap has run. Absent = the pack has not applied it (hand-built traces deliver the node-cap set). */
-  lineKeptNodes?: string[];
-  lineKeptTestIds?: string[];
 }
 
-/* One captured page as the trace needs it, from its raw snapshot: the nodes and test ids within the per-route bound (the node cap), the node→test-id map, and how many the bound left out. A page opened from a template of the map is named by it. */
+/* One captured page as the trace needs it, from its raw snapshot: the nodes and test ids within the node safety bound, the node→test-id map, and how many the bound left out. A page opened from a template of the map is named by it. */
 export function pageDeliveryOf(snap: RouteSnapshot, template?: string): PageDelivery {
   const nodes = snap.nodes ?? [];
   const testIds = [...(snap.testIds?.keys() ?? [])];
   const testIdOfNode = new Map<string, string>();
   for (const attr of snap.attrs ?? []) if (attr.testId !== undefined) testIdOfNode.set(attr.key, attr.testId);
-  const keptNodes = capDomLines(nodes, MAX_NODES_PER_ROUTE).kept;
-  const keptTestIds = testIds.slice(0, MAX_NODES_PER_ROUTE);
+  const keptNodes = capDomLines(nodes, MAX_NODES_PER_PAGE).kept;
+  const keptTestIds = testIds.slice(0, MAX_NODES_PER_PAGE);
   return {
     route: template ?? snap.route,
     ...(template !== undefined ? { template } : {}),
@@ -445,7 +445,6 @@ export function pageDeliveryOf(snap: RouteSnapshot, template?: string): PageDeli
     keptTestIds,
     testIdOfNode,
     nodeCapOmitted: Math.max(0, nodes.length - keptNodes.length) + Math.max(0, testIds.length - keptTestIds.length),
-    lineCapOmitted: 0,
   };
 }
 

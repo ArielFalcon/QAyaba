@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { packPagesFor } from "@contexts/generation/domain/pack-pages.ts";
+import { domPageCount, packPagesFor, referenceDomPages } from "@contexts/generation/domain/pack-pages.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 
 const pack = [
@@ -36,12 +36,35 @@ test("a trailing slash does not hide a page, and a flow whose pages the pack did
   assert.equal(packPagesFor(`### ${PACK_HEADINGS.changedValues}\n- x`, ["/cart"]), undefined);
 });
 
-test("the slice stops at whole pages within its bound and says how many it left out", () => {
-  const big = [`### ${PACK_HEADINGS.liveDom}`, "route /a:", `  text "${"a".repeat(300)}"`, "route /b:", `  text "${"b".repeat(300)}"`].join("\n");
-  const slice = packPagesFor(big, ["/a", "/b"], 400)!;
-  assert.ok(slice.includes("aaa"));
-  assert.ok(!slice.includes("bbb"));
-  assert.match(slice, /1/);
+test("a flow's pages reach it whole whatever their size: no fixed bound cuts them, the window decides", () => {
+  const page = (route: string, letter: string): string[] => [`route ${route}:`, ...Array.from({ length: 200 }, (_, i) => `  text "${letter.repeat(60)} ${i}"`)];
+  const big = [`### ${PACK_HEADINGS.liveDom}`, ...page("/a", "a"), ...page("/b", "b")].join("\n");
+  const slice = packPagesFor(big, ["/a", "/b"])!;
+  assert.ok(slice.length > 12_000);
+  assert.ok(slice.includes(`text "${"a".repeat(60)} 199"`));
+  assert.ok(slice.includes(`text "${"b".repeat(60)} 199"`));
+  assert.doesNotMatch(slice, /left out/);
+});
+
+test("pages give way to references the last page first, each naming its page and how many lines it held", () => {
+  const dom = ["route /a:", "  button: A", "  link: A2", "route /shops/madrid (instance of /shops/:city):", "  heading: Shops", "(trailer)"].join("\n");
+  assert.equal(domPageCount(dom), 2);
+  const one = referenceDomPages(dom, 1);
+  assert.match(one.text, /route \/a:\n {2}button: A\n {2}link: A2/);
+  assert.match(one.text, /route \/shops\/madrid \(instance of \/shops\/:city\):\n {2}\(this page's 1 line\(s\) are not shown here, to fit the window\)/);
+  assert.ok(one.text.endsWith("(trailer)"));
+  assert.deepEqual(one.left, [{ route: "/shops/:city", lines: 1 }]);
+  const both = referenceDomPages(dom, 2);
+  assert.deepEqual(both.left.map((p) => p.route), ["/a", "/shops/:city"]);
+  assert.doesNotMatch(both.text, /button: A/);
+});
+
+test("in a pack only the Live DOM section's pages give way: the other sections stay as they are", () => {
+  const out = referenceDomPages(pack, 3, { section: PACK_HEADINGS.liveDom });
+  assert.match(out.text, /getCart/);
+  assert.match(out.text, /src\/app\/cart\.ts/);
+  assert.doesNotMatch(out.text, /Checkout/);
+  assert.deepEqual(out.left.map((p) => p.route), ["/cart", "/shops/:province/:city"], "a page with no lines of its own has nothing to leave out");
 });
 
 test("a page listed under its template's own address is read whole, not cut at the template's first parameter", () => {

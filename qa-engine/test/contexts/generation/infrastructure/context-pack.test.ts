@@ -2,7 +2,7 @@
 import { pageCandidate } from "../../../support/use-case-candidate.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildContextPack, deriveClaimsFromPackText, withoutPackSection, MAX_LISTED_UNCAPTURABLE, PACK_HEADINGS, TEMPLATE_LEFT_OUT, packDeliveredItemIds, packProducedItemIds, type ContextPackAssembly, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
+import { buildContextPack, deriveClaimsFromPackText, withoutPackSection, MAX_LISTED_UNCAPTURABLE, NODE_SAFETY_BOUND_REASON, PACK_HEADINGS, TEMPLATE_LEFT_OUT, packDeliveredItemIds, packProducedItemIds, type ContextPackAssembly, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import { itemId } from "@kernel/context-item-ids.ts";
 import { countDirectives, hasTrustLanguage, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { MAX_ROUTES, MAX_ROUTES_PER_CHANGE, REDIRECT_ADVISORY_INTRO, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
@@ -45,7 +45,7 @@ test("buildContextPack returns undefined text when all components are absent", a
   assert.equal(result.contractBytes, 0);
 });
 
-test("packDeliveredItemIds: delivered ids come from the kept lines, with the node cap counted", () => {
+test("packDeliveredItemIds: delivered ids come from the kept nodes, with the node safety bound counted", () => {
   const assembly: ContextPackAssembly = {
     text: "pack",
     domBytes: 10,
@@ -60,7 +60,6 @@ test("packDeliveredItemIds: delivered ids come from the kept lines, with the nod
         keptTestIds: ["save-btn"],
         testIdOfNode: new Map([["button: Save", "save-btn"]]),
         nodeCapOmitted: 2,
-        lineCapOmitted: 0,
       }],
       changedTestIds: ["save-btn"],
       contractIds: ["listOrders"],
@@ -72,10 +71,10 @@ test("packDeliveredItemIds: delivered ids come from the kept lines, with the nod
   assert.ok(ids.includes("fact:/home#save-btn:present"), "the change fact is delivered");
   assert.ok(ids.includes("op:listOrders"), "the contract is delivered");
   assert.equal(ids.some((id) => id.includes("button")), false, "a node that already has a test id is not double-counted as a role id");
-  assert.deepEqual(omissions, [{ class: "truncation", reason: "node-cap", count: 2, route: "/home" }]);
+  assert.deepEqual(omissions, [{ class: "truncation", reason: NODE_SAFETY_BOUND_REASON, count: 2, route: "/home" }]);
 });
 
-test("packDeliveredItemIds: a node the node-cap cut is neither delivered nor in the ids", () => {
+test("packDeliveredItemIds: a node the node safety bound left out is neither delivered nor in the ids", () => {
   const assembly: ContextPackAssembly = {
     text: "pack",
     domBytes: 1,
@@ -91,7 +90,6 @@ test("packDeliveredItemIds: a node the node-cap cut is neither delivered nor in 
         keptTestIds: [],
         testIdOfNode: new Map(),
         nodeCapOmitted: 1,
-        lineCapOmitted: 0,
       }],
       changedTestIds: [],
       contractIds: [],
@@ -101,7 +99,7 @@ test("packDeliveredItemIds: a node the node-cap cut is neither delivered nor in 
   const { ids, omissions } = packDeliveredItemIds(assembly);
   assert.equal(ids.some((id) => id.startsWith("dom:")), true, "the kept node is a dom id");
   assert.ok(!ids.some((id) => id.includes("Cut")), "the cut node never reaches the ids");
-  assert.deepEqual(omissions, [{ class: "truncation", reason: "node-cap", count: 1, route: "/home" }]);
+  assert.deepEqual(omissions, [{ class: "truncation", reason: NODE_SAFETY_BOUND_REASON, count: 1, route: "/home" }]);
 });
 
 test("packDeliveredItemIds: a page opened from a template is named by the template in its delivered ids and facts", () => {
@@ -119,9 +117,6 @@ test("packDeliveredItemIds: a page opened from a template is named by the templa
         keptTestIds: ["shop-row"],
         testIdOfNode: new Map([["button: View shop", "shop-row"]]),
         nodeCapOmitted: 0,
-        lineCapOmitted: 0,
-        lineKeptNodes: ["button: View shop"],
-        lineKeptTestIds: ["shop-row"],
       }],
       changedTestIds: ["shop-row"],
       contractIds: [],
@@ -133,62 +128,29 @@ test("packDeliveredItemIds: a page opened from a template is named by the templa
   assert.ok(ids.includes("fact:/shops/:province/:city#shop-row:present"), "the delivered fact carries the template name");
 });
 
-test("packProducedItemIds vs packDeliveredItemIds: the line cap makes delivered a strict subset of produced", () => {
-  const assembly: ContextPackAssembly = {
-    text: "pack",
-    domBytes: 1,
-    contractBytes: 0,
-    trace: {
-      rankedRoutes: [],
-      capturablePages: 0,
-      pages: [],
-      pageDeliveries: [{
-        route: "/home",
-        keptNodes: ["button: A", "button: B", "button: C"],
-        keptTestIds: [],
-        testIdOfNode: new Map<string, string>(),
-        nodeCapOmitted: 0,
-        lineCapOmitted: 2,
-        lineKeptNodes: ["button: A"],
-        lineKeptTestIds: [],
-      }],
-      changedTestIds: [],
-      contractIds: [],
-      omittedLines: 2,
-    },
-  };
-  const produced = packProducedItemIds(assembly);
-  const delivered = packDeliveredItemIds(assembly);
-  assert.equal(produced.ids.length, 3, "produced holds every node-cap kept node");
-  assert.equal(delivered.ids.length, 1, "delivered holds only the line-cap kept node");
-  assert.ok(delivered.ids.every((id) => produced.ids.includes(id)), "delivered ⊆ produced");
-  assert.ok(produced.ids.length > delivered.ids.length, "the line cap separates produced from delivered");
-  assert.deepEqual(produced.omissions, [], "the produced set counts no line cap");
-  assert.deepEqual(delivered.omissions, [{ class: "truncation", reason: "line-cap", count: 2, route: "/home" }]);
-});
-
-test("buildContextPack: the global line cap trims the delivered ids to the lines the agent actually saw", async () => {
-  const nodes = Array.from({ length: 700 }, (_, i) => `button: nav-${i}`);
+/* The pack holds every line of every page: no fixed line count cuts it, and a prompt that cannot hold a page shows it as a reference by its window. */
+test("buildContextPack: a capture of many pages reaches the pack whole, and what it delivers is what it produced", async () => {
+  const pages = ["/a", "/b", "/c", "/d", "/e", "/f", "/g", "/h"];
+  const nodesOf = (route: string): string[] => Array.from({ length: 200 }, (_, i) => `button: ${route.slice(1)}-${i}`);
   const deps: ContextPackDeps = {
-    captureDomForRoutes: async (_routes, input) => {
-      input.onPages?.([{ route: "/big", grounded: true, links: [], keptNodes: nodes, keptTestIds: [], testIdOfNode: new Map(), nodeCapOmitted: 0 }]);
-      return ["route /big:", ...nodes.map((n) => `  ${n}`)].join("\n");
+    captureDomForRoutes: async (routes, input) => {
+      input.onPages?.(routes.map((route) => ({ route, grounded: true, links: [], keptNodes: nodesOf(route), keptTestIds: [], testIdOfNode: new Map(), nodeCapOmitted: 0 })));
+      return routes.flatMap((route) => [`route ${route}:`, ...nodesOf(route).map((n) => `  ${n}`)]).join("\n");
     },
     domDeps: stubDomDeps(undefined),
     log: () => {},
   };
-  const result = await buildContextPack({ routes: ["/big"], baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" }, deps);
+  const result = await buildContextPack({ routes: pages, baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" }, deps);
+  const captured = result.trace!.rankedRoutes;
+  for (const route of captured) assert.ok(result.text?.includes(`  button: ${route.slice(1)}-199`), `${route} reaches the pack whole`);
+  assert.doesNotMatch(result.text ?? "", /omitted/);
   const produced = packProducedItemIds(result);
   const delivered = packDeliveredItemIds(result);
-  assert.equal(produced.ids.length, 700, "all 700 buttons are produced");
-  assert.equal(delivered.ids.length, 499, "the 500-line budget spends one line on the route header and keeps 499 buttons");
-  assert.ok(delivered.ids.every((id) => produced.ids.includes(id)), "delivered ⊆ produced");
-  const droppedId = itemId.domRole("/big", "button", "nav-699");
-  assert.ok(produced.ids.includes(droppedId), "the line-capped node was produced");
-  assert.ok(!delivered.ids.includes(droppedId), "the line-capped node is not delivered");
+  assert.deepEqual(delivered, produced);
+  assert.deepEqual(delivered.omissions, []);
+  const last = captured[captured.length - 1]!;
+  assert.ok(delivered.ids.includes(itemId.domRole(last, "button", `${last.slice(1)}-199`)));
 });
-
-
 
 test("buildContextPack's header is neutral: it names the pack and what it holds, and directs nothing", async () => {
   const result = await buildContextPack(
@@ -660,7 +622,7 @@ test("buildContextPack degrades gracefully when DOM capture throws", async () =>
   assert.equal(result.text, undefined, "the run continues with no pack");
 });
 
-test("buildContextPack DOM section respects the FIXED 30KB budget (large DOM is truncated)", async () => {
+test("buildContextPack: a large DOM reaches the pack whole, with no fixed byte budget cutting it", async () => {
   const largeLines = Array.from({ length: 2000 }, (_, i) => `button: Button ${i}`);
   const largeDom = largeLines.join("\n");
   const result = await buildContextPack(
@@ -673,8 +635,8 @@ test("buildContextPack DOM section respects the FIXED 30KB budget (large DOM is 
   );
   assert.ok(result.domBytes > 0, "DOM section is present");
   const domSection = result.text?.split(`### ${PACK_HEADINGS.liveDom}`)[1] ?? "";
-  assert.ok(!domSection.includes("Button 1999"), "last button must be omitted (truncated by the fixed 30KB cap)");
-  assert.ok(result.text?.includes("omitted"), "truncation marker must appear");
+  assert.ok(domSection.includes("Button 1999"), "the last button is in the pack");
+  assert.ok(!result.text?.includes("omitted"), "nothing is marked omitted");
 });
 
 

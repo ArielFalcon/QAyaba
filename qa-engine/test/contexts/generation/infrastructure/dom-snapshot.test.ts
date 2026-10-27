@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { extractTargetRoutes, formatDomSnapshot, captureDom, captureDomByRoute, captureDomForRoutes, captureRouteTrees, normalizeRoutes, capDomLines, isPriorityNode, mergeAttrs, normalizeKey, createCaptureDomDeps, defaultCaptureDomDeps, DEGRADED_ROUTE_LABEL, MAX_NODES_PER_ROUTE, formatDomCapture, formatRedirectAdvisory, dataStateUnconfirmed, captureTimeoutMs, CAPTURE_ROUTE_READ_MS, type CapturedPage, type CaptureDataState, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { extractTargetRoutes, formatDomSnapshot, captureDom, captureDomByRoute, captureDomForRoutes, captureRouteTrees, normalizeRoutes, capDomLines, isPriorityNode, mergeAttrs, normalizeKey, createCaptureDomDeps, defaultCaptureDomDeps, DEGRADED_ROUTE_LABEL, MAX_NODES_PER_PAGE, pageDeliveryOf, formatDomCapture, formatRedirectAdvisory, dataStateUnconfirmed, captureTimeoutMs, CAPTURE_ROUTE_READ_MS, type CapturedPage, type CaptureDataState, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import { parseAriaSnapshot, parseAriaSnapshotWithState } from "@contexts/generation/domain/aria-snapshot.ts";
 import { type NodeAttr, type RouteSnapshot } from "@contexts/generation/domain/route-snapshot.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
@@ -291,11 +291,11 @@ test("parseAriaSnapshot: an UNNAMED form input surfaces as a presence marker (no
   );
 });
 
-test("parseAriaSnapshot: table/list priority roles preserved past the formatDomSnapshot node cap", () => {
-  /* Build a snapshot with 80 links (over the 60-node cap) and 5 table nodes — verify the TABLE
+test("parseAriaSnapshot: table/list priority roles preserved past the formatDomSnapshot node safety bound", () => {
+  /* Build a snapshot with more links than the node safety bound and 5 table nodes — verify the TABLE
      nodes survive in the formatted output even though they come last in document order.
    */
-  const navLinks = Array.from({ length: 80 }, (_, i) => `- link "nav-${i}"`).join("\n");
+  const navLinks = Array.from({ length: MAX_NODES_PER_PAGE + 20 }, (_, i) => `- link "nav-${i}"`).join("\n");
   const tableYaml = [
     "- table",
     "  - row",
@@ -313,7 +313,7 @@ test("parseAriaSnapshot: table/list priority roles preserved past the formatDomS
   assert.ok(out.includes("  table: (present)"), "table survives cap");
   assert.ok(out.includes("  cell: Helen Leary"), "cell Helen survives cap");
   assert.equal((out.match(/cell: radiology/g) ?? []).length, 2, "duplicate radiology still visible");
-  assert.match(out, /more non-table elements omitted/, "nav links are the truncated set");
+  assert.match(out, /more non-table elements left out by the safety bound/, "nav links are the truncated set");
 });
 
 test("formatDomSnapshot: a node with testId appends -> [data-testid=submit] hint (default attr name)", () => {
@@ -566,10 +566,10 @@ test("formatRedirectAdvisory keeps the attribute hint of a node, as the grounded
   assert.ok(block.includes("textbox: Email  -> [data-testid=email-field]"));
 });
 
-test("formatRedirectAdvisory cuts a long reached tree to the number of nodes a route gets, and says how many it left out", () => {
-  const nodes = Array.from({ length: MAX_NODES_PER_ROUTE + 15 }, (_, i) => `link: nav-${i}`);
+test("formatRedirectAdvisory holds a long reached tree to the node safety bound a page gets, and says how many it left out", () => {
+  const nodes = Array.from({ length: MAX_NODES_PER_PAGE + 15 }, (_, i) => `link: nav-${i}`);
   const block = formatRedirectAdvisory([loginPage("/orders", { nodes, attrs: [] })]);
-  assert.equal(block.split("\n").filter((line) => line.startsWith("  link: ")).length, MAX_NODES_PER_ROUTE);
+  assert.equal(block.split("\n").filter((line) => line.startsWith("  link: ")).length, MAX_NODES_PER_PAGE);
   assert.match(block, /15 more/);
 });
 
@@ -629,14 +629,14 @@ test("formatDomSnapshot does NOT warn on a healthy captured route (nodes present
    BEFORE the data table, so a naive head-slice truncates every cell — re-creating the "author sees
    nothing about the table" failure one layer down. Table/list roles survive past the cap.
  */
-test("formatDomSnapshot keeps table/list roles past the node cap (a present table is never truncated away)", () => {
-  const nav = Array.from({ length: 80 }, (_, i) => `link: nav-${i}`); /* 80 links — well over the 60 cap */
+test("formatDomSnapshot keeps table/list roles past the node safety bound (a present table is never truncated away)", () => {
+  const nav = Array.from({ length: MAX_NODES_PER_PAGE + 20 }, (_, i) => `link: nav-${i}`);
   const table = ["table: (present)", "cell: Helen Leary", "cell: radiology", "cell: Henry Stevens", "cell: radiology"];
   const out = formatDomSnapshot([{ route: "/vets", nodes: [...nav, ...table] }]);
   for (const t of table) assert.ok(out.includes(`  ${t}`), `table node dropped by the cap: ${t}`);
   /* And the duplicate "radiology" is still visible twice (the strict-mode-ambiguity signal). */
   assert.equal((out.match(/cell: radiology/g) ?? []).length, 2);
-  assert.match(out, /more non-table elements omitted/); /* the dropped ones are nav links, not the table */
+  assert.match(out, /more non-table elements left out by the safety bound/); /* the dropped ones are nav links, not the table */
 });
 
 /* A Bootstrap role="presentation" table COLLAPSES to `- text:` nodes with NO columnheader — that
@@ -653,12 +653,12 @@ test("text is a priority node (the Bootstrap-collapse signal survives the cap)",
   for (const t of textNodes) assert.ok(kept.includes(t), `text collapse node dropped by the cap: ${t}`);
 });
 
-test("formatDomSnapshot keeps text: collapse nodes past the node cap (they sort after the nav)", () => {
-  const nav = Array.from({ length: 80 }, (_, i) => `link: nav-${i}`); /* 80 links — over the 60 cap */
+test("formatDomSnapshot keeps text: collapse nodes past the node safety bound (they sort after the nav)", () => {
+  const nav = Array.from({ length: MAX_NODES_PER_PAGE + 20 }, (_, i) => `link: nav-${i}`);
   const collapse = ["text: First Last City", "text: George Franklin 110 W. Liberty"];
   const out = formatDomSnapshot([{ route: "/vets", nodes: [...nav, ...collapse] }]);
   for (const t of collapse) assert.ok(out.includes(`  ${t}`), `text collapse node dropped by the cap: ${t}`);
-  assert.match(out, /more non-table elements omitted/); /* the dropped ones are nav links, not the text signal */
+  assert.match(out, /more non-table elements left out by the safety bound/); /* the dropped ones are nav links, not the text signal */
 });
 
 /* ── captureDomByRoute: per-objective grounding split + soft-404 guard ───── */
@@ -1818,4 +1818,27 @@ test("a capture is given time for a read of every page, and for the wait and sec
   const matched = captureTimeoutMs(["/restaurantes"], dataState);
   assert.ok(captureTimeoutMs(["/home", "/user"]) - captureTimeoutMs(["/home"]) >= CAPTURE_ROUTE_READ_MS);
   assert.ok(matched - plain >= 10_000 + CAPTURE_ROUTE_READ_MS, `${matched} vs ${plain}`);
+});
+
+/* No fixed node count cuts a page: every node of an ordinary page reaches the text and the trace, and only the window decides what a prompt shows of it. */
+test("formatDomSnapshot renders every node and test id of a page well past the count the old per-page cap kept", () => {
+  const nodes = Array.from({ length: 150 }, (_, i) => `link: nav-${i}`);
+  const testIds = new Map(Array.from({ length: 150 }, (_, i) => [`tid-${i}`, 1] as const));
+  const out = formatDomSnapshot([{ route: "/wide", nodes, testIds }]);
+  assert.ok(out.includes("  link: nav-149"));
+  assert.ok(out.includes("tid-149"));
+  assert.doesNotMatch(out, /omitted|more\)/);
+  const delivery = pageDeliveryOf({ route: "/wide", nodes, testIds });
+  assert.equal(delivery.keptNodes.length, 150);
+  assert.equal(delivery.keptTestIds.length, 150);
+  assert.equal(delivery.nodeCapOmitted, 0);
+});
+
+/* A page that shows more nodes than any window holds (an endless list) is held to a generous safety bound; what the bound leaves out is counted and named. */
+test("a page past the node safety bound keeps its priority nodes, says how many it left out, and counts them for the trace", () => {
+  const nodes = [...Array.from({ length: MAX_NODES_PER_PAGE + 20 }, (_, i) => `link: nav-${i}`), "cell: Helen Leary"];
+  const out = formatDomSnapshot([{ route: "/endless", nodes }]);
+  assert.ok(out.includes("  cell: Helen Leary"));
+  assert.match(out, /21 more non-table elements left out by the safety bound/);
+  assert.equal(pageDeliveryOf({ route: "/endless", nodes }).nodeCapOmitted, 21);
 });

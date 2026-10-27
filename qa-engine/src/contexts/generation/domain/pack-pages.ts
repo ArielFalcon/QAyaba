@@ -2,13 +2,11 @@
  * The part of a run's Context Pack one flow needs: the Live DOM of the pages it visits, under the section's own head. A sidekick
  * authors one flow; the trees of every other page would only crowd its brief. A page is the flow's when its address, or the map
  * template it was opened from, is one the flow names (a trailing slash and a query aside), or when the flow names another page of
- * that template, or one with a stand-in for a value (`namesTemplatePage`). Whole pages only, within a bound, and the pages the
- * bound leaves out are counted. Pure.
+ * that template, or one with a stand-in for a value (`namesTemplatePage`). Whole pages, every one: no fixed bound cuts them; the
+ * prompt that carries them fits them to its role's window, page by page (referenceDomPages). Pure.
  */
 import { PACK_HEADINGS } from "./prompt-headings.ts";
 import { namesTemplatePage } from "./route-instantiation.ts";
-
-export const MAX_FLOW_PACK_CHARS = 12_000;
 
 const PAGE_LINE = /^route (\S+?)(?: \(instance of (\S+?)\))?:(?=\s|$)/;
 
@@ -19,7 +17,7 @@ const normalized = (route: string): string => {
 /* Any heading ends a section: the Live DOM section runs to the next one, whatever its level. */
 const HEADING = /^#{1,6} /;
 
-export function packPagesFor(pack: string | undefined, routes: readonly string[], maxChars: number = MAX_FLOW_PACK_CHARS): string | undefined {
+export function packPagesFor(pack: string | undefined, routes: readonly string[]): string | undefined {
   if (!pack || routes.length === 0) return undefined;
   const wanted = new Set(routes.map(normalized));
   const head: string[] = [];
@@ -44,19 +42,64 @@ export function packPagesFor(pack: string | undefined, routes: readonly string[]
     return wanted.has(opened) || [...wanted].some((name) => namesTemplatePage(opened, name));
   });
   if (mine.length === 0) return undefined;
-  const kept: string[] = [...head];
-  let size = kept.join("\n").length;
-  let left = 0;
-  for (const page of mine) {
-    const text = page.join("\n");
-    if (left > 0 || size + text.length + 1 > maxChars) {
-      left += 1;
+  return [...head, ...mine.map((page) => page.join("\n"))].join("\n");
+}
+
+/* A page the window can leave out: the page the trace names it by (the template it was opened from, else its address) and how many lines of its own it held. */
+export interface LeftOutPage {
+  route: string;
+  lines: number;
+}
+
+interface PageSpan {
+  header: number;
+  end: number;
+  route: string;
+}
+
+/* The pages of a DOM text that hold lines of their own (a node, a note, the test ids), in order: a page's lines are the indented ones under its `route …:` line. With `section`, only the pages under that `### ` heading, which runs to the next heading. */
+function pageSpans(lines: readonly string[], section?: string): PageSpan[] {
+  const spans: PageSpan[] = [];
+  let inScope = section === undefined;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (section !== undefined && HEADING.test(line)) {
+      inScope = line.startsWith(`### ${section}`);
       continue;
     }
-    kept.push(text);
-    size += text.length + 1;
+    if (!inScope) continue;
+    const match = PAGE_LINE.exec(line);
+    if (!match) continue;
+    let end = i + 1;
+    while (end < lines.length && lines[end]!.startsWith("  ")) end++;
+    if (end > i + 1) spans.push({ header: i, end, route: match[2] ?? match[1]! });
+    i = end - 1;
   }
-  if (kept.length === head.length) return undefined;
-  if (left > 0) kept.push(`(${left} more page${left === 1 ? "" : "s"} of this flow left out by the bound)`);
-  return kept.join("\n");
+  return spans;
+}
+
+/* How many pages of a DOM text can give way to a reference. */
+export function domPageCount(text: string, opts: { section?: string } = {}): number {
+  return pageSpans(text.split("\n"), opts.section).length;
+}
+
+/*
+ * The DOM text with its last `count` pages (those that hold lines of their own) shown as references: each keeps its `route …:` line,
+ * so it is named, and one line saying how many of its lines are not shown. The order is the text's own: a pack lists the pages the
+ * change ranks first first, so the lowest-ranked page gives way first. `left` names each page left out, in page order.
+ */
+export function referenceDomPages(text: string, count: number, opts: { section?: string } = {}): { text: string; left: LeftOutPage[] } {
+  const lines = text.split("\n");
+  const spans = pageSpans(lines, opts.section);
+  const referenced = spans.slice(Math.max(0, spans.length - count));
+  if (referenced.length === 0) return { text, left: [] };
+  const out: string[] = [];
+  let next = 0;
+  for (const span of referenced) {
+    const held = span.end - span.header - 1;
+    out.push(...lines.slice(next, span.header + 1), `  (this page's ${held} line(s) are not shown here, to fit the window)`);
+    next = span.end;
+  }
+  out.push(...lines.slice(next));
+  return { text: out.join("\n"), left: referenced.map((span) => ({ route: span.route, lines: span.end - span.header - 1 })) };
 }
