@@ -65,8 +65,9 @@ const PATH_EXTENSIONS = "ts|mjs|cjs|md|json|ya?ml|go|sh";
 const PATH_TOKEN = new RegExp(`(?<![\\w@./-])((?:[\\w-]+/)+[\\w.-]+\\.(?:${PATH_EXTENSIONS}))(?![\\w/-])`, "g");
 const CITATION = new RegExp(`(?<![\\w/.-])([\\w.-]+\\.(?:${PATH_EXTENSIONS}|tsx|js)):(\\d+)(?:-(\\d+))?(?!\\d|:\\d)`, "g");
 const TEST_FILE = /\.test\.(ts|mjs)$/;
-/* Fixtures hold synthetic content (their paths and citations name files of an imagined app), and .gitignore names ignored paths by design. */
-const REFERENCE_CHECK_SKIPPED = (path: string): boolean => path.includes("/__fixtures__/") || path === ".gitignore";
+/* Fixtures hold synthetic content (their paths and citations name files of an imagined app), .gitignore names ignored paths by design,
+   and the test runner's recorded file costs may name a test file deleted since they were recorded (the runner ignores such an entry). */
+const REFERENCE_CHECK_SKIPPED = (path: string): boolean => path.includes("/__fixtures__/") || path === ".gitignore" || path === "scripts/test-timings.json";
 const FIXTURE_ROOTS = ["web/src/app/"];
 
 export function isScanned(path: string): boolean {

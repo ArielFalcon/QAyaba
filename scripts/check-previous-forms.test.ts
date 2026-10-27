@@ -81,6 +81,13 @@ test("a path token that git ignores (user data) is not a dead reference", () => 
   assert.deepEqual(checkPreviousForms([...files, file("config/example.yaml", "x")], [], files.concat(file("config/example.yaml", "x")).map((f) => f.path), ignored).violations, []);
 });
 
+test("the test runner's recorded file costs may name a test file since deleted: its paths are not checked", () => {
+  const costs = '{ "qa-engine/test/gone.test.ts": 3 }';
+  const tree = file("qa-engine/test/real.test.ts", "x");
+  assert.deepEqual(check([tree, file("scripts/test-timings.json", costs)]).violations, []);
+  assert.deepEqual(check([tree, file("scripts/other.json", costs)]).violations.map((v) => v.rule), ["dead-path"]);
+});
+
 test("paths in tests and fixtures are not checked, but banned terms in tests are", () => {
   const test = file("src/a.test.ts", "// docs/gone.md and a Legacy shim");
   assert.deepEqual(check([test, file("docs/real.md", "x")]).violations.map((v) => v.rule), ["legacy"]);
