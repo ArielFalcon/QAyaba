@@ -5,7 +5,7 @@ import { FoldRunOutcome, type LearningStorePort } from "@contexts/cross-run-lear
 import type { RunOutcome } from "@kernel/run-outcome";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -260,7 +260,7 @@ const ORCHESTRATOR_TOKEN = "tok-abcdef123456";
 /* The login runs inside the sandbox scope the run opens: its work dir is where the login child writes its session. */
 async function inRunScope<T>(config: { execScope?: { open(input: { runId: string }): { run<R>(fn: () => R): R; close(): void } | Promise<{ run<R>(fn: () => R): R; close(): void }> } }, fn: () => Promise<T>): Promise<T> {
   assert.ok(config.execScope, "the composition opens a sandbox scope for each run");
-  const session = await config.execScope.open({ runId: "factory-test-run" });
+  const session = await config.execScope.open({ runId: `factory-test-run-${randomUUID()}` });
   try {
     return await session.run(fn);
   } finally {

@@ -13,6 +13,7 @@ import {
   unregisterRunSession,
   EventStreamManager,
   setRawEventStreamOpener,
+  type RawEventStreamOpener,
 } from "@contexts/generation/infrastructure/sse/event-stream.ts";
 import {
   callEfficiencyTracker,
@@ -377,10 +378,15 @@ test("a stream whose iteration fails is closed, and the failure is logged rather
 
 test("a stream attempted before an opener is wired throws without announcing anything", async () => {
   const lifecycle = new RecordingLifecycle();
-  const restoreEmpty = setRawEventStreamOpener({ open: async () => undefined });
-  restoreEmpty(); /* the previously wired opener (none) is put back */
-  await assert.rejects(() => startScopedEventStream(DIR, () => {}, undefined, undefined, lifecycle), /no RawEventStreamOpener wired/);
-  assert.deepEqual(lifecycle.kinds, []);
+  /* Loading the OpenCode client wires its opener as module state, so the test unwires whatever is
+     there and puts it back after. */
+  const restore = setRawEventStreamOpener(undefined as unknown as RawEventStreamOpener);
+  try {
+    await assert.rejects(() => startScopedEventStream(DIR, () => {}, undefined, undefined, lifecycle), /no RawEventStreamOpener wired/);
+    assert.deepEqual(lifecycle.kinds, []);
+  } finally {
+    restore();
+  }
 });
 
 test("the opener is handed a callback that reports the stream interrupted under its token", async () => {

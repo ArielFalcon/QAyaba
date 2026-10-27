@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -81,7 +82,7 @@ async function withOracleRun(plant: string, run: (measure: () => Promise<{ value
     chmodSync(bin, 0o755);
     const config = buildEngineRootDeps(app(), { getAgentDeps: stubAgentDeps }, NAMESPACE, { mode: "diff" });
     /* The oracle's re-run is a child of the run's sandbox: it needs the scope a run opens. */
-    const session = await config.execScope!.open({ runId: "fault-injection-test" });
+    const session = await config.execScope!.open({ runId: `fault-injection-${randomUUID()}` });
     try {
       await run(
         () => session.run(() => config.objectiveSignal.oracle.measure(BlastRadius.of(Sha.of("abc1234"), ["src/login.ts"]), e2eDir, NAMESPACE, [BASELINE_CASE], aim === "no-scope" ? undefined : aim)),
