@@ -97,6 +97,29 @@ test("a section cap makes context_complete 0 even when the section delivered no 
   assert.match(s?.comment ?? "", /context-pack:section-cap:10/);
 });
 
+test("a whole section the window showed as a reference costs every change page, and a page it showed as one costs only that page", () => {
+  const whole = evidence({
+    context: {
+      ...r4Context(),
+      delivered: [{ source: "context-map", ids: [], bytes: 1, omitted: 40, omissions: [{ class: "truncation", reason: "window-fit", count: 40 }] }],
+    },
+  });
+  const wholeScore = score(whole, "context_complete");
+  assert.equal(wholeScore?.value, 0, "a map shown only as a reference to its file names no page, so every change page lost it");
+  assert.match(wholeScore?.comment ?? "", /context-map:window-fit:40/);
+
+  const ctx = r4Context();
+  const page = ctx.relevantIds.map((id) => id.replace(/^route:/, ""))[0]!;
+  const onePage = evidence({
+    context: {
+      ...ctx,
+      delivered: [{ source: "context-pack", ids: [], bytes: 1, omitted: 12, omissions: [{ class: "truncation", reason: "window-fit", count: 12, route: page }] }],
+    },
+  });
+  const pages = new Set(ctx.relevantIds.map((id) => id.replace(/^route:/, ""))).size;
+  assert.equal(score(onePage, "context_complete")?.value, (pages - 1) / pages);
+});
+
 test("focused operations count the change-filtered pack contracts, not every map operation", () => {
   const e = evidence({
     context: {

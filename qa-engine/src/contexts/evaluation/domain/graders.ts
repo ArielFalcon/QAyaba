@@ -9,6 +9,7 @@ import { RUN_PHASES } from "@kernel/run-step";
 import { STEP_INTENTS, scoreOf } from "./grader-catalog.ts";
 import { extractReferences } from "./context-refs.ts";
 import { itemId } from "@kernel/context-item-ids.ts";
+import { WINDOW_FIT_REASON } from "@kernel/prompt-sections.ts";
 import type { ContextEvidence, RunEvaluationEvidence as Evidence } from "./run-evaluation-evidence.ts";
 import type { RawScore, Score } from "./score.ts";
 
@@ -204,7 +205,8 @@ const completenessLosses = (ctx: ContextEvidence): ContextLoss[] => {
     for (const omission of source.omissions) {
       if (omission.class !== "truncation") continue;
       const label = `${source.source}:${omission.reason}:${omission.count}`;
-      if (omission.reason === "section-cap" || omission.reason === "section-shed") losses.push({ label, pages: "all" });
+      /* A cut that names no page of a whole section (its cap, its shedding, or the window showing it only as a reference) costs every change page. */
+      if (omission.reason === "section-cap" || omission.reason === "section-shed" || (omission.reason === WINDOW_FIT_REASON && omission.route === undefined)) losses.push({ label, pages: "all" });
       else if (omission.route !== undefined) {
         if (relevantPaths.has(omission.route)) losses.push({ label, pages: [omission.route] });
       } else {
