@@ -6960,11 +6960,14 @@ test("parentRunId: an enforce-mode coverage-regen never fabricates its own paren
 test("FixLoop retry execute() forwards the per-attempt retryNs as ExecutionOpts.namespace", async () => {
   const capturedNamespaces: (string | undefined)[] = [];
   const capturedMeasureNamespaces: (string | undefined)[] = [];
+  const capturedMeasureReruns: unknown[] = [];
+  const capturedSpecFiles: (string[] | undefined)[] = [];
   let executeCalls = 0;
   const { ports } = stubPorts({
     execute: async (_specDir, opts) => {
       executeCalls++;
       capturedNamespaces.push(typeof opts === "object" && opts && !(opts instanceof AbortSignal) ? opts.namespace : undefined);
+      capturedSpecFiles.push(typeof opts === "object" && opts && !(opts instanceof AbortSignal) ? opts.specFiles : undefined);
       if (executeCalls === 1) {
         return { verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom", file: "owners.spec.ts" }], logs: "" };
       }
@@ -6972,6 +6975,7 @@ test("FixLoop retry execute() forwards the per-attempt retryNs as ExecutionOpts.
     },
     measure: async (_br, _specDir, _diff, _baseline, opts) => {
       capturedMeasureNamespaces.push(opts?.namespace);
+      capturedMeasureReruns.push(opts?.reruns);
       return { status: "unknown" as const, ratio: null };
     },
   });
@@ -6983,7 +6987,49 @@ test("FixLoop retry execute() forwards the per-attempt retryNs as ExecutionOpts.
   assert.ok(executeCalls >= 2, `expected initial execute + at least one FixLoop retry, got ${executeCalls}`);
   const retryNs = capturedNamespaces.slice(1).find((ns) => typeof ns === "string" && ns.endsWith("-r1"));
   assert.equal(retryNs, "retry-ns-p0-1-r1", "FixLoop retry must execute under ${runId}-r1 so test data does not collide with the first attempt");
-  assert.equal(capturedMeasureNamespaces[0], "retry-ns-p0-1-r1", "post-FixLoop measure must read coverage dumps from the winning retry namespace, not the first-run prefix");
+  assert.deepEqual(capturedSpecFiles[capturedNamespaces.indexOf("retry-ns-p0-1-r1")], ["a.spec.ts"], "the round executed the spec it changed");
+  assert.equal(capturedMeasureNamespaces[0], "retry-ns-p0-1", "a round that re-ran some spec files leaves the others' dumps under the first run");
+  assert.deepEqual(capturedMeasureReruns[0], [{ namespace: "retry-ns-p0-1-r1", specFiles: ["a.spec.ts"] }], "post-FixLoop measure reads the re-run spec's dumps from the retry namespace");
+});
+
+/* Change coverage is measured from the latest dumps of every spec file: a fix-loop round that re-ran some spec files leaves the others' dumps where the first execution wrote them. */
+test("a fix-loop round that re-ran one of two spec files still measures the other file's lines", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-latest-dumps-"));
+  const specDir = join(dir, "e2e");
+  let generations = 0;
+  const executions: Array<{ namespace?: string; specFiles?: string[] }> = [];
+  const measured: unknown[] = [];
+  try {
+    const { ports } = stubPorts({
+      prepare: async () => fakeHandle({ specDir, mirrorDir: dir }),
+      generate: async () => {
+        generations += 1;
+        mkdirSync(specDir, { recursive: true });
+        if (generations === 1) writeFileSync(join(specDir, "a.spec.ts"), "// a\n");
+        writeFileSync(join(specDir, "b.spec.ts"), `// b, generation ${generations}\n`);
+        return scriptedGeneration({ specs: generations === 1 ? ["a.spec.ts", "b.spec.ts"] : ["b.spec.ts"] });
+      },
+      execute: async (_dir, opts) => {
+        const o = opts as { namespace?: string; specFiles?: string[] } | undefined;
+        executions.push({ ...(o?.namespace ? { namespace: o.namespace } : {}), ...(o?.specFiles ? { specFiles: o.specFiles } : {}) });
+        if (executions.length === 1) return { verdict: "fail" as const, cases: [{ name: "a works", status: "pass" as const, file: "a.spec.ts" }, { name: "b works", status: "fail" as const, file: "b.spec.ts", detail: "expected 1 row" }], logs: "" };
+        return { verdict: "pass" as const, cases: [{ name: "b works", status: "pass" as const, file: "b.spec.ts" }], logs: "" };
+      },
+      measure: async (_br, _specDir, _diff, _baseline, opts) => {
+        measured.push({ namespace: opts?.namespace, reruns: opts?.reruns });
+        return { status: "pass" as const, ratio: 0.5, uncovered: [], untakenArms: [] };
+      },
+    });
+    const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false, coveragePolicyMode: "signal", coverageBranchCases: "off" } });
+
+    const out = await useCase.run({ ...baseInput, runId: "latest-dumps" });
+
+    assert.deepEqual(executions[1], { namespace: "latest-dumps-r1", specFiles: ["b.spec.ts"] }, "the round re-ran only the spec file it changed");
+    assert.deepEqual(measured, [{ namespace: "latest-dumps", reruns: [{ namespace: "latest-dumps-r1", specFiles: ["b.spec.ts"] }] }], "a.spec.ts is read from the first execution, b.spec.ts from the round that re-ran it");
+    assert.equal(out.decision.verdict, "pass");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("wall-clock ceiling skips FixLoop regeneration without aborting the first generate", async () => {

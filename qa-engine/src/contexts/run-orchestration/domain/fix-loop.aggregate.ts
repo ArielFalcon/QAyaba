@@ -100,6 +100,12 @@ export interface FixLoopAcceptancePort {
   restore(token: unknown): Promise<void>;
 }
 
+/** A later execution of some spec files, under its own namespace: their latest dumps are there, every other spec's are not. */
+export interface FixLoopRerun {
+  namespace: string;
+  specFiles: readonly string[];
+}
+
 export type FixLoopAcceptanceOutcome =
   | {
       kind: "accepted";
@@ -167,7 +173,9 @@ export interface FixLoopResult {
   absentSelectors: number;
   /* Last adjudicator verdict for Issue labeling by the caller. undefined when the loop never ran. */
   lastAdjudicatorVerdict: AdjudicatorVerdict | undefined;
+  /* The namespace of the last execution of the whole suite; `coverageReruns` are the executions of some spec files after it, in order, so the latest dumps of every spec file are known. */
   coverageNamespace: string;
+  coverageReruns: FixLoopRerun[];
   /* Last regen round's specMetas at loop exit. undefined when the loop never regenerated — never fabricated. */
   lastSpecMetas: { flow?: string; objective?: string }[] | undefined;
   /* The loop ended on a conclusive dev_not_rendered: the run is an infra-error of the precondition class. */
@@ -304,6 +312,9 @@ export interface FixLoopState {
   realBugDetected: boolean;
   adjVerdict: AdjudicatorVerdict | undefined;
   coverageNs: string;
+  coverageReruns: FixLoopRerun[];
+  /** Where the best run's dumps are, put back with its bytes. */
+  bestCoverage: { ns: string; reruns: FixLoopRerun[] };
   absentSelectors: number;
   preconditionFailed: boolean;
   rejectedClaims: number;
@@ -354,6 +365,8 @@ export class FixLoop {
       realBugDetected: false,
       adjVerdict: undefined,
       coverageNs: input.namespace,
+      coverageReruns: [],
+      bestCoverage: { ns: input.namespace, reruns: [] },
       absentSelectors: 0,
       preconditionFailed: false,
       rejectedClaims: 0,
@@ -396,6 +409,8 @@ export class FixLoop {
       /* The best round's own bytes go back first: a failed restore must not leave the worse round's bytes under the best cases. */
       if (this.deps.acceptance && state.hasBestToken) await this.deps.acceptance.restore(state.bestToken);
       state.run = state.bestRunSoFar;
+      state.coverageNs = state.bestCoverage.ns;
+      state.coverageReruns = state.bestCoverage.reruns;
     }
   }
 
@@ -407,6 +422,7 @@ export class FixLoop {
       absentSelectors: state.absentSelectors,
       lastAdjudicatorVerdict: state.adjVerdict,
       coverageNamespace: state.coverageNs,
+      coverageReruns: state.coverageReruns,
       lastSpecMetas: state.lastRegenResult?.specMetas,
       preconditionFailed: state.preconditionFailed,
       rejectedClaims: state.rejectedClaims,
@@ -721,7 +737,8 @@ export class FixLoop {
 
     state.run = mergeAcceptedRound(state.run, outcome);
     state.contractFeedback = undefined;
-    state.coverageNs = round.roundNs;
+    /* The round executed only the specs it changed: theirs are the latest dumps, every other spec's stay where they were. */
+    if (outcome.changedSpecFiles.length > 0) state.coverageReruns = [...state.coverageReruns, { namespace: round.roundNs, specFiles: outcome.changedSpecFiles }];
     state.roundAccepted = true;
     state.acceptedToken = outcome.accepted;
     this.recordBest(state);
@@ -800,10 +817,13 @@ export class FixLoop {
             ? "flaky"
             : "pass";
       state.run = { verdict: mergedVerdict, cases: mergedCases };
+      state.coverageReruns = [...state.coverageReruns, { namespace: retryNs, specFiles: failedSpecFiles }];
     } else {
       state.run = retryRun;
+      /* The whole suite ran again: every spec's latest dumps are under this namespace. */
+      state.coverageNs = retryNs;
+      state.coverageReruns = [];
     }
-    state.coverageNs = retryNs;
     this.recordBest(state);
     return fixLoopAction({ after: "reexecution", failed: false, devHealthy: true });
   }
@@ -816,6 +836,7 @@ export class FixLoop {
         { failingCount: failCount(state.run), run: state.run },
       ])!.run;
       state.bestRunSoFar = best;
+      if (best === state.run) state.bestCoverage = { ns: state.coverageNs, reruns: state.coverageReruns };
       /* Only an accepted round has bytes of its own; the initial run's are the first pre-turn snapshot. */
       if (state.roundAccepted && best === state.run) {
         state.bestToken = state.acceptedToken;

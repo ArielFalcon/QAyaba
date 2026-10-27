@@ -23,6 +23,9 @@ export interface ObjectiveSignalPort {
    * `opts.caseFiles` are the spec files of this run's passing cases: a bundle mutant re-runs the ones whose tests reached it.
    * `opts.namespace` overrides the dump namespace for the regen's second
    * measure(); the first measurement is untouched.
+   * `opts.reruns` are later executions of some spec files, in the order they ran: the measurement then reads the latest dumps of
+   * every spec file (the namespace's without the re-run files, then each re-run's for the files it re-ran, as `recount` does), and
+   * its mutants are chosen from those dumps. A re-run whose dumps cannot be read with the rest measures nothing ("unknown").
    * The coverage counts what the passing tests ran and what a mutant a test killed made run (the verified coverage);
    * `mutantProofs` names those mutants' re-runs, so a recount can count them again, and is absent when none added a line.
    * `survivorRuns` are the mutants no test noticed, in the order of `bundleMutation.survived`, as they were run, so a regeneration
@@ -30,7 +33,7 @@ export interface ObjectiveSignalPort {
    * `mutantSelection` says how the mutants were chosen (the sites on changed lines left out because their source line does not hold
    * what they mutate, by why, and how many mutants re-run only the tests that reached them); absent when no mutant was looked for.
    */
-  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[]; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; faultAim?: FaultAim }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; valueByCandidate?: CandidateValue[]; valueStats?: ValueStats; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[]; untakenArms?: UntakenArm[]; bundleMutation?: BundleMutationOutcome; mutantSelection?: MutantSelectionRecord; mutantProofs?: MutantProof[]; survivorRuns?: MutantRun[]; measurement?: CoverageMeasurement }>;
+  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[]; candidates?: readonly UseCaseCandidate[]; crossRepo?: boolean; faultAim?: FaultAim; reruns?: readonly CoverageRerun[] }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; valueByCandidate?: CandidateValue[]; valueStats?: ValueStats; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[]; untakenArms?: UntakenArm[]; bundleMutation?: BundleMutationOutcome; mutantSelection?: MutantSelectionRecord; mutantProofs?: MutantProof[]; survivorRuns?: MutantRun[]; measurement?: CoverageMeasurement }>;
   /**
    * Single source of truth for whether a measured status blocks publish.
    * Only "enforce" + "fail" blocks; "unknown" never blocks regardless of mode.

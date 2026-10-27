@@ -575,6 +575,52 @@ test("measure() hands the mutants on the changed lines to the mutation oracle, w
   assert.deepEqual(result.bundleMutation, { applied: 1, killed: 0, survived: [{ file: "src/checkout.ts", line: 1, operator: "negate condition" }] });
 });
 
+test("measure() with re-runs reads the latest dumps of every spec file, and its mutants are chosen from them", async () => {
+  const site = (line: number, dump: string) => ({ file: "src/checkout.ts", line, column: 0, operator: "negate condition", script: { url: "https://dev/main.js", sha256: "h" }, edit: { start: 0, end: 1, replacement: "!" }, original: "x", sourceLine: "if (x) pay();", ranIn: [dump] });
+  const sourcesAsked: unknown[] = [];
+  let collected = 0;
+  const collector: CoverageCollectorPort = {
+    collect: async () => (collected++, { covered: [] }),
+    recollect: async (_dir, sources) => {
+      sourcesAsked.push(sources);
+      return { covered: [{ file: "src/checkout.ts", lines: [1, 2] }], mutationSites: [site(1, "flows-pay-spec-ts-x-0-0.json"), site(2, "flows-other-spec-ts-y-0-0.json")] };
+    },
+  };
+  const mutated: unknown[] = [];
+  const mutation = {
+    measure: async (mutants: Array<{ site: { line: number }; specFiles: string[] }>) => {
+      mutated.push(mutants.map((m) => [m.site.line, m.specFiles]));
+      return { applied: 2, killed: 2, survived: [] };
+    },
+  };
+  const adapter = new ObjectiveSignalPortAdapter(
+    { collector, decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }), mutation },
+    { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage, namespace: "run-7" },
+  );
+
+  const result = await adapter.measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), "/e2e", SAMPLE_DIFF, ["pays", "other"], {
+    caseFiles: ["flows/pay.spec.ts", "flows/other.spec.ts"],
+    reruns: [{ namespace: "run-7-r1", specFiles: ["flows/other.spec.ts"] }],
+  });
+
+  assert.equal(collected, 0, "no single namespace stands for the suite");
+  assert.deepEqual(sourcesAsked, [[{ namespace: "run-7", exceptSpecFiles: ["flows/other.spec.ts"] }, { namespace: "run-7-r1", onlySpecFiles: ["flows/other.spec.ts"] }]]);
+  assert.equal(result.ratio, 1);
+  assert.deepEqual(mutated, [[[1, ["flows/pay.spec.ts"]], [2, ["flows/other.spec.ts"]]]], "the mutants are chosen from the dumps of both spec files");
+});
+
+test("measure() with re-runs whose dumps cannot all be read measures nothing: a part never stands for the suite", async () => {
+  const adapter = new ObjectiveSignalPortAdapter(
+    { collector: { collect: async () => ({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }] }), recollect: async () => ({ covered: [{ file: "src/checkout.ts", lines: [1] }], incomplete: true }) }, decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }) },
+    { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage, namespace: "run-7" },
+  );
+
+  const result = await adapter.measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), "/e2e", SAMPLE_DIFF, [], { reruns: [{ namespace: "run-7-r1", specFiles: ["flows/other.spec.ts"] }] });
+
+  assert.equal(result.status, "unknown");
+  assert.equal(result.ratio, null);
+});
+
 test("measure() makes no mutant of a site whose source line in the working copy does not hold what it mutates, and records each site left out, by why, beside the outcome", async () => {
   const repoDir = mkdtempSync(join(tmpdir(), "qa-mutation-source-"));
   try {

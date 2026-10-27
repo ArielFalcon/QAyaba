@@ -638,6 +638,11 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   re-measured under its own `${runId}-coverage-regen` namespace. Only that second
   measurement can change the decision; a failed or empty regen keeps the first result.
 
+- The measurement reads the latest dumps of every spec file: the namespace of the last whole-suite execution
+  without the spec files re-run since, plus each fix-loop round's namespace for the spec files it re-ran
+  (`FixLoopResult.coverageReruns`, the same assembly `recount` uses; a re-run's namespace is read for its own
+  spec files only). Its mutants are chosen from those dumps. When the loop puts the best round's bytes back,
+  its dumps go back with them. Re-runs whose dumps cannot all be read measure nothing (`unknown`).
 - The changed lines are the change's own code: the repo's test files a commit carries (the language
   registry's `isTestFile`) are neither collected nor counted. A browser run counts only the changed lines a loaded
   script holds code for (a segment of its source map maps to the line; a script served as written: its non-blank

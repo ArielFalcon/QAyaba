@@ -379,6 +379,7 @@ export async function settleFixLoop(state: Readonly<RunState>, ctx: WorkspaceRun
       fixLoop: {
         session: undefined,
         coverageNamespace: fixLoopResult.coverageNamespace,
+        coverageReruns: fixLoopResult.coverageReruns,
         /* Undefined when the loop never reached adjudicate() — never fabricated. */
         lastAdjudicatorVerdict: fixLoopResult.lastAdjudicatorVerdict,
         fixLoopFinalSpecMetas: fixLoopResult.lastSpecMetas,

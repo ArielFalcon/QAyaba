@@ -67,7 +67,8 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
   const baselineCases = passed.map((c) => c.name);
   /* The spec files of those cases: a mutant re-runs the ones whose tests reached it. */
   const caseFiles = [...new Set(passed.flatMap((c) => (c.file ? [c.file] : [])))];
-  const { coverageNamespace } = state.fixLoop;
+  /* The loop's last whole-suite execution and the re-runs of some spec files after it: the measurement reads the latest dumps of every spec file. */
+  const { coverageNamespace, coverageReruns } = state.fixLoop;
   /* The response oracle corrupts only the operations the change reaches; with no scope it has nothing to corrupt. */
   const faultAim = faultAimOf({ scope: state.grounding.changeScope, candidates: state.grounding.candidates, flowCandidates: state.generation.flowCandidates });
   const signal = await deps.objectiveSignal.measure(
@@ -75,9 +76,10 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
     workspace.specDir,
     input.triggerRepo ? undefined : diff,
     baselineCases,
-    ...(coverageNamespace || caseFiles.length > 0 || state.grounding.candidates.length > 0 || faultAim !== undefined
+    ...(coverageNamespace || coverageReruns.length > 0 || caseFiles.length > 0 || state.grounding.candidates.length > 0 || faultAim !== undefined
       ? [{
           ...(coverageNamespace ? { namespace: coverageNamespace } : {}),
+          ...(coverageReruns.length > 0 ? { reruns: coverageReruns } : {}),
           ...(caseFiles.length > 0 ? { caseFiles } : {}),
           ...(state.grounding.candidates.length > 0 ? { candidates: state.grounding.candidates } : {}),
           ...(input.triggerRepo ? { crossRepo: true } : {}),
@@ -285,10 +287,11 @@ export async function recountAfter(state: Readonly<RunState>, ctx: WorkspaceRunC
   /* Every accepted regeneration's re-runs are carried, so a recount reads each rewritten spec from the dumps of the bytes now delivered, not only the current regeneration's. */
   const reruns = [...state.coverage.reruns, ...(regen.reruns ?? [])];
   const accepted = { ...acceptedRegeneration(spent), reruns };
-  const { coverageNamespace } = state.fixLoop;
+  /* The fix loop's re-runs come first: the measurement read them over the same namespace. */
+  const { coverageNamespace, coverageReruns } = state.fixLoop;
   const recount =
     regen.reruns && deps.objectiveSignal.recount
-      ? await deps.objectiveSignal.recount(BlastRadius.of(input.sha, state.classification.intent?.changedFiles ?? []), workspace.specDir, state.classification.diff, reruns, {
+      ? await deps.objectiveSignal.recount(BlastRadius.of(input.sha, state.classification.intent?.changedFiles ?? []), workspace.specDir, state.classification.diff, [...coverageReruns, ...reruns], {
           ...(coverageNamespace ? { namespace: coverageNamespace } : {}),
           ...(state.coverage.mutantProofs.length > 0 ? { proofs: state.coverage.mutantProofs } : {}),
         })

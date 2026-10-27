@@ -116,7 +116,10 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     /* Per-call changed files from the live diff. Composition-time collectors often hold a static empty list; absent diff → collector constructor value. */
     const changedFiles = changeDiff !== undefined ? [...parseDiffHunks(changeDiff).keys()] : undefined;
     const willAssemble = this.ctx.assembleChangeCoverage !== undefined && !!diff;
-    const report = willAssemble ? await this.deps.collector.collect(specDir, namespace, changedFiles) : null;
+    /* The latest dumps of every spec file: after re-runs of some of them, the namespace alone holds the others' only. */
+    const rerun = (opts?.reruns?.length ?? 0) > 0;
+    const sources = latestDumpsOf(namespace, opts?.reruns ?? []).sources;
+    const report = willAssemble ? await this.collectFrom(specDir, namespace, rerun ? sources : undefined, changedFiles) : null;
     const executed: ChangeCoverage | null = report ? this.ctx.assembleChangeCoverage!(changeDiff!, report) : null;
 
     const oracleResult = await this.deps.oracle.measure(br, this.ctx.repoDir, namespace, baselineCases ?? this.ctx.baselineCases, opts?.faultAim);
@@ -132,7 +135,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     }
     const proofs = bundleMutation?.proofs ?? [];
     /* What a killed mutant made run, a test checked: the verified coverage adds it, the coverage by execution alone stays beside it. */
-    const verified = proofs.length > 0 && executed ? await this.withProofs(specDir, [{ namespace }], proofs, changeDiff!, changedFiles) : null;
+    const verified = proofs.length > 0 && executed ? await this.withProofs(specDir, rerun ? sources : [{ namespace }], proofs, changeDiff!, changedFiles) : null;
     const cc = verified ?? executed;
 
     const status = this.deps.decide.decide(cc, this.ctx.policy);
@@ -171,6 +174,18 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
       ...(bundleMutation?.survivorRuns ? { survivorRuns: bundleMutation.survivorRuns } : {}),
       measurement,
     };
+  }
+
+  /*
+   * The dumps a measurement reads: the namespace's, or, after re-runs of some spec files, the latest of every spec file. Null when a
+   * re-run's dumps could not be read with the rest, or the collector cannot add namespaces: a part never stands for the suite.
+   */
+  private async collectFrom(specDir: string, namespace: string, latest: readonly DumpSource[] | undefined, changedFiles: string[] | undefined): Promise<CoverageReport | null> {
+    if (latest === undefined) return this.deps.collector.collect(specDir, namespace, changedFiles);
+    const { recollect } = this.deps.collector;
+    if (!recollect) return null;
+    const report = await recollect.call(this.deps.collector, specDir, latest, changedFiles);
+    return report.incomplete ? null : report;
   }
 
   /* The coverage of `sources` with the dumps of each proof's re-run added (its edit undone, only its failing spec files); null when a source could not be read, so a part never stands for the whole. */

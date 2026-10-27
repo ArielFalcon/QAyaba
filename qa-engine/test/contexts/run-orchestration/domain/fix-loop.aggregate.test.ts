@@ -773,6 +773,8 @@ test("the best round's snapshot is restored when a later round regresses", async
   assert.deepEqual(acceptance.restored, ["round-a-v1"], "the best round's bytes go back, not the worse round's");
   assert.equal(result.run.cases.find((c) => c.name === "a")?.status, "pass", "the best round's cases are the run");
   assert.equal(result.run.cases.filter((c) => c.status === "fail").length, 1);
+  assert.equal(result.coverageNamespace, "qa-bot-abc", "no round ran the whole suite: every other spec's dumps stay under the first run");
+  assert.deepEqual(result.coverageReruns, [{ namespace: "qa-bot-abc-r1", specFiles: ["a.spec.ts"] }], "the best round's dumps go back with its bytes, not the worse round's");
 });
 
 test("an accepted round keeps a case the run cannot attribute to a file", async () => {

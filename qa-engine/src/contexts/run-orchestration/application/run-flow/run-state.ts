@@ -147,8 +147,10 @@ export interface FixLoopSession {
 export interface FixLoopOutcome {
   /** The loop in progress; undefined before it engages and after it settles. */
   session: FixLoopSession | undefined;
-  /** The winning loop execute namespace (`${runId}-rN`); absent when the loop never ran. */
+  /** The namespace of the loop's last whole-suite execution; absent when the loop never ran. */
   coverageNamespace: string | undefined;
+  /** The loop's executions of some spec files after it, in order: those files' latest dumps. Empty when there were none. */
+  coverageReruns: CoverageRerun[];
   /** The full adjudicator verdict for the Issue body; undefined when the loop never reached adjudication. */
   lastAdjudicatorVerdict: AdjudicatorVerdict | undefined;
   /** The loop's final specMetas; undefined when it never regenerated. */
@@ -419,7 +421,7 @@ export function initialRunState(): RunState {
       authVerifiedSha256: undefined,
       run: undefined,
     },
-    fixLoop: { session: undefined, coverageNamespace: undefined, lastAdjudicatorVerdict: undefined, fixLoopFinalSpecMetas: undefined, devNotRenderedConclusive: false },
+    fixLoop: { session: undefined, coverageNamespace: undefined, coverageReruns: [], lastAdjudicatorVerdict: undefined, fixLoopFinalSpecMetas: undefined, devNotRenderedConclusive: false },
     coverage: {
       blocksPublish: false,
       coverageRatio: null,
