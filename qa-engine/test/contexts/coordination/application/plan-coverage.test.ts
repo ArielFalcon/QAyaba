@@ -97,3 +97,21 @@ test("the re-plan request says why a drop was refused", () => {
   const text = renderReplanRequest(new PatternRedactionAdapter(), coverage.unresolved, coverage.refused);
   assert.ok(text.includes(candidate.id) && text.includes("src/cart.ts") && text.includes(DROP_BASIS.NO_OBSERVABLE_CHANGE));
 });
+
+test("a no-observable-change drop is refused when a shared seed is executable code, and stands when the shared seeds are only style", () => {
+  const code = seeded("/cart", ["src/cart.css"], { sharedSeeds: [{ file: "src/shared/format.ts", symbol: "formatMoney", pages: 4 }] });
+  const refused = planCoverage({ flows: [], dropped: [dropOf(code, DROP_BASIS.NO_OBSERVABLE_CHANGE)] }, [code]);
+  assert.deepEqual([refused.dropped.length, refused.unresolved.map((c) => c.id)], [0, [code.id]]);
+  assert.match(refused.refused?.[0]?.why ?? "", /src\/shared\/format\.ts/);
+
+  const style = seeded("/cart", ["src/cart.css"], { sharedSeeds: [{ file: "src/shared/theme.scss", symbol: "*", pages: 4 }] });
+  assert.equal(planCoverage({ flows: [], dropped: [dropOf(style, DROP_BASIS.NO_OBSERVABLE_CHANGE)] }, [style]).dropped.length, 1);
+});
+
+test("shared seeds change neither who covers a candidate nor how an already-covered drop is judged", () => {
+  const shared = [{ file: "src/shared/format.ts", symbol: "formatMoney", pages: 4 }];
+  const held = seeded("/orders", ["src/orders.css"], { existingSpecs: ["flows/orders.spec.ts"], sharedSeeds: shared });
+  const bare = seeded("/cart", ["src/cart.css"], { sharedSeeds: shared });
+  const coverage = planCoverage({ flows: [{ routes: ["/cart"], candidates: [] }], dropped: [dropOf(held, DROP_BASIS.ALREADY_COVERED)] }, [held, bare]);
+  assert.deepEqual([coverage.covered.map((c) => c.id), coverage.dropped.map((d) => d.candidate.id)], [[bare.id], [held.id]]);
+});

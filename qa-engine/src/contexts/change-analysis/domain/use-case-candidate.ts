@@ -6,7 +6,7 @@
 import { sha256Hex } from "@kernel/content-hash.ts";
 import { entryKey, type EntryPoint, type ReachBasis, type ReachTier } from "@kernel/change-reach.ts";
 import { normalizeRoute, type PageMap } from "./page-files.ts";
-import { FILE_SEED_SYMBOL, type CandidateChangedFile, type Reachability, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import { FILE_SEED_SYMBOL, type CandidateChangedFile, type Reachability, type SharedSeed, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import type { ChangeScope, ReachEntry } from "./change-scope.ts";
 
 export type { Reachability, UseCaseCandidate } from "@kernel/use-case-candidate.ts";
@@ -120,6 +120,18 @@ function changedFilesOf(seeds: readonly { file: string }[], scope: ChangeScope, 
   });
 }
 
+/* The hubs whose keys name the entry, as shared seeds: the hub's changed symbol with its range, the pages it reaches and the lines added to its file. A hub never creates a candidate; this only enriches one that exists. */
+function sharedSeedsOf(entry: EntryPoint, scope: ChangeScope): SharedSeed[] {
+  const key = entryKey(entry);
+  const seeds = scope.repos.flatMap((r) => r.seeds.map((seed) => ({ seed, addedLines: r.addedLines?.[seed.file] })));
+  return scope.hubs.filter((hub) => hub.keys.includes(key)).flatMap((hub) => {
+    const held = seeds.find(({ seed }) => `${seed.file}::${seed.symbol}` === hub.symbol);
+    if (held === undefined) return [];
+    const pages = hub.keys.filter((k) => k.startsWith("page ")).length;
+    return [{ ...held.seed, pages, ...(held.addedLines !== undefined ? { addedLines: held.addedLines } : {}) }];
+  });
+}
+
 export function deriveCandidates(scope: ChangeScope, enrichment: CandidateEnrichment = {}): UseCaseCandidate[] {
   const held = new Set(scope.reach.map((r) => entryKey(r.entry)));
   const linked: ReachEntry[] = (enrichment.mapLinks ?? [])
@@ -139,6 +151,7 @@ export function deriveCandidates(scope: ChangeScope, enrichment: CandidateEnrich
     const label = labelOf(r.entry, enrichment.map);
     const existingSpecs = existingSpecsOf(r.entry, label, enrichment);
     const specObjectives = objectivesOf(existingSpecs, enrichment);
+    const sharedSeeds = sharedSeedsOf(r.entry, scope);
     return {
       id: candidateId(r.entry),
       entry: r.entry,
@@ -146,6 +159,7 @@ export function deriveCandidates(scope: ChangeScope, enrichment: CandidateEnrich
       basis: r.basis,
       evidence: [...r.evidence],
       seeds: [...r.seeds],
+      ...(sharedSeeds.length > 0 ? { sharedSeeds } : {}),
       changedFiles: changedFilesOf(r.seeds, scope, r.entry.repo),
       confidence: r.confidence,
       reachability,

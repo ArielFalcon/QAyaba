@@ -17,6 +17,12 @@ export interface CandidateChangedFile {
 /* The seed of a file the map links to a page: no symbol, no range, so every added line of the file is the candidate's. */
 export const FILE_SEED_SYMBOL = "*";
 
+/* A hub's changed symbol as one of its pages sees it: the symbol and range, the entries the hub reaches that are pages, and the lines the change added to its file when the diff was read. */
+export interface SharedSeed extends ChangedSymbol {
+  pages: number;
+  addedLines?: number;
+}
+
 export interface UseCaseCandidate {
   /* `uc-` and 8 hex digits, stable for the same entry point whatever the order the candidates were derived in. */
   id: string;
@@ -25,6 +31,8 @@ export interface UseCaseCandidate {
   basis: ReachBasis;
   evidence: string[];
   seeds: ChangedSymbol[];
+  /* Changed symbols that reach this page together with many others, or whose graph walk the budget cut: a hub proves no entry on its own, but it is positive evidence that the change reaches this one. Context only: coverage ownership, per-candidate coverage and gap routing read `seeds`. */
+  sharedSeeds?: SharedSeed[];
   /* The changed files that seed the candidate, each with the lines the change added to it when the diff was read. Executable lines are only known once a run has measured them, so a count here is of added lines. */
   changedFiles?: CandidateChangedFile[];
   confidence: number;
@@ -68,6 +76,16 @@ function changedFileText(changed: CandidateChangedFile): string {
   return `${changed.file} (${kind}${changed.addedLines !== undefined ? `, +${changed.addedLines}` : ""})`;
 }
 
+/* The changed code that reaches this page together with others, as the lead reads it: file, kind, added lines and how many pages the same code reaches. */
+function sharedSeedsText(shared: readonly SharedSeed[]): string {
+  if (shared.length === 0) return "";
+  const text = shared.slice(0, MAX_LINE_FILES).map((seed) => {
+    const kind = LanguageRegistry.languageForFile(seed.file) ?? "other";
+    return `${seed.file} (${kind}${seed.addedLines !== undefined ? `, +${seed.addedLines}` : ""}, reaches ${seed.pages} page${seed.pages === 1 ? "" : "s"})`;
+  });
+  return `shared with other pages: ${text.join(", ")}${shared.length > MAX_LINE_FILES ? `, +${shared.length - MAX_LINE_FILES} more` : ""}`;
+}
+
 /* One line that names a candidate to the lead: id, entry, how directly the change reaches it, the changed files that seed it, the evidence path and the specs the suite already holds for it, each with what its manifest declares it checks. Unsanitized: the caller redacts. */
 export function candidateLine(candidate: UseCaseCandidate): string {
   const evidence = candidate.evidence.join(" > ");
@@ -75,5 +93,6 @@ export function candidateLine(candidate: UseCaseCandidate): string {
   const specs = candidate.existingSpecs.slice(0, MAX_LINE_SPECS).map((file) => specWithObjectives(file, candidate.specObjectives?.[file])).join(", ");
   const files = candidate.changedFiles ?? [];
   const changed = files.length > 0 ? `changed: ${files.slice(0, MAX_LINE_FILES).map(changedFileText).join(", ")}${files.length > MAX_LINE_FILES ? `, +${files.length - MAX_LINE_FILES} more file(s)` : ""}` : "";
-  return [candidate.id, entryKey(candidate.entry), `${candidate.tier}, ${candidate.reachability}`, changed, cut, specs !== "" ? `specs: ${specs}` : "no spec yet"].filter((part) => part !== "").join(" | ");
+  const shared = sharedSeedsText(candidate.sharedSeeds ?? []);
+  return [candidate.id, entryKey(candidate.entry), `${candidate.tier}, ${candidate.reachability}`, changed, shared, cut, specs !== "" ? `specs: ${specs}` : "no spec yet"].filter((part) => part !== "").join(" | ");
 }

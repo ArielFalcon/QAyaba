@@ -48,12 +48,12 @@ const isCodeFile = (file: string): boolean => LanguageRegistry.languageForFile(f
 
 /*
  * Why the facts the orchestrator holds contradict a drop's basis, or undefined when they do not. `no-observable-change` is refused
- * when a seed of the candidate is executable code; `already-covered` when no spec of the suite is linked to the candidate;
+ * when a seed of the candidate, or a shared seed (changed code a hub carries to its page), is executable code; `already-covered` when no spec of the suite is linked to the candidate;
  * `needs-unavailable-state` names a state the orchestrator cannot see, so it stands.
  */
 export function dropRefusal(candidate: UseCaseCandidate, basis: PlanDrop["basis"]): string | undefined {
   if (basis === DROP_BASIS.NO_OBSERVABLE_CHANGE) {
-    const code = [...new Set(candidate.seeds.map((seed) => seed.file).filter(isCodeFile))];
+    const code = [...new Set([...candidate.seeds, ...(candidate.sharedSeeds ?? [])].map((seed) => seed.file).filter(isCodeFile))];
     return code.length > 0 ? `its changed code is executable (${code.slice(0, 3).join(", ")}), which a browser can observe` : undefined;
   }
   if (basis === DROP_BASIS.ALREADY_COVERED) return candidate.existingSpecs.length === 0 ? "no spec of the suite is linked to it" : undefined;

@@ -158,3 +158,36 @@ test("the candidate line names the changed files with their kind and added lines
 
   assert.doesNotMatch(candidateLine({ ...deriveCandidates(scopeOf([page("/orders")]))[0]!, changedFiles: [] }), /changed:/);
 });
+
+const HUB_SEED = { file: "web/src/shared/format.ts", symbol: "formatMoney", range: { start: 3, end: 9 } };
+const hubScope = (reach: ReachEntry[], keys: string[]): ChangeScope => ({
+  repos: [{ repo: WEB, role: "primary", indexedSha: null, changedFiles: [HUB_SEED.file], seeds: [HUB_SEED], seedBasis: "lines", entryPoints: [], entryPointsTruncated: false, addedLines: { [HUB_SEED.file]: 6 } }],
+  reach,
+  hubs: [{ symbol: `${HUB_SEED.file}::${HUB_SEED.symbol}`, entries: keys.length, keys, truncated: true }],
+  disagreements: [],
+  omitted: 0,
+  degraded: [],
+});
+const hubLinks = [{ repo: WEB, route: "/orders", basis: "implementation" as const, files: ["web/src/orders.scss"] }];
+
+test("a candidate whose page a hub reaches carries the hub's seed and range as a shared seed, and its own seeds keep their meaning", () => {
+  const [c] = deriveCandidates(hubScope([], ["page /orders", "page /cart"]), { mapLinks: hubLinks });
+
+  assert.deepEqual(c!.seeds, [{ file: "web/src/orders.scss", symbol: "*" }]);
+  assert.deepEqual(c!.sharedSeeds, [{ ...HUB_SEED, pages: 2, addedLines: 6 }]);
+  assert.deepEqual(c!.changedFiles, [{ file: "web/src/orders.scss" }]);
+});
+
+test("a hub alone creates no candidate, and a hub that reaches no candidate's page attaches nothing", () => {
+  assert.deepEqual(deriveCandidates(hubScope([], ["page /orders", "page /cart"])), []);
+
+  const [c] = deriveCandidates(hubScope([], ["page /cart"]), { mapLinks: hubLinks });
+  assert.equal(c!.sharedSeeds, undefined);
+});
+
+test("the candidate line names each shared seed with its kind, added lines and the pages the hub reaches", () => {
+  const [c] = deriveCandidates(hubScope([], ["page /orders", "page /cart", "GET /api/x"]), { mapLinks: hubLinks });
+
+  assert.match(candidateLine(c!), /shared with other pages: web\/src\/shared\/format\.ts \(typescript, \+6, reaches 2 pages\)/);
+  assert.doesNotMatch(candidateLine({ ...c!, sharedSeeds: undefined }), /shared with/);
+});
