@@ -57,7 +57,7 @@ test("a route that names no component (lazy children only, or a redirect) gets n
   const lines = new Set(routes().filter((r) => r.file === APP_ROUTES).map((r) => r.line));
   for (const line of [21, 22, 23, 24, 25, 26]) assert.equal(lines.has(line), false, `the loadChildren route with canMatch declares lines 21-26 (line ${line})`);
   assert.equal(lines.has(12), false, "`path: ''` with redirectTo");
-  assert.equal(lines.has(36), false, "`path: RoutePath.Legacy` with redirectTo");
+  assert.equal(lines.has(36), false, "`path: RoutePath.Archive` with redirectTo");
   assert.equal(lines.has(37), false, "`path: '**'` with redirectTo");
 });
 
