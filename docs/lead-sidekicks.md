@@ -207,6 +207,19 @@ for, the turn also names those no flow covers and those whose covering flows all
 that passed it (`candidateGapsOf`); a candidate covered only by a flow without `run_spec` is not called unproven, and one
 the lead dropped with a reason is not named.
 
+An acceptance criterion the sidekick reports `unmet` blocks the flow's result (`pushback.ts`: `acceptance-contradiction`), with
+one exception: the entry may carry the typed cause `"cause":"dev-state"` and the `pages` where the sidekick read DEV's state
+(`AcceptanceReportEntry.devState`; prose in `note` or `concerns` never counts). The orchestrator backs the claim from what it
+holds itself (`backDevStateUnmet`, `explore-verification.ts`): every named page must be a page the orchestrator's browser
+showed that flow's sessions (`AgentBrowserHandle.readsOf`) or one its own `run_spec` calls read empty, and an empty read of a
+page the Context Pack read with results (`observationConflictIn`) backs nothing, the pack winning as for an exploration
+finding. A backed unmet is not a contradiction: the result stays `completed-with-concerns` with the sidekick's own summary,
+a concern `acceptance-unmet-dev-state` naming the criterion and the fact, and `DelegationResult.unmetByDevState`; the lead
+is shown it as a "DEV limits" line (the criterion cannot be met on DEV as it stands: accept the flow or drop the criterion;
+asking again for that state cannot succeed). Any other unmet, or one the facts do not back, is `blocked` as before. A delivered
+spec is never dropped either way, and `sidekick_report_consistent` reads the recorded status, so a backed unmet beside a
+passing `run_spec` is not an inconsistent report.
+
 The turn says whose statement each line is. A sidekick answer the reader could not read, or one addressed to another brief
 (`DelegationResult.answerMiss`), is stated as the orchestrator's own fact ("Sidekick answer: the orchestrator could not read
 it"), never under "Sidekick says" or "Sidekick concerns". A `run_spec` failure is shown as the last failure only when the

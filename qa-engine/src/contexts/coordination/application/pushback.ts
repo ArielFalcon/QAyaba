@@ -1,14 +1,16 @@
 /* External authority checks for DelegationResult. Prompt compliance is not enough: the brief a result
    answers, its scope and its typed acceptance report are checked here. The
    sidekick's free-text concerns are notes for the lead and never decide anything. */
-import { ACCEPTANCE_REPORT_DEFECTS } from "./acceptance-report.ts";
+import { ACCEPTANCE_REPORT_DEFECTS, type AcceptanceReportEntry } from "./acceptance-report.ts";
 import { SIDEKICK_AUTHORITY } from "./authority.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
-import { belongsToBrief, type DelegationResult } from "./delegation-result.ts";
+import { belongsToBrief, type DelegationResult, type UnmetByDevState } from "./delegation-result.ts";
+import type { DevStateBacking } from "./explore-verification.ts";
 import { isPathWithinWritableRoots } from "./path-scope.ts";
 
 export const PUSHBACK_REASONS = [
   "acceptance-contradiction",
+  "acceptance-unmet-dev-state",
   "insufficient-scope",
   "architecture-decision-required",
   "dependency-unavailable",
@@ -24,11 +26,25 @@ export interface PushbackFinding {
   readonly detail: string;
 }
 
+/* Whether the orchestrator's own facts back an unmet criterion's claim that DEV's state prevents it. Absent, nothing is backed. */
+export type DevStateBacker = (entry: AcceptanceReportEntry) => DevStateBacking;
+
+interface Assessment {
+  readonly findings: PushbackFinding[];
+  readonly unmetByDevState: UnmetByDevState[];
+}
+
 export function validateDelegationAuthority(
   brief: DelegationBrief,
   result: DelegationResult,
+  backer?: DevStateBacker,
 ): PushbackFinding[] {
+  return assess(brief, result, backer).findings;
+}
+
+function assess(brief: DelegationBrief, result: DelegationResult, backer?: DevStateBacker): Assessment {
   const findings: PushbackFinding[] = [];
+  const unmetByDevState: UnmetByDevState[] = [];
   if (!belongsToBrief(result, brief.delegationId, brief.runId)) {
     findings.push({ reason: "foreign-brief", detail: `${result.delegationId}/${result.runId}` });
   }
@@ -43,13 +59,18 @@ export function validateDelegationAuthority(
   }
   if (result.status === "completed" || result.status === "completed-with-concerns") {
     /* A criterion the sidekick itself reports unmet contradicts acceptance, whatever the shape of its
-       report; met and unverified never block. */
+       report; met and unverified never block. The one exception is an unmet it attributes to DEV's state
+       that the orchestrator's own facts back: DEV cannot be brought to the state the criterion needs, so
+       the sidekick is not contradicting acceptance and the result carries a concern naming the fact. */
     for (const entry of result.acceptance) {
-      if (entry.status === "unmet") {
-        findings.push({
-          reason: "acceptance-contradiction",
-          detail: `criterion ${entry.criterion}: ${brief.acceptanceCriteria[entry.criterion - 1]}`,
-        });
+      if (entry.status !== "unmet") continue;
+      const criterion = `criterion ${entry.criterion}: ${brief.acceptanceCriteria[entry.criterion - 1]}`;
+      const backing = entry.devState !== undefined && backer ? backer(entry) : undefined;
+      if (entry.devState !== undefined && backing?.backed) {
+        findings.push({ reason: "acceptance-unmet-dev-state", detail: `${criterion} (backed by: ${backing.fact})` });
+        unmetByDevState.push({ criterion: entry.criterion, pages: entry.devState.pages, backing: backing.fact });
+      } else {
+        findings.push({ reason: "acceptance-contradiction", detail: criterion });
       }
     }
     for (const claim of result.acceptanceReportDefect?.unmet ?? []) {
@@ -72,11 +93,11 @@ export function validateDelegationAuthority(
   if (result.status === "blocked" && /scope/i.test(result.summary)) {
     findings.push({ reason: "insufficient-scope", detail: result.summary });
   }
-  return findings;
+  return { findings, unmetByDevState };
 }
 
-export function applyPushback(brief: DelegationBrief, result: DelegationResult): DelegationResult {
-  const findings = validateDelegationAuthority(brief, result);
+export function applyPushback(brief: DelegationBrief, result: DelegationResult, backer?: DevStateBacker): DelegationResult {
+  const { findings, unmetByDevState } = assess(brief, result, backer);
   if (findings.length === 0) return result;
   const fatal = findings.some((f) =>
     f.reason === "foreign-brief" ||
@@ -91,5 +112,6 @@ export function applyPushback(brief: DelegationBrief, result: DelegationResult):
     recommendation: fatal ? "escalate" : result.recommendation,
     concerns: [...result.concerns, ...findings.map((f) => `${f.reason}: ${f.detail}`)],
     summary: fatal ? `pushback: ${reasonList}` : result.summary,
+    ...(unmetByDevState.length > 0 && !fatal ? { unmetByDevState } : {}),
   };
 }

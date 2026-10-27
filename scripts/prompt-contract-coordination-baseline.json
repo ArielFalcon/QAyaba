@@ -9,11 +9,11 @@
       "directives": 1
     },
     "flow-author-brief/full": {
-      "bytes": 3328,
+      "bytes": 3678,
       "directives": 5
     },
     "flow-author-brief/plain": {
-      "bytes": 1477,
+      "bytes": 1827,
       "directives": 2
     },
     "lead-correction-refused/plain": {
@@ -78,13 +78,15 @@
     }
   },
   "staticLayers": {
-    "qa-author": 24753,
+    "qa-author": 25125,
     "qa-explore": 10092,
     "qa-lead": 16161
   },
   "lastIncrease": {
-    "reason": "S14 requests fact",
+    "reason": "the flow author's output contract gains the typed DEV-state cause of an unmet criterion (S20)",
     "budgets": [
+      "flow-author-brief/full:bytes",
+      "flow-author-brief/plain:bytes",
       "static:qa-author"
     ]
   }

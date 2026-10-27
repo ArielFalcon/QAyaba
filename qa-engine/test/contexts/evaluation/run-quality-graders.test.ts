@@ -89,6 +89,7 @@ test("sidekick_report_consistent says nothing when no report can be checked agai
   assert.equal(score("sidekick_report_consistent", { sidekickReports: [] }), undefined);
   assert.equal(score("sidekick_report_consistent", { sidekickReports: [report("failed", undefined)] }), undefined);
   assert.equal(score("sidekick_report_consistent", { sidekickReports: [report("needs-lead", "passed"), report("completed-with-concerns", "failed")] }), undefined);
+  assert.equal(score("sidekick_report_consistent", { sidekickReports: [report("completed-with-concerns", "passed")] }), undefined, "an unmet DEV's state prevents, recorded with a spec that passed, is not an inconsistent report");
 });
 
 test("sidekick_report_consistent never reads an answer that could not be read as a report of failure", () => {

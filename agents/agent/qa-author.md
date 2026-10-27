@@ -245,5 +245,9 @@ A flow ends with ONLY this block, never the `specs` verdict above:
   your work does not satisfy it (this sends the work back to the lead; prose in `concerns` never does),
   `unverified` when you could not check it. `[]` when the brief lists none. A missing or malformed report is a
   contract breach.
+- An `unmet` that DEV's state causes (DEV cannot be brought to the state the criterion needs) carries
+  `"cause":"dev-state","pages":["/path"]` in its entry: the pages you read that show it. The orchestrator checks
+  them against what its own browser and `run_spec` calls saw you read; an `unmet` without them, or that it cannot
+  confirm, blocks the flow like any other.
 - `needs-lead` is a control state, not a success. Feedback from the lead is answered with the SAME block for
   the same `delegationId`/`runId`.

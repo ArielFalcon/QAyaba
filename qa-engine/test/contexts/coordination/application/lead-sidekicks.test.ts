@@ -21,6 +21,7 @@ import type { TimerPort } from "@contexts/coordination/application/fan-out-dispa
 import type { CoordinationTelemetryEvent } from "@contexts/coordination/application/coordination-telemetry.ts";
 import type { PlanSnapshot } from "@kernel/ports/plan-snapshot.port.ts";
 import type { DelegationResult } from "@contexts/coordination/application/delegation-result.ts";
+import { readDelegationResult } from "@contexts/coordination/application/delegation-reading.ts";
 import type { SidekickExecuteOpts } from "@contexts/coordination/application/sidekick-executor.ts";
 import type { DelegationBrief } from "@contexts/coordination/application/delegation-brief.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
@@ -2144,4 +2145,61 @@ test("a plan within the run's capacity, answering for every candidate, with flow
   assert.equal(lead.replans.length, 0);
   assert.equal(outcome.signal.notAdmitted, undefined);
   assert.equal(outcome.signal.oversize, undefined);
+});
+
+/* ── an unmet criterion DEV's state prevents ─────────────────────────────────────────────────── */
+
+const CUISINE_PLAN = { kind: "fanout", flows: [{ id: "cart", objective: "the cuisine filter", acceptance: ["available cuisines toggle the filter"], routes: ["/search"] }] };
+
+/* A rig whose cart flow answers through the real reader, with the facts the executor hands it, as a sidekick's closing block. */
+function cuisineRig(unmet: Record<string, unknown>, reads: readonly string[]): Rig {
+  const r = rig({ hasFile: new Set(["cart"]) });
+  r.agentBrowser.readsOf = () => reads;
+  r.deps.sidekick = {
+    open: async (brief, opts) => {
+      r.executed.push({ brief, opts, session: ++r.sessionsOpened });
+      const closing = JSON.stringify({
+        delegationId: brief.delegationId, runId: brief.runId, status: "completed-with-concerns", summary: "the spec passes; every cuisine chip is disabled on DEV",
+        filesChanged: brief.scope.writablePaths.map((path) => ({ path })), concerns: [], unresolvedQuestions: [], recommendation: "review", acceptance: [unmet],
+      });
+      return { first: readDelegationResult(closing, brief, r.deps.redaction, opts.devStateGround?.()), ask: async () => { throw new Error("not asked"); }, dispose: async () => {} };
+    },
+  };
+  return r;
+}
+
+const devStateUnmet = (pages: string[]) => ({ criterion: 1, status: "unmet", cause: "dev-state", pages, note: "every chip is aria-disabled" });
+
+test("an unmet DEV's state prevents, on a page the flow's session was shown, is recorded as completed with concerns and reaches the lead as a DEV limit", async () => {
+  const r = cuisineRig(devStateUnmet(["/search"]), ["/search"]);
+  const lead = leadWith([[{ flow: "cart", action: "accept" }]], CUISINE_PLAN);
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  assert.equal(r.events.find((e) => /flow cart turn 1/.test(e.reason ?? ""))?.sidekickStatus, "completed-with-concerns");
+  assert.equal(outcome.action === "fanout" ? outcome.signal.delivered : -1, 1, "the spec it wrote is delivered");
+  assert.match(lead.asked[0] ?? "", /DEV limits/);
+  assert.match(lead.asked[0] ?? "", /available cuisines toggle the filter/);
+  assert.match(lead.asked[0] ?? "", /flow's browser session was shown \/search/);
+});
+
+test("an unmet DEV's state prevents on a page the orchestrator never saw the flow read still blocks, and the lead is told no DEV limit", async () => {
+  const r = cuisineRig(devStateUnmet(["/map"]), ["/search"]);
+  const lead = leadWith([[{ flow: "cart", action: "accept" }]], CUISINE_PLAN);
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  assert.equal(r.events.find((e) => /flow cart turn 1/.test(e.reason ?? ""))?.sidekickStatus, "blocked");
+  assert.doesNotMatch(lead.asked[0] ?? "", /DEV limits/);
+});
+
+test("the facts an unmet DEV's state prevents is held to are the flow's own: its browser reads, its run_spec empty reads and the pack's pages", async () => {
+  const r = cuisineRig(devStateUnmet(["/home"]), ["/search"]);
+  r.closedLoop.openFlow = ((original) => (flowInput: FlowLoopOpenInput) => {
+    const handle = original(flowInput)!;
+    r.flowLoops.at(-1)!.ledger.push({ path: flowInput.specFile, sha256: "bytes", status: "failed", devWrites: 0, failures: [{ path: "/home", resultCount: 0 }] });
+    return handle;
+  })(r.closedLoop.openFlow);
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: leadWith([[]], CUISINE_PLAN).plan, confirmedDataRoutes: [{ path: "/search", resultCount: 4 }] }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  assert.deepEqual(r.executed[0]!.opts.devStateGround?.(), { flowReads: ["/search"], emptyReads: ["/home"], dataRoutes: [{ path: "/search", resultCount: 4 }] });
+  assert.equal(r.events.find((e) => /flow cart turn 1/.test(e.reason ?? ""))?.sidekickStatus, "completed-with-concerns", "its own empty read of /home backs the claim");
 });

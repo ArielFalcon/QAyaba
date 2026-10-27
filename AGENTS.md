@@ -302,7 +302,10 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   model) or `drop`. Its answer is untrusted and the orchestrator's facts decide over it: an `accept` of a spec that has not passed
   `run_spec` on its current bytes is sent back while it can run and a turn is left (a flow refused for writes cannot run: the review's facts say so and its accept stands); an app defect (5xx, uncaught runtime error, by the
   fixed rules of `authoring-failure.ts`) is never sent back to be made green (the spec that showed it is delivered); what a sidekick wrote is taken back whatever its turn ended in; a
-  delivered spec is never dropped. Every revision carries the orchestrator's facts (the failure kind of the last `run_spec` call, and
+  delivered spec is never dropped. A criterion a sidekick reports `unmet` blocks its result unless the entry carries the typed cause
+  `dev-state` with pages the orchestrator's browser showed that flow or its own `run_spec` calls read empty, and the Context Pack
+  did not read with results (`backDevStateUnmet`): that one stays `completed-with-concerns` and reaches the lead as a DEV limit
+  (`DelegationResult.unmetByDevState`); prose alone backs nothing. Every revision carries the orchestrator's facts (the failure kind of the last `run_spec` call, and
   the two reads when a flow's empty read contradicts a page the Context Pack read with results, which also refuses that flow's
   decline). Flows that deliver are added up like a generation (`aggregateFlowOutcomes`), and the rest of the run (validate,
   execute, coverage, review, decide) goes on as for any generation, with the pass kept open (`CoordinatedPass`: the lead's session and

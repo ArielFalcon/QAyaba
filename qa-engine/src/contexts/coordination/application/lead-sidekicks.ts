@@ -45,6 +45,7 @@ import { admitExploreRequest } from "./explore-request.ts";
 import { assembleExploreOutcome, runExploreRound } from "./explore-round.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 import { evidenceFromEmptyRead, evidenceFromPackDataRoutes } from "./evidence-from.ts";
+import type { DevStateGround } from "./explore-verification.ts";
 import { observationConflictIn } from "./evidence-precedence.ts";
 import { AUTHORING_FAILURE, authoringFailureFeedback, classifyAuthoringFailure, type AuthoringFailure } from "./authoring-failure.ts";
 import { FanOutDispatcher, FLOW_RESULT, type TimerPort } from "./fan-out-dispatcher.ts";
@@ -682,6 +683,7 @@ export class LeadSidekicks {
       timeoutMs: Math.max(1, timeoutMs),
       delegationId: entry.delegationId,
       denyTools: sidekickDeniedTools(context.mode, entry.loop !== undefined),
+      devStateGround: () => devStateGroundOf(entry, context.input),
       ...(contextFit ? { contextFit } : {}),
       ...(fit ? { fit } : {}),
       ...(feedback ? { feedback } : {}),
@@ -948,7 +950,7 @@ export class LeadSidekicks {
       objective: flow.objective,
       acceptance: flow.acceptance,
       outcome: report.outcome,
-      answer: last?.answerMiss ? { kind: last.answerMiss } : { kind: "read", ...(last?.summary ? { summary: last.summary } : {}), concerns: last?.concerns ?? [] },
+      answer: last?.answerMiss ? { kind: last.answerMiss } : { kind: "read", ...(last?.summary ? { summary: last.summary } : {}), concerns: last?.concerns ?? [], ...(last?.unmetByDevState?.length ? { devLimits: last.unmetByDevState.map((u) => `criterion ${u.criterion} (${flow.acceptance[u.criterion - 1] ?? "?"}) on ${u.pages.join(", ")}; ${u.backing}`) } : {}) },
       ...(loop ? { runSpec: { calls: ledger.length, maxCalls: loop.limits.maxCalls, ...(lastCall ? { lastStatus: lastCall.status } : {}), ...(lastFailure ? { lastFailure, lastFailureOn } : {}), ...noWritesLeftOf(loop) } } : {}),
       verified: loop ? await loop.isClosed().catch(() => false) : false,
       ...(entry?.appDefect ? { appDefect: entry.appDefect } : {}),
@@ -1402,9 +1404,21 @@ function noWritesLeftOf(loop: FlowLoopHandle): { noWritesLeft?: NoWritesLeft } {
 }
 
 /* The pages the flow's run_spec calls read empty at a failure point, each once. */
+function emptyReadPaths(ledger: readonly FlowLedgerEntry[]): string[] {
+  return [...new Set(ledger.flatMap((entry) => (entry.failures ?? []).flatMap((f) => (f.resultCount === 0 && f.path !== undefined ? [f.path] : []))))];
+}
+
 function emptyReadEvidence(redaction: RedactionPort, ledger: readonly FlowLedgerEntry[]): EvidenceRef[] {
-  const paths = ledger.flatMap((entry) => (entry.failures ?? []).flatMap((f) => (f.resultCount === 0 && f.path !== undefined ? [f.path] : [])));
-  return [...new Set(paths)].map((path) => evidenceFromEmptyRead(redaction, path));
+  return emptyReadPaths(ledger).map((path) => evidenceFromEmptyRead(redaction, path));
+}
+
+/* What the orchestrator itself holds of a flow that an unmet criterion attributed to DEV's state is checked against: the pages its browser session was shown, the pages its run_spec calls read empty, and the pages the Context Pack read with results. */
+function devStateGroundOf(entry: LiveFlow, input: Pick<CoordinateInput, "agentBrowser" | "confirmedDataRoutes">): DevStateGround {
+  return {
+    flowReads: input.agentBrowser?.readsOf(entry.delegationId) ?? [],
+    emptyReads: emptyReadPaths(entry.loop?.ledger() ?? []),
+    dataRoutes: input.confirmedDataRoutes ?? [],
+  };
 }
 
 const MAX_FACTS_CHARS = 2_000;

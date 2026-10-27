@@ -6,6 +6,7 @@ import type { DelegationBrief } from "./delegation-brief.ts";
 import { ANSWER_MISS, belongsToBrief, CANDIDATE_CLAIMS, DELEGATION_RECOMMENDATIONS, type CandidateClaim, type CandidateClaimStatus, DELEGATION_STATUSES, type AnswerMiss, type DelegationRecommendation, type DelegationResult, type DelegationStatus } from "./delegation-result.ts";
 import { readAcceptanceReport } from "./acceptance-report.ts";
 import { applyPushback } from "./pushback.ts";
+import { backDevStateUnmet, type DevStateGround } from "./explore-verification.ts";
 import { isPathWithinWritableRoots } from "./path-scope.ts";
 
 function asStringArray(value: unknown): string[] {
@@ -111,8 +112,8 @@ function lastDelegationResult(output: string, brief: DelegationBrief, redaction:
   return undefined;
 }
 
-/* The delegation result a sidekick's output came to. */
-export function readDelegationResult(output: string, brief: DelegationBrief, redaction: RedactionPort): DelegationResult {
+/* The delegation result a sidekick's output came to. `ground` is what the orchestrator holds of the flow by its own means: with it, an unmet criterion the sidekick attributes to DEV's state is checked against it; without it, no such claim is backed. */
+export function readDelegationResult(output: string, brief: DelegationBrief, redaction: RedactionPort, ground?: DevStateGround): DelegationResult {
   const parsed = lastDelegationResult(output, brief, redaction);
   if (!parsed) return failedResult(brief, "sidekick output was not a valid DelegationResult", redaction, ANSWER_MISS.UNREADABLE);
   if (!belongsToBrief(parsed, brief.delegationId, brief.runId)) {
@@ -128,5 +129,5 @@ export function readDelegationResult(output: string, brief: DelegationBrief, red
       concerns: [...parsed.concerns, redaction.redact(`paths outside scope: ${illegal.map((f) => f.path).join(", ")}`)],
     };
   }
-  return applyPushback(brief, parsed);
+  return applyPushback(brief, parsed, ground ? (entry) => backDevStateUnmet(redaction, entry, ground) : undefined);
 }

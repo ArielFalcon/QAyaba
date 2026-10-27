@@ -26,6 +26,13 @@ export interface CandidateClaim {
   readonly spec?: string;
 }
 
+/* An unmet criterion DEV's state prevents, with the pages the sidekick named and the fact of the orchestrator's that backs the claim. */
+export interface UnmetByDevState {
+  readonly criterion: number;
+  readonly pages: readonly string[];
+  readonly backing: string;
+}
+
 export interface FileChange {
   readonly path: string;
 }
@@ -47,6 +54,8 @@ export interface DelegationResult {
   readonly candidates?: readonly CandidateClaim[];
   /** Set when the report is absent or malformed: every criterion without a kept entry is unverified. */
   readonly acceptanceReportDefect?: AcceptanceReportDefect;
+  /** The criteria the sidekick reports unmet because DEV's state prevents them and the orchestrator's own facts back; set by the orchestrator, never read from the sidekick's answer. */
+  readonly unmetByDevState?: readonly UnmetByDevState[];
   /** The sidekick's claim, on a correction of a failing execution, that its test is right and the app or the environment is not. */
   /** An explore sidekick's findings, as it reported them: the orchestrator verifies each before the lead sees it. */
   readonly exploration?: Exploration;

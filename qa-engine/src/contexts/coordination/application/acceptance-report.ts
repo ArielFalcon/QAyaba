@@ -9,11 +9,21 @@ import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 export const ACCEPTANCE_STATUSES = ["met", "unmet", "unverified"] as const;
 export type AcceptanceStatus = (typeof ACCEPTANCE_STATUSES)[number];
 
+/* Why a criterion is unmet, when the sidekick attributes it to something other than its own work. Only `dev-state` is typed: DEV
+   cannot be brought to the state the criterion needs. The attribution is a claim; the orchestrator holds it to its own facts. */
+export const UNMET_CAUSES = { DEV_STATE: "dev-state" } as const;
+
+/* The caps on a DEV-state claim: it names the pages where DEV's state prevents the criterion, a handful at most. */
+export const MAX_DEV_STATE_PAGES = 8;
+const MAX_DEV_STATE_PAGE_CHARS = 200;
+
 export interface AcceptanceReportEntry {
   /** 1-based number of the criterion as the brief lists it. */
   readonly criterion: number;
   readonly status: AcceptanceStatus;
   readonly note?: string;
+  /** An `unmet` entry's claim that DEV's state prevents the criterion, with the pages (paths) where the sidekick read that state. */
+  readonly devState?: { readonly pages: readonly string[] };
 }
 
 export const ACCEPTANCE_REPORT_DEFECTS = ["acceptance-report-missing", "acceptance-report-invalid"] as const;
@@ -51,13 +61,24 @@ function isUnmet(status: unknown): boolean {
 
 /* A whole-number criterion and a known status; whether the number is one of the brief's is decided for
    the report as a whole. */
-function toEntry(redaction: RedactionPort, { criterion, status, note }: ReportItem): AcceptanceReportEntry | undefined {
+/* A well-formed DEV-state claim of an unmet entry: the typed cause and at least one page, each scrubbed and capped; nothing for any other shape. */
+function devStateOf(redaction: RedactionPort, status: string, cause: unknown, pages: unknown): { devState?: { pages: string[] } } {
+  if (status !== "unmet" || cause !== UNMET_CAUSES.DEV_STATE || !Array.isArray(pages)) return {};
+  const named = pages
+    .filter((page): page is string => typeof page === "string" && page.trim() !== "" && page.length <= MAX_DEV_STATE_PAGE_CHARS)
+    .map((page) => redaction.redact(page.trim()));
+  const kept = [...new Set(named)].slice(0, MAX_DEV_STATE_PAGES);
+  return kept.length > 0 ? { devState: { pages: kept } } : {};
+}
+
+function toEntry(redaction: RedactionPort, { criterion, status, note, cause, pages }: ReportItem): AcceptanceReportEntry | undefined {
   if (typeof criterion !== "number" || !Number.isInteger(criterion)) return undefined;
   if (typeof status !== "string" || !(ACCEPTANCE_STATUSES as readonly string[]).includes(status)) return undefined;
   return {
     criterion,
     status: status as AcceptanceStatus,
     ...(typeof note === "string" ? { note: redaction.redact(note) } : {}),
+    ...devStateOf(redaction, status, cause, pages),
   };
 }
 

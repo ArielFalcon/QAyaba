@@ -6,6 +6,7 @@ import type { DelegationBrief } from "./delegation-brief.ts";
 import type { DelegationResult } from "./delegation-result.ts";
 import { assembleDefs, type AssembledPrompt, type WindowFitOutcome } from "@kernel/prompt-sections.ts";
 import { FEEDBACK_SECTIONS } from "./coordination-sections/feedback-sections.ts";
+import type { DevStateGround } from "./explore-verification.ts";
 import { delegatingKindSpec, type SidekickKind } from "./sidekick-kinds.ts";
 
 export interface SidekickRender {
@@ -35,6 +36,8 @@ export interface SidekickExecuteOpts {
   contextFit?: ContextFit;
   /** The window fit rule of the model the session runs on: the brief is rendered with it, so a brief over the window gives its degradable sections up as references. Absent, nothing is degraded. */
   fit?: (bytes: number) => WindowFitOutcome;
+  /** What the orchestrator holds of the flow by its own means, read afresh for each answer (the flow's reads grow turn by turn): an unmet criterion the sidekick attributes to DEV's state is backed by it or blocks. */
+  devStateGround?: () => DevStateGround;
 }
 
 /* A sidekick's session, held open after its first answer so that the lead's follow-up reaches the session that did the work. */
@@ -67,7 +70,7 @@ export class SidekickExecutor {
     const spec = delegatingKindSpec(opts.kind);
     const role = spec.role;
     const render: SidekickRender = this.deps.render ?? ((b) => spec.render(this.deps.redaction, b, opts.fit));
-    const read = (output: string): DelegationResult => spec.parse(this.deps.redaction, output, brief);
+    const read = (output: string): DelegationResult => spec.parse(this.deps.redaction, output, brief, opts.devStateGround?.());
     const session = await this.deps.runtime.openSession(role, opts.cwd, {
       signal: opts.signal,
       timeoutMs: opts.timeoutMs,
