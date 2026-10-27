@@ -30,6 +30,8 @@ interface Scenario {
   base?: Record<string, string>;
   changed: string[];
   closure?: ChangeClosure;
+  /* The route the capture opened; `/login` by default. */
+  route?: string;
 }
 
 /* Runs the change evidence over a scratch working copy and classifies the `/login` redirect with it, the way the grounding does. */
@@ -49,7 +51,8 @@ async function classifyWith(scenario: Scenario) {
       ...(scenario.closure !== undefined ? { closure: async () => scenario.closure } : {}),
       crossRepo: false,
     });
-    return classifyRouteAvailability({ navigation, evidence: evidenceOf(navigation), context: { controlRendered: true } })?.basis;
+    const opened = { ...navigation, route: scenario.route ?? navigation.route };
+    return classifyRouteAvailability({ navigation: opened, evidence: evidenceOf(opened), context: { controlRendered: true } })?.basis;
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -72,7 +75,7 @@ const routesImporting = (importLine: string, guard: string): string =>
 /* The change edits the guard's own file; the route table is the same at the base and at head. */
 const guardChanged: ChangeClosure = { symbols: [{ file: GUARD_FILE, symbol: "guestGuard" }], complete: true };
 
-test("a guard imported through a barrel is not placed at the barrel: the route stays unexplained, never pre-existing", async () => {
+test("a guard imported through a barrel is the guard of the file that declares it, never of the barrel", async () => {
   const routes = routesImporting("import { guestGuard } from './auth';", "guestGuard");
   const basis = await classifyWith({
     head: { "src/app/app.routes.ts": routes, "src/app/auth/index.ts": "export { guestGuard } from './guest.guard';\n", [GUARD_FILE]: GUARD },
@@ -80,8 +83,27 @@ test("a guard imported through a barrel is not placed at the barrel: the route s
     changed: [GUARD_FILE],
     closure: guardChanged,
   });
-  assert.equal(basis?.class, "unexplained");
-  assert.ok(basis?.class === "unexplained" && basis.missing.includes("guard-reach"));
+  assert.deepEqual(basis, { class: "change-introduced", via: "route-guard", at: `${GUARD_FILE}::guestGuard` });
+});
+
+test("a guard whose barrel chain ends nowhere is unplaced: the route stays unexplained, never pre-existing", async () => {
+  const routes = routesImporting("import { guestGuard } from './auth';", "guestGuard");
+  const run = (barrel: string, extra: Record<string, string> = {}) =>
+    classifyWith({
+      head: { "src/app/app.routes.ts": routes, "src/app/auth/index.ts": barrel, [GUARD_FILE]: GUARD, ...extra },
+      base: { [GUARD_FILE]: GUARD },
+      changed: [GUARD_FILE],
+      closure: guardChanged,
+    });
+  /* The barrel re-exports from a module that does not exist. */
+  const missing = await run("export { guestGuard } from './gone.guard';\n");
+  assert.ok(missing?.class === "unexplained" && missing.missing.includes("guard-reach"));
+  /* Two modules the barrel re-exports whole declare the name: the import does not come down to one declaration. */
+  const ambiguous = await run("export * from './guest.guard';\nexport * from './other.guard';\n", { "src/app/auth/other.guard.ts": "export const guestGuard = () => false;\n" });
+  assert.ok(ambiguous?.class === "unexplained" && ambiguous.missing.includes("guard-reach"));
+  /* A barrel that re-exports itself in a loop. */
+  const loop = await run("export * from './index';\n");
+  assert.ok(loop?.class === "unexplained" && loop.missing.includes("guard-reach"));
 });
 
 test("a guard imported under another local name is placed by the name its file declares", async () => {
@@ -93,4 +115,70 @@ test("a guard imported under another local name is placed by the name its file d
     closure: guardChanged,
   });
   assert.deepEqual(basis, { class: "change-introduced", via: "route-guard", at: `${GUARD_FILE}::guestGuard` });
+});
+
+/* An app that imports through tsconfig `paths`: the constants and the guard live under an aliased folder, behind barrels. */
+const ALIASED = {
+  "tsconfig.json": JSON.stringify({ compilerOptions: { baseUrl: "./", paths: { "@core/*": ["src/app/core/*"] } } }),
+  "src/app/core/router/models/routes.model.ts": "export enum RoutePath {\n  Home = 'home',\n  UploadMenu = 'upload-menu',\n}\n",
+  "src/app/core/guards/index.ts": "export * from './native-only.guard';\n",
+  "src/app/core/guards/native-only.guard.ts": "export const nativeOnlyGuard = () => isNative();\n",
+  "src/app/upload/upload.routes.ts": "import { Routes } from '@angular/router';\n\nexport const UPLOAD_ROUTES: Routes = [\n  { path: 'preview', component: PreviewPage },\n];\n",
+};
+const aliasedRoutes = (guarded: boolean): string =>
+  [
+    "import { Routes } from '@angular/router';",
+    "import { RoutePath } from '@core/router/models/routes.model';",
+    "import { nativeOnlyGuard } from '@core/guards';",
+    "",
+    "export const routes: Routes = [",
+    "  { path: RoutePath.Home, component: HomePage },",
+    "  {",
+    "    path: RoutePath.UploadMenu,",
+    ...(guarded ? ["    canMatch: [nativeOnlyGuard],"] : []),
+    "    loadChildren: () => import('./upload/upload.routes').then((m) => m.UPLOAD_ROUTES),",
+    "  },",
+    "];",
+    "",
+  ].join("\n");
+const ROUTES_FILE = "src/app/app.routes.ts";
+const GUARD_UNDER_ALIAS = "src/app/core/guards/native-only.guard.ts";
+
+test("a guard added to an entry whose path and guard are imported through tsconfig paths introduces the route", async () => {
+  const basis = await classifyWith({
+    route: "/upload-menu/preview",
+    head: { ...ALIASED, [ROUTES_FILE]: aliasedRoutes(true) },
+    base: { [ROUTES_FILE]: aliasedRoutes(false) },
+    changed: [ROUTES_FILE],
+  });
+  assert.ok(basis?.class === "change-introduced");
+  assert.equal(basis.via, "route-declaration");
+  assert.match(basis.at, new RegExp(`^${ROUTES_FILE}:`));
+});
+
+test("a guard reached through an aliased barrel is the guard of its declaring file, which the change reaches", async () => {
+  const basis = await classifyWith({
+    route: "/upload-menu/preview",
+    head: { ...ALIASED, [ROUTES_FILE]: aliasedRoutes(true) },
+    base: { [ROUTES_FILE]: aliasedRoutes(true) },
+    changed: [GUARD_UNDER_ALIAS],
+    closure: { symbols: [{ file: GUARD_UNDER_ALIAS, symbol: "nativeOnlyGuard" }], complete: true },
+  });
+  assert.deepEqual(basis, { class: "change-introduced", via: "route-guard", at: `${GUARD_UNDER_ALIAS}::nativeOnlyGuard` });
+});
+
+test("a guard behind a barrel that a complete closure does not reach is unreached at its declaring file, whatever the barrel holds", async () => {
+  const unrelated = (file: string): ChangeClosure => ({ symbols: [{ file, symbol: "nativeOnlyGuard" }], complete: true });
+  const run = (closure: ChangeClosure) =>
+    classifyWith({
+      route: "/upload-menu/preview",
+      head: { ...ALIASED, [ROUTES_FILE]: aliasedRoutes(true) },
+      base: { [ROUTES_FILE]: aliasedRoutes(true) },
+      changed: ["src/app/home/home.page.ts"],
+      closure,
+    });
+  const clear = await run({ symbols: [{ file: "src/app/home/home.page.ts", symbol: "HomePage" }], complete: true });
+  assert.equal(clear?.class, "pre-existing");
+  /* A symbol of the same name at the barrel is not the guard: the barrel only re-exports it. */
+  assert.equal((await run(unrelated("src/app/core/guards/index.ts")))?.class, "pre-existing");
 });

@@ -110,3 +110,71 @@ test("a changed symbol reaching a listed guard reaches the route; a complete clo
   assert.deepEqual(guardEvidence([{ name: "aliasGuard" }], { symbols: [], complete: true }), { status: "partial" });
   assert.deepEqual(guardEvidence([], undefined), { status: "unreached" });
 });
+
+/* A repo whose specifiers go through the tsconfig: `paths` inherited through an `extends` chain, `baseUrl` imports, renames and barrels. */
+async function tablesOf(files: Record<string, string>) {
+  const dir = repoWith({ "package.json": PACKAGE, ...files });
+  try {
+    return await routeTablesOf({ mirrorDir: dir, changedFiles: ["src/app/app.routes.ts"], readAtBase: async (file) => files[file] });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const GUARD_AT = "src/app/core/guards/native-only.guard.ts";
+const guardedEntry = [
+  "import { Routes } from '@angular/router';",
+  "import { RoutePath as Paths } from '@app/models';",
+  "import { nativeOnlyGuard as native } from '@app/guards';",
+  "",
+  "export const routes: Routes = [",
+  "  { path: Paths.Upload, canMatch: [native], loadChildren: () => import('@app/upload').then((m) => m.UPLOAD_ROUTES) },",
+  "];",
+  "",
+].join("\n");
+const aliasFiles = {
+  "tsconfig.base.json": '{\n  // comments are allowed in a tsconfig\n  "compilerOptions": { "baseUrl": ".", "paths": { "@app/*": ["src/app/core/*", "src/app/features/*"] } }\n}',
+  "tsconfig.json": '{ "extends": "./tsconfig.base.json" }',
+  "src/app/core/models/index.ts": "export * from './routes.model';\n",
+  "src/app/core/models/routes.model.ts": "export enum RoutePath {\n  Upload = 'upload-menu',\n}\n",
+  "src/app/core/guards/index.ts": "export { nativeOnlyGuard } from './native-only.guard';\n",
+  [GUARD_AT]: "export const nativeOnlyGuard = () => isNative();\n",
+  "src/app/features/upload/index.ts": "export { UPLOAD_ROUTES } from './upload.routes';\n",
+  "src/app/features/upload/upload.routes.ts": "export const UPLOAD_ROUTES: Routes = [\n  { path: 'preview', component: PreviewPage },\n];\n",
+  "src/app/app.routes.ts": guardedEntry,
+};
+
+test("paths inherited through extends, renames and barrels resolve a path, a guard and a lazy table to their declarations", async () => {
+  const tables = await tablesOf(aliasFiles);
+  const match = matchRoute(tables!.head, "/upload-menu/preview");
+  assert.ok(match && "steps" in match);
+  assert.deepEqual(guardsOf(match), [{ name: "nativeOnlyGuard", file: GUARD_AT }]);
+});
+
+test("a specifier the configuration does not resolve leaves the path and the guard of its entry unresolved", async () => {
+  const withoutPaths = { ...aliasFiles, "tsconfig.base.json": '{ "compilerOptions": { "baseUrl": "." } }' };
+  const tables = await tablesOf(withoutPaths);
+  assert.deepEqual(declarationEvidence(tables!.head, tables!.base, "/upload-menu/preview"), { status: "unknown" });
+  const none = await tablesOf({ ...aliasFiles, "tsconfig.json": "{}" });
+  assert.deepEqual(declarationEvidence(none!.head, none!.base, "/upload-menu/preview"), { status: "unknown" });
+});
+
+test("baseUrl alone resolves an import written from the repository root, and a package dependency stays external", async () => {
+  const routes = [
+    "import { Routes } from '@angular/router';",
+    "import { RoutePath } from 'src/app/models/routes.model';",
+    "import { shellGuard } from '@angular/router';",
+    "export const routes: Routes = [",
+    "  { path: RoutePath.Upload, canActivate: [shellGuard], component: UploadPage },",
+    "];",
+    "",
+  ].join("\n");
+  const tables = await tablesOf({
+    "tsconfig.json": '{ "compilerOptions": { "baseUrl": "." } }',
+    "src/app/models/routes.model.ts": "export enum RoutePath {\n  Upload = 'upload-menu',\n}\n",
+    "src/app/app.routes.ts": routes,
+  });
+  const match = matchRoute(tables!.head, "/upload-menu");
+  assert.ok(match && "steps" in match);
+  assert.deepEqual(guardsOf(match), [{ name: "shellGuard", external: true }]);
+});

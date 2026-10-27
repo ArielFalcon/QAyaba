@@ -31,8 +31,9 @@ const LANGS: Record<LanguageId, { astGrep: boolean; testPaths: readonly RegExp[]
  */
 export type RouteTableSyntax = "angular-router";
 
-const ROUTE_TABLES: Record<RouteTableSyntax, { languages: readonly LanguageId[]; manifest: string; dependency: string }> = {
-  "angular-router": { languages: ["typescript", "javascript"], manifest: "package.json", dependency: "@angular/router" },
+const ROUTE_TABLES: Record<RouteTableSyntax, { languages: readonly LanguageId[]; manifest: string; dependency: string; moduleConfigs: readonly string[] }> = {
+  /* `moduleConfigs`: the files that configure how the languages resolve a module specifier (`paths`, `baseUrl`, `extends`), the nearest to the importing file first. */
+  "angular-router": { languages: ["typescript", "javascript"], manifest: "package.json", dependency: "@angular/router", moduleConfigs: ["tsconfig.json", "jsconfig.json"] },
 };
 
 /* The manifest files a route-table syntax is named in. */
@@ -95,6 +96,11 @@ export const LanguageRegistry = {
   routeTableReads(syntax: RouteTableSyntax, file: string): boolean {
     const lang = this.languageForFile(file);
     return lang !== null && ROUTE_TABLES[syntax].languages.includes(lang);
+  },
+
+  /* The files, by name, that configure module resolution for the languages a route-table syntax reads. */
+  routeTableModuleConfigs(syntax: RouteTableSyntax): readonly string[] {
+    return ROUTE_TABLES[syntax].moduleConfigs;
   },
 
   hasAstGrepRules(lang: LanguageId): boolean {
