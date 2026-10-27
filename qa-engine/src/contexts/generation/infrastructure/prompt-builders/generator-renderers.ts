@@ -11,7 +11,6 @@ import type { PlanningLimits } from "@kernel/coordination.ts";
 import { candidateLine } from "@kernel/use-case-candidate.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
-import { diffWithoutTestFiles } from "@kernel/diff-parser/diff-without-test-files.ts";
 import type { MilestoneOutcome, StepMilestone } from "@contexts/generation/domain/step-limit.ts";
 import { harnessFactLines, type HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 import type { OpencodeRunInput } from "../../domain/opencode-run-input.ts";
@@ -180,21 +179,13 @@ export const RUNTIME_SIGNALS_LINES: readonly string[] = [
   `  required fields, error responses — not invented contracts).`,
 ];
 
-/* Returns empty string for all non-diff modes, code mode, and re-generation passes (where the diff is already distilled in the grounding above and repeating it burns tokens). */
+/* The diff of an authoring turn. Returns empty string for all non-diff modes, code mode, and re-generation passes (where the diff is already distilled in the grounding above and repeating it burns tokens). A lead's planning turn renders its own section from the change map (plan-diff-section.ts). */
 export function buildDiffSection(input: OpencodeRunInput): string {
   if (input.target === "code") return "";
   if (input.mode !== "diff") return "";
   if (isReGenTurn(input)) return "";
-  /* A lead's planning turn sees the change without the app's own test files, named instead (the flows it plans are end-to-end). */
-  const { diff, testFiles } = input.planning ? diffWithoutTestFiles(input.diff) : { diff: input.diff, testFiles: [] };
   /* Cap BEFORE sanitizing: capDiff splits on diff file-header boundaries and must see the raw structure; sanitizeText only redacts secret-shaped substrings. */
-  return [
-    COMMIT_DIFF_HEADING,
-    "```diff",
-    cappedDiffText(diff),
-    "```",
-    ...(testFiles.length > 0 ? [`Test files the change also touches (not shown): ${sanitizeText(testFiles.join(", "), "issue").text}`] : []),
-  ].join("\n");
+  return [COMMIT_DIFF_HEADING, "```diff", cappedDiffText(input.diff), "```"].join("\n");
 }
 
 /* At most this many violations reach one prompt; the rest are counted so the agent knows the list is abridged. */

@@ -11,7 +11,7 @@ import type { BundleMutationResult, CoverageReport, DumpSource, MutantProof } fr
 import { DecideCoverageService, type ChangeCoverage, type CoveragePolicy } from "../../domain/decide-coverage.service.ts";
 import { parseDiffHunks } from "../../domain/assemble-change-coverage.ts";
 import { selectMutants } from "../../domain/select-mutants.ts";
-import { diffWithoutTestFiles } from "@kernel/diff-parser/diff-without-test-files.ts";
+import { diffWithoutTestFiles } from "../../domain/diff-without-test-files.ts";
 import { diffChangedFiles, perCandidateCoverage } from "../../domain/per-candidate-coverage.ts";
 
 export interface ObjectiveSignalPortCollaborators {

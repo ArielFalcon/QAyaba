@@ -1593,7 +1593,7 @@
       "directives": 6
     },
     "diff/e2e/first/tree-none/none/planning/limit": {
-      "bytes": 3349,
+      "bytes": 3455,
       "directives": 3
     },
     "diff/e2e/first/tree-none/none/service": {
@@ -1701,7 +1701,7 @@
       "directives": 4
     },
     "diff/e2e/first/tree-none/pack/planning/limit": {
-      "bytes": 4317,
+      "bytes": 4423,
       "directives": 3
     },
     "diff/e2e/first/tree-none/pack/service": {
@@ -6010,16 +6010,10 @@
     }
   },
   "lastIncrease": {
-    "reason": "the plan turn states the run's flow capacity and per-flow time (S13)",
+    "reason": "the lead's plan section carries the change map (S15) and states the flow capacity (S13)",
     "budgets": [
-      "complete/e2e/first/tree-none/none/planning/limit:bytes",
-      "complete/e2e/first/tree-none/pack/planning/limit:bytes",
       "diff/e2e/first/tree-none/none/planning/limit:bytes",
-      "diff/e2e/first/tree-none/pack/planning/limit:bytes",
-      "exhaustive/e2e/first/tree-none/none/planning/limit:bytes",
-      "exhaustive/e2e/first/tree-none/pack/planning/limit:bytes",
-      "manual/e2e/first/tree-none/none/planning/limit:bytes",
-      "manual/e2e/first/tree-none/pack/planning/limit:bytes"
+      "diff/e2e/first/tree-none/pack/planning/limit:bytes"
     ]
   }
 }

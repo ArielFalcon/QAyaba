@@ -27,7 +27,7 @@ const CODE_FILE_EXTENSIONS = new Set([
   "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "java", "go", "rs", "kt", "cs", "rb", "php", "swift",
 ]);
 
-function diffSectionMode(filePath: string): RedactionMode {
+export function diffSectionMode(filePath: string): RedactionMode {
   const base = filePath.split("/").pop() ?? filePath;
   const dot = base.lastIndexOf(".");
   const ext = dot > 0 ? base.slice(dot + 1).toLowerCase() : "";
@@ -47,19 +47,15 @@ export function cappedDiffText(diff: string): string {
 export function redactedDiffText(capped: string): string {
   const sections = capped.split(/^(?=diff --git )/m);
   const hasFileHeader = sections.some((s) => DIFF_HEADER_RE.test(s));
-  if (!hasFileHeader) {
-    const redacted = sanitizeText(capped, "model").text;
-    assertNoSecretLeak(redacted, "model", "diff→model");
-    return redacted;
-  }
-  return sections
-    .map((section) => {
-      const mode: RedactionMode = DIFF_HEADER_RE.test(section) ? diffSectionMode(extractDiffFilePath(section)) : "issue";
-      const redacted = sanitizeText(section, mode).text;
-      assertNoSecretLeak(redacted, mode, "diff→model");
-      return redacted;
-    })
-    .join("");
+  if (!hasFileHeader) return redactedDiffOf(capped, "model");
+  return sections.map((section) => redactedDiffOf(section, DIFF_HEADER_RE.test(section) ? diffSectionMode(extractDiffFilePath(section)) : "issue")).join("");
+}
+
+/* Diff text redacted with the given mode and guarded, so no secret-shaped string reaches the model. */
+export function redactedDiffOf(text: string, mode: RedactionMode): string {
+  const redacted = sanitizeText(text, mode).text;
+  assertNoSecretLeak(redacted, mode, "diff→model");
+  return redacted;
 }
 
 /* How a turn reads code the prompt does not provide: the order the shared rules give, so no prompt names a tool a role may not hold. */

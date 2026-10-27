@@ -855,7 +855,7 @@ export function reviewerDigests(): DigestSet {
     set.keys.push("reviewer|planned");
     set.digests.push(assemblyDigest(buildReviewerPromptAssembled(planned, MATRIX_REVIEWER_WINDOW)));
     set.keys.push("reviewer|planned|over-window");
-    set.digests.push(assemblyDigest(buildReviewerPromptAssembled(planned, { ...MATRIX_REVIEWER_WINDOW, fits: () => "over" })));
+    set.digests.push(assemblyDigest(buildReviewerPromptAssembled(planned, { ...MATRIX_REVIEWER_WINDOW, fit: () => "over" })));
     return set;
   } finally {
     rmSync(mirror, { recursive: true, force: true });

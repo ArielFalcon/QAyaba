@@ -622,7 +622,7 @@ export const GENERATOR_SECTIONS: readonly PromptSectionDef<PromptContext>[] = [
     tier: "task",
     priority: 2,
     applies: (ctx) => ctx.isGenerationMode && ctx.input.target !== "code" && ctx.input.mode === "diff" && !ctx.isReGen,
-    render: (ctx) => ({ content: buildDiffSection(ctx.input), shedAs: "semi-stable", claims: [claim.provides("diff")] }),
+    render: (ctx) => ({ content: ctx.planDiff ? ctx.planDiff.render(ctx.planDiffShown) : buildDiffSection(ctx.input), shedAs: "semi-stable", claims: [claim.provides("diff")] }),
   },
   /* The cap the runtime enforces for this turn, when the host resolved one: a fact of its own, then, on a turn that writes tests, the step by which it should have written something. Both close the prompt. */
   {

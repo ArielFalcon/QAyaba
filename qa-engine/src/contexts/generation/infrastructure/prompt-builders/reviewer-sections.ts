@@ -9,6 +9,7 @@ import {
   REVIEW_RATIONALE_MAX_CHARS,
 } from "@contexts/generation/domain/review-output.ts";
 import type { ReviewInput } from "../../domain/generation-input.ts";
+import type { PromptFit } from "./generator-context.ts";
 import { assemblerBudgetBytes } from "@kernel/context-budget.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 import { renderStepLimit } from "./prompt-text.ts";
@@ -40,7 +41,7 @@ export interface BuildReviewerPromptOpts {
   /** The run's context window of a role, in tokens. Absent, or unknown for the reviewer: the prompt is not cut. */
   windowTokens?: (role: AgentRole) => number | undefined;
   /** Whether a prompt of this many bytes fits a role's window with the working room its turn needs. Absent, or unknown: every part of the change is shown. */
-  fits?: (role: AgentRole, bytes: number) => "fits" | "over" | "unknown";
+  fit?: PromptFit;
 }
 
 export function deriveReviewerContext(input: ReviewInput, opts: BuildReviewerPromptOpts = {}): ReviewerContext {

@@ -8,7 +8,8 @@
  * it leaves out on a line of its own with its added and removed lines (never truncates a hunk
  * mid-line), so a reader of a large change still sees every file it touches. A degenerate single-oversized-file overflow
  * hard-slices that one section. capText is flat prose truncation with no file-awareness.
- * capDiff is the only diff capper; nothing in src/ keeps a copy.
+ * capDiff is the only diff capper; nothing in src/ keeps a copy. The lead's planning turn does not go through it: its diff is
+ * the change map and the hunks that fit the lead's window (plan-diff-section.ts).
  */
 import { changeFileLine } from "@kernel/change-map.ts";
 import { sectionPath, sectionStat } from "@kernel/diff-hunks.ts";

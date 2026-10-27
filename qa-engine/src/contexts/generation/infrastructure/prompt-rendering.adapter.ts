@@ -1,15 +1,16 @@
 import type { ContextBudget } from "@kernel/context-budget.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
+import type { PromptFit } from "./prompt-builders/generator-context.ts";
 import type { RenderedPromptFacts } from "../domain/prompt-facts.ts";
 import type { PromptRenderingPort } from "../application/ports/prompt-rendering.port.ts";
 import type { OpencodeRunInput } from "../domain/opencode-run-input.ts";
 import type { ReviewInput } from "../domain/generation-input.ts";
 
-/* What the builders are told about the run's windows: the window of a role, in tokens; absent or unknown, a prompt is not cut for it. */
+/* What the builders are told about the run's windows: the window of a role, in tokens, and the fit rule (prompt + working room <= window); absent or unknown, a prompt is not cut for it. */
 export interface PromptWindows {
   windowTokens?: (role: AgentRole) => number | undefined;
   /* Whether a prompt of this many bytes fits a role's window with the working room its turn needs; absent or unknown, nothing is degraded to fit. */
-  fits?: (role: AgentRole, bytes: number) => "fits" | "over" | "unknown";
+  fit?: PromptFit;
 }
 
 type Rendered = { text: string; sectionSizes: Record<string, number> } & RenderedPromptFacts;
@@ -29,7 +30,7 @@ export class PromptRenderingAdapter implements PromptRenderingPort {
 
   private windows(): PromptWindows {
     const budget = this.contextBudget;
-    return budget ? { windowTokens: (role) => budget.windowTokens(role), fits: (role, bytes) => budget.fit({ prompt: { bytes }, role }).outcome } : {};
+    return budget ? { windowTokens: (role) => budget.windowTokens(role), fit: ({ bytes, role }) => budget.fit({ prompt: { bytes }, role }).outcome } : {};
   }
 
   /* The prompt's size against its role's window, with the working room its turn needs. */

@@ -13,12 +13,19 @@ import { renderArchitectureContextParts } from "./architecture-context.ts";
 import { assemblerBudgetBytes } from "@kernel/context-budget.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 import { redactForModel } from "./prompt-text.ts";
+import { planDiff } from "../../domain/plan-diff.ts";
+import { PlanDiffSection } from "./plan-diff-section.ts";
+
+/* Whether a prompt of this many bytes leaves its role the working room its turn needs in the role's window (the run's ContextBudget). */
+export type PromptFit = (request: { bytes: number; role: AgentRole }) => "fits" | "over" | "unknown";
 
 export interface BuildPromptAssembledOpts {
   /** Explicit byte-budget override. Absent, the budget derives from the window of the role the prompt is for. */
   budgetBytes?: number;
   /** The run's context window of a role, in tokens (the per-run ContextWindowPort). Absent, or a role whose window it does not know: the prompt is not cut. */
   windowTokens?: (role: AgentRole) => number | undefined;
+  /** The run's fit rule. Absent, or an `unknown` outcome: nothing is held back for it. */
+  fit?: PromptFit;
 }
 
 /* The injected grounding (Context Pack ≤6 routes, failure DOM ≤4 routes) may not cover the route a regeneration must touch. Every grounded regeneration branch carries this explicit escape, so a fix is never written blind for lack of navigation. */
@@ -83,6 +90,10 @@ export interface PromptContext {
   readonly blastRadiusGrounded: boolean;
   readonly milestone: StepMilestone | undefined;
   readonly assembly: Assembly;
+  /* The lead's planning diff on a diff run: the change map and the ranked pieces of the diff. Absent on any other turn, which shows the diff as it is. */
+  readonly planDiff: PlanDiffSection | undefined;
+  /* How many ranked pieces the planning diff shows: every one until the builder fits the prompt to the lead's window. */
+  readonly planDiffShown: number;
 }
 
 export function derivePromptContext(input: OpencodeRunInput, opts: BuildPromptAssembledOpts = {}): PromptContext {
@@ -134,6 +145,7 @@ export function derivePromptContext(input: OpencodeRunInput, opts: BuildPromptAs
   /* Only a signal that names symbols is an explored blast radius. One of co-change files alone says which files tend to move together, so it claims nothing explored; a signal that arrives without the flag cannot prove it names symbols and is read the same way. */
   const planningTurn = isGenerationMode && input.target === "e2e" && Boolean(input.planning) && !isReGen;
   const promptRole = planningTurn ? "lead" : "author";
+  const planDiffSection = planningTurn && input.mode === "diff" ? new PlanDiffSection(planDiff(input.diff, input.planning?.candidates ?? [])) : undefined;
   const staticSignalHasSymbols = Boolean(input.staticSignal && isGenerationMode) && input.staticSignalHasSymbols === true;
 
   return {
@@ -163,6 +175,8 @@ export function derivePromptContext(input: OpencodeRunInput, opts: BuildPromptAs
     blastRadiusGrounded: staticSignalHasSymbols,
     milestone: input.stepLimit !== undefined ? stepMilestone(input, input.stepLimit) : undefined,
     assembly: { suiteListed: listingContent !== "", reaskObjective: listing.reaskObjective },
+    planDiff: planDiffSection,
+    planDiffShown: planDiffSection?.pieces ?? 0,
   };
 }
 

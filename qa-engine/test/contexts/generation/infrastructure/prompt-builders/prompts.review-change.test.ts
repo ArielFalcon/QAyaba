@@ -85,7 +85,7 @@ test("over the reviewer's window, owned non-code goes to references first, then 
   const order = [OWNED_STYLE, UNASSIGNED, OWNED_LOW_RANK_CODE, OWNED_CODE];
   const seen = new Set<string>();
   for (let limit = full; limit > full - 3_000; limit -= 16) {
-    const a = buildReviewerPromptAssembled(mkReview({ changeView: view() }), { fits: (_role, bytes) => (bytes <= limit ? "fits" : "over") });
+    const a = buildReviewerPromptAssembled(mkReview({ changeView: view() }), { fit: ({ bytes }) => (bytes <= limit ? "fits" : "over") });
     const present = order.map((line) => a.text.includes(line));
     for (let i = 1; i < order.length; i++) if (!present[i]) assert.equal(present[i - 1], false, `${order[i]} left before ${order[i - 1]} at ${limit}`);
     if (present.some(Boolean)) assert.ok(Buffer.byteLength(a.text, "utf8") <= limit, `the prompt fits at ${limit}`);
@@ -93,12 +93,12 @@ test("over the reviewer's window, owned non-code goes to references first, then 
     for (const id of [REVIEWER_FLOW_SLICES_SECTION_ID, REVIEWER_CHANGED_FILES_SECTION_ID, REVIEWER_UNASSIGNED_CHANGE_SECTION_ID]) assert.ok(id in a.sectionSizes, id);
   }
   assert.deepEqual([...seen].sort(), ["0000", "0001", "0011", "0111", "1111"], "every step of the order was reached");
-  const tight = buildReviewerPromptAssembled(mkReview({ changeView: view() }), { fits: () => "over" });
+  const tight = buildReviewerPromptAssembled(mkReview({ changeView: view() }), { fit: () => "over" });
   for (const ref of ["src/cart.css:1-21", "src/other.ts:7-27", "src/cart.ts:40-60", "src/cart.ts:3-23"]) assert.ok(tight.text.includes(ref), `${ref} is referenced by file and range`);
 });
 
 test("an unknown fit preloads every owned and unassigned hunk", () => {
-  const a = buildReviewerPromptAssembled(mkReview({ changeView: view() }), { fits: () => "unknown" });
+  const a = buildReviewerPromptAssembled(mkReview({ changeView: view() }), { fit: () => "unknown" });
   for (const line of [OWNED_CODE, OWNED_LOW_RANK_CODE, OWNED_STYLE, UNASSIGNED]) assert.ok(a.text.includes(line), line);
 });
 
@@ -122,5 +122,5 @@ const findingsOf = (a: AssembledPrompt): string[] => lintCell({ name: "reviewer"
 test("a planned review, whole or with every part referenced, raises no prompt-contract finding the whole-diff review does not", () => {
   const whole = findingsOf(buildReviewerPromptAssembled(mkReview()));
   assert.deepEqual(findingsOf(buildReviewerPromptAssembled(mkReview({ changeView: view() }))), whole);
-  assert.deepEqual(findingsOf(buildReviewerPromptAssembled(mkReview({ changeView: view() }), { fits: () => "over" })), whole);
+  assert.deepEqual(findingsOf(buildReviewerPromptAssembled(mkReview({ changeView: view() }), { fit: () => "over" })), whole);
 });

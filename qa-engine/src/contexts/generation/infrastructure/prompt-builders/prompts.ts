@@ -6,7 +6,7 @@ import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/
 import type { ReviewInput } from "../../domain/generation-input.ts";
 import type { OpencodeRunInput } from "../../domain/opencode-run-input.ts";
 import { assemble, type AssembledPrompt } from "./context-assembler.ts";
-import { derivePromptContext, withAssembly, type Assembly, type BuildPromptAssembledOpts } from "./generator-context.ts";
+import { derivePromptContext, withAssembly, type Assembly, type BuildPromptAssembledOpts, type PromptContext, type PromptFit } from "./generator-context.ts";
 import { GENERATOR_SECTIONS, SUITE_LISTING_SECTION_ID } from "./generator-sections.ts";
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { renderSections } from "./prompt-sections.ts";
@@ -39,8 +39,32 @@ function providedPathsOf(input: OpencodeRunInput, sectionSizes: Record<string, n
 /* A generator prompt and the role it is for: the lead on a planning turn, the author on any other. */
 export type GeneratorPrompt = AssembledPrompt & { promptRole: "lead" | "author" };
 
+/*
+ * How many ranked pieces of the planning diff the lead's prompt shows: the longest prefix of the ranking whose prompt the fit rule
+ * does not call over the lead's window and the assembler's budget does not cut; every other piece is named as a reference. The
+ * prompt with no piece shown (the change map and every reference) is assembled once and the size of any other count follows
+ * from the section's own size, so nothing is assembled per piece. A prompt over the window even with no piece shown is sent in
+ * that minimal form, and its fit records it. An unknown fit and no budget hold nothing back.
+ */
+function fittedPlanDiffShown(ctx: PromptContext, fit: PromptFit | undefined): number {
+  const section = ctx.planDiff;
+  if (!section) return 0;
+  /* The assembler reads a budget of 0 as none. */
+  const budget = ctx.budgetBytes !== undefined && ctx.budgetBytes > 0 ? ctx.budgetBytes : undefined;
+  const outcome = (bytes: number): ReturnType<PromptFit> => fit?.({ bytes, role: ctx.promptRole }) ?? "unknown";
+  const allowed = (bytes: number): boolean => (budget === undefined || bytes <= budget) && outcome(bytes) !== "over";
+  if (budget === undefined && fit === undefined) return section.pieces;
+  const minimal = assemble(renderSections(GENERATOR_SECTIONS, { ...ctx, planDiffShown: 0 }), { budgetBytes: budget });
+  if ((minimal.droppedSections?.length ?? 0) > 0 || Object.values(minimal.sectionItems).some((item) => item.capped)) return 0;
+  const rest = Buffer.byteLength(minimal.text, "utf8") - section.bytes(0);
+  let shown = 0;
+  while (shown < section.pieces && allowed(rest + section.bytes(shown + 1))) shown++;
+  return shown;
+}
+
 export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptAssembledOpts = {}): GeneratorPrompt {
-  const ctx = derivePromptContext(input, opts);
+  const derived = derivePromptContext(input, opts);
+  const ctx: PromptContext = derived.planDiff ? { ...derived, planDiffShown: fittedPlanDiffShown(derived, opts.fit) } : derived;
   const assembleWith = (assembly: Assembly): AssembledPrompt =>
     assemble(renderSections(GENERATOR_SECTIONS, withAssembly(ctx, assembly)), { budgetBytes: ctx.budgetBytes });
 
@@ -68,9 +92,9 @@ export function buildReviewerPromptAssembled(input: ReviewInput, opts: BuildRevi
   const ctx = deriveReviewerContext(input, opts);
   const assembleWith = (degraded: ReadonlySet<string>): AssembledPrompt => assemble(renderSections(REVIEWER_SECTIONS, { ...ctx, degraded }), { budgetBytes: ctx.budgetBytes });
   let assembled = assembleWith(ctx.degraded);
-  const fits = opts.fits;
-  if (!fits || !reviewsByFlow(input)) return assembled;
-  const over = (bytes: number): boolean => fits("reviewer", bytes) === "over";
+  const fit = opts.fit;
+  if (!fit || !reviewsByFlow(input)) return assembled;
+  const over = (bytes: number): boolean => fit({ bytes, role: "reviewer" }) === "over";
   if (!over(Buffer.byteLength(assembled.text, "utf8"))) return assembled;
   const order = degradationOrder(input.changeView);
   const degraded = new Set<string>();

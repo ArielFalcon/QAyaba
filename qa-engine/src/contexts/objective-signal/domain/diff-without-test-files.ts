@@ -1,10 +1,10 @@
 /*
- * A commit's diff without the app's own test files, which are named instead. A lead plans the end-to-end flows a change needs; the
- * unit tests the change carries are the app's, and their bodies would only crowd the diff it plans from. What counts as a test file
- * is the language registry's. Pure.
+ * A commit's diff without the app's own test files, which are named instead. The change's coverage counts the change's own code:
+ * the unit tests a commit carries are the app's, not lines a suite should run. What counts as a test file is the language
+ * registry's. Pure.
  */
 import { LanguageRegistry } from "@kernel/language-id.ts";
-import { diffGitHeaderPath } from "./diff-parser.service.ts";
+import { diffGitHeaderPath } from "@kernel/diff-parser/diff-parser.service.ts";
 
 export function diffWithoutTestFiles(diff: string): { diff: string; testFiles: string[] } {
   const sections = diff.split(/^(?=diff --git )/m);

@@ -35,8 +35,8 @@ signed-in app (see below); without either, no sidekick can author and the run en
    read-only by a per-prompt tool denial (the runtime's file tools and every editing tool of the code-navigation
    server); a lead on a runtime that has no such denial is not asked for a plan and the change stays with it as one
    piece of work, with the reason recorded. The lead grounds deterministically: it
-   reads the Context Pack, the structural signal, the suite listing and the diff, in which the app's own test files
-   are named rather than shown (the language registry's conventions), and it explores with its code-graph tool. Its
+   reads the Context Pack, the structural signal, the suite listing and the change map with its ranked hunks, in which the
+   app's own test files are named rather than shown (the language registry's conventions), and it explores with its code-graph tool. Its
    planning session, review included, is denied Playwright: DEV is read by the sidekicks.
 2. **Admit.** `admitLeadPlan` treats the plan as untrusted. It slugs the ids, assigns each flow the spec path
    `e2e/flows/<slug>.spec.ts` itself (any write list the lead names is ignored), caps the sizes, and refuses
@@ -105,8 +105,14 @@ If nothing could be coordinated (no plan, no time, nobody to author with) the ru
 
 ### What the lead plans from
 
-The planning turn sees the whole change even when it is large: the diff keeps every whole file section that fits the prompt
-cap, code before style sheets, and lists each file it leaves out with the lines it adds and removes. It is told the pages
+The planning turn sees the whole change even when it is large, and nothing of it is cut blind. Its `## Commit diff` section
+carries the change map first: every changed file once, with its added and removed lines, its kind (the language
+registry's), its relevance class, whether it is an app test file, and the use cases its changed code seeds. Then come the
+hunks in rank order (code, other kinds, style sheets, then diff order; a decision rank joins when the static decision
+listing lands), as many as fit the lead's own window by the fit rule (prompt plus the lead's working room within its
+window, `ContextBudget`) without passing the assembler's budget. Every hunk not shown is named as a reference,
+`path:start-end` with its lines, kind and why: past the window, or in an app test file, a generated file or a low-relevance
+file, which are only ever named. An unknown window holds nothing back (`plan-diff.ts`, `plan-diff-section.ts`). It is told the pages
 of the app's map the change is linked to and asked to give a flow to each page whose behaviour the change alters; the
 pages no admitted flow visits are recorded as a `lead-decision` event. The Context Pack captures as many of those pages as the
 change is linked to, up to `MAX_ROUTES_PER_CHANGE`.
