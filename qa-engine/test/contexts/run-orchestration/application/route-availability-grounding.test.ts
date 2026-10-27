@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { availabilityGroundingOf, CHANGE_CLOSURE_BUDGET, runBaseRef } from "@contexts/run-orchestration/application/run-flow/route-availability-grounding.ts";
+import { availabilityGroundingOf, CHANGE_CLOSURE_BUDGET, runBaseRef, withRouteConfigCandidates } from "@contexts/run-orchestration/application/run-flow/route-availability-grounding.ts";
 import { initialRunState, type RunState } from "@contexts/run-orchestration/application/run-flow/run-state.ts";
 import type { WorkspaceRunContext } from "@contexts/run-orchestration/application/run-flow/run-context.ts";
 import type { ImpactReport } from "@kernel/code/index.ts";
@@ -48,6 +48,19 @@ test("a closure cut by its budget, reaching its depth bound or seeded by nothing
   assert.equal((await closure({ indexedSha: HEAD, symbols: [symbol("a", CHANGE_CLOSURE_BUDGET.depth)], truncated: false, seedBasis: "lines" }))?.complete, false);
   assert.equal((await closure({ indexedSha: HEAD, symbols: [], truncated: false, seedBasis: "none" }))?.complete, false);
   assert.equal(await availabilityGroundingOf(stateWithDiff(), ctxWith(undefined, [])).changeClosure?.(), undefined);
+});
+
+test("a route the change governs becomes a direct route-config use case; one already named keeps its id and gains the fact", () => {
+  const introduced = (route: string) => ({ route, outcome: { kind: "redirected" as const, to: "/home", mechanism: "client" as const }, sessionAttached: true, basis: { class: "change-introduced" as const, via: "route-declaration" as const, at: "src/app.routes.ts:102" } });
+  const named = { id: "uc-held", entry: { kind: "page" as const, repo: "org/web", route: "/upload-menu/confirm" }, tier: "indirect" as const, basis: "graph" as const, evidence: ["graph path"], seeds: [], confidence: 0.8, reachability: "page" as const, pages: [], existingSpecs: [] };
+  const preExisting = { route: "/login", outcome: { kind: "redirected" as const, to: "/home", mechanism: "client" as const }, basis: { class: "pre-existing" as const, why: "session-consistent" as const } };
+  const out = withRouteConfigCandidates([named], [introduced("/upload-menu/preview"), introduced("/upload-menu/confirm"), preExisting], "org/web");
+  assert.equal(out.length, 2);
+  assert.deepEqual({ id: out[0]!.id, tier: out[0]!.tier, basis: out[0]!.basis, evidence: out[0]!.evidence }, { id: "uc-held", tier: "direct", basis: "route-config", evidence: ["route table entry changed at src/app.routes.ts:102; with this run's session the browser ends on /home (client-side)", "graph path"] });
+  assert.equal(out[1]!.basis, "route-config");
+  assert.deepEqual(out[1]!.entry, { kind: "page", repo: "org/web", route: "/upload-menu/preview" });
+  assert.match(out[1]!.id, /^uc-[0-9a-f]{8}$/);
+  assert.deepEqual(withRouteConfigCandidates([named], [preExisting], "org/web"), [named]);
 });
 
 test("a run with no diff gets no base and no closure", () => {

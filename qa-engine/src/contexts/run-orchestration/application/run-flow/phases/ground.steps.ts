@@ -16,7 +16,7 @@ import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { recordRunFact } from "../reducers.ts";
 import { carryOn } from "../failure-policy.ts";
-import { availabilityGroundingOf } from "../route-availability-grounding.ts";
+import { availabilityGroundingOf, withRouteConfigCandidates } from "../route-availability-grounding.ts";
 
 type Result = Promise<StepOutcome<RunState>>;
 
@@ -142,6 +142,10 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
         confirmedDataRoutes: groundingConfirmedDataRoutes,
         changedDecisions: groundingChangedDecisions,
         routeAvailability: groundingRouteAvailability,
+        /* A route the change governs that the capture saw sent away is a use case to assert, named or not by the scope. */
+        candidates: groundingRouteAvailability?.facts.length
+          ? withRouteConfigCandidates(state.grounding.candidates, groundingRouteAvailability.facts, input.changeSet.anchor.repo)
+          : state.grounding.candidates,
       },
     },
   };

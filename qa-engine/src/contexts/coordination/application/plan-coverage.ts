@@ -56,6 +56,10 @@ const isCodeFile = (file: string): boolean => LanguageRegistry.languageForFile(f
  * `needs-unavailable-state` names a state the orchestrator cannot see, so it stands.
  */
 export function dropRefusal(candidate: UseCaseCandidate, basis: PlanDrop["basis"]): string | undefined {
+  /* A route the change governs that the run's own capture saw sent away: its changed behaviour was observed with the run's client, and it needs no state the run lacks. */
+  if (candidate.basis === "route-config" && (basis === DROP_BASIS.NO_OBSERVABLE_CHANGE || basis === DROP_BASIS.NEEDS_UNAVAILABLE_STATE)) {
+    return `the run observed this route's changed behaviour with its own client (${candidate.evidence[0] ?? "the change governs where it sends the browser"})`;
+  }
   if (basis === DROP_BASIS.NO_OBSERVABLE_CHANGE) {
     const code = [...new Set([...candidate.seeds, ...(candidate.sharedSeeds ?? [])].map((seed) => seed.file).filter(isCodeFile))];
     return code.length > 0 ? `its changed code is executable (${code.slice(0, 3).join(", ")}), which a browser can observe` : undefined;

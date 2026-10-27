@@ -6,8 +6,8 @@
 
 export type ReachTier = "direct" | "indirect" | "cross-repo";
 
-/* How an entry was reached: a map link of a changed file (`implementation`, `source`, `spec`), the call graph (`graph`), a handler that serves an operation (`handler`), a frontend call site of a contract link (`call-site`) or a contract operation (`contract`). */
-export type ReachBasis = "implementation" | "source" | "spec" | "graph" | "handler" | "call-site" | "contract";
+/* How an entry was reached: a map link of a changed file (`implementation`, `source`, `spec`), the call graph (`graph`), a handler that serves an operation (`handler`), a frontend call site of a contract link (`call-site`), a contract operation (`contract`), or the route configuration the change governs the page's availability by, observed in the run's capture (`route-config`). */
+export type ReachBasis = "implementation" | "source" | "spec" | "graph" | "handler" | "call-site" | "contract" | "route-config";
 
 export type EntryPoint =
   | { kind: "page"; repo: string; route: string }

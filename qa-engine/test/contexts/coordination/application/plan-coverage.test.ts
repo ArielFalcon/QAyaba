@@ -91,6 +91,17 @@ test("an already-covered drop is refused when no spec of the suite is linked to 
   assert.equal(unreachable.dropped.length, 1);
 });
 
+test("a route the change governs that the capture saw sent away refuses a no-observable-change and a needs-unavailable-state drop", () => {
+  const governed = pageCandidate("/upload-menu/preview", [], { basis: "route-config", evidence: ["route table entry changed at src/app.routes.ts:102; with this run's session the browser ends on /home (client-side)"] });
+  for (const basis of [DROP_BASIS.NO_OBSERVABLE_CHANGE, DROP_BASIS.NEEDS_UNAVAILABLE_STATE]) {
+    const coverage = planCoverage({ flows: [], dropped: [dropOf(governed, basis)] }, [governed]);
+    assert.deepEqual(coverage.unresolved.map((c) => c.id), [governed.id], basis);
+    assert.match(coverage.refused?.[0]?.why ?? "", /observed this route's changed behaviour.*ends on \/home/);
+  }
+  const covered = planCoverage({ flows: [], dropped: [dropOf({ ...governed, existingSpecs: ["flows/upload.spec.ts"] }, DROP_BASIS.ALREADY_COVERED)] }, [{ ...governed, existingSpecs: ["flows/upload.spec.ts"] }]);
+  assert.equal(covered.dropped.length, 1);
+});
+
 test("the re-plan request says why a drop was refused", () => {
   const candidate = seeded("/cart", ["src/cart.ts"]);
   const coverage = planCoverage({ flows: [], dropped: [dropOf(candidate, DROP_BASIS.NO_OBSERVABLE_CHANGE)] }, [candidate]);
