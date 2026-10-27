@@ -1,10 +1,12 @@
 import type { CandidateValue, ValueStats } from "./fault-injection-score.ts";
+import type { DecisionKind } from "@kernel/changed-decision.ts";
 
 export interface CoveredLines { file: string; lines: number[]; }
 
 /* What a browser coverage collection saw of the scripts a page ran: how many, and how many carried a source map that translates them back to the repository's files. Absent for a collector that reads native reports. */
 export interface CoverageScripts { total: number; withSourceMap: number; }
-export type BranchKind = "if" | "conditional" | "logical" | "switch";
+/* The decision kinds are the static listing's: a measured decision and a listed one are of the same taxonomy. */
+export type BranchKind = DecisionKind;
 export interface BranchArm { label: string; taken: boolean; }
 /* One decision of a changed file the executed code holds: where its condition is (1-based line, 0-based column), its kind, and whether each arm ran in at least one test. */
 export interface BranchHit { file: string; line: number; column: number; kind: BranchKind; arms: BranchArm[]; }

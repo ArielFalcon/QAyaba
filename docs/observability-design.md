@@ -352,6 +352,12 @@ produced**, are deterministic, and are identical across runs:
 
 The **referenced** ids are extracted later by a pure function (§11.1), never self-reported by the agent.
 
+The static decision listing of the change (grounding, before anything runs) records one `qayaba.change.decisions` span:
+`qayaba.decisions.count` (the decisions whose head a changed line holds: if/else with the implicit else, `?:`,
+`&&`/`||`/`??`, switch clauses, read from the working copy by the lister the language registry declares) and
+`qayaba.decisions.unparsed` (the changed files of a language with a lister that did not parse; they list nothing). A
+language with no lister, a cross-repo run and a run with no working copy list nothing and record no span.
+
 ---
 
 ## 5. Trace model: agent turns (D5, D11)

@@ -7,6 +7,7 @@ import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
+import type { DecisionListing } from "@kernel/changed-decision.ts";
 import type { RelevanceBias } from "@contexts/cross-run-learning/application/index.ts";
 import type { ChangeScope, ChangeScopeRepo, ReachTier, UseCaseCandidate } from "@contexts/change-analysis/application/index.ts";
 import type { StepOutcome } from "../run-flow.ts";
@@ -93,6 +94,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
   /* The added labels whose changed-value line in the pack said more nodes than unchanged lines: what an unobservable no-op is set beside. */
   let groundingMoreNodes: readonly string[] = [];
   let groundingConfirmedDataRoutes: RunState["grounding"]["confirmedDataRoutes"];
+  let groundingChangedDecisions: RunState["grounding"]["changedDecisions"] = [];
   if (deps.preGenerationGrounding) {
     deps.observer?.onStep("generate", PRE_GENERATION_GROUNDING_STEP_DETAIL);
     try {
@@ -111,6 +113,10 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
       groundingHarnessFacts = grounding.harnessFacts;
       groundingMoreNodes = grounding.changedValuesWithMoreNodes ?? [];
       groundingConfirmedDataRoutes = grounding.packConfirmedDataRoutes;
+      if (grounding.changedDecisions) {
+        groundingChangedDecisions = grounding.changedDecisions.decisions;
+        recordDecisions(ctx, grounding.changedDecisions);
+      }
     } catch (err) {
       carryOn(err);
       /* Abort during grounding takes the abort route, not ungrounded continue. */
@@ -130,6 +136,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
         harnessFacts: groundingHarnessFacts,
         moreNodes: groundingMoreNodes,
         confirmedDataRoutes: groundingConfirmedDataRoutes,
+        changedDecisions: groundingChangedDecisions,
       },
     },
   };
@@ -305,6 +312,21 @@ function recordScope(ctx: WorkspaceRunContext, scope: ChangeScope): void {
 function hubPagesOf(scope: ChangeScope | undefined): string[] {
   const PAGE = "page ";
   return [...new Set((scope?.hubs ?? []).flatMap((hub) => hub.keys.filter((key) => key.startsWith(PAGE)).map((key) => key.slice(PAGE.length))))].sort();
+}
+
+/* What the static decision listing found: how many decisions, and which changed files of a language with a lister did not parse (they list nothing). */
+function recordDecisions(ctx: WorkspaceRunContext, listing: DecisionListing): void {
+  try {
+    ctx.telemetry.startSpan("qayaba.change.decisions", {
+      attrs: {
+        "qayaba.app": ctx.input.app,
+        "qayaba.decisions.count": listing.decisions.length,
+        "qayaba.decisions.unparsed": listing.unparsed,
+      },
+    }).end();
+  } catch (err) {
+    engineLog.error(`[telemetry] the decisions span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 function recordCandidates(ctx: WorkspaceRunContext, candidates: readonly UseCaseCandidate[]): void {

@@ -20,6 +20,7 @@ import { raceWithAbort, isAbortError } from "@contexts/generation/domain/abort-r
 import { withDeclaredResources } from "./implementation-resources.ts";
 import { withChangedElementScopes } from "./changed-element-scope.ts";
 import { withUnchangedLines, type MeasuredLabels } from "./changed-label-lines.ts";
+import { changedDecisionsOf } from "./changed-decisions.ts";
 import { filesLinkedToPages, rankRoutesWithRelevance } from "@contexts/generation/application/index.ts";
 const diffParser = new DiffParserService();
 
@@ -312,6 +313,15 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
 
     const harnessFacts = readHarnessFacts({ specDir, ...(this.ctx.testIdAttribute ? { testIdAttribute: this.ctx.testIdAttribute } : {}) });
     if (harnessFacts) result.harnessFacts = harnessFacts;
+
+    /* A single repo only: across repos the diff is the service's, and the working copy belongs to the other repo. */
+    if (diff && this.ctx.mirrorDir && this.ctx.stagedRoots === undefined) {
+      try {
+        result.changedDecisions = changedDecisionsOf(this.ctx.mirrorDir, diffParser.changedLines(diff));
+      } catch (err) {
+        engineLog.warn(`[qa] WARNING: the changed decisions were not listed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
 
     /* Context mode discards the pack: building it would only spend the live-DOM capture on a value the prompt never reads. */
     if (this.ctx.contextPack === false) return result;

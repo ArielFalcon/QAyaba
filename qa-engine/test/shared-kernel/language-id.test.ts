@@ -14,6 +14,13 @@ test("languageForFile maps extensions to languages, null for unsupported", () =>
   assert.equal(LanguageRegistry.languageForFile("noext"), null);
 });
 
+test("the static decision listing reads JavaScript and TypeScript with one syntax; Java and undeclared languages have no lister", () => {
+  assert.equal(LanguageRegistry.decisionSyntaxForFile("a/b.tsx"), "ecmascript");
+  assert.equal(LanguageRegistry.decisionSyntaxForFile("a/b.mjs"), "ecmascript");
+  assert.equal(LanguageRegistry.decisionSyntaxForFile("a/B.java"), null);
+  assert.equal(LanguageRegistry.decisionSyntaxForFile("a/b.html"), null);
+});
+
 test("groupByLanguage buckets files and drops unsupported", () => {
   const g = LanguageRegistry.groupByLanguage(["a.ts", "b.js", "c.py", "d.java"]);
   assert.deepEqual(g.get("typescript"), ["a.ts"]);

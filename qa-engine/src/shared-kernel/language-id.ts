@@ -13,11 +13,15 @@ const JS_MANIFESTS: readonly string[] = ["package.json", "tsconfig.json", "jscon
 /*
  * manifests: the build files whose presence names the language's stack and frameworks (a code-graph engine reads them to
  * recognise one), by file name.
+ * decisions: the syntax the static decision listing reads the language's source with, or null when the language has no lister
+ * (its changed decisions are not listed, never guessed).
  */
-const LANGS: Record<LanguageId, { astGrep: boolean; testPaths: readonly RegExp[]; manifests: readonly string[] }> = {
-  javascript: { astGrep: true, testPaths: JS_TEST_PATHS, manifests: JS_MANIFESTS },
-  typescript: { astGrep: true, testPaths: JS_TEST_PATHS, manifests: JS_MANIFESTS },
-  java:       { astGrep: true, testPaths: [/(^|\/)src\/test\//, /(Test|Tests|IT)\.java$/], manifests: ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"] },
+export type DecisionSyntax = "ecmascript";
+
+const LANGS: Record<LanguageId, { astGrep: boolean; testPaths: readonly RegExp[]; manifests: readonly string[]; decisions: DecisionSyntax | null }> = {
+  javascript: { astGrep: true, testPaths: JS_TEST_PATHS, manifests: JS_MANIFESTS, decisions: "ecmascript" },
+  typescript: { astGrep: true, testPaths: JS_TEST_PATHS, manifests: JS_MANIFESTS, decisions: "ecmascript" },
+  java:       { astGrep: true, testPaths: [/(^|\/)src\/test\//, /(Test|Tests|IT)\.java$/], manifests: ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"], decisions: null },
 };
 
 const EXT_TO_LANGUAGE: Record<string, LanguageId> = {
@@ -57,6 +61,12 @@ export const LanguageRegistry = {
   isTestFile(file: string): boolean {
     const lang = this.languageForFile(file);
     return lang !== null && LANGS[lang].testPaths.some((pattern) => pattern.test(file));
+  },
+
+  /* The syntax the static decision listing reads a file with, or null for a file of no declared language or of a language with no lister. */
+  decisionSyntaxForFile(file: string): DecisionSyntax | null {
+    const lang = this.languageForFile(file);
+    return lang === null ? null : LANGS[lang].decisions;
   },
 
   hasAstGrepRules(lang: LanguageId): boolean {

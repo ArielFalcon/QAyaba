@@ -40,9 +40,11 @@ const SCOPE: ChangeScope = {
 class SpanRecorder extends NoopTelemetry {
   readonly spans: Array<{ name: string; attrs: Record<string, unknown> }> = [];
   readonly candidateSpans: Array<Record<string, unknown>> = [];
+  readonly decisionSpans: Array<Record<string, unknown>> = [];
   override startSpan(name?: string, opts?: StartSpanOptions): SpanHandle {
     if (name === "qayaba.change_scope") this.spans.push({ name, attrs: { ...(opts?.attrs ?? {}) } });
     if (name === "qayaba.change.candidates") this.candidateSpans.push({ ...(opts?.attrs ?? {}) });
+    if (name === "qayaba.change.decisions") this.decisionSpans.push({ ...(opts?.attrs ?? {}) });
     return super.startSpan(name, opts);
   }
 }
@@ -150,6 +152,27 @@ test("candidates that cannot be derived never end the run and leave the run with
     const observed = await observe(rig, "candidates-throw");
     assert.equal(observed.result?.decision.verdict, "pass");
     assert.equal(telemetry.candidateSpans[0]!["qayaba.candidates.count"], 0);
+  } finally {
+    dispose(rig);
+  }
+});
+
+test("the static decision listing grounding returns is recorded as a span: how many decisions, and the changed files that did not parse", async () => {
+  const rig = newRig();
+  try {
+    const telemetry = new SpanRecorder();
+    rig.classify = async () => ({ action: "generate", reason: "x", diff: DIFF, intent: { type: "feat", breaking: false, message: "m", changedFiles: ["web/a.ts"] } });
+    rig.extra = {
+      telemetry,
+      preGenerationGrounding: {
+        ground: async () => ({ changedDecisions: { decisions: [{ file: "web/a.ts", line: 2, kind: "logical", arms: [{ label: "right of && evaluated", line: 2 }, { label: "&& short-circuited" }] }], unparsed: ["web/broken.ts"] } }),
+      },
+    };
+    const observed = await observe(rig, "decisions-recorded");
+    assert.equal(observed.result?.decision.verdict, "pass");
+    assert.equal(telemetry.decisionSpans.length, 1);
+    assert.equal(telemetry.decisionSpans[0]!["qayaba.decisions.count"], 1);
+    assert.deepEqual(telemetry.decisionSpans[0]!["qayaba.decisions.unparsed"], ["web/broken.ts"]);
   } finally {
     dispose(rig);
   }

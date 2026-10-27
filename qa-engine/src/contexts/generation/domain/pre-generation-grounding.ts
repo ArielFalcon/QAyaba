@@ -1,4 +1,5 @@
 import type { GroundingOmission, ArchitectureContext, HarnessFacts } from "@kernel/grounding.ts";
+import type { DecisionListing } from "@kernel/changed-decision.ts";
 
 export interface GroundingResult {
   /** Assembled context-pack text. Absent when the pack build failed or produced nothing. */
@@ -19,4 +20,6 @@ export interface GroundingResult {
   changedValuesWithMoreNodes?: string[];
   /** The pages the pack read with results (> 0) under the app's declared data state, by pathname. Absent when it read none. */
   packConfirmedDataRoutes?: { path: string; resultCount: number }[];
+  /** The decisions on the change's own changed lines, read statically from the working copy, and the changed files that did not parse. Absent without a diff, without a working copy, or on a cross-repo run. */
+  changedDecisions?: DecisionListing;
 }

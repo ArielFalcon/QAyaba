@@ -9,6 +9,7 @@ import type { GenerationEnrichment, GenerationOutput } from "@contexts/generatio
 import type { ExecutionPort, ValidationPort } from "@contexts/test-execution/application/index.ts";
 import type { RelevanceBias } from "@contexts/cross-run-learning/application/index.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import type { ChangedDecision } from "@kernel/changed-decision.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { ContractFeedback } from "../../domain/contract-feedback.ts";
 import type { ReviewPort } from "@contexts/generation/application/index.ts";
@@ -77,6 +78,8 @@ export interface Grounding {
   moreNodes: readonly string[];
   /** The pages the pack read with results under the declared data state: the witness a failure that reads them empty contradicts. */
   confirmedDataRoutes: readonly { path: string; resultCount: number }[] | undefined;
+  /** The decisions on the changed lines of the run's own diff, from the static listing of the working copy: they rank the hunks every prompt shows and name the cases a flow's brief must test. Empty when none was listed. */
+  changedDecisions: readonly ChangedDecision[];
   blastRadiusSignal: string;
   blastRadiusSignalHasSymbols: boolean;
   /** The files the signal's dossier shows verbatim. */
@@ -376,6 +379,7 @@ export function initialRunState(): RunState {
       harnessFacts: undefined,
       moreNodes: [],
       confirmedDataRoutes: undefined,
+      changedDecisions: [],
       blastRadiusSignal: "",
       blastRadiusSignalHasSymbols: false,
       blastRadiusSignalFiles: [],
