@@ -108,6 +108,8 @@ Each correction MUST be a structured object with three fields:
     `<file>:<line>` of one listed arm. Such a correction is a missing case: tag it `[missing-case]`,
     give it `"advisory"`, and name the behaviour that arm decides. It is recorded and shown with
     the run and never changes `approved`.
+  - `"availability"`: only when the prompt lists the run's route availability; `ref` is one listed
+    route, for a spec that claims to cover it but never asserts where the browser ends.
   Cite only evidence you actually hold. A correction with no citation can never block: the
   orchestrator treats it as advisory at most, so an uncited blocking correction changes nothing.
   - **blocking**: the test is worthless or actively harmful (false-positive, wrong-objective,
