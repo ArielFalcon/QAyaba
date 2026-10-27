@@ -16,6 +16,7 @@ import { renderStepLimit } from "./prompt-text.ts";
 import { reviewObjective, reviewSpecsOutcome, type ReviewSpecContents } from "./review-render.ts";
 import type { PromptSectionDef, SectionRender } from "./prompt-sections.ts";
 import { REVIEWER_CHANGE_SECTIONS } from "./reviewer-change-sections.ts";
+import { countByDirectory, domPagesDegrade, NOT_SHOWN, referenceDegrade, stepsDegrade } from "./window-fit-references.ts";
 
 /* The reviewer's statement of its own cap is a section of its own, apart from the generator's. */
 export const REVIEWER_STEP_LIMIT_SECTION_ID = "reviewer-step-limit";
@@ -35,6 +36,11 @@ export interface ReviewerContext {
   readonly degraded: ReadonlySet<string>;
 }
 
+/* What a reviewer prompt is built with besides its input: the specs named to be read instead of inlined, when the window holds no less. */
+export interface ReviewerContextOpts extends BuildReviewerPromptOpts {
+  specsAsReferences?: boolean;
+}
+
 export interface BuildReviewerPromptOpts {
   /** Explicit byte-budget override. Absent, the budget derives from the reviewer's window. */
   budgetBytes?: number;
@@ -44,9 +50,9 @@ export interface BuildReviewerPromptOpts {
   fit?: PromptFit;
 }
 
-export function deriveReviewerContext(input: ReviewInput, opts: BuildReviewerPromptOpts = {}): ReviewerContext {
+export function deriveReviewerContext(input: ReviewInput, opts: ReviewerContextOpts = {}): ReviewerContext {
   const changeType = input.intent?.type ?? input.mode;
-  const { text: specBlock, contents: specContents } = reviewSpecsOutcome(input);
+  const { text: specBlock, contents: specContents } = reviewSpecsOutcome(input, { asReferences: opts.specsAsReferences === true });
   const kind = input.target === "code" ? "tests" : "E2E tests";
   const obj = reviewObjective(input);
   return { input, budgetBytes: opts.budgetBytes ?? assemblerBudgetBytes(opts.windowTokens?.("reviewer")), changeType, specBlock, specContents, kind, obj, degraded: new Set() };
@@ -131,95 +137,93 @@ function renderOutputContract(ctx: ReviewerContext): SectionRender {
 /* Live DEV DOM: actual roles + accessible names on the routes this spec targets. Captured by the orchestrator (reviewer independence). Model-mode sanitization — this is prompt text, never an Issue body. */
 function renderDom(ctx: ReviewerContext): SectionRender {
   const { input } = ctx;
-  const domContent = input.domSnapshot
-    ? [
-        `## Live DEV DOM — the ACTUAL roles + accessible names on the routes this spec targets`,
-        `Captured by the orchestrator from ${input.baseUrl ?? "DEV"}. Judge EVERY concrete UI fact`,
-        `(button/link labels, headings, routes) against THIS, never against prior knowledge of similar apps.`,
-        "```",
-        sanitizeText(input.domSnapshot, "model").text,
-        "```",
-      ].join("\n")
-    : "";
-  return { content: domContent, maxBytes: 20_000, overflow: "summarize" };
+  const wrap = (dom: string): string =>
+    [
+      `## Live DEV DOM — the ACTUAL roles + accessible names on the routes this spec targets`,
+      `Captured by the orchestrator from ${input.baseUrl ?? "DEV"}. Judge EVERY concrete UI fact`,
+      `(button/link labels, headings, routes) against THIS, never against prior knowledge of similar apps.`,
+      "```",
+      dom,
+      "```",
+    ].join("\n");
+  const dom = input.domSnapshot ? sanitizeText(input.domSnapshot, "model").text : "";
+  /* Whole; over the window the last page gives way first, each named by its route. */
+  return { content: dom ? wrap(dom) : "", overflow: "summarize", degrade: domPagesDegrade({ dom, wrap }) };
 }
 
 /* The existing suite is context, never a review target: the reviewer sees what already exists so it does not mistake a pre-existing file for a missing part of this change. */
 function renderExistingSuite(ctx: ReviewerContext): SectionRender {
   const { input } = ctx;
-  const existingSpecsContent = input.existingSpecFiles?.length
-    ? [
-        `## Existing suite — context only`,
-        `These files already exist in the suite. Do NOT judge them and do NOT raise corrections against them; judge only the specs in the "Specs under review" section.`,
-        ...input.existingSpecFiles.map((file) => `- ${sanitizeText(file).text}`),
-      ].join("\n")
-    : "";
+  const files = (input.existingSpecFiles ?? []).map((file) => sanitizeText(file).text);
+  const head = [
+    `## Existing suite — context only`,
+    `These files already exist in the suite. Do NOT judge them and do NOT raise corrections against them; judge only the specs in the "Specs under review" section.`,
+  ];
+  const existingSpecsContent = files.length > 0 ? [...head, ...files.map((file) => `- ${file}`)].join("\n") : "";
   /* The listing is context for the reviewer, never a target of its review. */
   const existingSpecsClaims: PromptClaim[] = existingSpecsContent ? [claim.provides("existing-suite"), claim.frames("existing-suite", "unverified")] : [];
-  return { content: existingSpecsContent, claims: existingSpecsClaims, maxBytes: 8_000, overflow: "summarize" };
+  /* Over the window the files are counted by directory: each directory is named, its files are not. */
+  const byDirectory = [...head, `The ${files.length} file(s) are ${NOT_SHOWN}; by directory:`, ...countByDirectory(files)].join("\n");
+  return { content: existingSpecsContent, claims: existingSpecsClaims, overflow: "summarize", degrade: referenceDegrade(byDirectory, files.length) };
 }
 
 function renderMissingCases({ input }: ReviewerContext): SectionRender {
   const arms = input.untakenArms ?? [];
+  const head = [
+    `## Decisions of the change no test ran — measured by the orchestrator`,
+    `Each line is an arm of a decision on a changed line that no delivered test ran in this run's browser coverage.`,
+    `When one is a behaviour worth a test that the page can be brought to through the UI against DEV, report it as a`,
+    `correction prefixed [missing-case], with "severity":"advisory" and "citation":{"kind":"arm","ref":"<file>:<line>"} as listed.`,
+    `A missing case is recorded and shown with the run; it never changes "approved".`,
+  ];
+  const linesByFile = new Map<string, number[]>();
+  for (const arm of arms) {
+    const file = sanitizeText(arm.file, "model").text;
+    linesByFile.set(file, [...(linesByFile.get(file) ?? []), arm.line]);
+  }
+  /* Over the window: first each file with the lines of its arms (a citation still names one), then each file with how many arms it holds. */
+  const asLines = [...head, `What each arm is, is ${NOT_SHOWN}; each file with the lines of its arms:`, ...[...linesByFile].map(([file, lines]) => `- ${file}:${lines.join(",")}`)].join("\n");
+  const asCounts = [...head, `The ${arms.length} arm(s) are ${NOT_SHOWN}; each file with how many it holds:`, ...[...linesByFile].map(([file, lines]) => `- ${file}: ${lines.length} arm(s)`)].join("\n");
   return {
-    content: [
-      `## Decisions of the change no test ran — measured by the orchestrator`,
-      `Each line is an arm of a decision on a changed line that no delivered test ran in this run's browser coverage.`,
-      `When one is a behaviour worth a test that the page can be brought to through the UI against DEV, report it as a`,
-      `correction prefixed [missing-case], with "severity":"advisory" and "citation":{"kind":"arm","ref":"<file>:<line>"} as listed.`,
-      `A missing case is recorded and shown with the run; it never changes "approved".`,
-      ...arms.map((u) => `- ${sanitizeText(`${u.file}:${u.line} ${u.kind}: ${u.arm}`, "model").text}`),
-    ].join("\n"),
-    maxBytes: 4_000,
+    content: [...head, ...arms.map((u) => `- ${sanitizeText(`${u.file}:${u.line} ${u.kind}: ${u.arm}`, "model").text}`)].join("\n"),
     overflow: "summarize",
+    degrade: stepsDegrade([{ content: asLines, items: arms.length }, { content: asCounts, items: arms.length }]),
   };
 }
 
 function renderPriorCorrections(ctx: ReviewerContext): SectionRender {
   const { input } = ctx;
-  const PRIOR_CORRECTIONS_MAX_BYTES = 8_000;
-  const priorCorrectionsContent = (() => {
-    if (!input.priorCorrections || input.priorCorrections.length === 0) return "";
-    const lines = input.priorCorrections.map((c, i) => `${i + 1}. ${sanitizeText(c).text}`).join("\n");
-    const raw = [
-      `## Prior-round corrections (from YOUR previous verdict on these specs)`,
-      ``,
-      `Only the specs listed as materially changed in the next section are new to you; the spec`,
-      `change is excerpted there. Judge that change, not the whole suite again.`,
-      `- APPROVE if the previously-raised BLOCKING issues are resolved (do not re-raise them).`,
-      `- Raise a NEW blocking correction only if the change introduced a new anti-pattern.`,
-      `- Omit advisory nits; they are not worth a round.`,
-      ``,
-      lines,
-    ].join("\n");
-    if (Buffer.byteLength(raw, "utf8") > PRIOR_CORRECTIONS_MAX_BYTES) {
-      const truncated = raw.slice(0, PRIOR_CORRECTIONS_MAX_BYTES);
-      return truncated + "\n… (truncated — see spec contents for the full picture)";
-    }
-    return raw;
-  })();
-  return { content: priorCorrectionsContent };
+  const corrections = input.priorCorrections ?? [];
+  if (corrections.length === 0) return { content: "" };
+  const head = [
+    `## Prior-round corrections (from YOUR previous verdict on these specs)`,
+    ``,
+    `Only the specs listed as materially changed in the next section are new to you; the spec`,
+    `change is excerpted there. Judge that change, not the whole suite again.`,
+    `- APPROVE if the previously-raised BLOCKING issues are resolved (do not re-raise them).`,
+    `- Raise a NEW blocking correction only if the change introduced a new anti-pattern.`,
+    `- Omit advisory nits; they are not worth a round.`,
+    ``,
+  ];
+  const content = [...head, corrections.map((c, i) => `${i + 1}. ${sanitizeText(c).text}`).join("\n")].join("\n");
+  return { content, degrade: referenceDegrade([...head, `The ${corrections.length} correction(s) of your previous verdict are ${NOT_SHOWN}.`].join("\n"), corrections.length) };
 }
 
 /* Second-round focus: the spec lines that changed since the reviewer's own rejection, bounded and sanitized like every other agent-authored text that becomes prompt text. */
 function renderSpecChange(ctx: ReviewerContext): SectionRender {
   const { input } = ctx;
-  const SPEC_CHANGE_MAX_BYTES = 4_000;
-  const specChangeContent = (() => {
-    if (!input.specChanges || input.specChanges.trim() === "") return "";
-    const raw = [
-      `## Spec change since your last rejection (material change only)`,
-      ``,
-      `This is the change the generator made in response to your corrections. Anything not shown here`,
-      `is unchanged since the specs you already judged.`,
-      ``,
-      sanitizeText(input.specChanges, "model").text,
-    ].join("\n");
-    return Buffer.byteLength(raw, "utf8") > SPEC_CHANGE_MAX_BYTES
-      ? `${raw.slice(0, SPEC_CHANGE_MAX_BYTES)}\n… (change truncated)`
-      : raw;
-  })();
-  return { content: specChangeContent };
+  if (!input.specChanges || input.specChanges.trim() === "") return { content: "" };
+  const head = [`## Spec change since your last rejection (material change only)`, ``];
+  const change = sanitizeText(input.specChanges, "model").text;
+  const content = [
+    ...head,
+    `This is the change the generator made in response to your corrections. Anything not shown here`,
+    `is unchanged since the specs you already judged.`,
+    ``,
+    change,
+  ].join("\n");
+  const lines = change.split("\n").length;
+  return { content, degrade: referenceDegrade([...head, `The change (${lines} line(s)) is ${NOT_SHOWN}: judge it from the specs under review.`].join("\n"), lines) };
 }
 
 export const REVIEWER_SECTIONS: readonly PromptSectionDef<ReviewerContext>[] = [
@@ -232,15 +236,15 @@ export const REVIEWER_SECTIONS: readonly PromptSectionDef<ReviewerContext>[] = [
     tier: "semi-stable",
     priority: 1, stability: "run", reason: "What the tests must prove in this run: the change, the guidance or the targeted flow",
     applies: () => true,
-    render: ({ obj }) => ({ content: [obj.heading, ...obj.body].join("\n"), language: "verbatim", maxBytes: 56_000, overflow: "summarize" }),
+    render: ({ obj }) => ({ content: [obj.heading, ...obj.body].join("\n"), language: "verbatim", overflow: "summarize" }),
   },
   /* A planned run's change by flow under review, in place of the whole diff the objective carries otherwise. */
   ...REVIEWER_CHANGE_SECTIONS,
-  /* VOLATILE: DOM grounding (priority 1 — first in VOLATILE so it precedes the spec contents that reference it; the instructions refer to it position-independently as "the Live DEV DOM section"). 20,000B mirrors the reviewer-corrections idiom; overflow:"summarize" for a visible-marker truncation instead of a silent whole-section drop. */
+  /* VOLATILE: DOM grounding (priority 1 — first in VOLATILE so it precedes the spec contents that reference it; the instructions refer to it position-independently as "the Live DEV DOM section"). Whole while the window holds it; past it, page by page as references. */
   { id: "reviewer-dom", tier: "volatile", priority: 1, stability: "run", reason: "UI facts are judged against the live DOM the orchestrator captured, never prior knowledge (875a6004)", applies: ({ input }) => Boolean(input.domSnapshot), render: renderDom },
   /* VOLATILE: runtime execution evidence. Deterministic orchestrator evidence (HTTP status codes + final URLs captured via page.on('response')) injected BEFORE the spec contents so the reviewer can weigh the objective server-error signal before reading test code. Priority 1.5 — after DOM grounding (which grounds UI facts) but before specs themselves. Absent when the run produced no execution evidence (first-time generate, code mode, etc.). */
   { id: "reviewer-execution-result", tier: "volatile", priority: 1.5, stability: "run", reason: "Runtime server-error evidence, weighed before the test code (f8fa33f8)", applies: ({ input }) => Boolean(input.executionResult), render: ({ input }) => ({ content: input.executionResult ?? "" }) },
-  { id: "reviewer-specs", tier: "volatile", priority: 2, stability: "run", reason: "The specs under review, inline or to be read, from the one outcome the instructions also render from", applies: () => true, render: ({ specBlock, specContents }) => ({ content: specBlock, maxBytes: 44_000, overflow: "summarize", ...(specContents === "inline" ? { claims: [claim.provides(SPEC_CONTENTS_INLINE_FACT)] } : {}) }) },
+  { id: "reviewer-specs", tier: "volatile", priority: 2, stability: "run", reason: "The specs under review, inline or to be read, from the one outcome the instructions also render from", applies: () => true, render: ({ specBlock, specContents }) => ({ content: specBlock, overflow: "summarize", ...(specContents === "inline" ? { claims: [claim.provides(SPEC_CONTENTS_INLINE_FACT)] } : {}) }) },
   { id: "reviewer-existing-suite", tier: "volatile", priority: 3, stability: "run", reason: "Existing specs as context only: the reviewer judges only what this run delivered (8fea750c)", applies: ({ input }) => Boolean(input.existingSpecFiles?.length), render: renderExistingSuite },
   {
     id: "reviewer-learned-rules",

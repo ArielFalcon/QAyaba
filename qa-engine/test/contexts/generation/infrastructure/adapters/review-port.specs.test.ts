@@ -103,19 +103,28 @@ test("an unreadable spec is judged from a placeholder, never dropped", async () 
   assert.match(text, /### e2e\/flows\/gone\.spec\.ts\n\( could not read file/);
 });
 
-function r13Findings(input: ReviewInput, claimsOfSpecs?: "none") {
-  const assembled = buildReviewerPromptAssembled(input);
+function r13Findings(input: ReviewInput, claimsOfSpecs?: "none", opts: Parameters<typeof buildReviewerPromptAssembled>[1] = {}) {
+  const assembled = buildReviewerPromptAssembled(input, opts);
   const sections = lintSectionsOf(assembled).map((s) => (claimsOfSpecs === "none" && s.id === "reviewer-specs" ? { ...s, claims: [] } : s));
   return lintCell({ name: "reviewer", regen: false, sections }, { artifactReferences: ARTIFACT_REFERENCES }).filter((f) => f.rule === "R13");
 }
 
-test("an over-cap spec set sends the reviewer to read the files in both the instruction and the section, and the lint finds no dangling reference", () => {
+test("a spec set over the reviewer's window sends the reviewer to read the files in both the instruction and the section, and the lint finds no dangling reference", () => {
   const input = overCapReviewerInput(mirrorWith({}));
-  const text = buildReviewerPromptAssembled(input).text;
+  const overWindow = { fit: () => "over" as const };
+  const text = buildReviewerPromptAssembled(input, overWindow).text;
   assert.match(text, /read each listed spec file/);
   assert.match(text, /read each file with the read tool/);
   assert.doesNotMatch(text, /contents are provided in this prompt/);
-  assert.deepEqual(r13Findings(input), []);
+  assert.deepEqual(r13Findings(input, undefined, overWindow), []);
+});
+
+test("a spec set of any size is inlined while the reviewer's window holds it", () => {
+  const input = overCapReviewerInput(mirrorWith({}));
+  const text = buildReviewerPromptAssembled(input, { fit: () => "fits" }).text;
+  assert.match(text, /contents are provided in this prompt/);
+  assert.doesNotMatch(text, /read each file with the read tool/);
+  assert.deepEqual(r13Findings(input, undefined, { fit: () => "fits" }), []);
 });
 
 test("an inline spec set says the contents are in the prompt, and the fact that backs it is provided", () => {

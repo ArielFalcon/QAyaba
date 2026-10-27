@@ -772,11 +772,14 @@ test("a context run renders no exemplars even when some are supplied", () => {
   assert.equal(assembled.sectionSizes[SKILL_EXEMPLARS_ID], undefined);
 });
 
-test("selected exemplars whose rendered content exceeds the ~1.5KB budget are omitted entirely (overflow:drop, no window starvation)", () => {
-  /* The whole catalog is ~1.7KB rendered (measured), over the 1536 byte cap. The whole section must drop rather than silently truncating mid-template or starving other sections' budget. */
-  const assembled = buildPromptAssembled(mkInput({ skillExemplars: asSelected(BUILT_IN_EXEMPLARS) }));
-  assert.equal(assembled.sectionSizes[SKILL_EXEMPLARS_ID], undefined, "an over-budget skill-exemplars section must be omitted entirely, not truncated mid-template");
-  assert.equal(assembled.claims[SKILL_EXEMPLARS_ID], undefined, "a dropped section declares nothing");
+test("the selected exemplars reach the prompt whole, with no fixed byte budget, and over the window are named as a reference", () => {
+  const input = mkInput({ skillExemplars: asSelected(BUILT_IN_EXEMPLARS) });
+  const whole = buildPromptAssembled(input);
+  for (const exemplar of BUILT_IN_EXEMPLARS) assert.ok(whole.text.includes(exemplar.name), `${exemplar.name} reaches the prompt`);
+  assert.deepEqual(provided(whole, SKILL_EXEMPLARS_ID), ["exemplars"]);
+  const tight = buildPromptAssembled(input, { fit: () => "over" });
+  assert.match(tight.text, new RegExp(`${BUILT_IN_EXEMPLARS.length} test template\\(s\\) for the patterns this change shows are not shown here, to fit the window`));
+  assert.ok(!tight.text.includes(BUILT_IN_EXEMPLARS[0]!.template));
 });
 
 /* The supplied order below is deliberately at odds with EVERY ordering this renderer could
@@ -1230,13 +1233,8 @@ test("a small diff (under the cap) at the reviewer site passes through unmodifie
   assert.equal(capDiff(small), small, "a diff under the cap is not truncated");
 });
 
-/* never actually reaches the reviewer-dom/reviewer-specs maxBytes backstops — capDiff already bounds
-   the diff to ~50,000 chars before the section-level cap ever sees it, so reverting the
-   maxBytes/overflow additions on those sections still passes it trivially. This test drives an
-   oversized DOM snapshot directly (independent of the diff/capDiff) so the reviewer-dom section's
-   OWN 20,000B cap is what fires.
- */
-test("reviewer defense-in-depth actually FIRES: an oversized DOM snapshot alone (no huge diff) triggers the reviewer-dom maxBytes backstop", () => {
+/* The reviewer's live DOM has no fixed byte cap of its own: a large snapshot reaches the prompt whole while the reviewer's window holds it. */
+test("an oversized DOM snapshot reaches the reviewer whole within the reviewer role's budget, with no section cap cutting it", () => {
   const oversizedDom = padTo("button: Submit\nheading: Checkout\n", 25_000);
   const { text, sectionSizes } = buildReviewerPromptAssembled({
     diff: "diff --git a/src/foo.ts b/src/foo.ts\n+export function foo() {}\n",
@@ -1247,15 +1245,9 @@ test("reviewer defense-in-depth actually FIRES: an oversized DOM snapshot alone 
     mode: "diff",
     domSnapshot: oversizedDom,
   }, KNOWN_REVIEWER_WINDOW);
-  assert.notEqual(sectionSizes["reviewer-dom"], undefined, "reviewer-dom must be PRESENT despite exceeding its own cap — a 'drop' overflow policy would omit it entirely");
-  assert.ok(
-    (sectionSizes["reviewer-dom"] ?? Infinity) < Buffer.byteLength(oversizedDom, "utf8"),
-    "reviewer-dom is cut to its own maxBytes, below the oversized snapshot",
-  );
-  assert.ok(
-    Buffer.byteLength(text, "utf8") <= REVIEWER_BUDGET_BYTES,
-    "the assembled reviewer prompt must still respect the reviewer role's byte budget",
-  );
+  assert.ok((sectionSizes["reviewer-dom"] ?? 0) > Buffer.byteLength(oversizedDom, "utf8"), "reviewer-dom holds the whole snapshot");
+  assert.doesNotMatch(text, /capped at/);
+  assert.ok(Buffer.byteLength(text, "utf8") <= REVIEWER_BUDGET_BYTES, "the assembled reviewer prompt respects the reviewer role's byte budget");
 });
 
 /* coverage-gap must survive its own regen prompt. On an enforce-mode coverage regen, coverage-gap

@@ -65,8 +65,11 @@ function fittedPlanDiffShown(ctx: PromptContext, fit: PromptFit | undefined): nu
 export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptAssembledOpts = {}): GeneratorPrompt {
   const derived = derivePromptContext(input, opts);
   const ctx: PromptContext = derived.planDiff ? { ...derived, planDiffShown: fittedPlanDiffShown(derived, opts.fit) } : derived;
+  /* The window fit rule of the role the prompt is for: over, the sections that can give way do (the Context Pack page by page, the lowest-ranked first). */
+  const fit = opts.fit;
+  const windowFit = fit ? { fit: (bytes: number) => fit({ bytes, role: ctx.promptRole }) } : {};
   const assembleWith = (assembly: Assembly): AssembledPrompt =>
-    assemble(renderSections(GENERATOR_SECTIONS, withAssembly(ctx, assembly)), { budgetBytes: ctx.budgetBytes });
+    assemble(renderSections(GENERATOR_SECTIONS, withAssembly(ctx, assembly)), { budgetBytes: ctx.budgetBytes, ...windowFit });
 
   /* The listing is a section the byte budget may cut or shed. What the task says about reading the suite depends on whether the listing is there, and the decision not to ask for the outcome again rests on the objectives the listing shows. So when the budget sheds the listing the prompt is assembled again with the task worded for a prompt that has none, so that the agent is sent to read the suite and no claim reads a fact the prompt provides; when it cuts the listing, the prompt is assembled again with what is left of it. Either way the task asks for the outcome. The second assembly is kept only if the question costs the prompt no section and no part of the head of the listing: a wording must not take what the listing is for. */
   let assembled = assembleWith(ctx.assembly);
@@ -84,33 +87,42 @@ export function buildPrompt(input: OpencodeRunInput): string {
 }
 
 /*
- * A planned run's reviewer prompt that does not fit the reviewer's window (the prompt plus the working room its turn needs) shows
- * parts of the change as references, in degradationOrder, until it fits; an unknown fit shows everything. The review is never split:
- * a prompt still over the window with every part referenced is sent as it is, and the fit it records says so.
+ * A reviewer prompt that does not fit the reviewer's window (the prompt plus the working room its turn needs) gives way in this
+ * order until it fits: on a planned run, the parts of the change as references, in degradationOrder; then the sections that can,
+ * as references (the window fit rule of the assembler: the prior-round evidence, the missing cases, the existing suite, the live DOM
+ * page by page); then the specs, named to be read instead of inlined. An unknown fit shows everything. The review is never split:
+ * a prompt still over the window with every step taken is sent as it is, and the fit it records says so.
  */
 export function buildReviewerPromptAssembled(input: ReviewInput, opts: BuildReviewerPromptOpts = {}): AssembledPrompt {
   const ctx = deriveReviewerContext(input, opts);
-  const assembleWith = (degraded: ReadonlySet<string>): AssembledPrompt => assemble(renderSections(REVIEWER_SECTIONS, { ...ctx, degraded }), { budgetBytes: ctx.budgetBytes });
-  let assembled = assembleWith(ctx.degraded);
   const fit = opts.fit;
-  if (!fit || !reviewsByFlow(input)) return assembled;
+  const sectionFit = fit ? { fit: (bytes: number) => fit({ bytes, role: "reviewer" }) } : {};
+  const assembleWith = (degraded: ReadonlySet<string>, sections: "whole" | "fitted" = "fitted", context = ctx): AssembledPrompt =>
+    assemble(renderSections(REVIEWER_SECTIONS, { ...context, degraded }), { budgetBytes: context.budgetBytes, ...(sections === "fitted" ? sectionFit : {}) });
+  if (!fit) return assembleWith(ctx.degraded);
   const over = (bytes: number): boolean => fit({ bytes, role: "reviewer" }) === "over";
-  if (!over(Buffer.byteLength(assembled.text, "utf8"))) return assembled;
-  const order = degradationOrder(input.changeView);
+  let assembled = assembleWith(ctx.degraded, "whole");
   const degraded = new Set<string>();
-  let next = 0;
-  while (next < order.length) {
-    /* Estimated from each part's saving, then checked against the assembled prompt. */
-    let estimate = Buffer.byteLength(assembled.text, "utf8");
-    while (next < order.length && over(estimate)) {
-      const item = order[next++]!;
-      degraded.add(item.key);
-      estimate -= item.savingBytes;
+  if (reviewsByFlow(input) && over(Buffer.byteLength(assembled.text, "utf8"))) {
+    const order = degradationOrder(input.changeView);
+    let next = 0;
+    while (next < order.length && over(Buffer.byteLength(assembled.text, "utf8"))) {
+      /* Estimated from each part's saving, then checked against the assembled prompt. */
+      let estimate = Buffer.byteLength(assembled.text, "utf8");
+      while (next < order.length && over(estimate)) {
+        const item = order[next++]!;
+        degraded.add(item.key);
+        estimate -= item.savingBytes;
+      }
+      assembled = assembleWith(degraded, "whole");
     }
-    assembled = assembleWith(degraded);
-    if (!over(Buffer.byteLength(assembled.text, "utf8"))) return assembled;
   }
-  engineLog.warn(`[qa] the reviewer prompt is over the reviewer's window with every part of the change shown as a reference; it is sent whole, never split.`);
+  assembled = assembleWith(degraded);
+  if (assembled.windowFit?.outcome === "over" && ctx.specContents === "inline") {
+    const referenced = deriveReviewerContext(input, { ...opts, specsAsReferences: true });
+    assembled = assembleWith(degraded, "fitted", referenced);
+  }
+  if (assembled.windowFit?.outcome === "over") engineLog.warn(`[qa] the reviewer prompt is over the reviewer's window with every part it can show as a reference shown so; it is sent whole, never split.`);
   return assembled;
 }
 

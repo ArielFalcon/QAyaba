@@ -59,8 +59,6 @@ export function reviewObjective(input: ReviewInput): { subject: string; heading:
   return commitDiffObjective();
 }
 
-const REVIEW_SPECS_MAX_BYTES = 40_000;
-
 /* Whether the specs section carries the spec contents (`inline`) or only their names, to be read from the working copy (`read`). Computed once per prompt: the instruction line and the section both render from it. */
 export type ReviewSpecContents = "inline" | "read";
 
@@ -73,35 +71,33 @@ export function renderReviewSpecs(input: ReviewInput): string {
   return reviewSpecsOutcome(input).text;
 }
 
-export function reviewSpecsOutcome(input: ReviewInput): ReviewSpecsOutcome {
+/*
+ * The specs inline, every one, whatever their size; with `asReferences` (the reviewer's prompt does not fit its window with them
+ * inline) only their names, to be read. No fixed byte count decides which.
+ */
+export function reviewSpecsOutcome(input: ReviewInput, opts: { asReferences?: boolean } = {}): ReviewSpecsOutcome {
   const rel = (s: string) => (input.e2eRelDir ? `${input.e2eRelDir}/${s}` : s);
+  if (opts.asReferences && input.specs.length > 0) {
+    engineLog.warn(`[qa] WARNING: the contents of ${input.specs.length} spec(s) do not fit the reviewer's window — the reviewer reads the files itself instead of judging inlined contents.`);
+    return {
+      contents: "read",
+      text: `## Specs to review\n\n${input.specs.map((n, i) => `${i + 1}. ${rel(n)}`).join("\n")}\n\n( the spec contents are not shown here, to fit the window — read each file with the read tool )`,
+    };
+  }
   /* The specs are the names the generator reported: each is read through the confined reader, so one that leaves the spec directory is judged from the placeholder below, never from what it points at. */
   const root: SpecRoot = { mirrorDir: input.mirrorDir, specDir: join(input.mirrorDir, input.e2eRelDir) };
   const contents: string[] = [];
-  let totalBytes = 0;
   for (const s of input.specs) {
     let content: string;
     try {
       content = readConfinedSpecFile(root, s);
     } catch (err) {
-      /* A spec the independent reviewer NEVER sees can otherwise ship inside an approved batch — that silently bypasses the quality gate. Surface it loudly (AGENTS.md: never swallow), like the byte-cap branch below does for its own mode switch. */
+      /* A spec the independent reviewer NEVER sees can otherwise ship inside an approved batch — that silently bypasses the quality gate. Surface it loudly (AGENTS.md: never swallow), like the window's switch to references does for its own. */
       engineLog.warn(`[qa] WARNING: could not read spec '${rel(s)}' for review (${err instanceof Error ? err.message : String(err)}) — it will be judged from a placeholder, NOT its real content.`);
       contents.push(`### ${rel(s)}\n( could not read file — review skipped for this spec )`);
       continue;
     }
-    const block = `### ${rel(s)}\n\`\`\`typescript\n${content}\n\`\`\``;
-    totalBytes += Buffer.byteLength(block, "utf8");
-    if (totalBytes > REVIEW_SPECS_MAX_BYTES) {
-      engineLog.warn(
-        `[qa] WARNING: the combined contents of ${input.specs.length} spec(s) exceed the ${REVIEW_SPECS_MAX_BYTES}-byte inline cap — ` +
-          `the reviewer will read files itself instead of judging inlined contents (weaker determinism).`,
-      );
-      return {
-        contents: "read",
-        text: `## Specs to review\n\n${input.specs.map((n, i) => `${i + 1}. ${rel(n)}`).join("\n")}\n\n( spec contents exceed ${REVIEW_SPECS_MAX_BYTES} bytes — read each file with the read tool )`,
-      };
-    }
-    contents.push(block);
+    contents.push(`### ${rel(s)}\n\`\`\`typescript\n${content}\n\`\`\``);
   }
   return { contents: "inline", text: `## Specs to review (${contents.length} file(s) — contents provided inline)\n\n${contents.join("\n\n")}` };
 }

@@ -18,6 +18,8 @@ import {
 import { STEP_MILESTONE_SECTION_ID } from "@contexts/generation/domain/step-limit.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import type { PromptContext } from "./generator-context.ts";
+import { domPagesDegrade, NOT_SHOWN, referenceDegrade } from "./window-fit-references.ts";
+import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import {
   CONTRACT_DRIFT_HEADING,
   CONTRACT_FEEDBACK_SECTION_ID,
@@ -230,7 +232,12 @@ function renderSkillExemplars(ctx: PromptContext): SectionRender {
     for (const e of input.skillExemplars) if (e.proven && e.promotionCount > 0) proven[e.archetype] = e.promotionCount;
     return renderExemplarsForPrompt(input.skillExemplars, { proven });
   })();
-  return { content: skillExemplarsContent, maxBytes: 1536, claims: [claim.provides("exemplars")] };
+  const exemplars = input.skillExemplars?.length ?? 0;
+  return {
+    content: skillExemplarsContent,
+    claims: [claim.provides("exemplars")],
+    degrade: referenceDegrade(`## Skill exemplars for the detected structural patterns\n${exemplars} test template(s) for the patterns this change shows are ${NOT_SHOWN}.`, exemplars),
+  };
 }
 
 function renderAppLogin(ctx: PromptContext): SectionRender {
@@ -252,6 +259,7 @@ function renderAppLogin(ctx: PromptContext): SectionRender {
   return { content: appLoginContent, shedAs: "critical-recap" };
 }
 
+/* The pack whole; over the window its Live DOM gives way page by page, the lowest-ranked page first, each named by its route. */
 function renderContextPack(ctx: PromptContext): SectionRender {
   const { input, contextPackContent, contextPackClaims } = ctx;
   return {
@@ -260,6 +268,13 @@ function renderContextPack(ctx: PromptContext): SectionRender {
     claims: contextPackClaims,
     ...(input.contextPackItemIds ? { itemIds: input.contextPackItemIds } : {}),
     ...(input.contextPackOmissions ? { omissions: input.contextPackOmissions } : {}),
+    degrade: domPagesDegrade({
+      dom: contextPackContent,
+      wrap: (pack) => pack,
+      section: PACK_HEADINGS.liveDom,
+      ...(input.contextPackItemIds ? { itemIds: input.contextPackItemIds } : {}),
+      ...(input.contextPackOmissions ? { omissions: input.contextPackOmissions } : {}),
+    }),
   };
 }
 
@@ -481,7 +496,8 @@ function renderReviewerCorrections(ctx: PromptContext): SectionRender {
     : isCode
     ? []
     : [claim.directs("use-runtime-signals")];
-  return { content: reviewContent, claims: reviewClaims, maxBytes: 20_000, overflow: "drop" };
+  /* The corrections are what the turn answers: whole, never degraded for the window. */
+  return { content: reviewContent, claims: reviewClaims, overflow: "drop" };
 }
 
 function renderCoverageGap(ctx: PromptContext): SectionRender {
@@ -513,9 +529,9 @@ function renderCoverageGap(ctx: PromptContext): SectionRender {
   return { content: coverageContent, claims: coverageClaims, shedAs: "critical-recap" };
 }
 
-/* A-2b: the deltas the intent lock found in the previous turn, as facts of this one. Capped, sanitized, and never an order: the generator decides how to restore what its bytes weakened. */
+/* A-2b: the deltas the intent lock found in the previous turn, as facts of this one. Sanitized, and never an order: the generator decides how to restore what its bytes weakened. */
 function renderContractFeedback(ctx: PromptContext): SectionRender {
-  return { content: renderContractViolations(ctx.input.contractFeedback ?? []), maxBytes: 6_000, overflow: "drop" };
+  return { content: renderContractViolations(ctx.input.contractFeedback ?? []), overflow: "drop" };
 }
 
 function renderTask(ctx: PromptContext): SectionRender {
