@@ -27,7 +27,7 @@ export function renderAgentBrowser(limits: AgentBrowserLimits): string {
   const seconds = Math.round(limits.perCallMs / 1000);
   return [
     `## ${PROMPT_HEADINGS.agentBrowser}`,
-    `authbrowser_navigate, authbrowser_snapshot, authbrowser_click and authbrowser_type: at most ${limits.maxCalls} calls this run, ${seconds} seconds each. They read DEV as the test account; a request that writes to DEV, a route this app closes and an address outside its origins are blocked and listed in the answer.`,
+    `authbrowser_navigate, authbrowser_snapshot, authbrowser_click and authbrowser_type: at most ${limits.maxCalls} calls this run, ${seconds} seconds each. They read DEV as the test account; a request that writes to DEV, a route this app closes and an address outside its origins are blocked and listed in the answer. Each answer also lists the requests the page made since your session's previous browser call, as method, origin and path with a count (no query or body); requests to a host outside the run's origins are only counted per host.`,
     ``,
   ].join("\n");
 }

@@ -16,7 +16,7 @@ export type { SpecFixturesCheckPort } from "./ports/spec-fixtures-check.port.ts"
 export type { SpecExecutorPort } from "./ports/spec-executor.port.ts";
 export type { ValidationPort } from "./ports/validation.port.ts";
 export { BrowserActionError } from "../domain/agent-browser-host.ts";
-export type { BlockedRequest, BrowserAction, BrowserCallOptions, PageState } from "../domain/agent-browser-host.ts";
+export type { BlockedRequest, BrowserAction, BrowserCallOptions, ObservedRequest, ObservedRequests, PageState } from "../domain/agent-browser-host.ts";
 export type { CheckResult } from "../domain/execution-strategy.ts";
 export type { ExecutionOpts } from "../domain/execution.ts";
 export type { DevWriteRequest } from "../domain/dev-write-request.ts";

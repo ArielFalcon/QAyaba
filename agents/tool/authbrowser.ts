@@ -10,6 +10,7 @@ import { callAuthBrowser } from "../lib/authbrowser-client.mjs";
 
 const READ_ONLY =
   "This browser is signed in to the app as the test account and reads it: a request that would write to DEV (a form submit, a delete, an API write) is blocked and listed in the answer, and so are the routes the app closes to you. " +
+  "The answer also lists the requests the page made since your previous call in this session (method, origin and path with a count; never the query or body), and only counts per host those to hosts outside the app's origins. " +
   "Use it only when your task states an authenticated browser budget; it is the way to see what a signed-in page looks like while you author, and it is not the browser your specs run in.";
 
 export const navigate = tool({

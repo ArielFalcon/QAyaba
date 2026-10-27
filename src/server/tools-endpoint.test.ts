@@ -125,7 +125,7 @@ test("the port is QA_TOOLS_PORT, defaulting to a port the compose file does not 
   assert.throws(() => resolveToolsPort({ QA_TOOLS_PORT: "70000" }), /QA_TOOLS_PORT/);
 });
 
-const PAGE_OK: AgentBrowserResponse = { ok: true, page: { url: "https://dev/x", title: "t", snapshot: "- heading" }, blocked: [], notes: [], budget: { callsLeft: 3 } };
+const PAGE_OK: AgentBrowserResponse = { ok: true, page: { url: "https://dev/x", title: "t", snapshot: "- heading" }, blocked: [], requests: { listed: [], otherHosts: [], omitted: 0 }, notes: [], budget: { callsLeft: 3 } };
 
 function liveBrowsers(call: (request: AgentBrowserRequest) => Promise<AgentBrowserResponse> = async () => PAGE_OK) {
   const browsers = new AgentBrowserRegistry();

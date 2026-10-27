@@ -14,7 +14,7 @@ import type { SessionMaterial } from "@contexts/test-execution/domain/playwright
 
 const BASE = "https://dev.example.com";
 const OPEN: AgentBrowserOpenInput = { runId: "run-9", app: "demo", mode: "diff", specDir: "/mirror/e2e" };
-const PAGE: PageState = { url: `${BASE}/orders`, title: "Orders", snapshot: "- heading [ref=e1]", passwordFieldVisible: false, requestedPath: "/orders", blocked: [], notes: [] };
+const PAGE: PageState = { url: `${BASE}/orders`, title: "Orders", snapshot: "- heading [ref=e1]", passwordFieldVisible: false, requestedPath: "/orders", blocked: [], requests: { listed: [], otherHosts: [], omitted: 0 }, notes: [] };
 
 class FakeHost implements AgentBrowserHostPort {
   readonly performed: { sessionId: string; action: BrowserAction; options: BrowserCallOptions }[] = [];

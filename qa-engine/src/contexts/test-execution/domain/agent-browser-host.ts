@@ -14,6 +14,23 @@ export interface BlockedRequest {
   detail: string;
 }
 
+/* A request the page made, as method + origin + pathname (no query, fragment, body, headers, cookies or userinfo), with how many times. */
+export interface ObservedRequest {
+  method: string;
+  url: string;
+  count: number;
+  /* The route guard refused it (a closed route, a method that writes). */
+  blocked?: true;
+}
+
+/* The requests the page made since the session's previous action: those to an origin the run declares listed, those to any other host only counted per host. */
+export interface ObservedRequests {
+  listed: ObservedRequest[];
+  otherHosts: { host: string; count: number }[];
+  /* Requests not kept because the page asked for more distinct ones than the safety bound holds. */
+  omitted: number;
+}
+
 /* What the page looks like after a call. */
 export interface PageState {
   url: string;
@@ -27,6 +44,8 @@ export interface PageState {
   requestedPath: string;
   /* Requests the guard refused during the call. */
   blocked: BlockedRequest[];
+  /* The requests the page made since the session's previous action. */
+  requests: ObservedRequests;
   /* Things the agent should know that are not in the tree (a dialog dismissed, a tab closed). */
   notes: string[];
 }

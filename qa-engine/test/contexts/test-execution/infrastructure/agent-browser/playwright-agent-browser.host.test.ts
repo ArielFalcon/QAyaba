@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRouteGuard } from "@contexts/test-execution/domain/agent-browser-route-guard.ts";
 import { BrowserActionError, type BrowserAction } from "@contexts/test-execution/domain/agent-browser-host.ts";
+import { MAX_LOGGED_HOSTS, MAX_LOGGED_REQUESTS } from "@contexts/test-execution/domain/agent-browser-request-log.ts";
 import { PlaywrightAgentBrowserHost } from "@contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts";
 import type { LaunchedBrowser, PwBrowser, PwContext, PwContextOptions, PwDialog, PwFrame, PwGeolocation, PwLocator, PwPage, PwRequest, PwResponse, PwRoute, PwWebSocketRoute, SessionMaterial } from "@contexts/test-execution/domain/playwright-types.ts";
 
@@ -118,7 +119,7 @@ function gate(): { promise: Promise<void>; open: () => void } {
   return { promise, open };
 }
 
-function setup(over: { material?: SessionMaterial; denyRoutes?: string[]; allowMutating?: string[]; geolocation?: { latitude: number; longitude: number } } = {}) {
+function setup(over: { origins?: string[]; material?: SessionMaterial; denyRoutes?: string[]; allowMutating?: string[]; geolocation?: { latitude: number; longitude: number } } = {}) {
   const browser = new FakeBrowser();
   const browsers: FakeBrowser[] = [];
   /* While set, the step is held until it resolves, so a test can act while the host is mid-build. */
@@ -137,7 +138,7 @@ function setup(over: { material?: SessionMaterial; denyRoutes?: string[]; allowM
       },
     },
     material: async () => { materialReads += 1; await gates.material; return over.material ?? { storageState: { cookies: [{ name: "sid", value: "s3cret" }], origins: [] } }; },
-    guard: createRouteGuard({ origins: [BASE], denyRoutes: over.denyRoutes ?? ["/admin/**"], allowMutating: over.allowMutating ?? [] }),
+    guard: createRouteGuard({ origins: over.origins ?? [BASE], denyRoutes: over.denyRoutes ?? ["/admin/**"], allowMutating: over.allowMutating ?? [] }),
     ...(over.geolocation ? { geolocation: over.geolocation } : {}),
   });
   const signal = new AbortController().signal;
@@ -517,4 +518,101 @@ test("an app with no declared position gets neither the permission nor a locatio
   await call("s1", { kind: "snapshot" });
   assert.equal(browser.contexts[0]!.options.geolocation, undefined);
   assert.equal(browser.contexts[0]!.options.permissions, undefined);
+});
+
+const STYLES = "https://styles.example.com";
+
+test("a snapshot lists the requests the page made since the previous action as method, origin and pathname, counted and without query, fragment or userinfo", async () => {
+  const { browser, call } = setup({ origins: [BASE, STYLES] });
+  await call("s1", { kind: "snapshot" });
+  const context = browser.contexts[0]!;
+  const page = pageOf(browser);
+  await context.request(page, "GET", `${STYLES}/styles/light.json?key=abc123#top`);
+  await context.request(page, "GET", `${STYLES}/styles/light.json?key=other`);
+  await context.request(page, "GET", `https://user:pw@dev.example.com/api/menus?lat=1&lng=2`);
+  const state = await call("s1", { kind: "snapshot" });
+  assert.deepEqual(state.requests, {
+    listed: [
+      { method: "GET", url: `${STYLES}/styles/light.json`, count: 2 },
+      { method: "GET", url: `${BASE}/api/menus`, count: 1 },
+    ],
+    otherHosts: [],
+    omitted: 0,
+  });
+  assert.equal(state.snapshot, "- heading [ref=e1]", "the accessibility tree is as it was");
+});
+
+test("the requests of one action are not repeated in the next, and a request made between two actions belongs to the next one", async () => {
+  const { browser, call } = setup();
+  await call("s1", { kind: "snapshot" });
+  const context = browser.contexts[0]!;
+  const page = pageOf(browser);
+  await context.request(page, "GET", `${BASE}/api/a`);
+  assert.equal((await call("s1", { kind: "snapshot" })).requests.listed.length, 1);
+  assert.deepEqual((await call("s1", { kind: "snapshot" })).requests, { listed: [], otherHosts: [], omitted: 0 });
+});
+
+test("the requests a navigation made while it was under way are in its answer", async () => {
+  const { browser, call } = setup();
+  await call("s1", { kind: "snapshot" });
+  const page = pageOf(browser);
+  page.gotoHook = async () => { await browser.contexts[0]!.request(page, "GET", `${BASE}/api/orders?page=2`); };
+  const state = await call("s1", { kind: "navigate", url: `${BASE}/orders` });
+  assert.deepEqual(state.requests.listed, [{ method: "GET", url: `${BASE}/api/orders`, count: 1 }]);
+});
+
+test("requests to a host the run does not declare are only counted per host, with no path, and what the guard refused for its route or method is listed as blocked", async () => {
+  const { browser, call } = setup();
+  await call("s1", { kind: "snapshot" });
+  const context = browser.contexts[0]!;
+  const page = pageOf(browser);
+  await context.request(page, "GET", "https://tiles.example.org/v1/12/34/56.pbf?token=t0k3n");
+  await context.request(page, "GET", "https://tiles.example.org/v1/12/34/57.pbf");
+  await context.request(page, "GET", "https://metrics.example.net/collect");
+  await context.request(page, "POST", `${BASE}/api/orders`);
+  await context.request(page, "GET", `${BASE}/admin/users`);
+  const state = await call("s1", { kind: "snapshot" });
+  assert.deepEqual(state.requests.otherHosts, [{ host: "tiles.example.org", count: 2 }, { host: "metrics.example.net", count: 1 }]);
+  assert.deepEqual(state.requests.listed, [
+    { method: "POST", url: `${BASE}/api/orders`, count: 1, blocked: true },
+    { method: "GET", url: `${BASE}/admin/users`, count: 1, blocked: true },
+  ]);
+  assert.equal(JSON.stringify(state.requests).includes("/v1/12"), false, "no path of another host is kept");
+  assert.equal(JSON.stringify(state.requests).includes("t0k3n"), false);
+});
+
+test("a page's own data addresses are not requests", async () => {
+  const { browser, call } = setup();
+  await call("s1", { kind: "snapshot" });
+  await browser.contexts[0]!.request(pageOf(browser), "GET", "data:image/png;base64,AAAA");
+  assert.deepEqual((await call("s1", { kind: "snapshot" })).requests, { listed: [], otherHosts: [], omitted: 0 });
+});
+
+test("a page that never stops asking is bounded: past the bound a new distinct request is only counted as omitted, and one already listed still counts", async () => {
+  const { browser, call } = setup();
+  await call("s1", { kind: "snapshot" });
+  const context = browser.contexts[0]!;
+  const page = pageOf(browser);
+  for (let i = 0; i < MAX_LOGGED_REQUESTS + 30; i += 1) await context.request(page, "GET", `${BASE}/poll/${i}`);
+  await context.request(page, "GET", `${BASE}/poll/0`);
+  for (let i = 0; i < MAX_LOGGED_HOSTS + 5; i += 1) await context.request(page, "GET", `https://h${i}.example.org/x`);
+  const state = await call("s1", { kind: "snapshot" });
+  assert.equal(state.requests.listed.length, MAX_LOGGED_REQUESTS);
+  assert.equal(state.requests.listed[0]!.count, 2);
+  assert.equal(state.requests.otherHosts.length, MAX_LOGGED_HOSTS);
+  assert.equal(state.requests.omitted, 30 + 5);
+});
+
+test("each session is told only of its own page's requests, and a request no page can be named for goes to the next answer of any session", async () => {
+  const { browser, call } = setup();
+  await call("s1", { kind: "snapshot" });
+  await call("s2", { kind: "snapshot" });
+  const [first, second] = [...browser.contexts[0]!.pages];
+  await browser.contexts[0]!.request(first, "GET", `${BASE}/api/one`);
+  await browser.contexts[0]!.request(undefined, "GET", `${BASE}/api/loose`);
+  const s2 = await call("s2", { kind: "snapshot" });
+  assert.deepEqual(s2.requests.listed.map((r) => r.url), [`${BASE}/api/loose`]);
+  const s1 = await call("s1", { kind: "snapshot" });
+  assert.deepEqual(s1.requests.listed.map((r) => r.url), [`${BASE}/api/one`]);
+  assert.ok(second);
 });

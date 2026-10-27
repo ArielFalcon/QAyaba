@@ -9,7 +9,7 @@ function live(runId: string) {
   const browser: LiveBrowser = {
     runId,
     capability: new AgentBrowserCapability({ runId, expiresAtMs: 1_000, now: () => 0 }),
-    call: async () => ({ ok: true, page: { url: "", title: "", snapshot: "" }, blocked: [], notes: [], budget: { callsLeft: 1 } }),
+    call: async () => ({ ok: true, page: { url: "", title: "", snapshot: "" }, blocked: [], requests: { listed: [], otherHosts: [], omitted: 0 }, notes: [], budget: { callsLeft: 1 } }),
     endSession: (id) => void ended.push(id),
     close: async () => { closed += 1; },
   };

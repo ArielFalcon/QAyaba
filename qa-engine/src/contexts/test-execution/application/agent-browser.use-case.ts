@@ -15,7 +15,7 @@ import { AGENT_BROWSER_REFUSAL, type AgentBrowserCapability, type AgentBrowserRe
 import type { RouteGuard } from "../domain/agent-browser-route-guard.ts";
 import { detectInvalidation } from "../domain/agent-browser-session-invalidation.ts";
 import type { AgentBrowserHostPort } from "./ports/agent-browser-host.port.ts";
-import type { BlockedRequest, BrowserAction, PageState } from "../domain/agent-browser-host.ts";
+import type { BlockedRequest, BrowserAction, ObservedRequests, PageState } from "../domain/agent-browser-host.ts";
 import { BrowserActionError } from "../domain/agent-browser-host.ts";
 import type { SessionRenewalPort } from "./ports/session-renewal.port.ts";
 import type { CallObserver } from "./run-spec.use-case.ts";
@@ -47,7 +47,7 @@ export interface AgentBrowserPageReport {
 }
 
 export type AgentBrowserResponse =
-  | { ok: true; page: AgentBrowserPageReport; blocked: BlockedRequest[]; notes: string[]; budget: AgentBrowserBudget }
+  | { ok: true; page: AgentBrowserPageReport; blocked: BlockedRequest[]; requests: ObservedRequests; notes: string[]; budget: AgentBrowserBudget }
   | { ok: false; code: AgentBrowserRefusalCode; message: string; budget: AgentBrowserBudget };
 
 export interface AgentBrowserDeps {
@@ -233,9 +233,29 @@ export class AgentBrowserUseCase {
         ...(truncated ? { truncated: true as const } : {}),
       },
       blocked: state.blocked.slice(0, MAX_REPORTED_BLOCKS).map((b) => ({ reason: b.reason, detail: redact(b.detail) })),
+      requests: this.requestsReport(state.requests),
       notes,
       budget: { callsLeft: left },
     };
+  }
+
+  /* The requests the page made, redacted like every other text that leaves. Two that read the same once redacted are one, with their counts added. */
+  private requestsReport(seen: ObservedRequests): ObservedRequests {
+    const { redact } = this.deps;
+    const listed = new Map<string, ObservedRequests["listed"][number]>();
+    for (const r of seen.listed) {
+      const url = redact(r.url);
+      const key = `${r.blocked ? "!" : ""}${r.method} ${url}`;
+      const held = listed.get(key);
+      if (held) held.count += r.count;
+      else listed.set(key, { method: r.method, url, count: r.count, ...(r.blocked ? { blocked: true as const } : {}) });
+    }
+    const hosts = new Map<string, number>();
+    for (const h of seen.otherHosts) {
+      const host = redact(h.host);
+      hosts.set(host, (hosts.get(host) ?? 0) + h.count);
+    }
+    return { listed: [...listed.values()], otherHosts: [...hosts].map(([host, count]) => ({ host, count })), omitted: seen.omitted };
   }
 
   /* A refusal, with the calls the asking session may still make. */

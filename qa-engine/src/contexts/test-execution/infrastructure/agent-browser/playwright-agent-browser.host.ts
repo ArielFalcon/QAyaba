@@ -11,9 +11,10 @@
 import { engineLog } from "@kernel/ports/process-logger.ts";
 import { MAX_SESSION_PAGES } from "@kernel/agent-browser.ts";
 import type { GeoLocation } from "@kernel/geolocation.ts";
+import { RequestLog, mergeObserved } from "../../domain/agent-browser-request-log.ts";
 import { BrowserActionError, type BlockedRequest, type BrowserAction, type BrowserCallOptions, type PageState } from "../../domain/agent-browser-host.ts";
 import { type AgentBrowserHostPort } from "../../application/ports/agent-browser-host.port.ts";
-import type { RouteGuard } from "../../domain/agent-browser-route-guard.ts";
+import type { GuardDecision, RouteGuard } from "../../domain/agent-browser-route-guard.ts";
 import type { BrowserLauncherPort, LaunchedBrowser, PwContext, PwContextOptions, PwPage, PwRequest, SessionMaterial } from "../../domain/playwright-types.ts";
 
 const VIEWPORT = { width: 1280, height: 800 } as const;
@@ -40,6 +41,8 @@ interface PageEntry {
   /* The last address the app itself served: where a page left on the browser's error page is reopened. */
   lastGoodUrl: string | undefined;
   blocked: BlockedRequest[];
+  /* The requests the page made since the session's previous action. */
+  requests: RequestLog;
   notes: string[];
   status: number | undefined;
   /* The session's role never writes to DEV: its page's requests are judged without the app's allowMutating entries. */
@@ -84,7 +87,7 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
   private readonly lostPages = new Set<string>();
   private readonly byPage = new WeakMap<PwPage, PageEntry>();
   /* Blocks and notes no page could be told of (a request of a page that is gone, a tab closed on its own). */
-  private readonly loose: { blocked: BlockedRequest[]; notes: string[] } = { blocked: [], notes: [] };
+  private readonly loose: { blocked: BlockedRequest[]; notes: string[]; requests: RequestLog } = { blocked: [], notes: [], requests: new RequestLog() };
   private creatingPage = false;
   private closed = false;
   /* Counts the times what is being built stopped being the thing wanted (a reset, a browser that died): a build that finds it moved on discards what it made. */
@@ -236,6 +239,7 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
     return {
       ...reopened,
       blocked: [...seen.blocked, ...reopened.blocked],
+      requests: mergeObserved(seen.requests, reopened.requests),
       notes: [...seen.notes, `a blocked request ended the page on the browser's error page; ${pathOf(back)} was reopened, so take refs from this snapshot`, ...reopened.notes],
     };
   }
@@ -255,6 +259,7 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
     if (/^https?:/.test(url)) entry.lastGoodUrl = url;
     const blocked = [...this.loose.blocked.splice(0), ...entry.blocked.splice(0)];
     const notes = [...this.loose.notes.splice(0), ...entry.notes.splice(0)];
+    entry.requests.absorb(this.loose.requests.drain());
     return {
       url,
       title,
@@ -263,6 +268,7 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
       passwordFieldVisible: passwords > 0,
       requestedPath,
       blocked,
+      requests: entry.requests.drain(),
       notes,
     };
   }
@@ -279,7 +285,7 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
     } finally {
       this.creatingPage = false;
     }
-    const entry: PageEntry = { page, lastGoodUrl: undefined, blocked: [], notes: [], status: undefined, readOnly: false };
+    const entry: PageEntry = { page, lastGoodUrl: undefined, blocked: [], requests: new RequestLog(), notes: [], status: undefined, readOnly: false };
     page.on("response", (response) => {
       if (response.request().isNavigationRequest() && response.frame() === page.mainFrame()) entry.status = response.status();
     });
@@ -356,6 +362,7 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
         const request = route.request();
         const decision = this.deps.guard.decide({ method: request.method(), url: request.url() }, { readOnly: this.requestIsReadOnly(request) });
         allowed = decision.allow;
+        this.recordRequest(request, decision);
         if (!decision.allow) this.recordBlock(request, decision.detail, decision.reason);
       } catch (err) {
         engineLog.error(`[qa] the agent browser could not judge a request, so it was blocked: ${err instanceof Error ? err.message : String(err)}`);
@@ -392,14 +399,24 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
     return [...this.entries.values()].some((held) => held.readOnly);
   }
 
-  private recordBlock(request: PwRequest, detail: string, reason: BlockedRequest["reason"]): void {
+  /* The entry of the page that made a request, when Playwright can name it. */
+  private entryOf(request: PwRequest): PageEntry | undefined {
     let page: PwPage | null = null;
     try {
       page = request.frame().page();
     } catch {
       /* Playwright cannot name the frame of some requests (a navigation issued before its frame exists). */
     }
-    const entry = page ? this.byPage.get(page) : undefined;
+    return page ? this.byPage.get(page) : undefined;
+  }
+
+  /* Keeps the request for the page's next answer: method, origin and pathname only. */
+  private recordRequest(request: PwRequest, decision: GuardDecision): void {
+    (this.entryOf(request)?.requests ?? this.loose.requests).record({ method: request.method(), url: request.url() }, decision);
+  }
+
+  private recordBlock(request: PwRequest, detail: string, reason: BlockedRequest["reason"]): void {
+    const entry = this.entryOf(request);
     const pending = entry ? entry.blocked : this.loose.blocked;
     if (pending.length < MAX_PENDING_BLOCKS) pending.push({ reason, detail });
   }

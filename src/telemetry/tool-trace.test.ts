@@ -37,7 +37,7 @@ const BASE = "https://dev.example.com";
 const INTENT: StepIntentContext = { specTargets: { kind: "dir", relDir: "e2e" }, authFiles: [], loginUrls: [], authOnlyOrigins: [], reviewAgents: [] };
 const SPEC = 'import { test } from "../fixtures";\ntest("loads", async () => {});\n';
 const SANDBOX = { uid: process.getuid?.() ?? 1002, gid: process.getgid?.() ?? 1002, home: "/home/sandbox" };
-const PAGE: PageState = { url: `${BASE}/orders`, title: "Orders", snapshot: "- heading [ref=e1]", passwordFieldVisible: false, requestedPath: "/orders", blocked: [], notes: [] };
+const PAGE: PageState = { url: `${BASE}/orders`, title: "Orders", snapshot: "- heading [ref=e1]", passwordFieldVisible: false, requestedPath: "/orders", blocked: [], requests: { listed: [], otherHosts: [], omitted: 0 }, notes: [] };
 
 const toolEvent = (callID: string, name: string, status: "running" | "completed", time: { start: number; end?: number }, messageID = "m1"): RawOpencodeEvent => ({
   type: "message.part.updated",

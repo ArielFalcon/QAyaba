@@ -160,7 +160,8 @@ The other exception is the authenticated browser (`authbrowser_*`), only when yo
 budget (without one, do not call it). It is signed in as the test account, held by the orchestrator,
 and read-only: a write, a route the app closes to you and any address outside its origins are
 blocked and listed in the answer. Use it to see what a signed-in page really shows before you choose
-a selector or an assertion. Take a fresh snapshot after anything that changes the page; when an
+a selector or an assertion. Assert a network effect (a request a page makes) only on a request the
+answer listed. Take a fresh snapshot after anything that changes the page; when an
 answer says the session was invalidated, stop using it. Do not copy account data from it into a spec.
 
 ### 5. Declare metadata in your verdict — do NOT edit manifest.json

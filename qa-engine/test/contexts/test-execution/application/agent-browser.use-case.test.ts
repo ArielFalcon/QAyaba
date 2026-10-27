@@ -11,7 +11,7 @@ import { DEFAULT_AGENT_BROWSER_LIMITS } from "@kernel/agent-browser.ts";
 const BASE = "https://dev.example.com";
 
 function page(over: Partial<PageState> = {}): PageState {
-  return { url: `${BASE}/orders`, title: "Orders", snapshot: "- heading \"Orders\" [ref=e1]", passwordFieldVisible: false, requestedPath: "/orders", blocked: [], notes: [], ...over };
+  return { url: `${BASE}/orders`, title: "Orders", snapshot: "- heading \"Orders\" [ref=e1]", passwordFieldVisible: false, requestedPath: "/orders", blocked: [], requests: { listed: [], otherHosts: [], omitted: 0 }, notes: [], ...over };
 }
 
 class FakeHost implements AgentBrowserHostPort {
@@ -552,4 +552,34 @@ test("sign-ins that keep throwing stop being attempted once the allowed number i
   const { useCase } = setup({ host, renew: async () => { attempts += 1; throw new Error("login script crashed"); } });
   for (let i = 0; i < 4; i++) await useCase.call(nav("/orders"));
   assert.equal(attempts, 2);
+});
+
+test("the requests the page made are in the answer, redacted like every other text that leaves, and two that read the same once redacted are one", async () => {
+  const { host, useCase } = setup();
+  host.next = () =>
+    page({
+      requests: {
+        listed: [
+          { method: "GET", url: `${BASE}/api/hunter2/menus`, count: 2 },
+          { method: "GET", url: `${BASE}/api/[REDACTED]/menus`, count: 1 },
+          { method: "POST", url: `${BASE}/api/orders`, count: 1, blocked: true },
+        ],
+        otherHosts: [{ host: "tiles.example.org", count: 3 }],
+        omitted: 4,
+      },
+    });
+  const res = await useCase.call(nav("/orders"));
+  assert.equal(res.ok, true);
+  if (res.ok) {
+    assert.deepEqual(res.requests, {
+      listed: [
+        { method: "GET", url: `${BASE}/api/[REDACTED]/menus`, count: 3 },
+        { method: "POST", url: `${BASE}/api/orders`, count: 1, blocked: true },
+      ],
+      otherHosts: [{ host: "tiles.example.org", count: 3 }],
+      omitted: 4,
+    });
+    assert.equal(res.page.snapshot, "- heading \"Orders\" [ref=e1]", "the tree is unchanged");
+    assert.equal(JSON.stringify(res).includes("hunter2"), false);
+  }
 });
