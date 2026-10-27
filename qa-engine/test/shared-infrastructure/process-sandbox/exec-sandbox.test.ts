@@ -71,7 +71,7 @@ test("a suite is told the DEV origins its egress lease holds, as data, and no ca
   try {
     const scope: RunScope = { ...h.scope, egress: { dev: ["https://dev.example.com", "https://*.api.example.com:8443"], install: ["https://registry.npmjs.org"] } };
     h.port.spawn("npx", ["playwright"], { cwd: "/m", profile: "suite", scope, extraEnv: { PW_DEV_ORIGINS: JSON.stringify(["https://elsewhere.example.org"]) } });
-    for (const profile of SANDBOX_PROFILES.filter((p) => p !== "suite")) h.port.spawn("npx", ["playwright"], { cwd: "/m", profile, scope });
+    for (const profile of SANDBOX_PROFILES.filter((p) => p !== "suite")) h.port.spawn("npx", ["playwright"], { cwd: "/m", profile, scope, extraEnv: { PW_DEV_ORIGINS: JSON.stringify(["https://elsewhere.example.org"]) } });
     const suiteEnv = h.calls[0]!.options.env as Record<string, string>;
     assert.deepEqual(JSON.parse(suiteEnv.PW_DEV_ORIGINS ?? "null"), ["https://dev.example.com", "https://*.api.example.com:8443"]);
     for (const call of h.calls.slice(1)) assert.equal("PW_DEV_ORIGINS" in (call.options.env as Record<string, string>), false);

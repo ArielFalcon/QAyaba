@@ -129,9 +129,10 @@ export interface ExecSandboxDeps {
   warn?: (line: string) => void;
 }
 
-/* The caller's extra variables, and for a suite the DEV origins its egress lease holds (PW_DEV_ORIGINS, a JSON list): the seed's write counter counts only a write to one of them. The launcher sets it after the caller's, so the origins are always the run's own. */
+/* The caller's extra variables, and for a suite the DEV origins its egress lease holds (PW_DEV_ORIGINS, a JSON list): the seed's write counter counts only a write to one of them. Only the launcher names them: a caller's value is dropped for every profile, so the origins are always the run's own. */
 function extraEnvFor(options: ExecSpawnOptions, scope: RunScope): Record<string, string> {
-  return { ...options.extraEnv, ...(options.profile === "suite" ? { PW_DEV_ORIGINS: JSON.stringify(scope.egress.dev) } : {}) };
+  const { PW_DEV_ORIGINS: _callerOrigins, ...caller } = options.extraEnv ?? {};
+  return { ...caller, ...(options.profile === "suite" ? { PW_DEV_ORIGINS: JSON.stringify(scope.egress.dev) } : {}) };
 }
 
 export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
