@@ -54,14 +54,14 @@ Source: campaign run `run-ed28973-mvqy1s7l-64c65862` (name-webapp ed28973: 3 com
 | T15 | S13 | delegated (parallel, worktree) | done; guard 3042f532 kept (an empty page is trusted only after the whole data-state wait, settled and stable); no-retry of an unchanged recapture left to T11 | main 78453627; gate 11806, 0 failed |
 | T16 | S14 | delegated (parallel, worktree; security surface) | done; verifier blocker (unbounded path length, 20 MB answer) and partial (unattributed requests shared across sessions) fixed in b4726a36; recheck: the repro now answers 25.5 KB (47 listed, 253 omitted) | main 251a8f72, d7b83f1e; gate 11814, 0 failed, matrix 0 findings |
 | T17 | S15 | re-check after T1, T2 | pending | |
-| T18 | S16 | delegated (parallel, worktree): independent unit, route-table extractor/loader/classifier | done; verifier: S16(1-4) met, one blocker (tsconfig/import repoint of an unchanged entry's guard read `pre-existing`) fixed in 5c3c3e4d (placements compared; unplaced side → unknown), recheck running; gaps: `links` not rendered in the Context Pack section, a `loadChildren` binding imported from another module stays unresolved | main 50040e55, cdaf19e2, 4f2a5a71, b4af274d; gate 0 failed, matrix 0 findings |
+| T18 | S16 | delegated (parallel, worktree): independent unit, route-table extractor/loader/classifier | done; verifier: S16(1-4) met, one blocker (tsconfig/import repoint of an unchanged entry's guard read `pre-existing`) fixed in 5c3c3e4d (placements compared; unplaced side → unknown), recheck: fixed (J1-J3 change-introduced; an unplaced side stays unexplained); gaps: `links` not rendered in the Context Pack section, a `loadChildren` binding imported from another module stays unresolved | main 50040e55, cdaf19e2, 4f2a5a71, b4af274d; gate 0 failed, matrix 0 findings |
 | T19 | S17 | delegated (parallel, worktree): independent unit, prompt and coordination sections | in progress | |
 | T20 | S18 | inline (small) | done (RED observed) | 850d878a; npm test 11853, 0 failed |
 | T21 | S15, run findings | delegated read-only diagnosis | done: S15 holds (detail page via `dev.routeSamples`); `blocked` = pushback coercion of an honest `unmet`; 4 use cases resolved by the amendment; DEV-write cap spent by IdP token refresh (L25) | |
 | T22 | S19 | delegated (parallel, worktree; sandbox/seed surface, governance commit, independent verifier) | in progress | |
 | T23 | S20 | delegated (parallel, worktree) | in progress | |
 | T24 | S21 | delegated (parallel, worktree) | in progress | |
-| T25 | S22 | inline (small) | pending | |
+| T25 | S22 | inline (small) | done; RED: the behind-the-cut test failed on the bare `template` reason; GREEN: context-pack 112/0, suite 11854/0, matrix 0 findings | main 797ae6da |
 | T11 | S6 optimisations: review each flow as it returns, no retry of a recapture that failed unchanged, wait for the lease instead of refusing | after T1–T9 | pending | |
 
 ## Log
