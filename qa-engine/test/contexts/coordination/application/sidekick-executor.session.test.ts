@@ -4,6 +4,8 @@ import { SidekickExecutor } from "@contexts/coordination/application/sidekick-ex
 import { createDelegationBrief } from "@contexts/coordination/application/delegation-brief.ts";
 import type { AgentPromptOpts, OpenSessionOpts } from "@kernel/ports/agent-runtime.port.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
+import { AgentTimeoutError } from "@kernel/domain-error.ts";
+import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { PatternRedactionAdapter } from "../../../../src/shared-infrastructure/redaction/pattern-redaction.adapter.ts";
 
 const redaction = new PatternRedactionAdapter();
@@ -80,6 +82,53 @@ test("a sidekick session whose first answer throws is disposed before the error 
   });
   await assert.rejects(sidekick.open(brief, { cwd: "/w", kind: "author" }), /boom/);
   assert.equal(disposed, 1);
+});
+
+function stoppedFirstTurn(error: unknown, calls: { disposed: number; prompts: number }) {
+  return new SidekickExecutor({ redaction,
+    runtime: {
+      openSession: async () => ({
+        prompt: async () => {
+          calls.prompts += 1;
+          if (calls.prompts === 1) throw error;
+          return { output: RESULT };
+        },
+        dispose: async () => { calls.disposed += 1; },
+      }),
+    },
+  });
+}
+
+test("a first turn that ran out of its time leaves the session to a holder that asked to keep it, idle and able to answer the lead's follow-up, with no answer read", async () => {
+  const calls = { disposed: 0, prompts: 0 };
+  const session = await stoppedFirstTurn(new AgentTimeoutError("OpenCode prompt: timed out after 90000ms"), calls).open(brief, { cwd: "/w", kind: "author", keepStopped: true });
+  assert.equal(calls.disposed, 0);
+  assert.equal(session.first.status, "failed");
+  assert.deepEqual(session.first.filesChanged, []);
+  assert.match(session.first.summary, /ran out of its time/);
+  assert.equal((await session.ask("Try again.")).status, "completed", "the same session answers");
+  await session.dispose();
+  assert.equal(calls.disposed, 1);
+});
+
+test("a first turn that ended because its flow was stopped is kept the same way, and one the caller did not ask to keep is disposed before the error leaves", async () => {
+  const stopped = new AbortController();
+  stopped.abort();
+  const kept = { disposed: 0, prompts: 0 };
+  const session = await stoppedFirstTurn(new Error("the agent turn was aborted"), kept).open(brief, { cwd: "/w", kind: "author", keepStopped: true, signal: stopped.signal });
+  assert.equal(kept.disposed, 0);
+  await session.dispose();
+  const dropped = { disposed: 0, prompts: 0 };
+  await assert.rejects(stoppedFirstTurn(new Error("the agent turn was aborted"), dropped).open(brief, { cwd: "/w", kind: "author", signal: stopped.signal }), /aborted/);
+  assert.equal(dropped.disposed, 1);
+});
+
+test("a first turn that failed for any other reason, or that the run's own deadline ended, is never kept", async () => {
+  for (const error of [new Error("boom"), new RunDeadlineExceededError(1000, "diff-tiny", "author", "mid-turn")]) {
+    const calls = { disposed: 0, prompts: 0 };
+    await assert.rejects(stoppedFirstTurn(error, calls).open(brief, { cwd: "/w", kind: "author", keepStopped: true }));
+    assert.equal(calls.disposed, 1, error.message);
+  }
 });
 
 test("the lead's feedback is a registered section: the follow-up and the first prompt carry its sizes and hashes beside the brief's", async () => {

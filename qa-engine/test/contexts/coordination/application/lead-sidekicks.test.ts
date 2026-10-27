@@ -59,7 +59,7 @@ const FANOUT_PLAN = { kind: "fanout", flows: [{ id: "cart", objective: "the cart
 
 interface Script {
   /* What each turn of a flow answers, by flow id; the last entry repeats. `writes` puts the flow's file in its workspace. */
-  answers: Record<string, Array<Partial<DelegationResult> & { throws?: Error; hold?: Promise<void>; writes?: boolean }>>;
+  answers: Record<string, Array<Partial<DelegationResult> & { throws?: Error; hold?: Promise<void>; writes?: boolean; stoppable?: true }>>;
   /* Flows whose file the workspace has when the work is taken back. */
   hasFile: Set<string>;
   proposals: Record<string, number>;
@@ -129,7 +129,7 @@ function rig(scriptOver: Partial<Script> = {}): Rig {
     const answer = answers[Math.min(n, answers.length - 1)]!;
     if (answer.hold) await answer.hold;
     if (answer.throws) throw answer.throws;
-    const { throws: _t, hold: _h, writes, ...over } = answer;
+    const { throws: _t, hold: _h, writes, stoppable: _s, ...over } = answer;
     if (writes) script.hasFile.add(flow);
     return result(brief, over);
   };
@@ -139,7 +139,12 @@ function rig(scriptOver: Partial<Script> = {}): Rig {
       open: async (brief, opts) => {
         const session = ++r.sessionsOpened;
         r.executed.push({ brief, opts, session });
-        const first = await answerOf(brief);
+        /* A turn marked stoppable ends when its flow is stopped, as the executor's does for a holder that asked to keep the stopped session: the session is returned idle, its first result a failure. */
+        const stopped = opts.keepStopped && opts.signal && script.answers[flowOf(brief.delegationId)]?.[0]?.stoppable
+          ? new Promise<"stopped">((resolve) => opts.signal!.addEventListener("abort", () => resolve("stopped"), { once: true }))
+          : undefined;
+        const answered = answerOf(brief);
+        const first = stopped && (await Promise.race([answered, stopped])) === "stopped" ? result(brief, { status: "failed", summary: "The turn was stopped before the sidekick answered.", filesChanged: [] }) : await answered;
         let gone = false;
         return {
           first,
@@ -721,6 +726,26 @@ test("a sidekick session that opens after its flow ran out of time is closed at 
   assert.equal(r.sessionsOpened, 3);
   assert.equal(r.sessionsDisposed.length, 3, "the late session was closed too");
   assert.equal(r.collected.filter((f) => f === "cart").length, 1, "only the first turn's workspace is read: nothing is taken back from a flow after its pass ended");
+});
+
+test("a flow that ran out of its time keeps its idle sidekick session for the lead's review, which revises it in place, and the pass release deletes it", async () => {
+  const lead = leadWith([[{ flow: "cart", action: "revise", instruction: "finish the cart total" }], []]);
+  const r = rig({ answers: { cart: [{ stoppable: true, hold: new Promise<void>(() => {}) }, { writes: true }] } });
+  const pending = new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, settings: { ...DEFAULT_COORDINATION_SETTINGS, flowBudgetMs: { opencode: 100_000 } } }));
+  for (let i = 0; i < 20; i++) await settle();
+  r.timers.advance(100_000);
+  await settle();
+  r.timers.advance(DEFAULT_ABORT_GRACE);
+  const outcome = await pending;
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  const sessionOf = (flow: string): number => r.executed.find((e) => !e.asked && e.brief.delegationId === `run-1-flow-${flow}`)!.session;
+  const revised = r.executed.find((e) => e.asked && e.brief.delegationId === "run-1-flow-cart");
+  assert.equal(revised?.session, sessionOf("cart"), "the lead's revision reached the flow's own session, not a fresh one");
+  assert.equal(r.sessionsOpened, 2);
+  assert.equal(r.events.some((e) => e.kind === "lead-decision" && e.overrideReason === "session-gone"), false);
+  assert.deepEqual(r.sessionsDisposed, [], "the session outlives the flow's time and the review");
+  await outcome.pass!.release();
+  assert.deepEqual([...r.sessionsDisposed].sort(), [1, 2], "the pass's release deletes it, once");
 });
 
 test("the lead is never asked to review when the run has no room left for it", async () => {

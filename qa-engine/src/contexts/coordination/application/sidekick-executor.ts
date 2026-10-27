@@ -4,6 +4,8 @@ import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import type { DelegationResult } from "./delegation-result.ts";
+import { isAgentTimeoutError } from "@kernel/domain-error.ts";
+import { isRunDeadlineError } from "@kernel/run-deadline.ts";
 import { assembleDefs, type AssembledPrompt, type WindowFitOutcome } from "@kernel/prompt-sections.ts";
 import { FEEDBACK_SECTIONS } from "./coordination-sections/feedback-sections.ts";
 import type { DevStateGround } from "./explore-verification.ts";
@@ -38,6 +40,8 @@ export interface SidekickExecuteOpts {
   fit?: (bytes: number) => WindowFitOutcome;
   /** What the orchestrator holds of the flow by its own means, read afresh for each answer (the flow's reads grow turn by turn): an unmet criterion the sidekick attributes to DEV's state is backed by it or blocks. */
   devStateGround?: () => DevStateGround;
+  /** The holder reuses a session whose first turn was cut short (it ran out of its time, or its flow was stopped): the session is kept, idle, with a failed first result that says so, instead of being disposed before the error leaves. The run's own deadline and any other fault still dispose it. */
+  keepStopped?: boolean;
 }
 
 /* A sidekick's session, held open after its first answer so that the lead's follow-up reaches the session that did the work. */
@@ -90,6 +94,11 @@ export class SidekickExecutor {
       await session.dispose();
     };
     const feedbackOf = (feedback: string) => assembleSidekickFeedback(this.deps.redaction, feedback, contract);
+    const askAgain: SidekickSession["ask"] = async (instruction, askOpts) => {
+      const followUp = feedbackOf(instruction);
+      const answer = await session.prompt(followUp.text, { sectionSizes: followUp.sectionSizes, ...(followUp.sectionHashes ? { sectionHashes: followUp.sectionHashes } : {}), promptStablePrefixBytes: followUp.stablePrefixBytes, ...(askOpts?.timeoutMs !== undefined ? { timeoutMs: askOpts.timeoutMs } : {}) });
+      return read(answer.output);
+    };
     const contract = `Respond with the SAME JSON output contract for delegationId=${brief.delegationId} runId=${brief.runId}.`;
     try {
       const assembled = render(brief);
@@ -105,19 +114,29 @@ export class SidekickExecutor {
         ...(assembled.sectionsDegraded !== undefined ? { sectionsDegraded: assembled.sectionsDegraded } : {}),
         ...(opts.contextFit ? { contextFit: opts.contextFit } : {}),
       });
-      const first = read(output);
-      return {
-        first,
-        ask: async (instruction, askOpts) => {
-          const followUp = feedbackOf(instruction);
-          const answer = await session.prompt(followUp.text, { sectionSizes: followUp.sectionSizes, ...(followUp.sectionHashes ? { sectionHashes: followUp.sectionHashes } : {}), promptStablePrefixBytes: followUp.stablePrefixBytes, ...(askOpts?.timeoutMs !== undefined ? { timeoutMs: askOpts.timeoutMs } : {}) });
-          return read(answer.output);
-        },
-        dispose,
-      };
+      return { first: read(output), ask: askAgain, dispose };
     } catch (err) {
-      await dispose();
-      throw err;
+      const ranOutOfTime = isAgentTimeoutError(err);
+      if (!opts.keepStopped || !(ranOutOfTime || opts.signal?.aborted === true) || isRunDeadlineError(err)) {
+        await dispose();
+        throw err;
+      }
+      return { first: stoppedFirstTurn(brief, ranOutOfTime), ask: askAgain, dispose };
     }
   }
+}
+
+/* What the first turn of a session came to when it was cut short before it answered: the orchestrator's own statement, not the sidekick's. */
+function stoppedFirstTurn(brief: DelegationBrief, ranOutOfTime: boolean): DelegationResult {
+  return {
+    delegationId: brief.delegationId,
+    runId: brief.runId,
+    status: "failed",
+    summary: ranOutOfTime ? "The turn ran out of its time before the sidekick answered." : "The turn was stopped before the sidekick answered.",
+    filesChanged: [],
+    concerns: [],
+    unresolvedQuestions: [],
+    recommendation: "retry",
+    acceptance: [],
+  };
 }

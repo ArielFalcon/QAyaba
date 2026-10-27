@@ -591,8 +591,9 @@ export class LeadSidekicks {
           reports.set(result.id, result.value!);
           continue;
         case FLOW_RESULT.TIMED_OUT:
+          /* The flow's time is spent, not its session: it is idle and aborted, the lead may still revise it, and the pass release closes it. */
           reports.set(result.id, this.keepDelivered(live.get(result.id), { outcome: { id: result.id, kind: FLOW_OUTCOME.TIMED_OUT }, proposals: undefined }));
-          break;
+          continue;
         case FLOW_RESULT.ABORTED:
           reports.set(result.id, this.keepDelivered(live.get(result.id), { outcome: { id: result.id, kind: FLOW_OUTCOME.FAILED, reason: "the run was cancelled" }, proposals: undefined }));
           break;
@@ -679,6 +680,7 @@ export class LeadSidekicks {
     const session = await this.deps.sidekick.open(brief, {
       cwd: entry.workspace.dir,
       kind: entry.flow.kind,
+      keepStopped: true,
       ...(model ? { model } : {}),
       signal,
       timeoutMs: Math.max(1, timeoutMs),
@@ -689,9 +691,14 @@ export class LeadSidekicks {
       ...(fit ? { fit } : {}),
       ...(feedback ? { feedback } : {}),
     });
-    /* A session that opened after its flow was stopped or released belongs to nobody: it is closed at once. */
-    if (signal.aborted || entry.released) {
+    /* A session that opened after its pass released the flow belongs to nobody: it is closed at once. */
+    if (entry.released) {
       await session.dispose().catch((err: unknown) => engineLog.error(`[qa] closing flow ${entry.flow.id}'s late session failed: ${err instanceof Error ? err.message : String(err)}`));
+      throw new Error(`flow ${entry.flow.id}'s session opened after the flow was stopped`);
+    }
+    /* A flow stopped while its first turn ran (its time, the run's cancel) keeps the idle session: the lead may still revise it, and the pass releases it (the pass or this fan-out's `finally`, which holds every live flow). */
+    if (signal.aborted) {
+      entry.session = session;
       throw new Error(`flow ${entry.flow.id}'s session opened after the flow was stopped`);
     }
     entry.session = session;
