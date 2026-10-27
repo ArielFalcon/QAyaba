@@ -469,7 +469,6 @@ const DEV_WRITE_REQUESTS_CAP = 20;
 const countedContexts = new WeakSet<object>();
 const countedApis = new WeakSet<object>();
 interface DevOrigin { host: string; wildcard: boolean; port: number }
-let devOrigins: DevOrigin[] | undefined;
 function readDevOrigins(raw: string | undefined): DevOrigin[] | undefined {
   if (!raw) return undefined;
   try {
@@ -485,6 +484,10 @@ function readDevOrigins(raw: string | undefined): DevOrigin[] | undefined {
     return origins;
   } catch { return undefined; }
 }
+// The DEV origins and the base URL the launcher started this process with, read once when the fixtures load: a spec
+// runs after this module, so rewriting its environment cannot move a write off DEV's count.
+const devOrigins: DevOrigin[] | undefined = readDevOrigins(process.env.PW_DEV_ORIGINS);
+const launchBaseUrl: string | undefined = process.env.PW_BASE_URL;
 // Whether a request to `raw` goes to DEV. A URL that cannot be read counts, the closed reading.
 function isDevWrite(raw: string | undefined): boolean {
   if (!devOrigins || raw === undefined) return true;
@@ -514,7 +517,7 @@ function countWrites(api: WriteCountable | undefined): void {
       const own = request && typeof request.method === 'function' ? (request.method as () => string)() : 'GET';
       const candidate = String(options?.method ?? own).toUpperCase();
       if (/^(?:POST|PUT|PATCH|DELETE)$/.test(candidate)) method = candidate;
-      if (typeof target === 'string') url = new URL(target, process.env.PW_BASE_URL).href;
+      if (typeof target === 'string') url = new URL(target, launchBaseUrl).href;
       else if (request && typeof request.url === 'function') url = (request.url as () => string)();
     } catch {}
     const response = await original(target, options);
@@ -534,7 +537,6 @@ async function qaFailureCaptureStart(page: QaCapturePage, request: QaCaptureRequ
   devWrites = 0;
   devWriteRequests = [];
   if (process.env.PW_COUNT_DEV_WRITES === '1') {
-    devOrigins = readDevOrigins(process.env.PW_DEV_ORIGINS);
     try {
       const context = page.context();
       if (!countedContexts.has(context)) {

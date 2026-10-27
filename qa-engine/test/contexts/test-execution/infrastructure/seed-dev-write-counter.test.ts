@@ -31,7 +31,7 @@ interface Sent { method: string; url: string }
 interface ApiCall { target: string; method: string }
 
 /* One test: the browser context finishes `browser` requests and the `request` fixture fetches `api`; returns the ledger the counter left. */
-async function ledgerOf(opts: { browser?: Sent[]; api?: ApiCall[]; origins?: string | undefined }): Promise<Record<string, unknown>> {
+async function ledgerOf(opts: { browser?: Sent[]; api?: ApiCall[]; origins?: string | undefined; afterLoad?: () => void }): Promise<Record<string, unknown>> {
   const dir = mkdtempSync(join(tmpdir(), "seed-dev-writes-"));
   const keys = ["QA_FAILURE_CAPTURE_DIR", "PW_COUNT_DEV_WRITES", "PW_DEV_ORIGINS", "PW_BASE_URL"] as const;
   const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
@@ -45,6 +45,7 @@ async function ledgerOf(opts: { browser?: Sent[]; api?: ApiCall[]; origins?: str
     const page = { on() {}, url: () => `${DEV}/orders`, context: () => context, locator: () => ({ ariaSnapshot: async () => "- main" }) };
     const request = { fetch: async (_target: unknown, _options?: { method?: string }) => ({ ok: () => true }) };
     const { start, finish } = await loadCapture();
+    opts.afterLoad?.();
     await start(page, request);
     for (const sent of opts.browser ?? []) for (const fn of finished) fn({ method: () => sent.method, url: () => sent.url });
     for (const call of opts.api ?? []) await request.fetch(call.target, { method: call.method });
@@ -100,4 +101,17 @@ test("a test records at most the cap of counted requests, and its count keeps ev
   const ledger = await ledgerOf({ origins: DEV_ORIGINS, browser });
   assert.equal(ledger.writes, 25);
   assert.equal((ledger.requests as unknown[]).length, MAX_DEV_WRITE_REQUESTS, "the seed records what one ledger file may hold");
+});
+
+test("a spec that rewrites the launch environment after the fixtures loaded still has its DEV writes counted against DEV", async () => {
+  const ledger = await ledgerOf({
+    origins: DEV_ORIGINS,
+    afterLoad: () => {
+      process.env.PW_BASE_URL = "https://other.example";
+      process.env.PW_DEV_ORIGINS = JSON.stringify(["https://other.example"]);
+    },
+    browser: [{ method: "POST", url: `${DEV}/api/orders` }],
+    api: [{ target: "/api/orders", method: "PUT" }],
+  });
+  assert.deepEqual(ledger, { writes: 2, requests: [{ method: "POST", url: `${DEV}/api/orders` }, { method: "PUT", url: `${DEV}/api/orders` }] });
 });
