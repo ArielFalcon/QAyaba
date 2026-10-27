@@ -52,6 +52,16 @@ function resolve(doc: Record<string, unknown>, node: unknown, active: readonly s
   return out;
 }
 
+/* A node of the document with its local references resolved and its prose and vendor extensions dropped, as the operations are compared; undefined when it references another file. */
+export function resolveLocalReferences(doc: Record<string, unknown>, node: unknown): unknown {
+  try {
+    return resolve(doc, node, []);
+  } catch (err) {
+    if (err instanceof RemoteReference) return undefined;
+    throw err;
+  }
+}
+
 /* verb path -> the canonical form of the contract parts, path-level parameters included; undefined when a part references another file. */
 function operationsOf(doc: Record<string, unknown>): Map<string, string> | undefined {
   try {
