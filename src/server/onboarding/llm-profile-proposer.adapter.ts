@@ -6,6 +6,7 @@ import { RedactionPortAdapter } from "../../orchestrator/sanitizer";
 import { logJson } from "../../integrations/logger";
 import type { BoundaryProfile, RepoRef } from "@contexts/service-topology/application/index.ts";
 import type { ProfileProposerPort, ProposerFeedback } from "@contexts/service-topology/application/index.ts";
+import { lastJsonObjectWhere } from "@kernel/last-json-object";
 import { ProposerVerdictSchema, UNPARSEABLE_SENTINEL, type SchemaCandidate } from "./proposer-verdict.schema";
 
 /** Model pinned for every proposer session. Keep in sync with agents/opencode.json qa-proposer.model. */
@@ -25,18 +26,19 @@ function isUnparseableSentinel(candidate: SchemaCandidate): boolean {
 }
 
 /* Extracts a JSON payload from an LLM's free-form text reply: the last fenced ```json block if
- *  present, otherwise the trailing `{...}` object. Returns null when neither shape is found —
- *  the caller degrades that to a fail-open empty verdict. */
+ *  parses, otherwise the last JSON object carrying `candidates` (the kernel scanner, so narration
+ *  braces never hide it). Returns null when neither shape is found — the caller degrades that
+ *  to a fail-open empty verdict. */
 function extractJson(text: string): unknown {
-  const fencedMatches = [...text.matchAll(/```json\s*([\s\S]*?)```/g)];
-  const lastFenced = fencedMatches.at(-1)?.[1];
-  const candidate = lastFenced ?? text.slice(text.lastIndexOf("{"));
-  if (!candidate) return null;
-  try {
-    return JSON.parse(candidate);
-  } catch {
-    return null;
+  const lastFenced = [...text.matchAll(/```json\s*([\s\S]*?)```/g)].at(-1)?.[1];
+  if (lastFenced !== undefined) {
+    try {
+      return JSON.parse(lastFenced);
+    } catch {
+      /* a broken fence: the answer may still stand outside it */
+    }
   }
+  return lastJsonObjectWhere(text, (o) => "candidates" in o) ?? null;
 }
 
 /* Assembles the doc block spelling out both transport shapes with exact field names, so the

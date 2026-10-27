@@ -2,6 +2,7 @@
 
 import type { SpecMeta } from "../types";
 import { readNoopKind, type NoopKind } from "@kernel/noop-kind";
+import { jsonObjectsIn, lastJsonObjectWhere } from "@kernel/last-json-object";
 
 export interface FinalVerdict {
   approved: boolean;
@@ -25,54 +26,17 @@ export interface FinalVerdict {
 }
 
 /*
- * Extracts every BALANCED top-level JSON object from free-form agent text, respecting string
- * literals and escapes (so a `}` inside a string, or nested objects, never mis-split the span).
- * Returns them in document order; callers take the last one matching their shape. This replaces
- * brittle regex/lastIndexOf scanning of the agent's closing JSON.
+ * Every top-level JSON object of free-form agent text, in document order; callers take the last
+ * one matching their shape. The scanner is the kernel's (`@kernel/last-json-object`), the repo's
+ * one reader of an agent's closing JSON: an unbalanced brace in narration never hides it.
  */
 export function extractJsonObjects(text: string): unknown[] {
-  const objs: unknown[] = [];
-  let depth = 0;
-  let start = -1;
-  let inStr = false;
-  let esc = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (inStr) {
-      if (esc) esc = false;
-      else if (ch === "\\") esc = true;
-      else if (ch === '"') inStr = false;
-      continue;
-    }
-    if (ch === '"') inStr = true;
-    else if (ch === "{") {
-      if (depth === 0) start = i;
-      depth++;
-    } else if (ch === "}") {
-      if (depth > 0) {
-        depth--;
-        if (depth === 0 && start >= 0) {
-          try {
-            objs.push(JSON.parse(text.slice(start, i + 1)));
-          } catch {
-            /* not valid JSON; ignore this span */
-          }
-          start = -1;
-        }
-      }
-    }
-  }
-  return objs;
+  return jsonObjectsIn(text);
 }
 
 /* Returns the LAST extracted JSON object for which `pred` holds, or undefined. */
 export function lastJsonMatching<T = Record<string, unknown>>(text: string, pred: (o: Record<string, unknown>) => boolean): T | undefined {
-  const objs = extractJsonObjects(text);
-  for (let i = objs.length - 1; i >= 0; i--) {
-    const o = objs[i];
-    if (o && typeof o === "object" && pred(o as Record<string, unknown>)) return o as T;
-  }
-  return undefined;
+  return lastJsonObjectWhere(text, pred) as T | undefined;
 }
 
 /* Discriminator: the generator's closing JSON carries a `specs` array, a `noop` decision, a `testCorrect` claim, `rebuttals`, a `plan`, an `explore` request or a boolean `approved`. */

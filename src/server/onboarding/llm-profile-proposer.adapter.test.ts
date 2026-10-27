@@ -156,6 +156,24 @@ test("propose(): fail-open — garbage/unparseable text from prompt() returns []
   assert.deepEqual(result, []);
 });
 
+test("propose(): an unfenced verdict with nested objects after brace narration still parses", async () => {
+  const reply = `I will scan \`async ({ page }) => {\` call sites first.\n${VALID_VERDICT_JSON}`;
+  const adapter = new LlmProfileProposerAdapter(fakeDepsFactory({ promptResult: reply }), PROPOSER_MODEL, { app: "nname" });
+
+  const result = await adapter.propose(SYSTEM, FRONT);
+
+  assert.equal(result.length, 2);
+});
+
+test("propose(): a fenced verdict wins over an earlier quoted object", async () => {
+  const reply = `Earlier draft: {"candidates":[]}\n${fencedJson(VALID_VERDICT_JSON)}`;
+  const adapter = new LlmProfileProposerAdapter(fakeDepsFactory({ promptResult: reply }), PROPOSER_MODEL, { app: "nname" });
+
+  const result = await adapter.propose(SYSTEM, FRONT);
+
+  assert.equal(result.length, 2);
+});
+
 test("propose(): mixed valid/malformed candidates returns only the valid ones (sentinel filtered out)", async () => {
   const depsFactory = fakeDepsFactory({ promptResult: fencedJson(MIXED_VERDICT_JSON) });
   const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
