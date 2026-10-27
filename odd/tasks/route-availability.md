@@ -42,8 +42,8 @@ Source: campaign run `run-ed28973-mvqy1s7l-64c65862` (name-webapp ed28973: 3 com
 | T12 | S3 remainder: availability facts cap 16 in the reviewer and pack sections, diff cap `MAX_PROMPT_DIFF_CHARS` (prompt-cap.ts), lead review spec cut `MAX_SPEC_CHARS` (lead-turn-sections.ts), brief suite listing 30×300 (brief-sections.ts), brief pages fit (sidekick-prompt.ts, lead-sidekicks.ts), per-item runtime evidence caps, degraded-section span count, stale `reviewer|over-cap` matrix case | delegated (parallel, worktree) | in progress | |
 | T13 | S11 | delegated (with T9, same seam) | done | main 7b504354 |
 | T14 | S12 | inline | done | ec1b0bbc (RED observed) |
-| T15 | S13 | delegated (parallel, worktree) | in progress | |
-| T16 | S14 | delegated (parallel, worktree; security surface) | in progress | |
+| T15 | S13 | delegated (parallel, worktree) | done; guard 3042f532 kept (an empty page is trusted only after the whole data-state wait, settled and stable); no-retry of an unchanged recapture left to T11 | main 78453627; gate 11806, 0 failed |
+| T16 | S14 | delegated (parallel, worktree; security surface) | done; independent verifier running (Risk: item 2) | main 251a8f72, d7b83f1e; gate 11814, 0 failed, matrix 0 findings |
 | T17 | S15 | re-check after T1, T2 | pending | |
 | T11 | S6 optimisations: review each flow as it returns, no retry of a recapture that failed unchanged, wait for the lease instead of refusing | after T1–T9 | pending | |
 
