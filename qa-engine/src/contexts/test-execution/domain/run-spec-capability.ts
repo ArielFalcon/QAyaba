@@ -203,7 +203,11 @@ export class RunSpecCapability {
     if (this.revoked) return refuse(CLOSED_LOOP_REFUSAL.REVOKED, "run_spec is no longer available: the run it belonged to has ended");
     if (this.inFlight) return refuse(CLOSED_LOOP_REFUSAL.BUSY, "another run_spec call is still running");
     if (this.calls_ >= this.init.limits.maxCalls) return refuse(CLOSED_LOOP_REFUSAL.NO_CALLS, `the ${this.init.limits.maxCalls} run_spec calls of this run are spent`);
-    if (this.devWrites_ >= this.init.limits.maxDevWrites) return refuse(CLOSED_LOOP_REFUSAL.NO_WRITES, `the executed specs already sent ${this.devWrites_} write request(s) to DEV, the run's cap`);
+    if (this.devWrites_ >= this.init.limits.maxDevWrites) {
+      /* A refusal for this capability's own share is a refusal for writes like the run's: the run counts both. */
+      this.init.runWrites?.noteRefused();
+      return refuse(CLOSED_LOOP_REFUSAL.NO_WRITES, `the executed specs already sent ${this.devWrites_} write request(s) to DEV, the run's cap`);
+    }
     const spent = this.runWritesSpent();
     if (spent) return spent;
     const timeoutMs = this.timeoutFor(deadlineLeftMs);

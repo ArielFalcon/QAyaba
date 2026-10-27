@@ -9,6 +9,7 @@ import {
   loopClosed,
   type LedgerEntry,
 } from "@contexts/test-execution/domain/run-spec-capability.ts";
+import { RunDevWriteLedger } from "@contexts/test-execution/domain/run-dev-write-ledger.ts";
 
 const LIMITS = { maxCalls: 3, perCallMs: 60_000, maxDevWrites: 5 };
 
@@ -158,4 +159,34 @@ test("a run that delivered nothing, or whose last call failed, is never closed",
 test("spec paths are compared in their canonical form", () => {
   const ledger: LedgerEntry[] = [{ path: "flows/a.spec.ts", sha256: "x", status: "passed", namespace: "r-rs1", ms: 1, devWrites: 0 }];
   assert.equal(loopClosed(ledger, new Map([["./flows//a.spec.ts", "x"]])), true);
+});
+
+function flowOf(runWrites: RunDevWriteLedger, maxDevWrites: number): RunSpecCapability {
+  return new RunSpecCapability({ runId: "run-1-flow", limits: { ...LIMITS, maxDevWrites }, expiresAtMs: 10_000_000, now: () => 1_000, runWrites });
+}
+
+test("a flow refused because its own share of writes is spent counts in the run's refused total", () => {
+  const runWrites = new RunDevWriteLedger(20);
+  const flow = flowOf(runWrites, 2);
+  assert.ok(flow.reserve(undefined).ok);
+  flow.settle(entry({ devWrites: 2 }));
+  flow.chargeRunWrites(2);
+  const refused = flow.reserve(undefined);
+  assert.equal(!refused.ok && refused.code, CLOSED_LOOP_REFUSAL.NO_WRITES);
+  assert.equal(runWrites.refused, 1);
+  assert.equal(runWrites.left(), 18, "the run's own cap still has writes left: the refusal was the flow's share");
+});
+
+test("the run's cap still refuses every flow once spent, whatever share a flow has left, and counts each refusal", () => {
+  const runWrites = new RunDevWriteLedger(3);
+  const spender = flowOf(runWrites, 5);
+  const other = flowOf(runWrites, 5);
+  assert.ok(spender.reserve(undefined).ok);
+  spender.settle(entry({ devWrites: 3 }));
+  spender.chargeRunWrites(3);
+  const refused = other.reserve(undefined);
+  assert.equal(!refused.ok && refused.code, CLOSED_LOOP_REFUSAL.NO_WRITES);
+  assert.match(!refused.ok ? refused.message : "", /the run's cap of 3/);
+  assert.equal(other.budget(undefined).devWritesLeft, 0, "the share left is bounded by the run's total left");
+  assert.equal(runWrites.refused, 1);
 });

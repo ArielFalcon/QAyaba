@@ -16,7 +16,7 @@ export class RunDevWriteLedger {
     return this.used_;
   }
 
-  /* Calls refused because the run's total was spent. */
+  /* Calls refused for writes: the run's total was spent, or the calling loop's own share was. */
   get refused(): number {
     return this.refused_;
   }

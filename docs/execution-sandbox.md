@@ -255,7 +255,7 @@ A spec runs with the saved session and, when the app opted in, the account in re
 
 `gateSignals.sandbox = { egress: "enforced" | "unenforced" | "not-applicable", denied: string[] }`, persisted with the outcome.
 It is observation only: nothing reads it to decide a verdict. A run that granted the `run_spec` tool also records
-`gateSignals.closedLoop = { calls, devWrites, closed, granted, writesRefused }` (`granted`: the calls the run's flows were granted together, its derived total; `writesRefused`: calls refused because the run's writes to DEV were spent); there `closed` is read back by the run to skip regenerations that repeat what the generator already saw pass.
+`gateSignals.closedLoop = { calls, devWrites, closed, granted, writesRefused }` (`granted`: the calls the run's flows were granted together, its derived total; `writesRefused`: calls refused for writes to DEV, because the run's cap or the calling flow's own share was spent); there `closed` is read back by the run to skip regenerations that repeat what the generator already saw pass.
 A run that granted the authenticated browser records `gateSignals.agentBrowser = { calls, blocks, invalidations, renewals, granted }` (`granted`: the calls of the shares it gave flows and explore questions, together), persist-only; the probe report prints it.
 
 ## Operating it

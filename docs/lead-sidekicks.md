@@ -57,8 +57,8 @@ signed-in app (see below); without either, no sidekick can author and the run en
    "up to N requests that write to DEV while the run's shared cap lasts (M left now)", and each answer reports the smaller of its
    share left and the run's. Writes are counted after a spec ran, so the last admitted call can send more than was left (the total
    can pass the cap by that one call's writes); a call whose writes cannot be counted is charged the run's whole remainder. Only an
-   app whose cap is 0 gives its flows no loop, and their briefs say the app allows no writes to DEV. Calls refused for the run's
-   total are counted in `gateSignals.closedLoop.writesRefused`. A browser session of a flow spends its flow's share alone;
+   app whose cap is 0 gives its flows no loop, and their briefs say the app allows no writes to DEV. Calls refused for writes, for the
+   run's total or for the calling flow's own share, are counted in `gateSignals.closedLoop.writesRefused`. A browser session of a flow spends its flow's share alone;
    the browser's own run total (`DEFAULT_AGENT_BROWSER_LIMITS.maxCalls`) holds only the sessions bound to no flow and is the base an
    explore question's share is cut from. The derived totals are recorded: `gateSignals.closedLoop.granted` and
    `gateSignals.agentBrowser.granted`. A plan that cannot be admitted goes back to the lead once, in its open session, with the
