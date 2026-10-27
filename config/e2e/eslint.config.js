@@ -20,6 +20,9 @@ export default tseslint.config(
       "playwright/no-element-handle": "error",
       // A test without an assert proves nothing (guaranteed false positive).
       "playwright/expect-expect": "error",
+      // An assertion that runs only while a condition on the page holds proves nothing when it does not:
+      // the test passes over the very state it should catch (an empty list, every option disabled).
+      "playwright/no-conditional-expect": "error",
     },
   },
   {
