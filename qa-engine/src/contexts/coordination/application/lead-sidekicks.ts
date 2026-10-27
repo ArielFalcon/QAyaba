@@ -26,7 +26,7 @@ import { briefCandidatesFor } from "./brief-candidates.ts";
 import { proofsFor } from "./change-proofs.ts";
 import { entryKey } from "@kernel/change-reach.ts";
 import { candidatePagesOf, pageRoutesOf, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
-import { admissionSetOf, flowCovers, MAX_PLAN_ROUNDS, planCoverage, renderReplanRequest, unvisitedBy, type AdmissionSet, type PlanCoverage } from "./plan-coverage.ts";
+import { admissionSetOf, flowCovers, honorContradictedDrops, impliedNoopDrops, MAX_PLAN_ROUNDS, planCoverage, renderReplanRequest, unvisitedBy, type AdmissionSet, type PlanCoverage } from "./plan-coverage.ts";
 import type { CandidateClaim, DelegationResult } from "./delegation-result.ts";
 import { classifyDelegationFailure } from "./delegation-failure-class.ts";
 import { admitLeadReview, candidateGapsOf, MAX_REVIEW_TURNS, renderLeadReview, REVIEW_ACTION, type FlowUnderReview, type ReviewOrder } from "./lead-review.ts";
@@ -78,8 +78,6 @@ const changeRoutesOf = (input: { candidates?: readonly UseCaseCandidate[] }): st
 const MAX_SNAPSHOT_SPECS = 3;
 
 export const MIN_FLOW_MS = 60_000;
-/* The refusal reason of a plan that drops every use case on bases the run's facts contradict, after the lead was asked once more. */
-export const DROPS_CONTRADICTED = "drops-contradicted";
 /* What a run keeps for what follows the flows (validation, execution, the reviewer): a quarter of what is left, and never less than this. */
 export const MIN_RESERVE_MS = 120_000;
 export const RESERVE_SHARE = 0.25;
@@ -187,6 +185,8 @@ export interface CorrectionTally {
   rebutted: number;
   /* Maintenance flows opened for findings that named a spec no flow of the plan owns; absent when there was none. */
   maintained?: number;
+  /* Units of a gap the caps cut from the turns the lead was asked; absent when none was. */
+  omitted?: number;
 }
 
 /*
@@ -312,44 +312,29 @@ export class LeadSidekicks {
         planned = explored.planned;
       }
       if (planned.timedOut) return refuse(AUTHORING_REFUSAL.PLAN_TIMED_OUT, "the planning turn ran out of its time", { authoring: authoringName });
-      if (planned.noopReason !== undefined) {
-        this.record(input, { kind: "proposal", action: "direct", reason: `plan: noop (${planned.noopReason})` });
-        this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.NOOP, [], planned.noopReason);
-        return { action: "noop", reason: planned.noopReason, signal: { ...base, plan: LEAD_PLAN_KIND.NOOP, authoring: authoringName } };
-      }
-
-      let admitted = this.admit(input, planned.plan, parallel);
+      /* A declared no-op in either shape (`{"kind":"noop"}` or a plan of no flows that drops every use case) is held to the same facts. */
+      const noopOf = (reason: string): AdmittedPlan => ({ kind: LEAD_PLAN_KIND.NOOP, reason, ...(admission.required.length > 0 ? { dropped: impliedNoopDrops(reason, admission.required) } : {}) });
+      let admitted = planned.noopReason !== undefined ? noopOf(planned.noopReason) : this.admit(input, planned.plan, parallel);
       if (admitted.kind === PLAN_REJECTED) {
         const corrected = await this.reask(input, planned.lead, admitted.downgrade, parallel);
-        if (corrected.noopReason !== undefined) {
-          this.record(input, { kind: "proposal", action: "direct", reason: `plan: noop (${corrected.noopReason})` });
-          this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.NOOP, [], corrected.noopReason);
-          return { action: "noop", reason: corrected.noopReason, signal: { ...base, plan: LEAD_PLAN_KIND.NOOP, authoring: authoringName } };
-        }
-        if (corrected.plan) admitted = corrected.plan;
+        if (corrected.noopReason !== undefined) admitted = noopOf(corrected.noopReason);
+        else if (corrected.plan) admitted = corrected.plan;
       }
       let coverage: PlanCoverage = { covered: [], dropped: [], unresolved: [] };
-      if (admitted.kind === LEAD_PLAN_KIND.FANOUT) {
-        coverage = planCoverage(admitted, admission.required);
+      if (admitted.kind === LEAD_PLAN_KIND.FANOUT || (admitted.kind === LEAD_PLAN_KIND.NOOP && admitted.dropped !== undefined)) {
+        /* A plan is held to the facts once: a drop they contradict returns it to the lead with the fact; what the lead keeps after that is its decision. */
+        coverage = planCoverage({ flows: admitted.kind === LEAD_PLAN_KIND.FANOUT ? admitted.flows : [], dropped: admitted.dropped ?? [] }, admission.required);
         const replanned = await this.replan(input, planned.lead, admitted, coverage, admission, parallel);
         admitted = replanned.plan;
-        coverage = replanned.coverage;
-      } else if (admitted.kind === LEAD_PLAN_KIND.NOOP && admitted.dropped !== undefined) {
-        /* A plan of no flows whose every use case is dropped is held to the same facts as any drop: a basis they contradict returns it to the lead once. */
-        coverage = planCoverage({ flows: [], dropped: admitted.dropped }, admission.required);
-        const replanned = await this.replan(input, planned.lead, admitted, coverage, admission, parallel);
-        admitted = replanned.plan;
-        coverage = replanned.coverage;
-        if (admitted.kind === LEAD_PLAN_KIND.NOOP && admitted.dropped !== undefined && coverage.refused !== undefined) {
-          const refused = coverage.refused.map((r) => `${r.candidate.id} (${r.basis}: ${r.why})`).join("; ");
-          this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.REJECTED, [], `drops contradicted by the run's facts: ${refused}`);
-          return refuse(`${AUTHORING_REFUSAL.PLAN_REJECTED}:${DROPS_CONTRADICTED}`, `the plan drops every use case but the run's facts contradict: ${refused}`, { authoring: authoringName });
-        }
+        coverage = honorContradictedDrops(replanned.coverage);
+        this.reportContradicted(input, coverage);
       }
+      const contradicted = contradictionsOf(coverage);
+      const withContradictions = { ...base, ...(contradicted.length > 0 ? { dropsContradicted: contradicted } : {}) };
       this.record(input, { kind: "proposal", action: admitted.kind === LEAD_PLAN_KIND.FANOUT ? "delegate" : "direct", reason: describePlan(admitted) });
       if (admitted.kind === LEAD_PLAN_KIND.NOOP) {
-        this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.NOOP, [], admitted.reason);
-        return { action: "noop", reason: admitted.reason, signal: { ...base, plan: LEAD_PLAN_KIND.NOOP, authoring: authoringName } };
+        this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.NOOP, [], admitted.reason, undefined, contradicted.length > 0 ? { admission, coverage } : undefined);
+        return { action: "noop", reason: admitted.reason, signal: { ...withContradictions, plan: LEAD_PLAN_KIND.NOOP, authoring: authoringName } };
       }
       if (admitted.kind === PLAN_REJECTED) {
         this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.REJECTED, [], admitted.downgrade);
@@ -357,7 +342,7 @@ export class LeadSidekicks {
       }
       this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.FANOUT, admitted.flows, undefined, undefined, { admission, coverage });
       this.reportUnplanned(input, coverage);
-      const result = await this.fanOut(input, admitted.flows, admitted.parallel, { mode: authoring.mode, ...(planned.lead ? { lead: planned.lead } : {}) }, { ...base, plan: LEAD_PLAN_KIND.FANOUT, authoring: authoringName }, { admission, coverage });
+      const result = await this.fanOut(input, admitted.flows, admitted.parallel, { mode: authoring.mode, ...(planned.lead ? { lead: planned.lead } : {}) }, { ...withContradictions, plan: LEAD_PLAN_KIND.FANOUT, authoring: authoringName }, { admission, coverage });
       /* A pass kept open holds the lead's session from here on. */
       if (result.action === "fanout" && result.pass) leadHanded = true;
       return result;
@@ -878,6 +863,11 @@ export class LeadSidekicks {
   /* One correction turn: the lead routes the findings, the orchestrator holds it to its facts, and each flow sent findings is corrected by its sidekick. */
   private async correct(lead: LeadSessionHandle, flows: AdmittedFlow[], parallel: number, context: FlowContext, live: Map<string, LiveFlow>, findings: readonly CorrectionFinding[], origin: CorrectionOrigin, tally: CorrectionTally, state: { released: boolean }, omitted = 0): Promise<PassCorrection> {
     const { input } = context;
+    /* What the caps cut from the gap is told to the lead as "recorded as left out": it is recorded here, in the run's coordination record and as a decision. */
+    if (omitted > 0) {
+      tally.omitted = (tally.omitted ?? 0) + omitted;
+      this.record(input, { kind: "lead-decision", reason: `correction (${origin}): ${omitted} further unit(s) of the gap were left out of the turn by the caps and are not corrected now` });
+    }
     const nothing = (why: string): PassCorrection => {
       this.record(input, { kind: "lead-decision", reason: `correction (${origin}): ${why}; the findings stand` });
       return { readable: false, specs: [], rebuttals: [], unrouted: findings.map((_, i) => i) };
@@ -1145,7 +1135,7 @@ export class LeadSidekicks {
     const unvisited = unvisitedBy(changeRoutes, flows.flatMap((flow) => flow.routes));
     const state = (candidate: UseCaseCandidate, state: PlanSnapshotCandidate["state"], why?: string): PlanSnapshotCandidate => ({ id: candidate.id, tier: candidate.tier, reachability: candidate.reachability, state, pages: candidatePagesOf(candidate), entry: entryKey(candidate.entry), existingSpecs: candidate.existingSpecs.slice(0, MAX_SNAPSHOT_SPECS), ...(why !== undefined ? { reason: why } : {}) });
     const candidates: PlanSnapshotCandidate[] = coverage
-      ? [...coverage.covered.map((c) => state(c, "planned")), ...coverage.dropped.map((d) => state(d.candidate, "dropped", d.reason)), ...coverage.unresolved.map((c) => state(c, "unplanned"))]
+      ? [...coverage.covered.map((c) => state(c, "planned")), ...coverage.dropped.map((d) => ({ ...state(d.candidate, "dropped", d.reason), ...(d.contradicted ? { contradicted: d.contradicted } : {}) })), ...coverage.unresolved.map((c) => state(c, "unplanned"))]
       : [];
     try {
       this.deps.planSnapshots?.record({ runId: input.runId, kind, ...(reason !== undefined ? { reason } : {}), changeRoutes, unvisited, candidates, flows: snapshotFlows, recordedAt: this.now() });
@@ -1155,6 +1145,12 @@ export class LeadSidekicks {
   }
 
   /* The use cases the plan, after its re-plan, still answers for nowhere: said in the run's decisions, never silent. */
+  /* The drops the facts contradicted that the lead kept after the one re-ask: honored, and said in the run's decisions. */
+  private reportContradicted(input: CoordinateInput, coverage: PlanCoverage): void {
+    const kept = contradictionsOf(coverage);
+    if (kept.length > 0) this.record(input, { kind: "lead-decision", reason: `plan: ${kept.length} drop(s) the run's facts contradict were kept by the lead after being asked once more, and stand: ${kept.map((c) => `${c.candidate} (${c.basis}: ${c.why})`).join("; ")}`.slice(0, 1_000) });
+  }
+
   private reportUnplanned(input: CoordinateInput, coverage: PlanCoverage): void {
     if (coverage.unresolved.length > 0) this.record(input, { kind: "lead-decision", reason: `plan: ${coverage.unresolved.length} use case(s) neither covered nor dropped, recorded as unplanned: ${coverage.unresolved.map((c) => c.id).join(", ")}` });
   }
@@ -1162,6 +1158,11 @@ export class LeadSidekicks {
   private record(input: CoordinateInput, event: { kind: "proposal" | "delegation" | "escalation" | "lead-decision"; action?: "direct" | "delegate" | "escalate-sidekick" | "abort-human"; sidekickKind?: SidekickKind; tier?: SidekickTier; reason: string; delegationId?: string; attempt?: number; durationMs?: number; failureClass?: string; progressFingerprint?: string; sidekickStatus?: string; lastRunSpec?: string }): void {
     this.deps.telemetry?.record({ runId: input.runId, app: input.app, at: this.now(), ...event });
   }
+}
+
+/* The drops of a plan the facts contradict and the lead kept, as the run's signal carries them. */
+function contradictionsOf(coverage: PlanCoverage): Array<{ candidate: string; basis: string; why: string }> {
+  return coverage.dropped.flatMap((d) => (d.contradicted ? [{ candidate: d.candidate.id, basis: d.contradicted.basis, why: d.contradicted.why }] : []));
 }
 
 function describePlan(plan: AdmittedPlan): string {

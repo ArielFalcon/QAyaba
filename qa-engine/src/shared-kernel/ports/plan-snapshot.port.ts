@@ -53,6 +53,8 @@ export interface PlanSnapshotCandidate {
   existingSpecs?: string[];
   /* The lead's reason, for a dropped candidate. */
   reason?: string;
+  /* Set on a dropped candidate whose drop the run's facts contradicted and the lead kept when asked once more: the basis it gave and the fact against it. */
+  contradicted?: { basis: string; why: string };
 }
 
 export interface PlanSnapshot {

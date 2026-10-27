@@ -62,7 +62,7 @@ export interface PlanEvidence {
   /* The pages of the app's map the change is linked to. */
   changeRoutes: readonly string[];
   /* The use cases the plan had to answer for and what became of each; empty when the run kept none. */
-  candidates: ReadonlyArray<{ id: string; state: "planned" | "dropped" | "unplanned"; reason?: string; pages?: readonly string[] }>;
+  candidates: ReadonlyArray<{ id: string; state: "planned" | "dropped" | "unplanned"; reason?: string; pages?: readonly string[]; contradicted?: { basis: string; why: string } }>;
   flows: ReadonlyArray<{
     id: string;
     /* The change pages the flow visits. */

@@ -154,9 +154,9 @@ const CANDIDATE_STATES = new Set(["planned", "dropped", "unplanned"]);
 function planCandidatesOf(value: unknown): PlanEvidence["candidates"] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((entry: unknown) => {
-    const c = entry as { id?: unknown; state?: unknown; reason?: unknown; pages?: unknown } | null;
+    const c = entry as { id?: unknown; state?: unknown; reason?: unknown; pages?: unknown; contradicted?: { basis?: unknown; why?: unknown } | null } | null;
     if (c === null || typeof c !== "object" || typeof c.id !== "string" || typeof c.state !== "string" || !CANDIDATE_STATES.has(c.state)) return [];
-    return [{ id: c.id, state: c.state as "planned" | "dropped" | "unplanned", ...(typeof c.reason === "string" ? { reason: c.reason } : {}), ...(Array.isArray(c.pages) ? { pages: asStringArray(c.pages) } : {}) }];
+    return [{ id: c.id, state: c.state as "planned" | "dropped" | "unplanned", ...(typeof c.reason === "string" ? { reason: c.reason } : {}), ...(Array.isArray(c.pages) ? { pages: asStringArray(c.pages) } : {}), ...(typeof c.contradicted?.basis === "string" && typeof c.contradicted.why === "string" ? { contradicted: { basis: c.contradicted.basis, why: c.contradicted.why } } : {}) }];
   });
 }
 

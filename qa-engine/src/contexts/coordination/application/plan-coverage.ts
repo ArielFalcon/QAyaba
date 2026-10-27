@@ -37,7 +37,7 @@ export interface PlannedFlow {
 
 export interface PlanCoverage {
   covered: UseCaseCandidate[];
-  dropped: Array<{ candidate: UseCaseCandidate; reason: string }>;
+  dropped: Array<{ candidate: UseCaseCandidate; reason: string; /* Set when the lead kept a drop the facts contradicted: honored, and recorded. */ contradicted?: { basis: PlanDrop["basis"]; why: string } }>;
   unresolved: UseCaseCandidate[];
   /* The drops the orchestrator's facts contradict, with why: their candidates are also in `unresolved`. */
   refused?: Array<{ candidate: UseCaseCandidate; basis: PlanDrop["basis"]; why: string }>;
@@ -58,6 +58,27 @@ export function dropRefusal(candidate: UseCaseCandidate, basis: PlanDrop["basis"
   }
   if (basis === DROP_BASIS.ALREADY_COVERED) return candidate.existingSpecs.length === 0 ? "no spec of the suite is linked to it" : undefined;
   return undefined;
+}
+
+/*
+ * What the lead decided after it was shown the fact that contradicts a drop. The fact (a code file with added lines, no spec linked) is
+ * a signal, not proof: a refactor, a type-only or a comment edit has changed code and nothing a browser can observe. So a drop that
+ * is still refused after the one re-ask stands as the lead's decision and moves from `unresolved` to `dropped`, carrying the
+ * contradiction for graders and reports to count. Never an infra error.
+ */
+export function honorContradictedDrops(coverage: PlanCoverage): PlanCoverage {
+  if (coverage.refused === undefined || coverage.refused.length === 0) return coverage;
+  const refused = new Map(coverage.refused.map((r) => [r.candidate.id, r]));
+  const honored = coverage.unresolved.flatMap((candidate) => {
+    const r = refused.get(candidate.id);
+    return r ? [{ candidate, reason: `${r.basis}: contradicted by the run's facts (${r.why})`, contradicted: { basis: r.basis, why: r.why } }] : [];
+  });
+  return { covered: coverage.covered, dropped: [...coverage.dropped, ...honored], unresolved: coverage.unresolved.filter((c) => !refused.has(c.id)) };
+}
+
+/* The drops of a plan that dropped everything without saying which: a declared no-op decides about each use case the change makes testable, on the basis that nothing a browser can observe changed. */
+export function impliedNoopDrops(reason: string, admission: readonly UseCaseCandidate[]): PlanDrop[] {
+  return admission.map((candidate) => ({ candidate: candidate.id, basis: DROP_BASIS.NO_OBSERVABLE_CHANGE, reason }));
 }
 
 /* The page routes `visited` name, as a change page is named: a route is the page or one of its template's. */

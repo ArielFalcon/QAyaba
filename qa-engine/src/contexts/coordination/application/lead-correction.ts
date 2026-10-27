@@ -11,6 +11,7 @@
 
 import { REVIEW_ACTION, MAX_INSTRUCTION_CHARS, MAX_SPEC_CHARS } from "./lead-review.ts";
 import { lastJsonObjectWhere } from "@kernel/last-json-object.ts";
+import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import type { RedactionPort } from "@kernel/ports/redaction.port.ts";
 
 const MAX_REF_CHARS = 400;
@@ -142,12 +143,13 @@ function namesSpecIn(text: string, spec: string): boolean {
   return false;
 }
 
-const normalizedPath = (path: string): string => path.replaceAll("\\", "/").replace(/^\.\//, "");
-
-/* Whether two repository paths name one file, either of them possibly carrying a longer prefix. */
+/*
+ * Whether two repository-relative paths name one file: equality of the one canonical form (`normalizeSpecPath`), never a suffix. The diff,
+ * the seeds and the coverage gap all spell a changed file from the repository root, so `src/index.ts` and `packages/a/src/index.ts`
+ * are two files in a monorepo.
+ */
 export function sameFile(a: string, b: string): boolean {
-  const [x, y] = [normalizedPath(a), normalizedPath(b)];
-  return x === y || x.endsWith(`/${y}`) || y.endsWith(`/${x}`);
+  return normalizeSpecPath(a) === normalizeSpecPath(b);
 }
 
 /*
@@ -197,7 +199,7 @@ export function renderLeadCorrection(redaction: RedactionPort, flows: readonly F
     `## ${text.heading}`,
     text.lead,
     rebuttable(origin) ? "" : "These are facts the run observed: each one is corrected, none is rebutted.",
-    omitted > 0 ? `${omitted} further unit(s) of the gap are not listed in this turn: the run records them as left out and no one corrects them now.` : "",
+    omitted > 0 ? `${omitted} further unit(s) of the gap are not listed in this turn: the run records the count as left out and no one corrects them now.` : "",
     ...blocks,
     catalogue,
     loose.length > 0

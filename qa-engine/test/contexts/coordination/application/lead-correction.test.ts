@@ -116,7 +116,10 @@ const covering: FlowUnderCorrection[] = [
 
 test("a finding about a source file belongs to the one flow that covers a use case the file seeds, a spec it names comes first, and a file two flows share belongs to neither", () => {
   assert.equal(flowOfFinding({ text: "lines 3-4 are not exercised", file: "src/cart.ts" }, covering), "cart");
-  assert.equal(flowOfFinding({ text: "x", file: "./src/login.ts" }, covering), "login", "a path with a longer prefix or a leading ./ names the same file");
+  assert.equal(flowOfFinding({ text: "x", file: "./web/src/login.ts" }, covering), "login", "a leading ./ or a backslash spells the same file");
+  assert.equal(flowOfFinding({ text: "x", file: "web\\src\\login.ts" }, covering), "login");
+  assert.equal(flowOfFinding({ text: "x", file: "src/login.ts" }, covering), undefined, "in a monorepo src/login.ts is not web/src/login.ts: files are equal, never a suffix of one another");
+  assert.equal(flowOfFinding({ text: "x", file: "packages/a/src/cart.ts" }, covering), undefined);
   assert.equal(flowOfFinding({ text: "x", file: "src/shared.ts" }, covering), undefined);
   assert.equal(flowOfFinding({ text: "x", file: "src/other.ts" }, covering), undefined);
   assert.equal(flowOfFinding({ text: "x", file: "src/cart.ts", spec: "e2e/flows/login.spec.ts" }, covering), "login");

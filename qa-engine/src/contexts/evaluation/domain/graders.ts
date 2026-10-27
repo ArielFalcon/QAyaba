@@ -355,7 +355,7 @@ const planCandidates: Grader = {
     const flowsOf = (id: string): typeof plan.flows => plan.flows.filter((f) => f.candidates.some((c) => c.id === id));
     const planned = plan.candidates.filter((c) => c.state === "planned");
     const stateOf = (c: (typeof plan.candidates)[number]): string => {
-      if (c.state === "dropped") return `dropped: ${c.reason ?? "no reason"}`;
+      if (c.state === "dropped") return `dropped: ${c.reason ?? "no reason"}${c.contradicted ? " (the run's facts contradicted it)" : ""}`;
       if (c.state === "unplanned") return "unplanned";
       return flowsOf(c.id).some((f) => f.passed === true) ? "delivered" : "planned";
     };

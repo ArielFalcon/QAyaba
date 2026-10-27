@@ -82,10 +82,12 @@ export interface CoordinationGateSignal {
   incomplete: number;
   /* What the sidekicks authored with ("authenticated-browser", "run-spec-only", "unauthenticated-browser", or why none ran). */
   authoring?: string;
+  /* The drops the run's facts contradicted (a code file with added lines, no spec linked) that the lead kept when asked once more, per candidate: honored, never an error, counted by graders and the campaign report. Absent when there was none. */
+  dropsContradicted?: Array<{ candidate: string; basis: string; why: string }>;
   /* The lead's review of the flows: its turns, the decisions admitted, and those the orchestrator refused. Absent when the lead reviewed nothing. */
   review?: { turns: number; accepted: number; revised: number; replaced: number; dropped: number; refused: number };
   /* The reviewer's corrections the lead routed: its turns, the findings sent to flows and those no flow took, the flows revised or replaced, and the findings it rebutted, and the maintenance flows it opened for specs no flow of the plan owns. Absent when there was none. */
-  corrections?: { turns: number; routed: number; unrouted: number; revised: number; replaced: number; rebutted: number; maintained?: number };
+  corrections?: { turns: number; routed: number; unrouted: number; revised: number; replaced: number; rebutted: number; maintained?: number; omitted?: number };
 }
 
 /* The settings an app declared, with every limit it left out taken from the defaults. */

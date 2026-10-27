@@ -50,8 +50,11 @@ signed-in app (see below); without either, no sidekick can author and the run en
    to the facts it has (`dropRefusal`, `plan-coverage.ts`): `no-observable-change` is refused when a seed of the candidate is
    executable code of a declared language (`LanguageRegistry`, a test file excluded), `already-covered` when no spec of the suite
    is linked to the candidate; a drop with no basis of the set, or a refused one, leaves the candidate unresolved and goes back
-   to the lead in the one re-plan turn with the fact that contradicts it. A fan-out of no flow whose drops stay contradicted after that
-   turn is refused `plan-rejected:drops-contradicted`. The planning turn lists the candidates, each with the specs the suite already holds for it and what the manifest
+   to the lead in the one re-plan turn with the fact that contradicts it. The fact is a signal, not proof (a refactor, a
+   type-only or a comment edit changes code and nothing a browser observes), so it applies to every no-op shape (`{"kind":"noop"}`, which
+   drops each use case on `no-observable-change`, a fan-out of no flow, and the drops inside a fan-out): a drop the lead keeps after the
+   one re-ask stands (a no-op stays `skipped`, a fan-out keeps its flows) and is recorded per candidate with its basis and the contradicting fact
+   (`gateSignals.coordination.dropsContradicted`, `contradicted` on the plan snapshot's candidate, a `lead-decision` event); it is never an infra error. The planning turn lists the candidates, each with the specs the suite already holds for it and what the manifest
    declares each one checks (`candidateLine`), so the lead plans from that instead of opening them. A plan that leaves one unresolved is returned to the lead once, in
    its open session (`MAX_PLAN_ROUNDS`); a second answer that is a plan of flows replaces the first. A candidate still
    unresolved is admitted as it stands, recorded `unplanned` on the plan snapshot and as a `lead-decision` event, and named

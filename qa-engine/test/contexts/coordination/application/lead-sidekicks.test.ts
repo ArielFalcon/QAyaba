@@ -11,7 +11,6 @@ import { DEFAULT_COORDINATION_SETTINGS, type PlanningLimits } from "@kernel/coor
 import { MAX_SESSION_PAGES } from "@kernel/agent-browser.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import {
-  DROPS_CONTRADICTED,
   LeadSidekicks,
   MIN_FLOW_MS,
   type CoordinateInput,
@@ -1730,6 +1729,8 @@ test("the lead is told how many units of the gap a turn leaves out", async () =>
   await outcome.pass!.correct([{ text: "src/cart.ts not exercised", file: "src/cart.ts" }], CORRECTION_ORIGIN.COVERAGE, 7);
   await outcome.pass!.release();
   assert.match(lead.asked[1]!, /7 further unit/);
+  assert.equal(outcome.pass!.tally().omitted, 7, "the count the lead is told is recorded");
+  assert.ok(r.events.some((e) => /7 further unit/.test(e.reason ?? "")));
 });
 
 const DROP_EVERYTHING = { kind: "fanout", flows: [], dropped: [{ candidate: "uc-/cart", basis: "no-observable-change", reason: "only a stylesheet changed" }] };
@@ -1745,16 +1746,57 @@ test("a plan that drops every use case as unchanged is refused when the candidat
   assert.ok(lead.replans[0]!.includes("src/cart.ts"), "the lead is told which fact contradicts its drop");
 });
 
-test("a plan whose drops stay contradicted after the one more asking is refused, and a drop the facts allow still ends the run as the lead's no-op", async () => {
+test("a plan whose drops stay contradicted after the one more asking is the lead's no-op, recorded with the fact, never an infra error", async () => {
   const stubborn = leadCiting([ACCEPT_ALL], DROP_EVERYTHING, { plan: DROP_EVERYTHING });
   const r = rig();
-  const refused = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: stubborn.plan, closedLoop: undefined, candidates: [SEEDED[0]!] }));
-  assert.equal(refused.action === "refused" ? refused.refusal : undefined, `${AUTHORING_REFUSAL.PLAN_REJECTED}:${DROPS_CONTRADICTED}`);
+  const kept = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: stubborn.plan, closedLoop: undefined, candidates: [SEEDED[0]!] }));
+  assert.equal(kept.action, "noop");
   assert.equal(stubborn.replans.length, 1, "once, never twice");
+  const contradicted = kept.signal.dropsContradicted;
+  assert.deepEqual(contradicted?.map((c) => [c.candidate, c.basis]), [["uc-/cart", "no-observable-change"]]);
+  assert.ok(contradicted?.[0]?.why.includes("src/cart.ts"));
+  assert.ok(r.events.some((e) => /contradict/.test(e.reason ?? "") && /uc-\/cart/.test(e.reason ?? "")), "a coordination event says it");
+  const dropped = r.plans.at(-1)?.candidates.find((c) => c.id === "uc-/cart");
+  assert.equal(dropped?.state, "dropped");
+  assert.equal(dropped?.contradicted?.basis, "no-observable-change");
 
   const style = seededPage("/cart", "src/cart.css");
   const allowed = leadCiting([ACCEPT_ALL], DROP_EVERYTHING);
   const noop = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: allowed.plan, closedLoop: undefined, candidates: [style] }));
   assert.equal(noop.action, "noop");
+  assert.equal(noop.signal.dropsContradicted, undefined, "a drop the facts allow records no contradiction");
   assert.equal(allowed.replans.length, 0);
+});
+
+test("the explicit no-op shape is held to the same facts: asked once with the fact, then honored and recorded", async () => {
+  const asked: string[] = [];
+  const plan: CoordinateInput["plan"] = async () => ({
+    noopReason: "a refactor, nothing observable",
+    parsed: true,
+    timedOut: false,
+    lead: { askForPlan: async (text: string) => { asked.push(text); return { noopReason: "still a refactor", parsed: true, timedOut: false }; }, ask: async () => ({ output: "", timedOut: false }), dispose: async () => {} },
+  });
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan, closedLoop: undefined, candidates: [SEEDED[0]!] }));
+  assert.equal(outcome.action, "noop");
+  assert.equal(asked.length, 1);
+  assert.ok(asked[0]!.includes("src/cart.ts"), "the lead is shown the contradicting fact");
+  assert.deepEqual(outcome.signal.dropsContradicted?.map((c) => c.candidate), ["uc-/cart"]);
+
+  const style = rig();
+  const plain = await new LeadSidekicks(style.deps).coordinate(input(style, { plan: async () => ({ noopReason: "docs only", parsed: true, timedOut: false }), candidates: [seededPage("/cart", "src/cart.css")] }));
+  assert.equal(plain.action, "noop");
+  assert.equal(plain.signal.dropsContradicted, undefined);
+});
+
+test("a fan-out whose drop the facts contradict keeps its flows when the lead persists, and records the contradiction", async () => {
+  const mixed = { kind: "fanout", flows: [{ id: "login", objective: "sign in works", candidates: ["uc-/login"] }], dropped: [{ candidate: "uc-/cart", basis: "no-observable-change", reason: "a type-only edit" }] };
+  const lead = leadCiting([ACCEPT_ALL], mixed, { plan: mixed });
+  const r = rig({ hasFile: new Set(["login"]) });
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, candidates: [SEEDED[0]!, SEEDED[1]!] }));
+  assert.equal(outcome.action, "fanout");
+  assert.equal(lead.replans.length, 1);
+  assert.deepEqual(outcome.signal.dropsContradicted?.map((c) => c.candidate), ["uc-/cart"]);
+  assert.ok(!r.events.some((e) => /neither covered nor dropped/.test(e.reason ?? "")), "it is a kept drop, not an unplanned use case");
+  if (outcome.action === "fanout") await outcome.pass?.release();
 });
