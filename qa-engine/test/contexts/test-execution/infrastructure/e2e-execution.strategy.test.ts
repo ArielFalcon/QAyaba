@@ -23,6 +23,14 @@ test("delegates to runE2E with the mapped opts and returns the verdict/cases/log
   assert.equal(out.logs, "ok");
 });
 
+test("the writes the fixtures counted and the requests behind them come back with the result", async () => {
+  const devWriteRequests = [{ method: "POST", url: "https://dev/api/orders", count: 1 }];
+  const strategy = new E2eExecutionStrategy(async () => ({ sha: "abc", verdict: "pass", passed: true, cases: [], logs: "", devWrites: 1, devWriteRequests }));
+  const out = await strategy.run({ ...req, countWrites: true });
+  assert.equal(out.devWrites, 1);
+  assert.deepEqual(out.devWriteRequests, devWriteRequests);
+});
+
 /*
  * Runner-infra reclassification has a SINGLE owner — e2e-execution.runner.ts's own
  * allFailuresAreRunnerInfra, which runs inside the real runE2E before this strategy ever sees a

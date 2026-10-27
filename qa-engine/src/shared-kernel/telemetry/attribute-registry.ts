@@ -405,6 +405,7 @@ export const ATTRIBUTES = {
   "qayaba.tool.refusal": str("The refusal code of a call the orchestrator declined (a closed set per tool)."),
   "qayaba.tool.message_id": str("The assistant message the tool reported for the call; the join key to the agent's execute_tool span.", "high"),
   "qayaba.tool.dev_writes": int("Requests a run_spec call sent to DEV that write."),
+  "qayaba.tool.dev_write_requests": spec("string[]", "The requests behind a run_spec call's DEV writes, as `METHOD origin/pathname[ ×count]` (no query, no body), at most 20 distinct.", "high", "redacted-text", 20),
   "qayaba.lease.wait_ms": int("Milliseconds the call waited for the test account's lease."),
   "qayaba.lease.refused": bool("The call was refused because DEV was busy (the account's lease was not obtained)."),
   "qayaba.namespace": str("The namespace a run_spec call's data was created under.", "high"),

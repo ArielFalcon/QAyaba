@@ -21,6 +21,7 @@ import { parsePlaywrightReport } from "./playwright-report.ts";
 import { PLAYWRIGHT_INFRA_RE } from "../../../shared-kernel/playwright-infra.ts";
 import { openDumpBridge } from "./run-dump-bridge.ts";
 import { activeExecScope } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
+import { MAX_DEV_WRITE_REQUESTS, noteDevWriteRequest, type DevWriteRequest } from "../domain/dev-write-request.ts";
 
 export const DEFAULT_E2E_TIMEOUT_MS = 900_000;
 
@@ -184,6 +185,8 @@ export interface E2eRunResult {
   note?: string;
   /* Mutating requests the specs sent to DEV, as the fixtures counted them; absent when nothing trustworthy was counted. */
   devWrites?: number;
+  /* The requests behind that count, by method and origin and pathname, at most MAX_DEV_WRITE_REQUESTS distinct; present with a count the fixtures recorded requests for. */
+  devWriteRequests?: DevWriteRequest[];
 }
 
 /* Why a report that says every test passed is not believed, or undefined when how the child ended gives no reason to doubt it. Both the status and the signal come from the process, never from the report or the logs, so they are safe to say. */
@@ -292,7 +295,7 @@ export async function runE2E(
   /* The ledger is read before any early return, but only believed for a run that finished and whose report says how many tests ran: a stopped run has no ledger for the test it was running, and a ledger short of the tests that ran has lost some, so the writes of either are unknown and the caller charges the whole cap (see readDevWrites). */
   const ledger = opts.countWrites ? readDevWrites(failureCaptureDir, failureCaptureRoot) : undefined;
   const counted = (result: E2eRunResult, executed?: number): E2eRunResult =>
-    ledger === undefined || executed === undefined || ledger.files < executed ? result : { ...result, devWrites: ledger.writes };
+    ledger === undefined || executed === undefined || ledger.files < executed ? result : { ...result, devWrites: ledger.writes, ...(ledger.requests.length > 0 ? { devWriteRequests: ledger.requests } : {}) };
 
   /* Single sanitizeText pass: a separate containsSecrets() pre-check is redundant with this SAME detection result (mirrors code-execution.runner.ts's own AMENDMENT-1 simplification) — the warn fires under the exact same condition as before, just derived from one call instead of two. */
   const sanitized = sanitizeText(logs);
@@ -413,20 +416,39 @@ export async function runE2E(
   }
 }
 
-/* The writes to DEV the specs of a run sent, from the ledger files the fixtures left in the failure-capture directory, and how many files that was (one per test that ran). The directory is the child's, so it is read strictly (see readRunOutputDir) and all or nothing: a missing, forged, oversized or unreadable file makes the whole count unknown (undefined) and never a smaller one. The counter itself runs inside the suite's own fixtures, which is agent-editable code, so a ledger is evidence of what the spec did only against an honest spec; the hard bound on what a call can do to DEV is the call cap times the per-call time, and the egress filter. */
+/* The writes to DEV the specs of a run sent, from the ledger files the fixtures left in the failure-capture directory, the requests they recorded behind the count (method, origin and pathname, re-derived here and redacted, so a query never leaves), and how many files that was (one per test that ran). The directory is the child's, so it is read strictly (see readRunOutputDir) and all or nothing: a missing, forged, oversized or unreadable file makes the whole count unknown (undefined) and never a smaller one. The counter itself runs inside the suite's own fixtures, which is agent-editable code, so a ledger is evidence of what the spec did only against an honest spec; the hard bound on what a call can do to DEV is the call cap times the per-call time, and the egress filter. */
 const LEDGER_FILE_RE = /^ledger-[A-Za-z0-9_-]+\.json$/;
-const LEDGER_LIMITS: RunOutputLimits = { maxFileBytes: 4_096, maxTotalBytes: 1024 * 1024, maxFiles: 4_096 };
+const LEDGER_LIMITS: RunOutputLimits = { maxFileBytes: 16_384, maxTotalBytes: 4 * 1024 * 1024, maxFiles: 4_096 };
 const MAX_LEDGER_WRITES = 1_000_000;
+/* What one ledger file may record: the seed keeps the first MAX_DEV_WRITE_REQUESTS of a test's writes, each URL cut at 300 characters. */
+const MAX_LEDGER_URL_CHARS = 300;
+const WRITE_METHOD_RE = /^(?:POST|PUT|PATCH|DELETE)$/;
 
-function readDevWrites(dir: string | undefined, root: string | undefined): { writes: number; files: number } | undefined {
+/* One recorded request, or a throw that makes the whole ledger untrusted: a method that does not write, or a URL that is not one. */
+function ledgerRequest(raw: unknown): { method: string; url: string } {
+  const { method, url } = (raw ?? {}) as { method?: unknown; url?: unknown };
+  if (typeof method !== "string" || !WRITE_METHOD_RE.test(method)) throw new Error("not a write");
+  if (typeof url !== "string" || url.length > MAX_LEDGER_URL_CHARS) throw new Error("not a url");
+  const parsed = new URL(url);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("not a url");
+  return { method, url: sanitizeText(`${parsed.origin}${parsed.pathname}`).text };
+}
+
+function readDevWrites(dir: string | undefined, root: string | undefined): { writes: number; files: number; requests: DevWriteRequest[] } | undefined {
   if (dir === undefined) return undefined;
   const base = root ?? dir;
   const files = readRunOutputDir({ mirrorDir: base, specDir: base }, relative(base, dir) || ".", (name) => LEDGER_FILE_RE.test(name), (_name, bytes) => {
-    const writes = (JSON.parse(bytes.toString("utf8")) as { writes?: unknown }).writes;
+    const parsed = JSON.parse(bytes.toString("utf8")) as { writes?: unknown; requests?: unknown };
+    const writes = parsed.writes;
     if (typeof writes !== "number" || !Number.isInteger(writes) || writes < 0 || writes > MAX_LEDGER_WRITES) throw new Error("not a count");
-    return writes;
+    const recorded = parsed.requests ?? [];
+    if (!Array.isArray(recorded) || recorded.length > MAX_DEV_WRITE_REQUESTS || recorded.length > writes) throw new Error("not a list of the counted requests");
+    return { writes, requests: recorded.map(ledgerRequest) };
   }, LEDGER_LIMITS);
-  return files === undefined || files.length === 0 ? undefined : { writes: files.reduce((sum, n) => sum + n, 0), files: files.length };
+  if (files === undefined || files.length === 0) return undefined;
+  const requests: DevWriteRequest[] = [];
+  for (const file of files) for (const r of file.requests) noteDevWriteRequest(requests, r.method, r.url);
+  return { writes: files.reduce((sum, f) => sum + f.writes, 0), files: files.length, requests };
 /* mutation-scope:begin output-readers */
 }
 

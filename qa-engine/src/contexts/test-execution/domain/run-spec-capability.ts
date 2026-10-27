@@ -8,6 +8,7 @@
 import { DEFAULT_CLOSED_LOOP_LIMITS, type ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import type { RunDevWriteLedger } from "./run-dev-write-ledger.ts";
+import type { DevWriteRequest } from "./dev-write-request.ts";
 
 /* The agent whose sessions hold the capability of one flow of a plan: the author of that flow. */
 export const RUN_SPEC_FLOW_AGENT = "qa-author";
@@ -65,7 +66,7 @@ export interface RunSpecFailureFact {
   unsettled?: true;
 }
 
-/* One call that ran: the spec's bytes at that moment (their sha256), how it ended, under which namespace, how long it took, how many writes it sent to DEV and the facts of the tests that failed. */
+/* One call that ran: the spec's bytes at that moment (their sha256), how it ended, under which namespace, how long it took, how many writes it sent to DEV (and which requests, by method and origin and pathname, when the fixtures recorded them) and the facts of the tests that failed. */
 export interface LedgerEntry {
   path: string;
   sha256: string;
@@ -73,6 +74,7 @@ export interface LedgerEntry {
   namespace: string;
   ms: number;
   devWrites: number;
+  devWriteRequests?: readonly DevWriteRequest[];
   failures?: readonly RunSpecFailureFact[];
 }
 

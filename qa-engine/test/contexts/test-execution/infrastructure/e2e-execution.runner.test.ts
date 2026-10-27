@@ -38,6 +38,7 @@ import { sharedTestExec, testExecSandbox } from "../../../support/exec-sandbox-h
 import { ProcessKillAdapter } from "../../../../src/shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { newSandboxReport, withExecScope, type RunScope } from "../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import { MAX_DEV_WRITE_REQUESTS } from "@contexts/test-execution/domain/dev-write-request.ts";
 
 test("allFailuresAreRunnerInfra: a browser-launch failure is infra (runner fault), not a test failure", () => {
   const launchFail: QaCase[] = [
@@ -1279,6 +1280,43 @@ test("runE2E counts when every test that ran left a ledger", async () => {
     assert.equal(run.devWrites, 3);
   } finally {
     ledger.cleanup();
+  }
+});
+
+test("runE2E reports the requests the fixtures counted by method and origin and pathname, merged, with no query", async () => {
+  const ledger = withLedgerDir({
+    "ledger-0-1.json": JSON.stringify({ writes: 2, requests: [{ method: "POST", url: "https://dev.example.com/api/orders?token=abc" }, { method: "DELETE", url: "https://dev.example.com/api/orders/1" }] }),
+    "ledger-1-1.json": JSON.stringify({ writes: 1, requests: [{ method: "POST", url: "https://dev.example.com/api/orders" }] }),
+  });
+  try {
+    const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, ledger.deps());
+    assert.equal(run.devWrites, 3);
+    assert.deepEqual(run.devWriteRequests, [
+      { method: "POST", url: "https://dev.example.com/api/orders", count: 2 },
+      { method: "DELETE", url: "https://dev.example.com/api/orders/1", count: 1 },
+    ]);
+  } finally {
+    ledger.cleanup();
+  }
+});
+
+test("runE2E keeps at most the cap of distinct requests, and a ledger whose requests it cannot trust leaves the whole count unknown", async () => {
+  const many = withLedgerDir({ "ledger-0-1.json": JSON.stringify({ writes: 30, requests: Array.from({ length: 20 }, (_, i) => ({ method: "PUT", url: `https://dev.example.com/a/${i}` })) }), "ledger-0-2.json": JSON.stringify({ writes: 5, requests: Array.from({ length: 5 }, (_, i) => ({ method: "PATCH", url: `https://dev.example.com/b/${i}` })) }) });
+  const notAWrite = withLedgerDir({ "ledger-0-1.json": JSON.stringify({ writes: 1, requests: [{ method: "GET", url: "https://dev.example.com/a" }] }) });
+  const notAUrl = withLedgerDir({ "ledger-0-1.json": JSON.stringify({ writes: 1, requests: [{ method: "POST", url: "not a url" }] }) });
+  try {
+    const kept = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, many.deps({ stats: { expected: 2 }, suites: [] }));
+    assert.equal(kept.devWrites, 35);
+    assert.equal(kept.devWriteRequests?.length, MAX_DEV_WRITE_REQUESTS);
+    for (const deps of [notAWrite.deps(), notAUrl.deps()]) {
+      const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, deps);
+      assert.equal(run.devWrites, undefined);
+      assert.equal(run.devWriteRequests, undefined);
+    }
+  } finally {
+    many.cleanup();
+    notAWrite.cleanup();
+    notAUrl.cleanup();
   }
 });
 

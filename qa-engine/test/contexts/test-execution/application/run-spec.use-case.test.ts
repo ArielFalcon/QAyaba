@@ -247,6 +247,18 @@ test("the ledger holds the sha256 of the bytes that ran, and the writes the fixt
   assert.equal(response.report.budget.devWritesLeft, 2);
 });
 
+test("the requests behind a call's writes are kept on its ledger entry and told to its span, and never reach the agent's answer", async (t) => {
+  const h = harness(t);
+  const requests = [{ method: "POST", url: "https://dev.example.com/api/orders", count: 2 }, { method: "DELETE", url: "https://dev.example.com/api/orders/1", count: 1 }];
+  h.next.result = { verdict: "pass", cases: [{ name: "t", status: "pass" }], logs: "", devWrites: 3, devWriteRequests: requests };
+  const attrs: Record<string, unknown> = {};
+  const response = await new RunSpecUseCase(h.deps).run({ sessionId: "ses-1", agent: RUN_SPEC_FLOW_AGENT, path: "flows/a.spec.ts" }, undefined, { setAttrs: (a) => Object.assign(attrs, a) });
+  assert.ok(response.ok);
+  assert.deepEqual(h.capability.ledger[0]!.devWriteRequests, requests);
+  assert.deepEqual(attrs["qayaba.tool.dev_write_requests"], ["POST https://dev.example.com/api/orders ×2", "DELETE https://dev.example.com/api/orders/1"]);
+  assert.doesNotMatch(JSON.stringify(response), /api\/orders/);
+});
+
 test("a spec rewritten while the call ran is not recorded as a pass, whatever the run said", async (t) => {
   const h = harness(t);
   h.next.result = { verdict: "pass", cases: [{ name: "t", status: "pass" }], logs: "", devWrites: 0 };

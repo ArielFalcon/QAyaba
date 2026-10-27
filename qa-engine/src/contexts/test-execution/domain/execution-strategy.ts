@@ -1,5 +1,6 @@
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import type { DevWriteRequest } from "./dev-write-request.ts";
 
 export interface CheckResult { ok: boolean; output: string; infra?: boolean; }
 
@@ -39,4 +40,6 @@ export interface ExecutionResult {
   logs: string;
   /** Mutating requests the specs sent to DEV, as the fixtures counted them. Absent: not counted. */
   devWrites?: number;
+  /** The requests behind `devWrites`, by method and origin and pathname. Absent: none recorded. */
+  devWriteRequests?: DevWriteRequest[];
 }

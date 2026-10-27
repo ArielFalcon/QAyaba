@@ -1,5 +1,6 @@
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import type { DevWriteRequest } from "./dev-write-request.ts";
 
 export interface SpecExecutionRequest {
   /* Relative to the spec directory. */
@@ -18,4 +19,6 @@ export interface SpecExecutionResult {
   logs: string;
   /* Mutating requests the executed spec sent to DEV, as the fixtures counted them. Absent: nothing could be counted. */
   devWrites?: number;
+  /* The requests behind that count, by method and origin and pathname. Absent: none recorded. */
+  devWriteRequests?: readonly DevWriteRequest[];
 }

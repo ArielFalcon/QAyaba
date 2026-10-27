@@ -2,8 +2,9 @@ import type { ExecutionStrategyPort } from "../application/ports/execution-strat
 import type { ExecutionRequest, ExecutionResult } from "../domain/execution-strategy.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { InfraError } from "@kernel/domain-error.ts";
+import type { DevWriteRequest } from "../domain/dev-write-request.ts";
 
-interface E2eRunResultShape { verdict: string; cases: QaCase[]; logs: string; devWrites?: number; }
+interface E2eRunResultShape { verdict: string; cases: QaCase[]; logs: string; devWrites?: number; devWriteRequests?: DevWriteRequest[]; }
 type RunE2eFn = (
   specDir: string,
   opts: {
@@ -53,6 +54,6 @@ export class E2eExecutionStrategy implements ExecutionStrategyPort {
      * production callers (this strategy AND the fault-injection oracle's own re-run) depend on
      * that SAME upstream check, so this strategy does not re-derive it.
      */
-    return { verdict: result.verdict as ExecutionResult["verdict"], cases: result.cases, logs: result.logs, ...(result.devWrites !== undefined ? { devWrites: result.devWrites } : {}) };
+    return { verdict: result.verdict as ExecutionResult["verdict"], cases: result.cases, logs: result.logs, ...(result.devWrites !== undefined ? { devWrites: result.devWrites } : {}), ...(result.devWriteRequests !== undefined ? { devWriteRequests: result.devWriteRequests } : {}) };
   }
 }
