@@ -1,14 +1,21 @@
 /* Text helpers every prompt builder shares: model-bound redaction, the capped diff, the commit message and the step-limit fact. Never import src/. */
 
 import { sanitizeText, assertNoSecretLeak, type RedactionMode } from "../../../../shared-infrastructure/redaction/pattern-redaction.adapter.ts";
-import { capText, extractDiffFilePath } from "../prompt-cap.ts";
+import { COMMIT_BODY_SAFETY_BOUND, boundEvidenceText, extractDiffFilePath } from "../prompt-cap.ts";
+import { NOT_SHOWN } from "../../domain/window-fit-references.ts";
 import type { CommitIntent } from "../../domain/generation-input.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 
-export function renderCommitMessage(intent: CommitIntent | undefined, includeBody: boolean): string {
+/*
+ * The commit message of a task: its subject, and its body on a first pass. The body is whole (below the safety bound on a committer's prose);
+ * over the role's window it is the line that says how long it is and where to read it (`body: "reference"`).
+ */
+export function renderCommitMessage(intent: CommitIntent | undefined, includeBody: boolean, opts: { sha?: string; body?: "whole" | "reference" } = {}): string {
   const subject = intent?.message ?? "";
   const body = includeBody ? intent?.body : undefined;
-  return sanitizeText(body ? `${subject}\n\n${capText(body)}` : subject).text;
+  if (!body) return sanitizeText(subject).text;
+  if (opts.body === "reference") return sanitizeText(`${subject}\n\n[The commit body (${body.split("\n").length} line(s)) is ${NOT_SHOWN}; read it with \`git show ${opts.sha ?? "<sha>"}\`.]`).text;
+  return sanitizeText(`${subject}\n\n${boundEvidenceText(body, COMMIT_BODY_SAFETY_BOUND, "the commit body")}`).text;
 }
 
 /* The cap the runtime enforces for the turn, stated as a fact: the number and nothing else. It bounds the turn the prompt is sent for, never the session. A generator prompt and a reviewer prompt state it the same way. */

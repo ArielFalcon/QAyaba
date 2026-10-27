@@ -38,8 +38,7 @@ import { GENERATOR_SECTIONS } from "@contexts/generation/infrastructure/prompt-b
 import { AGENT_BROWSER_SECTION_ID, HARNESS_FACTS_SECTION_ID, LEAD_PLAN_SECTION_ID, STEP_LIMIT_SECTION_ID, hasTrustLanguage, lintCell } from "@contexts/generation/application/index.ts";
 import { STEP_MILESTONE_SECTION_ID, isTestWritingTurn } from "@contexts/generation/application/index.ts";
 import { PACK_HEADINGS, SUITE_LISTING_LABELS } from "@contexts/generation/application/index.ts";
-import { LISTING_MAX_DO_NOT_REWRITE, LISTING_MAX_UNNAMED_EDITABLE } from "@contexts/generation/application/index.ts";
-import { everyDeliveredLine, leftOutLine } from "@contexts/generation/application/index.ts";
+import { everyDeliveredLine } from "@contexts/generation/application/index.ts";
 import { suiteEntryFile } from "@contexts/generation/application/index.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/application/index.ts";
 
@@ -305,12 +304,14 @@ test("a regeneration that carries the run's specs lists them under the labels of
   }
 });
 
-test("an exhaustive regeneration carries more of the run's specs than the listing shows of those it leaves alone, and says how many it left out", async () => {
+test("an exhaustive regeneration carries many of the run's specs it leaves alone, and the listing names every one of them", async () => {
   const spec = allValidSpecs().find((s) => s.mode === "exhaustive" && s.target === "e2e" && s.phase === "regen-fix" && s.suite === "listed" && s.grounding === "none" && s.tree === "none")!;
   const section = splitAssembledSections(buildPromptAssembled(await buildInput(spec), { budgetBytes: 0 })).find((part) => part.id === "existing-suite-manifest")!;
   const delivered = (await buildInput(spec)).deliveredSpecs ?? [];
-  assert.ok(delivered.length - 1 > LISTING_MAX_DO_NOT_REWRITE, "more specs are left alone than the listing can show");
-  assert.ok(section.text.split("\n").includes(leftOutLine(delivered.length - 1 - LISTING_MAX_DO_NOT_REWRITE)), "the count left out is stated");
+  const written = section.text.split("\n");
+  assert.ok(delivered.length - 1 > 30, "setup: many specs are left alone");
+  assert.equal(written.slice(written.indexOf(SUITE_LISTING_LABELS.doNotRewrite) + 1).filter((line) => line.startsWith("- ")).length, delivered.length - 1, "every spec left alone is listed");
+  assert.ok(!written.some((line) => line.startsWith("(+")), "no count of specs left out");
   assert.equal(section.text.split(SUITE_LISTING_LABELS.doNotRewrite).length, 2);
 });
 
@@ -340,13 +341,13 @@ test("a combination with the worst-case listing is named and budgeted apart from
   assert.notEqual(bucketOf(large, true), bucketOf(twin, true));
 });
 
-test("the worst-case listing is really built: more specs delivered and more suite lines than the listing shows, and the section says how many it left out of each", async () => {
+test("the worst-case listing is really built: many specs delivered and many suite lines, and the section lists every one of them", async () => {
   for (const phase of ["regen-coverage", "selector-fix"] as const) {
     const spec = largeSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === phase && s.tree === "none" && s.grounding === "none")!;
     const input = await buildInput(spec);
     const delivered = input.deliveredSpecs ?? [];
     const existing = input.existingSpecFiles ?? [];
-    assert.ok(delivered.length > LISTING_MAX_UNNAMED_EDITABLE && existing.length > LISTING_MAX_DO_NOT_REWRITE, `${phase}: setup, there is more of each than the listing shows`);
+    assert.ok(delivered.length > 30 && existing.length > 30, `${phase}: setup, there are many of each`);
     assert.equal(new Set([...delivered.map((d) => d.file), ...existing.map(suiteEntryFile)]).size, delivered.length + existing.length, `${phase}: no spec is listed twice`);
     const section = splitAssembledSections(buildPromptAssembled(input, { budgetBytes: 0 })).find((part) => part.id === "existing-suite-manifest")!;
     const written = section.text.split("\n");
@@ -354,11 +355,9 @@ test("the worst-case listing is really built: more specs delivered and more suit
     assert.ok(written.includes(SUITE_LISTING_LABELS.editable) && labelAt > 0, `${phase}: both groups are there`);
     assert.ok(written.includes(everyDeliveredLine(delivered.length)), `${phase}: every spec the run delivered is editable`);
     assert.ok(written.filter((line) => line.startsWith("- ")).every((line) => Buffer.byteLength(line, "utf8") >= LONG_ENTRY_BYTES), `${phase}: every entry is as long as a long, real one`);
-    assert.equal(written.slice(0, labelAt).filter((line) => line.startsWith("- ")).length, LISTING_MAX_UNNAMED_EDITABLE, `${phase}: the editable group is full`);
-    assert.equal(written.slice(labelAt).filter((line) => line.startsWith("- ")).length, LISTING_MAX_DO_NOT_REWRITE, `${phase}: the do-not-rewrite group is full`);
-    const editableLeftOutAt = written.indexOf(leftOutLine(delivered.length - LISTING_MAX_UNNAMED_EDITABLE));
-    assert.ok(editableLeftOutAt > 0 && editableLeftOutAt < labelAt, `${phase}: the count left out of the editable group`);
-    assert.equal(written.at(-1), leftOutLine(existing.length - LISTING_MAX_DO_NOT_REWRITE), `${phase}: the count left out of the do-not-rewrite group`);
+    assert.equal(written.slice(0, labelAt).filter((line) => line.startsWith("- ")).length, delivered.length, `${phase}: every delivered spec is in the editable group`);
+    assert.equal(written.slice(labelAt).filter((line) => line.startsWith("- ")).length, existing.length, `${phase}: every suite line is in the do-not-rewrite group`);
+    assert.ok(!written.some((line) => line.startsWith("(+")), `${phase}: no count of specs left out`);
   }
 });
 

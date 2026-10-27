@@ -159,11 +159,15 @@ test("A' buildPrompt sanitizes the commit body (defense in depth — the body is
   assert.match(p, /\[REDACTED\]/);
 });
 
-test("A' buildPrompt caps a huge commit body so it cannot blow the prompt budget", () => {
-  const huge = "behavioral note. ".repeat(1000); /* ~17k chars, well over the 4k cap */
+test("A' buildPrompt carries a long commit body whole, and cuts only one past the safety bound, saying so", () => {
+  const long = "behavioral note. ".repeat(300); /* ~5k chars, over the 4k it used to be cut at */
+  const whole = buildPrompt({ ...input, intent: { ...input.intent!, body: long } });
+  assert.ok(whole.includes(long.trim()), "the whole body is in the prompt");
+  assert.doesNotMatch(whole, /safety bound/);
+  const huge = "behavioral note. ".repeat(1000); /* ~17k chars, past the safety bound */
   const p = buildPrompt({ ...input, intent: { ...input.intent!, body: huge } });
-  assert.match(p, /body truncated/);
-  assert.ok(!p.includes(huge), "the full uncapped body must not appear in the prompt");
+  assert.match(p, /past the safety bound on the commit body/);
+  assert.ok(!p.includes(huge), "the full body past the bound must not appear in the prompt");
 });
 
 test("A' buildPrompt does NOT render the body on a re-generation pass (objective already established; protects the largest prompts)", () => {

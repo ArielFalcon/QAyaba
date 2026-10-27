@@ -103,6 +103,8 @@ export interface TaskParts {
   claims: PromptClaim[];
   /* The commit diff the text carries as its diff block (commitDiffBlock), when it carries one: what the window fit rule gives up first. */
   diff?: string;
+  /* How many lines the commit body the text carries has, when it carries one: what the window fit rule gives up before the diff. */
+  commitBodyLines?: number;
 }
 
 /* The changed-files line every diff-shaped task carries. */
@@ -188,7 +190,7 @@ function buildCodeTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
     changedFilesLine(input, "Changed files (derive the scope from these)"),
     ``,
     `## Commit message (the author's intent — derive each test's objective from this)`,
-    renderCommitMessage(intent, true),
+    renderCommitMessage(intent, true, { sha: input.sha, body: guards.commitBody }),
     ``,
     `Cross-check against the diff: if the code does more than the message claims, test what the code`,
     `actually changes, not just what the message promises.`,
@@ -200,7 +202,7 @@ function buildCodeTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
     ``,
     objective.text,
   ].join("\n");
-  return { text, claims: [claim.provides("diff"), claim.directs("consult", "diff"), ...objective.claims], diff: input.diff };
+  return { text, claims: [claim.provides("diff"), claim.directs("consult", "diff"), ...objective.claims], diff: input.diff, ...(intent?.body ? { commitBodyLines: intent.body.split("\n").length } : {}) };
 }
 
 /* A cross-repo change is read from the service's staged snapshot, never from its working copy: the block that says so declares the fact. */
@@ -281,6 +283,8 @@ export interface TaskGuards {
   suiteListed: boolean;
   /* The turn asks for the outcome again: a spec under correction has no objective its lead declared, or a reviewer disputes one. Read on a regeneration only. */
   reaskObjective: boolean;
+  /* How the commit body is written: whole (absent reads as whole), or as the line that says where to read it, for a prompt over its window. */
+  commitBody?: "whole" | "reference";
 }
 
 /* What a diff of each size asks of the agent. The effort is a ceiling on the work and never a floor: no tier asks for a spec, and declaring the no-op, for either of its reasons, is within every bound. `upperBound` counts spec files (a flow each) for the whole change, or for each affected flow; inside each, a test per behaviour the change decides. The texts carry no figure and no word the lint counts, so the line adds nothing to the directive budget and declares no claim. */
@@ -365,7 +369,7 @@ export function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskPart
     changedFilesLine(input, "Changed files (derive the scope/area from these)"),
     ``,
     `## Commit message (the author's intent — derive each test's objective from this)`,
-    renderCommitMessage(intent, true),
+    renderCommitMessage(intent, true, { sha: input.sha, body: guards.commitBody }),
     ``,
     `Cross-check against the diff: cover what the code actually changes, not only what the message promises.`,
     ``,
@@ -400,5 +404,5 @@ export function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskPart
   if (!guards.suiteListed) claims.push(claim.directs("read", "existing-suite"));
   /* The instruction to cross-check the diff is in this text, so the diff it refers to is declared consulted. */
   claims.push(claim.directs("consult", "diff"), ...serviceSnapshotClaims(input));
-  return { text, claims };
+  return { text, claims, ...(intent?.body ? { commitBodyLines: intent.body.split("\n").length } : {}) };
 }

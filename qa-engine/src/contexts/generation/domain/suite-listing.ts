@@ -1,26 +1,27 @@
 /* The listing of the suite for a regeneration. A regeneration is told which specs there are (the ones the suite had before the run, and the ones this run delivered), which of them the turn must change or extend (editable) and which it must leave alone (do-not-rewrite). Pure: what the turn is asks nothing but the signals the generation input already carries.
    Of a spec an entry hands out its text and two facts, and nothing else. The text is made here once, as one line, passed through the sanitizer this function is given and then capped, so that no entry carries a line break, a secret or an unbounded text into a prompt; it is the only thing of an agent's that a listing holds. The canonical path of a spec is what the turn's signals are matched against and stays inside `buildSuiteListing`.
-   What this module does not do is render: the headings, the "(+N more)" lines and the plain list a turn with nothing editable gets are the prompt builder's, and the instructions to read an editable spec and to ask the objective again follow from `editable` and `reaskObjective`.
+   What this module does not do is render: the headings and the plain list a turn with nothing editable gets are the prompt builder's, and the instructions to read an editable spec and to ask the objective again follow from `editable` and `reaskObjective`.
    A spec is editable because a signal of the turn names it (named), or because the turn cannot say which spec to change and takes every spec this run delivered (unnamed). Which specs, by the turn:
    - FixLoop, when a failing case names its file: exactly the failing files, matched to the entries at folder boundaries. Nothing else widens the turn: not the error text of a failing test, a review correction, a selector contradiction or a coverage gap. A failing file that matches no entry is appended as an editable entry of its own.
    - a fix whose failing cases name no file (a static fix, a case the report gave no file for): the specs their error text names, and no other. A fix turn tells the agent to leave the tests that passed alone, so it never takes the specs this run delivered.
    - pre-exec, selector contradictions: the specs they are attributed to; none attributed, every spec this run delivered.
    - reviewer corrections: the specs each correction names; a correction that names none adds every spec this run delivered.
    - coverage: every spec this run delivered, and the turn may add a spec of its own.
-   The specs a signal names are all shown. The specs only the fallback adds are shown up to a cap and the rest are counted, so that a run that delivered many specs cannot make the section outgrow the prompt. */
+   Every spec is listed, the ones a signal names and the ones only the fallback adds, however many a run delivered. A prompt over its role's window gives the entries to leave alone up as the directories they are in, then the unnamed editable ones (the line that says every delivered spec is editable stays), never the ones a signal names (suite-listing-render.ts). */
 import type { QaCase } from "@kernel/qa-case.ts";
 import { upsertDeliveredSpec, type DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import { formatSuiteEntry, suiteEntryFile } from "./suite-entry.ts";
 
-/* How many do-not-rewrite entries a listing shows; the rest are counted. */
-export const LISTING_MAX_DO_NOT_REWRITE = 30;
+/*
+ * The safety bound on the text of one entry, in characters, the mark that says it was cut included. An entry is the one line of a spec
+ * an agent described (its path, flow and objective): text the orchestrator does not control, so one line cannot outgrow a prompt. It
+ * is no cap on how many entries a listing shows, and the listing counts the entries it cut so the section records them.
+ */
+export const LISTING_ENTRY_SAFETY_BOUND = 400;
 
-/* How many unnamed editable entries a listing shows; the rest are counted. The editable entries a signal names are never capped. */
-export const LISTING_MAX_UNNAMED_EDITABLE = 30;
-
-/* The longest text of an entry, in characters, the mark that says it was cut included. */
-export const LISTING_MAX_ENTRY_CHARS = 400;
+/* The omission reason of an entry cut at the bound. */
+export const LISTING_ENTRY_SAFETY_BOUND_REASON = "listing-entry-safety-bound";
 
 /* The tags with which a reviewer disputes what a spec is for. A correction carries its tag first. */
 const OBJECTIVE_DISPUTE = /^\s*\[(?:wrong-objective|false-positive)\]/i;
@@ -46,8 +47,10 @@ export interface ListingOptions {
 }
 
 export interface ListingEntry {
-  /** The entry as it is shown: one line, sanitized and capped. The only field of a listing that holds anything an agent wrote. */
+  /** The entry as it is shown: one line, sanitized and cut at the safety bound. The only string of an entry; it starts with the spec's path. */
   readonly text: string;
+  /** The text was cut at the safety bound. */
+  readonly cut: boolean;
   /** This run delivered the spec. */
   readonly delivered: boolean;
   /** The lead declared an objective for the spec in this run. A suite line's folded objective was not declared by this run's lead, and a sidekick declares none. */
@@ -61,24 +64,20 @@ export interface SuiteListing {
   readonly editable: readonly ListingEntry[];
   /** The editable entries a signal of the turn names, in the order of `entries`. All of them are shown, however many there are. */
   readonly named: readonly ListingEntry[];
-  /** The editable entries no signal names, which the turn has because it could not say which spec to change: the specs this run delivered, less the named ones. These are the ones that are shown, in the order of `entries`: at most LISTING_MAX_UNNAMED_EDITABLE. */
+  /** The editable entries no signal names, which the turn has because it could not say which spec to change: the specs this run delivered, less the named ones, in the order of `entries`. */
   readonly unnamed: readonly ListingEntry[];
-  /** How many unnamed editable entries `unnamed` leaves out. */
-  readonly unnamedLeftOut: number;
-  /** The entries the turn must leave alone that are shown (the same objects as in `entries`): at most LISTING_MAX_DO_NOT_REWRITE, this run's own specs before the suite's. */
+  /** The entries the turn must leave alone (the same objects as in `entries`): this run's own specs before the suite's. */
   readonly doNotRewrite: readonly ListingEntry[];
-  /** How many do-not-rewrite entries `doNotRewrite` leaves out. */
-  readonly leftOut: number;
   /** Whether the turn may add a spec of its own beside the ones it changes: a coverage turn, which writes tests for the changed lines nothing exercised. */
   readonly mayAddSpec: boolean;
   /** Whether the turn asks the objective again. It does not when the turn has specs to change, every one of them has an objective its lead declared in this run, and no correction that starts with [wrong-objective] or [false-positive] names one of them. A suite line's folded objective and a sidekick's spec count as having none, and a disputing correction that names no spec is taken to dispute them all. */
   readonly reaskObjective: boolean;
 }
 
-/* A text that is one line, safe, and no longer than the limit (counted in characters, so that no character is cut in two). */
-function shown(raw: string, sanitize: (text: string) => string): string {
+/* A text that is one line, safe, and no longer than the safety bound (counted in characters, so that no character is cut in two). */
+function shown(raw: string, sanitize: (text: string) => string): { text: string; cut: boolean } {
   const characters = [...sanitize(raw.replace(/\s+/g, " ").trim())];
-  return characters.length <= LISTING_MAX_ENTRY_CHARS ? characters.join("") : `${characters.slice(0, LISTING_MAX_ENTRY_CHARS - 1).join("")}…`;
+  return characters.length <= LISTING_ENTRY_SAFETY_BOUND ? { text: characters.join(""), cut: false } : { text: `${characters.slice(0, LISTING_ENTRY_SAFETY_BOUND - 1).join("")}…`, cut: true };
 }
 
 /* The runs of name characters in a text, each as a canonical path: a full stop that ends a sentence is not part of the name, and a position after the name (`:12:5`) is not a name character. A run with nothing left (an ellipsis) is the empty path, which names no spec. */
@@ -100,7 +99,7 @@ export function buildSuiteListing(input: SuiteListingInput, options: ListingOpti
   for (const line of input.existing ?? []) {
     const file = normalizeSpecPath(suiteEntryFile(line));
     if (file === "" || known.has(file)) continue;
-    known.set(file, { text: shown(line, sanitize), delivered: false, leadObjective: false });
+    known.set(file, { ...shown(line, sanitize), delivered: false, leadObjective: false });
   }
 
   /* The delivered list is read as the run keeps it: one entry per file, the newest declaration of each. */
@@ -108,7 +107,7 @@ export function buildSuiteListing(input: SuiteListingInput, options: ListingOpti
     const prior = known.get(spec.file);
     const declares = spec.flow !== undefined || spec.objective !== undefined;
     known.set(spec.file, {
-      text: prior !== undefined && !declares ? prior.text : shown(formatSuiteEntry(spec), sanitize),
+      ...(prior !== undefined && !declares ? { text: prior.text, cut: prior.cut } : shown(formatSuiteEntry(spec), sanitize)),
       delivered: true,
       leadObjective: spec.objective !== undefined,
     });
@@ -137,7 +136,7 @@ export function buildSuiteListing(input: SuiteListingInput, options: ListingOpti
       if (matches.length > 0) {
         nameAll(matches);
       } else {
-        known.set(file, { text: shown(file, sanitize), delivered: false, leadObjective: false });
+        known.set(file, { ...shown(file, sanitize), delivered: false, leadObjective: false });
         namedFiles.add(file);
       }
     }
@@ -156,21 +155,18 @@ export function buildSuiteListing(input: SuiteListingInput, options: ListingOpti
   /* A coverage gap, or something to correct that names no spec of the listing, leaves the turn unable to say which spec to change: the specs this run delivered are where it can be. A fix turn takes none. */
   const takesDelivered = !fixing && (Boolean(input.coverageGap) || signals.some((files) => files.length === 0));
   const taken = takesDelivered ? all.filter(([file, entry]) => entry.delivered && !namedFiles.has(file)) : [];
-  const unnamed = taken.slice(0, LISTING_MAX_UNNAMED_EDITABLE).map(([, entry]) => entry);
+  const unnamed = taken.map(([, entry]) => entry);
   const editable = new Set([...namedFiles, ...taken.map(([file]) => file)]);
   const changing = all.filter(([file]) => editable.has(file)).map(([, entry]) => entry);
   const rest = all.filter(([file]) => !editable.has(file)).map(([, entry]) => entry);
   const ordered = [...rest.filter((entry) => entry.delivered), ...rest.filter((entry) => !entry.delivered)];
-  const doNotRewrite = ordered.slice(0, LISTING_MAX_DO_NOT_REWRITE);
   const disputes = corrections.filter((correction) => OBJECTIVE_DISPUTE.test(correction));
   return {
     entries: all.map(([, entry]) => entry),
     editable: changing,
     named: all.filter(([file]) => namedFiles.has(file)).map(([, entry]) => entry),
     unnamed,
-    unnamedLeftOut: taken.length - unnamed.length,
-    doNotRewrite,
-    leftOut: ordered.length - doNotRewrite.length,
+    doNotRewrite: ordered,
     mayAddSpec: !fixing && Boolean(input.coverageGap),
     reaskObjective:
       changing.length === 0 ||

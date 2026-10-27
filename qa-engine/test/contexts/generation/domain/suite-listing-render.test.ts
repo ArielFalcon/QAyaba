@@ -1,8 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildSuiteListing, LISTING_MAX_DO_NOT_REWRITE, LISTING_MAX_UNNAMED_EDITABLE, type SuiteListing, type SuiteListingInput } from "@contexts/generation/domain/suite-listing.ts";
-import { everyDeliveredLine, leftOutLine, renderSuiteListing, suiteListingHead, PLAIN_LISTING_NOTE } from "@contexts/generation/domain/suite-listing-render.ts";
+import { buildSuiteListing, type SuiteListing, type SuiteListingInput } from "@contexts/generation/domain/suite-listing.ts";
+import { everyDeliveredLine, renderSuiteListing, suiteListingDegrade, suiteListingHead, PLAIN_LISTING_NOTE } from "@contexts/generation/domain/suite-listing-render.ts";
 import { PROMPT_HEADINGS, SUITE_LISTING_LABELS } from "@contexts/generation/domain/prompt-headings.ts";
+import { NOT_SHOWN } from "@contexts/generation/domain/window-fit-references.ts";
+import { WINDOW_FIT_REASON } from "@kernel/prompt-sections.ts";
 
 /* How a listing is written into a prompt: the lines of the entries it hands out under the labels of the turn's work, and nothing of what produced them. */
 
@@ -41,11 +43,11 @@ test("the plain list is written byte for byte as a first pass has always written
   );
 });
 
-test("the plain list is never capped: a suite longer than the cap of the do-not-rewrite entries is written whole", () => {
-  const existing = Array.from({ length: LISTING_MAX_DO_NOT_REWRITE + 7 }, (_, index) => `suite/s${String(index).padStart(3, "0")}.spec.ts`);
+test("the plain list is written whole, however long the suite is", () => {
+  const existing = Array.from({ length: 37 }, (_, index) => `suite/s${String(index).padStart(3, "0")}.spec.ts`);
   const text = renderSuiteListing(listing({ existing }));
   assert.equal(lines(text).length, 1 + existing.length);
-  assert.ok(!text.includes(leftOutLine(1)), "nothing is counted as left out");
+  assert.ok(!text.includes("more)"), "nothing is counted as left out");
 });
 
 test("a turn with editable entries writes the title, the editable label and every editable entry, then the do-not-rewrite label and its entries", () => {
@@ -61,30 +63,21 @@ test("a turn with editable entries writes the title, the editable label and ever
   assert.equal(result.doNotRewrite.length, 2);
 });
 
-test("the count in the title is every spec the listing holds, the ones the cap leaves out included", () => {
-  const existing = Array.from({ length: LISTING_MAX_DO_NOT_REWRITE + 5 }, (_, index) => `suite/s${String(index).padStart(3, "0")}.spec.ts`);
+test("the count in the title is every spec the listing holds", () => {
+  const existing = Array.from({ length: 35 }, (_, index) => `suite/s${String(index).padStart(3, "0")}.spec.ts`);
   const result = listing({ existing, delivered: [A], fixCases: [failing("flows/a.spec.ts")] });
   assert.equal(lines(renderSuiteListing(result))[0], `## ${PROMPT_HEADINGS.existingSuiteManifest} (${existing.length + 1} spec file(s))`);
 });
 
-test("the do-not-rewrite entries end with the count of those the cap leaves out, and every editable entry a signal names is written however many there are", () => {
-  const existing = Array.from({ length: LISTING_MAX_DO_NOT_REWRITE + 5 }, (_, index) => `suite/s${String(index).padStart(3, "0")}.spec.ts`);
-  const delivered = Array.from({ length: LISTING_MAX_DO_NOT_REWRITE + 3 }, (_, index) => ({ file: `mine/m${String(index).padStart(3, "0")}.spec.ts` }));
+test("every do-not-rewrite entry and every editable entry a signal names is written, however many there are", () => {
+  const existing = Array.from({ length: 35 }, (_, index) => `suite/s${String(index).padStart(3, "0")}.spec.ts`);
+  const delivered = Array.from({ length: 33 }, (_, index) => ({ file: `mine/m${String(index).padStart(3, "0")}.spec.ts` }));
   const result = listing({ existing, delivered, fixCases: delivered.map((spec) => failing(spec.file)) });
   const written = lines(renderSuiteListing(result));
   assert.equal(result.editable.length, delivered.length);
-  assert.equal(result.leftOut, 5);
-  assert.equal(written.at(-1), leftOutLine(result.leftOut));
   const doNotRewriteAt = written.indexOf(SUITE_LISTING_LABELS.doNotRewrite);
   assert.equal(written.slice(1, doNotRewriteAt).filter((line) => line.startsWith("- ")).length, delivered.length, "every editable entry is written");
-  assert.equal(written.slice(doNotRewriteAt + 1, -1).length, LISTING_MAX_DO_NOT_REWRITE, "the do-not-rewrite entries are the cap's worth");
-});
-
-test("nothing is counted as left out when the cap leaves nothing out", () => {
-  const result = listing({ existing: [C_LINE], delivered: [A], fixCases: [failing("flows/a.spec.ts")] });
-  assert.equal(result.leftOut, 0);
-  const text = renderSuiteListing(result);
-  assert.ok(!lines(text).some((line) => line === leftOutLine(0) || line.startsWith("(+")), "no line counts what the cap left out");
+  assert.equal(written.slice(doNotRewriteAt + 1).length, existing.length, "every do-not-rewrite entry is written, with no line counting any left out");
 });
 
 test("a turn whose every spec is editable writes no do-not-rewrite label", () => {
@@ -113,11 +106,6 @@ test("only the text of an entry reaches the prompt: what produced the listing le
     { sanitize: (text) => text.replaceAll(secret, "[REDACTED]") },
   );
   assert.ok(!renderSuiteListing(result).includes(secret));
-});
-
-test("the left-out line states the count it is given", () => {
-  assert.notEqual(leftOutLine(3), leftOutLine(4));
-  assert.ok(leftOutLine(12).includes("12"));
 });
 
 /* ── the specs only the fallback made editable ── */
@@ -157,32 +145,23 @@ test("the specs a signal names come first and in full, and the summary of the ot
   ]);
 });
 
-test("the specs only the fallback added are listed up to the cap and the rest are counted, ahead of the do-not-rewrite group, which is capped on its own", () => {
-  const delivered = deliveredOf(LISTING_MAX_UNNAMED_EDITABLE + 7);
-  const result = listing({ existing: suiteOf(LISTING_MAX_DO_NOT_REWRITE + 4), delivered, reviewCorrections: UNNAMED_CORRECTION });
-  assert.equal(result.unnamedLeftOut, 7);
-  assert.equal(result.leftOut, 4);
+test("every spec the fallback added is listed after the summary and ahead of the do-not-rewrite group, however many there are", () => {
+  const delivered = deliveredOf(37);
+  const result = listing({ existing: suiteOf(34), delivered, reviewCorrections: UNNAMED_CORRECTION });
   const written = lines(renderSuiteListing(result));
   const summaryAt = written.indexOf(everyDeliveredLine(delivered.length));
   const doNotRewriteAt = written.indexOf(SUITE_LISTING_LABELS.doNotRewrite);
   assert.ok(summaryAt > 0 && summaryAt < doNotRewriteAt, "the summary is in the editable group");
-  assert.deepEqual(written.slice(summaryAt + 1, doNotRewriteAt), [...result.unnamed.map((entry) => bullet(entry.text)), leftOutLine(7)]);
-  assert.equal(result.unnamed.length, LISTING_MAX_UNNAMED_EDITABLE);
-  assert.deepEqual(written.slice(doNotRewriteAt + 1), [...result.doNotRewrite.map((entry) => bullet(entry.text)), leftOutLine(4)]);
+  assert.deepEqual(written.slice(summaryAt + 1, doNotRewriteAt), result.unnamed.map((entry) => bullet(entry.text)));
+  assert.equal(result.unnamed.length, delivered.length);
+  assert.deepEqual(written.slice(doNotRewriteAt + 1), result.doNotRewrite.map((entry) => bullet(entry.text)));
 });
 
-test("nothing is counted as left out of the unnamed group when the cap leaves nothing out of it", () => {
-  const result = listing({ delivered: deliveredOf(LISTING_MAX_UNNAMED_EDITABLE), reviewCorrections: UNNAMED_CORRECTION });
-  assert.equal(result.unnamedLeftOut, 0);
-  assert.ok(!lines(renderSuiteListing(result)).some((line) => line.startsWith("(+")));
-});
-
-test("the summary counts the files under it, those it lists and those it leaves out, and not the ones a signal named above", () => {
-  const delivered = deliveredOf(LISTING_MAX_UNNAMED_EDITABLE + 10);
+test("the summary counts the files under it, and not the ones a signal named above", () => {
+  const delivered = deliveredOf(40);
   const result = listing({ delivered, reviewCorrections: [`${delivered.at(-1)!.file}: weak assertion`, ...UNNAMED_CORRECTION] });
   const written = lines(renderSuiteListing(result));
   assert.ok(written.includes(everyDeliveredLine(delivered.length - 1)));
-  assert.ok(written.includes(leftOutLine(10 - 1)));
   assert.equal(written.filter((line) => line.includes(delivered.at(-1)!.file)).length, 1, "the named spec is written once, among the named");
 });
 
@@ -200,11 +179,11 @@ test("a coverage turn states once that it may add a spec of its own, between the
   ]);
 });
 
-test("a coverage turn with a capped unnamed group states the new-spec allowance after the count left out", () => {
-  const result = listing({ existing: suiteOf(3), delivered: deliveredOf(LISTING_MAX_UNNAMED_EDITABLE + 2), ...COVERAGE });
+test("a coverage turn states the new-spec allowance after every unnamed entry", () => {
+  const result = listing({ existing: suiteOf(3), delivered: deliveredOf(37), ...COVERAGE });
   const written = lines(renderSuiteListing(result));
   const allowanceAt = written.indexOf(SUITE_LISTING_LABELS.newSpec);
-  assert.equal(written[allowanceAt - 1], leftOutLine(2));
+  assert.equal(written[allowanceAt - 1], bullet(result.unnamed.at(-1)!.text));
   assert.equal(written[allowanceAt + 1], SUITE_LISTING_LABELS.doNotRewrite);
 });
 
@@ -235,12 +214,11 @@ test("a coverage turn that delivered nothing keeps the plain list: the allowance
   assert.equal(renderSuiteListing(result), renderSuiteListing(listing({ existing })));
 });
 
-test("however many specs there are, the section lists at most the cap's worth of each group the fallback and the do-not-rewrite entries make", () => {
-  const result = listing({ existing: suiteOf(3 * LISTING_MAX_DO_NOT_REWRITE), delivered: deliveredOf(3 * LISTING_MAX_UNNAMED_EDITABLE), ...COVERAGE });
+test("however many specs there are, the section lists every one of them under its group", () => {
+  const result = listing({ existing: suiteOf(90), delivered: deliveredOf(95), ...COVERAGE });
   const written = lines(renderSuiteListing(result));
-  assert.equal(written.filter((line) => line.startsWith("- ")).length, LISTING_MAX_UNNAMED_EDITABLE + LISTING_MAX_DO_NOT_REWRITE);
-  assert.equal(written.filter((line) => line.startsWith("(+")).length, 2);
-  assert.equal(written.length, 1 + 1 + 1 + LISTING_MAX_UNNAMED_EDITABLE + 1 + 1 + 1 + LISTING_MAX_DO_NOT_REWRITE + 1, "the title, the label, the summary, the entries, the count, the allowance, the label, the entries, the count");
+  assert.equal(written.filter((line) => line.startsWith("- ")).length, 90 + 95);
+  assert.equal(written.length, 1 + 1 + 1 + 95 + 1 + 1 + 90, "the title, the label, the summary, the entries, the allowance, the label, the entries");
 });
 
 test("the label of each group and the summary and the allowance are each written once, so each can be told from the entries under it", () => {
@@ -275,7 +253,7 @@ test("the head is the start of the section in every shape, and the plain list an
     { existing: [C_LINE], delivered: [A, B], ...COVERAGE },
     { existing: [C_LINE], delivered: [A, B], fixCases: [failing("flows/a.spec.ts")] },
     { existing: [C_LINE, "d.spec.ts"], delivered: [A, B], reviewCorrections: ["flows/c.spec.ts: weak assertion", ...UNNAMED_CORRECTION] },
-    { existing: suiteOf(LISTING_MAX_DO_NOT_REWRITE + 3), delivered: deliveredOf(LISTING_MAX_UNNAMED_EDITABLE + 3), ...COVERAGE },
+    { existing: suiteOf(33), delivered: deliveredOf(33), ...COVERAGE },
     { existing: [C_LINE, "d.spec.ts"], delivered: [A] },
     { existing: [C_LINE], ...COVERAGE },
   ];
@@ -290,12 +268,50 @@ test("the head is the start of the section in every shape, and the plain list an
 });
 
 test("a cut of the section from its end takes the do-not-rewrite group first, then the unnamed entries, and leaves the label and the summary for last", () => {
-  const result = listing({ existing: suiteOf(LISTING_MAX_DO_NOT_REWRITE), delivered: deliveredOf(LISTING_MAX_UNNAMED_EDITABLE), ...COVERAGE });
+  const result = listing({ existing: suiteOf(30), delivered: deliveredOf(30), ...COVERAGE });
   const written = lines(renderSuiteListing(result));
   const at = (line: string): number => written.indexOf(line);
-  assert.ok(at(SUITE_LISTING_LABELS.editable) < at(everyDeliveredLine(LISTING_MAX_UNNAMED_EDITABLE)));
-  assert.ok(at(everyDeliveredLine(LISTING_MAX_UNNAMED_EDITABLE)) < at(`- ${result.unnamed[0]!.text}`));
+  assert.ok(at(SUITE_LISTING_LABELS.editable) < at(everyDeliveredLine(30)));
+  assert.ok(at(everyDeliveredLine(30)) < at(`- ${result.unnamed[0]!.text}`));
   assert.ok(at(`- ${result.unnamed.at(-1)!.text}`) < at(SUITE_LISTING_LABELS.newSpec));
   assert.ok(at(SUITE_LISTING_LABELS.newSpec) < at(SUITE_LISTING_LABELS.doNotRewrite));
   assert.ok(at(SUITE_LISTING_LABELS.doNotRewrite) < at(`- ${result.doNotRewrite[0]!.text}`));
+});
+
+/* ── over the window ── */
+
+const stepOf = (result: SuiteListing, step: number) => suiteListingDegrade(result)(step);
+
+test("the plain list over the window is the directories its specs are in with a count each, and says the specs are not shown", () => {
+  const existing = [...Array.from({ length: 12 }, (_, i) => `flows/f${i}.spec.ts`), ...Array.from({ length: 5 }, (_, i) => `admin/a${i}.spec.ts`)];
+  const result = listing({ existing });
+  const first = stepOf(result, 1)!;
+  assert.deepEqual(lines(first.content).slice(0, 3), [`## ${PROMPT_HEADINGS.existingSuiteManifest} (17 spec file(s)${PLAIN_LISTING_NOTE})`, "- flows/: 12 file(s)", "- admin/: 5 file(s)"]);
+  assert.ok(first.content.includes(NOT_SHOWN));
+  assert.deepEqual(first.omissions, [{ class: "truncation", reason: WINDOW_FIT_REASON, count: 17 }]);
+  assert.equal(stepOf(result, 2), undefined);
+});
+
+test("a turn with editable entries gives up the entries to leave alone first, then the unnamed editable ones, and never the ones a signal names", () => {
+  const result = listing({ existing: [...suiteOf(12), C_LINE], delivered: [A, B, ...deliveredOf(6)], reviewCorrections: ["flows/c.spec.ts: weak assertion", ...UNNAMED_CORRECTION] });
+  const first = stepOf(result, 1)!;
+  const written = lines(first.content);
+  assert.ok(written.includes(bullet(C_LINE)), "the entry a signal names stays");
+  assert.ok(result.unnamed.every((entry) => written.includes(bullet(entry.text))), "the unnamed ones are still listed at the first step");
+  assert.ok(!result.doNotRewrite.some((entry) => written.includes(bullet(entry.text))), "the entries to leave alone are not");
+  assert.ok(written.includes("- suite/: 12 file(s)"));
+  assert.deepEqual(first.omissions, [{ class: "truncation", reason: WINDOW_FIT_REASON, count: 12 }]);
+
+  const second = stepOf(result, 2)!;
+  const left = lines(second.content);
+  assert.ok(left.includes(bullet(C_LINE)) && left.includes(everyDeliveredLine(8)), "the named entries and the line naming every delivered spec stay");
+  assert.ok(!result.unnamed.some((entry) => left.includes(bullet(entry.text))));
+  assert.deepEqual(second.omissions, [{ class: "truncation", reason: WINDOW_FIT_REASON, count: 12 + 8 }]);
+  assert.equal(stepOf(result, 3), undefined);
+  assert.ok(second.content.startsWith(suiteListingHead(result)), "the head of the section is kept");
+});
+
+test("a listing with nothing to give up has no smaller render", () => {
+  assert.equal(stepOf(listing({ delivered: [A, B], fixCases: [failing("flows/a.spec.ts"), failing("flows/b.spec.ts")] }), 1), undefined);
+  assert.equal(stepOf(listing({}), 1), undefined);
 });

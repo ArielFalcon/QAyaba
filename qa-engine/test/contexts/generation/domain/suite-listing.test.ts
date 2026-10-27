@@ -2,9 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildSuiteListing,
-  LISTING_MAX_DO_NOT_REWRITE,
-  LISTING_MAX_ENTRY_CHARS,
-  LISTING_MAX_UNNAMED_EDITABLE,
+  LISTING_ENTRY_SAFETY_BOUND,
   type SuiteListing,
   type SuiteListingInput,
 } from "@contexts/generation/domain/suite-listing.ts";
@@ -12,7 +10,7 @@ import { suiteEntryFile } from "@contexts/generation/domain/suite-entry.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { SecretLeakError } from "@kernel/ports/redaction.port.ts";
 
-/* The listing of the suite for a regeneration: which specs there are, which of them the turn must change, how many of the others are shown, and whether the objective is asked again. Pure: the text of an entry is whatever the injected sanitizer leaves of it, and an entry hands out nothing but that text, so a spec is told apart by the path its text starts with. */
+/* The listing of the suite for a regeneration: which specs there are, which of them the turn must change, which it must leave alone, and whether the objective is asked again. Pure: the text of an entry is whatever the injected sanitizer leaves of it, and an entry hands out nothing but that text, so a spec is told apart by the path its text starts with. */
 
 const keep = (text: string): string => text;
 const listing = (input: SuiteListingInput, sanitize: (text: string) => string = keep): SuiteListing => buildSuiteListing(input, { sanitize });
@@ -103,9 +101,7 @@ test("a run with no suite and nothing delivered lists nothing", () => {
     editable: [],
     named: [],
     unnamed: [],
-    unnamedLeftOut: 0,
     doNotRewrite: [],
-    leftOut: 0,
     mayAddSpec: false,
     reaskObjective: true,
   });
@@ -347,70 +343,44 @@ test("cases that all passed make no fix turn: the specs this run delivered are s
   assert.equal(result.mayAddSpec, true);
 });
 
-/* ── how many are shown ── */
+/* ── every entry is listed ── */
 
 const suiteOf = (count: number): string[] => Array.from({ length: count }, (_, index) => `suite/s${String(index).padStart(3, "0")}.spec.ts`);
-
-test("the do-not-rewrite entries shown are at most the cap, and the rest are counted", () => {
-  const total = LISTING_MAX_DO_NOT_REWRITE + 5;
-  const result = listing({ existing: suiteOf(total), delivered: [A], fixCases: [failing("flows/a.spec.ts")] });
-  assert.equal(result.doNotRewrite.length, LISTING_MAX_DO_NOT_REWRITE);
-  assert.equal(result.leftOut, total - LISTING_MAX_DO_NOT_REWRITE);
-  assert.equal(result.entries.length, total + 1, "the listing still holds every entry");
-});
-
-test("at the cap, nothing is left out; one more, and one is", () => {
-  const atCap = listing({ existing: suiteOf(LISTING_MAX_DO_NOT_REWRITE) });
-  assert.equal(atCap.doNotRewrite.length, LISTING_MAX_DO_NOT_REWRITE);
-  assert.equal(atCap.leftOut, 0);
-  const over = listing({ existing: suiteOf(LISTING_MAX_DO_NOT_REWRITE + 1) });
-  assert.equal(over.doNotRewrite.length, LISTING_MAX_DO_NOT_REWRITE);
-  assert.equal(over.leftOut, 1);
-});
-
 const deliveredOf = (count: number): DeliveredSpec[] => Array.from({ length: count }, (_, index) => ({ file: `mine/m${String(index).padStart(3, "0")}.spec.ts` }));
 
-test("every editable entry a signal names is shown, however many there are", () => {
-  const delivered = deliveredOf(LISTING_MAX_UNNAMED_EDITABLE + 12);
-  const result = listing({ existing: suiteOf(LISTING_MAX_DO_NOT_REWRITE + 3), delivered, fixCases: delivered.map((spec) => failing(spec.file)) });
+test("every do-not-rewrite entry is listed, however many the suite has", () => {
+  const total = 75;
+  const result = listing({ existing: suiteOf(total), delivered: [A], fixCases: [failing("flows/a.spec.ts")] });
+  assert.equal(result.doNotRewrite.length, total);
+  assert.equal(result.entries.length, total + 1);
+});
+
+test("every editable entry a signal names is listed, and none is unnamed", () => {
+  const delivered = deliveredOf(42);
+  const result = listing({ existing: suiteOf(33), delivered, fixCases: delivered.map((spec) => failing(spec.file)) });
   assert.equal(result.editable.length, delivered.length);
   assert.equal(result.named.length, delivered.length);
   assert.deepEqual(result.unnamed, []);
-  assert.equal(result.unnamedLeftOut, 0);
-  assert.equal(result.doNotRewrite.length, LISTING_MAX_DO_NOT_REWRITE);
-  assert.equal(result.leftOut, 3);
+  assert.equal(result.doNotRewrite.length, 33);
 });
 
-test("the editable entries only the fallback adds are shown up to the cap, the first ones in the listing's order, and the rest are counted", () => {
-  const delivered = deliveredOf(LISTING_MAX_UNNAMED_EDITABLE + 12);
-  const result = listing({ existing: suiteOf(LISTING_MAX_DO_NOT_REWRITE + 3), delivered, coverageGap: "src/cart.ts: lines 10-14" });
+test("every editable entry only the fallback adds is listed, in the listing's order, however many this run delivered", () => {
+  const delivered = deliveredOf(42);
+  const result = listing({ existing: suiteOf(33), delivered, coverageGap: "src/cart.ts: lines 10-14" });
   assert.equal(result.editable.length, delivered.length, "the turn's work is every spec this run delivered");
   assert.deepEqual(result.named, []);
-  assert.equal(result.unnamed.length, LISTING_MAX_UNNAMED_EDITABLE);
-  assert.equal(result.unnamedLeftOut, 12);
-  assert.deepEqual(filesOf(result.unnamed), filesOf(result.editable).slice(0, LISTING_MAX_UNNAMED_EDITABLE));
-  assert.equal(result.doNotRewrite.length, LISTING_MAX_DO_NOT_REWRITE, "the do-not-rewrite group is capped on its own");
-  assert.equal(result.leftOut, 3);
+  assert.deepEqual(filesOf(result.unnamed), filesOf(result.editable));
+  assert.equal(result.doNotRewrite.length, 33);
 });
 
-test("at the cap no unnamed editable entry is left out; one more, and one is", () => {
-  const atCap = listing({ delivered: deliveredOf(LISTING_MAX_UNNAMED_EDITABLE), coverageGap: "src/cart.ts: lines 10-14" });
-  assert.equal(atCap.unnamed.length, LISTING_MAX_UNNAMED_EDITABLE);
-  assert.equal(atCap.unnamedLeftOut, 0);
-  const over = listing({ delivered: deliveredOf(LISTING_MAX_UNNAMED_EDITABLE + 1), coverageGap: "src/cart.ts: lines 10-14" });
-  assert.equal(over.unnamed.length, LISTING_MAX_UNNAMED_EDITABLE);
-  assert.equal(over.unnamedLeftOut, 1);
-});
-
-test("a delivered spec a correction names is shown among the named however far down the delivered ones it is, and is not counted again among the others", () => {
-  const delivered = deliveredOf(LISTING_MAX_UNNAMED_EDITABLE + 10);
+test("a delivered spec a correction names is among the named however far down the delivered ones it is, and is not unnamed as well", () => {
+  const delivered = deliveredOf(40);
   const last = delivered.at(-1)!.file;
   const result = listing({ delivered, reviewCorrections: [`${last}: weak assertion`, "the checkout flow asserts nothing at all"] });
   assert.equal(result.editable.length, delivered.length);
   assert.deepEqual(filesOf(result.named), [last]);
-  assert.equal(result.unnamed.length, LISTING_MAX_UNNAMED_EDITABLE);
+  assert.equal(result.unnamed.length, delivered.length - 1);
   assert.ok(!filesOf(result.unnamed).includes(last));
-  assert.equal(result.unnamedLeftOut, delivered.length - 1 - LISTING_MAX_UNNAMED_EDITABLE);
 });
 
 test("what a signal names is named whether or not this run delivered it, and the fallback adds only delivered specs", () => {
@@ -424,23 +394,22 @@ test("a spec the fallback and a signal both reach is named", () => {
   const result = listing({ ...SUITE, reviewCorrections: ["flows/a.spec.ts: weak assertion", "the checkout flow asserts nothing at all"] });
   assert.deepEqual(filesOf(result.named), ["flows/a.spec.ts"]);
   assert.deepEqual(filesOf(result.unnamed), ["flows/b.spec.ts"]);
-  assert.equal(result.unnamedLeftOut, 0);
 });
 
 test("a turn that names its specs has no unnamed entry, and a turn that names none has no named one", () => {
   const named = listing({ ...SUITE, fixCases: [failing("flows/a.spec.ts")] });
-  assert.deepEqual([filesOf(named.named), named.unnamed, named.unnamedLeftOut], [["flows/a.spec.ts"], [], 0]);
+  assert.deepEqual([filesOf(named.named), named.unnamed], [["flows/a.spec.ts"], []]);
   for (const signal of [{ coverageGap: "src/cart.ts: lines 10-14" }, { selectorContradictions: ["a selector the page does not have"] }, { reviewCorrections: ["the checkout flow asserts nothing"] }]) {
     const unnamed = listing({ ...SUITE, ...signal });
     assert.deepEqual([unnamed.named, filesOf(unnamed.unnamed)], [[], ["flows/a.spec.ts", "flows/b.spec.ts"]], Object.keys(signal)[0]);
   }
   const nothing = listing(SUITE);
-  assert.deepEqual([nothing.named, nothing.unnamed, nothing.unnamedLeftOut], [[], [], 0]);
+  assert.deepEqual([nothing.named, nothing.unnamed], [[], []]);
 });
 
 test("the fallback takes the specs this run delivered and no other: with none delivered, nothing is unnamed and nothing is editable", () => {
   const result = listing({ existing: [C_LINE, D_LINE], coverageGap: "src/cart.ts: lines 10-14" });
-  assert.deepEqual([result.editable, result.named, result.unnamed, result.unnamedLeftOut], [[], [], [], 0]);
+  assert.deepEqual([result.editable, result.named, result.unnamed], [[], [], []]);
 });
 
 test("a coverage turn may add a spec of its own, and no other turn may", () => {
@@ -458,38 +427,37 @@ test("a coverage turn may add a spec of its own, and no other turn may", () => {
   for (const [what, signal] of Object.entries(others)) assert.equal(listing({ ...SUITE, ...signal }).mayAddSpec, false, what);
 });
 
-test("the cap keeps this run's own specs before the suite's", () => {
+test("the entries to leave alone list this run's own specs before the suite's", () => {
   const delivered = [A, B, { file: "flows/e.spec.ts" }];
-  const result = listing({ existing: suiteOf(LISTING_MAX_DO_NOT_REWRITE + 10), delivered, fixCases: [failing("suite/s000.spec.ts")] });
+  const result = listing({ existing: suiteOf(40), delivered, fixCases: [failing("suite/s000.spec.ts")] });
   assert.deepEqual(filesOf(result.doNotRewrite).slice(0, 3), ["flows/a.spec.ts", "flows/b.spec.ts", "flows/e.spec.ts"]);
-  assert.equal(result.doNotRewrite.length, LISTING_MAX_DO_NOT_REWRITE);
-  assert.equal(result.leftOut, LISTING_MAX_DO_NOT_REWRITE + 10 + 3 - 1 - LISTING_MAX_DO_NOT_REWRITE);
-  assert.ok(!filesOf(result.doNotRewrite).includes("suite/s000.spec.ts"), "an editable entry is not also shown as do-not-rewrite");
+  assert.equal(result.doNotRewrite.length, 40 + 3 - 1);
+  assert.ok(!filesOf(result.doNotRewrite).includes("suite/s000.spec.ts"), "an editable entry is not also listed as do-not-rewrite");
 });
 
-test("every entry is exactly one of editable and do-not-rewrite (or left out of it)", () => {
-  const result = listing({ existing: suiteOf(LISTING_MAX_DO_NOT_REWRITE + 4), delivered: [A, B], fixCases: [failing("flows/a.spec.ts"), failing("suite/s001.spec.ts")] });
+test("every entry is exactly one of editable and do-not-rewrite", () => {
+  const result = listing({ existing: suiteOf(34), delivered: [A, B], fixCases: [failing("flows/a.spec.ts"), failing("suite/s001.spec.ts")] });
   const editable = new Set(result.editable);
-  const shown = new Set(result.doNotRewrite);
-  assert.equal([...editable].filter((entry) => shown.has(entry)).length, 0);
-  assert.equal(editable.size + shown.size + result.leftOut, result.entries.length);
-  assert.ok([...editable, ...shown].every((entry) => result.entries.includes(entry)), "the lists hold the very entries of the listing");
+  const left = new Set(result.doNotRewrite);
+  assert.equal([...editable].filter((entry) => left.has(entry)).length, 0);
+  assert.equal(editable.size + left.size, result.entries.length);
+  assert.ok([...editable, ...left].every((entry) => result.entries.includes(entry)), "the lists hold the very entries of the listing");
 });
 
-test("the editable entries are the named ones, the unnamed ones shown and the unnamed ones left out, and none is in two of the groups", () => {
-  const delivered = deliveredOf(LISTING_MAX_UNNAMED_EDITABLE + 6);
+test("the editable entries are the named ones and the unnamed ones, and none is in two of the groups", () => {
+  const delivered = deliveredOf(36);
   const result = listing({
-    existing: [...suiteOf(LISTING_MAX_DO_NOT_REWRITE + 4), C_LINE],
+    existing: [...suiteOf(34), C_LINE],
     delivered,
     reviewCorrections: ["flows/c.spec.ts: weak assertion", `${delivered[3]!.file}: weak assertion`, "the checkout flow asserts nothing at all"],
   });
   const named = new Set(result.named);
   const unnamed = new Set(result.unnamed);
-  const shown = new Set(result.doNotRewrite);
+  const left = new Set(result.doNotRewrite);
   assert.equal(named.size, 2);
-  for (const [one, other] of [[named, unnamed], [named, shown], [unnamed, shown]] as const) assert.equal([...one].filter((entry) => other.has(entry)).length, 0);
-  assert.equal(named.size + unnamed.size + result.unnamedLeftOut, result.editable.length);
-  assert.equal(named.size + unnamed.size + result.unnamedLeftOut + shown.size + result.leftOut, result.entries.length);
+  for (const [one, other] of [[named, unnamed], [named, left], [unnamed, left]] as const) assert.equal([...one].filter((entry) => other.has(entry)).length, 0);
+  assert.equal(named.size + unnamed.size, result.editable.length);
+  assert.equal(named.size + unnamed.size + left.size, result.entries.length);
   assert.ok([...named, ...unnamed].every((entry) => result.editable.includes(entry)), "the editable groups hold the very entries of the editable list");
   assert.deepEqual(result.editable.filter((entry) => named.has(entry)), result.named, "the named ones keep the order of the listing");
 });
@@ -532,37 +500,37 @@ test("the sanitizer sees one line, and sanitizing comes before the cap: a secret
   };
   /* The secret starts four characters before the limit, so a cut before the redaction would leave "hun" of it. */
   const prefix = "a.spec.ts — flow: ";
-  const lead = "x".repeat(LISTING_MAX_ENTRY_CHARS - 4 - prefix.length);
+  const lead = "x".repeat(LISTING_ENTRY_SAFETY_BOUND - 4 - prefix.length);
   const result = listing({ existing: [`${prefix}${lead}hunter2\nmore`] }, redact);
   assert.ok(!seen[0]!.includes("\n"), "whitespace is already collapsed when the sanitizer is asked");
   assert.ok(!result.entries[0]!.text.includes("hun"), "no part of the secret is left");
-  assert.equal([...result.entries[0]!.text].length, LISTING_MAX_ENTRY_CHARS);
+  assert.equal([...result.entries[0]!.text].length, LISTING_ENTRY_SAFETY_BOUND);
 });
 
 test("a line is capped at the limit, with a mark where it was cut; a line within it is untouched", () => {
   const prefix = "a.spec.ts — flow: ";
-  const within = `${prefix}${"y".repeat(LISTING_MAX_ENTRY_CHARS - prefix.length)}`;
+  const within = `${prefix}${"y".repeat(LISTING_ENTRY_SAFETY_BOUND - prefix.length)}`;
   const over = `b.spec.ts${within.slice("a.spec.ts".length)}z`;
-  assert.equal([...within].length, LISTING_MAX_ENTRY_CHARS);
-  assert.equal([...over].length, LISTING_MAX_ENTRY_CHARS + 1);
+  assert.equal([...within].length, LISTING_ENTRY_SAFETY_BOUND);
+  assert.equal([...over].length, LISTING_ENTRY_SAFETY_BOUND + 1);
   const result = listing({ existing: [within, over] });
   assert.equal(result.entries[0]!.text, within);
   const cut = result.entries[1]!.text;
-  assert.equal([...cut].length, LISTING_MAX_ENTRY_CHARS);
+  assert.equal([...cut].length, LISTING_ENTRY_SAFETY_BOUND);
   assert.ok(cut.endsWith("y…"), "the mark follows what was kept");
   assert.ok(cut.startsWith("b.spec.ts — flow: yyy"), "the path comes first and stays");
 });
 
 test("the cap counts characters, not code units: a line of astral characters is never cut inside one", () => {
-  const long = `a.spec.ts — objective: ${"😀".repeat(LISTING_MAX_ENTRY_CHARS)}`;
+  const long = `a.spec.ts — objective: ${"😀".repeat(LISTING_ENTRY_SAFETY_BOUND)}`;
   const text = listing({ existing: [long] }).entries[0]!.text;
-  assert.equal([...text].length, LISTING_MAX_ENTRY_CHARS);
+  assert.equal([...text].length, LISTING_ENTRY_SAFETY_BOUND);
   assert.equal(Buffer.from(text, "utf8").toString("utf8"), text, "no half of a surrogate pair is left (it would not survive being encoded)");
 });
 
 test("a delivered spec's declarations are capped like any other text", () => {
-  const result = listing({ delivered: [{ file: "a.spec.ts", flow: "f", objective: "o".repeat(LISTING_MAX_ENTRY_CHARS * 2) }] });
-  assert.equal([...result.entries[0]!.text].length, LISTING_MAX_ENTRY_CHARS);
+  const result = listing({ delivered: [{ file: "a.spec.ts", flow: "f", objective: "o".repeat(LISTING_ENTRY_SAFETY_BOUND * 2) }] });
+  assert.equal([...result.entries[0]!.text].length, LISTING_ENTRY_SAFETY_BOUND);
 });
 
 test("what the listing is given is left as it was", () => {
@@ -583,7 +551,7 @@ const stringsOutsideText = (value: unknown, field = ""): string[] => {
   return [];
 };
 
-test("an entry hands out its text and two facts, and the text is the only string a listing holds: no path an agent reported is carried outside it", () => {
+test("an entry hands out its text and three facts, and the text is the only string a listing holds: no path an agent reported is carried outside it", () => {
   const secret = "hunter2";
   const redact = (text: string): string => text.replaceAll(secret, "[REDACTED]");
   const result = listing(
@@ -599,8 +567,8 @@ test("an entry hands out its text and two facts, and the text is the only string
     redact,
   );
   assert.equal(result.entries.length, 3);
-  assert.deepEqual(Object.keys(result).sort(), ["doNotRewrite", "editable", "entries", "leftOut", "mayAddSpec", "named", "reaskObjective", "unnamed", "unnamedLeftOut"]);
-  for (const entry of result.entries) assert.deepEqual(Object.keys(entry).sort(), ["delivered", "leadObjective", "text"]);
+  assert.deepEqual(Object.keys(result).sort(), ["doNotRewrite", "editable", "entries", "mayAddSpec", "named", "reaskObjective", "unnamed"]);
+  for (const entry of result.entries) assert.deepEqual(Object.keys(entry).sort(), ["cut", "delivered", "leadObjective", "text"]);
   assert.deepEqual(stringsOutsideText(result), [], "nothing but the texts is a string");
   assert.deepEqual(result.entries.map((entry) => entry.text), [
     "flows/[REDACTED]-old.spec.ts — flow: login, objective: use [REDACTED]",

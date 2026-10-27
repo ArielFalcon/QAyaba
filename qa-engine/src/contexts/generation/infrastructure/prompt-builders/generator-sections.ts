@@ -17,6 +17,8 @@ import {
 } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { STEP_MILESTONE_SECTION_ID } from "@contexts/generation/domain/step-limit.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
+import { LISTING_ENTRY_SAFETY_BOUND_REASON } from "@contexts/generation/domain/suite-listing.ts";
+import { suiteListingDegrade } from "@contexts/generation/domain/suite-listing-render.ts";
 import type { PromptContext } from "./generator-context.ts";
 import { NOT_SHOWN, advisoryListsDegrade, packDegrade, referenceDegrade } from "../../domain/window-fit-references.ts";
 import { WINDOW_FIT_REASON, type SectionDegradation } from "@kernel/prompt-sections.ts";
@@ -594,11 +596,22 @@ function boundOmissions(rendered: string): { omissions?: Omission[] } {
 
 function renderTask(ctx: PromptContext): SectionRender {
   const { input, mapInjected, blastRadiusGrounded, assembly } = ctx;
-  const task = buildTask(input, { mapInjected, blastRadiusGrounded, suiteListed: assembly.suiteListed, reaskObjective: assembly.reaskObjective });
+  const guards = { mapInjected, blastRadiusGrounded, suiteListed: assembly.suiteListed, reaskObjective: assembly.reaskObjective };
+  const task = buildTask(input, guards);
+  /* Over the window the commit body goes first, as the line that says where to read it. */
+  const bodyAside = task.commitBodyLines !== undefined ? buildTask(input, { ...guards, commitBody: "reference" }) : undefined;
+  const bodyOmission = { class: "truncation" as const, reason: WINDOW_FIT_REASON, count: task.commitBodyLines ?? 0 };
   /* The task carries the commit diff only on a code run's diff turn: whole, and over the window its hunks give way as references inside the task's own text. */
   const whole = task.diff !== undefined ? commitDiffBlock(task.diff) : undefined;
-  const degrade = task.diff !== undefined && whole !== undefined ? diffWindowDegrade(task.diff, (section) => task.text.replace(whole, () => section)) : undefined;
-  return { content: task.text, claims: task.claims, ...(degrade ? { degrade } : {}) };
+  const diffDegrade = task.diff !== undefined && whole !== undefined ? diffWindowDegrade(task.diff, (section) => (bodyAside ?? task).text.replace(whole, () => section)) : undefined;
+  const degrade = bodyAside
+    ? (step: number): SectionDegradation | undefined => {
+        if (step === 1) return { content: bodyAside.text, omissions: [bodyOmission] };
+        const next = diffDegrade?.(step - 1);
+        return next ? { ...next, omissions: [bodyOmission, ...next.omissions] } : undefined;
+      }
+    : diffDegrade;
+  return { content: task.text, claims: task.claims, ...boundOmissions(task.text), ...(degrade ? { degrade } : {}) };
 }
 
 /* Every definition appears in the order the prompt lists its sections. A definition whose `applies` is false leaves nothing in the assembled prompt. */
@@ -642,11 +655,17 @@ export const GENERATOR_SECTIONS: readonly PromptSectionDef<PromptContext>[] = [
     tier: "semi-stable",
     priority: 2, stability: "run", reason: "The specs that already exist, so a flow's spec is updated instead of duplicated; which ones this turn may change",
     applies: (ctx) => ctx.suiteIsListed,
-    render: (ctx) => ({
-      content: ctx.listingContent,
-      claims: [claim.provides("existing-suite")],
-      ...(ctx.editableListed ? { overflow: "summarize" as const } : {}),
-    }),
+    render: (ctx) => {
+      const cut = ctx.listing.entries.filter((entry) => entry.cut).length;
+      /* Every entry while the window holds the listing; over it, the entries to leave alone as their directories, then the unnamed editable ones. An entry cut at the safety bound is recorded. */
+      return {
+        content: ctx.listingContent,
+        claims: [claim.provides("existing-suite")],
+        degrade: suiteListingDegrade(ctx.listing),
+        ...(cut > 0 ? { omissions: [{ class: "truncation" as const, reason: LISTING_ENTRY_SAFETY_BOUND_REASON, count: cut }] } : {}),
+        ...(ctx.editableListed ? { overflow: "summarize" as const } : {}),
+      };
+    },
   },
   { id: "static-signal", tier: "semi-stable", priority: 3, stability: "run", reason: "Advisory structural or co-change signal of what the change reaches, framed unverified (643c4672)", applies: (ctx) => Boolean(ctx.input.staticSignal && ctx.isGenerationMode), render: renderStaticSignal },
   {

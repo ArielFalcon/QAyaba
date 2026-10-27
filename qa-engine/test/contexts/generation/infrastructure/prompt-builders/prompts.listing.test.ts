@@ -16,8 +16,8 @@ import {
 import { FIX_STEPS } from "@contexts/generation/infrastructure/prompt-builders/generator-renderers.ts";
 import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES, SUITE_LISTING_LABELS } from "@contexts/generation/domain/prompt-headings.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
-import { everyDeliveredLine, leftOutLine, PLAIN_LISTING_NOTE } from "@contexts/generation/domain/suite-listing-render.ts";
-import { LISTING_MAX_DO_NOT_REWRITE, LISTING_MAX_ENTRY_CHARS, LISTING_MAX_UNNAMED_EDITABLE } from "@contexts/generation/domain/suite-listing.ts";
+import { everyDeliveredLine, PLAIN_LISTING_NOTE } from "@contexts/generation/domain/suite-listing-render.ts";
+import { LISTING_ENTRY_SAFETY_BOUND } from "@contexts/generation/domain/suite-listing.ts";
 import { countDirectives, lintCell, type LintSection, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { isTestWritingTurn } from "@contexts/generation/domain/step-limit.ts";
 import { REDACTED } from "@kernel/ports/redaction.port.ts";
@@ -187,14 +187,14 @@ test("a sidekick's spec is listed by its path alone, and a lead's keeps the flow
   assert.deepEqual(lines.filter((line) => line.includes(SIDEKICK.file)), [`- ${SIDEKICK.file}`]);
 });
 
-test("an exhaustive regeneration lists at most the cap of do-not-rewrite entries, states how many it left out and lists every editable entry", () => {
-  const total = LISTING_MAX_DO_NOT_REWRITE + 6;
+test("an exhaustive regeneration lists every do-not-rewrite entry and every editable entry, however many specs the run delivered", () => {
+  const total = 36;
   const delivered = Array.from({ length: total }, (_, index): DeliveredSpec => ({ file: `flows/s${String(index).padStart(3, "0")}.spec.ts`, objective: "an objective" }));
   const a = buildPromptAssembled(mkInput({ mode: "exhaustive", deliveredSpecs: delivered, fixCases: [failing("flows/s000.spec.ts"), failing("flows/s001.spec.ts")] }));
   const section = sectionText(a, SUITE_ID);
   assert.equal(editableIn(section).length, 2);
-  assert.equal(doNotRewriteIn(section).length, LISTING_MAX_DO_NOT_REWRITE);
-  assert.equal(countOf(section, leftOutLine(total - 2 - LISTING_MAX_DO_NOT_REWRITE)), 1);
+  assert.equal(doNotRewriteIn(section).length, total - 2);
+  assert.equal(countOf(section, "more)"), 0, "nothing is counted as left out");
   assert.deepEqual(findingsOf(a, true), []);
 });
 
@@ -259,12 +259,12 @@ test("an entry is redacted the way model-bound text is: the shapes of prose and 
   assert.ok(section.includes(REDACTED));
 });
 
-test("an entry is one line of at most the cap: what the agent wrote with a line break or at length is folded and cut", () => {
-  const long = "x".repeat(LISTING_MAX_ENTRY_CHARS * 2);
+test("an entry is one line of at most the safety bound: what the agent wrote with a line break or at length is folded and cut", () => {
+  const long = "x".repeat(LISTING_ENTRY_SAFETY_BOUND * 2);
   const a = buildPromptAssembled(mkInput({ existingSpecFiles: ["flows/a.spec.ts — flow: a\nflow, objective: b", `flows/b.spec.ts — objective: ${long}`] }));
   const lines = sectionText(a, SUITE_ID).split("\n").slice(1);
   assert.equal(lines.length, 2, "a line break inside an entry does not start another line");
-  assert.ok(lines.every((line) => line.startsWith("- ") && [...line].length <= LISTING_MAX_ENTRY_CHARS + 2));
+  assert.ok(lines.every((line) => line.startsWith("- ") && [...line].length <= LISTING_ENTRY_SAFETY_BOUND + 2));
 });
 
 /* The cases of a fix come out of the test run, not out of the harness: what a case reports crosses the model boundary like any other text from a run. */
@@ -459,11 +459,11 @@ test("a first pass and a coverage turn that has nothing editable say nothing of 
 
 test("the lines the listing adds for the specs only the fallback made editable and for a new spec carry no directive, so they add nothing to the directive budget", () => {
   assert.equal(countDirectives(SUITE_LISTING_LABELS.newSpec), 0);
-  assert.equal(countDirectives(everyDeliveredLine(LISTING_MAX_UNNAMED_EDITABLE)), 0);
+  assert.equal(countDirectives(everyDeliveredLine(30)), 0);
 });
 
-test("a turn that could not say which spec to change lists every spec the run delivered under one summary, the first ones up to the cap, and counts the rest", () => {
-  const delivered = Array.from({ length: LISTING_MAX_UNNAMED_EDITABLE + 9 }, (_, index): DeliveredSpec => ({ file: `flows/m${String(index).padStart(3, "0")}.spec.ts`, flow: `flow ${index}`, objective: `objective ${index}` }));
+test("a turn that could not say which spec to change lists every spec the run delivered under one summary, and lists them all", () => {
+  const delivered = Array.from({ length: 39 }, (_, index): DeliveredSpec => ({ file: `flows/m${String(index).padStart(3, "0")}.spec.ts`, flow: `flow ${index}`, objective: `objective ${index}` }));
   const unsure: Array<[string, Partial<OpencodeRunInput>]> = [
     ["a coverage gap", { coverageGap: "src/cart.ts: lines 10-14" }],
     ["a correction that names no spec", { reviewCorrections: ["the checkout flow asserts nothing"] }],
@@ -474,8 +474,8 @@ test("a turn that could not say which spec to change lists every spec the run de
     const section = sectionText(a, SUITE_ID);
     const lines = section.split("\n");
     assert.equal(countOf(section, everyDeliveredLine(delivered.length)), 1, `${what}: one summary`);
-    assert.equal(editableIn(section).length, LISTING_MAX_UNNAMED_EDITABLE, `${what}: the cap's worth`);
-    assert.equal(countOf(section, leftOutLine(9)), 1, `${what}: the rest counted`);
+    assert.equal(editableIn(section).length, delivered.length, `${what}: every one`);
+    assert.equal(countOf(section, "more)"), 0, `${what}: nothing counted as left out`);
     assert.ok(lines.indexOf(everyDeliveredLine(delivered.length)) < lines.indexOf(SUITE_LISTING_LABELS.doNotRewrite), `${what}: the summary is in the editable group`);
     assert.deepEqual(findingsOf(a, true), [], what);
   }
@@ -595,12 +595,12 @@ const padded = (index: number): string => String(index).padStart(3, "0");
 const bytesOf = (text: string): number => Buffer.byteLength(text, "utf8");
 
 /* A run that delivered many specs over a suite of many: the coverage turn that follows takes every delivered spec, so it lists the largest groups the section can have. Every spec has the objective its lead declared. */
-const MANY_DELIVERED = Array.from({ length: LISTING_MAX_UNNAMED_EDITABLE + 10 }, (_, index): DeliveredSpec => ({
+const MANY_DELIVERED = Array.from({ length: 40 }, (_, index): DeliveredSpec => ({
   file: `flows/m${padded(index)}.spec.ts`,
   flow: `flow number ${index}`,
   objective: `the outcome of flow number ${index} is shown`,
 }));
-const MANY_EXISTING = Array.from({ length: LISTING_MAX_DO_NOT_REWRITE + 10 }, (_, index) => `suite/s${padded(index)}.spec.ts — flow: suite flow ${index}, objective: the suite outcome ${index} is shown`);
+const MANY_EXISTING = Array.from({ length: 40 }, (_, index) => `suite/s${padded(index)}.spec.ts — flow: suite flow ${index}, objective: the suite outcome ${index} is shown`);
 /* A sidekick's spec has no objective its lead declared: a turn that has it to change asks for the outcome whatever the budget does. */
 const SIDEKICK_AT_THE_END: DeliveredSpec = { file: "flows/zz-sidekick.spec.ts" };
 const bigCoverage = (extra: readonly DeliveredSpec[] = []): OpencodeRunInput =>
@@ -627,14 +627,14 @@ test("a listing that does not fit is cut from its end: the do-not-rewrite group 
 
   const inDoNotRewrite = cutTo(through(SUITE_LISTING_LABELS.doNotRewrite) + MARKER_AND_A_FEW_ENTRIES);
   assert.ok(wholeSection.startsWith(headOf(inDoNotRewrite)), "what is left is the head of the section");
-  assert.equal(editableIn(inDoNotRewrite).length, LISTING_MAX_UNNAMED_EDITABLE, "every spec the fallback added is still there");
+  assert.equal(editableIn(inDoNotRewrite).length, MANY_DELIVERED.length + 1, "every spec the fallback added is still there");
   assert.ok(inDoNotRewrite.includes(summary));
-  assert.ok(doNotRewriteIn(inDoNotRewrite).length < LISTING_MAX_DO_NOT_REWRITE, "the do-not-rewrite group is shorter");
+  assert.ok(doNotRewriteIn(inDoNotRewrite).length < MANY_EXISTING.length, "the do-not-rewrite group is shorter");
 
   const inFallback = cutTo(through(summary) + MARKER_AND_A_FEW_ENTRIES);
   assert.ok(wholeSection.startsWith(headOf(inFallback)));
   assert.ok(inFallback.includes(SUITE_LISTING_LABELS.editable) && inFallback.includes(summary), "the label and the summary stay");
-  assert.ok(editableIn(inFallback).length > 0 && editableIn(inFallback).length < LISTING_MAX_UNNAMED_EDITABLE, "the specs only the fallback added are shorter");
+  assert.ok(editableIn(inFallback).length > 0 && editableIn(inFallback).length < MANY_DELIVERED.length + 1, "the specs only the fallback added are shorter");
   assert.equal(inFallback.includes(SUITE_LISTING_LABELS.doNotRewrite), false, "the do-not-rewrite group is gone");
 });
 

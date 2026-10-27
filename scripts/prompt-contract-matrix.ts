@@ -67,7 +67,6 @@ import { DEFAULT_AGENT_BROWSER_LIMITS } from "@kernel/agent-browser.ts";
 import { DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { reviewChangeViewOf } from "@contexts/run-orchestration/application/run-flow/review-change.ts";
-import { LISTING_MAX_DO_NOT_REWRITE, LISTING_MAX_UNNAMED_EDITABLE } from "@contexts/generation/application/index.ts";
 import { formatSuiteEntry } from "@contexts/generation/application/index.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/application/index.ts";
@@ -96,7 +95,7 @@ export const DIMENSIONS = {
   packRedirect: [false, true],
   /* The change belongs to a microservice rather than to the frontend repo. */
   service: [false, true],
-  /* Whether the run lists any spec: the suite as the grounding folded it, on a diff or a manual run, and on a regeneration the specs the run has delivered. `large` is the worst case of a listing: a diff or manual run that delivered more specs than the listing shows of the ones it can say nothing of, over a suite that has more than it shows of the ones to leave alone, and then could not say which spec to change. */
+  /* Whether the run lists any spec: the suite as the grounding folded it, on a diff or a manual run, and on a regeneration the specs the run has delivered. `large` is the worst case of a listing: a diff or manual run that delivered many specs it can say nothing of, over a suite with many to leave alone, and then could not say which spec to change. */
   suite: ["listed", "none", "large"],
   /* Whether the run granted the generator the run_spec tool, so its prompt states the budget. Only an e2e run that writes tests has it. */
   closedLoop: [false, true],
@@ -336,19 +335,19 @@ const SIGNAL_SHAPES = {
   },
 } as const;
 
-/* The specs a run has delivered by the time a regeneration is built: the lead's, with the flow and the objective it declared (it refreshes the suite's own line for the same file), and a sidekick's, by path alone. An exhaustive run has delivered more than the listing shows of the specs it leaves alone, so its cells carry the cap's worth of them and some more. */
+/* The specs a run has delivered by the time a regeneration is built: the lead's, with the flow and the objective it declared (it refreshes the suite's own line for the same file), and a sidekick's, by path alone. An exhaustive run has delivered many specs and leaves most of them alone, so its cells carry a long list of them. */
 const DELIVERED_LEAD: DeliveredSpec = { file: "flows/cart.spec.ts", flow: "cart coupon", objective: "the discounted total shows after the cart re-queries" };
 const DELIVERED_SIDEKICK: DeliveredSpec = { file: "flows/checkout.spec.ts" };
-export const EXHAUSTIVE_EXTRA_DELIVERED = LISTING_MAX_DO_NOT_REWRITE + 5;
+export const EXHAUSTIVE_EXTRA_DELIVERED = 35;
 
 function deliveredFor(spec: CellSpec): DeliveredSpec[] {
   const extra = spec.mode === "exhaustive" ? Array.from({ length: EXHAUSTIVE_EXTRA_DELIVERED }, (_, index): DeliveredSpec => ({ file: `flows/suite-${String(index).padStart(2, "0")}.spec.ts` })) : [];
   return [DELIVERED_LEAD, DELIVERED_SIDEKICK, ...extra];
 }
 
-/* The worst case of a listing: the specs a run delivered, and the lines its suite had, when each is more than the listing shows of the group it falls in. Every spec carries the flow and the objective its lead declared, at the length of a long, real one, so that the groups are the longest the section can really have. */
-const LARGE_DELIVERED_COUNT = LISTING_MAX_UNNAMED_EDITABLE + 10;
-const LARGE_EXISTING_COUNT = LISTING_MAX_DO_NOT_REWRITE + 7;
+/* The worst case of a listing: the specs a run delivered, and the lines its suite had, when each group is long. Every spec carries the flow and the objective its lead declared, at the length of a long, real one, so that the groups are the longest the section can really have. */
+const LARGE_DELIVERED_COUNT = 40;
+const LARGE_EXISTING_COUNT = 37;
 const LARGE_AREAS = ["cart", "checkout", "account", "catalog", "search", "orders", "profile", "wishlist"] as const;
 
 function largeSpec(folder: string, index: number): DeliveredSpec {

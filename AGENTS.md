@@ -391,9 +391,16 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
 - **Regeneration listing** — a regeneration lists the suite as that turn knows it (the specs
   the suite had before a diff/manual run, plus those this run delivered, each only while its
   file is still there): the specs it must change under "Editable" (all those a signal names;
-  the ones taken because nothing names a spec are capped), the rest under "Do NOT rewrite"
-  (capped); what a cap leaves out is counted. One sanitized, capped line per spec, never
-  inlined source (`generation/domain/suite-listing.ts`). The "state the outcome" question is
+  when nothing names a spec, one line that says every delivered spec is editable and then each
+  of them), the rest under "Do NOT rewrite". Every entry is listed while the prompt fits the
+  role's window; over it the section gives way by reference (`Section.degrade`): the "Do NOT
+  rewrite" entries become the directories they are in with a count each, then the unnamed
+  editable entries are left to the line that names them all, and each step records what it left
+  out as a `window-fit` omission. One sanitized line per spec, never inlined source
+  (`generation/domain/suite-listing.ts`); a line is cut only past `LISTING_ENTRY_SAFETY_BOUND`
+  (agent-influenced text), and the cut is recorded (`listing-entry-safety-bound`). The commit body
+  is whole up to `COMMIT_BODY_SAFETY_BOUND` and, over the window, gives way to a line that says
+  how long it is and to read it with `git show`. The "state the outcome" question is
   asked unless every spec to change has an objective its lead declared and no correction
   disputes it; the rule against weakening a test is stated on every test-writing turn, whether
   or not the question is asked.

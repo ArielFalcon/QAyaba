@@ -1024,7 +1024,7 @@ A review of the listing then found that its editable group was not bounded, and 
 section. The listing now tells the specs a signal of the turn names (a failing file, a spec an error text or a
 correction names, a spec a contradiction is attributed to), all shown, from the ones only the fallback adds, when a
 coverage gap, a correction or a contradiction names no spec and the turn takes every spec the run delivered: those
-are one summary line, the first 30 and the count left out (`LISTING_MAX_UNNAMED_EDITABLE`). A fix turn takes no
+are one summary line and then each of them. A fix turn takes no
 fallback, since its section tells the agent to fix only the failing tests: the listing marks the specs its failing
 cases name and no other, and a fix whose cases name none lists none as editable and keeps the read step of its own.
 The assembler summarizes the editable form of the section when the budget cannot hold it (the end is cut, the
@@ -1366,11 +1366,10 @@ Each is a genuine equivalent mutant: no test can observe it without asserting th
   FixLoop sidekick's merge (`"sidekick"` → `"lead"`): a sidekick's result is built in the run from its
   files on disk and carries no declarations, so merged as the lead's it adds the same paths. The origin
   guards a result that did carry them, which the merge's own tests pin: a sidekick pass keeps none.
-- the value of `LISTING_MAX_DO_NOT_REWRITE` (30 to 31), of `LISTING_MAX_UNNAMED_EDITABLE` (30 to 31) and of
-  `LISTING_MAX_ENTRY_CHARS` (400 to 401): Stryker makes no mutant for a number and the tests import the constants, as
-  the standards ask, so a different value moves the expectations with it. What the numbers mean is pinned (at either
-  cap nothing is left out, one over it one is; a text of exactly the limit is untouched, one over it is cut with its
-  mark); the numbers are the design's.
+- the value of `LISTING_ENTRY_SAFETY_BOUND` (400 to 401): Stryker makes no mutant for a number and the tests import the
+  constant, as the standards ask, so a different value moves the expectations with it. What the number means is pinned
+  (a text of exactly the bound is untouched, one over it is cut with its mark and the cut is recorded); the number is
+  the design's.
 
 **merge-guard** (`src/server/merge-guard.ts`)
 - the `redaction/` directory entry and the `publication-port.adapter.ts` entry → `""` (StringLiteral ×2): the
