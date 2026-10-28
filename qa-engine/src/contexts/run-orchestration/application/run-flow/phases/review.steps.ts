@@ -611,9 +611,9 @@ export async function reviewSettle(state: Readonly<RunState>, ctx: WorkspaceRunC
   };
 }
 
-/* The measurement predates the bytes an accepted regeneration wrote: only a per-commit measurement of a green run can go stale. */
+/* The measurement predates the bytes an accepted regeneration wrote: only a per-commit measurement of a run with green bytes (a pass, or a flaky run's retry) can go stale. */
 export const remeasuresStaleCoverage = (state: Readonly<RunState>): boolean =>
-  runOf(state).verdict === "pass" && state.coverage.coverageMeasured && state.coverage.acceptedRegenAfterMeasure;
+  hasGreenBytes(runOf(state).verdict) && state.coverage.coverageMeasured && state.coverage.acceptedRegenAfterMeasure;
 
 /*
  * The coverage this run measured is stale when an accepted regeneration followed it. Under enforce, one whole-suite measured
@@ -627,8 +627,10 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
   if (cfg.coveragePolicyMode === "enforce") {
     const finalNamespace = `${input.runId}-coverage-final`;
     const measuredRun = await deps.execution.execute(workspace.specDir, { ...liveExecutionOptions(ctx), namespace: finalNamespace });
-    const finalRun = { verdict: measuredRun.verdict, cases: measuredRun.cases, logs: run.logs };
-    if (measuredRun.verdict !== "pass") return { update: { execution: withRun(state.execution, finalRun) } };
+    /* A flaky run was unstable in this run: a final execution that ran green, even first time, measures the bytes and changes neither its verdict nor its cases, so it stays quarantined. */
+    const flakyStands = run.verdict === "flaky" && hasGreenBytes(measuredRun.verdict);
+    const finalRun = flakyStands ? run : { verdict: measuredRun.verdict, cases: measuredRun.cases, logs: run.logs };
+    if (measuredRun.verdict !== "pass" && !flakyStands) return { update: { execution: withRun(state.execution, finalRun) } };
     const passed = measuredRun.cases.filter((c) => c.status === "pass");
     const baselineCases = passed.map((c) => c.name);
     const caseFiles = [...new Set(passed.flatMap((c) => (c.file ? [c.file] : [])))];
