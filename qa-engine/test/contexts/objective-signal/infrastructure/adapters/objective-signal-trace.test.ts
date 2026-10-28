@@ -77,6 +77,15 @@ test("the coverage span counts the surviving mutants a spec reached and those no
   assert.equal(attrs["qayaba.mutation.survivors_without_spec"], 2);
 });
 
+test("every attribute the mutation counts put on the coverage span is registered, so the exporter keeps it", async () => {
+  const inner: ObjectiveSignalPort = { measure: async () => ({ status: "pass", ratio: 1, bundleMutation: { applied: 0, killed: 0, survived: [], unreadable: 2 } }), blocks: () => false };
+  const telemetry = new Recorder();
+  await new TracedObjectiveSignalPort(inner, telemetry).measure(BlastRadius.of(Sha.of("abc1234"), []), "/e2e");
+  const attrs = telemetry.attrs.find((a) => "qayaba.mutation.applied" in a)!;
+  assert.equal(attrs["qayaba.mutation.unreadable"], 2);
+  for (const key of Object.keys(attrs)) assert.ok(lookupAttribute(key), `${key} is registered, or the exporter drops it`);
+});
+
 test("the coverage span counts the survivors whose mutation moved an observable, those it moved none of and those whose runs were not compared; a pass that observed none states none", async () => {
   const moved = { kind: "moved" as const, requests: { added: ["GET https://api.example/styles/dark"], removed: [] }, dom: { added: [], removed: [] }, tests: ["a.spec.ts › t"] };
   const survived = [

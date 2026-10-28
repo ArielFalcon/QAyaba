@@ -25,7 +25,7 @@ function candidateAttrs(perCandidate: readonly CandidateCoverage[]) {
 }
 
 /* How many mutants were judged and noticed, how many survivors a spec reached (so they can reach its flow) and how many none did, and, when the survivors were observed, how many moved an observable, moved none and could not be compared. */
-function survivorAttrs(m: BundleMutationOutcome) {
+function survivorAttrs(m: BundleMutationOutcome): Attrs {
   const routed = m.survived.filter((s) => (s.specFiles?.length ?? 0) > 0).length;
   const observed = m.survived.filter((s) => s.moved !== undefined);
   const kindOf = (kind: "moved" | "unmoved" | "unobserved"): number => observed.filter((s) => s.moved?.kind === kind).length;

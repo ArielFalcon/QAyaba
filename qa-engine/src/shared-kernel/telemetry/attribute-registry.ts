@@ -72,6 +72,7 @@ export const ATTRIBUTES = {
   "qayaba.stubbed.violations": int("Guards of the stubbed-state rules the delivered specs broke: a fulfil no GET check guards, a changed request, a HAR replay, a handler outside the file, a spec file with no live test."),
   "qayaba.stubbed.violation_kinds": str("Those violations by kind, as kind=count pairs."),
   "qayaba.mutation.applied": int("Mutants of the changed code in the served script that reached a page and were judged; absent when none was."),
+  "qayaba.mutation.unreadable": int("Mutants not judged because the counters of their re-run could not be read: unknown whether they reached a page; absent when none was."),
   "qayaba.mutation.survivors_routed": int("Surviving mutants a delivered spec's tests reached: each is sent, owned by that spec, in the run's one gap regeneration."),
   "qayaba.mutation.survivors_without_spec": int("Surviving mutants no spec was recorded as reaching: they are told to the lead without an owner."),
   "qayaba.mutation.survivors_moved": int("Surviving mutants whose mutation moved a request (method, origin, pathname) or a line of the accessible tree between the same tests run with and without it: the moved observable is in the finding the author gets. Absent when the survivors were not observed."),
