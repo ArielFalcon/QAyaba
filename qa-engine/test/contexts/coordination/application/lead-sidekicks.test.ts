@@ -30,6 +30,8 @@ import type { DelegationWorkspacePort } from "@contexts/coordination/application
 import type { AgentBrowserHandle, ClosedLoopHandle, FlowLedgerEntry, FlowLoopHandle, FlowLoopOpenInput, GeolocationHandle } from "@contexts/agent-tools/application/index.ts";
 import type { LeadTurnOpts, PlanOutput } from "@kernel/plan-output.ts";
 import { sha256Hex } from "@kernel/content-hash.ts";
+import { installProcessLogger, resetProcessLoggerForTests } from "@kernel/ports/process-logger.ts";
+import type { LoggerPort } from "@kernel/ports/logger.port.ts";
 import { AGENT_TOOL, SIDEKICK_KIND, sidekickKindSpec } from "@contexts/coordination/application/sidekick-kinds.ts";
 import type { GeoLocation } from "@kernel/geolocation.ts";
 
@@ -2462,4 +2464,54 @@ test("findings dropped for lack of time are logged and summarised under the same
   const summary = r.events.find((e) => e.routes !== undefined && e.origin === CORRECTION_ORIGIN.COVERAGE);
   assert.deepEqual(summary?.unroutedReasons, ["flow-unavailable"]);
   assert.equal(r.events.some((e) => e.unroutedReasons?.includes("no-flow-took")), false);
+});
+
+/* ── the amendment turn states the capacity the answer will be admitted under ───────────────── */
+
+/* The plan the lead answers with: the first plan's two flows and the flow for the use case it left unresolved. */
+const THREE_FLOW_PLAN = { kind: "fanout", flows: [...CITING_PLAN.flows, { id: "orders", objective: "the order list", candidates: ["uc-/orders"] }] };
+
+async function amended(settings: CoordinateInput["settings"], deadlineMs?: number): Promise<{ replans: string[]; rig: Rig; outcome: Awaited<ReturnType<LeadSidekicks["coordinate"]>> }> {
+  const lead = leadCiting([ACCEPT_ALL], CITING_PLAN, { plan: THREE_FLOW_PLAN });
+  const r = rig({ hasFile: new Set(["cart", "login", "orders"]) });
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { settings, plan: lead.plan, closedLoop: undefined, candidates: SEEDED, ...(deadlineMs !== undefined ? { deadline: { remainingMs: () => deadlineMs } } : {}) }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  return { replans: lead.replans, rig: r, outcome };
+}
+
+test("an amendment about an unresolved use case states how many flows the run can still admit", async () => {
+  const { replans } = await amended({ ...DEFAULT_COORDINATION_SETTINGS, maxFlows: 3 });
+  assert.equal(replans.length, 1);
+  assert.match(replans[0]!, /can author 3 flow\(s\) this pass/);
+  assert.match(replans[0]!, /your plan holds 2/);
+  assert.match(replans[0]!, /1 more can be added/);
+});
+
+test("with the capacity spent, the amendment tells the lead to fold the use case into an admitted flow or drop it with a typed basis", async () => {
+  const { replans } = await amended({ ...DEFAULT_COORDINATION_SETTINGS, maxFlows: 2 });
+  assert.match(replans[0]!, /your plan holds 2/);
+  assert.match(replans[0]!, /no flow can be added/);
+  assert.match(replans[0]!, /[Ff]old .*into an admitted flow/);
+  assert.match(replans[0]!, /"dropped" with a "basis"/);
+});
+
+test("the capacity the amendment states is the one the answer is admitted under once the turn has taken its time", async () => {
+  /* 54 min left: the plan was told 51 min's worth of flows (3 min for its turn); the answer is admitted after another 3 min. */
+  const settings = { ...DEFAULT_COORDINATION_SETTINGS, maxParallel: 2, flowBudgetMs: { opencode: 10 * 60_000 } };
+  const { replans } = await amended(settings, 54 * 60_000);
+  assert.match(replans[0]!, /can author 6 flow\(s\)/, "3 waves of 2, not the 4 the time left now would give");
+});
+
+test("a flow the admission refuses for capacity is recorded and logged with that reason", async () => {
+  const lines: string[] = [];
+  const capture: LoggerPort = { debug: () => {}, info: () => {}, warn: (m) => void lines.push(m), error: (m) => void lines.push(m), child: () => capture };
+  installProcessLogger(capture);
+  try {
+    const { rig: r, outcome } = await amended({ ...DEFAULT_COORDINATION_SETTINGS, maxFlows: 2 });
+    assert.deepEqual(outcome.signal.notAdmitted, ["orders"]);
+    assert.ok(r.events.some((e) => e.kind === "lead-decision" && /past the run's capacity of 2/.test(e.reason ?? "") && /orders/.test(e.reason ?? "")), "recorded");
+    assert.ok(lines.some((l) => /past the run's capacity of 2/.test(l) && /orders/.test(l)), "logged");
+  } finally {
+    resetProcessLoggerForTests();
+  }
 });

@@ -16,6 +16,8 @@ export interface ReplanPromptContext {
   slices?: Readonly<Record<string, OwnedSliceSize>>;
   /* The flows the run can author this pass; absent: nothing bounds them. */
   capacity?: number;
+  /* The flows of the plan the run admitted, which the answer replaces. */
+  admitted?: number;
   /* The flows of the plan past that capacity, in plan order. */
   notAdmitted: ReadonlyArray<{ id: string; objective: string; candidates: readonly string[] }>;
   /* The admitted flows whose owned change alone does not fit an author's window, with its size. */
@@ -39,6 +41,24 @@ export const REPLAN_SECTIONS: readonly PromptSectionDef<ReplanPromptContext>[] =
         }),
       ].join("\n"),
     }),
+  },
+  {
+    id: "capacity",
+    tier: "task",
+    priority: 11, stability: "run", reason: "A flow the lead added past a capacity it was never told was silently not admitted (run-ed28973-mvs0onsn-6ad17f30)",
+    /* Flows already past the capacity are told it in their own section; this one is for an amendment that adds to a plan within it. */
+    applies: ({ capacity, notAdmitted }) => capacity !== undefined && notAdmitted.length === 0,
+    render: ({ capacity, admitted }) => {
+      const held = admitted ?? 0;
+      const room = Math.max(0, (capacity ?? 0) - held);
+      return {
+        content: [
+          "## Flow capacity",
+          `The run can author ${capacity ?? 0} flow(s) this pass, from the flows written at once and the time left, and the answer to this turn is admitted under it; your plan holds ${held}, so ${room === 0 ? "no flow can be added" : `${room} more can be added`}. A flow past the capacity is not authored.`,
+          ...(room === 0 ? ["Fold each use case above into an admitted flow, or list it in \"dropped\" with a basis and a reason."] : []),
+        ].join("\n"),
+      };
+    },
   },
   {
     id: "not-admitted",

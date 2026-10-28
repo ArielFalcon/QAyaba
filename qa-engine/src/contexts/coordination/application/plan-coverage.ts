@@ -139,6 +139,8 @@ export function planCoverage(plan: { flows: readonly PlannedFlow[]; dropped: rea
 /* What the amendment turn asks about besides the use cases: the flows past the run's capacity, the flows too large for one author, and the change each candidate would own. */
 export interface PlanAmendment {
   capacity?: number;
+  /* The flows the admitted plan holds, which the amendment's answer replaces. */
+  admitted?: number;
   notAdmitted?: readonly NotAdmittedFlow[];
   oversize?: ReadonlyArray<{ id: string; size: OwnedSliceSize }>;
   slices?: Readonly<Record<string, OwnedSliceSize>>;
@@ -163,6 +165,7 @@ export function assembleReplanRequest(redaction: RedactionPort, unresolved: read
       refusals,
       ...(amendment.slices ? { slices: amendment.slices } : {}),
       ...(amendment.capacity !== undefined ? { capacity: amendment.capacity } : {}),
+      ...(amendment.admitted !== undefined ? { admitted: amendment.admitted } : {}),
       notAdmitted: amendment.notAdmitted ?? [],
       oversize: amendment.oversize ?? [],
       scrub: (text) => redaction.redact(text),
