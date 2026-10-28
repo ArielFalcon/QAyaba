@@ -1103,14 +1103,24 @@ export class LeadSidekicks {
     const idle = maintenance.filter((m) => !live.get(m.flow.id)?.taken);
     const left = [...unrouted.filter((i) => !maintained.has(i)), ...idle.flatMap((m) => m.indices)].sort((a, b) => a - b);
     tally.unrouted += left.length;
-    /* A finding about a file no use case of the change is seeded by has no flow to own it, and the record says so. */
-    const seedless = left.filter((i) => seedsNoCandidate(findings[i]!, input.candidates ?? []));
-    const omittedAgain = left.filter((i) => !seedless.includes(i) && askedAgain.has(i));
-    this.leftUnrouted(input, origin, seedless, "the file they name seeds no use case of the change, so no flow owns them and none can be opened", "no-seed-use-case");
-    this.leftUnrouted(input, origin, omittedAgain, "the lead neither sent them to a flow nor rebutted them after being asked once more, and no cold author is run for them", "no-flow-took");
-    this.leftUnrouted(input, origin, left.filter((i) => !seedless.includes(i) && !askedAgain.has(i)), "no flow took them and no cold author is run for them", "no-flow-took");
+    /*
+     * Why each finding was left is one fact, said under one code: the log line and the summary's attribute read the same decision
+     * (`unroutedCodeOf`). A finding about a file no use case of the change is seeded by has no flow to own it; a finding sent to a
+     * flow that could not take it (the run's time, a released pass, a stopped run) was lost to that, and is not one no flow took.
+     */
+    const seedless = new Set(left.filter((i) => seedsNoCandidate(findings[i]!, input.candidates ?? [])));
+    const stranded = new Set(idle.flatMap((m) => m.indices));
+    const lost = new Set(untaken);
+    const codeOf = (i: number): UnroutedCode => unroutedCodeOf(i, { seedless, stranded, lost });
+    const heldBack = state.released ? "the pass was released" : input.signal?.aborted ? "the run was stopped" : after !== undefined && after < MIN_FLOW_MS ? `too little of the run was left (${after} ms, under the ${MIN_FLOW_MS} ms a flow needs)` : "the flow they were sent to has no live session";
+    const leftWith = (code: UnroutedCode, also: (i: number) => boolean = () => true) => left.filter((i) => codeOf(i) === code && also(i));
+    this.leftUnrouted(input, origin, leftWith("no-seed-use-case"), "the file they name seeds no use case of the change, so no flow owns them and none can be opened", "no-seed-use-case");
+    this.leftUnrouted(input, origin, leftWith("maintenance-flow-empty"), "a maintenance flow was opened for them and put nothing in the working copy", "maintenance-flow-empty");
+    this.leftUnrouted(input, origin, leftWith("flow-unavailable"), `the flow they were sent to could not correct them: ${heldBack}`, "flow-unavailable");
+    this.leftUnrouted(input, origin, leftWith("no-flow-took", (i) => askedAgain.has(i)), "the lead neither sent them to a flow nor rebutted them after being asked once more, and no cold author is run for them", "no-flow-took");
+    this.leftUnrouted(input, origin, leftWith("no-flow-took", (i) => !askedAgain.has(i)), "no flow took them and no cold author is run for them", "no-flow-took");
     const finalUnrouted = left;
-    this.record(input, { kind: "lead-decision", origin, ...routingSummary(findings, under, orders, untaken, maintenance, idle, left, seedless), reason: `correction (${origin}): ${findings.length} finding(s) routed` });
+    this.record(input, { kind: "lead-decision", origin, ...routingSummary(findings, under, orders, maintenance, left, codeOf), reason: `correction (${origin}): ${findings.length} finding(s) routed` });
     const read = this.deps.readSpec;
     const specSources = read ? await Promise.all(specs.map((spec) => read({ mirrorDir: input.mirrorDir, specDir: input.specDir }, spec).catch(() => undefined))) : undefined;
     const claims = origin === CORRECTION_ORIGIN.EXECUTION && specs.length === 0 ? slots.flatMap((slot) => {
@@ -1397,17 +1407,16 @@ export class LeadSidekicks {
  * How a correction turn's findings ended, as the structured attributes of its summary event: the count per route (a finding the lead
  * rebutted is in none) and why the unrouted ones were left, as distinct codes.
  */
-function routingSummary(findings: readonly CorrectionFinding[], under: readonly FlowUnderCorrection[], orders: readonly CorrectionOrder[], untaken: readonly number[], maintenance: ReadonlyArray<{ flow: AdmittedFlow; indices: number[] }>, idle: ReadonlyArray<{ indices: number[] }>, left: readonly number[], seedless: readonly number[]): Pick<CoordinationTelemetryEvent, "findings" | "routes" | "unroutedReasons"> {
+function routingSummary(findings: readonly CorrectionFinding[], under: readonly FlowUnderCorrection[], orders: readonly CorrectionOrder[], maintenance: ReadonlyArray<{ indices: number[] }>, left: readonly number[], codeOf: (index: number) => UnroutedCode): Pick<CoordinationTelemetryEvent, "findings" | "routes" | "unroutedReasons"> {
   const ordered = new Set(orders.flatMap((o) => o.indices));
   const opened = new Set(maintenance.flatMap((m) => m.indices));
-  const stranded = new Set(idle.flatMap((m) => m.indices));
   const unrouted = new Set(left);
   const routes = { spec: 0, candidate: 0, lead: 0, candidateFlow: 0, unrouted: 0 };
   const reasons = new Set<string>();
   findings.forEach((finding, i) => {
     if (unrouted.has(i)) {
       routes.unrouted += 1;
-      reasons.add(seedless.includes(i) ? "no-seed-use-case" : stranded.has(i) ? "maintenance-flow-empty" : untaken.includes(i) ? "flow-unavailable" : "no-flow-took");
+      reasons.add(codeOf(i));
     } else if (ordered.has(i)) {
       const by = routeOfFinding(finding, under)?.by;
       if (by === "spec") routes.spec += 1;
@@ -1416,6 +1425,14 @@ function routingSummary(findings: readonly CorrectionFinding[], under: readonly 
     } else if (opened.has(i)) routes.candidateFlow += 1;
   });
   return { findings: findings.length, routes, ...(reasons.size > 0 ? { unroutedReasons: [...reasons] } : {}) };
+}
+
+/* Why a correction turn left a finding with no flow, as the distinct code the run's decisions and the log both carry. */
+type UnroutedCode = "no-seed-use-case" | "maintenance-flow-empty" | "flow-unavailable" | "no-flow-took";
+
+/* The code of one unrouted finding: the file it names seeds no use case, a maintenance flow opened for it delivered nothing, the flow it was sent to could not take it, or no flow was sent it. */
+function unroutedCodeOf(index: number, facts: { seedless: ReadonlySet<number>; stranded: ReadonlySet<number>; lost: ReadonlySet<number> }): UnroutedCode {
+  return facts.seedless.has(index) ? "no-seed-use-case" : facts.stranded.has(index) ? "maintenance-flow-empty" : facts.lost.has(index) ? "flow-unavailable" : "no-flow-took";
 }
 
 /* The drops of a plan the facts contradict and the lead kept, as the run's signal carries them. */

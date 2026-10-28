@@ -2433,3 +2433,33 @@ test("a fast lead turn with ample room is handed the plan budget and is routed a
   assert.deepEqual(corrected.unrouted, []);
   assert.equal(r.events.some((e) => /too little of the run is left for the lead/.test(e.reason ?? "")), false);
 });
+
+test("findings dropped for lack of time are logged and summarised under the same time code, never as no flow having taken them", async () => {
+  let left = 3_600_000;
+  const plan: CoordinateInput["plan"] = async () => ({
+    plan: FANOUT_PLAN, parsed: true, timedOut: false,
+    lead: {
+      askForPlan: noPlanAnswer,
+      ask: async () => {
+        const turn = (left === 3_600_000) ? ACCEPT_ALL : JSON.stringify({ corrections: [{ flow: "cart", action: "revise", instruction: "assert the total" }] });
+        if (left !== 3_600_000) left = MIN_FLOW_MS - 1;
+        return { output: turn, timedOut: false };
+      },
+      dispose: async () => {},
+    },
+  });
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan, closedLoop: undefined, deadline: { remainingMs: () => left } }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  left = 3_000_000;
+  const corrected = await outcome.pass!.correct([CART_FINDING], CORRECTION_ORIGIN.COVERAGE);
+  await outcome.pass!.release();
+  assert.deepEqual(corrected.unrouted, [0]);
+  const logged = r.events.find((e) => /left unrouted/.test(e.reason ?? ""));
+  assert.deepEqual(logged?.unroutedReasons, ["flow-unavailable"]);
+  assert.match(logged?.reason ?? "", /too little of the run was left/);
+  assert.doesNotMatch(logged?.reason ?? "", /no flow took them/);
+  const summary = r.events.find((e) => e.routes !== undefined && e.origin === CORRECTION_ORIGIN.COVERAGE);
+  assert.deepEqual(summary?.unroutedReasons, ["flow-unavailable"]);
+  assert.equal(r.events.some((e) => e.unroutedReasons?.includes("no-flow-took")), false);
+});
