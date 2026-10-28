@@ -8,6 +8,7 @@ import { PreGenerationGroundingPortAdapter } from "@contexts/generation/infrastr
 import type { ContextPackAssembly, ContextPackInput } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { DataContradiction } from "@kernel/data-contradiction.ts";
 import type { ServiceLink } from "@kernel/service-links.ts";
+import type { ProviderDocumentsPort } from "@contexts/service-topology/application/index.ts";
 
 const FACT: DataContradiction = {
   route: "/browse",
@@ -30,7 +31,7 @@ paths:
               schema: { type: array, items: { type: object, properties: { id: {}, category: {} } } }
 `;
 
-async function ground(opts: { mirror?: Record<string, string>; openapi?: string; assembly?: Partial<ContextPackAssembly>; serviceLinks?: ServiceLink[] }) {
+async function ground(opts: { mirror?: Record<string, string>; openapi?: string; assembly?: Partial<ContextPackAssembly>; serviceLinks?: ServiceLink[]; providerDocuments?: ProviderDocumentsPort }) {
   const dir = mkdtempSync(join(tmpdir(), "qa-grounding-contradictions-"));
   try {
     mkdirSync(join(dir, "e2e"));
@@ -41,7 +42,7 @@ async function ground(opts: { mirror?: Record<string, string>; openapi?: string;
     let seen: ContextPackInput | undefined;
     const adapter = new PreGenerationGroundingPortAdapter(
       { e2eDir: join(dir, "e2e"), baseUrl: "http://dev.example", ...(opts.mirror ? { mirrorDir: dir } : {}), ...(opts.openapi ? { openapi: opts.openapi } : {}) },
-      { buildContextPack: async (input) => { seen = input; return { text: "pack", domBytes: 0, contractBytes: 0, ...opts.assembly }; } },
+      { buildContextPack: async (input) => { seen = input; return { text: "pack", domBytes: 0, contractBytes: 0, ...opts.assembly }; }, ...(opts.providerDocuments ? { providerDocuments: opts.providerDocuments } : {}) },
     );
     const result = await adapter.ground(join(dir, "e2e"), undefined, undefined, opts.serviceLinks ? { sha: "abc", serviceLinks: opts.serviceLinks } : undefined);
     return { result, seen };
@@ -91,4 +92,33 @@ test("the links the run resolved tie a request to the function that issues it wh
 test("a working copy with no source of a declared language gives the pack no expectations", async () => {
   const { seen } = await ground({ mirror: { "README.md": "hello" } });
   assert.equal(seen?.consumerExpectations, undefined);
+});
+
+const PROVIDER_DOCUMENT = { openapi: "3.0.0", paths: { "/things": { get: { responses: { "200": { content: { "application/json": { schema: { type: "array", items: { type: "object", properties: { id: {} } } } } } } } } } } };
+const LINK: ServiceLink = { from: { repo: "o/front", file: "src/api.ts", symbol: "list" }, to: { repo: "o/back", file: "openapi.yaml", symbol: "listThings" }, transport: "http", operation: { verb: "GET", path: "/things" }, confidence: 1, source: "openapi-http" };
+
+test("the pack is given the provider's contract: the documents the run's links point at, read through the topology, classify a field when the working copy holds no document", async () => {
+  let given: readonly ServiceLink[] | undefined;
+  const providerDocuments: ProviderDocumentsPort = { read: async (links) => { given = links; return [PROVIDER_DOCUMENT]; } };
+  const { seen } = await ground({ mirror: { "README.md": "hello" }, serviceLinks: [LINK], providerDocuments });
+  assert.deepEqual(given, [LINK]);
+  assert.deepEqual([...(seen?.responseFields?.("GET", "https://app.example/api/things") ?? [])], ["id"]);
+  assert.equal(seen?.responseFields?.("GET", "https://app.example/api/other"), undefined);
+});
+
+test("with no links the provider's documents are not asked for, and when they are the working copy's own document still answers what they do not", async () => {
+  let asked = false;
+  const providerDocuments: ProviderDocumentsPort = { read: async () => { asked = true; return [PROVIDER_DOCUMENT]; } };
+  await ground({ mirror: { "README.md": "hello" }, providerDocuments });
+  assert.equal(asked, false);
+  const { seen } = await ground({ mirror: { "api/openapi/api.yaml": SPEC }, openapi: "**/openapi/*.yaml", serviceLinks: [LINK], providerDocuments });
+  assert.deepEqual([...(seen?.responseFields?.("GET", "https://app.example/api/things") ?? [])], ["id"]);
+  assert.deepEqual([...(seen?.responseFields?.("GET", "https://app.example/api/items") ?? [])].sort(), ["category", "id"]);
+});
+
+test("provider documents that cannot be read cost the contract class and nothing else", async () => {
+  const providerDocuments: ProviderDocumentsPort = { read: async () => { throw new Error("mirror gone"); } };
+  const { result, seen } = await ground({ mirror: { "README.md": "hello" }, serviceLinks: [LINK], providerDocuments });
+  assert.equal(seen?.responseFields, undefined);
+  assert.ok(result.contextPack);
 });

@@ -241,20 +241,25 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   a count (`shapesOmitted`). What the consumer expects is read by an extractor the language registry declares (`ExpectationSyntax` in
   `shared-kernel/language-id.ts`, like `RouteTableSyntax`; TypeScript and JavaScript through the compiler,
   `generation/infrastructure/consumer-expectation/typescript-expectations.ts`; a language with none yields no fact). It reads the working copy through
-  the confined reader (`consumer-expectations.source.ts`; the delivered suite, dependencies and build directories excluded) and builds a program over
-  it with no installed package: a call whose address argument evaluates to a path (a literal, a template or a concatenation, a constant followed
-  across files; an unresolved leading part is the base address) serves a request when `requestServesOperation` says so and its verb, if the callee
+  the confined reader (`consumer-expectations.source.ts`; the delivered suite, dependencies and build directories (`SKIP_VENDOR_DIRS`,
+  `shared-kernel/vendor-dirs.ts`, the list the topology resolvers skip) and test files excluded before the program is built) and builds a program over
+  it with no installed package: a call whose callee names a request (an HTTP verb, `fetch`, `request` or `ajax` among the words of its name, so a
+  call that only resolves or invalidates an address is no call site) and whose address argument evaluates to a path (a literal, a template or a
+  concatenation, a constant followed across files; an unresolved leading part is the base address; a path with no leading slash and more than one
+  segment is relative to it) serves a request when `requestServesOperation` says so and its verb, if the callee
   names one, is the request's, and a link the service-topology resolver already made (`ServiceLink.from.file`/`symbol`, `operation`) ties a request to
   a call site whose path cannot be evaluated; of the call sites that serve a request only those with the most literal segments count, and an operation
   expects what all of them expect (the intersection), none if one of them cannot be read. The declared answer type is the call's type argument, else
   the enclosing function's return type; its property names at any depth (a resolved type's properties, the library's containers read through their
   arguments, a library utility type expanded, an unresolvable reference such as `Observable<X>` contributing the properties of its resolved type
-  arguments) are the candidates, and a candidate is expected when non-test code reads a property of that name and no non-test code writes one
+  arguments and of the declarations the repository holds for it: the type a local alias names and the bases a local interface or class extends,
+  each followed once, so a cycle ends; only object types hold properties, never the methods of a primitive) are the candidates, and a candidate is expected when non-test code reads a property of that name and no non-test code writes one
   (assignment, increment, `delete`, object-literal key, spread override, class member initialiser): names are matched, not symbols, and a name
   written anywhere is conservatively the client's. A type that yields no property is unresolved: no fact. The pure comparator
   (`generation/domain/expectation-gaps.ts`) says K is a gap on operation O when O's responses across every page that read it are complete, carry at
   least one item and none names K at any depth, and the provider's contract classifies it (`service-topology/domain/response-fields.ts`, read from
-  the app's `openapi` hint by `openapi-response-fields.source.ts`): `provider-undeclared` (the contract describes the answer and does not declare
+  the app's `openapi` hint by `openapi-response-fields.source.ts`, and first the provider documents the run's resolved links point at, read through
+  the topology's `ProviderDocumentsPort`): `provider-undeclared` (the contract describes the answer and does not declare
   K), `provider-declared-absent` (it declares K) or `no-provider-contract`; another operation of the page carrying K is context on the gap
   (`alsoCarriedBy`), never a fact of its own. Facts are observed by the orchestrator, never read from a spec's comment. They appear as the Context
   Pack's `Possible data contradictions` section (after the requests; a flow's brief carries those of its pages and gives way after the requests,
@@ -264,7 +269,8 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   under `Possible data contradictions` (a stubbed test that fulfils the field, named from the spec's own literal body in `StubbedTest.fulfils`, is
   listed under its gap), and to the reviewer, which may cite one (`{"kind":"contradiction","ref":"<path>#<key>"}`) against a spec that passes by
   adapting to that state (an expected value read from the state it checks, or a check guarded by it); the orchestrator verifies the ref against the
-  recorded facts (`review-finding-filter.service.ts`, drop reason `no-contradiction-fact`). A signal, never a gate: it decides no verdict.
+  recorded facts (`review-finding-filter.service.ts`, drop reason `no-contradiction-fact`). A signal, never a gate: it decides no verdict. It fails
+  open: the analysis runs inside `buildContextPack` under its own guard, so a fault in the extractor costs the gaps (logged loudly), never the pack.
 - **Pre-exec / review grounding** — `pre-exec-grounding-port.adapter.ts`,
   `review-dom-grounding-port.adapter.ts` (same folder).
   The pre-exec selector-ambiguity check is a regex over the spec text and **advisory**: its findings

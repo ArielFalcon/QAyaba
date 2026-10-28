@@ -19,6 +19,37 @@ export const MAX_OPENAPI_DOCUMENTS = 20;
 const SKIP_DIRS: ReadonlySet<string> = new Set(["node_modules", ".git", "dist", "build", "target", ".next", ".cache"]);
 const DEFAULT_DOCUMENT_NAME = /^(openapi|swagger|api-definition).*\.(ya?ml|json)$/i;
 
+/* The lookup over documents already read and parsed (the provider's, as the link resolver read them); undefined when there is none. */
+export function responseFieldsOfDocuments(documents: readonly unknown[]): ResponseFieldsOf | undefined {
+  if (documents.length === 0) return undefined;
+  return (method, url) => {
+    let path: string;
+    try {
+      path = new URL(url).pathname;
+    } catch {
+      return undefined;
+    }
+    for (const document of documents) {
+      const fields = responseFieldNames(document, method, path);
+      if (fields !== undefined) return fields;
+    }
+    return undefined;
+  };
+}
+
+/* The first of the lookups that knows the operation answers; undefined when there is none. */
+export function firstResponseFields(...lookups: Array<ResponseFieldsOf | undefined>): ResponseFieldsOf | undefined {
+  const present = lookups.filter((lookup): lookup is ResponseFieldsOf => lookup !== undefined);
+  if (present.length === 0) return undefined;
+  return (method, url) => {
+    for (const lookup of present) {
+      const fields = lookup(method, url);
+      if (fields !== undefined) return fields;
+    }
+    return undefined;
+  };
+}
+
 export function loadResponseFields(opts: { mirrorDir: string; openapi?: string | string[] }): ResponseFieldsOf | undefined {
   const hints = opts.openapi === undefined ? [] : Array.isArray(opts.openapi) ? opts.openapi : [opts.openapi];
   const reader = new RepoReader(opts.mirrorDir);
@@ -34,18 +65,5 @@ export function loadResponseFields(opts: { mirrorDir: string; openapi?: string |
     }
   }
   reader.warn("OpenAPI response schemas");
-  if (documents.length === 0) return undefined;
-  return (method, url) => {
-    let path: string;
-    try {
-      path = new URL(url).pathname;
-    } catch {
-      return undefined;
-    }
-    for (const document of documents) {
-      const fields = responseFieldNames(document, method, path);
-      if (fields !== undefined) return fields;
-    }
-    return undefined;
-  };
+  return responseFieldsOfDocuments(documents);
 }

@@ -103,3 +103,16 @@ test("a page the pack was only given for the links it shows is not read, and a p
   const off = await buildContextPack({ ...input, domPack: false }, captureDeps([browse, home]));
   assert.equal(off.dataContradictions, undefined);
 });
+
+test("an expectation source that throws costs the contradictions and nothing else: the pack is built, and the fault is logged", async () => {
+  const logs: string[] = [];
+  const deps: ContextPackDeps = { ...captureDeps([browse, home]), log: (message) => logs.push(message) };
+  const throwing: ConsumerExpectationsOf = () => {
+    throw new Error("the compiler fell over");
+  };
+  const pack = await buildContextPack({ ...input, consumerExpectations: throwing }, deps);
+  assert.match(pack.text ?? "", /route \/browse:\n {2}heading: Browse/);
+  assert.equal(pack.dataContradictions, undefined);
+  assert.doesNotMatch(pack.text ?? "", new RegExp(PACK_HEADINGS.contradictions));
+  assert.ok(logs.some((line) => /WARNING.*contradictions were not found.*the compiler fell over/.test(line)), logs.join("\n"));
+});

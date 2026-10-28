@@ -545,7 +545,14 @@ export async function buildContextPack(
 
   /* The fields the consumer's code expects of an operation that no answer the page received carries (names and counts read from the answers, the expectation from the consumer's source), as facts of the page: a possible defect of the app's data that a test must not be written around. A signal; the same pattern redaction. */
   const shapePages = [...pages.values()].flatMap((page) => (page.shapes !== undefined && reportedRoutes.has(page.route) ? [{ route: page.route, ...(page.template !== undefined ? { template: page.template } : {}), shapes: page.shapes }] : []));
-  const found = findExpectationGaps(shapePages, { ...(input.consumerExpectations ? { expectationsOf: input.consumerExpectations } : {}), ...(input.responseFields ? { fieldsOf: input.responseFields } : {}) });
+  /* The consumer's sources are analysed lazily, here: a fault in that analysis costs the contradictions, never the pack. */
+  let found: ReturnType<typeof findExpectationGaps> = { facts: [], omitted: 0, pages: 0 };
+  try {
+    found = findExpectationGaps(shapePages, { ...(input.consumerExpectations ? { expectationsOf: input.consumerExpectations } : {}), ...(input.responseFields ? { fieldsOf: input.responseFields } : {}) });
+  } catch (err) {
+    log(`[qa] WARNING: the possible data contradictions were not found; the context pack goes on without them (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+    engineLog.error("[qa] the consumer-expectation analysis failed (only the data contradictions are lost):", { error: err });
+  }
   if (found.omitted > 0) log(`[qa] WARNING: ${found.omitted} possible data contradiction(s) were not listed, past the bound of one page (non-blocking).`);
   const dataContradictions = found.pages > 0 ? { read: found.pages, facts: found.facts } : undefined;
   const contradictionLines = contradictionsSectionLines(found.facts);

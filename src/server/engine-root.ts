@@ -421,6 +421,7 @@ function assemble(cfg: EngineRootDeps): RunOrchestrationApi {
       ...(cfg.domPack !== undefined ? { domPack: cfg.domPack } : {}),
       ...(cfg.readFileAtRef ? { readAtRef: cfg.readFileAtRef } : {}),
       ...(cfg.contextPack !== undefined ? { contextPack: cfg.contextPack } : {}),
+      ...(topology.providerDocuments ? { providerDocuments: topology.providerDocuments } : {}),
       ...(cfg.groundingCollaborators ? { collaborators: cfg.groundingCollaborators } : {}),
       ...(cfg.reviewDomGroundingCollaborators ? { reviewDomCollaborators: cfg.reviewDomGroundingCollaborators } : {}),
       ...(cfg.preExecGroundingCollaborators ? { preExecCollaborators: cfg.preExecGroundingCollaborators } : {}),

@@ -50,6 +50,9 @@ const MAX_EVALUATION_DEPTH = 6;
 const MAX_SITES_KEPT = 200;
 const SYNTAX = "typescript-declared-types";
 const HTTP_VERBS = new Set(["get", "post", "put", "patch", "delete", "head", "options"]);
+/* The words of a callee's name that say it issues a request: a call that only names an address (resolving it, invalidating a cache entry, a resource key) is no call site of the request. */
+const REQUEST_WORDS = new Set([...HTTP_VERBS, "fetch", "request", "ajax"]);
+const issuesRequest = (callee: string): boolean => callee.split(/(?=[A-Z])|[^A-Za-z0-9]+/).some((word) => REQUEST_WORDS.has(word.toLowerCase()));
 const CONFIG_NAME = /^(?:ts|js)config(?:\.[\w.-]+)?\.json$/;
 const PARAM = "{p}";
 
@@ -139,7 +142,7 @@ function analyse(input: TypeScriptExpectationInput): Analysis | undefined {
   const configs = new Map<string, string>();
   for (const [file, text] of input.files) {
     if (CONFIG_NAME.test(posix.basename(file))) configs.set(file, text);
-    else if (LanguageRegistry.expectationSyntaxFor(file) === SYNTAX) sources.set(file, text);
+    else if (LanguageRegistry.expectationSyntaxFor(file) === SYNTAX && !input.isTestFile(file)) sources.set(file, text);
   }
   if (sources.size === 0) return undefined;
   const options = compilerOptionsOf(configs);
@@ -164,7 +167,7 @@ function analyse(input: TypeScriptExpectationInput): Analysis | undefined {
   const checker = program.getTypeChecker();
   const files = [...sources.keys()]
     .sort()
-    .filter((file) => !input.isTestFile(file) && !file.endsWith(".d.ts"))
+    .filter((file) => !file.endsWith(".d.ts"))
     .flatMap((file) => program.getSourceFile(absolute(file)) ?? []);
   const reads = new Map<string, { sites: SourceSite[]; count: number }>();
   const writes = new Set<string>();
@@ -217,6 +220,8 @@ function declaredNames(analysis: Analysis, node: ts.TypeNode): Set<string> | und
       for (const member of type.types) addType(member, depth);
       return;
     }
+    /* Only an object type holds fields: the methods of a primitive, a literal, an enum or a type parameter are the language's, not the provider's. */
+    if (!(type.flags & ts.TypeFlags.Object)) return;
     if (isContainer(type)) {
       /* A container of the library (an array, a promise, a map) holds what its type arguments are. */
       if (type.flags & ts.TypeFlags.Object && ((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference) !== 0) for (const argument of checker.getTypeArguments(type as ts.TypeReference)) addType(argument, depth + 1);
@@ -231,6 +236,23 @@ function declaredNames(analysis: Analysis, node: ts.TypeNode): Set<string> | und
     for (const info of checker.getIndexInfosOfType(type)) addType(info.type, depth + 1);
   };
   const isUnresolved = (type: ts.Type): boolean => (type as unknown as { intrinsicName?: string }).intrinsicName === "error";
+  /* The declarations already followed, so an alias that refers to itself ends. */
+  const followed = new Set<ts.Node>();
+  const declarationsOf = (name: ts.EntityName | ts.Expression): ts.Declaration[] => {
+    let symbol = checker.getSymbolAtLocation(name);
+    if (symbol !== undefined && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+    return symbol?.declarations ?? [];
+  };
+  /* What a reference the program cannot resolve is made of in the repository's own declarations: the type a local alias names, and the bases a local interface or class extends. */
+  const followDeclarations = (reference: ts.TypeReferenceNode | ts.ExpressionWithTypeArguments): void => {
+    const name = ts.isTypeReferenceNode(reference) ? reference.typeName : reference.expression;
+    for (const declaration of declarationsOf(name)) {
+      if (followed.has(declaration) || followed.size >= MAX_TYPE_NAMES) continue;
+      followed.add(declaration);
+      if (ts.isTypeAliasDeclaration(declaration)) collect(declaration.type);
+      else if (ts.isInterfaceDeclaration(declaration) || ts.isClassDeclaration(declaration)) for (const clause of declaration.heritageClauses ?? []) clause.types.forEach(collect);
+    }
+  };
   const collect = (current: ts.TypeNode): void => {
     if (ts.isParenthesizedTypeNode(current) || ts.isTypeOperatorNode(current)) return collect(current.type);
     if (ts.isArrayTypeNode(current)) return collect(current.elementType);
@@ -240,12 +262,23 @@ function declaredNames(analysis: Analysis, node: ts.TypeNode): Set<string> | und
     const type = checker.getTypeFromTypeNode(current);
     if (isUnresolved(type)) {
       /* A reference the program cannot resolve holds what its type arguments are. */
-      if (ts.isTypeReferenceNode(current) || ts.isExpressionWithTypeArguments(current)) current.typeArguments?.forEach(collect);
+      if (ts.isTypeReferenceNode(current) || ts.isExpressionWithTypeArguments(current)) {
+        current.typeArguments?.forEach(collect);
+        followDeclarations(current);
+      }
       return;
     }
     /* A library container is read through its type arguments as written, so that one of them the program cannot resolve still gives the properties of its own arguments. */
     if (ts.isTypeReferenceNode(current) && current.typeArguments !== undefined && !type.isUnionOrIntersection() && isContainer(type)) return void current.typeArguments.forEach(collect);
     addType(type, 0);
+    /* A local interface or class whose base is a reference the program cannot resolve holds what that base's type arguments are. */
+    if (ts.isTypeReferenceNode(current)) {
+      for (const declaration of declarationsOf(current.typeName)) {
+        if (!(ts.isInterfaceDeclaration(declaration) || ts.isClassDeclaration(declaration)) || followed.has(declaration)) continue;
+        followed.add(declaration);
+        for (const clause of declaration.heritageClauses ?? []) for (const base of clause.types) if (isUnresolved(checker.getTypeFromTypeNode(base))) collect(base);
+      }
+    }
   };
   collect(node);
   return names.size === 0 ? undefined : names;
@@ -295,10 +328,14 @@ function evaluator(checker: ts.TypeChecker): (node: ts.Expression) => string | u
   return (node) => evaluate(node, 0);
 }
 
-/* A call's path as an operation path: the query and the origin taken off, an unresolved leading part (the base address) dropped. Undefined when what is left is no path with a literal segment. */
+/* A relative path of two segments or more (`api/things`): characters a path holds, a slash between segments, no space. */
+const RELATIVE_PATH = /^[\w.~%:@!$&'()*+,;=\-{}]+(?:\/[\w.~%:@!$&'()*+,;=\-{}]*)+$/;
+
+/* A call's path as an operation path: the query and the origin taken off, an unresolved leading part (the base address) dropped, a path relative to the base address (no leading slash) made absolute. Undefined when what is left is no path with a literal segment. */
 function operationPathOf(text: string): string | undefined {
   let path = text.split(/[?#]/)[0]!.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, "");
   while (path.startsWith(PARAM)) path = path.slice(PARAM.length);
+  if (!path.startsWith("/") && RELATIVE_PATH.test(path)) path = `/${path}`;
   return path.startsWith("/") && literalSegments(path) > 0 ? path : undefined;
 }
 
@@ -322,7 +359,7 @@ export function createTypeScriptExpectations(input: TypeScriptExpectationInput):
         if (ts.isCallExpression(node) && node.arguments.length > 0) {
           const address = node.arguments.slice(0, 2).map((argument) => evaluate(argument)).find((text) => text !== undefined && operationPathOf(text) !== undefined);
           const callee = ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : ts.isIdentifier(node.expression) ? node.expression.text : undefined;
-          if (address !== undefined) calls.push({ call: node, path: operationPathOf(address), verb: callee !== undefined && HTTP_VERBS.has(callee.toLowerCase()) ? callee.toUpperCase() : undefined });
+          if (address !== undefined && callee !== undefined && issuesRequest(callee)) calls.push({ call: node, path: operationPathOf(address), verb: callee !== undefined && HTTP_VERBS.has(callee.toLowerCase()) ? callee.toUpperCase() : undefined });
         }
         ts.forEachChild(node, visit);
       };

@@ -24,7 +24,8 @@ import { changedDecisionsOf } from "./changed-decisions.ts";
 import { filesLinkedToPages, rankRoutesWithRelevance } from "@contexts/generation/application/index.ts";
 import type { PackAvailabilityInput } from "../pack-availability.ts";
 import { routeChangeEvidence } from "./route-change-evidence.ts";
-import { loadResponseFields } from "../openapi-response-fields.source.ts";
+import { firstResponseFields, loadResponseFields, responseFieldsOfDocuments } from "../openapi-response-fields.source.ts";
+import type { ProviderDocumentsPort } from "@contexts/service-topology/application/index.ts";
 import type { ResponseFieldsOf } from "../../domain/expectation-gaps.ts";
 import type { ConsumerExpectationsOf } from "../../domain/consumer-expectation.ts";
 import { loadConsumerExpectations } from "../consumer-expectation/consumer-expectations.source.ts";
@@ -64,6 +65,8 @@ export interface PreGenerationGroundingCollaborators {
   buildContextPack?: typeof buildContextPack;
   contextPackDeps?: ContextPackDeps;
   loadContextMap?: (specDir: string) => ArchitectureContext | undefined;
+  /* The provider's OpenAPI documents the run's resolved links point at (the topology reads them): what classifies a possible data contradiction by the provider's contract. Absent: only the working copy's own documents are read. */
+  providerDocuments?: ProviderDocumentsPort;
 }
 
 function isValidArchitectureContext(raw: unknown): raw is ArchitectureContext {
@@ -261,19 +264,30 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
     private readonly collaborators: PreGenerationGroundingCollaborators = {},
   ) {}
 
-  /* The field names the working copy's OpenAPI documents declare in an operation's response, read once per run: what classifies a possible data contradiction. Absent without a working copy or a document; a document that cannot be read costs the class, never the pack. */
+  /* The field names the provider's OpenAPI documents declare in an operation's response, read once per run: the documents the run's links point at (through the topology, the provider's contract) and then the working copy's own. What classifies a possible data contradiction. Absent without a document; a document that cannot be read costs the class, never the pack. */
   private responseFieldsRead = false;
   private responseFieldsOf: ResponseFieldsOf | undefined;
-  private responseFields(): ResponseFieldsOf | undefined {
+  private async responseFields(change: GroundingChange | undefined): Promise<ResponseFieldsOf | undefined> {
     if (!this.responseFieldsRead) {
       this.responseFieldsRead = true;
+      let provider: ResponseFieldsOf | undefined;
+      const links = change?.serviceLinks ?? [];
+      if (links.length > 0 && this.collaborators.providerDocuments) {
+        try {
+          provider = responseFieldsOfDocuments(await this.collaborators.providerDocuments.read(links));
+        } catch (err) {
+          engineLog.warn(`[qa] WARNING: the provider's OpenAPI documents were not read (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      let own: ResponseFieldsOf | undefined;
       if (this.ctx.mirrorDir) {
         try {
-          this.responseFieldsOf = loadResponseFields({ mirrorDir: this.ctx.mirrorDir, ...(this.ctx.openapi ? { openapi: this.ctx.openapi } : {}) });
+          own = loadResponseFields({ mirrorDir: this.ctx.mirrorDir, ...(this.ctx.openapi ? { openapi: this.ctx.openapi } : {}) });
         } catch (err) {
           engineLog.warn(`[qa] WARNING: the OpenAPI response schemas were not read (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
         }
       }
+      this.responseFieldsOf = firstResponseFields(provider, own);
     }
     return this.responseFieldsOf;
   }
@@ -406,6 +420,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
       const prChangedFiles = this.ctx.prChangedFiles ?? (diff ? diffParser.changedFiles(diff) : undefined);
       const candidates = change?.candidates;
       const hubPages = change?.hubPages;
+      const responseFields = domPack ? await this.responseFields(change) : undefined;
       const buildPromise = build(
         {
           baseUrl: this.ctx.baseUrl,
@@ -421,7 +436,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
           ...(changedElements?.length ? { changedElements } : {}),
           ...(labels?.literals.length ? { changedLiterals: labels.literals } : {}),
           ...(domPack ? { availability: this.availabilityInput(diff, change) } : {}),
-          ...(domPack && this.responseFields() !== undefined ? { responseFields: this.responseFields()! } : {}),
+          ...(responseFields !== undefined ? { responseFields } : {}),
           ...(domPack && this.consumerExpectations(change) !== undefined ? { consumerExpectations: this.consumerExpectations(change)! } : {}),
         },
         deps,

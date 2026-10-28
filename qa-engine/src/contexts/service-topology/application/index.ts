@@ -3,6 +3,7 @@ export { ResolveCrossRepoImpactUseCase } from "./resolve-cross-repo-impact.use-c
 export type { CrossRepoVcsRead, MirrorRegistryLike } from "./resolve-cross-repo-impact.use-case.ts";
 export type { BoundaryProfile, RepoRef } from "../domain/index.ts";
 export type { ServiceLinksPort } from "./ports/service-links.port.ts";
+export type { ProviderDocumentsPort } from "./ports/provider-documents.port.ts";
 export type { CrossRepoImpactPort } from "./ports/cross-repo-impact.port.ts";
 export type { BoundaryProfileProviderPort } from "./ports/boundary-profile-provider.port.ts";
 export type { ProfileProposerPort } from "./ports/profile-proposer.port.ts";

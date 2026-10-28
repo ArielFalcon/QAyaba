@@ -153,3 +153,73 @@ test("an import the repository's module configuration maps is followed to its de
   });
   assert.deepEqual(names(expect(files)), ["x"]);
 });
+
+test("a local alias, a generic alias and an interface that extend a generic of an uninstalled package contribute what the types they are given are", () => {
+  const alias = `
+    import { Observable } from "rxjs";
+    import { Bundle, Marker } from "geojson";
+    import { Item } from "./models";
+    export type ItemBundle = Bundle<Marker, Item>;
+    export type Wrapped<T> = Bundle<Marker, T>;
+    export interface ItemBundleOf extends Bundle<Marker, Item> { extra: string }
+    export class A { one(): Observable<ItemBundle> { return this.http.get("/aliased"); } }
+    export class B { two(): Observable<Wrapped<Item>> { return this.http.get("/generic"); } }
+    export class C { three(): Observable<ItemBundleOf> { return this.http.get("/extended"); } }
+  `;
+  const files = sources({ "src/api.ts": alias });
+  for (const path of ["/aliased", "/generic", "/extended"]) assert.deepEqual(names(expect(files, { method: "GET", path })), ["x"], path);
+});
+
+test("an alias that refers to itself, or to a chain of aliases, is followed once and ends", () => {
+  const looping = `
+    import { Bundle } from "geojson";
+    export type A = B;
+    export type B = A | Bundle<string, A>;
+    export function load(): Promise<A> { return http.get("/loop"); }
+  `;
+  assert.equal(expect(sources({ "src/api.ts": looping }), { method: "GET", path: "/loop" }), undefined);
+});
+
+test("the methods of a primitive, a literal or a date a field holds are not fields the provider is expected to serve", () => {
+  const view = `
+    export function show(item: { label: string; price: number; at: Date; kind: "a" | "b"; id: number }) {
+      return item.label.trim() + item.label.charAt(0) + item.price.toFixed(2) + item.at.getTime() + item.kind.toUpperCase() + item.id;
+    }
+  `;
+  const models = "export interface Item { id: number; label: string; price: number; at: Date; kind: 'a' | 'b'; note: string | null }\n";
+  const api = "import { Item } from './models';\nexport function list(): Promise<Item[]> { return http.get('/things'); }\n";
+  assert.deepEqual(names(expect(sources({ "src/models.ts": models, "src/api.ts": api, "src/view-a.ts": view, "src/view-b.ts": "export const b = 1;\n" }))), ["at", "id", "kind", "label", "price"]);
+});
+
+test("a path with no leading slash is a path relative to the base address, as long as it has more than one segment", () => {
+  const api = (call: string): string => `
+    import { Item } from "./models";
+    export function load(code: string): Promise<Item[]> { return ${call}; }
+  `;
+  const files = (call: string) => sources({ "src/api.ts": api(call) });
+  assert.deepEqual(names(expect(files("http.get('api/things')"), { method: "GET", path: "/api/things" })), ["x"]);
+  assert.deepEqual(names(expect(files("rest.get(`service-api/things/by/${code}`)"), { method: "GET", path: "/service-api/things/by/ES" })), ["x"]);
+  assert.equal(expect(files("translate.get('things')"), { method: "GET", path: "/things" }), undefined, "a bare word is no path");
+  assert.equal(expect(files("log.info('hello world/again')"), { method: "GET", path: "/hello world/again" }), undefined, "a sentence is no path");
+});
+
+test("a call that only names the address (to resolve it, to invalidate a cache entry) is no call site of the request", () => {
+  const api = `
+    import { Item } from "./models";
+    export const THINGS_PATH = "service-api/things";
+    export function load(): Promise<Item[]> { return rest.get(THINGS_PATH); }
+  `;
+  const naming = `
+    import { THINGS_PATH } from "./api";
+    export function urlOfThings() { return rest.resolveUrl(THINGS_PATH); }
+    export function forget() { cache.invalidate(THINGS_PATH); }
+  `;
+  const found = expect(sources({ "src/api.ts": api, "src/naming.ts": naming }), { method: "GET", path: "/service-api/things" });
+  assert.deepEqual(names(found), ["x"]);
+  assert.equal(found?.callSites.length, 1);
+});
+
+test("a test file is not part of the program: a type only a test declares is not followed, and a read or write in it counts for nothing", () => {
+  const api = "import { Item } from './item.spec';\nexport function load(): Promise<Item[]> { return http.get('/things'); }\n";
+  assert.equal(expect(sources({ "src/api.ts": api, "src/item.spec.ts": "export interface Item { x?: string }\n" })), undefined);
+});

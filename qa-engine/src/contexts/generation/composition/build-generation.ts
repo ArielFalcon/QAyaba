@@ -3,7 +3,7 @@
 import { join, relative, sep } from "node:path";
 import type { CurriculumPort, LearningPort } from "@contexts/cross-run-learning/application/index.ts";
 import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
-import type { CrossRepoImpactPort, ServiceLinksPort } from "@contexts/service-topology/application/index.ts";
+import type { CrossRepoImpactPort, ProviderDocumentsPort, ServiceLinksPort } from "@contexts/service-topology/application/index.ts";
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { ContextBudget } from "@kernel/context-budget.ts";
@@ -63,6 +63,8 @@ export interface GenerationDeps {
     prChangedFiles?: string[];
     domPack?: boolean;
     contextPack?: boolean;
+    /* The provider's OpenAPI documents the run's resolved links point at (from the service topology): the provider's contract a possible data contradiction is classified by. */
+    providerDocuments?: ProviderDocumentsPort;
     /* One file of the run's repository at a commit (the confined mirror reader): the route table at the run's base. */
     readAtRef?: (ref: string, file: string) => Promise<string | undefined>;
     collaborators?: PreGenerationGroundingCollaborators;
@@ -140,7 +142,7 @@ export function buildGeneration(deps: GenerationDeps): GenerationApi {
 
   const e2eDir = join(run.mirrorDir, run.e2eRelDir);
   const location = { e2eDir, mirrorDir: run.mirrorDir, baseUrl: run.baseUrl, testIdAttribute: run.testIdAttribute };
-  const groundingCollaborators: PreGenerationGroundingCollaborators = { ...grounding.collaborators };
+  const groundingCollaborators: PreGenerationGroundingCollaborators = { ...grounding.collaborators, ...(grounding.providerDocuments ? { providerDocuments: grounding.providerDocuments } : {}) };
   const preGenerationGrounding = !run.isCode
     ? new PreGenerationGroundingPortAdapter(
         {

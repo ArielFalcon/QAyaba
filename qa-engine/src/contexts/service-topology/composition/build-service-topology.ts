@@ -2,7 +2,8 @@
 
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
-import type { BoundaryProfileProviderPort, CrossRepoImpactPort, CrossRepoVcsRead, ServiceLinksPort } from "../application/index.ts";
+import type { BoundaryProfileProviderPort, CrossRepoImpactPort, CrossRepoVcsRead, ProviderDocumentsPort, ServiceLinksPort } from "../application/index.ts";
+import { ProviderDocumentsPortAdapter } from "../infrastructure/adapters/provider-documents-port.adapter.ts";
 import { CrossRepoImpactPortAdapter } from "../infrastructure/adapters/cross-repo-impact-port.adapter.ts";
 import { ServiceLinksPortAdapter } from "../infrastructure/adapters/service-links-port.adapter.ts";
 import { MirrorRegistryAdapter } from "../infrastructure/mirror-registry.adapter.ts";
@@ -29,6 +30,8 @@ export interface ServiceTopologyDeps {
 
 export interface ServiceTopologyApi {
   serviceLinks?: ServiceLinksPort;
+  /* The documents the resolved links point at, for whoever classifies a field by the provider's contract. Present with the links. */
+  providerDocuments?: ProviderDocumentsPort;
   crossRepoImpact?: CrossRepoImpactPort;
 }
 
@@ -42,6 +45,7 @@ export function buildServiceTopology(deps: ServiceTopologyDeps): ServiceTopology
             primaryRepo: links.primaryRepo,
             services: links.services,
           }),
+          providerDocuments: new ProviderDocumentsPortAdapter(new MirrorRegistryAdapter(links.mirrorRoot), links.services),
         }
       : {}),
     ...(impact
