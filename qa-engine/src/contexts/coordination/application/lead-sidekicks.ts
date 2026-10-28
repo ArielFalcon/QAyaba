@@ -475,7 +475,9 @@ export class LeadSidekicks {
     let answered: Awaited<ReturnType<LeadSessionHandle["askForPlan"]>>;
     try {
       const slices = change && admission.required.length > 0 ? { slices: candidateSlicesOf(change, firstCoverage.unresolved) } : {};
-      const request = assembleReplanRequest(this.deps.redaction, firstCoverage.unresolved, firstCoverage.refused, { ...flows, ...slices });
+      /* The capacity is the one the answer will be admitted under, once this turn has taken its time, as the planning turn was told its own. */
+      const capacity = this.capacity(input, parallel, left === undefined ? undefined : left - settings.planBudgetMs);
+      const request = assembleReplanRequest(this.deps.redaction, firstCoverage.unresolved, firstCoverage.refused, { ...flows, ...(capacity !== undefined ? { capacity } : {}), admitted: first.kind === LEAD_PLAN_KIND.FANOUT ? first.flows.length : 0, ...slices });
       answered = await lead.askForPlan(request.text, turnOpts(request, Math.max(1, left === undefined ? settings.planBudgetMs : Math.min(settings.planBudgetMs, left))));
     } catch (err) {
       if (isRunDeadlineError(err)) throw err;
@@ -1327,6 +1329,7 @@ export class LeadSidekicks {
         candidateIds: [...new Set(notAdmitted.flatMap((flow) => flow.candidates))],
         reason: `plan: ${notAdmitted.length} flow(s) past the run's capacity of ${flows.capacity ?? 0} were not admitted and are not authored: ${notAdmitted.map((flow) => flow.id).join(", ")}`.slice(0, 1_000),
       });
+      engineLog.warn(`[qa] plan: ${notAdmitted.length} flow(s) past the run's capacity of ${flows.capacity ?? 0} were not admitted and are not authored: ${notAdmitted.map((flow) => flow.id).join(", ")}`.slice(0, 1_000));
     }
     const oversize = flows.oversize ?? [];
     if (oversize.length > 0) {

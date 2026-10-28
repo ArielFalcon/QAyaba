@@ -87,7 +87,10 @@ signed-in app (see below); without either, no sidekick can author and the run en
    use case unresolved (a refused drop among them), names flows past the capacity, or admits a flow whose owned change alone does
    not fit an author's window (the run's `ContextBudget`; an unknown window makes no flow too large) is returned to the lead once, in
    its open session, with all of those facts in the same request (`renderReplanRequest`); a second answer that is a plan of flows
-   replaces the first. A candidate still unresolved is admitted as it stands, recorded `unplanned` on the plan snapshot and as a
+   replaces the first. The amendment states the flow capacity as a fact (the `capacity` section of the re-plan request): the flows the
+   run can author as the answer will be admitted, once the turn has taken its time, the flows the admitted plan holds and how many
+   more can be added; with none left it says to fold each use case into an admitted flow or drop it with a basis and a reason. A flow
+   the answer still adds past the capacity is not admitted, and it is recorded (`flows_not_admitted`) and logged with that reason. A candidate still unresolved is admitted as it stands, recorded `unplanned` on the plan snapshot and as a
    `lead-decision` event, and named in every review turn (`plan-coverage.ts`). Flows still past the capacity are not authored, and
    flows still too large are authored with the rest of their change as references (a flow whose brief still does not fit
    then is not sent, below); both are recorded (`gateSignals.coordination`
