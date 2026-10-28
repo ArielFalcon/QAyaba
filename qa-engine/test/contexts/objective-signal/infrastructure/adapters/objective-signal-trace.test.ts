@@ -47,6 +47,20 @@ test("a measurement without candidates adds no candidate attribute", async () =>
   assert.ok(!telemetry.attrs.some((a) => "qayaba.coverage.candidates" in a));
 });
 
+test("the coverage span names the unloaded changed files left out because none of their changed lines is code, and adds nothing when there are none", async () => {
+  const measured = (noCodeFiles?: string[]): ObjectiveSignalPort => ({
+    measure: async () => ({ status: "pass", ratio: 1, measurement: { changedLines: 1, coveredChanged: 1, changedFiles: 1, mappedFiles: 1, ...(noCodeFiles ? { noCodeFiles } : {}) } }),
+    blocks: () => false,
+  });
+  const telemetry = new Recorder();
+  await new TracedObjectiveSignalPort(measured(["src/shared/index.ts"]), telemetry).measure(BlastRadius.of(Sha.of("abc1234"), []), "/e2e");
+  assert.deepEqual(telemetry.attrs.find((a) => "qayaba.coverage.changed_lines" in a)?.["qayaba.coverage.no_code_files"], ["src/shared/index.ts"]);
+
+  const none = new Recorder();
+  await new TracedObjectiveSignalPort(measured(), none).measure(BlastRadius.of(Sha.of("abc1234"), []), "/e2e");
+  assert.ok(!none.attrs.some((a) => "qayaba.coverage.no_code_files" in a));
+});
+
 test("the coverage span counts the surviving mutants a spec reached and those none did", async () => {
   const survived = [
     { file: "src/a.ts", line: 1, operator: "swap", specFiles: ["flows/a.spec.ts"] },

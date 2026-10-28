@@ -15,8 +15,10 @@ export interface CoverageMeasurement {
   takenBranches?: number;
   /** Changed lines the loaded scripts hold no code for (imports, types, comments): left out of `changedLines`. Absent when the collector cannot tell. */
   notExecutableLines?: number;
-  /** Changed files no loaded script maps: their non-blank lines are counted, and uncovered. */
+  /** Changed files no loaded script maps: their lines of code (every non-blank line when the language declares no statement syntax) are counted, and uncovered. */
   notLoadedFiles?: string[];
+  /** Changed files no loaded script maps whose every changed line is, by their language's statement syntax, no code (an import, a re-export, a type-only declaration): left out of every count, their lines among `notExecutableLines`. Absent when none. */
+  noCodeFiles?: string[];
   /** Changed files a web run cannot load by the change's own design (only reached through routes the change made unavailable) and the routes: left out of every count, recorded apart. Absent when none. */
   unreachableByDesign?: UnreachableByDesign[];
   /** Changed files only test files import: left out of every count, recorded apart. Absent when none. */

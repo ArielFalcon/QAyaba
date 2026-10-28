@@ -951,3 +951,83 @@ test("measure() whose every changed file is excluded has no changed lines and ne
   assert.equal(result.measurement?.unmeasured, "no-changed-lines");
   assert.equal(adapter.blocks(result.status), false);
 });
+
+/* ── changed files no loaded script maps, read by their language's statement syntax ─────────── */
+
+const UNLOADED_DIFF = [
+  SAMPLE_DIFF,
+  "diff --git a/src/shared/index.ts b/src/shared/index.ts",
+  "+++ b/src/shared/index.ts",
+  "@@ -1,0 +2 @@",
+  "+export * from './flip';",
+  "diff --git a/src/lazy.ts b/src/lazy.ts",
+  "+++ b/src/lazy.ts",
+  "@@ -0,0 +1,2 @@",
+  "+import { x } from './x';",
+  "+go(x);",
+  "diff --git a/src/Main.java b/src/Main.java",
+  "+++ b/src/Main.java",
+  "@@ -0,0 +1 @@",
+  "+import a.B;",
+].join("\n");
+
+const UNLOADED_SOURCES: Record<string, string> = {
+  "src/shared/index.ts": "export * from './card';\nexport * from './flip';\n",
+  "src/lazy.ts": "import { x } from './x';\ngo(x);\n",
+  "src/Main.java": "import a.B;\n",
+};
+
+function unloadedRig(sources: Record<string, string> = UNLOADED_SOURCES) {
+  const report: CoverageReport = { covered: [{ file: "src/checkout.ts", lines: [1, 2] }], executable: [{ file: "src/checkout.ts", lines: [1, 2] }] };
+  const adapter = new ObjectiveSignalPortAdapter(
+    {
+      collector: { collect: async () => report, recollect: async () => report },
+      decide: new DecideCoverageService(),
+      oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }),
+      readSource: (file) => sources[file],
+    },
+    { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage },
+  );
+  return { adapter, br: BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]) };
+}
+
+test("measure() leaves out a changed file no loaded script maps whose changed lines are all imports, re-exports or types, recorded apart; a file with code counts only its code lines", async () => {
+  const { adapter, br } = unloadedRig();
+
+  const result = await adapter.measure(br, "/e2e", UNLOADED_DIFF, ["pays"]);
+
+  assert.deepEqual(result.measurement?.noCodeFiles, ["src/shared/index.ts"]);
+  assert.deepEqual(result.measurement?.notLoadedFiles, ["src/lazy.ts", "src/Main.java"], "the Java file, whose language declares no statement syntax, counts as before");
+  assert.deepEqual(result.uncovered, [{ file: "src/lazy.ts", lines: [2] }, { file: "src/Main.java", lines: [1] }]);
+  assert.equal(result.measurement?.changedLines, 4, "checkout.ts 1-2, lazy.ts 2, Main.java 1");
+  assert.equal(result.measurement?.notExecutableLines, 2, "the re-export and the import");
+});
+
+test("recount() reads the unloaded files the same way", async () => {
+  const { adapter, br } = unloadedRig();
+
+  const result = await adapter.recount!(br, "/e2e", UNLOADED_DIFF, [{ namespace: "run-acc0", specFiles: ["flows/a.spec.ts"] }]);
+
+  assert.deepEqual(result?.measurement.noCodeFiles, ["src/shared/index.ts"]);
+  assert.deepEqual(result?.uncovered, [{ file: "src/lazy.ts", lines: [2] }, { file: "src/Main.java", lines: [1] }]);
+});
+
+test("measure() whose source of an unloaded file cannot be read counts its non-blank lines, as before", async () => {
+  const { adapter, br } = unloadedRig({});
+
+  const result = await adapter.measure(br, "/e2e", UNLOADED_DIFF, ["pays"]);
+
+  assert.equal(result.measurement?.noCodeFiles, undefined);
+  assert.deepEqual(result.measurement?.notLoadedFiles, ["src/shared/index.ts", "src/lazy.ts", "src/Main.java"]);
+});
+
+test("measure() of a change whose every added line is no code has no changed lines, which is not a deletion and never blocks", async () => {
+  const { adapter, br } = unloadedRig();
+  const onlyReexport = UNLOADED_DIFF.slice(UNLOADED_DIFF.indexOf("diff --git a/src/shared/index.ts"), UNLOADED_DIFF.indexOf("diff --git a/src/lazy.ts"));
+
+  const result = await adapter.measure(br, "/e2e", onlyReexport, []);
+
+  assert.equal(result.status, "unknown");
+  assert.equal(result.measurement?.unmeasured, "no-changed-lines");
+  assert.deepEqual(result.measurement?.noCodeFiles, ["src/shared/index.ts"]);
+});

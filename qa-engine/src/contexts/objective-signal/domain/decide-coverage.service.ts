@@ -15,8 +15,10 @@ export interface ChangeCoverage {
   untakenArms?: { file: string; line: number; kind: string; arm: string }[];
   /* The changed lines a loaded script holds no code for (imports, types, comments): neither counted nor uncovered. Absent when the collector cannot tell code from the rest. */
   notExecutable?: { file: string; lines: number[] }[];
-  /* The changed files no loaded script maps: their non-blank added lines are counted, and uncovered. */
+  /* The changed files no loaded script maps: their added lines of code (every non-blank one when the language declares no statement syntax) are counted, and uncovered. */
   notLoaded?: { file: string; lines: number[] }[];
+  /* The changed files no loaded script maps whose every changed line is, by their language's statement syntax, no code (an import, a re-export, a type-only declaration): left out of every count. Absent when none. */
+  noCode?: string[];
 }
 
 export class DecideCoverageService {

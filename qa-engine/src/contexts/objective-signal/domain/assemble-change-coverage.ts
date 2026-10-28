@@ -121,33 +121,42 @@ function toCoveredLines(report: CoverageReport): CoveredLines {
   return out;
 }
 
+/* The lines of a changed file its language's statement syntax says hold no executable code; undefined when the language declares none or its source cannot be read. */
+export type NoCodeLinesOf = (file: string) => ReadonlySet<number> | undefined;
+
 /*
  * The changed lines a browser collection can count: those its scripts hold code for. A line a loaded script's source map maps no code
  * to (an import, a type, a comment, a brace) is not code and is left out; a covered line is code whatever the map says. A changed
- * file no loaded script maps is not loaded: nothing says which of its lines are code, so its non-blank added lines are all counted,
- * and none of them ran. That holds only for a file a script can hold: one of a declared language, or of a kind (an extension) the
- * run's scripts map for some file; a document or a style sheet no script maps is not changed code and is not counted.
+ * file no loaded script maps is not loaded, and none of its lines ran: its language's statement syntax (`noCodeOf`) says which of its
+ * lines hold no code (an import, a re-export, a type-only declaration), which are left out like the lines no map reaches, and its
+ * other non-blank added lines are counted; a file whose every changed line is no code leaves the measurement (`noCode`); a language
+ * that declares no syntax, or a source that cannot be read, counts every non-blank added line. That holds only for a file a script
+ * can hold: one of a declared language, or of a kind (an extension) the run's scripts map for some file; a document or a style
+ * sheet no script maps is not changed code and is not counted.
  */
-export function executableChanged(added: ReadonlyMap<string, ReadonlyMap<number, string>>, executable: CoveredLines, covered: CoveredLines): Pick<ChangeCoverage, "notExecutable" | "notLoaded"> & { counted: CoveredLines } {
+export function executableChanged(added: ReadonlyMap<string, ReadonlyMap<number, string>>, executable: CoveredLines, covered: CoveredLines, noCodeOf?: NoCodeLinesOf): Pick<ChangeCoverage, "notExecutable" | "notLoaded" | "noCode"> & { counted: CoveredLines } {
   const counted: CoveredLines = new Map();
   const notExecutable: { file: string; lines: number[] }[] = [];
   const notLoaded: { file: string; lines: number[] }[] = [];
+  const noCode: string[] = [];
   const mappedKinds = new Set([...executable.keys()].map(extensionOf));
   for (const [file, lines] of added) {
     const code = executable.get(file);
     if (!code && LanguageRegistry.languageForFile(file) === null && !mappedKinds.has(extensionOf(file))) continue;
     const cov = covered.get(file);
+    const none = code ? undefined : noCodeOf?.(file);
     const kept: number[] = [];
     const left: number[] = [];
     for (const [line, text] of lines) {
-      if (code ? code.has(line) || cov?.has(line) : text.trim() !== "") kept.push(line);
+      if (code ? code.has(line) || cov?.has(line) : text.trim() !== "" && !none?.has(line)) kept.push(line);
       else left.push(line);
     }
     if (kept.length > 0) counted.set(file, new Set(kept));
-    if (code && left.length > 0) notExecutable.push({ file, lines: left.sort((a, b) => a - b) });
+    if ((code || none) && left.length > 0) notExecutable.push({ file, lines: left.sort((a, b) => a - b) });
     if (!code && kept.length > 0) notLoaded.push({ file, lines: kept.sort((a, b) => a - b) });
+    if (none && kept.length === 0 && lines.size > 0) noCode.push(file);
   }
-  return { counted, notExecutable, notLoaded };
+  return { counted, notExecutable, notLoaded, ...(noCode.length > 0 ? { noCode } : {}) };
 }
 
 /* A file's extension, lower-cased, or "" when its name has none. */
@@ -157,9 +166,9 @@ function extensionOf(file: string): string {
   return dot <= 0 ? "" : name.slice(dot + 1).toLowerCase();
 }
 
-export function assembleChangeCoverage(diff: string, report: CoverageReport): ChangeCoverage {
+export function assembleChangeCoverage(diff: string, report: CoverageReport, noCodeOf?: NoCodeLinesOf): ChangeCoverage {
   const covered = toCoveredLines(report);
   if (!report.executable) return computeChangeCoverage(parseDiffHunks(diff), covered, report.branches);
-  const { counted, notExecutable, notLoaded } = executableChanged(addedLines(diff), toCoveredLines({ covered: report.executable }), covered);
-  return { ...computeChangeCoverage(counted, covered, report.branches), notExecutable, notLoaded };
+  const { counted, ...apart } = executableChanged(addedLines(diff), toCoveredLines({ covered: report.executable }), covered, noCodeOf);
+  return { ...computeChangeCoverage(counted, covered, report.branches), ...apart };
 }

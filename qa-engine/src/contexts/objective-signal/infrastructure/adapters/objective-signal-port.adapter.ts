@@ -9,7 +9,8 @@ import type { CoverageCollectorPort } from "../../application/ports/coverage-col
 import type { ValueOraclePort } from "../../application/ports/value-oracle.port.ts";
 import type { BundleMutationResult, CoverageReport, DumpSource, MutantProof, MutantRun } from "../../domain/coverage-collector.ts";
 import { DecideCoverageService, type ChangeCoverage, type CoveragePolicy } from "../../domain/decide-coverage.service.ts";
-import { parseDiffHunks } from "../../domain/assemble-change-coverage.ts";
+import { parseDiffHunks, type NoCodeLinesOf } from "../../domain/assemble-change-coverage.ts";
+import { linesWithoutCode } from "../statement-code-lines.ts";
 import { selectMutants, type SourceLineOf } from "../../domain/select-mutants.ts";
 import type { MutantSelectionRecord } from "../../domain/objective-signal.ts";
 import { RepoReader } from "../../../../shared-infrastructure/repo-reader.ts";
@@ -24,15 +25,15 @@ export interface ObjectiveSignalPortCollaborators {
   oracle: ValueOraclePort;
   /* The mutation pass over the served script; absent when the value oracle is off or the target has no browser. */
   mutation?: BundleMutationPort;
-  /* The text of a changed file of the working copy; absent → the working copy (`repoDir`) is read through the confined reader. */
+  /* The text of a changed file of the working copy (a mutant's source line, an unloaded file's statements); absent → the working copy (`repoDir`) is read through the confined reader. */
   readSource?: (file: string) => string | undefined;
 }
 
 export interface ObjectiveSignalPortStaticContext {
   policy: CoveragePolicy;
   repoDir: string;
-  /* Turns CoverageReport + diff into ChangeCoverage. Absent → decide() gets null → unknown, never blocks. */
-  assembleChangeCoverage?: (diff: string, report: CoverageReport) => ChangeCoverage;
+  /* Turns CoverageReport + diff into ChangeCoverage, an unloaded file's lines read by its language's statement syntax. Absent → decide() gets null → unknown, never blocks. */
+  assembleChangeCoverage?: (diff: string, report: CoverageReport, noCodeOf?: NoCodeLinesOf) => ChangeCoverage;
   baselineCases?: string[];
   /* Same per-run namespace ExecutionPortAdapter uses so dumps are read from the directory execution wrote. Optional; falls back to br.sha.toString(). */
   namespace?: string;
@@ -50,6 +51,7 @@ function measurementOf(cc: ChangeCoverage | null, skipped: CoverageMeasurement["
     ...(cc.branches ? { changedBranches: cc.branches.changedBranches, takenBranches: cc.branches.takenBranches } : {}),
     ...(cc.notExecutable ? { notExecutableLines: count(cc.notExecutable) } : {}),
     ...(cc.notLoaded?.length ? { notLoadedFiles: cc.notLoaded.map((f) => f.file) } : {}),
+    ...(cc.noCode?.length ? { noCodeFiles: cc.noCode } : {}),
     ...(byExecution
       ? {
           coveredByExecution: byExecution.overall.coveredChanged,
@@ -58,8 +60,8 @@ function measurementOf(cc: ChangeCoverage | null, skipped: CoverageMeasurement["
         }
       : {}),
   };
-  /* A diff that changes files and adds no line only deletes. */
-  if (cc.overall.changedLines === 0) return { ...counts, unmeasured: diff !== undefined && diffChangedFiles(diff).length > 0 ? "deletion-only" : "no-changed-lines" };
+  /* A diff that changes files and adds no line only deletes; one whose added lines are none of them code has no changed lines. */
+  if (cc.overall.changedLines === 0) return { ...counts, unmeasured: diff !== undefined && diffChangedFiles(diff).length > 0 && parseDiffHunks(diff).size === 0 ? "deletion-only" : "no-changed-lines" };
   if (cc.measured) return counts;
   /* Scripts ran and none of them carried a source map: nothing could have mapped them to the repository, whatever the change was. */
   const unmappable = scripts !== undefined && scripts.total > 0 && scripts.withSourceMap === 0;
@@ -89,12 +91,24 @@ function sourceLines(readSource: (file: string) => string | undefined): SourceLi
 }
 
 /* The working copy's text of a changed file, through the strict, capped read; a file that cannot be used gives no text, said once. */
-function workingCopySource(repoDir: string): (file: string) => string | undefined {
+function workingCopySource(repoDir: string, purpose: string): (file: string) => string | undefined {
   return (file) => {
     const reader = new RepoReader(repoDir);
     const text = reader.optionalText(file, MAX_SPEC_SOURCE_BYTES);
-    reader.warn("mutation: the source of a changed file");
+    reader.warn(`${purpose}: the source of a changed file`);
     return text;
+  };
+}
+
+/* The lines of an unloaded changed file its language's statement syntax says hold no code, each file read once per measurement. */
+function noCodeLines(readSource: (file: string) => string | undefined): NoCodeLinesOf {
+  const known = new Map<string, ReadonlySet<number> | undefined>();
+  return (file) => {
+    if (!known.has(file)) {
+      const text = readSource(file);
+      known.set(file, text === undefined ? undefined : linesWithoutCode(file, text));
+    }
+    return known.get(file);
   };
 }
 
@@ -134,7 +148,8 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     const rerun = (opts?.reruns?.length ?? 0) > 0;
     const sources = latestDumpsOf(namespace, opts?.reruns ?? []).sources;
     const report = willAssemble ? await this.collectFrom(specDir, namespace, rerun ? sources : undefined, changedFiles) : null;
-    const executed: ChangeCoverage | null = report ? this.ctx.assembleChangeCoverage!(changeDiff!, report) : null;
+    const noCodeOf = this.noCodeOf();
+    const executed: ChangeCoverage | null = report ? this.ctx.assembleChangeCoverage!(changeDiff!, report, noCodeOf) : null;
 
     const oracleResult = await this.deps.oracle.measure(br, this.ctx.repoDir, namespace, baselineCases ?? this.ctx.baselineCases, opts?.faultAim);
 
@@ -142,7 +157,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     let bundleMutation: BundleMutationResult | null = null;
     let mutantSelection: MutantSelectionRecord | undefined;
     if (this.deps.mutation && report?.mutationSites && executed?.measured && changeDiff !== undefined) {
-      const { mutants, skipped } = selectMutants(report.mutationSites, parseDiffHunks(changeDiff), opts?.caseFiles ?? [], undefined, report.branches, sourceLines(this.deps.readSource ?? workingCopySource(this.ctx.repoDir)));
+      const { mutants, skipped } = selectMutants(report.mutationSites, parseDiffHunks(changeDiff), opts?.caseFiles ?? [], undefined, report.branches, sourceLines(this.deps.readSource ?? workingCopySource(this.ctx.repoDir, "mutation")));
       const bySpecFile = mutants.filter((m) => m.tests === undefined).length;
       mutantSelection = { ...(skipped.count > 0 ? { skippedSites: skipped } : {}), rerunsByTest: mutants.length - bySpecFile, rerunsBySpecFile: bySpecFile };
       /* The first judgment of the survivors also tells what each moved (their pages against an unmutated re-run); the re-check of a regeneration's answer does not. */
@@ -150,7 +165,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     }
     const proofs = bundleMutation?.proofs ?? [];
     /* What a killed mutant made run, a test checked: the verified coverage adds it, the coverage by execution alone stays beside it. */
-    const verified = proofs.length > 0 && executed ? await this.withProofs(specDir, rerun ? sources : [{ namespace }], proofs, changeDiff!, changedFiles) : null;
+    const verified = proofs.length > 0 && executed ? await this.withProofs(specDir, rerun ? sources : [{ namespace }], proofs, changeDiff!, changedFiles, noCodeOf) : null;
     const cc = verified ?? executed;
 
     const status = this.deps.decide.decide(cc, this.ctx.policy);
@@ -204,12 +219,17 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
   }
 
   /* The coverage of `sources` with the dumps of each proof's re-run added (its edit undone, only its failing spec files); null when a source could not be read, so a part never stands for the whole. */
-  private async withProofs(specDir: string, sources: readonly DumpSource[], proofs: readonly MutantProof[], changeDiff: string, changedFiles: string[] | undefined): Promise<ChangeCoverage | null> {
+  private async withProofs(specDir: string, sources: readonly DumpSource[], proofs: readonly MutantProof[], changeDiff: string, changedFiles: string[] | undefined, noCodeOf: NoCodeLinesOf): Promise<ChangeCoverage | null> {
     const { recollect } = this.deps.collector;
     if (!recollect || !this.ctx.assembleChangeCoverage) return null;
     const proofSources = proofs.map(({ namespace, specFiles, ...mutant }) => ({ namespace, onlySpecFiles: specFiles, mutant }));
     const report = await recollect.call(this.deps.collector, specDir, [...sources, ...proofSources], changedFiles);
-    return report.incomplete ? null : this.ctx.assembleChangeCoverage(changeDiff, report);
+    return report.incomplete ? null : this.ctx.assembleChangeCoverage(changeDiff, report, noCodeOf);
+  }
+
+  /* An unloaded changed file's statements, read from the working copy once per measurement. */
+  private noCodeOf(): NoCodeLinesOf {
+    return noCodeLines(this.deps.readSource ?? workingCopySource(this.ctx.repoDir, "change-coverage"));
   }
 
   async recheckSurvivors(survivors: readonly MutantRun[], specDir: string, namespace: string, baselineCases: readonly string[]): Promise<BundleMutationResult | null> {
@@ -233,7 +253,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     const report = await recollect.call(this.deps.collector, specDir, [...sources, ...proofSources], [...parseDiffHunks(changeDiff).keys()]);
     /* A source that could not be read would count a part of the suite as the whole: the measurement before the recount stands. */
     if (report.incomplete) return null;
-    const cc = this.ctx.assembleChangeCoverage(changeDiff, report);
+    const cc = this.ctx.assembleChangeCoverage(changeDiff, report, this.noCodeOf());
     return {
       status: this.deps.decide.decide(cc, this.ctx.policy),
       ratio: cc.measured ? cc.overall.ratio : null,

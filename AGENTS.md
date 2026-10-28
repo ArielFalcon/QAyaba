@@ -778,8 +778,13 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   registry's `isTestFile`) are neither collected nor counted. A browser run counts only the changed lines a loaded
   script holds code for (a segment of its source map maps to the line; a script served as written: its non-blank
   lines), so imports, types, comments and blank lines are left out (`notExecutableLines`); a changed file no loaded
-  script maps is not loaded, and its non-blank added lines count as uncovered (`notLoadedFiles`), unless no script can hold it
-  (neither a declared language nor a kind of file the run's maps reach, such as a document or a style sheet): that is not changed code. Native reports keep
+  script maps is not loaded: the statement syntax its language declares in the language registry (`statementSyntaxForFile`,
+  read from the working copy) says which of its changed lines are no code (an import, a re-export or export list, a type-only
+  declaration, a comment, a blank line), left out like the lines no map reaches, and its other non-blank added lines count as
+  uncovered (`notLoadedFiles`); one whose every changed line is no code leaves the measurement (`noCodeFiles`, span
+  `qayaba.coverage.no_code_files`), and a change left with no line of code is `no-changed-lines`, never `deletion-only`. A language
+  that declares no statement syntax, or a source that cannot be read or parsed, counts every non-blank added line. A file no script can hold
+  (neither a declared language nor a kind of file the run's maps reach, such as a document or a style sheet) is not changed code. Native reports keep
   every added line. `gateSignals.changeCoverage` records these counts beside the ratio.
 - **Changed files that are no gap of the suite** leave the measurement whole (their lines, branches, missing cases and mutants) and are recorded apart with why,
   decided once per run from its facts (`coverageExclusionsOf`, `objective-signal/domain/coverage-exclusions.ts`), never by a name pattern, and handed to every

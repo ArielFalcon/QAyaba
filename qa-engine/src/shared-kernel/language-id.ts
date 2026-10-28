@@ -15,13 +15,16 @@ const JS_MANIFESTS: readonly string[] = ["package.json", "tsconfig.json", "jscon
  * recognise one), by file name.
  * decisions: the syntax the static decision listing reads the language's source with, or null when the language has no lister
  * (its changed decisions are not listed, never guessed).
+ * statements: the syntax that tells which of a source's statements are no executable code (an import, a re-export, a type-only
+ * declaration), or null when the language declares none (every non-blank line of its source is then taken for code).
  */
 export type DecisionSyntax = "ecmascript";
+export type StatementSyntax = "ecmascript";
 
-const LANGS: Record<LanguageId, { astGrep: boolean; testPaths: readonly RegExp[]; manifests: readonly string[]; decisions: DecisionSyntax | null }> = {
-  javascript: { astGrep: true, testPaths: JS_TEST_PATHS, manifests: JS_MANIFESTS, decisions: "ecmascript" },
-  typescript: { astGrep: true, testPaths: JS_TEST_PATHS, manifests: JS_MANIFESTS, decisions: "ecmascript" },
-  java:       { astGrep: true, testPaths: [/(^|\/)src\/test\//, /(Test|Tests|IT)\.java$/], manifests: ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"], decisions: null },
+const LANGS: Record<LanguageId, { astGrep: boolean; testPaths: readonly RegExp[]; manifests: readonly string[]; decisions: DecisionSyntax | null; statements: StatementSyntax | null }> = {
+  javascript: { astGrep: true, testPaths: JS_TEST_PATHS, manifests: JS_MANIFESTS, decisions: "ecmascript", statements: "ecmascript" },
+  typescript: { astGrep: true, testPaths: JS_TEST_PATHS, manifests: JS_MANIFESTS, decisions: "ecmascript", statements: "ecmascript" },
+  java:       { astGrep: true, testPaths: [/(^|\/)src\/test\//, /(Test|Tests|IT)\.java$/], manifests: ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"], decisions: null, statements: null },
 };
 
 /*
@@ -94,6 +97,12 @@ export const LanguageRegistry = {
   decisionSyntaxForFile(file: string): DecisionSyntax | null {
     const lang = this.languageForFile(file);
     return lang === null ? null : LANGS[lang].decisions;
+  },
+
+  /* The syntax that tells a file's statements that are no executable code, or null for a file of no declared language or of a language that declares none. */
+  statementSyntaxForFile(file: string): StatementSyntax | null {
+    const lang = this.languageForFile(file);
+    return lang === null ? null : LANGS[lang].statements;
   },
 
   /* The route-table syntaxes whose framework a repository's build file declares (its dependency in a manifest of the syntax's language), in declaration order. */

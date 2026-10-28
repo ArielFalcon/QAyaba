@@ -1,6 +1,7 @@
 /* Builds the objective-signal context: the change-coverage port the keystone decision reads, and the pure parser of a spec's test intent. */
 
 import type { BundleMutationPort, ChangeCoverage, CoverageCollectorPort, CoveragePolicy, IntentContractPort, ObjectiveSignalPort, ValueOraclePort } from "../application/index.ts";
+import type { NoCodeLinesOf } from "../domain/assemble-change-coverage.ts";
 import { DecideCoverageService } from "../domain/decide-coverage.service.ts";
 import { ObjectiveSignalPortAdapter } from "../infrastructure/adapters/objective-signal-port.adapter.ts";
 import { extractSpecContract } from "../infrastructure/ts-spec-contract.extractor.ts";
@@ -16,7 +17,7 @@ export interface ObjectiveSignalDeps {
   /* The per-run namespace execution wrote the coverage dumps under. */
   namespace: string;
   /* Absent, or with no per-run diff at measure time: the decision receives null and never blocks. */
-  assembleChangeCoverage?: (diff: string, report: Awaited<ReturnType<CoverageCollectorPort["collect"]>>) => ChangeCoverage;
+  assembleChangeCoverage?: (diff: string, report: Awaited<ReturnType<CoverageCollectorPort["collect"]>>, noCodeOf?: NoCodeLinesOf) => ChangeCoverage;
   baselineCases?: string[];
 }
 

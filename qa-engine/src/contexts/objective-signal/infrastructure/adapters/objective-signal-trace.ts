@@ -56,6 +56,7 @@ function countsOf(m: CoverageMeasurement | undefined): Record<string, string | n
     "qayaba.coverage.changed_files": m.changedFiles,
     "qayaba.coverage.mapped_files": m.mappedFiles,
     ...(m.changedBranches !== undefined ? { "qayaba.coverage.changed_branches": m.changedBranches, "qayaba.coverage.taken_branches": m.takenBranches ?? 0 } : {}),
+    ...(m.noCodeFiles?.length ? { "qayaba.coverage.no_code_files": m.noCodeFiles } : {}),
     ...(m.unmeasured ? { "qayaba.coverage.unmeasured": m.unmeasured } : {}),
     ...(m.perCandidate ? candidateAttrs(m.perCandidate) : {}),
   };

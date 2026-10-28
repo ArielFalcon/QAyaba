@@ -21,6 +21,13 @@ test("the static decision listing reads JavaScript and TypeScript with one synta
   assert.equal(LanguageRegistry.decisionSyntaxForFile("a/b.html"), null);
 });
 
+test("JavaScript and TypeScript declare the syntax that tells a source's statements that are no code; Java and undeclared languages declare none", () => {
+  assert.equal(LanguageRegistry.statementSyntaxForFile("a/b.ts"), "ecmascript");
+  assert.equal(LanguageRegistry.statementSyntaxForFile("a/b.cjs"), "ecmascript");
+  assert.equal(LanguageRegistry.statementSyntaxForFile("a/B.java"), null);
+  assert.equal(LanguageRegistry.statementSyntaxForFile("a/b.html"), null);
+});
+
 test("groupByLanguage buckets files and drops unsupported", () => {
   const g = LanguageRegistry.groupByLanguage(["a.ts", "b.js", "c.py", "d.java"]);
   assert.deepEqual(g.get("typescript"), ["a.ts"]);

@@ -480,3 +480,50 @@ test("a changed file no script can hold (a document, a style sheet) is not count
   assert.deepEqual(cc.overall, { changedLines: 3, coveredChanged: 1, ratio: 1 / 3 }, "list.html line 1, detail.html line 1 and lazy.ts line 1");
   assert.deepEqual(cc.notLoaded, [{ file: "src/detail.html", lines: [1] }, { file: "src/lazy.ts", lines: [1] }]);
 });
+
+/* src/shared/index.ts (no page loaded it) gains a re-export; src/lazy.ts (likewise) gains an import and a code line. */
+const SYNTAX_DIFF = [
+  "diff --git a/src/a.ts b/src/a.ts",
+  "--- a/src/a.ts",
+  "+++ b/src/a.ts",
+  "@@ -0,0 +1 @@",
+  "+run();",
+  "diff --git a/src/shared/index.ts b/src/shared/index.ts",
+  "--- a/src/shared/index.ts",
+  "+++ b/src/shared/index.ts",
+  "@@ -1,0 +2 @@",
+  "+export * from './flip';",
+  "diff --git a/src/lazy.ts b/src/lazy.ts",
+  "--- a/src/lazy.ts",
+  "+++ b/src/lazy.ts",
+  "@@ -0,0 +1,2 @@",
+  "+import { x } from './x';",
+  "+go(x);",
+].join("\n");
+const SYNTAX_REPORT: CoverageReport = { covered: [{ file: "src/a.ts", lines: [1] }], executable: [{ file: "src/a.ts", lines: [1] }] };
+const NO_CODE: Record<string, number[]> = { "src/shared/index.ts": [1, 2, 3], "src/lazy.ts": [1] };
+const noCodeOf = (file: string): ReadonlySet<number> | undefined => (NO_CODE[file] ? new Set(NO_CODE[file]) : undefined);
+
+test("a changed file no loaded script maps whose every changed line its language's syntax says is no code leaves the measurement, recorded apart", () => {
+  const cc = assembleChangeCoverage(SYNTAX_DIFF, SYNTAX_REPORT, noCodeOf);
+
+  assert.equal(cc.perFile.some((f) => f.file === "src/shared/index.ts"), false, "the re-export is not counted");
+  assert.deepEqual(cc.noCode, ["src/shared/index.ts"]);
+  assert.equal(cc.notLoaded?.some((f) => f.file === "src/shared/index.ts"), false);
+});
+
+test("a changed file no loaded script maps with any changed line of code counts only its code lines as uncovered", () => {
+  const cc = assembleChangeCoverage(SYNTAX_DIFF, SYNTAX_REPORT, noCodeOf);
+
+  assert.deepEqual(cc.overall, { changedLines: 2, coveredChanged: 1, ratio: 0.5 }, "a.ts line 1 and lazy.ts line 2");
+  assert.deepEqual(cc.notLoaded, [{ file: "src/lazy.ts", lines: [2] }]);
+  assert.deepEqual(cc.notExecutable, [{ file: "src/shared/index.ts", lines: [2] }, { file: "src/lazy.ts", lines: [1] }], "the lines the syntax says are no code are left out like the lines no script maps");
+});
+
+test("a changed file whose language tells no syntax counts its non-blank added lines as uncovered, as before", () => {
+  const cc = assembleChangeCoverage(SYNTAX_DIFF, SYNTAX_REPORT, () => undefined);
+
+  assert.equal(cc.overall.changedLines, 4);
+  assert.deepEqual(cc.notLoaded, [{ file: "src/shared/index.ts", lines: [2] }, { file: "src/lazy.ts", lines: [1, 2] }]);
+  assert.equal(cc.noCode, undefined);
+});
