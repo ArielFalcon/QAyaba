@@ -102,9 +102,9 @@ async function preExecuteInfraError(state: Readonly<RunState>, ctx: WorkspaceRun
 }
 
 /*
- * The static gate on what the run delivered so far, with the linter's own fixes applied first; whether the repair rounds that
- * follow may rewrite the specs is decided here once, from this first look. Context-mode validate() failure does not persist (Issue
- * only). changedFiles scopes the code-target compile gate; ignored by e2e. Empty outside diff mode.
+ * The static gate on what the run delivered so far, with the linter's own fixes applied first; what they leave goes to the repair
+ * rounds that follow. Context-mode validate() failure does not persist (Issue only). changedFiles scopes the code-target compile
+ * gate; ignored by e2e. Empty outside diff mode.
  */
 export async function validateStatically(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { deps, workspace } = ctx;
@@ -114,12 +114,21 @@ export async function validateStatically(state: Readonly<RunState>, ctx: Workspa
   let validation = await deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow(state));
   if (generating) validation = await withLinterFixes(validation, state, ctx, validateChangedFiles);
   const lastGenerated = state.generation.generated;
-  /* A failing gate on a spec the generator saw pass ends the run invalid instead of rewriting the spec. */
-  const staticFixRetired = !validation.ok && !validation.infra && generating && hasDeliveredSpecs(state, lastGenerated) && (await loopClosedNow(state, ctx));
-  if (staticFixRetired) {
-    deps.observer?.onEvent({ type: "log.line", level: "info", text: "[qa] the static gate failed, but every delivered spec was seen passing through run_spec: no static-fix rounds" });
+  if (!validation.ok && !validation.infra && generating && hasDeliveredSpecs(state, lastGenerated) && (await loopClosedNow(state, ctx))) {
+    announceProvenSpecsRepair(ctx);
   }
-  return { update: { execution: { ...state.execution, validation, lastGenerated, staticFixRetired } } };
+  return { update: { execution: { ...state.execution, validation, lastGenerated } } };
+}
+
+/*
+ * The static gate refused specs run_spec saw pass. A call proves a spec runs against DEV, not that it passes the type check, the lint
+ * or the test listing, so they are repaired like any other; the bytes a round writes are not the ones run_spec proved, and the
+ * regenerations the loop retires are retired again only for bytes a later call sees pass.
+ */
+function announceProvenSpecsRepair(ctx: WorkspaceRunContext): void {
+  const text = "[qa] the static gate refused specs run_spec saw pass: run_spec proves a spec runs, not that it passes the static gate, so they go to the static-fix rounds; a spec those rounds rewrite is no longer the one run_spec proved";
+  engineLog.info(text, { ship: true });
+  ctx.deps.observer?.onEvent({ type: "log.line", level: "info", text });
 }
 
 /* What a static-fix round repairs: the specs the run has delivered, or those the last generation reported; a repair that returned nothing leaves the delivered ones to repair. */
@@ -134,9 +143,9 @@ const hasDeliveredSpecs = (state: Readonly<RunState>, lastGenerated: RunState["e
 export async function staticFixRound(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { deps, workspace, signal } = ctx;
   const { generating } = state.classification;
-  const { validation, lastGenerated: previous, staticFixRetired } = state.execution;
+  const { validation, lastGenerated: previous } = state.execution;
   const rounds = state.loops.staticFix;
-  const action = staticFixAction({ validation, rounds, max: MAX_STATIC_FIX_ROUNDS, retired: staticFixRetired, generating, hasDelivered: hasDeliveredSpecs(state, previous) });
+  const action = staticFixAction({ validation, rounds, max: MAX_STATIC_FIX_ROUNDS, generating, hasDelivered: hasDeliveredSpecs(state, previous) });
   if (action === "stop") {
     if (validation.ok) return;
     /*

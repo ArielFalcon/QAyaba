@@ -482,7 +482,7 @@ The result is `detail.acceptance` of the arm's probe report (`validate`, `runs[]
 `qa.closedLoop.enabled` (or `--closed-loop on` of the campaign / `npm run qa`, or `closedLoop: true` on `POST /api/v1/runs`) lets the OpenCode generator execute a spec it wrote
 while it authors (`docs/execution-sandbox.md`, "The run_spec tool"). It ships **off**: the A/B is two campaigns that differ only in `--closed-loop on` and `--closed-loop off`
 (`--arms B`, same cases, same warm snapshot). Read `gateSignals.closedLoop { calls, devWrites, closed, granted }` in each pipeline arm's probe report (`closedLoop` field): `closed` is whether every delivered spec was
-seen passing in its final bytes, which is what skips the static-fix rounds, the pre-exec corrective regeneration and the fix loop's regeneration. Compare cost, wall time, steps and the rubric score of the valid
+seen passing in its final bytes, which is what skips the pre-exec corrective regeneration and the fix loop's regeneration (the static-fix rounds run either way: `run_spec` proves a spec runs, not that it passes the static gate). Compare cost, wall time, steps and the rubric score of the valid
 replicates; the loop adds DEV load (each flow is granted the calls its time runs at `perCallMs` 120000, `maxCalls` is an optional ceiling on the flows' calls together, and writes are capped per run at `maxDevWrites` 20 by default).
 
 ### The authenticated agent browser: A/B

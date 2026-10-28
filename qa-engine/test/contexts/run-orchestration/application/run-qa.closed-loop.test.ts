@@ -18,6 +18,11 @@ import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { served } from "../../../support/coordinator-over-author.ts";
 import { primaryChangeSet } from "../../../support/change-set.ts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { MAX_STATIC_FIX_ROUNDS } from "@kernel/derive-cycle-backstop.ts";
+import { memoryLogger } from "@kernel/ports/logger.port.ts";
+import { installProcessLogger, resetProcessLoggerForTests } from "@kernel/ports/process-logger.ts";
 
 const INPUT: RunQaInput = { app: "demo", changeSet: primaryChangeSet("demo", Sha.of("abc1234")), sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "loop-run" };
 const LIMITS = { maxCalls: 8, perCallMs: 120_000, maxDevWrites: 20 };
@@ -211,17 +216,75 @@ test("a static-gate failure ends the run invalid and carries the signals", async
 
 /* ── retired regenerations ────────────────────────────────────────────────────────────────────── */
 
-test("static-fix rounds repair a failing gate when the loop is not closed, and do not when it is", async () => {
-  const failing = { validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }) };
-  const open = rig({ closed: false });
-  await new RunQaUseCase(open.deps({ validation: failing })).run(INPUT);
-  assert.equal(open.generations, 3, "the first pass and the two static-fix rounds");
+test("a static gate that keeps failing spends every static-fix round and ends the run invalid, whether or not the loop is closed: run_spec proves a spec runs, not that it passes the gate", async () => {
+  const failing = { validate: async () => ({ ok: false, errors: ["[lint] playwright/expect-expect"] }) };
+  for (const closed of [false, true]) {
+    const r = rig({ closed });
+    const out = await new RunQaUseCase(r.deps({ validation: failing })).run(INPUT);
+    assert.equal(r.generations, 1 + MAX_STATIC_FIX_ROUNDS, `the first pass and every static-fix round, closed=${closed}`);
+    assert.equal(out.decision.verdict, "invalid", `closed=${closed}`);
+    assert.equal(out.gateSignals.retries, MAX_STATIC_FIX_ROUNDS, `closed=${closed}`);
+  }
+});
 
-  const closed = rig({ closed: true });
-  const out = await new RunQaUseCase(closed.deps({ validation: failing })).run(INPUT);
-  assert.equal(closed.generations, 1, "a spec the generator saw pass is not rewritten for a lint finding");
-  assert.equal(out.decision.verdict, "invalid");
-  assert.equal(out.gateSignals.retries, 0);
+test("a lint error on a spec run_spec saw pass is repaired, the run goes on to execute, and the run's log says why the proven spec was rewritten", async () => {
+  const memory = memoryLogger();
+  installProcessLogger(memory);
+  try {
+    let validations = 0;
+    const r = rig({ closed: true });
+    const out = await new RunQaUseCase(r.deps({
+      validation: { validate: async () => (validations++ === 0 ? { ok: false, errors: ["[lint] playwright/expect-expect"] } : { ok: true, errors: [] }) },
+    })).run(INPUT);
+    assert.equal(r.generations, 2, "the first pass and one static-fix round");
+    assert.equal(out.gateSignals.retries, 1);
+    assert.equal(out.decision.verdict, "pass");
+    assert.ok(
+      memory.entries.some((e) => e.level === "info" && e.fields?.ship === true && /run_spec/.test(e.message) && /static/.test(e.message)),
+      "the decision is a shipped line of the run's log",
+    );
+  } finally {
+    resetProcessLoggerForTests();
+  }
+});
+
+/* A loop that is closed only while each delivered spec holds the bytes its last run_spec call passed in, as the real one decides. */
+function provenBytesLoop(r: Rig): void {
+  const proven = new Map<string, string>();
+  const bytesOf = (file: string): string | undefined => (r.ws.has(file) ? readFileSync(join(r.ws.specDir, file), "utf8") : undefined);
+  r.handle.isClosed = async (specs) => (r.closedAsked.push([...specs]), specs.every((f) => proven.has(f) && proven.get(f) === bytesOf(f)));
+  r.handle.sweepProbes = async () => {
+    r.events.push("sweep");
+    if (proven.size === 0) for (const f of ["flows/a.spec.ts"]) { const b = bytesOf(f); if (b !== undefined) proven.set(f, b); }
+  };
+}
+
+test("a static-fix round that rewrites a proven spec leaves the loop open for its new bytes, so a failing execution then regenerates; one that leaves the bytes keeps the fix loop retired", async () => {
+  for (const rewrites of [true, false]) {
+    let validations = 0;
+    const r = rig();
+    provenBytesLoop(r);
+    const out = await new RunQaUseCase(r.deps({
+      generation: {
+        author: async () => {
+          r.generations++;
+          r.events.push("generate");
+          r.ws.write("flows/a.spec.ts", rewrites ? `// bytes ${r.generations}\n` : "// bytes 1\n");
+          return scriptedGeneration({ specs: ["flows/a.spec.ts"] });
+        },
+      },
+      validation: { validate: async () => (validations++ === 0 ? { ok: false, errors: ["[lint] playwright/expect-expect"] } : { ok: true, errors: [] }) },
+      execution: { execute: async () => ({ verdict: "fail" as const, cases: FAIL, logs: "" }) },
+    })).run(INPUT);
+    assert.equal(out.gateSignals.retries >= 1, true, `the static gate was repaired, rewrites=${rewrites}`);
+    if (rewrites) {
+      assert.ok(r.generations > 2, "the fix loop regenerates the repaired bytes, which run_spec never saw pass");
+      assert.equal(out.gateSignals.closedLoop?.closed, false);
+    } else {
+      assert.equal(r.generations, 2, "the first pass and the static-fix round; the fix loop is retired for bytes run_spec saw pass");
+      assert.equal(out.gateSignals.closedLoop?.closed, true);
+    }
+  }
 });
 
 test("the pre-execution corrective regeneration is skipped when the loop is closed", async () => {

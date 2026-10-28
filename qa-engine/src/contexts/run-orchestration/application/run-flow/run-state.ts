@@ -130,8 +130,6 @@ export interface ExecutionOutcome {
   lastGenerated: GenerationOutput | RegressionStandIn;
   /** Static-fix rounds so far; the fix loop adds to it, never resets it. */
   retries: number;
-  /** The static gate failed on specs the generator saw pass through run_spec: it ends the run instead of rewriting them. Decided once, after the first gate. */
-  staticFixRetired: boolean;
   /** The hash of the login script that signed in just before execute; only such a file is kept by the suite store. */
   authVerifiedSha256: string | undefined;
   /** The primary execution; a context run's is a synthetic pass with no cases. Absent until the execute step wrote it: read it with `runOf`. */
@@ -422,7 +420,6 @@ export function initialRunState(): RunState {
       flowCandidates: [],
     },
     execution: {
-      staticFixRetired: false,
       validation: { ok: true, errors: [] },
       lastGenerated: { specs: [], end: null },
       retries: 0,

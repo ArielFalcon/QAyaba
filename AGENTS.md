@@ -135,11 +135,14 @@ is the only engine; webhook (`src/server/webhook-handler.ts`, wired by `src/serv
    first pass stopped by its tier's time budget, or any agent turn of the run stopped by the run's
    wall-clock deadline (below) → `infra-error E-TIME-BUDGET`. With the closed loop on (below) the author of a flow may also
    execute a spec it wrote while it authors; a run whose every delivered spec was seen passing in its final bytes
-   skips the static-fix rounds, the pre-exec corrective regeneration and the fix loop's regeneration.
+   skips the pre-exec corrective regeneration and the fix loop's regeneration (never the static-fix rounds: `run_spec`
+   proves a spec runs, not that it passes the static gate).
 6. **Validate** — `tsc` + ESLint (`eslint-plugin-playwright`) + `playwright --list` +
    manifest. A failure first gets ESLint's own fixes on the delivered specs (computed in the sandbox with
    `--fix-dry-run`, written by the orchestrator through the confined writer); what they leave goes to at most
-   `MAX_STATIC_FIX_ROUNDS` repair turns, run while the run has delivered specs to repair. Still failing → `invalid`.
+   `MAX_STATIC_FIX_ROUNDS` repair turns, run while the run has delivered specs to repair, whatever the closed loop says (a
+   spec `run_spec` saw pass is repaired like any other, and the run's log says so; the bytes a round writes are no longer
+   the ones `run_spec` proved, so the loop is closed for them only once a later call sees them pass). Still failing → `invalid`.
 7. **Execute** — Playwright against DEV → `pass`/`fail`/`flaky` (pass only on retry =
    flaky → quarantine). DEV down → `infra-error`. A flaky run still has green bytes: coverage and review
    run on it (the review is advisory), and `triage-flaky-cases` sends the flaky cases to the lead as
@@ -299,8 +302,9 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   and refresh, which the ledger records apart as `sessionRequests` and the call's span as `qayaba.tool.dev_session_requests`; every other request
   to the identity provider, any other grant and a body that cannot be read still count), a ledger of every call's sha256, revoked when the run ends. Scratch specs live in `e2e/.qa-probe/` and are swept
   after every generation: never delivered, stored or validated. When `loopClosed` (every delivered spec's current bytes are those
-  whose last call passed) the regenerations that only repeat that work are skipped; the declared no-op, `E-NO-DECISION` /
-  `E-STEP-BUDGET` / `E-TIME-BUDGET` and the single coverage or branch-case regeneration are unchanged. The `Run spec budget` prompt
+  whose last call passed) the regenerations that only repeat that work are skipped (the pre-exec corrective regeneration and
+  the fix loop's); the static-fix rounds, the declared no-op, `E-NO-DECISION` / `E-STEP-BUDGET` / `E-TIME-BUDGET` and the single
+  coverage or branch-case regeneration are unchanged. The `Run spec budget` prompt
   section (facts only) exists only when granted. `gateSignals.closedLoop { calls, devWrites, closed, granted, writesRefused }`.
 - **Authenticated browser (`authbrowser_*`)** — on unless `qa.agentBrowser.enabled: false`, and skipped for a run with no saved session (or a run asks: `--agent-browser on|off`,
   `agentBrowser` on `POST /api/v1/runs`). The author (`qa-author`) and the explorer (`qa-explore`, read-only) get four custom tools
