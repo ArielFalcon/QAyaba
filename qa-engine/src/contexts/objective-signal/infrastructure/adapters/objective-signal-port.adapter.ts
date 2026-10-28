@@ -61,8 +61,8 @@ function measurementOf(cc: ChangeCoverage | null, skipped: CoverageMeasurement["
         }
       : {}),
   };
-  /* A diff that changes files and adds no line only deletes; one whose added lines are none of them code has no changed lines. */
-  if (cc.overall.changedLines === 0) return { ...counts, unmeasured: diff !== undefined && diffChangedFiles(diff).length > 0 && parseDiffHunks(diff).size === 0 ? "deletion-only" : "no-changed-lines" };
+  /* A diff that changes files and adds no code line is deletion-only; one whose added lines are only in unloaded files that hold no code has no changed lines. */
+  if (cc.overall.changedLines === 0) return { ...counts, unmeasured: diff !== undefined && diffChangedFiles(diff).length > 0 && !(cc.noCode?.length) ? "deletion-only" : "no-changed-lines" };
   if (cc.measured) return counts;
   /* Scripts ran and none of them carried a source map: nothing could have mapped them to the repository, whatever the change was. */
   const unmappable = scripts !== undefined && scripts.total > 0 && scripts.withSourceMap === 0;

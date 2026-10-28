@@ -991,6 +991,14 @@ function unloadedRig(sources: Record<string, string> = UNLOADED_SOURCES) {
   return { adapter, br: BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]) };
 }
 
+test("measure() keeps the deletion-only label for a change whose added lines are no code and hold no unloaded file of a code language", async () => {
+  const { adapter, br } = unloadedRig();
+  const readmeOnly = "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1,0 +2,1 @@\n+a line of prose\n";
+  const commentOnly = "diff --git a/src/checkout.ts b/src/checkout.ts\n--- a/src/checkout.ts\n+++ b/src/checkout.ts\n@@ -2,0 +3,2 @@\n+// a comment\n+\n";
+
+  for (const diff of [readmeOnly, commentOnly]) assert.equal((await adapter.measure(br, "/e2e", diff, [])).measurement?.unmeasured, "deletion-only", diff);
+});
+
 test("measure() leaves out a changed file no loaded script maps whose changed lines are all imports, re-exports or types, recorded apart; a file with code counts only its code lines", async () => {
   const { adapter, br } = unloadedRig();
 
