@@ -8,6 +8,9 @@ import { Sha } from "@kernel/sha.ts";
 import { ok } from "@kernel/result.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { CoChangePort } from "@kernel/ports/co-change.port.ts";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const SHA = "abc1234";
 
@@ -71,4 +74,31 @@ test("the mirror reader is bound to the mirror it is asked for", () => {
 
   assert.equal(typeof reader.diff, "function");
   assert.equal(typeof reader.message, "function");
+});
+
+test("the change scope reads which changed non-code files the changed source files declare, from the mirror it walks, and its candidates are seeded by them", async () => {
+  const mirror = mkdtempSync(join(tmpdir(), "declared-"));
+  try {
+    mkdirSync(join(mirror, "src/card"), { recursive: true });
+    writeFileSync(join(mirror, "src/card/card.ts"), "@Component({ templateUrl: './card.html', styleUrls: ['./card.css'] }) export class Card {}\n");
+    writeFileSync(join(mirror, "src/card/card.html"), "<p>{{ total }}</p>\n");
+    writeFileSync(join(mirror, "src/card/card.css"), "p { color: red }\n");
+    const seed = { file: "src/card/card.ts", symbol: "Card", kind: "class", depth: 0, confidence: 1 };
+    const page = { file: "src/cards.page.ts", symbol: "CardsPage", kind: "class", depth: 1, confidence: 1, via: { file: seed.file, symbol: seed.symbol } };
+    const api = buildChangeAnalysis({
+      vcs: fakeVcs([]),
+      scope: {
+        codeGraph: { ...graph, impactedSymbols: async () => ok({ indexedSha: SHA, symbols: [seed, page], truncated: false, seedBasis: "lines" as const }), routes: async () => ok([{ file: page.file, line: 1, path: "/cards" }]) },
+        serves: () => false,
+        loadMap: () => ({ routes: [{ path: "/cards", implementationFiles: ["src/card/card.ts"] }] }),
+      },
+    });
+    const repo = { repo: "org/web", role: "primary" as const, repoDir: mirror, headSha: SHA, changedFiles: ["src/card/card.ts", "src/card/card.html"] };
+    const scope = await api.changeScope!.resolve({ specDir: join(mirror, "e2e"), repos: [repo] });
+    assert.deepEqual(scope.repos[0]!.declaredResources, { "src/card/card.ts": ["src/card/card.html"] }, "only a changed file, and only what the source declares");
+    const [candidate] = await api.changeScope!.candidates({ specDir: join(mirror, "e2e"), scope });
+    assert.ok(candidate!.seeds.some((s) => s.file === "src/card/card.html"), "the page's use case is seeded by the template its source declares");
+  } finally {
+    rmSync(mirror, { recursive: true, force: true });
+  }
 });

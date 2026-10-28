@@ -13,6 +13,7 @@ import { activeExecScope } from "../../../../shared-infrastructure/process-sandb
 import { walkAttrs, walkSummary } from "./structural-signal-port.adapter.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { Sha } from "@kernel/sha.ts";
+import { LanguageRegistry } from "@kernel/language-id.ts";
 import type { PageMap } from "../../domain/page-files.ts";
 import { buildChangeScope, changedSymbolOf, type ProofWalk, type ReachLink, type ReachProof } from "../../domain/reach-proof.ts";
 import { entryKey, MAX_KNOWN_ENTRY_POINTS, type ChangeScope, type EntryPoint, type RepoScope } from "../../domain/change-scope.ts";
@@ -27,6 +28,8 @@ export interface ChangeScopePortAdapterDeps {
   proofs: readonly ReachProof[];
   /* The app's context map, when one fits the run: enrichment only, never required. */
   loadMap?: (specDir: string) => PageMap | undefined;
+  /* The non-code files each of `files` (source files of the mirror at `repoDir`) declares by relative path literal, read strictly from the mirror. Absent: no file is tied to the source that declares it. */
+  declaredResources?: (files: readonly string[], repoDir: string) => ReadonlyMap<string, readonly string[]>;
 }
 
 const keyOf = (s: LocalSymbolRef): string => `${s.file}::${s.symbol}`;
@@ -132,11 +135,29 @@ export class ChangeScopePortAdapter implements ChangeScopePort {
         seeds: symbols.filter((s) => s.depth === 0).map(changedSymbolOf),
         seedBasis,
         ...(r.touchedLines ? { addedLines: addedLinesOf(r.touchedLines) } : {}),
+        ...this.declaredIn(r),
         entryPoints: known.entryPoints,
         entryPointsTruncated: known.truncated,
       },
       walk: { repo: r.repo, reached: symbols, handlers: true, ...walkFacts(impact.value) },
     };
+  }
+
+  /* The changed non-code files the repo's changed source files declare, keyed by the source file; nothing when none of its changed files is a non-code file or none is declared. Fail-open: a read that throws ties nothing. */
+  private declaredIn(r: ChangeScopeRepo): Pick<RepoScope, "declaredResources"> {
+    const read = this.deps.declaredResources;
+    const resources = new Set(r.changedFiles.filter((file) => LanguageRegistry.languageForFile(file) === null));
+    if (!read || resources.size === 0) return {};
+    try {
+      const declared = [...read(r.changedFiles.filter((file) => !resources.has(file)), r.repoDir)].flatMap(([file, files]) => {
+        const changed = files.filter((f) => resources.has(f));
+        return changed.length > 0 ? [[file, changed] as const] : [];
+      });
+      return declared.length > 0 ? { declaredResources: Object.fromEntries(declared) } : {};
+    } catch (err) {
+      engineLog.error(`[qa] the files the change's source files declare could not be read (the scope goes on without them): ${err instanceof Error ? err.message : String(err)}`);
+      return {};
+    }
   }
 
   /* A service's change on the app's pages: from the call sites of the links reached, inbound in the app's index. */

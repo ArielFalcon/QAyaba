@@ -6,7 +6,7 @@
  * brief preloads every owned hunk is the fit rule's to say (`fitBriefChange`), never a fixed count. Pure; the brief's constructor
  * redacts every text.
  */
-import { buildChangeMap } from "@kernel/change-map.ts";
+import { buildChangeMap, DECLARED_FILE_SEED_SYMBOL } from "@kernel/change-map.ts";
 import { sliceFor, type ChangeSlice, type HunkReference } from "@kernel/change-slice.ts";
 import { decisionRankOf, decisionsInHunk, type ChangedDecision } from "@kernel/changed-decision.ts";
 import { classifyPath, FILE_CLASS_ORDER } from "@kernel/file-classes.ts";
@@ -46,13 +46,16 @@ function expectedFrom(candidate: UseCaseCandidate, facts: ChangeFacts): Expected
   return sources;
 }
 
+/* A seed that names a changed symbol, not a whole file (a map link's, or a file a source file declares). */
+const namesSymbol = (seed: ChangedSymbol): boolean => seed.symbol !== FILE_SEED_SYMBOL && seed.symbol !== DECLARED_FILE_SEED_SYMBOL;
+
 const symbolText = (seed: ChangedSymbol, shared: boolean): string =>
   `${seed.symbol} (${seed.file}${seed.range ? `:${seed.range.start}-${seed.range.end}` : ""}${shared ? ", shared with other pages" : ""})`;
 
 function briefCandidateOf(candidate: UseCaseCandidate, facts: ChangeFacts): BriefCandidate {
   const symbols = [
-    ...candidate.seeds.filter((seed) => seed.symbol !== FILE_SEED_SYMBOL).map((seed) => symbolText(seed, false)),
-    ...(candidate.sharedSeeds ?? []).map((seed) => symbolText(seed, true)),
+    ...candidate.seeds.filter(namesSymbol).map((seed) => symbolText(seed, false)),
+    ...(candidate.sharedSeeds ?? []).filter(namesSymbol).map((seed) => symbolText(seed, true)),
   ];
   return { id: candidate.id, entry: entryKey(candidate.entry), tier: candidate.tier, evidence: boundedSteps(candidate.evidence), symbols: [...new Set(symbols)], expectedFrom: expectedFrom(candidate, facts) };
 }
@@ -62,9 +65,10 @@ function originsOf(path: string, candidates: readonly UseCaseCandidate[]): Chang
   const seeds = candidates.flatMap((c) => c.seeds).filter((seed) => seed.file === path);
   const found = new Set<ChangeOrigin>();
   if (seeds.some((seed) => seed.symbol === FILE_SEED_SYMBOL)) found.add("map-link");
-  if (seeds.some((seed) => seed.symbol !== FILE_SEED_SYMBOL)) found.add("graph");
+  if (seeds.some((seed) => seed.symbol === DECLARED_FILE_SEED_SYMBOL)) found.add("declared");
+  if (seeds.some(namesSymbol)) found.add("graph");
   if (candidates.some((c) => (c.sharedSeeds ?? []).some((seed) => seed.file === path))) found.add("shared");
-  return (["map-link", "graph", "shared"] as const).filter((origin) => found.has(origin));
+  return (["map-link", "declared", "graph", "shared"] as const).filter((origin) => found.has(origin));
 }
 
 const referenceLine = (ref: Pick<HunkReference, "path" | "start" | "end" | "added" | "removed" | "kind">, why: string): string =>

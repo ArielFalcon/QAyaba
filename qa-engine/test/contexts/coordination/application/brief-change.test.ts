@@ -6,6 +6,7 @@ import { createDelegationBrief } from "@contexts/coordination/application/delega
 import { renderSidekickBrief } from "@contexts/coordination/application/sidekick-prompt.ts";
 import { readDelegationResult } from "@contexts/coordination/application/delegation-reading.ts";
 import { FILE_SEED_SYMBOL, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import { DECLARED_FILE_SEED_SYMBOL } from "@kernel/change-map.ts";
 import type { ContextFit } from "@kernel/context-budget.ts";
 import type { ChangedDecision } from "@kernel/changed-decision.ts";
 import { BRIEF_DECISIONS_SECTION_ID } from "@contexts/coordination/application/coordination-sections/brief-sections.ts";
@@ -50,6 +51,13 @@ test("a flow's change names each of its files with kind, added lines and origin,
   assert.deepEqual([files["src/cart.ts"]!.kind, files["src/cart.ts"]!.added, files["src/cart.ts"]!.origins], ["typescript", 2, ["graph"]]);
   assert.deepEqual([files["src/cart.html"]!.kind, files["src/cart.html"]!.origins], ["other", ["map-link"]]);
   assert.deepEqual(files["src/util/money.ts"]!.origins, ["shared"]);
+});
+
+test("a file a changed source file of the flow declares is named with that origin, and is no symbol of the candidate", () => {
+  const declared = cart({ seeds: [{ file: "src/cart.ts", symbol: "total", range: { start: 1, end: 60 } }, { file: "src/cart.html", symbol: DECLARED_FILE_SEED_SYMBOL }] });
+  const { candidates, change } = briefChangeFor(flow, [declared, orders], { diffs: [DIFF] });
+  assert.deepEqual(change!.files.find((f) => f.path === "src/cart.html")!.origins, ["declared"]);
+  assert.ok(candidates[0]!.symbols.every((s) => !s.includes(DECLARED_FILE_SEED_SYMBOL)), "a whole-file seed names no symbol");
 });
 
 test("a flow's candidates carry their symbols with ranges, and their changed code is the slice's owned hunks, code first and then diff order", () => {

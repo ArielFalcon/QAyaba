@@ -21,6 +21,7 @@ import { fileImplementsPage } from "../domain/reach-proofs/file-implements-page.
 import { openapiOperationDiff } from "../domain/reach-proofs/openapi-operation-diff.ts";
 import { handlerServesOperation } from "../domain/reach-proofs/handler-serves-operation.ts";
 import { ChangeScopePortAdapter } from "../infrastructure/adapters/change-scope-port.adapter.ts";
+import { declaredResourcesOf } from "../../generation/infrastructure/adapters/implementation-resources.ts";
 import type { StructuralSignalPort } from "@kernel/ports/structural-signal.port.ts";
 import { ChangeAnalysisPortAdapter } from "../infrastructure/adapters/change-analysis-port.adapter.ts";
 import { ADVISORY_BUDGET, StructuralSignalPortAdapter } from "../infrastructure/adapters/structural-signal-port.adapter.ts";
@@ -109,6 +110,8 @@ export function buildChangeAnalysis(deps: ChangeAnalysisDeps): ChangeAnalysisApi
             /* The proof kinds that fill a change scope: a new kind is a new entry here. */
             proofs: [fileImplementsPage, handlerServesOperation(deps.scope.serves), crossRepoCallSite, openapiOperationDiff],
             ...(deps.scope.loadMap ? { loadMap: deps.scope.loadMap } : {}),
+            /* The files a source file declares, by the rule a route's implementation files are read by (generation's). */
+            declaredResources: declaredResourcesOf,
           }),
         }
       : {}),

@@ -388,7 +388,8 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   arms of their decisions that never ran) each go to the lead as
   facts it routes to their flows and never rebuts (the coverage gap as one finding per file and per arm, each carrying `file`/`line`
   and owned by the one flow covering a use case that file seeds; a file seeds a use case through one definition every reader shares
-  (`candidatesSeededBy`, `shared-kernel/change-map.ts`: one of its own seeds or a hub's code it shares); a file seeding an uncovered use case opens a `cand-<use case>` flow;
+  (`candidatesSeededBy`, `shared-kernel/change-map.ts`: one of its own seeds, a hub's code it shares, or a non-code file a seed's source
+  file declares); a file seeding an uncovered use case opens a `cand-<use case>` flow;
   every unit is kept, listed across use cases and files, and over the lead's window the units give way to references by file with the
   numbers of their findings, recorded as `window-fit`; surviving mutants join the same gap regeneration as findings on the
   spec that reached them); what no flow takes follows
@@ -495,7 +496,9 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   those: a route's `implementationFiles`, then its `source`, then the `spec` of an API
   operation it joins (`generation/domain/route-ranking.ts`). A route's `implementationFiles`
   also gain the non-code files they declare by relative path literal (a page's template and
-  style sheets), read strictly from the working copy (`infrastructure/adapters/implementation-resources.ts`).
+  style sheets), read strictly from the working copy (`infrastructure/adapters/implementation-resources.ts`). By the same rule
+  (`declaredResourcesOf`) the change scope reads which changed non-code files the change's own source files declare, and a use
+  case a source file seeds is seeded by the files it declares too (whole, direct or shared as that seed is).
   Brief routes keep their place in
   front, nothing is inferred from names, and a cross-repo run ranks only by the spec of an
   operation under the service's staged root. The cut is `MAX_ROUTES` pages, raised to as many as the change is

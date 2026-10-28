@@ -104,7 +104,7 @@ signed-in app (see below); without either, no sidekick can author and the run en
    (`brief-change.ts`, over the kernel's `buildChangeMap` and `sliceFor`): every use case the flow must exercise (those its
    plan cites, then those its routes name), each with its id, its reach path, its changed symbols with their ranges and
    where the expected behavior comes from (the declared contract operation, the commit's stated intent, the diff); the
-   files its use cases seed, each with its kind, added and removed lines and origin (`map-link`, `graph`, `shared`); and
+   files its use cases seed, each with its kind, added and removed lines and origin (`map-link`, `declared`, `graph`, `shared`); and
    the slice's owned hunks, redacted and never cut, code first, then hunks holding a changed decision, then diff order.
    The changed decisions come from the static decision listing grounding makes of the run's own working copy before
    anything runs (`shared-infrastructure/decision-listing.ts`, through the lister the language registry declares per
@@ -346,7 +346,12 @@ findings, the run asks the lead, in the same planning session, instead of regene
    A file seeds a use case through one seed definition every reader goes through (`candidateSeeds`, `seedingOf`,
    `candidatesSeededBy` in `shared-kernel/change-map.ts`): one of the use case's own seeds, or a hub's changed code the use case
    shares with other pages (its shared seeds). The change map, the flows' slices and briefs, the gap's units and the routing below
-   all read it, so a file only a hub carries to a page still seeds that page's use case.
+   all read it, so a file only a hub carries to a page still seeds that page's use case. A changed non-code file (a component's
+   template, its style sheets) seeds what the changed source file that declares it by a relative path literal seeds: the change
+   scope reads those declarations from the mirror it walks, by the rule a route's implementation files are read by
+   (`declaredResourcesOf`, `implementation-resources.ts`), and the candidate holds the file whole (`DECLARED_FILE_SEED_SYMBOL`),
+   direct when a seed's file declares it, shared when only a hub's does; the brief names its origin `declared`. Nothing is
+   inferred from a name, and a file whose declaring source did not change seeds nothing.
    A finding that names a changed source file (a coverage finding: `CorrectionFinding.file`, and `line` for an arm) is owned by
    the one flow that covers a use case that file seeds (`flowOfFinding`), whatever the lead answers; a file that seeds use
    cases of several flows is the lead's to place, and the prompt then lists every flow with its use cases. A file that seeds a use

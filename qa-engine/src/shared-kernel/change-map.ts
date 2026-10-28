@@ -18,6 +18,13 @@ export type SeededCandidate = Pick<UseCaseCandidate, "seeds" | "sharedSeeds">;
 /* How a changed file seeds a candidate: through one of its own seeds, or only through a hub's code the candidate shares with other pages. */
 export type Seeding = "direct" | "shared";
 
+/*
+ * The seed of a changed non-code file (a component's template, its style sheets) that a source file the candidate is seeded by
+ * declares by a relative path literal: the whole file, like a map link's seed, but owned through the file that declares it, so a
+ * reader tells it from a map link and from a symbol.
+ */
+export const DECLARED_FILE_SEED_SYMBOL = "*declared";
+
 /* Every changed symbol a candidate stands on: its seeds, then its shared seeds. Both own the hunks they hold, and a finding about either's file is the candidate's. */
 export function candidateSeeds(candidate: SeededCandidate): ChangedSymbol[] {
   return [...candidate.seeds, ...(candidate.sharedSeeds ?? [])];

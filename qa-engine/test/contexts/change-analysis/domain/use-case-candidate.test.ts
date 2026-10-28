@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { deriveCandidates, type ChangeScope, type ReachEntry } from "@contexts/change-analysis/application/index.ts";
 import { candidateLine } from "@kernel/use-case-candidate.ts";
+import { DECLARED_FILE_SEED_SYMBOL } from "@kernel/change-map.ts";
 
 const WEB = "org/web";
 const API = "org/api";
@@ -198,4 +199,35 @@ test("the candidate line names each shared seed with its kind, added lines and t
 
   assert.match(candidateLine(c!), /shared with other pages: web\/src\/shared\/format\.ts \(typescript, \+6, reaches 2 pages\)/);
   assert.doesNotMatch(candidateLine({ ...c!, sharedSeeds: undefined }), /shared with/);
+});
+
+const CARD = { file: "web/src/card/card.component.ts", symbol: "CardComponent", range: { start: 1, end: 30 } };
+const TEMPLATE = "web/src/card/card.component.html";
+const STYLE = "web/src/shared/format.css";
+const declaringScope = (reach: ReachEntry[], hubKeys: string[] = []): ChangeScope => ({
+  repos: [{
+    repo: WEB, role: "primary", indexedSha: null, changedFiles: [CARD.file, TEMPLATE, HUB_SEED.file, STYLE], seeds: [CARD, HUB_SEED], seedBasis: "lines",
+    entryPoints: [], entryPointsTruncated: false, addedLines: { [CARD.file]: 2, [TEMPLATE]: 5, [HUB_SEED.file]: 6 },
+    declaredResources: { [CARD.file]: [TEMPLATE], [HUB_SEED.file]: [STYLE] },
+  }],
+  reach,
+  hubs: hubKeys.length > 0 ? [{ symbol: `${HUB_SEED.file}::${HUB_SEED.symbol}`, entries: hubKeys.length, keys: hubKeys, truncated: true }] : [],
+  disagreements: [],
+  omitted: 0,
+  degraded: [],
+});
+
+test("a changed non-code file a seed's source file declares seeds the candidate as that seed does: the whole file, direct for a seed, shared for a hub's", () => {
+  const [direct] = deriveCandidates(declaringScope([page("/cards", { seeds: [CARD] })]));
+  assert.deepEqual(direct!.seeds, [CARD, { file: TEMPLATE, symbol: DECLARED_FILE_SEED_SYMBOL }]);
+  assert.deepEqual(direct!.changedFiles, [{ file: TEMPLATE, addedLines: 5 }, { file: CARD.file, addedLines: 2 }]);
+
+  const [shared] = deriveCandidates(declaringScope([page("/cards", { seeds: [CARD] })], ["page /cards", "page /cart"]));
+  assert.deepEqual(shared!.sharedSeeds, [{ ...HUB_SEED, pages: 2, addedLines: 6 }, { file: STYLE, symbol: DECLARED_FILE_SEED_SYMBOL, pages: 2 }]);
+});
+
+test("a declared file seeds nothing when no seed of the candidate is in the file that declares it", () => {
+  const [c] = deriveCandidates(declaringScope([page("/orders")]));
+  assert.deepEqual(c!.seeds, [SEED]);
+  assert.equal(c!.sharedSeeds, undefined);
 });

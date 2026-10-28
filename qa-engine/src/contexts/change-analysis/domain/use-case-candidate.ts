@@ -7,6 +7,8 @@ import { sha256Hex } from "@kernel/content-hash.ts";
 import { entryKey, type EntryPoint, type ReachBasis, type ReachTier } from "@kernel/change-reach.ts";
 import { normalizeRoute, type PageMap } from "./page-files.ts";
 import { FILE_SEED_SYMBOL, type CandidateChangedFile, type Reachability, type SharedSeed, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import { DECLARED_FILE_SEED_SYMBOL } from "@kernel/change-map.ts";
+import type { ChangedSymbol } from "@kernel/change-reach.ts";
 import type { ChangeScope, ReachEntry } from "./change-scope.ts";
 
 export type { Reachability, UseCaseCandidate } from "@kernel/use-case-candidate.ts";
@@ -136,6 +138,32 @@ function sharedSeedsOf(entry: EntryPoint, scope: ChangeScope): SharedSeed[] {
   return [...out.values()];
 }
 
+/* The changed non-code files each changed source file of the scope declares, over every repo of the change. */
+function declaredOf(scope: ChangeScope): ReadonlyMap<string, readonly string[]> {
+  return new Map(scope.repos.flatMap((r) => Object.entries(r.declaredResources ?? {})));
+}
+
+/*
+ * The seeds a candidate gains from the non-code files its seeds' files declare (a template, a style sheet): the whole file, as the
+ * seed that declares it is held. A file a seed declares is a direct seed; one only a shared seed declares is a shared seed with the
+ * pages that hub reaches. A file already held is not added again. Nothing is inferred from a name: only what a source file declares.
+ */
+function withDeclared(seeds: readonly ChangedSymbol[], shared: readonly SharedSeed[], scope: ChangeScope): { seeds: ChangedSymbol[]; shared: SharedSeed[] } {
+  const declared = declaredOf(scope);
+  const held = new Set([...seeds, ...shared].map((seed) => seed.file));
+  const take = (file: string): boolean => {
+    if (held.has(file)) return false;
+    held.add(file);
+    return true;
+  };
+  const direct = [...seeds, ...[...new Set(seeds.flatMap((seed) => declared.get(seed.file) ?? []))].filter(take).map((file) => ({ file, symbol: DECLARED_FILE_SEED_SYMBOL }))];
+  const viaHub = shared.flatMap((seed) => (declared.get(seed.file) ?? []).filter(take).map((file): SharedSeed => {
+    const addedLines = scope.repos.map((r) => r.addedLines?.[file]).find((n) => n !== undefined);
+    return { file, symbol: DECLARED_FILE_SEED_SYMBOL, pages: seed.pages, ...(addedLines !== undefined ? { addedLines } : {}) };
+  }));
+  return { seeds: direct, shared: [...shared, ...viaHub] };
+}
+
 export function deriveCandidates(scope: ChangeScope, enrichment: CandidateEnrichment = {}): UseCaseCandidate[] {
   const held = new Set(scope.reach.map((r) => entryKey(r.entry)));
   const linked: ReachEntry[] = (enrichment.mapLinks ?? [])
@@ -155,16 +183,16 @@ export function deriveCandidates(scope: ChangeScope, enrichment: CandidateEnrich
     const label = labelOf(r.entry, enrichment.map);
     const existingSpecs = existingSpecsOf(r.entry, label, enrichment);
     const specObjectives = objectivesOf(existingSpecs, enrichment);
-    const sharedSeeds = sharedSeedsOf(r.entry, scope);
+    const { seeds, shared: sharedSeeds } = withDeclared(r.seeds, sharedSeedsOf(r.entry, scope), scope);
     return {
       id: candidateId(r.entry),
       entry: r.entry,
       tier: r.tier,
       basis: r.basis,
       evidence: [...r.evidence],
-      seeds: [...r.seeds],
+      seeds,
       ...(sharedSeeds.length > 0 ? { sharedSeeds } : {}),
-      changedFiles: changedFilesOf(r.seeds, scope, r.entry.repo),
+      changedFiles: changedFilesOf(seeds, scope, r.entry.repo),
       confidence: r.confidence,
       reachability,
       pages,

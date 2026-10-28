@@ -35,8 +35,8 @@ export interface BriefCandidate {
   readonly expectedFrom: readonly ExpectedSource[];
 }
 
-/* How a file came to be one of the flow's: the context map links it to a page, the call graph reaches the page from it, or it is a hub's code the page shares with others. */
-export type ChangeOrigin = "map-link" | "graph" | "shared";
+/* How a file came to be one of the flow's: the context map links it to a page, a changed source file of the flow declares it by relative path (a template, a style sheet), the call graph reaches the page from it, or it is a hub's code the page shares with others. */
+export type ChangeOrigin = "map-link" | "declared" | "graph" | "shared";
 
 export interface BriefChangeFile {
   path: string;
