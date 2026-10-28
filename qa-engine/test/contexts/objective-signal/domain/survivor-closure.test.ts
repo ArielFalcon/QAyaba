@@ -1,8 +1,9 @@
-/* Whether a regeneration a surviving mutant drove made a test notice it: each survivor is re-run against the specs the regeneration changed, and the closure counts what was judged, closed and still open. */
+/* Whether a regeneration a surviving mutant drove made a test notice it: each survivor is re-run against the changed specs it was routed to, and the closure counts what was judged, closed and still open. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { survivorClosureOf, survivorRechecks } from "@contexts/objective-signal/domain/survivor-closure.ts";
-import type { MutationSite } from "@contexts/objective-signal/domain/coverage-collector.ts";
+import type { MutationSite, SurvivedMutant } from "@contexts/objective-signal/domain/coverage-collector.ts";
+import type { ObservedDifference } from "@kernel/observed-difference.ts";
 
 const site = (line: number): MutationSite => ({
   file: "src/store.ts",
@@ -15,13 +16,35 @@ const site = (line: number): MutationSite => ({
   ranIn: ["flows-a-spec-ts-x-0.json"],
 });
 
-test("each survivor keeps its mutant and is re-run against every spec the regeneration changed, once each", () => {
-  const rechecks = survivorRechecks([{ site: site(3), specFiles: ["flows/a.spec.ts"] }, { site: site(5), specFiles: [] }], ["flows/b.spec.ts", "flows/a.spec.ts", "flows/b.spec.ts"]);
+const survived = (line: number, specFiles: string[], movedBySpec?: SurvivedMutant["movedBySpec"]): SurvivedMutant => ({ file: "src/store.ts", line, operator: "negate condition", specFiles, ...(movedBySpec ? { movedBySpec } : {}) });
+const MOVED: ObservedDifference = { kind: "moved", requests: { added: ["GET https://dev.example/api/x"], removed: [] }, dom: { added: [], removed: [] }, tests: ["t"] };
+
+test("each survivor keeps its mutant and is re-run only against the changed specs its finding was routed to, once each", () => {
+  const routed = [
+    { site: site(3), specFiles: ["flows/a.spec.ts", "flows/list.spec.ts"], tests: ["flows-a-x"] },
+    { site: site(5), specFiles: ["flows/b.spec.ts", "flows/a.spec.ts"] },
+  ];
+  const findings = [
+    survived(3, ["flows/a.spec.ts", "flows/list.spec.ts"], [{ spec: "flows/a.spec.ts", moved: MOVED }, { spec: "flows/list.spec.ts", moved: { kind: "unmoved", tests: 1 } }]),
+    survived(5, ["flows/b.spec.ts", "flows/a.spec.ts"]),
+  ];
+
+  const rechecks = survivorRechecks(routed, findings, ["flows/list.spec.ts", "flows/b.spec.ts", "flows/a.spec.ts", "flows/b.spec.ts"]);
 
   assert.deepEqual(rechecks, [
-    { site: site(3), specFiles: ["flows/a.spec.ts", "flows/b.spec.ts"] },
+    { site: site(3), specFiles: ["flows/a.spec.ts"] },
     { site: site(5), specFiles: ["flows/a.spec.ts", "flows/b.spec.ts"] },
   ]);
+});
+
+test("a survivor whose routed specs the regeneration did not change is not re-run, and one routed to no spec may be answered in any changed spec", () => {
+  const rechecks = survivorRechecks(
+    [{ site: site(3), specFiles: ["flows/c.spec.ts"] }, { site: site(5), specFiles: [] }],
+    [survived(3, ["flows/c.spec.ts"]), survived(5, [])],
+    ["flows/b.spec.ts", "flows/a.spec.ts"],
+  );
+
+  assert.deepEqual(rechecks, [{ site: site(5), specFiles: ["flows/a.spec.ts", "flows/b.spec.ts"] }]);
 });
 
 test("the closure counts the judged survivors, those a test now notices, and lists the rest by place and operator only", () => {

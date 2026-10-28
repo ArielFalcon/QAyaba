@@ -88,15 +88,20 @@ export function renderSurvivedMutant(m: SurvivedMutant, specFile?: string): stri
 }
 
 /*
- * The findings a surviving mutant gives, one per spec file it is routed to, each rendered with that file's own account: the spec files
- * that ran it whose own pages moved, since a file whose pages show nothing of the mutant has nothing to assert on; when none moved (or
- * there is no account per file), every spec file that ran it; with none recorded, one finding of no spec.
+ * The spec files a surviving mutant is routed to: those that ran it whose own pages moved, since a file whose pages show nothing of the
+ * mutant has nothing to assert on; when none moved (or there is no account per file), every spec file that ran it; none when no spec
+ * file is recorded as running it.
  */
-export function survivorFindings(m: SurvivedMutant): { spec?: string; text: string }[] {
+export function survivorRoutes(m: SurvivedMutant): string[] {
   const specs = m.specFiles ?? [];
-  if (specs.length === 0) return [{ text: renderSurvivedMutant(m) }];
   const moved = specs.filter((spec) => movedFor(m, spec)?.kind === "moved");
-  const routed = m.movedBySpec && moved.length > 0 ? moved : specs;
+  return m.movedBySpec && moved.length > 0 ? moved : specs;
+}
+
+/* The findings a surviving mutant gives, one per spec file it is routed to, each rendered with that file's own account; with none recorded, one finding of no spec. */
+export function survivorFindings(m: SurvivedMutant): { spec?: string; text: string }[] {
+  const routed = survivorRoutes(m);
+  if (routed.length === 0) return [{ text: renderSurvivedMutant(m) }];
   return routed.map((spec) => ({ spec, text: renderSurvivedMutant(m, spec) }));
 }
 

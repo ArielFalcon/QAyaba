@@ -861,8 +861,10 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   the pages and nothing of the mutant. The span counts `qayaba.mutation.survivors_moved|unmoved|unobserved`. The re-check of survivors after a
   regeneration (survivor closure) does not observe.
 - **Survivor closure** (signal, never a gate): a surviving mutant routed to a coverage or branch-case
-  regeneration is, once that regeneration is accepted, applied again to the specs it changed and judged
-  against the cases their accepted bytes passed (`closeSurvivors`, `survivor-closure.ts`): a regenerated test counts as
+  regeneration is, once that regeneration is accepted, applied again to the specs it changed among those its
+  finding was routed to (`survivorRoutes`: the specs whose own pages it moved, else every spec that ran it; any
+  changed spec for a survivor no spec ran; not re-run when none of them changed) and judged against the cases
+  their accepted bytes passed (`closeSurvivors`, `survivor-closure.ts`): a regenerated test counts as
   answering its survivor only when that mutant now fails it. The mutant as it ran (served script, edit)
   stays with the orchestrator and never reaches an agent or the record. `gateSignals.survivorClosure
   { routed, judged, closed, open[] }`; a survivor still open never changes the decision.

@@ -285,9 +285,10 @@ async function recheckOrNone(recheck: () => Promise<BundleMutationResult | null>
 }
 
 /*
- * Whether an accepted regeneration answered the surviving mutants routed to it: each is applied again to the specs it changed, judged
- * against the cases those specs' accepted bytes passed in the acceptance. The proof of a regenerated test is that the fault it was asked about now fails
- * it; until then it is only text. Undefined when no survivor was routed or the regeneration was not accepted. A signal, never a gate.
+ * Whether an accepted regeneration answered the surviving mutants routed to it: each is applied again to the specs it changed among
+ * those its finding was routed to, judged against the cases those specs' accepted bytes passed in the acceptance. The proof of a
+ * regenerated test is that the fault it was asked about now fails it; until then it is only text. Undefined when no survivor was
+ * routed or the regeneration was not accepted. A signal, never a gate.
  */
 export async function closeSurvivors(state: Readonly<RunState>, ctx: WorkspaceRunContext, regen: GapRegeneration): Promise<SurvivorClosure | undefined> {
   const { deps, input, workspace } = ctx;
@@ -296,7 +297,8 @@ export async function closeSurvivors(state: Readonly<RunState>, ctx: WorkspaceRu
   if (regen.outcome !== "accepted" || routed.length === 0 || changed.length === 0 || !deps.objectiveSignal.recheckSurvivors) return undefined;
   const changedSet = new Set(changed);
   const baselineCases = regen.run.cases.filter((c) => c.status === "pass" && changedSet.has(c.file ?? c.name)).map((c) => c.name);
-  const result = baselineCases.length > 0 ? await recheckOrNone(() => deps.objectiveSignal.recheckSurvivors!(survivorRechecks(routed, changed), workspace.specDir, `${input.runId}-closure`, baselineCases)) : null;
+  const rechecks = survivorRechecks(routed, survivorsOf(state), changed);
+  const result = baselineCases.length > 0 && rechecks.length > 0 ? await recheckOrNone(() => deps.objectiveSignal.recheckSurvivors!(rechecks, workspace.specDir, `${input.runId}-closure`, baselineCases)) : null;
   const closure = survivorClosureOf(routed.length, result);
   engineLog.info(`[qa] survivor closure: ${closure.closed} of ${closure.routed} surviving mutant(s) now noticed by a test (${closure.judged} judged)`);
   return closure;
