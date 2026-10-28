@@ -47,7 +47,7 @@ import type { AgentConfig } from "@opencode-ai/sdk";
 import { AGENT_NAME_FOR_ROLE, capabilitiesForRole } from "../agent-runtime/types";
 import { AGENT_BROWSER_TOOLS } from "../../qa-engine/src/shared-kernel/agent-browser";
 import { CODE_GRAPH_AGENTS, CODE_GRAPH_EXPLORE_AGENT, CODE_GRAPH_TOOLS } from "../../qa-engine/src/shared-kernel/code-graph-tools";
-import { AGENT_BROWSER_AGENTS } from "../../qa-engine/src/contexts/test-execution/application/index";
+import { AGENT_BROWSER_AGENTS, PROBE_REL_DIR } from "../../qa-engine/src/contexts/test-execution/application/index";
 import { NO_TOOLS } from "./opencode-client";
 import type { AgentRole } from "../agent-runtime/types";
 
@@ -912,6 +912,16 @@ test("the run_spec tool file exists and its package is installed in the agents i
   assert.ok(existsSync(join(process.cwd(), "agents", "tool", "run_spec.ts")), "the tool file the config enables exists");
   const dockerfile = readFileSync(join(process.cwd(), "agents", "Dockerfile"), "utf8");
   assert.match(dockerfile, /npm ci/, "the tool's package is installed in the image, not taken from a host folder");
+});
+
+test("what the author reads about run_spec promises no spec the flow's grant refuses: only the spec its task gave it, never a scratch path", () => {
+  /* A flow's grant admits its own spec and no other (the grant's allowPath; closed-loop-port.flow.test.ts pins what it refuses, the probe directory included), so a layer that offered a scratch spec would cost the author a refused call. */
+  const toolText = readFileSync(join(process.cwd(), "agents", "tool", "run_spec.ts"), "utf8");
+  const rolePrompt = readFileSync(join(process.cwd(), "agents", "agent", "qa-author.md"), "utf8");
+  for (const [name, text] of [["the tool's description", toolText], ["the author's role prompt", rolePrompt]] as const) {
+    assert.ok(!text.includes(PROBE_REL_DIR), `${name} must not offer the probe directory ${PROBE_REL_DIR}`);
+  }
+  assert.match(toolText, /only the spec your task gave you/i, "the tool says which spec a call may name");
 });
 
 /* Whether a tools-map key switches the named tool: the exact name, or a wildcard whose prefix the name starts with. */

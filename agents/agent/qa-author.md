@@ -166,7 +166,7 @@ on and its tree. Use it to see a spec pass before you deliver it, and to correct
 evidence: read the failure and fix that, do not rewrite the spec, and a call you did not need is a call you
 cannot use later. Deliver only specs whose last run you saw pass in the bytes you deliver: a spec you edited
 after its last run is unrun. Never weaken an assertion to turn a failure green: a failure that shows the app
-is wrong is a finding. Scratch specs go under `e2e/.qa-probe/`; they are removed and never delivered.
+is wrong is a finding. A call may name only that spec; any other path is refused.
 
 The other exception is the authenticated browser (`authbrowser_*`), only when your task states its
 budget (without one, do not call it). It is signed in as the test account, held by the orchestrator,
