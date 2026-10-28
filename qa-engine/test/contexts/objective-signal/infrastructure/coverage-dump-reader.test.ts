@@ -250,3 +250,20 @@ test("readNativeReports jacoco: returns [] when no conventional JaCoCo path exis
     assert.deepEqual(files, []);
   });
 });
+
+test("readV8Coverage: the dumps that ran a line of each changed file are named, a dump that ran none of it is not, and a set that is not used names none", async () => {
+  await withTmpDir(async (e2eDir) => {
+    const dumpDir = join(e2eDir, ".qa", "coverage", "qa-abc");
+    mkdirSync(dumpDir, { recursive: true });
+    writeFileSync(join(dumpDir, "flows-a-spec-ts-x-0-0.json"), dumpOf([0, 22]));
+    writeFileSync(join(dumpDir, "flows-b-spec-ts-y-0-0.json"), JSON.stringify([]));
+    const ranBy = new Map<string, Set<string>>();
+    await readV8Coverage(e2eDir, "qa-abc", ["src/svc.ts"], undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, ranBy);
+    assert.deepEqual([...ranBy].map(([file, dumps]) => [file, [...dumps]]), [["src/svc.ts", ["flows-a-spec-ts-x-0-0.json"]]]);
+
+    writeFileSync(join(dumpDir, "corrupt.json"), "{not valid json");
+    const unused = new Map<string, Set<string>>();
+    await readV8Coverage(e2eDir, "qa-abc", ["src/svc.ts"], undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, unused);
+    assert.equal(unused.size, 0);
+  });
+});

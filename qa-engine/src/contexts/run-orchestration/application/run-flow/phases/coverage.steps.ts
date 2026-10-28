@@ -94,8 +94,8 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
   /* This pass's own passing case names — the green baseline the fault-injection oracle needs. */
   const passed = run.cases.filter((c) => c.status === "pass");
   const baselineCases = passed.map((c) => c.name);
-  /* The spec files of those cases: a mutant re-runs the ones whose tests reached it. */
-  const caseFiles = [...new Set(passed.flatMap((c) => (c.file ? [c.file] : [])))];
+  /* The spec files of those cases: a mutant re-runs the ones whose tests reached it, and a dump tells which changed file a spec ran only among them. */
+  const caseFiles = passingCaseFiles(run.cases);
   /* The loop's last whole-suite execution and the re-runs of some spec files after it: the measurement reads the latest dumps of every spec file. */
   const { coverageNamespace, coverageReruns } = state.fixLoop;
   /* The response oracle corrupts only the operations the change reaches; with no scope it has nothing to corrupt. */
@@ -139,6 +139,7 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
         mutantProofs: signal.mutantProofs ?? [],
         survivorRuns: signal.survivorRuns ?? [],
         changeCoverage: changeCoverageOf(signal.measurement),
+        ranBy: signal.ranBy,
         exclusions,
         /*
          * Ask the port: only enforce+fail blocks. Unknown/pass never block. Do not
@@ -326,10 +327,11 @@ export async function recountAfter(state: Readonly<RunState>, ctx: WorkspaceRunC
           ...(coverageNamespace ? { namespace: coverageNamespace } : {}),
           ...(state.coverage.mutantProofs.length > 0 ? { proofs: state.coverage.mutantProofs } : {}),
           ...(state.coverage.exclusions ? { exclusions: state.coverage.exclusions } : {}),
+          caseFiles: passingCaseFiles(regen.run.cases),
         })
       : null;
   if (!recount) return { ...accepted, untakenArmsCurrent: false };
-  const arms: CoverageOutcome = { ...accepted, uncovered: recount.uncovered, untakenArms: recount.untakenArms, untakenArmsCurrent: true, branchCoverage: branchCoverageOf(recount.measurement), changeCoverage: changeCoverageOf(recount.measurement) ?? accepted.changeCoverage };
+  const arms: CoverageOutcome = { ...accepted, uncovered: recount.uncovered, untakenArms: recount.untakenArms, untakenArmsCurrent: true, ranBy: recount.ranBy, branchCoverage: branchCoverageOf(recount.measurement), changeCoverage: changeCoverageOf(recount.measurement) ?? accepted.changeCoverage };
   if (cfg.coveragePolicyMode !== "signal") return arms;
   return {
     ...remeasured(arms),
@@ -337,6 +339,11 @@ export async function recountAfter(state: Readonly<RunState>, ctx: WorkspaceRunC
     coverageStatus: recount.status,
     valueStale: state.coverage.valueScore !== null || state.coverage.valueStale,
   };
+}
+
+/* The spec files of the passing cases of an execution. */
+function passingCaseFiles(cases: ReturnType<typeof runOf>["cases"]): string[] {
+  return [...new Set(cases.flatMap((c) => (c.status === "pass" && c.file ? [c.file] : [])))];
 }
 
 /* One unit of the gap: what the lead is shown, and the structured finding the orchestrator routes by the file it names. */
@@ -364,19 +371,24 @@ function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<string, 
 /*
  * The gap as separate units, one per file with uncovered changed lines and one per decision arm no test ran: the lead routes findings
  * by number, so each number must name one unit it can hand to a flow, and each unit names its file so the orchestrator can route it by
- * the use case that file seeds. Every unit is kept: files are listed across use cases and arms across files, so what comes first is
- * the breadth of the gap, and the lead's turn gives them up as references to their files only when its window cannot hold them.
+ * the use case that file seeds, and the spec files whose tests ran that file (`ranBy`, from the dumps the measurement read), which settle
+ * the flow of a file several flows hold. Every unit is kept: files are listed across use cases and arms across files, so what comes first
+ * is the breadth of the gap, and the lead's turn gives them up as references to their files only when its window cannot hold them.
  */
-export function gapUnits(uncovered: CoverageOutcome["uncovered"], arms: CoverageOutcome["untakenArms"], candidates: RunState["grounding"]["candidates"]): GapUnit[] {
+export function gapUnits(uncovered: CoverageOutcome["uncovered"], arms: CoverageOutcome["untakenArms"], candidates: RunState["grounding"]["candidates"], ranBy: CoverageOutcome["ranBy"] = []): GapUnit[] {
+  const ran = (file: string): Pick<CorrectionFinding, "ranBy"> => {
+    const specs = ranBy.find((r) => r.file === file)?.specFiles;
+    return specs && specs.length > 0 ? { ranBy: specs } : {};
+  };
   const owner = (file: string): string => candidatesSeededBy(file, candidates ?? [])[0]?.id ?? "";
   return [
     ...interleave(groupBy(uncovered, (u) => owner(u.file))).map((u) => {
       const text = renderCoverageGap([u], candidates);
-      return { text, finding: { text, file: u.file } };
+      return { text, finding: { text, file: u.file, ...ran(u.file) } };
     }),
     ...interleave(groupBy(arms, (u) => u.file)).map((u) => {
       const text = `decision arm on a changed line that NO test ran: ${u.file}:${u.line} ${u.kind}: ${u.arm}`;
-      return { text, finding: { text, file: u.file, line: u.line } };
+      return { text, finding: { text, file: u.file, line: u.line, ...ran(u.file) } };
     }),
   ];
 }
@@ -420,7 +432,7 @@ export async function regenerateForCoverage(state: Readonly<RunState>, ctx: Work
   const { uncovered, untakenArms } = state.coverage;
   const survived = survivorsOf(state);
   const gap = [renderCoverageGap(uncovered, state.grounding.candidates), renderBranchGap(untakenArms)].filter(Boolean).join("\n\n");
-  const regen = await regenerateAtCoverageGap(state, ctx, gap, gapUnits(uncovered, untakenArms, state.grounding.candidates), survived);
+  const regen = await regenerateAtCoverageGap(state, ctx, gap, gapUnits(uncovered, untakenArms, state.grounding.candidates, state.coverage.ranBy), survived);
   const survivorClosure = await closeSurvivors(state, ctx, regen);
   const coverage = await recountAfter(state, ctx, regen);
   return { update: { execution: withRun(state.execution, regen.run), coverage: { ...coverage, ...(survivorClosure ? { survivorClosure } : {}) }, loops: { ...state.loops, coverageRegen: state.loops.coverageRegen + 1, leadCorrections: state.loops.leadCorrections + regen.leadCorrections } } };
@@ -430,7 +442,7 @@ export async function regenerateForCoverage(state: Readonly<RunState>, ctx: Work
 export async function regenerateForBranchCases(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const armsBefore = state.coverage.untakenArms.length;
   const survived = survivorsOf(state);
-  const regen = await regenerateAtCoverageGap(state, ctx, renderBranchGap(state.coverage.untakenArms), gapUnits([], state.coverage.untakenArms, []), survived);
+  const regen = await regenerateAtCoverageGap(state, ctx, renderBranchGap(state.coverage.untakenArms), gapUnits([], state.coverage.untakenArms, [], state.coverage.ranBy), survived);
   const survivorClosure = await closeSurvivors(state, ctx, regen);
   const coverage = await recountAfter(state, ctx, regen);
   const armsAfter = regen.outcome !== "accepted" ? armsBefore : coverage.untakenArmsCurrent ? coverage.untakenArms.length : undefined;

@@ -159,7 +159,7 @@ test("the first measurement hands the exclusions to the port, records them besid
   assert.deepEqual(coverage.exclusions, expected);
   assert.deepEqual(coverage.changeCoverage, { executableLines: 2, unreachableByDesign: expected.unreachableByDesign, testSupportFiles: expected.testSupportFiles });
 
-  await recountAfter({ ...state, coverage }, ctx, { outcome: "accepted", run: {}, acceptanceCalls: 1, leadCorrections: 0, reruns: [{ namespace: "r-acc0", specFiles: ["a.spec.ts"] }] } as unknown as GapRegeneration);
+  await recountAfter({ ...state, coverage }, ctx, { outcome: "accepted", run: { cases: [] }, acceptanceCalls: 1, leadCorrections: 0, reruns: [{ namespace: "r-acc0", specFiles: ["a.spec.ts"] }] } as unknown as GapRegeneration);
   assert.deepEqual((recounted[0] as { exclusions: CoverageExclusions }).exclusions, expected, "a recount leaves out the same files");
 });
 

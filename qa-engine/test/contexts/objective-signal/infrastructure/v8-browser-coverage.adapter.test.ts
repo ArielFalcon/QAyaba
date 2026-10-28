@@ -100,3 +100,26 @@ test("a mutant's source is read with its edit and only from the dumps of its spe
   assert.equal(missingMutant.incomplete, undefined, "a mutant's re-run that wrote nothing proves nothing and takes nothing away");
   assert.equal(missingBase.incomplete, true);
 });
+
+test("a recollection names, per changed file, the dumps of the sources it read that ran a line of it, and none it left out", async () => {
+  const dumps: Record<string, Array<[string, CoveredLines]>> = {
+    base: [
+      ["flows-a-spec-ts-x-0-0.json", covers(["src/svc.ts", [1]])],
+      ["flows-b-spec-ts-y-0-0.json", covers(["src/svc.ts", [3]], ["src/other.ts", [2]])],
+    ],
+    acc: [["flows-a-spec-ts-x-0-0.json", covers(["src/other.ts", [7]])]],
+  };
+  const adapter = new V8BrowserCoverageAdapter(async (_dir, namespace, _files, _scripts, _branches, keep, _executable, _mutant, ranBy) => {
+    const read = (dumps[namespace] ?? []).filter(([name]) => keep?.(name) ?? true);
+    for (const [name, covered] of read) for (const [file, lines] of covered) if (lines.size > 0) ranBy?.set(file, (ranBy.get(file) ?? new Set()).add(`${namespace}/${name}`));
+    return read.map(([, c]) => c);
+  }, CHANGED_FILES);
+
+  const report = await adapter.recollect("/e2e", [{ namespace: "base", exceptSpecFiles: ["flows/a.spec.ts"] }, { namespace: "acc", onlySpecFiles: ["flows/a.spec.ts"] }]);
+
+  assert.deepEqual(report.ranBy, [
+    { file: "src/svc.ts", dumps: ["base/flows-b-spec-ts-y-0-0.json"] },
+    { file: "src/other.ts", dumps: ["acc/flows-a-spec-ts-x-0-0.json", "base/flows-b-spec-ts-y-0-0.json"] },
+  ]);
+  assert.equal((await new V8BrowserCoverageAdapter(async () => [], CHANGED_FILES).collect("/e2e", "none")).ranBy, undefined, "no dump read names none");
+});

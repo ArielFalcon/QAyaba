@@ -63,11 +63,22 @@ export interface CoverageRerun {
   specFiles: readonly string[];
 }
 
-/** A change-coverage counted again: the same status, ratio, lines and arms a measurement reports. */
+/**
+ * The spec files whose tests ran a line of a changed file, among the dumps a measurement read: a dump counts for a spec file only when its
+ * name says that file's test wrote it (`isDumpOfSpecFile`), and a dump no given spec file wrote counts for none. What the run executed,
+ * for the routing of a finding by its file. In memory only: never a gate signal, never persisted. A file no attributable dump ran is absent.
+ */
+export interface FileRanBy {
+  file: string;
+  specFiles: string[];
+}
+
+/** A change-coverage counted again: the same status, ratio, lines and arms a measurement reports, and the spec files that ran each changed file. */
 export interface CoverageRecount {
   status: "pass" | "fail" | "unknown";
   ratio: number | null;
   uncovered: { file: string; lines: number[] }[];
   untakenArms: UntakenArm[];
   measurement: CoverageMeasurement;
+  ranBy?: FileRanBy[];
 }

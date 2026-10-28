@@ -1045,3 +1045,23 @@ test("measure() of a change whose every added line is no code has no changed lin
   assert.equal(result.measurement?.unmeasured, "no-changed-lines");
   assert.deepEqual(result.measurement?.noCodeFiles, ["src/shared/index.ts"]);
 });
+
+test("measure() and recount() tell which spec ran each changed file only from dumps a case file's test wrote: a dump none wrote counts for none, never for every case file", async () => {
+  const ranBy = [
+    { file: "src/checkout.ts", dumps: ["flows-pay-spec-ts-pays-0-0.json", "stray-0-0.json"] },
+    { file: "src/other.ts", dumps: ["stray-0-0.json"] },
+  ];
+  const collector: CoverageCollectorPort = {
+    collect: async () => ({ covered: [{ file: "src/checkout.ts", lines: [1] }], ranBy }),
+    recollect: async () => ({ covered: [{ file: "src/checkout.ts", lines: [1] }], ranBy }),
+  };
+  const adapter = new ObjectiveSignalPortAdapter({ collector, decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }) }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage });
+  const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
+  const caseFiles = ["flows/cart.spec.ts", "flows/pay.spec.ts"];
+
+  const measured = await adapter.measure(br, "/e2e", SAMPLE_DIFF, ["pays"], { caseFiles });
+  const recounted = await adapter.recount!(br, "/e2e", SAMPLE_DIFF, [{ namespace: "r-acc0", specFiles: ["flows/pay.spec.ts"] }], { namespace: "r", caseFiles });
+
+  for (const result of [measured.ranBy, recounted?.ranBy]) assert.deepEqual(result, [{ file: "src/checkout.ts", specFiles: ["flows/pay.spec.ts"] }]);
+  assert.equal((await adapter.measure(br, "/e2e", SAMPLE_DIFF, ["pays"])).ranBy?.length, 0, "without case files no dump is attributed");
+});

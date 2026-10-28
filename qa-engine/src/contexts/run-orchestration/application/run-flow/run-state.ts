@@ -23,7 +23,7 @@ import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
 import type { FixLoopStage } from "../../domain/fix-loop.aggregate.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import type { BundleMutationOutcome, CandidateCoverage, CandidateValue, CausalLabel, CoverageExclusions, CoverageRerun, MutantProof, MutantRun, SurvivorClosure, UntakenArm, ValueStats } from "@contexts/objective-signal/application/index.ts";
+import type { BundleMutationOutcome, CandidateCoverage, CandidateValue, CausalLabel, CoverageExclusions, CoverageRecount, CoverageRerun, MutantProof, MutantRun, SurvivorClosure, UntakenArm, ValueStats } from "@contexts/objective-signal/application/index.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunEvidence } from "../../domain/run-decision.service.ts";
 import type { EndReason } from "./end-reason.ts";
@@ -229,6 +229,8 @@ export interface CoverageOutcome {
   survivorClosure: SurvivorClosure | undefined;
   /** What the coverage counted beside its ratio (code lines, lines left out, files not loaded, what only a killed mutant ran); undefined when nothing was measured. */
   changeCoverage: RunOutcome["gateSignals"]["changeCoverage"];
+  /** Per changed file, the spec files whose tests ran a line of it, among the dumps the measurement that `uncovered` and `untakenArms` come from read: it settles the flow of a gap finding about a file several flows hold. Undefined when the collector cannot tell. In memory only: never a gate signal, never persisted. */
+  ranBy?: CoverageRecount["ranBy"];
   /** The re-runs of every regeneration accepted so far, in the order they ran: a recount reads these specs from them and the rest from the base namespace, so it describes the bytes under review however many regenerations came before. */
   reruns: CoverageRerun[];
   /** Acceptances spent so far; each names its namespace by it. */

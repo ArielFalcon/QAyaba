@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { gapUnits } from "@contexts/run-orchestration/application/run-flow/phases/coverage.steps.ts";
+import { flowOfFinding } from "@contexts/coordination/application/lead-correction.ts";
 import { pageCandidate } from "../../../../support/use-case-candidate.ts";
 
 const seeded = (route: string, file: string) => pageCandidate(route, undefined, { seeds: [{ file, symbol: "*" }] });
@@ -39,4 +40,15 @@ test("a file a hub shares with a use case is listed under that use case, not wit
   const uncovered = ["src/shop.ts", "src/cart-a.ts", "src/cart-b.ts", "src/store.ts", "src/stray.ts"].map((file) => ({ file, lines: [1] }));
   const units = gapUnits(uncovered, [], [shop, cart]);
   assert.deepEqual(units.map((u) => u.finding.file), ["src/shop.ts", "src/cart-a.ts", "src/stray.ts", "src/store.ts", "src/cart-b.ts"]);
+});
+
+test("a unit about a file several flows hold goes to the flow whose spec's tests ran the file, not to the first flow of the plan", () => {
+  const ranBy = [{ file: "src/store.ts", specFiles: ["flows/login.spec.ts"] }];
+  const units = gapUnits([{ file: "src/store.ts", lines: [4, 5] }], [arm("src/store.ts", 7), arm("src/other.ts", 2)], [], ranBy);
+  const flows = [
+    { id: "cart", objective: "the cart", specFile: "flows/cart.spec.ts", sessionOpen: true, seedFiles: ["src/store.ts", "src/other.ts"] },
+    { id: "login", objective: "sign in", specFile: "flows/login.spec.ts", sessionOpen: true, seedFiles: ["src/store.ts", "src/other.ts"] },
+  ];
+  assert.deepEqual(units.map((u) => flowOfFinding(u.finding, flows)), ["login", "login", "cart"], "a file no spec is recorded as running keeps the plan's order");
+  assert.deepEqual(units.map((u) => u.finding.ranBy), [["flows/login.spec.ts"], ["flows/login.spec.ts"], undefined]);
 });

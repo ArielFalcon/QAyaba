@@ -359,7 +359,10 @@ findings, the run asks the lead, in the same planning session, instead of regene
    that flow's whatever the lead answers. With several it reaches exactly one: the flow the lead's first order naming it gives it
    to, when that flow holds the file; when the lead says nothing about it, the default (`routeOfFinding`): the first flow, in the
    pass's order (the plan's, then the flows the pass opened), whose spec's tests ran the file (`CorrectionFinding.ranBy`, the spec
-   files whose coverage dumps ran a line of it: what the run executed), preferring among those, and then among the rest, the one
+   files whose coverage dumps ran a line of it: what the run executed; the V8 collector names the dumps that ran each changed file,
+   `ObjectiveSignalPort.measure`/`recount` tell them apart among the passing cases' spec files by the dump's name
+   (`isDumpOfSpecFile`), a dump no such spec wrote counting for none, from exactly the dumps that measurement read, and the gap's
+   units carry them; held in memory, never a gate signal or persisted), preferring among those, and then among the rest, the one
    whose use case holds the file as one of its own seeds over one that holds it only as a hub's code. The lead sees it under that
    default flow and, in a section of its own, the flows it may give it to instead; an order that gives it to a flow that does not
    hold the file, or to a second flow, is refused with why and the finding keeps its flow. A finding that cites a flow's spec

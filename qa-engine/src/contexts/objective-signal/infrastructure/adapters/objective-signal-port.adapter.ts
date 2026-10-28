@@ -3,7 +3,8 @@
 import type { BlastRadius } from "@kernel/blast-radius.ts";
 import type { CoverageMeasurement } from "../../domain/objective-signal.ts";
 import type { ObjectiveSignalPort } from "../../application/ports/objective-signal.port.ts";
-import type { CoverageRecount, CoverageRerun } from "../../domain/objective-signal.ts";
+import type { CoverageRecount, CoverageRerun, FileRanBy } from "../../domain/objective-signal.ts";
+import { isDumpOfSpecFile } from "../../domain/dump-names.ts";
 import type { BundleMutationPort } from "../../application/ports/bundle-mutation.port.ts";
 import type { CoverageCollectorPort } from "../../application/ports/coverage-collector.port.ts";
 import type { ValueOraclePort } from "../../application/ports/value-oracle.port.ts";
@@ -79,6 +80,20 @@ function recordedExclusions(exclusions: CoverageExclusions | undefined): Pick<Co
 /* The change a measurement counts: the commit's diff without its test files and without the files the run's facts say are no gap of the suite. */
 function changeDiffOf(diff: string | undefined, exclusions: CoverageExclusions | undefined): string | undefined {
   return diff ? diffWithoutFiles(diffWithoutTestFiles(diff).diff, excludedFilesOf(exclusions)) : undefined;
+}
+
+/*
+ * Which spec files ran each changed file, told from the dumps a report read: a dump counts for the spec files whose test its name says
+ * wrote it, and a dump none of `specFiles` wrote counts for none, never for every one of them. A file no attributable dump ran is left
+ * out. Absent when the report does not say which dump ran what.
+ */
+function ranByOf(report: CoverageReport | null | undefined, specFiles: readonly string[]): FileRanBy[] | undefined {
+  if (!report?.ranBy) return undefined;
+  const files = [...new Set(specFiles)].sort();
+  return report.ranBy.flatMap(({ file, dumps }) => {
+    const ran = files.filter((spec) => dumps.some((dump) => isDumpOfSpecFile(dump, spec)));
+    return ran.length > 0 ? [{ file, specFiles: ran }] : [];
+  });
 }
 
 /* The source line of a changed file, each file read once per measurement through `readSource`. */
@@ -165,8 +180,11 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     }
     const proofs = bundleMutation?.proofs ?? [];
     /* What a killed mutant made run, a test checked: the verified coverage adds it, the coverage by execution alone stays beside it. */
-    const verified = proofs.length > 0 && executed ? await this.withProofs(specDir, rerun ? sources : [{ namespace }], proofs, changeDiff!, changedFiles, noCodeOf) : null;
+    const withProofs = proofs.length > 0 && executed ? await this.withProofs(specDir, rerun ? sources : [{ namespace }], proofs, changeDiff!, changedFiles, noCodeOf) : null;
+    const verified = withProofs?.cc ?? null;
     const cc = verified ?? executed;
+    /* Which spec ran each changed file, from the dumps the measurement that stands read. */
+    const ranBy = ranByOf(withProofs?.report ?? report, opts?.caseFiles ?? []);
 
     const status = this.deps.decide.decide(cc, this.ctx.policy);
     const ratio = cc?.measured ? cc.overall.ratio : null;
@@ -203,6 +221,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
       ...(verified ? { mutantProofs: proofs } : {}),
       ...(bundleMutation?.survivorRuns ? { survivorRuns: bundleMutation.survivorRuns } : {}),
       measurement,
+      ...(ranBy ? { ranBy } : {}),
     };
   }
 
@@ -219,12 +238,12 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
   }
 
   /* The coverage of `sources` with the dumps of each proof's re-run added (its edit undone, only its failing spec files); null when a source could not be read, so a part never stands for the whole. */
-  private async withProofs(specDir: string, sources: readonly DumpSource[], proofs: readonly MutantProof[], changeDiff: string, changedFiles: string[] | undefined, noCodeOf: NoCodeLinesOf): Promise<ChangeCoverage | null> {
+  private async withProofs(specDir: string, sources: readonly DumpSource[], proofs: readonly MutantProof[], changeDiff: string, changedFiles: string[] | undefined, noCodeOf: NoCodeLinesOf): Promise<{ cc: ChangeCoverage; report: CoverageReport } | null> {
     const { recollect } = this.deps.collector;
     if (!recollect || !this.ctx.assembleChangeCoverage) return null;
     const proofSources = proofs.map(({ namespace, specFiles, ...mutant }) => ({ namespace, onlySpecFiles: specFiles, mutant }));
     const report = await recollect.call(this.deps.collector, specDir, [...sources, ...proofSources], changedFiles);
-    return report.incomplete ? null : this.ctx.assembleChangeCoverage(changeDiff, report, noCodeOf);
+    return report.incomplete ? null : { cc: this.ctx.assembleChangeCoverage(changeDiff, report, noCodeOf), report };
   }
 
   /* An unloaded changed file's statements, read from the working copy once per measurement. */
@@ -241,7 +260,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     return this.deps.decide.blocks(status, this.ctx.policy);
   }
 
-  async recount(br: BlastRadius, specDir: string, diff: string | undefined, reruns: readonly CoverageRerun[], opts?: { namespace?: string; proofs?: readonly MutantProof[]; exclusions?: CoverageExclusions }): Promise<CoverageRecount | null> {
+  async recount(br: BlastRadius, specDir: string, diff: string | undefined, reruns: readonly CoverageRerun[], opts?: { namespace?: string; proofs?: readonly MutantProof[]; exclusions?: CoverageExclusions; caseFiles?: readonly string[] }): Promise<CoverageRecount | null> {
     const { recollect } = this.deps.collector;
     if (this.ctx.policy.mode === "off" || !diff || !this.ctx.assembleChangeCoverage || !recollect) return null;
     const changeDiff = changeDiffOf(diff, opts?.exclusions)!;
@@ -254,12 +273,14 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     /* A source that could not be read would count a part of the suite as the whole: the measurement before the recount stands. */
     if (report.incomplete) return null;
     const cc = this.ctx.assembleChangeCoverage(changeDiff, report, this.noCodeOf());
+    const ranBy = ranByOf(report, opts?.caseFiles ?? []);
     return {
       status: this.deps.decide.decide(cc, this.ctx.policy),
       ratio: cc.measured ? cc.overall.ratio : null,
       uncovered: cc.uncovered,
       untakenArms: cc.untakenArms ?? [],
       measurement: { ...measurementOf(cc, undefined, report.scripts), ...recordedExclusions(opts?.exclusions) },
+      ...(ranBy ? { ranBy } : {}),
     };
   }
 }

@@ -21,8 +21,8 @@ export type { MappingSegment, RawSourceMap, TimeSpent, V8Entry, V8Range };
 /* What one dump covers: the lines (1-based) of each changed file that a script of the dump ran. */
 export type CoveredLines = Map<string, Set<number>>;
 
-/* Reads the dumps of a namespace (those `keep` accepts by name, when given) and reduces each to the lines of `changedFiles` it covers, one dump at a time; `branches`, when given, is added the decisions of the changed files each dump ran, and `executable` the lines of the changed files the dumps' scripts hold code for. */
-export type ReadV8Coverage = (specDir: string, namespace: string, changedFiles: string[], scripts?: CoverageScripts, branches?: BranchSink, keep?: (name: string) => boolean, executable?: CoveredLines, mutant?: MutantEdit) => Promise<CoveredLines[]>;
+/* Reads the dumps of a namespace (those `keep` accepts by name, when given) and reduces each to the lines of `changedFiles` it covers, one dump at a time; `branches`, when given, is added the decisions of the changed files each dump ran, `executable` the lines of the changed files the dumps' scripts hold code for, and `ranBy` the names of the dumps that ran a line of each changed file. */
+export type ReadV8Coverage = (specDir: string, namespace: string, changedFiles: string[], scripts?: CoverageScripts, branches?: BranchSink, keep?: (name: string) => boolean, executable?: CoveredLines, mutant?: MutantEdit, ranBy?: Map<string, Set<string>>) => Promise<CoveredLines[]>;
 
 export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
   constructor(
@@ -39,6 +39,7 @@ export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
     const scripts: CoverageScripts = { total: 0, withSourceMap: 0 };
     const branches = new BranchSink();
     const executable: CoveredLines = new Map();
+    const ranBy = new Map<string, Set<string>>();
     const dumps: CoveredLines[] = [];
     let incomplete = false;
     for (const { namespace, exceptSpecFiles = [], onlySpecFiles, mutant } of sources) {
@@ -46,7 +47,7 @@ export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
         exceptSpecFiles.length === 0 && onlySpecFiles === undefined
           ? undefined
           : (name: string) => !exceptSpecFiles.some((file) => isDumpOfSpecFile(name, file)) && (onlySpecFiles === undefined || onlySpecFiles.some((file) => isDumpOfSpecFile(name, file)));
-      const read = await this.readCoverage(specDir, namespace, changedFiles ?? this.changedFiles, scripts, branches, keep, executable, mutant);
+      const read = await this.readCoverage(specDir, namespace, changedFiles ?? this.changedFiles, scripts, branches, keep, executable, mutant, ranBy);
       /* A mutant's re-run proves what its dumps ran; one that wrote none proves nothing, and takes nothing from the rest. */
       if (read.length === 0 && !mutant) incomplete = true;
       dumps.push(...read);
@@ -63,7 +64,8 @@ export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
     const decisions = dumps.length > 0 ? branches.result() : undefined;
     const sites = dumps.length > 0 ? branches.mutationSites() : undefined;
     const code = dumps.length > 0 ? [...executable].map(([file, lines]) => ({ file, lines: [...lines] })) : undefined;
-    return { covered: [...merged].map(([file, lines]) => ({ file, lines: [...lines] })), ...(code ? { executable: code } : {}), scripts, ...(decisions ? { branches: decisions } : {}), ...(sites ? { mutationSites: sites } : {}), ...(incomplete && sources.length > 1 ? { incomplete: true as const } : {}) };
+    const ran = dumps.length > 0 ? [...ranBy].map(([file, names]) => ({ file, dumps: [...names].sort() })) : undefined;
+    return { covered: [...merged].map(([file, lines]) => ({ file, lines: [...lines] })), ...(code ? { executable: code } : {}), ...(ran ? { ranBy: ran } : {}), scripts, ...(decisions ? { branches: decisions } : {}), ...(sites ? { mutationSites: sites } : {}), ...(incomplete && sources.length > 1 ? { incomplete: true as const } : {}) };
   }
 }
 

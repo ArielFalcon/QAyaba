@@ -29,11 +29,12 @@ export const MAX_COVERAGE_REPORT_BYTES = 32 * 1024 * 1024;
 /* What a dump covers of the changed files; throws on a dump it cannot decode within its bounds or before the time `spent` speaks of is, which leaves the set unused. */
 type ParseV8 = (entries: V8Entry[], changedFiles: string[], spent?: TimeSpent, scripts?: CoverageScripts, branches?: BranchSink, executable?: CoveredLines) => CoveredLines;
 
-/* The lines of `changedFiles` that the dumps of a namespace cover (and, in `scripts` when given, how many scripts they held and how many carried a source map; in `branches`, the decisions of the changed files they ran), one entry per dump in the order of their names. Each dump is parsed and reduced inside its read, so the dump itself is garbage as soon as the next one is read: the result is as small as the lines of the changed files, however many dumps and however large. A dump `keep` refuses (by its name) is neither read nor parsed; a dump a mutant's re-run wrote (`mutant`) is read with the mutant's edit undone. The time starts with the first dump; a dump that finds it spent is not even parsed, and a decoding that finds it spent stops: either leaves the set unused, said once with the reason. */
-export async function readV8Coverage(e2eDir: string, namespace: string, changedFiles: string[], limits: RunOutputLimits = V8_DUMP_LIMITS, parse: ParseV8 = defaultParseV8Coverage, time: V8DecodeTime = REAL_TIME, scripts?: CoverageScripts, branches?: BranchSink, keep: (name: string) => boolean = () => true, executable?: CoveredLines, mutant?: MutantEdit): Promise<CoveredLines[]> {
+/* The lines of `changedFiles` that the dumps of a namespace cover (and, in `scripts` when given, how many scripts they held and how many carried a source map; in `branches`, the decisions of the changed files they ran), one entry per dump in the order of their names; in `ranBy`, when given, the names of the dumps that ran a line of each changed file, added only when the set is used. Each dump is parsed and reduced inside its read, so the dump itself is garbage as soon as the next one is read: the result is as small as the lines of the changed files, however many dumps and however large. A dump `keep` refuses (by its name) is neither read nor parsed; a dump a mutant's re-run wrote (`mutant`) is read with the mutant's edit undone. The time starts with the first dump; a dump that finds it spent is not even parsed, and a decoding that finds it spent stops: either leaves the set unused, said once with the reason. */
+export async function readV8Coverage(e2eDir: string, namespace: string, changedFiles: string[], limits: RunOutputLimits = V8_DUMP_LIMITS, parse: ParseV8 = defaultParseV8Coverage, time: V8DecodeTime = REAL_TIME, scripts?: CoverageScripts, branches?: BranchSink, keep: (name: string) => boolean = () => true, executable?: CoveredLines, mutant?: MutantEdit, ranBy?: Map<string, Set<string>>): Promise<CoveredLines[]> {
   const rel = `.qa/coverage/${namespace}`;
   const startedAt = time.now();
   let ranOutOfTime = false;
+  const named: Array<[string, CoveredLines]> = [];
   const spent = (): boolean => {
     if (time.now() - startedAt <= time.budgetMs) return false;
     ranOutOfTime = true;
@@ -48,10 +49,18 @@ export async function readV8Coverage(e2eDir: string, namespace: string, changedF
       branches?.beginDump(name);
       const parsed: unknown = JSON.parse(bytes.toString("utf8"));
       const entries = Array.isArray(parsed) ? (parsed as V8Entry[]) : [];
-      return parse(mutant ? undoMutant(entries, mutant) : entries, changedFiles, spent, scripts, branches, executable);
+      const covered = parse(mutant ? undoMutant(entries, mutant) : entries, changedFiles, spent, scripts, branches, executable);
+      named.push([name, covered]);
+      return covered;
     },
     limits,
   );
+  /* The dumps are used whole or not at all: which ran what is told only of a set that is used. */
+  if (dumps && ranBy) {
+    for (const [name, covered] of named) {
+      for (const [file, lines] of covered) if (lines.size > 0) ranBy.set(file, (ranBy.get(file) ?? new Set<string>()).add(name));
+    }
+  }
   if (ranOutOfTime) engineLog.warn(`[qa] WARNING: ${join(e2eDir, rel)}: the dumps were not all decoded in the time a run is given (${time.budgetMs} ms); none of them is used, so the coverage is unknown this run (non-blocking).`);
   return dumps ?? [];
 }

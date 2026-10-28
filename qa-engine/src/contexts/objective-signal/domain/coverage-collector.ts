@@ -29,7 +29,9 @@ export interface MutantEdit { url: string; sha256: string; edit: MutationSite["e
 /* A mutant a test noticed: the dumps its re-run wrote (under `namespace`, by the tests of `specFiles` that failed) ran the changed code the mutant forced, and a test checked what that code did. */
 export interface MutantProof extends MutantEdit { namespace: string; specFiles: string[]; }
 /* `branches` and `mutationSites` are absent when the collector does not see decisions, or could not read them within its bounds. `executable` holds the lines of the changed files the loaded scripts hold code for, ran or not; absent when the collector cannot tell (a native report), and then every added line counts. */
-export interface CoverageReport { covered: CoveredLines[]; executable?: CoveredLines[]; scripts?: CoverageScripts; branches?: BranchHit[]; mutationSites?: MutationSite[]; /* A source of a recollection yielded no dump: the report is a part of what it was asked for. */ incomplete?: true; }
+/* The dumps (one per test, by name) that ran a line of a changed file; absent for a collector that reads reports a run writes whole. In memory only. */
+export interface DumpsThatRan { file: string; dumps: string[]; }
+export interface CoverageReport { covered: CoveredLines[]; executable?: CoveredLines[]; scripts?: CoverageScripts; branches?: BranchHit[]; mutationSites?: MutationSite[]; ranBy?: DumpsThatRan[]; /* A source of a recollection yielded no dump: the report is a part of what it was asked for. */ incomplete?: true; }
 /* The dumps of one namespace a recollection adds: without those the tests of `exceptSpecFiles` wrote, and, when `onlySpecFiles` is given, only those its tests wrote; `mutant` is the edit the page's script carried when they were written, undone before they are read. */
 export interface DumpSource { namespace: string; exceptSpecFiles?: readonly string[]; onlySpecFiles?: readonly string[]; mutant?: MutantEdit; }
 export interface ValueOracleResult {

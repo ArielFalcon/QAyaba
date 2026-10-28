@@ -9668,7 +9668,7 @@ test("signal mode: a green run with arms no test ran regenerates once with those
     assert.equal(turns.length, 2, "the first pass and one regeneration");
     assert.ok(turns[1]!.includes("src/a.ts:3 if: else") && turns[1]!.includes("src/a.ts:7 logical: right of || evaluated"), "the regeneration is given the arms");
     assert.ok(!turns[1]!.includes("all changed lines are covered"), "an arms-only gap says nothing of the lines");
-    assert.deepEqual(recounts, [[true, [{ namespace: "branch-cases-signal-acc0", specFiles: ["a.spec.ts"] }], {}]]);
+    assert.deepEqual(recounts, [[true, [{ namespace: "branch-cases-signal-acc0", specFiles: ["a.spec.ts"] }], { caseFiles: ["a.spec.ts"] }]], "told the passing spec files the recounted dumps belong to");
     assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCases, { outcome: "accepted", armsBefore: 2, armsAfter: 1, kept: 1, restored: 0 });
     assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.branchCoverage, { changed: 6, taken: 5 }, "the recount is what the run records");
     assert.equal(savedOutcomes.at(-1)!.gateSignals.coverageRatio, 1);
@@ -9817,7 +9817,7 @@ test("the killed mutants the coverage counted are handed to the recount, and the
 
     await useCase.run({ ...baseInput, runId: "proofs" });
 
-    assert.deepEqual(recounts, [{ proofs: [proof] }]);
+    assert.deepEqual(recounts, [{ proofs: [proof], caseFiles: ["a.spec.ts"] }]);
     assert.deepEqual(savedOutcomes.at(-1)!.gateSignals.changeCoverage, { executableLines: 10, notExecutableLines: 4, notLoadedFiles: ["src/lazy.ts"], coveredByExecution: 7, provenByMutation: 2, armsProvenByMutation: 1 });
   } finally {
     real.cleanup();
