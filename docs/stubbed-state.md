@@ -22,6 +22,12 @@ how the orchestrator detects it, and what it records.
 A stubbed test can hide a defect of the backend (the field the response lacks on DEV is the very
 defect it would stub away). That is why the live test stays and why the PR says so.
 
+When the spec states the body a test fulfils (a `json` or `body` that is an object literal, its `JSON.stringify`, or a constant of the file holding
+one), the detector records the names of its fields at every depth (`StubbedTest.fulfils`, names only). The PR or Issue lists the test under the
+possible data contradiction (`AGENTS.md`, "Data contradictions") whose missing field it fulfils: the stub corroborates that the consumer's code
+expects the field, and it still tests the stated response, not DEV. A body the spec does not state (an imported value, a computed one) links to no
+gap.
+
 ## Detection
 
 `qa-engine/src/contexts/test-execution/domain/stubbed-state.ts` reads each delivered spec's syntax tree

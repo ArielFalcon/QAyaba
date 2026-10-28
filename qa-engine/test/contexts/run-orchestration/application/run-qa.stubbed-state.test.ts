@@ -59,6 +59,7 @@ test("a delivered stubbed test is recorded as a gate signal, a span and a public
   assert.equal(signal?.tests, 1);
   assert.equal(signal?.violations, undefined);
   assert.deepEqual(published[0]!.stubbedState?.tests.map((t) => t.response), ["geo response without the cuisine field"]);
+  assert.deepEqual(published[0]!.stubbedState?.tests[0]?.fulfils, ["items"], "the fields the stated body carries reach the publication, to be listed under the gap they corroborate");
   const span = telemetry.spans.find((s) => s.name === "qayaba.stubbed_state");
   assert.equal(span?.attrs["qayaba.stubbed.tests"], 1);
   assert.equal(span?.attrs["qayaba.stubbed.violations"], 0);

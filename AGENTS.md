@@ -229,26 +229,42 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   after the pages and the availability facts, last fact first, as a count, and a `no-observable-change` drop of a candidate whose pages
   made requests is refused with the first of them named (`dropRefusal`; what the lead keeps after the one re-ask is honoured and
   recorded as before). A signal, never a gate.
-- **Data contradictions** — when one page's two data sources disagree, the run reports it as a possible defect instead of normalising it.
-  The capture records, per successful JSON fetch/XHR GET response a captured page read (any origin the browser reached: the sandbox's egress
-  filter admits only the declared ones), the operation (method + address, never query, body or values), its item count and the union of the
-  top-level keys of its items (`DataShape`, `shared-kernel`/`generation/domain/route-snapshot.ts`; `null` counts as present). Items are the
-  elements of a root array, else of the one array of objects the body holds at its root or one level down, else the object itself. Bounds
-  (`MAX_SHAPES_PER_ROUTE`, `MAX_SHAPE_KEYS`, `MAX_SHAPE_KEY_CHARS`, `MAX_SHAPE_ITEMS`, `MAX_SHAPE_BODY_BYTES`, `SHAPE_READ_TIMEOUT_MS`) cut the
-  capture, a cut shape is `complete: false` and never contradicts, and a body over the bound is a count (`shapesOmitted`). The pure rule
-  (`generation/domain/data-contradictions.ts`) says operation B contradicts operation A of the same page on key K when A's items carry K, B
-  has at least one item and none carries K, and they are the same kind of resource: both GET, B complete, at least `SAME_KIND_MIN_SHARED_KEYS`
-  (3) keys in common and an overlap of the shared keys over the union of the others of at least `SAME_KIND_MIN_OVERLAP` (0.8), K itself left
-  out of both. The OpenAPI response schema tightens it (`service-topology/domain/response-fields.ts`, read from the app's `openapi` hint by
-  `openapi-response-fields.source.ts`): B's declared item fields carrying K make the fact `schemaBacked`, not declaring K suppress it (the
-  contract says B is not meant to carry it), an unknown or empty schema leaves it unbacked. Facts are observed by the orchestrator, never read
-  from a spec's comment. They appear as the Context Pack's `Possible data contradictions` section (after the requests; a flow's brief carries
-  those of its pages and gives way after the requests, last fact first, as a count), as `gateSignals.dataContradictions { pages, found,
-  schemaBacked, facts[], omitted }` (`qayaba.context.data_contradictions` on the context-pack span), in the PR and Issue under `Possible data
-  contradictions`, and to the reviewer, which may cite one (`{"kind":"contradiction","ref":"<path>#<key>"}`) against a spec that passes by
-  adapting to that state (an expected value read from the state it checks, or a check guarded by it); the orchestrator verifies the ref
-  against the recorded facts (`review-finding-filter.service.ts`, drop reason `no-contradiction-fact`). A signal, never a gate: it decides no
-  verdict.
+- **Data contradictions** — a field the consumer's own code expects of an operation's answer that no live response of it carries is reported as
+  a possible defect instead of being normalised. The expectation comes from the consumer's source, the absence from the live responses, the class
+  from the provider's contract; no similarity of one answer to another decides anything and no threshold exists. The capture records, per successful
+  JSON fetch/XHR GET response a captured page read (any origin the browser reached: the sandbox's egress filter admits only the declared ones), the
+  operation (method + address, never query, body or values), its item count, the top-level keys of its items and the names of the fields the whole
+  answer carries at every depth, arrays read through (`DataShape`, `generation/domain/route-snapshot.ts`; `null` counts as present; names only, never
+  a value). Items are the elements of a root array, else of the one array of objects the body holds at its root or one level down, else the object
+  itself. Bounds (`MAX_SHAPES_PER_ROUTE`, `MAX_SHAPE_KEYS`, `MAX_SHAPE_NAMES`, `MAX_SHAPE_DEPTH`, `MAX_SHAPE_KEY_CHARS`, `MAX_SHAPE_ITEMS`,
+  `MAX_SHAPE_BODY_BYTES`, `SHAPE_READ_TIMEOUT_MS`) cut the capture, a cut shape is `complete: false` and yields no fact, and a body over the bound is
+  a count (`shapesOmitted`). What the consumer expects is read by an extractor the language registry declares (`ExpectationSyntax` in
+  `shared-kernel/language-id.ts`, like `RouteTableSyntax`; TypeScript and JavaScript through the compiler,
+  `generation/infrastructure/consumer-expectation/typescript-expectations.ts`; a language with none yields no fact). It reads the working copy through
+  the confined reader (`consumer-expectations.source.ts`; the delivered suite, dependencies and build directories excluded) and builds a program over
+  it with no installed package: a call whose address argument evaluates to a path (a literal, a template or a concatenation, a constant followed
+  across files; an unresolved leading part is the base address) serves a request when `requestServesOperation` says so and its verb, if the callee
+  names one, is the request's, and a link the service-topology resolver already made (`ServiceLink.from.file`/`symbol`, `operation`) ties a request to
+  a call site whose path cannot be evaluated; of the call sites that serve a request only those with the most literal segments count, and an operation
+  expects what all of them expect (the intersection), none if one of them cannot be read. The declared answer type is the call's type argument, else
+  the enclosing function's return type; its property names at any depth (a resolved type's properties, the library's containers read through their
+  arguments, a library utility type expanded, an unresolvable reference such as `Observable<X>` contributing the properties of its resolved type
+  arguments) are the candidates, and a candidate is expected when non-test code reads a property of that name and no non-test code writes one
+  (assignment, increment, `delete`, object-literal key, spread override, class member initialiser): names are matched, not symbols, and a name
+  written anywhere is conservatively the client's. A type that yields no property is unresolved: no fact. The pure comparator
+  (`generation/domain/expectation-gaps.ts`) says K is a gap on operation O when O's responses across every page that read it are complete, carry at
+  least one item and none names K at any depth, and the provider's contract classifies it (`service-topology/domain/response-fields.ts`, read from
+  the app's `openapi` hint by `openapi-response-fields.source.ts`): `provider-undeclared` (the contract describes the answer and does not declare
+  K), `provider-declared-absent` (it declares K) or `no-provider-contract`; another operation of the page carrying K is context on the gap
+  (`alsoCarriedBy`), never a fact of its own. Facts are observed by the orchestrator, never read from a spec's comment. They appear as the Context
+  Pack's `Possible data contradictions` section (after the requests; a flow's brief carries those of its pages and gives way after the requests,
+  last fact first, as a count) with the consumer's call site, declared type and read sites, as `gateSignals.dataContradictions { pages, found,
+  schemaBacked, facts[], omitted }` (`schemaBacked` counts `provider-declared-absent`; facts of runs stored before the consumer rule keep their
+  `carriedBy`/`missingFrom`/`schemaBacked` and stay readable) (`qayaba.context.data_contradictions` on the context-pack span), in the PR and Issue
+  under `Possible data contradictions` (a stubbed test that fulfils the field, named from the spec's own literal body in `StubbedTest.fulfils`, is
+  listed under its gap), and to the reviewer, which may cite one (`{"kind":"contradiction","ref":"<path>#<key>"}`) against a spec that passes by
+  adapting to that state (an expected value read from the state it checks, or a check guarded by it); the orchestrator verifies the ref against the
+  recorded facts (`review-finding-filter.service.ts`, drop reason `no-contradiction-fact`). A signal, never a gate: it decides no verdict.
 - **Pre-exec / review grounding** — `pre-exec-grounding-port.adapter.ts`,
   `review-dom-grounding-port.adapter.ts` (same folder).
   The pre-exec selector-ambiguity check is a regex over the spec text and **advisory**: its findings
