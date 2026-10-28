@@ -7,7 +7,7 @@ import { BlastRadius } from "@kernel/blast-radius.ts";
 import { candidatesSeededBy } from "@kernel/change-map.ts";
 import { hasGreenBytes } from "@kernel/run-verdict.ts";
 import type { GenerationEnrichment } from "@contexts/generation/application/index.ts";
-import { changedCodeFiles, renderBranchGap, renderCoverageGap, renderSurvivedMutant, renderSurvivedMutants, survivorClosureOf, survivorRechecks, testSupportFiles, unreachableByDesign, type BundleMutationResult, type CoverageExclusions, type CoverageMeasurement, type CoverageRerun, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
+import { changedCodeFiles, renderBranchGap, renderCoverageGap, renderSurvivedMutants, survivorClosureOf, survivorFindings, survivorRechecks, testSupportFiles, unreachableByDesign, type BundleMutationResult, type CoverageExclusions, type CoverageMeasurement, type CoverageRerun, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
 import type { StepOutcome } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import { runOf, type BranchCasesOutcome, type CoverageOutcome, type RunState } from "../run-state.ts";
@@ -395,16 +395,14 @@ export function gapUnits(uncovered: CoverageOutcome["uncovered"], arms: Coverage
 
 /*
  * The findings of a gap: one per unit, carrying the file it names so the orchestrator routes it by the use case that file seeds, then
- * one per surviving mutant and spec that reached it, carrying that spec so the lead's pass hands it to the flow that owns the spec; a
- * mutant no spec is recorded as reaching has no owner and is told to the lead as it is. A gap with neither units nor survivors is
- * read whole as one finding; an empty one gives none.
+ * one per surviving mutant and spec it is routed to (the specs that reached it whose own pages moved, else every spec that reached it),
+ * carrying that spec so the lead's pass hands it to the flow that owns the spec; a mutant no spec is recorded as reaching has no owner
+ * and is told to the lead as it is. A gap with neither units nor survivors is read whole as one finding; an empty one gives none.
  */
 export function gapFindings(gap: string, units: readonly GapUnit[], survived: readonly SurvivedMutant[]): EvidenceFinding[] | undefined {
   const findings: EvidenceFinding[] = [
     ...(units.length > 0 ? units.map((u) => ({ finding: u.finding })) : survived.length > 0 && gap ? [{ finding: { text: gap } }] : []),
-    ...survived.flatMap((m) =>
-      (m.specFiles && m.specFiles.length > 0 ? m.specFiles : [undefined]).map((spec) => ({ finding: { text: renderSurvivedMutant(m, spec), ...(spec ? { spec } : {}) } })),
-    ),
+    ...survived.flatMap((m) => survivorFindings(m).map(({ spec, text }) => ({ finding: { text, ...(spec ? { spec } : {}) } }))),
   ];
   return findings.length > 0 ? findings : undefined;
 }

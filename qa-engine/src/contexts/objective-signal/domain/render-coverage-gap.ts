@@ -72,13 +72,32 @@ export function renderBranchGap(untaken: Untaken): string {
   return `decision arms on changed lines that NO test ran (each is a behaviour the change decides, reached by a test when the page can be brought to that state through the UI against DEV):\n${lines.join("\n")}`;
 }
 
+/* What the mutation moved as `specFile` is told it: that file's own account when the survivor has one for it, else the account over all its tests (an author that reads every survivor whole is told that one). */
+function movedFor(m: SurvivedMutant, specFile: string | undefined): ObservedDifference | undefined {
+  return m.movedBySpec?.find((entry) => entry.spec === specFile)?.moved ?? m.moved;
+}
+
 /* A mutant of the changed code that no test noticed, as the fact it is: the line ran under the spec, the mutation was applied and no test failed. */
 export function renderSurvivedMutant(m: SurvivedMutant, specFile?: string): string {
   const ran = specFile ? `ran under ${specFile}` : "ran under a test";
   const edit = m.original !== undefined && m.replacement !== undefined ? `, ${JSON.stringify(m.original)} replaced by ${JSON.stringify(m.replacement)}` : "";
   const fact = `mutant of the changed code that NO test noticed: ${m.file}:${m.line} ${ran}; the mutation (${m.operator}${edit}) was applied to the served script and no test failed, so the test reaches this line and asserts nothing that depends on it`;
-  const observed = m.moved ? renderObservedDifference(m.moved) : "";
+  const moved = movedFor(m, specFile);
+  const observed = moved ? renderObservedDifference(moved) : "";
   return observed ? `${fact}; ${observed}` : fact;
+}
+
+/*
+ * The findings a surviving mutant gives, one per spec file it is routed to, each rendered with that file's own account: the spec files
+ * that ran it whose own pages moved, since a file whose pages show nothing of the mutant has nothing to assert on; when none moved (or
+ * there is no account per file), every spec file that ran it; with none recorded, one finding of no spec.
+ */
+export function survivorFindings(m: SurvivedMutant): { spec?: string; text: string }[] {
+  const specs = m.specFiles ?? [];
+  if (specs.length === 0) return [{ text: renderSurvivedMutant(m) }];
+  const moved = specs.filter((spec) => movedFor(m, spec)?.kind === "moved");
+  const routed = m.movedBySpec && moved.length > 0 ? moved : specs;
+  return routed.map((spec) => ({ spec, text: renderSurvivedMutant(m, spec) }));
 }
 
 /* The items of a list, each quoted so a line of the tree or a path is read as one item. */

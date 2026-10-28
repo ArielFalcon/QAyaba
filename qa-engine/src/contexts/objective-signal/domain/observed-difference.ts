@@ -1,4 +1,4 @@
-/* What a mutation moved. A surviving mutant is a fault the suite reached and checked nothing of; the author can write the assertion that kills it only if it knows what the fault changes that a page shows. The same tests run twice, with the mutation and without it, and the two pages are compared per test: the requests it depended on (method, origin and pathname; how many times is not compared, a poll that ran once more is noise) and the lines of the accessible tree it ended on. Only the tests that passed in both runs are compared. The difference is a fact for the regeneration and the record; the mutant itself (the served script and its edit) is not part of it. Pure; a signal, never a gate. */
+/* What a mutation moved. A surviving mutant is a fault the suite reached and checked nothing of; the author can write the assertion that kills it only if it knows what the fault changes that a page shows. The same tests run three times, twice without the mutation and once with it, and the pages are compared per test: the requests it depended on (method, origin and pathname; how many times is not compared, a poll that ran once more is noise) and the lines of the accessible tree it ended on. What differs between the two unmutated runs is run-to-run noise (a refreshed token, a tile the map chose, a price DEV changed) and is never reported: a request or a line moved only when neither unmutated run showed it and the mutated run did, or both showed it and the mutated run did not. Only the tests that passed in all three runs are compared. The difference is told per spec file too, so a survivor reaches only the files whose own pages moved. It is a fact for the regeneration and the record; the mutant itself (the served script and its edit) is not part of it. Pure; a signal, never a gate. */
 import type { MovedLists, ObservedDifference } from "@kernel/observed-difference.ts";
 import { MAX_OBSERVED_LINE_CHARS, type ObservedPage } from "./observed-page.ts";
 
@@ -9,13 +9,17 @@ export const MAX_MOVED_TESTS = 5;
 
 export type { MovedLists, ObservedDifference };
 
+/* The pages of the two unmutated runs of the same tests; either is undefined when that run left no observation. */
+export type UnmutatedPages = readonly [readonly ObservedPage[] | undefined, readonly ObservedPage[] | undefined];
+
+/* What one spec file's tests moved: the difference over that file's tests alone. */
+export interface SpecFileDifference {
+  spec: string;
+  moved: ObservedDifference;
+}
+
 const cut = (line: string): string => (line.length > MAX_OBSERVED_LINE_CHARS ? `${line.slice(0, MAX_OBSERVED_LINE_CHARS)}…` : line);
 const requestKey = (r: { method: string; url: string }): string => `${r.method} ${r.url}`;
-
-/* The items of `after` that `before` does not hold, in the order first seen. */
-function onlyIn(after: readonly string[], before: ReadonlySet<string>): string[] {
-  return after.filter((item) => !before.has(item));
-}
 
 /* `from` appended to `into` without repeats. */
 function addAll(into: string[], from: readonly string[]): void {
@@ -23,37 +27,47 @@ function addAll(into: string[], from: readonly string[]): void {
 }
 
 /*
- * The difference between the unmutated run's pages (`baseline`) and the mutated run's (`mutant`), over the tests named in
- * `comparable` (the ones that passed in both runs), matched by name. Undefined for a run that left no observation.
+ * One test's items (requests or tree lines) against the two unmutated runs: added are the mutated run's items neither unmutated run
+ * showed, removed the items both unmutated runs showed that the mutated run did not. An item only one unmutated run showed is noise.
  */
-export function diffObservations(baseline: readonly ObservedPage[] | undefined, mutant: readonly ObservedPage[] | undefined, comparable: ReadonlySet<string>): ObservedDifference {
-  if (baseline === undefined) return { kind: "unobserved", reason: "baseline" };
+function movedItems(first: readonly string[], second: readonly string[], mutant: readonly string[]): { added: string[]; removed: string[] } {
+  const a = new Set(first);
+  const b = new Set(second);
+  const after = new Set(mutant);
+  return {
+    added: [...after].filter((item) => !a.has(item) && !b.has(item)),
+    removed: [...a].filter((item) => b.has(item) && !after.has(item)),
+  };
+}
+
+/*
+ * The difference between the unmutated runs' pages (`baseline`) and the mutated run's (`mutant`), over the tests named in
+ * `comparable` (the ones that passed in every run), matched by name. Unobserved when either unmutated run or the mutated run left no
+ * observation: without both unmutated runs there is no noise floor, so nothing is claimed.
+ */
+export function diffObservations(baseline: UnmutatedPages, mutant: readonly ObservedPage[] | undefined, comparable: ReadonlySet<string>): ObservedDifference {
+  const [firstRun, secondRun] = baseline;
+  if (firstRun === undefined || secondRun === undefined) return { kind: "unobserved", reason: "baseline" };
   if (mutant === undefined) return { kind: "unobserved", reason: "mutant" };
-  const before = new Map(baseline.map((p) => [p.name, p]));
+  const first = new Map(firstRun.map((p) => [p.name, p]));
+  const second = new Map(secondRun.map((p) => [p.name, p]));
   const requests: MovedLists = { added: [], removed: [] };
   const dom: MovedLists = { added: [], removed: [] };
   const tests: string[] = [];
   let compared = 0;
   for (const after of mutant) {
-    const base = before.get(after.name);
-    if (!base || !comparable.has(after.name)) continue;
+    const one = first.get(after.name);
+    const two = second.get(after.name);
+    if (!one || !two || !comparable.has(after.name)) continue;
     compared++;
-    const baseRequests = new Set(base.requests.map(requestKey));
-    const afterRequests = new Set(after.requests.map(requestKey));
-    const baseDom = new Set(base.dom);
-    const afterDom = new Set(after.dom);
-    const moved = {
-      requestsAdded: onlyIn([...afterRequests], baseRequests),
-      requestsRemoved: onlyIn([...baseRequests], afterRequests),
-      domAdded: onlyIn([...afterDom], baseDom),
-      domRemoved: onlyIn([...baseDom], afterDom),
-    };
-    if (Object.values(moved).every((list) => list.length === 0)) continue;
+    const req = movedItems(one.requests.map(requestKey), two.requests.map(requestKey), after.requests.map(requestKey));
+    const tree = movedItems(one.dom, two.dom, after.dom);
+    if ([req.added, req.removed, tree.added, tree.removed].every((list) => list.length === 0)) continue;
     tests.push(after.name);
-    addAll(requests.added, moved.requestsAdded);
-    addAll(requests.removed, moved.requestsRemoved);
-    addAll(dom.added, moved.domAdded.map(cut));
-    addAll(dom.removed, moved.domRemoved.map(cut));
+    addAll(requests.added, req.added);
+    addAll(requests.removed, req.removed);
+    addAll(dom.added, tree.added.map(cut));
+    addAll(dom.removed, tree.removed.map(cut));
   }
   if (compared === 0) return { kind: "unobserved", reason: "no-common-test" };
   if (tests.length === 0) return { kind: "unmoved", tests: compared };
@@ -66,4 +80,15 @@ export function diffObservations(baseline: readonly ObservedPage[] | undefined, 
     tests: tests.slice(0, MAX_MOVED_TESTS),
     ...(omitted > 0 ? { omitted } : {}),
   };
+}
+
+/* The difference of each of `specFiles`, over the comparable tests `fileOf` places in it; a test no file is known for is in none. */
+export function movedBySpecFile(
+  baseline: UnmutatedPages,
+  mutant: readonly ObservedPage[] | undefined,
+  comparable: ReadonlySet<string>,
+  fileOf: (testName: string) => string | undefined,
+  specFiles: readonly string[],
+): SpecFileDifference[] {
+  return specFiles.map((spec) => ({ spec, moved: diffObservations(baseline, mutant, new Set([...comparable].filter((name) => fileOf(name) === spec))) }));
 }

@@ -1,5 +1,6 @@
 import type { CandidateValue, ValueStats } from "./fault-injection-score.ts";
 import type { ObservedDifference } from "@kernel/observed-difference.ts";
+import type { SpecFileDifference } from "./observed-difference.ts";
 import type { DecisionKind } from "@kernel/changed-decision.ts";
 
 export interface CoveredLines { file: string; lines: number[]; }
@@ -49,7 +50,7 @@ export interface ValueOracleResult {
 /* A mutant of the served script to re-run, with the spec files whose tests reached it and, when the dumps that ran it name their tests, those tests (each as the coverage fixture names its dumps): only they are re-run. */
 export interface MutantRun { site: MutationSite; specFiles: string[]; tests?: string[]; }
 /* What the mutants did: how many reached a page and were judged, how many a test noticed, and where the others are. */
-/* A mutant no test noticed: where it was applied and the mutation. `specFiles` are the spec files whose tests reached the line (the ones that ran the mutated code and checked nothing that depended on it); `original` and `replacement` are the text before and after the edit, on one line and cut; `moved` is what the mutation changed in the requests and the accessible tree of the tests that ran it (absent when the runs were not observed). It holds nothing of the mutant itself. */
-export interface SurvivedMutant { file: string; line: number; operator: string; specFiles?: string[]; original?: string; replacement?: string; moved?: ObservedDifference; }
+/* A mutant no test noticed: where it was applied and the mutation. `specFiles` are the spec files whose tests reached the line (the ones that ran the mutated code and checked nothing that depended on it); `original` and `replacement` are the text before and after the edit, on one line and cut; `moved` is what the mutation changed in the requests and the accessible tree of the tests that ran it, run-to-run noise left out, and `movedBySpec` the same per spec file of `specFiles`, over that file's tests alone (both absent when the runs were not observed). It holds nothing of the mutant itself. */
+export interface SurvivedMutant { file: string; line: number; operator: string; specFiles?: string[]; original?: string; replacement?: string; moved?: ObservedDifference; movedBySpec?: SpecFileDifference[]; }
 /* `survivorRuns` holds, in the order of `survived`, each survivor's mutant as it was run, so it can be applied again; it carries the served script's address and edit, and stays with the orchestrator. */
 export interface BundleMutationResult { applied: number; killed: number; survived: SurvivedMutant[]; proofs?: MutantProof[]; survivorRuns?: MutantRun[]; }
