@@ -295,7 +295,7 @@ export class RunSpecUseCase {
     if (status === RUN_SPEC_STATUS.ERROR) {
       if (result.cases.length > 0) notes.push("the run ended without a result");
       else if (loadErrorCount > 0) notes.push("the spec did not load, so no test ran: fix the errors in loadErrors, then run it again");
-      else notes.push(grep !== undefined ? "no test ran: check the path and the grep" : "no test ran: check the path");
+      else notes.push("no test ran: check the path and the grep");
     }
     if (loadErrorCount > loadErrors.length) notes.push(`only the first ${loadErrors.length} of ${loadErrorCount} load errors are listed`);
     if (failing.length > MAX_REPORTED_TESTS) notes.push(`only the first ${MAX_REPORTED_TESTS} of ${failing.length} failing tests are listed`);

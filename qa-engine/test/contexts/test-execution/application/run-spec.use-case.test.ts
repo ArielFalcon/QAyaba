@@ -670,11 +670,10 @@ test("a call where no test matched the grep still tells the generator to check t
   assert.match(response.report.note ?? "", /grep/);
 });
 
-test("a call with no grep and no load error does not blame a grep that was never given", async (t) => {
+test("a call with no grep and no load error keeps the note it always had", async (t) => {
   const h = harness(t);
   h.next.result = { verdict: "infra-error", cases: [], logs: "", devWrites: 0 };
   const response = await call(h, "flows/a.spec.ts");
   assert.ok(response.ok);
-  assert.match(response.report.note ?? "", /no test ran/);
-  assert.doesNotMatch(response.report.note ?? "", /grep/);
+  assert.equal(response.report.note, "no test ran: check the path and the grep");
 });
