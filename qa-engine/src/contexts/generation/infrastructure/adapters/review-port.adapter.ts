@@ -6,8 +6,8 @@ import type { ReviewPort } from "../../application/ports/review.port.ts";
 import type { ReviewEnrichment } from "../../domain/review-enrichment.ts";
 import type { ReviewStats } from "../../domain/review.ts";
 import { REVIEWER_UNAVAILABLE_MARKER } from "../../domain/review.ts";
-import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
-import type { PromptRenderingPort, VerdictParserPort } from "@contexts/generation/application/index.ts";
+import type { AgentRuntimePort, AgentSession } from "@kernel/ports/agent-runtime.port.ts";
+import type { PromptRenderingPort, RepairPort, VerdictParserPort } from "@contexts/generation/application/index.ts";
 import type { ReviewInput, StepLimitFor } from "@contexts/generation/application/index.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import { renderLearnedRulesForReviewer } from "@contexts/cross-run-learning/application/index.ts";
@@ -15,6 +15,8 @@ import { promptFactsOpts } from "@contexts/generation/application/index.ts";
 import { renderExecutionResult, type ExecutionResultCase } from "@contexts/generation/infrastructure/prompt-builders/review-render.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import { rethrowIfRunDeadline } from "@kernel/run-deadline.ts";
+import { isAgentTimeoutError } from "@kernel/domain-error.ts";
+import { REPAIR_TURN_TIMEOUT_MS } from "../../domain/repair-turn.ts";
 import { openSidekickSession, REVIEW_SIDEKICK } from "@kernel/sidekick-session.ts";
 
 /* One executed case as the reviewer's execution evidence: only the fields the renderer shows, and only when the run captured them. */
@@ -31,6 +33,8 @@ export interface ReviewPortRuntime {
   runtime: AgentRuntimePort;
   rendering: PromptRenderingPort;
   verdicts: VerdictParserPort;
+  /* The contract repair the author's turn already has. Absent: an answer with no readable verdict fails closed at once. */
+  repair?: RepairPort;
 }
 
 export interface ReviewPortStaticContext {
@@ -47,6 +51,8 @@ export interface ReviewPortStaticContext {
 }
 
 export interface ReviewPortCollaborators {
+  /* The longest the one contract-repair prompt may run. Absent: `REPAIR_TURN_TIMEOUT_MS`. */
+  repairTimeoutMs?: number;
   /* The step limit the runtime enforces for a role this run, asked for on every review. Absent -> no review input states a limit. */
   stepLimitFor?: StepLimitFor;
 }
@@ -108,6 +114,8 @@ export class ReviewPortAdapter implements ReviewPort {
         },
       });
       let output: string;
+      let judgment: ReturnType<VerdictParserPort["parseReview"]> | undefined;
+      let repairChars = 0;
       try {
         /* The turn is judged by the limit the prompt states. textOnly drops the model's reasoning
          * parts: the verdict is its spoken answer, and the reasoning is not what the parser reads. */
@@ -121,21 +129,33 @@ export class ReviewPortAdapter implements ReviewPort {
           },
         });
         output = out.output;
+        /* An answer with nothing in it is the reviewer's absence, not a verdict to repair. */
+        if (output.trim() !== "") {
+          judgment = verdicts.parseReview(output);
+          /* One tools-disabled turn in the same session asks only for the verdict again, so an answer cut off before its closing JSON is not a rejection by default. */
+          if (judgment.parsed === false && this.deps.repair) {
+            const repaired = await this.repairVerdict(session, this.deps.repair, output, stepLimit);
+            if (repaired !== undefined) {
+              repairChars = repaired.length;
+              const again = verdicts.parseReview(repaired);
+              /* Still unreadable: the first answer's parse miss stands, failing closed. */
+              if (again.parsed !== false) judgment = again;
+            }
+          }
+        }
       } finally {
         await session.dispose();
       }
       const stats: ReviewStats = {
         durationMs: Date.now() - startedAt,
         promptBytes: Buffer.byteLength(assembled.text, "utf8"),
-        outputChars: output.length,
+        outputChars: output.length + repairChars,
         ...(usage.calls > 0 ? { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } : {}),
         ...(usage.calls > 0 && usage.costUsd > 0 ? { costUsd: usage.costUsd } : {}),
         ...(steps !== undefined ? { steps } : {}),
       };
       /* A reviewer that answered with nothing judged nothing: an errored session (provider refusal, quota, outage) that the transport let through, not a verdict of any kind. */
-      if (output.trim() === "") return { ...this.unavailable("the reviewer returned no output"), stats };
-
-      const judgment = verdicts.parseReview(output);
+      if (judgment === undefined) return { ...this.unavailable("the reviewer returned no output"), stats };
 
       /* Parse miss is not an actionable rejection and never a free pass — approved must be false. */
       const approved = judgment.parsed === false ? false : judgment.approved;
@@ -155,6 +175,23 @@ export class ReviewPortAdapter implements ReviewPort {
       /* The run's time is spent: that ends the run, it is not a reviewer fault to fail closed on. */
       rethrowIfRunDeadline(err);
       return { ...this.unavailable(err instanceof Error ? err.message : String(err)), stats: { durationMs: Date.now() - startedAt, promptBytes: Buffer.byteLength(assembled.text, "utf8"), outputChars: 0 } };
+    }
+  }
+
+  /* The reviewer's answer held no readable verdict: ask once, with no tool, for the verdict alone. Undefined when the repair ran past its own cap (the first answer stands). Any other fault propagates like a fault of the first turn, and the run's deadline ends the run: the deadline runtime sends no turn when no time is left. */
+  private async repairVerdict(session: AgentSession, repair: RepairPort, priorOutput: string, stepLimit: number | undefined): Promise<string | undefined> {
+    const timeoutMs = this.collaborators.repairTimeoutMs ?? REPAIR_TURN_TIMEOUT_MS;
+    try {
+      const repaired = await session.prompt(
+        repair.instruction("reviewer", ["the answer ended with no complete verdict JSON (an object with an `approved` field)"], { priorResponseTail: priorOutput }),
+        { isRepair: true, withoutTools: true, textOnly: true, ...(stepLimit !== undefined ? { stepLimit } : {}), timeoutMs, timeLimit: "repair-cap" },
+      );
+      return repaired.output;
+    } catch (err) {
+      rethrowIfRunDeadline(err);
+      if (!isAgentTimeoutError(err)) throw err;
+      engineLog.error(`[qa] the reviewer's contract-repair turn timed out after ${timeoutMs}ms (tools disabled); its first answer stands as a parse miss`);
+      return undefined;
     }
   }
 

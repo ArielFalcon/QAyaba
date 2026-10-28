@@ -58,7 +58,7 @@ import { type GenerationResult, type GenerateOpts } from "@contexts/generation/a
 import type { OpencodeRunInput, ArchitectureContext, StepLimitFor } from "@contexts/generation/application/index";
 import type { ContextProvenance } from "@kernel/telemetry/context-provenance";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port";
-import type { PromptRenderingPort, VerdictParserPort } from "@contexts/generation/application/index";
+import type { PromptRenderingPort, RepairPort, VerdictParserPort } from "@contexts/generation/application/index";
 import type { StaticGateAdapter } from "@contexts/test-execution/infrastructure/static-gate.adapter";
 import type { E2eExecutionStrategy } from "@contexts/test-execution/infrastructure/e2e-execution.strategy";
 import type { CodeExecutionStrategy } from "@contexts/test-execution/infrastructure/code-execution.strategy";
@@ -154,6 +154,8 @@ export interface EngineRootDeps {
     runtime: Pick<AgentRuntimePort, "openSession">;
     rendering: Pick<PromptRenderingPort, "renderReviewer">;
     verdicts: Pick<VerdictParserPort, "parseReview">;
+    /* The contract repair for a reviewer answer with no readable verdict. Absent: such an answer fails closed at once. */
+    repair?: RepairPort;
   };
   reviewTimeoutMs?: number;
 

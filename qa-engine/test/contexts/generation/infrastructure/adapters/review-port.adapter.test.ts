@@ -18,6 +18,11 @@ import type { ReviewJudgment } from "@contexts/generation/domain/manifest-reposi
 import type { ReviewInput, StepLimitRole } from "@contexts/generation/domain/generation-input.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
+import { AgentTimeoutError } from "@kernel/domain-error.ts";
+import type { RepairPort } from "@contexts/generation/application/index.ts";
+import { REPAIR_TURN_TIMEOUT_MS } from "@contexts/generation/domain/repair-turn.ts";
+import { RunDeadlineRuntime } from "@contexts/run-orchestration/infrastructure/run-deadline-runtime.adapter.ts";
+import type { AgentPromptOpts } from "@kernel/ports/agent-runtime.port.ts";
 
 function fakeRuntime(output: string): AgentRuntimePort {
   return {
@@ -649,4 +654,136 @@ test("review() hands on the reviewer's severity and citation of every correction
 
   assert.deepEqual(result.severities, ["blocking"]);
   assert.deepEqual(result.citations, [{ kind: "execution", ref: "flows/x.spec.ts" }]);
+});
+
+/* A reviewer answer cut before its closing JSON is asked once to restate the verdict, with no tool, in the same session. */
+
+const CUT_ANSWER = '{"approved": true, "rationale": "the spec asserts the filtered list", "corrections": [';
+const RESTATED_ANSWER = '{"approved": true, "rationale": "the spec asserts the filtered list", "corrections": []}';
+
+/* The parser reads a complete verdict and misses anything else, as the real one does. */
+const verdictsByShape: VerdictParserPort = {
+  parseGenerator: () => ({ specs: [] }),
+  parseReview: (text) => text.endsWith("}")
+    ? { approved: true, corrections: [], rationale: "the spec asserts the filtered list", parsed: true, valid: true, issues: [] }
+    : { approved: false, corrections: [], parsed: false, valid: false, issues: ["no verdict JSON found"] },
+};
+
+const repairPort: RepairPort = {
+  checkGenerator: () => ({ valid: true, issues: [] }),
+  instruction: (kind, issues, opts) => `repair ${kind}: ${issues.join("; ")} | tail=${opts?.priorResponseTail ?? ""}`,
+};
+
+interface ScriptedReviewer {
+  runtime: AgentRuntimePort;
+  opened: number;
+  prompts: Array<{ text: string; opts: AgentPromptOpts | undefined }>;
+}
+
+/* Answers the prompts in turn; a thrown answer fails that prompt. */
+function scriptedReviewer(answers: Array<string | Error>): ScriptedReviewer {
+  const scripted: ScriptedReviewer = { opened: 0, prompts: [], runtime: undefined as unknown as AgentRuntimePort };
+  scripted.runtime = {
+    openSession: async () => {
+      scripted.opened++;
+      return {
+        prompt: async (text, opts) => {
+          scripted.prompts.push({ text, opts });
+          const answer = answers[scripted.prompts.length - 1] ?? "";
+          if (answer instanceof Error) throw answer;
+          return { output: answer };
+        },
+        dispose: async () => {},
+      };
+    },
+  };
+  return scripted;
+}
+
+test("review() asks a reviewer whose answer was cut mid-JSON to restate the verdict, and reads the restated one", async () => {
+  const reviewer = scriptedReviewer([CUT_ANSWER, RESTATED_ANSWER]);
+  const adapter = new ReviewPortAdapter({ runtime: reviewer.runtime, rendering: fakeRendering(), verdicts: verdictsByShape, repair: repairPort }, REVIEW_CONTEXT);
+
+  const result = await adapter.review("/mirrors/org/app/e2e", cases);
+
+  assert.equal(result.parsed, true);
+  assert.equal(result.approved, true);
+  assert.equal(result.rationale, "the spec asserts the filtered list");
+  assert.equal("unavailable" in result, false);
+  assert.equal(reviewer.opened, 1, "the repair rides the reviewer's own session");
+  assert.equal(reviewer.prompts.length, 2);
+  assert.match(reviewer.prompts[1]!.text, /^repair reviewer: /, "the instruction is the contract repair's, for the reviewer");
+  assert.ok(reviewer.prompts[1]!.text.includes(CUT_ANSWER), "the repair hands back what the reviewer already said");
+});
+
+test("review() sends the repair turn with no tool, under the repair cap, and counts its output", async () => {
+  const reviewer = scriptedReviewer([CUT_ANSWER, RESTATED_ANSWER]);
+  const adapter = new ReviewPortAdapter({ runtime: reviewer.runtime, rendering: fakeRendering(), verdicts: verdictsByShape, repair: repairPort }, REVIEW_CONTEXT, { stepLimitFor: async () => 9 });
+
+  const result = await adapter.review("/mirrors/org/app/e2e", cases);
+
+  assert.equal(reviewer.prompts[0]!.opts?.withoutTools, undefined, "the review itself keeps its tools");
+  assert.equal(reviewer.prompts[1]!.opts?.withoutTools, true);
+  assert.equal(reviewer.prompts[1]!.opts?.isRepair, true);
+  assert.equal(reviewer.prompts[1]!.opts?.textOnly, true);
+  assert.equal(reviewer.prompts[1]!.opts?.timeoutMs, REPAIR_TURN_TIMEOUT_MS);
+  assert.equal(reviewer.prompts[1]!.opts?.stepLimit, 9);
+  assert.equal(result.stats?.outputChars, CUT_ANSWER.length + RESTATED_ANSWER.length);
+});
+
+test("review() still fails closed when the repair turn is as unreadable as the first answer: one repair and no more", async () => {
+  const reviewer = scriptedReviewer([CUT_ANSWER, CUT_ANSWER, RESTATED_ANSWER]);
+  const adapter = new ReviewPortAdapter({ runtime: reviewer.runtime, rendering: fakeRendering(), verdicts: verdictsByShape, repair: repairPort }, REVIEW_CONTEXT);
+
+  const result = await adapter.review("/mirrors/org/app/e2e", cases);
+
+  assert.equal(result.parsed, false);
+  assert.equal(result.approved, false);
+  assert.equal("unavailable" in result, false, "the reviewer was reached: this is a parse miss, not an absence");
+  assert.equal(reviewer.prompts.length, 2, "a second repair is never sent");
+});
+
+test("review() still fails closed when the repair turn outlasts its cap: the first answer stands as a parse miss", async () => {
+  const reviewer = scriptedReviewer([CUT_ANSWER, new AgentTimeoutError("prompt exceeded 100ms")]);
+  const adapter = new ReviewPortAdapter({ runtime: reviewer.runtime, rendering: fakeRendering(), verdicts: verdictsByShape, repair: repairPort }, REVIEW_CONTEXT, { repairTimeoutMs: 100 });
+
+  const result = await adapter.review("/mirrors/org/app/e2e", cases);
+
+  assert.equal(reviewer.prompts[1]!.opts?.timeoutMs, 100);
+  assert.equal(result.parsed, false);
+  assert.equal(result.approved, false);
+  assert.equal("unavailable" in result, false);
+});
+
+test("review() sends no repair turn for a readable verdict, for an empty answer, or when no repair is wired", async () => {
+  const readable = scriptedReviewer([RESTATED_ANSWER]);
+  await new ReviewPortAdapter({ runtime: readable.runtime, rendering: fakeRendering(), verdicts: verdictsByShape, repair: repairPort }, REVIEW_CONTEXT).review("/mirrors/org/app/e2e", cases);
+  assert.equal(readable.prompts.length, 1);
+
+  const empty = scriptedReviewer(["  "]);
+  const emptyResult = await new ReviewPortAdapter({ runtime: empty.runtime, rendering: fakeRendering(), verdicts: verdictsByShape, repair: repairPort }, REVIEW_CONTEXT).review("/mirrors/org/app/e2e", cases);
+  assert.equal(empty.prompts.length, 1);
+  assert.equal(emptyResult.unavailable, true);
+
+  const unwired = scriptedReviewer([CUT_ANSWER]);
+  const unwiredResult = await new ReviewPortAdapter({ runtime: unwired.runtime, rendering: fakeRendering(), verdicts: verdictsByShape }, REVIEW_CONTEXT).review("/mirrors/org/app/e2e", cases);
+  assert.equal(unwired.prompts.length, 1);
+  assert.equal(unwiredResult.parsed, false);
+});
+
+test("review() sends no repair turn once the run's deadline has no time left: the run ends instead", async () => {
+  const reviewer = scriptedReviewer([CUT_ANSWER, RESTATED_ANSWER]);
+  let left = 60_000;
+  const deadline = { remainingMs: () => left, describe: () => ({ label: "manual", budgetMs: 60_000 }) };
+  /* The review turn spends the run's last milliseconds. */
+  const spending: AgentRuntimePort = {
+    openSession: async (role, cwd, opts) => {
+      const session = await reviewer.runtime.openSession(role, cwd, opts);
+      return { prompt: async (text, promptOpts) => { const out = await session.prompt(text, promptOpts); left = 0; return out; }, dispose: () => session.dispose() };
+    },
+  };
+  const adapter = new ReviewPortAdapter({ runtime: new RunDeadlineRuntime(spending, deadline), rendering: fakeRendering(), verdicts: verdictsByShape, repair: repairPort }, REVIEW_CONTEXT);
+
+  await assert.rejects(adapter.review("/mirrors/org/app/e2e", cases), (err: unknown) => err instanceof RunDeadlineExceededError);
+  assert.equal(reviewer.prompts.length, 1, "the repair never reached the agent");
 });

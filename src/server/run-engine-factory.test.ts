@@ -116,6 +116,7 @@ test("buildEngineRootDeps maps an e2e AppConfig into a complete EngineRootDeps",
   assert.equal(config.diff, "", "static diff is always empty — the adapters resolve the REAL per-run diff dynamically");
   assert.ok(config.vcs, "vcs collaborator must be wired");
   assert.ok(config.generationUseCase, "generationUseCase collaborator must be wired");
+  assert.match(config.reviewRuntime.repair?.instruction("reviewer", ["no verdict"]) ?? "", /reviewer verdict/, "the reviewer shares the author's contract repair");
   assert.ok(config.validationStrategies.e2e, "e2e validation (static gate) collaborator must be wired");
   assert.ok(config.validationStrategies.code, "code validation (compile gate) collaborator must be wired");
   assert.ok(config.executionStrategies.e2e, "e2e execution strategy must be wired");

@@ -683,6 +683,40 @@ test("buildEngine with absent cfg.reviewTimeoutMs omits timeoutMs from ReviewPor
   assert.equal(sawTimeoutKey, false, "absent cfg.reviewTimeoutMs must not fabricate a timeout the composition layer never configured");
 });
 
+test("buildEngine hands cfg.reviewRuntime.repair to the reviewer: an answer with no readable verdict is asked for again once, with no tool", async () => {
+  const prompts: Array<{ withoutTools?: boolean }> = [];
+  const cfg = fakeConfig({
+    needsReview: true,
+    reviewRuntime: {
+      runtime: {
+        openSession: async () => ({
+          prompt: async (_text: string, opts?: { withoutTools?: boolean }) => {
+            prompts.push({ ...(opts?.withoutTools !== undefined ? { withoutTools: opts.withoutTools } : {}) });
+            return { output: prompts.length === 1 ? "cut {" : "{}" };
+          },
+          dispose: async () => {},
+        }),
+      },
+      rendering: { renderReviewer: () => ({ text: "", sectionSizes: {} }) },
+      verdicts: { parseReview: (text: string) => ({ approved: true, corrections: [], parsed: text === "{}", valid: true, issues: [] }) },
+      repair: { checkGenerator: () => ({ valid: true, issues: [] }), instruction: () => "restate the verdict" },
+    },
+  });
+  const port = buildEngine(cfg);
+
+  await port.run({
+    app: "app",
+    sha: Sha.of("abc1234"),
+    changeSet: primaryChangeSet("app", Sha.of("abc1234")),
+    source: "manual",
+    mode: "diff",
+    target: "e2e",
+    runId: "engine-root-review-repair",
+  });
+
+  assert.deepEqual(prompts.map((prompt) => prompt.withoutTools === true), [false, true], "the cfg's repair reached the reviewer's adapter");
+});
+
 test("buildEngine surfaces infra-error when a wired setup collaborator throws", async () => {
   const cfg = fakeConfig({
     target: "e2e",
