@@ -73,6 +73,8 @@ export interface CorrectionFinding {
   /* The changed source file the finding is about (a coverage gap names code, not a spec), and the line when it names one. */
   file?: string;
   line?: number;
+  /* The spec files (relative to the spec directory) whose tests' coverage dumps ran a line of `file`: what the run executed, which settles the flow of a file several flows hold. */
+  ranBy?: readonly string[];
 }
 
 export interface FlowUnderCorrection {
@@ -83,10 +85,10 @@ export interface FlowUnderCorrection {
   sessionOpen: boolean;
   /* The spec as the working copy holds it now. */
   spec?: string;
-  /* The ids of the use cases the flow covers and the changed files that seed them (`candidateSeeds`: their own seeds and a hub's code they share): a finding about one of those files is the flow's. */
+  /* The ids of the use cases the flow covers and the changed files that seed them (`candidateSeeds`: their own seeds and a hub's code they share): the flow holds a finding about one of those files. */
   candidates?: readonly string[];
   seedFiles?: readonly string[];
-  /* Those of `seedFiles` that seed a use case of the flow through one of its own seeds, not only as a hub's code: a file several flows' use cases hold is settled by them. */
+  /* Those of `seedFiles` that seed a use case of the flow through one of its own seeds, not only as a hub's code: after what the run executed, they settle a file several flows hold. */
   directSeedFiles?: readonly string[];
 }
 
@@ -202,12 +204,25 @@ export interface CorrectionPromptContext {
   findings: readonly CorrectionFinding[];
   /* The flow each finding belongs to, by position; undefined where it cites none. */
   owner: readonly (string | undefined)[];
+  /* By position, the flows whose use cases the finding's file seeds when it is more than one: the lead may give the finding to any of them. Empty otherwise. */
+  holders: readonly (readonly string[])[];
   /* The origin's heading and lead, and whether its findings are a judgment the lead may rebut. */
   origin: { heading: string; lead: string; rebuttable: boolean };
   scrub(text: string): string;
 }
 
 const looseFindings = (ctx: CorrectionPromptContext): number[] => ctx.findings.flatMap((_, i) => (ctx.owner[i] === undefined ? [i] : []));
+
+/* The findings (1-based, ascending) whose file several flows hold, grouped by the flows that hold it, in the order of their first finding. */
+function sharedFindingGroups(ctx: CorrectionPromptContext): Array<{ numbers: number[]; flows: readonly string[] }> {
+  const groups = new Map<string, { numbers: number[]; flows: readonly string[] }>();
+  ctx.holders.forEach((flows, i) => {
+    if (flows.length < 2) return;
+    const key = flows.join("\u0000");
+    groups.set(key, { numbers: [...(groups.get(key)?.numbers ?? []), i + 1], flows });
+  });
+  return [...groups.values()];
+}
 
 const findingLine = (ctx: CorrectionPromptContext, index: number): string => `${index + 1}. ${ctx.scrub(ctx.findings[index]!.text)}`;
 
@@ -306,6 +321,19 @@ export const LEAD_CORRECTION_SECTIONS: readonly PromptSectionDef<CorrectionPromp
     priority: 20, stability: "run", reason: "Each flow with the findings that cite its spec (31223b33)",
     applies: (ctx) => correctionFlowBlocks(ctx).length > 0,
     render: (ctx) => ({ content: correctionFlowBlocks(ctx).join("\n\n"), degrade: flowsDegrade(ctx) }),
+  }),
+  /* A finding whose file several flows hold is listed under the flow the run's evidence gives it to; the lead may give it to another of them, and is told which. */
+  section({
+    id: "shared-files",
+    priority: 22, stability: "run", reason: "The default owner of a file several flows hold was final, so every finding on a hub's file reached the first flow whether or not its pages reach that code (independent review of F11, 2026-10-28)",
+    applies: (ctx) => sharedFindingGroups(ctx).length > 0,
+    render: (ctx) => ({
+      content: [
+        "### Findings whose file several flows hold",
+        "Each is listed under the flow whose spec ran its file, else the one whose use case it seeds directly, else the first. An order may give it to another flow named here instead: it then reaches that flow alone.",
+        ...sharedFindingGroups(ctx).map(({ numbers, flows }) => `- ${numberRanges(numbers)}: ${flows.map((id) => `\`${id}\``).join(", ")}`),
+      ].join("\n"),
+    }),
   }),
   /* Where a finding about a source file goes is decided by the use cases a flow covers, so with findings to place every flow is listed with them. */
   section({

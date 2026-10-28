@@ -379,7 +379,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   and no use for longer than the longest run budget in force (`docs/lead-sidekicks.md`, "Session lifecycle"). The reviewer's verified corrections go to the lead
   (`lead-correction.ts`), which routes each to the flow whose spec it cites (revise in the same sidekick session, replace with a fresh
   one) or rebuts it; the orchestrator's facts decide over its answer (a finding that cites a flow goes to it and to no other), an
-  order the admission refuses, or findings a readable answer neither sent to a flow nor rebutted (and no flow of the orchestrator's own takes), go back to the lead once with the reasons and the numbers it left out (what it leaves out again is recorded unrouted with that reason), a file that seeds use cases of several flows reaches exactly one (the first flow in the pass's order whose use case it seeds directly, else the first that shares it), the workspace is refreshed from the working copy first,
+  order the admission refuses, or findings a readable answer neither sent to a flow nor rebutted (and no flow of the orchestrator's own takes), go back to the lead once with the reasons and the numbers it left out (what it leaves out again is recorded unrouted with that reason), a file that seeds use cases of several flows reaches exactly one (the one the lead's first order gives it to among them; when the lead says nothing, the first flow in the pass's order whose spec's tests ran the file (`CorrectionFinding.ranBy`), preferring one whose use case it seeds directly, then the first it seeds directly, else the first that shares it), the workspace is refreshed from the working copy first,
   and the result goes through the round's acceptance and rebuttal check like any regeneration. A finding no flow took that names a
   spec of the suite no flow of the plan authored gets one maintenance flow (a fresh flow sidekick on that spec alone, within
   the app's `maxFlows` ceiling when set and the time reserve; `corrections.maintained`); any other is recorded unrouted and never handed to a cold author. The run's own checks before the review take the same route: the
@@ -389,7 +389,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   facts it routes to their flows and never rebuts (the coverage gap as one finding per file and per arm, each carrying `file`/`line`
   and owned by the one flow covering a use case that file seeds; a file seeds a use case through one definition every reader shares
   (`candidatesSeededBy`, `shared-kernel/change-map.ts`: one of its own seeds, a hub's code it shares, or a non-code file a seed's source
-  file declares); a file seeding an uncovered use case opens a `cand-<use case>` flow;
+  file declares); a file that is one of an uncovered use case's own seeds opens a `cand-<use case>` flow, a hub's code it only shares opens none and is the lead's to place;
   every unit is kept, listed across use cases and files, and over the lead's window the units give way to references by file with the
   numbers of their findings, recorded as `window-fit`; surviving mutants join the same gap regeneration as findings on the
   spec that reached them); what no flow takes follows

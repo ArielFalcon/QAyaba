@@ -1950,17 +1950,30 @@ test("a coverage finding about a hub's code a flow's use case shares goes to tha
   assert.match(r.executed.find((e) => e.asked && e.brief.delegationId === "run-1-flow-cart")!.opts.feedback!, /src\/store\.ts/);
 });
 
-test("a coverage finding about a hub's code only an uncovered use case shares opens a flow for that use case instead of being left seedless", async () => {
-  const lead = leadCiting([ACCEPT_ALL, NO_ORDERS], CITING_PLAN);
+test("a coverage finding about a hub's code only an uncovered use case shares opens no flow for that page: the lead places it, and it is not called seedless", async () => {
+  const lead = leadCiting([ACCEPT_ALL, NO_ORDERS, TAKE_STRAY], CITING_PLAN);
   const r = rig({ hasFile: new Set(["cart", "login", "cand-orders"]) });
   const candidates = [seededPage("/cart", "src/cart.ts"), seededPage("/login", "src/login.ts"), seededPage("/orders", "src/orders.ts", { sharedSeeds: [HUB] })];
   const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, candidates }));
   if (outcome.action !== "fanout") return assert.fail("fanout expected");
   const corrected = await outcome.pass!.correct([{ text: "changed lines of src/store.ts: 4-9 are not exercised", file: "src/store.ts" }], CORRECTION_ORIGIN.COVERAGE);
   await outcome.pass!.release();
-  assert.equal(opened(r, "cand-orders").length, 1);
-  assert.deepEqual(corrected.unrouted, []);
+  assert.equal(opened(r, "cand-orders").length, 0, "one page among the many a hub reaches is no use case of the hub's code");
+  assert.match(lead.asked[2]!, /neither sent to a flow nor rebutted: 1\b/, "the lead is asked where it goes");
+  assert.deepEqual([corrected.specs, corrected.unrouted], [["flows/cart.spec.ts"], []]);
   assert.equal(r.events.some((e) => /seeds no use case/.test(e.reason ?? "")), false);
+});
+
+test("a coverage finding about a file an uncovered use case holds as its own seed opens a flow for that use case even when a hub carries the file to other pages", async () => {
+  const lead = leadCiting([ACCEPT_ALL, NO_ORDERS], CITING_PLAN);
+  const r = rig({ hasFile: new Set(["cart", "login", "cand-orders"]) });
+  const candidates = [seededPage("/cart", "src/cart.ts"), seededPage("/login", "src/login.ts"), seededPage("/shop", "src/shop.ts", { sharedSeeds: [HUB] }), seededPage("/orders", "src/orders.ts", { seeds: [{ file: "src/orders.ts", symbol: "*" }, { file: HUB.file, symbol: "load" }] })];
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, candidates }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  const corrected = await outcome.pass!.correct([{ text: "changed lines of src/store.ts: 4-9 are not exercised", file: "src/store.ts" }], CORRECTION_ORIGIN.COVERAGE);
+  await outcome.pass!.release();
+  assert.deepEqual([opened(r, "cand-orders").length, opened(r, "cand-shop").length], [1, 0]);
+  assert.deepEqual(corrected.unrouted, []);
 });
 
 test("a coverage finding about a file use cases of two flows share reaches exactly one flow, the one whose use case the file seeds directly, without the lead placing it", async () => {

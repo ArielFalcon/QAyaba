@@ -132,14 +132,44 @@ test("a file that seeds use cases of several flows belongs to the one that the f
   assert.deepEqual(routeOfFinding({ text: "x", file: "./src\\shared.ts" }, direct), { flowId: "login", by: "candidate" });
 });
 
-test("a coverage finding is sent to the one flow that owns its file whatever the lead answers, a shared file included", () => {
+test("a coverage finding the lead says nothing about goes to the one flow that owns its file, a shared file included", () => {
   const gap: CorrectionFinding[] = [{ text: "src/cart.ts lines 3-4", file: "src/cart.ts" }, { text: "src/shared.ts lines 1-2", file: "src/shared.ts" }];
   const unplaced = admitLeadCorrection(redaction, JSON.stringify({ corrections: [] }), covering, gap, CORRECTION_ORIGIN.COVERAGE);
   assert.deepEqual(unplaced.orders.map((o) => [o.flowId, o.indices]), [["cart", [0, 1]]]);
   assert.deepEqual(unplaced.unrouted, []);
+});
+
+test("the lead may give a finding about a file several flows hold to any of them, and it then reaches that flow alone", () => {
+  const gap: CorrectionFinding[] = [{ text: "src/cart.ts lines 3-4", file: "src/cart.ts" }, { text: "src/shared.ts lines 1-2", file: "src/shared.ts" }];
   const moved = admitLeadCorrection(redaction, JSON.stringify({ corrections: [{ flow: "login", action: "revise", findings: [2] }] }), covering, gap, CORRECTION_ORIGIN.COVERAGE);
-  assert.deepEqual(moved.orders.map((o) => [o.flowId, o.indices]), [["cart", [0, 1]]], "it reaches exactly one flow");
-  assert.match(moved.refused.find((r) => r.finding === 2)!.reason, /seeds a use case flow cart covers/);
+  assert.deepEqual(moved.orders.map((o) => [o.flowId, o.indices]), [["cart", [0]], ["login", [1]]], "the lead's order replaces the default owner");
+  assert.deepEqual([moved.refused, moved.unrouted], [[], []]);
+  const twice = admitLeadCorrection(redaction, JSON.stringify({ corrections: [{ flow: "login", action: "revise", findings: [2] }, { flow: "cart", action: "revise", findings: [1, 2] }] }), covering, gap, CORRECTION_ORIGIN.COVERAGE);
+  assert.deepEqual(twice.orders.map((o) => [o.flowId, o.indices]), [["cart", [0]], ["login", [1]]], "the first order that takes it holds it");
+  assert.match(twice.refused.find((r) => r.flowId === "cart" && r.finding === 2)!.reason, /flow login/);
+});
+
+test("the lead cannot give a finding about a file to a flow that does not hold the file: it stays with the flow that does", () => {
+  const gap: CorrectionFinding[] = [{ text: "src/cart.ts lines 3-4", file: "src/cart.ts" }];
+  const refused = admitLeadCorrection(redaction, JSON.stringify({ corrections: [{ flow: "login", action: "revise", findings: [1] }] }), covering, gap, CORRECTION_ORIGIN.COVERAGE);
+  assert.deepEqual(refused.orders.map((o) => [o.flowId, o.indices]), [["cart", [0]]]);
+  assert.match(refused.refused.find((r) => r.finding === 1)!.reason, /stays with flow cart/);
+});
+
+test("a file several flows hold goes by default to the flow whose spec's coverage ran it, then to the one whose use case it seeds directly, then to the first in plan order", () => {
+  const direct: FlowUnderCorrection[] = [{ ...covering[0]! }, { ...covering[1]!, directSeedFiles: ["src/shared.ts"] }];
+  assert.equal(flowOfFinding({ text: "x", file: "src/shared.ts", ranBy: ["flows/cart.spec.ts"] }, direct), "cart", "what the run executed over the seeds");
+  assert.equal(flowOfFinding({ text: "x", file: "src/shared.ts", ranBy: ["flows/orders.spec.ts"] }, direct), "login", "a spec of no flow that holds the file is no evidence for one");
+  assert.equal(flowOfFinding({ text: "x", file: "src/shared.ts", ranBy: ["flows/cart.spec.ts", "flows/login.spec.ts"] }, direct), "login", "both ran it: the direct seed decides");
+  assert.equal(flowOfFinding({ text: "x", file: "src/shared.ts", ranBy: ["flows/login.spec.ts"] }, covering), "login");
+  assert.equal(flowOfFinding({ text: "x", file: "src/other.ts", ranBy: ["flows/cart.spec.ts"] }, covering), undefined, "a flow that holds no use case the file seeds does not own it for having run it");
+  assert.equal(flowOfFinding({ text: "x", file: "src/shared.ts", spec: "flows/login.spec.ts", ranBy: ["flows/cart.spec.ts"] }, covering), "login", "the spec it cites comes first");
+});
+
+test("the prompt names every flow that holds a shared file's finding, so the lead can give it to another of them", () => {
+  const text = renderLeadCorrection(redaction, covering, [{ text: "src/shared.ts lines 1-2", file: "src/shared.ts" }, { text: "src/cart.ts lines 3-4", file: "src/cart.ts" }], CORRECTION_ORIGIN.COVERAGE);
+  assert.match(text, /^- 1: .*`cart`.*`login`/m);
+  assert.doesNotMatch(text, /^- 2: /m, "a file one flow holds is not offered elsewhere");
 });
 
 test("a coverage-only turn shows the lead every flow with the use cases it covers, and the unit it must place", () => {

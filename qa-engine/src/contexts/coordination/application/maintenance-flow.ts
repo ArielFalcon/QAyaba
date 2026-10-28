@@ -10,7 +10,7 @@ import { SIDEKICK_KIND } from "./sidekick-kinds.ts";
 import type { AdmittedFlow } from "./lead-plan.ts";
 import type { CorrectionFinding } from "./lead-correction.ts";
 import { entryKey } from "@kernel/change-reach.ts";
-import { candidatesSeededBy } from "@kernel/change-map.ts";
+import { candidatesSeededBy, seedingOf } from "@kernel/change-map.ts";
 import { candidatePagesOf, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 
 /* A path ending in `.spec.ts` inside a text: it ends where the characters of a path do. */
@@ -73,13 +73,14 @@ export function maintenanceFlowOf(input: MaintenanceFlowInput): AdmittedFlow {
 }
 
 /*
- * The use case a finding about a changed file belongs to when no flow of the pass covers it: the first candidate the file seeds
- * (`candidatesSeededBy`: those it seeds directly first, then those that share it as a hub's code, each in the order the change
- * derived them) that no flow covers. Undefined when the finding names no file or every candidate the file seeds is covered.
+ * The use case a finding about a changed file belongs to when no flow of the pass covers it: the first candidate, in the order the
+ * change derived them, that the file seeds directly (`seedingOf`, one of its own seeds) and no flow covers. A hub's code a candidate
+ * only shares is no ground to open a flow: the hub reaches many pages and the first of them is an arbitrary one, so such a finding
+ * is the lead's to place. Undefined when the finding names no file or no uncovered candidate holds the file as its own seed.
  */
 export function uncoveredCandidateOf(finding: CorrectionFinding, candidates: readonly UseCaseCandidate[], covered: (candidate: UseCaseCandidate) => boolean): UseCaseCandidate | undefined {
   if (finding.file === undefined) return undefined;
-  return candidatesSeededBy(finding.file, candidates).find((candidate) => !covered(candidate));
+  return candidates.find((candidate) => seedingOf(finding.file!, candidate) === "direct" && !covered(candidate));
 }
 
 /* Whether the finding names a changed file that seeds no use case of the change, directly or as shared code: no flow can own it and none can be opened for it. */

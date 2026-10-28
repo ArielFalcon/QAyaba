@@ -354,13 +354,19 @@ findings, the run asks the lead, in the same planning session, instead of regene
    (`declaredResourcesOf`, `implementation-resources.ts`), and the candidate holds the file whole (`DECLARED_FILE_SEED_SYMBOL`),
    direct when a seed's file declares it, shared when only a hub's does; the brief names its origin `declared`. Nothing is
    inferred from a name, and a file whose declaring source did not change seeds nothing.
-   A finding that names a changed source file (a coverage finding: `CorrectionFinding.file`, and `line` for an arm) is owned by
-   the one flow that covers a use case that file seeds (`flowOfFinding`), whatever the lead answers. A file that seeds use cases
-   of several flows is settled so it reaches exactly one: the first flow, in the pass's order (the plan's, then the flows the pass
-   opened), whose use case holds it as one of its own seeds, else the first that holds it as a hub's code; the lead sees it under
-   that flow, and an order that moves it is refused with why. A finding that cites a flow's spec still goes to that flow and no
-   other. With findings no flow owns, the prompt lists every flow with its use cases. A file that seeds a use
-   case no flow of the pass covers (dropped or unplanned) opens one flow for that use case, the generalization of the maintenance
+   A finding that names a changed source file (a coverage finding: `CorrectionFinding.file`, and `line` for an arm) goes to a flow
+   that holds the file, one that covers a use case the file seeds (`flowsHoldingFile`), and to no other. With one such flow it is
+   that flow's whatever the lead answers. With several it reaches exactly one: the flow the lead's first order naming it gives it
+   to, when that flow holds the file; when the lead says nothing about it, the default (`routeOfFinding`): the first flow, in the
+   pass's order (the plan's, then the flows the pass opened), whose spec's tests ran the file (`CorrectionFinding.ranBy`, the spec
+   files whose coverage dumps ran a line of it: what the run executed), preferring among those, and then among the rest, the one
+   whose use case holds the file as one of its own seeds over one that holds it only as a hub's code. The lead sees it under that
+   default flow and, in a section of its own, the flows it may give it to instead; an order that gives it to a flow that does not
+   hold the file, or to a second flow, is refused with why and the finding keeps its flow. A finding that cites a flow's spec
+   still goes to that flow and no other. With findings no flow owns, the prompt lists every flow with its use cases. A file that
+   is one of a use case's own seeds, where no flow of the pass covers that use case (dropped or unplanned), opens one flow for that
+   use case (a hub's code a use case only shares opens none: the hub reaches many pages and any one of them is arbitrary, so such a
+   finding is the lead's to place, and it is asked again once about one it leaves out), the generalization of the maintenance
    flow (`candidateFlowOf`, id `cand-<use case>`, the deterministic spec path of its id, the same cap, confinement and time reserve,
    a fresh sidekick that writes the spec), counted in `corrections.maintained`. Every unit of the gap is kept, listed across use cases and arms across files. Over the lead's
    window (the fit rule) the units give way as references: first the ones no flow owns, then the flows' own, each shown by the file it
