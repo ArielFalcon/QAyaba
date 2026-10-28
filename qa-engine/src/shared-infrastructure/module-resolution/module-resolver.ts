@@ -1,8 +1,9 @@
 /*
- * Which file a module specifier names, from the file that imports it, with the language's own module semantics: a relative
- * specifier as written, with each extension of the route-table syntax's languages, or its index file; any other through the
- * nearest module configuration the language registry declares for the syntax (tsconfig's `paths`, `baseUrl` and `extends` chain),
- * resolved by the TypeScript compiler's resolver. The compiler's host is synchronous and the readers are not (the working copy
+ * Which file a module specifier names, from the file that imports it, with the language's own module semantics (the module syntax
+ * the language registry declares): a relative specifier as written, with each extension of the syntax's languages, or its index
+ * file; any other through the nearest module configuration the registry declares for the syntax (tsconfig's `paths`, `baseUrl`
+ * and `extends` chain), resolved by the TypeScript compiler's resolver. Shared by every reader that follows a specifier: the route
+ * table, and the code graph's uses of a file the index could not link. The compiler's host is synchronous and the readers are not (the working copy
  * through the confined reader at head, the mirror at the base), so a resolution runs again over the files it asked for until it
  * asks for no more; a file the reader cannot give is absent. A specifier no configuration resolves is external when it names a
  * dependency of the manifest, and otherwise unresolved with the reason. Never builds a program, never reads a file the
@@ -10,7 +11,7 @@
  */
 import { posix } from "node:path";
 import ts from "typescript";
-import { LanguageRegistry, type RouteTableSyntax } from "@kernel/language-id.ts";
+import { LanguageRegistry, type ModuleSyntax } from "@kernel/language-id.ts";
 
 export type SourceReader = (file: string) => Promise<string | undefined>;
 
@@ -18,6 +19,8 @@ export type ModuleResolution = { file: string } | { external: true } | { unresol
 
 export interface ModuleResolver {
   resolve(from: string, specifier: string): Promise<ModuleResolution>;
+  /* The module configuration that governs a file (the nearest one up from its directory), or undefined when none does. */
+  governingConfig(from: string): Promise<string | undefined>;
 }
 
 /* How many times one resolution runs again over the files the previous run asked for; a resolution still asking after them is unresolved. */
@@ -30,10 +33,26 @@ function packageOf(specifier: string): string | undefined {
   return specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
 }
 
-export function createModuleResolver(syntax: RouteTableSyntax, read: SourceReader, dependencies: ReadonlySet<string>): ModuleResolver {
-  const extensions = LanguageRegistry.extensions.filter((ext) => LanguageRegistry.routeTableReads(syntax, `x.${ext}`));
-  const configNames = LanguageRegistry.routeTableModuleConfigs(syntax);
-  const reads = (file: string): boolean => LanguageRegistry.routeTableReads(syntax, file) && !file.endsWith(".d.ts");
+/* The packages a manifest declares (its dependencies, dev and peer dependencies); none when it cannot be read or parsed. */
+export function manifestDependencies(manifest: string | undefined): Set<string> {
+  if (manifest === undefined) return new Set();
+  try {
+    const parsed = JSON.parse(manifest) as Record<string, unknown>;
+    const names = new Set<string>();
+    for (const key of ["dependencies", "devDependencies", "peerDependencies"]) {
+      const block = parsed[key];
+      if (block !== null && typeof block === "object") for (const name of Object.keys(block)) names.add(name);
+    }
+    return names;
+  } catch {
+    return new Set();
+  }
+}
+
+export function createModuleResolver(syntax: ModuleSyntax, read: SourceReader, dependencies: ReadonlySet<string>): ModuleResolver {
+  const extensions = LanguageRegistry.extensions.filter((ext) => LanguageRegistry.moduleSyntaxForFile(`x.${ext}`) === syntax);
+  const configNames = LanguageRegistry.moduleConfigs(syntax);
+  const reads = (file: string): boolean => LanguageRegistry.moduleSyntaxForFile(file) === syntax && !file.endsWith(".d.ts");
 
   const exists = new Map<string, Promise<boolean>>();
   const present = (file: string): Promise<boolean> => {
@@ -117,10 +136,11 @@ export function createModuleResolver(syntax: RouteTableSyntax, read: SourceReade
     if (resolved === undefined) return external ? { external: true } : { unresolved: `${specifier} matches no \`paths\` or \`baseUrl\` entry of ${config.file}` };
     if (resolved.isExternalLibraryImport === true) return { external: true };
     const file = resolved.resolvedFileName.replace(/^\//, "");
-    return reads(file) ? { file } : { unresolved: `${specifier} resolves to ${file}, which the route table does not read` };
+    return reads(file) ? { file } : { unresolved: `${specifier} resolves to ${file}, which is no source of the module syntax` };
   };
 
   return {
     resolve: (from, specifier) => (specifier.startsWith(".") ? relative(from, specifier) : specifier.startsWith("/") ? Promise.resolve({ unresolved: `${specifier} is an absolute path` }) : aliased(from, specifier)),
+    governingConfig: async (from) => (await configOf(posix.dirname(from)))?.file,
   };
 }

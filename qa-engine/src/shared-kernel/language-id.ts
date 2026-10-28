@@ -28,15 +28,27 @@ const LANGS: Record<LanguageId, { astGrep: boolean; testPaths: readonly RegExp[]
 };
 
 /*
+ * The module syntaxes: how a language's source names another module by a specifier and loads one at run time (a dynamic import or
+ * require call), declared with the languages that share it, the manifest whose dependencies are installed packages and the files
+ * that configure how a specifier resolves (`paths`, `baseUrl`, `extends`), the nearest to the importing file first. A language with
+ * none resolves no specifier: what its code imports or loads by a name the code graph could not link stays unresolved.
+ */
+export type ModuleSyntax = "ecmascript-modules";
+
+const MODULES: Record<ModuleSyntax, { languages: readonly LanguageId[]; manifest: string; configs: readonly string[] }> = {
+  "ecmascript-modules": { languages: ["typescript", "javascript"], manifest: "package.json", configs: ["tsconfig.json", "jsconfig.json"] },
+};
+
+/*
  * The route-table extractors: a framework's route configuration read as an ordered table (each entry's path, guards, redirect,
- * matcher and children), declared per framework with the languages its configuration is written in and the manifest dependency
- * that names it. A repository whose manifests name none states no route table, and its routes' availability stays unexplained.
+ * matcher and children), declared per framework with the languages its configuration is written in, the manifest dependency
+ * that names it and the module syntax its specifiers resolve with. A repository whose manifests name none states no route
+ * table, and its routes' availability stays unexplained.
  */
 export type RouteTableSyntax = "angular-router";
 
-const ROUTE_TABLES: Record<RouteTableSyntax, { languages: readonly LanguageId[]; manifest: string; dependency: string; moduleConfigs: readonly string[] }> = {
-  /* `moduleConfigs`: the files that configure how the languages resolve a module specifier (`paths`, `baseUrl`, `extends`), the nearest to the importing file first. */
-  "angular-router": { languages: ["typescript", "javascript"], manifest: "package.json", dependency: "@angular/router", moduleConfigs: ["tsconfig.json", "jsconfig.json"] },
+const ROUTE_TABLES: Record<RouteTableSyntax, { languages: readonly LanguageId[]; manifest: string; dependency: string; modules: ModuleSyntax }> = {
+  "angular-router": { languages: ["typescript", "javascript"], manifest: "package.json", dependency: "@angular/router", modules: "ecmascript-modules" },
 };
 
 /*
@@ -119,9 +131,26 @@ export const LanguageRegistry = {
     return lang !== null && ROUTE_TABLES[syntax].languages.includes(lang);
   },
 
-  /* The files, by name, that configure module resolution for the languages a route-table syntax reads. */
-  routeTableModuleConfigs(syntax: RouteTableSyntax): readonly string[] {
-    return ROUTE_TABLES[syntax].moduleConfigs;
+  /* The module syntax a route-table syntax's specifiers resolve with. */
+  routeTableModuleSyntax(syntax: RouteTableSyntax): ModuleSyntax {
+    return ROUTE_TABLES[syntax].modules;
+  },
+
+  /* The module syntax a file of a declared language is read with, or null for a file of no declared language or of a language with none. */
+  moduleSyntaxForFile(file: string): ModuleSyntax | null {
+    const lang = this.languageForFile(file);
+    if (lang === null) return null;
+    return (Object.keys(MODULES) as ModuleSyntax[]).find((syntax) => MODULES[syntax].languages.includes(lang)) ?? null;
+  },
+
+  /* The manifest file, by name, whose dependencies are the installed packages a module syntax's specifiers may name. */
+  moduleManifest(syntax: ModuleSyntax): string {
+    return MODULES[syntax].manifest;
+  },
+
+  /* The files, by name, that configure how a module syntax resolves a specifier, the nearest to the importing file first. */
+  moduleConfigs(syntax: ModuleSyntax): readonly string[] {
+    return MODULES[syntax].configs;
   },
 
   /* The consumer-expectation syntax that reads a file of a declared language, or null for a file of no declared language or of a language with none. */

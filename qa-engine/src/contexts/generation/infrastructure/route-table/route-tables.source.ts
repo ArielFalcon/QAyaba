@@ -9,6 +9,7 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import { LanguageRegistry, ROUTE_TABLE_MANIFESTS, type RouteTableSyntax } from "@kernel/language-id.ts";
 import { MAX_SPEC_SOURCE_BYTES, readOwnedSpecFile, walkRepoFiles, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import type { RouteTable } from "../../domain/route-table.ts";
+import { manifestDependencies } from "../../../../shared-infrastructure/module-resolution/module-resolver.ts";
 import { loadRouteTable, type SourceReader } from "./route-table.loader.ts";
 
 export interface RouteTables {
@@ -36,21 +37,6 @@ function headReader(mirrorDir: string): SourceReader {
   };
 }
 
-function dependenciesOf(manifest: string | undefined): Set<string> {
-  if (manifest === undefined) return new Set();
-  try {
-    const parsed = JSON.parse(manifest) as Record<string, unknown>;
-    const names = new Set<string>();
-    for (const key of ["dependencies", "devDependencies", "peerDependencies"]) {
-      const block = parsed[key];
-      if (block !== null && typeof block === "object") for (const name of Object.keys(block)) names.add(name);
-    }
-    return names;
-  } catch {
-    return new Set();
-  }
-}
-
 export interface RouteTablesInput {
   mirrorDir: string;
   /* The files the diff changed (added, modified, deleted), repository-relative. */
@@ -64,7 +50,7 @@ export async function routeTablesOf(input: RouteTablesInput): Promise<RouteTable
   let syntax: RouteTableSyntax | undefined;
   let dependencies = new Set<string>();
   for (const manifest of ROUTE_TABLE_MANIFESTS) {
-    dependencies = dependenciesOf(await head(manifest));
+    dependencies = manifestDependencies(await head(manifest));
     syntax = LanguageRegistry.routeTableSyntaxesFor({ file: manifest, dependencies })[0];
     if (syntax !== undefined) break;
   }

@@ -1,18 +1,18 @@
 /*
  * Builds an app's route table from its source files with the extractor the language registry declares for its framework: each
- * file read once, a module specifier resolved with the language's own module semantics (`module-resolver.ts`), what a path or a
+ * file read once, a module specifier resolved with the language's own module semantics (`shared-infrastructure/module-resolution`), what a path or a
  * guard names followed through re-exports and renames to the file and the name that declare it (a guard is placed only there,
  * never at a barrel), and a child table that is not inline (a lazily loaded module, a named array) attached under the entry that
  * loads it. A chain that does not come down to exactly one declaration leaves the item unresolved or unplaced, and the entry
  * records which link it could not follow and why. The reader decides which commit the files are read at. Bounded, fail-open:
  * what cannot be read is unresolved.
  */
-import type { RouteTableSyntax } from "@kernel/language-id.ts";
+import { LanguageRegistry, type RouteTableSyntax } from "@kernel/language-id.ts";
 import type { GuardRef, RouteEntry, RouteTable } from "../../domain/route-table.ts";
 import { parseAngularRouteFile, type RawEntry, type RawRouteFile, type RawValue } from "./angular-router.extractor.ts";
-import { createModuleResolver, type SourceReader } from "./module-resolver.ts";
+import { createModuleResolver, type SourceReader } from "../../../../shared-infrastructure/module-resolution/module-resolver.ts";
 
-export type { SourceReader } from "./module-resolver.ts";
+export type { SourceReader } from "../../../../shared-infrastructure/module-resolution/module-resolver.ts";
 
 const EXTRACTORS: Record<RouteTableSyntax, (file: string, source: string) => RawRouteFile | undefined> = {
   "angular-router": parseAngularRouteFile,
@@ -36,7 +36,7 @@ type ChildTable = { file: string; raw: RawRouteFile; table: RawRouteFile["tables
 
 export async function loadRouteTable(syntax: RouteTableSyntax, candidates: readonly string[], read: SourceReader, dependencies: ReadonlySet<string>): Promise<RouteTable> {
   const extract = EXTRACTORS[syntax];
-  const resolver = createModuleResolver(syntax, read, dependencies);
+  const resolver = createModuleResolver(LanguageRegistry.routeTableModuleSyntax(syntax), read, dependencies);
   const parsed = new Map<string, Promise<RawRouteFile | undefined>>();
   const parse = (file: string): Promise<RawRouteFile | undefined> => {
     let held = parsed.get(file);

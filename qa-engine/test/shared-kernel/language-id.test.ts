@@ -28,6 +28,16 @@ test("JavaScript and TypeScript declare the syntax that tells a source's stateme
   assert.equal(LanguageRegistry.statementSyntaxForFile("a/b.html"), null);
 });
 
+test("JavaScript and TypeScript declare one module syntax, with the manifest of their installed packages and the files that configure resolution; the route table resolves with it; Java declares none", () => {
+  assert.equal(LanguageRegistry.moduleSyntaxForFile("src/app/a.ts"), "ecmascript-modules");
+  assert.equal(LanguageRegistry.moduleSyntaxForFile("src/app/a.cjs"), "ecmascript-modules");
+  assert.equal(LanguageRegistry.moduleSyntaxForFile("svc/src/main/java/com/x/A.java"), null);
+  assert.equal(LanguageRegistry.moduleSyntaxForFile("README.md"), null);
+  assert.equal(LanguageRegistry.moduleManifest("ecmascript-modules"), "package.json");
+  assert.deepEqual(LanguageRegistry.moduleConfigs("ecmascript-modules"), ["tsconfig.json", "jsconfig.json"]);
+  assert.equal(LanguageRegistry.routeTableModuleSyntax("angular-router"), "ecmascript-modules");
+});
+
 test("groupByLanguage buckets files and drops unsupported", () => {
   const g = LanguageRegistry.groupByLanguage(["a.ts", "b.js", "c.py", "d.java"]);
   assert.deepEqual(g.get("typescript"), ["a.ts"]);

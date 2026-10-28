@@ -520,7 +520,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   and a route's own entry, every entry that can match before it and the fallbacks are compared, import-only hunks aside,
   with parent guards inherited by lazy children. Whether a changed symbol reaches a guard a route lists is one optional
   fact, the code graph's closure of the change (depth 6), complete or not. The table follows the language's own module
-  semantics on each side (`route-table/module-resolver.ts`: the nearest tsconfig the registry declares, `paths`, `baseUrl` and
+  semantics on each side (`shared-infrastructure/module-resolution/module-resolver.ts`, the module syntax the registry declares for the language: the nearest tsconfig, `paths`, `baseUrl` and
   its `extends` chain, resolved by the compiler's resolver; renames, named re-exports and `export *` barrels followed to the
   one declaration, a `loadChildren` binding followed to its one static dynamic `import()`), places a guard only at the file that
   declares the name it imports, and leaves what does not come down to one declaration unresolved. A framework with no extractor,
