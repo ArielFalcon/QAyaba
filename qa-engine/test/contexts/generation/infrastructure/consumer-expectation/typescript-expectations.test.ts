@@ -203,7 +203,7 @@ test("a path with no leading slash is a path relative to the base address, as lo
   assert.equal(expect(files("log.info('hello world/again')"), { method: "GET", path: "/hello world/again" }), undefined, "a sentence is no path");
 });
 
-test("a call that only names the address (to resolve it, to invalidate a cache entry) is no call site of the request", () => {
+test("a call whose declared answer is void or primitives is no call site of the request, however it is named; an unresolved one still blocks", () => {
   const api = `
     import { Item } from "./models";
     export const THINGS_PATH = "service-api/things";
@@ -211,12 +211,28 @@ test("a call that only names the address (to resolve it, to invalidate a cache e
   `;
   const naming = `
     import { THINGS_PATH } from "./api";
-    export function urlOfThings() { return rest.resolveUrl(THINGS_PATH); }
-    export function forget() { cache.invalidate(THINGS_PATH); }
+    export function urlOfThings(): string { return rest.getUrl(THINGS_PATH); }
+    export function forget(): void { cache.delete(THINGS_PATH); }
+    export async function reload(): Promise<void> { await rest.resolveUrl(THINGS_PATH); }
+    export function known(): Observable<boolean[]> { return source.of(THINGS_PATH); }
   `;
   const found = expect(sources({ "src/api.ts": api, "src/naming.ts": naming }), { method: "GET", path: "/service-api/things" });
   assert.deepEqual(names(found), ["x"]);
   assert.equal(found?.callSites.length, 1);
+  const unresolved = `
+    import { Mystery } from "./nowhere";
+    export function other(): Mystery { return rest.resolveUrl(THINGS_PATH_COPY); }
+    const THINGS_PATH_COPY = "service-api/things";
+  `;
+  assert.equal(expect(sources({ "src/api.ts": api, "src/naming.ts": unresolved }), { method: "GET", path: "/service-api/things" }), undefined);
+});
+
+test("a call site is a call that carries the path and declares an answer, whatever its callee is called", () => {
+  const api = `
+    import { Item } from "./models";
+    export function load(): Promise<Item[]> { return client.send("service-api/things"); }
+  `;
+  assert.deepEqual(names(expect(sources({ "src/api.ts": api }), { method: "GET", path: "/service-api/things" })), ["x"]);
 });
 
 test("a test file is not part of the program: a type only a test declares is not followed, and a read or write in it counts for nothing", () => {

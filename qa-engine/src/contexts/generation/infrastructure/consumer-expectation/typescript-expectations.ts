@@ -2,7 +2,8 @@
  * What a consumer's own TypeScript (and JavaScript with declared types) expects of the answer to a request, read with the
  * compiler over the repository's sources: no framework is known and no HTTP client is named. A call site is any call whose
  * address argument evaluates to a path (a literal, a template or a concatenation, a constant followed across files; what cannot be
- * evaluated stands for one path segment, and an unresolved leading part is the base address and dropped); it serves a request when
+ * evaluated stands for one path segment, and an unresolved leading part is the base address and dropped) unless the answer it declares
+ * resolves fully to void or primitives (`declaresNoAnswer`: such a call resolves or invalidates an address); it serves a request when
  * the path serves the operation (`requestServesOperation`, the matcher the link resolver uses) and its verb, when its callee names
  * one, is the request's. A link the service-topology resolver already made (the file and the function that issue the call, and the
  * operation) ties a request to a call site whose path cannot be evaluated. Of the call sites that serve a request only those with
@@ -50,9 +51,8 @@ const MAX_EVALUATION_DEPTH = 6;
 const MAX_SITES_KEPT = 200;
 const SYNTAX = "typescript-declared-types";
 const HTTP_VERBS = new Set(["get", "post", "put", "patch", "delete", "head", "options"]);
-/* The words of a callee's name that say it issues a request: a call that only names an address (resolving it, invalidating a cache entry, a resource key) is no call site of the request. */
-const REQUEST_WORDS = new Set([...HTTP_VERBS, "fetch", "request", "ajax"]);
-const issuesRequest = (callee: string): boolean => callee.split(/(?=[A-Z])|[^A-Za-z0-9]+/).some((word) => REQUEST_WORDS.has(word.toLowerCase()));
+const EMPTY_ANSWER_FLAGS =
+  ts.TypeFlags.VoidLike | ts.TypeFlags.Undefined | ts.TypeFlags.Null | ts.TypeFlags.Never | ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BooleanLike | ts.TypeFlags.BigIntLike | ts.TypeFlags.ESSymbolLike | ts.TypeFlags.EnumLike;
 const CONFIG_NAME = /^(?:ts|js)config(?:\.[\w.-]+)?\.json$/;
 const PARAM = "{p}";
 
@@ -290,7 +290,30 @@ function declaredTypeOf(call: ts.CallExpression): ts.TypeNode | undefined {
   return enclosingFunctions(call).find((fn) => fn.type !== undefined)?.type;
 }
 
-function expectationOf(analysis: Analysis, node: ts.Node, symbol: string | undefined, declared: ts.TypeNode | undefined): CallSiteExpectation | undefined {
+/*
+ * Whether the answer a call's enclosing code declares resolves fully to nothing a provider could be expected to serve fields of: void,
+ * undefined, null or primitives, looking through the containers around them (an array, a promise, an unresolvable reference such as
+ * `Observable<void>` through its type arguments). A call that names an address and declares such an answer (resolves it, invalidates a
+ * cache entry) is no call site of the request. No declared type, an unresolved one or one that holds an object is not empty: it still counts.
+ */
+function declaresNoAnswer(analysis: Analysis, call: ts.CallExpression): boolean {
+  const { checker } = analysis;
+  const isEmpty = (current: ts.TypeNode): boolean => {
+    if (ts.isParenthesizedTypeNode(current) || ts.isTypeOperatorNode(current)) return isEmpty(current.type);
+    if (ts.isArrayTypeNode(current)) return isEmpty(current.elementType);
+    if (ts.isUnionTypeNode(current) || ts.isIntersectionTypeNode(current)) return current.types.every(isEmpty);
+    if (ts.isTupleTypeNode(current)) return current.elements.every(isEmpty);
+    if (ts.isNamedTupleMember(current)) return isEmpty(current.type);
+    const type = checker.getTypeFromTypeNode(current);
+    const arguments_ = ts.isTypeReferenceNode(current) ? current.typeArguments : undefined;
+    if (arguments_ !== undefined && arguments_.length > 0 && !(type.flags & EMPTY_ANSWER_FLAGS)) return arguments_.every(isEmpty);
+    return (type.flags & EMPTY_ANSWER_FLAGS) !== 0 && !(type.flags & ts.TypeFlags.Any);
+  };
+  const declared = declaredTypeOf(call);
+  return declared !== undefined && isEmpty(declared);
+}
+
+function expectationOf(analysis: Analysis,node: ts.Node, symbol: string | undefined, declared: ts.TypeNode | undefined): CallSiteExpectation | undefined {
   if (declared === undefined) return undefined;
   const names = declaredNames(analysis, declared);
   if (names === undefined) return undefined;
@@ -359,7 +382,7 @@ export function createTypeScriptExpectations(input: TypeScriptExpectationInput):
         if (ts.isCallExpression(node) && node.arguments.length > 0) {
           const address = node.arguments.slice(0, 2).map((argument) => evaluate(argument)).find((text) => text !== undefined && operationPathOf(text) !== undefined);
           const callee = ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : ts.isIdentifier(node.expression) ? node.expression.text : undefined;
-          if (address !== undefined && callee !== undefined && issuesRequest(callee)) calls.push({ call: node, path: operationPathOf(address), verb: callee !== undefined && HTTP_VERBS.has(callee.toLowerCase()) ? callee.toUpperCase() : undefined });
+          if (address !== undefined && !declaresNoAnswer(analysis, node)) calls.push({ call: node, path: operationPathOf(address), verb: callee !== undefined && HTTP_VERBS.has(callee.toLowerCase()) ? callee.toUpperCase() : undefined });
         }
         ts.forEachChild(node, visit);
       };

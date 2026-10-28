@@ -243,10 +243,11 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   `generation/infrastructure/consumer-expectation/typescript-expectations.ts`; a language with none yields no fact). It reads the working copy through
   the confined reader (`consumer-expectations.source.ts`; the delivered suite, dependencies and build directories (`SKIP_VENDOR_DIRS`,
   `shared-kernel/vendor-dirs.ts`, the list the topology resolvers skip) and test files excluded before the program is built) and builds a program over
-  it with no installed package: a call whose callee names a request (an HTTP verb, `fetch`, `request` or `ajax` among the words of its name, so a
-  call that only resolves or invalidates an address is no call site) and whose address argument evaluates to a path (a literal, a template or a
+  it with no installed package: a call whose address argument evaluates to a path (a literal, a template or a
   concatenation, a constant followed across files; an unresolved leading part is the base address; a path with no leading slash and more than one
-  segment is relative to it) serves a request when `requestServesOperation` says so and its verb, if the callee
+  segment is relative to it) is a call site unless the answer it declares (its type argument, else the enclosing function's return type) resolves
+  fully to void or primitives, looking through containers (`declaresNoAnswer`: such a call resolves or invalidates an address; no callee name is
+  read, and an unresolved or absent declared type still counts and so blocks the operation); it serves a request when `requestServesOperation` says so and its verb, if the callee
   names one, is the request's, and a link the service-topology resolver already made (`ServiceLink.from.file`/`symbol`, `operation`) ties a request to
   a call site whose path cannot be evaluated; of the call sites that serve a request only those with the most literal segments count, and an operation
   expects what all of them expect (the intersection), none if one of them cannot be read. The declared answer type is the call's type argument, else
