@@ -39,6 +39,18 @@ export function readReviewedSpecs(specFiles: SpecFilesPort, specRoot: SpecRoot, 
 export type ReviewedSpecs = ReturnType<typeof readReviewedSpecs>;
 
 /*
+ * The spec files whose every executed case passed on the bytes the cases describe: at least one case, none failed or
+ * flaky. A case that names no file attributes nothing to any file. Keyed by `key(file)` (default: the file as the case
+ * names it), so a caller compares in the form it holds its own references in.
+ */
+export function greenSpecFiles(cases: readonly QaCase[], key: (file: string) => string = (file) => file): Set<string> {
+  const failed = new Set(cases.filter((c) => c.status !== "pass" && c.file).map((c) => key(c.file!)));
+  const green = new Set<string>();
+  for (const c of cases) if (c.status === "pass" && c.file && !failed.has(key(c.file))) green.add(key(c.file));
+  return green;
+}
+
+/*
  * What the current bytes prove, the only facts a rebuttal can rest on: the cases that ran green (a case name,
  * or a spec file whose every case passed), and the contract clauses the bytes still hold. A basis the run
  * cannot check stays unverified, so the finding it answers keeps standing.
@@ -49,13 +61,8 @@ export function rebuttalEvidence(ctx: WorkspaceRunContext, cases: readonly QaCas
   /* Case files and rebuttal references meet in the suite-relative form: the spec directory an agent prefixes to a path is not part of the file's name. */
   const specRelDir = specRelDirOf(specRoot);
   const suiteFile = (file: string): string => resolveSpecReference(file, specRelDir) ?? refKey(file);
-  const failedFiles = new Set(cases.filter((c) => c.status !== "pass" && c.file).map((c) => suiteFile(c.file!)));
-  const greenCaseRefs = new Set<string>();
-  for (const c of cases) {
-    if (c.status !== "pass") continue;
-    greenCaseRefs.add(refKey(c.name));
-    if (c.file && !failedFiles.has(suiteFile(c.file))) greenCaseRefs.add(suiteFile(c.file));
-  }
+  const greenCaseRefs = greenSpecFiles(cases, suiteFile);
+  for (const c of cases) if (c.status === "pass") greenCaseRefs.add(refKey(c.name));
   const intactClauses = new Set<string>();
   const extractor = ctx.deps.intentContract;
   if (extractor) {
@@ -84,6 +91,8 @@ export interface ReviewTally {
   rounds: number;
   modelRounds: number;
   preCheckRejects: number;
+  /* Spec files the deterministic pre-check left unchecked because they passed on DEV on the bytes under review, summed over the rounds. */
+  preCheckSkippedProven: number;
   skippedRounds: number;
   durationMs: number;
   promptBytes: number;
@@ -112,6 +121,7 @@ export function newReviewTally(): ReviewTally {
     rounds: 0,
     modelRounds: 0,
     preCheckRejects: 0,
+    preCheckSkippedProven: 0,
     skippedRounds: 0,
     durationMs: 0,
     promptBytes: 0,
@@ -152,6 +162,7 @@ export function annotateReviewPhase(ctx: WorkspaceRunContext, tally: ReviewTally
       "qayaba.phase.outcome": outcome,
       "qayaba.review.rounds": tally.rounds,
       "qayaba.review.model_rounds": tally.modelRounds,
+      "qayaba.review.precheck_skipped_proven": tally.preCheckSkippedProven,
       "qayaba.review.blocking": tally.blocking,
       "qayaba.review.correction_class": correctionClass ?? "none",
     });

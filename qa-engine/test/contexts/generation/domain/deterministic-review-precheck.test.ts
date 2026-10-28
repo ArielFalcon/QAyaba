@@ -223,3 +223,40 @@ test("many ghosts", async ({ page }) => {
   const findings = precheckSpecsAgainstDom({ specs: [{ file: "flows/restaurantes.spec.ts", text: spec }], domSnapshot: R4_DOM });
   assert.equal(findings.length, 6);
 });
+
+/* The live run's shape: a spec set a mobile viewport the capture does not use, asserted a link the capture's page did not expose, and passed on DEV. */
+/* The capture's page lists links, just not this one (the desktop header it saw is not the mobile menu the spec opened). */
+const LINK_DOM = `${R4_DOM}\n  link: Restaurantes\n  link: Contacto`;
+
+const LINK_BEFORE_CLICK_SPEC = `
+test("the home link is shown", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/restaurantes");
+  await expect(page.getByRole("link", { name: "Mapa" })).toBeVisible();
+  await page.getByRole("button", { name: "Buscar" }).click();
+});
+`;
+
+test("a link asserted before the first click and absent from the captured page is not checked when its spec file passed on DEV", () => {
+  const spec = { file: "flows/home.spec.ts", text: LINK_BEFORE_CLICK_SPEC };
+
+  const unproven = precheckSpecsAgainstDom({ specs: [spec], domSnapshot: LINK_DOM });
+  const proven = precheckSpecsAgainstDom({ specs: [spec], domSnapshot: LINK_DOM, provenGreenFiles: new Set(["flows/home.spec.ts"]) });
+
+  assert.equal(unproven.length, 1, "without a proof the contradiction is reported as before");
+  assert.match(unproven[0]!.correction, /link "Mapa"/);
+  assert.deepEqual(proven, [], "a file that passed on DEV resolved its assertion there");
+});
+
+test("only the proven spec file is skipped: another spec with the same contradiction is still rejected", () => {
+  const findings = precheckSpecsAgainstDom({
+    specs: [
+      { file: "flows/home.spec.ts", text: LINK_BEFORE_CLICK_SPEC },
+      { file: "flows/other.spec.ts", text: LINK_BEFORE_CLICK_SPEC },
+    ],
+    domSnapshot: LINK_DOM,
+    provenGreenFiles: new Set(["flows/home.spec.ts"]),
+  });
+
+  assert.deepEqual(findings.map((finding) => finding.file), ["flows/other.spec.ts"]);
+});

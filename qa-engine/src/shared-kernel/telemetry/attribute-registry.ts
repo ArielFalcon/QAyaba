@@ -150,6 +150,7 @@ export const ATTRIBUTES = {
   "qayaba.review.round": int("The review round, from 1."),
   "qayaba.review.rounds": int("Review rounds that ran."),
   "qayaba.review.model_rounds": int("Review rounds decided by a model."),
+  "qayaba.review.precheck_skipped_proven": int("Spec files the deterministic DOM pre-check left unchecked because every case of the file passed on DEV on the bytes under review."),
   "qayaba.review.correction_class": str("The class of the round's blocking correction: false-positive, wrong-objective, fragile-selector, no-cleanup, other or none."),
   "qayaba.review.blocking": int("Blocking corrections in the review round."),
   "qayaba.review.targets": spec("string[]", "The spec paths this run delivered and the reviewer judged.", "high", "none", 50),

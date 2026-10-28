@@ -149,10 +149,11 @@ is the only engine; webhook (`src/server/webhook-handler.ts`, wired by `src/serv
    request is page-dependent by its resource type (document, fetch, xhr, script, stylesheet), never by host.
 8. **Change-coverage** — did the green run exercise the diff's changed lines? (below)
 9. **Decide** — green + approved + coverage not blocking → PR. Rejected/`fail`/`invalid`
-   → Issue. A reviewer that could not be reached (its session failed, or it returned nothing) judged
+   → Issue. Before any model round a deterministic DOM pre-check (`generation/domain/deterministic-review-precheck.ts`) may reject a spec whose positive assertion the captured page lacks; it never checks a spec file whose every case passed on DEV on the bytes under review (that assertion resolved on the live site, whatever viewport, session, locale or location the capture differed in), counted as `gateSignals.reviewer.preCheckSkippedProven`. A reviewer that could not be reached (its session failed, or it returned nothing) judged
    nothing, which is not a rejection: the run ends as a persisted `infra-error` `E-REVIEWER-UNAVAILABLE`
    (the reviewer's reason on the run record and in the log, no PR and no Issue, nothing learned; three in
-   a row log an observe-only audit finding). A reviewer that answered unreadably is still a fail-closed
+   a row log an observe-only audit finding). A reviewer whose answer holds no readable verdict (cut mid-JSON, say) is first asked once, in
+   the same session, to restate it (the contract repair below); an answer still unreadable is a fail-closed
    parse miss. On a run with a plan the reviewer is given, instead of the whole diff, the slice of each
    flow under review, every changed file (path, kind, added/removed) and, in full under a heading of its
    own, every part of the diff no flow under review holds (`run-flow/review-change.ts`,

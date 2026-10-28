@@ -114,7 +114,7 @@ review round (labels `qayaba_review_outcome`, `qayaba_review_decided_by`, `qayab
 round's blocking correction (`false-positive`, `wrong-objective`, `fragile-selector`, `no-cleanup`, `other`; `none`
 when there is none). The dashboard's **Reviewer outcomes by decision**, **Reviewer duration p95** and **Reviewer
 rejections by correction class** panels show them; the same figures are persisted in `gateSignals.reviewer` on the run
-outcome (`rounds`, `modelRounds`, `preCheckRejects`, `skippedRounds`, `correctionClass`, `outputTokens`, `costUsd`,
+outcome (`rounds`, `modelRounds`, `preCheckRejects`, `preCheckSkippedProven` (spec files the deterministic DOM pre-check left unchecked because every case of the file passed on DEV; also `qayaba.review.precheck_skipped_proven` on the review phase span), `skippedRounds`, `correctionClass`, `outputTokens`, `costUsd`,
 `steps`).
 
 The per-round `qayaba.review.decision` span is the trace record behind the metric: it carries `qayaba.review.targets`

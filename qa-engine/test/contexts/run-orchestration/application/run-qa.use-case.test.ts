@@ -8568,6 +8568,59 @@ test("reviewer pre-check: a legitimate spec whose assertions the captured DOM co
   }
 });
 
+test("reviewer pre-check: a spec whose file passed on DEV is not rejected for an assertion the captured DOM lacks, and the skip is counted", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    let modelReviews = 0;
+    const { ports, savedOutcomes } = stubPorts({
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      captureReviewDom: async () => R4_DOM,
+      execute: async () => ({ verdict: "pass", cases: [{ name: "the empty state is shown", file: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
+      review: async () => { modelReviews++; return { approved: true, corrections: [], blockingCount: 0, rationale: "the case ran green on DEV", parsed: true }; },
+    });
+    ports.generation.author = async (_specDir) => {
+      fixtures.write("flows/restaurants.spec.ts", R4_SPEC);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"]});
+    };
+    const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+    const out = await useCase.run({ ...baseInput, runId: "review-precheck-proven-green" });
+
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewer?.preCheckRejects, 0, "the DOM capture does not overrule a spec that ran green against DEV");
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewer?.preCheckSkippedProven, 1);
+    assert.equal(modelReviews, 1, "the model reviewer decides instead");
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewerApproved, true);
+    assert.equal(out.decision.sideEffect, "pr");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("reviewer pre-check: the same contradiction in a spec file that did not pass on its current bytes is still rejected", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    const { ports, savedOutcomes } = stubPorts({
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      captureReviewDom: async () => R4_DOM,
+      execute: async () => ({ verdict: "flaky", cases: [{ name: "the empty state is shown", file: "flows/restaurants.spec.ts", status: "flaky" }], logs: "" }),
+      review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }),
+    });
+    ports.generation.author = async (_specDir) => {
+      fixtures.write("flows/restaurants.spec.ts", R4_SPEC);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"]});
+    };
+    const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+    await useCase.run({ ...baseInput, runId: "review-precheck-unproven" });
+
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewer?.preCheckRejects, 1);
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewer?.preCheckSkippedProven, undefined);
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewerApproved, false);
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
 test("a generator that changes nothing after a rejection is not reviewed twice: the previous verdict stands", async () => {
   const fixtures = reviewFixtures();
   try {

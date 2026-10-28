@@ -78,6 +78,8 @@ export interface RunOutcome {
       costUsd: number | null;
       steps: number | null;
       preCheckRejects: number;
+      /* Spec files the deterministic DOM pre-check left unchecked because every case of the file passed on DEV on the bytes under review. Absent when none. */
+      preCheckSkippedProven?: number;
       skippedRounds: number;
       /* The class of the final blocking correction (`none` when approved), from the closed review tags. */
       correctionClass?: string;

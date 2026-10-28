@@ -5,6 +5,9 @@
  * inventory does not list, a named role the page does not expose — and only inside the part of the
  * spec that runs on the captured page as loaded (before the first click, or a second navigation).
  *
+ * A spec file that already passed on DEV on the bytes under review is not checked at all: its positive assertions
+ * resolved against the live site, which the capture can only approximate.
+ *
  * Everything else fails open. No DOM, no matching route, a degraded or truncated capture, an
  * unreadable spec, a regex or interpolated literal: no finding, and the model reviewer decides.
  * The contradiction it does report is a `[false-positive]` blocking correction, exactly what the
@@ -38,6 +41,13 @@ export interface ReviewPrecheckInput {
   specs: readonly ReviewSpecSource[];
   /** The assembled review DOM pack, as the reviewer receives it. Absent: nothing is checked. */
   domSnapshot?: string | undefined;
+  /**
+   * Spec files (as `specs[].file` names them) whose every case passed on DEV on the bytes under review. The pre-check
+   * reports only positive assertions the page lacks, and one that passed on DEV demonstrably resolved there (whatever the
+   * viewport, auth state, locale, location or stubs the spec set that the capture did not share), so these files are not
+   * checked. Absent: every spec is checked.
+   */
+  provenGreenFiles?: ReadonlySet<string> | undefined;
 }
 
 interface DomRouteBlock {
@@ -235,5 +245,8 @@ export function precheckSpecAgainstDom(spec: ReviewSpecSource, domSnapshot: stri
 /** Every clear contradiction between the specs and the captured DOM, in spec order, capped. */
 export function precheckSpecsAgainstDom(input: ReviewPrecheckInput): ReviewPrecheckFinding[] {
   if (!input.domSnapshot || input.domSnapshot.trim() === "") return [];
-  return input.specs.flatMap((spec) => precheckSpecAgainstDom(spec, input.domSnapshot!)).slice(0, REVIEW_CORRECTIONS_MAX);
+  return input.specs
+    .filter((spec) => !input.provenGreenFiles?.has(spec.file))
+    .flatMap((spec) => precheckSpecAgainstDom(spec, input.domSnapshot!))
+    .slice(0, REVIEW_CORRECTIONS_MAX);
 }

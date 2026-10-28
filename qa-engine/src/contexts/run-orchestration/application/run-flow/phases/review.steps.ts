@@ -27,7 +27,7 @@ import { CORRECTION_ORIGIN, type CorrectionFinding } from "@contexts/coordinatio
 import { resolveTested } from "./fix-loop.steps.ts";
 import { reviewChangeViewOf } from "../review-change.ts";
 import { branchCoverageOf, changeCoverageOf, traceAcceptedFiles } from "./coverage.steps.ts";
-import { addDroppedRejection, addReviewStats, annotateReviewPhase, newReviewTally, readReviewedSpecs, rebuttalEvidence, recordReviewDecision } from "./review-services.ts";
+import { addDroppedRejection, addReviewStats, annotateReviewPhase, greenSpecFiles, newReviewTally, readReviewedSpecs, rebuttalEvidence, recordReviewDecision } from "./review-services.ts";
 import { pathOnly } from "@kernel/route-availability.ts";
 import { dataContradictionRefs } from "@kernel/data-contradiction.ts";
 
@@ -198,7 +198,10 @@ export async function reviewRound(state: Readonly<RunState>, ctx: WorkspaceRunCo
      * the captured page contradicts is a blocking false positive, provable without a model. It
      * fails open on any uncertainty; the model reviewer still runs whenever it finds nothing.
      */
-    const precheckFindings = precheckSpecsAgainstDom({ specs: reviewedSpecs, domSnapshot: reviewDomSnapshot });
+    /* A spec file whose every case passed on DEV on the bytes under review resolved its positive assertions there: the capture, which can differ in viewport, session, locale or location, does not overrule the run. */
+    const provenGreenFiles = greenSpecFiles(reviewCases);
+    const precheckFindings = precheckSpecsAgainstDom({ specs: reviewedSpecs, domSnapshot: reviewDomSnapshot, provenGreenFiles });
+    if (reviewDomSnapshot) reviewStats.preCheckSkippedProven += reviewedSpecs.filter((spec) => provenGreenFiles.has(spec.file)).length;
     if (precheckFindings.length > 0) {
       session.reviewerApproved = false;
       reviewStats.preCheckRejects++;
@@ -597,6 +600,7 @@ export async function reviewSettle(state: Readonly<RunState>, ctx: WorkspaceRunC
           costUsd: reviewStats.metricsKnown.cost ? reviewStats.costUsd : null,
           steps: reviewStats.metricsKnown.steps ? reviewStats.steps : null,
           preCheckRejects: reviewStats.preCheckRejects,
+          ...(reviewStats.preCheckSkippedProven > 0 ? { preCheckSkippedProven: reviewStats.preCheckSkippedProven } : {}),
           skippedRounds: reviewStats.skippedRounds,
           correctionClass: reviewerApproved ? "none" : correctionClassOf(finalReviewerCorrections),
           ...(reviewStats.droppedRejections > 0 ? { droppedRejections: { rounds: reviewStats.droppedRejections, reasons: { ...reviewStats.droppedRejectionReasons } } } : {}),
