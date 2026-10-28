@@ -1,0 +1,209 @@
+# Architecture records
+
+Decision records of the root-cause investigation of qayaba (runs of 2026-10-26 to 2026-10-28). An RFC proposes, the owner decides, an ADR records what the owner decided. Every code reference is pinned to commit 4105c582.
+
+## Quick path
+
+1. Read [ADR-0001](adr/0001-design-pillars.md) (the criteria every design is judged by) and [ADR-0002](adr/0002-architecture-direction.md) (the direction and the work order).
+2. Find a decision in the [index](#index). Each ADR gives the owner's words (translated) as its basis.
+3. Find what the owner still has to decide in [Where the owner's questions are](#where-the-owners-questions-are).
+4. Check a claim: open the cited file at the pinned commit with `git show 4105c582:<path>`.
+
+## Process
+
+| Status | Applies to | Meaning |
+|---|---|---|
+| Proposed | RFC | Options with tradeoffs and one recommendation. The owner has decided nothing in it. |
+| Partially decided | RFC | The owner decided some forks. The status links the ADRs that record them; the rest stay under "Owner decisions needed". |
+| Accepted | ADR; RFC with every fork decided | Records what the owner decided. Points an ADR lists under "Not decided here" or "Open questions" are not part of the acceptance. |
+| Superseded | ADR or RFC | A later record replaced it. The status names the replacement; the text stays as it was. |
+| Rejected | RFC | The owner declined the proposal. The text stays so it is not proposed again. |
+
+No record is Superseded or Rejected yet.
+
+Rules:
+
+- An ADR records only what the owner decided, with the owner's words as its basis. Anything the assistant added is labelled as a reading, a hypothesis or a recommendation.
+- An RFC never presents an undecided choice as decided. Every fork is listed under "Owner decisions needed", one line each, with the recommended answer.
+- When the owner decides a fork, the decision is written in an ADR and the RFC status changes. The RFC keeps its options as they were.
+- Work stops at a product or architecture decision until the owner answers ([ADR-0011](adr/0011-root-cause-fix-policy.md), rule 6).
+
+## Numbering and files
+
+- Ids are `ADR-NNNN` and `RFC-NNNN`, four digits, assigned in order within each kind and never reused or renumbered. Files are `adr/NNNN-slug.md` and `rfc/NNNN-slug.md`; links between records are relative.
+- [Rejected explanations](rejected-explanations.md) is one page with no number.
+- Ids that are not record ids:
+  - `D1` to `D14`: the owner's decisions of 2026-10-28. They are the decision source of the ADRs ([RFC-0001](rfc/0001-dormant-features.md), "Decisions already taken", maps each to its ADR).
+  - `H01` to `H27`: the investigation's hypotheses. Three are confirmed (H06, H11, H20), 17 plausible, 7 refuted ([ADR-0002](adr/0002-architecture-direction.md) lists all 27).
+  - `run-...` ids, `#n` run numbers and `O0b` to `O11` epochs: defined in the run index of [Rejected explanations](rejected-explanations.md#run-index).
+- Owner questions are numbered inside each record, so quote the record with the number (for example "RFC-0004 F1").
+
+## The two templates
+
+ADR:
+
+```
+# ADR-NNNN: <title>
+
+- Status: Accepted, 2026-10-28, owner
+- Decision source: D# and the owner's words (translated)
+- Code references at 4105c582: ...
+- Related: ...
+
+## Context
+## Decision
+## Consequences
+## Enforcement      (the test, architecture rule or gate that will hold it, and the step that adds it; "not enforced yet" when none)
+## Alternatives considered
+```
+
+RFC:
+
+```
+# RFC-NNNN: <title>
+
+- Status: Proposed, 2026-10-28 (or Partially decided, with ADR links)
+- Code references at 4105c582: ...
+- Related: ...
+
+## Summary                 (at most 5 lines)
+## Problem                 (the causal chain at path:line, the runs, what it does not explain)
+## Goals and non-goals
+## Options                 (each: what it removes, the complexity it adds, its risk)
+## Recommendation          (why it is the smallest change, why it is app-agnostic, where it lives)
+## Patches it supersedes   (path:line of what the fix removes)
+## Test plan               (the RED test through a public seam)
+## Measurement             (the signal that shows the cause gone, before and after)
+## Owner decisions needed  (one line each, with the recommended answer)
+## Out of scope
+```
+
+Some ADRs add an "Open questions" section after "Alternatives considered"; others keep a "Not decided here" list inside "Decision" or "Consequences". The RFC sections are all present in every RFC.
+
+## How records cite code
+
+- The header line "Code references at 4105c582" pins the commit: the head of main when the records were written. A line number is valid at that commit only. A claim about older engine code names its commit and is read with `git show <commit>:<path>`.
+- A claim carries its evidence: a run id, a `path:line`, a number or a quoted source. A conclusion is labelled "confirmed" or "hypothesis". A cause is never generalised from one run, and a run is read in the code epoch it ran in ([ADR-0011](adr/0011-root-cause-fix-policy.md), rule 7).
+- The owner's words are given as a translation marked "(translated)", with the date. The owner is named by role only.
+- No record holds an absolute path of a machine, a scratch path or a secret. The product is called qayaba.
+- `npm run previous-forms:check` scans the records for banned terms, dead paths and dead `file:line` citations. It checks that a full path exists. It checks that a line is inside the file only for a bare file name with one match ([ADR-0011](adr/0011-root-cause-fix-policy.md), Enforcement, row 7).
+
+## Where rejected explanations live
+
+[Rejected explanations](rejected-explanations.md) holds the refuted hypotheses (H03, H05, H10, H13, H14, H26, H27, then N03, N07, Q02, Q03, Q05, Q06, Q07): the claim, why it failed, what it never explained, and the narrower mechanism the refuters found. A narrower mechanism is a new hypothesis. It is refuted again before any fix ([ADR-0011](adr/0011-root-cause-fix-policy.md), rule 1). A refuted hypothesis gets an entry there, not an RFC. A proposal the owner declines gets the status Rejected.
+
+## Index
+
+Decisions (ADR):
+
+| Id | Title | Status | Decision or hypothesis |
+|---|---|---|---|
+| [ADR-0001](adr/0001-design-pillars.md) | Design pillars | Accepted for the pillars (the owner's quoted words). The P1-P7 numbering, the review questions and the review procedure are Proposed | The owner's statements of 2026-10-28 13:36Z; no D# |
+| [ADR-0002](adr/0002-architecture-direction.md) | Architecture direction | Accepted: Decisions 1, 2 and 4 and the agreement to the eight additions. Which additions are scheduled, Decision 5 and the open questions are not decided | Owner, 13:08Z, 13:36Z, 13:58Z, 15:04Z; D12 cited by analogy |
+| [ADR-0003](adr/0003-learning-layer-rebuild.md) | Learning layer: delete and rebuild one lesson kind | Accepted | D1, D2, D3, D4, D14 |
+| [ADR-0004](adr/0004-response-value-oracle-removal.md) | Remove the response value oracle | Accepted | D5 |
+| [ADR-0005](adr/0005-coverage-enforce-activation.md) | When change coverage moves to enforce | Accepted | D6 |
+| [ADR-0006](adr/0006-bundle-mutation-switch.md) | Bundle mutation gets its own switch | Accepted | D7 |
+| [ADR-0007](adr/0007-code-target-removal.md) | Remove the code target | Accepted | D8 |
+| [ADR-0008](adr/0008-product-version-source.md) | The served version comes from the product | Accepted | D9 |
+| [ADR-0009](adr/0009-campaign-freeze-on-server.md) | The server freezes campaign runs | Accepted | D10 |
+| [ADR-0010](adr/0010-maintainer-removal.md) | Remove the self-maintainer | Accepted | D11 |
+| [ADR-0011](adr/0011-root-cause-fix-policy.md) | Root-cause fix policy and measurement conditions | Accepted | D12, D13 |
+| [ADR-0012](adr/0012-owner-decisions-rfc-0002-0010.md) | Owner decisions on RFC-0002 to RFC-0010 | Accepted | The 56 open questions of RFC-0002 to RFC-0010 |
+
+Proposals (RFC):
+
+| Id | Title | Status | Decision or hypothesis |
+|---|---|---|---|
+| [RFC-0001](rfc/0001-dormant-features.md) | Dormant features: keep, redesign or delete | Partially decided: D1-D14 recorded in ADR-0003 to ADR-0011; OD-1 to OD-20 open | The audit of 46 dormant members; D1-D14 |
+| [RFC-0002](rfc/0002-platform-steps-0-1.md) | Platform steps 0-1: encode the target, delete what is dead | Accepted (ADR-0012) | The work order (ADR-0002); D1, D2, D5, D8, D11 |
+| [RFC-0003](rfc/0003-coverage-dump-harvest.md) | Harvest coverage dumps off the event loop (H06) | Accepted (ADR-0012) | H06, confirmed |
+| [RFC-0004](rfc/0004-log-level-from-outcome.md) | Derive the log level from the typed outcome (H11) | Accepted (ADR-0012) | H11, confirmed (narrow form) |
+| [RFC-0005](rfc/0005-suite-store-single-writer.md) | One writer for the suite store (H20) | Accepted (ADR-0012) | H20, confirmed (narrowed form) |
+| [RFC-0006](rfc/0006-review-answer-crosses-whole.md) | The reviewer's answer crosses to the decision whole (N02) | Accepted (ADR-0012) | N02, confirmed (phase 3b) |
+| [RFC-0007](rfc/0007-dev-write-attribution.md) | Charge a DEV write only with evidence the spec caused it (N04) | Accepted (ADR-0012) | N04, confirmed (phase 3b) |
+| [RFC-0008](rfc/0008-acceptance-records-what-it-ran.md) | A regeneration's acceptance records what it ran (N06) | Accepted (ADR-0012) | N06, confirmed (phase 3b) |
+| [RFC-0009](rfc/0009-pack-record-matches-prompt.md) | The Context Pack's id record lists what the prompt prints (N09) | Accepted (ADR-0012) | N09, confirmed (phase 3b) |
+| [RFC-0010](rfc/0010-tool-call-record-outcome.md) | Derive a tool call's record from its outcome (N12) | Accepted (ADR-0012) | N12, confirmed (phase 3b) |
+
+Other:
+
+| Page | What it holds | Hypotheses |
+|---|---|---|
+| [Rejected explanations](rejected-explanations.md) | The seven refuted hypotheses and the run index | H03, H05, H10, H13, H14, H26, H27; later N03, N07, Q02, Q03, Q05, Q06, Q07 |
+
+Records numbered above RFC-0005 are added to these tables by the change that adds them.
+
+Documents outside this folder that the records build on:
+
+| Document | Role |
+|---|---|
+| `docs/engine-platform-architecture.md` | The plan adopted as the base ([ADR-0002](adr/0002-architecture-direction.md), Decision 1): dependency rule, placement rule, migration steps 0-6. |
+| `docs/architecture-remediation.md` | The review and remediation plan of 2026-10-25. Its run state machine (P2) and hexagonal re-cut (P3) were finished before the first run ([ADR-0002](adr/0002-architecture-direction.md), Context). No record edits it. See open question 3. |
+
+## Where the owner's questions are
+
+| Record | Section | Numbering |
+|---|---|---|
+| ADR-0001, ADR-0002 | Open questions | 1, 2, 3, ... |
+| ADR-0003, ADR-0008, ADR-0009, ADR-0011 | Not decided here | bullets |
+| ADR-0004, ADR-0005, ADR-0006 | Not decided here | 1, 2, ... |
+| ADR-0007, ADR-0010 | Not decided here | points A, B, C, D |
+| RFC-0001 | Owner decisions needed | OD-1 to OD-20 |
+| RFC-0002 | Owner decisions needed | Q1 to Q15, then the points inherited from the ADRs (decided: ADR-0012) |
+| RFC-0003 | Owner decisions needed | 1 to 5 (decided: ADR-0012) |
+| RFC-0004, RFC-0005 | Owner decisions needed | F1 to F5 in each (decided: ADR-0012) |
+| RFC-0006 to RFC-0010 | Owner decisions needed | F1, N1, ... in each (decided: ADR-0012) |
+
+Each question carries its recommended answer. None is a decision until the owner answers it and an ADR records the answer.
+
+## Open questions
+
+Questions about this index. Not decided here.
+
+### 1. How does a record keep citing code that a later step deletes?
+
+The records cite files that platform step 1 deletes ([RFC-0002](rfc/0002-platform-steps-0-1.md) lists them). The previous-forms gate skips only `odd/`, six named files and binary files (`scripts/check-previous-forms.ts:54-63`) and fails a document that names a path or `file:line` that no longer exists (`scripts/check-previous-forms.ts:117-138`). The first deletion of a cited file would fail CI. Today the records pass: the gate run over main 4105c582 plus these records reports 0 violations, and a separate check finds every cited `path:line` inside its file at that commit.
+
+What the gate does with a citation of a deleted file, tried on a synthetic record through the gate's own check function:
+
+| Spelling (`<dir>` is a top-level directory of the repository, such as `src`) | Flagged |
+|---|---|
+| `<dir>/file.ts:12` | yes, dead path |
+| a bare file name plus a line (`file.ts` then `:12`) | yes, dead citation |
+| `4105c582:<dir>/file.ts:12` | yes, dead path |
+| `git show 4105c582:<dir>/file.ts` | yes, dead path |
+| `4105c582/<dir>/file.ts:12` | no, and only by accident: its first segment, the commit id, is not a top-level directory (`scripts/check-previous-forms.ts:121`) |
+
+| Option | What it removes | What it costs |
+|---|---|---|
+| A. Skip `docs/architecture/` entirely, as `odd/` | Every failure from the records | The banned-term rules stop applying to the records too, so a record can call a retired thing by its old name unnoticed. |
+| B. Skip only the path and citation checks for the folder; keep the banned-term rules ([RFC-0002](rfc/0002-platform-steps-0-1.md) Q1, commit G1) | The dead-path and dead-citation failures | One predicate in the gate script and a test, in a commit of its own (CI is governance-sensitive). After it, CI no longer checks that a record's path was right when written. |
+| C. Cite through a commit-pinned form | Nothing today: the gate has no pinned form, and the one spelling it misses is a loophole | A gate change to recognise the form, then every citation rewritten (the records hold over a thousand). |
+| D. Update the records when code moves | The failure at its source | Dated records stop showing what the code looked like when the decision was made, and every step 1 commit also edits records. |
+
+Recommended: B. The header pins the commit, so a citation of a deleted file is expected, not an error: `git show 4105c582:<path>` opens it. B is the smallest gate change, it keeps the banned-term rules, and the gate already treats `odd/` the same way for the same reason. After B, correctness of a citation is checked once, against the pinned commit, when a record is written or reviewed. The retired-name rules that ADR-0004, ADR-0005, ADR-0007 and ADR-0010 add must not apply to the folder, because the records name those terms on purpose. The owner answers it as [RFC-0002](rfc/0002-platform-steps-0-1.md) Q1; [ADR-0007](adr/0007-code-target-removal.md) point C and [ADR-0010](adr/0010-maintainer-removal.md) point D are the same question.
+
+### 2. Can git hold the records?
+
+At 4105c582 `.gitignore:71` ignores `/docs/architecture/`. Its comment (`.gitignore:69`) says the line hides a third-party diagram tool checkout and the diagrams it generates. No path under `docs/architecture/` is tracked at that commit, and `scripts/check-previous-forms.ts:168` lists files with `git ls-files`, so while the line stands git does not take the records and CI does not scan them.
+
+| Option | Cost |
+|---|---|
+| A. Remove the line in the commit that adds the records | Any diagram the tool writes there would show up as untracked. The tool checkout itself stays ignored by `.gitignore:70`. |
+| B. Narrow the line to the folder the tool writes to | The tool's output folder is not named anywhere in the repository, so it has to be found first. |
+| C. Move the records to another folder | Every link, id and file name of the records changes. |
+
+Recommended: A. No generated diagram is tracked at 4105c582, and the records are maintained docs. Ship it with the commit that adds the records, so the gate and review see them from the first commit.
+
+### 3. What happens to `docs/architecture-remediation.md`?
+
+[ADR-0010](adr/0010-maintainer-removal.md) and [RFC-0002](rfc/0002-platform-steps-0-1.md) leave to this index whether that plan is edited or marked superseded. The gate skips it by name (`scripts/check-previous-forms.ts:56`), so leaving it costs nothing at the gate.
+
+| Option | Cost |
+|---|---|
+| A. Leave it unedited | A reader may take its mentions of the maintainer as current. This index states what it is. |
+| B. Add a one-line pointer to this index at its top | One commit on a dated plan, with no reader who needs it that the index above does not serve. |
+| C. Mark it Superseded | It is not superseded as a whole: P2 and P3 are finished and the platform plan continues them. |
+
+Recommended: A. A record that replaces part of it carries the Superseded status itself.
