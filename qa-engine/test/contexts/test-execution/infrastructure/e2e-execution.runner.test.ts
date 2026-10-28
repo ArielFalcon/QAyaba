@@ -1254,10 +1254,11 @@ test("runE2E reports the writes to DEV the fixtures counted, summed over the tes
 const FINISHED_LEDGER = (writes: number) => JSON.stringify({ v: 2, writes, pending: 0, done: true });
 const UNFINISHED_LEDGER = (writes: number, pending: number) => JSON.stringify({ v: 2, writes, pending, done: false });
 
-function stoppedRun(ledger: { deps: (report?: unknown) => E2eExecuteDeps }, begun: number, logs = "playwright runner timed out after 10ms — killed"): E2eExecuteDeps {
+function stoppedRun(ledger: { deps: (report?: unknown) => E2eExecuteDeps }, begun: number, logs = "playwright runner timed out after 10ms — killed", skipped = 0): E2eExecuteDeps {
   const deps = ledger.deps();
   deps.runSuite = async (args) => {
     for (let i = 0; i < begun; i++) args.onEvent?.({ phase: "testbegin", title: `test ${i}` });
+    for (let i = 0; i < skipped; i++) args.onEvent?.({ phase: "testend", title: `test ${i}`, status: "skipped" });
     return { report: {}, logs, ran: false };
   };
   return deps;
@@ -1317,6 +1318,26 @@ test("runE2E gives no count when a ledger of a stopped run cannot be trusted: fo
     for (const ledger of forged) assert.equal((await countOf(stoppedRun(ledger, 2))).devWrites, undefined);
   } finally {
     for (const ledger of forged) ledger.cleanup();
+  }
+});
+
+test("runE2E counts a stopped run that holds a statically skipped test: it began, ended skipped and left no ledger because the fixtures never ran", async () => {
+  const ledger = withLedgerDir({ "ledger-p1-w0-1.json": UNFINISHED_LEDGER(1, 0) });
+  try {
+    const run = await countOf(stoppedRun(ledger, 2, undefined, 1));
+    assert.equal(run.devWrites, 1);
+    assert.equal(run.unfinishedTests, 1);
+  } finally {
+    ledger.cleanup();
+  }
+});
+
+test("runE2E still gives no count when a test that did not end skipped left no ledger, whatever else was skipped", async () => {
+  const ledger = withLedgerDir({ "ledger-p1-w0-1.json": FINISHED_LEDGER(1) });
+  try {
+    assert.equal((await countOf(stoppedRun(ledger, 3, undefined, 1))).devWrites, undefined);
+  } finally {
+    ledger.cleanup();
   }
 });
 

@@ -239,11 +239,14 @@ export async function runE2E(
 
   /* The tests that began, from the runner's own stream reporter: a count can be believed only when every one of them left a ledger. */
   let begun = 0;
+  /* Tests whose end said `skipped`: a test skipped statically (test.skip, test.fixme) begins and ends without its fixtures, so it leaves no ledger. */
+  let skippedEnds = 0;
   const onEvent = (opts.onCase || opts.onRunning || opts.onDiscovered || opts.countWrites)
     ? (ev: StreamEvent): void => {
         if (ev.phase === "discovered") opts.onDiscovered?.(ev.title, ev.file);
         else if (ev.phase === "testbegin") { begun++; opts.onRunning?.(ev.title); }
         else if (ev.phase === "testend") {
+          if (ev.status === "skipped") skippedEnds++;
           const st = streamStatusToCase(ev.status);
           if (st) opts.onCase?.({ name: ev.title, status: st, ...(ev.durationMs !== undefined ? { durationMs: ev.durationMs } : {}) });
         }
@@ -313,10 +316,10 @@ export async function runE2E(
   /* A run that was stopped here is not over until its child is: the fixtures rewrite the ledgers as the tests go, and the last rewrite is the one that counts. The wait is bounded, so a child that never exits cannot hold the run. */
   if (opts.countWrites && (out === timedOut || out === abortedOut)) await exitedWithin(runPromise, deps.exitWaitMs ?? CHILD_EXIT_WAIT_MS);
   const { report, logs, ran } = out;
-  /* The ledger is read before any early return. How many tests it must cover is what the run says it ran: the report's executed tests for a run that reported, the tests that began for one that did not (stopped, crashed, no report); a ledger short of that has lost a test, so the count is unknown and the caller charges the whole cap (see readDevWrites). */
+  /* The ledger is read before any early return. How many tests it must cover is what the run says it ran: the report's executed tests for a run that reported, the tests that began for one that did not (stopped, crashed, no report); a ledger short of that has lost a test, so the count is unknown (a test that ended skipped may have left none, which the count allows for by number, not by name: the ledger carries no title) and the caller charges the whole cap (see readDevWrites). */
   const ledger = opts.countWrites ? readDevWrites(failureCaptureDir, failureCaptureRoot) : undefined;
-  const counted = (result: E2eRunResult, tests: number): E2eRunResult =>
-    ledger === undefined || ledger.files < tests ? result : { ...result, devWrites: ledger.writes, ...(ledger.unfinished > 0 ? { unfinishedTests: ledger.unfinished } : {}), ...(ledger.requests.length > 0 ? { devWriteRequests: ledger.requests } : {}), ...(ledger.sessionRequests.length > 0 ? { sessionRequests: ledger.sessionRequests } : {}) };
+  const counted = (result: E2eRunResult, tests: number, skipped = 0): E2eRunResult =>
+    ledger === undefined || ledger.files + skipped < tests ? result : { ...result, devWrites: ledger.writes, ...(ledger.unfinished > 0 ? { unfinishedTests: ledger.unfinished } : {}), ...(ledger.requests.length > 0 ? { devWriteRequests: ledger.requests } : {}), ...(ledger.sessionRequests.length > 0 ? { sessionRequests: ledger.sessionRequests } : {}) };
 
   /* Single sanitizeText pass: a separate containsSecrets() pre-check is redundant with this SAME detection result (mirrors code-execution.runner.ts's own AMENDMENT-1 simplification) — the warn fires under the exact same condition as before, just derived from one call instead of two. */
   const sanitized = sanitizeText(logs);
@@ -334,7 +337,7 @@ export async function runE2E(
       /* mutation-scope:begin no-report-outcome */
       cases: [],
       logs: sanitized.text || "the E2E runner produced no report (it crashed before reporting results)",
-    }, begun);
+    }, begun, skippedEnds);
   }
 
   /* The observer is told once per run, after the report is parsed and its cases are harvested and redacted, so the spans it synthesizes can carry each case's runtime evidence. It never alters the verdict; a fault in it is logged and ignored. */
