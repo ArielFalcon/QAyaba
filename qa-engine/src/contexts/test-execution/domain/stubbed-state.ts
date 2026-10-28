@@ -9,12 +9,13 @@ export interface SpecText {
   text: string;
 }
 
-/* A test that is stubbed. `response` is the response it states in its title (`[stubbed: <what the response says>]`), `routes` the url patterns it intercepts that could be read; both empty means a helper the detector cannot read intercepts for it. */
+/* A test that is stubbed. `response` is the response it states in its title (`[stubbed: <what the response says>]`), `routes` the url patterns it intercepts that could be read; both empty means a helper the detector cannot read intercepts for it. `fulfils` is the names of the fields, at every depth, of the bodies it fulfils when the spec states them (a literal, a stringified literal, a constant of the file): names only, never a value; absent when the body is not in the spec. */
 export interface StubbedTest {
   file: string;
   name: string;
   response?: string;
   routes: string[];
+  fulfils?: string[];
 }
 
 export type StubbedViolationKind =
@@ -47,6 +48,10 @@ export interface StubbedStateReport {
 /* The most url patterns kept for one test and the longest one, so a spec cannot grow its record. */
 const MAX_ROUTES_PER_TEST = 5;
 const MAX_ROUTE_CHARS = 160;
+/* The most field names kept for the bodies one test fulfils, how deep a stated body is read, and the longest name. */
+const MAX_FULFILLED_NAMES = 100;
+const MAX_BODY_DEPTH = 8;
+const MAX_NAME_CHARS = 64;
 
 const FIXTURES_SPECIFIER = /^(?:\.{1,2}\/)+fixtures(?:\.js|\.ts)?$/;
 const STUB_MARKER = /^\s*\[stubbed:\s*([^\]]+?)\s*\]/i;
@@ -61,6 +66,8 @@ interface Interception {
   /* `route`: a handler answers; `har`: a recorded replay; `socket`: a fake WebSocket server; `script`: a script replaces the request API; `fulfil`: a fulfil with no registration in sight; `helper`: a function from another module. */
   kind: "route" | "har" | "socket" | "script" | "fulfil" | "helper";
   pattern?: string;
+  /* `fulfil`: the field names of the body the call states. */
+  names?: string[];
 }
 
 const isFn = (node: ts.Node | undefined): node is Fn => node !== undefined && (ts.isArrowFunction(node) || ts.isFunctionExpression(node) || ts.isFunctionDeclaration(node));
@@ -178,6 +185,8 @@ class FileAnalysis {
   private readonly functions = new Map<string, Fn>();
   /* Names bound by an import of a module that is not the suite's fixtures. */
   private readonly foreign = new Set<string>();
+  /* Constants of this file holding an object or array literal. */
+  private readonly literals = new Map<string, ts.Expression>();
 
   constructor(readonly file: string, text: string) {
     this.sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -193,6 +202,7 @@ class FileAnalysis {
   private index(node: ts.Node): void {
     if (ts.isFunctionDeclaration(node) && node.name !== undefined) this.functions.set(node.name.text, node);
     else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined && isFn(node.initializer as ts.Node)) this.functions.set(node.name.text, node.initializer as Fn);
+    else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined && (ts.getCombinedNodeFlags(node) & ts.NodeFlags.Const) !== 0) this.literals.set(node.name.text, node.initializer);
     else if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && node.moduleSpecifier.text.startsWith(".") && !FIXTURES_SPECIFIER.test(node.moduleSpecifier.text)) {
       const clause = node.importClause;
       if (clause !== undefined && !clause.isTypeOnly) {
@@ -221,7 +231,7 @@ class FileAnalysis {
         else if (member === "routeFromHAR") found.push({ kind: "har", pattern: patternOf(current.arguments[0]) });
         else if (member === "routeWebSocket") found.push({ kind: "socket", pattern: patternOf(current.arguments[0]) });
         else if (member === "addInitScript" && REQUEST_REPLACING_SCRIPT.test(current.getText())) found.push({ kind: "script" });
-        else if (member === "fulfill") found.push({ kind: "fulfil" });
+        else if (member === "fulfill") found.push({ kind: "fulfil", names: this.fulfilledNames(current) });
         const root = this.rootName(current.expression);
         if (ts.isIdentifier(current.expression)) {
           const local = this.functions.get(current.expression.text);
@@ -236,6 +246,33 @@ class FileAnalysis {
     };
     visit(node);
     return found;
+  }
+
+  /* The names of the fields, at every depth, of the body a `fulfill` call states (`json`, or a `body` that is a literal or its `JSON.stringify`), or none when the spec does not state it. */
+  fulfilledNames(call: ts.CallExpression): string[] {
+    const names = new Set<string>();
+    const visit = (expression: ts.Expression | undefined, depth: number): void => {
+      if (expression === undefined || depth > MAX_BODY_DEPTH || names.size >= MAX_FULFILLED_NAMES) return;
+      const node = unwrap(expression);
+      if (ts.isIdentifier(node)) return visit(this.literals.get(node.text), depth + 1);
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "stringify") return visit(node.arguments[0], depth + 1);
+      if (ts.isAsExpression(node) || ts.isSatisfiesExpression(node)) return visit(node.expression, depth);
+      if (ts.isArrayLiteralExpression(node)) return void node.elements.forEach((element) => visit(element, depth + 1));
+      if (!ts.isObjectLiteralExpression(node)) return;
+      for (const property of node.properties) {
+        if (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property)) continue;
+        const name = ts.isIdentifier(property.name) || ts.isStringLiteral(property.name) ? property.name.text : undefined;
+        if (name !== undefined && name.length <= MAX_NAME_CHARS) names.add(name);
+        visit(ts.isPropertyAssignment(property) ? property.initializer : property.name, depth + 1);
+      }
+    };
+    const options = call.arguments[0] === undefined ? undefined : unwrap(call.arguments[0]);
+    if (options !== undefined && ts.isObjectLiteralExpression(options)) {
+      for (const property of options.properties) {
+        if (ts.isPropertyAssignment(property) && ts.isIdentifier(property.name) && (property.name.text === "json" || property.name.text === "body")) visit(property.initializer, 0);
+      }
+    }
+    return [...names].sort();
   }
 
   resolveHandler(argument: ts.Expression | undefined): Fn | undefined {
@@ -300,7 +337,8 @@ function analyse(spec: SpecText): { tests: StubbedTest[]; violations: StubbedVio
           } else {
             const response = responseOf(structural.name) ?? inner.response;
             const routes = [...new Set(all.filter((i) => i.pattern !== undefined).map((i) => i.pattern!))].slice(0, MAX_ROUTES_PER_TEST);
-            tests.push({ file: spec.file, name: structural.name, ...(response !== undefined ? { response } : {}), routes });
+            const fulfils = [...new Set(all.flatMap((i) => i.names ?? []))].sort().slice(0, MAX_FULFILLED_NAMES);
+            tests.push({ file: spec.file, name: structural.name, ...(response !== undefined ? { response } : {}), routes, ...(fulfils.length > 0 ? { fulfils } : {}) });
           }
           return;
         }

@@ -182,3 +182,46 @@ test("a file that does not parse contributes nothing", () => {
   assert.deepEqual(report.tests, []);
   assert.deepEqual(report.violations, []);
 });
+
+test("a stubbed test names the fields the response it fulfils carries, at every depth, when the spec states the body: a literal, a stringified literal, a constant of the file", () => {
+  const report = detect(`${IMPORTS}
+const BODY = { type: "Collection", entries: [{ detail: { label: "private-value" } }] };
+test("[stubbed: literal] a", async ({ page }) => {
+  await page.route("**/a/**", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    await route.fulfill({ json: { items: [{ id: 1, properties: { zone: "x" } }], total: 1 } });
+  });
+});
+test("[stubbed: stringified] b", async ({ page }) => {
+  await page.route("**/b/**", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ rows: [{ cell: 1 }] }) });
+  });
+});
+test("[stubbed: constant] c", async ({ page }) => {
+  await page.route("**/c/**", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    await route.fulfill({ json: BODY });
+  });
+});
+`);
+  const fulfils = (name: string): string[] | undefined => report.tests.find((t) => t.name.includes(name))?.fulfils;
+  assert.deepEqual(fulfils("literal"), ["id", "items", "properties", "total", "zone"]);
+  assert.deepEqual(fulfils("stringified"), ["cell", "rows"]);
+  assert.deepEqual(fulfils("constant"), ["detail", "entries", "label", "type"]);
+  assert.equal(JSON.stringify(report).includes("private-value"), false);
+});
+
+test("a stubbed test whose fulfilled body the spec does not state names no field, and a live test none", () => {
+  const report = detect(`${IMPORTS}${LIVE_TEST}
+import { body } from "./payloads";
+test("[stubbed: imported] d", async ({ page }) => {
+  await page.route("**/d/**", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    await route.fulfill({ json: body });
+  });
+});
+`);
+  assert.equal(report.tests.length, 1);
+  assert.equal(report.tests[0]!.fulfils, undefined);
+});
