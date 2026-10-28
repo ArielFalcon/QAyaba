@@ -2714,6 +2714,91 @@ test("enforce mode — a review regeneration after the measurement gets ONE fina
   }
 });
 
+test("signal mode — a flaky run whose review regeneration was accepted marks its measurement stale, as a passing run does", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    let measureCalls = 0;
+    let generation = 0;
+    let reviews = 0;
+    const { ports } = stubPorts({
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async (_specDir, opts) => ((opts as { namespace?: string } | undefined)?.namespace ? { verdict: "pass" as const, cases: [], logs: "" } : { verdict: "flaky" as const, cases: [{ name: "checkout", status: "flaky" as const }], logs: "" }),
+      measure: async () => {
+        measureCalls++;
+        return { status: "fail" as const, ratio: 0.2, valueScore: 0.25, uncovered: [{ file: "src/a.ts", lines: [1] }] };
+      },
+      blocks: () => false,
+      review: async () => {
+        reviews++;
+        return reviews === 1
+          ? { approved: false, corrections: ["assert the list"], blockingCount: 1, parsed: true }
+          : { approved: true, corrections: [], blockingCount: 0, parsed: true };
+      },
+    });
+    ports.generation.author = async () => {
+      generation++;
+      fixtures.write("flows/restaurants.spec.ts", generation === 1 ? "// first\n" : "// second\n");
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"]});
+    };
+    const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true, coveragePolicyMode: "signal" } });
+
+    const out = await useCase.run({ ...baseInput, runId: "coverage-stale-signal-flaky", mode: "diff" });
+
+    assert.equal(out.decision.verdict, "flaky", "the run stays quarantined");
+    assert.equal(measureCalls, 1);
+    assert.equal(out.gateSignals.coverage?.stale, true, "the recorded coverage predates the accepted bytes and is marked so");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("enforce mode — a flaky run whose review regeneration was accepted gets one final measured run, and stays quarantined however that run ends", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    let generation = 0;
+    let reviews = 0;
+    let measureCalls = 0;
+    const executeNamespaces: (string | undefined)[] = [];
+    const { ports } = stubPorts({
+      prepare: async () => fakeHandle({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async (_specDir, opts) => {
+        const namespace = (opts as { namespace?: string } | undefined)?.namespace;
+        executeNamespaces.push(namespace);
+        /* The final run happens to pass on its first attempt: that does not make the run's earlier instability go away. */
+        return namespace?.endsWith("-coverage-final") || /-acc\d+$/.test(namespace ?? "") ? { verdict: "pass" as const, cases: [{ name: "checkout", status: "pass" as const }], logs: "" } : { verdict: "flaky" as const, cases: [{ name: "checkout", status: "flaky" as const }], logs: "" };
+      },
+      measure: async () => {
+        measureCalls++;
+        return measureCalls === 1
+          ? { status: "fail" as const, ratio: 0.2, valueScore: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }
+          : { status: "pass" as const, ratio: 0.9, valueScore: 0.9 };
+      },
+      blocks: (status) => status === "fail",
+      review: async () => {
+        reviews++;
+        return reviews === 1
+          ? { approved: false, corrections: ["assert the amount"], blockingCount: 1, parsed: true }
+          : { approved: true, corrections: [], blockingCount: 0, parsed: true };
+      },
+    });
+    ports.generation.author = async () => {
+      generation++;
+      fixtures.write("flows/restaurants.spec.ts", `// generation ${generation}\n`);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"]});
+    };
+    const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true, coveragePolicyMode: "enforce" } });
+
+    const out = await useCase.run({ ...baseInput, runId: "coverage-final-flaky", mode: "diff" });
+
+    assert.equal(executeNamespaces.filter((ns) => ns?.endsWith("-coverage-final")).length, 1, "one final whole-suite measured run");
+    assert.equal(out.gateSignals.valueScore, 0.9, "the measurement describes the bytes now on disk");
+    assert.equal(out.decision.verdict, "flaky", "a final run that passed first time never promotes a flaky run");
+    assert.notEqual(out.decision.sideEffect, "pr", "a flaky run is never published");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
 test("the final guard restores the proven bytes when a spec changes after its green execution", async () => {
   const fixtures = reviewFixtures();
   try {

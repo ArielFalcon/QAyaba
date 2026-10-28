@@ -149,7 +149,7 @@ is the only engine; webhook (`src/server/webhook-handler.ts`, wired by `src/serv
    flaky → quarantine). DEV down → `infra-error`. A flaky run still has green bytes: coverage and review
    run on it (the review is advisory), and `triage-flaky-cases` sends the flaky cases to the lead as
    corrections (origin `flaky`, inside the correction budget, recounted after); a case is called data
-   instability only with Context Pack evidence (`gateSignals.flakyTriage`). The run stays quarantined.
+   instability only with Context Pack evidence (`gateSignals.flakyTriage`). An accepted regeneration makes its measurement stale and it is re-measured like a passing run's, without changing the flaky verdict or cases. The run stays quarantined.
    The failure capture reports the network class and count only for failed attempts, and a failed
    request is page-dependent by its resource type (document, fetch, xhr, script, stylesheet), never by host.
 8. **Change-coverage** — did the green run exercise the diff's changed lines? (below)
