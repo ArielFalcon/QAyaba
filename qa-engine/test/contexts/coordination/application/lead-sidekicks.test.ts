@@ -2348,3 +2348,88 @@ test("the facts an unmet DEV's state prevents is held to are the flow's own: its
   assert.deepEqual(r.executed[0]!.opts.devStateGround?.(), { flowReads: ["/search"], emptyReads: ["/home"], dataRoutes: [{ path: "/search", resultCount: 4 }] });
   assert.equal(r.events.find((e) => /flow cart turn 1/.test(e.reason ?? ""))?.sidekickStatus, "completed-with-concerns", "its own empty read of /home backs the claim");
 });
+
+/* ── the lead's correction turns never spend the room the flows they order need ──────────────── */
+
+/*
+ * A pass whose run clock the test owns. The lead's turns before `arm()` cost nothing; after it every lead turn costs `spend` of the
+ * run's time (or, for "to-timeout", its whole timeout, ending timed out), as a lead that honours the timeout it is handed would.
+ */
+function timedPass(outputs: string[], spend: number | "to-timeout") {
+  const clock = { left: 3_600_000, armed: false };
+  const asked: string[] = [];
+  const timeouts: number[] = [];
+  const plan: CoordinateInput["plan"] = async () => ({
+    plan: FANOUT_PLAN, parsed: true, timedOut: false,
+    lead: {
+      askForPlan: noPlanAnswer,
+      ask: async (text: string, opts: LeadTurnOpts) => {
+        if (!clock.armed) return { output: ACCEPT_ALL, timedOut: false };
+        asked.push(text);
+        timeouts.push(opts.timeoutMs);
+        const cost = spend === "to-timeout" ? opts.timeoutMs : spend;
+        clock.left -= cost;
+        if (spend === "to-timeout") return { output: "", timedOut: true };
+        return { output: outputs[Math.min(asked.length - 1, outputs.length - 1)]!, timedOut: false };
+      },
+      dispose: async () => {},
+    },
+  });
+  const r = rig();
+  const start = async (left: number) => {
+    const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan, closedLoop: undefined, deadline: { remainingMs: () => clock.left } }));
+    if (outcome.action !== "fanout") throw new Error("fanout expected");
+    clock.left = left;
+    clock.armed = true;
+    return outcome;
+  };
+  return { r, clock, asked, timeouts, start };
+}
+
+const CART_FINDING = { text: "the total is never asserted", spec: "e2e/flows/cart.spec.ts" };
+
+test("a slow lead turn is held to the time that leaves its orders the minimum a flow needs, so the orders reach their flows", async () => {
+  const { r, clock, timeouts, start } = timedPass([], "to-timeout");
+  const outcome = await start(330_000);
+  const corrected = await outcome.pass!.correct([CART_FINDING], CORRECTION_ORIGIN.COVERAGE);
+  await outcome.pass!.release();
+  assert.ok(timeouts[0]! <= 330_000 - 120_000 - MIN_FLOW_MS, "the turn may use what the room holds less one flow's minimum");
+  assert.ok(clock.left >= 120_000 + MIN_FLOW_MS, "the run still has the reserve and the minimum a flow needs");
+  assert.deepEqual(corrected.specs, ["flows/cart.spec.ts"], "the finding reached its flow");
+  assert.deepEqual(corrected.unrouted, []);
+  assert.ok(r.executed.some((e) => e.asked && e.brief.delegationId === "run-1-flow-cart"));
+});
+
+test("a run with too little room for a lead turn sends none and gives each finding its default owner, on the record", async () => {
+  const { r, asked, start } = timedPass([], 10_000);
+  const outcome = await start(200_000);
+  const corrected = await outcome.pass!.correct([CART_FINDING], CORRECTION_ORIGIN.FLAKY);
+  await outcome.pass!.release();
+  assert.deepEqual(asked, [], "no lead turn was sent");
+  assert.deepEqual(corrected.specs, ["flows/cart.spec.ts"]);
+  assert.deepEqual(corrected.unrouted, []);
+  assert.ok(r.events.some((e) => e.origin === CORRECTION_ORIGIN.FLAKY && /too little of the run is left for the lead/.test(e.reason ?? "") && /default owner/.test(e.reason ?? "")), "the decision is recorded");
+});
+
+test("the lead is not asked again when that would leave its orders less than a flow needs; its first answer stands", async () => {
+  const { r, asked, start } = timedPass([OUT_OF_RANGE_ORDER, VALID_ORDER], 30_000);
+  const outcome = await start(260_000);
+  const corrected = await outcome.pass!.correct([...LOOSE_ARMS, CART_FINDING], CORRECTION_ORIGIN.COVERAGE);
+  await outcome.pass!.release();
+  assert.equal(asked.length, 1, "the re-ask was not sent");
+  assert.deepEqual(corrected.specs, ["flows/cart.spec.ts"], "the cited finding still reaches its flow");
+  assert.deepEqual(corrected.unrouted, [0, 1]);
+  assert.ok(r.events.some((e) => /too little of the run is left to ask the lead again/.test(e.reason ?? "")));
+});
+
+test("a fast lead turn with ample room is handed the plan budget and is routed as before", async () => {
+  const { r, asked, timeouts, start } = timedPass([OUT_OF_RANGE_ORDER, VALID_ORDER], 5_000);
+  const outcome = await start(3_000_000);
+  const corrected = await outcome.pass!.correct(LOOSE_ARMS, CORRECTION_ORIGIN.COVERAGE);
+  await outcome.pass!.release();
+  assert.deepEqual(timeouts, [DEFAULT_COORDINATION_SETTINGS.planBudgetMs, DEFAULT_COORDINATION_SETTINGS.planBudgetMs]);
+  assert.equal(asked.length, 2, "the correction turn and the one re-ask");
+  assert.deepEqual(corrected.specs, ["flows/cart.spec.ts"]);
+  assert.deepEqual(corrected.unrouted, []);
+  assert.equal(r.events.some((e) => /too little of the run is left for the lead/.test(e.reason ?? "")), false);
+});
