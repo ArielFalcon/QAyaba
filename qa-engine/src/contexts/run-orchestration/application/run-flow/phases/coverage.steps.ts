@@ -6,6 +6,7 @@ import { faultAimOf } from "../fault-aim.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { candidatesSeededBy } from "@kernel/change-map.ts";
 import { hasGreenBytes } from "@kernel/run-verdict.ts";
+import type { QaCase } from "@kernel/qa-case.ts";
 import type { GenerationEnrichment } from "@contexts/generation/application/index.ts";
 import { changedCodeFiles, renderBranchGap, renderCoverageGap, renderSurvivedMutants, survivorClosureOf, survivorFindings, survivorRechecks, testSupportFiles, unreachableByDesign, type BundleMutationResult, type CoverageExclusions, type CoverageMeasurement, type CoverageRerun, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
 import type { StepOutcome } from "../run-flow.ts";
@@ -170,9 +171,11 @@ export const regeneratesForBranchCases = (state: Readonly<RunState>, ctx: Worksp
   }) === "regenerate";
 
 /*
- * How a gap regeneration ended; `reruns` names the acceptance's own dumps of the specs it kept when every one of them executed in it,
- * so the coverage can be recounted from them; `changedSpecFiles` are the specs an accepted one changed and kept;
- * `files` counts the spec files the turn changed whose new bytes stand and those given their prior bytes back.
+ * How a gap regeneration ended; `reruns` names the dumps of the specs it kept (the acceptance's, and the measurement's of those it took
+ * on a run_spec proof) when every one of them executed on its accepted bytes, so the coverage can be recounted from them;
+ * `changedSpecFiles` are the specs an accepted one changed and kept, and `measuredSpecFiles` those of them whose cases in `run` come from
+ * an execution of their accepted bytes; `files` counts the spec files the turn changed whose new bytes stand and those given their
+ * prior bytes back.
  */
 export interface GapRegeneration {
   outcome: BranchCasesOutcome["outcome"];
@@ -181,6 +184,7 @@ export interface GapRegeneration {
   leadCorrections: number;
   reruns?: CoverageRerun[];
   changedSpecFiles?: string[];
+  measuredSpecFiles?: string[];
   files?: { kept: number; restored: number };
 }
 
@@ -261,19 +265,51 @@ export async function regenerateAtGap(
   const kept = [...outcome.kept];
   /* A spec file given its prior bytes back keeps its prior cases and delivery: only the kept files' are the turn's. */
   if (outcome.restored.length > 0) rollbackDelivered(state, deliveredBefore, outcome.restored);
-  if (outcome.execution?.cases.length) {
-    const keptSet = new Set(kept);
-    run = { ...run, cases: [...run.cases.filter((c) => !keptSet.has(c.file ?? c.name)), ...outcome.execution.cases] };
-  }
   const files = { kept: kept.length, restored: outcome.restored.length };
   traceAcceptedFiles(ctx, origin, files);
   /*
-   * A spec whose proof was reused left no dumps here: the coverage cannot be recounted without it. A spec file given back is not named,
-   * so its dumps here are never read: it is counted from the dumps of the bytes it was given back.
+   * The kept files the acceptance executed have their cases and dumps under its namespace. Those it accepted on a run_spec proof left
+   * neither here, so they are executed once to be measured: their cases (new and renamed tests included) and their dumps then describe
+   * the accepted bytes. A spec file given back is not named, so its dumps here are never read: it is counted from the dumps of the
+   * bytes it was given back.
    */
-  const executed = new Set(outcome.executedSpecs);
-  const recountable = kept.every((file) => executed.has(file));
-  return { outcome: "accepted", run, acceptanceCalls, leadCorrections, changedSpecFiles: kept, files, ...(recountable ? { reruns: [{ namespace, specFiles: kept }] } : {}) };
+  const executedSet = new Set(outcome.executedSpecs);
+  const executed = kept.filter((file) => executedSet.has(file));
+  const proved = kept.filter((file) => !executedSet.has(file));
+  const measurement = proved.length > 0 ? await measureProved(ctx, proved, `${namespace}-measure`) : undefined;
+  const fresh = [...(outcome.execution?.cases.length ? [{ files: executed, cases: outcome.execution.cases }] : []), ...(measurement ? [{ files: proved, cases: measurement.cases }] : [])];
+  const replaced = new Set(fresh.flatMap((f) => f.files));
+  if (replaced.size > 0) run = { ...run, cases: [...run.cases.filter((c) => !replaced.has(c.file ?? c.name)), ...fresh.flatMap((f) => f.cases)] };
+  const reruns: CoverageRerun[] = [...(executed.length > 0 ? [{ namespace, specFiles: executed }] : []), ...(measurement ? [{ namespace: measurement.namespace, specFiles: proved }] : [])];
+  const measured = [...executed, ...(measurement ? proved : [])];
+  /* The coverage is recounted only when every kept file was measured on its accepted bytes; otherwise it stays marked not current. */
+  const recountable = measured.length === kept.length;
+  return { outcome: "accepted", run, acceptanceCalls, leadCorrections, changedSpecFiles: kept, measuredSpecFiles: measured, files, ...(recountable ? { reruns } : {}) };
+}
+
+/*
+ * One execution of the kept spec files an acceptance took on their run_spec proof, so the run holds their cases and dumps: the proof
+ * says the bytes passed, not which tests they hold nor what they ran. It spends one execution of the run's acceptance cap and needs
+ * time left. A measurement that cannot start, or does not pass, is no measurement of the accepted bytes: it is logged, the bytes
+ * stand on their proof, and the coverage of the regeneration stays marked not current. Undefined then.
+ */
+async function measureProved(ctx: WorkspaceRunContext, specFiles: string[], namespace: string): Promise<{ namespace: string; cases: readonly QaCase[] } | undefined> {
+  const { acceptance, runDeadlinePort } = ctx.services;
+  const left = runDeadlinePort.remainingMs?.();
+  if (left !== undefined && left <= 0) {
+    engineLog.warn(`[qa] coverage: the run has no time left to execute the ${specFiles.length} spec file(s) accepted on their run_spec proof; the coverage after the regeneration is not current`);
+    return undefined;
+  }
+  if (!acceptance.spendExecution()) {
+    engineLog.warn(`[qa] coverage: the run's acceptance executions are spent, so the ${specFiles.length} spec file(s) accepted on their run_spec proof are not executed; the coverage after the regeneration is not current`);
+    return undefined;
+  }
+  const result = await executeAccepted(ctx)(ctx.workspace.specDir, { specFiles, retries: 0, namespace });
+  if (result.verdict !== "pass") {
+    engineLog.warn(`[qa] coverage: the execution of the spec file(s) accepted on their run_spec proof ended ${result.verdict} (${specFiles.join(", ")}); they stand on their proof and the coverage after the regeneration is not current`);
+    return undefined;
+  }
+  return { namespace, cases: result.cases };
 }
 
 const isSpecFile = (file: string): boolean => file.endsWith(".spec.ts");
@@ -290,17 +326,18 @@ async function recheckOrNone(recheck: () => Promise<BundleMutationResult | null>
 
 /*
  * Whether an accepted regeneration answered the surviving mutants routed to it: each is applied again to the specs it changed, judged
- * against those specs' passing cases. The proof of a regenerated test is that the fault it was asked about now fails it; until then it
- * is only text. Undefined when no survivor was routed or the regeneration was not accepted. A signal, never a gate.
+ * against the cases those specs' accepted bytes passed. Only the specs executed on their accepted bytes are judged: the cases a run
+ * holds for any other are those of bytes that are gone. The proof of a regenerated test is that the fault it was asked about now fails
+ * it; until then it is only text. Undefined when no survivor was routed or the regeneration was not accepted. A signal, never a gate.
  */
 export async function closeSurvivors(state: Readonly<RunState>, ctx: WorkspaceRunContext, regen: GapRegeneration): Promise<SurvivorClosure | undefined> {
   const { deps, input, workspace } = ctx;
   const routed = state.coverage.survivorRuns;
-  const changed = regen.changedSpecFiles ?? [];
-  if (regen.outcome !== "accepted" || routed.length === 0 || changed.length === 0 || !deps.objectiveSignal.recheckSurvivors) return undefined;
-  const changedSet = new Set(changed);
-  const baselineCases = regen.run.cases.filter((c) => c.status === "pass" && changedSet.has(c.file ?? c.name)).map((c) => c.name);
-  const result = baselineCases.length > 0 ? await recheckOrNone(() => deps.objectiveSignal.recheckSurvivors!(survivorRechecks(routed, changed), workspace.specDir, `${input.runId}-closure`, baselineCases)) : null;
+  if (regen.outcome !== "accepted" || routed.length === 0 || (regen.changedSpecFiles ?? []).length === 0 || !deps.objectiveSignal.recheckSurvivors) return undefined;
+  const measured = regen.measuredSpecFiles ?? [];
+  const measuredSet = new Set(measured);
+  const baselineCases = regen.run.cases.filter((c) => c.status === "pass" && measuredSet.has(c.file ?? c.name)).map((c) => c.name);
+  const result = baselineCases.length > 0 ? await recheckOrNone(() => deps.objectiveSignal.recheckSurvivors!(survivorRechecks(routed, measured), workspace.specDir, `${input.runId}-closure`, baselineCases)) : null;
   const closure = survivorClosureOf(routed.length, result);
   engineLog.info(`[qa] survivor closure: ${closure.closed} of ${closure.routed} surviving mutant(s) now noticed by a test (${closure.judged} judged)`);
   return closure;

@@ -2,6 +2,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { Sha } from "@kernel/sha.ts";
 import { ERROR_CLASS } from "@kernel/error-class.ts";
 import { ok } from "@kernel/result.ts";
@@ -361,6 +363,112 @@ test("the single change-coverage regeneration still runs when the loop is closed
   }
 });
 
+
+/* ── A gap regeneration accepted on a run_spec proof is still measured on the bytes it accepted ──────────────────────── */
+
+const ARMS = [
+  { file: "src/a.ts", line: 3, kind: "if", arm: "else" },
+  { file: "src/a.ts", line: 7, kind: "logical", arm: "right of || evaluated" },
+];
+const SURVIVOR_SITE = {
+  file: "src/a.ts",
+  line: 9,
+  column: 2,
+  operator: "negate condition",
+  script: { url: "https://dev.example/main.js", sha256: "h" },
+  edit: { start: 3, end: 8, replacement: "!(ok)" },
+  original: "ok",
+  ranIn: ["flows-a-spec-ts-a-0.json"],
+};
+/* The regeneration renamed the test and added one: only an execution of its bytes knows their names. */
+const CURRENT: QaCase[] = [{ name: "a when dark", status: "pass", file: "flows/a.spec.ts" }, { name: "a when light", status: "pass", file: "flows/a.spec.ts" }];
+
+function gapRig(closed: boolean, measured: { verdict: "pass" | "fail"; cases: QaCase[] }) {
+  const r = rig({ closed });
+  const executions: { namespace?: string; specFiles?: string[] }[] = [];
+  const rechecked: string[][] = [];
+  const recounted: unknown[] = [];
+  let turns = 0;
+  const deps = r.deps({
+    ...served({
+      author: async (specDir) => {
+        r.generations++;
+        mkdirSync(join(specDir, "flows"), { recursive: true });
+        writeFileSync(join(specDir, "flows/a.spec.ts"), `// pass ${++turns}\n`);
+        return scriptedGeneration({ specs: ["flows/a.spec.ts"] });
+      },
+    }),
+    execution: {
+      execute: async (_dir, opts) => {
+        const { namespace, specFiles } = (opts ?? {}) as { namespace?: string; specFiles?: string[] };
+        executions.push({ ...(namespace ? { namespace } : {}), ...(specFiles ? { specFiles } : {}) });
+        if (!namespace?.includes("-acc")) return { verdict: "pass", cases: PASS, logs: "" };
+        return { verdict: measured.verdict, cases: measured.cases, logs: "" };
+      },
+    },
+    objectiveSignal: {
+      measure: async () => ({
+        status: "pass",
+        ratio: 0.9,
+        uncovered: [],
+        untakenArms: ARMS,
+        bundleMutation: { applied: 1, killed: 0, survived: [{ file: "src/a.ts", line: 9, operator: "negate condition", specFiles: ["flows/a.spec.ts"] }] },
+        survivorRuns: [{ site: SURVIVOR_SITE, specFiles: ["flows/a.spec.ts"] }],
+        measurement: { changedLines: 10, coveredChanged: 9, changedFiles: 1, mappedFiles: 1, changedBranches: 6, takenBranches: 4 },
+      }),
+      blocks: () => false,
+      recount: async (_br, _dir, _diff, reruns) => {
+        recounted.push(reruns);
+        return { status: "pass", ratio: 1, uncovered: [], untakenArms: [ARMS[1]!], measurement: { changedLines: 10, coveredChanged: 10, changedFiles: 1, mappedFiles: 1, changedBranches: 6, takenBranches: 5 } };
+      },
+      recheckSurvivors: async (_survivors, _dir, _namespace, baselineCases) => {
+        rechecked.push([...baselineCases]);
+        return { applied: 1, killed: 1, survived: [] };
+      },
+    },
+    config: { needsReview: false, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false, coveragePolicyMode: "signal", coverageBranchCases: "regenerate" },
+  });
+  return { r, deps, executions, rechecked, recounted };
+}
+
+test("a gap regeneration accepted on its run_spec proof is executed once to be measured: the closure judges its current cases and the coverage is recounted from that execution", async () => {
+  const { r, deps, executions, rechecked, recounted } = gapRig(true, { verdict: "pass", cases: CURRENT });
+
+  const out = await new RunQaUseCase(deps).run(INPUT);
+
+  assert.equal(r.generations, 2, "the first pass and the branch-case regeneration");
+  assert.deepEqual(executions.filter((e) => e.namespace?.includes("-acc")), [{ namespace: "loop-run-acc0-measure", specFiles: ["flows/a.spec.ts"] }], "no acceptance execution, one measurement of the accepted bytes");
+  assert.deepEqual(rechecked, [["a when dark", "a when light"]], "the survivor is judged against the tests the accepted bytes hold");
+  assert.deepEqual(recounted, [[{ namespace: "loop-run-acc0-measure", specFiles: ["flows/a.spec.ts"] }]]);
+  const signals = r.saved.at(-1)!.gateSignals;
+  assert.deepEqual(signals.branchCases, { outcome: "accepted", armsBefore: 2, armsAfter: 1, kept: 1, restored: 0 });
+  assert.deepEqual(signals.branchCoverage, { changed: 6, taken: 5 }, "the recount is what the run records");
+  assert.deepEqual(signals.survivorClosure, { routed: 1, judged: 1, closed: 1, open: [] });
+  assert.equal(out.decision.sideEffect, "pr");
+});
+
+test("a measurement of proof-reused bytes that does not pass recounts nothing and judges no survivor on cases of other bytes; the bytes stand on their proof", async () => {
+  const { r, deps, rechecked, recounted } = gapRig(true, { verdict: "fail", cases: [{ name: "a when dark", status: "fail", file: "flows/a.spec.ts", detail: "DEV slow" }] });
+
+  const out = await new RunQaUseCase(deps).run(INPUT);
+
+  assert.deepEqual(recounted, [], "no dumps of the accepted bytes, no recount");
+  assert.deepEqual(rechecked, [], "no case of the accepted bytes passed, so no survivor is judged");
+  const signals = r.saved.at(-1)!.gateSignals;
+  assert.deepEqual(signals.branchCases, { outcome: "accepted", armsBefore: 2, kept: 1, restored: 0 }, "the arms after it are not known");
+  assert.deepEqual(signals.survivorClosure, { routed: 1, judged: 0, closed: 0, open: [] });
+  assert.equal(out.decision.sideEffect, "pr", "a measurement is a signal: the accepted bytes stand");
+});
+
+test("a gap regeneration whose acceptance executed its specs is measured from that execution alone", async () => {
+  const { deps, executions, rechecked, recounted } = gapRig(false, { verdict: "pass", cases: CURRENT });
+
+  await new RunQaUseCase(deps).run(INPUT);
+
+  assert.deepEqual(executions.filter((e) => e.namespace?.includes("-acc")), [{ namespace: "loop-run-acc0", specFiles: ["flows/a.spec.ts"] }]);
+  assert.deepEqual(rechecked, [["a when dark", "a when light"]]);
+  assert.deepEqual(recounted, [[{ namespace: "loop-run-acc0", specFiles: ["flows/a.spec.ts"] }]]);
+});
 
 test("a sweep that fails ends the run as an infra-error before anything validates, executes or publishes: probes the sweep left must not be judged or delivered", async () => {
   const r = rig();

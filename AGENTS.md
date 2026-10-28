@@ -862,16 +862,22 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   regeneration (survivor closure) does not observe.
 - **Survivor closure** (signal, never a gate): a surviving mutant routed to a coverage or branch-case
   regeneration is, once that regeneration is accepted, applied again to the specs it changed and judged
-  against their passing cases (`closeSurvivors`, `survivor-closure.ts`): a regenerated test counts as
-  answering its survivor only when that mutant now fails it. The mutant as it ran (served script, edit)
+  against the cases their accepted bytes passed (`closeSurvivors`, `survivor-closure.ts`): a regenerated test counts as
+  answering its survivor only when that mutant now fails it. Only specs executed on their accepted bytes are
+  judged (`GapRegeneration.measuredSpecFiles`), never against the cases of bytes that are gone. The mutant as it ran (served script, edit)
   stays with the orchestrator and never reaches an agent or the record. `gateSignals.survivorClosure
   { routed, judged, closed, open[] }`; a survivor still open never changes the decision.
 - **Branch cases** (never a gate; `qa.changeCoverage.branchCases`, default `regenerate`): a green diff run
   whose measurement blocks nothing and found untaken arms on changed lines gets **one** regeneration (the
   step `regenerate-for-branch-cases`) with those arms as the cases still missing (a blocking enforce
   measurement regenerates for coverage instead, with the same arms in its gap). It goes through acceptance
-  like any regeneration; an accepted one is recounted from the dumps already on disk (the first run's minus
-  those of the re-run spec files, plus the acceptance's), never by re-running DEV.
+  like any regeneration; an accepted one is recounted from the dumps on disk (the first run's minus
+  those of the re-run spec files, plus the acceptance's), never by re-running the whole suite. A spec file the
+  acceptance took on its `run_spec` proof left no cases or dumps of its accepted bytes, so it is executed once
+  to be measured (namespace `<acceptance namespace>-measure`, retries 0, one execution of the run's acceptance
+  cap, only while the run has time left): its cases, new and renamed tests included, replace that file's, and
+  its dumps join the recount. A measurement that cannot start or does not pass is logged, the bytes stand on
+  their proof, nothing is recounted and the coverage stays not current (`armsAfter` absent, `coverage.stale`).
   `gateSignals.branchCases { outcome, armsBefore, armsAfter?, kept?, restored? }`.
 - **Per-file acceptance**: a regeneration (gap, flaky or review correction) that changed spec files only is
   accepted file by file (`RegenerationAcceptance`, `independentSpecs`): when its acceptance run fails, every
@@ -879,8 +885,9 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   changed file gets its prior bytes, cases and delivery back. Only the kept files get a proof, so the bytes on
   disk are still the last that ran green, file by file, and the suite store captures only those; survivor
   closure is judged on the kept files. With none kept, or a changed file the specs import, it is accepted or
-  rejected whole. The recount reads the kept files from the acceptance's dumps (a re-run's namespace is read for
-  its own spec files only) and the restored files from the dumps of the bytes they were given back.
+  rejected whole. The recount reads the kept files from the acceptance's dumps, or from their measurement when their
+  proof was reused (a re-run's namespace is read for its own spec files only), and the restored files from the dumps of
+  the bytes they were given back.
   `kept`/`restored` are counted on the regeneration's gate signal and its `regeneration_acceptance` span event.
   The fix loop's iterative rounds adopt a failing execution whole, as before. A run deadline spent during it is the
   run's degrade (`deadline-after-proof`), as for the coverage regeneration.
