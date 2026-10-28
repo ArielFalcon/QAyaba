@@ -183,3 +183,24 @@ test("a namespace that is empty, relative, longer than a folder name or not lett
   }
   openDumpBridge({ specDir: r.specDir, namespace: "x".repeat(128), dumpRoot: r.dumpRoot, workRoot: r.workRoot }).dispose();
 });
+
+test("the time the coverage dumps took does not starve the counters beside them: each kind of dump has the check time of its own", (t) => {
+  const r = rig(t);
+  /* Every reading of the clock costs six seconds, so one kind's two readings (its start and its first file) fit the check time and a third reading, a second kind's file read against the first kind's start, would not. */
+  let clock = 0;
+  const bridge = openDumpBridge({ specDir: r.specDir, namespace: NS, dumpRoot: r.dumpRoot, workRoot: r.workRoot, now: () => (clock += 6_000) });
+  writeFileSync(join(r.dumpRoot, "coverage", "w0-0.json"), DUMP);
+  writeFileSync(join(r.dumpRoot, "fault-injection", "mutated-1.json"), JSON.stringify({ corrupted: 4 }));
+  bridge.harvest();
+  assert.equal(countInjectedResponses(r.specDir, NS), 4, "the counters were read, not left out for the time the coverage took");
+  assert.deepEqual(entries(join(r.specDir, ".qa", "coverage", NS)), ["w0-0.json"]);
+});
+
+test("a kind of dump whose check outlasts its own time is left out, and the count of its counters is unknown", (t) => {
+  const r = rig(t);
+  let clock = 0;
+  const bridge = openDumpBridge({ specDir: r.specDir, namespace: NS, dumpRoot: r.dumpRoot, workRoot: r.workRoot, now: () => (clock += 11_000) });
+  writeFileSync(join(r.dumpRoot, "fault-injection", "mutated-1.json"), JSON.stringify({ corrupted: 4 }));
+  bridge.harvest();
+  assert.equal(countInjectedResponses(r.specDir, NS), undefined);
+});

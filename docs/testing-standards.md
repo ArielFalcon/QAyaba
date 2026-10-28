@@ -1285,7 +1285,7 @@ the code the presets cover, and what holds it, is only its tests (strict test fi
 reason before the change): the caps and budgets (the Playwright report and the oracle's report 16 MiB, the V8
 dump 32 MiB and the dumps of a run 1 GiB, the native coverage report 32 MiB, the failure dumps of a run 32 MiB, and
 a total of 256 MiB read of one repository by a `RepoReader`), the clock the decoding of the V8 dumps is asked
-about as it goes (`TimeSpent`, 4,096 segments between two looks; 10 s for all the dumps of a run), the exit
+about as it goes (`TimeSpent`, 4,096 segments between two looks; 10 s for each kind of dump of a run, coverage and fault-injection counters apart), the exit
 status of the Playwright child (a pass that the child did not exit 0 for is infrastructure), the report that is
 not read once the run is settled, `purgeRefusedDirectory` and its use on the coverage and fault-injection
 directories and the measured file in `.qa`, the package.json that is written last by the seed copy, and the

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readRunOutputDir, scanRunOutputDir, type RunOutputLimits } from "../../src/shared-infrastructure/run-output-reader.ts";
+import { OutOfTimeError, readRunOutputDir, scanRunOutputDir, type RunOutputLimits } from "../../src/shared-infrastructure/run-output-reader.ts";
 
 function withDir(run: (root: { mirrorDir: string; specDir: string }, rel: string) => void): void {
   const tmp = mkdtempSync(join(tmpdir(), "qa-run-output-"));
@@ -81,5 +81,27 @@ test("a directory that is not there is absent in a scan and no output in a set u
   withDir((root) => {
     assert.deepEqual(scanRunOutputDir(root, "missing", everything, (name) => name, LIMITS(3), { readCut: false }), { absent: true });
     assert.deepEqual(readRunOutputDir(root, "missing", everything, (name) => name, LIMITS(3)), []);
+  });
+});
+
+test("a file left out because the time to check the directory ran out is told apart from one whose content could not be used", () => {
+  withDir((root, rel) => {
+    const scan = scanRunOutputDir(
+      root,
+      rel,
+      everything,
+      (name) => {
+        if (name === "a.json") throw new OutOfTimeError();
+        if (name === "b.json") throw new RangeError("not JSON");
+        return name;
+      },
+      LIMITS(10),
+      { readCut: false },
+    );
+
+    assert.ok("leftOut" in scan);
+    assert.deepEqual(scan.files, ["c.json"]);
+    assert.equal(new Set(scan.leftOut).size, 2, "the two reasons are not the same reason");
+    assert.ok(scan.leftOut.some((reason) => /time/.test(reason)), "the one that ran out of time says so");
   });
 });

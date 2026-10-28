@@ -15,14 +15,14 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import { chmodSync, chownSync, lstatSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { MAX_V8_DUMP_FILES, MAX_V8_DUMP_BYTES, MAX_V8_DUMPS_TOTAL_BYTES, sanitizeV8Dump, MAX_FAULT_INJECTION_COUNTER_BYTES, MAX_FAULT_INJECTION_COUNTER_FILES, sanitizeFaultCounter } from "@contexts/objective-signal/application/index.ts";
-import { describeReasons, scanRunOutputDir, type RunOutputLimits } from "../../../shared-infrastructure/run-output-reader.ts";
+import { describeReasons, OutOfTimeError, scanRunOutputDir, type RunOutputLimits } from "../../../shared-infrastructure/run-output-reader.ts";
 import { ensureOwnedSpecDir, purgeRefusedDirectory, writeOwnedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
 
 /* The namespace is the run's data prefix; it names a folder, so it names nothing else: Unicode letters, combining marks and numbers, plus the separators a folder name may carry. A path separator, a control character, and a leading dot or dash (which a hidden or relative name needs) are none of them. */
 const NAMESPACE_RE = /^[\p{L}\p{N}][\p{L}\p{M}\p{N}._-]{0,127}$/u;
 const DUMP_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.json$/;
 
-/* The time all the dumps of a run are given to be checked, together; past it the set is left out, like a set the reader cannot decode in its own time. */
+/* The time the dumps of one kind (the coverage dumps, the fault-injection counters) are given to be checked, together; past it the set of that kind is left out, like a set the reader cannot decode in its own time. Each kind has the time of its own: the bulky coverage dumps must not use up what the small counters, which decide whether a mutant reached a page, are checked in. */
 export const DUMP_CHECK_BUDGET_MS = 10_000;
 
 interface DumpKind {
@@ -113,15 +113,15 @@ export function openDumpBridge(input: DumpBridgeInput): DumpBridge {
       done = true;
       removeLinks();
       const workRoot: SpecRoot = { mirrorDir: input.workRoot, specDir: input.workRoot };
-      const started = now();
       for (const kind of KINDS) {
+        const started = now();
         const rel = `${input.dumpRoot.slice(input.workRoot.length).replace(/^\/+/, "")}/${kind.folder}`;
         const scan = scanRunOutputDir(
           workRoot,
           rel,
           (name) => DUMP_NAME_RE.test(name),
           (name, bytes) => {
-            if (now() - started > DUMP_CHECK_BUDGET_MS) throw new RangeError("out of time");
+            if (now() - started > DUMP_CHECK_BUDGET_MS) throw new OutOfTimeError();
             return { name, bytes: kind.sanitize(bytes) };
           },
           kind.limits,
