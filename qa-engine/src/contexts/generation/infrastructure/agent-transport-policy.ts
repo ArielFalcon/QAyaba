@@ -237,7 +237,8 @@ export function agentErrorToInfra(error: RawAgentErrorPayload): AgentUnavailable
       const hint =
         d.statusCode === 429 ? " — rate-limited, retry later" :
         d.statusCode === 402 ? " — out of credits / billing" :
-        d.statusCode === 401 || d.statusCode === 403 ? " — auth (check OPENCODE_API_KEY)" :
+        /* A rejected request says nothing certain about the key: a transient upstream fault answers the same to a working one. */
+        d.statusCode === 401 || d.statusCode === 403 ? " — the provider rejected the request; the API key was not verified (a transient provider fault answers the same to a working key)" :
         "";
       return new AgentUnavailableError(`OpenCode API error${code}${detail}${hint}. ${tail}.`);
     }

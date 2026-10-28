@@ -456,6 +456,17 @@ test("agentErrorToInfra classifies an embedded provider fault as infrastructure 
   assert.equal(isInfraError(rate), true);
   assert.match(rate.message, /429|rate-limited/i);
 
+  /* A rejected request (401/403) is the provider refusing it, with the key unverified: a transient upstream fault answers the same with a working key. */
+  for (const statusCode of [401, 403]) {
+    const rejected = agentErrorToInfra({ name: "APIError", data: { message: "Unauthorized", statusCode } });
+    assert.equal(isInfraError(rejected), true);
+    assert.match(rejected.message, /INCONCLUSIVE \(infrastructure\)/);
+    assert.match(rejected.message, new RegExp(String(statusCode)));
+    assert.match(rejected.message, /provider rejected the request/i);
+    assert.match(rejected.message, /key (was )?not verified|not verified.*key/i);
+    assert.doesNotMatch(rejected.message, /check OPENCODE_API_KEY/i, "a rejection is not reported as a wrong key");
+  }
+
   /* An unknown/future variant still classifies as infra, never a code verdict. */
   const unknown = agentErrorToInfra({ name: "UnknownError", data: { message: "boom" } });
   assert.equal(isInfraError(unknown), true);
