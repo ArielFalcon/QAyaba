@@ -57,6 +57,12 @@ test("renderCoverageGap: with candidates, the uncovered lines are grouped under 
   assert.equal(out, "changed lines NOT exercised by any test, by use case:\nuc-1 (page /one):\n  - src/a.ts: lines 2-3\nuc-2 (page /two):\n  - src/a.ts: lines 12\nother changed lines:\n  - src/a.ts: lines 40");
 });
 
+test("renderCoverageGap: a hub's code a candidate shares groups its uncovered lines under that candidate, as a seed of its own does", () => {
+  const sharing = { ...cand("uc-1", "/one", "src/one.ts", 1, 5), sharedSeeds: [{ file: "src/store.ts", symbol: "load", range: { start: 10, end: 20 }, pages: 9 }] };
+  const out = renderCoverageGap([{ file: "src/store.ts", lines: [12, 30] }], [sharing]);
+  assert.equal(out, "changed lines NOT exercised by any test, by use case:\nuc-1 (page /one):\n  - src/store.ts: lines 12\nother changed lines:\n  - src/store.ts: lines 30");
+});
+
 test("renderCoverageGap: candidates that hold none of the uncovered lines leave the ungrouped text as it was", () => {
   const plain = renderCoverageGap([{ file: "src/a.ts", lines: [40] }]);
   assert.equal(renderCoverageGap([{ file: "src/a.ts", lines: [40] }], [cand("uc-1", "/one", "src/a.ts", 1, 5)]), plain);

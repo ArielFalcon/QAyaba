@@ -31,7 +31,7 @@ export interface UseCaseCandidate {
   basis: ReachBasis;
   evidence: string[];
   seeds: ChangedSymbol[];
-  /* Changed symbols that reach this page together with many others, or whose graph walk the budget cut: a hub proves no entry on its own, but it is positive evidence that the change reaches this one. Context only: coverage ownership, per-candidate coverage and gap routing read `seeds`. */
+  /* Changed symbols that reach this page together with many others, or whose graph walk the budget cut: a hub proves no entry on its own, but it is positive evidence that the change reaches this one. A file seeds the candidate through them as through `seeds` (`candidateSeeds`, `seedingOf` in `change-map.ts`): the change map, the briefs, the gap's grouping and the routing of a finding by its file read both, telling a shared seed apart where it matters (a finding several flows hold goes first to one its file seeds directly; only a direct seed opens a flow for an uncovered use case). Per-candidate coverage reads `seeds`. */
   sharedSeeds?: SharedSeed[];
   /* The changed files that seed the candidate, each with the lines the change added to it when the diff was read. Executable lines are only known once a run has measured them, so a count here is of added lines. */
   changedFiles?: CandidateChangedFile[];

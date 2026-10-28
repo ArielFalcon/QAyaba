@@ -3,6 +3,7 @@ import type { SurvivedMutant } from "./coverage-collector.ts";
 import type { ObservedDifference } from "@kernel/observed-difference.ts";
 import type { UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 import { entryKey } from "@kernel/change-reach.ts";
+import { candidateSeeds } from "@kernel/change-map.ts";
 
 type Uncovered = { file: string; lines: number[] }[];
 
@@ -22,11 +23,11 @@ function compactRanges(sorted: number[]): string {
   return parts.join(", ");
 }
 
-/* The uncovered lines inside a candidate's seeds (a seed with no range holds every line of its file). */
+/* The uncovered lines inside a candidate's seeds, its own and a hub's code it shares (`candidateSeeds`; a seed with no range holds every line of its file). */
 function uncoveredWithin(candidate: UseCaseCandidate, uncovered: Uncovered): Uncovered {
   const out: Uncovered = [];
   for (const u of uncovered) {
-    const lines = u.lines.filter((line) => candidate.seeds.some((seed) => seed.file === u.file && (seed.range === undefined || (line >= seed.range.start && line <= seed.range.end))));
+    const lines = u.lines.filter((line) => candidateSeeds(candidate).some((seed) => seed.file === u.file && (seed.range === undefined || (line >= seed.range.start && line <= seed.range.end))));
     if (lines.length > 0) out.push({ file: u.file, lines });
   }
   return out;
