@@ -171,3 +171,29 @@ test("parsePlaywrightReport: a spec at the root suite (no file title) leaves fil
   const file = (parsed.cases[0]! as import("@kernel/qa-case.ts").QaCase).file;
   assert.ok(!file || file === "", `orphan test should have no meaningful file; got ${JSON.stringify(file)}`);
 });
+
+test("reads the report's top-level errors with their place, and leaves out what is not a message", () => {
+  const parsed = parsePlaywrightReport({
+    suites: [],
+    errors: [
+      { message: "Error: Cannot find module './x'", location: { file: "/w/e2e/flows/a.spec.ts", line: 4, column: 1 } },
+      { message: "Error: no place" },
+      { message: "" },
+      { location: { file: "/w/e2e/b.spec.ts" } },
+      "not an object",
+      null,
+    ],
+    stats: { expected: 0, unexpected: 0, flaky: 0, skipped: 0 },
+  });
+  assert.equal(parsed.executed, 0);
+  assert.equal(parsed.loadErrors.length, 2);
+  const [located, bare] = parsed.loadErrors;
+  assert.match(located!.message, /Cannot find module/);
+  assert.deepEqual(located!.location, { file: "/w/e2e/flows/a.spec.ts", line: 4, column: 1 });
+  assert.equal(bare!.location, undefined);
+});
+
+test("a report without top-level errors, or with errors that are not a list, has no load errors", () => {
+  assert.deepEqual(parsePlaywrightReport({ suites: [] }).loadErrors, []);
+  assert.deepEqual(parsePlaywrightReport({ suites: [], errors: "boom" }).loadErrors, []);
+});

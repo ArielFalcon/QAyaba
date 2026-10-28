@@ -1,6 +1,7 @@
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { DevWriteRequest } from "./dev-write-request.ts";
+import type { SpecLoadError } from "./spec-load-error.ts";
 
 export interface SpecExecutionRequest {
   /* Relative to the spec directory. */
@@ -25,4 +26,6 @@ export interface SpecExecutionResult {
   devWriteRequests?: readonly DevWriteRequest[];
   /* The requests that keep the run's own session alive, which the fixtures did not count as writes. Absent: none recorded. */
   sessionRequests?: readonly DevWriteRequest[];
+  /* Why the spec did not load, from the report's top-level errors, with files relative to the spec directory. Absent: the report named none. */
+  loadErrors?: readonly SpecLoadError[];
 }

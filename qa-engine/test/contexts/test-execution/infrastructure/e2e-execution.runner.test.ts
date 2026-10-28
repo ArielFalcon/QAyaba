@@ -201,6 +201,33 @@ test("a ran report that executed zero tests is infra-error, not a false pass", a
   assert.equal(run.passed, false);
 });
 
+test("a run whose report holds no test but names load errors hands them on relative to the spec directory", async () => {
+  const report = {
+    suites: [],
+    errors: [
+      { message: "SyntaxError: /dir/flows/a.spec.ts: Unexpected token (3:5)", location: { file: "/dir/flows/a.spec.ts", line: 3, column: 5 } },
+      { message: "Error: elsewhere", location: { file: "/usr/lib/node_modules/x/index.js", line: 1, column: 1 } },
+    ],
+    stats: { expected: 0, unexpected: 0, flaky: 0, skipped: 0 },
+  };
+  const deps: E2eExecuteDeps = { runSuite: async () => ({ report, logs: "", ran: true, exitCode: 1 }) };
+  const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "qa-bot-load" }, deps);
+  assert.equal(run.verdict, "infra-error");
+  assert.deepEqual(run.cases, []);
+  const [inside, outside] = run.loadErrors ?? [];
+  assert.equal(inside!.location?.file, "flows/a.spec.ts");
+  assert.equal(inside!.location?.line, 3);
+  assert.doesNotMatch(inside!.message, /\/dir\//);
+  assert.match(inside!.message, /Unexpected token/);
+  assert.equal(outside!.location, undefined, "a file outside the spec directory keeps no location");
+});
+
+test("a run whose report names no load error carries none", async () => {
+  const deps: E2eExecuteDeps = { runSuite: async () => ({ report: { suites: [], stats: { expected: 0 } }, logs: "", ran: true }) };
+  const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "qa-bot-noload" }, deps);
+  assert.equal(run.loadErrors, undefined);
+});
+
 test("runE2E propagates error when deps.runSuite throws (runner crash / spawn error)", async () => {
   const deps: E2eExecuteDeps = {
     runSuite: async () => { throw new Error("Playwright runner crashed: spawn ENOENT"); },

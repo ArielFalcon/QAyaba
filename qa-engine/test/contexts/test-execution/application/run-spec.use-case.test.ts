@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
 import { RunDevWriteLedger } from "@contexts/test-execution/domain/run-dev-write-ledger.ts";
 import { CLOSED_LOOP_REFUSAL, RUN_SPEC_FLOW_AGENT, RunSpecCapability } from "@contexts/test-execution/domain/run-spec-capability.ts";
-import { MAX_REPORTED_TESTS, MAX_TITLE_CHARS, RunSpecUseCase, escapeGrep, type RunSpecDeps } from "@contexts/test-execution/application/run-spec.use-case.ts";
+import { MAX_ERROR_CHARS, MAX_REPORTED_LOAD_ERRORS, MAX_REPORTED_TESTS, MAX_TITLE_CHARS, RunSpecUseCase, escapeGrep, type RunSpecDeps } from "@contexts/test-execution/application/run-spec.use-case.ts";
 import type { SpecExecutionRequest, SpecExecutionResult } from "@contexts/test-execution/domain/spec-executor.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
@@ -604,4 +604,77 @@ test("a call that sent only session requests charges the run nothing", async (t)
   h.next.result = { verdict: "pass", cases: [{ name: "t", status: "pass" }], logs: "", devWrites: 0, sessionRequests: [{ method: "POST", url: "https://id.example.com/oauth/token", count: 2 }] };
   assert.ok((await call(h, "flows/a.spec.ts")).ok);
   assert.equal(runWrites.used, 0);
+});
+
+const LOAD_SYNTAX = "SyntaxError: Unexpected token (12:5)\n\n  10 | test('x', async () => {\n> 12 |   await page.goto(\"/\"\n     |      ^";
+
+test("a spec that did not load says so and gives each load error with its suite-relative place, redacted and bounded, instead of blaming the path or the grep", async (t) => {
+  const h = harness(t);
+  h.next.result = {
+    verdict: "infra-error", cases: [], logs: "RAW STDOUT MUST NOT LEAK", devWrites: 0,
+    loadErrors: [
+      { message: `\u001b[31m${LOAD_SYNTAX}\u001b[39m\ntoken hunter2 in the source`, location: { file: "flows/a.spec.ts", line: 12, column: 5 } },
+      { message: `Error: ${"y".repeat(MAX_ERROR_CHARS * 2)}` },
+    ],
+  };
+  const response = await call(h, "flows/a.spec.ts");
+  assert.ok(response.ok);
+  assert.equal(response.report.status, "error");
+  const [syntax, long] = response.report.loadErrors ?? [];
+  assert.match(syntax!.message, /Unexpected token/);
+  assert.doesNotMatch(syntax!.message, /hunter2|\u001b/);
+  assert.equal(syntax!.location, "e2e/flows/a.spec.ts:12:5");
+  assert.ok(long!.message.length <= MAX_ERROR_CHARS);
+  assert.equal(long!.location, undefined);
+  assert.match(response.report.note ?? "", /did not load/i);
+  assert.doesNotMatch(response.report.note ?? "", /path|grep/i);
+  assert.doesNotMatch(JSON.stringify(response), /RAW STDOUT/);
+  assert.equal(h.capability.calls, 1, "a load failure still spends its call");
+});
+
+test("a load error never carries a host path: a file outside the suite has no location and the suite's own roots are taken off the text", async (t) => {
+  const h = harness(t);
+  h.next.result = {
+    verdict: "infra-error", cases: [], logs: "", devWrites: 0,
+    loadErrors: [
+      { message: `Error: Cannot find module './nope' imported from ${h.specDir}/flows/a.spec.ts`, location: { file: `${h.specDir}/flows/a.spec.ts`, line: 1 } },
+      { message: "Error: boom", location: { file: "../../etc/secret.ts", line: 3 } },
+    ],
+  };
+  const response = await call(h, "flows/a.spec.ts");
+  assert.ok(response.ok);
+  const [first, second] = response.report.loadErrors ?? [];
+  assert.equal(first!.location, undefined, "an absolute file is not trusted to be the suite's");
+  assert.equal(second!.location, undefined);
+  assert.doesNotMatch(JSON.stringify(response), new RegExp(h.mirrorDir.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")));
+});
+
+test("at most MAX_REPORTED_LOAD_ERRORS load errors are listed, and the rest are counted", async (t) => {
+  const h = harness(t);
+  const loadErrors = Array.from({ length: MAX_REPORTED_LOAD_ERRORS + 3 }, (_, i) => ({ message: `Error: e${i}` }));
+  h.next.result = { verdict: "infra-error", cases: [], logs: "", devWrites: 0, loadErrors };
+  const response = await call(h, "flows/a.spec.ts");
+  assert.ok(response.ok);
+  assert.equal(response.report.loadErrors?.length, MAX_REPORTED_LOAD_ERRORS);
+  assert.match(response.report.note ?? "", /first \d+ of \d+ load errors/);
+});
+
+test("a call where no test matched the grep still tells the generator to check the path and the grep", async (t) => {
+  const h = harness(t);
+  h.next.result = { verdict: "infra-error", cases: [], logs: "", devWrites: 0 };
+  const response = await call(h, "flows/a.spec.ts", { grep: "no such title" });
+  assert.ok(response.ok);
+  assert.equal(response.report.status, "error");
+  assert.equal(response.report.loadErrors, undefined);
+  assert.match(response.report.note ?? "", /path/);
+  assert.match(response.report.note ?? "", /grep/);
+});
+
+test("a call with no grep and no load error does not blame a grep that was never given", async (t) => {
+  const h = harness(t);
+  h.next.result = { verdict: "infra-error", cases: [], logs: "", devWrites: 0 };
+  const response = await call(h, "flows/a.spec.ts");
+  assert.ok(response.ok);
+  assert.match(response.report.note ?? "", /no test ran/);
+  assert.doesNotMatch(response.report.note ?? "", /grep/);
 });

@@ -289,7 +289,8 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   agent name to the orchestrator's internal listener (`src/server/tools-endpoint.ts`, `QA_TOOLS_PORT`, not published, behind
   `QA_TOOLS_TOKEN`); the orchestrator runs the spec once (sandbox profile `suite`, retries 0, a fresh session copy, namespace
   `<runId>-rs<n>`, a cleanup pass after every call, per-account lock) and answers with a bounded, redacted report, never raw
-  output. The capability (`test-execution/domain/run-spec-capability.ts`) is the orchestrator's, bound to the flow-author
+  output (a call where no test began and the Playwright report's top-level `errors` name why the spec did not load answers with those errors,
+  at most five, each redacted and bounded like a case's error, with a place relative to the suite, and still spends its call). The capability (`test-execution/domain/run-spec-capability.ts`) is the orchestrator's, bound to the flow-author
   sessions the agent transport reports for the run (`ClosedLoopRegistry`); the budget is granted per flow of a plan only, so a run-level author holds none: each flow is
   granted the calls its own time runs at the per-call time (the run's total is the sum of its flows', `qa.closedLoop.maxCalls` an optional
   ceiling they then share), time per call (also bounded by the run deadline) and one run-level cap on DEV writes, never derived from the plan, that holds across the

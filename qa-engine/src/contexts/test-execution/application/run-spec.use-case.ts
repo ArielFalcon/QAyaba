@@ -28,6 +28,7 @@ import type { SessionRenewalPort } from "./ports/session-renewal.port.ts";
 import type { SpecCleanupPort } from "./ports/spec-cleanup.port.ts";
 import type { SpecFixturesCheckPort } from "./ports/spec-fixtures-check.port.ts";
 import type { SpecExecutionResult } from "../domain/spec-executor.ts";
+import { isSuiteRelative, type SpecLoadError } from "../domain/spec-load-error.ts";
 import { describeDevWriteRequest, type DevWriteRequest } from "../domain/dev-write-request.ts";
 import type { SpecExecutorPort } from "./ports/spec-executor.port.ts";
 
@@ -35,6 +36,8 @@ export const MAX_GREP_CHARS = 200;
 export const MAX_ERROR_CHARS = 2_000;
 export const MAX_FAILURE_DOM_CHARS = 8_000;
 export const MAX_TITLE_CHARS = 160;
+/* How many of a spec's load errors an answer lists; the rest are counted. */
+export const MAX_REPORTED_LOAD_ERRORS = 5;
 export const MAX_REPORTED_TESTS = 20;
 /* What a failure fact keeps of the runtime errors its page raised. */
 export const MAX_FACT_RUNTIME_ERRORS = 5;
@@ -78,6 +81,13 @@ export interface RunSpecTestReport {
   finalUrl?: string;
 }
 
+/* One reason the spec did not load, as the generator may read it. */
+export interface RunSpecLoadError {
+  message: string;
+  /* `e2e/flows/x.spec.ts:12:5`: the suite's own path, never the host's. Absent when the report placed the error nowhere inside the suite. */
+  location?: string;
+}
+
 export interface RunSpecReport {
   status: RunSpecStatus;
   /* The tests that did not pass, at most MAX_REPORTED_TESTS. */
@@ -85,6 +95,8 @@ export interface RunSpecReport {
   /* How many tests passed. */
   passedTests: number;
   budget: CallBudget;
+  /* Why the spec did not load, at most MAX_REPORTED_LOAD_ERRORS: present only when no test began and the report named load errors. Read from the report's top-level errors, never from process output. */
+  loadErrors?: RunSpecLoadError[];
   note?: string;
   /* The saved session ended on the login page and could not be renewed from here: the tests' results say nothing about the spec. */
   sessionLost?: true;
@@ -200,6 +212,7 @@ export class RunSpecUseCase {
     let sessionRequests: readonly DevWriteRequest[] = [];
     let failures: RunSpecFailureFact[] = [];
     let note: string | undefined;
+    let loadErrors: RunSpecLoadError[] = [];
     let sessionLost = false;
     const now = this.deps.now ?? Date.now;
     const asked = now();
@@ -232,6 +245,7 @@ export class RunSpecUseCase {
       sessionRequests = outcome.sessionRequests ?? [];
       failures = outcome.failures;
       note = outcome.note;
+      loadErrors = outcome.loadErrors ?? [];
       sessionLost = outcome.sessionLost === true;
       tell({ "qayaba.tool.dev_writes": devWrites });
       if (devWriteRequests.length > 0) tell({ "qayaba.tool.dev_write_requests": devWriteRequests.map(describeDevWriteRequest) });
@@ -249,10 +263,10 @@ export class RunSpecUseCase {
       if (began) capability.settle({ path: rel, sha256, status, ms: Date.now() - started, devWrites, ...(devWriteRequests.length > 0 ? { devWriteRequests } : {}), ...(failures.length > 0 ? { failures } : {}) });
       else capability.cancel();
     }
-    return { ok: true, report: { status, tests, passedTests, budget: capability.budget(deadline?.remainingMs()), ...(note !== undefined ? { note } : {}), ...(sessionLost ? { sessionLost: true as const } : {}) } };
+    return { ok: true, report: { status, tests, passedTests, budget: capability.budget(deadline?.remainingMs()), ...(loadErrors.length > 0 ? { loadErrors } : {}), ...(note !== undefined ? { note } : {}), ...(sessionLost ? { sessionLost: true as const } : {}) } };
   }
 
-  private async executeAndClean(rel: string, grep: string | undefined, namespace: string, timeoutMs: number, stop: AbortSignal | undefined): Promise<{ status: RunSpecStatus; tests: RunSpecTestReport[]; passedTests: number; devWrites: number; devWriteRequests?: readonly DevWriteRequest[]; sessionRequests?: readonly DevWriteRequest[]; writesUncounted?: true; failures: RunSpecFailureFact[]; note?: string; sessionLost?: boolean }> {
+  private async executeAndClean(rel: string, grep: string | undefined, namespace: string, timeoutMs: number, stop: AbortSignal | undefined): Promise<{ status: RunSpecStatus; tests: RunSpecTestReport[]; passedTests: number; devWrites: number; devWriteRequests?: readonly DevWriteRequest[]; sessionRequests?: readonly DevWriteRequest[]; writesUncounted?: true; failures: RunSpecFailureFact[]; loadErrors?: RunSpecLoadError[]; note?: string; sessionLost?: boolean }> {
     let result: SpecExecutionResult | undefined;
     let failure: string | undefined;
     try {
@@ -275,7 +289,15 @@ export class RunSpecUseCase {
     const status = this.statusOf(result);
     const notes: string[] = [];
     if (status === RUN_SPEC_STATUS.TIMED_OUT) notes.push(`the spec did not finish within ${Math.round(timeoutMs / 1000)}s and was stopped`);
-    if (status === RUN_SPEC_STATUS.ERROR) notes.push(result.cases.length === 0 ? "no test ran: check the path and the grep" : "the run ended without a result");
+    /* A report that holds no test but names load errors says why: the spec did not load, which is neither a wrong path nor a grep that matched nothing. */
+    const loadErrors = result.cases.length === 0 ? this.loadErrorFacts(result.loadErrors ?? []) : [];
+    const loadErrorCount = result.cases.length === 0 ? (result.loadErrors ?? []).length : 0;
+    if (status === RUN_SPEC_STATUS.ERROR) {
+      if (result.cases.length > 0) notes.push("the run ended without a result");
+      else if (loadErrorCount > 0) notes.push("the spec did not load, so no test ran: fix the errors in loadErrors, then run it again");
+      else notes.push(grep !== undefined ? "no test ran: check the path and the grep" : "no test ran: check the path");
+    }
+    if (loadErrorCount > loadErrors.length) notes.push(`only the first ${loadErrors.length} of ${loadErrorCount} load errors are listed`);
     if (failing.length > MAX_REPORTED_TESTS) notes.push(`only the first ${MAX_REPORTED_TESTS} of ${failing.length} failing tests are listed`);
     let sessionLost = false;
     if (status !== RUN_SPEC_STATUS.PASSED && endedOnLoginWall(result.cases)) {
@@ -290,7 +312,7 @@ export class RunSpecUseCase {
     /* A run whose writes could not be counted (an older fixtures file, a ledger the child spoiled or never left, a run that was stopped) is charged the whole budget that was left: the count comes from the suite's own fixtures, which is code the agent can edit, so an absent or unbelievable count is never read as "none". */
     if (result.devWrites === undefined) notes.push("the requests it sent to DEV could not be counted; the whole write budget that was left was charged");
     else if (result.unfinishedTests !== undefined && result.unfinishedTests > 0) notes.push(`${result.unfinishedTests} test(s) had not finished when the call ended; the writes they had sent and the requests they still had out were counted`);
-    return { status, tests, passedTests, devWrites: result.devWrites ?? this.deps.capability.budget(this.deps.deadline?.remainingMs()).devWritesLeft, ...(result.devWrites === undefined ? { writesUncounted: true as const } : {}), ...(result.devWrites !== undefined && result.devWriteRequests !== undefined ? { devWriteRequests: result.devWriteRequests } : {}), ...(result.devWrites !== undefined && result.sessionRequests !== undefined ? { sessionRequests: result.sessionRequests } : {}), failures, ...(notes.length > 0 ? { note: notes.join("; ") } : {}), ...(sessionLost ? { sessionLost } : {}) };
+    return { status, tests, passedTests, devWrites: result.devWrites ?? this.deps.capability.budget(this.deps.deadline?.remainingMs()).devWritesLeft, ...(result.devWrites === undefined ? { writesUncounted: true as const } : {}), ...(result.devWrites !== undefined && result.devWriteRequests !== undefined ? { devWriteRequests: result.devWriteRequests } : {}), ...(result.devWrites !== undefined && result.sessionRequests !== undefined ? { sessionRequests: result.sessionRequests } : {}), failures, ...(loadErrors.length > 0 ? { loadErrors } : {}), ...(notes.length > 0 ? { note: notes.join("; ") } : {}), ...(sessionLost ? { sessionLost } : {}) };
   }
 
   /* The sha256 of the spec as it stands now, read strictly, or undefined when it is gone or cannot be read. */
@@ -332,6 +354,21 @@ export class RunSpecUseCase {
       ...(runtimeErrors.length > 0 ? { runtimeErrors } : {}),
       ...(failureUnsettled(c.failureSettle) ? { unsettled: true as const } : {}),
     };
+  }
+
+  /* The load errors the report named, as facts the generator may read. They come from the report the child wrote, so they are held to the bounds of a case's error: the run's secrets by value and by pattern, no terminal colors, no long opaque token, no host path (the suite's own roots are taken off the text, and a location that is not inside the suite is dropped), at most MAX_REPORTED_LOAD_ERRORS of them and MAX_ERROR_CHARS each. */
+  private loadErrorFacts(errors: readonly SpecLoadError[]): RunSpecLoadError[] {
+    const { specDir, mirrorDir } = this.deps.specRoot;
+    const withoutRoots = (text: string): string => [specDir, mirrorDir].reduce((acc, root) => acc.split(`${root.replace(/\/+$/, "")}/`).join(""), text);
+    return errors.slice(0, MAX_REPORTED_LOAD_ERRORS).map((e) => {
+      const file = e.location?.file;
+      const inside = file !== undefined && isSuiteRelative(file);
+      const place = inside ? `${this.deps.specRelDir}/${this.deps.redact(file)}${e.location?.line !== undefined ? `:${e.location.line}${e.location.column !== undefined ? `:${e.location.column}` : ""}` : ""}` : undefined;
+      return {
+        message: cut(dropOpaqueTokens(this.deps.redact(stripAnsi(withoutRoots(e.message))), ""), MAX_ERROR_CHARS),
+        ...(place !== undefined ? { location: place } : {}),
+      };
+    });
   }
 
   private testReport(c: QaCase): RunSpecTestReport {

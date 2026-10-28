@@ -24,6 +24,7 @@ import { readObservations } from "./observation-reader.ts";
 import type { ObservedPage } from "@contexts/objective-signal/application/index.ts";
 import { activeExecScope } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import { MAX_DEV_WRITE_REQUESTS, noteDevWriteRequest, type DevWriteRequest } from "../domain/dev-write-request.ts";
+import { isSuiteRelative, type SpecLoadError } from "../domain/spec-load-error.ts";
 
 export const DEFAULT_E2E_TIMEOUT_MS = 900_000;
 
@@ -201,6 +202,8 @@ export interface E2eRunResult {
   devWriteRequests?: DevWriteRequest[];
   /* The requests that keep the run's own session alive (an identity provider's token exchange or refresh), which the fixtures kept apart from the writes and did not count, by method and origin and pathname, at most MAX_DEV_WRITE_REQUESTS distinct; present with a count when the fixtures recorded any. */
   sessionRequests?: DevWriteRequest[];
+  /* What the report says stopped a spec from loading (its top-level errors), relative to the spec directory and redacted by value. Present only on a run that executed no test. */
+  loadErrors?: SpecLoadError[];
   /* The page each case that ran ended on, when the run was asked to observe and every observation file could be read (never a part of them). */
   observations?: ObservedPage[];
 }
@@ -359,6 +362,7 @@ export async function runE2E(
       passed: false,
       cases: parsed.cases,
       logs: sanitized.text || "the E2E suite ran but executed zero tests (no tests matched, or all were skipped)",
+      ...(parsed.loadErrors.length > 0 ? { loadErrors: suiteRelativeLoadErrors(parsed.loadErrors, specDir) } : {}),
     }, parsed.executed);
   }
 
@@ -531,6 +535,21 @@ function redactCaseByValue(c: QaCase): void {
       ...(e.resourceType !== undefined ? { resourceType: redactByValue(e.resourceType) } : {}),
     }));
   }
+}
+
+/* The report's load errors as the caller may see them: the run's secrets taken out by value and the directory the child ran in taken off every path, so a path is the suite's own and never the host's. A file outside that directory keeps no location. */
+export function suiteRelativeLoadErrors(errors: readonly SpecLoadError[], specDir: string): SpecLoadError[] {
+  const root = `${specDir.replace(/\/+$/, "")}/`;
+  const bare = (text: string): string => redactByValue(text.split(root).join(""));
+  return errors.map((e) => {
+    const file = e.location?.file;
+    const rel = file !== undefined && file.startsWith(root) ? file.slice(root.length) : file;
+    const inside = rel !== undefined && isSuiteRelative(rel);
+    return {
+      message: bare(e.message),
+      ...(inside && e.location ? { location: { file: redactByValue(rel), ...(e.location.line !== undefined ? { line: e.location.line } : {}), ...(e.location.column !== undefined ? { column: e.location.column } : {}) } } : {}),
+    };
+  });
 }
 
 const TITLE_SEP = " › ";

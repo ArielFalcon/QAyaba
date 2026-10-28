@@ -1,5 +1,6 @@
 import type { CaseStatus, QaCase } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
+import { LOAD_ERROR_MESSAGE_SAFETY_BOUND, MAX_LOAD_ERRORS_KEPT, type SpecLoadError } from "../domain/spec-load-error.ts";
 
 export interface PwCase {
   name: string;
@@ -13,6 +14,8 @@ export interface ParsedReport {
   passed: boolean;
   cases: PwCase[];
   executed: number;
+  /* The report's top-level errors: what stopped a spec from loading. Their file is as Playwright wrote it (absolute); the caller makes it suite-relative. */
+  loadErrors: SpecLoadError[];
 }
 
 interface PwResult {
@@ -35,6 +38,7 @@ interface PwSuite {
 }
 interface PwReport {
   suites?: PwSuite[];
+  errors?: unknown;
   stats?: { expected?: number; unexpected?: number; flaky?: number; skipped?: number };
 }
 
@@ -76,7 +80,29 @@ export function parsePlaywrightReport(json: unknown): ParsedReport {
 
   const executed = countExecuted(report, cases);
   const verdict = aggregate(cases, report, executed);
-  return { verdict, passed: verdict === "pass", cases, executed };
+  return { verdict, passed: verdict === "pass", cases, executed, loadErrors: readLoadErrors(report.errors) };
+}
+
+/* The report is the child's: every field is checked, and an entry that is not a message is left out. */
+function readLoadErrors(raw: unknown): SpecLoadError[] {
+  if (!Array.isArray(raw)) return [];
+  const errors: SpecLoadError[] = [];
+  for (const entry of raw) {
+    if (errors.length >= MAX_LOAD_ERRORS_KEPT) break;
+    const { message, location } = (entry ?? {}) as { message?: unknown; location?: unknown };
+    if (typeof message !== "string" || message.trim() === "") continue;
+    const where = (location ?? {}) as { file?: unknown; line?: unknown; column?: unknown };
+    const error: SpecLoadError = { message: message.slice(0, LOAD_ERROR_MESSAGE_SAFETY_BOUND) };
+    if (typeof where.file === "string" && where.file !== "") {
+      error.location = {
+        file: where.file,
+        ...(typeof where.line === "number" && Number.isInteger(where.line) && where.line > 0 ? { line: where.line } : {}),
+        ...(typeof where.column === "number" && Number.isInteger(where.column) && where.column > 0 ? { column: where.column } : {}),
+      };
+    }
+    errors.push(error);
+  }
+  return errors;
 }
 
 /* Fail-closed: an unrecognized status is a fail, never a silent pass. */
