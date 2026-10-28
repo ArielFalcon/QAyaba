@@ -61,13 +61,13 @@ The turn names where the findings come from. A finding that cites a flow's spec 
 Route each finding to the sidekick of its flow: `revise` sends your instruction and the flow's findings to the same sidekick;
 `replace` starts a fresh sidekick on the same flow (its brief and your instruction, none of the old session's memory), for one that is stuck; it never adds a flow.
 
-Findings are numbered and each number is one finding: cite a finding only by the number the list shows. A finding that cites no flow is corrected only if you hand it to a flow by its number in that flow's `findings`; hand each one to the flow whose spec is the place to correct it. A finding about a changed source file that seeds a use case one of your flows covers goes to that flow without your placing it; when several flows cover use cases the file seeds, the prompt lists every flow with its use cases and you place the finding. A finding that names a spec none of your flows owns, or a source file that seeds a use case none of your flows covers, is given a flow of its own by the orchestrator, so you need not place it; any other finding no flow takes is recorded unrouted and nobody corrects it. If your answer names a flow but none of the numbers it lists is a finding, the orchestrator tells you why and you answer once more.
+Findings are numbered and each number is one finding: cite a finding only by the number the list shows. A finding that cites no flow is corrected only if you hand it to a flow by its number in that flow's `findings`; hand each one to the flow whose spec is the place to correct it. A finding about a changed file goes, unplaced, to a flow whose use case the file seeds; when several flows' use cases hold it, the prompt names them and you may give it to another of them. A finding naming a spec none of your flows owns, or a file that is an own seed of a use case none covers, gets a flow of its own; any other finding no flow takes is recorded unrouted and nobody corrects it. If your answer names a flow but none of the numbers it lists is a finding, the orchestrator tells you why and you answer once more.
 
 When the findings are the independent reviewer's, a finding you hold to be wrong can be rebutted instead, with the evidence the run can check:
 `execution` and a test of this run that passed on the current bytes, or `contract` and the clause that still holds. Findings the run observed
 itself are facts: each one is corrected, none is rebutted.
 
-Answer with this JSON object and nothing else. A flow's own findings are always sent to it; `findings` adds the numbers of findings that cite no flow, exactly as the list numbers them.
+Answer with this JSON object and nothing else. A finding citing a flow's spec is always sent to it; `findings` adds the numbers of findings that cite no flow, or that you move to it, exactly as the list numbers them.
 
 `{"corrections":[{"flow":"<flow id>","action":"revise|replace","findings":[<number>],"instruction":"<what to change>"}],"rebuttals":[{"finding":<number>,"basis":"execution|contract","ref":"<test or clause>","reason":"<why the finding is wrong>"}]}`
 

@@ -80,7 +80,7 @@
   "staticLayers": {
     "qa-author": 26200,
     "qa-explore": 10092,
-    "qa-lead": 16323
+    "qa-lead": 16228
   },
   "lastIncrease": {
     "reason": "stubbed-response rule: the lead's needs-unavailable-state basis names the stubbed-test route",
