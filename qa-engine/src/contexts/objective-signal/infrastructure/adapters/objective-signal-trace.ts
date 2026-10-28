@@ -8,6 +8,7 @@
 
 import { startRunChildSpan } from "../../../../shared-infrastructure/telemetry/run-spans.ts";
 import type { TelemetryPort } from "../../../../shared-kernel/telemetry/telemetry.port.ts";
+import type { Attrs } from "../../../../shared-kernel/telemetry/attribute-registry.ts";
 import type { CandidateCoverage } from "../../domain/per-candidate-coverage.ts";
 import type { BundleMutationOutcome, CoverageMeasurement, MutantSelectionRecord } from "../../domain/objective-signal.ts";
 import type { ObjectiveSignalPort } from "../../application/ports/objective-signal.port.ts";
@@ -48,7 +49,7 @@ function selectionAttrs(m: MutantSelectionRecord) {
 }
 
 /* What a measurement counted, as span attributes. */
-function countsOf(m: CoverageMeasurement | undefined): Record<string, string | number | string[]> {
+function countsOf(m: CoverageMeasurement | undefined): Attrs {
   if (!m) return {};
   return {
     "qayaba.coverage.changed_lines": m.changedLines,

@@ -7,6 +7,7 @@ import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
 import type { SpanHandle } from "@kernel/telemetry/telemetry.port.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { Sha } from "@kernel/sha.ts";
+import { lookupAttribute } from "@kernel/telemetry/attribute-registry.ts";
 
 class Recorder extends NoopTelemetry {
   readonly attrs: Array<Record<string, unknown>> = [];
@@ -55,6 +56,7 @@ test("the coverage span names the unloaded changed files left out because none o
   const telemetry = new Recorder();
   await new TracedObjectiveSignalPort(measured(["src/shared/index.ts"]), telemetry).measure(BlastRadius.of(Sha.of("abc1234"), []), "/e2e");
   assert.deepEqual(telemetry.attrs.find((a) => "qayaba.coverage.changed_lines" in a)?.["qayaba.coverage.no_code_files"], ["src/shared/index.ts"]);
+  for (const key of Object.keys(telemetry.attrs.find((a) => "qayaba.coverage.no_code_files" in a) ?? {})) assert.ok(lookupAttribute(key), `${key} is registered, or the exporter drops it`);
 
   const none = new Recorder();
   await new TracedObjectiveSignalPort(measured(), none).measure(BlastRadius.of(Sha.of("abc1234"), []), "/e2e");

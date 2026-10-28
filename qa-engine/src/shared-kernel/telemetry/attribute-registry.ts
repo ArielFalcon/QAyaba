@@ -66,6 +66,7 @@ export const ATTRIBUTES = {
   "qayaba.coverage.unmeasured": str("Why the measurement decides nothing: no-diff, not-assembled, no-changed-lines, deletion-only, no-changed-file-mapped or no-source-maps (the scripts the page ran carried no source map)."),
   "qayaba.coverage.changed_branches": int("Arms of the decisions on changed lines (then/else, both sides of a conditional, a short circuit, each switch clause); absent when no decision was seen on a changed line."),
   "qayaba.coverage.taken_branches": int("Arms of the decisions on changed lines that ran in at least one test."),
+  "qayaba.coverage.no_code_files": spec("string[]", "Unloaded changed files left out of the measurement because none of their changed lines is code (a re-export-only module, say), by the language's statement syntax.", "high", "none", 20),
   "qayaba.stubbed.spec_files": int("Delivered spec files holding a test that fulfils a stated response instead of reading DEV."),
   "qayaba.stubbed.tests": int("Delivered tests that fulfil a stated response, or call a helper the detector cannot read."),
   "qayaba.stubbed.violations": int("Guards of the stubbed-state rules the delivered specs broke: a fulfil no GET check guards, a changed request, a HAR replay, a handler outside the file, a spec file with no live test."),
