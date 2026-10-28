@@ -7,9 +7,10 @@
  *     changed line of the file must lie inside one of those symbols' ranges (a changed top-level statement belongs to no symbol and
  *     runs whenever the file loads): anything less keeps the file counted.
  *   - `testSupportFiles`: a file that only test files use (a helper, a fixture, a builder). The code graph says who uses it three
- *     ways (import edges, edges of any kind, references it could not resolve that name it) and which files load modules by a name
- *     it cannot resolve; one user that is not a test file, a dynamic loader that is not a test file, or a list that is empty, cut or
- *     unread, keeps it counted: an import edge alone misses a lazy `import()` and a same-package class.
+ *     ways (import edges, edges of any kind, references it could not resolve that name it), completed with the language's own module
+ *     resolution of what it could not link (a literal dynamic `import()` and an alias import resolved to the file they name), and
+ *     which files still load modules by a name nothing resolves; one user that is not a test file, such a loader that is not a test
+ *     file, or a list that is empty, cut or unread, keeps it counted: an import edge alone misses a same-package class.
  * Both are recorded apart with why, and the files leave the measurement whole: their lines, branches and mutants alike. Pure.
  */
 import { LanguageRegistry } from "@kernel/language-id.ts";

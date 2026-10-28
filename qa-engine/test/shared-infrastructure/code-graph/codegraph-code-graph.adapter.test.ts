@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { CodegraphCodeGraphAdapter, selectSeeds, type StoreSymbol } from "../../../src/shared-infrastructure/code-graph/codegraph-code-graph.adapter.ts";
 import { CodegraphEngine, STORE_READER_SCRIPT } from "../../../src/shared-infrastructure/code-graph/codegraph-engine.ts";
 import { CodegraphStoreCache } from "../../../src/shared-infrastructure/code-graph/codegraph-store-cache.ts";
-import type { SandboxedBinaryRunner, SandboxedRunRequest, SandboxedRunResult } from "../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
+import { DEFAULT_MAX_OUTPUT_CHARS, type SandboxedBinaryRunner, type SandboxedRunRequest, type SandboxedRunResult } from "../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import { SandboxedBinaryRunnerAdapter } from "../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter.ts";
 import { ProcessKillAdapter } from "../../../src/shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { LanguageRegistry } from "../../../src/shared-kernel/language-id.ts";
@@ -46,7 +46,8 @@ class FakeEngineRunner implements SandboxedBinaryRunner {
   async run(req: SandboxedRunRequest): Promise<SandboxedRunResult> {
     this.signals.push(req.signal);
     if (req.command !== "codegraph") {
-      const r = spawnSync(req.command, req.args, { cwd: req.cwd, encoding: "utf8" });
+      /* The launcher's own output bound, not spawnSync's default of 1 MiB. */
+      const r = spawnSync(req.command, req.args, { cwd: req.cwd, encoding: "utf8", maxBuffer: DEFAULT_MAX_OUTPUT_CHARS });
       return { exitCode: r.status, stdout: r.stdout, stderr: r.stderr, timedOut: false };
     }
     const verb = req.args[0] as "init" | "sync" | "status";
@@ -1185,6 +1186,139 @@ test("importersOf reports the production files that name a file the index could 
 
     assert.deepEqual(report?.files[0]?.namedBy, ["web/src/app/app.routes.ts"]);
     assert.deepEqual(report?.dynamicLoaders, { files: ["web/src/app/lazy.routes.ts"], complete: true });
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+/* ── module specifiers the index could not resolve, resolved by the language's own module resolution ── */
+
+const LAZY_ROUTES = "web/src/app/lazy.routes.ts";
+const ORDERS_PAGE = "web/src/app/orders/orders.page.ts";
+const KIT_INDEX = "web/src/app/shared/kit/index.ts";
+const KIT_SPEC = "web/src/app/shared/kit/kit.spec.ts";
+const TSCONFIG = JSON.stringify({ compilerOptions: { baseUrl: ".", paths: { "@app/*": ["src/app/*"] } } });
+
+/* The mirror's working copy gains `files`; the store records an unresolved reference per [file, name, kind, line, col]. */
+function withSources(h: Harness, files: Record<string, string>, refs: Array<[file: string, name: string, kind: string, line: number, col: number]>, extra: (db: DatabaseSync) => void = () => {}): string {
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(join(h.mirror, path, ".."), { recursive: true });
+    writeFileSync(join(h.mirror, path), text);
+  }
+  return storeWithHelper(h.root, (db) => {
+    const unresolved = db.prepare("INSERT INTO unresolved_refs (from_node_id, reference_name, reference_kind, line, col, file_path, language, status, name_tail) VALUES (?, ?, ?, ?, ?, ?, 'typescript', 'failed', ?)");
+    for (const [file, name, kind, line, col] of refs) unresolved.run("constant:048f76842968940f49e69e3086fc228a", name, kind, line, col, file, name.split(".").at(-1)!.replace("()", ""));
+    extra(db);
+  });
+}
+const colOf = (text: string, line: number, needle: string): number => text.split("\n")[line - 1]!.indexOf(needle);
+const askImporters = async (h: Harness, store: string, files: string[]) => {
+  h.engine.store = store;
+  await h.adapter.syncTo(h.mirror, h.sha);
+  const answered = await h.adapter.importersOf!(h.mirror, files);
+  assert.equal(answered.ok, true);
+  return answered.ok ? answered.value : undefined;
+};
+
+test("importersOf resolves a production loader's literal dynamic imports through the language's module resolution: the file it names gains it as an importer, and it no longer loads just anything", async () => {
+  const h = harness();
+  try {
+    const lazy = [
+      "export const routes = [",
+      "  { path: 'orders', loadComponent: () => import('@app/orders/orders.page').then((m) => m.OrdersPage) },",
+      "  { path: 'router', loadChildren: () => import('@angular/router') },",
+      "];",
+    ].join("\n");
+    const store = withSources(h, { "web/tsconfig.json": TSCONFIG, [LAZY_ROUTES]: lazy }, [
+      [LAZY_ROUTES, "import", "calls", 2, colOf(lazy, 2, "import(")],
+      [LAZY_ROUTES, "import().then", "calls", 2, colOf(lazy, 2, "import(")],
+      [LAZY_ROUTES, "import", "calls", 3, colOf(lazy, 3, "import(")],
+    ]);
+
+    const report = await askImporters(h, store, [HELPER_FILE, ORDERS_PAGE]);
+
+    assert.deepEqual(report?.dynamicLoaders, { files: [], complete: true });
+    assert.deepEqual(report?.files[0], { file: HELPER_FILE, indexed: true, importers: [HELPER_SPEC], users: [HELPER_SPEC], namedBy: [], complete: true });
+    assert.ok(report?.files[1]?.importers.includes(LAZY_ROUTES), "the lazy route imports the page it loads");
+    assert.ok(report?.files[1]?.users.includes(LAZY_ROUTES));
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("importersOf keeps a loader whose specifier is computed, names no file, or cannot be read as one that may load anything", async () => {
+  const h = harness();
+  try {
+    const computed = "export const load = (name: string) => import(`./pages/${name}.page`);\n";
+    const missing = "export const load = () => import('./no-such-page');\n";
+    const store = withSources(h, { "web/src/app/computed.ts": computed, "web/src/app/missing.ts": missing }, [
+      ["web/src/app/computed.ts", "import", "calls", 1, colOf(computed, 1, "import(")],
+      ["web/src/app/missing.ts", "import", "calls", 1, colOf(missing, 1, "import(")],
+      [LAZY_ROUTES, "import", "calls", 1, 0],
+    ]);
+
+    const report = await askImporters(h, store, [HELPER_FILE]);
+
+    assert.deepEqual(report?.dynamicLoaders, { files: ["web/src/app/computed.ts", LAZY_ROUTES, "web/src/app/missing.ts"], complete: true }, "the lazy routes file is not in the working copy");
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("importersOf counts a production import the index could not resolve, and the module resolution can, as a use of the file it names; a test file's is a test use", async () => {
+  const h = harness();
+  try {
+    const store = withSources(h, { "web/tsconfig.json": TSCONFIG, [KIT_INDEX]: "export const kit = 1;\n", [KIT_SPEC]: "import { kit } from '@app/shared/kit';\n" }, [
+      [ORDERS_PAGE, "@app/shared/kit", "imports", 1, 0],
+      [KIT_SPEC, "@app/shared/kit", "imports", 1, 0],
+    ], (db) => {
+      const node = db.prepare("INSERT INTO nodes (id, kind, name, qualified_name, file_path, language, start_line, end_line, start_column, end_column, updated_at) VALUES (?, ?, ?, ?, ?, 'typescript', 1, 1, 0, 0, 0)");
+      node.run("file:kit", "file", "index.ts", KIT_INDEX, KIT_INDEX);
+      node.run("constant:kit", "constant", "kit", "kit", KIT_INDEX);
+      node.run("file:kit-spec", "file", "kit.spec.ts", KIT_SPEC, KIT_SPEC);
+      db.prepare("INSERT INTO edges (source, target, kind) VALUES (?, ?, ?)").run("file:kit-spec", "constant:kit", "imports");
+    });
+
+    const report = await askImporters(h, store, [KIT_INDEX]);
+
+    assert.deepEqual(report?.files, [{ file: KIT_INDEX, indexed: true, importers: [ORDERS_PAGE, KIT_SPEC], users: [ORDERS_PAGE, KIT_SPEC], namedBy: [], complete: true }]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("importersOf counts every production file that imports a file through the same alias, from any directory, and none whose alias names no file", async () => {
+  const h = harness();
+  try {
+    const billing = "web/src/app/billing/billing.page.ts";
+    const store = withSources(h, { "web/tsconfig.json": TSCONFIG, [KIT_INDEX]: "export const kit = 1;\n" }, [
+      [ORDERS_PAGE, "@app/shared/kit", "imports", 1, 0],
+      [billing, "@app/shared/kit", "imports", 1, 0],
+      [billing, "kit", "imports", 1, 9],
+      ["web/src/app/stray.ts", "@app/shared/none", "imports", 1, 0],
+    ]);
+
+    const report = await askImporters(h, store, [KIT_INDEX]);
+
+    assert.deepEqual(report?.files[0]?.importers, [billing, ORDERS_PAGE]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("importersOf over more unresolved imports than the reader lists reads every file's uses as a lower bound", async () => {
+  const h = harness();
+  try {
+    const store = withSources(h, {}, [], (db) => {
+      const unresolved = db.prepare("INSERT INTO unresolved_refs (from_node_id, reference_name, reference_kind, line, col, file_path, language, status, name_tail) VALUES (?, ?, 'imports', 1, 0, ?, 'typescript', 'failed', ?)");
+      db.exec("BEGIN");
+      for (let i = 0; i <= 50_000; i++) unresolved.run("constant:048f76842968940f49e69e3086fc228a", `pkg-${i}`, `web/src/gen/m${i}.ts`, `pkg-${i}`);
+      db.exec("COMMIT");
+    });
+
+    const report = await askImporters(h, store, [HELPER_FILE]);
+
+    assert.equal(report?.files[0]?.complete, false);
   } finally {
     rmSync(h.root, { recursive: true, force: true });
   }

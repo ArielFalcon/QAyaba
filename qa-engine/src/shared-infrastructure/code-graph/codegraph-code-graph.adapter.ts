@@ -25,6 +25,9 @@ import type { SandboxedBinaryRunner } from "../process-sandbox/sandboxed-binary-
 import { CODEGRAPH_ENGINE, storePathOf, type CodegraphEngine, type EngineFailure, type EngineStatus } from "./codegraph-engine.ts";
 import { exportWorkspace, type WorkspaceScope } from "./codegraph-workspace.ts";
 import { repoKeyOf, type CodegraphStoreCache } from "./codegraph-store-cache.ts";
+import { RepoReader } from "../repo-reader.ts";
+import { MAX_SPEC_SOURCE_BYTES } from "../spec-path-confinement.ts";
+import { withUnlinkedUses, type UnlinkedUses } from "../module-resolution/unlinked-uses.ts";
 
 /* A symbol as the store reader lists it. The id is the engine's and stays inside this adapter. */
 export interface StoreSymbol {
@@ -418,17 +421,31 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
     return ok({ text: answer.value, indexedSha: entry.sha });
   }
 
+  /*
+   * Who uses each file, from the index, completed with what the index could not link: the literal dynamic loads and the unlinked
+   * imports of the code that is not a test, resolved with the language's own module resolution over the repo's files, read through
+   * the strict reader (`module-resolution/unlinked-uses.ts`).
+   */
   async importersOf(repoDir: string, files: readonly string[]): Promise<Result<ImportersReport, CodeGraphUnavailable>> {
     if (files.length === 0) return ok({ indexedSha: this.indexOf(repoDir)?.sha ?? "", files: [], dynamicLoaders: { files: [], complete: true } });
-    const answered = await this.read<{ files: FileImporters[]; dynamicLoaders: ImportersReport["dynamicLoaders"]; truncated: boolean }>(repoDir, { op: "importers", files: [...files] });
+    const entry = this.indexOf(repoDir);
+    if (!entry) return err({ reason: "the repo is not indexed in this run" });
+    const testFiles = await this.testFilesOf(repoDir, entry);
+    if (!testFiles.ok) return testFiles;
+    const answered = await this.read<{ files: FileImporters[]; dynamicLoaders: ImportersReport["dynamicLoaders"]; truncated: boolean } & UnlinkedUses>(repoDir, { op: "importers", files: [...files], excludeFiles: testFiles.value });
     if (!answered.ok) return answered;
+    const answer = answered.value.value;
     /* A file the reader's bound on files left out was never read: it is not indexed as far as the caller can tell. */
-    const read = new Map(answered.value.value.files.map((f) => [f.file, f]));
-    return ok({
+    const read = new Map(answer.files.map((f) => [f.file, f]));
+    const indexed: ImportersReport = {
       indexedSha: answered.value.sha,
       files: files.map((file) => read.get(file) ?? { file, indexed: false, importers: [], users: [], namedBy: [], complete: false }),
-      dynamicLoaders: answered.value.value.dynamicLoaders,
-    });
+      dynamicLoaders: answer.dynamicLoaders,
+    };
+    const reader = new RepoReader(repoDir);
+    const completed = await withUnlinkedUses(indexed, answer, async (file) => reader.optionalText(file, MAX_SPEC_SOURCE_BYTES));
+    reader.warn("code graph: the sources of the modules the index could not link");
+    return ok(completed);
   }
 
   async routes(repoDir: string): Promise<Result<GraphRoute[], CodeGraphUnavailable>> {

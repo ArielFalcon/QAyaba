@@ -793,7 +793,13 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   page whose route-availability fact is `change-introduced`, no symbol of it is partial or pruned at a hub, and every changed line of the file lies inside the range of
   one of those symbols, so a changed top-level statement keeps it counted; the routes are recorded) and `testSupportFiles` (every user of the file is a test file of
   the app: the code graph's import edges, its edges of any other kind, and the references it could not resolve that name the file or a symbol of it, with no
-  production user and no production file that loads modules by a name the index cannot resolve, such as a dynamic `import()`; the importer count is recorded). A file reached by an available route as well, used by
+  production user and no production file that loads modules by a name the index cannot resolve; the importer count is recorded). What the index could not link is
+  completed with the language's own module resolution (`importersOf`, `shared-infrastructure/module-resolution/unlinked-uses.ts`, the module syntax the language
+  registry declares): a production loader's dynamic `import()` or `require()` of a literal specifier, or a type that names a module (`typeof import('…')`), read at the
+  position the index recorded through the strict reader, is an import of the file it resolves to (an installed package is no file of the app), so a lazily routed app keeps the exclusion; a computed specifier,
+  one that resolves to nothing, or a loader that cannot be read still may load any file. A production import the index could not link (a `paths` alias to a
+  directory's index file) that resolves to the file makes it a production user. A list the index cut (the dynamic loads, the unlinked imports) leaves every file
+  counted. A file reached by an available route as well, used by
   production code, with no user read, or whose facts are missing or partial stays counted, as before.
 - A browser run maps covered bundle bytes to repository files only through source maps the page's
   scripts carry (inline, fetched from the URL their `sourceMappingURL` names, or `<script>.map` when
