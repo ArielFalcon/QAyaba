@@ -20,8 +20,6 @@ import { fakeWorkspace } from "./run-flow/fake-workspace.ts";
 import { confinedSpecFiles } from "../../../../src/shared-infrastructure/spec-files.adapter.ts";
 import { served } from "../../../support/coordinator-over-author.ts";
 import { primaryChangeSet } from "../../../support/change-set.ts";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { MAX_STATIC_FIX_ROUNDS } from "@kernel/derive-cycle-backstop.ts";
 import { memoryLogger } from "@kernel/ports/logger.port.ts";
 import { installProcessLogger, resetProcessLoggerForTests } from "@kernel/ports/process-logger.ts";
