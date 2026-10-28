@@ -36,6 +36,20 @@ test("every load the language can express without a literal specifier makes the 
   for (const source of opaque) assert.equal(moduleLoadsOf("src/app/loader.ts", source)?.opaque, true, source);
 });
 
+test("a load written through a cast, a non-null assertion or parentheses is read as the same load", () => {
+  const opaque = [
+    "export const pages = (require as any).context('./pages', true, /\\.ts$/);",
+    "export const load = (name: string) => (require as any)(name);",
+    "export const pages = (<any>require).context('./pages');",
+    "export const pages = require!.context('./pages');",
+    "export const pages = (import.meta as any).glob('./pages/*.ts');",
+    "export const load = (name: string) => (import.meta as any).resolve(name);",
+  ];
+
+  for (const source of opaque) assert.equal(moduleLoadsOf("src/app/loader.ts", source)?.opaque, true, source);
+  assert.deepEqual(moduleLoadsOf("src/app/loader.ts", "export const common = (require as any)('./common');\nexport const where = (require as any).resolve('./where');"), { loads: ["./common", "./where"], types: [], opaque: false });
+});
+
 test("a type that names a module by a literal (`typeof import('…')`) is a use of it and loads nothing", () => {
   const source = ["type AppModule = typeof import('@capacitor/app');", "export type Kit = (typeof import(`./kit`))['default'];"].join("\n");
 

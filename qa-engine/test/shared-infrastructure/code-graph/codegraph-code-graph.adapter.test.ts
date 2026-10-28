@@ -1265,6 +1265,20 @@ test("importersOf keeps a loader whose specifier is computed, names no file, or 
   }
 });
 
+test("importersOf keeps a file the index lists as a loader when reading it finds no load to explain the listing", async () => {
+  const h = harness();
+  try {
+    const aliased = "declare const require: any;\nconst r = require;\nexport const load = (name: string) => r(name);\n";
+    const store = withSources(h, { "web/src/app/aliased.ts": aliased }, [["web/src/app/aliased.ts", "require", "calls", 3, colOf(aliased, 3, "r(name)")]]);
+
+    const report = await askImporters(h, store, [HELPER_FILE]);
+
+    assert.deepEqual(report?.dynamicLoaders, { files: ["web/src/app/aliased.ts"], complete: true });
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
 test("importersOf reads every production source whole: a load the index never recorded (import.meta.glob), require.context, a computed require, or a source it cannot read may load anything; a test's is no guard", async () => {
   const h = harness();
   try {

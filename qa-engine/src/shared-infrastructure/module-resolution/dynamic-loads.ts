@@ -36,10 +36,17 @@ const literalOf = (node: ts.Node | undefined): string | undefined =>
 
 const isImportMeta = (node: ts.Node): boolean => ts.isMetaProperty(node) && node.keywordToken === ts.SyntaxKind.ImportKeyword && node.name.text === "meta";
 
-/* The root of a property access chain (`require` of `require.context`, `import.meta` of `import.meta.glob`). */
-function rootOf(node: ts.Expression): ts.Expression {
+/* An expression without the parentheses, casts and non-null assertions around it: `(require as any)` is `require`. */
+function bare(node: ts.Expression): ts.Expression {
   let at = node;
-  while (ts.isPropertyAccessExpression(at)) at = at.expression;
+  while (ts.isParenthesizedExpression(at) || ts.isAsExpression(at) || ts.isTypeAssertionExpression(at) || ts.isNonNullExpression(at) || ts.isSatisfiesExpression(at)) at = at.expression;
+  return at;
+}
+
+/* The root of a property access chain (`require` of `require.context`, `import.meta` of `import.meta.glob`), seen through casts. */
+function rootOf(node: ts.Expression): ts.Expression {
+  let at = bare(node);
+  while (ts.isPropertyAccessExpression(at)) at = bare(at.expression);
   return at;
 }
 
@@ -58,15 +65,15 @@ const readEcmascript: Reader = (file, source) => {
   };
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node)) {
-      const callee = node.expression;
+      const callee = bare(node.expression);
       if (callee.kind === ts.SyntaxKind.ImportKeyword || isRequire(callee)) load(literalOf(node.arguments[0]));
       else if (ts.isPropertyAccessExpression(callee)) {
         const root = rootOf(callee);
-        if (isRequire(root) || isImportMeta(root)) load(callee.name.text === "resolve" && callee.expression === root ? literalOf(node.arguments[0]) : undefined);
+        if (isRequire(root) || isImportMeta(root)) load(callee.name.text === "resolve" && bare(callee.expression) === root ? literalOf(node.arguments[0]) : undefined);
       }
     } else if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "URL") {
-      const base = node.arguments?.[1];
-      if (base !== undefined && ts.isPropertyAccessExpression(base) && isImportMeta(base.expression) && base.name.text === "url") load(literalOf(node.arguments![0]));
+      const base = node.arguments?.[1] === undefined ? undefined : bare(node.arguments[1]);
+      if (base !== undefined && ts.isPropertyAccessExpression(base) && isImportMeta(bare(base.expression)) && base.name.text === "url") load(literalOf(node.arguments![0]));
     } else if (ts.isImportTypeNode(node)) {
       const specifier = ts.isLiteralTypeNode(node.argument) ? literalOf(node.argument.literal) : undefined;
       if (specifier !== undefined) types.add(specifier);

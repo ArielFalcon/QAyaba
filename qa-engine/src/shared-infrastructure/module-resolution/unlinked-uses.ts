@@ -119,7 +119,8 @@ export async function withUnlinkedUses(report: ImportersReport, unlinked: Unlink
       continue;
     }
     const loads = source === "unreadable" ? undefined : moduleLoadsOf(file, source.text);
-    if (loads === undefined || loads.opaque) {
+    /* A file the index saw load modules, in which the reading finds no load at all, loads by a form the reading does not know. */
+    if (loads === undefined || loads.opaque || (listed.has(file) && loads.loads.length === 0 && loads.types.length === 0)) {
       loaders.add(file);
       continue;
     }
