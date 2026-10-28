@@ -837,10 +837,16 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   framework's development guard, a lowered `?.`) is never mutated. The
   decisions of changed lines with an arm no test ran come first, each by the site that forces it (the negated
   condition of an if or `?:`, the swapped `&&`/`||`); the rest are one per changed line (`select-mutants.ts`).
-  A mutant is judged only when it reached a page; it is killed when a passing test fails.
+  A mutant is judged only when it reached a page; it is killed when a passing test fails. A mutant whose re-run left
+  counters that could not be read (a set left out by the dump bridge, a directory that cannot be vouched for) is not known
+  to have reached a page or not: it is not judged, logged on a line of its own and counted apart as `unreadable`, never
+  as "reached no page". The dump bridge gives each kind of dump (coverage, fault-injection counters) a check time of its
+  own (`DUMP_CHECK_BUDGET_MS`), so bulky coverage dumps cannot use up the time the small counters are checked in, and a
+  kind whose time ran out says so (`OutOfTimeError`) instead of "its content could not be used".
   `gateSignals.bundleMutation` holds `{ applied, killed, survived[] }`, plus `skippedSites { count, reasons }`
-  (sites left out, by `no-source-line` or `not-in-source-line`) and `rerunsBySpecFile` (mutants whose tests
-  could not be told) when there are any, beside the response oracle's `valueScore`, whose meaning is unchanged.
+  (sites left out, by `no-source-line` or `not-in-source-line`), `rerunsBySpecFile` (mutants whose tests
+  could not be told) and `unreadable` (mutants not judged for unreadable counters; the object is then present even
+  with `applied: 0`) when there are any, beside the response oracle's `valueScore`, whose meaning is unchanged.
   **What a survivor moved** (signal, never a gate): the survivor's finding says which observable the mutation changed, because an author
   that knows only the line cannot write the assertion that kills it. Each mutant's re-run is observed (`PW_OBSERVE=1`: the capture block of the seed's
   `fixtures.ts` records, per test that ran, the requests its page depended on by method + origin + pathname with a count, never the query, fragment,
@@ -870,7 +876,8 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   their accepted bytes passed (`closeSurvivors`, `survivor-closure.ts`): a regenerated test counts as
   answering its survivor only when that mutant now fails it. The mutant as it ran (served script, edit)
   stays with the orchestrator and never reaches an agent or the record. `gateSignals.survivorClosure
-  { routed, judged, closed, open[] }`; a survivor still open never changes the decision.
+  { routed, judged, closed, open[], unreadable? }`; a survivor still open never changes the decision, and one whose
+  re-run's counters could not be read is neither judged, closed nor open (`unreadable`, logged loudly).
 - **Branch cases** (never a gate; `qa.changeCoverage.branchCases`, default `regenerate`): a green diff run
   whose measurement blocks nothing and found untaken arms on changed lines gets **one** regeneration (the
   step `regenerate-for-branch-cases`) with those arms as the cases still missing (a blocking enforce

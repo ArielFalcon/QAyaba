@@ -212,6 +212,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
               applied: bundleMutation.applied,
               killed: bundleMutation.killed,
               survived: bundleMutation.survived,
+              ...(bundleMutation.unreadable ? { unreadable: bundleMutation.unreadable } : {}),
               ...(mutantSelection?.skippedSites ? { skippedSites: mutantSelection.skippedSites } : {}),
               ...(mutantSelection?.rerunsBySpecFile ? { rerunsBySpecFile: mutantSelection.rerunsBySpecFile } : {}),
             },

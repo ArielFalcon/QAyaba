@@ -1,5 +1,5 @@
 /* The e2e mutation oracle: one re-run per mutant of the spec files that reached it, a mutant judged only when it reached a page and the re-run ran tests that passed before, killed when one of them fails. */
-import { test } from "node:test";
+import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { BundleMutationOracleAdapter } from "@contexts/objective-signal/infrastructure/bundle-mutation-oracle.adapter.ts";
 import type { MutantRun } from "@contexts/objective-signal/domain/coverage-collector.ts";
@@ -50,7 +50,6 @@ test("each mutant re-runs its spec files under its own namespace with its edit, 
 test("a mutant that reached no page, a re-run that could not run, and one that ran none of the passing tests are not judged; with none judged there is no result", async () => {
   const cases: Array<{ verdict: string; cases: QaCase[]; mutated: number | undefined }> = [
     { verdict: "pass", cases: [pass("t")], mutated: 0 },
-    { verdict: "pass", cases: [pass("t")], mutated: undefined },
     { verdict: "infra-error", cases: [], mutated: 1 },
     { verdict: "fail", cases: [fail("not-before")], mutated: 1 },
   ];
@@ -58,6 +57,41 @@ test("a mutant that reached no page, a re-run that could not run, and one that r
   const oracle = new BundleMutationOracleAdapter(async () => cases[i]!, () => cases[i++]!.mutated, "https://dev.example");
 
   assert.equal(await oracle.measure(cases.map((_, n) => mutant(n + 1)), "/e2e", "run", ["t"]), null);
+});
+
+test("a mutant whose counters could not be read is not judged and is counted apart from one that reached no page, whatever its failing cases say", async () => {
+  const warnings: string[] = [];
+  const warn = mock.method(console, "warn", (...args: unknown[]) => {
+    warnings.push(args.map(String).join(" "));
+  });
+  try {
+    /* The first re-run failed five tests, so it was killed if the counter had been read; the counter of the second says no response was mutated; the third counter is read and the mutant survives. */
+    const reruns = [
+      { cases: [fail("a"), fail("b")], mutated: undefined as number | undefined },
+      { cases: [pass("a"), pass("b")], mutated: 0 },
+      { cases: [pass("a"), pass("b")], mutated: 2 },
+    ];
+    let i = 0;
+    const oracle = new BundleMutationOracleAdapter(async () => ({ verdict: "fail", cases: reruns[i]!.cases }), () => reruns[i++]!.mutated, "https://dev.example");
+
+    const result = await oracle.measure([mutant(1), mutant(2), mutant(3)], "/e2e", "run", ["a", "b"]);
+
+    assert.equal(result?.applied, 1, "only the mutant whose counter was read is judged");
+    assert.equal(result?.killed, 0);
+    assert.equal(result?.unreadable, 1, "the unreadable one is counted, apart from the one that reached no page");
+    assert.equal(warnings.filter((w) => /reached no page/.test(w)).length, 1, "only the mutant that really reached none says so");
+    const unreadable = warnings.filter((w) => /could not be read/.test(w));
+    assert.equal(unreadable.length, 1, "the unreadable evidence is said on a line of its own");
+    assert.match(unreadable[0]!, /src\/store\.ts:1/);
+  } finally {
+    warn.mock.restore();
+  }
+});
+
+test("with no mutant judged and one unreadable the result still says so, so the unreadable evidence is never lost to a null", async () => {
+  const oracle = new BundleMutationOracleAdapter(async () => ({ verdict: "fail", cases: [fail("t")] }), () => undefined, "https://dev.example");
+
+  assert.deepEqual(await oracle.measure([mutant(1)], "/e2e", "run", ["t"]), { applied: 0, killed: 0, survived: [], unreadable: 1 });
 });
 
 test("no mutant, no passing test or no DEV address runs nothing", async () => {

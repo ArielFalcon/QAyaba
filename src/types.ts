@@ -170,11 +170,11 @@ export interface RunOutcome {
     branchCoverage?: { changed: number; taken: number };
     /* What the mutants of the changed code did; absent when none was judged. A signal, never a gate. */
     changeCoverage?: { executableLines: number; notExecutableLines?: number; notLoadedFiles?: string[]; noCodeFiles?: string[]; coveredByExecution?: number; provenByMutation?: number; armsProvenByMutation?: number; unreachableByDesign?: { file: string; routes: string[] }[]; testSupportFiles?: { file: string; importers: number }[] };
-    bundleMutation?: { applied: number; killed: number; survived: { file: string; line: number; operator: string; moved?: ObservedDifference }[] };
+    bundleMutation?: { applied: number; killed: number; survived: { file: string; line: number; operator: string; moved?: ObservedDifference }[]; unreadable?: number };
     /* What the one regeneration from the arms of the changed code no test ran did: its outcome, the arms before and after it, and how many spec files it changed kept their new bytes or were given their prior ones back (absent when it changed none). A signal, never a gate; absent when it did not run. */
     branchCases?: { outcome: "accepted" | "empty" | "rejected" | "capped"; armsBefore: number; armsAfter?: number; kept?: number; restored?: number };
     /* Whether the regeneration the surviving mutants drove made a test notice them: routed, judged, closed and the ones still open. A signal, never a gate; absent when no accepted regeneration answered a survivor. */
-    survivorClosure?: { routed: number; judged: number; closed: number; open: { file: string; line: number; operator: string }[] };
+    survivorClosure?: { routed: number; judged: number; closed: number; open: { file: string; line: number; operator: string }[]; unreadable?: number };
     /** The flaky cases of a flaky run (passed only on retry) by class and what the correction routed to their flows became, with the spec files it changed kept or given their prior bytes back (absent when it changed none); absent when the run was not flaky. A signal, never a gate. */
     flakyTriage?: { cases: number; dataInstability: number; timing: number; outcome: "no-pass" | "accepted" | "empty" | "rejected" | "capped"; kept?: number; restored?: number };
     /* The reviewer's missing cases: findings that cite an arm of the changed code no test ran. A record, never a gate; absent when there were none. */

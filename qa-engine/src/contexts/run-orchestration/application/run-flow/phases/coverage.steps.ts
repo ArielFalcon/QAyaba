@@ -301,6 +301,7 @@ export async function closeSurvivors(state: Readonly<RunState>, ctx: WorkspaceRu
   const result = baselineCases.length > 0 && rechecks.length > 0 ? await recheckOrNone(() => deps.objectiveSignal.recheckSurvivors!(rechecks, workspace.specDir, `${input.runId}-closure`, baselineCases)) : null;
   const closure = survivorClosureOf(routed.length, result);
   engineLog.info(`[qa] survivor closure: ${closure.closed} of ${closure.routed} surviving mutant(s) now noticed by a test (${closure.judged} judged)`);
+  if (closure.unreadable) engineLog.warn(`[qa] survivor closure: ${closure.unreadable} surviving mutant(s) were not judged because the counters of their re-run could not be read (not the same as a mutant that reached no page)`);
   return closure;
 }
 

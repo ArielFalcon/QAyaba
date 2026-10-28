@@ -56,3 +56,8 @@ test("the closure counts the judged survivors, those a test now notices, and lis
 test("a re-run that judged nothing leaves every routed survivor neither closed nor open", () => {
   assert.deepEqual(survivorClosureOf(2, null), { routed: 2, judged: 0, closed: 0, open: [] });
 });
+
+test("a survivor whose re-run could not be read is counted apart: neither judged, closed nor open", () => {
+  assert.deepEqual(survivorClosureOf(2, { applied: 1, killed: 0, survived: [], unreadable: 1 }), { routed: 2, judged: 1, closed: 0, open: [], unreadable: 1 });
+  assert.deepEqual(survivorClosureOf(1, { applied: 0, killed: 0, survived: [], unreadable: 1 }), { routed: 1, judged: 0, closed: 0, open: [], unreadable: 1 });
+});

@@ -1,4 +1,4 @@
-/* BundleMutationPort for the e2e target: each mutant of the changed code is one re-run, against DEV, of the tests that reached it (the mutant names them to the seed's mutation fixture, which skips every other test of the spec files; a mutant that names none re-runs every test of its spec files), with the seed's mutation fixture editing that one script as the page loads it. A mutant is judged only when it reached a page (the fixture counts the responses it mutated beside the response oracle's counters) and the re-run ran tests that passed before: a mutant that reached no page, a re-run that could not run, and one that ran none of the passing tests say nothing of the tests. A judged mutant is killed when a test that passed before fails; its proof names the dumps of the spec files whose tests failed, so the changed code the mutant made run is credited to the tests that checked it. When asked to observe, each mutant's re-run also records the pages of its tests, and the survivors are compared with two unmutated re-runs of the same tests, one before the first mutant's re-run and one after the last, whose own differences are run-to-run noise and drift over the pass: what the mutation moved in the requests and the accessible tree is recorded on each survivor, over all its tests (`moved`) and per spec file (`movedBySpec`), for the regeneration that answers it, and holds nothing of the mutant. Signal-only: the result never gates publish. */
+/* BundleMutationPort for the e2e target: each mutant of the changed code is one re-run, against DEV, of the tests that reached it (the mutant names them to the seed's mutation fixture, which skips every other test of the spec files; a mutant that names none re-runs every test of its spec files), with the seed's mutation fixture editing that one script as the page loads it. A mutant is judged only when it reached a page (the fixture counts the responses it mutated beside the response oracle's counters) and the re-run ran tests that passed before: a mutant that reached no page, a re-run that could not run, one whose counters could not be read (counted apart, `unreadable`, since whether it reached a page is not known) and one that ran none of the passing tests say nothing of the tests. A judged mutant is killed when a test that passed before fails; its proof names the dumps of the spec files whose tests failed, so the changed code the mutant made run is credited to the tests that checked it. When asked to observe, each mutant's re-run also records the pages of its tests, and the survivors are compared with two unmutated re-runs of the same tests, one before the first mutant's re-run and one after the last, whose own differences are run-to-run noise and drift over the pass: what the mutation moved in the requests and the accessible tree is recorded on each survivor, over all its tests (`moved`) and per spec file (`movedBySpec`), for the regeneration that answers it, and holds nothing of the mutant. Signal-only: the result never gates publish. */
 import type { BundleMutationPort } from "../application/ports/bundle-mutation.port.ts";
 import type { BundleMutationResult, MutantProof, MutantRun } from "../domain/coverage-collector.ts";
 import { diffObservations, movedBySpecFile } from "../domain/observed-difference.ts";
@@ -8,7 +8,7 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 
 /* A re-run of `specFiles`: with `mutant` applied (or, for the unmutated re-runs a survivor is compared with, none, or one that edits no script and only names the tests to run); `observe` has the fixtures record the pages of its tests. */
 type RunMutant = (args: { dir: string; baseUrl: string; namespace: string; mutant?: string; specFiles: string[]; observe?: boolean }) => Promise<{ verdict: string; cases: QaCase[]; observations?: ObservedPage[] }>;
-/* How many responses the re-run of `namespace` mutated; undefined when that cannot be told. */
+/* How many responses the re-run of `namespace` mutated: zero when it mutated none, undefined when that cannot be told because its counters could not be read. */
 type CountMutated = (e2eDir: string, namespace: string) => number | undefined;
 
 /* The longest text of an edit a finding or a record carries. */
@@ -57,6 +57,7 @@ export class BundleMutationOracleAdapter implements BundleMutationPort {
     const passedBefore = new Set(baselineCases);
     let applied = 0;
     let killed = 0;
+    let unreadable = 0;
     const survived: BundleMutationResult["survived"] = [];
     const proofs: MutantProof[] = [];
     const survivorRuns: MutantRun[] = [];
@@ -71,7 +72,14 @@ export class BundleMutationOracleAdapter implements BundleMutationPort {
         engineLog.warn(`[qa] mutation: the re-run of the mutant at ${site.file}:${site.line} (${site.operator}) could not run; it is not judged`);
         continue;
       }
-      if (!this.countMutated(specDir, mutantNamespace)) {
+      const mutated = this.countMutated(specDir, mutantNamespace);
+      if (mutated === undefined) {
+        /* Whether the mutant reached a page is not known, which is not the same as it reaching none: its failing cases may be the very test that noticed it. */
+        unreadable++;
+        engineLog.warn(`[qa] mutation: the counters of the re-run of the mutant at ${site.file}:${site.line} (${site.operator}) could not be read, so whether it reached a page is not known; it is not judged`);
+        continue;
+      }
+      if (mutated === 0) {
         engineLog.warn(`[qa] mutation: the mutant at ${site.file}:${site.line} (${site.operator}) reached no page (its script was not served as the coverage saw it, or the suite has no mutation fixture); it is not judged`);
         continue;
       }
@@ -90,7 +98,7 @@ export class BundleMutationOracleAdapter implements BundleMutationPort {
       }
     }
     if (before && survived.length > 0) await this.recordMoved(survived, survivorRuns, survivorPages, before, specDir, namespace);
-    return applied > 0 ? { applied, killed, survived, ...(proofs.length > 0 ? { proofs } : {}), ...(survivorRuns.length > 0 ? { survivorRuns } : {}) } : null;
+    return applied > 0 || unreadable > 0 ? { applied, killed, survived, ...(proofs.length > 0 ? { proofs } : {}), ...(survivorRuns.length > 0 ? { survivorRuns } : {}), ...(unreadable > 0 ? { unreadable } : {}) } : null;
   }
 
   /*

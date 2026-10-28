@@ -32,6 +32,7 @@ function survivorAttrs(m: BundleMutationOutcome) {
   return {
     "qayaba.mutation.applied": m.applied,
     "qayaba.mutation.killed": m.killed,
+    ...(m.unreadable ? { "qayaba.mutation.unreadable": m.unreadable } : {}),
     "qayaba.mutation.survivors_routed": routed,
     "qayaba.mutation.survivors_without_spec": m.survived.length - routed,
     ...(observed.length > 0 ? { "qayaba.mutation.survivors_moved": kindOf("moved"), "qayaba.mutation.survivors_unmoved": kindOf("unmoved"), "qayaba.mutation.survivors_unobserved": kindOf("unobserved") } : {}),
