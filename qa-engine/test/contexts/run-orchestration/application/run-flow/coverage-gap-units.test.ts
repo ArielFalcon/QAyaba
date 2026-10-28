@@ -32,3 +32,11 @@ test("units of a gap are listed across the use cases they seed, one use case bef
   assert.equal(units.length, 14);
   assert.deepEqual(files.slice(0, 3), ["src/orders-0.ts", "src/login.ts", "src/cart-0.ts"]);
 });
+
+test("a file a hub shares with a use case is listed under that use case, not with the files no use case holds", () => {
+  const shop = { ...seeded("/shop", "src/shop.ts"), id: "uc-shop", sharedSeeds: [{ file: "src/store.ts", symbol: "load", pages: 9 }] };
+  const cart = { ...seeded("/cart", "src/cart-a.ts"), id: "uc-cart", seeds: [{ file: "src/cart-a.ts", symbol: "*" }, { file: "src/cart-b.ts", symbol: "*" }] };
+  const uncovered = ["src/shop.ts", "src/cart-a.ts", "src/cart-b.ts", "src/store.ts", "src/stray.ts"].map((file) => ({ file, lines: [1] }));
+  const units = gapUnits(uncovered, [], [shop, cart]);
+  assert.deepEqual(units.map((u) => u.finding.file), ["src/shop.ts", "src/cart-a.ts", "src/stray.ts", "src/store.ts", "src/cart-b.ts"]);
+});

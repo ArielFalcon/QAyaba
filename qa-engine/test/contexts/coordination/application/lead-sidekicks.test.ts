@@ -1936,6 +1936,33 @@ test("a flow opened for a use case is held to the run's flow cap, and a second f
   await second.pass!.release();
 });
 
+const HUB = { file: "src/store.ts", symbol: "load", range: { start: 1, end: 40 }, pages: 9 };
+
+test("a coverage finding about a hub's code a flow's use case shares goes to that flow, as a file the use case seeds", async () => {
+  const lead = leadCiting([ACCEPT_ALL, NO_ORDERS], CITING_PLAN);
+  const r = rig();
+  const candidates = [seededPage("/cart", "src/cart.ts", { sharedSeeds: [HUB] }), seededPage("/login", "src/login.ts")];
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, candidates }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  const corrected = await outcome.pass!.correct([{ text: "changed lines of src/store.ts: 4-9 are not exercised", file: "src/store.ts" }], CORRECTION_ORIGIN.COVERAGE);
+  await outcome.pass!.release();
+  assert.deepEqual([corrected.specs, corrected.unrouted], [["flows/cart.spec.ts"], []]);
+  assert.match(r.executed.find((e) => e.asked && e.brief.delegationId === "run-1-flow-cart")!.opts.feedback!, /src\/store\.ts/);
+});
+
+test("a coverage finding about a hub's code only an uncovered use case shares opens a flow for that use case instead of being left seedless", async () => {
+  const lead = leadCiting([ACCEPT_ALL, NO_ORDERS], CITING_PLAN);
+  const r = rig({ hasFile: new Set(["cart", "login", "cand-orders"]) });
+  const candidates = [seededPage("/cart", "src/cart.ts"), seededPage("/login", "src/login.ts"), seededPage("/orders", "src/orders.ts", { sharedSeeds: [HUB] })];
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, candidates }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  const corrected = await outcome.pass!.correct([{ text: "changed lines of src/store.ts: 4-9 are not exercised", file: "src/store.ts" }], CORRECTION_ORIGIN.COVERAGE);
+  await outcome.pass!.release();
+  assert.equal(opened(r, "cand-orders").length, 1);
+  assert.deepEqual(corrected.unrouted, []);
+  assert.equal(r.events.some((e) => /seeds no use case/.test(e.reason ?? "")), false);
+});
+
 const DROP_EVERYTHING = { kind: "fanout", flows: [], dropped: [{ candidate: "uc-/cart", basis: "no-observable-change", reason: "only a stylesheet changed" }] };
 const SECOND_PLAN = { plan: { kind: "fanout", flows: [{ id: "cart", objective: "the cart total", candidates: ["uc-/cart"] }] } };
 

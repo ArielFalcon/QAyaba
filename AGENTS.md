@@ -387,7 +387,8 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   round the intent lock refused), the pre-execution selector contradictions and the change-coverage gap (the changed lines no test ran and the
   arms of their decisions that never ran) each go to the lead as
   facts it routes to their flows and never rebuts (the coverage gap as one finding per file and per arm, each carrying `file`/`line`
-  and owned by the one flow covering a use case that file seeds; a file seeding an uncovered use case opens a `cand-<use case>` flow;
+  and owned by the one flow covering a use case that file seeds; a file seeds a use case through one definition every reader shares
+  (`candidatesSeededBy`, `shared-kernel/change-map.ts`: one of its own seeds or a hub's code it shares); a file seeding an uncovered use case opens a `cand-<use case>` flow;
   every unit is kept, listed across use cases and files, and over the lead's window the units give way to references by file with the
   numbers of their findings, recorded as `window-fit`; surviving mutants join the same gap regeneration as findings on the
   spec that reached them); what no flow takes follows

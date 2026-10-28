@@ -31,6 +31,7 @@ import type { ContextBudget, ContextFit } from "@kernel/context-budget.ts";
 import type { WindowFitOutcome } from "@kernel/prompt-sections.ts";
 import { entryKey } from "@kernel/change-reach.ts";
 import { candidatePagesOf, pageRoutesOf, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
+import { candidateSeeds } from "@kernel/change-map.ts";
 import { admissionSetOf, flowCovers, honorContradictedDrops, impliedNoopDrops, MAX_PLAN_ROUNDS, needsAmendment, planCoverage, assembleReplanRequest, unvisitedBy, type AdmissionSet, type PlanAmendment, type PlanCoverage, type PlanFacts } from "./plan-coverage.ts";
 import { candidateSlicesOf, changeViewOf, ownedSliceOf, type ChangeView } from "./owned-slices.ts";
 import { flowCapacity } from "./flow-capacity.ts";
@@ -1013,7 +1014,7 @@ export class LeadSidekicks {
     const under: FlowUnderCorrection[] = await Promise.all(flows.filter((flow) => live.has(flow.id)).map(async (flow) => {
       const spec = this.deps.readSpec ? await this.deps.readSpec({ mirrorDir: input.mirrorDir, specDir: input.specDir }, flow.specFile).catch(() => undefined) : undefined;
       const cited = (input.candidates ?? []).filter((c) => flowCovers(flow, c));
-      return { id: flow.id, objective: flow.objective, specFile: flow.specFile, sessionOpen: live.get(flow.id)!.session !== undefined, candidates: cited.map((c) => c.id), seedFiles: [...new Set(cited.flatMap((c) => c.seeds.map((seed) => seed.file)))], ...(spec !== undefined ? { spec } : {}) };
+      return { id: flow.id, objective: flow.objective, specFile: flow.specFile, sessionOpen: live.get(flow.id)!.session !== undefined, candidates: cited.map((c) => c.id), seedFiles: [...new Set(cited.flatMap((c) => candidateSeeds(c).map((seed) => seed.file)))], ...(spec !== undefined ? { spec } : {}) };
     }));
     const askLead = async (request: AssembledPrompt, again: boolean): Promise<string> => {
       try {

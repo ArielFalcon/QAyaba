@@ -8,8 +8,9 @@
 import { resolveSpecReference } from "@kernel/spec-path.ts";
 import { SIDEKICK_KIND } from "./sidekick-kinds.ts";
 import type { AdmittedFlow } from "./lead-plan.ts";
-import { sameFile, type CorrectionFinding } from "./lead-correction.ts";
+import type { CorrectionFinding } from "./lead-correction.ts";
 import { entryKey } from "@kernel/change-reach.ts";
+import { candidatesSeededBy } from "@kernel/change-map.ts";
 import { candidatePagesOf, type UseCaseCandidate } from "@kernel/use-case-candidate.ts";
 
 /* A path ending in `.spec.ts` inside a text: it ends where the characters of a path do. */
@@ -72,18 +73,18 @@ export function maintenanceFlowOf(input: MaintenanceFlowInput): AdmittedFlow {
 }
 
 /*
- * The use case a finding about a changed source file belongs to when no flow of the pass covers it: the first candidate, in the
- * order the change derived them, one of whose seeds is that file. Undefined when the finding names no file, the file seeds no
- * candidate, or a flow already covers every candidate it seeds (that flow owns the finding, not a new one).
+ * The use case a finding about a changed file belongs to when no flow of the pass covers it: the first candidate the file seeds
+ * (`candidatesSeededBy`: those it seeds directly first, then those that share it as a hub's code, each in the order the change
+ * derived them) that no flow covers. Undefined when the finding names no file or every candidate the file seeds is covered.
  */
 export function uncoveredCandidateOf(finding: CorrectionFinding, candidates: readonly UseCaseCandidate[], covered: (candidate: UseCaseCandidate) => boolean): UseCaseCandidate | undefined {
   if (finding.file === undefined) return undefined;
-  return candidates.find((candidate) => candidate.seeds.some((seed) => sameFile(seed.file, finding.file!)) && !covered(candidate));
+  return candidatesSeededBy(finding.file, candidates).find((candidate) => !covered(candidate));
 }
 
-/* Whether the finding names a changed file that seeds no use case of the change: no flow can own it and none can be opened for it. */
+/* Whether the finding names a changed file that seeds no use case of the change, directly or as shared code: no flow can own it and none can be opened for it. */
 export function seedsNoCandidate(finding: CorrectionFinding, candidates: readonly UseCaseCandidate[]): boolean {
-  return finding.file !== undefined && !candidates.some((candidate) => candidate.seeds.some((seed) => sameFile(seed.file, finding.file!)));
+  return finding.file !== undefined && candidatesSeededBy(finding.file, candidates).length === 0;
 }
 
 /* The id of the flow opened for an uncovered use case, distinct from the ids already taken. */

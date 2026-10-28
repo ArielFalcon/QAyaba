@@ -343,8 +343,12 @@ findings, the run asks the lead, in the same planning session, instead of regene
    the app's `maxFlows` ceiling when it sets one (counting the plan's flows and the maintenance flows already opened) and the run's time reserve, and only for a
    spec the working copy can read; without room the findings stay unrouted and the reason is a `lead-decision` event. What it delivers
    joins the round like the flows' deliveries. It is counted in `corrections.maintained`.
+   A file seeds a use case through one seed definition every reader goes through (`candidateSeeds`, `seedingOf`,
+   `candidatesSeededBy` in `shared-kernel/change-map.ts`): one of the use case's own seeds, or a hub's changed code the use case
+   shares with other pages (its shared seeds). The change map, the flows' slices and briefs, the gap's units and the routing below
+   all read it, so a file only a hub carries to a page still seeds that page's use case.
    A finding that names a changed source file (a coverage finding: `CorrectionFinding.file`, and `line` for an arm) is owned by
-   the one flow that covers a use case whose seeds hold that file (`flowOfFinding`), whatever the lead answers; a file that seeds use
+   the one flow that covers a use case that file seeds (`flowOfFinding`), whatever the lead answers; a file that seeds use
    cases of several flows is the lead's to place, and the prompt then lists every flow with its use cases. A file that seeds a use
    case no flow of the pass covers (dropped or unplanned) opens one flow for that use case, the generalization of the maintenance
    flow (`candidateFlowOf`, id `cand-<use case>`, the deterministic spec path of its id, the same cap, confinement and time reserve,

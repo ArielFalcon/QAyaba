@@ -4,6 +4,7 @@ import { engineLog } from "@kernel/ports/process-logger.ts";
 import { CORRECTION_ORIGIN, type CorrectionFinding, type CorrectionOrigin } from "@contexts/coordination/application/index.ts";
 import { faultAimOf } from "../fault-aim.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
+import { candidatesSeededBy } from "@kernel/change-map.ts";
 import { hasGreenBytes } from "@kernel/run-verdict.ts";
 import type { GenerationEnrichment } from "@contexts/generation/application/index.ts";
 import { changedCodeFiles, renderBranchGap, renderCoverageGap, renderSurvivedMutant, renderSurvivedMutants, survivorClosureOf, survivorRechecks, testSupportFiles, unreachableByDesign, type BundleMutationResult, type CoverageExclusions, type CoverageMeasurement, type CoverageRerun, type SurvivedMutant, type SurvivorClosure } from "@contexts/objective-signal/application/index.ts";
@@ -367,7 +368,7 @@ function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<string, 
  * the breadth of the gap, and the lead's turn gives them up as references to their files only when its window cannot hold them.
  */
 export function gapUnits(uncovered: CoverageOutcome["uncovered"], arms: CoverageOutcome["untakenArms"], candidates: RunState["grounding"]["candidates"]): GapUnit[] {
-  const owner = (file: string): string => (candidates ?? []).find((c) => c.seeds.some((seed) => seed.file === file))?.id ?? "";
+  const owner = (file: string): string => candidatesSeededBy(file, candidates ?? [])[0]?.id ?? "";
   return [
     ...interleave(groupBy(uncovered, (u) => owner(u.file))).map((u) => {
       const text = renderCoverageGap([u], candidates);
