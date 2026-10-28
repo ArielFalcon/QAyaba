@@ -1016,21 +1016,32 @@ export class LeadSidekicks {
       const cited = (input.candidates ?? []).filter((c) => flowCovers(flow, c));
       return { id: flow.id, objective: flow.objective, specFile: flow.specFile, sessionOpen: live.get(flow.id)!.session !== undefined, candidates: cited.map((c) => c.id), seedFiles: [...new Set(cited.flatMap((c) => candidateSeeds(c).map((seed) => seed.file)))], directSeedFiles: [...new Set(cited.flatMap((c) => c.seeds.map((seed) => seed.file)))], ...(spec !== undefined ? { spec } : {}) };
     }));
-    const askLead = async (request: AssembledPrompt, again: boolean): Promise<string> => {
+    /*
+     * The lead's turns are bounded by what the flows they order need: a turn that would leave the run less than a flow's minimum is
+     * not sent. Without the first turn each finding goes to the owner the orchestrator already derives from its own facts (the spec it
+     * cites or names, the flow whose test ran the file, the flow whose use case holds it as a direct seed, plan order); without the
+     * second, the first answer stands.
+     */
+    const askLead = async (request: AssembledPrompt, again: boolean): Promise<{ output: string; sent: boolean }> => {
+      const budgetMs = this.leadTurnBudget(input);
+      if (budgetMs === undefined) {
+        this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): too little of the run is left ${again ? "to ask the lead again; its first answer stands" : "for the lead to route the findings without costing the flows their minimum time; each finding goes to its default owner"}` });
+        return { output: "", sent: false };
+      }
       try {
-        const answer = await lead.ask(request.text, turnOpts(request, Math.min(input.settings.planBudgetMs, this.room(input) ?? input.settings.planBudgetMs)));
+        const answer = await lead.ask(request.text, turnOpts(request, budgetMs));
         if (answer.timedOut) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): the lead ran out of its time${again ? "; its first answer stands" : "; each flow is sent its own findings"}` });
-        else return answer.output;
+        else return { output: answer.output, sent: true };
       } catch (err) {
         if (isRunDeadlineError(err)) throw err;
         this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): the lead's turn failed (${err instanceof Error ? err.message : String(err)})${again ? "; its first answer stands" : "; each flow is sent its own findings"}` });
       }
-      return "";
+      return { output: "", sent: true };
     };
     let askedAgain = new Set<number>();
-    const output = await askLead(assembleLeadCorrection(this.deps.redaction, under, findings, origin, this.leadFit()), false);
-    tally.turns += 1;
-    let admission = admitLeadCorrection(this.deps.redaction, output, under, findings, origin);
+    const first = await askLead(assembleLeadCorrection(this.deps.redaction, under, findings, origin, this.leadFit()), false);
+    if (first.sent) tally.turns += 1;
+    let admission = admitLeadCorrection(this.deps.redaction, first.output, under, findings, origin);
     for (const r of admission.refused) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): ${r.flowId ? `flow ${r.flowId} ` : ""}${r.finding ? `finding ${r.finding} ` : ""}not taken: ${r.reason}` });
     /*
      * An order the orchestrator refused leaves findings with no flow, and a readable answer may leave findings it neither sent to a flow
@@ -1039,18 +1050,19 @@ export class LeadSidekicks {
      */
     const omitted = admission.readable ? admission.unrouted.filter((i) => !this.opensFlowFor(input, flows, findings[i]!)) : [];
     const refusedLeft = admission.refused.length > 0 && admission.unrouted.length > 0;
-    const roomAgain = this.room(input);
-    if ((refusedLeft || omitted.length > 0) && !state.released && !input.signal?.aborted && (roomAgain === undefined || roomAgain >= MIN_FLOW_MS)) {
+    if ((refusedLeft || omitted.length > 0) && !state.released && !input.signal?.aborted) {
       const parts = [...(admission.refused.length > 0 ? [`${admission.refused.length} part(s) of the answer not admitted`] : []), ...(omitted.length > 0 ? [`finding(s) ${omitted.map((i) => i + 1).join(", ")} neither sent to a flow nor rebutted`] : [])];
-      this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): ${parts.join("; ")}; asking the lead once more` });
-      askedAgain = new Set(omitted);
+      if (this.leadTurnBudget(input) !== undefined) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): ${parts.join("; ")}; asking the lead once more` });
       const again = await askLead(assembleRefusedCorrection(admission.refused, findings.length, omitted, origin), true);
-      tally.turns += 1;
-      const second = admitLeadCorrection(this.deps.redaction, again, under, findings, origin);
-      if (second.readable && second.unrouted.length <= admission.unrouted.length) {
-        admission = second;
-        for (const r of second.refused) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): ${r.flowId ? `flow ${r.flowId} ` : ""}${r.finding ? `finding ${r.finding} ` : ""}not taken after the second asking: ${r.reason}` });
-      } else this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): the lead's second answer did not improve on the first; the first stands` });
+      if (again.sent) {
+        tally.turns += 1;
+        askedAgain = new Set(omitted);
+        const second = admitLeadCorrection(this.deps.redaction, again.output, under, findings, origin);
+        if (second.readable && second.unrouted.length <= admission.unrouted.length) {
+          admission = second;
+          for (const r of second.refused) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): ${r.flowId ? `flow ${r.flowId} ` : ""}${r.finding ? `finding ${r.finding} ` : ""}not taken after the second asking: ${r.reason}` });
+        } else this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): the lead's second answer did not improve on the first; the first stands` });
+      }
     }
     tally.rebutted += admission.rebuttals.length;
     const after = this.room(input);
@@ -1239,6 +1251,18 @@ export class LeadSidekicks {
   private room(input: CoordinateInput): number | undefined {
     const left = this.remaining(input);
     return left === undefined ? undefined : left - this.reserve(left);
+  }
+
+  /*
+   * The time one of the lead's correction turns may take, or undefined when none fits. A turn is held to the room less the minimum a
+   * flow needs, so what the lead orders still has time to run: the room shrinks by at most what the turn spends, since the reserve
+   * shrinks with the time left. A turn that could be given less than that minimum is not worth sending. No deadline: the plan budget.
+   */
+  private leadTurnBudget(input: CoordinateInput): number | undefined {
+    const room = this.room(input);
+    if (room === undefined) return input.settings.planBudgetMs;
+    const spare = room - MIN_FLOW_MS;
+    return spare < MIN_FLOW_MS ? undefined : Math.min(input.settings.planBudgetMs, spare);
   }
 
   private remaining(input: CoordinateInput): number | undefined {

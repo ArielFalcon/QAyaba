@@ -333,6 +333,13 @@ findings, the run asks the lead, in the same planning session, instead of regene
    and the range of finding numbers (`renderRefusedCorrection`); the re-answer is admitted as any answer, and one that still
    leaves findings unrouted keeps the first answer's result when it is no better. Never a third asking: a finding left out
    again is recorded unrouted with that reason (the lead neither sent it to a flow nor rebutted it after being asked once more).
+   The lead's turns never spend the room the flows they order need. Every caller of the correction pass (review, static, execution,
+   flaky, coverage, branch cases) meets this at the one shared point (`correct`): a lead turn, and the re-ask, is held to the room
+   (what is left of the run less its reserve) less `MIN_FLOW_MS`, never above `planBudgetMs`, so what the lead orders still has the
+   minimum a flow needs. When that leaves the turn less than `MIN_FLOW_MS` it is not sent: without the first turn each finding goes
+   to its default owner (the spec it cites or names, the flow whose test ran the file, the flow whose use case holds it as a direct
+   seed, plan order), without the re-ask the first answer stands, and each is recorded as a `lead-decision`. A run with no
+   deadline is bounded by `planBudgetMs` alone. The values come from the run's own budget, never from the app.
 4. Each flow's workspace is refreshed from the working copy (the run may have changed the spec since), then its sidekick gets the
    findings verbatim, the lead's instruction and the orchestrator's facts. Only a change made after the refresh comes back.
 5. A finding no flow took that names a spec of the suite no flow of the plan authored (a static-gate error or a failing case in a
