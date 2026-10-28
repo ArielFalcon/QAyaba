@@ -83,9 +83,11 @@ export interface FlowUnderCorrection {
   sessionOpen: boolean;
   /* The spec as the working copy holds it now. */
   spec?: string;
-  /* The ids of the use cases the flow covers and the changed files that seed them: a finding about one of those files is the flow's. */
+  /* The ids of the use cases the flow covers and the changed files that seed them (`candidateSeeds`: their own seeds and a hub's code they share): a finding about one of those files is the flow's. */
   candidates?: readonly string[];
   seedFiles?: readonly string[];
+  /* Those of `seedFiles` that seed a use case of the flow through one of its own seeds, not only as a hub's code: a file several flows' use cases hold is settled by them. */
+  directSeedFiles?: readonly string[];
 }
 
 /* One tier for a lead turn's sections, ordered by priority; a closing instruction is the turn's recap and says so. */
@@ -357,19 +359,45 @@ export const REJECTED_PLAN_SECTIONS: readonly PromptSectionDef<RejectedPlanPromp
 export interface RefusedCorrectionPromptContext {
   refused: readonly { flowId?: string; finding?: number; reason: string }[];
   findingCount: number;
+  /* The numbers (1-based, ascending) of the findings the answer neither sent to a flow nor rebutted, and that no flow of the orchestrator's own takes. */
+  omitted: readonly number[];
+  /* Whether the turn's findings are a judgment the lead may rebut. */
+  rebuttable: boolean;
 }
 
-/* The one request that sends a refused answer back to the lead: why each part of it was not admitted, the numbers that are findings, and what to answer. */
+/* The one request that sends an answer back to the lead: why each part of it was not admitted, the findings it left out, the numbers that are findings, and what to answer. */
 export const REFUSED_CORRECTION_SECTIONS: readonly PromptSectionDef<RefusedCorrectionPromptContext>[] = [
   section({
     id: "refused",
     priority: 10, stability: "run", reason: "A refused correction answer is sent back once, with why each part was not admitted (f67ef0c3)",
-    applies: () => true,
-    render: ({ refused, findingCount }) => ({
+    applies: ({ refused }) => refused.length > 0,
+    render: ({ refused }) => ({
       content: [
         "## Your correction was not admitted",
         "The orchestrator did not admit these parts of your answer:",
         ...refused.map((r) => `- ${r.flowId ? `flow ${r.flowId}` : "the answer"}${r.finding ? `, finding ${r.finding}` : ""}: ${r.reason}`),
+      ].join("\n"),
+    }),
+  }),
+  section({
+    id: "omitted",
+    priority: 15, stability: "run", reason: "Findings a correction answer neither routed nor rebutted were silently left unrouted (run-ed28973-mvruzwli-8bb3adcd: 24 findings)",
+    applies: ({ omitted }) => omitted.length > 0,
+    render: ({ omitted, rebuttable }) => ({
+      content: [
+        "## Findings your answer left out",
+        `Your answer neither sent to a flow nor rebutted: ${numberRanges(omitted)}.`,
+        rebuttable ? "Name the flow each one belongs to, or rebut it." : "Name the flow each one belongs to.",
+        "One you leave out again is recorded unrouted and no one corrects it.",
+      ].join("\n"),
+    }),
+  }),
+  section({
+    id: "answer",
+    priority: 20, stability: "run", reason: "The re-asked correction says which numbers are findings and that the answer must be complete (f67ef0c3)",
+    applies: () => true,
+    render: ({ findingCount }) => ({
+      content: [
         `The findings are numbered 1..${findingCount}, each number is one finding, and an order names the findings its flow is to take by those numbers.`,
         "Answer with ONLY the corrected JSON object of the correction contract, complete (repeat every order and rebuttal you still hold). This is the only other correction turn for these findings.",
       ].join("\n"),

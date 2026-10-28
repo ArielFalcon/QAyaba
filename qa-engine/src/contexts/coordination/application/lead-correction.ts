@@ -136,9 +136,10 @@ export function sameFile(a: string, b: string): boolean {
 
 /*
  * The flow a finding belongs to: the one whose spec its citation names, or failing that the one spec its text names as a whole
- * path, or failing that, for a finding about a changed source file, the one flow that covers a use case that file seeds. A text
- * that names the specs of several flows, or a file that seeds use cases of several flows, belongs to none of them: the lead is
- * asked where it goes.
+ * path, or failing that, for a finding about a changed file, the one flow that covers a use case that file seeds. A file that seeds
+ * use cases of several flows is settled, so it reaches exactly one: the first flow, in the pass's order (the plan's, then the flows
+ * the pass opened), whose use case holds it as one of its own seeds, else the first that holds it as a hub's code. A text that
+ * names the specs of several flows belongs to none of them: the lead is asked where it goes.
  */
 export function flowOfFinding(finding: CorrectionFinding, flows: readonly FlowUnderCorrection[]): string | undefined {
   return routeOfFinding(finding, flows)?.flowId;
@@ -153,8 +154,9 @@ export function routeOfFinding(finding: CorrectionFinding, flows: readonly FlowU
   const named = flows.filter((flow) => namesSpecIn(finding.text, flow.specFile));
   if (named.length > 0) return named.length === 1 ? bySpec(named[0]!.id) : undefined;
   if (finding.file === undefined) return undefined;
-  const seeded = flows.filter((flow) => flow.seedFiles?.some((file) => sameFile(file, finding.file!)));
-  return seeded.length === 1 ? { flowId: seeded[0]!.id, by: "candidate" } : undefined;
+  const holds = (files: readonly string[] | undefined): boolean => files?.some((file) => sameFile(file, finding.file!)) ?? false;
+  const owner = flows.find((flow) => holds(flow.seedFiles) && holds(flow.directSeedFiles)) ?? flows.find((flow) => holds(flow.seedFiles));
+  return owner === undefined ? undefined : { flowId: owner.id, by: "candidate" };
 }
 
 /* The correction turn's prompt, as data: the flows and the findings numbered, assembled from the registered sections. How to route them and the answer's shape are the lead's role prompt. */
@@ -172,15 +174,16 @@ export function renderLeadCorrection(redaction: RedactionPort, flows: readonly F
 }
 
 /*
- * The one request that sends a refused answer back to the lead: why each part of it was not admitted, the numbers that are findings, and
- * what to answer. The lead's answer is untrusted text and a number outside the list is a correctable slip, not a decision.
+ * The one request that sends an answer back to the lead: why each part of it was not admitted, the findings (by position) it neither
+ * sent to a flow nor rebutted, the numbers that are findings, and what to answer. The lead's answer is untrusted text and a number
+ * outside the list is a correctable slip, not a decision; a finding left out is a decision it has not made yet.
  */
-export function assembleRefusedCorrection(refused: CorrectionAdmission["refused"], findingCount: number): AssembledPrompt {
-  return assembleDefs(REFUSED_CORRECTION_SECTIONS, { refused, findingCount }, { separator: "\n\n" });
+export function assembleRefusedCorrection(refused: CorrectionAdmission["refused"], findingCount: number, omitted: readonly number[] = [], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): AssembledPrompt {
+  return assembleDefs(REFUSED_CORRECTION_SECTIONS, { refused, findingCount, omitted: omitted.map((i) => i + 1), rebuttable: rebuttable(origin) }, { separator: "\n" });
 }
 
-export function renderRefusedCorrection(refused: CorrectionAdmission["refused"], findingCount: number): string {
-  return assembleRefusedCorrection(refused, findingCount).text;
+export function renderRefusedCorrection(refused: CorrectionAdmission["refused"], findingCount: number, omitted: readonly number[] = [], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): string {
+  return assembleRefusedCorrection(refused, findingCount, omitted, origin).text;
 }
 
 function textOf(redaction: RedactionPort, value: unknown, max: number): string {
@@ -189,7 +192,8 @@ function textOf(redaction: RedactionPort, value: unknown, max: number): string {
 
 export function admitLeadCorrection(redaction: RedactionPort, output: string, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): CorrectionAdmission {
   const admission: CorrectionAdmission = { readable: false, orders: [], rebuttals: [], unrouted: [], refused: [] };
-  const owner = findings.map((finding) => flowOfFinding(finding, flows));
+  const route = findings.map((finding) => routeOfFinding(finding, flows));
+  const owner = route.map((r) => r?.flowId);
   const byId = new Map(flows.map((flow) => [flow.id, flow]));
   const raw = lastJsonObjectWhere(output, (o) => Array.isArray(o.corrections) || Array.isArray(o.rebuttals)) as { corrections?: unknown; rebuttals?: unknown } | undefined;
   const readable = raw !== undefined;
@@ -210,7 +214,8 @@ export function admitLeadCorrection(redaction: RedactionPort, output: string, fl
         const index = numberOf(n);
         if (index === undefined) continue;
         if (owner[index] !== undefined && owner[index] !== flow.id) {
-          admission.refused.push({ flowId: flow.id, finding: index + 1, reason: `the finding cites flow ${owner[index]}'s spec and stays with it` });
+          const why = route[index]!.by === "spec" ? `the finding cites flow ${owner[index]}'s spec` : `the finding's file seeds a use case flow ${owner[index]} covers`;
+          admission.refused.push({ flowId: flow.id, finding: index + 1, reason: `${why} and stays with it` });
           continue;
         }
         if (owner[index] === undefined) extra.add(index);

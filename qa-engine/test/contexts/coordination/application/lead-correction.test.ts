@@ -114,30 +114,37 @@ const covering: FlowUnderCorrection[] = [
   { ...flows[1]!, candidates: ["uc-/login"], seedFiles: ["web/src/login.ts", "src/shared.ts"] },
 ];
 
-test("a finding about a source file belongs to the one flow that covers a use case the file seeds, a spec it names comes first, and a file two flows share belongs to neither", () => {
+test("a finding about a source file belongs to the one flow that covers a use case the file seeds, and a spec it names comes first", () => {
   assert.equal(flowOfFinding({ text: "lines 3-4 are not exercised", file: "src/cart.ts" }, covering), "cart");
   assert.equal(flowOfFinding({ text: "x", file: "./web/src/login.ts" }, covering), "login", "a leading ./ or a backslash spells the same file");
   assert.equal(flowOfFinding({ text: "x", file: "web\\src\\login.ts" }, covering), "login");
   assert.equal(flowOfFinding({ text: "x", file: "src/login.ts" }, covering), undefined, "in a monorepo src/login.ts is not web/src/login.ts: files are equal, never a suffix of one another");
   assert.equal(flowOfFinding({ text: "x", file: "packages/a/src/cart.ts" }, covering), undefined);
-  assert.equal(flowOfFinding({ text: "x", file: "src/shared.ts" }, covering), undefined);
   assert.equal(flowOfFinding({ text: "x", file: "src/other.ts" }, covering), undefined);
   assert.equal(flowOfFinding({ text: "x", file: "src/cart.ts", spec: "e2e/flows/login.spec.ts" }, covering), "login");
   assert.equal(flowOfFinding({ text: "x", file: "src/cart.ts" }, flows), undefined, "flows that cover nothing own no file");
 });
 
-test("a coverage finding is sent to the flow that covers its file whatever the lead answers, and a shared file is the lead's to place", () => {
+test("a file that seeds use cases of several flows belongs to the one that the file seeds directly, else to the first in plan order", () => {
+  assert.equal(flowOfFinding({ text: "x", file: "src/shared.ts" }, covering), "cart", "neither seeds it directly: the first flow of the plan");
+  const direct: FlowUnderCorrection[] = [{ ...covering[0]! }, { ...covering[1]!, directSeedFiles: ["src/shared.ts"] }];
+  assert.deepEqual(routeOfFinding({ text: "x", file: "src/shared.ts" }, direct), { flowId: "login", by: "candidate" }, "the flow whose use case holds it as its own seed, not as a hub's code");
+  assert.deepEqual(routeOfFinding({ text: "x", file: "./src\\shared.ts" }, direct), { flowId: "login", by: "candidate" });
+});
+
+test("a coverage finding is sent to the one flow that owns its file whatever the lead answers, a shared file included", () => {
   const gap: CorrectionFinding[] = [{ text: "src/cart.ts lines 3-4", file: "src/cart.ts" }, { text: "src/shared.ts lines 1-2", file: "src/shared.ts" }];
   const unplaced = admitLeadCorrection(redaction, JSON.stringify({ corrections: [] }), covering, gap, CORRECTION_ORIGIN.COVERAGE);
-  assert.deepEqual(unplaced.orders.map((o) => [o.flowId, o.indices]), [["cart", [0]]]);
-  assert.deepEqual(unplaced.unrouted, [1]);
-  const placed = admitLeadCorrection(redaction, JSON.stringify({ corrections: [{ flow: "login", action: "revise", findings: [2] }] }), covering, gap, CORRECTION_ORIGIN.COVERAGE);
-  assert.deepEqual(placed.orders.map((o) => [o.flowId, o.indices]), [["cart", [0]], ["login", [1]]]);
+  assert.deepEqual(unplaced.orders.map((o) => [o.flowId, o.indices]), [["cart", [0, 1]]]);
+  assert.deepEqual(unplaced.unrouted, []);
+  const moved = admitLeadCorrection(redaction, JSON.stringify({ corrections: [{ flow: "login", action: "revise", findings: [2] }] }), covering, gap, CORRECTION_ORIGIN.COVERAGE);
+  assert.deepEqual(moved.orders.map((o) => [o.flowId, o.indices]), [["cart", [0, 1]]], "it reaches exactly one flow");
+  assert.match(moved.refused.find((r) => r.finding === 2)!.reason, /seeds a use case flow cart covers/);
 });
 
 test("a coverage-only turn shows the lead every flow with the use cases it covers, and the unit it must place", () => {
-  const text = renderLeadCorrection(redaction, covering, [{ text: "src/shared.ts lines 1-2", file: "src/shared.ts" }], CORRECTION_ORIGIN.COVERAGE);
-  for (const needle of ["cart", "uc-/cart", "login", "uc-/login", "src/shared.ts lines 1-2"]) assert.ok(needle && text.includes(needle), needle);
+  const text = renderLeadCorrection(redaction, covering, [{ text: "src/other.ts lines 1-2", file: "src/other.ts" }], CORRECTION_ORIGIN.COVERAGE);
+  for (const needle of ["cart", "uc-/cart", "login", "uc-/login", "src/other.ts lines 1-2"]) assert.ok(needle && text.includes(needle), needle);
   assert.doesNotMatch(text, /left out|not listed/);
 });
 

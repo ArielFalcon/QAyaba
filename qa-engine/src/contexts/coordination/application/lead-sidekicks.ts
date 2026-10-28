@@ -1014,7 +1014,7 @@ export class LeadSidekicks {
     const under: FlowUnderCorrection[] = await Promise.all(flows.filter((flow) => live.has(flow.id)).map(async (flow) => {
       const spec = this.deps.readSpec ? await this.deps.readSpec({ mirrorDir: input.mirrorDir, specDir: input.specDir }, flow.specFile).catch(() => undefined) : undefined;
       const cited = (input.candidates ?? []).filter((c) => flowCovers(flow, c));
-      return { id: flow.id, objective: flow.objective, specFile: flow.specFile, sessionOpen: live.get(flow.id)!.session !== undefined, candidates: cited.map((c) => c.id), seedFiles: [...new Set(cited.flatMap((c) => candidateSeeds(c).map((seed) => seed.file)))], ...(spec !== undefined ? { spec } : {}) };
+      return { id: flow.id, objective: flow.objective, specFile: flow.specFile, sessionOpen: live.get(flow.id)!.session !== undefined, candidates: cited.map((c) => c.id), seedFiles: [...new Set(cited.flatMap((c) => candidateSeeds(c).map((seed) => seed.file)))], directSeedFiles: [...new Set(cited.flatMap((c) => c.seeds.map((seed) => seed.file)))], ...(spec !== undefined ? { spec } : {}) };
     }));
     const askLead = async (request: AssembledPrompt, again: boolean): Promise<string> => {
       try {
@@ -1027,15 +1027,24 @@ export class LeadSidekicks {
       }
       return "";
     };
+    let askedAgain = new Set<number>();
     const output = await askLead(assembleLeadCorrection(this.deps.redaction, under, findings, origin, this.leadFit()), false);
     tally.turns += 1;
     let admission = admitLeadCorrection(this.deps.redaction, output, under, findings, origin);
     for (const r of admission.refused) this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): ${r.flowId ? `flow ${r.flowId} ` : ""}${r.finding ? `finding ${r.finding} ` : ""}not taken: ${r.reason}` });
-    /* An order the orchestrator refused leaves findings with no flow: the lead is told why once, in its open session, and its re-answer is admitted as any answer. */
+    /*
+     * An order the orchestrator refused leaves findings with no flow, and a readable answer may leave findings it neither sent to a flow
+     * nor rebutted that no flow of the orchestrator's own takes (`opensFlowFor`): the lead is asked once, in its open session, with the
+     * reasons and the numbers it left out, and its re-answer is admitted as any answer.
+     */
+    const omitted = admission.readable ? admission.unrouted.filter((i) => !this.opensFlowFor(input, flows, findings[i]!)) : [];
+    const refusedLeft = admission.refused.length > 0 && admission.unrouted.length > 0;
     const roomAgain = this.room(input);
-    if (admission.refused.length > 0 && admission.unrouted.length > 0 && !state.released && !input.signal?.aborted && (roomAgain === undefined || roomAgain >= MIN_FLOW_MS)) {
-      this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): ${admission.refused.length} part(s) of the answer not admitted; asking the lead once more with the reasons` });
-      const again = await askLead(assembleRefusedCorrection(admission.refused, findings.length), true);
+    if ((refusedLeft || omitted.length > 0) && !state.released && !input.signal?.aborted && (roomAgain === undefined || roomAgain >= MIN_FLOW_MS)) {
+      const parts = [...(admission.refused.length > 0 ? [`${admission.refused.length} part(s) of the answer not admitted`] : []), ...(omitted.length > 0 ? [`finding(s) ${omitted.map((i) => i + 1).join(", ")} neither sent to a flow nor rebutted`] : [])];
+      this.record(input, { kind: "lead-decision", origin, reason: `correction (${origin}): ${parts.join("; ")}; asking the lead once more` });
+      askedAgain = new Set(omitted);
+      const again = await askLead(assembleRefusedCorrection(admission.refused, findings.length, omitted, origin), true);
       tally.turns += 1;
       const second = admitLeadCorrection(this.deps.redaction, again, under, findings, origin);
       if (second.readable && second.unrouted.length <= admission.unrouted.length) {
@@ -1084,8 +1093,10 @@ export class LeadSidekicks {
     tally.unrouted += left.length;
     /* A finding about a file no use case of the change is seeded by has no flow to own it, and the record says so. */
     const seedless = left.filter((i) => seedsNoCandidate(findings[i]!, input.candidates ?? []));
+    const omittedAgain = left.filter((i) => !seedless.includes(i) && askedAgain.has(i));
     this.leftUnrouted(input, origin, seedless, "the file they name seeds no use case of the change, so no flow owns them and none can be opened", "no-seed-use-case");
-    this.leftUnrouted(input, origin, left.filter((i) => !seedless.includes(i)), "no flow took them and no cold author is run for them", "no-flow-took");
+    this.leftUnrouted(input, origin, omittedAgain, "the lead neither sent them to a flow nor rebutted them after being asked once more, and no cold author is run for them", "no-flow-took");
+    this.leftUnrouted(input, origin, left.filter((i) => !seedless.includes(i) && !askedAgain.has(i)), "no flow took them and no cold author is run for them", "no-flow-took");
     const finalUnrouted = left;
     this.record(input, { kind: "lead-decision", origin, ...routingSummary(findings, under, orders, untaken, maintenance, idle, left, seedless), reason: `correction (${origin}): ${findings.length} finding(s) routed` });
     const read = this.deps.readSpec;
@@ -1103,6 +1114,13 @@ export class LeadSidekicks {
       unrouted: finalUnrouted,
       ...(claims.length > 0 ? { testCorrect: { cause: claims.every((c) => c.cause === "env") ? "env" : "app", reason: claims.map((c) => c.reason).join("; ") } } : {}),
     };
+  }
+
+  /* Whether the orchestrator opens a flow of its own for a finding no flow took: one naming a spec no flow of the pass authors (a maintenance flow), or one about a changed file that seeds a use case no flow covers. Such a finding is not the lead's to place. */
+  private opensFlowFor(input: CoordinateInput, pool: readonly AdmittedFlow[], finding: CorrectionFinding): boolean {
+    const spec = specNamedBy(finding, input.specRelDir);
+    if (spec !== undefined && !pool.some((flow) => flow.specFile === spec)) return true;
+    return uncoveredCandidateOf(finding, input.candidates ?? [], (c) => pool.some((flow) => flowCovers(flow, c))) !== undefined;
   }
 
   /*

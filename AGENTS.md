@@ -379,7 +379,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   and no use for longer than the longest run budget in force (`docs/lead-sidekicks.md`, "Session lifecycle"). The reviewer's verified corrections go to the lead
   (`lead-correction.ts`), which routes each to the flow whose spec it cites (revise in the same sidekick session, replace with a fresh
   one) or rebuts it; the orchestrator's facts decide over its answer (a finding that cites a flow goes to it and to no other), an
-  order the admission refuses is sent back to the lead once with the reason, the workspace is refreshed from the working copy first,
+  order the admission refuses, or findings a readable answer neither sent to a flow nor rebutted (and no flow of the orchestrator's own takes), go back to the lead once with the reasons and the numbers it left out (what it leaves out again is recorded unrouted with that reason), a file that seeds use cases of several flows reaches exactly one (the first flow in the pass's order whose use case it seeds directly, else the first that shares it), the workspace is refreshed from the working copy first,
   and the result goes through the round's acceptance and rebuttal check like any regeneration. A finding no flow took that names a
   spec of the suite no flow of the plan authored gets one maintenance flow (a fresh flow sidekick on that spec alone, within
   the app's `maxFlows` ceiling when set and the time reserve; `corrections.maintained`); any other is recorded unrouted and never handed to a cold author. The run's own checks before the review take the same route: the

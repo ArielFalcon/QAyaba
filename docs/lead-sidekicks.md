@@ -328,9 +328,11 @@ findings, the run asks the lead, in the same planning session, instead of regene
    to another, a flow with findings the lead ignored is sent them with the orchestrator's own instruction, and a closed session is
    replaced. An answer that cannot be read still sends each flow its own findings.
    An answer with a part the orchestrator does not admit (an order naming no finding, an unknown flow) while findings are left
-   with no flow goes back to the lead once, in the same session, with the reasons and the range of finding numbers
-   (`renderRefusedCorrection`); the re-answer is admitted as any answer, and one that still leaves findings unrouted keeps the
-   first answer's result when it is no better. Never a third asking.
+   with no flow, or a readable answer that leaves listed findings neither sent to a flow nor rebutted (and that no flow of the
+   orchestrator's own, below, takes), goes back to the lead once, in the same session, with the reasons, the numbers it left out
+   and the range of finding numbers (`renderRefusedCorrection`); the re-answer is admitted as any answer, and one that still
+   leaves findings unrouted keeps the first answer's result when it is no better. Never a third asking: a finding left out
+   again is recorded unrouted with that reason (the lead neither sent it to a flow nor rebutted it after being asked once more).
 4. Each flow's workspace is refreshed from the working copy (the run may have changed the spec since), then its sidekick gets the
    findings verbatim, the lead's instruction and the orchestrator's facts. Only a change made after the refresh comes back.
 5. A finding no flow took that names a spec of the suite no flow of the plan authored (a static-gate error or a failing case in a
@@ -353,8 +355,11 @@ findings, the run asks the lead, in the same planning session, instead of regene
    direct when a seed's file declares it, shared when only a hub's does; the brief names its origin `declared`. Nothing is
    inferred from a name, and a file whose declaring source did not change seeds nothing.
    A finding that names a changed source file (a coverage finding: `CorrectionFinding.file`, and `line` for an arm) is owned by
-   the one flow that covers a use case that file seeds (`flowOfFinding`), whatever the lead answers; a file that seeds use
-   cases of several flows is the lead's to place, and the prompt then lists every flow with its use cases. A file that seeds a use
+   the one flow that covers a use case that file seeds (`flowOfFinding`), whatever the lead answers. A file that seeds use cases
+   of several flows is settled so it reaches exactly one: the first flow, in the pass's order (the plan's, then the flows the pass
+   opened), whose use case holds it as one of its own seeds, else the first that holds it as a hub's code; the lead sees it under
+   that flow, and an order that moves it is refused with why. A finding that cites a flow's spec still goes to that flow and no
+   other. With findings no flow owns, the prompt lists every flow with its use cases. A file that seeds a use
    case no flow of the pass covers (dropped or unplanned) opens one flow for that use case, the generalization of the maintenance
    flow (`candidateFlowOf`, id `cand-<use case>`, the deterministic spec path of its id, the same cap, confinement and time reserve,
    a fresh sidekick that writes the spec), counted in `corrections.maintained`. Every unit of the gap is kept, listed across use cases and arms across files. Over the lead's
