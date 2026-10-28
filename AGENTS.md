@@ -782,7 +782,7 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   read from the working copy) says which of its changed lines are no code (an import, a re-export or export list, a type-only
   declaration, a comment, a blank line), left out like the lines no map reaches, and its other non-blank added lines count as
   uncovered (`notLoadedFiles`); one whose every changed line is no code leaves the measurement, recorded apart (`noCodeFiles`, span
-  `qayaba.coverage.no_code_files`), and a change left with no line of code is `no-changed-lines`, never `deletion-only`. A language
+  `qayaba.coverage.no_code_files`; a file already left out as no gap of the suite, below, is recorded there alone, never in both), and a change left with no line of code is `no-changed-lines`, never `deletion-only`. A language
   that declares no statement syntax, or a source that cannot be read or parsed, counts every non-blank added line. A file no script can hold
   (neither a declared language nor a kind of file the run's maps reach, such as a document or a style sheet) is not changed code. Native reports keep
   every added line. `gateSignals.changeCoverage` records these counts beside the ratio.
@@ -795,10 +795,13 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   the app: the code graph's import edges, its edges of any other kind, and the references it could not resolve that name the file or a symbol of it, with no
   production user and no production file that loads modules by a name the index cannot resolve; the importer count is recorded). What the index could not link is
   completed with the language's own module resolution (`importersOf`, `shared-infrastructure/module-resolution/unlinked-uses.ts`, the module syntax the language
-  registry declares): a production loader's dynamic `import()` or `require()` of a literal specifier, or a type that names a module (`typeof import('…')`), read at the
-  position the index recorded through the strict reader, is an import of the file it resolves to (an installed package is no file of the app), so a lazily routed app keeps the exclusion; a computed specifier,
-  one that resolves to nothing, or a loader that cannot be read still may load any file. A production import the index could not link (a `paths` alias to a
-  directory's index file) that resolves to the file makes it a production user. A list the index cut (the dynamic loads, the unlinked imports) leaves every file
+  registry declares): every production source of a language with a module syntax is read whole through the strict reader, since the
+  index records only some forms of a dynamic load and `import.meta.glob` not at all. A dynamic `import()` or `require()` of a literal
+  specifier (and `require.resolve`, `import.meta.resolve`, `new URL(…, import.meta.url)`) is an import of the file it resolves to
+  (an installed package is no file of the app), and a type that names a module (`typeof import('…')`) a use of it, so a lazily routed
+  app keeps the exclusion; any other load (a computed specifier, `require.context`, `import.meta.glob`), a literal that resolves to
+  nothing, or a source that cannot be read or parsed may load any file. A production import the index could not link (a `paths` alias to a
+  directory's index file) that resolves to the file makes it a production user. A list the index cut (its loaders, the unlinked imports) leaves every file
   counted. A file reached by an available route as well, used by
   production code, with no user read, or whose facts are missing or partial stays counted, as before.
 - A browser run maps covered bundle bytes to repository files only through source maps the page's

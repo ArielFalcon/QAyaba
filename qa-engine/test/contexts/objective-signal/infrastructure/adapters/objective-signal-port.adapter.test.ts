@@ -1012,6 +1012,20 @@ test("recount() reads the unloaded files the same way", async () => {
   assert.deepEqual(result?.uncovered, [{ file: "src/lazy.ts", lines: [2] }, { file: "src/Main.java", lines: [1] }]);
 });
 
+test("a file that is test support and has no changed line of code is recorded once, as test support, by measure() and recount()", async () => {
+  const { adapter, br } = unloadedRig();
+  const exclusions = { unreachableByDesign: [], testSupportFiles: [{ file: "src/shared/index.ts", importers: 2 }] };
+
+  const measured = await adapter.measure(br, "/e2e", UNLOADED_DIFF, ["pays"], { exclusions });
+  const recounted = await adapter.recount!(br, "/e2e", UNLOADED_DIFF, [{ namespace: "run-acc0", specFiles: ["flows/a.spec.ts"] }], { exclusions });
+
+  for (const measurement of [measured.measurement, recounted?.measurement]) {
+    assert.deepEqual(measurement?.testSupportFiles, exclusions.testSupportFiles);
+    assert.equal(measurement?.noCodeFiles, undefined, "never in both lists");
+    assert.deepEqual(measurement?.notLoadedFiles, ["src/lazy.ts", "src/Main.java"]);
+  }
+});
+
 test("measure() whose source of an unloaded file cannot be read counts its non-blank lines, as before", async () => {
   const { adapter, br } = unloadedRig({});
 

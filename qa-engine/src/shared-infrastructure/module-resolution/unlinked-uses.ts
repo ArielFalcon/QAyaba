@@ -1,23 +1,27 @@
 /*
  * The uses of a file the code graph could not link, completed with the language's own module resolution. The index records a
- * dynamic load (`import(…)`, `require(…)`, a `typeof import(…)` type) only by where it is, and an import whose specifier it could not follow (a `paths` alias
- * to a directory's index file) only by its specifier. Here a load whose specifier is a literal is read at its position and resolved
- * like an import: the file it names gains its loader as an importer, and a loader whose every load resolves (to a file or to an
- * installed package) no longer loads just anything. A computed specifier, one that resolves to nothing, or a loader that cannot be
- * read keeps it among the loaders that may load any file. An import the index could not link that resolves to an asked file
- * makes its importer a user of that file. Each specifier resolves from the nearest manifest's installed packages and the nearest
- * module configuration (`module-resolver.ts`); a file of a language with no module syntax resolves nothing. A list the index cut
- * keeps every loader as it is, or makes every file's uses a lower bound (`complete: false`).
+ * dynamic load only by where it is, and not every form of one (`import.meta.glob` not at all), and an import whose specifier it
+ * could not follow (a `paths` alias to a directory's index file) only by its specifier. Here every source that is not a test, of a
+ * language with a module syntax, is read whole through the given reader (`dynamic-loads.ts`; one not in the working copy loads nothing unless the index saw it load): a load of a literal specifier that
+ * resolves to a file makes the file it names gain its loader as an importer, one that resolves to an installed package names no
+ * file of the app, and a type that names a module (`typeof import('…')`) is a use of the file it resolves to. A source that cannot
+ * be read or parsed, a load it does not name by a literal (a computed specifier, `require.context`, `import.meta.glob`), or a
+ * literal that resolves to nothing makes it a loader that may load any file; one whose every load resolves is none, whatever the
+ * index listed. The index's loaders of a language with no module syntax stay as they are. An import the index could not link that
+ * resolves to an asked file makes its importer a user of that file. Each specifier resolves from the nearest manifest's installed
+ * packages and the nearest module configuration (`module-resolver.ts`). A list the index cut keeps every loader as it is, or
+ * makes every file's uses a lower bound (`complete: false`).
  */
 import { posix } from "node:path";
 import { LanguageRegistry, type ModuleSyntax } from "@kernel/language-id.ts";
 import type { ImportersReport } from "@kernel/code/index.ts";
-import { loadedSpecifiersAt, type LoadPosition } from "./dynamic-loads.ts";
+import { moduleLoadsOf } from "./dynamic-loads.ts";
 import { createModuleResolver, manifestDependencies, type ModuleResolution, type ModuleResolver, type SourceReader } from "./module-resolver.ts";
 
+/* A source as the scan reads it: its text, not there (no code of this working copy), or there and unreadable (refused, over its cap). */
+export type ScannedSource = { text: string } | "absent" | "unreadable";
+
 export interface UnlinkedUses {
-  /* Where each dynamic load of a file that is not a test is. */
-  dynamicLoads: { loads: Array<LoadPosition & { file: string }>; complete: boolean };
   /* The specifiers the code of a file that is not a test imports and the index could not link. */
   unresolvedImports: { imports: Array<{ file: string; specifier: string }>; complete: boolean };
 }
@@ -93,7 +97,9 @@ function resolvers(read: SourceReader): Resolvers {
   return { resolve, importedFile };
 }
 
-export async function withUnlinkedUses(report: ImportersReport, unlinked: UnlinkedUses, read: SourceReader): Promise<ImportersReport> {
+/* `sources`: the files of the repository the index holds; those that are tests, or of a language with no module syntax, are not read. */
+/* `read` gives a file's text, for resolution (one not given is absent); `scan` reads a source whole, telling a file that is not there from one that cannot be read. */
+export async function withUnlinkedUses(report: ImportersReport, unlinked: UnlinkedUses, sources: readonly string[], read: SourceReader, scan: (file: string) => Promise<ScannedSource>): Promise<ImportersReport> {
   const asked = new Set(report.files.map((f) => f.file));
   const { resolve, importedFile } = resolvers(read);
   const found = new Map<string, Set<string>>();
@@ -101,21 +107,30 @@ export async function withUnlinkedUses(report: ImportersReport, unlinked: Unlink
     if (asked.has(file) && file !== by) (found.get(file) ?? found.set(file, new Set()).get(file)!).add(by);
   };
 
-  const loaders = new Set(report.dynamicLoaders.files);
-  if (unlinked.dynamicLoads.complete) {
-    const byLoader = new Map<string, LoadPosition[]>();
-    for (const { file, line, col } of unlinked.dynamicLoads.loads) (byLoader.get(file) ?? byLoader.set(file, []).get(file)!).push({ line, col });
-    for (const [loader, positions] of byLoader) {
-      if (!loaders.has(loader)) continue;
-      const source = await read(loader);
-      if (source === undefined) continue;
-      let every = true;
-      for (const specifier of loadedSpecifiersAt(loader, source, positions)) {
-        const resolution = specifier === undefined ? undefined : await resolve(loader, specifier);
-        if (resolution !== undefined && "file" in resolution) use(resolution.file, loader);
-        else if (resolution === undefined || !("external" in resolution)) every = false;
-      }
-      if (every) loaders.delete(loader);
+  /* A source that is not a test, of a language with a module syntax, is read whole: what it loads decides whether it is a loader. */
+  const listed = new Set(report.dynamicLoaders.files);
+  const loaders = new Set(report.dynamicLoaders.files.filter((file) => LanguageRegistry.moduleSyntaxForFile(file) === null || LanguageRegistry.isTestFile(file)));
+  const scanned = [...new Set([...sources, ...report.dynamicLoaders.files])].filter((file) => LanguageRegistry.moduleSyntaxForFile(file) !== null && !LanguageRegistry.isTestFile(file));
+  for (const file of scanned.sort(compare)) {
+    const source = await scan(file);
+    /* A file not in the working copy is no code of it, unless the index saw it load modules: then nothing proves what it loads. */
+    if (source === "absent") {
+      if (listed.has(file)) loaders.add(file);
+      continue;
+    }
+    const loads = source === "unreadable" ? undefined : moduleLoadsOf(file, source.text);
+    if (loads === undefined || loads.opaque) {
+      loaders.add(file);
+      continue;
+    }
+    for (const specifier of loads.loads) {
+      const resolution = await resolve(file, specifier);
+      if (resolution !== undefined && "file" in resolution) use(resolution.file, file);
+      else if (resolution === undefined || !("external" in resolution)) loaders.add(file);
+    }
+    for (const specifier of loads.types) {
+      const target = await importedFile(file, specifier);
+      if (target !== undefined) use(target, file);
     }
   }
 

@@ -26,8 +26,8 @@ import { CODEGRAPH_ENGINE, storePathOf, type CodegraphEngine, type EngineFailure
 import { exportWorkspace, type WorkspaceScope } from "./codegraph-workspace.ts";
 import { repoKeyOf, type CodegraphStoreCache } from "./codegraph-store-cache.ts";
 import { RepoReader } from "../repo-reader.ts";
-import { MAX_SPEC_SOURCE_BYTES } from "../spec-path-confinement.ts";
-import { withUnlinkedUses, type UnlinkedUses } from "../module-resolution/unlinked-uses.ts";
+import { MAX_SPEC_SOURCE_BYTES, probeOwnedSpecFile } from "../spec-path-confinement.ts";
+import { withUnlinkedUses, type ScannedSource, type UnlinkedUses } from "../module-resolution/unlinked-uses.ts";
 
 /* A symbol as the store reader lists it. The id is the engine's and stays inside this adapter. */
 export interface StoreSymbol {
@@ -130,6 +130,7 @@ interface Indexed {
   workspace: string;
   sha: string;
   /* The index's test files, read once: their code never calls in a walk. */
+  files?: Promise<Result<string[], CodeGraphUnavailable>>;
   testFiles?: Promise<Result<string[], CodeGraphUnavailable>>;
   /* The fan-in limit each policy's percentile, floor and ceiling gave on this index, by their JSON. */
   fanInLimits: Map<string, number>;
@@ -288,9 +289,15 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
     return ok({ value: answer.value, sha: entry.sha });
   }
 
-  /* The index's test files, asked once per index. */
+  /* The index's files, asked once per index. */
+  private filesOf(repoDir: string, entry: Indexed): Promise<Result<string[], CodeGraphUnavailable>> {
+    entry.files ??= this.read<{ files: string[] }>(repoDir, { op: "files" }).then((r) => (r.ok ? ok(r.value.value.files) : r));
+    return entry.files;
+  }
+
+  /* The index's test files. */
   private testFilesOf(repoDir: string, entry: Indexed): Promise<Result<string[], CodeGraphUnavailable>> {
-    entry.testFiles ??= this.read<{ files: string[] }>(repoDir, { op: "files" }).then((r) => (r.ok ? ok(r.value.value.files.filter((f) => this.deps.isTestFile(f))) : r));
+    entry.testFiles ??= this.filesOf(repoDir, entry).then((r) => (r.ok ? ok(r.value.filter((f) => this.deps.isTestFile(f))) : r));
     return entry.testFiles;
   }
 
@@ -422,14 +429,16 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
   }
 
   /*
-   * Who uses each file, from the index, completed with what the index could not link: the literal dynamic loads and the unlinked
-   * imports of the code that is not a test, resolved with the language's own module resolution over the repo's files, read through
-   * the strict reader (`module-resolution/unlinked-uses.ts`).
+   * Who uses each file, from the index, completed with what the index could not link: what each source that is not a test loads,
+   * read whole, and the unlinked imports of the code that is not a test, resolved with the language's own module resolution over the
+   * repo's files, read through the strict reader (`module-resolution/unlinked-uses.ts`).
    */
   async importersOf(repoDir: string, files: readonly string[]): Promise<Result<ImportersReport, CodeGraphUnavailable>> {
     if (files.length === 0) return ok({ indexedSha: this.indexOf(repoDir)?.sha ?? "", files: [], dynamicLoaders: { files: [], complete: true } });
     const entry = this.indexOf(repoDir);
     if (!entry) return err({ reason: "the repo is not indexed in this run" });
+    const indexed = await this.filesOf(repoDir, entry);
+    if (!indexed.ok) return indexed;
     const testFiles = await this.testFilesOf(repoDir, entry);
     if (!testFiles.ok) return testFiles;
     const answered = await this.read<{ files: FileImporters[]; dynamicLoaders: ImportersReport["dynamicLoaders"]; truncated: boolean } & UnlinkedUses>(repoDir, { op: "importers", files: [...files], excludeFiles: testFiles.value });
@@ -437,13 +446,19 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
     const answer = answered.value.value;
     /* A file the reader's bound on files left out was never read: it is not indexed as far as the caller can tell. */
     const read = new Map(answer.files.map((f) => [f.file, f]));
-    const indexed: ImportersReport = {
+    const report: ImportersReport = {
       indexedSha: answered.value.sha,
       files: files.map((file) => read.get(file) ?? { file, indexed: false, importers: [], users: [], namedBy: [], complete: false }),
       dynamicLoaders: answer.dynamicLoaders,
     };
     const reader = new RepoReader(repoDir);
-    const completed = await withUnlinkedUses(indexed, answer, async (file) => reader.optionalText(file, MAX_SPEC_SOURCE_BYTES));
+    const text = async (file: string): Promise<string | undefined> => reader.optionalText(file, MAX_SPEC_SOURCE_BYTES);
+    const scan = async (file: string): Promise<ScannedSource> => {
+      const source = await text(file);
+      if (source !== undefined) return { text: source };
+      return probeOwnedSpecFile({ mirrorDir: repoDir, specDir: repoDir }, file) === "absent" ? "absent" : "unreadable";
+    };
+    const completed = await withUnlinkedUses(report, answer, indexed.value, text, scan);
     reader.warn("code graph: the sources of the modules the index could not link");
     return ok(completed);
   }

@@ -5,7 +5,7 @@
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1260,6 +1260,31 @@ test("importersOf keeps a loader whose specifier is computed, names no file, or 
     const report = await askImporters(h, store, [HELPER_FILE]);
 
     assert.deepEqual(report?.dynamicLoaders, { files: ["web/src/app/computed.ts", LAZY_ROUTES, "web/src/app/missing.ts"], complete: true }, "the lazy routes file is not in the working copy");
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("importersOf reads every production source whole: a load the index never recorded (import.meta.glob), require.context, a computed require, or a source it cannot read may load anything; a test's is no guard", async () => {
+  const h = harness();
+  try {
+    const sources = {
+      "web/src/app/glob.ts": "export const pages = import.meta.glob('./pages/*.ts');\n",
+      "web/src/app/context.ts": "declare const require: any;\nexport const pages = require.context('./pages', true);\n",
+      "web/src/app/computed.ts": "declare const require: any;\nexport const load = (name: string) => require(name);\n",
+      "web/src/app/plain.ts": "export const env = import.meta.env;\nexport const page = () => import('@angular/router');\n",
+      "web/src/app/glob.spec.ts": "export const pages = import.meta.glob('./pages/*.ts');\n",
+      "web/real.ts": "export const real = 1;\n",
+    };
+    const store = withSources(h, { "web/package.json": JSON.stringify({ dependencies: { "@angular/router": "1" } }), ...sources }, [], (db) => {
+      const node = db.prepare("INSERT INTO nodes (id, kind, name, qualified_name, file_path, language, start_line, end_line, start_column, end_column, updated_at) VALUES (?, 'file', ?, ?, ?, 'typescript', 1, 1, 0, 0, 0)");
+      for (const file of [...Object.keys(sources), "web/src/app/linked.ts"]) node.run(`file:${file}`, file, file, file);
+    });
+    symlinkSync(join(h.mirror, "web/real.ts"), join(h.mirror, "web/src/app/linked.ts"));
+
+    const report = await askImporters(h, store, [HELPER_FILE]);
+
+    assert.deepEqual(report?.dynamicLoaders, { files: ["web/src/app/computed.ts", "web/src/app/context.ts", "web/src/app/glob.ts", "web/src/app/linked.ts"], complete: true });
   } finally {
     rmSync(h.root, { recursive: true, force: true });
   }

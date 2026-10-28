@@ -1,37 +1,48 @@
-/* What a dynamic load at a position of a source names: the literal specifier of a dynamic import or require call there, by the
-   module syntax its language declares; anything else (a computed specifier, no load at the position, a language with no syntax)
-   names nothing that can be told. */
+/* What a source loads at run time, read whole by the module syntax its language declares: only a load of a literal specifier names
+   it; every other load the language can express makes the source opaque; a type that names a module is a use, not a load; a
+   language with no syntax, or a source that does not parse, says nothing. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { loadedSpecifiersAt } from "../../../src/shared-infrastructure/module-resolution/dynamic-loads.ts";
+import { moduleLoadsOf } from "../../../src/shared-infrastructure/module-resolution/dynamic-loads.ts";
 
-const SOURCE = [
-  "export const routes = [",
-  "  { path: 'a', loadComponent: () => import('@features/a/a.page').then((m) => m.APage) },",
-  "  { path: 'b', loadChildren: () => import(`./b.routes`) },",
-  "  { path: 'c', loadChildren: () => import(name) },",
-  "  { path: 'd', loadChildren: () => import(`./${name}.routes`) },",
-  "];",
-  "const legacy = require('./legacy');",
-  "run();",
-].join("\n");
+test("a dynamic import, a require, a resolve or a module URL of a literal specifier names it, and nothing else is opaque", () => {
+  const source = [
+    "export const routes = [",
+    "  { path: 'a', loadComponent: () => import('@features/a/a.page').then((m) => m.APage) },",
+    "  { path: 'b', loadChildren: () => import(`./b.routes`) },",
+    "];",
+    "const common = require('./common');",
+    "const where = require.resolve('./where');",
+    "const meta = import.meta.resolve('./meta');",
+    "const worker = new Worker(new URL('./worker', import.meta.url));",
+    "const mode = import.meta.env.MODE;",
+  ].join("\n");
 
-test("a dynamic import or require of a literal specifier names it; a computed one, or a position holding no load, names nothing", () => {
-  const at = (line: number, text: string) => ({ line, col: SOURCE.split("\n")[line - 1]!.indexOf(text) });
-
-  const loads = loadedSpecifiersAt("src/app/app.routes.ts", SOURCE, [at(2, "import("), at(3, "import("), at(4, "import("), at(5, "import("), at(7, "require("), at(8, "run(")]);
-
-  assert.deepEqual(loads, ["@features/a/a.page", "./b.routes", undefined, undefined, "./legacy", undefined]);
+  assert.deepEqual(moduleLoadsOf("src/app/app.routes.ts", source), { loads: ["@features/a/a.page", "./b.routes", "./common", "./where", "./meta", "./worker"], types: [], opaque: false });
 });
 
-test("a type that names a module by a literal (`typeof import('…')`) names it at its import keyword, where the index records it", () => {
+test("every load the language can express without a literal specifier makes the source opaque", () => {
+  const opaque = [
+    "export const load = (name: string) => import(name);",
+    "export const load = (name: string) => import(`./pages/${name}.page`);",
+    "export const load = (name: string) => require(name);",
+    "export const load = (name: string) => require(`./${name}`).default;",
+    "export const pages = require.context('./pages', true, /\\.ts$/);",
+    "export const pages = import.meta.glob('./pages/*.ts');",
+    "export const pages = import.meta.glob(['./a/*.ts'], { eager: true });",
+    "export const worker = (name: string) => new URL(name, import.meta.url);",
+  ];
+
+  for (const source of opaque) assert.equal(moduleLoadsOf("src/app/loader.ts", source)?.opaque, true, source);
+});
+
+test("a type that names a module by a literal (`typeof import('…')`) is a use of it and loads nothing", () => {
   const source = ["type AppModule = typeof import('@capacitor/app');", "export type Kit = (typeof import(`./kit`))['default'];"].join("\n");
-  const at = (line: number) => ({ line, col: source.split("\n")[line - 1]!.indexOf("import(") });
 
-  assert.deepEqual(loadedSpecifiersAt("src/app/a.ts", source, [at(1), at(2), { line: 1, col: 17 }]), ["@capacitor/app", "./kit", undefined]);
+  assert.deepEqual(moduleLoadsOf("src/app/a.ts", source), { loads: [], types: ["@capacitor/app", "./kit"], opaque: false });
 });
 
-test("a source of a language with no module syntax, or one that does not parse, names nothing", () => {
-  assert.deepEqual(loadedSpecifiersAt("src/Main.java", "class A { Object o = Class.forName(\"x.Y\"); }", [{ line: 1, col: 21 }]), [undefined]);
-  assert.deepEqual(loadedSpecifiersAt("src/broken.ts", "import('./a'", [{ line: 1, col: 0 }]), [undefined]);
+test("a source of a language with no module syntax, or one that does not parse, says nothing", () => {
+  assert.equal(moduleLoadsOf("src/Main.java", "class A { Object o = Class.forName(\"x.Y\"); }"), undefined);
+  assert.equal(moduleLoadsOf("src/broken.ts", "import('./a'"), undefined);
 });

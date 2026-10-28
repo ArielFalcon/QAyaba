@@ -24,12 +24,12 @@
  *   {"op":"routes"}                                         → {"routes":[{name,file,line,target?:{file,symbol,kind}}]}
  *   {"op":"find","symbols":[{"file":"a.ts","symbol":"f"}]}  → {"symbols":[...as symbols],"truncated":bool}
  *   {"op":"importers","files":["a.ts"],"excludeFiles":[...]} → {"files":[{file,indexed,importers,users,namedBy:["<file>"],complete}],"dynamicLoaders":{files:["<file>"],complete},
- *        "dynamicLoads":{loads:[{file,line,col}],complete},"unresolvedImports":{imports:[{file,specifier}],complete},"truncated":bool}
+ *        "unresolvedImports":{imports:[{file,specifier}],complete},"truncated":bool}
  *     (`importers`: the files whose code imports `a.ts` or a symbol it declares; `users`: the files with an edge of any kind to it or a symbol it
  *     declares; `namedBy`: the files with a reference the index could not resolve that names it or a symbol of it; all sorted.
  *     `indexed` is false for a file the store holds no node of, `complete` false when any list was cut to the bound. `dynamicLoaders`: the files
- *     that load a module by a name the index cannot resolve; `dynamicLoads`: where each such load of a file not excluded is (1-based line,
- *     0-based column of the call); `unresolvedImports`: the specifiers the code of a file not excluded imports and the index could not link to
+ *     that load a module by a name the index cannot resolve (a call of `import`, `require` or a member of `require`, or a loader of
+ *     another language); `unresolvedImports`: the specifiers the code of a file not excluded imports and the index could not link to
  *     a file; `truncated` says the request's files were cut to the bound.)
  *   {"op":"ping"}                                           → {"ready":true} (the store opens and is of the pinned version)
  */
@@ -53,7 +53,6 @@ const TOP_LEVEL_CODE_KINDS = ["function", "class", "component"];
 const CONTAINER_KINDS = ["class", "component", "interface"];
 const MAX_FILES = 2000;
 const MAX_IMPORTERS = 1000;
-const MAX_DYNAMIC_LOADS = 10000;
 const MAX_UNRESOLVED_IMPORTS = 50000;
 const MAX_SEEDS = 2000;
 const MAX_DEPTH = 6;
@@ -168,16 +167,8 @@ function importersOf(db, files) {
 /* The files holding a call that loads a module by a name the index cannot resolve. */
 function dynamicLoadersOf(db) {
   const marks = DYNAMIC_LOAD_NAMES.map(() => "?").join(",");
-  const rows = db.prepare(`SELECT DISTINCT file_path AS file FROM unresolved_refs WHERE reference_name IN (${marks}) OR name_tail IN (${marks}) OR reference_name LIKE 'import(%' OR reference_name LIKE 'require(%' ORDER BY file_path LIMIT ?`).all(...DYNAMIC_LOAD_NAMES, ...DYNAMIC_LOAD_NAMES, MAX_IMPORTERS + 1);
+  const rows = db.prepare(`SELECT DISTINCT file_path AS file FROM unresolved_refs WHERE reference_name IN (${marks}) OR name_tail IN (${marks}) OR reference_name LIKE 'import(%' OR reference_name LIKE 'require(%' OR reference_name LIKE 'require.%' ORDER BY file_path LIMIT ?`).all(...DYNAMIC_LOAD_NAMES, ...DYNAMIC_LOAD_NAMES, MAX_IMPORTERS + 1);
   return { files: rows.slice(0, MAX_IMPORTERS).map((r) => r.file), complete: rows.length <= MAX_IMPORTERS };
-}
-
-/* Where each dynamic load of a file not excluded is, once per position, in file and position order. */
-function dynamicLoadsOf(db, excluded) {
-  const marks = DYNAMIC_LOAD_NAMES.map(() => "?").join(",");
-  const rows = db.prepare(`SELECT DISTINCT file_path AS file, line, col FROM unresolved_refs WHERE reference_name IN (${marks}) OR name_tail IN (${marks}) OR reference_name LIKE 'import(%' OR reference_name LIKE 'require(%' ORDER BY file_path, line, col`).all(...DYNAMIC_LOAD_NAMES, ...DYNAMIC_LOAD_NAMES);
-  const kept = rows.filter((r) => !excluded.has(r.file));
-  return { loads: kept.slice(0, MAX_DYNAMIC_LOADS).map((r) => ({ file: r.file, line: r.line, col: r.col })), complete: kept.length <= MAX_DYNAMIC_LOADS };
 }
 
 /* The specifiers the code of a file not excluded imports and the index could not link, once per file and specifier, in that order. */
@@ -425,7 +416,7 @@ switch (request.op) {
   case "importers": {
     const files = strings(request.files, MAX_FILES, "files");
     const excluded = excludedFiles();
-    answer = { files: importersOf(db, files.items), dynamicLoaders: dynamicLoadersOf(db), dynamicLoads: dynamicLoadsOf(db, excluded), unresolvedImports: unresolvedImportsOf(db, excluded), truncated: files.truncated };
+    answer = { files: importersOf(db, files.items), dynamicLoaders: dynamicLoadersOf(db), unresolvedImports: unresolvedImportsOf(db, excluded), truncated: files.truncated };
     break;
   }
   case "find": {

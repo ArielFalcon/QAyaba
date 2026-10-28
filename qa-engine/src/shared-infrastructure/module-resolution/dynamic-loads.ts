@@ -1,20 +1,27 @@
 /*
- * What a dynamic load names, read from its source at the position the code graph recorded it (1-based line, 0-based column of the
- * call), by the module syntax the language registry declares for the file: for `ecmascript-modules`, a dynamic `import(…)` or a
- * `require(…)` call, or a type that names a module (`typeof import(…)`, recorded at its `import` keyword), whose specifier is a
- * literal (a string, or a template with no substitution). A computed specifier, a position
- * that holds no such call, a source that does not parse and a language with no module syntax name nothing (undefined): whoever
- * reads the answer keeps such a load as one that may load any file. Pure: no file is read here.
+ * What a source loads at run time, read from the whole source by the module syntax the language registry declares for the file
+ * (the code graph records only some forms of a dynamic load, and `import.meta.glob` not at all). For `ecmascript-modules`:
+ *   - a dynamic `import(…)`, a `require(…)`, a `require.resolve(…)` or `import.meta.resolve(…)`, or a `new URL(…, import.meta.url)`
+ *     whose specifier is a literal (a string, or a template with no substitution) loads that specifier;
+ *   - any other of them (a computed specifier), and any other call on `require` or `import.meta` (`require.context`,
+ *     `import.meta.glob`), loads modules the source does not state (`opaque`);
+ *   - a type that names a module (`typeof import('…')`) uses it and loads nothing.
+ * A language with no module syntax, or a source that does not parse, says nothing (undefined): whoever reads the answer keeps such a
+ * file as one that may load any file. Pure: no file is read here.
  */
 import ts from "typescript";
 import { LanguageRegistry, type ModuleSyntax } from "@kernel/language-id.ts";
 
-export interface LoadPosition {
-  line: number;
-  col: number;
+export interface ModuleLoads {
+  /* The literal specifiers the source loads at run time, once each, in source order. */
+  loads: string[];
+  /* The literal specifiers a type of the source names, once each, in source order: a use, never a load. */
+  types: string[];
+  /* The source loads modules it does not name by a literal. */
+  opaque: boolean;
 }
 
-type Reader = (file: string, source: string, positions: readonly LoadPosition[]) => Array<string | undefined>;
+type Reader = (file: string, source: string) => ModuleLoads | undefined;
 
 function scriptKindOf(file: string): ts.ScriptKind {
   const ext = file.slice(file.lastIndexOf(".") + 1).toLowerCase();
@@ -24,39 +31,56 @@ function scriptKindOf(file: string): ts.ScriptKind {
   return ts.ScriptKind.JS;
 }
 
-const isLoad = (call: ts.CallExpression): boolean =>
-  call.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(call.expression) && call.expression.text === "require");
-
 const literalOf = (node: ts.Node | undefined): string | undefined =>
   node !== undefined && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) ? node.text : undefined;
 
-const readEcmascript: Reader = (file, source, positions) => {
+const isImportMeta = (node: ts.Node): boolean => ts.isMetaProperty(node) && node.keywordToken === ts.SyntaxKind.ImportKeyword && node.name.text === "meta";
+
+/* The root of a property access chain (`require` of `require.context`, `import.meta` of `import.meta.glob`). */
+function rootOf(node: ts.Expression): ts.Expression {
+  let at = node;
+  while (ts.isPropertyAccessExpression(at)) at = at.expression;
+  return at;
+}
+
+const isRequire = (node: ts.Node): boolean => ts.isIdentifier(node) && node.text === "require";
+
+const readEcmascript: Reader = (file, source) => {
   const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, scriptKindOf(file));
   /* The parser's own syntax errors; the compiler API keeps them on the source file without declaring them. */
-  if (((sf as unknown as { parseDiagnostics?: readonly unknown[] }).parseDiagnostics ?? []).length > 0) return positions.map(() => undefined);
-  const byStart = new Map<string, string | undefined>();
-  const record = (start: number, specifier: string | undefined): void => {
-    const at = sf.getLineAndCharacterOfPosition(start);
-    byStart.set(`${at.line + 1}:${at.character}`, specifier);
+  if (((sf as unknown as { parseDiagnostics?: readonly unknown[] }).parseDiagnostics ?? []).length > 0) return undefined;
+  const loads = new Set<string>();
+  const types = new Set<string>();
+  let opaque = false;
+  const load = (specifier: string | undefined): void => {
+    if (specifier === undefined) opaque = true;
+    else loads.add(specifier);
   };
   const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node) && isLoad(node)) record(node.getStart(sf), literalOf(node.arguments[0]));
-    /* A type that names a module (`typeof import('…')`): the index records it at its `import` keyword, after any `typeof`. */
-    else if (ts.isImportTypeNode(node)) {
-      const keyword = node.getChildren(sf).find((child) => child.kind === ts.SyntaxKind.ImportKeyword);
-      const argument = ts.isLiteralTypeNode(node.argument) ? node.argument.literal : undefined;
-      if (keyword !== undefined) record(keyword.getStart(sf), literalOf(argument));
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      if (callee.kind === ts.SyntaxKind.ImportKeyword || isRequire(callee)) load(literalOf(node.arguments[0]));
+      else if (ts.isPropertyAccessExpression(callee)) {
+        const root = rootOf(callee);
+        if (isRequire(root) || isImportMeta(root)) load(callee.name.text === "resolve" && callee.expression === root ? literalOf(node.arguments[0]) : undefined);
+      }
+    } else if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "URL") {
+      const base = node.arguments?.[1];
+      if (base !== undefined && ts.isPropertyAccessExpression(base) && isImportMeta(base.expression) && base.name.text === "url") load(literalOf(node.arguments![0]));
+    } else if (ts.isImportTypeNode(node)) {
+      const specifier = ts.isLiteralTypeNode(node.argument) ? literalOf(node.argument.literal) : undefined;
+      if (specifier !== undefined) types.add(specifier);
     }
     ts.forEachChild(node, visit);
   };
   visit(sf);
-  return positions.map(({ line, col }) => byStart.get(`${line}:${col}`));
+  return { loads: [...loads], types: [...types], opaque };
 };
 
 const READERS: Record<ModuleSyntax, Reader> = { "ecmascript-modules": readEcmascript };
 
-/* The literal specifier each recorded load of `file` names, in the order of `positions`; undefined where it names none that can be told. */
-export function loadedSpecifiersAt(file: string, source: string, positions: readonly LoadPosition[]): Array<string | undefined> {
+/* What `source` (the text of `file`) loads, or undefined when its language declares no module syntax or it does not parse. */
+export function moduleLoadsOf(file: string, source: string): ModuleLoads | undefined {
   const syntax = LanguageRegistry.moduleSyntaxForFile(file);
-  return syntax === null ? positions.map(() => undefined) : READERS[syntax](file, source, positions);
+  return syntax === null ? undefined : READERS[syntax](file, source);
 }

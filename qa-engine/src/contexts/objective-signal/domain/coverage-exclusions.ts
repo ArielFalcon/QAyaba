@@ -9,9 +9,10 @@
  *   - `testSupportFiles`: a file that only test files use (a helper, a fixture, a builder). The code graph says who uses it three
  *     ways (import edges, edges of any kind, references it could not resolve that name it), completed with the language's own module
  *     resolution of what it could not link (a literal dynamic `import()` and an alias import resolved to the file they name), and
- *     which files still load modules by a name nothing resolves; one user that is not a test file, such a loader that is not a test
+ *     which files may load any module (a load its source does not name by a literal, or one nothing resolves); one user that is not a test file, such a loader that is not a test
  *     file, or a list that is empty, cut or unread, keeps it counted: an import edge alone misses a same-package class.
- * Both are recorded apart with why, and the files leave the measurement whole: their lines, branches and mutants alike. Pure.
+ * Both are recorded apart with why, and the files leave the measurement whole: their lines, branches and mutants alike, so a file
+ * left out here is never also recorded as an unloaded file with no line of code (`noCodeFiles`). Pure.
  */
 import { LanguageRegistry } from "@kernel/language-id.ts";
 import { diffGitHeaderPath } from "@kernel/diff-parser/diff-parser.service.ts";
