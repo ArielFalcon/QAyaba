@@ -712,7 +712,7 @@ threat-model header first) and a canary-before-promote hot-swap.
 - **Tempo holds what happened, Loki how it happened.** Logs ship from the port (`src/telemetry/log-shipper.ts`), never by tapping the console: `warn`/`error` ship, `info` ships only with `{ ship: true }` for a fact no span records, and a per-item line becomes one line. Agent turn bodies (prompt, sections, output) go to Loki only in `full` capture, redacted first, never as span attributes; a failed redaction drops the body (`src/telemetry/prompt-body-logs.ts`). Coordination events carry structured `qayaba.coordination.*` attributes, not facts held in reason strings.
 - **Agent output is read through one scanner.** `@kernel/last-json-object` (`jsonObjectsIn`, `lastJsonObjectWhere`) takes the last object that matches the contract; nothing takes the first `{`. An unreadable sidekick answer is recorded `unreadable`, distinct from `failed`, and fails closed.
 - **One settings object.** The shell reads its environment in `loadSettings`; a new variable is a registry entry (`src/settings/registry.ts`) with a type, default and description, and `npm run settings:gen` regenerates `docs/settings.md`. A secret is marked `secret: true`: it never has a documented default and a dump of the settings shows it as `[set]`.
-- **Everything in English**; comments describe the final state, not the process.
+- **Everything in English**; comments follow the code implementation standard below (the default is none).
 
 ## Conventions & gotchas
 
@@ -743,21 +743,94 @@ threat-model header first) and a canary-before-promote hot-swap.
 - **Serena needs a language server per watched language** — add it in `agents/Dockerfile`
   when extending the language scope.
 
+## Code implementation standard
+
+These rules govern every change to this repository, migrations included. They take priority over personal style and
+over architectural elegance.
+
+**Before writing code**
+- Read the precedent first: find how the codebase already solves the problem (folder layout, file naming, contract
+  shape, wiring, naming) and follow it. Deviate only with a stated justification; ask before any architectural decision.
+- Reuse before creating: search for an existing util, service, port, wrapper or pattern that already does the job.
+  Never write a second implementation of existing behavior.
+- Use the application's own layers over raw resources: `LoggerPort` for logging, the confined reader for paths the
+  agent influences, the execution launcher for processes, `loadSettings` for the environment, typed error classes
+  (`ApiError`, `ERROR_CLASS`) for failures.
+- Never fabricate: verify API signatures, option names and defaults against the official docs of the installed
+  version, and project facts by reading the code. If unsure, say so and check.
+
+**Simplicity**
+- Unnecessary complexity is the main enemy: KISS and YAGNI outrank elegance and taste, unless the architecture of this
+  repository requires otherwise.
+- Solve the present requirement with the least complexity that preserves behavior and readability. Do not guard
+  fictional cases, rare paths or "later" scenarios.
+- No new service, layer, abstraction or indirection without reuse, a testability benefit or a clear architectural
+  need. State that belongs to a single owner stays local to it.
+- A decision that adds complexity is justified and agreed before it lands; prefer the easy, intuitive path.
+- If a fix creates a new problem, question the original design before adding another mechanism. Before patching the
+  same issue a third time, check whether the problem can be avoided entirely.
+- Prefer deletion and reuse over a new helper.
+
+**Readable, self-documenting code**
+- Names carry intent: if a name does not explain itself, rename it instead of adding a comment.
+- Small functions, clear control flow, one responsibility per unit.
+- No deprecated APIs or options: check deprecations against the installed version and use the documented successor.
+- No generic errors with hardcoded messages: use the project's typed error codes or classes, so user-facing copy
+  stays out of throw sites.
+
+**Comments**
+- The default is no comment. A comment needed to explain the context of a decision signals code to improve instead.
+- Forbidden: comments that restate the code; that explain a decision, a workaround or a past change, quote a document
+  written to give context to decisions, or carry conversation history ("changed because…", "user asked…",
+  "reverted due to…"); instructions to an AI agent or a future reader (verification recipes, "run X to check");
+  TODO/FIXME without a linked issue, and hack comments; notes that only say which third-party constant or symbol a
+  value mirrors.
+- Allowed, sparingly: a final-state invariant or a non-obvious constraint a reader would otherwise break, and the
+  public contract of a cross-cutting API whose callers must understand its lifecycle or semantics.
+- Concise English, one short sentence as the target. Multi-line comments use `/** */`, never stacked `//`. No emojis,
+  decorative dashes or ASCII art. Interfaces and schemas document only properties whose purpose is not evident from
+  the name.
+
+**Scope and verification**
+- The indicated scope is the only scope: do not expand it or fix unrelated code silently; report it instead.
+- Before reporting done, verify across the whole codebase, not just the touched area: run a global search for the
+  broad form of the rule you enforced, and run the full CI gate (Commands).
+- To prove code is dead, show it has no consumer; to prove it is live, cite a concrete consumer with file:line.
+- When reviewing your own recent work, report only real issues (bugs, contract breaks, inconsistency with the
+  codebase). Do not invent findings or loop on taste: an empty review is a valid result.
+
 ## Testing standards
 
 Read [`docs/testing-standards.md`](docs/testing-standards.md) before writing or changing a test.
 
-1. Test behavior through the public seam (exported function, use case, port) — never a
-   private helper, exact prompt wording, or a whole internal object.
-2. A bug fix starts with a test that fails for the bug's reason; a test gap starts by
-   showing the mutant survives (`npm run mutate -- <preset>`).
-3. Name tests by the behavior they check — no ticket/batch/review ids.
-4. Fakes for injected ports, doubles only at the process boundary; import production
-   constants instead of re-typing literals.
-5. Write only under `os.tmpdir()`; no real time or network.
-6. Never kill a mutant by asserting its literal; restructure an equivalent one away or
-   list it as a documented survivor. No `// Stryker disable`. Thresholds are per preset.
-   Mutation presets narrow a file by anchor (`path.ts#Name`, or `path.ts@scope` between `mutation-scope` marker comments), never by line number (`docs/testing-standards.md`, Mutation policy).
+1. Write a test only when it guards real logic or risk, and name the rule it guards first (a branch, a boundary, an
+   error path, a must-not rule, ordering, exactly-once, cleanup, a mapping): no rule, no test. Every test must be
+   able to fail on a realistic regression in our code.
+2. A bug fix in real logic starts with a test that fails for the bug's reason; a test gap starts by showing the
+   mutant survives (`npm run mutate -- <preset>`). A small, contained fix gets no new test: the existing suite
+   verifies it.
+3. One test per rule, not one per input: add an input only when it takes a different branch or the other side of a
+   boundary.
+4. Test observable behavior through the public seam (exported function, use case, port): return values, state
+   changes, calls made, effects produced. Never a private helper, internal ordering outside the contract, exact
+   prompt wording or visible copy, or a whole internal object.
+5. Never write "should create" or render checks, framework or library behavior, tautologies (a constant against its
+   literal, an expectation computed with the code under test, an assertion on what a fake was told to return),
+   duplicate inputs on the same branch, or re-tests of a rule owned by a lower layer.
+6. Make each test decisive: fixtures where the guarded operand matters, values that tell fields apart, assertions
+   after async work settles, both sides of a boundary, two triggers for exactly-once, an asserted order for ordering
+   rules.
+7. Break proof: change the guarded line in a type-correct way and run the test; a test that stays green is fixed or
+   deleted. Delete low-value tests instead of rewriting them to keep the count: suite size is not a goal.
+8. Name tests by the behavior they check (no ticket, batch or review ids). Factories build test data and a typed
+   setup function builds the subject; the test body states the values the rule depends on. Fakes for injected ports,
+   doubles only at the process boundary; import production constants instead of re-typing literals. Clean up fakes
+   and state after each test; no historical or debugging comments in tests.
+9. Write only under `os.tmpdir()`; no real time or network.
+10. Never kill a mutant by asserting its literal; restructure an equivalent one away or list it as a documented
+    survivor. No `// Stryker disable`. Thresholds are per preset. Mutation presets narrow a file by anchor
+    (`path.ts#Name`, or `path.ts@scope` between `mutation-scope` marker comments), never by line number
+    (`docs/testing-standards.md`, Mutation policy).
 
 ## The value/trust risk
 

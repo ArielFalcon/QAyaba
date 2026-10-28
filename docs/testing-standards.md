@@ -45,8 +45,8 @@ testing (`npm run mutate`) is the objective check that they would catch a bug.
 
 ## Where a test starts
 
-- **A bug fix starts with a test that fails for the bug's reason** — run it, see the failure message
-  name the bug, then fix.
+- **A bug fix in real logic starts with a test that fails for the bug's reason** — run it, see the failure
+  message name the bug, then fix. A small, contained fix gets no new test: the existing suite verifies it.
 - **A test gap starts by showing the mutant survives** — run the module's preset, read the survivor,
   write the behavior test that kills it, re-run.
 - A test that pins current behavior before a refactor is temporary; replace it with a real spec test
