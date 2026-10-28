@@ -154,6 +154,9 @@ export function runCheck(
 /* The linter the fixes come from: ESLint, as the static gate runs it. A test names a stand-in. */
 export const ESLINT_COMMAND: readonly [string, readonly string[]] = ["npx", ["eslint"]];
 
+/* The gate's rules are the e2e project's configuration, never a comment in a file the agent wrote: an inline directive (`eslint-disable`, `eslint-disable-next-line`, an `eslint` comment that sets a rule) is ignored, so a spec cannot switch off `playwright/expect-expect` or the import that keeps coverage on. The gate's lint and the fixes it is offered run under the same option, so a fix is computed against the rules the gate then applies. An exemption belongs in the configuration, as the seed's own `cleanup.spec.ts` has. */
+export const GATE_LINT_OPTIONS: readonly string[] = ["--no-inline-config"];
+
 /* ESLint's own fixes for the named specs. They are computed in the sandbox with `--fix-dry-run`, because the sandbox uid writes nothing of the mirror, and the orchestrator writes each fixed text through the confined writer, for the named specs only. A linter that cannot run, an answer that cannot be read (a report cut by the output bound included) or a spec that cannot be written fixes nothing. Returns the specs rewritten. */
 export async function fixLintedSpecs(
   specDir: string,
@@ -165,7 +168,7 @@ export async function fixLintedSpecs(
   const named = [...new Set(specs.filter((s) => s.endsWith(".spec.ts") && !isAbsolute(s) && !s.split("/").includes("..")))];
 /* mutation-scope:end eslint-fix-source */
   if (named.length === 0) return [];
-  const res = await runCheck(linter[0], [...linter[1], "--fix-dry-run", "--format", "json", "--", ...named], specDir, timeoutMs, exec, "offline", "eslint", { stdoutOnly: true });
+  const res = await runCheck(linter[0], [...linter[1], ...GATE_LINT_OPTIONS, "--fix-dry-run", "--format", "json", "--", ...named], specDir, timeoutMs, exec, "offline", "eslint", { stdoutOnly: true });
   if (res.infra) return [];
   let report: unknown;
   try {
@@ -217,10 +220,10 @@ const checkManifestFile = async (e2eDir: string): Promise<CheckResult> => {
 };
 
 /* The static gate's checks over a launcher: there is no default, because every one of them but the manifest check executes agent-influenced code. */
-export function createValidateDeps(exec: ExecSandboxPort): ValidateDeps {
+export function createValidateDeps(exec: ExecSandboxPort, linter: readonly [string, readonly string[]] = ESLINT_COMMAND): ValidateDeps {
   return {
     typecheck: (e2eDir) => runCheck("npx", ["tsc", "--noEmit"], e2eDir, undefined, exec, "offline", "tsc"),
-    lint: (e2eDir) => runCheck("npx", ["eslint", "."], e2eDir, undefined, exec, "offline", "eslint"),
+    lint: (e2eDir) => runCheck(linter[0], [...linter[1], ...GATE_LINT_OPTIONS, "."], e2eDir, undefined, exec, "offline", "eslint"),
     listTests: (e2eDir) => runCheck("npx", ["playwright", "test", "--list"], e2eDir, undefined, exec, "offline", "playwright-list"),
     checkManifest: checkManifestFile,
   };

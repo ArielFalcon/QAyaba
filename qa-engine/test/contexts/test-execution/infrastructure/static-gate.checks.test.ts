@@ -970,3 +970,72 @@ test("a linter report that cannot be read fixes nothing, and nothing is asked fo
     r.dispose();
   }
 });
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   The gate's rules are the project's configuration, never a comment in a spec the agent wrote
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+import { createRequire as _createRequire } from "node:module";
+import { dirname as _dirname } from "node:path";
+
+/* The real ESLint, run as the gate runs it, over a project whose configuration holds two of the gate's kinds of rule: a restricted import (the coverage guard's kind) and a rule ESLint can fix. */
+const REAL_ESLINT: readonly [string, readonly string[]] = [
+  process.execPath,
+  [_join(_dirname(_createRequire(import.meta.url).resolve("eslint/package.json")), "bin", "eslint.js")],
+];
+const GATE_CONFIG = `export default [{ files: ["**/*.spec.ts"], rules: {
+  "prefer-const": "error",
+  "no-restricted-imports": ["error", { paths: [{ name: "unguarded-runner", importNames: ["test"], message: "import test from the fixtures" }] }],
+} }];\n`;
+
+function lintProject(specs: Record<string, string>): { dir: string; dispose(): void } {
+  const root = _mkdtempSync(_join(_tmpdir(), "qa-lint-gate-"));
+  const dir = _join(root, "e2e");
+  _mkdirSync(_join(dir, "flows"), { recursive: true });
+  _writeFileSync(_join(dir, "eslint.config.mjs"), GATE_CONFIG);
+  for (const [path, source] of Object.entries(specs)) _writeFileSync(_join(dir, path), source);
+  return { dir, dispose: () => _rmSync(root, { recursive: true, force: true }) };
+}
+
+test("the gate's lint fails a spec that switches a gate rule off with an inline directive", { timeout: 60_000 }, async () => {
+  const p = lintProject({
+    "flows/a.spec.ts": `// eslint-disable-next-line no-restricted-imports\nimport { test } from "unguarded-runner";\nexport { test };\n`,
+    "flows/b.spec.ts": `/* eslint-disable */\nimport { test } from "unguarded-runner";\nexport { test };\n`,
+  });
+  try {
+    const res = await createValidateDeps(sharedTestExec(), REAL_ESLINT).lint(p.dir);
+    assert.equal(res.ok, false, res.output);
+    assert.equal(res.infra, undefined, res.output);
+    assert.match(res.output, /a\.spec\.ts[\s\S]*no-restricted-imports/);
+    assert.match(res.output, /b\.spec\.ts[\s\S]*no-restricted-imports/);
+  } finally {
+    p.dispose();
+  }
+});
+
+test("the gate's lint still passes a clean spec and fails one that breaks a rule of the configuration", { timeout: 60_000 }, async () => {
+  const clean = lintProject({ "flows/a.spec.ts": `import { expect } from "unguarded-runner";\nconst x = 1;\nexport { expect, x };\n` });
+  const broken = lintProject({ "flows/a.spec.ts": `import { test } from "unguarded-runner";\nexport { test };\n` });
+  try {
+    const passed = await createValidateDeps(sharedTestExec(), REAL_ESLINT).lint(clean.dir);
+    assert.equal(passed.ok, true, passed.output);
+    const failed = await createValidateDeps(sharedTestExec(), REAL_ESLINT).lint(broken.dir);
+    assert.equal(failed.ok, false);
+    assert.equal(failed.infra, undefined, failed.output);
+    assert.match(failed.output, /no-restricted-imports/);
+  } finally {
+    clean.dispose();
+    broken.dispose();
+  }
+});
+
+test("the linter's fixes apply the rules the gate applies, whatever a spec's inline directive switches off", { timeout: 60_000 }, async () => {
+  const p = lintProject({ "flows/a.spec.ts": `/* eslint-disable prefer-const */\nlet x = 1;\nexport { x };\n` });
+  try {
+    const fixed = await _fixLintedSpecs(p.dir, ["flows/a.spec.ts"], sharedTestExec(), REAL_ESLINT);
+    assert.deepEqual(fixed, ["flows/a.spec.ts"]);
+    assert.match(_readFileSync(_join(p.dir, "flows", "a.spec.ts"), "utf8"), /^const x = 1;$/m);
+  } finally {
+    p.dispose();
+  }
+});

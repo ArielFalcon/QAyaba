@@ -9,6 +9,10 @@ import playwright from "eslint-plugin-playwright";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
+  // The rules below are the gate; a comment in a spec cannot switch one off. The orchestrator's gate
+  // runs ESLint with --no-inline-config whatever this file says; this keeps a lint run by hand the same.
+  // An exemption belongs here, by file, like cleanup.spec.ts's below.
+  { linterOptions: { noInlineConfig: true } },
   ...tseslint.configs.recommended,
   playwright.configs["flat/recommended"],
   {

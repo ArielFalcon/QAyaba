@@ -26,3 +26,9 @@ test("an assertion that always runs passes the static gate", async () => {
 
   assert.deepEqual(errors, []);
 });
+
+test("a comment in a spec cannot switch a rule of the seed's static gate off", async () => {
+  const errors = await errorsOf(spec(`  if (offered > 0) {\n    // eslint-disable-next-line playwright/no-conditional-expect\n    expect(offered).toBeGreaterThan(0);\n  }`));
+
+  assert.ok(errors.includes("playwright/no-conditional-expect"), errors.join(", "));
+});
